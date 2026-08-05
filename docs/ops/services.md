@@ -82,6 +82,32 @@ Paper logs and agent telemetry are already in the index.
 The `/16` span is deliberate: VMs sit on `VM-SUBNET` but the admin
 workstation is on `ADMIN-SUBNET`. A `/24` rule locks the human out.
 
+## Inference capacity is the binding constraint
+
+Measured, not assumed: a single Ollama host holds **one model at a time** at
+this size. Loading a second evicts the first, and a reload costs 30-60s --
+observed as 41-second agent decisions before `keep_alive` and dedicated
+residency were sorted out.
+
+Consequences, in priority order:
+
+- **The agent gets a dedicated endpoint.** Its routine loop needs consistent
+  low latency more than anything else needs anything.
+- **Hermes shares that endpoint and evicts on use.** Its dashboard sitting idle
+  costs nothing; actually chatting with it swaps the model, and the agent pays
+  one reload afterwards. Acceptable for occasional manual use, not for
+  anything automated or scheduled.
+- **Hermes requires >= 64K context**, which rules out every qwen2.5 model here
+  (all 32K). It currently runs `llama3.1:8b` (131K) which meets the floor but
+  is weak at agentic tool-calling -- it will describe a tool call rather than
+  make one. A capable long-context model does not fit alongside the agent's.
+
+The fix is capacity, not configuration: another GPU host, or freeing an
+existing one. Do not "solve" it by pointing both at the same box and hoping --
+that is the eviction thrash, and it is expensive and hard to diagnose from
+symptoms alone. Watch `llm.load_duration_ns`; a nonzero value means a reload
+just happened.
+
 ## Gotchas worth remembering
 
 - **Ubuntu's `glances` package omits the web UI static assets** — `glances -w`
