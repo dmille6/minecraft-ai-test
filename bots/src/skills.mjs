@@ -75,6 +75,68 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   return { status: 'success', detail: `arrived at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}` }
 }
 
+/**
+ * Tree canopies are walkable (leaves are solid), so a bot that pathfinds up a
+ * hillside or gets knocked onto foliage ends up standing 8+ blocks in the air
+ * with every trunk below it "unreachable" -- observed repeatedly, and the direct
+ * cause of gather burning 20-45s per attempt and returning `stuck`.
+ *
+ * Descending to real ground first costs one short path and makes the rest of
+ * the skill behave the way it does on flat terrain.
+ */
+async function descendToGround(ctx, signal) {
+  const { bot } = ctx
+  const FOLIAGE = /(_leaves|_log|vine)$/
+  const under = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+  if (!under || !FOLIAGE.test(under.name)) return false
+
+  const ground = bot.findBlocks({
+    matching: b => {
+      const n = bot.registry.blocks[b.type]?.name
+      return n === 'grass_block' || n === 'dirt' || n === 'sand' || n === 'stone'
+    },
+    maxDistance: 24, count: 40,
+  }).filter(p => p.y < bot.entity.position.y - 2)
+    .sort((a, b) => bot.entity.position.distanceTo(a) - bot.entity.position.distanceTo(b))
+
+  if (ground.length) {
+    const t = ground[0]
+    log('info', 'gather: standing on foliage, descending to ground', {
+      from: Math.round(bot.entity.position.y), to: t.y })
+    try {
+      await withTimeout(bot.pathfinder.goto(new goals.GoalNear(t.x, t.y + 1, t.z, 1)), 10000, bot)
+      const now = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+      if (now && !FOLIAGE.test(now.name)) return true
+    } catch { /* fall through to digging */ }
+  }
+
+  // Walking down failed. The bot is stranded on canopy with no walkable route
+  // to the ground -- navigation keeps canDig=false deliberately, so pathfinder
+  // cannot cut through the leaves holding it up.
+  //
+  // Digging down IS allowed here: this is the skill layer making an explicit,
+  // bounded decision, not the pathfinder rearranging terrain as a side effect.
+  log('info', 'gather: no walkable route down, digging through foliage',
+      { y: Math.round(bot.entity.position.y) })
+  for (let i = 0; i < 12; i++) {
+    check(signal)
+    const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+    if (!below) break
+    if (!FOLIAGE.test(below.name)) return true          // reached solid ground
+    if (below.name === 'air') { await sleep(400, signal); continue }   // falling
+    try {
+      const tool = bestTool(bot, below)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      await bot.dig(below)
+      await sleep(300, signal)
+    } catch (e) {
+      if (e.aborted) throw e
+      break
+    }
+  }
+  return false
+}
+
 // -------------------------------------------------------------- gather -----
 //
 // Delegates to mineflayer-collectblock rather than hand-rolling path->dig->pickup.
@@ -90,6 +152,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 96 }, s
   const { bot } = ctx
   const type = bot.registry.blocksByName[blockName]
   if (!type) return { status: 'failed', detail: `unknown block "${blockName}"` }
+
+  await descendToGround(ctx, signal).catch(() => {})
+  check(signal)
 
   const startHeld = countItem(bot, blockName)
   let collected = 0, rounds = 0, barren = 0
