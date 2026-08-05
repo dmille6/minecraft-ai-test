@@ -13,21 +13,25 @@ question answerable.
 ## What is running
 
 ```
-                      ┌─────────────────────────────────────┐
-                      │  homepage  http://mcai.lan   │  ← start here
-                      └─────────────────────────────────────┘
+                    ┌──────────────────────────────────┐
+                    │   homepage   http://mcai.lan     │  ← start here
+                    └──────────────────────────────────┘
 
-  mcai  mcai.lan                    mcelk  mcelk.lan
-  ├── Paper 1.21.11 (Minecraft)            ├── Elasticsearch + Kibana
-  ├── Scout01 — mineflayer agent           ├── Hermes Agent (+ web dashboard)
-  ├── squaremap    :8080  top-down map     └── Glances      :61208
-  ├── 3D bot view  :3007                        │
-  ├── Glances      :61208                       │  read-only
-  └── Filebeat ────── logs + telemetry ─────────┘
+  mcai                                    mcelk
+  ├── Paper 1.21.11 (Minecraft)           ├── Elasticsearch + Kibana
+  ├── Scout01 — mineflayer agent          ├── Hermes Agent (+ dashboard)
+  ├── squaremap    :8080  top-down map    └── Glances      :61208
+  ├── 3D bot view  :3007                       ▲
+  ├── Glances      :61208                      │ read-only
+  └── Filebeat ───── logs + telemetry ─────────┘
 
-  Mac Studio M4 Max studio.lan — Ollama, serves agent + Hermes inference
-  RTX 5080          gpu-host.lan    — Ollama, small models and embeddings
+  studio      — Ollama, serves agent + Hermes inference (large models)
+  gpu-host    — Ollama, small fast models and embeddings
 ```
+
+Hostnames above are placeholders; real addresses live in `.env` files on the
+hosts and are deliberately not committed.
+
 
 Full inventory, ports, and accounts: [`docs/ops/services.md`](docs/ops/services.md).
 
