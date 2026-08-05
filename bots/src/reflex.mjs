@@ -11,6 +11,7 @@
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
 import { isNight, snapshot } from './state.mjs'
+import { Vec3 } from 'vec3'
 
 const FOOD_PRIORITY = [
   'golden_carrot', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton',
@@ -25,6 +26,7 @@ export function startReflexes(bot, runner) {
   let stillSince = Date.now()
   let eating = false
   let lowHealthLatched = false
+  let escaping = false
 
   const timer = setInterval(async () => {
     if (!bot.entity) return
@@ -84,6 +86,26 @@ export function startReflexes(bot, runner) {
         }
       }
 
+      // --- entombed / stuck in a pit -----------------------------------------
+      // `mine` digs downward but navigation runs canDig=false and
+      // allow1by1towers=false, so descending is a ONE-WAY TRIP. Observed live:
+      // Scout at y=49 with stone on all four sides, 12 blocks below the
+      // surrounding ground, unable to dig out or pillar out.
+      //
+      // This is a survival condition, so it lives here rather than in a skill --
+      // it must fire regardless of what the agent thinks it is doing.
+      if (!escaping && isEntombed(bot)) {
+        escaping = true
+        logEvent({ kind: 'entombed', status: 'failed',
+                   detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
+                   snapshot: snapshot(bot) })
+        log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
+        runner.interrupt('entombed')
+        try { await pillarOut(bot) } catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+        escaping = false
+        return
+      }
+
       // --- stuck detection --------------------------------------------------
       // Handoff doc S12: "no movement DESPITE AN ACTIVE TASK". That qualifier
       // is load-bearing. Accumulating stillness while idle means the timer is
@@ -113,6 +135,67 @@ export function startReflexes(bot, runner) {
   }, config.reflex.tickMs)
 
   return () => clearInterval(timer)
+}
+
+/** Walls on 3+ sides at head height, and open sky is far above. */
+function isEntombed(bot) {
+  const p = bot.entity.position
+  let walls = 0
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const b = bot.blockAt(p.offset(dx, 1, dz))
+    if (b && b.name !== 'air' && !b.name.includes('leaves')) walls++
+  }
+  if (walls < 3) return false
+  // Distinguish "in a corridor" from "in a hole": look for ground much higher.
+  let highest = -999
+  for (const [dx, dz] of [[4, 0], [-4, 0], [0, 4], [0, -4], [4, 4], [-4, -4]]) {
+    for (let dy = 12; dy > -2; dy--) {
+      const b = bot.blockAt(p.offset(dx, dy, dz))
+      if (b && b.name !== 'air' && !b.name.includes('leaves')) {
+        if (p.y + dy > highest) highest = p.y + dy
+        break
+      }
+    }
+  }
+  return highest - p.y >= 4
+}
+
+const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate)$/
+
+/** Jump-and-place under our own feet until back near the surrounding ground. */
+async function pillarOut(bot, maxBlocks = 20) {
+  const startY = bot.entity.position.y
+  for (let i = 0; i < maxBlocks; i++) {
+    const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
+    if (!item) {
+      log('warn', 'reflex: nothing placeable to pillar with; digging up instead')
+      return digOut(bot)
+    }
+    await bot.equip(item, 'hand').catch(() => {})
+    const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+    if (!below) break
+    bot.setControlState('jump', true)
+    await sleep(280)
+    try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed jump; retry */ }
+    bot.setControlState('jump', false)
+    await sleep(220)
+    if (!isEntombed(bot)) break
+  }
+  log('info', 'reflex: pillared out', { from: Math.round(startY), to: Math.round(bot.entity.position.y) })
+}
+
+/** Last resort when there is nothing to stand on: dig a diagonal staircase up. */
+async function digOut(bot, maxSteps = 24) {
+  for (let i = 0; i < maxSteps; i++) {
+    const target = bot.blockAt(bot.entity.position.offset(1, 2, 0))
+        ?? bot.blockAt(bot.entity.position.offset(0, 2, 0))
+    if (!target || target.name === 'air') { await sleep(250); continue }
+    try { await bot.dig(target) } catch { break }
+    bot.setControlState('forward', true); bot.setControlState('jump', true)
+    await sleep(400)
+    bot.clearControlStates()
+    if (!isEntombed(bot)) break
+  }
 }
 
 function pickFood(bot) {

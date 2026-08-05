@@ -216,6 +216,51 @@ PY
 chmod 755 "$SRV/shared/rcon.py"
 ok "rcon helper installed"
 
+say "Paper tuning"
+# Paper's chunk-system.worker-threads: -1 (auto) allocates only 2 threads on a
+# 6-core box, and chunk generation runs ~5x slower than it needs to. Measured
+# at work: 17 -> 85 chunks/sec with TPS untouched, because Chunky throttles
+# against the tick budget so the extra threads become pure throughput.
+CORES=$(nproc)
+WORKERS=$(( CORES > 4 ? CORES - 2 : 2 ))
+mkdir -p "$SRV/server/config"
+if [ -f "$SRV/server/config/paper-global.yml" ]; then
+  sed -i "s/^  worker-threads: .*/  worker-threads: $WORKERS/" "$SRV/server/config/paper-global.yml"
+  ok "chunk-system.worker-threads = $WORKERS (of $CORES cores)"
+else
+  warn "paper-global.yml not present yet -- start the server once, then re-run"
+  warn "or set chunk-system.worker-threads: $WORKERS by hand"
+fi
+# Chunky must be told to resume, or a mid-pregen restart silently abandons it.
+if [ -f "$SRV/server/plugins/Chunky/config.yml" ]; then
+  sed -i 's/^continue-on-restart: false/continue-on-restart: true/' "$SRV/server/plugins/Chunky/config.yml"
+  ok "chunky continue-on-restart enabled"
+fi
+chown -R minecraft:minecraft "$SRV/server"
+
+say "Glances"
+# Ubuntu's glances package omits the web UI static assets, so `glances -w` dies
+# on a missing directory. pipx with the [web] extra ships the real thing.
+apt-get install -y -qq pipx >/dev/null 2>&1 || true
+command -v glances >/dev/null 2>&1 || \
+  PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install 'glances[web]' >/dev/null 2>&1 || true
+G=$(command -v glances || echo /usr/local/bin/glances)
+cat > /etc/systemd/system/glances.service <<GEOF
+[Unit]
+Description=Glances resource monitor (web + REST API)
+After=network-online.target
+[Service]
+Type=simple
+Environment=PIPX_HOME=/opt/pipx
+ExecStart=$G -w --bind 0.0.0.0 --port 61208
+Restart=on-failure
+RestartSec=10
+[Install]
+WantedBy=multi-user.target
+GEOF
+systemctl daemon-reload && systemctl enable --now glances >/dev/null 2>&1
+ok "glances on :61208 ($(systemctl is-active glances))"
+
 # ----------------------------------------------------------------- systemd --
 say "systemd"
 cat > /etc/systemd/system/minecraft.service <<EOF
