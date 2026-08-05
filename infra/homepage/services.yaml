@@ -6,6 +6,12 @@
         widget:
           type: minecraft
           url: udp://mcai.lan:25565
+    - Live World Map:
+        icon: mdi-map-search
+        href: http://mcai.lan:8080
+        description: squaremap · live agent + player markers
+        siteMonitor: http://mcai.lan:8080
+
     - Agent (Scout01):
         icon: mdi-robot
         description: mineflayer harness · systemd mcbot@scout

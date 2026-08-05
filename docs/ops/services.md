@@ -13,11 +13,17 @@ Start here: **http://mcai.lan** — the homepage dashboard links to everything b
 | Mac Studio M4 Max | studio.lan | Ollama (primary inference) | 128 GB unified |
 | RTX 5080 box | gpu-host.lan | Ollama (embeddings, overflow) | ~16 GB VRAM |
 
+The 5080's Ollama port is publicly routable but firewalled to `REDACTED-WAN`,
+which is this network's egress address (verified: all three hosts egress from
+REDACTED-WAN). Reachability tests from inside the LAN therefore prove nothing
+about external exposure -- they arrive from an allowed source.
+
 ## Endpoints
 
 | URL | What | Auth |
 |---|---|---|
 | http://mcai.lan | **Homepage** — start here | none |
+| http://mcai.lan:8080 | **Live world map** (squaremap) — agent markers | none (LAN only) |
 | http://mcelk.lan:5601 | Kibana — "Minecraft AI — Overview" | `mike` |
 | http://mcelk.lan:9200 | Elasticsearch | `mike` / `elastic` |
 | http://mcelk.lan:9119 | Hermes Agent dashboard | basic auth, `mike` |
@@ -70,6 +76,7 @@ Paper logs and agent telemetry are already in the index.
 | 80 | LAN-SUPERNET | homepage |
 | 25565 | LAN-SUPERNET | Minecraft |
 | 25575 | **denied** | RCON — loopback only |
+| 8080 | LAN-SUPERNET | squaremap live map |
 | 5601, 9200, 9119, 61208 | LAN-SUPERNET | Kibana, ES, Hermes, Glances |
 
 The `/16` span is deliberate: VMs sit on `VM-SUBNET` but the admin
@@ -86,6 +93,10 @@ workstation is on `ADMIN-SUBNET`. A `/24` rule locks the human out.
 - **Hermes' dashboard refuses a non-loopback bind without an auth provider**
   (June 2026 hardening). Set `HERMES_DASHBOARD_BASIC_AUTH_USERNAME` /
   `_PASSWORD`; `--insecure` is a no-op now.
+- **squaremap pins to the Minecraft version**: jars are named
+  `squaremap-paper-mc<version>-<plugin version>.jar`, and releases past 1.3.12
+  build only for mc26.2. 1.3.12 is therefore the newest correct build for our
+  pinned 1.21.11, and its "4 versions out of date" warning is expected.
 - **The hermes binary is at `~/.local/bin/hermes`**, not `~/.hermes/bin/hermes`.
 - **Hermes' installer inherits the caller's cwd**, so `sudo -u hermes` from
   another user's home makes `uv` fail on that home's `.venv`. `cd` first.
