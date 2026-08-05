@@ -13,7 +13,7 @@ Format: `date time · who · what you are touching · what you are NOT touching`
 
 <!-- Add yours below. -->
 
-2026-08-05 23:10 · claude/infra · DONE for tonight. Bots run unattended.
+2026-08-05 23:20 · claude/infra · DONE. Loop deadlock fixed, fleet running unattended.
                     Landed: fleet-watchdog (external rescue), lessons moved to
                     /srv/minecraft/bots/state, sync-check + pre-push hook.
                     Not touching infra/elk, reflect.py, progress_report.py, status-server.

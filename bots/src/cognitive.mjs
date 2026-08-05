@@ -41,15 +41,20 @@ export class CognitiveLoop {
   start() {
     if (this.running) return
     this.running = true
+    this.startedAt = Date.now()
     this.memory.remember('home', { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
     this.memory.addEvent('agent came online')
     log('info', 'cognitive loop starting', {
       model: config.llm.model, endpoint: config.llm.baseUrl, num_ctx: config.llm.numCtx,
     })
+    this.#startLiveness()
     this.#tick('startup')
   }
 
-  stop() { this.stopped = true; this.running = false; try { this.lessons.save() } catch {} }
+  stop() {
+    this.stopped = true; this.running = false
+    clearTimeout(this.nextTimer); clearInterval(this.liveness)
+    try { this.lessons.save() } catch {} }
 
   /** Called by the harness when something interesting happens. */
   notify(trigger, detail) {
@@ -79,6 +84,59 @@ export class CognitiveLoop {
     this.consecutiveRejections = 0
   }
 
+  /**
+   * ALWAYS reschedules. Skipping the work is fine; skipping the reschedule is
+   * a dead loop.
+   *
+   * The previous version was `setTimeout(() => { if (!busy) tick() })`, which
+   * meant a timer that fired while a skill was running simply did nothing and
+   * nothing ever scheduled another. It tripped reliably when the stagnation
+   * watchdog escalated, because the watchdog starts a skill OUTSIDE this loop:
+   * timer fires, runner busy, tick skipped, agent silent forever with the
+   * service still reporting active.
+   *
+   * Same shape as three other bugs in this codebase: a guard with no path
+   * forward once the guard trips. Found by the measurement agent from an
+   * ingestion gap -- the process looked healthy from every angle except that
+   * no documents were arriving.
+   */
+  #scheduleNext(delay = config.llm.decisionCooldownMs) {
+    if (this.stopped || !this.running) return
+    clearTimeout(this.nextTimer)
+    this.nextTimer = setTimeout(() => {
+      if (this.stopped || !this.running) return
+      if (this.runner.isBusy()) {
+        // Busy is a reason to wait, never a reason to stop waiting.
+        this.#scheduleNext(Math.min(delay, 10_000))
+        return
+      }
+      this.#tick('idle')
+    }, delay)
+  }
+
+  /**
+   * A watchdog for the loop itself. Every guard above is inside the loop, so
+   * none of them can notice the loop being gone. This is deliberately outside.
+   */
+  #startLiveness() {
+    const idleLimit = Math.max(config.llm.decisionCooldownMs * 3, 120_000)
+    this.liveness = setInterval(() => {
+      if (this.stopped || !this.running) return
+      const since = Date.now() - (this.lastDecisionAt ?? this.startedAt ?? Date.now())
+      if (since < idleLimit) return
+      if (this.runner.isBusy()) return          // legitimately working
+      log('error', 'cognitive loop went silent, restarting it', {
+        idle_sec: Math.round(since / 1000), limit_sec: Math.round(idleLimit / 1000),
+      })
+      logEvent({
+        kind: 'loop_restart', status: 'failed',
+        detail: `cognitive loop produced no decision for ${Math.round(since / 1000)}s`,
+        snapshot: snapshot(this.bot),
+      })
+      this.#tick('liveness_restart')
+    }, 30_000)
+  }
+
   async #tick(trigger) {
     if (this.stopped || this.runner.isBusy()) return
 
@@ -104,6 +162,7 @@ export class CognitiveLoop {
     const started = Date.now()
     const res = await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
     this.decisions++
+    this.lastDecisionAt = Date.now()
 
     let admitted = null, rejection = null
     if (res.schemaValid) {
@@ -168,8 +227,6 @@ export class CognitiveLoop {
 
     // Pace the loop. Handoff doc S16: strategic decisions every 30-90s, with
     // deterministic skills filling the gaps -- not a model call per tick.
-    if (!this.stopped && this.running) {
-      setTimeout(() => { if (!this.runner.isBusy()) this.#tick('idle') }, config.llm.decisionCooldownMs)
-    }
+    this.#scheduleNext()
   }
 }

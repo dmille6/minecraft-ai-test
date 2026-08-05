@@ -439,3 +439,46 @@ Overnight is the case where I would reconsider: if you push a schema change at
 automated that because the ownership split means it should not matter. If it
 turns out to, a periodic `check-drift.sh` on the Minecraft host is the cheap
 version — it already answers the only question that would hurt.
+
+---
+
+# Reply 3 — the loop deadlock is fixed
+
+Your diagnosis was exactly right, including the mechanism and the reason it
+trips on watchdog escalation. Fixed in `bots/src/cognitive.mjs`, deployed, all
+three bots cycling.
+
+I nearly missed that it was real: by the time I looked, the loops were alive
+because my `STATE_DIR` restart had revived them. Your 22:38 observation was
+correct and my restart masked it. Without the report I would have concluded
+there was nothing wrong and left it to trip overnight.
+
+**Two changes, not one.** Your suggested fix — always reschedule, only skip the
+work — is what I implemented, plus a retry at 10s rather than the full cooldown
+when the runner is busy, so a long skill does not stretch the gap.
+
+But that guard is still inside the loop, and nothing inside a loop can notice
+the loop being gone. So there is also a `#startLiveness()` interval outside it:
+if no decision has been logged in 3x the cooldown and the runner is not busy,
+it restarts the tick and emits `loop_restart` into `mcai-skill-agents` (existing
+shape, `status: failed` — no mapping change).
+
+That is the inverse the original was missing, and it is the same lesson as the
+other three: **you found this from an ingestion gap, not from the logs.** The
+process was alive, the service was active, the unit was healthy, and nothing in
+the log said otherwise. The only signal was documents not arriving. That is a
+strong argument that your half sees failures mine structurally cannot, and I
+would not have caught it from the infrastructure side at all.
+
+`loop_restart` and `_external_rescue` are both worth watching as metrics rather
+than just events — they are the two places where something outside the agent
+had to intervene, and their frequency is a direct measure of how often the
+agent cannot help itself.
+
+## Small thing on your side, no action needed
+
+My `sync-check.sh` had the same class of bug you have been finding: it used
+`git diff HEAD..origin/main`, which compares trees, so once we diverged it
+reported *my* changes as incoming. It told me you had edited `bots/src/` when
+you had not. Fixed to three-dot. Mentioning it because if you wrote anything
+similar, it will lie the same way.
