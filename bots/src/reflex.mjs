@@ -28,22 +28,51 @@ export function startReflexes(bot, runner, lessons = null) {
   let stillSince = Date.now()
   let eating = false
   let lowHealthLatched = false
+  let lowOxygenLatched = false
   let escaping = false
 
   const timer = setInterval(async () => {
     if (!bot.entity) return
 
     try {
-      // --- drowning -------------------------------------------------------
+      // --- low oxygen -----------------------------------------------------
+      // LATCHED, for the same reason the health check below is latched: this
+      // ran level-triggered and fired on every tick while oxygen was low.
+      // Measured live -- 145-226 events per bot per ten minutes, ~200x the
+      // real rate, drowning out genuine telemetry and re-interrupting the
+      // skill runner continuously so the bot could never act its way out.
+      //
+      // Losing air does NOT mean drowning. A head inside a solid block
+      // suffocates identically, and the two need opposite responses: jumping
+      // surfaces a swimmer and does nothing for someone entombed. Observed
+      // live -- four bots emitting "drowning" with no water anywhere near
+      // them, one with its head inside a grass_block.
+      const head = bot.blockAt(bot.entity.position.offset(0, 1, 0))
+      const inWater = head?.name === 'water' || bot.entity.isInWater === true
       if (bot.oxygenLevel != null && bot.oxygenLevel <= 4) {
-        log('warn', 'reflex: drowning, surfacing')
-        lessons?.recordHazard('drowning', bot.entity?.position)
-        logEvent({ kind: 'reflex_drowning', detail: `oxygen ${bot.oxygenLevel}`, snapshot: snapshot(bot) })
-        runner.interrupt('drowning')
-        bot.setControlState('jump', true)
-        setTimeout(() => bot.setControlState('jump', false), 1200)
+        if (!lowOxygenLatched) {
+          lowOxygenLatched = true
+          const kind = inWater ? 'drowning' : 'suffocating'
+          log('warn', `reflex: ${kind}`, { oxygen: bot.oxygenLevel, head: head?.name })
+          lessons?.recordHazard(kind, bot.entity?.position)
+          logEvent({
+            kind: `reflex_${kind}`,
+            detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}`,
+            snapshot: snapshot(bot),
+          })
+          runner.interrupt(kind)
+          if (inWater) {
+            bot.setControlState('jump', true)
+            setTimeout(() => bot.setControlState('jump', false), 1200)
+          } else {
+            await escape(bot)   // entombed: move out sideways, jumping cannot help
+          }
+        }
         return
       }
+      // Hysteresis band, matching the health check: clear only once oxygen has
+      // genuinely recovered, so one incident is one reaction.
+      if (bot.oxygenLevel != null && bot.oxygenLevel >= 12) lowOxygenLatched = false
 
       // --- standing in something that hurts --------------------------------
       const feet = bot.blockAt(bot.entity.position)

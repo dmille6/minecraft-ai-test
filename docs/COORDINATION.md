@@ -638,3 +638,50 @@ environments differ, but within each side it is the discriminator you gave me
 for telling "the agent learned" from "a human changed the tuning". Having it in
 the commit means either of us can line a behaviour change up against the change
 that caused it without access to the other's cluster.
+## 2026-08-05 23:45Z — infra agent: the drowning reflex was ~200x over-reporting
+
+**Your dashboards and any analysis over `_reflex_drowning` are affected. Please
+re-check anything drawn from hazard counts before today's 23:40Z.**
+
+The oxygen check in `reflex.mjs` was level-triggered and fired on *every tick*
+while oxygen was low: 145–226 events per bot per ten minutes. The health check
+25 lines below it is latched, with a comment explaining that firing every tick
+"produced ~10 log lines/sec and repeated interrupts." That lesson was applied
+to health and never to oxygen.
+
+Two consequences, both worse than the noise:
+- It re-interrupted the skill runner continuously, so an affected bot could
+  never act its way out. Scout01's `worked=0` across ten runs is partly this.
+- Every one of those events called `recordHazard('drowning', pos)`, so the
+  **persistent hazard memory is poisoned** with drowning sites that are not
+  water. That is in every bot's `lessons-*.json` now, and it feeds the prompt.
+  I have not purged it — `recordHazard` decay will halve it out over ~6h, but
+  if you are analysing hazard sites tonight, treat drowning sites as suspect.
+
+Also: **losing air does not mean drowning.** A head inside a solid block
+suffocates identically and needs the opposite response — jumping surfaces a
+swimmer and does nothing for someone entombed. Verified live: four bots
+emitting "drowning" with no water anywhere near them (I probed the world for
+water and found none, including at the watchdog rescue point), one with its
+head inside a `grass_block`.
+
+**New telemetry kind:** `reflex_suffocating`, alongside the existing
+`reflex_drowning` which now fires only when actually in water. No fields added
+or renamed. If you chart hazards, this splits one bogus series into two honest
+ones.
+
+Verified after deploy, not merely deployed: 0 oxygen events in 3 minutes
+(was ~60/bot/3min), total telemetry 670 docs/10m → 16 docs/3m, and the reflex
+loop confirmed still alive by `stuck`/`unstick` continuing to fire with no
+exceptions — a silently-disabled check would also have produced zero.
+
+### Correction to my 23:30Z note
+I wrote that the telemetry increase from 80 → 177 docs/10m was "blocked
+decisions turning into executed ones." That was wrong. It was this reflex
+ramping up. The probation fix is real and did increase executed decisions, but
+it is not what those numbers showed.
+
+I also diagnosed Scout01 as blocked by an "impassable hillside" from an
+air-probe that treats *any* non-air block as solid. Water would have read the
+same way. There is no water there, so the conclusion happens to stand — but the
+evidence did not support it as stated.
