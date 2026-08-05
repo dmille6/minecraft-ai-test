@@ -33,6 +33,7 @@ RUN_ID="${RUN_ID:-team-002}"
 REPO="${REPO:-https://github.com/dmille6/minecraft-ai-test.git}"
 SRV=/srv/mcbots
 H="$SRV/harness"
+STATE="$SRV/state"
 
 say()  { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 ok()   { printf '   \033[32m✓\033[0m %s\n' "$*"; }
@@ -52,7 +53,7 @@ say "Kernel + account"
 printf 'vm.swappiness=10\n' > /etc/sysctl.d/99-mcbots.conf
 sysctl -q --system
 id mcbot >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin -d "$SRV" mcbot
-mkdir -p "$H/env" "$SRV/logs"
+mkdir -p "$H/env" "$SRV/logs" "$STATE"
 chown -R mcbot:mcbot "$SRV"
 ok "mcbot account, $SRV"
 
@@ -108,6 +109,10 @@ SKILL_TIMEOUT_MS=180000
 MAX_CONSECUTIVE_FAILURES=3
 
 LOG_DIR=$SRV/logs
+# Separate from LOG_DIR on purpose: lessons-*.json is STATE, not logs, and it
+# is the only artifact here that cannot be regenerated. Anything that tidies
+# LOG_DIR must not be able to reach it.
+STATE_DIR=$STATE
 LOG_LEVEL=info
 CODE_VERSION=$CODE_VERSION
 RUN_ID=$RUN_ID
@@ -237,6 +242,19 @@ $SRV/logs/*.jsonl {
 LR
 ok "14 days, 200M cap, copytruncate"
 
+say "State backup"
+cat > /etc/cron.daily/mcai-lessons-backup <<'BK'
+#!/bin/sh
+# lessons-*.json is the only unregenerable artifact in this project. Worlds,
+# indices and dashboards can all be rebuilt; deleted experience is simply gone.
+D=/srv/mcbots/state/backups
+mkdir -p "$D"
+tar -C /srv/mcbots -czf "$D/lessons-$(date +%%Y%%m%%d).tar.gz" state --exclude=backups 2>/dev/null
+find "$D" -name 'lessons-*.tar.gz' -mtime +30 -delete
+BK
+chmod +x /etc/cron.daily/mcai-lessons-backup
+ok "daily lessons backup, 30-day retention"
+
 say "Firewall"
 ufw allow 22/tcp comment 'ssh' >/dev/null
 ufw allow from "${LAN_CIDR:-10.0.0.0/24}" to any port 3007:3016 proto tcp comment 'bot viewers' >/dev/null
@@ -251,8 +269,14 @@ cat <<EOF
    BEFORE STARTING: if you are migrating existing bots, copy their learned
    experience across or it is lost and every bot begins from zero again:
 
-     scp <old-host>:/srv/minecraft/bots/logs/lessons-*.json $SRV/logs/
-     chown mcbot:mcbot $SRV/logs/lessons-*.json
+     scp <old-host>:/srv/minecraft/bots/state/lessons-*.json $SRV/state/
+     chown mcbot:mcbot $SRV/state/lessons-*.json
+
+   Verify BEFORE concluding the migration worked -- a bot that starts at run=1
+   has silently lost its history, and it presents as the learning system not
+   working rather than as a missed step:
+
+     sudo journalctl -u mcbot@scout | grep 'lessons loaded'
 
    Then, on the OLD host, stop the bots so they do not run twice:
      sudo systemctl disable --now mcbot@scout mcbot@miner mcbot@gatherer
