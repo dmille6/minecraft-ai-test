@@ -255,6 +255,13 @@ schemas/        the JSONL record contract
 scripts/        reflect.py and operational helpers
 ```
 
+## Two agents build this
+
+There is no direct channel between them, so **the repo is the message bus**.
+Ownership, conventions, and current handoff notes live in
+[`docs/COORDINATION.md`](docs/COORDINATION.md); work in flight is announced in
+[`docs/IN-FLIGHT.md`](docs/IN-FLIGHT.md).
+
 ## How decisions get made here
 
 Architecture choices are put to **Claude, ChatGPT (via `codex`), and a local
