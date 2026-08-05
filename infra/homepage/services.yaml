@@ -5,23 +5,39 @@
         server: localhost
         widget:
           type: minecraft
-          url: udp://mcai.lan:25565
+          url: udp://192.168.192.199:25565
     - Live World Map:
         icon: mdi-map-search
-        href: http://mcai.lan:8080
+        href: http://192.168.192.199:8080
         description: squaremap · live agent + player markers
-        siteMonitor: http://mcai.lan:8080
+        siteMonitor: http://192.168.192.199:8080
+
+    - Agent Activity:
+        icon: mdi-format-list-bulleted
+        href: http://192.168.192.199:3008
+        description: what each bot has been doing, in plain language
+        siteMonitor: http://192.168.192.199:3008
+        widget:
+          type: customapi
+          url: http://192.168.192.199:3008/api/status
+          mappings:
+            - field: {bots: {0: bot}}
+              label: bot
+            - field: {bots: {0: {last_hour: success_rate}}}
+              label: success %
+            - field: {bots: {0: {last_hour: hazards}}}
+              label: incidents
 
     - 3D Bot View:
         icon: mdi-video-3d
-        href: http://mcai.lan:3007
+        href: http://192.168.192.199:3007
         description: prismarine-viewer - over Scout01's shoulder
-        siteMonitor: http://mcai.lan:3007
+        siteMonitor: http://192.168.192.199:3007
 
     - Agent (Scout01):
         icon: mdi-robot
         description: mineflayer harness · systemd mcbot@scout
-        href: http://mcelk.lan:5601/app/discover
+        href: http://192.168.192.194:5601/app/discover
     - World Info:
         icon: mdi-map
         description: pregen r2000 · nether r250 · arena at 300,70,300
@@ -29,53 +45,58 @@
 - Observability:
     - Kibana:
         icon: kibana
-        href: http://mcelk.lan:5601
+        href: http://192.168.192.194:5601
         description: dashboards · Minecraft AI — Overview
-        siteMonitor: http://mcelk.lan:5601/api/status
+        siteMonitor: http://192.168.192.194:5601/api/status
     - Elasticsearch:
         icon: elasticsearch
-        href: http://mcelk.lan:9200
+        href: http://192.168.192.194:9200
         description: mcai-mc · mcai-skill · mcai-llm · 180d retention
+    - Agent Behaviour:
+        icon: mdi-chart-timeline-variant
+        href: http://192.168.192.194:5601/app/dashboards#/view/mcai-agent
+        description: hazards, interventions, skill outcomes by run
+
     - Agent Telemetry:
         icon: mdi-chart-line
         description: skill outcomes and LLM calls
-        href: http://mcelk.lan:5601/app/dashboards
+        href: http://192.168.192.194:5601/app/dashboards
 
 - Agents:
     - Hermes Agent:
         icon: mdi-brain
-        href: http://mcelk.lan:9119
+        href: http://192.168.192.194:9119
         description: web dashboard - qwen3.5:122b-a10b via Studio
-        siteMonitor: http://mcelk.lan:9119
+        siteMonitor: http://192.168.192.194:9119
 
 - Inference:
     - Ollama — Mac Studio M4 Max:
         icon: ollama
-        href: http://studio.lan:11434
+        href: http://192.168.192.15:11434
         description: 18 models · 21ms · primary
-        siteMonitor: http://studio.lan:11434/api/version
+        siteMonitor: http://192.168.192.15:11434/api/version
     - Ollama — RTX 5080:
         icon: ollama
-        href: http://gpu-host.lan:11434
+        href: http://99.18.26.20:11434
         description: 5 models · embeddings · 81ms
-        siteMonitor: http://gpu-host.lan:11434/api/version
+        siteMonitor: http://99.18.26.20:11434/api/version
 
 - Hosts:
     - mcai (Minecraft + agents):
         icon: mdi-server
-        href: http://mcai.lan:61208
-        description: 6 vCPU · 16 GB · mcai.lan
+        href: http://192.168.192.199:61208
+        description: 6 vCPU · 16 GB · 192.168.192.199
         widget:
           type: glances
-          url: http://mcai.lan:61208
+          url: http://192.168.192.199:61208
           metric: info
           version: 4
     - mcelk (ELK + Hermes):
         icon: mdi-server
-        href: http://mcelk.lan:61208
-        description: 4 vCPU · 16 GB · mcelk.lan
+        href: http://192.168.192.194:61208
+        description: 4 vCPU · 16 GB · 192.168.192.194
         widget:
           type: glances
-          url: http://mcelk.lan:61208
+          url: http://192.168.192.194:61208
           metric: info
           version: 4

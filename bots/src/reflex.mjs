@@ -23,7 +23,7 @@ const FOOD_PRIORITY = [
 
 const DANGER_BLOCKS = new Set(['lava', 'fire', 'campfire', 'soul_fire', 'magma_block'])
 
-export function startReflexes(bot, runner) {
+export function startReflexes(bot, runner, lessons = null) {
   let lastPos = null
   let stillSince = Date.now()
   let eating = false
@@ -37,6 +37,7 @@ export function startReflexes(bot, runner) {
       // --- drowning -------------------------------------------------------
       if (bot.oxygenLevel != null && bot.oxygenLevel <= 4) {
         log('warn', 'reflex: drowning, surfacing')
+        lessons?.recordHazard('drowning', bot.entity?.position)
         logEvent({ kind: 'reflex_drowning', detail: `oxygen ${bot.oxygenLevel}`, snapshot: snapshot(bot) })
         runner.interrupt('drowning')
         bot.setControlState('jump', true)
@@ -98,6 +99,7 @@ export function startReflexes(bot, runner) {
       // it must fire regardless of what the agent thinks it is doing.
       if (!escaping && isEntombed(bot)) {
         escaping = true
+        lessons?.recordHazard('entombed', bot.entity?.position)
         logEvent({ kind: 'entombed', status: 'failed',
                    detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
                    snapshot: snapshot(bot) })

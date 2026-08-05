@@ -97,7 +97,7 @@ export function buildSystemPrompt(skillNames) {
 /**
  * @returns {{user: string, sentinel: string, tokens: number, dropped: number}}
  */
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel }) {
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
   const p = bot.entity.position
   const inv = inventorySummary(bot)
   const invStr = Object.entries(inv).map(([k, v]) => `${k} x${v}`).join(', ') || 'empty'
@@ -119,6 +119,10 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       : '',
     lastOutcome ? `LAST ACTION: ${lastOutcome}` : '',
     ``,
+    // Persistent across restarts, unlike RECENT EVENTS. This is the only part
+    // of the prompt that carries experience from previous runs, and it is
+    // built from counted outcomes rather than generated text.
+    ...(lessons?.length ? ['LESSONS FROM PAST RUNS:', ...lessons.map(l => `  - ${l}`), ''] : []),
   ].filter(Boolean)
 
   // Events are the only unbounded part, so they are what we drop first.

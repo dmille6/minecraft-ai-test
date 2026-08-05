@@ -15,8 +15,9 @@ import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from 
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
-import { snapshot, perception, biomeAt } from './state.mjs'
+import { snapshot, perception, biomeAt, classifyFailure } from './state.mjs'
 import { config } from './config.mjs'
+import { openLessons } from './lessons.mjs'
 
 const SKILL_NAMES = Object.keys(SKILLS)
 
@@ -26,6 +27,7 @@ export class CognitiveLoop {
     this.runner = runner
     this.llm = makeClient()
     this.memory = new WorkingMemory()
+    this.lessons = openLessons()
     this.admission = new AdmissionControl()
     this.milestones = new MilestoneController(bot)
     this.schema = skillSchema(SKILL_NAMES)
@@ -47,7 +49,7 @@ export class CognitiveLoop {
     this.#tick('startup')
   }
 
-  stop() { this.stopped = true; this.running = false }
+  stop() { this.stopped = true; this.running = false; try { this.lessons.save() } catch {} }
 
   /** Called by the harness when something interesting happens. */
   notify(trigger, detail) {
@@ -94,6 +96,7 @@ export class CognitiveLoop {
     const { user, tokens, dropped } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory,
       lastOutcome: this.lastOutcome, trigger, sentinel,
+      lessons: this.lessons.promptLines(this.bot.entity?.position),
     })
 
     const snap = snapshot(this.bot)
@@ -118,8 +121,17 @@ export class CognitiveLoop {
       })
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
-      if (r.status === 'failed') this.admission.noteFailure(admitted.skill, admitted.args)
-      else if (r.status === 'success') this.admission.noteSuccess(admitted.skill, admitted.args)
+      if (r.status === 'failed') {
+        this.admission.noteFailure(admitted.skill, admitted.args)
+        // Persist it, so the next RUN starts knowing this, not just the next
+        // decision in this one.
+        this.lessons.recordFailure(admitted.skill, admitted.args,
+          classifyFailure(r.detail), this.bot.entity?.position)
+      } else if (r.status === 'success') {
+        this.admission.noteSuccess(admitted.skill, admitted.args)
+        this.lessons.recordSuccess(admitted.skill, admitted.args)
+      }
+      this.lessons.save()
       this.lastOutcome = `${admitted.skill} -> ${r.status}: ${r.detail ?? ''}`.slice(0, 160)
       this.memory.addEvent(this.lastOutcome)
     } else {

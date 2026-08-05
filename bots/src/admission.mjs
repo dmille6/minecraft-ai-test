@@ -17,7 +17,8 @@ import { horizontalDistanceFromSpawn } from './state.mjs'
 const REPEAT_WINDOW = 4
 
 export class AdmissionControl {
-  constructor() {
+  constructor(lessons = null) {
+    this.lessons = lessons
     this.failedCooldowns = new Map()   // key -> expiry timestamp
     this.recent = []                   // last N admitted keys, for repeat detection
   }
@@ -145,6 +146,18 @@ export class AdmissionControl {
       return {
         ok: false, reason: 'cooldown',
         detail: `${skill} with these args failed recently; ${Math.ceil((until - Date.now()) / 1000)}s left`,
+      }
+    }
+
+    // --- what past RUNS learned ---------------------------------------------
+    // A within-run cooldown forgets everything at restart, so the bot would
+    // cheerfully retry an action that has failed on every run since the world
+    // was created. This is the persistent half of that.
+    const priorFails = this.lessons?.failCount(skill, args) ?? 0
+    if (priorFails >= 4) {
+      return {
+        ok: false, reason: 'learned_avoid',
+        detail: `${skill} with these args has failed ${priorFails}x across runs`,
       }
     }
 

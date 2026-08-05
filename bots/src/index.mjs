@@ -25,6 +25,7 @@ let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
 let cognitive = null
+let cognitiveLessons = null
 let watchdog = null
 
 function connect() {
@@ -73,7 +74,8 @@ function connect() {
     // "took too long" -- which is indistinguishable from a real failure.
     bot.pathfinder.thinkTimeout = 10000
 
-    stopReflexes = startReflexes(bot, runner)
+    // Reflexes record WHERE the bot got hurt, so future runs avoid those places.
+    stopReflexes = startReflexes(bot, runner, cognitiveLessons)
     attachCommands(bot, runner)
 
     const s = snapshot(bot)
@@ -94,6 +96,7 @@ function connect() {
 
     if (config.llm.enabled) {
       cognitive = new CognitiveLoop(bot, runner)
+      cognitiveLessons = cognitive.lessons
       // Only meaningful in autonomous mode -- a chat-driven bot waiting for a
       // command is idle, not stagnant, and the human is the watchdog.
       watchdog = new StagnationWatchdog(bot, runner, cognitive)

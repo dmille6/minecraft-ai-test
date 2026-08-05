@@ -69,8 +69,15 @@ export class StagnationWatchdog {
       ? this.samples[this.samples.length - 1].t - this.samples[0].t : 0
     if (span < config.watchdog.windowMs * 0.9) return
 
-    // Only judge an agent that is actually trying. An idle bot waiting for a
-    // command is not stuck, and a finished agent is not stuck either.
+    // Only judge an agent that is actually TRYING.
+    //
+    // Three ways to be legitimately motionless, all of which the first version
+    // misread as stagnation the moment Scout finished his milestones:
+    //   - the cognitive loop has stopped (work is done)
+    //   - every milestone is complete
+    //   - nothing has been attempted recently (idle, awaiting a command)
+    if (this.cognitive && !this.cognitive.running) return
+    if (this.cognitive?.milestones?.allDone) return
     const idleFor = Date.now() - this.lastActionAt
     if (idleFor > config.watchdog.windowMs) return
 
