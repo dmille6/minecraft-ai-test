@@ -99,6 +99,13 @@ export const config = {
 
   log: {
     dir: req('LOG_DIR', '/srv/minecraft/bots/logs'),
+    // Deliberately NOT under LOG_DIR. lessons-*.json is state, not logs: it is
+    // the only artifact here that cannot be regenerated. Worlds, indices and
+    // dashboards can all be rebuilt; deleted experience is simply gone, and it
+    // would present as "learning does not work" rather than as data loss.
+    // Keeping it in a separate directory makes that structural rather than
+    // depending on every future cleanup script knowing the exception.
+    stateDir: req('STATE_DIR', '/srv/minecraft/bots/state'),
     // Groups every record from one continuous experiment, so a bad run can be
     // filtered out of analysis without deleting it.
     runId: req('RUN_ID', `run-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}`),

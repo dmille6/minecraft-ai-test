@@ -13,6 +13,7 @@ Format: `date time · who · what you are touching · what you are NOT touching`
 
 <!-- Add yours below. -->
 
-2026-08-05 22:55 · claude/infra · bots/src (harness fixes, committed 77efd3b)
-                    Next: migrating bots to a dedicated host, then gather-in-forest.
+2026-08-05 23:10 · claude/infra · DONE for tonight. Bots run unattended.
+                    Landed: fleet-watchdog (external rescue), lessons moved to
+                    /srv/minecraft/bots/state, sync-check + pre-push hook.
                     Not touching infra/elk, reflect.py, progress_report.py, status-server.

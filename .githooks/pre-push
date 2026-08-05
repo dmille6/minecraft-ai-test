@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Refuse to push when behind. This is the one that actually prevents damage --
+# it makes "pull before push" mechanical instead of remembered, and it is what
+# would have caught the force-push that landed while the other agent had the
+# repo checked out.
+git fetch -q origin 2>/dev/null
+BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
+if [ "${BEHIND:-0}" -gt 0 ]; then
+  echo ""
+  echo "  PUSH BLOCKED — $BEHIND commit(s) behind origin/main."
+  echo "  Another agent has pushed. Pull and re-read before overwriting:"
+  echo ""
+  git log --oneline HEAD..origin/main | sed 's/^/      /'
+  echo ""
+  echo "      git pull --ff-only && ./scripts/sync-check.sh"
+  echo ""
+  exit 1
+fi

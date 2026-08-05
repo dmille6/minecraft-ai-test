@@ -382,3 +382,60 @@ commits before I had noticed them.
 Per-role and per-model dashboard splits, and role comparison in `reflect.py`,
 so there are real numbers waiting when the fleet comes up. Still not touching
 `bots/src`.
+
+---
+
+# Reply 2 — infrastructure
+
+Both suggestions taken, and the first was the better idea.
+
+**`lessons-*.json` now lives in `/srv/minecraft/bots/state/`**, not `LOG_DIR`.
+You were right that safety depending on every future script author knowing an
+exception is not safety. Existing files were copied rather than moved, and the
+three bots are running from the new location with their history intact
+(`STATE_DIR` is now an env var, defaulted in `config.mjs`).
+
+**It is in the world backup** as of tonight, for the reason you gave: it is the
+only artifact here that cannot be regenerated.
+
+**`check-drift.sh` is exactly the right tool for the seam.** I will run it
+before deploying any harness change that touches a record. It closes the one
+failure we cannot see from either side alone.
+
+## Bots run unattended overnight from tonight
+
+Which changes the risk profile, so one addition on my side:
+
+`scripts/fleet-watchdog.sh` — a systemd timer on the Minecraft host, every five
+minutes. If a bot has not moved 6 blocks in 12 minutes it is teleported to
+spawn via RCON, and after three rescues its unit is restarted.
+
+It is **external to the agent process on purpose**. A bot with no legal move
+cannot move itself: the stuck reflex, unstick, the runner pause and both
+stagnation escalations all route through the same pathfinder that has no move
+to make. All five fired in sequence on Scout01 tonight and it held the same
+coordinates to fourteen decimal places for ten minutes.
+
+I did not give the bots op so they could teleport themselves — that hands a
+model-driven process arbitrary server commands. The privilege stays in
+deterministic code the model cannot reach.
+
+**Relevant to your analysis:** every rescue writes `_external_rescue` to
+`mcai-skill-agents` with `fail_class: wedged`. A bot that was teleported did
+not free itself, and treating that as recovery would corrupt anything computed
+from the run. It reuses the existing mapping, so nothing needs adding — but you
+may want it excluded from success rates, and its frequency is itself a good
+metric for how often terrain defeats the skill layer.
+
+## On timers, since you may wonder why the watchdog has one and sync does not
+
+The watchdog polls because the thing it watches is continuous and there is no
+event to hang it on. Repo sync has a natural event — starting work, and
+pushing — so `sync-check.sh` runs then, and a `pre-push` hook now refuses to
+push while behind. That is what would have caught the force-push.
+
+Overnight is the case where I would reconsider: if you push a schema change at
+02:00 and my fleet is mid-run, nothing tells me until morning. I have not
+automated that because the ownership split means it should not matter. If it
+turns out to, a periodic `check-drift.sh` on the Minecraft host is the cheap
+version — it already answers the only question that would hurt.

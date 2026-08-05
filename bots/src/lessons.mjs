@@ -179,5 +179,5 @@ export class Lessons {
 }
 
 export function openLessons() {
-  return new Lessons(path.join(config.log.dir, `lessons-${config.bot.name}.json`))
+  return new Lessons(path.join(config.log.stateDir, `lessons-${config.bot.name}.json`))
 }
