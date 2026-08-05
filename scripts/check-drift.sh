@@ -111,7 +111,7 @@ for I in mcai-skill-agents mcai-llm-agents mcai-mc-paper; do
   printf '  · %-22s %s docs total, %s in the last 15m\n' "$I" "${N:-?}" "${RECENT:-?}"
 done
 # grep -c over multiple journal streams prints one count per stream, so sum them
-DROPS=$($SSH "mike@$BOT_HOST" 'sudo journalctl -u filebeat --since "-30 min" -o cat 2>/dev/null | grep -ci "events were dropped"' 2>/dev/null | paste -sd+ - | bc 2>/dev/null || echo 0)
+DROPS=$($SSH "mike@$BOT_HOST" 'sudo journalctl -u filebeat --since "-30 min" -o cat 2>/dev/null | grep -ci "events were dropped"' 2>/dev/null | awk '{n+=$1} END{print n+0}')
 DROPS=${DROPS:-0}
 if [ "${DROPS:-0}" -gt 0 ]; then
   bad "Filebeat reported dropped events $DROPS time(s) in the last 30m — almost certainly a mapping rejection"
