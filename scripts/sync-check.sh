@@ -18,7 +18,7 @@ printf '   %s behind · %s ahead · %s uncommitted\n' \
 if [ "$BEHIND" -gt 0 ]; then
   printf '\n   incoming:\n'
   git log --oneline HEAD..origin/main | sed 's/^/      /'
-  FILES=$(git diff --name-only HEAD..origin/main)
+  FILES=$(git diff --name-only HEAD...origin/main)   # three dots: since the merge base
 
   # The schema is the contract between the harness and the mappings. A field
   # added on one side and not the other silently rejects whole documents.
