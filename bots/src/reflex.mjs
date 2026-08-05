@@ -162,39 +162,106 @@ function isEntombed(bot) {
 
 const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate)$/
 
-/** Jump-and-place under our own feet until back near the surrounding ground. */
-async function pillarOut(bot, maxBlocks = 20) {
+/**
+ * Escape a pit. Two failure modes the first version got wrong:
+ *
+ *  1. It jumped without checking HEADROOM. With a stone ceiling directly above,
+ *     jump-and-place does nothing -- observed running 20 times at y=61 while
+ *     going nowhere.
+ *  2. It reported success unconditionally. "pillared out from=61 to=61" is a
+ *     lie, and it hid the failure from both the log and the caller.
+ *
+ * Now: clear the ceiling first, verify height was actually gained, and fall
+ * back to digging straight up when pillaring cannot work.
+ */
+async function pillarOut(bot, maxBlocks = 24) {
   const startY = bot.entity.position.y
+  let stalled = 0
+
   for (let i = 0; i < maxBlocks; i++) {
-    const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
-    if (!item) {
-      log('warn', 'reflex: nothing placeable to pillar with; digging up instead')
-      return digOut(bot)
+    const yBefore = bot.entity.position.y
+
+    // Headroom first. Breaking stone bare-handed drops nothing, but for escape
+    // purposes breaking is all that matters.
+    const head = bot.blockAt(bot.entity.position.offset(0, 2, 0))
+    if (head && head.name !== 'air' && head.name !== 'water') {
+      try { await bot.dig(head) } catch { /* may be unreachable; try anyway */ }
+      await sleep(150)
     }
+
+    const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
+    if (!item) { return digStraightUp(bot, startY) }
+
     await bot.equip(item, 'hand').catch(() => {})
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
     bot.setControlState('jump', true)
-    await sleep(280)
-    try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed jump; retry */ }
+    await sleep(300)
+    try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed */ }
     bot.setControlState('jump', false)
-    await sleep(220)
+    await sleep(250)
+
+    if (bot.entity.position.y - yBefore < 0.5) {
+      if (++stalled >= 3) {
+        log('warn', 'reflex: pillaring is not gaining height, digging up instead')
+        return digStraightUp(bot, startY)
+      }
+    } else {
+      stalled = 0
+    }
     if (!isEntombed(bot)) break
+  }
+
+  const gained = bot.entity.position.y - startY
+  if (gained < 1) {
+    log('error', 'reflex: pillar out FAILED, no height gained', { y: Math.round(startY) })
+    return digStraightUp(bot, startY)
   }
   log('info', 'reflex: pillared out', { from: Math.round(startY), to: Math.round(bot.entity.position.y) })
 }
 
-/** Last resort when there is nothing to stand on: dig a diagonal staircase up. */
-async function digOut(bot, maxSteps = 24) {
+/** Break upward until there is open sky, then step out. */
+async function digStraightUp(bot, startY, maxSteps = 20) {
   for (let i = 0; i < maxSteps; i++) {
-    const target = bot.blockAt(bot.entity.position.offset(1, 2, 0))
-        ?? bot.blockAt(bot.entity.position.offset(0, 2, 0))
-    if (!target || target.name === 'air') { await sleep(250); continue }
-    try { await bot.dig(target) } catch { break }
-    bot.setControlState('forward', true); bot.setControlState('jump', true)
-    await sleep(400)
-    bot.clearControlStates()
+    const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
+    if (!above || above.name === 'air') {
+      // Ceiling clear -- try to gain the block, otherwise walk toward the gap.
+      const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
+      if (item) {
+        await bot.equip(item, 'hand').catch(() => {})
+        const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+        bot.setControlState('jump', true)
+        await sleep(300)
+        try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch {}
+        bot.setControlState('jump', false)
+        await sleep(200)
+      } else {
+        // No blocks: head for whichever side is open and walk out.
+        await walkToOpening(bot)
+        return
+      }
+    } else {
+      try { await bot.dig(above) } catch { break }
+      await sleep(150)
+    }
     if (!isEntombed(bot)) break
+  }
+  log('info', 'reflex: dug out', { from: Math.round(startY), to: Math.round(bot.entity.position.y) })
+}
+
+/** Sprint toward whichever horizontal direction is open. */
+async function walkToOpening(bot) {
+  const p = bot.entity.position
+  for (const [dx, dz, k] of [[1, 0, 'right'], [-1, 0, 'left'], [0, 1, 'back'], [0, -1, 'forward']]) {
+    const a = bot.blockAt(p.offset(dx, 0, dz))
+    const b = bot.blockAt(p.offset(dx, 1, dz))
+    if (a?.name === 'air' && b?.name === 'air') {
+      await bot.look(Math.atan2(-dx, -dz), 0, true).catch(() => {})
+      bot.setControlState('forward', true); bot.setControlState('sprint', true)
+      await sleep(1200)
+      bot.clearControlStates()
+      return
+    }
   }
 }
 
