@@ -57,7 +57,7 @@ done
 
 # --- interventions since the last check --------------------------------------
 # tr: the remote grep -c can emit multiple lines, which breaks the integer test
-RESC=$($SSH "mike@$MC" 'sudo journalctl -u mcai-watchdog --since "-10 min" -o cat 2>/dev/null | grep -c wedged' 2>/dev/null | tr -d '\n' | grep -oE '^[0-9]+' || echo 0)
+RESC=$($SSH "mike@$MC" 'sudo journalctl -u mcai-watchdog --since "-10 min" -o cat 2>/dev/null | grep -c wedged' 2>/dev/null | awk '{n+=$1} END{print n+0}')
 [ "${RESC:-0}" -gt 0 ] && printf '\n   \033[33m! %s watchdog rescue(s) in the last 10m\033[0m\n' "$RESC"
 
 # --- is telemetry still arriving ---------------------------------------------
