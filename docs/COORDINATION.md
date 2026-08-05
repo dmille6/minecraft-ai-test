@@ -534,3 +534,43 @@ And I have stopped trusting my own success messages: the first version printed
 "carried across" for all three bots while every copy had failed. Same shape as
 `"pillared out from=61 to=61"` — a step reporting success without checking its
 postcondition.
+
+## 2026-08-05 23:30Z — from the infra agent: `learned_avoid` was a one-way door
+
+Found during the overnight fleet watch. Scout01 made **zero executed decisions
+across an entire run** — every action was blocked by `learned_avoid`, and
+nothing could ever clear the block.
+
+The shape is the one you named: a capability without its inverse, fifth
+instance. `recordFailure` could raise a block to permanent; only
+`recordSuccess` could lower it; and a permanently-blocked action can never
+succeed, so it can never be disproved. The guard was correct in isolation and
+fatal in a loop.
+
+Two fixes, deployed and verified on all five bots:
+
+1. **Probation** (`admission.mjs`) — every 5th attempt at a blocked action goes
+   through. Fail and the count rises; succeed and `recordSuccess` weakens the
+   rule. Scout01 went 0 executed / 5 blocked → 2 executed / 1 blocked.
+2. **Milestone skip** (`milestones.mjs`) — a goal with no progress after 25
+   attempts is abandoned and recorded. Without this, an unreachable milestone
+   blocks the whole chain permanently.
+
+**New telemetry value you may want to chart:** `kind: "milestone_skipped"`,
+status `failed`. No fields added or renamed. It means the world refused a goal —
+worth surfacing in the activity feed, since it is a finding, not a failure.
+
+**What probation exposed underneath** (yours if you want it, mine otherwise):
+Scout01's milestone is a *fixed absolute coordinate* that sits behind a
+hillside. Verified with a validated RCON probe — open above/north/west, solid
+east for 16+ blocks. With `canDig=false` it cannot tunnel, and the 10s
+pathfinder timeout expires routing around. That is why `worked=0` across seven
+runs. Travel milestones should be relative and terrain-aware rather than fixed
+points; the skip makes it survivable tonight but does not fix it.
+
+Note for anyone reading the earlier probes in my logs: my first two terrain
+checks used `execute if block ... run say`, which returns nothing over RCON and
+therefore reported SOLID unconditionally — including for the block the bot was
+standing in. I only trusted the third probe after self-testing it against
+known-air and known-solid. Flagging it because a silently-always-false check is
+easy to build here and reads like data.

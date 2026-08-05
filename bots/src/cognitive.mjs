@@ -210,6 +210,16 @@ export class CognitiveLoop {
     }
     if (admitted) this.consecutiveRejections = 0
 
+    // Track whether this milestone is going anywhere at all.
+    if (this.milestones.noteAttempt(outcome.status !== 'success')) {
+      const sk = this.milestones.status()
+      log('warn', 'milestone unreachable, skipping', { now: sk.id })
+      this.memory.addEvent(`gave up on the previous goal as unreachable; now: ${sk.describe}`)
+      logEvent({ kind: 'milestone_skipped', status: 'failed',
+                 detail: `no progress after 25 attempts; moved on to ${sk.id}`,
+                 snapshot: snapshot(this.bot) })
+    }
+
     logLlm({
       startedAt: started, snapshot: snap, trigger,
       model: config.llm.model, endpoint: config.llm.baseUrl,

@@ -21,6 +21,7 @@ export class AdmissionControl {
     this.lessons = lessons
     this.failedCooldowns = new Map()   // key -> expiry timestamp
     this.recent = []                   // last N admitted keys, for repeat detection
+    this.blockedCount = {}             // per-key block tally, for probation
   }
 
   static key(skill, args) {
@@ -155,10 +156,25 @@ export class AdmissionControl {
     // was created. This is the persistent half of that.
     const priorFails = this.lessons?.failCount(skill, args) ?? 0
     if (priorFails >= 4) {
-      return {
-        ok: false, reason: 'learned_avoid',
-        detail: `${skill} with these args has failed ${priorFails}x across runs`,
+      // PROBATION. A learned block with no way to be disproved is permanent,
+      // and the world changes: terrain gets mined, inventories fill, the bot
+      // moves. Observed live -- Scout01 made zero executed decisions across an
+      // entire run because every action its milestone required had been
+      // learned-blocked, and nothing could ever clear them.
+      //
+      // Every 5th attempt goes through. If it fails the count rises and the
+      // block tightens; if it succeeds, recordSuccess() weakens the rule. That
+      // is the inverse the guard was missing -- the fifth instance of this
+      // shape in this codebase.
+      const k = AdmissionControl.key(skill, args)
+      const n = (this.blockedCount[k] = (this.blockedCount[k] ?? 0) + 1)
+      if (n % 5 !== 0) {
+        return {
+          ok: false, reason: 'learned_avoid',
+          detail: `${skill} with these args has failed ${priorFails}x across runs (retry in ${5 - (n % 5)})`,
+        }
       }
+      // fall through on probation
     }
 
     // --- oscillation guard --------------------------------------------------

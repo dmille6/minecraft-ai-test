@@ -145,9 +145,33 @@ export class MilestoneController {
     this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}
+    this.attempts = {}
+    this.skipped = []
   }
 
   current() { return this.chain[this.index] ?? null }
+
+  /**
+   * Give up on a milestone that cannot be advanced and move to the next.
+   *
+   * A goal can be genuinely impossible from where a bot stands -- Scout01's
+   * "travel east" had no walkable route at all -- and without this the whole
+   * chain stops behind it permanently. Skipping is recorded, not silent: a
+   * skipped milestone is a finding about the world, not a success.
+   */
+  noteAttempt(failed) {
+    const m = this.current()
+    if (!m) return false
+    this.attempts[m.id] = (this.attempts[m.id] ?? 0) + (failed ? 1 : 0)
+    if (!failed) this.attempts[m.id] = 0
+    if (this.attempts[m.id] >= 25) {
+      this.skipped.push(m.id)
+      this.attempts[m.id] = 0
+      this.index++
+      return true
+    }
+    return false
+  }
 
   /** Advance past every milestone whose predicate is now satisfied. */
   refresh() {
