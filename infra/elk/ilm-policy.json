@@ -1,0 +1,36 @@
+{
+  "_comment": [
+    "ILM policy for agent LLM-call and Minecraft server logs. ~180 day retention.",
+    "",
+    "IMPORTANT: 'min_age' in the delete phase is measured from ROLLOVER, not from",
+    "when the document was indexed. With a 7d rollover and 180d delete, worst-case",
+    "document age at deletion is ~187 days. Using a 30d rollover here would mean",
+    "keeping data up to 210 days -- a common way people accidentally blow their",
+    "disk budget by 15%.",
+    "",
+    "Apply with:",
+    "  PUT _ilm/policy/mcai-logs  (body = the 'policy' object below)"
+  ],
+  "policy": {
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "rollover": {
+            "max_primary_shard_size": "10gb",
+            "max_age": "7d"
+          },
+          "set_priority": {
+            "priority": 100
+          }
+        }
+      },
+      "delete": {
+        "min_age": "180d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}

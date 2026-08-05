@@ -1,0 +1,52 @@
+# === NEVER COMMIT — this repo is PUBLIC ===
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+id_rsa*
+secrets/
+**/credentials*
+
+# Minecraft server runtime (large / machine-specific / regenerable)
+server/*.jar
+server/world/
+server/world_nether/
+server/world_the_end/
+server/logs/
+server/crash-reports/
+server/cache/
+server/libraries/
+server/versions/
+server/plugins/*.jar
+server/banned-*.json
+server/ops.json
+server/whitelist.json
+server/usercache.json
+server/eula.txt
+backups/
+
+# Live agent state (belongs on the VM, not in git — see ADR-0001 D4)
+runtime/
+*.sqlite
+*.sqlite3
+*.db
+logs/
+memory/live/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/

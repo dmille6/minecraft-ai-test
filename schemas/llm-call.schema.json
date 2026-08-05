@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/dmille6/minecraft-ai-test/schemas/llm-call.schema.json",
+  "title": "LLM call record",
+  "description": "One record per LLM request/response made by an agent. Written as a line of JSONL on the Minecraft VM (source of truth), then shipped to Elasticsearch by Filebeat (the view). Field names and types must stay in sync with infra/elk/index-template.json -- that mapping is 'dynamic': 'strict', so an unexpected field is a hard indexing error rather than a silent surprise. That is deliberate.\n\nNOTE ON 'bot' vs 'agent': the game agent is 'bot.*', NOT 'agent.*'. ECS permanently reserves 'agent.*' to describe the SHIPPING agent, and Filebeat injects agent.name/type/version into every event. Using agent.* here collides with that and silently rejects every document. Do not rename it back.",
+  "type": "object",
+  "required": ["@timestamp", "bot", "trigger", "llm", "prompt", "run_id"],
+  "additionalProperties": false,
+  "properties": {
+    "@timestamp": {
+      "type": "string", "format": "date-time",
+      "description": "ISO8601 at request start."
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Identifies one continuous experiment. Lets you compare soak runs and, critically, filter a bad run out of analysis without deleting it."
+    },
+    "bot": {
+      "type": "object",
+      "required": ["name", "role"],
+      "additionalProperties": false,
+      "properties": {
+        "name":   { "type": "string", "description": "Stable per-agent id, e.g. 'scout-01'. Under 'bot' not 'agent' -- see the ECS collision note above." },
+        "role":   { "type": "string", "enum": ["scout", "builder", "quartermaster", "miner", "guard", "mayor", "other"] },
+        "health": { "type": "number" },
+        "hunger": { "type": "number" },
+        "pos": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "x": { "type": "number" }, "y": { "type": "number" }, "z": { "type": "number" }
+          }
+        }
+      }
+    },
+    "trigger": {
+      "type": "string",
+      "description": "What caused this inference. Handoff doc S9.3 -- decisions are event-driven, never per-tick.",
+      "enum": ["skill_complete", "skill_failed", "discovery", "chat", "resource_shortage",
+               "assignment_change", "death", "threat", "construction_complete", "stuck", "startup", "supervisor"]
+    },
+    "game": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tick":      { "type": "integer", "description": "Server tick. The join key for correlating against Paper logs in Kibana." },
+        "dimension": { "type": "string", "enum": ["overworld", "the_nether", "the_end"] },
+        "day":       { "type": "integer" }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "required": ["model", "endpoint", "latency_ms"],
+      "additionalProperties": false,
+      "properties": {
+        "model":    { "type": "string" },
+        "endpoint": { "type": "string", "description": "Which Ollama host served this. Attribution matters once inference is split across the 5080 and the Mac Studio." },
+        "prompt_tokens":     { "type": "integer" },
+        "completion_tokens": { "type": "integer" },
+        "latency_ms":        { "type": "integer" },
+        "total_duration_ns":       { "type": "integer", "description": "Ollama returns these five directly. load_duration_ns is the one to watch -- a nonzero value means the model was evicted and reloaded, which is the usual cause of surprise latency when agents share a GPU." },
+        "load_duration_ns":        { "type": "integer" },
+        "prompt_eval_duration_ns": { "type": "integer" },
+        "eval_duration_ns":        { "type": "integer" },
+        "schema_valid": { "type": "boolean", "description": "Did the structured output actually parse against the tool-call schema? The single most useful column here -- it turns 'the model is flaky' into a measurable rate." },
+        "error":        { "type": ["string", "null"] },
+        "retry_count":  { "type": "integer", "minimum": 0 }
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "required": ["system_hash"],
+      "additionalProperties": false,
+      "properties": {
+        "system_hash": { "type": "string", "description": "sha256 of the system prompt. System prompts repeat constantly; storing the hash plus one copy elsewhere keeps index size sane, and it makes 'which prompt version produced this behaviour' answerable." },
+        "text":        { "type": "string", "description": "Flattened prompt text, analysed for full-text search." }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "text": { "type": "string" } }
+    },
+    "messages":   { "type": "array", "description": "Full verbatim request messages. Mapped 'flattened' in ES -- structurally queryable, exempt from field-count limits." },
+    "tool_calls": { "type": "array", "description": "Parsed tool calls. Also 'flattened'." },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Filled in AFTER the decision is executed. This is what makes the corpus analysable rather than merely archived -- without it you cannot ask which decisions preceded a death or a stuck loop.",
+      "properties": {
+        "status": { "type": "string", "enum": ["success", "failed", "aborted", "timeout", "unknown"] },
+        "detail": { "type": "string" }
+      }
+    }
+  }
+}

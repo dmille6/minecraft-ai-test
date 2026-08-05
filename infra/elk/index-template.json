@@ -1,0 +1,112 @@
+{
+  "_comment": [
+    "Index template for agent LLM call records. Apply BEFORE the first document.",
+    "  PUT _index_template/mcai-llm  (body below, minus this _comment)",
+    "",
+    "Two settings here are single-node-specific and load-bearing:",
+    "  number_of_replicas: 0  -- any replica on a 1-node cluster is unassignable,",
+    "                            which leaves every index YELLOW forever.",
+    "  codec: best_compression -- LLM logs are text-heavy; this is a large win",
+    "                            for a small CPU cost at index time.",
+    "",
+    "Field-explosion guard: 'messages' and 'tool_calls' are FLATTENED, not objects.",
+    "Dynamically mapping arbitrary tool-call JSON creates a new field per distinct",
+    "key, and the 1000-field limit then starts rejecting writes. Flattened keeps the",
+    "whole structure queryable as one field.",
+    "",
+    "'prompt.text' and 'response.text' are analysed text so full-text search works",
+    "(\"every response mentioning lava\"). 'messages' stays flattened alongside them",
+    "for exact structural queries. You want both -- they answer different questions.",
+    "",
+    "THE GAME AGENT IS 'bot.*', NOT 'agent.*'. ECS reserves agent.* for the shipping",
+    "agent, and Filebeat injects agent.name/type/version into every event it sends.",
+    "Combined with dynamic:strict that collision rejects 100% of documents, silently,",
+    "with the only evidence being a 'events were dropped' line in the Filebeat log.",
+    "This cost a debugging cycle. Do not rename it back."
+  ],
+  "index_patterns": ["mcai-llm-*"],
+  "data_stream": {},
+  "priority": 500,
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "mcai-logs",
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 0,
+      "index.codec": "best_compression",
+      "index.mapping.total_fields.limit": 200,
+      "index.refresh_interval": "5s"
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "@timestamp":            { "type": "date" },
+
+        "bot": {
+          "properties": {
+            "name":   { "type": "keyword" },
+            "role":   { "type": "keyword" },
+            "health": { "type": "float" },
+            "hunger": { "type": "float" },
+            "pos": {
+              "properties": {
+                "x": { "type": "float" },
+                "y": { "type": "float" },
+                "z": { "type": "float" }
+              }
+            }
+          }
+        },
+
+        "trigger":               { "type": "keyword" },
+        "game": {
+          "properties": {
+            "tick":      { "type": "long" },
+            "dimension": { "type": "keyword" },
+            "day":       { "type": "long" }
+          }
+        },
+
+        "llm": {
+          "properties": {
+            "model":            { "type": "keyword" },
+            "endpoint":         { "type": "keyword" },
+            "prompt_tokens":    { "type": "long" },
+            "completion_tokens":{ "type": "long" },
+            "latency_ms":       { "type": "long" },
+            "total_duration_ns":       { "type": "long" },
+            "load_duration_ns":        { "type": "long" },
+            "prompt_eval_duration_ns": { "type": "long" },
+            "eval_duration_ns":        { "type": "long" },
+            "schema_valid":     { "type": "boolean" },
+            "error":            { "type": "keyword" },
+            "retry_count":      { "type": "short" }
+          }
+        },
+
+        "prompt": {
+          "properties": {
+            "system_hash": { "type": "keyword" },
+            "text":        { "type": "text" }
+          }
+        },
+        "response": {
+          "properties": {
+            "text": { "type": "text" }
+          }
+        },
+
+        "messages":   { "type": "flattened" },
+        "tool_calls": { "type": "flattened" },
+
+        "outcome": {
+          "properties": {
+            "status": { "type": "keyword" },
+            "detail": { "type": "text" }
+          }
+        },
+
+        "run_id": { "type": "keyword" }
+      }
+    }
+  }
+}
