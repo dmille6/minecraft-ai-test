@@ -19,6 +19,7 @@ export class Runner {
     this.interruptedReason = null
     this.consecutiveFailures = 0
     this.paused = false
+    this.pausedAt = null
   }
 
   isBusy() { return this.current !== null }
@@ -39,8 +40,21 @@ export class Runner {
     const def = SKILLS[skillName]
     if (!def) return { status: 'failed', detail: `unknown skill "${skillName}"` }
 
+    // The pause is a safety valve, not a trap. It was written for chat-driven
+    // operation where a human types "resume" -- in autonomous mode there is no
+    // human, so a third consecutive failure froze the agent permanently.
+    // Observed: 16 minutes standing still in a forest.
     if (this.paused) {
-      return { status: 'failed', detail: `paused after ${this.consecutiveFailures} consecutive failures; send "resume"` }
+      const waited = Date.now() - (this.pausedAt ?? 0)
+      if (waited >= config.skills.pauseRecoveryMs) {
+        log('info', 'auto-resuming after pause', { pausedForSec: Math.round(waited / 1000) })
+        this.resume()
+      } else {
+        return {
+          status: 'failed',
+          detail: `paused after repeated failures; ${Math.ceil((config.skills.pauseRecoveryMs - waited) / 1000)}s until auto-resume`,
+        }
+      }
     }
     if (this.current) {
       return { status: 'failed', detail: `busy with ${this.current.skill}; send "stop" first` }
@@ -77,7 +91,11 @@ export class Runner {
       this.consecutiveFailures++
       if (this.consecutiveFailures >= config.skills.maxConsecutiveFailures) {
         this.paused = true
-        log('error', 'pausing after repeated failures', { count: this.consecutiveFailures })
+        this.pausedAt = Date.now()
+        log('error', 'pausing after repeated failures', {
+          count: this.consecutiveFailures,
+          autoResumeInSec: Math.round(config.skills.pauseRecoveryMs / 1000),
+        })
       }
     } else if (result.status === 'success') {
       this.consecutiveFailures = 0
@@ -116,6 +134,7 @@ export class Runner {
 
   resume() {
     this.paused = false
+    this.pausedAt = null
     this.consecutiveFailures = 0
   }
 }

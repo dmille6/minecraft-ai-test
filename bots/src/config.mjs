@@ -56,6 +56,13 @@ export const config = {
     // Watchdog. Handoff doc S12: "task running beyond expected duration".
     defaultTimeoutMs: Number(req('SKILL_TIMEOUT_MS', '180000')),
     maxConsecutiveFailures: Number(req('MAX_CONSECUTIVE_FAILURES', '3')),
+    // How long a pause lasts before clearing itself. Without this the agent
+    // needs a human to type "resume", which autonomous mode does not have.
+    pauseRecoveryMs: Number(req('PAUSE_RECOVERY_MS', '120000')),
+    // Cooldown on a choice that just failed. Must stay well under the decision
+    // interval x a few, or the agent spends every decision being told "not yet"
+    // for the action that is actually correct.
+    failedCooldownMs: Number(req('FAILED_COOLDOWN_MS', '45000')),
   },
 
   llm: {

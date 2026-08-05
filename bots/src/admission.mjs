@@ -13,7 +13,7 @@ import { SKILLS } from './skills.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 
-const COOLDOWN_MS = 90_000
+
 const REPEAT_WINDOW = 4
 
 export class AdmissionControl {
@@ -28,7 +28,8 @@ export class AdmissionControl {
 
   /** Record that a proposal we admitted ended in failure, so we stop re-picking it. */
   noteFailure(skill, args) {
-    this.failedCooldowns.set(AdmissionControl.key(skill, args), Date.now() + COOLDOWN_MS)
+    this.failedCooldowns.set(AdmissionControl.key(skill, args),
+                             Date.now() + config.skills.failedCooldownMs)
   }
 
   noteSuccess(skill, args) {
