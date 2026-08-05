@@ -63,8 +63,12 @@ responsible is unambiguous, and every layer logs why it acted.
 
 ### Skills
 
-`goto` · `gather` · `craft` · `place` · `mine` · `eat` · `sleep` · `deposit` ·
-`come` · `follow` · `home` · `status`
+| | |
+|---|---|
+| **World** | `goto` · `gather` · `mine` · `place` |
+| **Self** | `eat` · `sleep` · `home` · `status` |
+| **Items** | `craft` · `deposit` |
+| **Social** | `come` · `follow` |
 
 Deterministic, cancellable via `AbortSignal`, and watchdogged. Skills may dig;
 **navigation may not** — pathfinder runs with `canDig=false` because with
@@ -99,15 +103,24 @@ re-ship and lose nothing.
 
 | Index | One document per |
 |---|---|
-| `mcai-skill-agents` | skill attempt — name, args, status, duration, bot state at the time |
-| `mcai-llm-agents` | LLM decision — prompt, response, latency breakdown, `schema_valid`, what was chosen, what happened |
-| `mcai-mc-paper` | parsed server log — joins with coordinates, deaths, chat |
+| `mcai-skill-agents` | skill attempt, **and** every reflex firing, entrapment, livelock escape, and death |
+| `mcai-llm-agents` | LLM decision — prompt, response, latency breakdown, what was chosen, what happened |
+| `mcai-mc-paper` | parsed server log — joins with coordinates, deaths with cause, chat |
 
-Retention 180 days. Dashboard: **Kibana → "Minecraft AI — Overview"**.
+Retention 180 days. Dashboards: **"Minecraft AI — Overview"** and
+**"Minecraft AI — Agent Behaviour"**.
 
-The `outcome` and `schema_valid` fields are what make this a corpus rather than
-an archive: they let you ask *"which prompt shapes produce invalid tool calls?"*
-and *"which decisions preceded a death?"*
+Every record carries the fields needed to *attribute* a failure rather than
+merely observe it:
+
+| Field | The question it answers |
+|---|---|
+| `code.version` · `code.config_hash` | Which commit and which thresholds produced this run? Without it, comparing runs is guesswork — and comparing runs is the whole point. |
+| `perception` | What could it actually see? Separates "chose badly" from "chose the only option available". |
+| `skill.inventory_delta` | What actually changed? "gather succeeded" and "8 logs richer" are different claims. |
+| `skill.fail_class` | Aggregatable failure taxonomy, not free text |
+| `skill.distance_moved` | Productive work vs wandering |
+| `outcome` · `schema_valid` | Which prompt shapes produce invalid tool calls? Which decisions preceded a death? |
 
 ### Learning from it
 
@@ -126,6 +139,22 @@ It **proposes; it does not apply.** The first run justified that: it suggested
 raising the 180s skill watchdog, but the aborts came from the 20s stuck
 reflex, so the change would have done nothing. A reviewer catches that
 instantly. An auto-applier ships it.
+
+### Did anything actually improve?
+
+```bash
+python3 scripts/progress_report.py
+```
+
+Compares hazard and success rates across runs, normalised per hour.
+
+It says *"stopped happening"*, never *"learned to avoid"* — because **the agent
+does not learn between runs**. Its memory is a rolling window that dies at
+restart, weights never change, no lesson persists. Every improvement so far
+came from a human reading telemetry and changing code. Genuine learning would
+need persistent memory plus a reviewed path from `reflect.py` back into the
+prompt; neither exists yet, and the distinction will matter enormously once
+they do.
 
 ---
 
@@ -191,8 +220,14 @@ Collected because none are obvious from reading the code:
 ## Current state
 
 Phase 1 (infrastructure) is complete. The agent connects, survives restarts,
-recovers from death, and the LLM drives it autonomously toward a milestone
-chain ending in stone tools.
+recovers from death, and the LLM drives it autonomously through a milestone
+chain: logs → planks → sticks → crafting table → wooden pickaxe → cobblestone
+→ stone pickaxe. Each step has a completion predicate in code, so the model
+never decides what "done" means.
+
+It gathers successfully, though `gather` still fails often in dense forest —
+the skill layer is the bottleneck, not the model. Decisions take ~1.5–2.5s
+once the model is resident.
 
 **Known gaps, honestly:** no automated tests — every bug so far was found by
 hand; world backups sit on the same volume as the world they protect; there is
@@ -202,6 +237,9 @@ that an LLM can choose `place` and `mine`.
 Difficulty is `peaceful` on purpose. With no weapon, armour, or combat skill,
 an armed night produced 22 mob deaths in six hours — that measures the world's
 hostility, not the agent's judgement. Combat is its own milestone.
+
+Addresses in this repo are placeholders (`mcai.lan`, `studio.lan`). Real ones
+live in `.env` files on the hosts and are deliberately not committed.
 
 ---
 
@@ -216,6 +254,14 @@ infra/homepage/ dashboard config
 schemas/        the JSONL record contract
 scripts/        reflect.py and operational helpers
 ```
+
+## How decisions get made here
+
+Architecture choices are put to **Claude, ChatGPT (via `codex`), and a local
+model** independently, working from the same written brief. Where they agree,
+that is recorded; where they disagree, the disagreement is recorded too, along
+with what each uniquely contributed. Both ADRs were reached this way, and the
+tool-calling question was then settled by measurement rather than consensus.
 
 Built with [mineflayer](https://github.com/PrismarineJS/mineflayer),
 [Paper](https://papermc.io/), [Ollama](https://ollama.com/), and the
