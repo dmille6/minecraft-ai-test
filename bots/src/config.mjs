@@ -49,7 +49,7 @@ export const config = {
     tickMs: Number(req('REFLEX_TICK_MS', '500')),
     eatBelowFood: Number(req('EAT_BELOW_FOOD', '16')),
     fleeBelowHealth: Number(req('FLEE_BELOW_HEALTH', '8')),
-    stuckSeconds: Number(req('STUCK_SECONDS', '20')),
+    stuckSeconds: Number(req('STUCK_SECONDS', '35')),
   },
 
   skills: {

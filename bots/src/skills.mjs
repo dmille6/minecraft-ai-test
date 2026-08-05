@@ -63,16 +63,78 @@ function bestTool(bot, block) {
 }
 
 // ---------------------------------------------------------------- goto -----
+//
+// Long hops are broken into waypoints. A single 140-block goal through dense
+// forest is a far harder search than three 50-block ones, and when it fails it
+// fails totally -- the bot ends up exactly where it started with nothing
+// learned. Incremental legs make partial progress real and turn one opaque
+// failure into a specific one ("leg 2 of 3 was unreachable").
+const MAX_LEG = 45
+
 async function goto(ctx, { x, y, z, range = 1 }, signal) {
   const { bot } = ctx
   assertInsideBorder(x, z)
   check(signal)
-  const goal = new goals.GoalNear(x, y, z, range)
-  const done = bot.pathfinder.goto(goal)
-  signal?.addEventListener('abort', () => { try { bot.pathfinder.stop() } catch {} }, { once: true })
-  await done
+
+  const target = new Vec3(Number(x), Number(y), Number(z))
+  let legs = 0, lastErr = null
+
+  while (legs < 8) {
+    check(signal)
+    const here = bot.entity.position
+    const dist = Math.hypot(target.x - here.x, target.z - here.z)
+    if (dist <= Math.max(range, 2)) break
+
+    // Aim at an intermediate point when the goal is far away.
+    let leg = target
+    if (dist > MAX_LEG) {
+      const f = MAX_LEG / dist
+      leg = new Vec3(
+        Math.round(here.x + (target.x - here.x) * f),
+        Math.round(here.y + (target.y - here.y) * f),
+        Math.round(here.z + (target.z - here.z) * f))
+    }
+
+    const before = here.clone()
+    try {
+      const p = bot.pathfinder.goto(new goals.GoalNear(leg.x, leg.y, leg.z, Math.max(range, 2)))
+      signal?.addEventListener('abort', () => { try { bot.pathfinder.stop() } catch {} }, { once: true })
+      await withTimeout(p, 25000, bot)
+      lastErr = null
+    } catch (e) {
+      if (e.aborted) throw e
+      lastErr = e.message
+      const moved = bot.entity.position.distanceTo(before)
+      // Distinguish "could not find a route" from "was interrupted mid-route".
+      // Both previously surfaced as "Path was stopped", which taught the
+      // lessons store nothing useful and told the model nothing at all.
+      const noRoute = /no path|took to long|timeout|exceeded/i.test(e.message) && moved < 2
+      if (noRoute) {
+        return {
+          status: 'failed',
+          detail: `no route toward ${target.x},${target.z} — blocked after ${legs} leg(s), ${Math.round(dist)} blocks short`,
+        }
+      }
+      if (moved < 2) {
+        return {
+          status: 'failed',
+          detail: `stalled ${Math.round(dist)} blocks short of ${target.x},${target.z}: ${e.message.slice(0, 70)}`,
+        }
+      }
+      // Moved somewhat -- that is progress, so try the next leg.
+    }
+    legs++
+  }
+
   const p = bot.entity.position
-  return { status: 'success', detail: `arrived at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}` }
+  const left = Math.hypot(target.x - p.x, target.z - p.z)
+  if (left <= Math.max(range, 3)) {
+    return { status: 'success', detail: `arrived at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}` }
+  }
+  return {
+    status: 'failed',
+    detail: `got within ${Math.round(left)} blocks of ${target.x},${target.z} after ${legs} legs${lastErr ? ` (${lastErr.slice(0, 50)})` : ''}`,
+  }
 }
 
 /**

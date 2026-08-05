@@ -41,12 +41,17 @@ const M = {
     progress: b => `${countItem(b, item)}/${n} ${item}`,
     hint: hint ?? `craft with item=${item}.`,
   }),
+  // Direction-and-distance, not an exact spot. A fixed coordinate can be
+  // genuinely unreachable -- observed: "no route toward 150,0" -- and then the
+  // milestone can never complete and the bot loops on it forever. Rewarding
+  // displacement lets any workable route count.
   travel: (dx, dz, why) => ({
     id: `travel_${dx}_${dz}`,
-    describe: `Travel to roughly ${dx},${dz} and report what is there. ${why}`,
-    done: b => Math.hypot(b.entity.position.x - dx, b.entity.position.z - dz) < 25,
-    progress: b => `${Math.round(Math.hypot(b.entity.position.x - dx, b.entity.position.z - dz))} blocks away`,
-    hint: `goto with x=${dx}, y close to your current y, z=${dz}.`,
+    describe: `Travel toward ${dx},${dz} and report what you find. ${why} ` +
+              `Getting most of the way counts — if a route is blocked, try a nearer waypoint.`,
+    done: b => Math.hypot(b.entity.position.x - dx, b.entity.position.z - dz) < 60,
+    progress: b => `${Math.round(Math.hypot(b.entity.position.x - dx, b.entity.position.z - dz))} blocks from ${dx},${dz} (need within 60)`,
+    hint: `goto toward x=${dx}, z=${dz}. If that reports "no route", aim at a closer point in the same direction.`,
   }),
 }
 

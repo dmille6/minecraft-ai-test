@@ -67,8 +67,21 @@ function connect() {
     // navigation. Terrain the bot cannot walk around is a pathfinding failure
     // we want reported, not silently resolved by rearranging the world.
     moves.canDig = false
-    moves.allow1by1towers = false     // 1x1 pillars strand bots on the way back
+    // Re-enabled after evidence. It was disabled because a 1x1 pillar can
+    // strand a bot on top of it -- but that was before the entombment reflex
+    // and pillarOut escape existed, so the failure mode now has a recovery.
+    // Without it the bot can only cross terrain with <=1 block steps, and
+    // pathfinder reported "no route" for a 140-block trip through forest that
+    // is plainly walkable by a player.
+    moves.allow1by1towers = true
     moves.allowParkour = false        // parkour is the top source of stuck states
+    // Default maxDropDown is 4, which means a bot on a ledge above a 5-block
+    // drop has no legal move: it cannot dig, cannot parkour, and cannot pillar
+    // without blocks in its inventory. Observed live -- Scout01 sat immobile
+    // to 14 decimal places for ten minutes while the model correctly tried
+    // progressively nearer waypoints. 6 costs a little fall damage and is
+    // survivable; being permanently wedged is not.
+    moves.maxDropDown = 6
     bot.pathfinder.setMovements(moves)
     // Default is 5s. In dense forest with canDig=false many goals are genuinely
     // unreachable, and A* needs room to prove that rather than reporting
