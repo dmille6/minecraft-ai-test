@@ -44,6 +44,7 @@ function describe(rec) {
     _reflex_ate: ['🍖', `ate ${detail || 'some food'}`],
     _livelock_escape: ['🔁', 'kept repeating itself, so moved somewhere new'],
     _stagnation: ['⏸️', 'stopped making progress, forced a relocation'],
+    _learned_avoid: ['🧠', `learned to stop trying: ${detail || 'a repeatedly failing action'}`],
     _stagnation_reconnect: ['🔌', 'was stuck badly enough to reconnect'],
   }
   if (HAZARD[name]) {
@@ -205,9 +206,11 @@ function page(bots) {
  footer{color:#6e7681;font-size:12px;margin-top:28px;max-width:64ch}
 </style>
 <h1>Agent activity</h1>
-<p class="lead">What each bot has actually been doing, newest first. These are
-observations, not lessons — the agents have no memory between runs, so nothing
-here means a bot has learned anything.</p>
+<p class="lead">What each bot has actually been doing, newest first. Most lines
+are observations of events. Lines marked 🧠 are different: the agent carries
+deterministic lessons across runs, and once an action has failed enough times
+the admission gate refuses it — that one really is the bot learning, from
+counted evidence rather than a model's opinion.</p>
 ${cards || '<p class="lead">No agent logs found yet.</p>'}
 <footer>Auto-refreshes every 20s · read straight from the JSONL telemetry on disk</footer>`
 }

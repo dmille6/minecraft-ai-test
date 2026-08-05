@@ -64,6 +64,12 @@ def run_stats(run_id):
             "span": {"stats": {"field": "@timestamp"}},
             "by_skill": {"terms": {"field": "skill.name", "size": 40},
                          "aggs": {"st": {"terms": {"field": "skill.status"}}}},
+            # The discriminator, per the infrastructure agent: if behaviour
+            # changed while config_hash did NOT, the agent did that from its own
+            # persisted experience -- not us editing thresholds.
+            "cfg": {"terms": {"field": "code.config_hash", "size": 5}},
+            "ver": {"terms": {"field": "code.version", "size": 5}},
+            "learned": {"filter": {"term": {"llm.error": "learned_avoid"}}},
         }})
     a = d["aggregations"]
     if not a["span"]["count"]:
@@ -80,7 +86,10 @@ def run_stats(run_id):
             skills[name] = {"attempts": b["doc_count"],
                             "success": st.get("success", 0),
                             "rate": st.get("success", 0) / b["doc_count"]}
+    cfgs = [b["key"] for b in a.get("cfg", {}).get("buckets", [])]
+    vers = [b["key"] for b in a.get("ver", {}).get("buckets", [])]
     return {"run_id": run_id, "hours": hours, "hazards": hazards, "skills": skills,
+            "config_hash": cfgs[0] if cfgs else None, "code_version": vers[0] if vers else None,
             "start": datetime.fromtimestamp(a["span"]["min"] / 1000, timezone.utc).strftime("%Y-%m-%d %H:%M")}
 
 
@@ -117,16 +126,19 @@ def main():
     print("\n" + "=" * 74)
     print("  AGENT PROGRESS REPORT")
     print("=" * 74)
-    print("\n  NOTE: the agent does not learn between runs. Changes below reflect")
-    print("  code and configuration changes made by a human, not self-improvement.\n")
+    print("\n  Two different things can move these numbers, and they are not the same:")
+    print("    · config_hash CHANGED between runs -> a human edited code/thresholds")
+    print("    · config_hash UNCHANGED but behaviour moved -> the agent did it, from")
+    print("      its own persisted lessons (avoid rules, hazard sites)\n")
 
     def short(r):
         return r if not r.startswith("run-") else "dev-" + r[-6:]
-    print(f"  {'run':<16}{'started':<18}{'hours':>7}{'events':>9}")
+    print(f"  {'run':<16}{'started':<18}{'hours':>7}{'events':>9}  {'code':<9}{'config'}")
     print("  " + "-" * 62)
     for s in stats:
         tot = sum(s['hazards'].values()) + sum(v['attempts'] for v in s['skills'].values())
-        print(f"  {short(s['run_id']):<16}{s['start']:<18}{s['hours']:>7.1f}{tot:>9}")
+        print(f"  {short(s['run_id']):<16}{s['start']:<18}{s['hours']:>7.1f}{tot:>9}  "
+              f"{(s.get('code_version') or '-'):<9}{(s.get('config_hash') or '-')[:12]}")
 
     print("\n\n  HAZARDS  (per hour — lower is better)")
     print("  " + "-" * 62)
@@ -139,7 +151,10 @@ def main():
         row = "  " + f"{label:<38}" + "".join(f"{r:>13.1f}" for r in rates)
         if len(rates) > 1:
             first, last = rates[0], rates[-1]
-            if first > 0 and last < first * 0.5:  row += "   ↓ stopped happening"
+            same_cfg = (stats[0].get("config_hash") and
+                        stats[0]["config_hash"] == stats[-1].get("config_hash"))
+            if first > 0 and last < first * 0.5:
+                row += "   ↓ agent learned this" if same_cfg else "   ↓ stopped happening (code changed)"
             elif first > 0 and last > first * 1.5: row += "   ↑ worse"
         print(row)
 
@@ -160,9 +175,10 @@ def main():
         print(row)
 
     print("\n" + "=" * 74)
-    print("  To make these numbers reflect the AGENT improving rather than the")
-    print("  system, it needs persistent memory across runs and a path from")
-    print("  reflect.py's findings back into its prompt. Neither exists yet.")
+    print("  Persistent lessons DO exist now (deterministic avoid rules, applied by")
+    print("  the admission gate). LLM-authored lessons -- reflect.py output feeding")
+    print("  back into prompts -- remain a separate, human-reviewed path, because a")
+    print("  wrong lesson that persists is worse than no lesson at all.")
     print("=" * 74 + "\n")
 
 

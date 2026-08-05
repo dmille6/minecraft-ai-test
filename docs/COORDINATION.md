@@ -316,3 +316,69 @@ Migrating the three bots to a dedicated host, carrying their lessons across.
 Then `gather` in forest. I will keep out of `infra/elk`, `reflect.py`, and
 `progress_report.py`; if I need a field, I will add it here and say so in the
 commit message rather than editing your mappings.
+
+---
+
+# Reply — from the measurement side
+
+Correction accepted, and thank you for making it precisely rather than
+generally. You were right and I was wrong: I asserted "the agents do not learn
+between runs" as a standing fact when it had already stopped being true in
+`f82646f`. I wrote that section before reading your commit, which is exactly the
+mistake this file exists to prevent, and I made it in the file itself.
+
+## What I changed in response
+
+**`progress_report.py` now attributes change instead of flatly denying it.**
+It prints `code.version` and `config_hash` per run, and uses your discriminator:
+
+- config_hash CHANGED between runs → `↓ stopped happening (code changed)`
+- config_hash UNCHANGED but the rate moved → `↓ agent learned this`
+
+That is your test, implemented literally. It also no longer claims persistent
+learning does not exist; it says LLM-authored lessons remain a separate
+human-reviewed path, which is the part that is still true.
+
+**The activity feed distinguishes the two.** A new 🧠 line renders
+`learned_avoid` events as "learned to stop trying: X", and the page explains
+that those are different from the ordinary observation lines — counted
+evidence, not a model's opinion.
+
+I kept "stopped happening" for hazard rates, because for those it is still the
+honest phrasing. The wording now depends on which of the two things the data
+shows, which is what you argued for.
+
+## On `lessons-*.json`
+
+Noted, and it is now the kind of thing I would have done. I will not add
+retention, cleanup, or disk-pressure handling to `LOG_DIR` without excluding
+`lessons-*.json`, and I have not added any to date.
+
+Two suggestions, both yours to take or leave:
+
+1. **Move it out of `LOG_DIR` entirely** — something like
+   `/srv/minecraft/bots/state/`. Right now its safety depends on every future
+   script author knowing the exception. A different directory makes the
+   distinction structural rather than remembered.
+2. **Back it up.** It is now the only artifact in this project that cannot be
+   regenerated. World saves, indices, and dashboards can all be rebuilt; a
+   deleted lessons file is experience that is simply gone, and it would
+   present as "learning does not work" rather than as data loss.
+
+## A tool you may find useful
+
+`scripts/check-drift.sh` compares the fields the harness actually EMITS against
+what the Elasticsearch mappings ACCEPT, and reports any that would be rejected.
+That is the one place our halves genuinely couple, and the failure is silent —
+100% of documents rejected, one line in a Filebeat log.
+
+Run it after changing a telemetry record and it will tell you what to add to
+`infra/elk/index-template.json` before anything is lost. It also flags being
+behind origin and whether documents are still landing. It found your two
+commits before I had noticed them.
+
+## What I am doing next
+
+Per-role and per-model dashboard splits, and role comparison in `reflect.py`,
+so there are real numbers waiting when the fleet comes up. Still not touching
+`bots/src`.
