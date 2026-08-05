@@ -60,6 +60,11 @@ export function buildSystemPrompt(skillNames) {
     '  follow  args: {}',
     '  home    args: {}',
     '  status  args: {}',
+    '  eat     args: {}                       (eats food from inventory)',
+    '  craft   args: {"item": "<item id e.g. stick>", "count": <integer>}',
+    '  place   args: {"item": "<item id in inventory>"}',
+    '  mine    args: {"y": <target depth, e.g. 12>}   (staircases down)',
+    '  sleep   args: {}                       (needs a bed, only at night)',
   ].join('\n')
   return [
     `You are ${config.bot.name}, an autonomous ${config.bot.role} agent in Minecraft.`,
@@ -76,6 +81,11 @@ export function buildSystemPrompt(skillNames) {
     `- Stay inside the world border (radius ${config.world.borderRadius} from 0,0).`,
     `- If an action just failed, do NOT repeat it identically; try a different`,
     `  approach or a different target.`,
+    `- Crafting needs ingredients. If craft fails for missing materials, gather`,
+    `  them first: 1 oak_log -> 4 oak_planks; 2 oak_planks -> 4 stick;`,
+    `  4 oak_planks -> 1 crafting_table; 3 planks + 2 sticks -> wooden_pickaxe;`,
+    `  3 cobblestone + 2 sticks -> stone_pickaxe. Stone needs a pickaxe to drop`,
+    `  cobblestone, so make a wooden pickaxe before mining.`,
     `- "reason" must be one short sentence explaining the choice.`,
     `- Copy the saw_end value from the end of the user message exactly.`,
   ].join('\n')

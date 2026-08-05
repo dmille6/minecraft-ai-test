@@ -281,6 +281,178 @@ async function status(ctx) {
   }
 }
 
+
+// ----------------------------------------------------------------- eat -----
+const FOOD_PRIORITY = [
+  'golden_carrot', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton',
+  'cooked_chicken', 'bread', 'baked_potato', 'cooked_cod', 'cooked_salmon',
+  'apple', 'carrot', 'melon_slice', 'sweet_berries',
+]
+
+async function eat(ctx, _args, signal) {
+  const { bot } = ctx
+  if ((bot.food ?? 20) >= 20) return { status: 'success', detail: 'not hungry' }
+  const items = bot.inventory.items()
+  const food = FOOD_PRIORITY.map(n => items.find(i => i.name === n)).find(Boolean)
+  if (!food) return { status: 'failed', detail: 'no edible food in inventory' }
+  check(signal)
+  try {
+    await bot.equip(food, 'hand')
+    await bot.consume()
+    return { status: 'success', detail: `ate ${food.name}, hunger now ${bot.food}` }
+  } catch (e) {
+    return { status: 'failed', detail: `could not eat ${food.name}: ${e.message}` }
+  }
+}
+
+// --------------------------------------------------------------- craft -----
+//
+// Crafting is the first skill that can FAIL FOR A GOOD REASON -- missing
+// ingredients is information, not a bug. The detail string names what is
+// missing so the model can choose to gather it, which is the whole point of
+// having a cognitive layer at all.
+async function craft(ctx, { item, count = 1 }, signal) {
+  const { bot } = ctx
+  const def = bot.registry.itemsByName[item]
+  if (!def) return { status: 'failed', detail: `unknown item "${item}"` }
+
+  // Recipes needing no table first -- cheaper and always available.
+  let recipe = bot.recipesFor(def.id, null, count, null)[0]
+  let table = null
+
+  if (!recipe) {
+    const tableBlock = bot.findBlock({
+      matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table',
+      maxDistance: 32,
+    })
+    if (tableBlock) {
+      check(signal)
+      try {
+        await withTimeout(bot.pathfinder.goto(
+          new goals.GoalNear(tableBlock.position.x, tableBlock.position.y, tableBlock.position.z, 2)), 12000, bot)
+      } catch { /* try crafting anyway; we may already be close enough */ }
+      table = tableBlock
+      recipe = bot.recipesFor(def.id, null, count, table)[0]
+    }
+  }
+
+  if (!recipe) {
+    const hasTable = bot.inventory.items().some(i => i.name === 'crafting_table')
+    return {
+      status: 'failed',
+      detail: hasTable
+        ? `no recipe available for ${item}; place the crafting_table first`
+        : `cannot craft ${item} -- missing ingredients or need a crafting_table nearby`,
+    }
+  }
+
+  check(signal)
+  try {
+    await bot.craft(recipe, count, table ?? undefined)
+    return { status: 'success', detail: `crafted ${count}x ${item}` }
+  } catch (e) {
+    return { status: 'failed', detail: `craft ${item} failed: ${e.message}` }
+  }
+}
+
+// --------------------------------------------------------------- place -----
+async function place(ctx, { item, x, y, z }, signal) {
+  const { bot } = ctx
+  const held = bot.inventory.items().find(i => i.name === item)
+  if (!held) return { status: 'failed', detail: `no ${item} in inventory` }
+
+  // Place adjacent to the bot when no explicit spot is given -- the common case
+  // (crafting table, bed) where "somewhere I can reach" is all that matters.
+  let ref = null, face = null
+  if ([x, y, z].every(v => Number.isFinite(Number(v)))) {
+    assertInsideBorder(Number(x), Number(z))
+    ref = bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z)))
+    face = new Vec3(0, 1, 0)
+  } else {
+    for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const under = bot.blockAt(bot.entity.position.offset(d[0], -1, d[1]))
+      const at = bot.blockAt(bot.entity.position.offset(d[0], 0, d[1]))
+      if (under && under.name !== 'air' && at && at.name === 'air') { ref = under; face = new Vec3(0, 1, 0); break }
+    }
+  }
+  if (!ref || ref.name === 'air') return { status: 'failed', detail: 'no solid surface to place against' }
+
+  check(signal)
+  try {
+    await bot.equip(held, 'hand')
+    await bot.placeBlock(ref, face)
+    return { status: 'success', detail: `placed ${item} at ${ref.position.offset(0, 1, 0)}` }
+  } catch (e) {
+    return { status: 'failed', detail: `place ${item} failed: ${e.message}` }
+  }
+}
+
+// ---------------------------------------------------------------- mine -----
+//
+// Distinct from gather: gather goes to blocks it can already see, mine
+// descends to reach ones it cannot. Staircase rather than straight down --
+// digging straight down is how bots fall into lava.
+async function mine(ctx, { y: targetY = 12 }, signal) {
+  const { bot } = ctx
+  const goalY = Math.max(-59, Math.min(Number(targetY) || 12, 120))
+  let steps = 0
+  while (bot.entity.position.y > goalY + 1 && steps < 90) {
+    check(signal)
+    steps++
+    const ahead = bot.entity.position.offset(0, -1, 0)
+    const below = bot.blockAt(ahead)
+    if (!below) break
+    if (below.name === 'lava' || below.name === 'water') {
+      return { status: 'failed', detail: `stopped at y=${Math.round(bot.entity.position.y)}: ${below.name} below` }
+    }
+    if (below.name === 'air') { await sleep(300, signal); continue }
+    const tool = bestTool(bot, below)
+    if (tool) await bot.equip(tool, 'hand').catch(() => {})
+    if (!below.canHarvest(bot.heldItem?.type ?? null)) {
+      return { status: 'failed', detail: `need a better tool for ${below.name} at y=${Math.round(bot.entity.position.y)}` }
+    }
+    try { await bot.dig(below) } catch (e) { if (e.aborted) throw e; break }
+    // Step sideways every few blocks so it is a staircase, not a shaft.
+    if (steps % 3 === 0) {
+      const side = bot.blockAt(bot.entity.position.offset(1, 0, 0))
+      if (side && side.name !== 'air') { try { await bot.dig(side) } catch { /* optional */ } }
+    }
+    await sleep(150, signal)
+  }
+  return { status: 'success', detail: `reached y=${Math.round(bot.entity.position.y)}` }
+}
+
+// --------------------------------------------------------------- sleep -----
+async function sleepSkill(ctx, _args, signal) {
+  const { bot } = ctx
+  if (!isNightTime(bot)) return { status: 'failed', detail: 'can only sleep at night' }
+
+  let bed = bot.findBlock({ matching: b => bot.registry.blocks[b.type]?.name?.endsWith('_bed'), maxDistance: 32 })
+  if (!bed) {
+    const inBag = bot.inventory.items().find(i => i.name.endsWith('_bed'))
+    if (!inBag) return { status: 'failed', detail: 'no bed nearby and none in inventory' }
+    const placed = await place(ctx, { item: inBag.name }, signal)
+    if (placed.status !== 'success') return { status: 'failed', detail: `could not place bed: ${placed.detail}` }
+    bed = bot.findBlock({ matching: b => bot.registry.blocks[b.type]?.name?.endsWith('_bed'), maxDistance: 8 })
+    if (!bed) return { status: 'failed', detail: 'placed a bed but cannot find it' }
+  }
+
+  check(signal)
+  try {
+    await withTimeout(bot.pathfinder.goto(
+      new goals.GoalNear(bed.position.x, bed.position.y, bed.position.z, 2)), 12000, bot)
+    await bot.sleep(bed)
+    return { status: 'success', detail: 'sleeping through the night' }
+  } catch (e) {
+    return { status: 'failed', detail: `sleep failed: ${e.message}` }
+  }
+}
+
+function isNightTime(bot) {
+  const t = bot.time?.timeOfDay ?? 0
+  return t >= 12542 && t <= 23458
+}
+
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
   gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
@@ -289,6 +461,11 @@ export const SKILLS = {
   home:    { run: home,    usage: 'home',                          args: [] },
   deposit: { run: deposit, usage: 'deposit [item_name]',           args: [] },
   status:  { run: status,  usage: 'status',                        args: [] },
+  eat:     { run: eat,     usage: 'eat',                           args: [] },
+  craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
+  place:   { run: place,   usage: 'place <item_name>',             args: ['item'] },
+  mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
+  sleep:   { run: sleepSkill, usage: 'sleep',                      args: [] },
 }
 
 export { Aborted }

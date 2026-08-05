@@ -93,6 +93,35 @@ export class AdmissionControl {
       }
     }
 
+    if (skill === 'craft') {
+      if (!args.item || typeof args.item !== 'string') {
+        return { ok: false, reason: 'bad_args', detail: 'craft needs an item name' }
+      }
+      if (!bot.registry.itemsByName[args.item]) {
+        return { ok: false, reason: 'bad_args', detail: `"${args.item}" is not a real item` }
+      }
+      const n = Number(args.count ?? 1)
+      if (!Number.isFinite(n) || n <= 0 || n > 64) {
+        return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..64` }
+      }
+    }
+
+    if (skill === 'place') {
+      if (!args.item || typeof args.item !== 'string') {
+        return { ok: false, reason: 'bad_args', detail: 'place needs an item name' }
+      }
+      if (!bot.inventory.items().some(i => i.name === args.item)) {
+        return { ok: false, reason: 'bad_args', detail: `no ${args.item} in inventory to place` }
+      }
+    }
+
+    if (skill === 'mine') {
+      const y = Number(args.y ?? 12)
+      if (!Number.isFinite(y) || y < -59 || y > 120) {
+        return { ok: false, reason: 'bad_args', detail: `mine target y=${args.y} outside -59..120` }
+      }
+    }
+
     if (skill === 'follow' || skill === 'come') {
       const p = args.player
       if (p && !bot.players[p]) {
