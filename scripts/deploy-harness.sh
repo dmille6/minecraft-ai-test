@@ -55,6 +55,10 @@ export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
 apt-get install -y -qq build-essential libcairo2-dev libpango1.0-dev \
   libjpeg-dev libgif-dev librsvg2-dev pkg-config >/dev/null 2>&1 || true
 sudo -u mcbot bash -c "cd '$H' && npm install --no-audit --no-fund" >/dev/null 2>&1
+# canvas is an OPTIONAL peer of prismarine-viewer, so npm install does not pull
+# it and the viewer dies with a bare "Cannot find module 'canvas'".
+sudo -u mcbot bash -c "cd '$H' && npm install canvas --no-audit --no-fund" >/dev/null 2>&1 || \
+  warn "canvas failed to build -- 3D viewer will be unavailable"
 ok "dependencies installed ($(sudo -u mcbot bash -c "cd '$H' && ls node_modules | wc -l") packages)"
 
 # --------------------------------------------------------------------- env --
