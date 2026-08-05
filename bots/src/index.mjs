@@ -16,10 +16,14 @@ import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot } from './state.mjs'
+import { CognitiveLoop } from './cognitive.mjs'
+import { createRequire } from 'node:module'
+const require_ = createRequire(import.meta.url)
 
 let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
+let cognitive = null
 
 function connect() {
   log('info', 'connecting', {
@@ -75,6 +79,24 @@ function connect() {
       pos: s.bot.pos, health: s.bot.health, food: s.bot.hunger, dimension: s.game.dimension,
     })
     bot.chat(`${config.bot.name} online (${config.bot.role}) — say "${config.bot.name} help"`)
+
+    if (config.viewer.enabled) {
+      try {
+        const { mineflayer: mineflayerViewer } = require_('prismarine-viewer')
+        mineflayerViewer(bot, { port: config.viewer.port, firstPerson: config.viewer.firstPerson })
+        log('info', 'viewer started', { url: `http://<host>:${config.viewer.port}`, firstPerson: config.viewer.firstPerson })
+      } catch (e) {
+        log('error', 'viewer failed to start', { err: e.message })
+      }
+    }
+
+    if (config.llm.enabled) {
+      cognitive = new CognitiveLoop(bot, runner)
+      // Give chunks a moment to load before the first perception snapshot,
+      // otherwise NEARBY is empty and the first decision is made half-blind.
+      setTimeout(() => cognitive.start(), 5000)
+      bot.chat(`autonomous mode: ${config.llm.model}`)
+    }
   })
 
   bot.on('death', () => {
@@ -84,6 +106,7 @@ function connect() {
       startedAt: Date.now(), snapshot: snapshot(bot), trigger: 'death',
     })
     runner.cancel('death')
+    cognitive?.notify('death', 'died and respawned')
     // Respawn is automatic; clearing the failure budget avoids a death
     // cascade pausing the bot permanently.
     runner.resume()
@@ -94,6 +117,7 @@ function connect() {
 
   bot.on('end', reason => {
     if (stopReflexes) { stopReflexes(); stopReflexes = null }
+    if (cognitive) { cognitive.stop(); cognitive = null }
     if (stopping) return
     log('warn', 'disconnected, will reconnect', { reason: String(reason), delayMs: reconnectDelay })
     setTimeout(connect, reconnectDelay)
@@ -109,6 +133,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     stopping = true
     log('info', 'shutting down', { signal: sig })
     if (stopReflexes) stopReflexes()
+    if (cognitive) cognitive.stop()
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })

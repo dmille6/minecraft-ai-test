@@ -12,6 +12,12 @@
         description: squaremap · live agent + player markers
         siteMonitor: http://mcai.lan:8080
 
+    - 3D Bot View:
+        icon: mdi-video-3d
+        href: http://mcai.lan:3007
+        description: prismarine-viewer - over Scout01's shoulder
+        siteMonitor: http://mcai.lan:3007
+
     - Agent (Scout01):
         icon: mdi-robot
         description: mineflayer harness · systemd mcbot@scout
@@ -34,6 +40,13 @@
         icon: mdi-chart-line
         description: skill outcomes and LLM calls
         href: http://mcelk.lan:5601/app/dashboards
+
+- Agents:
+    - Hermes Agent:
+        icon: mdi-brain
+        href: http://mcelk.lan:9119
+        description: web dashboard - qwen3.5:122b-a10b via Studio
+        siteMonitor: http://mcelk.lan:9119
 
 - Inference:
     - Ollama — Mac Studio M4 Max:

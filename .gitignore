@@ -54,3 +54,4 @@ venv/
 # harness runtime
 bots/node_modules/
 bots/.env
+bots/logs/

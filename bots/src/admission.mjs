@@ -1,0 +1,123 @@
+// Admission layer -- ADR-0002.
+//
+// A deterministic gate between the model and the runner. Even schema-valid
+// output is checked here before anything executes.
+//
+// This is what makes the model ADVISORY rather than authoritative, and it is
+// the cleanest expression of "reliability before intelligence" in the design.
+// Every rejection carries a reason code, which turns the useless observation
+// "the model is unreliable" into a distribution over specific, fixable causes
+// you can query in Kibana.
+
+import { SKILLS } from './skills.mjs'
+import { config } from './config.mjs'
+import { horizontalDistanceFromSpawn } from './state.mjs'
+
+const COOLDOWN_MS = 90_000
+const REPEAT_WINDOW = 4
+
+export class AdmissionControl {
+  constructor() {
+    this.failedCooldowns = new Map()   // key -> expiry timestamp
+    this.recent = []                   // last N admitted keys, for repeat detection
+  }
+
+  static key(skill, args) {
+    return `${skill}:${JSON.stringify(args ?? {})}`
+  }
+
+  /** Record that a proposal we admitted ended in failure, so we stop re-picking it. */
+  noteFailure(skill, args) {
+    this.failedCooldowns.set(AdmissionControl.key(skill, args), Date.now() + COOLDOWN_MS)
+  }
+
+  noteSuccess(skill, args) {
+    this.failedCooldowns.delete(AdmissionControl.key(skill, args))
+  }
+
+  /** Called after an escape action, so the model gets a clean slate to choose from. */
+  clearRepeatWindow() { this.recent = [] }
+
+  /**
+   * @returns {{ok: true, skill, args} | {ok: false, reason: string, detail: string}}
+   */
+  check(proposal, bot) {
+    if (!proposal || typeof proposal !== 'object') {
+      return { ok: false, reason: 'no_proposal', detail: 'model produced nothing usable' }
+    }
+    const { skill } = proposal
+    const args = { ...(proposal.args ?? {}) }
+
+    // Normalise one unambiguous confusion: gather takes `block`, but models
+    // reach for `item` because block ids read like item ids. The intent is not
+    // in doubt, so rejecting it would be pedantic -- but it IS recorded, so the
+    // rate stays visible in telemetry rather than being silently absorbed.
+    if (skill === 'gather' && !args.block && typeof args.item === 'string') {
+      args.block = args.item
+      delete args.item
+      this.normalisations = (this.normalisations ?? 0) + 1
+    }
+
+    // --- known skill ------------------------------------------------------
+    if (!SKILLS[skill]) {
+      return { ok: false, reason: 'unknown_skill', detail: `"${skill}" is not in the registry` }
+    }
+
+    // --- argument sanity, per skill ---------------------------------------
+    if (skill === 'gather') {
+      if (!args.block || typeof args.block !== 'string') {
+        return { ok: false, reason: 'bad_args', detail: 'gather needs a block name' }
+      }
+      if (!bot.registry.blocksByName[args.block]) {
+        return { ok: false, reason: 'bad_args', detail: `"${args.block}" is not a real block` }
+      }
+      const n = Number(args.count)
+      if (!Number.isFinite(n) || n <= 0 || n > 128) {
+        return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..128` }
+      }
+    }
+
+    if (skill === 'goto') {
+      const { x, y, z } = args
+      if (![x, y, z].every(v => Number.isFinite(Number(v)))) {
+        return { ok: false, reason: 'bad_args', detail: 'goto needs numeric x, y, z' }
+      }
+      // Never let a goal chase the bot past the world border into ungenerated
+      // chunks -- the whole point of pregenerating and setting a border.
+      const d = horizontalDistanceFromSpawn({ x: Number(x), z: Number(z) })
+      if (d > config.world.borderRadius) {
+        return { ok: false, reason: 'outside_border', detail: `${Math.round(d)} > ${config.world.borderRadius}` }
+      }
+      if (Number(y) < -60 || Number(y) > 300) {
+        return { ok: false, reason: 'bad_args', detail: `y=${y} implausible` }
+      }
+    }
+
+    if (skill === 'follow' || skill === 'come') {
+      const p = args.player
+      if (p && !bot.players[p]) {
+        return { ok: false, reason: 'no_such_player', detail: `${p} is not online` }
+      }
+    }
+
+    // --- cooldown on things that just failed -------------------------------
+    const key = AdmissionControl.key(skill, args)
+    const until = this.failedCooldowns.get(key)
+    if (until && Date.now() < until) {
+      return {
+        ok: false, reason: 'cooldown',
+        detail: `${skill} with these args failed recently; ${Math.ceil((until - Date.now()) / 1000)}s left`,
+      }
+    }
+
+    // --- oscillation guard --------------------------------------------------
+    const repeats = this.recent.filter(k => k === key).length
+    if (repeats >= REPEAT_WINDOW) {
+      return { ok: false, reason: 'repeat_loop', detail: `chose the identical action ${repeats}x in a row` }
+    }
+
+    this.recent.push(key)
+    if (this.recent.length > REPEAT_WINDOW * 2) this.recent.shift()
+    return { ok: true, skill, args }
+  }
+}

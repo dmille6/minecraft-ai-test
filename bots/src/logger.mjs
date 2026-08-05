@@ -9,12 +9,20 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { config } from './config.mjs'
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 }
 const threshold = LEVELS[config.log.level] ?? 20
 
 let stream = null
+let llmStream = null
+function llmOut() {
+  if (llmStream) return llmStream
+  fs.mkdirSync(config.log.dir, { recursive: true })
+  llmStream = fs.createWriteStream(path.join(config.log.dir, `llm-${config.bot.name}.jsonl`), { flags: 'a' })
+  return llmStream
+}
 function out() {
   if (stream) return stream
   fs.mkdirSync(config.log.dir, { recursive: true })
@@ -65,6 +73,49 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
   return rec
 }
 
+/**
+ * One record per LLM decision, matching infra/elk/index-template.json for
+ * mcai-llm-*. That mapping is dynamic:strict -- an unexpected key rejects the
+ * whole document with no error beyond a dropped-events line in Filebeat.
+ * The game agent is bot.*, never agent.* (ECS reserves agent.* for shippers).
+ */
+export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
+                         promptText, tokensEstimated, droppedEvents,
+                         proposal, rejection, outcome, milestone }) {
+  const rec = {
+    '@timestamp': new Date(startedAt).toISOString(),
+    run_id: config.log.runId,
+    trigger,
+    bot: { name: config.bot.name, role: config.bot.role, ...(snapshot?.bot ?? {}) },
+    game: snapshot?.game ?? {},
+    llm: {
+      model, endpoint,
+      prompt_tokens: res.prompt_tokens ?? tokensEstimated ?? null,
+      completion_tokens: res.completion_tokens ?? null,
+      latency_ms: res.latencyMs ?? null,
+      total_duration_ns: res.total_duration_ns ?? null,
+      load_duration_ns: res.load_duration_ns ?? null,
+      prompt_eval_duration_ns: res.prompt_eval_duration_ns ?? null,
+      eval_duration_ns: res.eval_duration_ns ?? null,
+      schema_valid: !!res.schemaValid,
+      error: rejection ? rejection.reason : (res.error ?? null),
+      retry_count: res.retryCount ?? 0,
+    },
+    prompt: {
+      system_hash: crypto.createHash('sha256').update(String(milestone)).digest('hex').slice(0, 16),
+      text: String(promptText ?? '').slice(0, 6000),
+    },
+    response: { text: String(res.raw ?? '').slice(0, 4000) },
+    messages: [{ role: 'user', dropped_events: droppedEvents ?? 0, milestone: String(milestone) }],
+    tool_calls: proposal ? [{ skill: proposal.skill, args: proposal.args ?? {}, reason: proposal.reason ?? '' }] : [],
+    outcome: { status: outcome?.status ?? 'unknown', detail: String(outcome?.detail ?? '').slice(0, 400) },
+  }
+  try { llmOut().write(JSON.stringify(rec) + '\n') }
+  catch (e) { console.error('failed to write llm log:', e.message) }
+  return rec
+}
+
 export function closeLogs() {
   if (stream) { stream.end(); stream = null }
+  if (llmStream) { llmStream.end(); llmStream = null }
 }

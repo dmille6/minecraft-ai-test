@@ -44,6 +44,29 @@ export const config = {
     maxConsecutiveFailures: Number(req('MAX_CONSECUTIVE_FAILURES', '3')),
   },
 
+  llm: {
+    enabled: req('LLM_ENABLED', 'false') === 'true',
+    baseUrl: req('OLLAMA_BASE_URL', 'http://studio.lan:11434'),
+    model: req('OLLAMA_MODEL', 'qwen2.5:14b-instruct'),
+    // Set EXPLICITLY. Ollama silently truncates at its default and a
+    // truncated prompt does not error -- the model just looks stupid.
+    numCtx: Number(req('OLLAMA_NUM_CTX', '8192')),
+    temperature: Number(req('LLM_TEMPERATURE', '0.3')),
+    timeoutMs: Number(req('LLM_TIMEOUT_MS', '90000')),
+    // Client-side budget, deliberately well under numCtx.
+    promptTokenBudget: Number(req('LLM_PROMPT_TOKEN_BUDGET', '3000')),
+    // Handoff doc S16: strategic decisions every 30-90s, not per tick.
+    decisionCooldownMs: Number(req('LLM_DECISION_COOLDOWN_MS', '20000')),
+  },
+
+  viewer: {
+    // 3D browser view of this bot. Renders chunks server-side, so it costs
+    // real CPU on the game VM -- one viewer is fine, several are not.
+    enabled: req('VIEWER_ENABLED', 'false') === 'true',
+    port: Number(req('VIEWER_PORT', '3007')),
+    firstPerson: req('VIEWER_FIRST_PERSON', 'false') === 'true',
+  },
+
   log: {
     dir: req('LOG_DIR', '/srv/minecraft/bots/logs'),
     // Groups every record from one continuous experiment, so a bad run can be
