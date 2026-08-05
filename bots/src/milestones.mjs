@@ -87,6 +87,52 @@ export const MILESTONES_BY_ROLE = {
 
 export const MILESTONES = MILESTONES_BY_ROLE.scout   // default / back-compat
 
+/**
+ * After the fixed chain there has to be something to DO.
+ *
+ * Completing the last milestone used to stop the cognitive loop, so the agent
+ * stood motionless indefinitely -- correct by the letter of the design and
+ * useless in practice, since the whole point (handoff doc S1) is an agent that
+ * keeps operating without human instruction.
+ *
+ * These repeat forever with escalating targets, which also turns "how much did
+ * it get done" into a countable number: cycles completed per hour.
+ */
+export const SUSTAINING = [
+  {
+    id: 'stockpile_wood',
+    describe: n => `Stockpile ${8 + n * 4} oak logs.`,
+    done: (b, n) => countItem(b, 'oak_log') >= 8 + n * 4,
+    progress: (b, n) => `${countItem(b, 'oak_log')}/${8 + n * 4} oak_log`,
+    hint: 'gather with block=oak_log.',
+  },
+  {
+    id: 'stockpile_stone',
+    describe: n => `Stockpile ${16 + n * 8} cobblestone.`,
+    done: (b, n) => countItem(b, 'cobblestone') >= 16 + n * 8,
+    progress: (b, n) => `${countItem(b, 'cobblestone')}/${16 + n * 8} cobblestone`,
+    hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
+  },
+  {
+    id: 'patrol',
+    describe: () => 'Scout terrain away from home and come back.',
+    done: b => b.entity.position.distanceTo(
+      { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }) > 80,
+    progress: b => `${Math.round(b.entity.position.distanceTo(
+      { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }))}/80 blocks out`,
+    hint: 'goto somewhere 80+ blocks from home, staying inside the border.',
+  },
+  {
+    id: 'return',
+    describe: () => 'Return home with what you gathered.',
+    done: b => b.entity.position.distanceTo(
+      { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }) < 15,
+    progress: b => `${Math.round(b.entity.position.distanceTo(
+      { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }))} blocks from home`,
+    hint: 'use the home skill.',
+  },
+]
+
 export class MilestoneController {
   constructor(bot, role = config.bot.role) {
     this.bot = bot
@@ -115,10 +161,15 @@ export class MilestoneController {
 
   status() {
     const m = this.current()
-    if (!m) return { id: 'all_complete', describe: 'All milestones complete.', progress: '-', hint: '' }
+    if (!m) return { id: 'idle', describe: 'Nothing to do.', progress: '-', hint: '' }
+    const n = this.cycle
     let progress = '-'
-    try { progress = m.progress(this.bot) } catch { /* entity may be gone mid-respawn */ }
-    return { id: m.id, describe: m.describe, progress, hint: m.hint }
+    try { progress = m.progress(this.bot, n) } catch { /* entity gone mid-respawn */ }
+    const describe = typeof m.describe === 'function' ? m.describe(n) : m.describe
+    return {
+      id: this.index < MILESTONES.length ? m.id : `${m.id}#${n}`,
+      describe, progress, hint: m.hint,
+    }
   }
 
   get completedCount() { return this.index }

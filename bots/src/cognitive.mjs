@@ -82,13 +82,12 @@ export class CognitiveLoop {
   async #tick(trigger) {
     if (this.stopped || this.runner.isBusy()) return
 
+    const wasChainDone = this.milestones.chainComplete
     this.milestones.refresh()
-    if (this.milestones.allDone) {
-      log('info', 'all milestones complete', { decisions: this.decisions })
-      this.memory.addEvent('all milestones complete')
-      this.running = false
-      try { this.bot.chat('all milestones complete') } catch {}
-      return
+    if (!wasChainDone && this.milestones.chainComplete) {
+      log('info', 'fixed milestone chain complete, entering sustaining loop', { decisions: this.decisions })
+      this.memory.addEvent('finished the tool-crafting chain; now stockpiling and scouting on a loop')
+      try { this.bot.chat('tool chain complete — switching to sustaining goals') } catch {}
     }
 
     const milestone = this.milestones.status()
