@@ -1,0 +1,13 @@
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    ports:
+      - "80:3000"
+    volumes:
+      - /srv/homepage/config:/app/config
+    environment:
+      # Required since v0.9 -- homepage refuses requests whose Host header
+      # is not listed here, and the failure looks like a blank page.
+      HOMEPAGE_ALLOWED_HOSTS: "mcai.lan,mcai,localhost,mcai.lan:80"
+    restart: unless-stopped

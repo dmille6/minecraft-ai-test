@@ -1,0 +1,62 @@
+- Minecraft:
+    - Paper Server:
+        icon: mdi-minecraft
+        description: 1.21.11 · offline-mode · border 1950
+        server: localhost
+        widget:
+          type: minecraft
+          url: udp://mcai.lan:25565
+    - Agent (Scout01):
+        icon: mdi-robot
+        description: mineflayer harness · systemd mcbot@scout
+        href: http://mcelk.lan:5601/app/discover
+    - World Info:
+        icon: mdi-map
+        description: pregen r2000 · nether r250 · arena at 300,70,300
+
+- Observability:
+    - Kibana:
+        icon: kibana
+        href: http://mcelk.lan:5601
+        description: dashboards · Minecraft AI — Overview
+        siteMonitor: http://mcelk.lan:5601/api/status
+    - Elasticsearch:
+        icon: elasticsearch
+        href: http://mcelk.lan:9200
+        description: mcai-mc · mcai-skill · mcai-llm · 180d retention
+    - Agent Telemetry:
+        icon: mdi-chart-line
+        description: skill outcomes and LLM calls
+        href: http://mcelk.lan:5601/app/dashboards
+
+- Inference:
+    - Ollama — Mac Studio M4 Max:
+        icon: ollama
+        href: http://studio.lan:11434
+        description: 18 models · 21ms · primary
+        siteMonitor: http://studio.lan:11434/api/version
+    - Ollama — RTX 5080:
+        icon: ollama
+        href: http://gpu-host.lan:11434
+        description: 5 models · embeddings · 81ms
+        siteMonitor: http://gpu-host.lan:11434/api/version
+
+- Hosts:
+    - mcai (Minecraft + agents):
+        icon: mdi-server
+        href: http://mcai.lan:61208
+        description: 6 vCPU · 16 GB · mcai.lan
+        widget:
+          type: glances
+          url: http://mcai.lan:61208
+          metric: info
+          version: 4
+    - mcelk (ELK + Hermes):
+        icon: mdi-server
+        href: http://mcelk.lan:61208
+        description: 4 vCPU · 16 GB · mcelk.lan
+        widget:
+          type: glances
+          url: http://mcelk.lan:61208
+          metric: info
+          version: 4

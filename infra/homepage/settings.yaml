@@ -1,0 +1,21 @@
+title: Minecraft AI Testbed
+description: Agent experiments — server, telemetry, inference
+theme: dark
+color: slate
+headerStyle: boxed
+layout:
+  Minecraft:
+    style: row
+    columns: 3
+  Agents:
+    style: row
+    columns: 2
+  Observability:
+    style: row
+    columns: 3
+  Inference:
+    style: row
+    columns: 2
+  Hosts:
+    style: row
+    columns: 2

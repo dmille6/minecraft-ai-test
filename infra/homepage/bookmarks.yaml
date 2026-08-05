@@ -1,0 +1,14 @@
+- Project:
+    - GitHub Repo:
+        - abbr: GH
+          href: https://github.com/dmille6/minecraft-ai-test
+- Reference:
+    - Mineflayer API:
+        - abbr: MF
+          href: https://prismarinejs.github.io/mineflayer/
+    - PaperMC Docs:
+        - abbr: PA
+          href: https://docs.papermc.io/
+    - Hermes Agent:
+        - abbr: HA
+          href: https://github.com/NousResearch/hermes-agent
