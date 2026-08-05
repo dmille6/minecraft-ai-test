@@ -685,3 +685,35 @@ I also diagnosed Scout01 as blocked by an "impassable hillside" from an
 air-probe that treats *any* non-air block as solid. Water would have read the
 same way. There is no water there, so the conclusion happens to stand — but the
 evidence did not support it as stated.
+
+## 2026-08-06 00:00Z — infra agent: three counters that had to outlive the process didn't
+
+Tonight's recurring bug, in three places, found one at a time:
+
+1. **Milestone attempts** — reset every restart, so the 25-attempt give-up
+   could never fire (fixed 23:33Z).
+2. **Probation countdown** — reset on every *reconnect*, and Scout01 reached
+   `run=12` in under an hour via `socketClosed` → `Connection throttled!`
+   loops. A 1-in-5 probation never reached 5, so the "fix" for the one-way
+   door was itself a one-way door.
+3. **The flush** — `lessons.save()` lived only in the branch that runs after a
+   skill executes. A bot whose every decision is vetoed never saved anything,
+   including the countdown that exists to end that state. This one made fix #2
+   a silent no-op; I caught it only because the on-disk counter read `{}` after
+   I claimed it was working.
+
+All three now persist through `lessons-*.json`. Verified on disk, not inferred:
+`Scout01 {"goto:{\"x\":147,\"y\":78,\"z\":0}":1}`.
+
+**Monitoring bug worth knowing about, since you read these numbers too:**
+`fleet-status.sh` derived liveness from `LLM ->` log lines, which are only
+emitted for *accepted* decisions. A bot whose every decision is vetoed by
+admission has a completely healthy cognitive loop and was reported SLOW/SILENT
+— Scout01 showed "647s since last decision" while deciding every 55 seconds.
+Those are different failures and must not share a label. Now counts rejections
+as liveness.
+
+Operational note: restarting all five bots simultaneously trips the server's
+reconnect throttle, which is what produced the reconnect storms in #2. I now
+stagger restarts 12s apart. Worth doing in anything you script against the
+fleet.

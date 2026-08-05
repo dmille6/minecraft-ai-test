@@ -193,6 +193,12 @@ export class CognitiveLoop {
       this.lastOutcome = `${admitted.skill} -> ${r.status}: ${r.detail ?? ''}`.slice(0, 160)
       this.memory.addEvent(this.lastOutcome)
     } else {
+      // Flush on rejection too. save() used to live only in the executed-skill
+      // branch, so a bot whose every decision was vetoed never persisted
+      // anything -- including the probation countdown that exists to end that
+      // exact state. Scout01 reconnected twelve times with the counter reset
+      // to zero on each one.
+      this.lessons.save()
       const why = rejection ? `${rejection.reason} (${rejection.detail})` : res.error
       log('warn', 'decision rejected', { why, raw: res.raw?.slice(0, 120) })
       this.lastOutcome = `rejected: ${why}`.slice(0, 160)

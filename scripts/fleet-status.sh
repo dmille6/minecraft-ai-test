@@ -7,6 +7,11 @@
 # Three distinct failure modes it separates, because they need different fixes:
 #   DEAD     process gone            -> systemd should have restarted it
 #   SILENT   alive, no decisions     -> cognitive loop stalled
+#
+# "Decision" counts REJECTED decisions too. Only accepted ones log "LLM ->",
+# so a bot whose every choice is vetoed by admission has a perfectly healthy
+# loop and used to read as SILENT. Observed live: Scout01 deciding every 55s,
+# reported as 647s stale. Those are different bugs and must not share a label.
 #   WEDGED   deciding, not moving    -> terrain; watchdog will teleport
 
 set -uo pipefail
@@ -36,7 +41,7 @@ for U in $(systemctl list-units 'mcbot@*' --no-legend --plain 2>/dev/null | awk 
   NAME=$(sudo grep -oP '(?<=^BOT_NAME=).*' /srv/mcbots/harness/env/$INST.env 2>/dev/null)
   ACT=$(systemctl is-active "$U")
   LAST=$(sudo journalctl -u "$U" --since "-20 min" -o short-unix 2>/dev/null \
-         | grep -E 'LLM ->' | tail -1 | cut -d. -f1)
+         | grep -E 'LLM ->|decision rejected' | tail -1 | cut -d. -f1)
   AGE=$([ -n "$LAST" ] && echo $(( now - LAST )) || echo -1)
   RUN=$(sudo jq -r '.runs // "?"' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
   AV=$(sudo jq -r '.avoid | length' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)

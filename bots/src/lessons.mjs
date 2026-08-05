@@ -151,6 +151,23 @@ export class Lessons {
     this.dirty = true
   }
 
+  /**
+   * Count one probation block and report the running total.
+   *
+   * Lives here, not in AdmissionControl, because a reconnect builds a fresh
+   * controller. Scout01 reached run=12 in under an hour -- every socketClosed
+   * reset an in-memory tally to zero, so a 1-in-5 probation never reached 5
+   * and the block stayed permanent exactly as before the fix. Third time today
+   * that a counter which had to outlive the process was kept in memory.
+   */
+  bumpBlocked(k) {
+    const p = (this.data.progress ??= {})
+    p.blocked ??= {}
+    p.blocked[k] = (p.blocked[k] ?? 0) + 1
+    this.dirty = true
+    return p.blocked[k]
+  }
+
   /** How many times this exact action has failed, across ALL runs. */
   failCount(skill, args) {
     return this.data.avoid[key(skill, args)]?.fails ?? 0

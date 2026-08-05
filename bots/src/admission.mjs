@@ -167,7 +167,10 @@ export class AdmissionControl {
       // is the inverse the guard was missing -- the fifth instance of this
       // shape in this codebase.
       const k = AdmissionControl.key(skill, args)
-      const n = (this.blockedCount[k] = (this.blockedCount[k] ?? 0) + 1)
+      // Persisted: a reconnect must not reset the countdown (see bumpBlocked).
+      const n = this.lessons?.bumpBlocked
+        ? this.lessons.bumpBlocked(k)
+        : (this.blockedCount[k] = (this.blockedCount[k] ?? 0) + 1)
       if (n % 5 !== 0) {
         return {
           ok: false, reason: 'learned_avoid',
