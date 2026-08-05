@@ -60,6 +60,7 @@ export class Runner {
       return { status: 'failed', detail: `busy with ${this.current.skill}; send "stop" first` }
     }
 
+    this.watchdog?.noteActivity()
     const controller = new AbortController()
     const startedAt = Date.now()
     const invBefore = inventorySummary(this.bot)

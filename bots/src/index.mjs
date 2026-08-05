@@ -17,6 +17,7 @@ import { startReflexes } from './reflex.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot } from './state.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
+import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
 
@@ -24,6 +25,7 @@ let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
 let cognitive = null
+let watchdog = null
 
 function connect() {
   log('info', 'connecting', {
@@ -92,6 +94,11 @@ function connect() {
 
     if (config.llm.enabled) {
       cognitive = new CognitiveLoop(bot, runner)
+      // Only meaningful in autonomous mode -- a chat-driven bot waiting for a
+      // command is idle, not stagnant, and the human is the watchdog.
+      watchdog = new StagnationWatchdog(bot, runner, cognitive)
+      runner.watchdog = watchdog
+      watchdog.start()
       // Give chunks a moment to load before the first perception snapshot,
       // otherwise NEARBY is empty and the first decision is made half-blind.
       setTimeout(() => cognitive.start(), 5000)
@@ -118,6 +125,7 @@ function connect() {
   bot.on('end', reason => {
     if (stopReflexes) { stopReflexes(); stopReflexes = null }
     if (cognitive) { cognitive.stop(); cognitive = null }
+    if (watchdog) { watchdog.stop(); watchdog = null }
     if (stopping) return
     log('warn', 'disconnected, will reconnect', { reason: String(reason), delayMs: reconnectDelay })
     setTimeout(connect, reconnectDelay)
@@ -134,6 +142,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     log('info', 'shutting down', { signal: sig })
     if (stopReflexes) stopReflexes()
     if (cognitive) cognitive.stop()
+    if (watchdog) watchdog.stop()
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })

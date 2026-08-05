@@ -65,6 +65,15 @@ export const config = {
     failedCooldownMs: Number(req('FAILED_COOLDOWN_MS', '45000')),
   },
 
+  watchdog: {
+    // Slower than the reflex layer on purpose -- this looks for "busy but
+    // going nowhere", which only shows up over minutes, not milliseconds.
+    sampleMs: Number(req('WATCHDOG_SAMPLE_MS', '15000')),
+    windowMs: Number(req('WATCHDOG_WINDOW_MS', '180000')),
+    // Movement below this over the whole window counts as no movement.
+    minMoveBlocks: Number(req('WATCHDOG_MIN_MOVE_BLOCKS', '8')),
+  },
+
   llm: {
     enabled: req('LLM_ENABLED', 'false') === 'true',
     baseUrl: req('OLLAMA_BASE_URL', 'http://studio.lan:11434'),
@@ -106,6 +115,15 @@ export const config = {
 // can be attributed to a threshold change rather than guessed at.
 config.code.configHash = crypto.createHash('sha256').update(JSON.stringify({
   reflex: config.reflex, skills: config.skills,
+  watchdog: {
+    // Slower than the reflex layer on purpose -- this looks for "busy but
+    // going nowhere", which only shows up over minutes, not milliseconds.
+    sampleMs: Number(req('WATCHDOG_SAMPLE_MS', '15000')),
+    windowMs: Number(req('WATCHDOG_WINDOW_MS', '180000')),
+    // Movement below this over the whole window counts as no movement.
+    minMoveBlocks: Number(req('WATCHDOG_MIN_MOVE_BLOCKS', '8')),
+  },
+
   llm: { model: config.llm.model, numCtx: config.llm.numCtx,
          temperature: config.llm.temperature, budget: config.llm.promptTokenBudget },
   world: config.world,
