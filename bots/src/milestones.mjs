@@ -17,73 +17,92 @@
 import { countItem } from './state.mjs'
 import { config } from './config.mjs'
 
-export const MILESTONES = [
-  {
-    id: 'stock_wood',
-    describe: 'Collect 8 oak logs. Wood is the base of every tool.',
-    done: b => countItem(b, 'oak_log') >= 8,
-    progress: b => `${countItem(b, 'oak_log')}/8 oak_log`,
-    hint: 'gather with block=oak_log.',
-  },
-  {
-    id: 'make_planks',
-    describe: 'Craft 16 oak planks from your logs.',
-    done: b => countItem(b, 'oak_planks') >= 16,
-    progress: b => `${countItem(b, 'oak_planks')}/16 oak_planks (have ${countItem(b, 'oak_log')} logs)`,
-    hint: 'craft with item=oak_planks. Each log yields 4 planks.',
-  },
-  {
-    id: 'make_sticks',
-    describe: 'Craft 4 sticks.',
-    done: b => countItem(b, 'stick') >= 4,
-    progress: b => `${countItem(b, 'stick')}/4 stick`,
-    hint: 'craft with item=stick. 2 planks make 4 sticks.',
-  },
-  {
-    id: 'crafting_table',
-    describe: 'Craft a crafting table and place it. Tools need one.',
-    done: b => countItem(b, 'crafting_table') >= 1 ||
-               !!b.findBlock({ matching: x => b.registry.blocks[x.type]?.name === 'crafting_table', maxDistance: 12 }),
-    progress: b => countItem(b, 'crafting_table') >= 1 ? 'crafted, now place it' : 'not yet crafted',
-    hint: 'craft with item=crafting_table, then place with item=crafting_table.',
-  },
-  {
-    id: 'wooden_pickaxe',
-    describe: 'Craft a wooden pickaxe. Stone only drops cobblestone if mined with a pickaxe.',
-    done: b => countItem(b, 'wooden_pickaxe') >= 1 || countItem(b, 'stone_pickaxe') >= 1,
-    progress: b => `planks ${countItem(b, 'oak_planks')}, sticks ${countItem(b, 'stick')}`,
-    hint: 'Needs a crafting_table nearby. craft with item=wooden_pickaxe.',
-  },
-  {
-    id: 'get_cobblestone',
-    describe: 'Collect 12 cobblestone.',
-    done: b => countItem(b, 'cobblestone') >= 12,
-    progress: b => `${countItem(b, 'cobblestone')}/12 cobblestone`,
-    hint: 'gather with block=stone, or mine to y=40 first if none is visible.',
-  },
-  {
-    id: 'stone_tools',
-    describe: 'Craft a stone pickaxe.',
-    done: b => countItem(b, 'stone_pickaxe') >= 1,
-    progress: b => `cobblestone ${countItem(b, 'cobblestone')}, sticks ${countItem(b, 'stick')}`,
-    hint: 'Needs a crafting_table nearby. craft with item=stone_pickaxe.',
-  },
-]
+// Role-specific chains. Three bots running the identical chain would fail in
+// the identical way, which teaches us nothing beyond what one bot already
+// showed. Different goals exercise different skills and surface different
+// failure modes -- which is the point of running several.
+//
+// Every chain stays inside what the CURRENT skill set can actually achieve.
+// An impossible goal produces failures that look like bad model judgement,
+// which is the worst kind of confounder.
+
+const M = {
+  gather: (block, n, why) => ({
+    id: `gather_${block}_${n}`,
+    describe: `Collect ${n} ${block}. ${why}`,
+    done: b => countItem(b, block) >= n,
+    progress: b => `${countItem(b, block)}/${n} ${block}`,
+    hint: `gather with block=${block}.`,
+  }),
+  craft: (item, n, why, hint) => ({
+    id: `craft_${item}_${n}`,
+    describe: `Craft ${n} ${item}. ${why}`,
+    done: b => countItem(b, item) >= n,
+    progress: b => `${countItem(b, item)}/${n} ${item}`,
+    hint: hint ?? `craft with item=${item}.`,
+  }),
+  travel: (dx, dz, why) => ({
+    id: `travel_${dx}_${dz}`,
+    describe: `Travel to roughly ${dx},${dz} and report what is there. ${why}`,
+    done: b => Math.hypot(b.entity.position.x - dx, b.entity.position.z - dz) < 25,
+    progress: b => `${Math.round(Math.hypot(b.entity.position.x - dx, b.entity.position.z - dz))} blocks away`,
+    hint: `goto with x=${dx}, y close to your current y, z=${dz}.`,
+  }),
+}
+
+export const MILESTONES_BY_ROLE = {
+  // Wood then distance. Exercises gather + goto, and travelling is where
+  // pathfinding and terrain hazards actually bite.
+  scout: [
+    M.gather('oak_log', 8, 'Wood is the base of every tool.'),
+    M.travel(150, 0, 'Scouting east.'),
+    M.gather('oak_log', 16, 'Restock while out there.'),
+    M.travel(0, 150, 'Scouting south.'),
+  ],
+
+  // The full tool chain. Exercises craft and place, which have entirely
+  // different failure modes from gather -- missing ingredients rather than
+  // unreachable blocks.
+  miner: [
+    M.gather('oak_log', 8, 'Tools start with wood.'),
+    M.craft('oak_planks', 16, 'Each log yields 4 planks.'),
+    M.craft('stick', 8, '2 planks make 4 sticks.'),
+    M.craft('crafting_table', 1, 'Tools need one nearby.',
+            'craft item=crafting_table, then place item=crafting_table.'),
+    M.craft('wooden_pickaxe', 1, 'Stone only drops cobblestone if mined with a pickaxe.',
+            'Needs a crafting_table nearby.'),
+    M.gather('cobblestone', 12, 'Now that you have a pickaxe.'),
+    M.craft('stone_pickaxe', 1, 'Better tools last longer.', 'Needs a crafting_table nearby.'),
+  ],
+
+  // Bulk hand-mineable material. Deliberately simple, so it is the control
+  // case: if THIS bot struggles, the problem is the skill layer, not the goal.
+  gatherer: [
+    M.gather('dirt', 16, 'Hand-mineable building material.'),
+    M.gather('oak_log', 12, 'Wood too.'),
+    M.gather('sand', 8, 'Found near water.'),
+    M.gather('cobblestone', 8, 'Needs a pickaxe; expect this to be hard without one.'),
+  ],
+}
+
+export const MILESTONES = MILESTONES_BY_ROLE.scout   // default / back-compat
 
 export class MilestoneController {
-  constructor(bot) {
+  constructor(bot, role = config.bot.role) {
     this.bot = bot
+    this.chain = MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout
+    this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}
   }
 
-  current() { return MILESTONES[this.index] ?? null }
+  current() { return this.chain[this.index] ?? null }
 
   /** Advance past every milestone whose predicate is now satisfied. */
   refresh() {
     let advanced = false
-    while (this.index < MILESTONES.length) {
-      const m = MILESTONES[this.index]
+    while (this.index < this.chain.length) {
+      const m = this.chain[this.index]
       let done = false
       try { done = m.done(this.bot) } catch { done = false }
       if (!done) break
@@ -103,6 +122,6 @@ export class MilestoneController {
   }
 
   get completedCount() { return this.index }
-  get total() { return MILESTONES.length }
-  get allDone() { return this.index >= MILESTONES.length }
+  get total() { return this.chain.length }
+  get allDone() { return this.index >= this.chain.length }
 }

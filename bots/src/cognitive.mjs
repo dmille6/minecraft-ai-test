@@ -22,13 +22,13 @@ import { openLessons } from './lessons.mjs'
 const SKILL_NAMES = Object.keys(SKILLS)
 
 export class CognitiveLoop {
-  constructor(bot, runner) {
+  constructor(bot, runner, lessons = null) {
     this.bot = bot
     this.runner = runner
     this.llm = makeClient()
     this.memory = new WorkingMemory()
-    this.lessons = openLessons()
-    this.admission = new AdmissionControl()
+    this.lessons = lessons ?? openLessons()
+    this.admission = new AdmissionControl(this.lessons)
     this.milestones = new MilestoneController(bot)
     this.schema = skillSchema(SKILL_NAMES)
     this.system = buildSystemPrompt(SKILL_NAMES)

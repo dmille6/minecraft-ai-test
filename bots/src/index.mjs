@@ -17,6 +17,7 @@ import { startReflexes } from './reflex.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot } from './state.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
+import { openLessons } from './lessons.mjs'
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -25,7 +26,7 @@ let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
 let cognitive = null
-let cognitiveLessons = null
+let lessons = null
 let watchdog = null
 
 function connect() {
@@ -74,8 +75,11 @@ function connect() {
     // "took too long" -- which is indistinguishable from a real failure.
     bot.pathfinder.thinkTimeout = 10000
 
-    // Reflexes record WHERE the bot got hurt, so future runs avoid those places.
-    stopReflexes = startReflexes(bot, runner, cognitiveLessons)
+    // ONE lessons store, shared. Reflexes record where the bot got hurt and
+    // the cognitive layer records which actions failed; both feed the same
+    // persistent memory, and it must exist before either starts.
+    lessons = openLessons()
+    stopReflexes = startReflexes(bot, runner, lessons)
     attachCommands(bot, runner)
 
     const s = snapshot(bot)
@@ -95,8 +99,7 @@ function connect() {
     }
 
     if (config.llm.enabled) {
-      cognitive = new CognitiveLoop(bot, runner)
-      cognitiveLessons = cognitive.lessons
+      cognitive = new CognitiveLoop(bot, runner, lessons)
       // Only meaningful in autonomous mode -- a chat-driven bot waiting for a
       // command is idle, not stagnant, and the human is the watchdog.
       watchdog = new StagnationWatchdog(bot, runner, cognitive)
@@ -129,6 +132,7 @@ function connect() {
     if (stopReflexes) { stopReflexes(); stopReflexes = null }
     if (cognitive) { cognitive.stop(); cognitive = null }
     if (watchdog) { watchdog.stop(); watchdog = null }
+    try { lessons?.save() } catch {}
     if (stopping) return
     log('warn', 'disconnected, will reconnect', { reason: String(reason), delayMs: reconnectDelay })
     setTimeout(connect, reconnectDelay)
@@ -146,6 +150,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     if (stopReflexes) stopReflexes()
     if (cognitive) cognitive.stop()
     if (watchdog) watchdog.stop()
+    try { lessons?.save() } catch {}
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })
