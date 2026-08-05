@@ -29,7 +29,7 @@ export class CognitiveLoop {
     this.memory = new WorkingMemory()
     this.lessons = lessons ?? openLessons()
     this.admission = new AdmissionControl(this.lessons)
-    this.milestones = new MilestoneController(bot)
+    this.milestones = new MilestoneController(bot, config.bot.role, this.lessons)
     this.schema = skillSchema(SKILL_NAMES)
     this.system = buildSystemPrompt(SKILL_NAMES)
     this.running = false

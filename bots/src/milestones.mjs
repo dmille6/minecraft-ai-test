@@ -139,15 +139,27 @@ export const SUSTAINING = [
 ]
 
 export class MilestoneController {
-  constructor(bot, role = config.bot.role) {
+  constructor(bot, role = config.bot.role, lessons = null) {
     this.bot = bot
     this.chain = MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout
     this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}
-    this.attempts = {}
-    this.skipped = []
+    this.lessons = lessons
+
+    // Give-ups and effort survive restarts; completion does not (see
+    // Lessons.getProgress). Without this, a bot that restarts -- and the
+    // watchdog restarts one after three rescues -- begins its chain at
+    // milestone 0 with a clean attempt counter every time, so an unreachable
+    // goal is retried forever and the skip below can never accumulate enough
+    // attempts to fire. Scout01 restarted nine times against the same
+    // impassable hillside before this was wired up.
+    const p = lessons?.getProgress?.() ?? { attempts: {}, skipped: [] }
+    this.attempts = p.attempts
+    this.skipped = p.skipped
   }
+
+  #persist() { this.lessons?.setProgress?.(this.attempts, this.skipped) }
 
   current() { return this.chain[this.index] ?? null }
 
@@ -165,11 +177,13 @@ export class MilestoneController {
     this.attempts[m.id] = (this.attempts[m.id] ?? 0) + (failed ? 1 : 0)
     if (!failed) this.attempts[m.id] = 0
     if (this.attempts[m.id] >= 25) {
-      this.skipped.push(m.id)
+      if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
       this.attempts[m.id] = 0
       this.index++
+      this.#persist()
       return true
     }
+    this.#persist()
     return false
   }
 
@@ -180,8 +194,13 @@ export class MilestoneController {
       const m = this.chain[this.index]
       let done = false
       try { done = m.done(this.bot) } catch { done = false }
-      if (!done) break
-      this.completedAt[m.id] = Date.now()
+      // Step over goals already proven unreachable in an earlier run, or the
+      // restored give-up is worthless -- the chain would stall on them again.
+      if (!done && !this.skipped.includes(m.id)) break
+      // Only genuine completion gets a timestamp. A skipped goal is stepped
+      // over, never recorded as done -- counting a give-up as a success would
+      // corrupt every progress number drawn from this.
+      if (done) this.completedAt[m.id] = Date.now()
       this.index++
       advanced = true
     }

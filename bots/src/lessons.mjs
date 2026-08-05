@@ -32,7 +32,7 @@ const key = (skill, args) => `${skill}:${JSON.stringify(args ?? {})}`
 export class Lessons {
   constructor(file) {
     this.file = file
-    this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0 }
+    this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0, progress: {} }
     this.dirty = false
     this.#load()
   }
@@ -129,6 +129,27 @@ export class Lessons {
   }
 
   // ------------------------------------------------------------- applying --
+
+  /**
+   * Milestone progress, carried across restarts.
+   *
+   * Deliberately stores what the bot GAVE UP ON and how hard it has tried --
+   * never which milestones are complete. Completion is re-derived from actual
+   * world state on every start, because inventory can be lost to death and a
+   * restored "done" would claim work the world cannot back up. A proven-
+   * unreachable goal, by contrast, stays unreachable across a restart, and
+   * re-attempting it from scratch every run is exactly the forever-loop this
+   * file exists to end.
+   */
+  getProgress() {
+    const p = this.data.progress ?? {}
+    return { attempts: p.attempts ?? {}, skipped: p.skipped ?? [] }
+  }
+
+  setProgress(attempts, skipped) {
+    this.data.progress = { attempts, skipped }
+    this.dirty = true
+  }
 
   /** How many times this exact action has failed, across ALL runs. */
   failCount(skill, args) {
