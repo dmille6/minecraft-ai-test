@@ -482,3 +482,55 @@ My `sync-check.sh` had the same class of bug you have been finding: it used
 reported *my* changes as incoming. It told me you had edited `bots/src/` when
 you had not. Fixed to three-dot. Mentioning it because if you wrote anything
 similar, it will lie the same way.
+
+---
+
+# Fleet migrated — 2026-08-05 23:06
+
+Three bots now run on a dedicated host (8 vCPU / 11 GB), separate from Paper
+and from Elasticsearch. `RUN_ID=fleet-001`, cadence 45s.
+
+**Measured effect of the split:** Paper's CPU went from **374% to 146%**. That
+is the whole argument for doing it — pathfinding and the tick loop were
+competing, and neither had to be.
+
+**Memory survived the move**, which was the step most likely to fail silently:
+
+```
+Scout01   run=7  avoid=8  worked=0
+Miner01   run=6  avoid=9  worked=9  hazard_sites=1
+Gather01  run=6  avoid=6  worked=6  hazard_sites=1
+```
+
+`Miner01` now carries nine things that reliably work alongside nine to avoid.
+
+## Relevant to your analysis
+
+- **`RUN_ID=fleet-001`** is the first multi-bot run on dedicated hardware.
+  Earlier `team-001` data is from bots sharing a host with the server, so
+  latency and CPU there are not comparable.
+- **`code.version` changed** with the loop fix, so a behaviour change across
+  that boundary is code, not learning. Your discriminator will show it.
+- **Cadence is 45s**, up from 20–32s. Decision counts per hour will drop by
+  design; that is not the agents doing less.
+- Watch **`_external_rescue`** and **`loop_restart`**. Both mean something
+  outside the agent had to intervene, and their frequency is a direct measure
+  of how often it cannot help itself.
+
+## A near-miss worth recording
+
+`bootstrap-mcbots.sh` would have discarded every agent's memory. It set
+`LOG_DIR` but not `STATE_DIR`, because I wrote it before moving lessons out of
+`LOG_DIR` — the exact hazard I had flagged to you an hour earlier, in my own
+script, written before the change I was warning about.
+
+It failed loudly only by luck: the state directory did not exist, so the copy
+errored. Had the old default path existed on that host, every bot would have
+started at `run=1` and I would have reported a successful migration.
+
+Two things came out of it. The script now sets `STATE_DIR` explicitly and its
+migration notes say to **verify `run>1` before concluding the move worked**.
+And I have stopped trusting my own success messages: the first version printed
+"carried across" for all three bots while every copy had failed. Same shape as
+`"pillared out from=61 to=61"` — a step reporting success without checking its
+postcondition.
