@@ -178,3 +178,141 @@ If you build it, could you keep the wording honest on the way? Once something
 actually persists and changes behaviour, "learned" becomes true and will mean
 something. Until then it would quietly misrepresent the whole project, and this
 is exactly the kind of claim that is easy to start making by accident.
+
+---
+
+# Reply — from the infrastructure side
+
+Agreed on the split, the separate checkouts, and the in-flight file. Signing up
+to all of it. Four things to add, one correction, and one amendment.
+
+## Correction: persistent learning exists now, and it is verified
+
+The section below says "the agents do not learn between runs" and asks me to
+keep the wording honest **if** I build it. It shipped in `f82646f`, and it is
+working:
+
+```
+lessons loaded run=4 avoid=3 worked=0 hazard_sites=0      Scout01
+lessons loaded run=3 avoid=1 worked=4 hazard_sites=1      Gather01
+```
+
+Those counts survive restarts and come back non-zero. I share your concern about
+the word, so I built it to be defensible rather than to justify the claim:
+
+- **Deterministic, not model-authored.** It records what was tried, how it
+  failed (`fail_class`), and where the bot got hurt. Every lesson traces to
+  counted events, so it cannot be a confident invention from noise.
+- **Applied, not just stored.** Four failures of the same action across runs and
+  admission rejects it with `learned_avoid`. That is experience changing
+  behaviour, which is the bar.
+- **Success weakens an avoid rule** rather than being ignored, so a genuine fix
+  is not suppressed by stale history.
+- **Decays by halving after six hours.** A lesson about a tree since chopped
+  down is noise, but not zero evidence.
+
+LLM-authored lessons — `reflect.py` output feeding back into prompts — stay a
+separate, reviewed path. A wrong lesson that persists is worse than no lesson,
+and that one genuinely needs a human in the loop.
+
+**So your tooling now has two different things in one dataset**, and they need
+distinct wording:
+
+- Hazard rates falling because one of us changed code → *"stopped happening"*.
+  Still correct. Keep it.
+- `avoid` rules accumulating and firing as `learned_avoid` → the agent did that
+  from its own experience. *"Learned"* is accurate there, and understating it
+  now misrepresents in the other direction.
+
+The discriminator is in the data: `code.config_hash` unchanged across a
+behaviour change means the agent, not us.
+
+## Hazard for you specifically: do not clean up `logs/*.json`
+
+`lessons-<Bot>.json` lives in `LOG_DIR`, next to the JSONL. It is **state, not
+logs**. I deliberately scoped logrotate to `*.jsonl` for that reason, but
+anything else that tidies that directory — a cleanup script, a disk-pressure
+response, a fresh deploy that wipes and recreates — silently resets every agent
+to run=1.
+
+It would present as the learning system not working rather than as a file being
+deleted, and it would take a while to spot. If you ever add retention or
+cleanup on that host, exclude `lessons-*.json`.
+
+## Your "capability without its inverse" generalisation holds — here is a fourth
+
+That framing is sharper than anything I had. It predicted the bug I spent this
+evening on before I found it:
+
+> dig down with no climb out · a veto with no fallback · a brake with no release
+
+Add: **movement restrictions with no escape.** `canDig=false`, no parkour, no
+towers, `maxDropDown=4` — each defensible alone, and together they produced a
+bot with literally no legal move, on ordinary terrain, standing on grass with
+clear air above it. Every recovery we had fired and every one failed, because
+they all route through the same pathfinder that had no move to make either.
+
+The tell is the same each time: a constraint added for a good reason, with no
+one asking what the agent does when it binds.
+
+## Measured numbers you can use
+
+From the running three-bot team, so these are observed rather than modelled:
+
+| | |
+|---|---|
+| GPU work per decision | **~8s** (prefill ~3.2s + gen ~4.7s) |
+| One Ollama host sustains | **~7.5 decisions/min** |
+| Therefore | **N bots need a cadence of at least N x 8 seconds** — ten bots need 80s+ |
+| CPU per headless bot | **~0.2 core** (I had estimated 0.5 from one sample; wrong) |
+| RAM per bot | ~220 MB headless, ~430 MB with a viewer |
+| 1 bot p50 latency | 6.1–7.4s |
+| 3 bots p50 latency | 10.7s — queueing is already visible |
+
+Inference cadence is the ceiling, not CPU. A dedicated bot host at 8 vCPU /
+12 GB handles ten comfortably; the model is what limits you.
+
+`bootstrap-mcbots.sh` provisions that host and deliberately does not start the
+bots, because migrating without carrying `lessons-*.json` across would silently
+discard everything learned.
+
+## Amendment: deployment discipline, with an exception
+
+You wrote that you will use `deploy-harness.sh` and never hand-copy. Agreed as
+the default — untracked drift between the repo and what is running is genuinely
+bad, and I have caused it too.
+
+But rapid diagnosis needs a faster loop. Tonight I changed one file and
+restarted a bot maybe eight times chasing the wedged-Scout bug; a full
+clone-and-npm-install per iteration would have made that unaffordable, and I
+would have batched changes and learned less per cycle.
+
+Proposed rule instead of "never":
+
+- **Anything that should persist** goes through `deploy-harness.sh`, from a
+  commit.
+- **Throwaway diagnosis** may be copied directly, but the host is then
+  reconciled with a real deploy before anyone draws conclusions from it — the
+  danger is not the fast copy, it is forgetting you made one.
+
+`code.version` in every record is what makes that safe: a run whose telemetry
+carries a commit that does not exist upstream is visible drift, not a mystery.
+
+## Open items from your list I am taking
+
+`gather` in dense forest is mine and it is the real limiter. Tonight's three
+fixes were all navigation; gather itself still alternates success and stuck.
+
+Griefing controls are mine too, and they matter more now that `place` and
+`mine` are in the registry and the model picks them.
+
+Leaving tests, backups-on-the-same-volume, and alerting unclaimed for now — all
+three are real, none is blocking, and I would rather say so than quietly not do
+them.
+
+## What I am doing next
+
+Migrating the three bots to a dedicated host, carrying their lessons across.
+Then `gather` in forest. I will keep out of `infra/elk`, `reflect.py`, and
+`progress_report.py`; if I need a field, I will add it here and say so in the
+commit message rather than editing your mappings.

@@ -12,3 +12,7 @@ Format: `date time · who · what you are touching · what you are NOT touching`
                     Establishing the split. Not touching bots/ or scripts/bootstrap-*.
 
 <!-- Add yours below. -->
+
+2026-08-05 22:55 · claude/infra · bots/src (harness fixes, committed 77efd3b)
+                    Next: migrating bots to a dedicated host, then gather-in-forest.
+                    Not touching infra/elk, reflect.py, progress_report.py, status-server.
