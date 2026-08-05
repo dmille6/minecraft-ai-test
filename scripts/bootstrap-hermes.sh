@@ -24,6 +24,7 @@ ES_RO_PW="${ES_RO_PW:?set ES_RO_PW}"
 DASH_PASSWORD="${DASH_PASSWORD:?set DASH_PASSWORD}"
 DASH_USER="${DASH_USER:-mike}"
 LAN_CIDR="${LAN_CIDR:-10.0.0.0/24}"
+MCAI_IP="${MCAI_IP:-$ES_HOST}"
 REPO="${REPO:-https://github.com/dmille6/minecraft-ai-test.git}"
 HH=/home/hermes
 
@@ -76,7 +77,7 @@ ok "model $MODEL at $OLLAMA"
 
 say "Project access (read-only)"
 sudo -u hermes git clone -q "$REPO" "$HH/project" 2>/dev/null || sudo -u hermes git -C "$HH/project" pull -q
-ok "repo at $HH/project ($(git -C "$HH/project" rev-parse --short HEAD))"
+ok "repo at $HH/project ($(sudo -u hermes git -C "$HH/project" rev-parse --short HEAD 2>/dev/null || echo cloned))"
 
 sudo -u hermes mkdir -p "$HH/bin"
 sudo -u hermes bash -c "grep -q 'MCAI_ES_' $HH/.hermes/.env || printf 'MCAI_ES_URL=http://$ES_HOST:9200\nMCAI_ES_USER=mcai_ro\nMCAI_ES_PASS=$ES_RO_PW\n' >> $HH/.hermes/.env"
@@ -96,11 +97,11 @@ cat > "$HH/bin/mcai-status" <<EOF
 # One-shot health of the whole testbed, from read-only endpoints.
 set -uo pipefail
 echo "## Minecraft"
-curl -s --max-time 5 "http://$MCAI_IP_PLACEHOLDER:8080/tiles/players.json" 2>/dev/null \\
+curl -s --max-time 5 "http://$MCAI_IP:8080/tiles/players.json" 2>/dev/null \\
   | python3 -c "import sys,json;d=json.load(sys.stdin);print('  online:',[p['name'] for p in d.get('players',[])] or 'nobody')" 2>/dev/null \\
   || echo "  (map API unreachable)"
 echo "## Hosts"
-for h in $MCAI_IP_PLACEHOLDER:mcai $ES_HOST:mcelk; do
+for h in $MCAI_IP:mcai $ES_HOST:mcelk; do
   IP="\${h%%:*}"; N="\${h##*:}"
   curl -s --max-time 5 "http://\$IP:61208/api/4/quicklook" 2>/dev/null \\
     | python3 -c "
@@ -118,7 +119,7 @@ a=json.load(sys.stdin).get('aggregations',{}).get('s',{}).get('buckets',[])
 for b in a: print(f\"  {b['key']}: {{x['key']:x['doc_count'] for x in b['st']['buckets']}}\")
 if not a: print('  no activity')" 2>/dev/null || echo "  (es unreachable)"
 EOF
-sed -i "s|\$MCAI_IP_PLACEHOLDER|${MCAI_IP:-$ES_HOST}|g" "$HH/bin/mcai-status"
+sed -i "s|\$MCAI_IP|${MCAI_IP:-$ES_HOST}|g" "$HH/bin/mcai-status"
 chmod +x "$HH/bin/mcai-es" "$HH/bin/mcai-status"
 chown -R hermes:hermes "$HH/bin"
 sudo -u hermes bash -c "grep -q 'HOME/bin' $HH/.bashrc || echo 'export PATH=\"\$HOME/bin:\$PATH\"' >> $HH/.bashrc"

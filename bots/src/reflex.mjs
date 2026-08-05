@@ -12,6 +12,8 @@ import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
 import { isNight, snapshot } from './state.mjs'
 import { Vec3 } from 'vec3'
+import pathfinderPkg from 'mineflayer-pathfinder'
+const pkgGoals = pathfinderPkg?.goals
 
 const FOOD_PRIORITY = [
   'golden_carrot', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton',
@@ -283,13 +285,54 @@ async function escape(bot) {
   bot.clearControlStates()
 }
 
-/** Small random hop to break out of a pathfinder corner case. */
+/**
+ * Break out of a stuck state -- and VERIFY it worked.
+ *
+ * The first version was a 600ms jump-and-hop. Telemetry over 44 firings showed
+ * the agent was in the same place afterwards 35 times: 80% ineffective. A
+ * recovery that usually does not recover is barely better than none, and it
+ * costs a decision cycle each time.
+ *
+ * Now it escalates: nudge, then sprint in a random direction, then a real
+ * pathfinding move to somewhere genuinely different -- checking after each
+ * step whether the agent actually relocated.
+ */
 async function unstick(bot) {
+  const start = bot.entity.position.clone()
+  const movedEnough = () => bot.entity.position.distanceTo(start) >= 3
+
+  // 1. cheap nudge
   bot.setControlState('jump', true)
   bot.setControlState('back', true)
   await sleep(600)
   bot.clearControlStates()
   await bot.look(Math.random() * Math.PI * 2, 0, true).catch(() => {})
+  if (movedEnough()) return
+
+  // 2. sprint out of whatever geometry is holding us
+  bot.setControlState('sprint', true)
+  bot.setControlState('forward', true)
+  bot.setControlState('jump', true)
+  await sleep(1600)
+  bot.clearControlStates()
+  if (movedEnough()) return
+
+  // 3. commit to going somewhere else entirely
+  try {
+    const ang = Math.random() * Math.PI * 2
+    const d = 18 + Math.random() * 14
+    const gp = pkgGoals && new pkgGoals.GoalNear(
+      Math.round(start.x + Math.cos(ang) * d),
+      Math.round(start.y),
+      Math.round(start.z + Math.sin(ang) * d), 2)
+    if (gp) await Promise.race([bot.pathfinder.goto(gp), sleep(9000)])
+  } catch { /* pathfinder may refuse; nothing further to try here */ }
+
+  if (!movedEnough()) {
+    log('warn', 'reflex: unstick FAILED, still in place', {
+      at: `${start.x.toFixed(0)},${start.y.toFixed(0)},${start.z.toFixed(0)}`,
+    })
+  }
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))

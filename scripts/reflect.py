@@ -85,6 +85,77 @@ def gather_facts(hours):
         reasons[f'{s.get("name")}: {d}'] += 1
     facts["failure_reasons"] = reasons.most_common(15)
 
+    # --- STAGNATION: the failure mode every health signal misses ----------
+    #
+    # An agent can be deciding every 20s, executing skills, reporting success,
+    # and be completely stuck. Observed live: 20 minutes entombed at y=49 while
+    # decision rate, latency, and schema validity all looked perfect. Failed
+    # ACTIONS are visible; stalled PROGRESS is not, unless you measure it.
+    moves = es("mcai-skill-agents/_search", {
+        "size": 400, "query": rng,
+        "_source": ["@timestamp", "bot.pos", "skill.name", "skill.status",
+                    "skill.inventory_delta", "skill.distance_moved", "run_id"],
+        "sort": [{"@timestamp": "asc"}]})
+    pts = [h["_source"] for h in moves["hits"]["hits"]]
+    if pts:
+        xs = [p.get("bot", {}).get("pos", {}).get("x") for p in pts]
+        ys = [p.get("bot", {}).get("pos", {}).get("y") for p in pts]
+        zs = [p.get("bot", {}).get("pos", {}).get("z") for p in pts]
+        xs = [v for v in xs if v is not None]; ys = [v for v in ys if v is not None]
+        zs = [v for v in zs if v is not None]
+        gained = sum(v for p in pts for v in (p.get("skill", {}).get("inventory_delta") or {}).values() if v > 0)
+        dist = sum(p.get("skill", {}).get("distance_moved") or 0 for p in pts)
+        facts["stagnation"] = {
+            "actions_recorded": len(pts),
+            "position_spread_blocks": {
+                "x": round(max(xs) - min(xs), 1) if xs else None,
+                "y": round(max(ys) - min(ys), 1) if ys else None,
+                "z": round(max(zs) - min(zs), 1) if zs else None,
+            },
+            "lowest_y": round(min(ys), 1) if ys else None,
+            "median_y": round(sorted(ys)[len(ys) // 2], 1) if ys else None,
+            "total_distance_moved": round(dist),
+            "total_items_gained": gained,
+            "items_per_100_actions": round(gained / max(len(pts), 1) * 100, 1),
+            "_read_me": ("A small position spread combined with many actions means the "
+                         "agent was busy but going nowhere. lowest_y far below median_y "
+                         "suggests it fell or dug into somewhere it could not leave."),
+        }
+
+    # --- DID RECOVERIES ACTUALLY RECOVER? ----------------------------------
+    #
+    # A recovery routine that reports success while the agent is still trapped
+    # is worse than one that fails loudly -- it hides the problem from the log
+    # and from this report. Observed: "pillared out from=61 to=61".
+    rec = es("mcai-skill-agents/_search", {
+        "size": 200, "query": {"bool": {"filter": [rng, {"terms": {"skill.name": [
+            "_entombed", "_livelock_escape", "_reflex_stuck", "_trapped_in_canopy"]}}]}},
+        "_source": ["@timestamp", "skill.name", "bot.pos"],
+        "sort": [{"@timestamp": "asc"}]})
+    events = [h["_source"] for h in rec["hits"]["hits"]]
+    effect = {}
+    for i, e in enumerate(events):
+        kind = e.get("skill", {}).get("name")
+        here = e.get("bot", {}).get("pos") or {}
+        nxt = next((p for p in pts if p["@timestamp"] > e["@timestamp"]), None)
+        d = None
+        if nxt and here:
+            there = nxt.get("bot", {}).get("pos") or {}
+            if there:
+                d = round(((there.get("x", 0) - here.get("x", 0)) ** 2 +
+                           (there.get("y", 0) - here.get("y", 0)) ** 2 +
+                           (there.get("z", 0) - here.get("z", 0)) ** 2) ** 0.5, 1)
+        b = effect.setdefault(kind, {"fired": 0, "moved_after": 0, "did_not_move": 0})
+        b["fired"] += 1
+        if d is None: continue
+        if d >= 3: b["moved_after"] += 1
+        else: b["did_not_move"] += 1
+    if effect:
+        facts["recovery_effectiveness"] = effect
+        facts["recovery_effectiveness"]["_read_me"] = (
+            "did_not_move means the recovery ran and the agent was in the same place "
+            "afterwards -- the recovery is not working, regardless of what it logged.")
+
     # --- llm decisions -----------------------------------------------------
     try:
         llm = es("mcai-llm-agents/_search", {
@@ -150,6 +221,12 @@ Timeouts nest and the ordering is load-bearing:
 Diagnose what is actually limiting this agent, using the numbers. Then give me
 CONCRETE changes, each one specific enough to implement without guessing:
 
+0. FIRST: was the agent ever STUCK OR TRAPPED rather than merely failing?
+   Check `stagnation` and `recovery_effectiveness`. A small position spread with
+   many actions, or a lowest_y far below median_y, or a recovery whose
+   did_not_move count is high, all mean the agent was going nowhere while every
+   other signal looked healthy. Say so plainly if you see it -- this is the
+   failure mode that hides behind good-looking decision rates and latency.
 1. The single biggest cause of wasted time or failure, with the evidence.
 2. Up to five specific changes, each labelled SKILL / PROMPT / CONFIG / NEW-SKILL,
    with the exact behaviour you want and why the data supports it.
