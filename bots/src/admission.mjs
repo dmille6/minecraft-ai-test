@@ -88,8 +88,16 @@ export class AdmissionControl {
       if (d > config.world.borderRadius) {
         return { ok: false, reason: 'outside_border', detail: `${Math.round(d)} > ${config.world.borderRadius}` }
       }
-      if (Number(y) < -60 || Number(y) > 300) {
-        return { ok: false, reason: 'bad_args', detail: `y=${y} implausible` }
+      // Absolute bounds are far too loose to be useful: the model repeatedly
+      // chose y=140 while standing at y=70, which passes any sane global check
+      // and then fails to path because it is 70 blocks up in open sky.
+      // Plausibility is RELATIVE to where the bot currently is.
+      const dy = Math.abs(Number(y) - bot.entity.position.y)
+      if (dy > 40) {
+        return {
+          ok: false, reason: 'unreachable_elevation',
+          detail: `y=${y} is ${Math.round(dy)} blocks from your y=${bot.entity.position.y.toFixed(0)}`,
+        }
       }
     }
 

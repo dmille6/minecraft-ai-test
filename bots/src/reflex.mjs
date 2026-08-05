@@ -8,9 +8,9 @@
 // calmly pathfinding into lava because it is "busy gathering" is the failure
 // mode this layer exists to prevent.
 
-import { log } from './logger.mjs'
+import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
-import { isNight } from './state.mjs'
+import { isNight, snapshot } from './state.mjs'
 
 const FOOD_PRIORITY = [
   'golden_carrot', 'cooked_beef', 'cooked_porkchop', 'cooked_mutton',
@@ -33,6 +33,7 @@ export function startReflexes(bot, runner) {
       // --- drowning -------------------------------------------------------
       if (bot.oxygenLevel != null && bot.oxygenLevel <= 4) {
         log('warn', 'reflex: drowning, surfacing')
+        logEvent({ kind: 'reflex_drowning', detail: `oxygen ${bot.oxygenLevel}`, snapshot: snapshot(bot) })
         runner.interrupt('drowning')
         bot.setControlState('jump', true)
         setTimeout(() => bot.setControlState('jump', false), 1200)
@@ -44,6 +45,7 @@ export function startReflexes(bot, runner) {
       const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
       if (DANGER_BLOCKS.has(feet?.name) || DANGER_BLOCKS.has(below?.name)) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
+        logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
         runner.interrupt('danger_block')
         await escape(bot)
         return
@@ -57,6 +59,7 @@ export function startReflexes(bot, runner) {
         if (!lowHealthLatched) {
           lowHealthLatched = true
           log('warn', 'reflex: health low, disengaging', { health: round1(bot.health) })
+          logEvent({ kind: 'reflex_low_health', detail: `health ${round1(bot.health)}`, snapshot: snapshot(bot) })
           if (runner.isBusy()) runner.interrupt('low_health')
         }
       } else if (bot.health != null && bot.health > config.reflex.fleeBelowHealth + 4) {
@@ -72,6 +75,7 @@ export function startReflexes(bot, runner) {
             await bot.equip(food, 'hand')
             await bot.consume()
             log('info', 'reflex: ate', { item: food.name, food: bot.food })
+            logEvent({ kind: 'reflex_ate', detail: food.name, snapshot: snapshot(bot) })
           } catch (e) {
             log('debug', 'reflex: eat failed', { err: e.message })
           } finally {
@@ -97,6 +101,7 @@ export function startReflexes(bot, runner) {
 
       if (runner.isBusy() && !digging && Date.now() - stillSince > config.reflex.stuckSeconds * 1000) {
         log('warn', 'reflex: stuck, cancelling path', { seconds: config.reflex.stuckSeconds })
+        logEvent({ kind: 'reflex_stuck', detail: `no movement for ${config.reflex.stuckSeconds}s`, snapshot: snapshot(bot) })
         stillSince = Date.now()
         runner.interrupt('stuck')
         try { bot.pathfinder?.stop() } catch { /* pathfinder may be idle */ }

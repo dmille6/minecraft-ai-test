@@ -14,7 +14,7 @@ import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
-import { logLlm, log } from './logger.mjs'
+import { logLlm, logEvent, log } from './logger.mjs'
 import { snapshot } from './state.mjs'
 import { config } from './config.mjs'
 
@@ -69,6 +69,8 @@ export class CognitiveLoop {
     const x = Math.round(p.x + Math.cos(ang) * dist)
     const z = Math.round(p.z + Math.sin(ang) * dist)
     log('warn', 'livelock breaker: relocating', { to: `${x},${z}` })
+    logEvent({ kind: 'livelock_escape', status: 'failed',
+               detail: `fixated on one action; relocating to ${x},${z}`, snapshot: snapshot(this.bot) })
     this.memory.addEvent(`stuck choosing the same action; relocated toward ${x},${z} to find different surroundings`)
     await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
     this.admission.clearRepeatWindow()

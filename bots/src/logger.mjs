@@ -74,6 +74,31 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
 }
 
 /**
+ * One record per notable intervention -- a reflex firing, a circuit-breaker,
+ * a recovery. These previously existed only as console lines, which meant
+ * questions like "how often does drowning actually happen?" were unanswerable.
+ *
+ * Reuses the skill index with a leading underscore on the name (as _death
+ * already does), so it lands in the existing strict mapping unchanged.
+ */
+export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'success' }) {
+  const rec = {
+    '@timestamp': new Date().toISOString(),
+    run_id: config.log.runId,
+    trigger: 'reflex',
+    bot: { name: config.bot.name, role: config.bot.role, ...(snapshot?.bot ?? {}) },
+    game: snapshot?.game ?? {},
+    skill: {
+      name: `_${kind}`, args: {}, status,
+      duration_ms: durationMs, detail: String(detail ?? '').slice(0, 300),
+    },
+  }
+  try { out().write(JSON.stringify(rec) + '\n') }
+  catch (e) { console.error('failed to write event log:', e.message) }
+  return rec
+}
+
+/**
  * One record per LLM decision, matching infra/elk/index-template.json for
  * mcai-llm-*. That mapping is dynamic:strict -- an unexpected key rejects the
  * whole document with no error beyond a dropped-events line in Filebeat.

@@ -79,6 +79,9 @@ export function buildSystemPrompt(skillNames) {
     `Rules:`,
     `- Survival first. If health or hunger is low, prefer safe actions.`,
     `- Stay inside the world border (radius ${config.world.borderRadius} from 0,0).`,
+    `- For goto, y is ELEVATION, not distance. Terrain here sits around y=62-90.`,
+    `  Use a y close to your current one. y=140 is high in the sky and`,
+    `  unreachable; picking it wastes the whole decision.`,
     `- If an action just failed, do NOT repeat it identically; try a different`,
     `  approach or a different target.`,
     `- Crafting needs ingredients. If craft fails for missing materials, gather`,
@@ -110,6 +113,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
     `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
+    `REACHABLE Y RANGE: ${Math.round(p.y) - 30} to ${Math.round(p.y) + 30} (you are at y=${p.y.toFixed(0)})`,
     Object.keys(memory.locations).length
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`
       : '',

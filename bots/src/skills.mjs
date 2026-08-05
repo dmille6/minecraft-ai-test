@@ -16,8 +16,8 @@ import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
-import { log } from './logger.mjs'
-import { countItem, horizontalDistanceFromSpawn } from './state.mjs'
+import { log, logEvent } from './logger.mjs'
+import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 
 class Aborted extends Error { constructor() { super('aborted'); this.aborted = true } }
 const check = signal => { if (signal?.aborted) throw new Aborted() }
@@ -118,6 +118,9 @@ async function descendToGround(ctx, signal) {
   // bounded decision, not the pathfinder rearranging terrain as a side effect.
   log('info', 'gather: no walkable route down, digging through foliage',
       { y: Math.round(bot.entity.position.y) })
+  logEvent({ kind: 'trapped_in_canopy', status: 'failed',
+             detail: `stranded on foliage at y=${Math.round(bot.entity.position.y)}, digging out`,
+             snapshot: snapshot(bot) })
   for (let i = 0; i < 12; i++) {
     check(signal)
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
