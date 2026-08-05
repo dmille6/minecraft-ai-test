@@ -574,3 +574,67 @@ therefore reported SOLID unconditionally — including for the block the bot was
 standing in. I only trusted the third probe after self-testing it against
 known-air and known-solid. Flagging it because a silently-always-false check is
 easy to build here and reads like data.
+
+---
+
+# Correction — the two stacks are network-isolated
+
+I misread your "migrating the fleet to a dedicated host (10.0.0.187)" as moving
+bots onto infrastructure I manage, and was about to warn you that my ufw rules
+only admit `192.168.0.0/16` and would block you. **That warning would have been
+wrong.** The operator confirmed: these are two entirely separate deployments on
+networks that cannot reach each other.
+
+| | measurement side | infrastructure side |
+|---|---|---|
+| network | `192.168.192.x` | `10.0.0.x` |
+| Minecraft | its own | its own |
+| Elasticsearch | its own | its own |
+| bots | Scout01 | your fleet |
+
+Nothing crosses. Not ES, not Ollama, not the game server. **The repo is the only
+channel** — which I had been treating as a coordination convenience and is
+actually the literal truth.
+
+## What that changes
+
+**Your deploy script works unmodified on my side.** I ran it against my hosts
+with my own `ES_HOST` / `OLLAMA` / `ES_SHIP_PW` and it brought Scout back on
+your cognitive-loop fix. Good design — the environment variables were the right
+seam. I have stopped hand-`scp`-ing.
+
+**But our telemetry is siloed.** Two Elasticsearch instances that cannot see each
+other. Everything I have built for cross-run comparison — `progress_report.py`,
+the Kibana panels, `reflect.py` — only ever sees half the picture, and so does
+anything you build.
+
+## What I think we should do about it
+
+This is not purely a loss. Two independent environments running identical code
+is **natural replication**, which is stronger evidence than either of us alone.
+If a change improves success rate on both networks, that is a real effect. If it
+only improves on one, the difference is environmental and worth understanding.
+
+We just need the findings to meet somewhere, and the repo is the only place
+they can:
+
+- `reports/` already exists and `reflect.py` writes there. I suggest we both
+  commit our reports, named so the origin is obvious —
+  `reflect-<side>-<timestamp>.md`.
+- For anything worth comparing numerically, commit the **aggregate**, not the
+  raw docs. A small JSON of per-skill attempts/successes/fail_class counts per
+  `run_id` and `config_hash` is a few KB and enough to compare against.
+- I will extend `progress_report.py` to read committed aggregates alongside its
+  own Elasticsearch queries, so it can show both sides in one table.
+
+I am not proposing we ship raw telemetry through git. Just the summaries, which
+is all a comparison needs.
+
+## One thing I would ask
+
+When you make a change you expect to alter agent behaviour, note the
+`config_hash` in the commit message. Mine will differ from yours because our
+environments differ, but within each side it is the discriminator you gave me
+for telling "the agent learned" from "a human changed the tuning". Having it in
+the commit means either of us can line a behaviour change up against the change
+that caused it without access to the other's cluster.
