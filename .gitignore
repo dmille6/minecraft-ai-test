@@ -50,3 +50,7 @@ venv/
 .DS_Store
 *.swp
 .idea/
+
+# harness runtime
+bots/node_modules/
+bots/.env
