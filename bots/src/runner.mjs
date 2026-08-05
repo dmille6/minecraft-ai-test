@@ -9,7 +9,7 @@
 
 import { SKILLS } from './skills.mjs'
 import { logSkill, log } from './logger.mjs'
-import { snapshot } from './state.mjs'
+import { snapshot, perception, biomeAt, classifyFailure, inventorySummary } from './state.mjs'
 import { config } from './config.mjs'
 
 export class Runner {
@@ -48,6 +48,8 @@ export class Runner {
 
     const controller = new AbortController()
     const startedAt = Date.now()
+    const invBefore = inventorySummary(this.bot)
+    const posBefore = this.bot.entity?.position?.clone()
     this.current = { skill: skillName, args, controller, startedAt }
     this.interruptedReason = null
 
@@ -81,10 +83,29 @@ export class Runner {
       this.consecutiveFailures = 0
     }
 
+    // What actually changed as a result of running this skill. "gather returned
+    // success" and "the bot is 8 logs richer" are different claims, and only the
+    // second one is checkable.
+    const invAfter = inventorySummary(this.bot)
+    const delta = {}
+    for (const k of new Set([...Object.keys(invBefore), ...Object.keys(invAfter)])) {
+      const d = (invAfter[k] ?? 0) - (invBefore[k] ?? 0)
+      if (d !== 0) delta[k] = d
+    }
+    const posAfter = this.bot.entity?.position
+    const moved = posBefore && posAfter ? Math.round(posBefore.distanceTo(posAfter)) : undefined
+
+    const snap = snapshot(this.bot)
+    if (snap.game) snap.game.biome = biomeAt(this.bot)
+
     logSkill({
       skill: skillName, args, status: result.status, detail: result.detail,
-      startedAt, snapshot: snapshot(this.bot),
+      startedAt, snapshot: snap,
       trigger: this.interruptedReason ? `interrupt:${this.interruptedReason}` : trigger,
+      invDelta: Object.keys(delta).length ? delta : undefined,
+      distanceMoved: moved,
+      failClass: result.status === 'success' ? undefined : classifyFailure(result.detail),
+      perception: perception(this.bot),
     })
     log(result.status === 'success' ? 'info' : 'warn', `skill ${skillName} -> ${result.status}`, { detail: result.detail })
 

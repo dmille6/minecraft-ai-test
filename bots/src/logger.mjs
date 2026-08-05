@@ -46,7 +46,8 @@ export function log(level, msg, extra = {}) {
  * layer actually works before any model is allowed near it -- success rate,
  * duration, and failure reason per skill, queryable in Kibana.
  */
-export function logSkill({ skill, args, status, detail, startedAt, snapshot, trigger }) {
+export function logSkill({ skill, args, status, detail, startedAt, snapshot, trigger,
+                           invDelta, distanceMoved, failClass, perception }) {
   const rec = {
     '@timestamp': new Date(startedAt).toISOString(),
     run_id: config.log.runId,
@@ -57,13 +58,18 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
       ...(snapshot?.bot ?? {}),
     },
     game: snapshot?.game ?? {},
+    code: { version: config.code.version, config_hash: config.code.configHash },
     skill: {
       name: skill,
       args: args ?? {},
       status,
       duration_ms: Date.now() - startedAt,
       detail: detail ? String(detail).slice(0, 500) : undefined,
+      fail_class: failClass ?? undefined,
+      distance_moved: distanceMoved ?? undefined,
+      inventory_delta: invDelta ?? undefined,
     },
+    perception: perception ?? undefined,
   }
   try {
     out().write(JSON.stringify(rec) + '\n')
@@ -86,6 +92,7 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
     '@timestamp': new Date().toISOString(),
     run_id: config.log.runId,
     trigger: 'reflex',
+    code: { version: config.code.version, config_hash: config.code.configHash },
     bot: { name: config.bot.name, role: config.bot.role, ...(snapshot?.bot ?? {}) },
     game: snapshot?.game ?? {},
     skill: {
@@ -106,13 +113,16 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
  */
 export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
                          promptText, tokensEstimated, droppedEvents,
-                         proposal, rejection, outcome, milestone }) {
+                         proposal, rejection, outcome, milestone,
+                         perceptionSnapshot }) {
   const rec = {
     '@timestamp': new Date(startedAt).toISOString(),
     run_id: config.log.runId,
     trigger,
+    code: { version: config.code.version, config_hash: config.code.configHash },
     bot: { name: config.bot.name, role: config.bot.role, ...(snapshot?.bot ?? {}) },
     game: snapshot?.game ?? {},
+    perception: perceptionSnapshot ?? undefined,
     llm: {
       model, endpoint,
       prompt_tokens: res.prompt_tokens ?? tokensEstimated ?? null,

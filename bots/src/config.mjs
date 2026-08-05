@@ -1,6 +1,18 @@
 // Configuration, entirely from environment. Handoff doc S20: no hard-coded
 // hosts, model names, or agent counts in application code.
 
+import { execSync } from 'node:child_process'
+import crypto from 'node:crypto'
+
+/** Which code produced this run. Without it, comparing runs is guesswork. */
+function codeVersion() {
+  if (process.env.CODE_VERSION) return process.env.CODE_VERSION
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: new URL('../', import.meta.url).pathname,
+      stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+  } catch { return 'unknown' }
+}
+
 function req(name, fallback) {
   const v = process.env[name] ?? fallback
   if (v === undefined) throw new Error(`missing required env var ${name}`)
@@ -8,6 +20,8 @@ function req(name, fallback) {
 }
 
 export const config = {
+  code: { version: codeVersion() },
+
   mc: {
     host: req('MINECRAFT_HOST', '127.0.0.1'),
     port: Number(req('MINECRAFT_PORT', '25565')),
@@ -80,3 +94,12 @@ export const config = {
     maxDelayMs: Number(req('RECONNECT_MAX_DELAY_MS', '120000')),
   },
 }
+
+// Fingerprint of the tuning that was actually in effect, so a behaviour change
+// can be attributed to a threshold change rather than guessed at.
+config.code.configHash = crypto.createHash('sha256').update(JSON.stringify({
+  reflex: config.reflex, skills: config.skills,
+  llm: { model: config.llm.model, numCtx: config.llm.numCtx,
+         temperature: config.llm.temperature, budget: config.llm.promptTokenBudget },
+  world: config.world,
+})).digest('hex').slice(0, 12)

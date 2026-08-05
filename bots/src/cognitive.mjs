@@ -15,7 +15,7 @@ import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from 
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
-import { snapshot } from './state.mjs'
+import { snapshot, perception, biomeAt } from './state.mjs'
 import { config } from './config.mjs'
 
 const SKILL_NAMES = Object.keys(SKILLS)
@@ -97,6 +97,8 @@ export class CognitiveLoop {
     })
 
     const snap = snapshot(this.bot)
+    if (snap.game) snap.game.biome = biomeAt(this.bot)
+    const percept = perception(this.bot)
     const started = Date.now()
     const res = await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
     this.decisions++
@@ -143,7 +145,7 @@ export class CognitiveLoop {
       model: config.llm.model, endpoint: config.llm.baseUrl,
       res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
       proposal: res.proposal, rejection, outcome,
-      milestone: milestone.id,
+      milestone: milestone.id, perceptionSnapshot: percept,
     })
 
     if (this.milestones.refresh()) {

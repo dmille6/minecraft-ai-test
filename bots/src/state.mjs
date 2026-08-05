@@ -47,3 +47,52 @@ export function isNight(bot) {
   const t = bot.time?.timeOfDay ?? 0
   return t >= 13000 && t <= 23000
 }
+
+/**
+ * What the bot could actually SEE when it decided. Without this you cannot
+ * distinguish "the model chose badly" from "the model chose the only sane
+ * option given what was in front of it" -- which is the single most common
+ * ambiguity when reading agent telemetry.
+ */
+export function perception(bot, radius = 40) {
+  const want = ['oak_log', 'birch_log', 'spruce_log', 'dirt', 'grass_block', 'stone',
+    'coal_ore', 'iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest', 'bed']
+  const seen = {}
+  for (const name of want) {
+    const t = bot.registry.blocksByName[name]
+    if (!t) continue
+    const b = bot.findBlock({ matching: t.id, maxDistance: radius })
+    if (b) seen[name] = Math.round(bot.entity.position.distanceTo(b.position))
+  }
+  const mobs = {}
+  for (const e of Object.values(bot.entities ?? {})) {
+    if (e === bot.entity || !e.position) continue
+    if (bot.entity.position.distanceTo(e.position) > 24) continue
+    const n = e.name ?? e.displayName ?? e.type
+    if (n) mobs[n] = (mobs[n] ?? 0) + 1
+  }
+  return { blocks: seen, entities: mobs, block_kinds: Object.keys(seen).length }
+}
+
+export function biomeAt(bot) {
+  try {
+    const b = bot.blockAt(bot.entity.position)
+    const id = b?.biome?.name ?? b?.biome?.id
+    return id != null ? String(id).replace('minecraft:', '') : null
+  } catch { return null }
+}
+
+/** Classify a failure string into a small, aggregatable set. */
+export function classifyFailure(detail = '') {
+  const d = String(detail).toLowerCase()
+  if (d.includes('exceeded') && d.includes('ms')) return 'path_timeout'
+  if (d.includes('no path') || d.includes('unreachable')) return 'no_path'
+  if (d.includes('stopped before')) return 'path_interrupted'
+  if (d.includes('stuck')) return 'stuck'
+  if (d.includes('tool')) return 'missing_tool'
+  if (d.includes('missing ingredients') || d.includes('cannot craft')) return 'missing_ingredients'
+  if (d.includes('no ') && d.includes('within')) return 'nothing_found'
+  if (d.includes('inventory')) return 'inventory'
+  if (d.includes('timeout')) return 'timeout'
+  return 'other'
+}
