@@ -96,14 +96,28 @@ with open(os.path.join(logdir, f"skill-{bot}.jsonl"), "a") as f:
 PY
 
   # A bot rescued repeatedly is not merely stuck -- its process is likely in a
-  # bad state. Restart the unit; systemd brings it back with lessons intact.
+  # bad state. This USED to restart the unit locally, which was correct when the
+  # agents ran on this host and became actively destructive once they moved to
+  # the dedicated bot host.
+  #
+  # What it did after the migration: `systemctl restart mcbot@miner` here started
+  # a SECOND Miner01 alongside the real one on the bot host. Two clients sharing
+  # a username kick each other forever, the kicked bot reconnects and kicks back,
+  # and the resulting churn wedges bots -- which triggers more rescues, which on
+  # the third one starts another duplicate. A self-sustaining loop, in the very
+  # script meant to rescue the fleet.
+  #
+  # Measured: 6 such restarts in 4 hours, three separate outbreaks of duplicate
+  # bots, and it was the true cause of behaviour I spent hours attributing to the
+  # agents themselves.
+  #
+  # This script runs on the Minecraft host and has no authority over processes on
+  # the bot host. It should not pretend otherwise. Escalation is now REPORTED --
+  # the bot host's own systemd and the cognitive liveness check own process
+  # recovery, and a human or the fleet-status check can act on the signal.
   if [ "$prescues" -ge 3 ]; then
-    ROLE=$(grep -rl "BOT_NAME=$BOT" "$SRV/bots/harness/env/" 2>/dev/null | head -1 | xargs -r basename | sed 's/\.env$//')
-    if [ -n "$ROLE" ]; then
-      echo "watchdog: $BOT rescued $prescues times, restarting mcbot@$ROLE"
-      systemctl restart "mcbot@$ROLE" 2>/dev/null
-      prescues=0
-    fi
+    echo "watchdog: $BOT rescued $prescues times and is not recovering -- process restart needed on the BOT HOST (not here)"
+    prescues=0
   fi
 
   echo "$RESCUE_X $RESCUE_Y $RESCUE_Z $now $prescues" > "$F"

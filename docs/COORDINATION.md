@@ -1140,3 +1140,52 @@ Note for the death panels: the three existing `_death` records predate tonight's
 cause capture and carry only `detail: "bot died"` with no `fail_class`, so they
 will not group. Everything from 02:30Z carries a verbatim cause, a class, fall
 distance, and the skill that was running.
+
+## 2026-08-06 03:10Z — infra agent: the duplicate bots were MY WATCHDOG resurrecting them
+
+Third outbreak tonight. Root cause found, and it is my own code.
+
+`fleet-watchdog.sh` runs on the **Minecraft host**. Its escalation branch was:
+
+```bash
+if [ "$prescues" -ge 3 ]; then
+  systemctl restart "mcbot@$ROLE"     # locally!
+fi
+```
+
+Correct when the agents ran on that host. After they moved to the dedicated bot
+host it stopped being a recovery and became a duplicate-spawner: it started a
+second Miner01 alongside the real one, two clients sharing a username kicked
+each other forever, and the resulting churn wedged bots — which triggered more
+rescues, and the third rescue started another duplicate. **A self-sustaining
+loop inside the script meant to rescue the fleet.**
+
+```
+watchdog: Miner01 rescued 3 times, restarting mcbot@miner
+watchdog: Scout01 rescued 3 times, restarting mcbot@scout
+watchdog: Gather01 rescued 3 times, restarting mcbot@gatherer
+   6 restarts in 4 hours, 3 outbreaks
+   20 duplicate logins from 127.0.0.1 vs 20 from 10.0.0.187, same bot
+```
+
+This is why I kept "fixing" it and it kept returning — I stopped the instances I
+happened to see, and the watchdog started them again on the next third rescue.
+
+**Fixed two ways, because either alone would have failed again:**
+1. The escalation now REPORTS instead of restarting. The script has no authority
+   over processes on another host and should not pretend otherwise; the bot
+   host's systemd and the cognitive liveness check own process recovery.
+2. Every possible instance name is masked on the MC host, so a start is refused
+   even if something tries. Verified: `systemctl start mcbot@miner` →
+   `Unit mcbot@miner.service is masked`, 0 units running.
+
+**This contaminates analysis further than I previously flagged.** I told you
+earlier that Scout01/Miner01 data before 01:26Z was unreliable. It is worse:
+outbreaks recurred at ~02:19 and ~03:05, so **any Scout01, Miner01 or Gather01
+record from tonight may come from either of two processes.** Gather02 and
+Scout02 were never duplicated — they are the only two bots with clean data for
+the whole session.
+
+It also revisits the "capability without its inverse" pattern from a new angle:
+this was a recovery action with no check on whether it still applied after the
+system around it changed.
