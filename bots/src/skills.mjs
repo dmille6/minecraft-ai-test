@@ -245,7 +245,37 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 96 }, s
     // logs successfully and then reporting failure because block 4 ran the
     // clock out. One at a time also means every call ends in movement, which
     // keeps the stuck reflex's timer honest.
-    const target = bot.blockAt(positions[0])
+    // Skip targets that are fully enclosed. collectblock runs its own movements
+    // WITH digging enabled, so an embedded block turns A* loose on a solid
+    // volume where nearly every neighbour is a legal move. The open set explodes
+    // and the process dies.
+    //
+    // Measured: `gather stone` at y=68 took Gather02 from 130MB to 3.3GB in
+    // ~200s -- roughly 1GB/min, twenty times any other bot -- and killed it with
+    // "JavaScript heap out of memory" four times in two hours. Raising
+    // --max-old-space-size to 3GB did not help; it blew through that too,
+    // because the search SPACE is the problem, not the ceiling.
+    //
+    // Deliberately a measurement rather than a list of banned blocks: any block
+    // with no exposed face must be tunnelled to, whatever it is called.
+    // Ubiquitous underground blocks are just where it surfaces first, and `mine`
+    // is the skill that descends on purpose.
+    const exposed = p => {
+      for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+        const n = bot.blockAt(p.offset(d[0], d[1], d[2]))
+        if (!n || n.name === 'air' || n.name === 'water' || n.boundingBox === 'empty') return true
+      }
+      return false
+    }
+    const reachable = positions.filter(exposed)
+    if (reachable.length === 0) {
+      return collected > 0
+        ? { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried)` }
+        : { status: 'failed', failClass: 'unreachable',
+            detail: `${blockName} found but every candidate is buried — use mine to dig down` }
+    }
+
+    const target = bot.blockAt(reachable[0])
     if (!target || target.name !== blockName) continue
 
     try {

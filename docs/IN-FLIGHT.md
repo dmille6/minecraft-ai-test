@@ -167,3 +167,21 @@ Format: `date time · who · what you are touching · what you are NOT touching`
 
   Worth doing the same on your side if you have not. Your bots have been
   accumulating lessons longer than mine.
+
+- **2026-08-06 05:15Z — infra agent — model + endpoint switch (MEASURED CHANGE)**
+  All five bots: `qwen2.5:14b-instruct` on `ai.ticrcorp.com` (M4 Studio, shared)
+  → `qwen2.5-coder:7b` on `10.0.0.72` (RTX 5080, dedicated).
+  Reason: the 5080 is idle (0% GPU, 13–47W) and answers in 0.8–2.9s vs ~3.1s,
+  but its 16GB cannot hold a second 9GB model while the local coder:7b
+  workload runs — verified by watching VRAM sit at 5020MiB for 140s while a
+  14B load request was accepted and never scheduled. So we use the model that
+  is already pinned.
+  **Baseline before the switch (30m):** admitted=110 rejected=44 (71% admit),
+  median 3083ms, 73 skill successes / 48 failures.
+  worked: Scout01=10 Scout02=3 Miner01=21 Gather01=34 Gather02=40.
+  **Risk being accepted:** coder:7b is a code model. A synthetic schema test
+  gave 3/3 valid JSON but chose `sleep` when the obvious answer was `gather`.
+  That test lacked the real system prompt (which documents each skill's args)
+  so it understates both models — the 14B did no better on it — but decision
+  QUALITY is the thing to watch, not latency or admit-rate.
+  Revert: set OLLAMA_MODEL back and point OLLAMA_BASE_URLS at ai.ticrcorp.com.

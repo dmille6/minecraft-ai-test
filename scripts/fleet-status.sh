@@ -42,19 +42,30 @@ for U in $(systemctl list-units 'mcbot@*' --no-legend --plain 2>/dev/null | awk 
   ACT=$(systemctl is-active "$U")
   LAST=$(sudo journalctl -u "$U" --since "-20 min" -o short-unix 2>/dev/null \
          | grep -E 'LLM ->|decision rejected' | tail -1 | cut -d. -f1)
+  # Deciding and ACHIEVING anything are different states, and conflating them
+  # hid a total outage tonight: every bot reported "ok" for ten minutes while
+  # every LLM request died with "This operation was aborted". A rejected
+  # decision proves the loop is alive; only an admitted one proves the bot can
+  # act.
+  ADM=$(sudo journalctl -u "$U" --since "-10 min" -o cat 2>/dev/null | grep -c 'LLM ->')
+  REJ=$(sudo journalctl -u "$U" --since "-10 min" -o cat 2>/dev/null | grep -c 'decision rejected')
   AGE=$([ -n "$LAST" ] && echo $(( now - LAST )) || echo -1)
   RUN=$(sudo jq -r '.runs // "?"' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
   AV=$(sudo jq -r '.avoid | length' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
   WK=$(sudo jq -r '.worked | length' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
-  echo "$NAME|$ACT|$AGE|$RUN|$AV|$WK"
+  echo "$NAME|$ACT|$AGE|$RUN|$AV|$WK|$ADM|$REJ"
 done
 REMOTE
-) 2>/dev/null | while IFS='|' read -r NAME ACT AGE RUN AV WK; do
+) 2>/dev/null | while IFS='|' read -r NAME ACT AGE RUN AV WK ADM REJ; do
   [ -z "$NAME" ] && continue
   if [ "$ACT" != "active" ]; then STATE="DEAD"; NOTE="unit $ACT"
   elif [ "$AGE" -lt 0 ]; then STATE="SILENT"; NOTE="no decision in 20m — loop stalled?"
   elif [ "$AGE" -gt "$STALE_SEC" ]; then STATE="SLOW"; NOTE="${AGE}s since last decision"
-  else STATE="ok"; NOTE="run=$RUN avoid=$AV worked=$WK"
+  elif [ "${ADM:-0}" -eq 0 ] && [ "${REJ:-0}" -gt 0 ]; then
+    # The loop is alive but nothing it proposes is being executed. This is what
+    # a saturated inference endpoint looks like, and it used to read as "ok".
+    STATE="VETOED"; NOTE="$REJ decisions, 0 admitted in 10m — endpoint or admission gate"
+  else STATE="ok"; NOTE="run=$RUN avoid=$AV worked=$WK · ${ADM:-?}ok/${REJ:-?}rej"
   fi
   AGES=$([ "$AGE" -lt 0 ] && echo "never" || echo "${AGE}s ago")
   printf '   %-10s %-8s %-11s %-9s %s\n' "$NAME" "$STATE" "$AGES" "" "$NOTE"
