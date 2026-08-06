@@ -22,6 +22,13 @@
 # network path, and any difference would be uninterpretable. The 5080 latency
 # advantage is real and already measured; it is not what this experiment asks.
 #
+# ENDPOINT POOL EXCLUDES 10.0.0.72. That host runs a public-facing honeypot on a
+# pinned model, and Ollama will evict a pinned model to make room: a control-arm
+# bot failing over there loaded qwen2.5:14b-instruct and left 1.8GB free, having
+# already evicted the honeypot's model once earlier the same day. The bots use
+# ai.ticrcorp.com and 10.0.0.70 only. Found by the GPU/model-residency telemetry
+# within a minute of it existing.
+#
 # ROLE-PAIRED. Roles have different milestone chains, so comparing a scout
 # against a miner measures the chain, not the model. Arms are paired within
 # role: gatherer vs gather2, scout vs scout2. Miner01 is the only miner, so it
