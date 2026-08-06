@@ -80,7 +80,13 @@ export const config = {
     model: req('OLLAMA_MODEL', 'qwen2.5:14b-instruct'),
     // Set EXPLICITLY. Ollama silently truncates at its default and a
     // truncated prompt does not error -- the model just looks stupid.
-    numCtx: Number(req('OLLAMA_NUM_CTX', '8192')),
+    //
+    // 4096 is sized from 24h of telemetry: prompt MAX=2542, completion MAX=219,
+    // worst case 2761. It must stay above promptTokenBudget below (3000) plus
+    // the completion tail, and Ollama preallocates KV for numCtx * NUM_PARALLEL
+    // so overshooting costs resident memory on every slot, not just on big
+    // prompts. 8192 was costing ~6.2GB of KV to hold context we never used.
+    numCtx: Number(req('OLLAMA_NUM_CTX', '4096')),
     temperature: Number(req('LLM_TEMPERATURE', '0.3')),
     timeoutMs: Number(req('LLM_TIMEOUT_MS', '90000')),
     // Client-side budget, deliberately well under numCtx.
@@ -116,6 +122,27 @@ export const config = {
     delayMs: Number(req('RECONNECT_DELAY_MS', '8000')),
     maxDelayMs: Number(req('RECONNECT_MAX_DELAY_MS', '120000')),
   },
+}
+
+// Refuse to start on a context window that cannot hold what we will send.
+//
+// This pairing is the one config error with NO symptom. Ollama truncates a
+// prompt that exceeds num_ctx without erroring, so the model simply answers
+// with the top of its instructions missing and looks stupid rather than
+// broken. The saw_end sentinel detects it per-call, but by then three bots
+// have already been shipping degraded decisions into the lessons files.
+//
+// COMPLETION_HEADROOM is the observed completion ceiling (219 tokens over 24h)
+// rounded up hard: generation is uncapped, so this is a floor on our margin,
+// not a prediction.
+const COMPLETION_HEADROOM = 512
+const needCtx = config.llm.promptTokenBudget + COMPLETION_HEADROOM
+if (config.llm.enabled && config.llm.numCtx < needCtx) {
+  throw new Error(
+    `OLLAMA_NUM_CTX=${config.llm.numCtx} is too small for ` +
+    `LLM_PROMPT_TOKEN_BUDGET=${config.llm.promptTokenBudget} + ${COMPLETION_HEADROOM} ` +
+    `completion headroom (need >= ${needCtx}). Ollama would truncate the prompt ` +
+    `silently. Raise OLLAMA_NUM_CTX or lower LLM_PROMPT_TOKEN_BUDGET.`)
 }
 
 // Fingerprint of the tuning that was actually in effect, so a behaviour change

@@ -59,8 +59,28 @@ say "── 2. deployed harness vs committed ───────────�
 # sudo: the env files are root-owned. Without it grep returns nothing and the
 # whole check silently degrades to "not recorded" -- which is how it stayed
 # green for its entire life while never once reading a version.
-REMOTE_VS=$($SSH "mike@$BOT_HOST" 'sudo -n grep -h -oE "CODE_VERSION=.*" /srv/minecraft/bots/harness/env/*.env 2>/dev/null | cut -d= -f2' 2>/dev/null | tr -d "'\"" | sort -u)
+REMOTE_VS=$($SSH "mike@$BOT_HOST" 'sudo -n grep -h -oE "CODE_VERSION=.*" /srv/minecraft/bots/harness/env/*.env /srv/mcbots/harness/env/*.env 2>/dev/null | cut -d= -f2' 2>/dev/null | tr -d "'\"" | sort -u)
+# The VERSION file sits beside the SHARED src/, so it describes what is actually
+# executing. The env stamps describe only the last role each deploy touched, and
+# can disagree with the code and with each other.
+SHARED_V=$($SSH "mike@$BOT_HOST" 'sudo -n cat /srv/minecraft/bots/harness/VERSION /srv/mcbots/harness/VERSION 2>/dev/null | head -1' 2>/dev/null | tr -d "'\" \r")
 LOCAL_V=$(git rev-parse --short HEAD)
+if [ -n "$SHARED_V" ]; then
+  if [ "$SHARED_V" = "$LOCAL_V" ]; then
+    ok "running code is $SHARED_V, matches HEAD"
+  else
+    N=$(git rev-list --count "$SHARED_V".."$LOCAL_V" 2>/dev/null || echo '?')
+    if [ "$N" = "0" ]; then
+      say "  · running code $SHARED_V is ahead of or level with HEAD $LOCAL_V"
+    else
+      bad "running code is $SHARED_V — $N commit(s) BEHIND $LOCAL_V"
+      git log --oneline "$SHARED_V".."$LOCAL_V" 2>/dev/null | head -6 | sed 's/^/        /'
+      say "        → undeployed fixes are not fixes; redeploy"
+    fi
+  fi
+else
+  say "  · no harness/VERSION file — deploy predates the shared version stamp"
+fi
 NVER=$(printf '%s\n' "$REMOTE_VS" | grep -c . || true)
 if [ -z "$REMOTE_VS" ]; then
   say "  · deployed version not recorded (agent may predate CODE_VERSION)"

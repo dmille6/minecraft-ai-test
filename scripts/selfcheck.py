@@ -415,7 +415,21 @@ def main():
     ap.add_argument("--hours", type=float, default=2)
     ap.add_argument("--diagnose", action="store_true", help="on anomaly, ask the models")
     ap.add_argument("--backends", default="ollama", help="comma list: ollama,codex,claude")
-    ap.add_argument("--model", default="qwen2.5:32b")
+    # Default to the model the BOTS are already running, not a second larger one.
+    #
+    # A timer-driven analysis job must never preempt live control, and on a
+    # single shared GPU a second resident model does exactly that. Measured
+    # 2026-08-05: selfcheck ran 02:24:56-02:25:29 on qwen2.5:32b and the four
+    # slowest bot decisions of the night -- 61s, 48s, 38s, 31s -- all landed
+    # inside that window, with the same signature at 01:53. The 32B also held
+    # 54.7GB resident permanently to do it.
+    #
+    # Sharing the bots' 14B costs no extra memory and puts analysis in the same
+    # queue as everything else instead of above it. Depth is still one flag
+    # away (--model qwen2.5:32b), and diagnosis already asks codex/claude too,
+    # so the local model is the least load-bearing of the three opinions.
+    ap.add_argument("--model", default=os.environ.get("SELFCHECK_MODEL",
+                                                      "qwen2.5:14b-instruct"))
     ap.add_argument("--verify", action="store_true", help="score past predictions and exit")
     args = ap.parse_args()
 

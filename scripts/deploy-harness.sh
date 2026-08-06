@@ -101,7 +101,11 @@ OLLAMA_BASE_URL=$OLLAMA
 OLLAMA_MODEL=$MODEL
 # Set EXPLICITLY. Ollama truncates at its default with no error, and a
 # blindfolded model merely looks stupid.
-OLLAMA_NUM_CTX=8192
+#
+# 4096 is measured, not chosen: over 24h prompt MAX=2542 and completion MAX=219,
+# so worst case is 2761. Ollama preallocates KV for num_ctx * NUM_PARALLEL, so
+# 8192 cost ~6.2GB of resident KV for window we never used. 2048 would truncate.
+OLLAMA_NUM_CTX=${NUM_CTX:-4096}
 LLM_TEMPERATURE=0.3
 LLM_TIMEOUT_MS=90000
 LLM_PROMPT_TOKEN_BUDGET=3000

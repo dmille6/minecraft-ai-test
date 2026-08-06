@@ -19,6 +19,7 @@
 #   MODEL        default qwen2.5:14b-instruct
 #   BOTS         default "scout:Scout01 miner:Miner01 gatherer:Gather01"
 #   COOLDOWN_MS  default 60000 -- see the capacity note at the bottom
+#   NUM_CTX      default 4096  -- see the sizing note beside OLLAMA_NUM_CTX
 
 set -euo pipefail
 
@@ -29,6 +30,7 @@ OLLAMA="${OLLAMA:?set OLLAMA}"
 MODEL="${MODEL:-qwen2.5:14b-instruct}"
 BOTS="${BOTS:-scout:Scout01 miner:Miner01 gatherer:Gather01}"
 COOLDOWN_MS="${COOLDOWN_MS:-60000}"
+NUM_CTX="${NUM_CTX:-4096}"
 RUN_ID="${RUN_ID:-team-002}"
 REPO="${REPO:-https://github.com/dmille6/minecraft-ai-test.git}"
 SRV=/srv/mcbots
@@ -73,6 +75,15 @@ else git clone -q "$REPO" /opt/minecraft-ai; fi
 CODE_VERSION=$(git -C /opt/minecraft-ai rev-parse --short HEAD)
 cp -r /opt/minecraft-ai/bots/src "$H/"
 cp /opt/minecraft-ai/bots/package.json "$H/"
+# Stamp the version where the CODE lives, not only in the per-role env files.
+#
+# src/ is SHARED by every role but env/ is written per role, so a deploy that
+# touches one role leaves the others stamped with a version they are no longer
+# running. On 2026-08-05 that produced gatherer/miner=884d053, scout=f63abfb,
+# all three executing the same newer src -- and it hid a fleet running 18
+# commits behind, missing both entombment fixes, until _entombed had fired
+# 2,695 times. This file is the single authority for what is deployed.
+printf '%s\n' "$CODE_VERSION" > "$H/VERSION"
 chown -R mcbot:mcbot "$SRV"
 sudo -u mcbot bash -c "cd '$H' && npm install --no-audit --no-fund" >/dev/null 2>&1
 # canvas is an OPTIONAL peer of prismarine-viewer; npm install skips it.
@@ -123,7 +134,16 @@ RECONNECT_MAX_DELAY_MS=120000
 LLM_ENABLED=true
 OLLAMA_BASE_URL=$OLLAMA
 OLLAMA_MODEL=$MODEL
-OLLAMA_NUM_CTX=8192
+# 4096, not 8192. Ollama allocates KV for num_ctx * OLLAMA_NUM_PARALLEL up
+# front, so an oversized window is paid for on every slot whether or not the
+# prompt uses it: at 8192 the 9.0GB model sat resident at 15.2GB, ~6.2GB of it
+# KV for context we never touched.
+#
+# Sized from measurement, not taste. Over 24h: prompt p50=1014, p99=2390,
+# MAX=2542; completion MAX=219 -- worst case 2761. 2048 would have TRUNCATED
+# the tail (and LLM_PROMPT_TOKEN_BUDGET=3000 below would guarantee it). 4096
+# clears the worst case with ~1300 to spare and still halves the KV.
+OLLAMA_NUM_CTX=${NUM_CTX:-4096}
 LLM_TEMPERATURE=0.3
 LLM_TIMEOUT_MS=90000
 LLM_PROMPT_TOKEN_BUDGET=3000
