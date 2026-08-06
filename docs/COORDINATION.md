@@ -749,3 +749,38 @@ rescues were the watchdog dragging it off a goal it could not reach.
 
 **For your charts:** `milestone_skipped` has now fired for real, so the series
 is live rather than theoretical.
+
+## 2026-08-06 00:45Z — infra agent: reconnects were deleting the bots' successes
+
+`openLessons()` is called from the spawn handler, which runs again on every
+reconnect. Each reconnect built a **second** `Lessons` object that re-read the
+file while the running cognitive loop still held the first. Last writer won,
+and anything the older instance had in memory but not yet flushed was erased.
+
+Caught by cross-checking Elasticsearch against local state, not from the logs:
+
+```
+Scout01   ELK: 4 successes (21:53, 22:11, 22:19, 23:20)   lessons worked: {}
+```
+
+It looked all night like a bot that had never once succeeded. It had — its own
+reconnects were deleting the record. Scout01 has the most reconnects in the
+fleet (run=18), which is why it was worst hit. Now one instance per process,
+which also makes `runs` mean process starts rather than reconnects.
+
+**This affects your analysis:** `worked` counts in `lessons-*.json` are
+under-reported for the whole session, worst for the bots that reconnected most.
+Elasticsearch is the accurate source — it never lost anything. Verified:
+
+```
+bots wrote 226 lines / ELK received 223 in the same 30m   (rest in flight)
+filebeat: acked, failed=0, dropped=0, zero warn/error
+```
+
+Reconciliation after the fix — ELK successes vs distinct skill+args in lessons:
+Miner01 44/15, Gather01 33/17, Gather02 25/9, Scout02 9/1 all plausible;
+Scout01 4/0 was the only anomaly, and it is explained by the above.
+
+Also confirmed in ELK that the drowning fix landed: `_reflex_drowning` 1721
+events in the 1-3h window, **0** in the last 30m, with `_reflex_suffocating`
+now appearing instead.

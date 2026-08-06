@@ -222,6 +222,22 @@ export class Lessons {
   }
 }
 
+// ONE instance per process. openLessons() is called from the spawn handler,
+// which runs again on every reconnect -- so this used to build a second Lessons
+// object that re-read the file while the running cognitive loop still held the
+// first. Whichever saved last won, and anything the old instance had in memory
+// but not yet flushed was erased.
+//
+// Measured: Scout01 (run=18, the most reconnects in the fleet) had four
+// recorded successes in Elasticsearch -- 21:53, 22:11, 22:19, 23:20 -- and a
+// `worked` map on disk of exactly {}. Its successes were being deleted by its
+// own reconnects, which is why it looked like it had never once succeeded.
+//
+// This also makes `runs` mean what it claims: process starts, not reconnects.
+let instance = null
+
 export function openLessons() {
-  return new Lessons(path.join(config.log.stateDir, `lessons-${config.bot.name}.json`))
+  if (instance) return instance
+  instance = new Lessons(path.join(config.log.stateDir, `lessons-${config.bot.name}.json`))
+  return instance
 }
