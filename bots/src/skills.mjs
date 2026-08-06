@@ -452,6 +452,126 @@ async function place(ctx, { item, x, y, z }, signal) {
   }
 }
 
+// --------------------------------------------------------------- build -----
+//
+// The first skill whose output PERSISTS. Everything else the agents do is
+// erased by the next restart -- gathered items get lost, positions get reset,
+// milestones recompute. A placed block stays placed, which is what makes a
+// settlement possible and what makes progress visible from inside the game.
+//
+// DELIBERATELY STATELESS. Three separate bugs tonight came from a counter kept
+// somewhere other than where the truth lived: milestone attempts reset on
+// restart, the probation countdown reset on reconnect, and lessons.save() was
+// never called on the path that mattered. So this skill stores no progress at
+// all -- it reads the world, skips what is already correct, and places what is
+// missing. The structure IS the progress record, and it cannot disagree with
+// itself.
+//
+// Every placement is READ BACK. bot.placeBlock resolves without throwing in
+// cases where nothing was actually placed (occluded, entity in the way, server
+// rejected it), and place() above reports success on that basis. A build that
+// reports 20/20 while the wall has holes in it is worse than one that fails.
+
+const BLUEPRINTS = {
+  // Small open shelter: a 5x5 floor with 3-high walls and a doorway facing +x.
+  shelter: (b = 'oak_planks') => {
+    const out = []
+    for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) out.push({ dx, dy: 0, dz, block: b })
+    for (let dy = 1; dy <= 3; dy++) {
+      for (let d = -2; d <= 2; d++) {
+        out.push({ dx: d, dy, dz: -2, block: b })
+        out.push({ dx: d, dy, dz: 2, block: b })
+        out.push({ dx: -2, dy, dz: d, block: b })
+        if (!(dy <= 2 && d === 0)) out.push({ dx: 2, dy, dz: d, block: b })  // doorway
+      }
+    }
+    return out
+  },
+  // A straight wall, 7 long and 3 high, running along z.
+  wall: (b = 'oak_planks') => {
+    const out = []
+    for (let dz = -3; dz <= 3; dz++) for (let dy = 1; dy <= 3; dy++) out.push({ dx: 0, dy, dz, block: b })
+    return out
+  },
+  // Marker pillar -- cheap, unmistakable from a distance, good for testing.
+  pillar: (b = 'oak_planks') => {
+    const out = []
+    for (let dy = 1; dy <= 6; dy++) out.push({ dx: 0, dy, dz: 0, block: b })
+    return out
+  },
+}
+
+async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, signal) {
+  const { bot } = ctx
+  const make = BLUEPRINTS[plan]
+  if (!make) {
+    return { status: 'failed', detail: `unknown plan "${plan}"; have ${Object.keys(BLUEPRINTS).join(', ')}` }
+  }
+
+  // Anchor at the given point, else the configured home -- so repeated calls
+  // converge on ONE structure instead of scattering half-built stubs.
+  const ax = Number.isFinite(Number(x)) ? Number(x) : config.world.homeX
+  const ay = Number.isFinite(Number(y)) ? Number(y) : config.world.homeY
+  const az = Number.isFinite(Number(z)) ? Number(z) : config.world.homeZ
+  assertInsideBorder(ax, az)
+
+  const spec = make(block)
+  let already = 0, placed = 0, failed = 0, lastErr = null
+
+  for (const cell of spec) {
+    check(signal)
+    const pos = new Vec3(ax + cell.dx, ay + cell.dy, az + cell.dz)
+
+    const current = bot.blockAt(pos)
+    if (current && current.name === cell.block) { already++; continue }
+    if (current && current.name !== 'air' && !current.name.includes('leaves') &&
+        !current.name.includes('grass') && current.name !== 'snow') {
+      failed++; lastErr = `${current.name} in the way at ${pos.x},${pos.y},${pos.z}`; continue
+    }
+
+    const held = bot.inventory.items().find(i => i.name === cell.block)
+    if (!held) {
+      // Out of materials is not a failure of the plan -- report honestly and
+      // stop, so the cognitive layer can go and gather rather than grind.
+      break
+    }
+
+    // Must be adjacent to place. Do not fight the pathfinder over one block.
+    if (bot.entity.position.distanceTo(pos) > 4) {
+      try {
+        await bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 3))
+      } catch {
+        failed++; lastErr = `cannot reach ${pos.x},${pos.y},${pos.z}`; continue
+      }
+      check(signal)
+    }
+
+    const ref = bot.blockAt(pos.offset(0, -1, 0))
+    if (!ref || ref.name === 'air') { failed++; lastErr = `nothing to place against under ${pos.x},${pos.y},${pos.z}`; continue }
+
+    try {
+      await bot.equip(held, 'hand')
+      await bot.placeBlock(ref, new Vec3(0, 1, 0))
+    } catch (e) {
+      failed++; lastErr = e.message; continue
+    }
+
+    // READ IT BACK. This is the whole point.
+    await new Promise(r => setTimeout(r, 120))
+    const after = bot.blockAt(pos)
+    if (after && after.name === cell.block) placed++
+    else { failed++; lastErr = `placeBlock reported no error but ${pos.x},${pos.y},${pos.z} is ${after?.name ?? 'unknown'}` }
+  }
+
+  const done = already + placed
+  const detail = `${plan} at ${ax},${ay},${az}: ${done}/${spec.length} in place (${placed} new, ${already} already, ${failed} failed)` +
+                 (lastErr ? ` — last problem: ${lastErr}` : '')
+
+  if (done === spec.length) return { status: 'success', detail }
+  if (placed > 0) return { status: 'success', detail }          // real progress this call
+  return { status: 'failed', detail }
+}
+
 // ---------------------------------------------------------------- mine -----
 //
 // Distinct from gather: gather goes to blocks it can already see, mine
@@ -529,6 +649,7 @@ export const SKILLS = {
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
   place:   { run: place,   usage: 'place <item_name>',             args: ['item'] },
+  build:   { run: build,   usage: 'build <plan> [block_name]',      args: ['plan', 'block'] },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
   sleep:   { run: sleepSkill, usage: 'sleep',                      args: [] },
 }
