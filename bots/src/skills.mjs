@@ -1072,6 +1072,31 @@ function isNightTime(bot) {
  * Deliberately a CONTRACT, not per-skill reward weights. Nothing here is tuned;
  * each entry just says what kind of evidence would show the skill did its job.
  */
+/**
+ * The identity of an action, for remembering how it went.
+ *
+ * Canonical and exported, because this used to exist twice -- once in
+ * admission.mjs and once in lessons.mjs -- and the two had to agree exactly or
+ * a failure recorded under one spelling would be invisible to the gate reading
+ * the other. Two definitions of the same concept is a divergence waiting for a
+ * quiet afternoon.
+ *
+ * Only DECLARED arguments count, sorted. The model routinely emits extras
+ * (`craft {item: stick, player: agent}` -- craft has no player argument), and
+ * keying on them made the key space unbounded: each hallucinated value minted a
+ * fresh entry with a clean record, which passed the gate, failed, and left one
+ * more permanent block behind.
+ */
+export function actionKey(skill, args) {
+  const declared = SKILLS[skill]?.args
+  const src = args ?? {}
+  const kept = {}
+  for (const name of (declared ?? Object.keys(src)).slice().sort()) {
+    if (src[name] !== undefined) kept[name] = src[name]
+  }
+  return `${skill}:${JSON.stringify(kept)}`
+}
+
 export const SKILL_CONTRACTS = {
   goto:     { expects: ['position'],              maxMs: 120_000 },
   explore:  { expects: ['position'],              maxMs: 120_000 },

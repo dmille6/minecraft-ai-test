@@ -36,6 +36,7 @@ export class CognitiveLoop {
     // kept being vetoed after it was fixed. Both were memory outliving its
     // subject.
     try {
+      this.lessons.migrateActionKeys?.()
       const changed = this.lessons.reconcileSkillVersions?.(SKILLS) ?? []
       if (changed.length) {
         this.lessons.save()

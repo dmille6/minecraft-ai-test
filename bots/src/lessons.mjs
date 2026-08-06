@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.mjs'
 import { log } from './logger.mjs'
+import { actionKey } from './skills.mjs'
 
 const SCHEMA = 1
 const MAX_AVOID = 40
@@ -26,8 +27,9 @@ const MAX_SITES = 30
 // is noise. Decay keeps memory relevant without unbounded growth.
 const DECAY_MS = 6 * 60 * 60 * 1000
 const HAZARD_RADIUS = 12
+const FORGET_MS = 20 * 60 * 1000   // one failure forgiven per 20 idle minutes
 
-const key = (skill, args) => `${skill}:${JSON.stringify(args ?? {})}`
+const key = actionKey   // ONE definition, shared with the admission gate
 
 export class Lessons {
   constructor(file) {
@@ -211,6 +213,36 @@ export class Lessons {
    * Deliberately per-skill. Editing `gather` should not cost the bot everything
    * it learned about `craft`.
    */
+  /**
+   * Drop judgements recorded under the old, un-normalised action key.
+   *
+   * The key used to be JSON.stringify over whatever the model emitted, so
+   * `craft stick` accumulated separate records under five spellings that
+   * differed only in a `player` argument craft does not have. Those entries are
+   * unreachable once the key is normalised, and their counts are not valid
+   * evidence about the normalised action anyway -- they conflate distinct
+   * proposals and include arguments the skill ignores.
+   *
+   * Re-keying and MERGING them would be worse than dropping: it would sum five
+   * partial records into one count high enough to keep the action permanently
+   * blocked, which is the freeze this change exists to end.
+   *
+   * Idempotent -- after one pass every remaining key already equals its own
+   * normalised form, so subsequent runs drop nothing.
+   */
+  migrateActionKeys() {
+    let dropped = 0
+    for (const section of ['avoid', 'worked']) {
+      const store = this.data[section] ?? {}
+      for (const [k, v] of Object.entries(store)) {
+        if (!v?.skill) continue
+        if (actionKey(v.skill, v.args) !== k) { delete store[k]; dropped++ }
+      }
+    }
+    if (dropped) { this.dirty = true; log('info', 'dropped judgements under the old action key', { dropped }) }
+    return dropped
+  }
+
   reconcileSkillVersions(skills) {
     const now = {}
     for (const [name, def] of Object.entries(skills)) {
@@ -246,7 +278,23 @@ export class Lessons {
 
   /** How many times this exact action has failed, across ALL runs. */
   failCount(skill, args) {
-    return this.data.avoid[key(skill, args)]?.fails ?? 0
+    const e = this.data.avoid[key(skill, args)]
+    if (!e) return 0
+    // Failures DECAY. Without this the count only ever rises, so the gate could
+    // do nothing over a long run but tighten -- which is what happened: the
+    // fleet's veto rate climbed 23% -> 72% across sixteen hours, until three
+    // quarters of every decision was rejected before it could execute and the
+    // bots stood still while the model kept proposing the actions their own
+    // milestones required.
+    //
+    // The world is not static. Terrain gets mined, inventories fill, a tree
+    // grows within reach. Evidence that `gather oak_log` failed eleven times
+    // this morning says very little about whether it works now, and an action
+    // nobody has attempted in an hour deserves to be tried again. One failure
+    // is forgiven per FORGET_MS of not being attempted, so an untouched block
+    // clears itself in about eighty minutes rather than never.
+    const forgiven = Math.floor((Date.now() - (e.last ?? 0)) / FORGET_MS)
+    return Math.max(0, e.fails - forgiven)
   }
 
   /** Hazard sites within range of a point, worst first. */

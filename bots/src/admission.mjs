@@ -9,12 +9,14 @@
 // "the model is unreliable" into a distribution over specific, fixable causes
 // you can query in Kibana.
 
-import { SKILLS } from './skills.mjs'
+import { SKILLS, actionKey } from './skills.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 
 
 const REPEAT_WINDOW = 4
+// Consecutive learned_avoid vetoes before the gate must let something through.
+const MAX_VETO_STREAK = 4
 
 export class AdmissionControl {
   constructor(lessons = null) {
@@ -22,11 +24,10 @@ export class AdmissionControl {
     this.failedCooldowns = new Map()   // key -> expiry timestamp
     this.recent = []                   // last N admitted keys, for repeat detection
     this.blockedCount = {}             // per-key block tally, for probation
+    this.vetoStreak = 0                // consecutive learned_avoid rejections
   }
 
-  static key(skill, args) {
-    return `${skill}:${JSON.stringify(args ?? {})}`
-  }
+  static key(skill, args) { return actionKey(skill, args) }
 
   /** Record that a proposal we admitted ended in failure, so we stop re-picking it. */
   noteFailure(skill, args) {
@@ -171,7 +172,27 @@ export class AdmissionControl {
       const n = this.lessons?.bumpBlocked
         ? this.lessons.bumpBlocked(k)
         : (this.blockedCount[k] = (this.blockedCount[k] ?? 0) + 1)
+
+      // PRESSURE VALVE. Probation is per-key, so it cannot see the situation
+      // where EVERY key the model reaches for is blocked -- each individual
+      // veto is defensible while their sum is a bot that does nothing. That is
+      // the state the fleet reached: 72% of decisions rejected, the two most
+      // blocked actions being `gather oak_log` and `craft stick`, which are
+      // exactly the milestone chain it was trying to complete.
+      //
+      // A gate whose veto rate can reach 100% is not a safety mechanism, it is
+      // the failure. After MAX_VETO_STREAK consecutive learned_avoid rejections
+      // the next proposal goes through whatever its record, because acting on
+      // poor evidence beats not acting at all -- and the outcome becomes new
+      // evidence, which a refusal never does.
+      if (n % 5 !== 0 && this.vetoStreak >= MAX_VETO_STREAK) {
+        this.vetoStreak = 0
+        this.forcedAdmissions = (this.forcedAdmissions ?? 0) + 1
+        return { ok: true, skill, args, forced: `${MAX_VETO_STREAK} consecutive vetoes` }
+      }
+
       if (n % 5 !== 0) {
+        this.vetoStreak = (this.vetoStreak ?? 0) + 1
         return {
           ok: false, reason: 'learned_avoid',
           detail: `${skill} with these args has failed ${priorFails}x across runs (retry in ${5 - (n % 5)})`,
@@ -188,6 +209,7 @@ export class AdmissionControl {
 
     this.recent.push(key)
     if (this.recent.length > REPEAT_WINDOW * 2) this.recent.shift()
+    this.vetoStreak = 0
     return { ok: true, skill, args }
   }
 }
