@@ -219,9 +219,24 @@ export class CognitiveLoop {
         // thing that always works. A neutral outcome is recorded as neither win
         // nor failure: the bot did nothing wrong, and it achieved nothing.
         const value = classifyOutcome(admitted.skill, r.status, r.delta ?? {})
-        if (value === 'valuable' || value === 'costly') {
+        if (value === 'valuable') {
           this.admission.noteSuccess(admitted.skill, admitted.args)
           this.lessons.recordSuccess(admitted.skill, admitted.args)
+        } else if (value === 'costly') {
+          // The skill DID achieve its contract, so it is recorded as having
+          // worked -- refusing that would teach the fleet to avoid the only
+          // action that works in hard terrain. But it is not fed to the
+          // admission gate, which is what builds PREFERENCE: a win that costs
+          // health should not make the bot keener to repeat it.
+          //
+          // The cost attaches to the place, not the skill. Mining at y=39 is
+          // not a bad idea; mining at y=39 THERE is, and hazardsNear() is what
+          // the prompt layer reads back.
+          this.lessons.recordSuccess(admitted.skill, admitted.args)
+          this.lessons.recordHazard(`costly_${admitted.skill}`, this.bot.entity?.position)
+          log('warn', 'skill met its contract but cost health', {
+            skill: admitted.skill, hp: r.delta?.health, food: r.delta?.food,
+          })
         }
         outcome = { status: r.status, detail: r.detail, value }
         if (value === 'neutral') {

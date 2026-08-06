@@ -161,8 +161,12 @@ export class Runner {
         distance: moved ?? 0,
         health: (this.bot.health ?? 0) - (hpBefore ?? 0),
         food: (this.bot.food ?? 0) - (foodBefore ?? 0),
-        placed: /build|place/.test(skillName) && Object.values(delta).some(d => d < 0) ? 1 : 0,
-        informed: skillName === 'status',
+        // Taken from the skill's own verified count, never inferred. A skill
+        // that places blocks reads them back out of the world; a skill that
+        // does not simply omits the field and gets 0. The previous version
+        // guessed from the skill NAME and any inventory decrease, which is also
+        // true of eating, dropping, depositing and crafting.
+        placed: Number(result.placed ?? 0),
       },
     }
   }

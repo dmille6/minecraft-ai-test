@@ -755,9 +755,14 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
   const detail = `${plan} at ${ax},${ay},${az}: ${done}/${spec.length} in place (${placed} new, ${already} already, ${failed} failed)` +
                  (lastErr ? ` — last problem: ${lastErr}` : '')
 
-  if (done === spec.length) return { status: 'success', detail }
-  if (placed > 0) return { status: 'success', detail }          // real progress this call
-  return { status: 'failed', detail }
+  // Report `placed` -- the count of blocks this call READ BACK from the world.
+  // The runner used to infer world change from `/build|place/` matching the
+  // skill name plus any inventory item going down, which is true when the bot
+  // eats, drops, deposits, or crafts, and false for a placement from a stack it
+  // then refilled. The honest number was already sitting right here.
+  if (done === spec.length) return { status: 'success', detail, placed }
+  if (placed > 0) return { status: 'success', detail, placed }  // real progress this call
+  return { status: 'failed', detail, placed }
 }
 
 
@@ -1085,7 +1090,16 @@ export const SKILL_CONTRACTS = {
   // Genuinely produces no durable change. Useful only when the bot's picture of
   // itself is stale, never as achievement -- which is exactly what it was being
   // recorded as.
-  status:   { expects: ['information'],           maxMs: 10_000 },
+  // Deliberately expects nothing. `status` cannot fail and cannot achieve, so
+  // there is no observable change that would make running it an accomplishment.
+  //
+  // It USED to expect 'information', satisfied by a `delta.informed` flag that
+  // the runner set to the constant `skillName === 'status'`. That is true by
+  // construction on every call, so every status call met its contract, scored
+  // valuable, and was reinforced -- which is the exact 115-times-recorded-as-a-
+  // win bug that ADR-0003 exists to prevent, faithfully rebuilt inside the fix
+  // for it. An expectation that cannot be unmet is not an expectation.
+  status:   { expects: [],                        maxMs: 10_000 },
 }
 
 /**
@@ -1114,8 +1128,7 @@ export function classifyOutcome(skillName, status, delta = {}) {
     (expects.includes('inventory_loss') && lost) ||
     (expects.includes('position') && moved) ||
     (expects.includes('world_change') && (delta.placed ?? 0) > 0) ||
-    (expects.includes('survival') && healthUp) ||
-    (expects.includes('information') && (delta.informed ?? false))
+    (expects.includes('survival') && healthUp)
 
   if (!met) return 'neutral'
   // Met its purpose but paid for it in health -- worth recording differently so
