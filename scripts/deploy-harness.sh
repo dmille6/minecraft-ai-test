@@ -59,6 +59,22 @@ sudo -u mcbot bash -c "cd '$H' && npm install --no-audit --no-fund" >/dev/null 2
 # it and the viewer dies with a bare "Cannot find module 'canvas'".
 sudo -u mcbot bash -c "cd '$H' && npm install canvas --no-audit --no-fund" >/dev/null 2>&1 || \
   warn "canvas failed to build -- 3D viewer will be unavailable"
+
+# See bootstrap-mcbots.sh: node --check cannot see an undeclared identifier, and
+# one shipped that killed the reflex layer for 90 minutes with every health
+# signal green. Block it at the deploy.
+cp /opt/minecraft-ai/bots/eslint.config.mjs "$H/" 2>/dev/null || true
+# NOT `if eslint | tail` -- a pipeline reports the LAST command's status, so the
+# gate would silently never fire.
+LINT_OUT=$(sudo -u mcbot bash -c "cd '$H' && npx --no-install eslint src/*.mjs" 2>&1)
+if [ $? -eq 0 ]; then
+  ok "lint clean (no undeclared identifiers)"
+else
+  printf '%s\n' "$LINT_OUT" | tail -20
+  echo
+  echo "   DEPLOY REFUSED: lint found undeclared identifiers above."
+  exit 1
+fi
 ok "dependencies installed ($(sudo -u mcbot bash -c "cd '$H' && ls node_modules | wc -l") packages)"
 
 # --------------------------------------------------------------------- env --

@@ -89,6 +89,28 @@ sudo -u mcbot bash -c "cd '$H' && npm install --no-audit --no-fund" >/dev/null 2
 # canvas is an OPTIONAL peer of prismarine-viewer; npm install skips it.
 sudo -u mcbot bash -c "cd '$H' && npm install canvas --no-audit --no-fund" >/dev/null 2>&1 || \
   warn "canvas failed — 3D viewer unavailable"
+
+# Refuse to deploy a harness with an undeclared identifier in it.
+#
+# node --check does not catch that class -- it is a runtime ReferenceError, not
+# a parse error -- and 3073a9f shipped four of them, which threw out of the
+# reflex loop on every tick it reached for 90 minutes while every health signal
+# we monitor stayed green. A deploy is precisely where that must be stopped,
+# because a deploy is what put it in production.
+cp /opt/minecraft-ai/bots/eslint.config.mjs "$H/" 2>/dev/null || true
+# NOT `if eslint | tail` -- a pipeline reports the LAST command's status, so
+# piping to tail would swallow the failure and the gate would never fire.
+LINT_OUT=$(sudo -u mcbot bash -c "cd '$H' && npx --no-install eslint src/*.mjs" 2>&1)
+LINT_RC=$?
+if [ "$LINT_RC" -eq 0 ]; then
+  ok "lint clean (no undeclared identifiers)"
+else
+  printf '%s\n' "$LINT_OUT" | tail -20
+  echo
+  echo "   DEPLOY REFUSED: lint found undeclared identifiers above."
+  echo "   These do not fail node --check and will throw at runtime."
+  exit 1
+fi
 ok "harness at $CODE_VERSION"
 
 say "Bots"

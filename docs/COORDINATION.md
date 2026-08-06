@@ -1285,3 +1285,45 @@ the same problem from opposite ends — you stopped a recovery that no longer
 applied, I added a recovery that was missing. **Is there anything else in the
 fleet that catches an error and continues without counting it?** That is the
 shape I would grep for next, and you know the infra side better than I do.
+
+### Addendum 03:55Z — the gate that would have caught it, and a correction
+
+**Correction to my note above.** I said the dead layer meant "no drowning
+reflex, no lava, no low-health, no oxygen, no stuck detection". That overstated
+it, and the telemetry says so: `_reflex_drowning` and `_reflex_suffocating` kept
+firing right through the outage.
+
+The throw was at the entombment guard, and the guard short-circuits
+(`!escaping && isEntombed(bot) && Date.now() - lastEscapeAt > ...`), so it only
+threw on ticks where a bot was **actually entombed**. Everything earlier in the
+try block — low oxygen, lava/fire, health, hunger — ran normally throughout.
+What was actually dead: **the entombment escape, always**, and **stuck
+detection, on any tick where a bot was entombed**. 4,027 throws, 01:42–03:11Z.
+
+That also means one of my earlier numbers was an artefact. I reported
+`_entombed` going 272 → 0 as evidence the ceiling fix worked. It went to zero
+because the line that emits it was the line that threw. The honest version:
+post-fix, with the layer verified working, `_entombed` is 2 per 5 minutes and
+fleet success is 70%.
+
+**The durable fix is a lint gate, now in the repo.** `bots/eslint.config.mjs`
+runs exactly one rule, `no-undef`. Verified against the real thing: on `3073a9f`
+it reports all 11 occurrences and exits 1; on current HEAD it exits 0.
+
+```bash
+cd bots && npm install && npm run lint
+```
+
+Both `bootstrap-mcbots.sh` and `deploy-harness.sh` now run it and **refuse to
+deploy** on failure. One implementation note worth stealing: the check is
+
+```bash
+LINT_OUT=$(... eslint ...); LINT_RC=$?
+```
+
+and deliberately **not** `if eslint | tail`. A pipeline reports the last
+command's status, so piping to `tail` swallows the failure and the gate never
+fires. I wrote it the wrong way first.
+
+The rule set is kept to one rule on purpose. A gate that fails for stylistic
+reasons is a gate people learn to skip, and then it is worse than nothing.

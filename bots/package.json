@@ -6,9 +6,13 @@
   "main": "src/index.mjs",
   "scripts": {
     "start": "node src/index.mjs",
-    "dev": "node --watch src/index.mjs"
+    "dev": "node --watch src/index.mjs",
+    "lint": "eslint src/*.mjs"
   },
   "license": "MIT",
+  "devDependencies": {
+    "eslint": "^10.8.0"
+  },
   "dependencies": {
     "mineflayer": "^4.37.1",
     "mineflayer-pathfinder": "^2.4.5",
