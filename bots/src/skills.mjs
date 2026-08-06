@@ -496,11 +496,62 @@ async function craft(ctx, { item, count = 1 }, signal) {
 
   if (!recipe) {
     const hasTable = bot.inventory.items().some(i => i.name === 'crafting_table')
+
+    // NAME THE MISSING INGREDIENT. "missing ingredients" taught the model
+    // nothing, and it showed: a bot stood two blocks from the crafting table
+    // holding 59 oak_log and asked for `stick` five times and `wooden_pickaxe`
+    // four times, never once for `oak_planks` -- the intermediate step. It had
+    // the raw material and no way to learn what the gap was.
+    //
+    // Ask the registry which ingredients ANY recipe for this item wants, and
+    // report the ones the bot does not have. The model can act on a name.
+    let missing = []
+    try {
+      const all = [
+        ...bot.recipesAll(def.id, null, null),
+        ...(bot.recipesAll(def.id, null, true) ?? []),
+      ]
+      // Report the CLOSEST recipe, not the union of every variant. Minecraft
+      // has a plank recipe per wood type, so unioning them told a bot holding
+      // oak_log that it needed "cherry_planks and bamboo_planks and
+      // mangrove_planks" -- true of some recipe, useless as advice.
+      //
+      // Fewest-missing-ingredients is the recipe the bot is nearest to being
+      // able to make, which is the one worth naming.
+      let best = null
+      for (const r of all.slice(0, 12)) {
+        const gap = []
+        for (const d of (r.delta ?? [])) {
+          if (d.count >= 0) continue                       // positive = produced
+          const n = bot.registry.items[d.id]?.name
+          if (n && countItem(bot, n) < -d.count) gap.push(`${-d.count}x ${n}`)
+        }
+        // Tiebreak toward what this bot could ACTUALLY make. Every wood type
+        // has its own plank recipe, so a bot holding oak_log was told it needed
+        // "cherry_planks" -- true, and unreachable. Prefer a recipe whose
+        // missing ingredients share a stem with something in the inventory
+        // (oak_log -> oak_planks), because that is the one step it can take.
+        const held = bot.inventory.items().map(i => i.name.split('_')[0])
+        const affinity = g => g.filter(x => held.includes(x.split(' ').pop().split('_')[0])).length
+        if (!best ||
+            gap.length < best.length ||
+            (gap.length === best.length && affinity(gap) > affinity(best))) best = gap
+        if (best.length === 0) break
+      }
+      missing = best ?? []
+    } catch { /* registry shape varies by version; fall back to the generic message */ }
+
+    const why = missing.length
+      ? `needs ${missing.join(' and ')} (you have ` +
+        `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})`
+      : 'missing ingredients or need a crafting_table nearby'
+
     return {
       status: 'failed',
-      detail: hasTable
+      failClass: 'missing_ingredients',
+      detail: hasTable && !missing.length
         ? `no recipe available for ${item}; place the crafting_table first`
-        : `cannot craft ${item} -- missing ingredients or need a crafting_table nearby`,
+        : `cannot craft ${item} -- ${why}`,
     }
   }
 
