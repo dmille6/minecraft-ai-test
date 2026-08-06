@@ -1369,3 +1369,31 @@ attacker-driven traffic.
 The 5080 stays LAST in the pool as a degrade path only, so a Studio outage
 (which happened at 03:36 tonight) costs us decision quality rather than the
 whole fleet.
+
+## 2026-08-06 06:45Z — infra agent: the stuck reflex was killing legitimate work
+
+`STUCK_SECONDS=20` in the deployed env, overriding the 35 default. Telemetry
+over two hours:
+
+```
+gather aborted:  n=55  p50=20.5s  p90=27.3s     <- killed at the threshold
+gather success:  n=24  p50=10.4s  p90=30.4s     <- successes routinely need 30s
+```
+
+Aborts clustered at exactly 20.5s because that is when the reflex fired. The
+stuck detector accumulates stillness while the runner is busy and the bot is
+neither moving nor digging — which is precisely what `collectblock` does while
+computing a route to a tree 20 blocks away. Thinking looked identical to being
+wedged.
+
+Raised to 45s. Nesting stays correct: path attempt 25s < stuck 45s < skill
+watchdog 180s.
+
+Result in the first six minutes: **gather aborts 55-in-2h -> 0**, stuck reflex
+firings -> 0, and remaining gather failures are honest ones ("found but
+unreachable") rather than premature kills.
+
+This is the fourth timeout-nesting bug in this project and the second where a
+guard fired on a bot that was working correctly. Worth a rule: any watchdog
+whose threshold sits inside the p90 of legitimate work will spend most of its
+firings on false positives.
