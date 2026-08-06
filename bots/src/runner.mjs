@@ -138,7 +138,14 @@ export class Runner {
       trigger: this.interruptedReason ? `interrupt:${this.interruptedReason}` : trigger,
       invDelta: Object.keys(delta).length ? delta : undefined,
       distanceMoved: moved,
-      failClass: result.status === 'success' ? undefined : classifyFailure(result.detail),
+      // Only ACTUAL failures get a failure class. `no_effect` means the skill
+      // correctly declined to act -- eating when full, status reporting -- and
+      // feeding that to a failure classifier put 396 non-failures into the
+      // taxonomy, half of everything it had labelled `other`. A no-op is
+      // already visible as skill.status; it is not a kind of failure.
+      failClass: (result.status === 'failed' || result.status === 'aborted')
+        ? classifyFailure(result.detail)
+        : undefined,
       perception: perception(this.bot),
     })
     log(result.status === 'success' ? 'info' : 'warn', `skill ${skillName} -> ${result.status}`, { detail: result.detail })

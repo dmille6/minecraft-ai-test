@@ -85,14 +85,55 @@ export function biomeAt(bot) {
 /** Classify a failure string into a small, aggregatable set. */
 export function classifyFailure(detail = '') {
   const d = String(detail).toLowerCase()
+
+  // Ordered most-specific first. Every branch below was derived from the actual
+  // unclassified strings in Elasticsearch, not guessed: `other` was the LARGEST
+  // class at 36% of all failures, which makes a failure taxonomy decorative --
+  // you cannot act on "something went wrong, 1076 times".
+
+  // Reflex interruptions. The skill did not fail; it was preempted to stop the
+  // bot dying, and counting that as a skill failure blames the skill for being
+  // rescued.
+  if (d.includes('entombed') || d.includes('drowning') || d.includes('suffocat')
+      || d.includes('lava') || d.includes('low health')) return 'hazard_interrupt'
+
+  // The stagnation watchdog aborting a skill that stopped making progress. Was
+  // 62 records of 'other'; it is its own thing and the distinction matters --
+  // this is the bot not moving, not the world refusing.
+  if (d.includes('stagnation')) return 'stagnation'
+
   if (d.includes('exceeded') && d.includes('ms')) return 'path_timeout'
-  if (d.includes('no path') || d.includes('unreachable')) return 'no_path'
-  if (d.includes('stopped before')) return 'path_interrupted'
-  if (d.includes('stuck')) return 'stuck'
-  if (d.includes('tool')) return 'missing_tool'
-  if (d.includes('missing ingredients') || d.includes('cannot craft')) return 'missing_ingredients'
+  // "no route" is what goto actually says. The classifier matched only "no path"
+  // and "unreachable", so 189 genuine routing failures -- the second largest
+  // group in `other` -- were invisible. The skill's wording and the classifier
+  // are two encodings of one concept, and they drifted the moment one changed.
+  if (d.includes('no path') || d.includes('no route') || d.includes('unreachable')) return 'no_path'
+  if (d.includes('goal was changed')) return 'preempted'
+  if (d.includes('stopped before') || d.includes('stalled')) return 'path_interrupted'
+  if (d.includes('stuck') || d.includes('wedged')) return 'stuck'
+
+  // A precondition refusal, not a failure to execute. `mine` declining to
+  // descend without a pickaxe is the guard working.
+  if (d.includes('no pickaxe') || d.includes('no axe') || d.includes('no shovel')
+      || d.includes('tool')) return 'missing_tool'
+
+  // The material is there but under solid ground -- a genuinely different
+  // problem from "there is none nearby", and the fix is different too.
+  if (d.includes('buried')) return 'buried'
+
+  // Has the ingredients, lacks the station.
+  if (d.includes('place the crafting_table') || d.includes('crafting table')) return 'needs_station'
+  if (d.includes('missing ingredients') || d.includes('cannot craft')
+      || d.includes('no recipe')) return 'missing_ingredients'
+
+  // follow/come pointed at a player that is not there. "cannot see undefined"
+  // is also a bug worth seeing in its own bucket rather than buried in `other`.
+  if (d.includes('cannot see')) return 'bad_target'
+
   if (d.includes('no ') && d.includes('within')) return 'nothing_found'
+  if (d.includes('could not explore')) return 'nothing_found'
   if (d.includes('inventory')) return 'inventory'
   if (d.includes('timeout')) return 'timeout'
   return 'other'
 }
+
