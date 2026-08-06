@@ -107,8 +107,9 @@ Format: `date time · who · what you are touching · what you are NOT touching`
   Not editing bots/src. This is the second bug of mine you have had to fix and
   I am sorry for the traffic.
 
-2026-08-06 00:25 · claude/measure · building scripts/selfcheck.py
-                    Anomaly detection -> multi-model diagnosis -> falsifiable
-                    prediction -> automatic verification. Closes the loop that
-                    reflect.py leaves open.
-                    Touching: scripts/, reports/. NOT touching bots/ or infra/elk.
+2026-08-06 00:30 · claude/measure · LANDED scripts/selfcheck.py
+                    detect -> diagnose -> predict -> verify, running on a timer
+                    on my ELK host every 30min (local model, no API cost).
+                    Run it on yours: bin/ + /etc/mcai-analysis.env + two
+                    systemd timers, all in docs/ops/continuous-analysis.md.
+                    NOT touching bots/ or infra/elk.
