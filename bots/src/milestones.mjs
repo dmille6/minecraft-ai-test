@@ -182,10 +182,21 @@ export class MilestoneController {
     this.skipped = p.skipped
     this.skippedAt = p.skippedAt ?? {}
     this.skipCount = p.skipCount ?? {}
+    // How many times the whole chain has been completed. SUSTAINING goals scale
+    // their targets by it ("stockpile 16 + n*8 cobblestone"), and it was READ in
+    // three places and ASSIGNED in none -- so every sustaining goal rendered as
+    // "Stockpile NaN cobblestone", and done() could never be true because every
+    // comparison against NaN is false. A bot reaching the sustaining loop was
+    // handed a goal it was impossible to complete or to fail.
+    //
+    // Same defect as the death record that claimed "no skill running" from a
+    // variable nothing set: read-but-never-written. Persisted, because a cycle
+    // count is progress and a restart should not silently reset the difficulty.
+    this.cycle = p.cycle ?? 0
   }
 
   #persist() {
-    this.lessons?.setProgress?.(this.attempts, this.skipped, this.skippedAt, this.skipCount)
+    this.lessons?.setProgress?.(this.attempts, this.skipped, this.skippedAt, this.skipCount, this.cycle)
   }
 
   /**
@@ -273,9 +284,13 @@ export class MilestoneController {
     if (this.index >= this.chain.length) {
       const outstanding = this.chain.some(m => {
         if (this.skipped.includes(m.id)) return false
-        try { return !m.done(this.bot, this.cycle) } catch { return false }
+        try { return !m.done(this.bot, this.cycle ?? 0) } catch { return false }
       })
       if (outstanding) {
+        // Running off the end and finding work again is exactly one completed
+        // pass, which is what the sustaining targets scale on.
+        this.cycle += 1
+        this.#persist()
         log('info', 'milestone chain re-entered; goals outstanding again', { cycle: this.cycle })
         this.index = 0
       }
@@ -301,12 +316,17 @@ export class MilestoneController {
   status() {
     const m = this.current()
     if (!m) return { id: 'idle', describe: 'Nothing to do.', progress: '-', hint: '' }
-    const n = this.cycle
+    // `?? 0` so a future regression degrades to an easy goal rather than an
+    // impossible one. NaN is not a difficulty, it is a broken milestone.
+    const n = this.cycle ?? 0
     let progress = '-'
     try { progress = m.progress(this.bot, n) } catch { /* entity gone mid-respawn */ }
     const describe = typeof m.describe === 'function' ? m.describe(n) : m.describe
     return {
-      id: this.index < MILESTONES.length ? m.id : `${m.id}#${n}`,
+      // Fixed milestones keep their plain id; sustaining ones carry the cycle.
+      // This compared against MILESTONES.length -- the SCOUT chain -- for every
+      // role, so a miner's ids were suffixed against the wrong boundary.
+      id: this.index < this.chain.length - SUSTAINING.length ? m.id : `${m.id}#${n}`,
       // What this milestone is actually FOR. The value classifier needs it:
       // without it, `inventory_gain` rewards gaining anything at all, and the
       // fleet converged on crafting sticks -- 80 of them, nothing needing more
