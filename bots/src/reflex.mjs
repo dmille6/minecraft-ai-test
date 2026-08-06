@@ -137,8 +137,23 @@ export function startReflexes(bot, runner, lessons = null) {
       //
       // This is a survival condition, so it lives here rather than in a skill --
       // it must fire regardless of what the agent thinks it is doing.
-      if (!escaping && isEntombed(bot)) {
+      if (!escaping && isEntombed(bot) &&
+          Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
+        if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
+          // Hand it to the watchdog, which can relocate, go home, or reconnect.
+          // Repeating an escape that has failed four times is not a strategy.
+          logEvent({ kind: 'entombed_unrecoverable', status: 'failed',
+                     detail: `gave up after ${escapeFailures} escape attempts at y=${Math.round(bot.entity.position.y)}`,
+                     snapshot: snapshot(bot) })
+          log('error', 'reflex: entombed and cannot escape, leaving it to the watchdog',
+              { attempts: escapeFailures })
+          lastEscapeAt = Date.now()
+          escapeFailures = 0
+          return
+        }
         escaping = true
+        lastEscapeAt = Date.now()
+        const yBefore = bot.entity.position.y
         lessons?.recordHazard('entombed', bot.entity?.position)
         logEvent({ kind: 'entombed', status: 'failed',
                    detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
@@ -146,6 +161,10 @@ export function startReflexes(bot, runner, lessons = null) {
         log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
         runner.interrupt('entombed')
         try { await pillarOut(bot) } catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+        // Verify the postcondition. "I ran the recovery" and "the bot is no
+        // longer trapped" are different claims and only the second one counts.
+        if (bot.entity && bot.entity.position.y - yBefore < 1 && isEntombed(bot)) escapeFailures++
+        else escapeFailures = 0
         escaping = false
         return
       }
@@ -184,6 +203,15 @@ export function startReflexes(bot, runner, lessons = null) {
 /** Walls on 3+ sides at head height, and open sky is far above. */
 function isEntombed(bot) {
   const p = bot.entity.position
+
+  // A CEILING is the load-bearing condition and the original version lacked it.
+  // Without this, "walls on three sides plus higher ground nearby" describes an
+  // ordinary hillside, and the reflex fired 1,997 times in 40 minutes at an
+  // average y of 64 -- surface level, open sky overhead. Being genuinely
+  // entombed means something is above you.
+  const ceiling = bot.blockAt(p.offset(0, 2, 0))
+  if (!ceiling || ceiling.name === 'air' || ceiling.name.includes('leaves')) return false
+
   let walls = 0
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const b = bot.blockAt(p.offset(dx, 1, dz))

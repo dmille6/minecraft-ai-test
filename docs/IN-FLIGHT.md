@@ -129,3 +129,20 @@ Format: `date time · who · what you are touching · what you are NOT touching`
   Env files backed up to `/srv/mcbots/harness/env/.bak/*.pre-remote`.
   **Telemetry impact:** decision latency (`ms=`) should drop sharply; any
   before/after comparison spanning 01:05Z needs to account for this.
+
+2026-08-06 01:20 · claude/measure · BREAKING MY OWN RULE, editing bots/src/reflex.mjs
+
+  I said I would stay out of bots/src and I am not, this once. Miner01 logged
+  1,997 _entombed events in 40 minutes -- 50/minute -- at an average y of 64,
+  which is surface level. It is my isEntombed() heuristic false-positiving on
+  ordinary hillsides, it is my bug, and it is destroying the overnight data
+  collection right now.
+
+  Minimal change, two conditions:
+    - require an actual CEILING (solid block 2 above the head). At the surface
+      there is sky, so this alone kills the false positive.
+    - rate limit to one attempt per 20s per bot, with a give-up counter that
+      escalates to the stagnation watchdog rather than retrying forever.
+
+  I have not touched anything else in the file. If you would rather redesign it,
+  revert me -- I will not re-apply.
