@@ -214,6 +214,35 @@ Collected because none are obvious from reading the code:
   fight over one GPU's memory took it to 1.5s.
 - **`chunk-system.worker-threads: -1`** gave 2 threads on 6 cores. Setting it to
   4 took chunk generation from 17 to ~85 chunks/sec with TPS untouched.
+- **`node --check` cannot see an undeclared identifier.** It is a runtime
+  `ReferenceError`, not a parse error. A commit referenced four names it never
+  declared and the whole reflex layer threw on every tick, twice a second, for
+  hours — while the bots stayed connected, kept making LLM calls, and reported
+  health 20/20. **Every signal we monitor said healthy.** Only executing the
+  branch finds this, and that branch needed a bot to actually be entombed.
+- **A `catch` that logs and continues converts an outage into a log line.**
+  That is what let the above run silently. Any repeated failure needs a
+  *counter* and an escalation, not just capture. Anything repeating at the tick
+  rate is an outage.
+- **The deploy check had never once worked.** It grepped root-owned env files
+  without `sudo`, silently read nothing, and reported "not recorded" while the
+  fleet ran 18 commits behind and `_entombed` fired 2,695 times in three hours.
+  Success was 5%; deploying the already-committed fix took it to 70%.
+  **A check that cannot fail is not a check.** It now fails loudly and lists
+  the missing commits.
+- **Stamp the version where the CODE lives.** `src/` is shared by every role but
+  `env/` is written per role, so version stamps described the last role a deploy
+  touched, not what was executing — three bots read two different versions while
+  all running a third. `harness/VERSION` sits beside `src/` and is the authority.
+- **Size `num_ctx` from the MAX, not the p99.** Telemetry said `p99=2390` and
+  `MAX=2542`; 2048 looked safe on the p99 and would have truncated the tail.
+  Ollama preallocates KV for `num_ctx * NUM_PARALLEL`, so an oversized window is
+  paid on every slot: 8192 held a 9.0GB model at 15.2GB. 4096 took it to 12.0GB.
+  Startup now refuses a window smaller than the prompt budget plus headroom.
+- **A timer-driven analysis job will preempt live control on a shared GPU.**
+  `selfcheck` ran 02:24:56–02:25:29 and the four slowest agent decisions of the
+  night — 61s, 48s, 38s, 31s — all landed inside that window. Analysis now
+  shares the agents' own model instead of holding a second, larger one resident.
 
 ---
 
@@ -226,13 +255,25 @@ chain: logs → planks → sticks → crafting table → wooden pickaxe → cobb
 never decides what "done" means.
 
 It gathers successfully, though `gather` still fails often in dense forest —
-the skill layer is the bottleneck, not the model. Decisions take ~1.5–2.5s
-once the model is resident.
+the skill layer is the bottleneck, not the model. Role contrast on an identical
+world, model and codebase makes that concrete: gatherer 50%, scout 8%, miner 0%.
+
+The agents do learn, and it survives restarts. Per-bot `avoid`/`worked` rules
+are built from counted outcomes rather than generated text, and hazard sites are
+shared fleet-wide — a drowning site one bot found 30 times is avoided by bots
+that have never been there. Terrain is common knowledge; policy stays private.
+
+**Decision latency, measured on three concurrent bots:** `p50 ≈ 5–6.5s`,
+schema validity 298/298. Generation is only ~51 tokens (`MAX` 219 in 24h), so
+the cost is queueing and prefill, not output length — capping `num_predict`
+would do nothing, which measurement established after reasoning suggested
+otherwise.
 
 **Known gaps, honestly:** no automated tests — every bug so far was found by
-hand; world backups sit on the same volume as the world they protect; there is
-observability but no alerting; and no griefing controls yet, which matters now
-that an LLM can choose `place` and `mine`.
+hand, including one that disabled the entire reflex layer and would have been
+caught by executing a single tick; world backups sit on the same volume as the
+world they protect; there is observability but no alerting; and no griefing
+controls yet, which matters now that an LLM can choose `place` and `mine`.
 
 Difficulty is `peaceful` on purpose. With no weapon, armour, or combat skill,
 an armed night produced 22 mob deaths in six hours — that measures the world's
