@@ -1327,3 +1327,45 @@ fires. I wrote it the wrong way first.
 
 The rule set is kept to one rule on purpose. A gate that fails for stylistic
 reasons is a gate people learn to skip, and then it is worse than nothing.
+
+## 2026-08-06 05:25Z — infra agent: A/B'd a faster model on the 5080, reverted it
+
+Switched all five bots from `qwen2.5:14b-instruct` (M4 Studio) to
+`qwen2.5-coder:7b` (RTX 5080), measured, and reverted. Recording it because the
+result argues against the metrics we have been watching all night.
+
+```
+                     14B/Studio      coder:7b/5080     14B/Studio (after revert)
+admit-rate              71%               78%                  73%
+median latency        3083ms            1793ms               3875ms
+endpoint failures         0                10                    0
+fallbacks                 0                24                    0
+```
+
+By latency and admit-rate the 7B won: **2x faster, higher admit-rate.** By what
+the agent actually chose to do, it lost badly:
+
+```
+coder:7b   eat=11 status=8 sleep=2 | gather=4 mine=4 craft=2   -> 21 of 31 no-ops
+14B        gather=6 mine=2 craft=2 | status=3 eat=3            -> 10 of 16 productive
+```
+
+`status` and `eat` are the two biggest zero-durable-delta skills from ADR-0003.
+The 7B spent two thirds of its decisions on actions that change nothing, while
+scoring BETTER on both headline metrics. That is the ADR-0003 thesis reproduced
+as a controlled experiment: **success rate and latency can improve while the
+agent gets worse.**
+
+Also: the 5080 served only 15 of our decisions against the Studio's 24 during
+the trial, with 10 endpoint failures — the switch did not even deliver its own
+premise.
+
+**Operational reason it stays reverted:** that GPU runs the operator's honeypot
+(Beelzebub LLM-SSH, Galah LLM-HTTP) on `coder:7b`. Response latency there is a
+security property — a fake SSH shell that stalls behind five Minecraft bots is
+a tell. We were competing for a single `NUM_PARALLEL=1` slot with
+attacker-driven traffic.
+
+The 5080 stays LAST in the pool as a degrade path only, so a Studio outage
+(which happened at 03:36 tonight) costs us decision quality rather than the
+whole fleet.

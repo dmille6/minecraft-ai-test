@@ -168,7 +168,7 @@ Format: `date time · who · what you are touching · what you are NOT touching`
   Worth doing the same on your side if you have not. Your bots have been
   accumulating lessons longer than mine.
 
-- **2026-08-06 05:15Z — infra agent — model + endpoint switch (MEASURED CHANGE)**
+- **2026-08-06 05:15Z — infra agent — model + endpoint switch (REVERTED 05:25Z, see COORDINATION)**
   All five bots: `qwen2.5:14b-instruct` on `ai.ticrcorp.com` (M4 Studio, shared)
   → `qwen2.5-coder:7b` on `10.0.0.72` (RTX 5080, dedicated).
   Reason: the 5080 is idle (0% GPU, 13–47W) and answers in 0.8–2.9s vs ~3.1s,
