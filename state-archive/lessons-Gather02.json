@@ -20,15 +20,15 @@
     "player": "Gather02"
    },
    "classes": {
-    "missing_ingredients": 10
+    "missing_ingredients": 11
    },
-   "fails": 8,
-   "last": 1786044779041,
+   "fails": 9,
+   "last": 1786046134522,
    "skill": "craft",
    "where": {
-    "x": 47,
-    "y": 74,
-    "z": -35
+    "x": 24,
+    "y": 78,
+    "z": 1
    }
   },
   "craft:{\"item\":\"wooden_pickaxe\"}": {
@@ -36,16 +36,16 @@
     "item": "wooden_pickaxe"
    },
    "classes": {
-    "missing_ingredients": 4,
+    "missing_ingredients": 5,
     "other": 3
    },
-   "fails": 7,
-   "last": 1786044501384,
+   "fails": 8,
+   "last": 1786046196240,
    "skill": "craft",
    "where": {
-    "x": 47,
-    "y": 74,
-    "z": -35
+    "x": 24,
+    "y": 78,
+    "z": 1
    }
   },
   "eat:{}": {
@@ -76,20 +76,6 @@
     "x": 49,
     "y": 73,
     "z": -30
-   }
-  },
-  "follow:{}": {
-   "args": {},
-   "classes": {
-    "other": 3
-   },
-   "fails": 3,
-   "last": 1786023957700,
-   "skill": "follow",
-   "where": {
-    "x": 51,
-    "y": 75,
-    "z": 5
    }
   },
   "gather:{\"block\":\"cobblestone\",\"count\":1}": {
@@ -126,6 +112,23 @@
     "z": -34
    }
   },
+  "gather:{\"block\":\"dirt\",\"count\":10}": {
+   "args": {
+    "block": "dirt",
+    "count": 10
+   },
+   "classes": {
+    "buried": 1
+   },
+   "fails": 1,
+   "last": 1786045926877,
+   "skill": "gather",
+   "where": {
+    "x": 26,
+    "y": 79,
+    "z": -5
+   }
+  },
   "gather:{\"block\":\"dirt\",\"count\":16}": {
    "args": {
     "block": "dirt",
@@ -158,6 +161,23 @@
     "x": 48,
     "y": 74,
     "z": -20
+   }
+  },
+  "gather:{\"block\":\"dirt\",\"count\":2}": {
+   "args": {
+    "block": "dirt",
+    "count": 2
+   },
+   "classes": {
+    "buried": 2
+   },
+   "fails": 2,
+   "last": 1786045839281,
+   "skill": "gather",
+   "where": {
+    "x": 26,
+    "y": 79,
+    "z": -5
    }
   },
   "gather:{\"block\":\"oak_log\",\"count\":1}": {
@@ -319,24 +339,6 @@
     "z": -34
    }
   },
-  "goto:{\"x\":28,\"y\":79,\"z\":0}": {
-   "args": {
-    "x": 28,
-    "y": 79,
-    "z": 0
-   },
-   "classes": {
-    "other": 1
-   },
-   "fails": 1,
-   "last": 1786024042032,
-   "skill": "goto",
-   "where": {
-    "x": 51,
-    "y": 75,
-    "z": 5
-   }
-  },
   "goto:{\"x\":31,\"y\":69,\"z\":-30}": {
    "args": {
     "x": 31,
@@ -475,38 +477,6 @@
     "z": -30
    }
   },
-  "mine:{\"y\":13}": {
-   "args": {
-    "y": 13
-   },
-   "classes": {
-    "other": 2
-   },
-   "fails": 2,
-   "last": 1786024348271,
-   "skill": "mine",
-   "where": {
-    "x": 51,
-    "y": 75,
-    "z": 5
-   }
-  },
-  "mine:{\"y\":24}": {
-   "args": {
-    "y": 24
-   },
-   "classes": {
-    "other": 1
-   },
-   "fails": 1,
-   "last": 1786023137470,
-   "skill": "mine",
-   "where": {
-    "x": 50,
-    "y": 75,
-    "z": 16
-   }
-  },
   "mine:{\"y\":5}": {
    "args": {
     "y": 5
@@ -562,29 +532,29 @@
    },
    "classes": {
     "missing_tool": 1,
-    "other": 7
+    "other": 8
    },
-   "fails": 8,
-   "last": 1786040260350,
+   "fails": 9,
+   "last": 1786045887213,
    "skill": "mine",
    "where": {
-    "x": 49,
-    "y": 74,
-    "z": -34
+    "x": 26,
+    "y": 79,
+    "z": -5
    }
   }
  },
  "progress": {
   "attempts": {
-   "gather_cobblestone_8": 19,
+   "gather_cobblestone_8": 22,
    "gather_dirt_16": 0,
    "gather_oak_log_12": 0,
    "gather_sand_8": 0,
    "stockpile_wood": 24
   },
   "blocked": {
-   "craft:{\"item\":\"stick\"}": 19,
-   "craft:{\"item\":\"wooden_pickaxe\"}": 14,
+   "craft:{\"item\":\"stick\"}": 22,
+   "craft:{\"item\":\"wooden_pickaxe\"}": 15,
    "eat:{}": 11,
    "explore:{}": 31,
    "gather:{\"block\":\"sand\",\"count\":8}": 2,
@@ -593,19 +563,20 @@
    "mine:{\"y\":12}": 37,
    "mine:{\"y\":5}": 2,
    "mine:{\"y\":65}": 36,
-   "mine:{\"y\":9}": 13
+   "mine:{\"y\":9}": 16
   },
   "skipCount": {
    "gather_cobblestone_8": 1,
-   "gather_dirt_16": 2,
+   "gather_dirt_16": 3,
    "gather_sand_8": 2
   },
   "skipped": [
-   "gather_sand_8"
+   "gather_sand_8",
+   "gather_dirt_16"
   ],
   "skippedAt": {
    "gather_cobblestone_8": 1786040996894,
-   "gather_dirt_16": 1786039456509,
+   "gather_dirt_16": 1786046072913,
    "gather_sand_8": 1786042603907
   }
  },

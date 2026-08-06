@@ -89,16 +89,16 @@
     "count": 1
    },
    "classes": {
-    "no_path": 1,
-    "other": 2
+    "no_path": 2,
+    "other": 3
    },
-   "fails": 1,
-   "last": 1786045261704,
+   "fails": 3,
+   "last": 1786045987065,
    "skill": "gather",
    "where": {
-    "x": -52,
-    "y": 72,
-    "z": 32
+    "x": -17,
+    "y": 71,
+    "z": 13
    }
   },
   "goto:{\"x\":51,\"y\":62,\"z\":-37}": {
@@ -224,7 +224,7 @@
    "craft_wooden_pickaxe_1": 0,
    "gather_cobblestone_12": 0,
    "gather_oak_log_8": 0,
-   "stockpile_wood": 1
+   "stockpile_wood": 10
   },
   "blocked": {
    "craft:{\"item\":\"stick\"}": 10,

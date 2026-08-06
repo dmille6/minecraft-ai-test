@@ -77,6 +77,40 @@
     "z": -12
    }
   },
+  "gather:{\"block\":\"dirt\",\"count\":8}": {
+   "args": {
+    "block": "dirt",
+    "count": 8
+   },
+   "classes": {
+    "buried": 1
+   },
+   "fails": 1,
+   "last": 1786046335035,
+   "skill": "gather",
+   "where": {
+    "x": 22,
+    "y": 73,
+    "z": -34
+   }
+  },
+  "gather:{\"block\":\"dirt\",\"count\":9}": {
+   "args": {
+    "block": "dirt",
+    "count": 9
+   },
+   "classes": {
+    "buried": 1
+   },
+   "fails": 1,
+   "last": 1786045901266,
+   "skill": "gather",
+   "where": {
+    "x": 22,
+    "y": 73,
+    "z": -34
+   }
+  },
   "gather:{\"block\":\"oak_log\",\"count\":1}": {
    "args": {
     "block": "oak_log",
@@ -100,15 +134,16 @@
     "count": 4
    },
    "classes": {
-    "no_path": 1
+    "no_path": 1,
+    "other": 1
    },
-   "fails": 1,
-   "last": 1786044022979,
+   "fails": 2,
+   "last": 1786045997028,
    "skill": "gather",
    "where": {
-    "x": 37,
-    "y": 76,
-    "z": 0
+    "x": 22,
+    "y": 73,
+    "z": -34
    }
   },
   "gather:{\"block\":\"oak_log\",\"count\":8}": {
@@ -338,22 +373,6 @@
     "z": 6
    }
   },
-  "mine:{\"y\":50}": {
-   "args": {
-    "y": 50
-   },
-   "classes": {
-    "other": 1
-   },
-   "fails": 1,
-   "last": 1786023957706,
-   "skill": "mine",
-   "where": {
-    "x": 61,
-    "y": 76,
-    "z": -3
-   }
-  },
   "mine:{\"y\":9}": {
    "args": {
     "y": 9
@@ -374,10 +393,10 @@
  "progress": {
   "attempts": {
    "gather_cobblestone_8": 1,
-   "gather_dirt_16": 0,
+   "gather_dirt_16": 1,
    "gather_oak_log_12": 0,
    "gather_sand_8": 0,
-   "stockpile_wood": 2
+   "stockpile_wood": 5
   },
   "blocked": {
    "craft:{\"item\":\"stick\"}": 4,
@@ -385,7 +404,7 @@
    "explore:{}": 8,
    "gather:{\"block\":\"sand\",\"count\":8}": 3,
    "goto:{\"x\":-40,\"y\":72,\"z\":50}": 12,
-   "mine:{\"y\":12}": 67,
+   "mine:{\"y\":12}": 68,
    "mine:{\"y\":14}": 10,
    "mine:{\"y\":62}": 2
   },
@@ -394,7 +413,6 @@
    "gather_sand_8": 2
   },
   "skipped": [
-   "gather_oak_log_12",
    "gather_sand_8"
   ],
   "skippedAt": {

@@ -187,6 +187,24 @@
     "z": 18
    }
   },
+  "goto:{\"x\":-30,\"y\":75,\"z\":120}": {
+   "args": {
+    "x": -30,
+    "y": 75,
+    "z": 120
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786046014280,
+   "skill": "goto",
+   "where": {
+    "x": 62,
+    "y": 65,
+    "z": 14
+   }
+  },
   "goto:{\"x\":-30,\"y\":80,\"z\":120}": {
    "args": {
     "x": -30,
@@ -259,6 +277,24 @@
     "z": 25
    }
   },
+  "goto:{\"x\":0,\"y\":75,\"z\":120}": {
+   "args": {
+    "x": 0,
+    "y": 75,
+    "z": 120
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786046200834,
+   "skill": "goto",
+   "where": {
+    "x": 64,
+    "y": 66,
+    "z": 16
+   }
+  },
   "goto:{\"x\":0,\"y\":80,\"z\":120}": {
    "args": {
     "x": 0,
@@ -277,6 +313,24 @@
     "z": 13
    }
   },
+  "goto:{\"x\":0,\"y\":80,\"z\":145}": {
+   "args": {
+    "x": 0,
+    "y": 80,
+    "z": 145
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786046304410,
+   "skill": "goto",
+   "where": {
+    "x": 64,
+    "y": 66,
+    "z": 16
+   }
+  },
   "goto:{\"x\":0,\"y\":80,\"z\":150}": {
    "args": {
     "x": 0,
@@ -284,15 +338,34 @@
     "z": 150
    },
    "classes": {
+    "no_path": 1,
     "path_interrupted": 3
    },
-   "fails": 3,
-   "last": 1786042764059,
+   "fails": 4,
+   "last": 1786045815650,
    "skill": "goto",
    "where": {
-    "x": 34,
-    "y": 75,
-    "z": 25
+    "x": 60,
+    "y": 68,
+    "z": 23
+   }
+  },
+  "goto:{\"x\":0,\"y\":80,\"z\":75}": {
+   "args": {
+    "x": 0,
+    "y": 80,
+    "z": 75
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786046377447,
+   "skill": "goto",
+   "where": {
+    "x": 64,
+    "y": 66,
+    "z": 16
    }
   },
   "goto:{\"x\":120,\"y\":75,\"z\":0}": {
@@ -517,13 +590,13 @@
    "craft_stick_4": 0,
    "gather_oak_log_16": 0,
    "gather_oak_log_8": 0,
-   "stockpile_stone": 2,
+   "stockpile_stone": 4,
    "stockpile_wood": 0,
-   "travel_0_150": 0,
+   "travel_0_150": 6,
    "travel_150_0": 0
   },
   "blocked": {
-   "craft:{\"item\":\"wooden_pickaxe\"}": 1,
+   "craft:{\"item\":\"wooden_pickaxe\"}": 2,
    "explore:{}": 14,
    "follow:{}": 5,
    "goto:{\"x\":0,\"y\":78,\"z\":50}": 2,
@@ -551,7 +624,7 @@
    "travel_150_0": 1786041771360
   }
  },
- "runs": 118,
+ "runs": 120,
  "schema": 1,
  "sites": [
   {
@@ -561,14 +634,6 @@
    "x": 29,
    "y": 79,
    "z": 0
-  },
-  {
-   "count": 4,
-   "kind": "suffocating",
-   "last": 1786023346000,
-   "x": 50,
-   "y": 74,
-   "z": -20
   },
   {
    "count": 4,
@@ -587,9 +652,9 @@
    "z": 3
   },
   {
-   "count": 2,
+   "count": 3,
    "kind": "suffocating",
-   "last": 1786036981261,
+   "last": 1786045739291,
    "x": 52,
    "y": 69,
    "z": 25

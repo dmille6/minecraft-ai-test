@@ -40,15 +40,15 @@
     "item": "wooden_pickaxe"
    },
    "classes": {
-    "other": 3
+    "other": 4
    },
-   "fails": 3,
-   "last": 1786034537350,
+   "fails": 4,
+   "last": 1786045769222,
    "skill": "craft",
    "where": {
-    "x": 30,
-    "y": 76,
-    "z": 14
+    "x": 60,
+    "y": 75,
+    "z": -22
    }
   },
   "eat:{}": {
@@ -291,6 +291,42 @@
     "x": 48,
     "y": 71,
     "z": 25
+   }
+  },
+  "goto:{\"x\":0,\"y\":74,\"z\":80}": {
+   "args": {
+    "x": 0,
+    "y": 74,
+    "z": 80
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786046375752,
+   "skill": "goto",
+   "where": {
+    "x": 41,
+    "y": 74,
+    "z": -23
+   }
+  },
+  "goto:{\"x\":0,\"y\":75,\"z\":80}": {
+   "args": {
+    "x": 0,
+    "y": 75,
+    "z": 80
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786046290542,
+   "skill": "goto",
+   "where": {
+    "x": 54,
+    "y": 75,
+    "z": -17
    }
   },
   "goto:{\"x\":0,\"y\":79,\"z\":150}": {
@@ -701,15 +737,16 @@
     "y": 12
    },
    "classes": {
+    "missing_tool": 2,
     "other": 3
    },
-   "fails": 3,
-   "last": 1786034053932,
+   "fails": 5,
+   "last": 1786046029218,
    "skill": "mine",
    "where": {
-    "x": 30,
-    "y": 76,
-    "z": 16
+    "x": 57,
+    "y": 75,
+    "z": -19
    }
   }
  },
@@ -719,18 +756,20 @@
    "craft_stick_4": 0,
    "gather_oak_log_16": 0,
    "gather_oak_log_8": 0,
+   "stockpile_stone": 8,
    "stockpile_wood": 0,
-   "travel_0_150": 0,
+   "travel_0_150": 2,
    "travel_150_0": 0
   },
   "blocked": {
    "craft:{\"item\":\"stick\"}": 6,
+   "craft:{\"item\":\"wooden_pickaxe\"}": 4,
    "explore:{}": 17,
    "goto:{\"x\":120,\"y\":71,\"z\":0}": 16,
    "goto:{\"x\":120,\"y\":75,\"z\":0}": 6,
    "goto:{\"x\":130,\"y\":75,\"z\":0}": 5,
    "goto:{\"x\":130,\"y\":79,\"z\":0}": 4,
-   "mine:{\"y\":12}": 3
+   "mine:{\"y\":12}": 5
   },
   "skipCount": {
    "gather_oak_log_16": 2,
@@ -764,9 +803,9 @@
    "z": 3
   },
   {
-   "count": 8,
+   "count": 13,
    "kind": "suffocating",
-   "last": 1786027381053,
+   "last": 1786046017862,
    "x": 59,
    "y": 75,
    "z": -30
@@ -827,9 +866,9 @@
     "item": "oak_planks",
     "y": 73
    },
-   "last": 1786036328994,
+   "last": 1786046141745,
    "skill": "craft",
-   "wins": 3
+   "wins": 4
   },
   "craft:{\"item\":\"stick\"}": {
    "args": {
