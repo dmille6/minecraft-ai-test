@@ -517,12 +517,13 @@
    "craft_stick_4": 0,
    "gather_oak_log_16": 0,
    "gather_oak_log_8": 0,
-   "stockpile_stone": 1,
+   "stockpile_stone": 2,
    "stockpile_wood": 0,
    "travel_0_150": 0,
    "travel_150_0": 0
   },
   "blocked": {
+   "craft:{\"item\":\"wooden_pickaxe\"}": 1,
    "explore:{}": 14,
    "follow:{}": 5,
    "goto:{\"x\":0,\"y\":78,\"z\":50}": 2,

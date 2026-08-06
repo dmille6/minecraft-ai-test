@@ -377,7 +377,7 @@
    "gather_dirt_16": 0,
    "gather_oak_log_12": 0,
    "gather_sand_8": 0,
-   "stockpile_wood": 1
+   "stockpile_wood": 2
   },
   "blocked": {
    "craft:{\"item\":\"stick\"}": 4,
