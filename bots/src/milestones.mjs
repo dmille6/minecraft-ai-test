@@ -58,8 +58,19 @@ const M = {
 export const MILESTONES_BY_ROLE = {
   // Wood then distance. Exercises gather + goto, and travelling is where
   // pathfinding and terrain hazards actually bite.
+  // A scout that gathers wood and never uses it is a warehouse with legs.
+  // Measured overnight: Scout02 accumulated 59 oak_log and Scout01 31 while
+  // Miner01 -- the only role whose chain includes crafting -- held five dirt.
+  // The materials and the job were in different bots, and until `withdraw`
+  // existed there was no path between them at all.
+  //
+  // Giving scouts the first two crafting steps makes each one self-sufficient
+  // for basic tools, which is what a scout operating away from base needs
+  // anyway. Deeper tooling stays the miner's job.
   scout: [
     M.gather('oak_log', 8, 'Wood is the base of every tool.'),
+    M.craft('oak_planks', 8, 'Each log yields 4 planks; a scout should carry its own materials.'),
+    M.craft('stick', 4, '2 planks make 4 sticks.'),
     M.travel(150, 0, 'Scouting east.'),
     M.gather('oak_log', 16, 'Restock while out there.'),
     M.travel(0, 150, 'Scouting south.'),

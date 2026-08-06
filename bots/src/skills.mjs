@@ -746,10 +746,18 @@ async function explore(ctx, { blocks = 60, heading = null }, signal) {
   }
 
   const want = Math.min(Math.max(Number(blocks) || 60, 20), 120)
-  const LEG = 25                     // short enough that A* reliably finishes
+  // 12, not 25. At 25 blocks through forest, A* spends long enough planning that
+  // the bot stands still past the 45s stuck threshold and the reflex cancels the
+  // path -- measured, 8 explore attempts and 8 aborts, every single one killed
+  // by `reflex: stuck`. Thinking was indistinguishable from being wedged again.
+  //
+  // Short legs keep the bot WALKING, which is both the point of the skill and
+  // the thing that proves to the reflex layer it is not stuck. goto uses 45 for
+  // open travel; forest needs less.
+  const LEG = 12
   let travelled = 0, legs = 0, lastErr = null
 
-  while (travelled < want && legs < 8) {
+  while (travelled < want && legs < 14) {
     check(signal)
     legs++
     const from = bot.entity.position.clone()
@@ -759,10 +767,36 @@ async function explore(ctx, { blocks = 60, heading = null }, signal) {
     try { assertInsideBorder(tx, tz) } catch { ang += Math.PI / 2; continue }
 
     try {
-      await bot.pathfinder.goto(new goals.GoalNear(tx, Math.round(from.y), tz, 3))
+      // BOUNDED. The helper at the top of this file exists because
+      // mineflayer-pathfinder re-plans toward an unreachable goal forever, and
+      // the bot does not move while it does -- which is indistinguishable from
+      // being stuck. I wrote this skill without it and paid for it: 11 explore
+      // attempts, 11 aborts, every one killed by `reflex: stuck` at 45s while
+      // the pathfinder churned on a goal it was never going to reach.
+      //
+      // 8s per leg, well inside the 45s stuck window, so a doomed leg costs one
+      // heading change instead of the whole skill.
+      await withTimeout(
+        bot.pathfinder.goto(new goals.GoalNear(tx, Math.round(from.y), tz, 3)), 8000, bot)
     } catch (e) {
       lastErr = e.message
       ang += (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 3)   // blocked: turn, do not give up
+      // MOVE, even on failure. Each failed leg costs up to the pathfinder's
+      // think timeout with the bot stationary, so three or four in a row
+      // accumulate past the 45s stuck threshold and the reflex cancels the whole
+      // skill -- measured, 8 explore attempts and 8 aborts, every one killed by
+      // `reflex: stuck` while the bot was busy planning.
+      //
+      // A short walk in the new heading proves to the reflex layer that the bot
+      // is working, and incidentally makes the next plan start from somewhere
+      // different, which is often why the previous one failed.
+      try {
+        await bot.look(ang, 0, true)
+        bot.setControlState('forward', true)
+        bot.setControlState('jump', true)
+        await sleep(1200, signal)
+        bot.clearControlStates()
+      } catch { bot.clearControlStates() }
       continue
     }
     check(signal)
