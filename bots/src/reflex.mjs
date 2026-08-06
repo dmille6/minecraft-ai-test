@@ -10,6 +10,7 @@
 
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
+import { announceHazard } from './comms.mjs'
 import { isNight, snapshot } from './state.mjs'
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
@@ -44,7 +45,19 @@ function makeThrottle(defaultMs = 10_000) {
   }
 }
 
-export function startReflexes(bot, runner, lessons = null) {
+export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
+  // Publish a hazard to the fleet, but only once this bot has hit it enough
+  // times to be sure. One bad reading must not become everyone's belief --
+  // tonight a broken oxygen check wrote 466 "drowning" events for a place with
+  // no water in it, and under sharing that would have been fleet doctrine.
+  const shareHazard = (kind, pos) => {
+    const mine = lessons?.recordHazard(kind, pos) ?? 0
+    if (worldFacts && pos && mine >= 2) {
+      const fresh = worldFacts.reportHazard(kind, pos, mine)
+      if (fresh) announceHazard(bot, kind, pos, mine)
+    }
+  }
+
   const throttled = makeThrottle()
   let lastPos = null
   let stillSince = Date.now()
@@ -76,7 +89,7 @@ export function startReflexes(bot, runner, lessons = null) {
           lowOxygenLatched = true
           const kind = inWater ? 'drowning' : 'suffocating'
           log('warn', `reflex: ${kind}`, { oxygen: bot.oxygenLevel, head: head?.name })
-          lessons?.recordHazard(kind, bot.entity?.position)
+          shareHazard(kind, bot.entity?.position)
           logEvent({
             kind: `reflex_${kind}`,
             detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}`,
@@ -176,7 +189,7 @@ export function startReflexes(bot, runner, lessons = null) {
         escaping = true
         lastEscapeAt = Date.now()
         const yBefore = bot.entity.position.y
-        lessons?.recordHazard('entombed', bot.entity?.position)
+        shareHazard('entombed', bot.entity?.position)
         logEvent({ kind: 'entombed', status: 'failed',
                    detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
                    snapshot: snapshot(bot) })

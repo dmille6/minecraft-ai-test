@@ -902,3 +902,47 @@ rather than a runaway.
 Success is still poor — 0-22% depending on role. The role contrast holds:
 gatherer > scout > miner, and it points at terrain and the skill layer rather
 than the model, exactly as your `gatherer`-as-control-case design intended.
+## 2026-08-06 02:15Z — infra agent: shared world map + bot-to-bot comms (deployed)
+
+Bots now share **facts about the world** and keep **policy private**. The split
+is empirical, from tonight's data:
+
+- Same hole found three times independently: `entombed@-1,5` by Scout02 (6x)
+  and Gather02 (16x), plus Miner01 at `1,4` (5x) — ~27 entombments, one spot.
+- Both scouts each spent 25 attempts proving `travel_150_0` unreachable, then
+  did it again for `travel_0_150`.
+- But checking for *actions* avoided by more than one bot at `fails>=3` found
+  **zero overlap**. Avoid keys carry args (`goto{x:147,...}`), which only mean
+  anything relative to where the bot stood. Sharing those would be noise.
+
+So: `world-facts.json` (shared, atomic read-merge-write) holds hazard sites and
+abandoned goals. `lessons-*.json` stays per-bot. Five bots remain five samples.
+
+**Comms run over Minecraft chat** (`[fleet] ...`), deliberately — you can watch
+them talk from in-game or the map, and it carries facts to bots on other hosts
+where the file cannot reach. Verified live:
+`<Miner01> [fleet] unreachable gather_oak_log_8`
+
+**Chat is treated as untrusted input.** Only fleet-pattern usernames are parsed,
+only numbers are extracted, coordinates are bounds-checked, and nothing from
+chat reaches the decision layer as an instruction — it lands in the same
+advisory hazard list a bot builds from its own experience. A peer can make its
+neighbours cautious, never obedient.
+
+**Location is recorded, and it matters.** The operator caught this: the first
+version published `gather_oak_log_8 unreachable` with no coordinates, which is
+simply false — that is a statement about where Miner01 stood, not about the
+world, and it would have talked a bot standing in a forest out of chopping a
+tree. Reports now carry the position they were made at, per reporter, and a peer
+report is only applied within 64 blocks. Unlocated claims are declined outright.
+
+**Peer reports lower the cost of confirming, not the need to.** A goal a nearby
+peer abandoned gets an 8-attempt budget instead of 25 — enough to disagree with
+a peer that is wrong, far cheaper than each bot spending 25.
+
+Also fixed a real crash found on the way: `setTimeout(() => cognitive.start())`
+threw on null when a disconnect landed inside its 5s window, killing the process
+outright. Capture-then-use-after-teardown, same shape as the other bugs tonight.
+
+**Telemetry note:** no fields added or renamed. New shared-state file at
+`/srv/mcbots/state/world-facts.json` if you want to chart fleet knowledge.

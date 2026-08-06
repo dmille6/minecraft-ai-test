@@ -18,6 +18,8 @@ import { attachCommands } from './commands.mjs'
 import { snapshot } from './state.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
+import { openWorldFacts } from './worldfacts.mjs'
+import { startComms } from './comms.mjs'
 import { StagnationWatchdog } from './watchdog.mjs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
@@ -25,6 +27,8 @@ const require_ = createRequire(import.meta.url)
 let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
+let stopComms = null
+let worldFacts = null
 let cognitive = null
 let lessons = null
 let watchdog = null
@@ -92,7 +96,14 @@ function connect() {
     // the cognitive layer records which actions failed; both feed the same
     // persistent memory, and it must exist before either starts.
     lessons = openLessons()
-    stopReflexes = startReflexes(bot, runner, lessons)
+    // World facts are SHARED across the fleet; lessons stay private. The split
+    // is empirical, not a preference: five bots discovered the same hole three
+    // separate times and two scouts each burned 25 attempts on the same
+    // unreachable goal, while a check for actions avoided by more than one bot
+    // found zero overlap at all. Terrain is common knowledge; policy is not.
+    worldFacts = openWorldFacts()
+    stopReflexes = startReflexes(bot, runner, lessons, worldFacts)
+    stopComms = startComms(bot, worldFacts)
     attachCommands(bot, runner)
 
     const s = snapshot(bot)
@@ -112,7 +123,7 @@ function connect() {
     }
 
     if (config.llm.enabled) {
-      cognitive = new CognitiveLoop(bot, runner, lessons)
+      cognitive = new CognitiveLoop(bot, runner, lessons, worldFacts)
       // Only meaningful in autonomous mode -- a chat-driven bot waiting for a
       // command is idle, not stagnant, and the human is the watchdog.
       watchdog = new StagnationWatchdog(bot, runner, cognitive)
@@ -120,7 +131,16 @@ function connect() {
       watchdog.start()
       // Give chunks a moment to load before the first perception snapshot,
       // otherwise NEARBY is empty and the first decision is made half-blind.
-      setTimeout(() => cognitive.start(), 5000)
+      // Guarded: a disconnect inside this 5s window sets cognitive = null in
+      // the 'end' handler, and the timer then threw on null and killed the
+      // process outright -- systemd restart, lessons reloaded, world re-entered.
+      // Observed at 02:07:38, a kick 5s after spawn. Capture-then-use-after-
+      // teardown, the same shape as the reconnect and counter bugs tonight.
+      const startTimer = setTimeout(() => {
+        if (!cognitive || stopping) return
+        cognitive.start()
+      }, 5000)
+      bot.once('end', () => clearTimeout(startTimer))
       bot.chat(`autonomous mode: ${config.llm.model}`)
     }
   })
@@ -143,6 +163,7 @@ function connect() {
 
   bot.on('end', reason => {
     if (stopReflexes) { stopReflexes(); stopReflexes = null }
+    if (stopComms) { stopComms(); stopComms = null }
     if (cognitive) { cognitive.stop(); cognitive = null }
     if (watchdog) { watchdog.stop(); watchdog = null }
     try { lessons?.save() } catch {}

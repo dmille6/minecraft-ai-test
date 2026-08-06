@@ -18,18 +18,20 @@ import { logLlm, logEvent, log } from './logger.mjs'
 import { snapshot, perception, biomeAt, classifyFailure } from './state.mjs'
 import { config } from './config.mjs'
 import { openLessons } from './lessons.mjs'
+import { announceUnreachable } from './comms.mjs'
 
 const SKILL_NAMES = Object.keys(SKILLS)
 
 export class CognitiveLoop {
-  constructor(bot, runner, lessons = null) {
+  constructor(bot, runner, lessons = null, worldFacts = null) {
     this.bot = bot
     this.runner = runner
     this.llm = makeClient()
     this.memory = new WorkingMemory()
     this.lessons = lessons ?? openLessons()
+    this.worldFacts = worldFacts
     this.admission = new AdmissionControl(this.lessons)
-    this.milestones = new MilestoneController(bot, config.bot.role, this.lessons)
+    this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
     this.schema = skillSchema(SKILL_NAMES)
     this.system = buildSystemPrompt(SKILL_NAMES)
     this.running = false
@@ -153,7 +155,14 @@ export class CognitiveLoop {
     const { user, tokens, dropped } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory,
       lastOutcome: this.lastOutcome, trigger, sentinel,
-      lessons: this.lessons.promptLines(this.bot.entity?.position),
+      // Own experience first, then what peers reported. Peer lines carry the
+      // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
+      // weigh first-hand knowledge against hearsay, and so a bad fact can be
+      // traced to whoever published it rather than merely suspected.
+      lessons: [
+        ...this.lessons.promptLines(this.bot.entity?.position),
+        ...(this.worldFacts?.promptLines(this.bot.entity?.position) ?? []),
+      ],
     })
 
     const snap = snapshot(this.bot)
@@ -230,6 +239,12 @@ export class CognitiveLoop {
                  detail: `no progress after 25 attempts; moved on to ${sk.id}`,
                  snapshot: snapshot(this.bot) })
       this.lessons.save()   // a give-up is rare and expensive to relearn
+      // Tell the fleet. Two scouts each spent 25 attempts proving the SAME
+      // goal unreachable tonight; the second one should not have had to.
+      const gaveUp = this.milestones.skipped[this.milestones.skipped.length - 1]
+      if (gaveUp && this.worldFacts?.reportUnreachable(gaveUp, config.bot.name, this.bot.entity?.position)) {
+        announceUnreachable(this.bot, gaveUp)
+      }
     }
 
     logLlm({

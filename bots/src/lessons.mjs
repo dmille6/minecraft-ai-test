@@ -120,19 +120,24 @@ export class Lessons {
   }
 
   /** Somewhere the bot drowned, got entombed, got stuck, or died. */
+  // Returns how many times THIS bot has hit this site, so the shared world
+  // store can insist on personal confirmation before publishing to the fleet.
   recordHazard(kind, pos) {
-    if (!pos) return
+    if (!pos) return 0
     const near = this.data.sites.find(s =>
       s.kind === kind && Math.hypot(s.x - pos.x, s.z - pos.z) < HAZARD_RADIUS &&
       Math.abs(s.y - pos.y) < 8)
-    if (near) { near.count++; near.last = Date.now() }
+    let count
+    if (near) { near.count++; near.last = Date.now(); count = near.count }
     else {
       this.data.sites.push({
         kind, x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z),
         count: 1, last: Date.now(),
       })
+      count = 1
     }
     this.dirty = true
+    return count
   }
 
   // ------------------------------------------------------------- applying --

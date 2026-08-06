@@ -139,13 +139,14 @@ export const SUSTAINING = [
 ]
 
 export class MilestoneController {
-  constructor(bot, role = config.bot.role, lessons = null) {
+  constructor(bot, role = config.bot.role, lessons = null, worldFacts = null) {
     this.bot = bot
     this.chain = MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout
     this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}
     this.lessons = lessons
+    this.worldFacts = worldFacts
 
     // Give-ups and effort survive restarts; completion does not (see
     // Lessons.getProgress). Without this, a bot that restarts -- and the
@@ -176,7 +177,15 @@ export class MilestoneController {
     if (!m) return false
     this.attempts[m.id] = (this.attempts[m.id] ?? 0) + (failed ? 1 : 0)
     if (!failed) this.attempts[m.id] = 0
-    if (this.attempts[m.id] >= 25) {
+    // A peer that already proved this unreachable lowers the cost of
+    // confirming it -- but does NOT replace confirming it. Trusting a peer
+    // outright would make one bot's bad conclusion permanent for the fleet,
+    // which is exactly how the false drowning sites spread. Eight attempts is
+    // enough to disagree with a peer that is wrong, and far cheaper than the
+    // 25 each scout independently spent on the same goal tonight.
+    const peers = this.worldFacts?.unreachableBy?.(m.id, config.bot.name, this.bot.entity?.position)
+    const budget = peers ? 8 : 25
+    if (this.attempts[m.id] >= budget) {
       if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
       this.attempts[m.id] = 0
       this.index++
