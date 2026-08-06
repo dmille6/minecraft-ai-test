@@ -118,3 +118,14 @@ Format: `date time · who · what you are touching · what you are NOT touching`
                     Using your mcbot@ template and MILESTONES_BY_ROLE unchanged.
                     Purpose is the diagnostic contrast, not throughput.
                     NOT touching bots/src or your host.
+
+- **2026-08-06 01:05Z — infra agent — fleet inference endpoint move (IN PROGRESS)**
+  Moving all five bots from `10.0.0.70` to `ai.ticrcorp.com` (both Ollama,
+  same model `qwen2.5:14b-instruct`, `num_ctx` unchanged at 8192 so the
+  endpoint is the only variable).
+  Reason: `.70` is oversubscribed — measured baseline median 17.7s / p90 46.3s
+  / max 72.7s per decision, with 7–37s of pure queue wait on every probe.
+  The target benchmarked 46.5 vs 10.6 tok/s generation and 0.2s queue.
+  Env files backed up to `/srv/mcbots/harness/env/.bak/*.pre-remote`.
+  **Telemetry impact:** decision latency (`ms=`) should drop sharply; any
+  before/after comparison spanning 01:05Z needs to account for this.
