@@ -147,16 +147,65 @@ which every planted negative control was caught.
 - More bots, new roles, personas
 - Migrating the flagship colony
 
-## Open decisions that need a human
+## Decisions taken (2026-08-06)
 
-1. **Bot identity**: names, UUIDs, auth mode across many worlds. Offline-mode
-   UUIDs are derived from usernames, so 8 worlds × 5 bots needs a naming scheme
-   decided before it is baked into telemetry.
-2. **How much of the flagship's history is worth preserving** if its schema
-   diverges from the new archive format.
-3. **Whether a null result is an acceptable month-30 outcome.** It should be —
-   "the cognitive layer does not beat random" is a real finding — but that has
-   to be agreed before the data arrives, not after.
+### 1. Bot identity: identical names everywhere, `world_id` mandatory
+
+Bots are `Scout01 … Gather02` in EVERY world. The world is a separate, required
+telemetry dimension; it is never encoded in the username.
+
+The alternative (`w03-Scout01`) puts meaning inside a string that then has to be
+parsed identically in more than one place, which is the exact defect that froze
+the admission gate: the action key was `JSON.stringify` over model output in one
+file and a separate `key()` in another, and they drifted. Role, arm and world
+belong in structured fields.
+
+Identical names also make the comparison we actually want trivial -- Scout01 in
+world A against Scout01 in world B, same role, same chain, different condition --
+and avoid Minecraft's 16-character username limit, which gets tight once world
+and arm are prefixed.
+
+The failure mode ("two worlds become indistinguishable if `world_id` is
+missing") is already covered by the week-1 gate that rejects any event lacking
+`world_id`, `run_id` or code sha. That gate exists for this.
+
+Offline-mode UUIDs derive from the username, so identical names give identical
+UUIDs across worlds. That is acceptable and arguably correct: "the same agent
+identity under different conditions" is the object of study. Separate servers
+keep separate player data.
+
+### 2. Flagship history: frozen, labelled, never migrated
+
+Preserve it all raw. Stamp it `schema_version: pre-instrument` and
+`evidence_class: historical/uninstrumented`. Analysis tooling must REFUSE to
+join it to post-instrument data.
+
+Migrating it into the new schema is the most dangerous option available, because
+it would make known-bad data look like good data. The contamination is precisely
+known: `status` reinforced as a win 115 times off a hardcoded flag; `worked`
+counts spanning both the measured and unmeasured eras; no `decision_id`; 36% of
+failures classed `other`; version stamps pinned to a stale commit. Cleaned and
+merged, none of that remains visible.
+
+It is not deleted, because it is the raw material for the failure museum and the
+only record of what an UNINSTRUMENTED run looks like -- which is the control
+condition for the entire thesis. Storage is not the constraint at 40TB.
+
+`world_id: flagship` is backfilled during archiving.
+
+### 3. A null result is an acceptable day-30 outcome
+
+Agreed BEFORE the data exists, which is the only time such an agreement means
+anything. "The cognitive layer does not beat random skill selection" is a
+finding, not a failure, and it would be one of the more useful things this
+project could report.
+
+## Immediate, before anything else
+
+A flagship backup and RESTORE drill. Not a backup -- a drill: prove the world
+can be restored from the NAS copy into a throwaway server and comes up intact.
+An untested backup is a belief, and this project has spent a day learning what
+untested beliefs cost.
 
 ## The standard this plan is held to
 
