@@ -374,7 +374,17 @@ export class CognitiveLoop {
 
     if (this.milestones.refresh()) {
       const s = this.milestones.status()
-      log('info', 'milestone complete', { next: s.id })
+      log('info', 'milestone complete', { next: s.id, was: milestone.id })
+      // SHIP IT. milestone_skipped was already an event, but completion was only
+      // ever a local log line -- so Elasticsearch recorded every give-up and no
+      // achievement, and "milestones completed per bot-hour" (the primary
+      // outcome of any model comparison) simply did not exist as data. Measuring
+      // only what goes wrong makes progress unfalsifiable in both directions.
+      logEvent({
+        kind: 'milestone_complete', status: 'success',
+        detail: `completed ${milestone.id}; now ${s.id}`,
+        snapshot: snapshot(this.bot),
+      })
       this.memory.addEvent(`milestone complete, now: ${s.describe}`)
       try { this.bot.chat(`milestone done — now: ${s.id}`) } catch {}
     }
