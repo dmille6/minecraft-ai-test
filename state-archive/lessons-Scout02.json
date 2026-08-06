@@ -9,7 +9,7 @@
     "missing_ingredients": 3,
     "other": 3
    },
-   "fails": 6,
+   "fails": 5,
    "last": 1786034661395,
    "skill": "craft",
    "where": {
@@ -741,7 +741,6 @@
   },
   "skipped": [
    "travel_150_0",
-   "travel_0_150",
    "gather_oak_log_16",
    "stockpile_wood"
   ],
@@ -837,9 +836,9 @@
     "item": "stick",
     "player": "Scout02"
    },
-   "last": 1786032491075,
+   "last": 1786045657615,
    "skill": "craft",
-   "wins": 2
+   "wins": 3
   },
   "explore:{}": {
    "args": {},
