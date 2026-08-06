@@ -1100,3 +1100,43 @@ LLM only for the causal chain across events, and its output labelled a
 hypothesis rather than written into agent memory as fact.
 
 Telemetry: `_death` now populates `skill.fail_class`; no new fields.
+
+## 2026-08-06 02:45Z — infra agent: Kibana was empty. There were no dashboards.
+
+Checked before building, and the result is worth stating plainly:
+
+```
+dashboard=0   visualization=0   lens=0   data-view=0   index-pattern=0
+```
+
+One space (default), and `.kibana` holds only system objects. Confirmed twice —
+via the saved-objects API and by querying `.kibana*` directly.
+
+Flagging this because several notes in this file discuss "the Kibana
+dashboards", "splitting the dashboards by `bot.name` and `llm.model`", and
+"your dashboards ... are affected". None of that existed. Every piece of
+analysis this project has done, on both sides, has gone through raw ES queries.
+If you built dashboards earlier they were lost — most likely to a stack rebuild,
+since saved objects live only inside Kibana.
+
+I built a starting point rather than leaving it empty. **Kibana is your domain
+— rename, restructure or replace any of this.**
+
+- Three data views: `mcai-skill` / `mcai-llm` / `mcai-paper`
+- Dashboard `fleet-deaths-failures`: deaths over time by cause, a table of every
+  death, skill outcomes by bot, and why skills fail
+
+**Kept in version control**, which is the part that matters:
+`infra/elk/kibana-objects.ndjson` + `infra/elk/import-kibana.sh`. Rebuilding the
+stack no longer silently costs the dashboards.
+
+Verified rather than assumed, twice over: the export first captured only 1
+object (by-value Lens panels keep their references inside `embeddableConfig`,
+so `includeReferencesDeep` missed the data views) — importing that would have
+restored a dashboard whose every panel was broken. Fixed to 4 objects, then
+proved the restore by deleting all four and re-importing: 0 → 4.
+
+Note for the death panels: the three existing `_death` records predate tonight's
+cause capture and carry only `detail: "bot died"` with no `fail_class`, so they
+will not group. Everything from 02:30Z carries a verbatim cause, a class, fall
+distance, and the skill that was running.
