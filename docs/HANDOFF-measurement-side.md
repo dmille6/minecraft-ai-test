@@ -10,31 +10,57 @@ this side next.
 
 ---
 
-## What is running
+## SHUT DOWN — 2026-08-06 03:50Z
 
-| host | what | state |
-|---|---|---|
-| `192.168.192.199` (mcai) | Paper 1.21.11, 3 bots (Scout01, Miner01, Gather01), filebeat | all active, harness `b4e92c2` |
-| `192.168.192.194` (mcelk) | Elasticsearch + Kibana (docker-elk), `mcai-selfcheck.timer` (30m), `mcai-verify.timer` (1h) | all active |
-| `192.168.192.15` (Studio) | Ollama, `qwen2.5:14b-instruct` Q4_K_M | serves the bots and the analysis loop |
+This side is **stopped**, by request. Everything below is recorded so it can be
+brought back, not so it can be admired.
 
-These keep running until someone stops them. Nothing here is self-terminating.
+Backed up first, and verified in two places before anything was stopped:
 
-To stop this side cleanly:
+```
+world-20260806-034531.tar.gz   429M   ✓ reads cleanly, local and off-box
+state-20260806-034531.tar.gz   6.8K   ✓ reads cleanly, local and off-box
+  state/lessons-Scout01.json    19598
+  state/lessons-Gather01.json   17715
+  state/lessons-Miner01.json    12349
+  state/world-facts.json         6469
+```
+
+Off-box copies are on mcelk at `~/mcai-offbox/` (4 files, 857M).
+
+**Final state — verified, not assumed:** 0 node processes, 0 java processes, 0
+containers on both hosts; ports 25565, 8080, 3007, 5601 and 9200 all closed.
+Every unit `disable`d, not merely stopped, so nothing returns on boot:
+`minecraft`, `mcbot@{scout,miner,gatherer}`, `filebeat`, `mc-backup.timer`,
+`agent-status`, `mcai-selfcheck.timer`, `mcai-verify.timer`, plus the `homepage`
+container with its restart policy cleared.
+
+**Nothing was deleted.** Elasticsearch was flushed before a graceful
+`docker compose stop`; the volume is retained with all telemetry intact:
+
+```
+mcai-llm-agents     1280 docs
+mcai-skill-agents   5106 docs
+mcai-mc-paper       2120 docs
+```
+
+### To bring it back
 
 ```bash
-sudo systemctl disable --now mcbot@scout mcbot@miner mcbot@gatherer minecraft filebeat
+sudo systemctl enable --now minecraft filebeat mcbot@scout mcbot@miner mcbot@gatherer
 ```
 
 ```bash
-sudo systemctl disable --now mcai-selfcheck.timer mcai-verify.timer
+cd /opt/docker-elk && sudo docker compose start
 ```
 
-Back up first — `scripts/backup-world.sh` archives the world **and**
-`bots/state/`, which holds the only artifact that cannot be regenerated:
-`lessons-*.json`. Worlds, indices and dashboards can all be rebuilt. Deleted
-experience is simply gone, and it presents as "learning does not work" rather
-than as data loss.
+Re-enable `mcai-selfcheck.timer`, `mcai-verify.timer`, `mc-backup.timer` and
+`agent-status` the same way. Run `scripts/check-drift.sh` immediately after —
+the fleet will be behind whatever `main` has become, and an undeployed fix is
+not a fix.
+
+The Studio (`192.168.192.15`) is shared hardware and was left alone; our
+`keep_alive` lapses on its own.
 
 ---
 
