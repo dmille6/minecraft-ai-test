@@ -44,14 +44,40 @@ DIRTY=$(git status --porcelain | wc -l | tr -d ' ')
 
 say ""
 say "── 2. deployed harness vs committed ───────────────────────────"
-REMOTE_V=$($SSH "mike@$BOT_HOST" 'grep -oE "CODE_VERSION=.*" /srv/minecraft/bots/harness/env/*.env 2>/dev/null | head -1 | cut -d= -f2' 2>/dev/null | tr -d "'\"")
+# Read EVERY env file, not just the first.
+#
+# 2026-08-05: this check printed a soft informational bullet while the fleet ran
+# 18 commits behind, missing both entombment fixes. _entombed then fired 2,695
+# times in three hours and success collapsed to 5%. Deploying dropped it to 0
+# and lifted success to 70%. The check existed and said nothing useful.
+#
+# Two separate faults, both fixed here:
+#   1. `head -1` read one env file, so it could not see that the three bots
+#      disagreed with each other (gatherer/miner 884d053, scout f63abfb).
+#   2. A version mismatch was reported as "expected", which is exactly the
+#      sentence that let a real regression pass as normal.
+# sudo: the env files are root-owned. Without it grep returns nothing and the
+# whole check silently degrades to "not recorded" -- which is how it stayed
+# green for its entire life while never once reading a version.
+REMOTE_VS=$($SSH "mike@$BOT_HOST" 'sudo -n grep -h -oE "CODE_VERSION=.*" /srv/minecraft/bots/harness/env/*.env 2>/dev/null | cut -d= -f2' 2>/dev/null | tr -d "'\"" | sort -u)
 LOCAL_V=$(git rev-parse --short HEAD)
-if [ -z "$REMOTE_V" ]; then
+NVER=$(printf '%s\n' "$REMOTE_VS" | grep -c . || true)
+if [ -z "$REMOTE_VS" ]; then
   say "  · deployed version not recorded (agent may predate CODE_VERSION)"
-elif [ "$REMOTE_V" = "$LOCAL_V" ]; then
-  ok "VM is running $REMOTE_V, matches HEAD"
+elif [ "$NVER" -gt 1 ]; then
+  bad "bots are running DIFFERENT builds: $(echo $REMOTE_VS | tr '\n' ' ')"
+  say "        → a partial deploy; redeploy all three so they agree"
+elif [ "$REMOTE_VS" = "$LOCAL_V" ]; then
+  ok "VM is running $REMOTE_VS, matches HEAD"
 else
-  say "  · VM runs $REMOTE_V, HEAD is $LOCAL_V — expected if the other agent deployed"
+  BEHIND_N=$(git rev-list --count "$REMOTE_VS".."$LOCAL_V" 2>/dev/null || echo '?')
+  if [ "$BEHIND_N" = "0" ]; then
+    say "  · VM runs $REMOTE_VS, ahead of or level with local HEAD $LOCAL_V"
+  else
+    bad "VM runs $REMOTE_VS — $BEHIND_N commit(s) BEHIND $LOCAL_V"
+    git log --oneline "$REMOTE_VS".."$LOCAL_V" 2>/dev/null | head -6 | sed 's/^/        /'
+    say "        → undeployed fixes are not fixes; redeploy"
+  fi
 fi
 
 say ""
