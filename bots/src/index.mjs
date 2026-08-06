@@ -152,7 +152,14 @@ function connect() {
     // Default is 5s. In dense forest with canDig=false many goals are genuinely
     // unreachable, and A* needs room to prove that rather than reporting
     // "took too long" -- which is indistinguishable from a real failure.
-    bot.pathfinder.thinkTimeout = 10000
+    // 5s, not 10s. This is the PLANNING slice, and the harvest budget that
+    // contains it is 40s -- when both were 10s a single expensive A* search
+    // consumed the entire allowance and the bot never moved, which gather then
+    // reported as "unreachable". It stays well above the 5s default because in
+    // dense forest with canDig=false many goals are genuinely unreachable and
+    // A* needs room to PROVE that, rather than reporting "took too long" --
+    // indistinguishable from a real failure.
+    bot.pathfinder.thinkTimeout = 5000
 
     // ONE lessons store, shared. Reflexes record where the bot got hurt and
     // the cognitive layer records which actions failed; both feed the same

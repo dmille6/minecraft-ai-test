@@ -71,6 +71,13 @@ function bestTool(bot, block) {
 // failure into a specific one ("leg 2 of 3 was unreachable").
 const MAX_LEG = 45
 
+// Per-block harvest budget, and how many fruitless attempts end the skill.
+// COLLECT_MS must be several times pathfinder.thinkTimeout (5s) so planning
+// cannot eat the whole allowance, and BARREN_LIMIT * COLLECT_MS must stay under
+// the 180s skill watchdog: 3 * 40s = 120s.
+const COLLECT_MS = 40_000
+const BARREN_LIMIT = 3
+
 async function goto(ctx, { x, y, z, range = 1 }, signal) {
   const { bot } = ctx
   assertInsideBorder(x, z)
@@ -242,7 +249,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   check(signal)
 
   const startHeld = countItem(bot, blockName)
-  let collected = 0, rounds = 0, barren = 0
+  let collected = 0, rounds = 0, barren = 0, timedOut = 0
   const maxRounds = count * 4 + 8
 
   while (collected < count && rounds < maxRounds) {
@@ -326,20 +333,38 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     if (!target || target.name !== blockName) continue
 
     try {
-      // collect one (10s) < stuck reflex (20s) < skill watchdog (180s)
-      await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), 10000, bot)
+      // The budget has to cover PLANNING PLUS DOING. It was 10000ms while
+      // pathfinder.thinkTimeout was also 10000ms, so a single expensive A*
+      // search could consume the entire allowance before the bot took one step
+      // -- and the skill then reported "found but unreachable", a claim about
+      // reachability derived from a stopwatch. Measured over three hours:
+      // gather oak_log succeeded 7 times and "failed as unreachable" 18.
+      //
+      // 40s leaves ~35s for walking and chopping after the worst-case 5s plan,
+      // and stays under the 45s stuck reflex so a genuinely wedged bot is still
+      // rescued rather than sitting out its whole budget.
+      await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot)
     } catch (e) {
       if (e.aborted) throw e
+      // Remember WHY, so the failure below can tell the truth about itself.
+      if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     }
 
     const gained = countItem(bot, blockName) - startHeld
     if (gained === collected) {
       barren++
-      if (barren >= 4) {
+      if (barren >= BARREN_LIMIT) {
+        // Name the actual cause. "Unreachable" and "ran out of time getting
+        // there" call for different responses -- the first means go somewhere
+        // else, the second means try again -- and reporting the second as the
+        // first taught the fleet to abandon wood it could have had.
+        const why = timedOut >= barren
+          ? `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`
+          : `${blockName} found but unreachable after ${barren} attempts`
         return collected > 0
-          ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}, rest unreachable` }
-          : { status: 'failed', detail: `${blockName} found but unreachable after ${barren} attempts` }
+          ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
+          : { status: 'failed', detail: why }
       }
       // Reposition so the next scan ranks different candidates first rather
       // than retrying the same unreachable block forever.
