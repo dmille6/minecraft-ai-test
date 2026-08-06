@@ -11,7 +11,7 @@
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
 import { announceHazard } from './comms.mjs'
-import { isNight, snapshot } from './state.mjs'
+import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -67,6 +67,35 @@ const REFLEX_ERROR_GIVE_UP = 60
  *
  * Defined outside startReflexes so a reflex added tomorrow gets it for free.
  */
+/**
+ * Report items the REFLEX layer consumed.
+ *
+ * Reflexes act outside the task runner, so nothing they spend appears in any
+ * `skill.inventory_delta` -- a bot pillaring out of a pit burns blocks with no
+ * record at all. That is not just a reporting hole: ADR-0003's value classifier
+ * decides `valuable` / `costly` FROM those deltas, so unmeasured reflex
+ * consumption means the fleet is being reinforced on incomplete accounting.
+ *
+ * Emitted as its own event with an explicit cause, so every inventory change is
+ * either attributed or visibly unattributed.
+ */
+function noteReflexInventory(bot, before, cause) {
+  try {
+    const after = inventorySummary(bot)
+    const delta = {}
+    for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const d = (after[k] ?? 0) - (before[k] ?? 0)
+      if (d !== 0) delta[k] = d
+    }
+    if (!Object.keys(delta).length) return
+    logEvent({
+      kind: 'inventory_mutation', status: 'success',
+      detail: `cause=${cause} ${Object.entries(delta).map(([k, n]) => `${k} ${n > 0 ? '+' : ''}${n}`).join(', ')}`,
+      snapshot: snapshot(bot),
+    })
+  } catch { /* accounting must never break a rescue */ }
+}
+
 function makeThrottle(defaultMs = 10_000) {
   const last = new Map()
   return (kind, ms = defaultMs) => {
@@ -250,7 +279,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                    snapshot: snapshot(bot) })
         log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
         runner.interrupt('entombed')
+        // Bracket the whole escape, not each helper: pillarOut may hand off to
+        // digStraightUp partway through, and what matters is the net cost of
+        // getting out of the hole, attributed to the reflex that caused it.
+        const invBefore = inventorySummary(bot)
         try { await pillarOut(bot) } catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+        noteReflexInventory(bot, invBefore, 'entombed_escape')
         // Verify the postcondition. "I ran the recovery" and "the bot is no
         // longer trapped" are different claims and only the second one counts.
         if (bot.entity && bot.entity.position.y - yBefore < 1 && isEntombed(bot)) escapeFailures++
@@ -361,6 +395,7 @@ const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andes
  * back to digging straight up when pillaring cannot work.
  */
 async function pillarOut(bot, maxBlocks = 24) {
+
   const startY = bot.entity.position.y
   let stalled = 0
 
@@ -406,7 +441,8 @@ async function pillarOut(bot, maxBlocks = 24) {
   log('info', 'reflex: pillared out', { from: Math.round(startY), to: Math.round(bot.entity.position.y) })
 }
 
-/** Break upward until there is open sky, then step out. */
+/** Break upward until there is open sky, then
+ step out. */
 async function digStraightUp(bot, startY, maxSteps = 20) {
   for (let i = 0; i < maxSteps; i++) {
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))

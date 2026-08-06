@@ -26,6 +26,21 @@ export function snapshot(bot) {
       health: bot.health ?? null,
       hunger: bot.food ?? null,
       pos: p ? { x: round(p.x), y: round(p.y), z: round(p.z) } : undefined,
+      // ABSOLUTE inventory, on every document that carries a snapshot.
+      //
+      // Until now the only inventory telemetry was the per-skill DELTA, so
+      // there was no ground truth anywhere in the index -- only differences.
+      // That is why the fleet's first stone_pickaxe could be crafted at
+      // 17:53:39 and be gone twenty minutes later with no death recorded by
+      // either the bot or the server, and nothing able to say when it left.
+      // Deltas cannot be reconciled without periodic absolute state; two
+      // consecutive snapshots now bound any disappearance to a known window.
+      //
+      // `flattened` in the mapping, so item names never inflate the field count.
+      inventory: inventorySummary(bot),
+      // What is actually in hand. A tool that broke and a tool that vanished
+      // look identical without this.
+      held: bot.heldItem?.name ?? null,
     },
     game: {
       tick: bot.time?.age ?? null,

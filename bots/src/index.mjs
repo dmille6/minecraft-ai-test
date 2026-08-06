@@ -15,7 +15,7 @@ import { log, closeLogs, logSkill } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { attachCommands } from './commands.mjs'
-import { snapshot } from './state.mjs'
+import { snapshot, inventorySummary } from './state.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -248,6 +248,16 @@ function connect() {
     // shown that; the y-delta does.
     const deathPos = bot.entity?.position
     const fell = deathPos && peakY != null ? Math.round(peakY - deathPos.y) : null
+    // WHAT WAS LOST. A death drops the entire inventory, so it is the single
+    // largest destroyer of accumulated progress in this world -- and until now
+    // the record said only that a death happened. "Miner01 died" and "Miner01
+    // died holding the fleet's only stone_pickaxe" are different events, and
+    // the second one is the one that explains a stalled milestone chain.
+    // Captured BEFORE the respawn clears it.
+    const lost = inventorySummary(bot)
+    const lostSummary = Object.entries(lost)
+      .sort((a, b) => b[1] - a[1]).slice(0, 6)
+      .map(([k, n]) => `${k} x${n}`).join(', ')
     const cause = freshDeathCause()
     // Ask the runner, which is the only thing that knows. Reading a variable
     // nothing ever assigned is how every death came to report "no skill
@@ -263,7 +273,8 @@ function connect() {
               (hpTrail.length > 1
                 ? ` | hp ${hpTrail[0].hp}->${hpTrail[hpTrail.length - 1].hp} over ` +
                   `${Math.round((hpTrail[hpTrail.length - 1].t - hpTrail[0].t) / 1000)}s`
-                : ''),
+                : '') +
+              (lostSummary ? ` | dropped: ${lostSummary}` : ' | carried nothing'),
       // camelCase: logSkill destructures `failClass` and maps it to the
       // Elasticsearch field `fail_class` itself. Passing the snake_case name
       // meant logSkill silently ignored it, and 23 death records were written
