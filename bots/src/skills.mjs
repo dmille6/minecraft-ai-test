@@ -1103,37 +1103,58 @@ export const SKILL_CONTRACTS = {
 }
 
 /**
- * Classify an outcome by whether the declared expectation was met.
+ * Classify an outcome by whether the declared expectation was met, AND say
+ * which measurement justified the verdict.
  *
- * Four buckets rather than a boolean, because tonight proved a boolean cannot
- * tell a working agent from one that idles successfully:
+ * Four buckets rather than a boolean, because a boolean cannot tell a working
+ * agent from one that idles successfully:
  *   valuable  -- the expected durable change happened
  *   neutral   -- returned cleanly, nothing the skill exists for occurred
- *   costly    -- returned cleanly but left the bot worse off
+ *   costly    -- met its contract but left the bot worse off
  *   failure   -- errored, timed out, or was interrupted with no progress
+ *
+ * Returns { value, because } where `because` lists the satisfied clauses with
+ * the numbers behind them, e.g. ['inventory_gain: oak_log +3'].
+ *
+ * The point of `because` is not readability, it is an INVARIANT: a valuable or
+ * costly verdict with an empty `because` is impossible to produce honestly, so
+ * it can be detected. Every learning bug found so far -- status reinforced 115
+ * times off a hardcoded flag, world_change inferred from a regex on the skill
+ * name, a death record asserting "no skill running" from a variable nothing
+ * assigned -- was a derived value that looked exactly like a measured one at
+ * the point of use. Making the classifier show its work is what makes that
+ * class of bug queryable instead of invisible.
  */
 export function classifyOutcome(skillName, status, delta = {}) {
-  if (status === 'failed' || status === 'aborted') return 'failure'
-  if (status === 'no_effect') return 'neutral'
+  if (status === 'failed' || status === 'aborted') return { value: 'failure', because: [] }
+  if (status === 'no_effect') return { value: 'neutral', because: [] }
 
   const expects = SKILL_CONTRACTS[skillName]?.expects ?? []
-  const gained = Object.values(delta.inventory ?? {}).some(n => n > 0)
-  const lost = Object.values(delta.inventory ?? {}).some(n => n < 0)
-  const moved = (delta.distance ?? 0) >= 2
-  const healthUp = (delta.health ?? 0) > 0 || (delta.food ?? 0) > 0
-  const healthDown = (delta.health ?? 0) < 0
+  const inv = delta.inventory ?? {}
+  const because = []
 
-  const met =
-    (expects.includes('inventory_gain') && gained) ||
-    (expects.includes('inventory_loss') && lost) ||
-    (expects.includes('position') && moved) ||
-    (expects.includes('world_change') && (delta.placed ?? 0) > 0) ||
-    (expects.includes('survival') && healthUp)
+  if (expects.includes('inventory_gain')) {
+    const g = Object.entries(inv).filter(([, n]) => n > 0)
+    if (g.length) because.push(`inventory_gain: ${g.map(([k, n]) => `${k} +${n}`).join(', ')}`)
+  }
+  if (expects.includes('inventory_loss')) {
+    const l = Object.entries(inv).filter(([, n]) => n < 0)
+    if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
+  }
+  if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
+    because.push(`position: moved ${Math.round(delta.distance)} blocks`)
+  }
+  if (expects.includes('world_change') && (delta.placed ?? 0) > 0) {
+    because.push(`world_change: ${delta.placed} block(s) read back from the world`)
+  }
+  if (expects.includes('survival') && ((delta.health ?? 0) > 0 || (delta.food ?? 0) > 0)) {
+    because.push(`survival: health ${delta.health ?? 0}, food ${delta.food ?? 0}`)
+  }
 
-  if (!met) return 'neutral'
-  // Met its purpose but paid for it in health -- worth recording differently so
-  // the fleet does not learn that a costly win is simply a win.
-  return healthDown ? 'costly' : 'valuable'
+  if (!because.length) return { value: 'neutral', because: [] }
+  return (delta.health ?? 0) < 0
+    ? { value: 'costly', because: [...because, `cost: health ${delta.health}`] }
+    : { value: 'valuable', because }
 }
 
 export const SKILLS = {

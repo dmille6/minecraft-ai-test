@@ -9,7 +9,7 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
-import { SKILLS, classifyOutcome } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS } from './skills.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
@@ -218,7 +218,17 @@ export class CognitiveLoop {
         // exactly like chopping a tree, and the fleet learned to do the safe
         // thing that always works. A neutral outcome is recorded as neither win
         // nor failure: the bot did nothing wrong, and it achieved nothing.
-        const value = classifyOutcome(admitted.skill, r.status, r.delta ?? {})
+        const { value, because } = classifyOutcome(admitted.skill, r.status, r.delta ?? {})
+        // The invariant. A reinforcing verdict has to name the measurement that
+        // earned it; if it cannot, the verdict was derived from something that
+        // is not evidence and must not be allowed to quietly train the fleet.
+        // This is the check that would have caught status-reinforced-115-times
+        // on the first firing rather than after a night of it.
+        if ((value === 'valuable' || value === 'costly') && !because.length) {
+          log('error', 'BUG: reinforcing verdict with no measurement behind it', {
+            skill: admitted.skill, value, delta: r.delta,
+          })
+        }
         if (value === 'valuable') {
           this.admission.noteSuccess(admitted.skill, admitted.args)
           this.lessons.recordSuccess(admitted.skill, admitted.args)
@@ -238,11 +248,19 @@ export class CognitiveLoop {
             skill: admitted.skill, hp: r.delta?.health, food: r.delta?.food,
           })
         }
-        outcome = { status: r.status, detail: r.detail, value }
+        // The evidence goes back to the MODEL too, not just the log. "gather ->
+        // success" and "gather -> success, inventory_gain: oak_log +3" are
+        // different pieces of information, and the second one is the one that
+        // lets it tell a real harvest from a call that returned cleanly.
+        outcome = { status: r.status, detail: r.detail, value, because }
         if (value === 'neutral') {
           log('info', 'skill returned cleanly but changed nothing', {
-            skill: admitted.skill, detail: String(r.detail ?? '').slice(0, 60),
+            skill: admitted.skill,
+            expected: (SKILL_CONTRACTS[admitted.skill]?.expects ?? []).join('|') || 'nothing',
+            detail: String(r.detail ?? '').slice(0, 60),
           })
+        } else {
+          log('info', `skill outcome ${value}`, { skill: admitted.skill, because })
         }
       }
       // 'no_effect' deliberately matches NEITHER branch. It is not a success, so
@@ -257,7 +275,16 @@ export class CognitiveLoop {
       // was blocked behind a tool dependency, so the fleet settled into the one
       // thing it could still do perfectly: nothing.
       this.lessons.save()
-      this.lastOutcome = `${admitted.skill} -> ${r.status}: ${r.detail ?? ''}`.slice(0, 160)
+      // Include the verdict AND the measurement behind it. The model was being
+      // told "gather -> success" and nothing more, which is the same impoverished
+      // signal the learning layer had before ADR-0003 -- it could not tell a real
+      // harvest from a call that merely returned. `outcome` carries the evidence;
+      // this is the string the prompt actually renders, so the evidence has to be
+      // in here to reach the model at all.
+      const evidence = outcome?.because?.length ? ` [${outcome.because.join('; ')}]` : ''
+      const verdict = outcome?.value ? ` (${outcome.value})` : ''
+      this.lastOutcome =
+        `${admitted.skill} -> ${r.status}${verdict}: ${r.detail ?? ''}${evidence}`.slice(0, 220)
       this.memory.addEvent(this.lastOutcome)
     } else {
       // Flush on rejection too. save() used to live only in the executed-skill
