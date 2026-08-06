@@ -23,7 +23,29 @@ const FOOD_PRIORITY = [
 
 const DANGER_BLOCKS = new Set(['lava', 'fire', 'campfire', 'soul_fire', 'magma_block'])
 
+/**
+ * Shared throttle for every reflex.
+ *
+ * Five reflexes have now thrashed and each was fixed individually. The
+ * generalisation: NO reflex should fire more than once per interval per kind.
+ * A condition still true after acting on it is either not fixable by that
+ * reflex or needs escalation -- in both cases hammering it 50 times a minute
+ * only floods the telemetry everything else is measured from.
+ *
+ * Defined outside startReflexes so a reflex added tomorrow gets it for free.
+ */
+function makeThrottle(defaultMs = 10_000) {
+  const last = new Map()
+  return (kind, ms = defaultMs) => {
+    const now = Date.now()
+    if (now - (last.get(kind) ?? 0) < ms) return false
+    last.set(kind, now)
+    return true
+  }
+}
+
 export function startReflexes(bot, runner, lessons = null) {
+  const throttled = makeThrottle()
   let lastPos = null
   let stillSince = Date.now()
   let eating = false
@@ -49,7 +71,7 @@ export function startReflexes(bot, runner, lessons = null) {
       // them, one with its head inside a grass_block.
       const head = bot.blockAt(bot.entity.position.offset(0, 1, 0))
       const inWater = head?.name === 'water' || bot.entity.isInWater === true
-      if (bot.oxygenLevel != null && bot.oxygenLevel <= 4) {
+      if (bot.oxygenLevel != null && bot.oxygenLevel <= 4 && throttled('oxygen', 8000)) {
         if (!lowOxygenLatched) {
           lowOxygenLatched = true
           const kind = inWater ? 'drowning' : 'suffocating'
@@ -88,7 +110,7 @@ export function startReflexes(bot, runner, lessons = null) {
       // --- standing in something that hurts --------------------------------
       const feet = bot.blockAt(bot.entity.position)
       const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
-      if (DANGER_BLOCKS.has(feet?.name) || DANGER_BLOCKS.has(below?.name)) {
+      if ((DANGER_BLOCKS.has(feet?.name) || DANGER_BLOCKS.has(below?.name)) && throttled('danger', 8000)) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
         logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
         runner.interrupt('danger_block')
@@ -101,7 +123,7 @@ export function startReflexes(bot, runner, lessons = null) {
       // produced ~10 log lines/sec and repeated interrupts; the latch clears
       // only once health actually recovers, so one dip is one reaction.
       if (bot.health != null && bot.health <= config.reflex.fleeBelowHealth) {
-        if (!lowHealthLatched) {
+        if (!lowHealthLatched && throttled('low_health', 15000)) {
           lowHealthLatched = true
           log('warn', 'reflex: health low, disengaging', { health: round1(bot.health) })
           logEvent({ kind: 'reflex_low_health', detail: `health ${round1(bot.health)}`, snapshot: snapshot(bot) })
