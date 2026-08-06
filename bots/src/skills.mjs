@@ -736,12 +736,24 @@ async function explore(ctx, { blocks = 60, heading = null }, signal) {
   const { bot } = ctx
   const start = bot.entity.position.clone()
 
-  // Away from spawn by default -- that is the direction with unexplored ground.
+  // Head away from SPAWN, not away from home.
+  //
+  // The original said "away from spawn" in the comment and computed away from
+  // config.world.homeX/Z, which was the same point until the colony moved. Once
+  // home became 28,0 and spawn stayed 0,0, a bot that drifted west of home was
+  // sent FURTHER west -- straight back into the mined-out crater it had just been
+  // moved out of. Observed: Scout01 and Gather01 both back at 0,75,0 and 2,73,0
+  // with Scout01 down to 1 admitted decision in 10 and nothing left to try there.
+  //
+  // Spawn is the depleted origin in this world: it is where every bot started,
+  // where the resources were stripped first, and where the cave damage is. Away
+  // from it is the direction with unexplored ground, which is what the comment
+  // always meant.
   let ang
   if (Number.isFinite(Number(heading))) ang = (Number(heading) * Math.PI) / 180
   else {
-    const dx = start.x - config.world.homeX, dz = start.z - config.world.homeZ
-    ang = (Math.hypot(dx, dz) < 8 ? Math.random() * Math.PI * 2 : Math.atan2(dz, dx))
+    const dx = start.x, dz = start.z            // spawn is the origin
+    ang = (Math.hypot(dx, dz) < 12 ? Math.random() * Math.PI * 2 : Math.atan2(dz, dx))
       + (Math.random() - 0.5) * 0.8
   }
 
