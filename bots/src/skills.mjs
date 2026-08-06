@@ -287,7 +287,34 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       }
       return false
     }
-    const reachable = positions.filter(exposed)
+    // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
+    // block has an air face, which is true of every log in a tree canopy -- so
+    // findBlocks would return a trunk section five blocks up in the foliage,
+    // collectblock would try to path into mid-air, and the skill returned
+    // "oak_log found but unreachable after 4 attempts". That was the dominant
+    // failure once the fleet finally reached a forest.
+    //
+    // Standing room means: feet clear, HEAD clear, solid ground underfoot --
+    // the same test that took unstick from 0/16 to working. A block with a
+    // standable neighbour is one the bot can walk up to and mine.
+    const standable = q => {
+      const pass = b => !b || b.name === 'air' || b.boundingBox === 'empty'
+      const feet = bot.blockAt(q), head = bot.blockAt(q.offset(0, 1, 0)), under = bot.blockAt(q.offset(0, -1, 0))
+      return pass(feet) && pass(head) && under && under.boundingBox === 'block'
+    }
+    const approachable = pos => {
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const dy of [0, -1]) if (standable(pos.offset(dx, dy, dz))) return true
+      }
+      return false
+    }
+    // Approachable first, nearest first within that -- but keep merely-exposed
+    // blocks as a fallback so a slightly awkward target still beats giving up.
+    const exposedOnes = positions.filter(exposed)
+    const reachable = [
+      ...exposedOnes.filter(approachable),
+      ...exposedOnes.filter(q => !approachable(q)),
+    ]
     if (reachable.length === 0) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried)` }
