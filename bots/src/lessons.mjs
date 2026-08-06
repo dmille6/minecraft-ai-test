@@ -32,7 +32,7 @@ const key = (skill, args) => `${skill}:${JSON.stringify(args ?? {})}`
 export class Lessons {
   constructor(file) {
     this.file = file
-    this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0, progress: {} }
+    this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0, progress: {}, skillVersions: {} }
     this.dirty = false
     this.savesSincePrune = 0
     this.#load()
@@ -184,6 +184,64 @@ export class Lessons {
     p.blocked[k] = (p.blocked[k] ?? 0) + 1
     this.dirty = true
     return p.blocked[k]
+  }
+
+  /**
+   * Drop everything this bot believes about a skill whose CODE has changed.
+   *
+   * The learning layer remembers a world that no longer exists. Twice in one
+   * night, in both directions:
+   *
+   *   `status` returned success for a no-op and was recorded as a win 115
+   *   times. The prompt read "status worked 115x -- a reliable choice" and the
+   *   fleet idled successfully. Making it a no-op stopped FUTURE reinforcement
+   *   and changed nothing, because the behaviour was already written down.
+   *
+   *   `explore` was broken (unbounded pathfinding, aborted 15/15) and duly
+   *   recorded as useless. After the fix, learned_avoid kept vetoing it -- 20
+   *   minutes never chosen, while the fleet sat on the exact plateau explore
+   *   exists to break. The skill worked; its reputation was from when it did
+   *   not.
+   *
+   * A judgement about a skill is only valid for the version of the skill that
+   * earned it. So: hash each skill's source, and when the hash moves, drop that
+   * skill's avoid/worked/probation entries. Cache invalidation on code change,
+   * which is what it always was.
+   *
+   * Deliberately per-skill. Editing `gather` should not cost the bot everything
+   * it learned about `craft`.
+   */
+  reconcileSkillVersions(skills) {
+    const now = {}
+    for (const [name, def] of Object.entries(skills)) {
+      const src = String(def?.run ?? '')
+      let h = 5381
+      for (let i = 0; i < src.length; i++) h = ((h * 33) ^ src.charCodeAt(i)) >>> 0
+      now[name] = h.toString(36)
+    }
+
+    const previous = this.data.skillVersions ?? {}
+    const changed = Object.keys(now).filter(n => previous[n] && previous[n] !== now[n])
+
+    for (const name of changed) {
+      const before = Object.keys(this.data.avoid).length + Object.keys(this.data.worked).length
+      this.data.avoid = Object.fromEntries(
+        Object.entries(this.data.avoid).filter(([, v]) => v.skill !== name))
+      this.data.worked = Object.fromEntries(
+        Object.entries(this.data.worked).filter(([, v]) => v.skill !== name))
+      if (this.data.progress?.blocked) {
+        this.data.progress.blocked = Object.fromEntries(
+          Object.entries(this.data.progress.blocked).filter(([k]) => !k.startsWith(`${name}:`)))
+      }
+      const after = Object.keys(this.data.avoid).length + Object.keys(this.data.worked).length
+      log('info', 'skill changed, clearing what was learned about it', {
+        skill: name, entries_dropped: before - after,
+      })
+    }
+
+    this.data.skillVersions = now
+    if (changed.length) this.dirty = true
+    return changed
   }
 
   /** How many times this exact action has failed, across ALL runs. */

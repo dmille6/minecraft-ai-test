@@ -65,6 +65,8 @@ export class Runner {
     const startedAt = Date.now()
     const invBefore = inventorySummary(this.bot)
     const posBefore = this.bot.entity?.position?.clone()
+    const hpBefore = this.bot.health
+    const foodBefore = this.bot.food
     this.current = { skill: skillName, args, controller, startedAt }
     this.interruptedReason = null
 
@@ -130,7 +132,23 @@ export class Runner {
 
     this.current = null
     this.interruptedReason = null
-    return result
+    // Hand the DELTA back, not just the status. The runner already computed
+    // exactly what changed and then dropped it, so the learning layer could only
+    // ever see "did the call return cleanly?" -- which is how `status` came to
+    // be recorded as this fleet's most reliable action 115 times over, and how
+    // 46% of all "successes" turned out to have moved nothing and changed no
+    // inventory. ADR-0003.
+    return {
+      ...result,
+      delta: {
+        inventory: Object.keys(delta).length ? delta : {},
+        distance: moved ?? 0,
+        health: (this.bot.health ?? 0) - (hpBefore ?? 0),
+        food: (this.bot.food ?? 0) - (foodBefore ?? 0),
+        placed: /build|place/.test(skillName) && Object.values(delta).some(d => d < 0) ? 1 : 0,
+        informed: skillName === 'status',
+      },
+    }
   }
 
   resume() {

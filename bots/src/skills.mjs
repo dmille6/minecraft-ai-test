@@ -1050,6 +1050,79 @@ function isNightTime(bot) {
   return t >= 12542 && t <= 23458
 }
 
+/**
+ * What each skill is FOR, declared rather than inferred.
+ *
+ * `expects` names the durable change a skill is supposed to produce. That one
+ * field turns "did the call return cleanly?" into "did the thing it exists to do
+ * actually happen?" -- which is the difference between an agent that works and
+ * one that has learned to return success.
+ *
+ * Measured need: 46% of this fleet's "successes" moved zero blocks and changed
+ * no inventory. `status` was recorded as a win 115 times and the prompt duly
+ * told the bot it was its most reliable action. Judging by declared intent
+ * fixes that generically -- zero movement is fine for `status` and a failure
+ * for `gather`.
+ *
+ * Deliberately a CONTRACT, not per-skill reward weights. Nothing here is tuned;
+ * each entry just says what kind of evidence would show the skill did its job.
+ */
+export const SKILL_CONTRACTS = {
+  goto:     { expects: ['position'],              maxMs: 120_000 },
+  explore:  { expects: ['position'],              maxMs: 120_000 },
+  home:     { expects: ['position'],              maxMs: 120_000 },
+  come:     { expects: ['position'],              maxMs: 60_000 },
+  follow:   { expects: ['position'],              maxMs: 60_000 },
+  gather:   { expects: ['inventory_gain'],        maxMs: 180_000 },
+  mine:     { expects: ['inventory_gain', 'position'], maxMs: 180_000 },
+  craft:    { expects: ['inventory_gain'],        maxMs: 60_000 },
+  build:    { expects: ['world_change'],          maxMs: 180_000 },
+  place:    { expects: ['world_change'],          maxMs: 30_000 },
+  deposit:  { expects: ['inventory_loss'],        maxMs: 60_000 },
+  withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
+  eat:      { expects: ['survival'],              maxMs: 30_000 },
+  sleep:    { expects: ['survival'],              maxMs: 60_000 },
+  // Genuinely produces no durable change. Useful only when the bot's picture of
+  // itself is stale, never as achievement -- which is exactly what it was being
+  // recorded as.
+  status:   { expects: ['information'],           maxMs: 10_000 },
+}
+
+/**
+ * Classify an outcome by whether the declared expectation was met.
+ *
+ * Four buckets rather than a boolean, because tonight proved a boolean cannot
+ * tell a working agent from one that idles successfully:
+ *   valuable  -- the expected durable change happened
+ *   neutral   -- returned cleanly, nothing the skill exists for occurred
+ *   costly    -- returned cleanly but left the bot worse off
+ *   failure   -- errored, timed out, or was interrupted with no progress
+ */
+export function classifyOutcome(skillName, status, delta = {}) {
+  if (status === 'failed' || status === 'aborted') return 'failure'
+  if (status === 'no_effect') return 'neutral'
+
+  const expects = SKILL_CONTRACTS[skillName]?.expects ?? []
+  const gained = Object.values(delta.inventory ?? {}).some(n => n > 0)
+  const lost = Object.values(delta.inventory ?? {}).some(n => n < 0)
+  const moved = (delta.distance ?? 0) >= 2
+  const healthUp = (delta.health ?? 0) > 0 || (delta.food ?? 0) > 0
+  const healthDown = (delta.health ?? 0) < 0
+
+  const met =
+    (expects.includes('inventory_gain') && gained) ||
+    (expects.includes('inventory_loss') && lost) ||
+    (expects.includes('position') && moved) ||
+    (expects.includes('world_change') && (delta.placed ?? 0) > 0) ||
+    (expects.includes('survival') && healthUp) ||
+    (expects.includes('information') && (delta.informed ?? false))
+
+  if (!met) return 'neutral'
+  // Met its purpose but paid for it in health -- worth recording differently so
+  // the fleet does not learn that a costly win is simply a win.
+  return healthDown ? 'costly' : 'valuable'
+}
+
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
   gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },

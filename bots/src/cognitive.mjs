@@ -9,7 +9,7 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
-import { SKILLS } from './skills.mjs'
+import { SKILLS, classifyOutcome } from './skills.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
@@ -30,6 +30,21 @@ export class CognitiveLoop {
     this.memory = new WorkingMemory()
     this.lessons = lessons ?? openLessons()
     this.worldFacts = worldFacts
+    // Invalidate what this bot learned about any skill whose code has changed.
+    // A judgement is only valid for the version of the skill that earned it --
+    // `status` kept being chosen after it stopped being rewarded, and `explore`
+    // kept being vetoed after it was fixed. Both were memory outliving its
+    // subject.
+    try {
+      const changed = this.lessons.reconcileSkillVersions?.(SKILLS) ?? []
+      if (changed.length) {
+        this.lessons.save()
+        logEvent({ kind: 'skill_versions_reconciled', status: 'success',
+                   detail: `cleared judgements for: ${changed.join(', ')}`,
+                   snapshot: snapshot(bot) })
+      }
+    } catch (e) { log('warn', 'skill version reconcile failed', { err: e.message }) }
+
     this.admission = new AdmissionControl(this.lessons)
     this.milestones = new MilestoneController(bot, config.bot.role, this.lessons, worldFacts)
     this.schema = skillSchema(SKILL_NAMES)
@@ -195,8 +210,25 @@ export class CognitiveLoop {
         this.lessons.recordFailure(admitted.skill, admitted.args,
           classifyFailure(r.detail), this.bot.entity?.position)
       } else if (r.status === 'success') {
-        this.admission.noteSuccess(admitted.skill, admitted.args)
-        this.lessons.recordSuccess(admitted.skill, admitted.args)
+        // ADR-0003, finally implemented. Reward the skill only if the durable
+        // change it EXISTS FOR actually happened -- judged against the contract
+        // in SKILL_CONTRACTS, not against whether the call returned cleanly.
+        //
+        // Without this, `eat` on a full stomach and `status` were reinforced
+        // exactly like chopping a tree, and the fleet learned to do the safe
+        // thing that always works. A neutral outcome is recorded as neither win
+        // nor failure: the bot did nothing wrong, and it achieved nothing.
+        const value = classifyOutcome(admitted.skill, r.status, r.delta ?? {})
+        if (value === 'valuable' || value === 'costly') {
+          this.admission.noteSuccess(admitted.skill, admitted.args)
+          this.lessons.recordSuccess(admitted.skill, admitted.args)
+        }
+        outcome = { status: r.status, detail: r.detail, value }
+        if (value === 'neutral') {
+          log('info', 'skill returned cleanly but changed nothing', {
+            skill: admitted.skill, detail: String(r.detail ?? '').slice(0, 60),
+          })
+        }
       }
       // 'no_effect' deliberately matches NEITHER branch. It is not a success, so
       // it is never reinforced as achievement; it is not a failure, so the
