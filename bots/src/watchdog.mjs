@@ -16,6 +16,8 @@
 // them count as progress.
 
 import { logEvent, log } from './logger.mjs'
+import pathfinderPkg from 'mineflayer-pathfinder'
+const { goals } = pathfinderPkg
 import { snapshot, inventorySummary } from './state.mjs'
 import { config } from './config.mjs'
 
@@ -139,14 +141,54 @@ export class StagnationWatchdog {
       return
     }
 
-    // Level 3+: everything local has failed. Reconnecting rebuilds the world
-    // view and physics state, which clears whole classes of client-side wedge
-    // that no in-world movement can fix.
-    log('error', 'watchdog: repeated stagnation, reconnecting to reset client state')
-    logEvent({ kind: 'stagnation_reconnect', status: 'failed',
-               detail: `escalation ${this.escalation}; forcing reconnect`,
+    // Level 3+: everything local has failed.
+    //
+    // This used to reconnect unconditionally, on the theory that rebuilding the
+    // world view clears client-side wedges. Measured over three hours: it fired
+    // 68 times, and every one of 108 route failures in that window reported
+    // "blocked after 0 leg(s)" -- the bot could not compute a first step. A
+    // reconnect does not change terrain, position, inventory or the movement
+    // rules, so it cannot fix that. It does destroy the working memory the
+    // cognitive layer had built up. It was a remedy aimed at the wrong cause,
+    // applied 68 times.
+    //
+    // Reconnect is still right for a genuinely wedged CLIENT, and the two cases
+    // are distinguishable: if a path can be computed from here, the client is
+    // fine and the bot is being blocked by something else; if no path exists at
+    // all, the bot is physically stranded and needs terrain help, not a new
+    // socket.
+    let pathable = false
+    try {
+      const p = this.bot.entity?.position
+      if (p && this.bot.pathfinder?.getPathTo && goals) {
+        const r = this.bot.pathfinder.getPathTo(
+          this.bot.pathfinder.movements,
+          new goals.GoalNear(Math.round(p.x) + 8, Math.round(p.y), Math.round(p.z) + 8, 3),
+          800)
+        pathable = !!(r && r.path && r.path.length > 0)
+      }
+    } catch { /* treated as not pathable, which is the safer branch */ }
+
+    if (pathable) {
+      // A route exists and the bot still is not moving: that is the client-state
+      // wedge reconnecting was written for.
+      log('error', 'watchdog: stagnant despite a computable route, reconnecting')
+      logEvent({ kind: 'stagnation_reconnect', status: 'failed',
+                 detail: `escalation ${this.escalation}; route exists but no movement`,
+                 snapshot: snapshot(this.bot) })
+      this.escalation = 0
+      try { this.bot.quit('watchdog: stagnation reset') } catch { /* already gone */ }
+      return
+    }
+
+    // Physically stranded. Say so as a distinct, countable event rather than
+    // burning a reconnect on it -- "how often is a bot walled in by its own
+    // movement rules" is a number this project needs, and it was previously
+    // indistinguishable from a client wedge.
+    log('error', 'watchdog: STRANDED -- no route computable from here; reconnect would not help')
+    logEvent({ kind: 'stranded', status: 'failed',
+               detail: `escalation ${this.escalation}; no first leg exists from this position`,
                snapshot: snapshot(this.bot) })
     this.escalation = 0
-    try { this.bot.quit('watchdog: stagnation reset') } catch { /* already gone */ }
   }
 }

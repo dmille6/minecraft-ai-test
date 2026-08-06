@@ -552,8 +552,57 @@ function escapeCandidates(bot) {
   return out.sort((a, b) => b.open - a.open)
 }
 
+/**
+ * Can this bot begin a journey from where it now stands?
+ *
+ * Leaving the stuck cell is necessary but not sufficient -- stepping one block
+ * sideways inside the same sealed pocket is not an escape. Every one of 108
+ * route failures in three hours reported "blocked after 0 leg(s)", i.e. no
+ * first leg existed, so that is the exact condition worth testing.
+ *
+ * Deliberately cheap: a short-range goal with a small think budget. This runs
+ * inside a reflex, and a reflex that stalls for seconds deciding whether it
+ * succeeded is its own failure.
+ */
+async function canStartAPath(bot) {
+  if (!pkgGoals) return true                       // cannot test; do not block the escape
+  const p = bot.entity.position
+  const prev = bot.pathfinder.thinkTimeout
+  try {
+    bot.pathfinder.thinkTimeout = 800
+    const path = bot.pathfinder.getPathTo(
+      bot.pathfinder.movements,
+      new pkgGoals.GoalNear(Math.round(p.x) + 8, Math.round(p.y), Math.round(p.z) + 8, 3),
+      800)
+    return !!(path && path.path && path.path.length > 0)
+  } catch {
+    return true                                    // unknown is not a reason to keep thrashing
+  } finally {
+    bot.pathfinder.thinkTimeout = prev
+  }
+}
+
 async function unstick(bot) {
   const start = bot.entity.position.clone()
+  const startBlock = start.floored()
+
+  // TWO different questions, and they were being asked with one test.
+  //
+  // `movedEnough` (>= 3 blocks) is a "did this bot make progress toward its
+  // task" metric. Stage 0 does not attempt that: it steps to one of the eight
+  // ADJACENT standable neighbours, so the furthest it can possibly travel is
+  // about 1.73 blocks, and the GoalNear(t, 1) that follows also settles about a
+  // block away. A perfect escape therefore scored as a failure, and the bot
+  // fell through into the three blind stages that were measured at 16/16
+  // failures before stage 0 was written.
+  //
+  // Measured over three hours: 188 legal steps found, 106 FAILED, and the
+  // "genuinely walled in" branch fired ZERO times. Detection was never the
+  // problem. The escape was being graded against a threshold it cannot reach.
+  //
+  // So stage 0 asks the question it is actually answering: are we out of the
+  // cell we were stuck in?
+  const escapedCell = () => !bot.entity.position.floored().equals(startBlock)
   const movedEnough = () => bot.entity.position.distanceTo(start) >= 3
 
   // 0. LOOK BEFORE THRASHING.
@@ -579,7 +628,7 @@ async function unstick(bot) {
       if (t.y > Math.floor(start.y)) bot.setControlState('jump', true)
       await sleep(900)
       bot.clearControlStates()
-      if (movedEnough()) return
+      if (escapedCell() && await canStartAPath(bot)) return
       // A short, REACHABLE goal -- unlike the old random distant one.
       if (pkgGoals) {
         await Promise.race([
@@ -588,7 +637,7 @@ async function unstick(bot) {
         ])
       }
       bot.clearControlStates()
-      if (movedEnough()) return
+      if (escapedCell() && await canStartAPath(bot)) return
     } catch { bot.clearControlStates() }
   } else {
     log('warn', 'reflex: unstick found NO standable neighbour -- genuinely walled in')
