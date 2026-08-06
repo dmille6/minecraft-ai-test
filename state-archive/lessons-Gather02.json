@@ -1,0 +1,1233 @@
+{
+ "avoid": {
+  "come:{}": {
+   "args": {},
+   "classes": {
+    "other": 3
+   },
+   "fails": 3,
+   "last": 1786032774493,
+   "skill": "come",
+   "where": {
+    "x": 63,
+    "y": 65,
+    "z": 5
+   }
+  },
+  "craft:{\"item\":\"stick\"}": {
+   "args": {
+    "item": "stick",
+    "player": "Gather02"
+   },
+   "classes": {
+    "missing_ingredients": 10
+   },
+   "fails": 8,
+   "last": 1786044779041,
+   "skill": "craft",
+   "where": {
+    "x": 47,
+    "y": 74,
+    "z": -35
+   }
+  },
+  "craft:{\"item\":\"wooden_pickaxe\"}": {
+   "args": {
+    "item": "wooden_pickaxe"
+   },
+   "classes": {
+    "missing_ingredients": 4,
+    "other": 3
+   },
+   "fails": 7,
+   "last": 1786044501384,
+   "skill": "craft",
+   "where": {
+    "x": 47,
+    "y": 74,
+    "z": -35
+   }
+  },
+  "eat:{}": {
+   "args": {},
+   "classes": {
+    "other": 5
+   },
+   "fails": 5,
+   "last": 1786034299638,
+   "skill": "eat",
+   "where": {
+    "x": 61,
+    "y": 73,
+    "z": -33
+   }
+  },
+  "explore:{}": {
+   "args": {},
+   "classes": {
+    "other": 4,
+    "path_interrupted": 2,
+    "path_timeout": 2
+   },
+   "fails": 4,
+   "last": 1786038038215,
+   "skill": "explore",
+   "where": {
+    "x": 49,
+    "y": 73,
+    "z": -30
+   }
+  },
+  "follow:{}": {
+   "args": {},
+   "classes": {
+    "other": 3
+   },
+   "fails": 3,
+   "last": 1786023957700,
+   "skill": "follow",
+   "where": {
+    "x": 51,
+    "y": 75,
+    "z": 5
+   }
+  },
+  "gather:{\"block\":\"cobblestone\",\"count\":1}": {
+   "args": {
+    "block": "cobblestone",
+    "count": 1
+   },
+   "classes": {
+    "nothing_found": 3
+   },
+   "fails": 3,
+   "last": 1786044879690,
+   "skill": "gather",
+   "where": {
+    "x": 47,
+    "y": 74,
+    "z": -35
+   }
+  },
+  "gather:{\"block\":\"cobblestone\",\"count\":8}": {
+   "args": {
+    "block": "cobblestone",
+    "count": 8
+   },
+   "classes": {
+    "nothing_found": 2
+   },
+   "fails": 2,
+   "last": 1786044599903,
+   "skill": "gather",
+   "where": {
+    "x": 47,
+    "y": 74,
+    "z": -34
+   }
+  },
+  "gather:{\"block\":\"dirt\",\"count\":16}": {
+   "args": {
+    "block": "dirt",
+    "count": 16
+   },
+   "classes": {
+    "other": 2
+   },
+   "fails": 2,
+   "last": 1786035794957,
+   "skill": "gather",
+   "where": {
+    "x": 37,
+    "y": 74,
+    "z": -32
+   }
+  },
+  "gather:{\"block\":\"dirt\",\"count\":1}": {
+   "args": {
+    "block": "dirt",
+    "count": 1
+   },
+   "classes": {
+    "buried": 3
+   },
+   "fails": 2,
+   "last": 1786039456508,
+   "skill": "gather",
+   "where": {
+    "x": 48,
+    "y": 74,
+    "z": -20
+   }
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":1}": {
+   "args": {
+    "block": "oak_log",
+    "count": 1
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786042751927,
+   "skill": "gather",
+   "where": {
+    "x": 46,
+    "y": 73,
+    "z": -26
+   }
+  },
+  "gather:{\"block\":\"sand\",\"count\":1}": {
+   "args": {
+    "block": "sand",
+    "count": 1
+   },
+   "classes": {
+    "nothing_found": 4
+   },
+   "fails": 4,
+   "last": 1786037304824,
+   "skill": "gather",
+   "where": {
+    "x": 27,
+    "y": 73,
+    "z": -34
+   }
+  },
+  "gather:{\"block\":\"sand\",\"count\":8}": {
+   "args": {
+    "block": "sand",
+    "count": 8
+   },
+   "classes": {
+    "nothing_found": 4
+   },
+   "fails": 4,
+   "last": 1786041866918,
+   "skill": "gather",
+   "where": {
+    "x": 33,
+    "y": 76,
+    "z": -14
+   }
+  },
+  "goto:{\"x\":-27,\"y\":65,\"z\":-3}": {
+   "args": {
+    "x": -27,
+    "y": 65,
+    "z": -3
+   },
+   "classes": {
+    "other": 1
+   },
+   "fails": 1,
+   "last": 1786038088883,
+   "skill": "goto",
+   "where": {
+    "x": 47,
+    "y": 73,
+    "z": -26
+   }
+  },
+  "goto:{\"x\":-34,\"y\":62,\"z\":-27}": {
+   "args": {
+    "x": -34,
+    "y": 62,
+    "z": -27
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786042361460,
+   "skill": "goto",
+   "where": {
+    "x": 46,
+    "y": 73,
+    "z": -28
+   }
+  },
+  "goto:{\"x\":-34,\"y\":73,\"z\":-27}": {
+   "args": {
+    "x": -34,
+    "y": 73,
+    "z": -27
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786042436686,
+   "skill": "goto",
+   "where": {
+    "x": 46,
+    "y": 73,
+    "z": -28
+   }
+  },
+  "goto:{\"x\":-35,\"y\":70,\"z\":18}": {
+   "args": {
+    "x": -35,
+    "y": 70,
+    "z": 18
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786036696194,
+   "skill": "goto",
+   "where": {
+    "x": 27,
+    "y": 73,
+    "z": -35
+   }
+  },
+  "goto:{\"x\":10,\"y\":72,\"z\":-35}": {
+   "args": {
+    "x": 10,
+    "y": 72,
+    "z": -35
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786036519389,
+   "skill": "goto",
+   "where": {
+    "x": 27,
+    "y": 73,
+    "z": -35
+   }
+  },
+  "goto:{\"x\":27,\"y\":73,\"z\":-10}": {
+   "args": {
+    "x": 27,
+    "y": 73,
+    "z": -10
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786037139726,
+   "skill": "goto",
+   "where": {
+    "x": 27,
+    "y": 73,
+    "z": -34
+   }
+  },
+  "goto:{\"x\":28,\"y\":79,\"z\":0}": {
+   "args": {
+    "x": 28,
+    "y": 79,
+    "z": 0
+   },
+   "classes": {
+    "other": 1
+   },
+   "fails": 1,
+   "last": 1786024042032,
+   "skill": "goto",
+   "where": {
+    "x": 51,
+    "y": 75,
+    "z": 5
+   }
+  },
+  "goto:{\"x\":31,\"y\":69,\"z\":-30}": {
+   "args": {
+    "x": 31,
+    "y": 69,
+    "z": -30
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786042106300,
+   "skill": "goto",
+   "where": {
+    "x": 38,
+    "y": 74,
+    "z": -30
+   }
+  },
+  "goto:{\"x\":34,\"y\":73,\"z\":-46}": {
+   "args": {
+    "x": 34,
+    "y": 73,
+    "z": -46
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786036827666,
+   "skill": "goto",
+   "where": {
+    "x": 27,
+    "y": 73,
+    "z": -34
+   }
+  },
+  "goto:{\"x\":34,\"y\":75,\"z\":-18}": {
+   "args": {
+    "x": 34,
+    "y": 75,
+    "z": -18
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786041816662,
+   "skill": "goto",
+   "where": {
+    "x": 33,
+    "y": 76,
+    "z": -14
+   }
+  },
+  "goto:{\"x\":50,\"y\":70,\"z\":-10}": {
+   "args": {
+    "x": 50,
+    "y": 70,
+    "z": -10
+   },
+   "classes": {
+    "no_path": 2
+   },
+   "fails": 2,
+   "last": 1786037382867,
+   "skill": "goto",
+   "where": {
+    "x": 27,
+    "y": 73,
+    "z": -34
+   }
+  },
+  "goto:{\"x\":71,\"y\":63,\"z\":-2}": {
+   "args": {
+    "x": 71,
+    "y": 63,
+    "z": -2
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786038247564,
+   "skill": "goto",
+   "where": {
+    "x": 47,
+    "y": 73,
+    "z": -26
+   }
+  },
+  "home:{}": {
+   "args": {},
+   "classes": {
+    "other": 2,
+    "path_interrupted": 4
+   },
+   "fails": 6,
+   "last": 1786035298873,
+   "skill": "home",
+   "where": {
+    "x": 48,
+    "y": 74,
+    "z": -20
+   }
+  },
+  "mine:{\"y\":10}": {
+   "args": {
+    "y": 10
+   },
+   "classes": {
+    "missing_tool": 1
+   },
+   "fails": 1,
+   "last": 1786039155915,
+   "skill": "mine",
+   "where": {
+    "x": 47,
+    "y": 74,
+    "z": -23
+   }
+  },
+  "mine:{\"y\":12}": {
+   "args": {
+    "y": 12
+   },
+   "classes": {
+    "missing_tool": 5,
+    "other": 6
+   },
+   "fails": 10,
+   "last": 1786038605195,
+   "skill": "mine",
+   "where": {
+    "x": 48,
+    "y": 73,
+    "z": -30
+   }
+  },
+  "mine:{\"y\":13}": {
+   "args": {
+    "y": 13
+   },
+   "classes": {
+    "other": 2
+   },
+   "fails": 2,
+   "last": 1786024348271,
+   "skill": "mine",
+   "where": {
+    "x": 51,
+    "y": 75,
+    "z": 5
+   }
+  },
+  "mine:{\"y\":24}": {
+   "args": {
+    "y": 24
+   },
+   "classes": {
+    "other": 1
+   },
+   "fails": 1,
+   "last": 1786023137470,
+   "skill": "mine",
+   "where": {
+    "x": 50,
+    "y": 75,
+    "z": 16
+   }
+  },
+  "mine:{\"y\":5}": {
+   "args": {
+    "y": 5
+   },
+   "classes": {
+    "missing_tool": 1
+   },
+   "fails": 1,
+   "last": 1786040699233,
+   "skill": "mine",
+   "where": {
+    "x": 49,
+    "y": 74,
+    "z": -36
+   }
+  },
+  "mine:{\"y\":65}": {
+   "args": {
+    "y": 65
+   },
+   "classes": {
+    "missing_tool": 5,
+    "other": 6
+   },
+   "fails": 10,
+   "last": 1786039354991,
+   "skill": "mine",
+   "where": {
+    "x": 48,
+    "y": 74,
+    "z": -20
+   }
+  },
+  "mine:{\"y\":8}": {
+   "args": {
+    "y": 8
+   },
+   "classes": {
+    "other": 2
+   },
+   "fails": 2,
+   "last": 1786025760543,
+   "skill": "mine",
+   "where": {
+    "x": 27,
+    "y": 79,
+    "z": 1
+   }
+  },
+  "mine:{\"y\":9}": {
+   "args": {
+    "y": 9
+   },
+   "classes": {
+    "missing_tool": 1,
+    "other": 7
+   },
+   "fails": 8,
+   "last": 1786040260350,
+   "skill": "mine",
+   "where": {
+    "x": 49,
+    "y": 74,
+    "z": -34
+   }
+  }
+ },
+ "progress": {
+  "attempts": {
+   "gather_cobblestone_8": 19,
+   "gather_dirt_16": 0,
+   "gather_oak_log_12": 0,
+   "gather_sand_8": 0,
+   "stockpile_wood": 24
+  },
+  "blocked": {
+   "craft:{\"item\":\"stick\"}": 19,
+   "craft:{\"item\":\"wooden_pickaxe\"}": 14,
+   "eat:{}": 11,
+   "explore:{}": 31,
+   "gather:{\"block\":\"sand\",\"count\":8}": 2,
+   "goto:{\"x\":-50,\"y\":70,\"z\":-46}": 18,
+   "home:{}": 8,
+   "mine:{\"y\":12}": 37,
+   "mine:{\"y\":5}": 2,
+   "mine:{\"y\":65}": 36,
+   "mine:{\"y\":9}": 13
+  },
+  "skipCount": {
+   "gather_cobblestone_8": 1,
+   "gather_dirt_16": 2,
+   "gather_sand_8": 2
+  },
+  "skipped": [
+   "gather_sand_8"
+  ],
+  "skippedAt": {
+   "gather_cobblestone_8": 1786040996894,
+   "gather_dirt_16": 1786039456509,
+   "gather_sand_8": 1786042603907
+  }
+ },
+ "runs": 71,
+ "schema": 1,
+ "sites": [
+  {
+   "count": 20,
+   "kind": "suffocating",
+   "last": 1786030290858,
+   "x": 29,
+   "y": 79,
+   "z": 1
+  },
+  {
+   "count": 5,
+   "kind": "suffocating",
+   "last": 1786032958907,
+   "x": 71,
+   "y": 64,
+   "z": -2
+  },
+  {
+   "count": 2,
+   "kind": "suffocating",
+   "last": 1786034589693,
+   "x": 61,
+   "y": 73,
+   "z": -33
+  },
+  {
+   "count": 11,
+   "kind": "suffocating",
+   "last": 1786044675228,
+   "x": 42,
+   "y": 75,
+   "z": -41
+  }
+ ],
+ "skillVersions": {
+  "build": "1klevo4",
+  "come": "uac3ci",
+  "craft": "ul72xq",
+  "deposit": "p2elcs",
+  "eat": "xja6s6",
+  "explore": "turnob",
+  "follow": "baajp8",
+  "gather": "tera90",
+  "goto": "zdhjfs",
+  "home": "r91hqf",
+  "mine": "1l9hotg",
+  "place": "1ywc1cg",
+  "sleep": "1ll8rb2",
+  "status": "1wf9bhu",
+  "withdraw": "1ov63t1"
+ },
+ "worked": {
+  "craft:{\"item\":\"oak_planks\"}": {
+   "args": {
+    "item": "oak_planks",
+    "player": "Gather02"
+   },
+   "last": 1786038716326,
+   "skill": "craft",
+   "wins": 1
+  },
+  "craft:{\"item\":\"stick\"}": {
+   "args": {
+    "item": "stick",
+    "player": "Gather02"
+   },
+   "last": 1786039633527,
+   "skill": "craft",
+   "wins": 4
+  },
+  "explore:{}": {
+   "args": {},
+   "last": 1786041983206,
+   "skill": "explore",
+   "wins": 9
+  },
+  "gather:{\"block\":\"dirt\",\"count\":1}": {
+   "args": {
+    "block": "dirt",
+    "count": 1
+   },
+   "last": 1786045573776,
+   "skill": "gather",
+   "wins": 1
+  },
+  "gather:{\"block\":\"dirt\",\"count\":2}": {
+   "args": {
+    "block": "dirt",
+    "count": 2
+   },
+   "last": 1786045484319,
+   "skill": "gather",
+   "wins": 1
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":1}": {
+   "args": {
+    "block": "oak_log",
+    "count": 1
+   },
+   "last": 1786041236734,
+   "skill": "gather",
+   "wins": 3
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":5}": {
+   "args": {
+    "block": "oak_log",
+    "count": 5
+   },
+   "last": 1786036251087,
+   "skill": "gather",
+   "wins": 1
+  },
+  "goto:{\"x\":-10,\"y\":69,\"z\":-4}": {
+   "args": {
+    "x": -10,
+    "y": 69,
+    "z": -4
+   },
+   "last": 1785990131563,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-10,\"y\":69,\"z\":-5}": {
+   "args": {
+    "x": -10,
+    "y": 69,
+    "z": -5
+   },
+   "last": 1785989904125,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-10,\"y\":70,\"z\":-20}": {
+   "args": {
+    "x": -10,
+    "y": 70,
+    "z": -20
+   },
+   "last": 1785983370816,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-10,\"y\":70,\"z\":-48}": {
+   "args": {
+    "x": -10,
+    "y": 70,
+    "z": -48
+   },
+   "last": 1785980647558,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-10,\"y\":72,\"z\":-30}": {
+   "args": {
+    "x": -10,
+    "y": 72,
+    "z": -30
+   },
+   "last": 1785983535305,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-12,\"y\":67,\"z\":-2}": {
+   "args": {
+    "x": -12,
+    "y": 67,
+    "z": -2
+   },
+   "last": 1785992869130,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-12,\"y\":69,\"z\":-3}": {
+   "args": {
+    "x": -12,
+    "y": 69,
+    "z": -3
+   },
+   "last": 1785993046369,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-12,\"y\":70,\"z\":-38}": {
+   "args": {
+    "x": -12,
+    "y": 70,
+    "z": -38
+   },
+   "last": 1785984230853,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-14,\"y\":72,\"z\":-51}": {
+   "args": {
+    "x": -14,
+    "y": 72,
+    "z": -51
+   },
+   "last": 1786013300733,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-14,\"y\":72,\"z\":-53}": {
+   "args": {
+    "x": -14,
+    "y": 72,
+    "z": -53
+   },
+   "last": 1786013184085,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-15,\"y\":71,\"z\":-40}": {
+   "args": {
+    "x": -15,
+    "y": 71,
+    "z": -40
+   },
+   "last": 1785983965581,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-18,\"y\":72,\"z\":-32}": {
+   "args": {
+    "x": -18,
+    "y": 72,
+    "z": -32
+   },
+   "last": 1785983728429,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-2,\"y\":71,\"z\":-7}": {
+   "args": {
+    "x": -2,
+    "y": 71,
+    "z": -7
+   },
+   "last": 1785983903253,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-2,\"y\":74,\"z\":6}": {
+   "args": {
+    "x": -2,
+    "y": 74,
+    "z": 6
+   },
+   "last": 1785973847818,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-20,\"y\":70,\"z\":-20}": {
+   "args": {
+    "x": -20,
+    "y": 70,
+    "z": -20
+   },
+   "last": 1785985240007,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-20,\"y\":70,\"z\":-46}": {
+   "args": {
+    "x": -20,
+    "y": 70,
+    "z": -46
+   },
+   "last": 1785985295242,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-20,\"y\":71,\"z\":9}": {
+   "args": {
+    "x": -20,
+    "y": 71,
+    "z": 9
+   },
+   "last": 1785981928326,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-20,\"y\":72,\"z\":-46}": {
+   "args": {
+    "x": -20,
+    "y": 72,
+    "z": -46
+   },
+   "last": 1785985570984,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-3,\"y\":72,\"z\":5}": {
+   "args": {
+    "x": -3,
+    "y": 72,
+    "z": 5
+   },
+   "last": 1785973794601,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-3,\"y\":72,\"z\":6}": {
+   "args": {
+    "x": -3,
+    "y": 72,
+    "z": 6
+   },
+   "last": 1785971561893,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-31,\"y\":69,\"z\":-2}": {
+   "args": {
+    "x": -31,
+    "y": 69,
+    "z": -2
+   },
+   "last": 1785982391450,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-37,\"y\":68,\"z\":7}": {
+   "args": {
+    "x": -37,
+    "y": 68,
+    "z": 7
+   },
+   "last": 1785988226245,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-37,\"y\":69,\"z\":9}": {
+   "args": {
+    "x": -37,
+    "y": 69,
+    "z": 9
+   },
+   "last": 1785988502745,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-40,\"y\":70,\"z\":-35}": {
+   "args": {
+    "x": -40,
+    "y": 70,
+    "z": -35
+   },
+   "last": 1785985771570,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-40,\"y\":71,\"z\":-22}": {
+   "args": {
+    "x": -40,
+    "y": 71,
+    "z": -22
+   },
+   "last": 1785976617272,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-40,\"y\":71,\"z\":-8}": {
+   "args": {
+    "x": -40,
+    "y": 71,
+    "z": -8
+   },
+   "last": 1785976271255,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-40,\"y\":72,\"z\":-28}": {
+   "args": {
+    "x": -40,
+    "y": 72,
+    "z": -28
+   },
+   "last": 1785985891918,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-45,\"y\":71,\"z\":-5}": {
+   "args": {
+    "x": -45,
+    "y": 71,
+    "z": -5
+   },
+   "last": 1785977456112,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-48,\"y\":71,\"z\":-6}": {
+   "args": {
+    "x": -48,
+    "y": 71,
+    "z": -6
+   },
+   "last": 1785977311290,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-48,\"y\":71,\"z\":-9}": {
+   "args": {
+    "x": -48,
+    "y": 71,
+    "z": -9
+   },
+   "last": 1785978349636,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-5,\"y\":72,\"z\":0}": {
+   "args": {
+    "x": -5,
+    "y": 72,
+    "z": 0
+   },
+   "last": 1785981364246,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-50,\"y\":70,\"z\":-10}": {
+   "args": {
+    "x": -50,
+    "y": 70,
+    "z": -10
+   },
+   "last": 1785977936837,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-6,\"y\":71,\"z\":-49}": {
+   "args": {
+    "x": -6,
+    "y": 71,
+    "z": -49
+   },
+   "last": 1786011996575,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-7,\"y\":69,\"z\":-20}": {
+   "args": {
+    "x": -7,
+    "y": 69,
+    "z": -20
+   },
+   "last": 1786009682927,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":0,\"y\":70,\"z\":0}": {
+   "args": {
+    "x": 0,
+    "y": 70,
+    "z": 0
+   },
+   "last": 1785995339505,
+   "skill": "goto",
+   "wins": 2
+  },
+  "goto:{\"x\":1,\"y\":45,\"z\":1}": {
+   "args": {
+    "x": 1,
+    "y": 45,
+    "z": 1
+   },
+   "last": 1785991382471,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":1,\"y\":65,\"z\":1}": {
+   "args": {
+    "x": 1,
+    "y": 65,
+    "z": 1
+   },
+   "last": 1785994282481,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":1,\"y\":90,\"z\":-1}": {
+   "args": {
+    "x": 1,
+    "y": 90,
+    "z": -1
+   },
+   "last": 1785989526457,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":23,\"y\":70,\"z\":-33}": {
+   "args": {
+    "x": 23,
+    "y": 70,
+    "z": -33
+   },
+   "last": 1786019512756,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":27,\"y\":70,\"z\":-35}": {
+   "args": {
+    "x": 27,
+    "y": 70,
+    "z": -35
+   },
+   "last": 1786036303802,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":28,\"y\":79,\"z\":-5}": {
+   "args": {
+    "x": 28,
+    "y": 79,
+    "z": -5
+   },
+   "last": 1786037496218,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":28,\"y\":79,\"z\":0}": {
+   "args": {
+    "x": 28,
+    "y": 79,
+    "z": 0
+   },
+   "last": 1786014927163,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":29,\"y\":65,\"z\":1}": {
+   "args": {
+    "x": 29,
+    "y": 65,
+    "z": 1
+   },
+   "last": 1786014784631,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":31,\"y\":75,\"z\":16}": {
+   "args": {
+    "x": 31,
+    "y": 75,
+    "z": 16
+   },
+   "last": 1786015039600,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":32,\"y\":75,\"z\":-17}": {
+   "args": {
+    "x": 32,
+    "y": 75,
+    "z": -17
+   },
+   "last": 1786019286031,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":46,\"y\":74,\"z\":7}": {
+   "args": {
+    "x": 46,
+    "y": 74,
+    "z": 7
+   },
+   "last": 1786015291024,
+   "skill": "goto",
+   "wins": 1
+  },
+  "home:{}": {
+   "args": {},
+   "last": 1785993209396,
+   "skill": "home",
+   "wins": 5
+  },
+  "mine:{\"y\":12}": {
+   "args": {
+    "y": 12
+   },
+   "last": 1786007340101,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":65}": {
+   "args": {
+    "y": 65
+   },
+   "last": 1786006279859,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":67}": {
+   "args": {
+    "y": 67
+   },
+   "last": 1785992576880,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":75}": {
+   "args": {
+    "y": 75
+   },
+   "last": 1785993843922,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":90}": {
+   "args": {
+    "y": 90
+   },
+   "last": 1785994951858,
+   "skill": "mine",
+   "wins": 1
+  }
+ }
+}

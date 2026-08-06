@@ -1,0 +1,548 @@
+{
+ "avoid": {
+  "craft:{\"item\":\"stick\"}": {
+   "args": {
+    "item": "stick",
+    "player": "Miner01"
+   },
+   "classes": {
+    "missing_ingredients": 4,
+    "other": 1
+   },
+   "fails": 2,
+   "last": 1786031827193,
+   "skill": "craft",
+   "where": {
+    "x": 57,
+    "y": 75,
+    "z": -25
+   }
+  },
+  "craft:{\"item\":\"stone_pickaxe\"}": {
+   "args": {
+    "item": "stone_pickaxe",
+    "player": "Miner01"
+   },
+   "classes": {
+    "other": 2
+   },
+   "fails": 1,
+   "last": 1786038318887,
+   "skill": "craft",
+   "where": {
+    "x": 53,
+    "y": 61,
+    "z": -37
+   }
+  },
+  "craft:{\"item\":\"wooden_pickaxe\"}": {
+   "args": {
+    "item": "wooden_pickaxe",
+    "player": "Miner01"
+   },
+   "classes": {
+    "missing_ingredients": 3,
+    "needs_station": 1,
+    "other": 2
+   },
+   "fails": 5,
+   "last": 1786037173786,
+   "skill": "craft",
+   "where": {
+    "x": 45,
+    "y": 75,
+    "z": -36
+   }
+  },
+  "eat:{}": {
+   "args": {},
+   "classes": {
+    "other": 3
+   },
+   "fails": 3,
+   "last": 1786023688125,
+   "skill": "eat",
+   "where": {
+    "x": 27,
+    "y": 79,
+    "z": 0
+   }
+  },
+  "explore:{}": {
+   "args": {},
+   "classes": {
+    "path_interrupted": 2,
+    "path_timeout": 1
+   },
+   "fails": 2,
+   "last": 1786035346727,
+   "skill": "explore",
+   "where": {
+    "x": 65,
+    "y": 75,
+    "z": -29
+   }
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":1}": {
+   "args": {
+    "block": "oak_log",
+    "count": 1
+   },
+   "classes": {
+    "no_path": 1,
+    "other": 2
+   },
+   "fails": 1,
+   "last": 1786045261704,
+   "skill": "gather",
+   "where": {
+    "x": -52,
+    "y": 72,
+    "z": 32
+   }
+  },
+  "goto:{\"x\":51,\"y\":62,\"z\":-37}": {
+   "args": {
+    "x": 51,
+    "y": 62,
+    "z": -37
+   },
+   "classes": {
+    "no_path": 2
+   },
+   "fails": 2,
+   "last": 1786038136441,
+   "skill": "goto",
+   "where": {
+    "x": 53,
+    "y": 61,
+    "z": -37
+   }
+  },
+  "mine:{\"y\":14}": {
+   "args": {
+    "y": 14
+   },
+   "classes": {
+    "other": 1
+   },
+   "fails": 1,
+   "last": 1786025211029,
+   "skill": "mine",
+   "where": {
+    "x": 33,
+    "y": 77,
+    "z": -4
+   }
+  },
+  "mine:{\"y\":15}": {
+   "args": {
+    "y": 15
+   },
+   "classes": {
+    "other": 2
+   },
+   "fails": 2,
+   "last": 1786026605378,
+   "skill": "mine",
+   "where": {
+    "x": 30,
+    "y": 75,
+    "z": -22
+   }
+  },
+  "mine:{\"y\":68}": {
+   "args": {
+    "y": 68
+   },
+   "classes": {
+    "other": 8
+   },
+   "fails": 8,
+   "last": 1786033748763,
+   "skill": "mine",
+   "where": {
+    "x": 53,
+    "y": 74,
+    "z": -29
+   }
+  },
+  "mine:{\"y\":72}": {
+   "args": {
+    "y": 72
+   },
+   "classes": {
+    "missing_tool": 7,
+    "other": 4
+   },
+   "fails": 6,
+   "last": 1786023900321,
+   "skill": "mine",
+   "where": {
+    "x": 28,
+    "y": 77,
+    "z": -11
+   }
+  },
+  "place:{\"item\":\"crafting_table\"}": {
+   "args": {
+    "item": "crafting_table"
+   },
+   "classes": {
+    "other": 2
+   },
+   "fails": 2,
+   "last": 1786037276554,
+   "skill": "place",
+   "where": {
+    "x": 45,
+    "y": 75,
+    "z": -36
+   }
+  },
+  "status:{}": {
+   "args": {},
+   "classes": {
+    "other": 4
+   },
+   "fails": 4,
+   "last": 1786028070978,
+   "skill": "status",
+   "where": {
+    "x": 30,
+    "y": 77,
+    "z": 8
+   }
+  }
+ },
+ "progress": {
+  "attempts": {
+   "craft_crafting_table_1": 0,
+   "craft_oak_planks_16": 0,
+   "craft_stick_8": 0,
+   "craft_stone_pickaxe_1": 0,
+   "craft_wooden_pickaxe_1": 0,
+   "gather_cobblestone_12": 0,
+   "gather_oak_log_8": 0,
+   "stockpile_wood": 1
+  },
+  "blocked": {
+   "craft:{\"item\":\"stick\"}": 10,
+   "craft:{\"item\":\"wooden_pickaxe\"}": 10,
+   "follow:{}": 1,
+   "mine:{\"y\":12}": 4,
+   "mine:{\"y\":62}": 2,
+   "mine:{\"y\":68}": 18,
+   "mine:{\"y\":72}": 58
+  },
+  "skipCount": {},
+  "skipped": [],
+  "skippedAt": {}
+ },
+ "runs": 66,
+ "schema": 1,
+ "sites": [
+  {
+   "count": 28,
+   "kind": "suffocating",
+   "last": 1786038543203,
+   "x": 29,
+   "y": 79,
+   "z": 1
+  },
+  {
+   "count": 4,
+   "kind": "suffocating",
+   "last": 1786034589672,
+   "x": 52,
+   "y": 75,
+   "z": -16
+  },
+  {
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786032959313,
+   "x": 65,
+   "y": 75,
+   "z": -28
+  },
+  {
+   "count": 9,
+   "kind": "suffocating",
+   "last": 1786032827224,
+   "x": 54,
+   "y": 75,
+   "z": -39
+  },
+  {
+   "count": 2,
+   "kind": "suffocating",
+   "last": 1786040872512,
+   "x": 6,
+   "y": 78,
+   "z": 37
+  },
+  {
+   "count": 2,
+   "kind": "suffocating",
+   "last": 1786043021989,
+   "x": -12,
+   "y": 73,
+   "z": 18
+  },
+  {
+   "count": 2,
+   "kind": "suffocating",
+   "last": 1786045125128,
+   "x": -48,
+   "y": 72,
+   "z": 38
+  }
+ ],
+ "skillVersions": {
+  "build": "1klevo4",
+  "come": "uac3ci",
+  "craft": "ul72xq",
+  "deposit": "p2elcs",
+  "eat": "xja6s6",
+  "explore": "turnob",
+  "follow": "baajp8",
+  "gather": "tera90",
+  "goto": "zdhjfs",
+  "home": "r91hqf",
+  "mine": "1l9hotg",
+  "place": "1ywc1cg",
+  "sleep": "1ll8rb2",
+  "status": "1wf9bhu",
+  "withdraw": "1ov63t1"
+ },
+ "worked": {
+  "craft:{\"item\":\"crafting_table\"}": {
+   "args": {
+    "item": "crafting_table",
+    "player": "Miner01"
+   },
+   "last": 1786038257586,
+   "skill": "craft",
+   "wins": 2
+  },
+  "craft:{\"item\":\"oak_planks\"}": {
+   "args": {
+    "item": "oak_planks",
+    "player": "Miner01"
+   },
+   "last": 1786039355069,
+   "skill": "craft",
+   "wins": 9
+  },
+  "craft:{\"item\":\"stick\"}": {
+   "args": {
+    "item": "stick",
+    "player": "self"
+   },
+   "last": 1786035396405,
+   "skill": "craft",
+   "wins": 4
+  },
+  "craft:{\"item\":\"stone_pickaxe\"}": {
+   "args": {
+    "item": "stone_pickaxe",
+    "player": "Miner01"
+   },
+   "last": 1786038820654,
+   "skill": "craft",
+   "wins": 1
+  },
+  "craft:{\"item\":\"wooden_pickaxe\"}": {
+   "args": {
+    "item": "wooden_pickaxe",
+    "player": "Miner01"
+   },
+   "last": 1786037443520,
+   "skill": "craft",
+   "wins": 1
+  },
+  "explore:{}": {
+   "args": {},
+   "last": 1786035219699,
+   "skill": "explore",
+   "wins": 9
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":1}": {
+   "args": {
+    "block": "oak_log",
+    "count": 1
+   },
+   "last": 1786045417087,
+   "skill": "gather",
+   "wins": 30
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":2}": {
+   "args": {
+    "block": "oak_log",
+    "count": 2
+   },
+   "last": 1786037006030,
+   "skill": "gather",
+   "wins": 1
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":3}": {
+   "args": {
+    "block": "oak_log",
+    "count": 3
+   },
+   "last": 1786031724941,
+   "skill": "gather",
+   "wins": 1
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":5}": {
+   "args": {
+    "block": "oak_log",
+    "count": 5
+   },
+   "last": 1786042319057,
+   "skill": "gather",
+   "wins": 1
+  },
+  "goto:{\"x\":-5,\"y\":77,\"z\":22}": {
+   "args": {
+    "x": -5,
+    "y": 77,
+    "z": 22
+   },
+   "last": 1785968906340,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-6,\"y\":71,\"z\":3}": {
+   "args": {
+    "x": -6,
+    "y": 71,
+    "z": 3
+   },
+   "last": 1785975062256,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-6,\"y\":72,\"z\":4}": {
+   "args": {
+    "x": -6,
+    "y": 72,
+    "z": 4
+   },
+   "last": 1785974744410,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-7,\"y\":71,\"z\":-29}": {
+   "args": {
+    "x": -7,
+    "y": 71,
+    "z": -29
+   },
+   "last": 1785975810792,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-7,\"y\":71,\"z\":-30}": {
+   "args": {
+    "x": -7,
+    "y": 71,
+    "z": -30
+   },
+   "last": 1785975679801,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":-7,\"y\":77,\"z\":45}": {
+   "args": {
+    "x": -7,
+    "y": 77,
+    "z": 45
+   },
+   "last": 1785969951454,
+   "skill": "goto",
+   "wins": 1
+  },
+  "mine:{\"y\":39}": {
+   "args": {
+    "y": 39
+   },
+   "last": 1785981662890,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":58}": {
+   "args": {
+    "y": 58
+   },
+   "last": 1786007912126,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":62}": {
+   "args": {
+    "y": 62
+   },
+   "last": 1786037616057,
+   "skill": "mine",
+   "wins": 2
+  },
+  "mine:{\"y\":68}": {
+   "args": {
+    "y": 68
+   },
+   "last": 1785996581979,
+   "skill": "mine",
+   "wins": 8
+  },
+  "mine:{\"y\":69}": {
+   "args": {
+    "y": 69
+   },
+   "last": 1785997030411,
+   "skill": "mine",
+   "wins": 2
+  },
+  "mine:{\"y\":70}": {
+   "args": {
+    "y": 70
+   },
+   "last": 1785994715071,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":72}": {
+   "args": {
+    "y": 72
+   },
+   "last": 1786037525265,
+   "skill": "mine",
+   "wins": 5
+  },
+  "mine:{\"y\":73}": {
+   "args": {
+    "y": 73
+   },
+   "last": 1785980031025,
+   "skill": "mine",
+   "wins": 1
+  },
+  "mine:{\"y\":74}": {
+   "args": {
+    "y": 74
+   },
+   "last": 1785984763061,
+   "skill": "mine",
+   "wins": 1
+  },
+  "place:{\"item\":\"crafting_table\"}": {
+   "args": {
+    "item": "crafting_table"
+   },
+   "last": 1785973981191,
+   "skill": "place",
+   "wins": 2
+  }
+ }
+}

@@ -1,0 +1,1545 @@
+{
+ "resources": [
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Miner01",
+    "Gather01",
+    "Gather02"
+   ],
+   "count": 1014,
+   "kind": "oak_log",
+   "last": 1786045619878,
+   "x": -20,
+   "y": 72,
+   "z": 2
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Miner01",
+    "Gather01",
+    "Gather02"
+   ],
+   "count": 929,
+   "kind": "birch_log",
+   "last": 1786045619888,
+   "x": -30,
+   "y": 70,
+   "z": 6
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Miner01",
+    "Gather01",
+    "Gather02"
+   ],
+   "count": 1474,
+   "kind": "stone",
+   "last": 1786045620000,
+   "x": -17,
+   "y": 67,
+   "z": 7
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Miner01",
+    "Gather01",
+    "Gather02"
+   ],
+   "count": 654,
+   "kind": "coal_ore",
+   "last": 1786045620013,
+   "x": -26,
+   "y": 66,
+   "z": 6
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Gather01",
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 736,
+   "kind": "iron_ore",
+   "last": 1786045620061,
+   "x": -17,
+   "y": 71,
+   "z": 23
+  },
+  {
+   "by": [
+    "Miner01",
+    "Scout01",
+    "Gather01",
+    "Gather02",
+    "Scout02"
+   ],
+   "count": 766,
+   "kind": "iron_ore",
+   "last": 1786021643720,
+   "x": -23,
+   "y": 66,
+   "z": -11
+  },
+  {
+   "by": [
+    "Gather01",
+    "Gather02",
+    "Scout01",
+    "Miner01",
+    "Scout02"
+   ],
+   "count": 5882,
+   "kind": "coal_ore",
+   "last": 1786045434581,
+   "x": 5,
+   "y": 72,
+   "z": 6
+  },
+  {
+   "by": [
+    "Gather02",
+    "Gather01",
+    "Scout01",
+    "Miner01",
+    "Scout02"
+   ],
+   "count": 1060,
+   "kind": "oak_log",
+   "last": 1786045446037,
+   "x": 0,
+   "y": 77,
+   "z": -13
+  },
+  {
+   "by": [
+    "Gather02",
+    "Gather01",
+    "Miner01",
+    "Scout01",
+    "Scout02"
+   ],
+   "count": 1091,
+   "kind": "birch_log",
+   "last": 1786021643593,
+   "x": -4,
+   "y": 74,
+   "z": -3
+  },
+  {
+   "by": [
+    "Gather02",
+    "Gather01",
+    "Miner01",
+    "Scout01",
+    "Scout02"
+   ],
+   "count": 4452,
+   "kind": "iron_ore",
+   "last": 1786045615955,
+   "x": 3,
+   "y": 66,
+   "z": -7
+  },
+  {
+   "by": [
+    "Gather02",
+    "Scout02",
+    "Scout01",
+    "Miner01",
+    "Gather01"
+   ],
+   "count": 5297,
+   "kind": "stone",
+   "last": 1786045615929,
+   "x": 10,
+   "y": 75,
+   "z": 1
+  },
+  {
+   "by": [
+    "Scout01",
+    "Miner01",
+    "Gather02",
+    "Scout02",
+    "Gather01"
+   ],
+   "count": 6338,
+   "kind": "oak_log",
+   "last": 1786045615817,
+   "x": 29,
+   "y": 79,
+   "z": 0
+  },
+  {
+   "by": [
+    "Scout01",
+    "Miner01",
+    "Gather02",
+    "Scout02",
+    "Gather01"
+   ],
+   "count": 7179,
+   "kind": "birch_log",
+   "last": 1786045623215,
+   "x": 36,
+   "y": 79,
+   "z": 2
+  },
+  {
+   "by": [
+    "Gather02",
+    "Scout02",
+    "Scout01",
+    "Gather01",
+    "Miner01"
+   ],
+   "count": 1738,
+   "kind": "coal_ore",
+   "last": 1786045615944,
+   "x": 30,
+   "y": 68,
+   "z": -3
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather02",
+    "Miner01",
+    "Scout02",
+    "Gather01"
+   ],
+   "count": 1547,
+   "kind": "stone",
+   "last": 1786045587073,
+   "x": 32,
+   "y": 72,
+   "z": -13
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Gather02",
+    "Gather01",
+    "Miner01"
+   ],
+   "count": 2229,
+   "kind": "iron_ore",
+   "last": 1786045618365,
+   "x": 42,
+   "y": 68,
+   "z": -25
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather01",
+    "Miner01",
+    "Gather02",
+    "Scout02"
+   ],
+   "count": 1285,
+   "kind": "birch_log",
+   "last": 1786045628014,
+   "x": 31,
+   "y": 75,
+   "z": -23
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Gather02",
+    "Gather01",
+    "Miner01"
+   ],
+   "count": 1665,
+   "kind": "oak_log",
+   "last": 1786045618241,
+   "x": 54,
+   "y": 75,
+   "z": -26
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Gather02",
+    "Gather01",
+    "Miner01"
+   ],
+   "count": 1559,
+   "kind": "coal_ore",
+   "last": 1786045618341,
+   "x": 57,
+   "y": 69,
+   "z": -30
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather01",
+    "Scout02",
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 1228,
+   "kind": "water",
+   "last": 1786045012629,
+   "x": 74,
+   "y": 55,
+   "z": -41
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Gather01",
+    "Scout01"
+   ],
+   "count": 941,
+   "kind": "oak_log",
+   "last": 1786045623184,
+   "x": 61,
+   "y": 77,
+   "z": 1
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Miner01",
+    "Gather01",
+    "Scout01"
+   ],
+   "count": 1319,
+   "kind": "stone",
+   "last": 1786045623297,
+   "x": 61,
+   "y": 72,
+   "z": 0
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Scout01",
+    "Gather01"
+   ],
+   "count": 1034,
+   "kind": "coal_ore",
+   "last": 1786045623312,
+   "x": 60,
+   "y": 65,
+   "z": 6
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Scout01"
+   ],
+   "count": 519,
+   "kind": "iron_ore",
+   "last": 1786045623338,
+   "x": 68,
+   "y": 64,
+   "z": 31
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Scout01"
+   ],
+   "count": 340,
+   "kind": "water",
+   "last": 1786045401903,
+   "x": 95,
+   "y": 55,
+   "z": 8
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Miner01",
+    "Scout01",
+    "Gather01"
+   ],
+   "count": 2388,
+   "kind": "iron_ore",
+   "last": 1786044953198,
+   "x": 35,
+   "y": 56,
+   "z": 14
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather02",
+    "Gather01",
+    "Scout02",
+    "Miner01"
+   ],
+   "count": 1095,
+   "kind": "stone",
+   "last": 1786045184582,
+   "x": 46,
+   "y": 69,
+   "z": -36
+  },
+  {
+   "by": [
+    "Gather02",
+    "Miner01",
+    "Scout02",
+    "Scout01",
+    "Gather01"
+   ],
+   "count": 653,
+   "kind": "stone",
+   "last": 1786044419229,
+   "x": 42,
+   "y": 69,
+   "z": 15
+  },
+  {
+   "by": [
+    "Gather02",
+    "Scout02",
+    "Scout01"
+   ],
+   "count": 317,
+   "kind": "coal_ore",
+   "last": 1786043957982,
+   "x": 46,
+   "y": 74,
+   "z": 30
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather01",
+    "Miner01",
+    "Scout02",
+    "Gather02"
+   ],
+   "count": 682,
+   "kind": "birch_log",
+   "last": 1786042954163,
+   "x": 60,
+   "y": 75,
+   "z": -30
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather01",
+    "Scout02",
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 625,
+   "kind": "birch_log",
+   "last": 1786045486098,
+   "x": 4,
+   "y": 75,
+   "z": -37
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather01",
+    "Miner01",
+    "Gather02",
+    "Scout02"
+   ],
+   "count": 384,
+   "kind": "oak_log",
+   "last": 1786045627973,
+   "x": 34,
+   "y": 76,
+   "z": -46
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather02",
+    "Miner01"
+   ],
+   "count": 67,
+   "kind": "iron_ore",
+   "last": 1786043514510,
+   "x": 47,
+   "y": 64,
+   "z": -52
+  },
+  {
+   "by": [
+    "Gather02",
+    "Scout01",
+    "Scout02"
+   ],
+   "count": 105,
+   "kind": "iron_ore",
+   "last": 1786045316181,
+   "x": 63,
+   "y": 30,
+   "z": 4
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 7,
+   "kind": "water",
+   "last": 1786007395321,
+   "x": 48,
+   "y": -13,
+   "z": 8
+  },
+  {
+   "by": [
+    "Gather02",
+    "Miner01"
+   ],
+   "count": 171,
+   "kind": "birch_log",
+   "last": 1786043463504,
+   "x": 6,
+   "y": 83,
+   "z": 27
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Miner01"
+   ],
+   "count": 168,
+   "kind": "iron_ore",
+   "last": 1786045458796,
+   "x": -45,
+   "y": 64,
+   "z": 31
+  },
+  {
+   "by": [
+    "Gather01",
+    "Scout02",
+    "Miner01",
+    "Gather02",
+    "Scout01"
+   ],
+   "count": 244,
+   "kind": "oak_log",
+   "last": 1786020960029,
+   "x": 7,
+   "y": 75,
+   "z": -36
+  },
+  {
+   "by": [
+    "Gather01",
+    "Scout02",
+    "Gather02",
+    "Miner01",
+    "Scout01"
+   ],
+   "count": 584,
+   "kind": "stone",
+   "last": 1786045628083,
+   "x": 8,
+   "y": 68,
+   "z": -33
+  },
+  {
+   "by": [
+    "Gather01",
+    "Scout02",
+    "Miner01",
+    "Gather02",
+    "Scout01"
+   ],
+   "count": 809,
+   "kind": "coal_ore",
+   "last": 1786045628097,
+   "x": 9,
+   "y": 67,
+   "z": -35
+  },
+  {
+   "by": [
+    "Gather01",
+    "Scout02",
+    "Gather02",
+    "Miner01",
+    "Scout01"
+   ],
+   "count": 687,
+   "kind": "iron_ore",
+   "last": 1786045628131,
+   "x": 14,
+   "y": 67,
+   "z": -44
+  },
+  {
+   "by": [
+    "Gather02",
+    "Miner01"
+   ],
+   "count": 180,
+   "kind": "oak_log",
+   "last": 1786043645748,
+   "x": -3,
+   "y": 79,
+   "z": 19
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Scout01",
+    "Miner01"
+   ],
+   "count": 206,
+   "kind": "stone",
+   "last": 1786021442731,
+   "x": -16,
+   "y": 66,
+   "z": -33
+  },
+  {
+   "by": [
+    "Scout02",
+    "Gather02",
+    "Scout01",
+    "Miner01"
+   ],
+   "count": 193,
+   "kind": "coal_ore",
+   "last": 1786022290151,
+   "x": -14,
+   "y": 66,
+   "z": -27
+  },
+  {
+   "by": [
+    "Scout02",
+    "Scout01",
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 175,
+   "kind": "oak_log",
+   "last": 1786022289870,
+   "x": -25,
+   "y": 71,
+   "z": -24
+  },
+  {
+   "by": [
+    "Scout02",
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 107,
+   "kind": "birch_log",
+   "last": 1786022289954,
+   "x": -30,
+   "y": 71,
+   "z": -25
+  },
+  {
+   "by": [
+    "Scout02",
+    "Miner01"
+   ],
+   "count": 21,
+   "kind": "oak_log",
+   "last": 1786042472838,
+   "x": -48,
+   "y": 71,
+   "z": -5
+  },
+  {
+   "by": [
+    "Scout02",
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 68,
+   "kind": "stone",
+   "last": 1786022290091,
+   "x": -48,
+   "y": 68,
+   "z": -14
+  },
+  {
+   "by": [
+    "Scout02",
+    "Miner01"
+   ],
+   "count": 24,
+   "kind": "coal_ore",
+   "last": 1786016714483,
+   "x": -45,
+   "y": 65,
+   "z": -9
+  },
+  {
+   "by": [
+    "Scout02",
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 106,
+   "kind": "iron_ore",
+   "last": 1786022290168,
+   "x": -62,
+   "y": 69,
+   "z": -26
+  },
+  {
+   "by": [
+    "Gather02",
+    "Scout01",
+    "Miner01"
+   ],
+   "count": 134,
+   "kind": "oak_log",
+   "last": 1786020496956,
+   "x": -14,
+   "y": 78,
+   "z": -53
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 78,
+   "kind": "water",
+   "last": 1786014755813,
+   "x": -32,
+   "y": 62,
+   "z": -80
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 62,
+   "kind": "birch_log",
+   "last": 1786014755595,
+   "x": -12,
+   "y": 73,
+   "z": -70
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 65,
+   "kind": "stone",
+   "last": 1786014755714,
+   "x": -14,
+   "y": 68,
+   "z": -65
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 9,
+   "kind": "coal_ore",
+   "last": 1786013617782,
+   "x": -6,
+   "y": 67,
+   "z": -65
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 5,
+   "kind": "iron_ore",
+   "last": 1786013298004,
+   "x": 11,
+   "y": 69,
+   "z": -80
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 64,
+   "kind": "sand",
+   "last": 1786014755771,
+   "x": -39,
+   "y": 58,
+   "z": -80
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 60,
+   "kind": "iron_ore",
+   "last": 1786014755741,
+   "x": -27,
+   "y": 55,
+   "z": -74
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 3,
+   "kind": "birch_log",
+   "last": 1786013617705,
+   "x": -32,
+   "y": 72,
+   "z": -55
+  },
+  {
+   "by": [
+    "Gather02"
+   ],
+   "count": 56,
+   "kind": "coal_ore",
+   "last": 1786014755729,
+   "x": -30,
+   "y": 68,
+   "z": -56
+  },
+  {
+   "by": [
+    "Gather02",
+    "Scout02",
+    "Scout01",
+    "Miner01"
+   ],
+   "count": 124,
+   "kind": "oak_log",
+   "last": 1786043957888,
+   "x": 28,
+   "y": 79,
+   "z": 25
+  },
+  {
+   "by": [
+    "Miner01",
+    "Scout02"
+   ],
+   "count": 74,
+   "kind": "oak_log",
+   "last": 1786035567860,
+   "x": 72,
+   "y": 79,
+   "z": -42
+  },
+  {
+   "by": [
+    "Miner01",
+    "Scout02"
+   ],
+   "count": 74,
+   "kind": "iron_ore",
+   "last": 1786035567995,
+   "x": 77,
+   "y": 63,
+   "z": -39
+  },
+  {
+   "by": [
+    "Scout02"
+   ],
+   "count": 1,
+   "kind": "stone",
+   "last": 1786023141135,
+   "x": 71,
+   "y": 74,
+   "z": -35
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather02",
+    "Scout02"
+   ],
+   "count": 236,
+   "kind": "birch_log",
+   "last": 1786045381476,
+   "x": 68,
+   "y": 77,
+   "z": 7
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 61,
+   "kind": "stone",
+   "last": 1786041221055,
+   "x": 18,
+   "y": 75,
+   "z": 26
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 70,
+   "kind": "iron_ore",
+   "last": 1786041221119,
+   "x": 8,
+   "y": 70,
+   "z": 21
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 100,
+   "kind": "coal_ore",
+   "last": 1786045035737,
+   "x": -7,
+   "y": 73,
+   "z": 33
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 17,
+   "kind": "stone",
+   "last": 1786043645861,
+   "x": -11,
+   "y": 74,
+   "z": 38
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 46,
+   "kind": "coal_ore",
+   "last": 1786045458776,
+   "x": -47,
+   "y": 64,
+   "z": 20
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 57,
+   "kind": "oak_log",
+   "last": 1786045458623,
+   "x": -40,
+   "y": 73,
+   "z": 22
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 46,
+   "kind": "stone",
+   "last": 1786045458764,
+   "x": -41,
+   "y": 68,
+   "z": 23
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 34,
+   "kind": "birch_log",
+   "last": 1786045458633,
+   "x": -46,
+   "y": 72,
+   "z": 44
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 11,
+   "kind": "coal_ore",
+   "last": 1786045297682,
+   "x": -49,
+   "y": 67,
+   "z": 47
+  }
+ ],
+ "schema": 1,
+ "sites": [
+  {
+   "by": [
+    "Scout02",
+    "Scout01"
+   ],
+   "count": 6,
+   "kind": "suffocating",
+   "last": 1786016323955,
+   "x": -20,
+   "y": 70,
+   "z": -7
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather01",
+    "Scout02",
+    "Gather02",
+    "Miner01"
+   ],
+   "count": 102,
+   "kind": "suffocating",
+   "last": 1786038543204,
+   "x": 29,
+   "y": 79,
+   "z": 0
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather02",
+    "Gather01"
+   ],
+   "count": 17,
+   "kind": "suffocating",
+   "last": 1786027912833,
+   "x": 30,
+   "y": 75,
+   "z": -19
+  },
+  {
+   "by": [
+    "Scout01",
+    "Gather01"
+   ],
+   "count": 15,
+   "kind": "suffocating",
+   "last": 1786029564047,
+   "x": 44,
+   "y": 74,
+   "z": -20
+  },
+  {
+   "by": [
+    "Scout02"
+   ],
+   "count": 17,
+   "kind": "suffocating",
+   "last": 1786030291004,
+   "x": 60,
+   "y": 76,
+   "z": 2
+  },
+  {
+   "by": [
+    "Gather02",
+    "Miner01",
+    "Scout02",
+    "Gather01"
+   ],
+   "count": 20,
+   "kind": "suffocating",
+   "last": 1786032167146,
+   "x": 39,
+   "y": 75,
+   "z": 5
+  },
+  {
+   "by": [
+    "Scout01",
+    "Miner01"
+   ],
+   "count": 8,
+   "kind": "suffocating",
+   "last": 1786032959314,
+   "x": 55,
+   "y": 75,
+   "z": -39
+  },
+  {
+   "by": [
+    "Scout01"
+   ],
+   "count": 5,
+   "kind": "suffocating",
+   "last": 1786003292041,
+   "x": 37,
+   "y": 74,
+   "z": -31
+  },
+  {
+   "by": [
+    "Scout02"
+   ],
+   "count": 4,
+   "kind": "suffocating",
+   "last": 1786029563826,
+   "x": 51,
+   "y": 74,
+   "z": 8
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02",
+    "Gather02"
+   ],
+   "count": 10,
+   "kind": "suffocating",
+   "last": 1786034589699,
+   "x": 61,
+   "y": 74,
+   "z": -31
+  },
+  {
+   "by": [
+    "Gather01",
+    "Scout02"
+   ],
+   "count": 13,
+   "kind": "suffocating",
+   "last": 1786034589420,
+   "x": 28,
+   "y": 79,
+   "z": 10
+  },
+  {
+   "by": [
+    "Scout02",
+    "Miner01"
+   ],
+   "count": 12,
+   "kind": "suffocating",
+   "last": 1786034589672,
+   "x": 62,
+   "y": 75,
+   "z": -21
+  },
+  {
+   "by": [
+    "Gather01"
+   ],
+   "count": 2,
+   "kind": "suffocating",
+   "last": 1786029564057,
+   "x": 45,
+   "y": 76,
+   "z": -12
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786031268101,
+   "x": 52,
+   "y": 75,
+   "z": -16
+  },
+  {
+   "by": [
+    "Scout01"
+   ],
+   "count": 5,
+   "kind": "suffocating",
+   "last": 1786032710899,
+   "x": 68,
+   "y": 64,
+   "z": -6
+  },
+  {
+   "by": [
+    "Gather02",
+    "Scout01",
+    "Scout02"
+   ],
+   "count": 15,
+   "kind": "suffocating",
+   "last": 1786035260226,
+   "x": 63,
+   "y": 65,
+   "z": 5
+  },
+  {
+   "by": [
+    "Miner01",
+    "Gather02"
+   ],
+   "count": 21,
+   "kind": "suffocating",
+   "last": 1786044675228,
+   "x": 46,
+   "y": 75,
+   "z": -39
+  },
+  {
+   "by": [
+    "Gather01"
+   ],
+   "count": 3,
+   "kind": "entombed",
+   "last": 1786036186448,
+   "x": 26,
+   "y": 75,
+   "z": 13
+  },
+  {
+   "by": [
+    "Scout01",
+    "Scout02"
+   ],
+   "count": 6,
+   "kind": "suffocating",
+   "last": 1786036981305,
+   "x": 50,
+   "y": 70,
+   "z": 25
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786040872531,
+   "x": 7,
+   "y": 77,
+   "z": 37
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 2,
+   "kind": "suffocating",
+   "last": 1786043021997,
+   "x": -12,
+   "y": 73,
+   "z": 18
+  },
+  {
+   "by": [
+    "Gather01"
+   ],
+   "count": 7,
+   "kind": "suffocating",
+   "last": 1786044675183,
+   "x": 28,
+   "y": 74,
+   "z": -37
+  },
+  {
+   "by": [
+    "Miner01"
+   ],
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786045125140,
+   "x": -48,
+   "y": 72,
+   "z": 38
+  }
+ ],
+ "unreachable": {
+  "craft_crafting_table_1": {
+   "by": [
+    "Miner01"
+   ],
+   "detail": "",
+   "last": 1785984261649,
+   "where": {
+    "Miner01": {
+     "x": 1,
+     "y": 74,
+     "z": 1
+    }
+   }
+  },
+  "craft_oak_planks_16": {
+   "by": [
+    "Miner01"
+   ],
+   "detail": "",
+   "last": 1785983291972,
+   "where": {
+    "Miner01": {
+     "x": 1,
+     "y": 74,
+     "z": 0
+    }
+   }
+  },
+  "craft_oak_planks_8": {
+   "by": [
+    "Scout01",
+    "Scout02"
+   ],
+   "detail": "",
+   "last": 1786037248667,
+   "where": {
+    "Scout01": {
+     "x": 36,
+     "y": 78,
+     "z": 1
+    },
+    "Scout02": {
+     "x": 33,
+     "y": 78,
+     "z": 4
+    }
+   }
+  },
+  "craft_stick_8": {
+   "by": [
+    "Miner01"
+   ],
+   "detail": "",
+   "last": 1785983773682,
+   "where": {
+    "Miner01": {
+     "x": 1,
+     "y": 74,
+     "z": 0
+    }
+   }
+  },
+  "craft_stone_pickaxe_1": {
+   "by": [
+    "Miner01"
+   ],
+   "detail": "",
+   "last": 1785985658912,
+   "where": {
+    "Miner01": {
+     "x": 1,
+     "y": 74,
+     "z": 0
+    }
+   }
+  },
+  "craft_wooden_pickaxe_1": {
+   "by": [
+    "Miner01"
+   ],
+   "detail": "",
+   "last": 1785984755691,
+   "where": {
+    "Miner01": {
+     "x": 1,
+     "y": 74,
+     "z": 0
+    }
+   }
+  },
+  "gather_cobblestone_12": {
+   "by": [
+    "Miner01"
+   ],
+   "detail": "",
+   "last": 1785985237313,
+   "where": {
+    "Miner01": {
+     "x": 1,
+     "y": 74,
+     "z": 0
+    }
+   }
+  },
+  "gather_cobblestone_8": {
+   "by": [
+    "Gather02"
+   ],
+   "detail": "",
+   "last": 1786040996897,
+   "where": {
+    "Gather02": {
+     "x": 29,
+     "y": 79,
+     "z": 1
+    }
+   }
+  },
+  "gather_dirt_16": {
+   "by": [
+    "Gather01",
+    "Gather02"
+   ],
+   "detail": "",
+   "last": 1786039456510,
+   "where": {
+    "Gather01": {
+     "x": 4,
+     "y": 72,
+     "z": -29
+    },
+    "Gather02": {
+     "x": 48,
+     "y": 74,
+     "z": -20
+    }
+   }
+  },
+  "gather_oak_log_12": {
+   "by": [
+    "Gather01",
+    "Gather02"
+   ],
+   "detail": "",
+   "last": 1786040565525,
+   "where": {
+    "Gather01": {
+     "x": 20,
+     "y": 79,
+     "z": 1
+    },
+    "Gather02": {
+     "x": 23,
+     "y": 73,
+     "z": -33
+    }
+   }
+  },
+  "gather_oak_log_16": {
+   "by": [
+    "Scout02",
+    "Scout01"
+   ],
+   "detail": "",
+   "last": 1786044540465,
+   "where": {
+    "Scout01": {
+     "x": 40,
+     "y": 76,
+     "z": 28
+    },
+    "Scout02": {
+     "x": 38,
+     "y": 78,
+     "z": 1
+    }
+   }
+  },
+  "gather_oak_log_8": {
+   "by": [
+    "Miner01",
+    "Scout02",
+    "Scout01"
+   ],
+   "detail": "",
+   "last": 1786040120382,
+   "where": {
+    "Scout01": {
+     "x": 50,
+     "y": 69,
+     "z": 23
+    },
+    "Scout02": {
+     "x": 35,
+     "y": 72,
+     "z": 22
+    }
+   }
+  },
+  "gather_sand_8": {
+   "by": [
+    "Gather02",
+    "Gather01"
+   ],
+   "detail": "",
+   "last": 1786042603909,
+   "where": {
+    "Gather01": {
+     "x": 25,
+     "y": 79,
+     "z": 1
+    },
+    "Gather02": {
+     "x": 47,
+     "y": 73,
+     "z": -27
+    }
+   }
+  },
+  "stockpile_wood": {
+   "by": [
+    "Scout01",
+    "Scout02"
+   ],
+   "detail": "",
+   "last": 1786045607222,
+   "where": {
+    "Scout01": {
+     "x": 58,
+     "y": 67,
+     "z": 20
+    },
+    "Scout02": {
+     "x": 58,
+     "y": 77,
+     "z": -8
+    }
+   }
+  },
+  "travel_0_150": {
+   "by": [
+    "Scout02",
+    "Scout01"
+   ],
+   "detail": "",
+   "last": 1786042921253,
+   "where": {
+    "Scout01": {
+     "x": 34,
+     "y": 75,
+     "z": 25
+    },
+    "Scout02": {
+     "x": 27,
+     "y": 79,
+     "z": 6
+    }
+   }
+  },
+  "travel_150_0": {
+   "by": [
+    "Scout02",
+    "Scout01"
+   ],
+   "detail": "",
+   "last": 1786041771362,
+   "where": {
+    "Scout01": {
+     "x": 61,
+     "y": 76,
+     "z": 15
+    },
+    "Scout02": {
+     "x": 49,
+     "y": 72,
+     "z": 26
+    }
+   }
+  }
+ }
+}
