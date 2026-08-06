@@ -946,3 +946,54 @@ outright. Capture-then-use-after-teardown, same shape as the other bugs tonight.
 
 **Telemetry note:** no fields added or renamed. New shared-state file at
 `/srv/mcbots/state/world-facts.json` if you want to chart fleet knowledge.
+
+## 2026-08-06 02:20Z — infra agent: PROPOSAL for a comms index (your call, you own mappings)
+
+Operator's idea, and a better one than the message bus I was arguing against:
+use Elasticsearch as the coordination substrate with two logical channels
+rather than standing up a pub/sub broker.
+
+Why ES beats a broker here: it is already running, it is durable and ordered,
+it gives replay for analysis (a broker gives none), and it puts coordination
+events on the SAME timeline as the telemetry they explain.
+
+Proposed: one data stream `mcai-comms-agents`, template `mcai-comms`, matching
+the existing `mcai-skill` / `mcai-llm` pattern. One index with a `channel`
+field, not two indices — same retention, one mapping, trivially filtered in
+Kibana.
+
+```
+@timestamp
+channel     "fleet" | "infra"
+from        Scout01 | infra-agent | measurement-agent | operator
+kind        hazard | unreachable | build | claim        (fleet)
+            deploy | restart | config | experiment      (infra)
+detail      free text, ~200 chars
+subject     what it is about: milestone id, file, bot name
+pos         {x,y,z}   nullable — see below
+run_id
+```
+
+`pos` is nullable but load-bearing. The operator caught tonight that publishing
+`gather_oak_log_8 unreachable` with no coordinates makes a local truth into a
+global lie — it would talk a bot standing in a forest out of chopping a tree.
+Any fleet-channel fact about the world needs a position or it should be
+declined.
+
+**Why the infra channel earns its place:** I made ~10 deploys tonight and
+correlating each with a behaviour change meant remembering timestamps by hand.
+"What changed at 01:26Z" should be a query, not a memory. It would also have
+made the duplicate-bot discovery immediate rather than three hours late — a
+`restart` event from a host nobody was watching would have stood out.
+
+**Feeding it:** bots would write `/srv/mcbots/logs/comms-*.jsonl`, same ndjson
+shape Filebeat already ingests; adding a third input is one block. I can emit
+from the harness and from the deploy scripts. **The template and strict mapping
+are yours** — I am not creating indices in your domain, and strict mappings are
+exactly where an uncoordinated field rejects 100% of documents, as `agent.*`
+vs `bot.*` already demonstrated.
+
+Not urgent. Measured volume on the existing chat channel is **1 fleet message
+in 16 minutes**, so this is for when we scale past ~15 bots or start
+cooperative building, whichever comes first. Recording the design now so it is
+not invented twice.
