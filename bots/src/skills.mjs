@@ -919,6 +919,26 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // belongs before the first block is broken.
   //
   // The detail is written for the model: it names the thing to do instead.
+  // NO DIGGING AT HOME. The fleet has now dug a lethal shaft through its own
+  // base twice: once at world spawn (three deaths, 1x1 shaft to y=41) and again
+  // at the forward base four hours after I built it -- a 48-block void straight
+  // down at 28,0 that killed Scout01 with "fell from a high place".
+  //
+  // The pickaxe precondition below does not prevent this, because dirt and grass
+  // need no tool. A base a bot can mine out from under itself is not a base, and
+  // it is where every bot respawns, so the hole is maximally dangerous exactly
+  // where they are guaranteed to stand.
+  const dHome = Math.hypot(bot.entity.position.x - config.world.homeX,
+                           bot.entity.position.z - config.world.homeZ)
+  if (dHome <= 12 && goalY < bot.entity.position.y - 1) {
+    return {
+      status: 'failed',
+      failClass: 'forbidden',
+      detail: `will not dig down within ${Math.round(dHome)} blocks of home — ` +
+              'the base floor is not a resource; walk out at least 12 blocks first',
+    }
+  }
+
   if (goalY < bot.entity.position.y - 2 && !bot.inventory.items().some(i => /_pickaxe$/.test(i.name))) {
     return {
       status: 'failed',
