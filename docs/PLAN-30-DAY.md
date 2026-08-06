@@ -13,6 +13,20 @@ We do **not** claim the agents learn. We do not attempt to make them smarter.
 The deliverable is an instrument, and the test of an instrument is whether it
 detects things — including deliberately planted faults.
 
+**Revised 2026-08-06, second pass.** With 87% of failures in movement, the
+near-term job of this architecture is not measuring learning at all. It is
+producing admissible evidence about the MOVEMENT STACK. That is a smaller claim
+than the one we started with and probably the true one: until a bad plan can be
+told apart from a bad path, a bad actuation, a server desync, a version-specific
+mineflayer bug and a stale observation, every higher-level metric is a soup of
+those things.
+
+Two reorderings in one day is worth naming. Each was forced by a measurement
+rather than an opinion — the first by discovering the fleet had no goals, the
+second by the 87% figure and an open upstream bug matching our exact version.
+But a third would be thrash, so the bar for changing this again is a
+measurement, not an argument.
+
 ## The reframe that changes the sequencing
 
 The 7b-vs-14b A/B currently running is **not interpretable as model evidence.**
@@ -40,7 +54,50 @@ Observability work starts immediately.
 
 ---
 
-## Week 1 — the causal spine
+## Week 1 — make movement measurable, then measure it
+
+Moved ahead of the causal spine. The qualification suite below needs NO LLM, so
+it does not depend on `decision_id` or the reward chain — which means the thing
+blocking every other result can be settled first and cheaply.
+
+**Schema first** (all cheap, all currently missing):
+- `minecraft_version` and `mineflayer_version` on every event. We stamp
+  `code_version` and `config_hash` today and neither of those identifies the
+  client or server build. Without them the version comparison below cannot be
+  sliced at all, and we would be reconstructing which world ran which build from
+  deploy notes.
+- `agent_instance_id` = `run_id + world_id + bot_slot`. Display names stay
+  identical across worlds; this exists so that grouping a dashboard by bot name
+  cannot silently merge twelve worlds. Make the safe key the easy key.
+- Decision staleness: `enqueued_at`, `completed_at`, `queue_ms`,
+  `observation_tick`, `actuation_tick`. See the staleness finding below.
+- A movement-owned failure taxonomy, finer than today's: path unavailable,
+  path computed but invalid, actuator timeout, server desync, stuck-in-air,
+  collision, unloaded chunk, precondition unmet, disconnect, verifier mismatch.
+  "blocked after 0 legs" is one symptom with several causes.
+
+**Then the actuation qualification suite** — deterministic micro-trials, scripted,
+no LLM in the loop: walk 5 flat · step up 1 · jump over 1 · descend 1 · route
+around a wall · place adjacent · place above · place below · craft one recipe ·
+recover from a nudge · replan after interruption. Hundreds of repetitions per
+trial per version.
+
+**Then the version test.** 1.21.8 versus 1.21.11, seed-paired and rotated across
+hosts and runs — NOT block-assigned by world, which would confound the version
+with terrain, machine and deployment order. If 1.21.8 makes movement reliable,
+pin experiments there; evidence about learning does not require the newest
+protocol.
+
+**Movement becomes a contracted subsystem with SLAs**: first-leg success rate,
+route-attempt success rate, stuck-recovery rate, time-to-arrival percentiles,
+placement verification rate. The LLM receives neither credit nor blame for
+failures below that contract.
+
+**Exit test:** the qualification suite passes a stated reliability bar on at
+least one version, and we can state which version and why. Until that holds, no
+learning-layer change is credited.
+
+## Week 2 — the causal spine and the archive
 
 Without this, everything later is cargo: you cannot compare models, snapshots,
 baselines or hardware if a decision cannot be joined to its outcome.
@@ -63,10 +120,23 @@ baselines or hardware if a decision cannot be joined to its outcome.
   not touch the movement rules, so it carries no experimental risk. This is a
   repair, not an experiment.
 
-**Exit test:** sample 20 reinforcement events at random; reconstruct the full
-causal chain for at least 19. Fewer than 19 means week 1 is not done.
+Archive format, decided rather than deferred: **newline-delimited JSON
+compressed with zstd**, one segment per event class, each with a manifest
+carrying `record_count`, `sha256` and `previous_segment_sha256`. Partitioned
+`experiment / run / host / world / date / event-class`. Parquet is generated
+asynchronously as DERIVED data for DuckDB analytics — NDJSON is crash-recoverable
+and tolerant while schemas are still moving; Parquet is a poor primary log.
 
-## Week 2 — reproducibility, honestly scoped
+Capture the causal inputs for replay NOW, because replay cannot be added later
+if the inputs were never recorded: observations, model requests and responses,
+actuator commands, verifier results, world-snapshot references. Full fidelity
+inside the qualification suite, where volume is small and replay matters most;
+sampled in open survival until the volume is known.
+
+**Exit test:** sample 20 reinforcement events at random; reconstruct the full
+causal chain for at least 19. Fewer than 19 means week 2 is not done.
+
+## Week 3 — reproducibility, honestly scoped
 
 Minecraft is not deterministic. Random ticks, mob spawns, weather, chunk load
 order, bot login order, pathfinder timing and LLM sampling all vary. "The same
@@ -89,7 +159,7 @@ exact false confidence this project exists to avoid.
 divergence fully explained by recorded sources of nondeterminism.** Not
 identical traces.
 
-## Week 3 — replication capacity
+## Week 4 — replication capacity
 
 - Provision one R640 as a Minecraft world farm. **Plan around tick capacity,
   not RAM**: Paper's main loop is single-threaded per world, and these Xeons
@@ -111,7 +181,9 @@ identical traces.
 comparable telemetry from all of them, with one world deliberately failed and
 correctly quarantined.
 
-## Week 4 — negative controls first, then baselines
+## Week 4 — negative controls, then baselines
+
+Runs alongside replication capacity; the two do not depend on each other.
 
 The most important experiment is not "does the LLM do well." It is **"can this
 instrument detect a fault it was not told about."**
@@ -197,6 +269,33 @@ Note especially that `allowParkour` was disabled BEFORE the entombment reflex
 and `unstick` existed. The evidence that condemned it predates its safety net --
 reputation outliving the code that earned it, which is a pattern this project
 has now hit four times.
+
+## Finding: decision staleness is a confound, not a latency problem (2026-08-06)
+
+"One decision per skill" hides a variable. With 240 agents sharing an inference
+pool, a decision that waits 200ms and one that waits four seconds are not the
+same decision — the world moved while the queue held it:
+
+```
+decision_quality = f(model, prompt, observation, queue_delay, world_elapsed_ticks)
+```
+
+If queue delay correlates with host, version or time of day, it contaminates the
+version comparison directly. This is not hypothetical here: our p99 reached
+180,004ms today — a three-minute-old observation describes a world that no
+longer exists, and we acted on it.
+
+Consequences, all in week 1:
+- record `enqueued_at`, `completed_at`, `queue_ms`, `observation_tick`,
+  `actuation_tick` on every decision
+- define a maximum staleness per skill; past it, DISCARD the decision and
+  re-observe rather than acting on a stale world
+- fair queues per experiment arm, not one global FIFO, so a busy arm cannot
+  starve its comparator
+- interleave A/B arms across the same scheduling policy
+
+Average throughput will look healthy while tail latency quietly decides the
+outcome. Measure the tail.
 
 ## Explicitly cut from 30 days
 
