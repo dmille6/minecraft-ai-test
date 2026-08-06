@@ -36,6 +36,7 @@ const M = {
   }),
   craft: (item, n, why, hint) => ({
     id: `craft_${item}_${n}`,
+    wants: item,
     describe: `Craft ${n} ${item}. ${why}`,
     done: b => countItem(b, item) >= n,
     progress: b => `${countItem(b, item)}/${n} ${item}`,
@@ -236,6 +237,12 @@ export class MilestoneController {
     const describe = typeof m.describe === 'function' ? m.describe(n) : m.describe
     return {
       id: this.index < MILESTONES.length ? m.id : `${m.id}#${n}`,
+      // What this milestone is actually FOR. The value classifier needs it:
+      // without it, `inventory_gain` rewards gaining anything at all, and the
+      // fleet converged on crafting sticks -- 80 of them, nothing needing more
+      // than 2 -- because sticks were the most reliable way to make the number
+      // go up. Productive-looking busywork is still not progress.
+      wants: m.wants ?? null,
       describe, progress, hint: m.hint,
     }
   }

@@ -155,6 +155,36 @@ export class CognitiveLoop {
     }, 30_000)
   }
 
+  /**
+   * What would count as progress right now: the milestone's target item, plus
+   * the direct ingredients of its recipe.
+   *
+   * Ingredients are included deliberately. A strict target-only rule would mark
+   * `gather oak_log` useless while the milestone is "craft oak_planks", which
+   * is the prerequisite step -- punishing the bot for doing the right thing one
+   * move early. Returns null when the target or its recipe cannot be resolved,
+   * and a null set means "we do not know", which the classifier treats as
+   * permissive rather than inventing a judgement it cannot support.
+   */
+  #wantedItems(milestone) {
+    const target = milestone?.wants
+    if (!target) return null
+    const want = new Set([target])
+    try {
+      const def = this.bot.registry.itemsByName[target]
+      if (def) {
+        for (const r of (this.bot.recipesAll(def.id, null, true) ?? []).slice(0, 8)) {
+          for (const d of (r.delta ?? [])) {
+            if (d.count >= 0) continue                      // positive = produced
+            const n = this.bot.registry.items[d.id]?.name
+            if (n) want.add(n)
+          }
+        }
+      }
+    } catch { /* registry shape varies by version; the target alone still counts */ }
+    return want
+  }
+
   async #tick(trigger) {
     if (this.stopped || this.runner.isBusy()) return
 
@@ -219,7 +249,8 @@ export class CognitiveLoop {
         // exactly like chopping a tree, and the fleet learned to do the safe
         // thing that always works. A neutral outcome is recorded as neither win
         // nor failure: the bot did nothing wrong, and it achieved nothing.
-        const { value, because } = classifyOutcome(admitted.skill, r.status, r.delta ?? {})
+        const { value, because } = classifyOutcome(
+          admitted.skill, r.status, r.delta ?? {}, this.#wantedItems(milestone))
         // The invariant. A reinforcing verdict has to name the measurement that
         // earned it; if it cannot, the verdict was derived from something that
         // is not evidence and must not be allowed to quietly train the fleet.

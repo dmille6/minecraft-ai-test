@@ -539,10 +539,24 @@ async function craft(ctx, { item, count = 1 }, signal) {
         // missing ingredients share a stem with something in the inventory
         // (oak_log -> oak_planks), because that is the one step it can take.
         const held = bot.inventory.items().map(i => i.name.split('_')[0])
-        const affinity = g => g.filter(x => held.includes(x.split(' ').pop().split('_')[0])).length
-        if (!best ||
-            gap.length < best.length ||
-            (gap.length === best.length && affinity(gap) > affinity(best))) best = gap
+        const stem = x => x.split(' ').pop().split('_')[0]
+        const affinity = g => g.filter(x => held.includes(stem(x))).length
+        // When the bot holds NO wood at all, every wood variant ties: same
+        // number of missing ingredients, zero affinity for all of them. The
+        // tiebreak then kept whichever the registry happened to return first,
+        // and Miner01 -- 24 sticks, no logs -- was told it needed "3x
+        // cherry_planks". True of some recipe, and advice it could never act on;
+        // there is no cherry in this world's spawn forest.
+        //
+        // Prefer the wood the fleet actually has access to, so a bot with
+        // nothing is pointed at a material it can go and find.
+        const DEFAULT_WOOD = 'oak'
+        const canonical = g => g.filter(x => stem(x) === DEFAULT_WOOD).length
+        const better = (g, b) =>
+          g.length < b.length ||
+          (g.length === b.length && affinity(g) > affinity(b)) ||
+          (g.length === b.length && affinity(g) === affinity(b) && canonical(g) > canonical(b))
+        if (!best || better(gap, best)) best = gap
         if (best.length === 0) break
       }
       missing = best ?? []
@@ -1150,7 +1164,7 @@ export const SKILL_CONTRACTS = {
  * the point of use. Making the classifier show its work is what makes that
  * class of bug queryable instead of invisible.
  */
-export function classifyOutcome(skillName, status, delta = {}) {
+export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (status === 'failed' || status === 'aborted') return { value: 'failure', because: [] }
   if (status === 'no_effect') return { value: 'neutral', because: [] }
 
@@ -1159,7 +1173,26 @@ export function classifyOutcome(skillName, status, delta = {}) {
   const because = []
 
   if (expects.includes('inventory_gain')) {
-    const g = Object.entries(inv).filter(([, n]) => n > 0)
+    let g = Object.entries(inv).filter(([, n]) => n > 0)
+    // Gaining SOMETHING is not the same as making progress. When we know what
+    // the current milestone needs -- the target item or a direct ingredient of
+    // it -- only those count. The fleet accumulated 80 sticks while no
+    // milestone wanted more than 2, because `craft stick` was the most reliable
+    // way to satisfy a generic inventory_gain. That is the ADR-0003 failure
+    // again, wearing productive clothing: the old version idled successfully,
+    // this one worked successfully at the wrong thing.
+    //
+    // A null `wanted` means we could not determine the target, and then any
+    // gain counts -- an unknown goal must not silently mark real work useless.
+    if (wanted?.size) {
+      const useful = g.filter(([k]) => wanted.has(k))
+      if (g.length && !useful.length) {
+        because.push(`off-target gain (${g.map(([k]) => k).join(', ')}) — milestone needs ${[...wanted].slice(0, 3).join('/')}`)
+        g = []
+        // fall through to neutral: not wrong, just not progress
+        because.length = 0
+      } else g = useful
+    }
     if (g.length) because.push(`inventory_gain: ${g.map(([k, n]) => `${k} +${n}`).join(', ')}`)
   }
   if (expects.includes('inventory_loss')) {
