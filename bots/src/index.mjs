@@ -32,6 +32,58 @@ let worldFacts = null
 let cognitive = null
 let lessons = null
 let watchdog = null
+let lastDeathCause = null      // the server's own words, e.g. "fell from a high place"
+let peakY = null               // highest point in the recent past, for fall distance
+let lastSkillRun = null
+let stopDeathWatch = null
+let peakTimer = null
+
+// The server broadcasts the real cause. Vanilla death messages all begin with
+// the player's name, so match ours and keep the remainder verbatim rather than
+// trying to classify it here -- Minecraft has well over a hundred of these and
+// a partial list would silently mislabel the ones it missed.
+// Two guards, because "starts with our name" is not the same as "is a death".
+// "Scout01 joined the game" and "Scout01 left the game" match that shape too,
+// and without filtering a death with no captured message would be reported as
+// cause "joined the game" -- a plausible-looking record that is simply false.
+const NOT_A_DEATH = /^(joined|left) the game$/i
+
+function watchForDeathCause(bot) {
+  const onMsg = jsonMsg => {
+    try {
+      const text = typeof jsonMsg?.toString === 'function' ? jsonMsg.toString() : String(jsonMsg)
+      if (!text.startsWith(`${config.bot.name} `)) return
+      const rest = text.slice(config.bot.name.length + 1).trim()
+      if (!rest || rest.length >= 160 || NOT_A_DEATH.test(rest)) return
+      // Timestamped, and only trusted within a few seconds of the death event.
+      // A stale message from minutes ago must never be presented as the cause.
+      lastDeathCause = { text: rest, at: Date.now() }
+    } catch { /* malformed component; the death still logs as unknown */ }
+  }
+  bot.on('message', onMsg)
+  return () => { try { bot.removeListener('message', onMsg) } catch {} }
+}
+
+/** The server's words if they arrived with the death, otherwise honestly unknown. */
+function freshDeathCause() {
+  if (!lastDeathCause) return 'unknown'
+  return Date.now() - lastDeathCause.at < 5000 ? lastDeathCause.text : 'unknown'
+}
+
+// Coarse buckets so deaths are aggregatable, with the verbatim cause kept in
+// detail. Anything unmatched stays 'other' rather than being forced into a
+// bucket it does not belong in.
+function deathClass(cause = '') {
+  const c = String(cause).toLowerCase()
+  if (c.includes('fell') || c.includes('hit the ground')) return 'fall'
+  if (c.includes('suffocat')) return 'suffocation'
+  if (c.includes('drown')) return 'drowning'
+  if (c.includes('lava') || c.includes('burn') || c.includes('fire')) return 'fire'
+  if (c.includes('slain') || c.includes('shot') || c.includes('blown') || c.includes('blew')) return 'mob'
+  if (c.includes('starv')) return 'starvation'
+  if (c === 'unknown' || !c) return 'unknown'
+  return 'other'
+}
 
 function connect() {
   log('info', 'connecting', {
@@ -104,6 +156,20 @@ function connect() {
     worldFacts = openWorldFacts()
     stopReflexes = startReflexes(bot, runner, lessons, worldFacts)
     stopComms = startComms(bot, worldFacts)
+    stopDeathWatch = watchForDeathCause(bot)
+    // Sample height on a slow timer. Cheap, and it is the only way to know
+    // afterwards how far a bot fell -- position at the moment of death tells
+    // you where it landed, never where it left.
+    peakY = bot.entity?.position?.y ?? null
+    clearInterval(peakTimer)
+    peakTimer = setInterval(() => {
+      const y = bot.entity?.position?.y
+      if (y == null) return
+      if (peakY == null || y > peakY) peakY = y
+      // Decay toward current height so an old peak does not inflate a much
+      // later fall.
+      else peakY -= Math.min(0.35, (peakY - y) * 0.06)
+    }, 1000)
     attachCommands(bot, runner)
 
     const s = snapshot(bot)
@@ -146,11 +212,28 @@ function connect() {
   })
 
   bot.on('death', () => {
-    log('warn', 'died', { pos: bot.entity?.position })
+    // "bot died" was the entire record. The CAUSE was sitting in the Paper log
+    // the whole time -- "Scout01 fell from a high place" -- in a different
+    // index, unjoined, so a death told us nothing about what to fix.
+    //
+    // Fall distance is captured here rather than inferred later because it is
+    // the difference between a navigation bug and a terrain trap. Scout01 died
+    // standing still at spawn: no skill running, full health, 33 blocks down a
+    // 1x1 shaft another bot had mined through the world spawn point. No
+    // decision log would have shown that; the y-delta does.
+    const deathPos = bot.entity?.position
+    const fell = deathPos && peakY != null ? Math.round(peakY - deathPos.y) : null
+    const cause = freshDeathCause()
+    log('warn', 'died', { pos: deathPos, cause, fell_blocks: fell })
     logSkill({
-      skill: '_death', args: {}, status: 'failed', detail: 'bot died',
+      skill: '_death', args: {}, status: 'failed',
+      detail: `${cause}${fell != null && fell > 3 ? ` after falling ${fell} blocks` : ''}` +
+              `${lastSkillRun ? `; was running ${lastSkillRun}` : '; no skill running'}`,
+      fail_class: deathClass(cause),
       startedAt: Date.now(), snapshot: snapshot(bot), trigger: 'death',
     })
+    lastDeathCause = null
+    peakY = null
     runner.cancel('death')
     cognitive?.notify('death', 'died and respawned')
     // Respawn is automatic; clearing the failure budget avoids a death
@@ -164,6 +247,8 @@ function connect() {
   bot.on('end', reason => {
     if (stopReflexes) { stopReflexes(); stopReflexes = null }
     if (stopComms) { stopComms(); stopComms = null }
+    if (stopDeathWatch) { stopDeathWatch(); stopDeathWatch = null }
+    clearInterval(peakTimer)
     if (cognitive) { cognitive.stop(); cognitive = null }
     if (watchdog) { watchdog.stop(); watchdog = null }
     try { lessons?.save() } catch {}

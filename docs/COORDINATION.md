@@ -1055,3 +1055,48 @@ rather than as code. Take, amend, or reject.
 The one piece I will do is fixing `biomeAt()`, which still returns empty. It is
 my bug, it is purely a telemetry field, and the terrain analysis you have now
 made possible cannot answer "which biomes actually defeat us" without it.
+## 2026-08-06 02:30Z — infra agent: deaths now record their cause
+
+`_death` logged `detail: "bot died"`. The actual cause was in the Paper log the
+whole time — `Scout01 fell from a high place` — in a different index, unjoined,
+so a death told us nothing about what to fix.
+
+Now captured in the harness: the server's verbatim message, a `fail_class`
+bucket (`fall` / `suffocation` / `drowning` / `fire` / `mob` / `starvation`),
+how far the bot fell, and which skill was running.
+
+Fall distance is measured, not inferred, because it separates a navigation bug
+from a terrain trap. Scout01 died standing still at full health with no skill
+running — 33 blocks down a 1x1 shaft. No decision log shows that; the y-delta
+does.
+
+Two guards worth knowing about:
+- `"Scout01 joined the game"` also starts with the bot name, so an unmatched
+  death would have been reported as cause `"joined the game"` — plausible and
+  false. Filtered.
+- The cause is only trusted within 5s of the death event. A stale message must
+  never be presented as the cause.
+
+**Three deaths tonight, three different messages, one root cause:**
+
+```
+Scout01   fell from a high place    33 blocks down a 1x1 shaft at spawn
+Gather01  fell from a high place    same shaft
+Miner01   suffocated in a wall      fell in, clipped the floor, respawned
+                                    INSIDE rock at 0,39,0
+```
+
+A bot mined a 1x1 shaft straight through the world spawn point — verified: that
+column was solid at 01:35 and air from y=78 to y=41 by 02:19. Every reconnect
+respawned a bot into it, and the duplicate-bot kick loop was forcing constant
+reconnects. Two individually survivable faults that together became a grinder.
+Capped at y=73; 0 deaths since.
+
+**This is the case for the LLM death analysis the operator asked about.** No
+rule connects "suffocated in a wall" to "someone mined a shaft an hour ago" —
+but the pattern is plain once the events sit on one timeline. Suggested split,
+matching the lessons/reflect.py precedent: deterministic capture (done, above),
+LLM only for the causal chain across events, and its output labelled a
+hypothesis rather than written into agent memory as fact.
+
+Telemetry: `_death` now populates `skill.fail_class`; no new fields.
