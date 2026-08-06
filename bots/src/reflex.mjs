@@ -61,14 +61,25 @@ export function startReflexes(bot, runner, lessons = null) {
             snapshot: snapshot(bot),
           })
           runner.interrupt(kind)
-          if (inWater) {
-            bot.setControlState('jump', true)
-            setTimeout(() => bot.setControlState('jump', false), 1200)
-          } else {
-            await escape(bot)   // entombed: move out sideways, jumping cannot help
-          }
         }
-        return
+        if (inWater) {
+          bot.setControlState('jump', true)
+          setTimeout(() => bot.setControlState('jump', false), 1200)
+          return
+        }
+        // Suffocating on land means walled in, and the ONLY thing that frees a
+        // bot with canDig=false is the entombed handler below, which pillars or
+        // digs straight up. Two corrections to my own 23:38 change:
+        //
+        //   - It returned unconditionally while oxygen was low, so a suffocating
+        //     bot skipped the entombed, stuck, health and hunger checks on every
+        //     tick -- it could never reach the one routine that would free it.
+        //     Scout01 sat walled in at -6,71,-24 for an hour, identical to 15
+        //     decimal places, while this returned early ~2000 times.
+        //   - It called escape(), a 1.5s sprint. Sprinting into stone when all
+        //     six faces are solid does nothing.
+        //
+        // So: fall through. Do not return.
       }
       // Hysteresis band, matching the health check: clear only once oxygen has
       // genuinely recovered, so one incident is one reaction.
