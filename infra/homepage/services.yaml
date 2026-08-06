@@ -19,14 +19,17 @@
         siteMonitor: http://192.168.192.199:3008
         widget:
           type: customapi
-          url: http://192.168.192.199:3008/api/status
+          url: http://192.168.192.199:3008/api/summary
           mappings:
-            - field: {bots: {0: bot}}
-              label: bot
-            - field: {bots: {0: {last_hour: success_rate}}}
+            - field: live
+              label: bots live
+            - field: success_rate
               label: success %
-            - field: {bots: {0: {last_hour: hazards}}}
-              label: incidents
+              suffix: "%"
+            - field: hazards_per_min
+              label: hazards/min
+            - field: worst
+              label: worst
 
     - 3D Bot View:
         icon: mdi-video-3d

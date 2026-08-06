@@ -217,6 +217,29 @@ ${cards || '<p class="lead">No agent logs found yet.</p>'}
 
 http.createServer((req, res) => {
   const bots = collect()
+  // Fleet-wide one-liner for the homepage widget. The per-bot endpoint is the
+  // wrong shape for a dashboard tile: it can only show bots[0], which silently
+  // hides every other agent the moment a second one exists.
+  if (req.url?.startsWith('/api/summary')) {
+    const live = bots.filter(b => b.live).length
+    const att = bots.reduce((a, b) => a + b.last_hour.attempts, 0)
+    const ok = bots.reduce((a, b) => a + b.last_hour.succeeded, 0)
+    const haz = bots.reduce((a, b) => a + b.last_hour.hazards, 0)
+    // Whichever bot is doing worst is the one worth looking at.
+    const worst = bots.slice().sort((a, b) =>
+      (b.last_hour.hazards / Math.max(b.last_hour.attempts, 1)) -
+      (a.last_hour.hazards / Math.max(a.last_hour.attempts, 1)))[0]
+    res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
+    res.end(JSON.stringify({
+      live: `${live}/${bots.length}`,
+      success_rate: att ? Math.round(ok / att * 100) : 0,
+      hazards_per_min: Math.round(haz / 60 * 10) / 10,
+      worst: worst ? `${worst.bot} ${worst.last_hour.hazards}h` : '-',
+      generated: new Date().toISOString(),
+    }, null, 2))
+    return
+  }
+
   if (req.url?.startsWith('/api')) {
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' })
     res.end(JSON.stringify({ generated: new Date().toISOString(), bots }, null, 2))
