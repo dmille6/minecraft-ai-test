@@ -157,10 +157,17 @@ export class Lessons {
    */
   getProgress() {
     const p = this.data.progress ?? {}
-    return { attempts: p.attempts ?? {}, skipped: p.skipped ?? [] }
+    return {
+      attempts: p.attempts ?? {},
+      skipped: p.skipped ?? [],
+      // When a give-up happened, and how many times. Without these a skip is
+      // permanent, which is how every bot ended up with an empty goal stack.
+      skippedAt: p.skippedAt ?? {},
+      skipCount: p.skipCount ?? {},
+    }
   }
 
-  setProgress(attempts, skipped) {
+  setProgress(attempts, skipped, skippedAt, skipCount) {
     // MERGE. Assigning a fresh object here dropped the sibling `blocked` key
     // that bumpBlocked() maintains -- and since this runs after every decision,
     // it wiped the probation countdown on every cycle, silently undoing the
@@ -168,6 +175,8 @@ export class Lessons {
     const p = (this.data.progress ??= {})
     p.attempts = attempts
     p.skipped = skipped
+    if (skippedAt) p.skippedAt = skippedAt
+    if (skipCount) p.skipCount = skipCount
     this.dirty = true
   }
 

@@ -16,6 +16,7 @@
 
 import { countItem } from './state.mjs'
 import { config } from './config.mjs'
+import { log } from './logger.mjs'
 
 // Role-specific chains. Three bots running the identical chain would fail in
 // the identical way, which teaches us nothing beyond what one bot already
@@ -115,6 +116,9 @@ export const MILESTONES = MILESTONES_BY_ROLE.scout   // default / back-compat
  * These repeat forever with escalating targets, which also turns "how much did
  * it get done" into a countable number: cycles completed per hour.
  */
+const SKIP_RETRY_BASE_MS = 45 * 60 * 1000        // first retry 45 min after giving up
+const SKIP_RETRY_MAX_MS  = 6 * 60 * 60 * 1000    // backs off, never past six hours
+
 export const SUSTAINING = [
   {
     id: 'stockpile_wood',
@@ -153,7 +157,13 @@ export const SUSTAINING = [
 export class MilestoneController {
   constructor(bot, role = config.bot.role, lessons = null, worldFacts = null) {
     this.bot = bot
-    this.chain = MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout
+    // SUSTAINING was defined and never referenced. cognitive.mjs announces
+    // "fixed milestone chain complete, entering sustaining loop" and chats
+    // "tool chain complete -- switching to sustaining goals", but there was
+    // nothing to switch TO: current() returned null off the end of the fixed
+    // chain and the bot idled with "Nothing to do" permanently. All five bots
+    // reached that state. Appending it is what those messages always meant.
+    this.chain = [...(MILESTONES_BY_ROLE[role] ?? MILESTONES_BY_ROLE.scout), ...SUSTAINING]
     this.role = MILESTONES_BY_ROLE[role] ? role : 'scout'
     this.index = 0
     this.completedAt = {}
@@ -167,12 +177,39 @@ export class MilestoneController {
     // goal is retried forever and the skip below can never accumulate enough
     // attempts to fire. Scout01 restarted nine times against the same
     // impassable hillside before this was wired up.
-    const p = lessons?.getProgress?.() ?? { attempts: {}, skipped: [] }
+    const p = lessons?.getProgress?.() ?? { attempts: {}, skipped: [], skippedAt: {}, skipCount: {} }
     this.attempts = p.attempts
     this.skipped = p.skipped
+    this.skippedAt = p.skippedAt ?? {}
+    this.skipCount = p.skipCount ?? {}
   }
 
-  #persist() { this.lessons?.setProgress?.(this.attempts, this.skipped) }
+  #persist() {
+    this.lessons?.setProgress?.(this.attempts, this.skipped, this.skippedAt, this.skipCount)
+  }
+
+  /**
+   * How long a give-up stands before the goal is worth another look.
+   *
+   * `skipped` used to only ever grow. Nothing removed an id, and it was
+   * persisted across restarts, so a goal that was impossible ONCE was abandoned
+   * for the life of the world. Miner01 spent its 25 attempts on
+   * craft_wooden_pickaxe_1 while it held no planks and the craft skill was
+   * naming an ingredient (cherry_planks) that does not occur here. Both of
+   * those are fixed now; the give-up outlived the conditions that caused it,
+   * and the bot sat idle holding 4 planks and 40 sticks -- a pickaxe and
+   * change.
+   *
+   * The same missing inverse as the admission gate's failure counts, which now
+   * decay. Retries back off, because a goal that keeps proving impossible
+   * should cost less each time, not the same 25 attempts forever.
+   */
+  #skipExpired(id) {
+    const at = this.skippedAt[id]
+    if (!at) return true                       // no timestamp: pre-fix record, retry it
+    const n = this.skipCount[id] ?? 1
+    return Date.now() - at >= Math.min(SKIP_RETRY_BASE_MS * n, SKIP_RETRY_MAX_MS)
+  }
 
   current() { return this.chain[this.index] ?? null }
 
@@ -199,6 +236,8 @@ export class MilestoneController {
     const budget = peers ? 8 : 25
     if (this.attempts[m.id] >= budget) {
       if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
+      this.skippedAt[m.id] = Date.now()
+      this.skipCount[m.id] = (this.skipCount[m.id] ?? 0) + 1
       this.attempts[m.id] = 0
       this.index++
       this.#persist()
@@ -211,6 +250,37 @@ export class MilestoneController {
   /** Advance past every milestone whose predicate is now satisfied. */
   refresh() {
     let advanced = false
+
+    // Expire give-ups whose cooldown has lapsed, so the scan below can land on
+    // them again. Done before the scan, never during it.
+    for (const id of [...this.skipped]) {
+      if (!this.#skipExpired(id)) continue
+      this.skipped = this.skipped.filter(x => x !== id)
+      this.attempts[id] = 0
+      log('info', 'milestone give-up expired, will try again', { milestone: id })
+      this.#persist()
+    }
+
+    // RE-ENTER an exhausted chain. index only ever advanced, so running off the
+    // end left current() returning null and the bot idle forever -- with real
+    // work outstanding, because milestones are not permanent: crafting sticks
+    // consumes the planks an earlier milestone produced, and a give-up that has
+    // now expired is outstanding again. Re-scanning from the top costs one pass
+    // over a list of about a dozen predicates.
+    //
+    // Guarded on something actually being incomplete, or this would reset the
+    // index every cycle and never terminate.
+    if (this.index >= this.chain.length) {
+      const outstanding = this.chain.some(m => {
+        if (this.skipped.includes(m.id)) return false
+        try { return !m.done(this.bot, this.cycle) } catch { return false }
+      })
+      if (outstanding) {
+        log('info', 'milestone chain re-entered; goals outstanding again', { cycle: this.cycle })
+        this.index = 0
+      }
+    }
+
     while (this.index < this.chain.length) {
       const m = this.chain[this.index]
       let done = false
