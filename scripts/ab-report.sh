@@ -45,31 +45,4 @@ q mcai-llm-agents '{"size":0,"query":{"range":{"@timestamp":{"gte":"$SINCE"}}},
 SH
 
 scp -i "$SSH_KEY" -o BatchMode=yes -q /tmp/ab-q.sh "mike@$ES:/tmp/"
-$SSH "mike@$ES" 'bash /tmp/ab-q.sh' | SINCE="$SINCE" python3 -c '
-import json, os, sys, datetime
-
-raw = sys.stdin.read()
-parts = raw.split("---LLM---")
-skills = json.loads(parts[0].replace("---SKILLS---", "").strip())
-llm    = json.loads(parts[1].strip())
-
-ARM = {"Gather01":"A 7b","Scout01":"A 7b","Gather02":"B 14b","Scout02":"B 14b","Miner01":"B 14b*"}
-
-sb = {b["key"]: b for b in skills["aggregations"]["b"]["buckets"]}
-lb = {b["key"]: b for b in llm["aggregations"]["b"]["buckets"]}
-
-print(f"\nwindow since {os.environ[\"SINCE\"]}")
-print(f"{\"bot\":10} {\"arm\":7} {\"model\":22} {\"decis\":>6} {\"veto%\":>6} {\"p50ms\":>7} {\"miles\":>6} {\"deaths\":>7}")
-for bot in sorted(set(sb) | set(lb)):
-    s, l = sb.get(bot, {}), lb.get(bot, {})
-    n = int(l.get("n", {}).get("value", 0) or 0)
-    veto = l.get("veto", {}).get("doc_count", 0)
-    p50 = (l.get("lat", {}).get("values", {}) or {}).get("50.0") or 0
-    models = ",".join(x["key"] for x in (l.get("model", {}).get("buckets") or []))
-    ms = s.get("ms", {}).get("doc_count", 0)
-    dz = s.get("deaths", {}).get("doc_count", 0)
-    print(f"{bot:10} {ARM.get(bot,\"?\"):7} {models[:22]:22} {n:6} {100*veto/n if n else 0:5.0f}% {p50:7.0f} {ms:6} {dz:7}")
-print("\n* Miner01 is the only miner, so it has no paired counterpart and is excluded")
-print("  from the arm comparison. Milestone counts need the _milestone_complete")
-print("  event, which only exists from the start of this experiment onward.")
-'
+$SSH "mike@$ES" 'bash /tmp/ab-q.sh' | SINCE="$SINCE" python3 "$(dirname "$0")/lib/ab_report.py"
