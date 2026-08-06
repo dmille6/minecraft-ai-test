@@ -24,6 +24,29 @@ const FOOD_PRIORITY = [
 
 const DANGER_BLOCKS = new Set(['lava', 'fire', 'campfire', 'soul_fire', 'magma_block'])
 
+// Escape pacing. Both of these were USED by the entombment escape in 3073a9f
+// and never DECLARED, along with lastEscapeAt and escapeFailures below.
+//
+// The cost of that: `lastEscapeAt is not defined` threw out of the reflex
+// interval callback on every single tick, twice a second, which killed the
+// WHOLE reflex layer -- drowning, lava, low health, low oxygen, stuck, all of
+// it -- while the bots looked alive and kept making LLM calls. A reflex layer
+// that throws is worse than no reflex layer, because everything downstream
+// still assumes it is watching.
+//
+// `node --check` does not catch this: an undeclared identifier is a runtime
+// ReferenceError, not a parse error. Only executing the branch finds it, and
+// this branch needs a bot to actually be entombed. See README "things that
+// cost a debugging cycle".
+const ESCAPE_MIN_INTERVAL_MS = 15_000   // > a full escape attempt, so a failure is not retried instantly
+const ESCAPE_GIVE_UP_AFTER = 4          // then hand it to the watchdog, which can relocate/home/reconnect
+
+// At tickMs=500 these are 5s to raise the alarm and 30s to give up -- long
+// enough that a transient world/pathfinder hiccup does not trip them, short
+// enough that a dead reflex layer is measured in seconds rather than hours.
+const REFLEX_ERROR_ALARM = 10
+const REFLEX_ERROR_GIVE_UP = 60
+
 /**
  * Shared throttle for every reflex.
  *
@@ -65,6 +88,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let lowHealthLatched = false
   let lowOxygenLatched = false
   let escaping = false
+  // Per-bot, not module-level: two bots entombed at once must not share a
+  // cooldown or a failure count.
+  let lastEscapeAt = 0
+  let escapeFailures = 0
+  let reflexErrors = 0
 
   const timer = setInterval(async () => {
     if (!bot.entity) return
@@ -228,8 +256,32 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         await unstick(bot)
       }
     } catch (e) {
-      log('error', 'reflex loop error', { err: e.message })
+      // A reflex loop that throws EVERY tick is not an error to log, it is an
+      // outage to escalate. The previous version logged and continued, so a
+      // ReferenceError printed twice a second for as long as the bot lived
+      // while every survival reflex was silently absent -- and the bot went on
+      // making LLM calls and reporting healthy the whole time.
+      //
+      // Telemetry, so the failure is visible to the analysis loop rather than
+      // only in journald, and a hard stop once it is clearly not transient:
+      // no reflexes at all is more dangerous than a reconnect.
+      reflexErrors++
+      log('error', 'reflex loop error', { err: e.message, consecutive: reflexErrors })
+      if (reflexErrors === REFLEX_ERROR_ALARM) {
+        logEvent({ kind: 'reflex_layer_down', status: 'failed',
+                   detail: `reflex loop threw ${reflexErrors} consecutive times: ${e.message}`,
+                   snapshot: snapshot(bot) })
+      }
+      if (reflexErrors >= REFLEX_ERROR_GIVE_UP) {
+        log('error', 'reflex: layer is dead, reconnecting to rebuild state',
+            { err: e.message, consecutive: reflexErrors })
+        reflexErrors = 0
+        try { bot.quit('reflex layer down') } catch { /* already gone */ }
+      }
+      return
     }
+    // Only a clean pass proves the layer is actually working.
+    reflexErrors = 0
   }, config.reflex.tickMs)
 
   return () => clearInterval(timer)
