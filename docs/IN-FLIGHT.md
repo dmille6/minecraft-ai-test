@@ -113,3 +113,8 @@ Format: `date time · who · what you are touching · what you are NOT touching`
                     Run it on yours: bin/ + /etc/mcai-analysis.env + two
                     systemd timers, all in docs/ops/continuous-analysis.md.
                     NOT touching bots/ or infra/elk.
+
+2026-08-06 00:50 · claude/measure · adding miner + gatherer bots on MY host only
+                    Using your mcbot@ template and MILESTONES_BY_ROLE unchanged.
+                    Purpose is the diagnostic contrast, not throughput.
+                    NOT touching bots/src or your host.
