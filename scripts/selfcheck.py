@@ -106,6 +106,39 @@ def rule_recovery_ineffective(hours):
     return out
 
 
+def rule_recovery_thrash(hours):
+    """Generalises what we kept rediscovering one recovery at a time.
+
+    Five separate reflexes have now shipped with the same defect: fire, fail to
+    resolve, fire again on the next tick, forever. Entombment (565 in an hour),
+    canopy (27, zero effect), stagnation, livelock, and suffocation. Each was
+    found by hand, weeks apart in effort.
+
+    ANY recovery firing faster than once a minute sustained is thrashing,
+    regardless of which one it is or whether we have thought of it yet. This
+    rule fires on recoveries that do not exist yet."""
+    d = es("mcai-skill-agents/_search", {
+        "size": 0, "query": {"range": {"@timestamp": {"gte": f"now-{int(round(hours*60))}m"}}},
+        "aggs": {"k": {"terms": {"field": "skill.name", "size": 40}}}})
+    out = []
+    for b in d["aggregations"]["k"]["buckets"]:
+        name, n = b["key"], b["doc_count"]
+        if not name.startswith("_") or name in ("_death",):
+            continue
+        per_min = n / (hours * 60)
+        if per_min > 1.0 and n >= 20:
+            out.append({
+                "rule": "recovery_thrash", "severity": "high",
+                "what": f"{name} fired {n}x in {hours}h ({per_min:.1f}/min)",
+                "why": "A recovery firing more than once a minute sustained is not "
+                       "recovering -- it is retrying. Five reflexes have now shipped "
+                       "with this defect and each was found by hand. Any recovery "
+                       "needs a rate limit, a give-up count, and a postcondition check.",
+                "evidence": {"kind": name, "count": n, "per_min": round(per_min, 2)},
+            })
+    return out
+
+
 def rule_event_storm(hours):
     """One event type dominating everything is pathology, not behaviour."""
     d = es("mcai-skill-agents/_search", {
@@ -179,7 +212,8 @@ def detect(hours):
     found = []
     for fn in (rule_agent_silent, ):
         found += fn()
-    for fn in (rule_recovery_ineffective, rule_event_storm, rule_success_collapse):
+    for fn in (rule_recovery_ineffective, rule_recovery_thrash,
+               rule_event_storm, rule_success_collapse):
         try: found += fn(hours)
         except Exception as e: print(f"[selfcheck] rule {fn.__name__} failed: {e}", file=sys.stderr)
     return found
