@@ -229,7 +229,12 @@ function connect() {
       skill: '_death', args: {}, status: 'failed',
       detail: `${cause}${fell != null && fell > 3 ? ` after falling ${fell} blocks` : ''}` +
               `${lastSkillRun ? `; was running ${lastSkillRun}` : '; no skill running'}`,
-      fail_class: deathClass(cause),
+      // camelCase: logSkill destructures `failClass` and maps it to the
+      // Elasticsearch field `fail_class` itself. Passing the snake_case name
+      // meant logSkill silently ignored it, and 23 death records were written
+      // with no cause class -- which is why the "deaths by cause" panel was
+      // empty even after the cause capture was working.
+      failClass: deathClass(cause),
       startedAt: Date.now(), snapshot: snapshot(bot), trigger: 'death',
     })
     lastDeathCause = null

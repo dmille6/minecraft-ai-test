@@ -485,10 +485,17 @@ async function craft(ctx, { item, count = 1 }, signal) {
     })
     if (tableBlock) {
       check(signal)
-      try {
-        await withTimeout(bot.pathfinder.goto(
-          new goals.GoalNear(tableBlock.position.x, tableBlock.position.y, tableBlock.position.z, 2)), 12000, bot)
-      } catch { /* try crafting anyway; we may already be close enough */ }
+      // Two attempts at getting close, because the first often fails on the
+      // approach rather than the destination -- a bot standing on the table's
+      // own block, or one leaf between it and the goal. GoalNear(1) puts it
+      // adjacent; GoalNear(3) is the fallback that still leaves it in reach.
+      for (const range of [1, 3]) {
+        try {
+          await withTimeout(bot.pathfinder.goto(
+            new goals.GoalNear(tableBlock.position.x, tableBlock.position.y, tableBlock.position.z, range)), 12000, bot)
+          break
+        } catch { /* try the looser goal, then let the reach check below decide */ }
+      }
       table = tableBlock
       recipe = bot.recipesFor(def.id, null, count, table)[0]
     }
@@ -556,11 +563,48 @@ async function craft(ctx, { item, count = 1 }, signal) {
   }
 
   check(signal)
+
+  // A table craft only works from within reach. The pathing above swallows its
+  // own failure ("try crafting anyway, we may already be close enough"), so a
+  // bot that could not reach the table attempted the craft from wherever it
+  // stood -- the server never opens the window, and mineflayer sits there until
+  // `Event windowOpen did not fire within timeout of 20000ms`.
+  //
+  // That error was the only thing between Miner01's 16 sticks and a wooden
+  // pickaxe, and therefore between this fleet and the entire stone tier.
+  //
+  // Check the distance we ACTUALLY achieved rather than assuming the goto
+  // worked, and look at the block first: mineflayer's block interaction is much
+  // more reliable when the bot is facing what it is using.
+  if (table) {
+    const reach = bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5))
+    if (reach > 4.5) {
+      return {
+        status: 'failed',
+        failClass: 'no_path',
+        detail: `crafting_table is ${Math.round(reach)} blocks away and could not be reached — ` +
+                `${item} needs one within 4 blocks; move to ${table.position.x},${table.position.z} first`,
+      }
+    }
+    try { await bot.lookAt(table.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
+  }
+
   try {
     await bot.craft(recipe, count, table ?? undefined)
     return { status: 'success', detail: `crafted ${count}x ${item}` }
   } catch (e) {
-    return { status: 'failed', detail: `craft ${item} failed: ${e.message}` }
+    // Name the real problem. "Event windowOpen did not fire" is mineflayer's
+    // wording for "the server refused to open the container", which in practice
+    // means out of reach or the block is gone.
+    const windowFail = /windowOpen|window/i.test(e.message)
+    return {
+      status: 'failed',
+      failClass: windowFail ? 'no_path' : 'other',
+      detail: windowFail
+        ? `could not open the crafting_table at ${table?.position.x},${table?.position.z} — ` +
+          'stand next to it and face it before crafting'
+        : `craft ${item} failed: ${e.message.slice(0, 80)}`,
+    }
   }
 }
 
