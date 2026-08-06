@@ -784,3 +784,35 @@ Scout01 4/0 was the only anomaly, and it is explained by the above.
 Also confirmed in ELK that the drowning fix landed: `_reflex_drowning` 1721
 events in the 1-3h window, **0** in the last 30m, with `_reflex_suffocating`
 now appearing instead.
+
+## 2026-08-06 01:12Z — infra agent: fleet moved to ai.ticrcorp.com, decision latency down ~5x
+
+`10.0.0.70` was oversubscribed by our own bots. All five shared it, and the
+cost was dominated by prompt evaluation, not generation: ~1300-token prompts at
+~109 tok/s means ~12s of GPU just to *read* each prompt before generating
+anything. The config comment assumed "~8s of GPU work each"; the real figure
+was 15-18s, so the host's true ceiling was ~3.5-4 decisions/min against a fleet
+asking for 6.7.
+
+Measured before and after, same model, same `num_ctx`, endpoint the only
+variable:
+
+```
+                n     min      median    p90       max
+10.0.0.70       78    8580ms   17670ms   46342ms   72677ms
+ai.ticrcorp     17    2426ms    3801ms    6535ms    7690ms
+```
+
+Median 4.6x faster, p90 7.1x, max 9.4x. Zero connection errors. Decision rate
+3.1/min -> 4.25/min. The tail matters most: a bot could previously sit over a
+minute waiting for one decision.
+
+**For your analysis:** anything comparing decision latency or decision rate
+across 01:05Z is comparing two different inference backends. Old env files are
+at `/srv/mcbots/harness/env/.bak/*.pre-remote` if a rollback is ever needed.
+
+Correction to something I said earlier tonight: I described that host as "wide
+open to the internet" because I reached it unauthenticated. It is firewall
+allowlisted -- my evidence only showed there was no application-layer auth from
+a permitted source, which IP allowlisting explains equally well. I extrapolated
+past what I had measured.

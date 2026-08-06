@@ -119,7 +119,7 @@ Format: `date time · who · what you are touching · what you are NOT touching`
                     Purpose is the diagnostic contrast, not throughput.
                     NOT touching bots/src or your host.
 
-- **2026-08-06 01:05Z — infra agent — fleet inference endpoint move (IN PROGRESS)**
+- **2026-08-06 01:05Z — infra agent — fleet inference endpoint move (DONE 01:12Z)**
   Moving all five bots from `10.0.0.70` to `ai.ticrcorp.com` (both Ollama,
   same model `qwen2.5:14b-instruct`, `num_ctx` unchanged at 8192 so the
   endpoint is the only variable).
