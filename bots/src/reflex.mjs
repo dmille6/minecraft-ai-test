@@ -22,6 +22,15 @@ const FOOD_PRIORITY = [
   'apple', 'carrot', 'melon_slice', 'sweet_berries',
 ]
 
+// What is worth remembering the location of. Kept short: every entry costs a
+// findBlocks call per survey tick, and the point is a sparse map of
+// opportunities, not an index of the world.
+const SURVEY_BLOCKS = [
+  'oak_log', 'birch_log', 'spruce_log',
+  'stone', 'coal_ore', 'iron_ore',
+  'sand', 'water',
+]
+
 const DANGER_BLOCKS = new Set(['lava', 'fire', 'campfire', 'soul_fire', 'magma_block'])
 
 // Escape pacing. Both of these were USED by the entombment escape in 3073a9f
@@ -98,6 +107,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (!bot.entity) return
 
     try {
+      // --- survey: remember where the good things are ----------------------
+      // The fleet's memory was entirely negative -- hazard sites and failed
+      // actions, both with coordinates, and nothing about where anything useful
+      // is. A bot could walk past a forest, die, and have learned nothing.
+      //
+      // Deliberately cheap and throttled: a handful of block types, radius 40,
+      // one hit each. `gather` at radius 96 is what nearly killed the host four
+      // times tonight, so this stays small on purpose -- it is a sighting log,
+      // not a search.
+      if (worldFacts && throttled('survey', 20000)) {
+        for (const name of SURVEY_BLOCKS) {
+          const t = bot.registry?.blocksByName?.[name]
+          if (!t) continue
+          const hit = bot.findBlocks({ matching: t.id, maxDistance: 40, count: 1 })[0]
+          if (hit) worldFacts.reportResource(name, hit)
+        }
+      }
+
       // --- low oxygen -----------------------------------------------------
       // LATCHED, for the same reason the health check below is latched: this
       // ran level-triggered and fired on every tick while oxygen was low.
@@ -454,9 +481,82 @@ async function escape(bot) {
  * pathfinding move to somewhere genuinely different -- checking after each
  * step whether the agent actually relocated.
  */
+/**
+ * Can a bot legally stand here? Feet clear, HEAD clear, something solid under.
+ *
+ * The head check is the one that matters and the one the old unstick ignored.
+ * Measured live: a bot at 1,74,0 had open space at foot level in three
+ * directions and solid rock at head height in all but one of them, so every
+ * "obvious" escape was illegal and it thrashed against stone.
+ */
+function standableAt(bot, p) {
+  const passable = b => !b || b.name === 'air' || b.boundingBox === 'empty'
+  const feet = bot.blockAt(p)
+  const head = bot.blockAt(p.offset(0, 1, 0))
+  const below = bot.blockAt(p.offset(0, -1, 0))
+  return passable(feet) && passable(head) && below && below.boundingBox === 'block'
+}
+
+/** Legal neighbours, most open first -- openness is a proxy for "leads somewhere". */
+function escapeCandidates(bot) {
+  const p = bot.entity.position.floored()
+  const out = []
+  for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
+    for (const dy of [0, 1, -1]) {          // step up, level, or down one
+      const c = p.offset(dx, dy, dz)
+      if (!standableAt(bot, c)) continue
+      let open = 0
+      for (const [ex, ez] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        if (standableAt(bot, c.offset(ex, 0, ez))) open++
+      }
+      out.push({ pos: c, open })
+      break
+    }
+  }
+  return out.sort((a, b) => b.open - a.open)
+}
+
 async function unstick(bot) {
   const start = bot.entity.position.clone()
   const movedEnough = () => bot.entity.position.distanceTo(start) >= 3
+
+  // 0. LOOK BEFORE THRASHING.
+  //
+  // The old version's three stages were all blind: a random 600ms nudge, a
+  // random sprint, then a pathfind to a random point 18-32 blocks away. In a
+  // confined space every one of those is a wall, and the third is unreachable
+  // by construction. Measured: 16 attempts, 16 failures, 100% -- the visible
+  // symptom being a bot jumping on the spot forever.
+  //
+  // So: enumerate the neighbours that are ACTUALLY standable and step to the
+  // most open one. In the pocket the fleet was trapped in, exactly one of eight
+  // neighbours qualified -- findable in a millisecond, invisible to a sprint.
+  const options = escapeCandidates(bot)
+  if (options.length) {
+    const t = options[0].pos
+    log('info', 'reflex: unstick found a legal step', {
+      to: `${t.x},${t.y},${t.z}`, openness: options[0].open, candidates: options.length,
+    })
+    try {
+      await bot.lookAt(t.offset(0.5, 1.6, 0.5), true)
+      bot.setControlState('forward', true)
+      if (t.y > Math.floor(start.y)) bot.setControlState('jump', true)
+      await sleep(900)
+      bot.clearControlStates()
+      if (movedEnough()) return
+      // A short, REACHABLE goal -- unlike the old random distant one.
+      if (pkgGoals) {
+        await Promise.race([
+          bot.pathfinder.goto(new pkgGoals.GoalNear(t.x, t.y, t.z, 1)),
+          sleep(6000),
+        ])
+      }
+      bot.clearControlStates()
+      if (movedEnough()) return
+    } catch { bot.clearControlStates() }
+  } else {
+    log('warn', 'reflex: unstick found NO standable neighbour -- genuinely walled in')
+  }
 
   // 1. cheap nudge
   bot.setControlState('jump', true)

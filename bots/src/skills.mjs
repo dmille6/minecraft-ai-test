@@ -213,7 +213,27 @@ async function descendToGround(ctx, signal) {
 // exactly this problem -- it manages its own movements, tool selection, and
 // drop collection, and is scoped to collection so navigation elsewhere stays
 // non-destructive (index.mjs keeps canDig=false for goto/come/home).
-async function gather(ctx, { block: blockName, count = 16, maxDistance = 96 }, signal) {
+// maxDistance was 96, and that number nearly took the host down four times.
+//
+// collectblock runs its own movements WITH digging enabled, so the search space
+// A* explores is the VOLUME of a sphere of this radius, and almost every block
+// in solid rock is a legal move. Volume scales cubically: 96 -> 32 is 1/27th of
+// the space.
+//
+// Measured, four incidents, all with an underground target:
+//   gather stone       -> 3.3GB, OOM
+//   gather stone       -> 9.66GB, host down to 311MB free
+//   gather stone       -> OOM
+//   gather cobblestone -> 9.42GB, host down to 996MB free
+//
+// The exposed-face filter below is still correct but was never sufficient on its
+// own: within 96 blocks there is always SOME exposed stone at a cave wall, so
+// the filter passed and collectblock then tried to tunnel 90 blocks to reach it.
+//
+// 32 is also just a better plan. A bot walking 96 blocks to fetch one block was
+// never going to finish inside the skill watchdog anyway.
+async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
+  maxDistance = Math.min(Number(maxDistance) || 32, 48)   // callers cannot opt back into the blowup
   const { bot } = ctx
   const type = bot.registry.blocksByName[blockName]
   if (!type) return { status: 'failed', detail: `unknown block "${blockName}"` }
@@ -366,12 +386,16 @@ async function deposit(ctx, { item = null }, signal) {
 }
 
 // -------------------------------------------------------------- status -----
+// Reports state and changes nothing. Genuinely useful when the agent's picture
+// of itself is stale, and pure procrastination otherwise -- one bot called it 17
+// times and its memory now reads "status has worked 18x -- a reliable choice".
+// Same treatment as a full-belly eat: real, allowed, never counted as progress.
 async function status(ctx) {
   const { bot } = ctx
   const p = bot.entity.position
   const inv = bot.inventory.items().length
   return {
-    status: 'success',
+    status: 'no_effect',
     detail: `hp ${bot.health?.toFixed(0)} food ${bot.food} at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)} | ${inv} stacks`,
   }
 }
@@ -386,7 +410,19 @@ const FOOD_PRIORITY = [
 
 async function eat(ctx, _args, signal) {
   const { bot } = ctx
-  if ((bot.food ?? 20) >= 20) return { status: 'success', detail: 'not hungry' }
+  // Eating when already full is a NO-OP, and reporting it as success taught the
+  // fleet to do nothing. Measured live: 15 `eat -> success "not hungry"` in ten
+  // minutes while every productive skill was blocked, and the lessons file duly
+  // recorded "eat has worked 15x -- a reliable choice" and fed that back into
+  // the prompt. All five bots stood motionless, succeeding.
+  //
+  // A skill that changes nothing must not be reinforced as achievement
+  // (ADR-0003). `no_effect` is deliberately distinct from `failed`: the bot did
+  // nothing wrong, there was simply nothing to do, and the admission layer
+  // should not start avoiding `eat` for when it IS hungry.
+  if ((bot.food ?? 20) >= 20) {
+    return { status: 'no_effect', detail: 'already full — nothing to do', failClass: 'no_effect' }
+  }
   const items = bot.inventory.items()
   const food = FOOD_PRIORITY.map(n => items.find(i => i.name === n)).find(Boolean)
   if (!food) return { status: 'failed', detail: 'no edible food in inventory' }
@@ -602,6 +638,70 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
   return { status: 'failed', detail }
 }
 
+
+// -------------------------------------------------------------- explore -----
+//
+// Travel outward to somewhere the fleet has not been, so the survey in the
+// reflex layer has new ground to see.
+//
+// Why this exists: all five bots ended up standing within sixteen blocks of
+// spawn, three of them on the identical block, deadlocked. Their memory was
+// correct -- "crafting a stick is unreachable AT 1,0" is true, they had stripped
+// the area -- but a correct fact about a stripped patch is a trap when you never
+// leave the patch. They knew everything about where they were and nothing about
+// anywhere else.
+//
+// Deliberately NOT random walking. It picks a heading away from spawn and from
+// known hazards, moves in legs the pathfinder can actually finish, and reports
+// honestly how far it got. A leg that fails is information, not a retry loop.
+async function explore(ctx, { blocks = 60, heading = null }, signal) {
+  const { bot } = ctx
+  const start = bot.entity.position.clone()
+
+  // Away from spawn by default -- that is the direction with unexplored ground.
+  let ang
+  if (Number.isFinite(Number(heading))) ang = (Number(heading) * Math.PI) / 180
+  else {
+    const dx = start.x - config.world.homeX, dz = start.z - config.world.homeZ
+    ang = (Math.hypot(dx, dz) < 8 ? Math.random() * Math.PI * 2 : Math.atan2(dz, dx))
+      + (Math.random() - 0.5) * 0.8
+  }
+
+  const want = Math.min(Math.max(Number(blocks) || 60, 20), 120)
+  const LEG = 25                     // short enough that A* reliably finishes
+  let travelled = 0, legs = 0, lastErr = null
+
+  while (travelled < want && legs < 8) {
+    check(signal)
+    legs++
+    const from = bot.entity.position.clone()
+    const step = Math.min(LEG, want - travelled)
+    const tx = Math.round(from.x + Math.cos(ang) * step)
+    const tz = Math.round(from.z + Math.sin(ang) * step)
+    try { assertInsideBorder(tx, tz) } catch { ang += Math.PI / 2; continue }
+
+    try {
+      await bot.pathfinder.goto(new goals.GoalNear(tx, Math.round(from.y), tz, 3))
+    } catch (e) {
+      lastErr = e.message
+      ang += (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 3)   // blocked: turn, do not give up
+      continue
+    }
+    check(signal)
+    travelled += from.distanceTo(bot.entity.position)
+  }
+
+  const moved = Math.round(start.distanceTo(bot.entity.position))
+  const p = bot.entity.position
+  const detail = `explored ${moved} blocks to ${Math.round(p.x)},${Math.round(p.z)} in ${legs} legs` +
+                 (lastErr ? ` (some legs blocked: ${String(lastErr).slice(0, 40)})` : '')
+  // Movement IS the deliverable here, so the threshold is distance, not arrival
+  // at any particular place.
+  if (moved >= 20) return { status: 'success', detail }
+  if (moved >= 5) return { status: 'no_effect', detail: `${detail} — barely moved`, failClass: 'stuck' }
+  return { status: 'failed', detail: `could not explore: ${detail}`, failClass: 'no_path' }
+}
+
 // ---------------------------------------------------------------- mine -----
 //
 // Distinct from gather: gather goes to blocks it can already see, mine
@@ -610,6 +710,31 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
 async function mine(ctx, { y: targetY = 12 }, signal) {
   const { bot } = ctx
   const goalY = Math.max(-59, Math.min(Number(targetY) || 12, 120))
+
+  // REFUSE THE DESCENT rather than failing partway down it.
+  //
+  // Measured over 30 minutes: `mine -> success "reached y=N"` five times and
+  // `mine -> failed "need a better tool for stone"` eight times. The bot dug
+  // itself 6-8 blocks down, arrived beside stone it could not harvest, and was
+  // then stranded in the cave layer where unstick works worst and the watchdog
+  // takes twelve minutes to notice. Every bot in the fleet ended up at y=69-71
+  // this way while the base sat at y=77.
+  //
+  // The old check ran INSIDE the loop, so it only fired after the damage. Same
+  // shape as the rest of tonight: a capability with no precondition, only a
+  // post-hoc failure. Descending is easy and coming back is not, so the check
+  // belongs before the first block is broken.
+  //
+  // The detail is written for the model: it names the thing to do instead.
+  if (goalY < bot.entity.position.y - 2 && !bot.inventory.items().some(i => /_pickaxe$/.test(i.name))) {
+    return {
+      status: 'failed',
+      failClass: 'missing_tool',
+      detail: 'no pickaxe, so descending would strand this bot beside stone it cannot mine — ' +
+              'craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)',
+    }
+  }
+
   let steps = 0
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
     check(signal)
@@ -680,6 +805,7 @@ export const SKILLS = {
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
   place:   { run: place,   usage: 'place <item_name>',             args: ['item'] },
   build:   { run: build,   usage: 'build <plan> [block_name]',      args: ['plan', 'block'] },
+  explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'] },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
   sleep:   { run: sleepSkill, usage: 'sleep',                      args: [] },
 }

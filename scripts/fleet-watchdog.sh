@@ -26,8 +26,27 @@ STATE=/var/lib/mcai-watchdog
 LOGDIR="${LOG_DIR:-$SRV/bots/logs}"
 STALL_MIN="${STALL_MIN:-12}"        # no movement for this long => wedged
 MIN_MOVE="${MIN_MOVE:-6}"           # blocks; below this counts as not moving
-RESCUE_X="${RESCUE_X:-0}"
-RESCUE_Y="${RESCUE_Y:-80}"
+# WHERE a rescued bot lands decides whether the rescue helps or just relocates
+# the problem. 0,80,0 dropped bots above the world spawn, which sits over a cave
+# system: they fell into voids at y=71-75 and ended up in cramped pockets with
+# one legal move or none, where unstick failed 16 times out of 16 and a bot could
+# only jump on the spot. Three deaths tonight came from that column.
+#
+# UPDATED 06:25Z to 28,79,0 -- the forward base. The spawn area is a crater the
+# bots mined themselves into: voids at y=69-75, no wood within 16 blocks, and
+# `gather` aborting stuck 23 times in 45 minutes. 24 blocks east the ground is
+# INTACT (zero voids beneath the surface) and there are oak logs at 29,79,0.
+# Rescuing a bot back into the crater was returning it to the problem.
+#
+# The previous point, 5,77,0, was a built landing pad next to the old base: solid floor at y=76 (filled
+# air-only, nothing destroyed), clear headroom, 6 of 8 neighbours walkable, and
+# 3 blocks from the crafting table with the chests just beyond. Landing height is
+# the standing height, so there is no fall damage either.
+#
+# Verified before use rather than assumed -- the previous point was picked the
+# same way and was wrong.
+RESCUE_X="${RESCUE_X:-28}"
+RESCUE_Y="${RESCUE_Y:-79}"
 RESCUE_Z="${RESCUE_Z:-0}"
 
 mkdir -p "$STATE"

@@ -198,6 +198,17 @@ export class CognitiveLoop {
         this.admission.noteSuccess(admitted.skill, admitted.args)
         this.lessons.recordSuccess(admitted.skill, admitted.args)
       }
+      // 'no_effect' deliberately matches NEITHER branch. It is not a success, so
+      // it is never reinforced as achievement; it is not a failure, so the
+      // admission gate will not start avoiding a skill that is correct later --
+      // eating matters when the bot is genuinely hungry.
+      //
+      // The concrete half of ADR-0003. Observed live: five bots standing
+      // motionless while `eat -> success "not hungry"` fired 15 times in ten
+      // minutes and `status` 7 more, each recorded as a win and fed back into the
+      // prompt as "has worked Nx -- a reliable choice". Every productive skill
+      // was blocked behind a tool dependency, so the fleet settled into the one
+      // thing it could still do perfectly: nothing.
       this.lessons.save()
       this.lastOutcome = `${admitted.skill} -> ${r.status}: ${r.detail ?? ''}`.slice(0, 160)
       this.memory.addEvent(this.lastOutcome)
