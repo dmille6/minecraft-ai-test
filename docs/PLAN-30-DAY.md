@@ -57,6 +57,11 @@ baselines or hardware if a decision cannot be joined to its outcome.
 - **Data quality fails closed**: an event missing `decision_id`, run id, world
   id, code sha or timestamp is rejected and counted, not quietly indexed.
 - Clock discipline: monotonic *and* wall-clock timestamps on every event.
+- **Fix `unstick`.** It is the last line of defence against a wedged bot, it
+  ran 292 times in three hours, and it FAILS 36% of the time (188 rescued, 104
+  not). Raising that to ~90% is worth more than any pathfinder change and does
+  not touch the movement rules, so it carries no experimental risk. This is a
+  repair, not an experiment.
 
 **Exit test:** sample 20 reinforcement events at random; reconstruct the full
 causal chain for at least 19. Fewer than 19 means week 1 is not done.
@@ -123,6 +128,16 @@ instrument detect a fault it was not told about."**
   layer cannot beat random skill selection on milestones per bot-hour, the whole
   cognitive layer is decoration. Run this early; it may be the most informative
   number of the month.
+- **Navigation constraint arms.** `allowParkour` on/off, `canDig` off vs
+  dig-only-when-stuck, `maxDropDown` 6 vs higher, `thinkTimeout` 5s vs 10s.
+  Each is a one-line change scored on movement-failure rate and milestones per
+  bot-hour.
+
+  This CANNOT run before the causal spine exists. Run today it would be
+  uninterpretable for exactly the reason the 7b/14b A/B is uninterpretable --
+  no `decision_id`, no intervention record, and a harness still being repaired
+  underneath it. The temptation to run it early, because it is only a one-line
+  config change, is the trap.
 - Then: scripted bot, current LLM bot. No-memory and shuffled-memory arms only
   after the harness proves it distinguishes the obvious cases.
 - 72h hands-off frozen run on the flagship, in parallel. **Demoted from exit
@@ -135,6 +150,53 @@ instrument detect a fault it was not told about."**
 which every planted negative control was caught.
 
 ---
+
+## Finding: navigation is constrained, not broken (2026-08-06)
+
+87% of skill failures are movement-related. The obvious reading is "the
+pathfinder is bad" and it is wrong.
+
+Three hours of evidence:
+
+```
+101  "no route toward ..."      A* proved the goal unreachable
+  7  "pathfinding exceeded"     timeouts -- rare
+ ~90 "stalled N blocks short"   partial progress, then no legal continuation
+188  unstick found a legal step
+104  unstick FAILED             36% failure rate
+```
+
+Seven timeouts in three hours. The pathfinder is not slow and is not failing to
+compute -- it is computing correctly and reporting, accurately, that no route
+exists.
+
+A first theory -- that the bots had dug their surroundings into traps -- was
+DISPROVEN by altitude. Movement failures track successes almost exactly at every
+height (y=70-74: 194 failures/145 successes; y=75-79: 215/216; below y=70:
+28/29), and split evenly between `gather` (214) and `goto` (207). Failures are
+proportional to activity everywhere, not concentrated in pits. Recorded here
+because the wrong theory was stated confidently before it was checked.
+
+The real suspect is the movement ruleset:
+
+```js
+moves.canDig = false          // digging caused constant tunnelling
+moves.allowParkour = false    // "top source of stuck states"
+moves.maxDropDown = 6         // raised from 4 after a bot sat immobile 10 min
+moves.allow1by1towers = true
+thinkTimeout = 5000           // lowered from 10s to protect the harvest budget
+```
+
+Each was added to fix a real observed problem. Their JOINT cost has never been
+measured. Three compounding restrictions on how a bot may cross terrain produce
+a fleet that, in dense forest, often genuinely has nowhere legal to go. Same
+accumulate-without-review shape as failure counts that never decayed and a
+`skipped` list that only grew.
+
+Note especially that `allowParkour` was disabled BEFORE the entombment reflex
+and `unstick` existed. The evidence that condemned it predates its safety net --
+reputation outliving the code that earned it, which is a pattern this project
+has now hit four times.
 
 ## Explicitly cut from 30 days
 
