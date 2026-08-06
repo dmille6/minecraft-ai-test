@@ -41,8 +41,10 @@ export function skillSchema(skillNames) {
 }
 
 export class LlmClient {
-  constructor({ baseUrl, model, numCtx, temperature, timeoutMs }) {
-    this.baseUrl = baseUrl.replace(/\/$/, '')
+  constructor({ baseUrls, baseUrl, model, numCtx, temperature, timeoutMs }) {
+    const urls = (baseUrls?.length ? baseUrls : [baseUrl]).map(u => u.replace(/\/$/, ''))
+    this.pool = new EndpointPool(urls)
+    this.baseUrl = urls[0]          // retained for logging and back-compat
     this.model = model
     this.numCtx = numCtx
     this.temperature = temperature
@@ -120,49 +122,133 @@ export class LlmClient {
   }
 
   async #post({ messages, schema }) {
-    const ctl = new AbortController()
-    const t = setTimeout(() => ctl.abort(), this.timeoutMs)
-    try {
-      const r = await fetch(`${this.baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: ctl.signal,
-        body: JSON.stringify({
-          model: this.model,
-          stream: false,
-          // Handoff doc S7. Without this the model unloads between decisions
-          // and every call pays a 55-80s reload -- observed live, and the
-          // reason load_duration_ns is in the telemetry schema at all.
-          keep_alive: '30m',
-          messages,
-          format: schema,
-          options: {
-            temperature: this.temperature,
-            num_ctx: this.numCtx,   // never rely on the server default
+    // Walk the pool in preference order. A saturated primary costs one timeout,
+    // then goes into cooldown so the NEXT decision starts at the fallback
+    // rather than paying that timeout again.
+    let lastErr = null
+    for (const ep of this.pool.available()) {
+      const started = Date.now()
+      const ctl = new AbortController()
+      const t = setTimeout(() => ctl.abort(), this.timeoutMs)
+      try {
+        const r = await fetch(`${ep.url}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: ctl.signal,
+          body: JSON.stringify({
+            model: this.model,
+            stream: false,
+            // Handoff doc S7. Without this the model unloads between decisions
+            // and every call pays a 55-80s reload -- observed live, and the
+            // reason load_duration_ns is in the telemetry schema at all.
+            keep_alive: '30m',
+            messages,
+            format: schema,
+            options: {
+              temperature: this.temperature,
+              num_ctx: this.numCtx,   // never rely on the server default
+            },
+          }),
+        })
+        if (!r.ok) throw new Error(`ollama ${r.status}: ${(await r.text()).slice(0, 120)}`)
+        const d = await r.json()
+        this.pool.markOk(ep, Date.now() - started)
+        if (ep.url !== this.baseUrl) {
+          log('info', 'llm served by fallback endpoint', { endpoint: ep.url, ms: Date.now() - started })
+        }
+        return {
+          content: d.message?.content,
+          endpoint: ep.url,
+          meta: {
+            prompt_tokens: d.prompt_eval_count ?? null,
+            completion_tokens: d.eval_count ?? null,
+            total_duration_ns: d.total_duration ?? null,
+            load_duration_ns: d.load_duration ?? null,
+            prompt_eval_duration_ns: d.prompt_eval_duration ?? null,
+            eval_duration_ns: d.eval_duration ?? null,
           },
-        }),
-      })
-      if (!r.ok) throw new Error(`ollama ${r.status}: ${(await r.text()).slice(0, 120)}`)
-      const d = await r.json()
-      return {
-        content: d.message?.content,
-        meta: {
-          prompt_tokens: d.prompt_eval_count ?? null,
-          completion_tokens: d.eval_count ?? null,
-          total_duration_ns: d.total_duration ?? null,
-          load_duration_ns: d.load_duration ?? null,
-          prompt_eval_duration_ns: d.prompt_eval_duration ?? null,
-          eval_duration_ns: d.eval_duration ?? null,
-        },
+        }
+      } catch (e) {
+        lastErr = e
+        this.pool.markFail(ep, e.message)
+      } finally {
+        clearTimeout(t)
       }
-    } finally {
-      clearTimeout(t)
     }
+    throw new Error(`all ${this.pool.eps.length} llm endpoint(s) failed; last: ${lastErr?.message ?? 'unknown'}`)
+  }
+
+}
+
+
+/**
+ * An ordered pool of Ollama endpoints with health tracking.
+ *
+ * Motivated by a real outage, not by theory. The fleet was moved to a fast
+ * shared inference host; hours later somebody else loaded a 55GB model onto it
+ * and every bot request began dying with "This operation was aborted". Five
+ * bots made ZERO admitted decisions for ten minutes while `fleet-status`
+ * cheerfully reported all five "ok", because a rejected decision still counts
+ * as liveness.
+ *
+ * Two things that failure taught, both encoded here:
+ *
+ * SATURATED IS NOT DOWN. That host answered /api/version in 0.27s throughout.
+ * Any health check that pings a cheap endpoint would have called it healthy.
+ * The only signal that means anything is whether a REAL request completes in
+ * time, so health is derived from actual decision traffic and nothing else.
+ *
+ * A DEAD ENDPOINT MUST NOT BE RETRIED EVERY TIME. Each attempt costs a full
+ * timeout, and with the primary saturated that is the entire decision budget
+ * spent before the fallback is even tried. A failed endpoint goes into cooldown
+ * with exponential backoff, so the fleet pays that cost once rather than on
+ * every decision.
+ */
+class EndpointPool {
+  constructor(urls, { cooldownMs = 60_000, maxCooldownMs = 900_000 } = {}) {
+    this.eps = urls.map(url => ({ url, fails: 0, downUntil: 0, calls: 0, totalMs: 0 }))
+    this.cooldownMs = cooldownMs
+    this.maxCooldownMs = maxCooldownMs
+  }
+
+  /** Healthy endpoints in preference order; if all are cooling down, try them all anyway. */
+  available() {
+    const now = Date.now()
+    const up = this.eps.filter(e => e.downUntil <= now)
+    // Never return empty. An expired guess beats not deciding at all.
+    return up.length ? up : this.eps
+  }
+
+  markOk(ep, ms) {
+    ep.fails = 0
+    ep.downUntil = 0
+    ep.calls++
+    ep.totalMs += ms
+  }
+
+  markFail(ep, err) {
+    ep.fails++
+    const wait = Math.min(this.cooldownMs * 2 ** (ep.fails - 1), this.maxCooldownMs)
+    ep.downUntil = Date.now() + wait
+    log('warn', 'llm endpoint failed, cooling down', {
+      endpoint: ep.url, fails: ep.fails, cooldown_sec: Math.round(wait / 1000), err: String(err).slice(0, 120),
+    })
+  }
+
+  get status() {
+    const now = Date.now()
+    return this.eps.map(e => ({
+      url: e.url,
+      state: e.downUntil > now ? `down ${Math.round((e.downUntil - now) / 1000)}s` : 'up',
+      calls: e.calls,
+      avg_ms: e.calls ? Math.round(e.totalMs / e.calls) : null,
+    }))
   }
 }
 
 export function makeClient() {
   return new LlmClient({
+    baseUrls: config.llm.baseUrls,
     baseUrl: config.llm.baseUrl,
     model: config.llm.model,
     numCtx: config.llm.numCtx,

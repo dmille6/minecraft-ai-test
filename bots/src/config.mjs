@@ -77,6 +77,19 @@ export const config = {
   llm: {
     enabled: req('LLM_ENABLED', 'false') === 'true',
     baseUrl: req('OLLAMA_BASE_URL', 'http://studio.lan:11434'),
+    // An ORDERED pool. The first entry is primary; the rest are fallbacks tried
+    // in order when it fails or is saturated.
+    //
+    // Written after losing the whole fleet to a single endpoint: five bots made
+    // ZERO admitted decisions in ten minutes, every request dying with "This
+    // operation was aborted", because a shared inference host had been taken
+    // over by somebody else's 55GB model. The endpoint answered /api/version in
+    // 0.27s the entire time -- it was saturated, not down, which is exactly the
+    // failure a naive health check misses.
+    //
+    // Falls back to the single OLLAMA_BASE_URL so existing env files keep working.
+    baseUrls: (req('OLLAMA_BASE_URLS', '') || req('OLLAMA_BASE_URL', 'http://studio.lan:11434'))
+      .split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean),
     model: req('OLLAMA_MODEL', 'qwen2.5:14b-instruct'),
     // Set EXPLICITLY. Ollama silently truncates at its default and a
     // truncated prompt does not error -- the model just looks stupid.
