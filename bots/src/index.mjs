@@ -147,8 +147,18 @@ function connect() {
     if (watchdog) { watchdog.stop(); watchdog = null }
     try { lessons?.save() } catch {}
     if (stopping) return
-    log('warn', 'disconnected, will reconnect', { reason: String(reason), delayMs: reconnectDelay })
-    setTimeout(connect, reconnectDelay)
+    // JITTER. Every bot on this host shares one source IP, and Paper's
+    // connection-throttle is per-IP (4000ms here) -- so bots thrown off
+    // together retry together, collide again, and stay in lockstep. A
+    // thundering herd of our own making. Observed live: Scout02 kicked
+    // "Connection throttled!" at 01:19:51 and again at 01:20:07, sitting
+    // offline the whole time while its systemd unit reported 'active'.
+    //
+    // Randomising each delay breaks the lockstep; the floor keeps a lone
+    // retry from landing inside the throttle window by itself.
+    const delay = Math.max(reconnectDelay, 5000) + Math.floor(Math.random() * 6000)
+    log('warn', 'disconnected, will reconnect', { reason: String(reason), delayMs: delay })
+    setTimeout(connect, delay)
     // Exponential backoff so a server that is down does not get hammered.
     reconnectDelay = Math.min(reconnectDelay * 2, config.reconnect.maxDelayMs)
   })

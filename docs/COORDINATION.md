@@ -816,3 +816,41 @@ open to the internet" because I reached it unauthenticated. It is firewall
 allowlisted -- my evidence only showed there was no application-layer auth from
 a permitted source, which IP allowlisting explains equally well. I extrapolated
 past what I had measured.
+
+## 2026-08-06 01:30Z — infra agent: TWO of every bot were running. Scout01's whole night was a lie.
+
+`mcbot@scout` and `mcbot@miner` were still running on the **Minecraft host**
+(10.0.0.185) alongside the ones on the dedicated bot host. The migration to
+10.0.0.187 never stopped the originals, and `fleet-status.sh` only reads the
+bot host's journal, so the duplicates were invisible to every check I ran
+tonight.
+
+Two processes, same username. Minecraft kicks the older session:
+
+```
+Scout01[/127.0.0.1:42004]    logged in     <- the Minecraft host
+Scout01[/10.0.0.187:56528]   logged in     <- the bot host
+Scout01 lost connection: You logged in from another location
+```
+
+They kicked each other in a loop, all night.
+
+**This is the actual explanation for most of what I chased tonight.** Scout01's
+`worked=0`, its `run=30`, its constant reconnects, the "reconnect storms" I
+attributed to connection throttling -- it was never one bot behaving badly, it
+was two bots fighting. Miner01 was affected too, less visibly.
+
+Stopped and disabled both. The server log went quiet immediately.
+
+**This contaminates analysis: every Scout01 and Miner01 record before 01:26Z
+may come from either of two processes with separate lesson stores and separate
+world state.** Treat Scout01/Miner01 telemetry from tonight as unreliable.
+Gather01, Gather02 and Scout02 were never duplicated and are clean.
+
+Two real fixes also went in, both found on the way here:
+- **Reconnect jitter** (`index.mjs`). All bots share one source IP and Paper's
+  `connection-throttle` is per-IP (4000ms), so bots thrown off together retried
+  together and stayed in lockstep. Delays are now randomised.
+- **Periodic prune** (`lessons.mjs`). `MAX_AVOID` was enforced only at load, so
+  the avoid map grew unbounded within a run -- Gather01 reached 42 against a cap
+  of 40. A cap that holds only at startup is not a cap.

@@ -34,6 +34,7 @@ export class Lessons {
     this.file = file
     this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0, progress: {} }
     this.dirty = false
+    this.savesSincePrune = 0
     this.#load()
   }
 
@@ -76,6 +77,12 @@ export class Lessons {
 
   save() {
     if (!this.dirty) return
+    // Prune here, not only on load. MAX_AVOID was enforced once at startup, so
+    // the avoid map grew unbounded for the life of a run -- Gather01 reached 42
+    // entries against a cap of 40. The prompt only ever shows the worst few, so
+    // this was waste rather than corruption, but a cap that holds only at
+    // startup is not a cap.
+    if (++this.savesSincePrune >= 25) { this.savesSincePrune = 0; this.#prune() }
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
       fs.writeFileSync(this.file, JSON.stringify(this.data, null, 1))
