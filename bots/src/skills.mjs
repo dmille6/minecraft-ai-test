@@ -780,6 +780,75 @@ async function explore(ctx, { blocks = 60, heading = null }, signal) {
   return { status: 'failed', detail: `could not explore: ${detail}`, failClass: 'no_path' }
 }
 
+
+// ------------------------------------------------------------- withdraw -----
+//
+// The inverse of deposit, and its absence was structural.
+//
+// `deposit` has existed since the storage work; `withdraw` never did. A bot
+// could put items into a chest and no bot could ever take them out, so the
+// shared chests were a one-way sink. Measured tonight: the two scouts held 25
+// and 59 oak_log between them and are never told to craft, while Miner01 -- the
+// one whose milestone chain IS planks -> sticks -> table -> pickaxe -- held five
+// dirt. The materials and the job were in different bots with no path between
+// them.
+//
+// Same shape as the rest of tonight's bugs: something could be added but never
+// removed, a guard could trip with no way back. A colony needs both directions.
+async function withdraw(ctx, { item = null, count = 16 }, signal) {
+  const { bot } = ctx
+  const chestBlock = bot.findBlock({
+    matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name),
+    maxDistance: 48,
+  })
+  if (!chestBlock) return { status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks' }
+
+  check(signal)
+  try {
+    await withTimeout(bot.pathfinder.goto(
+      new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2)), 20000, bot)
+  } catch {
+    return { status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${chestBlock.position.x},${chestBlock.position.z}` }
+  }
+  check(signal)
+
+  const chest = await bot.openContainer(chestBlock)
+  try {
+    const items = chest.containerItems()
+    if (!items.length) {
+      return { status: 'no_effect', detail: 'the chest is empty' }
+    }
+    // No item named -> take whatever is most plentiful. A bot that knows it
+    // needs something specific should say so; one that just needs materials
+    // should not have to guess what is in there.
+    const want = item
+      ? items.filter(i => i.name === item)
+      : [items.slice().sort((a, b) => b.count - a.count)[0]]
+    if (!want.length) {
+      return {
+        status: 'failed', failClass: 'nothing_found',
+        detail: `no ${item} in the chest — it holds ${items.slice(0, 4).map(i => `${i.count}x ${i.name}`).join(', ')}`,
+      }
+    }
+    let took = 0
+    for (const it of want) {
+      check(signal)
+      const n = Math.min(it.count, Math.max(1, Number(count) || 16) - took)
+      if (n <= 0) break
+      await chest.withdraw(it.type, null, n)
+      took += n
+      if (took >= (Number(count) || 16)) break
+    }
+    return took > 0
+      ? { status: 'success', detail: `withdrew ${took}x ${want[0].name} from the chest` }
+      : { status: 'no_effect', detail: 'nothing withdrawn' }
+  } catch (e) {
+    return { status: 'failed', detail: `withdraw failed: ${e.message.slice(0, 70)}` }
+  } finally {
+    try { chest.close() } catch { /* already closed */ }
+  }
+}
+
 // ---------------------------------------------------------------- mine -----
 //
 // Distinct from gather: gather goes to blocks it can already see, mine
@@ -878,6 +947,7 @@ export const SKILLS = {
   follow:  { run: follow,  usage: 'follow [seconds]',              args: [] },
   home:    { run: home,    usage: 'home',                          args: [] },
   deposit: { run: deposit, usage: 'deposit [item_name]',           args: [] },
+  withdraw:{ run: withdraw,usage: 'withdraw [item_name] [count]',  args: ['item', 'count'] },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
