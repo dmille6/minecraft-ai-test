@@ -34,9 +34,19 @@ let lessons = null
 let watchdog = null
 let lastDeathCause = null      // the server's own words, e.g. "fell from a high place"
 let peakY = null               // highest point in the recent past, for fall distance
-let lastSkillRun = null
 let stopDeathWatch = null
 let peakTimer = null
+// A death record with no story is a puzzle, not evidence. The old one said
+// "bot died" and nothing else; reconstructing a single death meant a separate
+// Elasticsearch query against the surrounding minutes, and even the improved
+// version ("fell from a high place after falling 47 blocks") does not say what
+// the bot had been trying to do.
+//
+// So carry the last few outcomes and the health trajectory INTO the record.
+// Everything goes in `detail`, which is already a mapped text field -- the index
+// is dynamic:strict and a new field would be rejected outright.
+const hpTrail = []                     // {t, hp} ring, for the dying trajectory
+const HP_MAX = 12
 
 // The server broadcasts the real cause. Vanilla death messages all begin with
 // the player's name, so match ours and keep the remainder verbatim rather than
@@ -211,6 +221,14 @@ function connect() {
     }
   })
 
+  // Health is sampled on the same slow timer as height; a death that took 90
+  // seconds looks completely different from one that took 900ms, and the
+  // trajectory is what distinguishes suffocation from a fall from a mob.
+  bot.on('health', () => {
+    hpTrail.push({ t: Date.now(), hp: Math.round((bot.health ?? 0) * 10) / 10 })
+    if (hpTrail.length > HP_MAX) hpTrail.shift()
+  })
+
   bot.on('death', () => {
     // "bot died" was the entire record. The CAUSE was sitting in the Paper log
     // the whole time -- "Scout01 fell from a high place" -- in a different
@@ -218,17 +236,27 @@ function connect() {
     //
     // Fall distance is captured here rather than inferred later because it is
     // the difference between a navigation bug and a terrain trap. Scout01 died
-    // standing still at spawn: no skill running, full health, 33 blocks down a
-    // 1x1 shaft another bot had mined through the world spawn point. No
-    // decision log would have shown that; the y-delta does.
+    // standing still at spawn: full health, 33 blocks down a 1x1 shaft another
+    // bot had mined through the world spawn point. No decision log would have
+    // shown that; the y-delta does.
     const deathPos = bot.entity?.position
     const fell = deathPos && peakY != null ? Math.round(peakY - deathPos.y) : null
     const cause = freshDeathCause()
-    log('warn', 'died', { pos: deathPos, cause, fell_blocks: fell })
+    // Ask the runner, which is the only thing that knows. Reading a variable
+    // nothing ever assigned is how every death came to report "no skill
+    // running" -- a claim that was not measured, merely printed.
+    const running = runner.current?.skill ?? null
+    const leadUp = runner.recentSummary()
+    log('warn', 'died', { pos: deathPos, cause, fell_blocks: fell, running })
     logSkill({
       skill: '_death', args: {}, status: 'failed',
       detail: `${cause}${fell != null && fell > 3 ? ` after falling ${fell} blocks` : ''}` +
-              `${lastSkillRun ? `; was running ${lastSkillRun}` : '; no skill running'}`,
+              `${running ? `; was running ${running}` : '; idle at the moment of death'}` +
+              (leadUp ? ` | leading up: ${leadUp}` : '') +
+              (hpTrail.length > 1
+                ? ` | hp ${hpTrail[0].hp}->${hpTrail[hpTrail.length - 1].hp} over ` +
+                  `${Math.round((hpTrail[hpTrail.length - 1].t - hpTrail[0].t) / 1000)}s`
+                : ''),
       // camelCase: logSkill destructures `failClass` and maps it to the
       // Elasticsearch field `fail_class` itself. Passing the snake_case name
       // meant logSkill silently ignored it, and 23 death records were written

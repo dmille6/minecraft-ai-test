@@ -20,6 +20,19 @@ export class Runner {
     this.consecutiveFailures = 0
     this.paused = false
     this.pausedAt = null
+    // What the bot has recently tried, newest last. The death handler used to
+    // read a module-level `lastSkillRun` that was declared and read but never
+    // assigned, so every death record in the index -- all 20 of them -- claimed
+    // "no skill running" regardless of what the bot was doing. The runner is
+    // the only thing that actually knows, so it keeps the record.
+    this.recent = []
+  }
+
+  static RECENT_MAX = 6
+
+  /** Recent attempts as "skill->status", oldest first. Empty if nothing has run. */
+  recentSummary() {
+    return this.recent.map(r => `${r.skill}->${r.status}`).join(', ')
   }
 
   isBusy() { return this.current !== null }
@@ -129,6 +142,9 @@ export class Runner {
       perception: perception(this.bot),
     })
     log(result.status === 'success' ? 'info' : 'warn', `skill ${skillName} -> ${result.status}`, { detail: result.detail })
+
+    this.recent.push({ skill: skillName, status: result.status, at: Date.now() })
+    if (this.recent.length > Runner.RECENT_MAX) this.recent.shift()
 
     this.current = null
     this.interruptedReason = null
