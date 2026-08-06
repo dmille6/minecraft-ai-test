@@ -217,6 +217,11 @@ export class CognitiveLoop {
     if (admitted) this.consecutiveRejections = 0
 
     // Track whether this milestone is going anywhere at all.
+    // Flush immediately. noteAttempt runs AFTER both save() calls above, so a
+    // give-up was only written on some later cycle -- and a reconnect in that
+    // window lost it, sending the bot back through 25 more attempts at a goal
+    // it had already proven impossible.
+    this.lessons.save()
     if (this.milestones.noteAttempt(outcome.status !== 'success')) {
       const sk = this.milestones.status()
       log('warn', 'milestone unreachable, skipping', { now: sk.id })
@@ -224,6 +229,7 @@ export class CognitiveLoop {
       logEvent({ kind: 'milestone_skipped', status: 'failed',
                  detail: `no progress after 25 attempts; moved on to ${sk.id}`,
                  snapshot: snapshot(this.bot) })
+      this.lessons.save()   // a give-up is rare and expensive to relearn
     }
 
     logLlm({

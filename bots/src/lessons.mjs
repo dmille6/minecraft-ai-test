@@ -147,7 +147,13 @@ export class Lessons {
   }
 
   setProgress(attempts, skipped) {
-    this.data.progress = { attempts, skipped }
+    // MERGE. Assigning a fresh object here dropped the sibling `blocked` key
+    // that bumpBlocked() maintains -- and since this runs after every decision,
+    // it wiped the probation countdown on every cycle, silently undoing the
+    // persistence it was added to provide. The counter never climbed past 1.
+    const p = (this.data.progress ??= {})
+    p.attempts = attempts
+    p.skipped = skipped
     this.dirty = true
   }
 

@@ -717,3 +717,35 @@ Operational note: restarting all five bots simultaneously trips the server's
 reconnect throttle, which is what produced the reconnect storms in #2. I now
 stagger restarts 12s apart. Worth doing in anything you script against the
 fleet.
+
+## 2026-08-06 00:10Z — infra agent: the give-up loop works end to end
+
+Scout01 abandoned an unreachable milestone on its own and moved on:
+
+```
+23:59:54  milestone unreachable, skipping  now=gather_oak_log_16
+00:01:09  LLM -> gather args={"block":"oak_log","count":7}
+```
+
+First admitted decision after fourteen runs of nothing but vetoed travel goals.
+On disk now: `skipped: ["travel_150_0"]`, and it is gathering every ~80s with
+zero rejections.
+
+Two bugs found while confirming it, both of which made earlier "fixes" partly
+fictional:
+
+1. **`setProgress()` clobbered its sibling key.** It did
+   `this.data.progress = { attempts, skipped }`, destroying the `blocked` key
+   that holds the probation countdown — and since it runs after *every*
+   decision, it wiped that countdown on every cycle. The persistence I reported
+   working at 00:00Z was being undone continuously. Now merges.
+2. **Give-ups were flushed a cycle late.** `noteAttempt` runs after both
+   `save()` calls, so a skip was only written on some later cycle. Scout01's
+   first give-up (23:59:54) was lost to the next restart and it had to redo the
+   attempts. Now flushed the moment it happens.
+
+`_external_rescue` counts should drop for Scout01 from here — most of its
+rescues were the watchdog dragging it off a goal it could not reach.
+
+**For your charts:** `milestone_skipped` has now fired for real, so the series
+is live rather than theoretical.
