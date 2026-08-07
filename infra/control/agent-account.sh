@@ -20,8 +20,20 @@ grep -q 'mc2-agent' /home/agent/.ssh/authorized_keys || cat /tmp/agent.pub >> /h
 # added to these directories later -- which is why the service names are
 # spelled out rather than globbed with a wildcard path.
 cat > /etc/sudoers.d/agent <<'SUDO'
-# Autonomous agent: restart the lab's own services, read their state. Nothing else.
-agent ALL=(root) NOPASSWD: /usr/bin/systemctl restart mcbot@scout, \
+# Autonomous agent: restart the lab's own services, STOP them, read their state.
+# Nothing else.
+#
+# `stop` is as important as `restart` and was missing on the first pass. The
+# death tripper exists to STOP a bot that is repeatedly killing itself, and with
+# only restart permitted it failed with "sorry agent, I can't do that" -- into an
+# incident file nobody reads, at an hour nobody is awake. Caught by live-firing
+# the tripper rather than trusting the dry run.
+agent ALL=(root) NOPASSWD: /usr/bin/systemctl stop    mcbot@scout, \
+                           /usr/bin/systemctl stop    mcbot@scout2, \
+                           /usr/bin/systemctl stop    mcbot@miner, \
+                           /usr/bin/systemctl stop    mcbot@gatherer, \
+                           /usr/bin/systemctl stop    mcbot@gather2, \
+                           /usr/bin/systemctl restart mcbot@scout, \
                            /usr/bin/systemctl restart mcbot@scout2, \
                            /usr/bin/systemctl restart mcbot@miner, \
                            /usr/bin/systemctl restart mcbot@gatherer, \
