@@ -29,6 +29,10 @@ import { announceUnreachable } from './comms.mjs'
 // decision, still trains the admission gate to avoid it, and still counts
 // against the fleet's success rate. They remain available to chat, where a
 // human IS present and the argument is real.
+// Failure classes the harness inflicts on itself. See the note at the
+// recordFailure call below.
+const SELF_INFLICTED = new Set(['path_interrupted', 'path_budget', 'goal_changed'])
+
 const SKILL_NAMES = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly)
 
 export class CognitiveLoop {
@@ -247,8 +251,24 @@ export class CognitiveLoop {
         this.admission.noteFailure(admitted.skill, admitted.args)
         // Persist it, so the next RUN starts knowing this, not just the next
         // decision in this one.
-        this.lessons.recordFailure(admitted.skill, admitted.args,
-          classifyFailure(r.detail), this.bot.entity?.position)
+        // NOT EVERY FAILURE IS EVIDENCE ABOUT THE WORLD. A lesson claims "this
+        // action does not work"; only a failure the WORLD caused can support
+        // that. These classes are caused by us -- our reflex stopping the path,
+        // our travel budget expiring, a competing goal we set -- and persisting
+        // them taught the fleet that walking home is impossible, then had the
+        // gate enforce it. Verified against mineflayer-pathfinder 2.4.5:
+        // `path_stop` is emitted ONLY by stop(), which only our code calls.
+        //
+        // They are still logged, classified and visible in Kibana. They just do
+        // not get a vote on what the bot is allowed to attempt next.
+        const fc = r.failClass ?? classifyFailure(r.detail)
+        if (SELF_INFLICTED.has(fc)) {
+          log('info', 'failure not persisted as a lesson: we caused it', {
+            skill: admitted.skill, failClass: fc,
+          })
+        } else {
+          this.lessons.recordFailure(admitted.skill, admitted.args, fc, this.bot.entity?.position)
+        }
       } else if (r.status === 'success') {
         // ADR-0003, finally implemented. Reward the skill only if the durable
         // change it EXISTS FOR actually happened -- judged against the contract

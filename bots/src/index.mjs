@@ -11,7 +11,7 @@ import collectBlockPkg from 'mineflayer-collectblock'
 const collectBlock = collectBlockPkg.plugin ?? collectBlockPkg
 
 import { config } from './config.mjs'
-import { log, closeLogs, logSkill } from './logger.mjs'
+import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { attachCommands } from './commands.mjs'
@@ -117,7 +117,9 @@ function connect() {
   // digging), which is why general navigation can stay canDig=false.
   bot.loadPlugin(collectBlock)
   const runner = new Runner(bot)
-
+  // Reason tallies for the pathfinder's own events, kept for the status line.
+  const pathResets = {}
+  const pathUpdates = {}
   bot.once('spawn', () => {
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
@@ -160,6 +162,33 @@ function connect() {
     // A* needs room to PROVE that, rather than reporting "took too long" --
     // indistinguishable from a real failure.
     bot.pathfinder.thinkTimeout = 5000
+
+    // WHAT THE PATHFINDER ACTUALLY SAYS, rather than what we infer from the one
+    // rejection that happens to escape. goto() collapses a whole route into a
+    // single terminal error, so every replan, every chunk load that invalidated
+    // a path, and pathfinder's OWN 3500ms stuck reset were invisible -- and we
+    // spent 16 hours attributing all of it to "no route exists", a verdict the
+    // pathfinder never once returned.
+    //
+    // Reasons come from resetPath() in mineflayer-pathfinder 2.4.5: stuck,
+    // chunk_loaded, block_updated, goal_updated, goal_moved, movements_updated,
+    // dig_error, place_error, no_scaffolding_blocks. Each means something
+    // different and only some of them are the world's fault.
+    bot.on('path_reset', (reason) => {
+      pathResets[reason] = (pathResets[reason] ?? 0) + 1
+      logEvent({ kind: 'path_reset', detail: reason, snapshot: snapshot(bot) })
+    })
+    bot.on('path_update', (r) => {
+      if (!r || !r.status) return
+      pathUpdates[r.status] = (pathUpdates[r.status] ?? 0) + 1
+      // Only the terminal verdicts are worth a document; `success` and
+      // `partial` fire constantly during normal walking.
+      if (r.status === 'noPath' || r.status === 'timeout') {
+        logEvent({ kind: `path_${r.status}`,
+                   detail: `${r.status} after ${r.visitedNodes ?? '?'} nodes, ${Math.round(r.time ?? 0)}ms`,
+                   snapshot: snapshot(bot) })
+      }
+    })
 
     // ONE lessons store, shared. Reflexes record where the bot got hurt and
     // the cognitive layer records which actions failed; both feed the same

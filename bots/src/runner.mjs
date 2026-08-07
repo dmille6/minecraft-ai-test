@@ -143,8 +143,14 @@ export class Runner {
       // feeding that to a failure classifier put 396 non-failures into the
       // taxonomy, half of everything it had labelled `other`. A no-op is
       // already visible as skill.status; it is not a kind of failure.
+      // A skill that KNOWS why it failed says so. classifyFailure re-derives the
+      // cause by pattern-matching the prose we just wrote, which means the
+      // taxonomy is only ever as good as the wording -- and when goto's wording
+      // and its regex drifted apart, a fifth of all failures were filed under a
+      // cause the pathfinder had never reported. Explicit beats recovered;
+      // the classifier stays as the fallback for skills that say nothing.
       failClass: (result.status === 'failed' || result.status === 'aborted')
-        ? classifyFailure(result.detail)
+        ? (result.failClass ?? classifyFailure(result.detail))
         : undefined,
       perception: perception(this.bot),
     })

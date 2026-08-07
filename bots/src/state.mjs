@@ -101,6 +101,15 @@ export function biomeAt(bot) {
 export function classifyFailure(detail = '') {
   const d = String(detail).toLowerCase()
 
+  // Causes goto now states outright. Kept here so the 16h of history already in
+  // Elasticsearch reclassifies the same way the live fleet does -- otherwise the
+  // before/after comparison measures the change in wording, not in behaviour.
+  if (d.includes('no route exists')) return 'no_path'
+  if (d.includes('planner gave up searching')) return 'path_timeout'
+  if (d.includes('was stopped')) return 'path_interrupted'
+  if (d.includes('competing goal')) return 'goal_changed'
+  if (d.includes('travel budget')) return 'path_budget'
+
   // Ordered most-specific first. Every branch below was derived from the actual
   // unclassified strings in Elasticsearch, not guessed: `other` was the LARGEST
   // class at 36% of all failures, which makes a failure taxonomy decorative --

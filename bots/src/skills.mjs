@@ -38,7 +38,12 @@ function withTimeout(promise, ms, bot) {
     new Promise((_, rej) => {
       t = setTimeout(() => {
         try { bot.pathfinder.stop() } catch {}
-        rej(new Error(`pathfinding exceeded ${ms}ms`))
+        // TAGGED, not just worded. The old message was matched by a regex that
+        // also matched "no path", so OUR wall clock expiring was reported to
+        // the model and persisted to the lessons store as "no route exists" --
+        // 393 times in 16 hours. The pathfinder never once said no path exists.
+        rej(Object.assign(new Error(`pathfinding exceeded ${ms}ms`),
+                          { failClass: 'path_budget', budgetExceeded: true }))
       }, ms)
     }),
   ]).finally(() => clearTimeout(t))
@@ -109,23 +114,44 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
       await withTimeout(p, 25000, bot)
       lastErr = null
     } catch (e) {
-      if (e.aborted) throw e
+      // WE STOPPED IT OURSELVES. The reflex layer's stuck detector calls
+      // runner.interrupt() and then bot.pathfinder.stop(); stop() emits
+      // `path_stop`, so goto() rejects with PathStopped -- NOT with our
+      // AbortError. `e.aborted` was therefore undefined, the self-inflicted
+      // interruption fell through to the failure branch, and the skill was
+      // charged for it: 596 times in 16 hours the bot recorded "goto failed"
+      // because its own safety watchdog had cancelled the walk. Four of those
+      // and the admission gate forbids the action outright, which is how a
+      // fleet teaches itself that walking home is impossible.
+      if (e.aborted || signal?.aborted) {
+        throw e.aborted ? e : Object.assign(new Error(`interrupted: ${e.name}`), { aborted: true })
+      }
       lastErr = e.message
       const moved = bot.entity.position.distanceTo(before)
-      // Distinguish "could not find a route" from "was interrupted mid-route".
-      // Both previously surfaced as "Path was stopped", which taught the
-      // lessons store nothing useful and told the model nothing at all.
-      const noRoute = /no path|took to long|timeout|exceeded/i.test(e.message) && moved < 2
-      if (noRoute) {
-        return {
-          status: 'failed',
-          detail: `no route toward ${target.x},${target.z} — blocked after ${legs} leg(s), ${Math.round(dist)} blocks short`,
-        }
+
+      // mineflayer-pathfinder rejects with a typed error (lib/goto.js): NoPath,
+      // Timeout, PathStopped, GoalChanged. Reading `e.name` asks the pathfinder
+      // what happened; regexing `e.message` guesses. These mean genuinely
+      // different things and only the first is evidence about the WORLD:
+      //   NoPath      the search completed and no route exists    <- a real lesson
+      //   Timeout     thinkTimeout expired mid-search             <- too slow, not impossible
+      //   PathStopped something called stop()                     <- ours
+      //   GoalChanged something set a competing goal              <- our bug
+      //   budget      our own 25s execution wall                  <- ours
+      const CAUSE = {
+        NoPath:      ['no_path',          `no route exists toward ${target.x},${target.z}`],
+        Timeout:     ['path_timeout',     `planner gave up searching toward ${target.x},${target.z}`],
+        PathStopped: ['path_interrupted', `path to ${target.x},${target.z} was stopped`],
+        GoalChanged: ['goal_changed',     `a competing goal replaced the route to ${target.x},${target.z}`],
       }
+      const [failClass, why] = e.budgetExceeded
+        ? ['path_budget', `ran out of the 25s travel budget toward ${target.x},${target.z}`]
+        : (CAUSE[e.name] ?? ['other', `pathfinding failed toward ${target.x},${target.z}: ${e.message.slice(0, 60)}`])
+
       if (moved < 2) {
         return {
-          status: 'failed',
-          detail: `stalled ${Math.round(dist)} blocks short of ${target.x},${target.z}: ${e.message.slice(0, 70)}`,
+          status: 'failed', failClass,
+          detail: `${why} — after ${legs} leg(s), still ${Math.round(dist)} blocks short`,
         }
       }
       // Moved somewhat -- that is progress, so try the next leg.
