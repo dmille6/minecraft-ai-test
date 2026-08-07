@@ -7,6 +7,13 @@
 # (ADR-0001 D4) -- so rebuilding it must be cheap, and that means the mappings
 # have to live somewhere re-appliable.
 #
+# bot.inventory and bot.held were added to the state snapshot in the harness and
+# NOT here, so every skill document was rejected whole with
+# strict_dynamic_mapping_exception -- and the only symptom was one line in the
+# Filebeat log reading "events were dropped". Telemetry that fails closed is
+# right; telemetry that fails closed QUIETLY is how a fleet runs for hours
+# producing nothing anyone can see.
+#
 # ORDER MATTERS: these mappings are dynamic:strict, so any undeclared field is
 # rejected outright, and the only symptom is one "events were dropped" line in
 # the Filebeat log. The templates must exist BEFORE the first document.
@@ -35,6 +42,8 @@ COMMON='"@timestamp":{"type":"date"},"run_id":{"type":"keyword"},"trigger":{"typ
  "perception":{"type":"flattened"},
  "bot":{"properties":{"name":{"type":"keyword"},"role":{"type":"keyword"},
         "health":{"type":"float"},"hunger":{"type":"float"},
+        "held":{"type":"keyword"},
+        "inventory":{"type":"flattened"},
         "pos":{"properties":{"x":{"type":"float"},"y":{"type":"float"},"z":{"type":"float"}}}}},
  "game":{"properties":{"tick":{"type":"long"},"dimension":{"type":"keyword"},
         "day":{"type":"long"},"biome":{"type":"keyword"}}}'
