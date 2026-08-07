@@ -6,6 +6,9 @@ layout:
   The lab:
     style: row
     columns: 3
+  Bot health · 1h:
+    style: row
+    columns: 5
   Watch the bots:
     style: row
     columns: 3

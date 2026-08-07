@@ -114,6 +114,161 @@
             - field: hits.hits.0._source.supervisor.reason
               label: state
 
+- Bot health · 1h:
+    # 'last moved' is the stuck detector. A bot can report success every
+    # minute while standing still -- that is measured displacement, not a
+    # claim, and it is the difference between a working bot and a wedged one.
+    - Scout01:
+        description: last action, last movement, what it is doing
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: last moved
+              format: relativeDate
+            - field: aggregations.last.value_as_string
+              label: last action
+              format: relativeDate
+            - field: hits.total.value
+              label: attempts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: aggregations.moved.value
+              label: blocks
+              format: number
+    - Scout02:
+        description: last action, last movement, what it is doing
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: last moved
+              format: relativeDate
+            - field: aggregations.last.value_as_string
+              label: last action
+              format: relativeDate
+            - field: hits.total.value
+              label: attempts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: aggregations.moved.value
+              label: blocks
+              format: number
+    - Miner01:
+        description: last action, last movement, what it is doing
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Miner01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: last moved
+              format: relativeDate
+            - field: aggregations.last.value_as_string
+              label: last action
+              format: relativeDate
+            - field: hits.total.value
+              label: attempts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: aggregations.moved.value
+              label: blocks
+              format: number
+    - Gather01:
+        description: last action, last movement, what it is doing
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: last moved
+              format: relativeDate
+            - field: aggregations.last.value_as_string
+              label: last action
+              format: relativeDate
+            - field: hits.total.value
+              label: attempts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: aggregations.moved.value
+              label: blocks
+              format: number
+    - Gather02:
+        description: last action, last movement, what it is doing
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: last moved
+              format: relativeDate
+            - field: aggregations.last.value_as_string
+              label: last action
+              format: relativeDate
+            - field: hits.total.value
+              label: attempts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: aggregations.moved.value
+              label: blocks
+              format: number
+
 - Watch the bots:
     # prismarine-viewer: a live 3D view rendered around each bot -- terrain
     # updates as blocks change, and you can orbit the camera. The camera is
