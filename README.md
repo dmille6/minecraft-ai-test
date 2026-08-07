@@ -12,30 +12,36 @@ question answerable.
 
 ## What is running
 
+Five hosts on their own VLAN (192.168.193.0/24), on one node of a shared
+Proxmox cluster.
+
 ```
-                    ┌──────────────────────────────────┐
-                    │   homepage   http://mcai.lan     │  ← start here
-                    └──────────────────────────────────┘
+        ┌──────────────────────────────────────────────┐
+        │  homepage   http://192.168.193.10            │  ← start here
+        └──────────────────────────────────────────────┘
 
-  mcai                                    mcelk
-  ├── Paper 1.21.11 (Minecraft)           ├── Elasticsearch + Kibana
-  ├── Scout01 — mineflayer agent          ├── Hermes Agent (+ dashboard)
-  ├── squaremap    :8080  top-down map    └── Glances      :61208
-  ├── 3D bot view  :3007                       ▲
-  ├── Glances      :61208                      │ read-only
-  └── Filebeat ───── logs + telemetry ─────────┘
+  mc01  .100   Paper 1.21.8 · one pregenerated world · seed 7914455308567851796
+               ├── squaremap  :8080   live 2D map, all bots
+               └── observer          server-side RCON sampling, 10s
 
-  studio      — Ollama, serves agent + Hermes inference (large models)
-  gpu-host    — Ollama, small fast models and embeddings
+  lab01 .40    five mineflayer agents · Filebeat
+               └── 3D bot views :3007-3011   one per bot, live
+
+  evd01 .21    raw NDJSON archive · DuckDB · BlueMap (staged)
+  elk01 .30    Elasticsearch 9.4.4 + Kibana :5601
+  ctl01 .10    Claude Code · Codex · homepage · the guards
+
+  M4 Studio    Ollama — inference for the fleet (reachable by one firewall rule)
 ```
 
-Hostnames above are placeholders; real addresses live in `.env` files on the
-hosts and are deliberately not committed.
+**Paper is pinned to 1.21.8, not 1.21.11**, because of an open mineflayer issue
+reporting pathfinding and jumping failures specifically on 1.21.11 — and
+movement is this project's binding constraint. ViaVersion lets a current client
+still join.
 
-
-Full inventory, ports, and accounts: [`docs/ops/services.md`](docs/ops/services.md).
-
----
+Instances are **role names** — `scout scout2 miner gatherer gather2` — never
+display names. `systemctl restart mcbot@Scout01` creates a phantom unit that
+fails forever while the real bot keeps running.
 
 ## How the agent works
 
@@ -162,10 +168,16 @@ they do.
 
 | | |
 |---|---|
-| **Top-down live map** | http://mcai.lan:8080 — agent and player markers |
-| **3D over-the-shoulder** | http://mcai.lan:3007 — browser, no game client needed |
-| **In-game god mode** | `/gamemode spectator`, then `/spectate Scout01` |
-| **Kibana** | what it decided and why |
+| **Dashboard** | http://192.168.193.10 — start here. Live fleet metrics, per-bot health, host stats |
+| **Top-down live map** | http://192.168.193.100:8080 — squaremap, all five bots |
+| **3D per-bot view** | http://192.168.193.40:3007-3011 — live, in a browser, one per bot |
+| **In-game god mode** | connect to `192.168.193.100`, then `/gamemode spectator` |
+| **Kibana** | http://192.168.193.30:5601 — what it decided and why |
+
+There is no *webpage* that lets you fly freely through the live world: free
+flight means streaming arbitrary chunks on demand, which is what a Minecraft
+client is. The per-bot views are live and 3D but tethered to their bot; a
+spectator client is the only true fly-through.
 
 ---
 
@@ -174,7 +186,9 @@ they do.
 Full reasoning in [`docs/decisions/`](docs/decisions/). Two shape everything:
 
 **[ADR-0001](docs/decisions/ADR-0001-stack-selection.md) — pinned to Minecraft
-1.21.11, not the latest.** mineflayer's protocol layer stops at 1.21.11; bots
+1.21.8, not the latest.** mineflayer's protocol layer stops at 1.21.11, and an
+open mineflayer issue reports pathfinding failures on 1.21.11 itself, so the lab
+runs 1.21.8 with ViaVersion for current clients. Bots
 that cannot connect make the rest moot. ViaVersion lets a current client join
 anyway. This constraint propagates — plugins need per-version builds too.
 
@@ -248,41 +262,50 @@ Collected because none are obvious from reading the code:
 
 ## Current state
 
-Phase 1 (infrastructure) is complete. The agent connects, survives restarts,
-recovers from death, and the LLM drives it autonomously through a milestone
-chain: logs → planks → sticks → crafting table → wooden pickaxe → cobblestone
-→ stone pickaxe. Each step has a completion predicate in code, so the model
-never decides what "done" means.
+Rebuilt on new infrastructure on 2026-08-07, which is also the day the telemetry
+stopped lying. The full account is in
+[`docs/HANDOFF-2026-08-07.md`](docs/HANDOFF-2026-08-07.md).
 
-It gathers successfully, though `gather` still fails often in dense forest —
-the skill layer is the bottleneck, not the model. Role contrast on an identical
-world, model and codebase makes that concrete: gatherer 50%, scout 8%, miner 0%.
+The old fleet ran 16 hours and produced **81 deaths, 80 of them falls**, with
+`goto` succeeding **3%** of the time — while every liveness check reported
+healthy. Three defects, all the same shape, *a value reported rather than
+measured*:
 
-The agents do learn, and it survives restarts. Per-bot `avoid`/`worked` rules
-are built from counted outcomes rather than generated text, and hazard sites are
-shared fleet-wide — a drowning site one bot found 30 times is avoided by bots
-that have never been there. Terrain is common knowledge; policy stays private.
+- `goto` decided why a walk failed by regexing its own error prose. The pattern
+  matched our own wrapper timeout, so 393 expired travel budgets were recorded
+  as "no route exists". The pathfinder returned `NoPath` **zero** times.
+- The reflex layer's stuck detector calls `pathfinder.stop()`, so `goto()`
+  rejected with `PathStopped` rather than our AbortError — and **596
+  interruptions we caused were charged to the skill**.
+- Those false labels were persisted, and the admission gate enforced them. All
+  five bots had concluded that walking home was impossible.
 
-**Decision latency, measured on three concurrent bots:** `p50 ≈ 5–6.5s`,
-schema validity 298/298. Generation is only ~51 tokens (`MAX` 219 in 24h), so
-the cost is queueing and prefill, not output length — capping `num_predict`
-would do nothing, which measurement established after reasoning suggested
-otherwise.
+After the fixes, on a fresh pregenerated world:
 
-**Known gaps, honestly:** no automated tests — every bug so far was found by
-hand, including one that disabled the entire reflex layer and would have been
-caught by executing a single tick; world backups sit on the same volume as the
-world they protect; there is observability but no alerting; and no griefing
-controls yet, which matters now that an LLM can choose `place` and `mine`.
+```
+goto 33.3% (was 3.0%)   gather 69.6% (was 11%)   craft 56.8% (was 24%)
+2 deaths in 4 hours (was ~5/hour)     ~70 actions/hour (was ~375)
+```
 
-Difficulty is `peaceful` on purpose. With no weapon, armour, or combat skill,
-an armed night produced 22 mob deaths in six hours — that measures the world's
-hostility, not the agent's judgement. Combat is its own milestone.
+**This improvement cannot yet be attributed.** Five things changed at once —
+the Minecraft version, the world, the purged lessons, the lessons rule, and an
+LLM context mismatch. Resolving that confound with an A/A run and one-variable
+ablations is the next work, and it blocks everything else. A lab that cannot
+reproduce a run cannot support a conclusion.
 
-Addresses in this repo are placeholders (`mcai.lan`, `studio.lan`). Real ones
-live in `.env` files on the hosts and are deliberately not committed.
+## What watches it now
 
----
+- **Death circuit breaker** — 2 fall deaths per bot per 30m stops that bot; 5
+  fleet-wide, or 4 at mining depth, stops all. Reads **only** raw death events,
+  because the label pipeline has proven it can manufacture evidence. It only
+  ever stops; it never tunes or deploys.
+- **Commit-mismatch trip** — bots disagreeing on version, or running something
+  the trial does not declare, means the trial is uninterpretable. Version is
+  `<sha>+<digest of the .mjs actually loaded>`.
+- **Independent observer** — server-side position and health, sampled over RCON,
+  computing displacement itself. Nothing in the agent stack contributes to it.
+- **Evidence archive** — raw NDJSON on a host that runs none of the agents'
+  code, pulled over a forced-command key that refuses a shell.
 
 ## Layout
 
