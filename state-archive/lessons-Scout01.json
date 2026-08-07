@@ -1,20 +1,55 @@
 {
  "avoid": {
+  "craft:{\"item\":\"oak_log\"}": {
+   "args": {
+    "item": "oak_log",
+    "player": "self"
+   },
+   "classes": {
+    "missing_ingredients": 1
+   },
+   "fails": 1,
+   "last": 1786059947606,
+   "skill": "craft",
+   "where": {
+    "x": 1,
+    "y": 74,
+    "z": -4
+   }
+  },
+  "craft:{\"item\":\"oak_planks\"}": {
+   "args": {
+    "item": "oak_planks",
+    "player": "self"
+   },
+   "classes": {
+    "missing_ingredients": 8
+   },
+   "fails": 8,
+   "last": 1786065628568,
+   "skill": "craft",
+   "where": {
+    "x": -6,
+    "y": 72,
+    "z": 10
+   }
+  },
   "craft:{\"item\":\"stick\"}": {
    "args": {
     "item": "stick",
     "player": "self"
    },
    "classes": {
-    "missing_ingredients": 2
+    "missing_ingredients": 7,
+    "other": 1
    },
-   "fails": 2,
-   "last": 1786037713936,
+   "fails": 8,
+   "last": 1786065250449,
    "skill": "craft",
    "where": {
-    "x": 35,
-    "y": 78,
-    "z": 1
+    "x": -6,
+    "y": 71,
+    "z": 9
    }
   },
   "craft:{\"item\":\"wooden_pickaxe\"}": {
@@ -23,63 +58,32 @@
     "player": "self"
    },
    "classes": {
-    "missing_ingredients": 3,
-    "other": 2
+    "missing_ingredients": 6,
+    "other": 4
    },
-   "fails": 5,
-   "last": 1786045633038,
+   "fails": 10,
+   "last": 1786062384156,
    "skill": "craft",
    "where": {
-    "x": 59,
-    "y": 67,
-    "z": 23
+    "x": -3,
+    "y": 71,
+    "z": 6
    }
   },
   "explore:{}": {
    "args": {},
    "classes": {
     "other": 1,
-    "path_interrupted": 3,
+    "path_interrupted": 6,
     "path_timeout": 2
    },
-   "fails": 4,
-   "last": 1786034752424,
+   "fails": 5,
+   "last": 1786051232495,
    "skill": "explore",
    "where": {
     "x": 64,
-    "y": 64,
-    "z": 5
-   }
-  },
-  "follow:{}": {
-   "args": {},
-   "classes": {
-    "other": 5
-   },
-   "fails": 5,
-   "last": 1786026316307,
-   "skill": "follow",
-   "where": {
-    "x": 33,
-    "y": 73,
-    "z": 8
-   }
-  },
-  "gather:{\"block\":\"birch_log\",\"count\":1}": {
-   "args": {
-    "block": "birch_log",
-    "count": 1
-   },
-   "classes": {
-    "no_path": 1
-   },
-   "fails": 1,
-   "last": 1786035098973,
-   "skill": "gather",
-   "where": {
-    "x": 50,
-    "y": 70,
-    "z": 26
+    "y": 74,
+    "z": -33
    }
   },
   "gather:{\"block\":\"oak_log\",\"count\":12}": {
@@ -105,86 +109,49 @@
     "count": 16
    },
    "classes": {
-    "no_path": 1
+    "other": 1
    },
    "fails": 1,
-   "last": 1786038313381,
+   "last": 1786061066712,
    "skill": "gather",
    "where": {
-    "x": 38,
-    "y": 77,
-    "z": 1
+    "x": -1,
+    "y": 74,
+    "z": -21
    }
   },
-  "gather:{\"block\":\"oak_log\",\"count\":7}": {
+  "gather:{\"block\":\"oak_log\",\"count\":2}": {
    "args": {
     "block": "oak_log",
-    "count": 7
+    "count": 2
+   },
+   "classes": {
+    "other": 7
+   },
+   "fails": 7,
+   "last": 1786063359809,
+   "skill": "gather",
+   "where": {
+    "x": -3,
+    "y": 69,
+    "z": -11
+   }
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":8}": {
+   "args": {
+    "block": "oak_log",
+    "count": 8
    },
    "classes": {
     "other": 1
    },
    "fails": 1,
-   "last": 1786042405961,
+   "last": 1786053069053,
    "skill": "gather",
    "where": {
-    "x": 56,
-    "y": 75,
-    "z": 17
-   }
-  },
-  "goto:{\"x\":-15,\"y\":80,\"z\":135}": {
-   "args": {
-    "x": -15,
-    "y": 80,
-    "z": 135
-   },
-   "classes": {
-    "path_interrupted": 1
-   },
-   "fails": 1,
-   "last": 1786041845004,
-   "skill": "goto",
-   "where": {
-    "x": 59,
-    "y": 76,
-    "z": 17
-   }
-  },
-  "goto:{\"x\":-20,\"y\":80,\"z\":130}": {
-   "args": {
-    "x": -20,
-    "y": 80,
-    "z": 130
-   },
-   "classes": {
-    "no_path": 1
-   },
-   "fails": 1,
-   "last": 1786040724126,
-   "skill": "goto",
-   "where": {
-    "x": 57,
-    "y": 76,
-    "z": 18
-   }
-  },
-  "goto:{\"x\":-20,\"y\":80,\"z\":150}": {
-   "args": {
-    "x": -20,
-    "y": 80,
-    "z": 150
-   },
-   "classes": {
-    "no_path": 1
-   },
-   "fails": 1,
-   "last": 1786040868241,
-   "skill": "goto",
-   "where": {
-    "x": 57,
-    "y": 76,
-    "z": 18
+    "x": 29,
+    "y": 78,
+    "z": 1
    }
   },
   "goto:{\"x\":-30,\"y\":75,\"z\":120}": {
@@ -205,76 +172,58 @@
     "z": 14
    }
   },
-  "goto:{\"x\":-30,\"y\":80,\"z\":120}": {
+  "goto:{\"x\":0,\"y\":62,\"z\":-13}": {
    "args": {
-    "x": -30,
-    "y": 80,
-    "z": 120
-   },
-   "classes": {
-    "no_path": 1
-   },
-   "fails": 1,
-   "last": 1786039379248,
-   "skill": "goto",
-   "where": {
-    "x": 31,
-    "y": 73,
-    "z": 13
-   }
-  },
-  "goto:{\"x\":-30,\"y\":80,\"z\":150}": {
-   "args": {
-    "x": -30,
-    "y": 80,
-    "z": 150
+    "x": 0,
+    "y": 62,
+    "z": -13
    },
    "classes": {
     "path_interrupted": 1
    },
    "fails": 1,
-   "last": 1786042921245,
+   "last": 1786063310224,
    "skill": "goto",
    "where": {
-    "x": 34,
-    "y": 75,
-    "z": 25
+    "x": -3,
+    "y": 68,
+    "z": -11
    }
   },
-  "goto:{\"x\":-50,\"y\":80,\"z\":100}": {
+  "goto:{\"x\":0,\"y\":65,\"z\":100}": {
    "args": {
-    "x": -50,
-    "y": 80,
+    "x": 0,
+    "y": 65,
     "z": 100
    },
    "classes": {
-    "path_interrupted": 1
+    "no_path": 1
    },
    "fails": 1,
-   "last": 1786040794012,
+   "last": 1786052628512,
    "skill": "goto",
    "where": {
-    "x": 57,
-    "y": 76,
-    "z": 18
+    "x": 59,
+    "y": 75,
+    "z": -30
    }
   },
-  "goto:{\"x\":-60,\"y\":80,\"z\":150}": {
+  "goto:{\"x\":0,\"y\":69,\"z\":140}": {
    "args": {
-    "x": -60,
-    "y": 80,
-    "z": 150
+    "x": 0,
+    "y": 69,
+    "z": 140
    },
    "classes": {
     "no_path": 1
    },
    "fails": 1,
-   "last": 1786042837747,
+   "last": 1786046451754,
    "skill": "goto",
    "where": {
-    "x": 34,
-    "y": 76,
-    "z": 25
+    "x": 64,
+    "y": 66,
+    "z": 16
    }
   },
   "goto:{\"x\":0,\"y\":75,\"z\":120}": {
@@ -295,6 +244,43 @@
     "z": 16
    }
   },
+  "goto:{\"x\":0,\"y\":79,\"z\":0}": {
+   "args": {
+    "x": 0,
+    "y": 79,
+    "z": 0
+   },
+   "classes": {
+    "no_path": 1,
+    "path_interrupted": 1
+   },
+   "fails": 2,
+   "last": 1786052170295,
+   "skill": "goto",
+   "where": {
+    "x": 59,
+    "y": 74,
+    "z": -30
+   }
+  },
+  "goto:{\"x\":0,\"y\":80,\"z\":100}": {
+   "args": {
+    "x": 0,
+    "y": 80,
+    "z": 100
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786052798663,
+   "skill": "goto",
+   "where": {
+    "x": 28,
+    "y": 78,
+    "z": 1
+   }
+  },
   "goto:{\"x\":0,\"y\":80,\"z\":120}": {
    "args": {
     "x": 0,
@@ -302,15 +288,16 @@
     "z": 120
    },
    "classes": {
-    "other": 1
+    "no_path": 1,
+    "other": 2
    },
-   "fails": 1,
-   "last": 1786039427370,
+   "fails": 3,
+   "last": 1786052725792,
    "skill": "goto",
    "where": {
-    "x": 31,
-    "y": 73,
-    "z": 13
+    "x": 29,
+    "y": 78,
+    "z": 1
    }
   },
   "goto:{\"x\":0,\"y\":80,\"z\":145}": {
@@ -338,16 +325,16 @@
     "z": 150
    },
    "classes": {
-    "no_path": 1,
+    "no_path": 3,
     "path_interrupted": 3
    },
-   "fails": 4,
-   "last": 1786045815650,
+   "fails": 6,
+   "last": 1786061894216,
    "skill": "goto",
    "where": {
-    "x": 60,
-    "y": 68,
-    "z": 23
+    "x": -1,
+    "y": 74,
+    "z": -21
    }
   },
   "goto:{\"x\":0,\"y\":80,\"z\":75}": {
@@ -357,33 +344,16 @@
     "z": 75
    },
    "classes": {
-    "no_path": 1
+    "no_path": 4,
+    "path_interrupted": 1
    },
-   "fails": 1,
-   "last": 1786046377447,
+   "fails": 5,
+   "last": 1786061569298,
    "skill": "goto",
    "where": {
-    "x": 64,
-    "y": 66,
-    "z": 16
-   }
-  },
-  "goto:{\"x\":120,\"y\":75,\"z\":0}": {
-   "args": {
-    "x": 120,
-    "y": 75,
-    "z": 0
-   },
-   "classes": {
-    "no_path": 1
-   },
-   "fails": 1,
-   "last": 1786041278429,
-   "skill": "goto",
-   "where": {
-    "x": 58,
-    "y": 75,
-    "z": 11
+    "x": -1,
+    "y": 74,
+    "z": -21
    }
   },
   "goto:{\"x\":120,\"y\":80,\"z\":0}": {
@@ -393,39 +363,21 @@
     "z": 0
    },
    "classes": {
-    "no_path": 3,
+    "no_path": 5,
     "path_interrupted": 1
    },
-   "fails": 4,
-   "last": 1786041497472,
+   "fails": 6,
+   "last": 1786060480344,
    "skill": "goto",
    "where": {
-    "x": 61,
-    "y": 76,
-    "z": 16
+    "x": 0,
+    "y": 73,
+    "z": -12
    }
   },
-  "goto:{\"x\":120,\"y\":85,\"z\":0}": {
+  "goto:{\"x\":128,\"y\":80,\"z\":0}": {
    "args": {
-    "x": 120,
-    "y": 85,
-    "z": 0
-   },
-   "classes": {
-    "no_path": 1
-   },
-   "fails": 1,
-   "last": 1786037500032,
-   "skill": "goto",
-   "where": {
-    "x": 36,
-    "y": 78,
-    "z": 1
-   }
-  },
-  "goto:{\"x\":130,\"y\":80,\"z\":0}": {
-   "args": {
-    "x": 130,
+    "x": 128,
     "y": 80,
     "z": 0
    },
@@ -433,30 +385,30 @@
     "no_path": 1
    },
    "fails": 1,
-   "last": 1786041351557,
+   "last": 1786047399821,
    "skill": "goto",
    "where": {
-    "x": 61,
-    "y": 76,
-    "z": 16
+    "x": 24,
+    "y": 78,
+    "z": 2
    }
   },
-  "goto:{\"x\":135,\"y\":76,\"z\":0}": {
+  "goto:{\"x\":130,\"y\":71,\"z\":0}": {
    "args": {
-    "x": 135,
-    "y": 76,
+    "x": 130,
+    "y": 71,
     "z": 0
    },
    "classes": {
-    "no_path": 1
+    "path_interrupted": 1
    },
    "fails": 1,
-   "last": 1786041771359,
+   "last": 1786060553819,
    "skill": "goto",
    "where": {
-    "x": 61,
-    "y": 76,
-    "z": 15
+    "x": -2,
+    "y": 71,
+    "z": -8
    }
   },
   "goto:{\"x\":135,\"y\":80,\"z\":0}": {
@@ -466,34 +418,70 @@
     "z": 0
    },
    "classes": {
-    "no_path": 1
+    "no_path": 1,
+    "other": 1
    },
-   "fails": 1,
-   "last": 1786041626974,
+   "fails": 2,
+   "last": 1786047753907,
    "skill": "goto",
    "where": {
-    "x": 61,
-    "y": 76,
-    "z": 16
+    "x": 24,
+    "y": 78,
+    "z": 2
    }
   },
-  "goto:{\"x\":140,\"y\":80,\"z\":0}": {
+  "goto:{\"x\":140,\"y\":71,\"z\":0}": {
    "args": {
     "x": 140,
-    "y": 80,
+    "y": 71,
     "z": 0
    },
    "classes": {
-    "no_path": 2,
     "path_interrupted": 1
    },
-   "fails": 3,
-   "last": 1786041698708,
+   "fails": 1,
+   "last": 1786060252634,
    "skill": "goto",
    "where": {
-    "x": 61,
+    "x": 0,
+    "y": 73,
+    "z": -12
+   }
+  },
+  "goto:{\"x\":150,\"y\":74,\"z\":-30}": {
+   "args": {
+    "x": 150,
+    "y": 74,
+    "z": -30
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786051090481,
+   "skill": "goto",
+   "where": {
+    "x": 64,
+    "y": 74,
+    "z": -30
+   }
+  },
+  "goto:{\"x\":150,\"y\":76,\"z\":-4}": {
+   "args": {
+    "x": 150,
     "y": 76,
-    "z": 16
+    "z": -4
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786050049300,
+   "skill": "goto",
+   "where": {
+    "x": 34,
+    "y": 77,
+    "z": -3
    }
   },
   "goto:{\"x\":150,\"y\":80,\"z\":0}": {
@@ -503,51 +491,54 @@
     "z": 0
    },
    "classes": {
-    "no_path": 3
+    "no_path": 5,
+    "path_interrupted": 1
+   },
+   "fails": 6,
+   "last": 1786060407273,
+   "skill": "goto",
+   "where": {
+    "x": 0,
+    "y": 73,
+    "z": -12
+   }
+  },
+  "goto:{\"x\":28,\"y\":79,\"z\":0}": {
+   "args": {
+    "x": 28,
+    "y": 79,
+    "z": 0
+   },
+   "classes": {
+    "no_path": 2,
+    "path_interrupted": 1
    },
    "fails": 3,
-   "last": 1786041551773,
+   "last": 1786064070876,
    "skill": "goto",
    "where": {
-    "x": 61,
-    "y": 76,
-    "z": 16
+    "x": -1,
+    "y": 72,
+    "z": -7
    }
   },
-  "goto:{\"x\":90,\"y\":78,\"z\":0}": {
+  "home:{}": {
    "args": {
-    "x": 90,
-    "y": 78,
+    "x": 28,
+    "y": 79,
     "z": 0
    },
    "classes": {
-    "no_path": 1
+    "no_path": 4,
+    "path_interrupted": 1
    },
-   "fails": 1,
-   "last": 1786037923673,
-   "skill": "goto",
+   "fails": 5,
+   "last": 1786064143775,
+   "skill": "home",
    "where": {
-    "x": 36,
-    "y": 78,
-    "z": 1
-   }
-  },
-  "goto:{\"x\":90,\"y\":80,\"z\":0}": {
-   "args": {
-    "x": 90,
-    "y": 80,
-    "z": 0
-   },
-   "classes": {
-    "no_path": 1
-   },
-   "fails": 1,
-   "last": 1786038072953,
-   "skill": "goto",
-   "where": {
-    "x": 36,
-    "y": 78,
-    "z": 1
+    "x": -1,
+    "y": 72,
+    "z": -7
    }
   },
   "mine:{\"y\":12}": {
@@ -555,32 +546,32 @@
     "y": 12
    },
    "classes": {
-    "missing_tool": 2,
-    "other": 5
+    "missing_tool": 4,
+    "other": 6
    },
-   "fails": 7,
-   "last": 1786045584145,
+   "fails": 10,
+   "last": 1786051649824,
    "skill": "mine",
    "where": {
-    "x": 59,
-    "y": 67,
-    "z": 23
+    "x": 58,
+    "y": 74,
+    "z": -34
    }
   },
-  "mine:{\"y\":9}": {
+  "mine:{\"y\":13}": {
    "args": {
-    "y": 9
+    "y": 13
    },
    "classes": {
-    "other": 1
+    "missing_tool": 1
    },
    "fails": 1,
-   "last": 1786026829337,
+   "last": 1786062271779,
    "skill": "mine",
    "where": {
-    "x": 29,
-    "y": 79,
-    "z": 1
+    "x": -3,
+    "y": 71,
+    "z": 6
    }
   }
  },
@@ -590,66 +581,83 @@
    "craft_stick_4": 0,
    "gather_oak_log_16": 0,
    "gather_oak_log_8": 0,
-   "stockpile_stone": 4,
+   "patrol": 0,
+   "return": 0,
+   "stockpile_stone": 0,
    "stockpile_wood": 0,
-   "travel_0_150": 6,
+   "travel_0_150": 0,
    "travel_150_0": 0
   },
   "blocked": {
-   "craft:{\"item\":\"wooden_pickaxe\"}": 2,
-   "explore:{}": 14,
+   "craft:{\"item\":\"oak_planks\"}": 22,
+   "craft:{\"item\":\"stick\"}": 14,
+   "craft:{\"item\":\"wooden_pickaxe\"}": 21,
+   "explore:{}": 33,
    "follow:{}": 5,
+   "gather:{\"block\":\"oak_log\",\"count\":2}": 37,
    "goto:{\"x\":0,\"y\":78,\"z\":50}": 2,
-   "mine:{\"y\":12}": 5
+   "goto:{\"x\":0,\"y\":80,\"z\":150}": 5,
+   "goto:{\"x\":0,\"y\":80,\"z\":75}": 1,
+   "goto:{\"x\":150,\"y\":80,\"z\":0}": 5,
+   "home:{}": 4,
+   "mine:{\"y\":12}": 19
   },
+  "cycle": 6,
   "skipCount": {
-   "craft_oak_planks_8": 1,
-   "gather_oak_log_16": 2,
-   "gather_oak_log_8": 1,
-   "stockpile_wood": 1,
-   "travel_0_150": 1,
-   "travel_150_0": 2
+   "craft_oak_planks_8": 3,
+   "craft_stick_4": 2,
+   "gather_oak_log_16": 4,
+   "gather_oak_log_8": 3,
+   "patrol": 2,
+   "return": 1,
+   "stockpile_stone": 3,
+   "stockpile_wood": 4,
+   "travel_0_150": 4,
+   "travel_150_0": 4
   },
   "skipped": [
    "travel_150_0",
    "gather_oak_log_16",
+   "travel_0_150",
+   "stockpile_stone",
+   "patrol",
+   "gather_oak_log_8",
+   "craft_stick_4",
+   "return",
+   "craft_oak_planks_8",
    "stockpile_wood"
   ],
   "skippedAt": {
-   "craft_oak_planks_8": 1786037248665,
-   "gather_oak_log_16": 1786042690511,
-   "gather_oak_log_8": 1786036425789,
-   "stockpile_wood": 1786045536116,
-   "travel_0_150": 1786042921245,
-   "travel_150_0": 1786041771360
+   "craft_oak_planks_8": 1786064673404,
+   "craft_stick_4": 1786063946376,
+   "gather_oak_log_16": 1786061320552,
+   "gather_oak_log_8": 1786063455616,
+   "patrol": 1786062384157,
+   "return": 1786064205352,
+   "stockpile_stone": 1786062271780,
+   "stockpile_wood": 1786065189885,
+   "travel_0_150": 1786061894217,
+   "travel_150_0": 1786060627289
   }
  },
- "runs": 120,
+ "runs": 150,
  "schema": 1,
  "sites": [
   {
-   "count": 16,
+   "count": 21,
    "kind": "suffocating",
-   "last": 1786030291255,
+   "last": 1786054598475,
    "x": 29,
    "y": 79,
    "z": 0
   },
   {
-   "count": 4,
+   "count": 11,
    "kind": "suffocating",
-   "last": 1786029564161,
+   "last": 1786052601824,
    "x": 60,
    "y": 75,
    "z": -39
-  },
-  {
-   "count": 7,
-   "kind": "suffocating",
-   "last": 1786034581518,
-   "x": 68,
-   "y": 64,
-   "z": 3
   },
   {
    "count": 3,
@@ -658,6 +666,22 @@
    "x": 52,
    "y": 69,
    "z": 25
+  },
+  {
+   "count": 5,
+   "kind": "suffocating",
+   "last": 1786059270485,
+   "x": -17,
+   "y": 70,
+   "z": 2
+  },
+  {
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786062731919,
+   "x": -3,
+   "y": 71,
+   "z": 6
   }
  ],
  "skillVersions": {
@@ -692,33 +716,41 @@
     "item": "oak_planks",
     "player": "self"
    },
-   "last": 1786040572197,
+   "last": 1786054480381,
    "skill": "craft",
-   "wins": 2
+   "wins": 9
   },
   "craft:{\"item\":\"stick\"}": {
    "args": {
     "item": "stick",
     "player": "self"
    },
-   "last": 1786037423472,
+   "last": 1786054334336,
    "skill": "craft",
-   "wins": 4
+   "wins": 9
+  },
+  "deposit:{}": {
+   "args": {
+    "item": "oak_planks"
+   },
+   "last": 1786054002067,
+   "skill": "deposit",
+   "wins": 1
   },
   "explore:{}": {
    "args": {},
-   "last": 1786034324429,
+   "last": 1786051014599,
    "skill": "explore",
-   "wins": 5
+   "wins": 7
   },
   "gather:{\"block\":\"oak_log\",\"count\":1}": {
    "args": {
     "block": "oak_log",
     "count": 1
    },
-   "last": 1786039990489,
+   "last": 1786055408855,
    "skill": "gather",
-   "wins": 1
+   "wins": 4
   },
   "gather:{\"block\":\"oak_log\",\"count\":2}": {
    "args": {
@@ -806,6 +838,16 @@
     "z": 6
    },
    "last": 1785991361423,
+   "skill": "goto",
+   "wins": 1
+  },
+  "goto:{\"x\":28,\"y\":79,\"z\":0}": {
+   "args": {
+    "x": 28,
+    "y": 79,
+    "z": 0
+   },
+   "last": 1786053905049,
    "skill": "goto",
    "wins": 1
   }

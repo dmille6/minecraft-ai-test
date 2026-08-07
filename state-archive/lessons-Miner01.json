@@ -1,21 +1,67 @@
 {
  "avoid": {
+  "come:{}": {
+   "args": {},
+   "classes": {
+    "bad_target": 2
+   },
+   "fails": 2,
+   "last": 1786053596132,
+   "skill": "come",
+   "where": {
+    "x": 43,
+    "y": 73,
+    "z": 8
+   }
+  },
+  "craft:{\"item\":\"crafting_table\"}": {
+   "args": {
+    "item": "crafting_table",
+    "player": "Miner01"
+   },
+   "classes": {
+    "missing_ingredients": 1
+   },
+   "fails": 1,
+   "last": 1786065287259,
+   "skill": "craft",
+   "where": {
+    "x": -10,
+    "y": 72,
+    "z": 12
+   }
+  },
+  "craft:{\"item\":\"oak_planks\"}": {
+   "args": {
+    "item": "oak_planks"
+   },
+   "classes": {
+    "missing_ingredients": 14
+   },
+   "fails": 12,
+   "last": 1786065755608,
+   "skill": "craft",
+   "where": {
+    "x": -7,
+    "y": 71,
+    "z": 4
+   }
+  },
   "craft:{\"item\":\"stick\"}": {
    "args": {
     "item": "stick",
     "player": "Miner01"
    },
    "classes": {
-    "missing_ingredients": 4,
-    "other": 1
+    "missing_ingredients": 4
    },
-   "fails": 2,
-   "last": 1786031827193,
+   "fails": 4,
+   "last": 1786064704605,
    "skill": "craft",
    "where": {
-    "x": 57,
-    "y": 75,
-    "z": -25
+    "x": -8,
+    "y": 71,
+    "z": 3
    }
   },
   "craft:{\"item\":\"stone_pickaxe\"}": {
@@ -26,13 +72,13 @@
    "classes": {
     "other": 2
    },
-   "fails": 1,
-   "last": 1786038318887,
+   "fails": 2,
+   "last": 1786053701129,
    "skill": "craft",
    "where": {
-    "x": 53,
-    "y": 61,
-    "z": -37
+    "x": 43,
+    "y": 73,
+    "z": 8
    }
   },
   "craft:{\"item\":\"wooden_pickaxe\"}": {
@@ -41,46 +87,17 @@
     "player": "Miner01"
    },
    "classes": {
-    "missing_ingredients": 3,
+    "missing_ingredients": 4,
     "needs_station": 1,
     "other": 2
    },
-   "fails": 5,
-   "last": 1786037173786,
+   "fails": 6,
+   "last": 1786053938774,
    "skill": "craft",
    "where": {
-    "x": 45,
-    "y": 75,
-    "z": -36
-   }
-  },
-  "eat:{}": {
-   "args": {},
-   "classes": {
-    "other": 3
-   },
-   "fails": 3,
-   "last": 1786023688125,
-   "skill": "eat",
-   "where": {
-    "x": 27,
-    "y": 79,
-    "z": 0
-   }
-  },
-  "explore:{}": {
-   "args": {},
-   "classes": {
-    "path_interrupted": 2,
-    "path_timeout": 1
-   },
-   "fails": 2,
-   "last": 1786035346727,
-   "skill": "explore",
-   "where": {
-    "x": 65,
-    "y": 75,
-    "z": -29
+    "x": -2,
+    "y": 73,
+    "z": 6
    }
   },
   "gather:{\"block\":\"oak_log\",\"count\":1}": {
@@ -89,66 +106,277 @@
     "count": 1
    },
    "classes": {
-    "no_path": 2,
-    "other": 3
+    "no_path": 1,
+    "other": 4
    },
-   "fails": 3,
-   "last": 1786045987065,
+   "fails": 5,
+   "last": 1786061931110,
    "skill": "gather",
    "where": {
-    "x": -17,
+    "x": -3,
     "y": 71,
-    "z": 13
+    "z": -17
    }
   },
-  "goto:{\"x\":51,\"y\":62,\"z\":-37}": {
+  "gather:{\"block\":\"oak_log\",\"count\":3}": {
    "args": {
-    "x": 51,
-    "y": 62,
-    "z": -37
-   },
-   "classes": {
-    "no_path": 2
-   },
-   "fails": 2,
-   "last": 1786038136441,
-   "skill": "goto",
-   "where": {
-    "x": 53,
-    "y": 61,
-    "z": -37
-   }
-  },
-  "mine:{\"y\":14}": {
-   "args": {
-    "y": 14
+    "block": "oak_log",
+    "count": 3
    },
    "classes": {
     "other": 1
    },
    "fails": 1,
-   "last": 1786025211029,
-   "skill": "mine",
+   "last": 1786056838892,
+   "skill": "gather",
    "where": {
-    "x": 33,
-    "y": 77,
-    "z": -4
+    "x": 0,
+    "y": 74,
+    "z": -20
    }
   },
-  "mine:{\"y\":15}": {
+  "gather:{\"block\":\"oak_log\",\"count\":4}": {
    "args": {
-    "y": 15
+    "block": "oak_log",
+    "count": 4
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786056166366,
+   "skill": "gather",
+   "where": {
+    "x": -1,
+    "y": 73,
+    "z": -21
+   }
+  },
+  "goto:{\"x\":-100,\"y\":73,\"z\":50}": {
+   "args": {
+    "x": -100,
+    "y": 73,
+    "z": 50
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786051249237,
+   "skill": "goto",
+   "where": {
+    "x": 32,
+    "y": 74,
+    "z": 16
+   }
+  },
+  "goto:{\"x\":-39,\"y\":74,\"z\":16}": {
+   "args": {
+    "x": -39,
+    "y": 74,
+    "z": 16
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786051383198,
+   "skill": "goto",
+   "where": {
+    "x": 31,
+    "y": 74,
+    "z": 15
+   }
+  },
+  "goto:{\"x\":-39,\"y\":74,\"z\":20}": {
+   "args": {
+    "x": -39,
+    "y": 74,
+    "z": 20
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786051581856,
+   "skill": "goto",
+   "where": {
+    "x": 32,
+    "y": 74,
+    "z": 17
+   }
+  },
+  "goto:{\"x\":-80,\"y\":74,\"z\":80}": {
+   "args": {
+    "x": -80,
+    "y": 74,
+    "z": 80
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786051656999,
+   "skill": "goto",
+   "where": {
+    "x": 32,
+    "y": 75,
+    "z": 18
+   }
+  },
+  "goto:{\"x\":-85,\"y\":73,\"z\":40}": {
+   "args": {
+    "x": -85,
+    "y": 73,
+    "z": 40
+   },
+   "classes": {
+    "other": 1
+   },
+   "fails": 1,
+   "last": 1786051089743,
+   "skill": "goto",
+   "where": {
+    "x": 34,
+    "y": 73,
+    "z": 15
+   }
+  },
+  "goto:{\"x\":120,\"y\":73,\"z\":-90}": {
+   "args": {
+    "x": 120,
+    "y": 73,
+    "z": -90
+   },
+   "classes": {
+    "no_path": 2
+   },
+   "fails": 2,
+   "last": 1786051175953,
+   "skill": "goto",
+   "where": {
+    "x": 34,
+    "y": 73,
+    "z": 15
+   }
+  },
+  "goto:{\"x\":30,\"y\":79,\"z\":0}": {
+   "args": {
+    "x": 30,
+    "y": 79,
+    "z": 0
+   },
+   "classes": {
+    "no_path": 2
+   },
+   "fails": 2,
+   "last": 1786053775927,
+   "skill": "goto",
+   "where": {
+    "x": 43,
+    "y": 73,
+    "z": 8
+   }
+  },
+  "goto:{\"x\":50,\"y\":77,\"z\":80}": {
+   "args": {
+    "x": 50,
+    "y": 77,
+    "z": 80
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786050963142,
+   "skill": "goto",
+   "where": {
+    "x": 33,
+    "y": 73,
+    "z": 15
+   }
+  },
+  "goto:{\"x\":80,\"y\":74,\"z\":-120}": {
+   "args": {
+    "x": 80,
+    "y": 74,
+    "z": -120
+   },
+   "classes": {
+    "other": 1
+   },
+   "fails": 1,
+   "last": 1786051305770,
+   "skill": "goto",
+   "where": {
+    "x": 32,
+    "y": 74,
+    "z": 16
+   }
+  },
+  "goto:{\"x\":85,\"y\":74,\"z\":-20}": {
+   "args": {
+    "x": 85,
+    "y": 74,
+    "z": -20
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786051458057,
+   "skill": "goto",
+   "where": {
+    "x": 40,
+    "y": 74,
+    "z": 12
+   }
+  },
+  "home:{}": {
+   "args": {},
+   "classes": {
+    "no_path": 6,
+    "other": 1
+   },
+   "fails": 7,
+   "last": 1786054187767,
+   "skill": "home",
+   "where": {
+    "x": -2,
+    "y": 73,
+    "z": 6
+   }
+  },
+  "mine:{\"y\":-53}": {
+   "args": {
+    "y": -53
+   },
+   "classes": {
+    "other": 1
+   },
+   "fails": 1,
+   "last": 1786047030445,
+   "skill": "mine",
+   "where": {
+    "x": -23,
+    "y": -23,
+    "z": 16
+   }
+  },
+  "mine:{\"y\":65}": {
+   "args": {
+    "y": 65
    },
    "classes": {
     "other": 2
    },
    "fails": 2,
-   "last": 1786026605378,
+   "last": 1786050887731,
    "skill": "mine",
    "where": {
-    "x": 30,
-    "y": 75,
-    "z": -22
+    "x": 33,
+    "y": 77,
+    "z": 3
    }
   },
   "mine:{\"y\":68}": {
@@ -156,32 +384,15 @@
     "y": 68
    },
    "classes": {
-    "other": 8
+    "other": 12
    },
-   "fails": 8,
-   "last": 1786033748763,
-   "skill": "mine",
-   "where": {
-    "x": 53,
-    "y": 74,
-    "z": -29
-   }
-  },
-  "mine:{\"y\":72}": {
-   "args": {
-    "y": 72
-   },
-   "classes": {
-    "missing_tool": 7,
-    "other": 4
-   },
-   "fails": 6,
-   "last": 1786023900321,
+   "fails": 12,
+   "last": 1786049780566,
    "skill": "mine",
    "where": {
     "x": 28,
-    "y": 77,
-    "z": -11
+    "y": 78,
+    "z": 1
    }
   },
   "place:{\"item\":\"crafting_table\"}": {
@@ -189,106 +400,78 @@
     "item": "crafting_table"
    },
    "classes": {
-    "other": 2
-   },
-   "fails": 2,
-   "last": 1786037276554,
-   "skill": "place",
-   "where": {
-    "x": 45,
-    "y": 75,
-    "z": -36
-   }
-  },
-  "status:{}": {
-   "args": {},
-   "classes": {
     "other": 4
    },
    "fails": 4,
-   "last": 1786028070978,
-   "skill": "status",
+   "last": 1786047508119,
+   "skill": "place",
    "where": {
-    "x": 30,
-    "y": 77,
-    "z": 8
+    "x": -23,
+    "y": -46,
+    "z": 16
    }
   }
  },
  "progress": {
   "attempts": {
-   "craft_crafting_table_1": 0,
-   "craft_oak_planks_16": 0,
+   "craft_crafting_table_1": 6,
+   "craft_oak_planks_16": 8,
    "craft_stick_8": 0,
    "craft_stone_pickaxe_1": 0,
    "craft_wooden_pickaxe_1": 0,
    "gather_cobblestone_12": 0,
    "gather_oak_log_8": 0,
-   "stockpile_wood": 10
+   "patrol": 0,
+   "return": 21,
+   "stockpile_stone": 0,
+   "stockpile_wood": 0
   },
   "blocked": {
-   "craft:{\"item\":\"stick\"}": 10,
+   "craft:{\"item\":\"oak_planks\"}": 41,
+   "craft:{\"item\":\"stick\"}": 15,
+   "craft:{\"item\":\"stone_pickaxe\"}": 5,
    "craft:{\"item\":\"wooden_pickaxe\"}": 10,
    "follow:{}": 1,
+   "gather:{\"block\":\"oak_log\",\"count\":1}": 20,
+   "home:{}": 16,
    "mine:{\"y\":12}": 4,
    "mine:{\"y\":62}": 2,
-   "mine:{\"y\":68}": 18,
-   "mine:{\"y\":72}": 58
+   "mine:{\"y\":68}": 33,
+   "mine:{\"y\":72}": 58,
+   "place:{\"item\":\"crafting_table\"}": 5
   },
-  "skipCount": {},
-  "skipped": [],
-  "skippedAt": {}
+  "cycle": 1,
+  "skipCount": {
+   "craft_oak_planks_16": 1,
+   "craft_stick_8": 1,
+   "gather_oak_log_8": 2,
+   "patrol": 1,
+   "stockpile_stone": 2,
+   "stockpile_wood": 2
+  },
+  "skipped": [
+   "gather_oak_log_8",
+   "craft_stick_8"
+  ],
+  "skippedAt": {
+   "craft_oak_planks_16": 1786062697238,
+   "craft_stick_8": 1786064803804,
+   "gather_oak_log_8": 1786061576692,
+   "patrol": 1786051657000,
+   "stockpile_stone": 1786054113293,
+   "stockpile_wood": 1786050610959
+  }
  },
- "runs": 66,
+ "runs": 68,
  "schema": 1,
  "sites": [
   {
-   "count": 28,
+   "count": 31,
    "kind": "suffocating",
-   "last": 1786038543203,
+   "last": 1786049123082,
    "x": 29,
    "y": 79,
    "z": 1
-  },
-  {
-   "count": 4,
-   "kind": "suffocating",
-   "last": 1786034589672,
-   "x": 52,
-   "y": 75,
-   "z": -16
-  },
-  {
-   "count": 3,
-   "kind": "suffocating",
-   "last": 1786032959313,
-   "x": 65,
-   "y": 75,
-   "z": -28
-  },
-  {
-   "count": 9,
-   "kind": "suffocating",
-   "last": 1786032827224,
-   "x": 54,
-   "y": 75,
-   "z": -39
-  },
-  {
-   "count": 2,
-   "kind": "suffocating",
-   "last": 1786040872512,
-   "x": 6,
-   "y": 78,
-   "z": 37
-  },
-  {
-   "count": 2,
-   "kind": "suffocating",
-   "last": 1786043021989,
-   "x": -12,
-   "y": 73,
-   "z": 18
   },
   {
    "count": 2,
@@ -297,6 +480,46 @@
    "x": -48,
    "y": 72,
    "z": 38
+  },
+  {
+   "count": 2,
+   "kind": "suffocating",
+   "last": 1786051843045,
+   "x": 32,
+   "y": 74,
+   "z": 16
+  },
+  {
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786053114076,
+   "x": 43,
+   "y": 73,
+   "z": 8
+  },
+  {
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786062731927,
+   "x": -3,
+   "y": 76,
+   "z": -5
+  },
+  {
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786059923620,
+   "x": -20,
+   "y": 70,
+   "z": 2
+  },
+  {
+   "count": 1,
+   "kind": "suffocating",
+   "last": 1786065604073,
+   "x": -12,
+   "y": 71,
+   "z": 12
   }
  ],
  "skillVersions": {
@@ -322,36 +545,36 @@
     "item": "crafting_table",
     "player": "Miner01"
    },
-   "last": 1786038257586,
+   "last": 1786063304922,
    "skill": "craft",
-   "wins": 2
+   "wins": 3
   },
   "craft:{\"item\":\"oak_planks\"}": {
    "args": {
     "item": "oak_planks",
     "player": "Miner01"
    },
-   "last": 1786039355069,
+   "last": 1786060262865,
    "skill": "craft",
-   "wins": 9
+   "wins": 17
   },
   "craft:{\"item\":\"stick\"}": {
    "args": {
     "item": "stick",
     "player": "self"
    },
-   "last": 1786035396405,
+   "last": 1786062796194,
    "skill": "craft",
-   "wins": 4
+   "wins": 7
   },
   "craft:{\"item\":\"stone_pickaxe\"}": {
    "args": {
     "item": "stone_pickaxe",
     "player": "Miner01"
    },
-   "last": 1786038820654,
+   "last": 1786049606020,
    "skill": "craft",
-   "wins": 1
+   "wins": 11
   },
   "craft:{\"item\":\"wooden_pickaxe\"}": {
    "args": {
@@ -373,9 +596,9 @@
     "block": "oak_log",
     "count": 1
    },
-   "last": 1786045417087,
+   "last": 1786058856303,
    "skill": "gather",
-   "wins": 30
+   "wins": 38
   },
   "gather:{\"block\":\"oak_log\",\"count\":2}": {
    "args": {
@@ -400,7 +623,16 @@
     "block": "oak_log",
     "count": 5
    },
-   "last": 1786042319057,
+   "last": 1786055424346,
+   "skill": "gather",
+   "wins": 2
+  },
+  "gather:{\"block\":\"oak_log\",\"count\":7}": {
+   "args": {
+    "block": "oak_log",
+    "count": 7
+   },
+   "last": 1786055095002,
    "skill": "gather",
    "wins": 1
   },
@@ -464,6 +696,14 @@
    "skill": "goto",
    "wins": 1
   },
+  "mine:{\"y\":-24}": {
+   "args": {
+    "y": -24
+   },
+   "last": 1786046978427,
+   "skill": "mine",
+   "wins": 1
+  },
   "mine:{\"y\":39}": {
    "args": {
     "y": 39
@@ -503,6 +743,14 @@
    "last": 1785997030411,
    "skill": "mine",
    "wins": 2
+  },
+  "mine:{\"y\":6}": {
+   "args": {
+    "y": 6
+   },
+   "last": 1786046828641,
+   "skill": "mine",
+   "wins": 1
   },
   "mine:{\"y\":70}": {
    "args": {
