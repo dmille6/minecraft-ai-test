@@ -1,0 +1,15 @@
+---
+- Lab:
+    - Kibana:
+        - abbr: KB
+          href: http://elk01:5601
+    - Proxmox:
+        - abbr: PVE
+          href: https://10.4.0.143:8006
+- Project:
+    - Repo:
+        - abbr: GH
+          href: https://github.com/dmille6/minecraft-ai-test
+    - UniFi:
+        - abbr: UI
+          href: https://192.168.1.1

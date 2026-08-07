@@ -1,0 +1,79 @@
+---
+# The lab, one card per host. Glances supplies the live numbers; each widget
+# points at that host's own API on the lab VLAN.
+- Lab hosts:
+    - mc01 · Minecraft server:
+        href: http://mc01:25565
+        description: Paper 1.21.8 — the world the agents live in
+        widget:
+          type: glances
+          url: http://192.168.193.100:61208
+          version: 4
+          metric: info
+    - lab01 · Bot fleet:
+        href: http://lab01
+        description: mineflayer agents, observer, trial coordinator
+        widget:
+          type: glances
+          url: http://192.168.193.40:61208
+          version: 4
+          metric: info
+    - evd01 · Evidence store:
+        description: durable trial archive · DuckDB
+        widget:
+          type: glances
+          url: http://192.168.193.21:61208
+          version: 4
+          metric: info
+    - elk01 · Elasticsearch + Kibana:
+        href: http://elk01:5601
+        description: live dashboards and bot telemetry
+        widget:
+          type: glances
+          url: http://192.168.193.30:61208
+          version: 4
+          metric: info
+    - ctl01 · Agent control:
+        description: Claude Code · Codex · schedulers · this dashboard
+        widget:
+          type: glances
+          url: http://192.168.193.10:61208
+          version: 4
+          metric: info
+
+- Storage and load:
+    - lab01 filesystem:
+        widget:
+          type: glances
+          url: http://192.168.193.40:61208
+          version: 4
+          metric: fs
+    - evd01 filesystem:
+        widget:
+          type: glances
+          url: http://192.168.193.21:61208
+          version: 4
+          metric: fs
+    - elk01 filesystem:
+        widget:
+          type: glances
+          url: http://192.168.193.30:61208
+          version: 4
+          metric: fs
+
+- Infrastructure:
+    # NO PROXMOX WIDGET, deliberately. Homepage widgets are fetched SERVER-side,
+    # and the lab VLAN has no route to the Proxmox management network
+    # (10.4.0.0/24) -- management is kept separate on purpose. Routing the lab to
+    # the hypervisor management plane to satisfy a dashboard tile would hand a
+    # VLAN full of autonomous, code-executing agents a path to the thing that
+    # controls their own VMs. Proxmox stays a BOOKMARK: those load in your
+    # browser, which is on the management network and reaches it fine.
+    - Kibana:
+        href: http://elk01:5601
+        description: bot telemetry, veto rates, failure classes
+        siteMonitor: http://192.168.193.30:5601
+    - Elasticsearch:
+        href: http://elk01:9200
+        description: trial indices
+        siteMonitor: http://192.168.193.30:9200

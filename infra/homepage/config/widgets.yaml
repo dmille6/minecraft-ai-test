@@ -1,0 +1,12 @@
+---
+- resources:
+    cpu: true
+    memory: true
+    disk: /
+    label: ctl01
+- datetime:
+    text_size: xl
+    format:
+      timeStyle: short
+      dateStyle: short
+      hourCycle: h23

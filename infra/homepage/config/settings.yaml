@@ -1,0 +1,14 @@
+---
+title: MC-AI Lab
+description: Minecraft AI agent laboratory
+headerStyle: clean
+layout:
+  Lab hosts:
+    style: rows
+    columns: 1
+  Storage and load:
+    style: row
+    columns: 3
+  Infrastructure:
+    style: row
+    columns: 2
