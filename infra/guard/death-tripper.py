@@ -127,17 +127,28 @@ def alert(subject, body):
 
     url = conf.get("ALERT_WEBHOOK", "")
     if url:
-        # One payload with several key names, so the same config works for
-        # Discord, Slack, ntfy and Home Assistant without per-service code.
-        payload = json.dumps({"content": f"**{subject}**\n{body}",
-                              "text": f"{subject}\n{body}",
-                              "message": f"{subject}\n{body}",
-                              "title": subject, "body": body})
         try:
-            subprocess.run(["curl", "-s", "-o", "/dev/null", "--max-time", "15",
-                            "-X", "POST", "-H", "Content-Type: application/json",
-                            "--data-binary", "@-", url],
-                           input=payload, text=True, timeout=20)
+            if "ntfy" in url:
+                # ntfy takes a PLAIN body with metadata in headers. Posting the
+                # Discord-shaped JSON to it "worked" -- 200, message delivered --
+                # but rendered the raw JSON on the phone. A transport that
+                # succeeds while producing something unreadable is worse than one
+                # that fails, because nothing tells you it is broken.
+                subprocess.run(["curl", "-s", "-o", "/dev/null", "--max-time", "15",
+                                "-H", f"Title: {subject}", "-H", "Priority: high",
+                                "-H", "Tags: warning,robot",
+                                "--data-binary", "@-", url],
+                               input=body, text=True, timeout=20)
+            else:
+                # One payload with several key names, so the same config works
+                # for Discord, Slack and Home Assistant without per-service code.
+                payload = json.dumps({"content": f"**{subject}**\n{body}",
+                                      "text": f"{subject}\n{body}",
+                                      "title": subject, "body": body})
+                subprocess.run(["curl", "-s", "-o", "/dev/null", "--max-time", "15",
+                                "-X", "POST", "-H", "Content-Type: application/json",
+                                "--data-binary", "@-", url],
+                               input=payload, text=True, timeout=20)
         except Exception:
             pass
 
