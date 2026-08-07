@@ -10,6 +10,11 @@
 // The imports resolve against the runtime harness, so run this where the agent
 // actually runs -- these are integration tests over real modules, not units
 // with the world mocked away.
+//
+// This file was split out of gate.test.mjs and shipped without its import, so
+// every run died on `actionKey is not defined` -- it was in the suite, it was
+// never once green, and nothing noticed because nothing checked exit codes.
+import { actionKey } from '../src/skills.mjs'
 
 
 let pass = 0, fail = 0

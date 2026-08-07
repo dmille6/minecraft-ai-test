@@ -27,6 +27,24 @@ import { log } from './logger.mjs'
 // An impossible goal produces failures that look like bad model judgement,
 // which is the worst kind of confounder.
 
+// The frontier moves out 10 blocks per completion and stops at 250.
+//
+// The step is calibrated against the 75 deposits the fleet has recorded, not
+// picked for roundness. That distribution falls off a cliff: 60m+ is routine
+// (Scout02 has 22), 70m+ is a stretch, 90m+ has been reached twice fleet-wide,
+// and NOTHING has ever been recorded beyond 100m. A 20m step would have jumped
+// straight from routine to never-achieved in two completions. At 10m each scout
+// sits one genuine rung above its own record -- Scout01 at 5-beyond-70 having
+// found 4, Scout02 at 7-beyond-90 having found 1 -- and the two ladders differ
+// because the scouts do, which is the point of scouting them separately.
+//
+// The ceiling is about what a scout can walk to and return from, not what is
+// legal: the world border is 1950, and 250 is already 2.5x the fleet record.
+const SURVEY_STEP = 10
+const SURVEY_MAX_DIST = 250
+const surveyDist = lvl => Math.min(60 + lvl * SURVEY_STEP, SURVEY_MAX_DIST)
+const surveyCount = lvl => 4 + lvl
+
 /** Distinct deposits THIS bot has contributed to, beyond `minDist` from home. */
 function countMySightings(worldFacts, minDist) {
   try {
@@ -60,9 +78,10 @@ const M = {
    * next to one ore vein does not count twice -- covering ground does.
    *
    * Thresholds are set from what the fleet has actually achieved rather than
-   * from ambition: beyond 60m every bot has found at least 5, beyond 80m the
-   * range is 1-8, and beyond 100m almost nothing exists. A goal nobody can reach
-   * is the same defect as a goal of NaN.
+   * from ambition: beyond 60m every bot has found at least 9, beyond 80m the
+   * range is 2-7, and beyond 100m the fleet has recorded NOTHING in its entire
+   * history. A goal nobody can reach is the same defect as a goal of NaN -- the
+   * 100m rung was exactly that, and is now 90m.
    */
   survey: (n, minDist, why, hint) => ({
     id: `survey_${n}_at_${minDist}`,
@@ -117,19 +136,25 @@ export const MILESTONES_BY_ROLE = {
     M.survey(6, 60, 'Map what is near the colony first.'),
     M.craft('stick', 4, '2 planks make 4 sticks.'),
     M.survey(4, 80, 'Push past the ground the gatherers already work.'),
-    M.survey(2, 100, 'Genuinely new ground -- the fleet has found almost nothing this far out.'),
+    M.survey(2, 90, 'Genuinely new ground -- the fleet has found almost nothing this far out.'),
     // Scout-only, and at the END of the scout chain rather than in SUSTAINING.
     // SUSTAINING is appended to EVERY role, so putting it there handed a
-    // gatherer "find 12 deposits beyond 100m" when exactly one such deposit
-    // existed fleet-wide -- an unreachable goal, on a gatherer, which is both
-    // halves of what this change was meant to fix. Chain re-entry repeats the
-    // whole chain and increments the cycle, so it still escalates here.
+    // gatherer "find 12 deposits beyond 100m" when NO deposit that far out had
+    // ever been recorded by anyone -- an unreachable goal, on a gatherer, which
+    // is both halves of what this change was meant to fix.
     {
       id: 'survey_wider',
       wants: null,
-      describe: n => `Find ${4 + n * 2} deposits at least ${60 + n * 10} blocks from home.`,
-      done: (b, n, wf) => countMySightings(wf, 60 + n * 10) >= 4 + n * 2,
-      progress: (b, n, wf) => `${countMySightings(wf, 60 + n * 10)}/${4 + n * 2} beyond ${60 + n * 10}m`,
+      // Escalates on ITS OWN completions, not the chain cycle: every time the
+      // scout meets it, the frontier moves 20 blocks further out and it must
+      // find one more deposit. Capped at SURVEY_MAX_DIST -- an escalator with no
+      // ceiling eventually sets a goal nobody can reach, which this project has
+      // shipped twice now.
+      describe: (_n, lvl = 0) =>
+        `Find ${surveyCount(lvl)} deposits at least ${surveyDist(lvl)} blocks from home.`,
+      done: (b, _n, wf, lvl = 0) => countMySightings(wf, surveyDist(lvl)) >= surveyCount(lvl),
+      progress: (b, _n, wf, lvl = 0) =>
+        `${countMySightings(wf, surveyDist(lvl))}/${surveyCount(lvl)} beyond ${surveyDist(lvl)}m (level ${lvl})`,
       hint: 'explore, or goto a distant point; deposits record themselves as you travel.',
     },
   ],
@@ -249,10 +274,15 @@ export class MilestoneController {
     // variable nothing set: read-but-never-written. Persisted, because a cycle
     // count is progress and a restart should not silently reset the difficulty.
     this.cycle = p.cycle ?? 0
+    // How many times each milestone has genuinely been COMPLETED. Distinct from
+    // `cycle`, which only advances on a full chain pass: a goal that should get
+    // harder each time it is met needs to count its own completions, not wait
+    // for every other goal in the chain to finish first.
+    this.completions = p.completions ?? {}
   }
 
   #persist() {
-    this.lessons?.setProgress?.(this.attempts, this.skipped, this.skippedAt, this.skipCount, this.cycle)
+    this.lessons?.setProgress?.(this.attempts, this.skipped, this.skippedAt, this.skipCount, this.cycle, this.completions)
   }
 
   /**
@@ -340,7 +370,7 @@ export class MilestoneController {
     if (this.index >= this.chain.length) {
       const outstanding = this.chain.some(m => {
         if (this.skipped.includes(m.id)) return false
-        try { return !m.done(this.bot, this.cycle ?? 0, this.worldFacts) } catch { return false }
+        try { return !m.done(this.bot, this.cycle ?? 0, this.worldFacts, this.completions[m.id] ?? 0) } catch { return false }
       })
       if (outstanding) {
         // Running off the end and finding work again is exactly one completed
@@ -355,14 +385,18 @@ export class MilestoneController {
     while (this.index < this.chain.length) {
       const m = this.chain[this.index]
       let done = false
-      try { done = m.done(this.bot, this.cycle ?? 0, this.worldFacts) } catch { done = false }
+      try { done = m.done(this.bot, this.cycle ?? 0, this.worldFacts, this.completions[m.id] ?? 0) } catch { done = false }
       // Step over goals already proven unreachable in an earlier run, or the
       // restored give-up is worthless -- the chain would stall on them again.
       if (!done && !this.skipped.includes(m.id)) break
       // Only genuine completion gets a timestamp. A skipped goal is stepped
       // over, never recorded as done -- counting a give-up as a success would
       // corrupt every progress number drawn from this.
-      if (done) this.completedAt[m.id] = Date.now()
+      if (done) {
+        this.completedAt[m.id] = Date.now()
+        this.completions[m.id] = (this.completions[m.id] ?? 0) + 1
+        this.#persist()
+      }
       this.index++
       advanced = true
     }
@@ -376,8 +410,9 @@ export class MilestoneController {
     // impossible one. NaN is not a difficulty, it is a broken milestone.
     const n = this.cycle ?? 0
     let progress = '-'
-    try { progress = m.progress(this.bot, n, this.worldFacts) } catch { /* entity gone mid-respawn */ }
-    const describe = typeof m.describe === 'function' ? m.describe(n) : m.describe
+    const lvl = this.completions[m.id] ?? 0
+    try { progress = m.progress(this.bot, n, this.worldFacts, lvl) } catch { /* entity gone mid-respawn */ }
+    const describe = typeof m.describe === 'function' ? m.describe(n, lvl) : m.describe
     return {
       // Fixed milestones keep their plain id; sustaining ones carry the cycle.
       // This compared against MILESTONES.length -- the SCOUT chain -- for every

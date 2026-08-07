@@ -165,10 +165,11 @@ export class Lessons {
       skippedAt: p.skippedAt ?? {},
       skipCount: p.skipCount ?? {},
       cycle: p.cycle ?? 0,
+      completions: p.completions ?? {},
     }
   }
 
-  setProgress(attempts, skipped, skippedAt, skipCount, cycle) {
+  setProgress(attempts, skipped, skippedAt, skipCount, cycle, completions) {
     // MERGE. Assigning a fresh object here dropped the sibling `blocked` key
     // that bumpBlocked() maintains -- and since this runs after every decision,
     // it wiped the probation countdown on every cycle, silently undoing the
@@ -179,6 +180,7 @@ export class Lessons {
     if (skippedAt) p.skippedAt = skippedAt
     if (skipCount) p.skipCount = skipCount
     if (cycle != null) p.cycle = cycle
+    if (completions) p.completions = completions
     this.dirty = true
   }
 
