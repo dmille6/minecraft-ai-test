@@ -13,17 +13,22 @@ systemctl enable --now docker >/dev/null 2>&1
 install -d -m 755 /opt/homepage/config
 cp /tmp/homepage-config/*.yaml /opt/homepage/config/
 
-# Secrets live in an env file, not in the YAML that goes to git.
+# Any future secret goes in this env file, referenced from YAML as
+# {{HOMEPAGE_VAR_NAME}}, so nothing secret is ever committed. There are none
+# today: the Proxmox token was removed with the widget it existed for.
 install -m 600 /dev/null /opt/homepage/.env
 cat > /opt/homepage/.env <<ENV
-HOMEPAGE_VAR_PVE_TOKEN_ID=${PVE_TOKEN_ID}
-HOMEPAGE_VAR_PVE_TOKEN_SECRET=${PVE_TOKEN_SECRET}
-HOMEPAGE_ALLOWED_HOSTS=${IP}:3000,ctl01:3000,ctl01.ticr.lan:3000,192.168.193.10:3000
+HOMEPAGE_ALLOWED_HOSTS=${IP},ctl01,ctl01.ticr.lan,${IP}:80,ctl01:80,ctl01.ticr.lan:80
 ENV
 
 docker rm -f homepage >/dev/null 2>&1 || true
+
+# Published on port 80 so the bare hostname is the dashboard: http://ctl01.
+# Still bound to the lab address rather than 0.0.0.0 -- ctl01 holds the Anthropic
+# and Codex credentials and SSH keys to every other guest, so it is the host
+# where an extra listening socket costs the most.
 docker run -d --name homepage --restart unless-stopped \
-  -p "${IP}:3000:3000" \
+  -p "${IP}:80:3000" \
   --env-file /opt/homepage/.env \
   -v /opt/homepage/config:/app/config \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
@@ -31,7 +36,7 @@ docker run -d --name homepage --restart unless-stopped \
 
 for _ in $(seq 1 20); do
   sleep 3
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${IP}:3000" 2>/dev/null || echo 000)
-  [ "$code" = "200" ] && { echo "  OK  Homepage at http://${IP}:3000  (http://ctl01:3000)"; exit 0; }
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://${IP}" 2>/dev/null || echo 000)
+  [ "$code" = "200" ] && { echo "  OK  Homepage at http://${IP}  (http://ctl01)"; exit 0; }
 done
 echo "  FAIL http ${code:-000}"; docker logs --tail 15 homepage 2>&1 | sed 's/^/    /'
