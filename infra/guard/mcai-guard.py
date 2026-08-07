@@ -15,7 +15,7 @@ No SSH: "how many models should be answering" is derived from what has been seen
 over a longer window, rather than read from another host we may not be able to
 reach.
 """
-import json, re, subprocess, sys, urllib.request, base64
+import json, os, re, subprocess, sys, urllib.request, base64
 
 def es(path, body):
     env = open('/opt/docker-elk/.env').read()
@@ -26,6 +26,9 @@ def es(path, body):
          'Authorization': 'Basic ' + base64.b64encode(f'elastic:{pw}'.encode()).decode()})
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read())
+
+OLLAMA = os.environ.get('OLLAMA', 'http://192.168.192.15:11434')
+OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'qwen2.5:14b-instruct')
 
 def main():
     alerts, oks = [], []
@@ -83,6 +86,31 @@ def main():
             oks.append('honeypot model resident')
     except Exception:
         pass
+
+    # INFERENCE WEDGE. The scheduler in front of the model backends can lose
+    # track of its own queue state and reject everything with "maximum pending
+    # requests exceeded" while every backend sits idle with free slots, the host
+    # at 5% load and 56% memory free. Observed: 0/6 requests succeeded over a
+    # minute; the only model that answered was one already scheduled, needing no
+    # decision from the broken scheduler. A plain uptime or /api/tags check says
+    # healthy throughout -- tags answered 200 the whole time.
+    #
+    # So probe the thing that actually matters: can it GENERATE.
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f'{OLLAMA}/api/generate',
+            data=json.dumps({'model': OLLAMA_MODEL, 'prompt': 'ok',
+                             'stream': False, 'options': {'num_predict': 1}}).encode(),
+            headers={'Content-Type': 'application/json'})
+        with urllib.request.urlopen(req, timeout=45) as r:
+            body = json.loads(r.read())
+        if 'response' in body:
+            oks.append('inference responding')
+        else:
+            alerts.append(f'inference returned no completion: {str(body)[:90]}')
+    except Exception as e:
+        alerts.append(f'INFERENCE UNAVAILABLE ({str(e)[:80]}) -- the fleet cannot think')
 
     for m in oks:     print(f'  ok    {m}')
     for m in alerts:  print(f'  ALERT {m}', file=sys.stderr)
