@@ -18,7 +18,10 @@
 # distance measured from a home coordinate that was assumed rather than read.
 set -euo pipefail
 
-STORAGE="${STORAGE:-}"            # e.g. local-lvm, local-zfs -- discovered if unset
+# data-zfs, not local-lvm: storage is NODE-SCOPED. rprox1 has 793G on local-lvm,
+# rprox3a has 137G -- not enough for this build. The same trap as the interface
+# names, and the reason preflight validates rather than trusts.
+STORAGE="${STORAGE:-data-zfs}"
 # vmbr193 sits on the nic2.193 sub-interface, which does the VLAN tagging. Do
 # NOT also set tag= on the NIC: that double-tags and the traffic goes nowhere.
 # TICRDEV was deliberately left non-VLAN-aware so the live VMs on it are
@@ -32,12 +35,17 @@ CIUSER="${CIUSER:-darrell}"
 APPLY=0; START=0
 for a in "$@"; do case "$a" in --apply) APPLY=1;; --start) START=1;; esac; done
 
-# vmid  name        cores  ram    disk  ip
+# vmid  name           cores  ram    disk  ip
+#
+# The -dm suffix is this cluster's ownership convention (opencti-dm,
+# student-elk-share-dm, k-12-hp-dm). On a shared host, a guest whose owner is
+# not obvious from its name is a guest nobody will touch when it misbehaves.
 read -r -d '' PLAN <<'EOF' || true
-9101 mc2-mc01   4  8192  100 192.168.193.100
-9140 mc2-lab01  6 16384  100 192.168.193.40
-9121 mc2-evd01  4 16384  250 192.168.193.21
-9110 mc2-ctl01  4  8192  100 192.168.193.10
+9101 mc2-mc01-dm   4  8192  100 192.168.193.100
+9140 mc2-lab01-dm  6 16384  100 192.168.193.40
+9121 mc2-evd01-dm  4 16384  250 192.168.193.21
+9130 mc2-elk01-dm  4 16384  300 192.168.193.30
+9110 mc2-ctl01-dm  4  8192  100 192.168.193.10
 EOF
 
 say(){ printf '  %s\n' "$*"; }
@@ -95,12 +103,19 @@ else
   say "image cached: $IMG"
 fi
 
+# Thin provisioning means an over-committed pool looks fine until the day the
+# disks actually fill, at which point every guest fails at once.
+WANT=$(awk '{s+=$5} END{print s}' <<< "$PLAN")
+FREE=$(pvesm status -content images | awk -v st="$STORAGE" '$1==st{printf "%.0f", $6/1048576}')
+say "requested ${WANT}G, free on $STORAGE: ${FREE}G"
+[ "${FREE:-0}" -gt "$WANT" ] || die "not enough space on $STORAGE (${FREE}G free, ${WANT}G requested)"
+
 echo
 echo "== plan"
-printf '  %-6s %-11s %5s %7s %6s  %s\n' VMID NAME CORES RAM DISK IP
+printf '  %-6s %-14s %5s %7s %6s  %s\n' VMID NAME CORES RAM DISK IP
 while read -r id name cores ram disk ip; do
   [ -z "${id:-}" ] && continue
-  printf '  %-6s %-11s %5s %6sM %5sG  %s/24\n' "$id" "$name" "$cores" "$ram" "$disk" "$ip"
+  printf '  %-6s %-14s %5s %6sM %5sG  %s/24\n' "$id" "$name" "$cores" "$ram" "$disk" "$ip"
 done <<< "$PLAN"
 
 if [ "$APPLY" != 1 ]; then
@@ -127,7 +142,7 @@ while read -r id name cores ram disk ip; do
                 --ipconfig0 "ip=$ip/24,gw=$GW" >/dev/null
   # mc01 hosts the Minecraft server: its tick loop is latency-sensitive and
   # must not share physical cores with the bot runner. See PLAN-30-DAY.
-  [ "$name" = "mc2-mc01" ] && qm set "$id" --numa 1 >/dev/null
+  [ "$name" = "mc2-mc01-dm" ] && qm set "$id" --numa 1 >/dev/null
   say "  created"
   [ "$START" = 1 ] && { qm start "$id"; say "  started"; }
 done <<< "$PLAN"
