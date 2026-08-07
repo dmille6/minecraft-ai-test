@@ -439,6 +439,27 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
 }
 
 /** Walls on 3+ sides at head height, and open sky is far above. */
+/**
+ * WATER IS NOT A WALL, AND IT IS NOT A CEILING.
+ *
+ * Every test below asked `name !== 'air'`, so water counted as both. Underwater
+ * that makes EVERY bot permanently entombed: the escape fires, pillarOut runs
+ * for twenty or thirty seconds placing blocks into the sea, and because the
+ * reflex loop is serial the oxygen check never gets a tick while it does. A bot
+ * drowns in about fifteen seconds.
+ *
+ * Measured on instance #2: Scout01 drowned 13 times in two hours, 5 of them in
+ * one twenty-minute window, with `reflex: drowning` firing ZERO times and
+ * `reflex: entombed` firing ten. The wrong rescue was winning every race.
+ *
+ * You can swim through water. Being surrounded by it is a reason to go UP, which
+ * is what the drowning branch already does -- so the fix is simply to stop
+ * calling it entombment and let that branch have the tick.
+ */
+const passableFor = b =>
+  !b || b.name === 'air' || b.name === 'cave_air' || b.name === 'void_air' ||
+  b.name === 'water' || b.name === 'bubble_column' || b.name.includes('leaves')
+
 function isEntombed(bot) {
   const p = bot.entity.position
 
@@ -448,12 +469,12 @@ function isEntombed(bot) {
   // average y of 64 -- surface level, open sky overhead. Being genuinely
   // entombed means something is above you.
   const ceiling = bot.blockAt(p.offset(0, 2, 0))
-  if (!ceiling || ceiling.name === 'air' || ceiling.name.includes('leaves')) return false
+  if (passableFor(ceiling)) return false
 
   let walls = 0
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const b = bot.blockAt(p.offset(dx, 1, dz))
-    if (b && b.name !== 'air' && !b.name.includes('leaves')) walls++
+    if (!passableFor(b)) walls++
   }
   if (walls < 3) return false
   // Distinguish "in a corridor" from "in a hole": look for ground much higher.
@@ -461,7 +482,10 @@ function isEntombed(bot) {
   for (const [dx, dz] of [[4, 0], [-4, 0], [0, 4], [0, -4], [4, 4], [-4, -4]]) {
     for (let dy = 12; dy > -2; dy--) {
       const b = bot.blockAt(p.offset(dx, dy, dz))
-      if (b && b.name !== 'air' && !b.name.includes('leaves')) {
+      // Water is not ground either -- an ocean floor probe that stops at the
+      // first water block reports the SURFACE as nearby high terrain, which is
+      // how a swimming bot looked like a bot at the bottom of a pit.
+      if (!passableFor(b)) {
         if (p.y + dy > highest) highest = p.y + dy
         break
       }
