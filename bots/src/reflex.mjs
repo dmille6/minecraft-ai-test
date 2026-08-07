@@ -125,6 +125,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let eating = false
   let lowHealthLatched = false
   let lowOxygenLatched = false
+  // Reported once per bot lifetime, not latched-and-cleared: a bad reading is a
+  // defect to notice, not an event to count, and the last thing this needs is a
+  // second signal that fires hundreds of times.
+  let badOxygenReported = false
   let escaping = false
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
@@ -168,7 +172,42 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // them, one with its head inside a grass_block.
       const head = bot.blockAt(bot.entity.position.offset(0, 1, 0))
       const inWater = head?.name === 'water' || bot.entity.isInWater === true
-      if (bot.oxygenLevel != null && bot.oxygenLevel <= 4 && throttled('oxygen', 8000)) {
+      // THE COUNTER IS NOT THE CONDITION.
+      //
+      // Suffocation needs a head inside a solid block; drowning needs a head in
+      // water. If neither is true the bot is standing in open air and is not
+      // losing air, whatever oxygenLevel reports -- and acting on the counter
+      // alone calls runner.interrupt() on a bot that has nothing to escape from.
+      //
+      // Measured on instance #2: Miner01 sat at 42,22,-180 for SEVENTY MINUTES
+      // at 20/20 health with air at head height, emitting `suffocating
+      // oxygen=0 head=air` every few seconds. Each one interrupted the running
+      // skill, so no goto, no unstick and no relocation could ever run to
+      // completion. The watchdog, the livelock breaker and the entombed handler
+      // all fired correctly and were all cut off mid-stride by this.
+      //
+      // The oxygen field oscillated 0 -> 12+ -> 0 between ticks, which also
+      // re-armed the latch each time, so the latch could not damp it either.
+      // A latch cannot fix a signal that is wrong; it only slows it down.
+      const headSolid = head != null && head.boundingBox === 'block'
+      const reallyLosingAir = inWater || headSolid
+      if (bot.oxygenLevel != null && bot.oxygenLevel <= 4 && throttled('oxygen', 8000)
+          && !reallyLosingAir) {
+        // Worth SEEING -- a wrong oxygen reading is a real defect and this is
+        // the only place it is observable -- but not worth acting on.
+        if (!badOxygenReported) {
+          badOxygenReported = true
+          log('warn', 'reflex: low oxygen with clear head -- reading not actionable', {
+            oxygen: bot.oxygenLevel, head: head?.name ?? 'unknown', health: bot.health,
+          })
+          logEvent({
+            kind: 'oxygen_reading_suspect',
+            detail: `oxygen ${bot.oxygenLevel} but head block is ${head?.name ?? 'unknown'} ` +
+                    `and health is ${bot.health}; not interrupting`,
+            snapshot: snapshot(bot),
+          })
+        }
+      } else if (bot.oxygenLevel != null && bot.oxygenLevel <= 4 && throttled('oxygen', 8000)) {
         if (!lowOxygenLatched) {
           lowOxygenLatched = true
           const kind = inWater ? 'drowning' : 'suffocating'
