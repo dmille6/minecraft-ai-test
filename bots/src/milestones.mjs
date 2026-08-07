@@ -29,17 +29,20 @@ import { log } from './logger.mjs'
 
 // The frontier moves out 10 blocks per completion and stops at 250.
 //
-// The step is calibrated against the 75 deposits the fleet has recorded, not
-// picked for roundness. That distribution falls off a cliff: 60m+ is routine
-// (Scout02 has 22), 70m+ is a stretch, 90m+ has been reached twice fleet-wide,
-// and NOTHING has ever been recorded beyond 100m. A 20m step would have jumped
-// straight from routine to never-achieved in two completions. At 10m each scout
-// sits one genuine rung above its own record -- Scout01 at 5-beyond-70 having
-// found 4, Scout02 at 7-beyond-90 having found 1 -- and the two ladders differ
-// because the scouts do, which is the point of scouting them separately.
+// Calibrated against the 90 deposits actually recorded, measured from HOME
+// (28,0) -- not from the origin. Measuring from 0,0 shifts every deposit by up
+// to 28m and produced a confident, wrong conclusion that nothing existed beyond
+// 100m; there are 13. Anything that computes a distance here must take home
+// from config, which is why the test fixture now does too.
+//
+// The real distribution thins rather than stopping: 60m+ routine, 80m+ common,
+// 100m+ real but rare (13 of 90), 140m+ never. At a 10-block step every bot
+// stalls somewhere in the 90-110m band -- Gather02 at 7-beyond-90, Scout02 and
+// Miner01 at 9-beyond-110 -- which is one genuine rung past its own record, and
+// the ladders differ because the bots do.
 //
 // The ceiling is about what a scout can walk to and return from, not what is
-// legal: the world border is 1950, and 250 is already 2.5x the fleet record.
+// legal: the world border is 1950, and 250 is nearly 2x the fleet record.
 const SURVEY_STEP = 10
 const SURVEY_MAX_DIST = 250
 const surveyDist = lvl => Math.min(60 + lvl * SURVEY_STEP, SURVEY_MAX_DIST)
@@ -78,10 +81,10 @@ const M = {
    * next to one ore vein does not count twice -- covering ground does.
    *
    * Thresholds are set from what the fleet has actually achieved rather than
-   * from ambition: beyond 60m every bot has found at least 9, beyond 80m the
-   * range is 2-7, and beyond 100m the fleet has recorded NOTHING in its entire
-   * history. A goal nobody can reach is the same defect as a goal of NaN -- the
-   * 100m rung was exactly that, and is now 90m.
+   * from ambition, and measured from home rather than the origin: beyond 60m
+   * every bot has found at least 16, beyond 80m the range is 8-18, and beyond
+   * 100m it is 2-10. A goal nobody can reach is the same defect as a goal of
+   * NaN, so every threshold here is one the fleet has already cleared.
    */
   survey: (n, minDist, why, hint) => ({
     id: `survey_${n}_at_${minDist}`,
@@ -136,7 +139,7 @@ export const MILESTONES_BY_ROLE = {
     M.survey(6, 60, 'Map what is near the colony first.'),
     M.craft('stick', 4, '2 planks make 4 sticks.'),
     M.survey(4, 80, 'Push past the ground the gatherers already work.'),
-    M.survey(2, 90, 'Genuinely new ground -- the fleet has found almost nothing this far out.'),
+    M.survey(2, 100, 'Genuinely new ground -- only a handful of finds are this far out.'),
     // Scout-only, and at the END of the scout chain rather than in SUSTAINING.
     // SUSTAINING is appended to EVERY role, so putting it there handed a
     // gatherer "find 12 deposits beyond 100m" when NO deposit that far out had

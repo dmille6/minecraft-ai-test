@@ -3,14 +3,40 @@
 
 import { execSync } from 'node:child_process'
 import crypto from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
 
-/** Which code produced this run. Without it, comparing runs is guesswork. */
-function codeVersion() {
-  if (process.env.CODE_VERSION) return process.env.CODE_VERSION
+/** Which code produced this run. Without it, comparing runs is guesswork.
+ *
+ * CODE_VERSION is written by the deploy script, so it is a CLAIM about what is
+ * running, not a measurement of it. Copy a file to the harness by hand and the
+ * claim silently goes stale -- which is exactly what happened: every document
+ * shipped for eleven hours was stamped 64eb591 while the fleet ran different
+ * milestone code. Telemetry that misattributes behaviour to a commit is worse
+ * than telemetry with no commit at all, because it invites the wrong bisect.
+ *
+ * So the stamp now carries a digest of the source that is actually loaded. The
+ * sha still says where the code came from; the digest says whether that is
+ * still true. They disagree the moment anyone edits a file in place.
+ */
+function srcDigest() {
   try {
-    return execSync('git rev-parse --short HEAD', { cwd: new URL('../', import.meta.url).pathname,
-      stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
-  } catch { return 'unknown' }
+    const dir = new URL('./', import.meta.url).pathname
+    const h = crypto.createHash('sha256')
+    for (const f of readdirSync(dir).filter(f => f.endsWith('.mjs')).sort()) {
+      h.update(f); h.update(readFileSync(dir + f))
+    }
+    return h.digest('hex').slice(0, 6)
+  } catch { return 'nodigest' }
+}
+
+function codeVersion() {
+  const claimed = process.env.CODE_VERSION ?? (() => {
+    try {
+      return execSync('git rev-parse --short HEAD', { cwd: new URL('../', import.meta.url).pathname,
+        stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
+    } catch { return 'unknown' }
+  })()
+  return `${claimed}+${srcDigest()}`
 }
 
 function req(name, fallback) {
