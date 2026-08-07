@@ -122,12 +122,28 @@ def test_unparseable_declared_at_fails_closed():
           len(out) == 1 and "undeclared" in out[0][1], f"got {out}")
 
 
-def test_grace_does_not_mask_a_partial_deploy():
-    # Grace covers "everyone is behind", never "the fleet is split".
+def test_grace_does_not_mask_a_split_nobody_is_converging_on():
+    # Neither NEW nor OLD is the declared sha, so nothing is moving toward the
+    # declaration: this is drift, not a deploy, and it must still trip.
     out = feed([line("Scout01", NEW, 1), line("Gather02", OLD, 1)],
                manifest=_declared(OTHER, 2))
-    check("grace never hides a genuinely split fleet",
-          len(out) == 1 and "disagree" in out[0][1], f"got {out}")
+    check("a split with nobody on the declared version still trips",
+          len(out) >= 1 and any("disagree" in p[1] for p in out), f"got {out}")
+
+
+def test_rolling_restart_is_not_a_partial_deploy():
+    # Half the fleet already on the declared sha, half not, declaration 1m old:
+    # exactly what a rolling restart looks like from here.
+    out = feed([line("Scout01", "5c747f4+aaaaaa", 1), line("Gather02", OLD, 1)],
+               manifest=_declared("5c747f4", 1))
+    check("a rolling restart mid-deploy does not stop the fleet", out == [], f"got {out}")
+
+
+def test_the_same_split_trips_once_the_grace_expires():
+    out = feed([line("Scout01", "5c747f4+aaaaaa", 1), line("Gather02", OLD, 1)],
+               manifest=_declared("5c747f4", 120))
+    check("a split that outlives the grace window still trips",
+          len(out) >= 1, f"got {out}")
 
 
 if __name__ == "__main__":
