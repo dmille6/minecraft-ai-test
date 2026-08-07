@@ -1,0 +1,12 @@
+# Alert transports for the death tripper. Every configured transport is tried;
+# one failing must not suppress the others. journald is always written.
+#
+# ALERT_WEBHOOK: a JSON POST endpoint. The payload carries content/text/message/
+# title/body, so Discord, Slack, ntfy and Home Assistant all work unmodified.
+#   Discord: channel -> Integrations -> Webhooks -> New Webhook -> Copy URL
+#   Slack:   api.slack.com/apps -> Incoming Webhooks
+#   ntfy:    https://ntfy.sh/<any-topic-you-choose>   (no account; topic is public)
+ALERT_WEBHOOK=
+
+# ALERT_EMAIL: requires a working local sendmail (msmtp/postfix). Unset by default.
+ALERT_EMAIL=

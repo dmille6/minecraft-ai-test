@@ -98,6 +98,57 @@ def load_deaths(minutes):
                        "fall": is_fall, "detail": sk.get("detail", "")})
     return deaths
 
+def alert(subject, body):
+    """Reach a human. Best-effort, never fatal.
+
+    Transports are read from /etc/mcai-alert.conf so adding one is a config
+    change, not a code change. Everything is attempted; one failing transport
+    must not suppress the others, because the whole point is that this message
+    arrives when other things are broken.
+
+    A trip that stops the fleet silently at 3am is only marginally better than
+    the fleet dying silently -- you still find it hours later, now with no bots
+    running and no explanation.
+    """
+    conf = {}
+    try:
+        for line in open("/etc/mcai-alert.conf"):
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                conf[k.strip()] = v.strip().strip('"\'')
+    except Exception:
+        pass
+
+    # Always: journald, so `journalctl -t mcai-tripper` is a complete record
+    # even when every network transport is down.
+    subprocess.run(["logger", "-t", "mcai-tripper", "-p", "user.err",
+                    f"{subject} :: {body}"], check=False)
+
+    url = conf.get("ALERT_WEBHOOK", "")
+    if url:
+        # One payload with several key names, so the same config works for
+        # Discord, Slack, ntfy and Home Assistant without per-service code.
+        payload = json.dumps({"content": f"**{subject}**\n{body}",
+                              "text": f"{subject}\n{body}",
+                              "message": f"{subject}\n{body}",
+                              "title": subject, "body": body})
+        try:
+            subprocess.run(["curl", "-s", "-o", "/dev/null", "--max-time", "15",
+                            "-X", "POST", "-H", "Content-Type: application/json",
+                            "--data-binary", "@-", url],
+                           input=payload, text=True, timeout=20)
+        except Exception:
+            pass
+
+    to = conf.get("ALERT_EMAIL", "")
+    if to and os.path.exists("/usr/sbin/sendmail"):
+        try:
+            subprocess.run(["/usr/sbin/sendmail", "-t"], text=True, timeout=20,
+                           input=f"To: {to}\nSubject: [mcai] {subject}\n\n{body}\n")
+        except Exception:
+            pass
+
 def ship(trips, stopped, per_bot, falls30, depth, bundle=None):
     """Send the supervisor's own activity to Elasticsearch.
 
@@ -142,6 +193,51 @@ def ship(trips, stopped, per_bot, falls30, depth, bundle=None):
     except Exception as e:
         print(f"    (could not ship supervisor telemetry: {e})")
 
+def version_check():
+    """Are all bots running the same code, and is it the code the trial declares?
+
+    Two distinct failures, both making the run uninterpretable:
+
+      DISAGREEMENT  bots reporting different versions means a partial deploy --
+                    half the fleet on old code. Any aggregate across them is a
+                    blend of two systems.
+      UNDECLARED    the fleet reporting something other than what the manifest
+                    declares means somebody changed code without saying so.
+
+    The reported version is `<sha>+<digest of the .mjs actually loaded>`, so a
+    hand-copied file changes the digest even when the sha is untouched. That is
+    the whole reason the digest exists: a stale CODE_VERSION misattributed
+    eleven hours of documents to a commit that was not running.
+    """
+    r = ssh(EVD, f"tail -q -n 400 {ARCHIVE}/*.jsonl 2>/dev/null")
+    seen = {}
+    for line in r.stdout.splitlines():
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        v = (d.get("code") or {}).get("version")
+        b = (d.get("bot") or {}).get("name")
+        if v and b:
+            seen[b] = v
+    if not seen:
+        return []                      # nothing running yet; not a fault
+    problems = []
+    versions = set(seen.values())
+    if len(versions) > 1:
+        problems.append(("ALL", f"bots disagree on code version {sorted(versions)} "
+                                f"-- partial deploy, aggregates are a blend of two systems"))
+    try:
+        man = json.loads(ssh(LAB, "cat /srv/mcbots/trial-manifest.json").stdout)
+        declared = man.get("declared_code_version", "")
+        # The manifest holds the sha; the fleet reports sha+digest.
+        if declared and not all(v.split("+")[0] == declared for v in versions):
+            problems.append(("ALL", f"running {sorted(versions)} but the trial declares "
+                                    f"{declared} -- undeclared code change, trial uninterpretable"))
+    except Exception:
+        pass
+    return problems
+
 def main():
     os.makedirs(INCIDENTS, exist_ok=True)
     d30 = load_deaths(30)
@@ -161,6 +257,7 @@ def main():
             trips.append((bot, f"{n} fall deaths in 30m (limit {BOT_FALLS_30M})"))
     if len(falls30) >= FLEET_FALLS_30M:
         trips.append(("ALL", f"fleet: {len(falls30)} fall deaths in 30m (limit {FLEET_FALLS_30M})"))
+    trips.extend(version_check())
     if len(depth) >= DEPTH_FALLS_60M:
         trips.append(("ALL", f"{len(depth)} fall deaths at y{DEPTH_BAND[0]}-{DEPTH_BAND[1]} in 60m "
                              f"(limit {DEPTH_FALLS_60M}) -- the historical signature"))
@@ -205,8 +302,11 @@ def main():
                                  for d in falls30]}, f, indent=1, default=str)
     print(f"  incident: {bundle}")
     ship(trips, stopped, per_bot, falls30, depth, bundle)
-    subprocess.run(["logger", "-t", "mcai-tripper", "-p", "user.err",
-                    "TRIPPED: " + "; ".join(r for _, r in trips)], check=False)
+    alert(f"fleet tripped: {len(stopped)} bot(s) stopped",
+          "\n".join(f"- {sc}: {r}" for sc, r in trips)
+          + f"\n\nstopped: {', '.join(stopped) or 'none'}"
+          + f"\nincident: {bundle}"
+          + f"\nfalls/30m: {len(falls30)}  falls y20-39/60m: {len(depth)}")
     return 1
 
 if __name__ == "__main__":
