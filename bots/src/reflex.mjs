@@ -534,13 +534,14 @@ function standableAt(bot, p) {
 }
 
 /** Legal neighbours, most open first -- openness is a proxy for "leads somewhere". */
-function escapeCandidates(bot) {
+function escapeCandidates(bot, tabu = null) {
   const p = bot.entity.position.floored()
   const out = []
   for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]) {
     for (const dy of [0, 1, -1]) {          // step up, level, or down one
       const c = p.offset(dx, dy, dz)
       if (!standableAt(bot, c)) continue
+      if (tabu && tabu.has(cellKey(c))) break   // already tried; it did not work
       let open = 0
       for (const [ex, ez] of [[1,0],[-1,0],[0,1],[0,-1]]) {
         if (standableAt(bot, c.offset(ex, 0, ez))) open++
@@ -550,6 +551,41 @@ function escapeCandidates(bot) {
     }
   }
   return out.sort((a, b) => b.open - a.open)
+}
+
+/**
+ * What unstick has already tried, and where it tried it from.
+ *
+ * Stage 0 grades itself with `escapedCell()` -- "am I on a different block than
+ * I started on". Inside a pit that is satisfied perfectly by stepping from one
+ * corner to the other, so the escape reported success 74 times out of 74 while
+ * the bot went nowhere. Measured on instance #1: the SAME target was chosen 8
+ * times (5,74,-3), 6 times (3,73,-5), 5 times (-14,68,-4). The bot was bouncing
+ * between two squares of a hole it could walk around but not climb out of --
+ * visible in-world as a bot hopping on the spot.
+ *
+ * Two things were missing. Memory, so the same failed square is not re-chosen;
+ * and an INVERSE, so that "I keep unsticking from the same four blocks" is
+ * recognised as the horizontal escape having failed rather than having worked.
+ *
+ * Per-bot rather than module-level, for the same reason the escape counters are:
+ * nothing here may leak between two bots sharing a process.
+ */
+const UNSTICK_MEMORY_MS   = 5 * 60 * 1000   // how long a tried square stays tabu
+const UNSTICK_TABU_MAX    = 12
+const OSCILLATION_TRIES   = 3               // unsticks from ~one spot before we call it a trap
+const OSCILLATION_RADIUS  = 4               // blocks
+const unstickHistory = new WeakMap()
+
+const cellKey = c => `${c.x},${c.y},${c.z}`
+
+function unstickMemory(bot) {
+  let h = unstickHistory.get(bot)
+  if (!h) { h = { tried: [], origins: [] }; unstickHistory.set(bot, h) }
+  const cutoff = Date.now() - UNSTICK_MEMORY_MS
+  h.tried = h.tried.filter(t => t.at > cutoff).slice(-UNSTICK_TABU_MAX)
+  h.origins = h.origins.filter(o => o.at > cutoff)
+  return h
 }
 
 /**
@@ -605,6 +641,39 @@ async function unstick(bot) {
   const escapedCell = () => !bot.entity.position.floored().equals(startBlock)
   const movedEnough = () => bot.entity.position.distanceTo(start) >= 3
 
+  // Have we been here before? A pit is walkable inside and sealed on top, so
+  // every horizontal escape "succeeds" and none of them get the bot out. Three
+  // unsticks from within four blocks means the horizontal answer is the wrong
+  // answer -- stop re-deriving it and go UP, which is the only direction that
+  // leaves a hole. The entombed branch cannot do this for us: it requires
+  // isEntombed(), and an open-topped pit has nothing above the bot's head.
+  const mem = unstickMemory(bot)
+  const nearby = mem.origins.filter(o => o.pos.distanceTo(start) <= OSCILLATION_RADIUS)
+  mem.origins.push({ pos: start.clone(), at: Date.now() })
+  if (nearby.length >= OSCILLATION_TRIES - 1) {
+    log('error', 'reflex: unstick oscillating -- treating as a pit, pillaring out', {
+      attempts: nearby.length + 1,
+      at: `${start.x.toFixed(0)},${start.y.toFixed(0)},${start.z.toFixed(0)}`,
+    })
+    logEvent({ kind: 'unstick_oscillation', status: 'failed',
+               detail: `${nearby.length + 1} unsticks within ${OSCILLATION_RADIUS} blocks at ` +
+                       `y=${Math.round(start.y)} -- horizontal escape is not working`,
+               snapshot: snapshot(bot) })
+    const yBefore = bot.entity.position.y
+    const invBefore = inventorySummary(bot)
+    try { await pillarOut(bot) } catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+    noteReflexInventory(bot, invBefore, 'unstick_oscillation')
+    // Same discipline as the entombed branch: "I ran the recovery" and "the bot
+    // got out" are different claims, and only the second is worth reporting.
+    const climbed = bot.entity ? bot.entity.position.y - yBefore : 0
+    if (climbed >= 1) {
+      mem.origins = []                 // genuinely somewhere else now
+      log('info', 'reflex: pillared out of the pit', { climbed: round1(climbed) })
+      return
+    }
+    log('warn', 'reflex: could not pillar out either, falling through', { climbed: round1(climbed) })
+  }
+
   // 0. LOOK BEFORE THRASHING.
   //
   // The old version's three stages were all blind: a random 600ms nudge, a
@@ -616,11 +685,21 @@ async function unstick(bot) {
   // So: enumerate the neighbours that are ACTUALLY standable and step to the
   // most open one. In the pocket the fleet was trapped in, exactly one of eight
   // neighbours qualified -- findable in a millisecond, invisible to a sprint.
-  const options = escapeCandidates(bot)
+  const tabu = new Set(mem.tried.map(t => t.key))
+  let options = escapeCandidates(bot, tabu)
+  if (!options.length && tabu.size) {
+    // Every legal neighbour is one we already tried and that did not work. That
+    // is not "walled in" -- it is a pocket we have fully enumerated, which is a
+    // stronger statement than any single attempt could make.
+    log('warn', 'reflex: every escape square has already been tried', { tried: tabu.size })
+    options = escapeCandidates(bot)                  // fall back rather than freeze
+  }
   if (options.length) {
     const t = options[0].pos
+    mem.tried.push({ key: cellKey(t), at: Date.now() })
     log('info', 'reflex: unstick found a legal step', {
       to: `${t.x},${t.y},${t.z}`, openness: options[0].open, candidates: options.length,
+      retried: tabu.has(cellKey(t)) || undefined,
     })
     try {
       await bot.lookAt(t.offset(0.5, 1.6, 0.5), true)
@@ -681,3 +760,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const round1 = n => Math.round(n * 10) / 10
 
 export { isNight }
+// Exported for tests only: the pit geometry that produced 74 false successes is
+// pure block arithmetic, and it is worth being able to assert on it directly.
+export { escapeCandidates, unstickMemory, standableAt, cellKey,
+         OSCILLATION_TRIES, OSCILLATION_RADIUS, UNSTICK_TABU_MAX }

@@ -243,9 +243,19 @@ def version_check():
     hand-copied file changes the digest even when the sha is untouched. That is
     the whole reason the digest exists: a stale CODE_VERSION misattributed
     eleven hours of documents to a commit that was not running.
+
+    Only bots that logged inside VERSION_FRESH_MIN count. A bot's last log line
+    survives the bot: a stopped bot keeps reporting whatever it was running when
+    it died, forever. On 2026-08-07 that turned this rule into a suicide loop --
+    the tripper stopped Gather02 on the old code, the deploy moved the other
+    seven forward, and Gather02's corpse then outvoted the live fleet every five
+    minutes, stopping all eight bots each time. A version is evidence about the
+    RUNNING fleet only for as long as the bot reporting it is still running.
     """
+    fresh_min = int(os.environ.get("VERSION_FRESH_MIN", "15"))
+    since = datetime.now(timezone.utc) - timedelta(minutes=fresh_min)
     r = ssh(EVD, f"tail -q -n 400 {(LOGS if LOCAL else ARCHIVE + '/*.jsonl')} 2>/dev/null")
-    seen = {}
+    seen, stale = {}, {}
     for line in r.stdout.splitlines():
         try:
             d = json.loads(line)
@@ -253,8 +263,21 @@ def version_check():
             continue
         v = (d.get("code") or {}).get("version")
         b = (d.get("bot") or {}).get("name")
-        if v and b:
-            seen[b] = v
+        if not (v and b):
+            continue
+        try:
+            ts = datetime.fromisoformat(d["@timestamp"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        # An unparseable or missing timestamp is not a licence to assume fresh.
+        if ts < since:
+            stale[b] = v
+            continue
+        seen[b] = v
+        stale.pop(b, None)
+    for b, v in sorted(stale.items()):
+        if b not in seen:
+            print(f"    ignoring {b} @ {v}: no log line in {fresh_min}m (not running)")
     if not seen:
         return []                      # nothing running yet; not a fault
     problems = []
