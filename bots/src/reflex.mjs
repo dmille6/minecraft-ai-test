@@ -49,6 +49,10 @@ const DANGER_BLOCKS = new Set(['lava', 'fire', 'campfire', 'soul_fire', 'magma_b
 // cost a debugging cycle".
 const ESCAPE_MIN_INTERVAL_MS = 15_000   // > a full escape attempt, so a failure is not retried instantly
 const ESCAPE_GIVE_UP_AFTER = 4          // then hand it to the watchdog, which can relocate/home/reconnect
+// How often the marooned check may run a pathfinder search. Long, because a bot
+// that cannot leave will still be unable to leave in a minute, and the check is
+// the expensive kind: a real search rather than a block lookup.
+const MAROON_CHECK_MS = 60_000
 
 // At tickMs=500 these are 5s to raise the alarm and 30s to give up -- long
 // enough that a transient world/pathfinder hiccup does not trip them, short
@@ -125,6 +129,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let eating = false
   let lowHealthLatched = false
   let lowOxygenLatched = false
+  // The maroon check runs a real pathfinder search, so it is rate-limited rather
+  // than run on every tick, and re-entrancy is blocked while the climb is in
+  // progress -- a rescue that keeps re-triggering itself never finishes.
+  let marooned = false
+  let lastMaroonCheck = 0
   // Reported once per bot lifetime, not latched-and-cleared: a bad reading is a
   // defect to notice, not an event to count, and the last thing this needs is a
   // second signal that fires hundreds of times.
@@ -284,6 +293,48 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           } finally {
             eating = false
           }
+        }
+      }
+
+      // --- marooned: no route out, but up is open ----------------------------
+      //
+      // `mine` digs down. Navigation runs canDig=false and
+      // allow1by1towers=false. So ONE COMPONENT CAN CREATE TOPOLOGY THE REST OF
+      // THE STACK CANNOT TRAVERSE, and the bot that dug the shaft is the one bot
+      // that cannot climb it. Miner01 sat at the bottom of its own forty-block
+      // shaft for ninety minutes at 20/20 health with 70 cobblestone and two
+      // pickaxes: no hazard, no shortage, no damage. Nothing rescued it because
+      // every guard tested a SHAPE -- head blocked, not moving, low health --
+      // and none tested the thing that was actually false: that it could get
+      // anywhere from here.
+      //
+      // So this branch tests capability directly. Not "am I walled in" but "can
+      // a journey begin at all", which is what the trap denies and what
+      // canStartAPath() measures. Cheap guards first, because that call runs a
+      // real search and this loop ticks twice a second.
+      if (!escaping && !marooned && !runner.isBusy() &&
+          Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
+        lastMaroonCheck = Date.now()
+        const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
+        const upIsOpen = !above || above.name === 'air' || above.boundingBox === 'empty'
+        const haveBlocks = bot.inventory.items().some(it => PLACEABLE.test(it.name))
+        if (upIsOpen && haveBlocks && !isEntombed(bot) && !(await canStartAPath(bot))) {
+          marooned = true
+          const invBefore = inventorySummary(bot)
+          const yBefore = bot.entity.position.y
+          log('error', 'reflex: marooned -- no route from here, climbing out', {
+            y: Math.round(yBefore),
+            blocks: bot.inventory.items().filter(it => PLACEABLE.test(it.name))
+              .reduce((n, it) => n + it.count, 0),
+          })
+          logEvent({ kind: 'marooned', status: 'failed',
+                     detail: `no path can start from y=${Math.round(yBefore)} with an open ` +
+                             `column above -- climbing out`,
+                     snapshot: snapshot(bot) })
+          runner.interrupt('marooned')
+          try { await pillarOut(bot) } catch (e) { log('warn', 'maroon escape failed', { err: e.message }) }
+          noteReflexInventory(bot, invBefore, 'maroon_escape')
+          marooned = false
         }
       }
 
@@ -469,7 +520,28 @@ async function pillarOut(bot, maxBlocks = 24) {
     } else {
       stalled = 0
     }
-    if (!isEntombed(bot)) break
+
+    // WHEN IS THE ESCAPE OVER?
+    //
+    // This used to be `if (!isEntombed(bot)) break` -- and isEntombed() means
+    // "head blocked". Miner01 was at the bottom of a forty-block open shaft it
+    // had dug itself, so its head was NEVER blocked: the loop placed exactly one
+    // block and exited, every time it ran. Two invocations, two blocks, ninety
+    // minutes at the bottom of the hole with 70 cobblestone in its pockets.
+    //
+    // "My head is clear" was only ever a proxy for "I can leave". Ask the real
+    // question instead: can a journey START from where I now stand? That is the
+    // condition the bot actually needs restored, it is what the trap denies, and
+    // canStartAPath() already answers it. Height gained is progress, not success.
+    //
+    // Checked every third block because it runs a real (short-budget) search and
+    // this is a reflex; a rescue that stalls for seconds deciding whether it has
+    // finished is its own failure.
+    if (i % 3 === 2 && await canStartAPath(bot)) {
+      log('info', 'reflex: pillared until a route exists again',
+          { from: Math.round(startY), to: Math.round(bot.entity.position.y), blocks: i + 1 })
+      return
+    }
   }
 
   const gained = bot.entity.position.y - startY
@@ -477,7 +549,13 @@ async function pillarOut(bot, maxBlocks = 24) {
     log('error', 'reflex: pillar out FAILED, no height gained', { y: Math.round(startY) })
     return digStraightUp(bot, startY)
   }
-  log('info', 'reflex: pillared out', { from: Math.round(startY), to: Math.round(bot.entity.position.y) })
+  // Ran out of budget with height gained but no route: say so plainly rather
+  // than reporting the height as though it were the point.
+  log(await canStartAPath(bot) ? 'info' : 'warn',
+      'reflex: pillaring ended', {
+        from: Math.round(startY), to: Math.round(bot.entity.position.y),
+        routeRestored: await canStartAPath(bot),
+      })
 }
 
 /** Break upward until there is open sky, then
