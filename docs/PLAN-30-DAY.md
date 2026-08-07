@@ -373,3 +373,111 @@ untested beliefs cost.
 Every deliverable above has an exit test that can fail. If a week's exit test
 does not fail cleanly when the work is incomplete, the exit test is wrong and
 should be rewritten before the work starts.
+
+---
+
+# Addendum — 2026-08-07: the lab, and the experiments it now makes possible
+
+Today the project moved from one proof-of-concept box to five hosts on their own
+VLAN, and — more importantly — its telemetry stopped lying. See
+[`HANDOFF-2026-08-07.md`](HANDOFF-2026-08-07.md) for the full state.
+
+The consequence for this plan is that **experiments are now the unit of work,
+not features.** A lab that can generate false evidence, persist it, and enforce
+it as policy cannot support a conclusion, however many features it grows. That
+was the state until today.
+
+## The queue, in dependency order
+
+### 1. Reproducibility (blocking everything else)
+
+An **A/A run** — identical configuration, twice — before any comparison is
+attempted. If two identical runs diverge, no ablation below means anything.
+Nothing on this list should start before this passes.
+
+### 2. Ablations against a frozen baseline
+
+One variable each, same world, same seed, same milestones, same guard
+thresholds:
+
+| run | change | question |
+|---|---|---|
+| lessons off | disable the lessons store | did memory help, or merely stop hurting? |
+| old lessons | restore the purged movement rules | were corrupted lessons the main drag? |
+| MC 1.21.11 | version only | was the movement problem a library bug? |
+| no pregen | live chunk generation | did pregeneration remove the path failures? |
+
+A trial that trips the death circuit breaker is a **valid result**, not a
+failure of the trial.
+
+### 3. Causation, not counts
+
+A Paper plugin narrowly scoped to damage cause, death cause, block break/place
+outcome, inventory change and position. RCON polling measures state and never
+causation — it can say a bot fell, never what it fell from.
+
+`block_updated` is 41% of path invalidations. That is a count, not a mechanism.
+Instrument each event with changed-block position, distance from the planned
+path, actor, and subsequent outcome **before** engineering against it. It may be
+the pathfinder reacting correctly to a bot mining.
+
+### 4. Milestones that expose planning
+
+`missing_ingredients` is now the top failure at 36.5%, which is planning debt
+made visible for the first time. The current chain rewards movement and
+crafting; it should also reward furnace, stone tools, and depositing to a chest
+— goals that fail for *reasons of plan* rather than reasons of terrain.
+
+---
+
+## The hive-mind experiment
+
+Currently every bot has a private brain: its own `lessons-<Bot>.json`, its own
+milestone progress, its own admission gate. What is **already shared** is the
+world model — `world-facts.json` carries a `by: [Scout01, Scout02]` array, so a
+deposit one bot finds is visible to all.
+
+So the question is not "hive or not". It is **which layer is shared**, and the
+layers separate cleanly:
+
+| layer | status | cost to test |
+|---|---|---|
+| world model | **already shared** | — |
+| memory (lessons) | private | one line: point `lessons.mjs` at `lessons-hive.json` |
+| planning (goal assignment) | private | moderate — one controller for five bots |
+| decision (one mind, five bodies) | private | a rewrite |
+
+Only the memory variant is worth testing first, and it is nearly free.
+
+### The hypothesis is sharper than "a hive learns faster"
+
+Independent brains are a form of **error isolation**. Yesterday all five bots
+concluded that walking home was impossible — but each had to reach that wrong
+conclusion independently, from its own four failures, which took hours. With a
+shared store, **one bot's mislabelled failure poisons all five in four
+attempts.**
+
+So:
+
+> A hive learns faster **and is wrong faster**. Whether that is a win depends
+> entirely on the fidelity of its labels — which is the variable this whole
+> project has been fighting.
+
+### The measurement that would settle it
+
+Beyond time-to-stone-pickaxe, deaths, and deposits found, the one that matters:
+
+**Inject a known-false lesson into one bot; measure how fast it spreads and how
+long until it clears.**
+
+Private: contained to one bot, cleared by its own probation retries. Hive:
+immediate spread, and recovery depends on whether one bot's success can overturn
+a belief four others are already acting on.
+
+That is the real difference between the architectures — not raw learning rate.
+
+### Prerequisites
+
+`MEMORY_SCOPE=private|shared` as a trial dimension alongside the ablations
+above. It cannot run before §1: comparing hive against private is meaningless if
+two identical runs already diverge.
