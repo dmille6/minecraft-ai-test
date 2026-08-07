@@ -273,7 +273,12 @@ def version_check():
         if ts < since:
             stale[b] = v
             continue
-        seen[b] = v
+        # NEWEST BY TIMESTAMP, not last-encountered. `tail -q` concatenates
+        # several files, so file order is not time order: a bot's pre-restart
+        # line can arrive after its post-restart line and silently overwrite it,
+        # which is a restarted fleet reporting itself as a partial deploy.
+        if b not in seen or ts > seen[b][0]:
+            seen[b] = (ts, v)
         stale.pop(b, None)
     for b, v in sorted(stale.items()):
         if b not in seen:
@@ -281,7 +286,7 @@ def version_check():
     if not seen:
         return []                      # nothing running yet; not a fault
     problems = []
-    versions = set(seen.values())
+    versions = {v for _, v in seen.values()}
     if len(versions) > 1:
         problems.append(("ALL", f"bots disagree on code version {sorted(versions)} "
                                 f"-- partial deploy, aggregates are a blend of two systems"))

@@ -71,6 +71,15 @@ def test_missing_timestamp_is_not_assumed_fresh():
     check("a line with no timestamp cannot cast a vote", out == [], f"got {out}")
 
 
+def test_newest_line_wins_regardless_of_file_order():
+    # tail -q concatenates files, so file order is NOT time order. The old line
+    # arriving last must not overwrite the new one.
+    out = feed([line("Scout01", NEW, 1), line("Gather02", NEW, 1),
+                line("Gather02", OLD, 9)])          # older, but encountered last
+    check("an out-of-order older line does not overwrite a newer one",
+          out == [], f"got {out}")
+
+
 def test_fresh_line_rescues_a_bot_seen_stale_earlier():
     # Restarted bots have BOTH an old stale line and a new fresh one in the tail.
     out = feed([line("Gather02", OLD, 40), line("Gather02", NEW, 1),
