@@ -367,7 +367,15 @@ export class CognitiveLoop {
       // to zero on each one.
       this.lessons.save()
       const why = rejection ? `${rejection.reason} (${rejection.detail})` : res.error
-      log('warn', 'decision rejected', { why, raw: res.raw?.slice(0, 120) })
+      log('warn', 'decision rejected', {
+        why, raw: res.raw?.slice(0, 120),
+        // Attribution travels with the rejection: which stored rule blocked it,
+        // how many failures it holds, and which bots observed them.
+        cited: rejection?.cited
+          ? `${rejection.cited.key} fails=${rejection.cited.fails}` +
+            ` reporters=${(rejection.cited.reporters ?? ['-']).join('+')}`
+          : undefined,
+      })
       this.lastOutcome = `rejected: ${why}`.slice(0, 160)
       this.memory.addEvent(this.lastOutcome)
 

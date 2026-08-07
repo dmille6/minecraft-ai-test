@@ -200,6 +200,23 @@ export class Lessons {
     this.dirty = true
   }
 
+  /** The avoid entry behind a block, for attribution. Returns null if none. */
+  entryFor(skill, args) {
+    const e = this.data.avoid?.[key(skill, args)]
+    if (!e) return null
+    return {
+      key: key(skill, args),
+      fails: e.fails ?? 0,
+      classes: e.classes ?? {},
+      // Who OBSERVED the failures. In a hive this is the difference between
+      // "this bot learned it" and "a peer learned it and this bot inherited the
+      // belief" -- which is the entire question the shakedown exists to answer,
+      // and which cannot be recovered later from a prose rejection message.
+      reporters: e.reporters ?? null,
+      last: e.last ?? null,
+    }
+  }
+
   recordSuccess(skill, args) {
     const k = key(skill, args)
     const e = this.data.worked[k] ?? { skill, args, wins: 0 }

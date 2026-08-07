@@ -204,6 +204,11 @@ export class AdmissionControl {
         return {
           ok: false, reason: 'learned_avoid',
           detail: `${skill} with these args has failed ${priorFails}x across runs (retry in ${5 - (n % 5)})`,
+          // CITE THE EVIDENCE. Without this a block is unattributable prose, and
+          // "did this bot inherit a peer's belief?" becomes unanswerable after
+          // the fact -- you cannot tell a block caused by a hive-mate's lesson
+          // from one caused by the bot's own, or by a different rule entirely.
+          cited: this.lessons?.entryFor?.(skill, args) ?? null,
         }
       }
       // fall through on probation
