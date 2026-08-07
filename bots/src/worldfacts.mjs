@@ -290,5 +290,13 @@ export class WorldFacts {
 }
 
 export function openWorldFacts() {
-  return new WorldFacts(path.join(config.log.stateDir, FILE))
+  // MEMORY_SCOPE=isolated gives each bot its own world model, so nothing at all
+  // is learned from a peer -- the true independent-agents control arm. private
+  // and shared both keep the single shared file, which is what every run to
+  // date has used: a deposit one bot finds is already visible to all, recorded
+  // with a `by: [Scout01, Scout02]` array.
+  const file = config.memory.scope === 'isolated'
+    ? FILE.replace(/\.json$/, `-${config.bot.name}.json`)
+    : FILE
+  return new WorldFacts(path.join(config.log.stateDir, file))
 }

@@ -32,12 +32,63 @@ const FORGET_MS = 20 * 60 * 1000   // one failure forgiven per 20 idle minutes
 const key = actionKey   // ONE definition, shared with the admission gate
 
 export class Lessons {
-  constructor(file) {
+  constructor(file, shared = false) {
+    this.shared = shared
     this.file = file
     this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0, progress: {}, skillVersions: {} }
     this.dirty = false
     this.savesSincePrune = 0
     this.#load()
+  }
+
+  /** Merge our deltas into whatever peers have written since we loaded. */
+  #saveMerged() {
+    let cur = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0,
+                progress: {}, skillVersions: {} }
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))
+      if (raw.schema === SCHEMA) cur = raw
+    } catch { /* first write */ }
+
+    // avoid: keep the HIGHER fail count and union the class tallies. Taking the
+    // max rather than summing means two bots failing the same action once each
+    // does not immediately read as two failures by one bot -- the threshold is
+    // about confidence in a belief, not about how many bodies hold it.
+    for (const [k, mine] of Object.entries(this.data.avoid ?? {})) {
+      const theirs = cur.avoid[k]
+      if (!theirs) { cur.avoid[k] = mine; continue }
+      theirs.fails = Math.max(theirs.fails ?? 0, mine.fails ?? 0)
+      theirs.last = Math.max(theirs.last ?? 0, mine.last ?? 0)
+      for (const [c, n] of Object.entries(mine.classes ?? {})) {
+        theirs.classes = theirs.classes ?? {}
+        theirs.classes[c] = Math.max(theirs.classes[c] ?? 0, n)
+      }
+      if (mine.where) theirs.where = mine.where
+    }
+    // worked: successes are cumulative across bodies -- five bots each proving
+    // an action works is genuinely stronger evidence than one bot proving it.
+    for (const [k, mine] of Object.entries(this.data.worked ?? {})) {
+      const theirs = cur.worked[k]
+      if (!theirs) { cur.worked[k] = mine; continue }
+      theirs.wins = Math.max(theirs.wins ?? 0, mine.wins ?? 0)
+      theirs.last = Math.max(theirs.last ?? 0, mine.last ?? 0)
+    }
+    // progress is per-BOT even in a hive: it is goals, not experience.
+    cur.progress = cur.progress ?? {}
+    cur.progress[config.bot.name] = (this.data.progress ?? {})[config.bot.name]
+      ?? this.data.progress ?? {}
+    cur.runs = Math.max(cur.runs ?? 0, this.data.runs ?? 0)
+
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true })
+      const tmp = `${this.file}.${process.pid}.tmp`
+      fs.writeFileSync(tmp, JSON.stringify(cur, null, 1))
+      fs.renameSync(tmp, this.file)   // atomic: peers never read a half file
+      this.data = cur
+      this.dirty = false
+    } catch (e) {
+      log('warn', 'lessons: merged write failed', { err: e.message })
+    }
   }
 
   #load() {
@@ -79,6 +130,14 @@ export class Lessons {
 
   save() {
     if (!this.dirty) return
+    // SHARED MODE MUST MERGE, NOT OVERWRITE. save() writes the whole file from
+    // memory; with five bots on one file that is guaranteed lost updates --
+    // A loads, B loads, A writes, B writes, A's lessons gone. The hive arm
+    // would then measure how fast lessons get LOST rather than how fast beliefs
+    // propagate, which is a worse bug than the one it exists to study.
+    // Same read-merge-write under atomic rename that worldfacts.mjs already
+    // uses for exactly this reason.
+    if (this.shared) return this.#saveMerged()
     // Prune here, not only on load. MAX_AVOID was enforced once at startup, so
     // the avoid map grew unbounded for the life of a run -- Gather01 reached 42
     // entries against a cap of 40. The prompt only ever shows the worst few, so
@@ -369,6 +428,10 @@ let instance = null
 
 export function openLessons() {
   if (instance) return instance
-  instance = new Lessons(path.join(config.log.stateDir, `lessons-${config.bot.name}.json`))
+  // MEMORY_SCOPE=shared puts every bot on one file; isolated and private both
+  // keep a bot's failures to itself. See config.memory for what each means.
+  const shared = config.memory.scope === 'shared'
+  const name = shared ? 'lessons-hive.json' : `lessons-${config.bot.name}.json`
+  instance = new Lessons(path.join(config.log.stateDir, name), shared)
   return instance
 }

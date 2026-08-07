@@ -48,6 +48,33 @@ function req(name, fallback) {
 export const config = {
   code: { version: codeVersion() },
 
+  /**
+   * WHAT A BOT REMEMBERS, AND WITH WHOM.
+   *
+   * Three points on one spectrum, and the middle one is what this project has
+   * always run without ever naming it:
+   *
+   *   isolated  private lessons, private world model. No bot learns anything
+   *             from another. The true independent-agents control.
+   *   private   private lessons, SHARED world model (the default, and what
+   *             every run to date has been). Deposits found by one bot are
+   *             visible to all -- world-facts.json already carries a
+   *             `by: [Scout01, Scout02]` array -- but failures are not shared.
+   *   shared    both shared. The hive: one bot's failure becomes every bot's
+   *             avoid rule.
+   *
+   * The hypothesis is not "a hive learns faster". It is that a hive learns
+   * faster AND IS WRONG FASTER, because independent brains are a form of error
+   * isolation: this fleet once had all five bots conclude that walking home was
+   * impossible, but each had to reach that wrong conclusion from its own four
+   * failures, which took hours. Shared, one mislabelled failure would have done
+   * it in four attempts.
+   *
+   * NOT shared in any mode: milestone progress. That is a bot's GOALS, not its
+   * experience, and sharing it is a different experiment (shared planning).
+   */
+  memory: { scope: req('MEMORY_SCOPE', 'private') },
+
   mc: {
     host: req('MINECRAFT_HOST', '127.0.0.1'),
     port: Number(req('MINECRAFT_PORT', '25565')),
