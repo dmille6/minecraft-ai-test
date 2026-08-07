@@ -19,9 +19,13 @@
 set -euo pipefail
 
 STORAGE="${STORAGE:-}"            # e.g. local-lvm, local-zfs -- discovered if unset
-BRIDGE="${BRIDGE:-vmbr0}"
-VLAN="${VLAN:-193}"
+# vmbr193 sits on the nic2.193 sub-interface, which does the VLAN tagging. Do
+# NOT also set tag= on the NIC: that double-tags and the traffic goes nowhere.
+# TICRDEV was deliberately left non-VLAN-aware so the live VMs on it are
+# untouched, which is why this is a separate bridge rather than a tag.
+BRIDGE="${BRIDGE:-vmbr193}"
 GW="${GW:-192.168.193.1}"
+POOL="${POOL:-MC-AI-Test}"
 IMG_URL="${IMG_URL:-https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img}"
 SSHKEY="${SSHKEY:-$HOME/.ssh/authorized_keys}"
 CIUSER="${CIUSER:-darrell}"
@@ -56,14 +60,14 @@ else
 fi
 
 # Bridge: must exist. VLAN-awareness is checked but not changed.
-ip link show "$BRIDGE" >/dev/null 2>&1 || die "bridge '$BRIDGE' does not exist on this host"
-if [ "$(cat /sys/class/net/$BRIDGE/bridge/vlan_filtering 2>/dev/null || echo 0)" != "1" ]; then
-  say "WARNING: $BRIDGE is not VLAN-aware. tag=$VLAN will not work until it is."
-  say "         Fix that in the Proxmox UI or /etc/network/interfaces YOURSELF --"
-  say "         this script will not edit host networking."
-else
-  say "bridge: $BRIDGE (VLAN-aware), tag $VLAN"
-fi
+ip link show "$BRIDGE" >/dev/null 2>&1 \
+  || die "bridge '$BRIDGE' does not exist on this host (expected vmbr193 on nic2.193)"
+say "bridge: $BRIDGE -> $(ls /sys/class/net/$BRIDGE/brif 2>/dev/null | tr '\n' ' ')"
+# A bridge with no port is a bridge to nowhere, and VMs on it fail silently.
+[ -n "$(ls /sys/class/net/$BRIDGE/brif 2>/dev/null)" ] || die "$BRIDGE has no member port"
+
+pvesh get "/pools/$POOL" >/dev/null 2>&1 || die "resource pool '$POOL' does not exist"
+say "pool: $POOL"
 
 [ -r "$SSHKEY" ] || die "no readable ssh public key at $SSHKEY (set SSHKEY=)"
 say "ssh key: $SSHKEY ($(wc -l < "$SSHKEY") entries)"
@@ -112,7 +116,8 @@ while read -r id name cores ram disk ip; do
   say "$name ($id)"
   qm create "$id" --name "$name" --cores "$cores" --memory "$ram" \
     --cpu host --machine q35 --bios ovmf --agent enabled=1 \
-    --net0 "virtio,bridge=$BRIDGE,tag=$VLAN" --ostype l26 --scsihw virtio-scsi-single
+    --net0 "virtio,bridge=$BRIDGE" --ostype l26 --scsihw virtio-scsi-single \
+    --pool "$POOL"
   qm set "$id" --efidisk0 "$STORAGE:0,efitype=4m,pre-enrolled-keys=0" >/dev/null
   qm importdisk "$id" "$IMG" "$STORAGE" >/dev/null
   qm set "$id" --scsi0 "$STORAGE:vm-$id-disk-1,discard=on,ssd=1" >/dev/null
@@ -128,5 +133,5 @@ while read -r id name cores ram disk ip; do
 done <<< "$PLAN"
 
 echo
-say "done. Verify with: qm list"
+say "done. Verify with: qm list  ·  pvesh get /pools/$POOL"
 say "Cloud-init sets the IP; first boot takes a minute. Then: ssh $CIUSER@<ip>"
