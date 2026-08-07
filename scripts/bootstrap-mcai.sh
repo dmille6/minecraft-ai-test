@@ -11,15 +11,20 @@
 #
 # Environment:
 #   MC_EULA=true          you accept https://aka.ms/MinecraftEULA (required)
-#   PAPER_VERSION=1.21.11 pinned; see ADR-0001 before changing
+#   PAPER_VERSION=1.21.8  pinned; see ADR-0001 before changing
 #   HEAP=6G               Paper heap, fixed (-Xms == -Xmx)
-#   LAN_CIDR=10.0.0.0/24  who may reach the game port
+#   LAN_CIDR=192.168.193.0/24  who may reach the game port
 
 set -euo pipefail
 
-PAPER_VERSION="${PAPER_VERSION:-1.21.11}"
+# 1.21.8, not 1.21.11: there is an open mineflayer issue reporting pathfinding
+# and jumping failures specifically on 1.21.11, and movement is already this
+# project's binding constraint -- goto succeeds 3% of the time. Running the new
+# lab on the version with a known movement bug would confound the one thing we
+# are trying to measure. ViaVersion still lets a current client join.
+PAPER_VERSION="${PAPER_VERSION:-1.21.8}"
 HEAP="${HEAP:-6G}"
-LAN_CIDR="${LAN_CIDR:-10.0.0.0/24}"
+LAN_CIDR="${LAN_CIDR:-192.168.193.0/24}"
 DATA_LV_SIZE="${DATA_LV_SIZE:-120G}"
 SRV=/srv/minecraft
 
@@ -239,27 +244,30 @@ fi
 chown -R minecraft:minecraft "$SRV/server"
 
 say "Glances"
-# Ubuntu's glances package omits the web UI static assets, so `glances -w` dies
-# on a missing directory. pipx with the [web] extra ships the real thing.
-apt-get install -y -qq pipx >/dev/null 2>&1 || true
-command -v glances >/dev/null 2>&1 || \
-  PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin pipx install 'glances[web]' >/dev/null 2>&1 || true
-G=$(command -v glances || echo /usr/local/bin/glances)
-cat > /etc/systemd/system/glances.service <<GEOF
+# Leave an existing unit alone, and never bind 0.0.0.0. The lab installs glances
+# separately, bound to each host's VLAN address; this section used to overwrite
+# that with --bind 0.0.0.0, silently widening an unauthenticated service that
+# exposes process lists, filesystem layout and network counters.
+if [ -f /etc/systemd/system/glances.service ]; then
+  ok "glances already managed ($(systemctl is-active glances)); left untouched"
+else
+  LAB_IP=$(ip -4 -o addr show | awk '/192\.168\.193\./{split($4,a,"/"); print a[1]; exit}')
+  BIND="${LAB_IP:-127.0.0.1}"
+  apt-get install -y -qq glances >/dev/null 2>&1 || true
+  cat > /etc/systemd/system/glances.service <<GEOF
 [Unit]
-Description=Glances resource monitor (web + REST API)
+Description=Glances REST API
 After=network-online.target
 [Service]
-Type=simple
-Environment=PIPX_HOME=/opt/pipx
-ExecStart=$G -w --bind 0.0.0.0 --port 61208
+ExecStart=/usr/bin/glances -w --disable-webui --bind $BIND --port 61208
 Restart=on-failure
 RestartSec=10
 [Install]
 WantedBy=multi-user.target
 GEOF
-systemctl daemon-reload && systemctl enable --now glances >/dev/null 2>&1
-ok "glances on :61208 ($(systemctl is-active glances))"
+  systemctl daemon-reload && systemctl enable --now glances >/dev/null 2>&1
+  ok "glances on $BIND:61208 ($(systemctl is-active glances))"
+fi
 
 # ----------------------------------------------------------------- systemd --
 say "systemd"
