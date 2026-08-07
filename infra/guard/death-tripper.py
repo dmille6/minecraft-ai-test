@@ -31,6 +31,13 @@ import json, os, re, subprocess, sys, time
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
+# LOCAL mode: instance #1 has no evidence host, so the tripper runs on the bot
+# host and reads its own logs. Less isolated than reading an archive on a machine
+# that runs no agent code -- but the thing it stops lives on this host too, so if
+# this host is gone the bots are gone with it.
+LOCAL     = os.environ.get("TRIPPER_LOCAL", "") == "1"
+LOGS      = os.environ.get("LOG_GLOB", "/srv/mcbots/logs/*.jsonl")
+MANIFEST  = os.environ.get("MANIFEST", "/srv/mcbots/bot-manifest.json")
 EVD       = os.environ.get("EVD_HOST", "192.168.193.21")
 LAB       = os.environ.get("LAB_HOST", "192.168.193.40")
 KEY       = os.environ.get("AGENT_KEY", "/root/.ssh/id_ed25519_agent")
@@ -41,11 +48,27 @@ DRY       = "--apply" not in sys.argv
 # Thresholds. Deliberately tight: a fall costs the bot its inventory and its
 # progress, so two is already a pattern, not bad luck.
 BOT_FALLS_30M    = 2
-FLEET_FALLS_30M  = 5
-DEPTH_FALLS_60M  = 4      # y20-39, the band the historical run died in
+# Fleet threshold scales with population: 5 was set for a 5-bot fleet, and
+# instance #1 now runs 8. Overridable so a bigger fleet does not trip on a rate
+# that is proportionally lower than the per-bot rule it is meant to backstop.
+FLEET_FALLS_30M  = int(os.environ.get("FLEET_FALLS_30M", "5"))
+# 0 disables a rule. Instance #1 sits at ~6 fall deaths/hour at y30-39 and has
+# for twelve hours straight -- a chronic, documented condition, not a new
+# emergency. The fleet-wide rules exist to catch a mass-casualty EVENT; firing
+# them on a known steady state stops eight bots and teaches nothing. The per-bot
+# rule stays on, because that is the one that catches the failure mode which
+# actually wastes a night: a single bot in a death loop.
+DEPTH_FALLS_60M  = int(os.environ.get("DEPTH_FALLS_60M", "4"))   # y20-39
 DEPTH_BAND       = (20, 39)
 
+def sh(cmd):
+    """Run locally. Used only in LOCAL mode, where the tripper is already root
+    on the host whose services it stops."""
+    return subprocess.run(["bash", "-lc", cmd], capture_output=True, text=True, timeout=90)
+
 def ssh(host, cmd, user="agent"):
+    if LOCAL:
+        return sh(cmd)
     return subprocess.run(
         ["ssh", "-i", KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
          "-o", "StrictHostKeyChecking=accept-new", f"{user}@{host}", cmd],
@@ -61,7 +84,7 @@ def unit_map():
     files anyway, since those hold the Elasticsearch shipper password and a
     least-privilege account has no business with them.
     """
-    r = ssh(LAB, "cat /srv/mcbots/bot-manifest.json")
+    r = ssh(LAB, f"cat {MANIFEST}")
     try:
         return json.loads(r.stdout)["bots"]
     except Exception as e:
@@ -71,7 +94,8 @@ def unit_map():
 def load_deaths(minutes):
     """Death events from the archive, newest window only."""
     since = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-    r = ssh(EVD, f"grep -h '\"_death\"' {ARCHIVE}/*.jsonl 2>/dev/null | tail -2000")
+    src = LOGS if LOCAL else f"{ARCHIVE}/*.jsonl"
+    r = ssh(EVD, f"grep -h '\"_death\"' {src} 2>/dev/null | tail -2000")
     deaths = []
     for line in r.stdout.splitlines():
         try:
@@ -220,7 +244,7 @@ def version_check():
     the whole reason the digest exists: a stale CODE_VERSION misattributed
     eleven hours of documents to a commit that was not running.
     """
-    r = ssh(EVD, f"tail -q -n 400 {ARCHIVE}/*.jsonl 2>/dev/null")
+    r = ssh(EVD, f"tail -q -n 400 {(LOGS if LOCAL else ARCHIVE + '/*.jsonl')} 2>/dev/null")
     seen = {}
     for line in r.stdout.splitlines():
         try:
@@ -266,10 +290,10 @@ def main():
     for bot, n in per_bot.items():
         if n >= BOT_FALLS_30M:
             trips.append((bot, f"{n} fall deaths in 30m (limit {BOT_FALLS_30M})"))
-    if len(falls30) >= FLEET_FALLS_30M:
+    if FLEET_FALLS_30M and len(falls30) >= FLEET_FALLS_30M:
         trips.append(("ALL", f"fleet: {len(falls30)} fall deaths in 30m (limit {FLEET_FALLS_30M})"))
     trips.extend(version_check())
-    if len(depth) >= DEPTH_FALLS_60M:
+    if DEPTH_FALLS_60M and len(depth) >= DEPTH_FALLS_60M:
         trips.append(("ALL", f"{len(depth)} fall deaths at y{DEPTH_BAND[0]}-{DEPTH_BAND[1]} in 60m "
                              f"(limit {DEPTH_FALLS_60M}) -- the historical signature"))
 
@@ -299,7 +323,7 @@ def main():
         if DRY:
             print(f"    would stop mcbot@{unit} ({bot})")
         else:
-            r = ssh(LAB, f"sudo -n systemctl stop mcbot@{unit}")
+            r = ssh(LAB, f"systemctl stop mcbot@{unit}" if LOCAL else f"sudo -n systemctl stop mcbot@{unit}")
             ok = r.returncode == 0
             print(f"    stop mcbot@{unit} ({bot}): {'ok' if ok else 'FAILED ' + r.stderr.strip()[:80]}")
             if ok:
