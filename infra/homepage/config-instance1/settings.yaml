@@ -1,0 +1,21 @@
+---
+title: MC-AI Lab · instance #1
+description: original fleet · memory-scope shakedown
+theme: dark
+color: green
+headerStyle: boxedWidgets
+useEqualHeights: true
+hideVersion: true
+layout:
+  Overview:
+    style: row
+    columns: 3
+  Bots · memory scope:
+    style: row
+    columns: 4
+  Inference:
+    style: row
+    columns: 2
+  Tools:
+    style: row
+    columns: 2

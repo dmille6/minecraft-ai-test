@@ -1,0 +1,275 @@
+---
+# Instance #1 -- the original proof-of-concept fleet, now also carrying the
+# memory-scope shakedown arms. Widgets are fetched SERVER-side by the container
+# on 10.0.0.185, so every URL must be reachable from this network.
+
+- Overview:
+    - Minecraft server:
+        icon: mdi-minecraft
+        description: Paper 1.21.11 · instance #1
+        widget:
+          type: minecraft
+          url: udp://10.0.0.185:25565
+    - Fleet · 1h:
+        icon: mdi-robot
+        description: eight bots, three memory scopes
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"range": {"@timestamp": {"gte": "now-1h"}}}, "aggs": {"ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}}}
+          mappings:
+            - field: hits.total.value
+              label: actions
+              format: number
+            - field: aggregations.ok.doc_count
+              label: succeeded
+              format: number
+            - field: aggregations.moved.value
+              label: blocks
+              format: number
+    - Deaths · 1h:
+        icon: mdi-skull
+        description: any death, and falls specifically
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"skill.name": "_death"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"falls": {"filter": {"term": {"skill.fail_class": "fall"}}}}}
+          mappings:
+            - field: hits.total.value
+              label: deaths
+              format: number
+            - field: aggregations.falls.doc_count
+              label: falls
+              format: number
+
+# MEMORY SCOPE IS THE VARIABLE UNDER TEST, so it is on the face of each card.
+#   private   private lessons, shared world model -- the five originals
+#   HIVE      Hive01+Hive02 share one lesson store. A hive of ONE is not a hive.
+#   ISOLATED  Solo01 shares nothing at all.
+# 'moved' is measured displacement, not a claim: a bot can report success every
+# minute while standing still.
+- Bots · memory scope:
+    - Scout01:
+        description: private · 7b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+    - Scout02:
+        description: private · 14b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+    - Miner01:
+        description: private · 14b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Miner01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+    - Gather01:
+        description: private · 7b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+    - Gather02:
+        description: private · 14b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+    - Hive01:
+        description: HIVE · 7b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Hive01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+    - Hive02:
+        description: HIVE · 7b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Hive02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+    - Solo01:
+        description: ISOLATED · 7b
+        widget:
+          type: customapi
+          url: http://10.0.0.186:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Solo01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          mappings:
+            - field: aggregations.lastmove.t.value_as_string
+              label: moved
+              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
+            - field: hits.total.value
+              label: acts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: ok
+              format: number
+
+- Inference:
+    - M4 mini · 10.0.0.70:
+        description: dedicated · qwen2.5:7b pinned · 16GB (14b would swap)
+        siteMonitor: http://10.0.0.70:11434
+    - M4 Studio · via WAN:
+        description: shared with instance #2 · qwen2.5:14b
+        siteMonitor: http://ai.ticrcorp.com:11434
+
+- Tools:
+    - Kibana:
+        icon: elastic
+        href: http://10.0.0.186:5601
+        description: telemetry · instance #1
+        siteMonitor: http://10.0.0.186:5601
+    - World map:
+        icon: mdi-map
+        href: http://10.0.0.185:8080
+        siteMonitor: http://10.0.0.185:8080
+

@@ -69,6 +69,23 @@ t("the first bot's rule survived the second's write", keys.some(k => k.startsWit
 t("the second bot's rule is present",                 keys.some(k => k.startsWith('goto')), true)
 t('both, not one',                                    keys.length >= 2, true)
 
+console.log('\nshared rules carry provenance')
+// One reporter with four failures and four reporters with one each are very
+// different evidence for the same count. In a hive a belief outlives the bot
+// that formed it, so it has to be answerable for where it came from.
+const shared = Object.entries(hive.avoid).find(([k]) => k.startsWith('gather'))?.[1]
+t('records who reported it', Array.isArray(shared?.reporters), true)
+t('names the reporting bot',  (shared?.reporters ?? []).includes('Miner01'), true)
+run('shared', 'Scout02', 'gather', { block: 'oak_log' })   // a second bot hits the same rule
+const again = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-hive.json'), 'utf8'))
+const both = Object.entries(again.avoid).find(([k]) => k.startsWith('gather'))?.[1]
+t('a second reporter is added, not replaced', (both?.reporters ?? []).length, 2)
+// A hive ACCUMULATES across bodies: the second bot loads the shared count and
+// increments from there, so the fleet reaches the 4-failure block threshold in
+// four TOTAL failures rather than four each. That is the hypothesis, pinned
+// here so a later change cannot quietly turn a hive back into five privates.
+t('a hive accumulates across bots',          both?.fails, 2)
+
 console.log('\nisolation really isolates')
 t('isolated bot did not write the shared world model',
   !has('world-facts-Scout01.json'), true)

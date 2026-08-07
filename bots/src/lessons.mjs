@@ -34,6 +34,9 @@ const key = actionKey   // ONE definition, shared with the admission gate
 export class Lessons {
   constructor(file, shared = false) {
     this.shared = shared
+    // Keys this bot has itself recorded a failure for. Provenance must reflect
+    // who OBSERVED a failure, not who happened to load the file afterwards.
+    this.touched = new Set()
     this.file = file
     this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0, progress: {}, skillVersions: {} }
     this.dirty = false
@@ -50,15 +53,45 @@ export class Lessons {
       if (raw.schema === SCHEMA) cur = raw
     } catch { /* first write */ }
 
-    // avoid: keep the HIGHER fail count and union the class tallies. Taking the
-    // max rather than summing means two bots failing the same action once each
-    // does not immediately read as two failures by one bot -- the threshold is
-    // about confidence in a belief, not about how many bodies hold it.
+    // avoid: keep the HIGHER fail count and union the class tallies.
+    //
+    // Max here guards against one bot's concurrent writes double-counting. It
+    // does NOT stop a hive accumulating across bots, and an earlier version of
+    // this comment wrongly claimed it did: each bot LOADS the shared count and
+    // increments from there, so five bodies reach the four-failure block
+    // threshold in four TOTAL failures rather than four each.
+    //
+    // That is the correct hive semantics and it is the whole hypothesis --
+    // a hive learns faster and is wrong faster. It is stated here because the
+    // difference between "max on merge" and "does not accumulate" is exactly
+    // the kind of thing that gets read off a comment instead of measured.
     for (const [k, mine] of Object.entries(this.data.avoid ?? {})) {
       const theirs = cur.avoid[k]
-      if (!theirs) { cur.avoid[k] = mine; continue }
+      if (!theirs) {
+        cur.avoid[k] = this.touched.has(k)
+          ? { ...mine, reporters: [config.bot.name] }
+          : { ...mine }
+        continue
+      }
       theirs.fails = Math.max(theirs.fails ?? 0, mine.fails ?? 0)
       theirs.last = Math.max(theirs.last ?? 0, mine.last ?? 0)
+      // PROVENANCE. In a hive a belief outlives the bot that formed it, and this
+      // fleet has already been wrong in exactly that way -- all five bots once
+      // enforced "walking home is impossible" from labels the system itself
+      // manufactured. When one bot's mistake becomes five bots' policy, you need
+      // to be able to ask WHO reported it and HOW MANY independently agreed.
+      // One reporter with four failures and four reporters with one each are
+      // very different evidence for the same count.
+      // ONLY if this bot actually observed the failure. Merging is not
+      // evidence: a first version stamped every bot that merely LOADED the file,
+      // so after three bots wrote anything at all every rule claimed three
+      // independent reporters. Provenance that counts readers as witnesses is
+      // worse than none, because it reads as corroboration.
+      if (this.touched.has(k)) {
+        const who = new Set(theirs.reporters ?? [])
+        who.add(config.bot.name)
+        theirs.reporters = [...who].sort()
+      }
       for (const [c, n] of Object.entries(mine.classes ?? {})) {
         theirs.classes = theirs.classes ?? {}
         theirs.classes[c] = Math.max(theirs.classes[c] ?? 0, n)
@@ -157,6 +190,7 @@ export class Lessons {
 
   recordFailure(skill, args, failClass, pos) {
     const k = key(skill, args)
+    this.touched.add(k)
     const e = this.data.avoid[k] ?? { skill, args, fails: 0, classes: {} }
     e.fails++
     e.last = Date.now()
