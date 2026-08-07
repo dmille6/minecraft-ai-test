@@ -118,6 +118,20 @@ export const MILESTONES_BY_ROLE = {
     M.craft('stick', 4, '2 planks make 4 sticks.'),
     M.survey(4, 80, 'Push past the ground the gatherers already work.'),
     M.survey(2, 100, 'Genuinely new ground -- the fleet has found almost nothing this far out.'),
+    // Scout-only, and at the END of the scout chain rather than in SUSTAINING.
+    // SUSTAINING is appended to EVERY role, so putting it there handed a
+    // gatherer "find 12 deposits beyond 100m" when exactly one such deposit
+    // existed fleet-wide -- an unreachable goal, on a gatherer, which is both
+    // halves of what this change was meant to fix. Chain re-entry repeats the
+    // whole chain and increments the cycle, so it still escalates here.
+    {
+      id: 'survey_wider',
+      wants: null,
+      describe: n => `Find ${4 + n * 2} deposits at least ${60 + n * 10} blocks from home.`,
+      done: (b, n, wf) => countMySightings(wf, 60 + n * 10) >= 4 + n * 2,
+      progress: (b, n, wf) => `${countMySightings(wf, 60 + n * 10)}/${4 + n * 2} beyond ${60 + n * 10}m`,
+      hint: 'explore, or goto a distant point; deposits record themselves as you travel.',
+    },
   ],
 
   // The full tool chain. Exercises craft and place, which have entirely
@@ -175,15 +189,6 @@ export const SUSTAINING = [
     done: (b, n) => countItem(b, 'cobblestone') >= 16 + n * 8,
     progress: (b, n) => `${countItem(b, 'cobblestone')}/${16 + n * 8} cobblestone`,
     hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
-  },
-  {
-    // The scout's ongoing objective, escalating like the stockpile goals: each
-    // completed cycle demands more deposits, further out.
-    id: 'survey_wider',
-    describe: n => `Find ${4 + n * 2} deposits at least ${60 + n * 10} blocks from home.`,
-    done: (b, n, wf) => countMySightings(wf, 60 + n * 10) >= 4 + n * 2,
-    progress: (b, n, wf) => `${countMySightings(wf, 60 + n * 10)}/${4 + n * 2} deposits beyond ${60 + n * 10}m`,
-    hint: 'explore, or goto a distant point; deposits record themselves as you travel.',
   },
   {
     id: 'patrol',

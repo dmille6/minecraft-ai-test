@@ -44,8 +44,8 @@ t('shared sightings DO count', m.done({}, 0, wf(shared)), true)
 console.log('\nprogress never renders NaN, and the sustaining goal escalates')
 for (const s of surveys) t(`${s.id} progress is clean`,
   /NaN|undefined/.test(String(s.progress({}, 0, wf(far)))), false)
-const sus = SUSTAINING.find(x => x.id === 'survey_wider')
-t('sustaining survey exists', !!sus, true)
+const sus = chain.find(x => x.id === 'survey_wider')
+t('scout has the escalating survey goal', !!sus, true)
 for (const n of [0, 1, 5, 40]) {
   const d = typeof sus.describe === 'function' ? sus.describe(n) : sus.describe
   t(`cycle ${n} describes cleanly`, /NaN|undefined/.test(d), false)
@@ -55,6 +55,19 @@ t('demands more each cycle', sus.describe(2).length > 0 && sus.describe(0) !== s
 console.log('\nmissing or broken worldFacts degrades to 0, never throws')
 t('null worldFacts', m.done({}, 0, null), false)
 t('worldFacts with no read()', m.done({}, 0, {}), false)
+
+
+// REGRESSION. survey_wider was first added to SUSTAINING, which is appended to
+// EVERY role chain -- so a gatherer was handed "find 12 deposits at least 100
+// blocks from home" while exactly one such deposit existed fleet-wide. An
+// unreachable goal, on the wrong role, which is both halves of what this change
+// was supposed to fix.
+console.log('\nthe escalating survey goal belongs to scouts ALONE')
+t('not in the shared sustaining list', SUSTAINING.some(x => x.id === 'survey_wider'), false)
+for (const role of ['gatherer', 'miner']) {
+  t(`${role} never gets survey_wider`,
+    MILESTONES_BY_ROLE[role].some(x => x.id === 'survey_wider'), false)
+}
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
