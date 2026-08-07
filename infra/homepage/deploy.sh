@@ -13,14 +13,24 @@ systemctl enable --now docker >/dev/null 2>&1
 install -d -m 755 /opt/homepage/config
 cp /tmp/homepage-config/*.yaml /opt/homepage/config/
 
-# Any future secret goes in this env file, referenced from YAML as
-# {{HOMEPAGE_VAR_NAME}}, so nothing secret is ever committed. There are none
-# today: the Proxmox token was removed with the widget it existed for.
+# Secrets are READ FROM THE HOST here rather than appended by hand afterwards.
+# This file is rewritten from scratch on every deploy, so anything added to it
+# out-of-band is silently destroyed on the next run -- which is exactly what
+# happened to the Elasticsearch credential, and the only symptom was widgets
+# showing "API Error Information" with nothing in the logs.
 install -m 600 /dev/null /opt/homepage/.env
-cat > /opt/homepage/.env <<ENV
-HOMEPAGE_ALLOWED_HOSTS=${IP},ctl01,ctl01.ticr.lan,${IP}:80,ctl01:80,ctl01.ticr.lan:80
-ENV
+{
+  echo "HOMEPAGE_ALLOWED_HOSTS=${IP},ctl01,ctl01.ticr.lan,${IP}:80,ctl01:80,ctl01.ticr.lan:80"
+  # Read-only Elasticsearch account, for the live fleet-metric widgets.
+  [ -r /root/.mcai_ro_password ] && echo "HOMEPAGE_VAR_ES_RO=$(cat /root/.mcai_ro_password)"
+} > /opt/homepage/.env
+chmod 600 /opt/homepage/.env
 
+# RECREATE, never just restart. `docker restart` does not re-read --env-file:
+# that is consumed at container CREATION only. A credential added to the env
+# file after the fact stays empty inside a restarted container, and the symptom
+# is a widget showing "API Error Information" with nothing in the logs, because
+# the request is never made.
 docker rm -f homepage >/dev/null 2>&1 || true
 
 # Published on port 80 so the bare hostname is the dashboard: http://ctl01.

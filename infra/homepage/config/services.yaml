@@ -1,79 +1,186 @@
 ---
-# The lab, one card per host. Glances supplies the live numbers; each widget
-# points at that host's own API on the lab VLAN.
+# Widgets are fetched SERVER-side by the Homepage container on ctl01, so every
+# URL here must be reachable from the lab VLAN. That is why Proxmox appears only
+# as a bookmark: bookmarks resolve in the browser, which sits on the management
+# network the lab deliberately cannot reach.
+
+- The lab:
+    - Minecraft server:
+        href: http://mc01:5601
+        description: Paper 1.21.8 · seed 7914455308567851796
+        widget:
+          type: minecraft
+          url: udp://192.168.193.100:25565
+    - Fleet decisions · 1h:
+        description: LLM calls the bots actually completed
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-llm-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          headers:
+            Content-Type: application/json
+          requestBody:
+            size: 0
+            query: { range: { "@timestamp": { gte: now-1h } } }
+            aggs:
+              valid: { filter: { term: { "llm.schema_valid": true } } }
+              latency: { avg: { field: llm.latency_ms } }
+          mappings:
+            - field: hits.total.value
+              label: decisions
+              format: number
+            - field: aggregations.valid.doc_count
+              label: schema-valid
+              format: number
+            - field: aggregations.latency.value
+              label: avg ms
+              format: number
+    - Deaths · 1h:
+        # The number that mattered most and was never on a dashboard. A fleet
+        # dying every twelve minutes passed every liveness check we had.
+        description: any death, and falls specifically
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          headers:
+            Content-Type: application/json
+          requestBody:
+            size: 0
+            query:
+              bool:
+                must:
+                  - { term: { "skill.name": _death } }
+                  - { range: { "@timestamp": { gte: now-1h } } }
+            aggs:
+              falls: { filter: { term: { "skill.fail_class": fall } } }
+          mappings:
+            - field: hits.total.value
+              label: deaths
+              format: number
+            - field: aggregations.falls.doc_count
+              label: falls
+              format: number
+    - Skill outcomes · 1h:
+        description: what the fleet attempted and how it went
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          headers:
+            Content-Type: application/json
+          requestBody:
+            size: 0
+            query: { range: { "@timestamp": { gte: now-1h } } }
+            aggs:
+              ok: { filter: { term: { "skill.status": success } } }
+              moved: { sum: { field: skill.distance_moved } }
+          mappings:
+            - field: hits.total.value
+              label: attempts
+              format: number
+            - field: aggregations.ok.doc_count
+              label: succeeded
+              format: number
+            - field: aggregations.moved.value
+              label: blocks moved
+              format: number
+    - Supervisor:
+        description: death circuit breaker · last check
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-supervisor-lab/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          headers:
+            Content-Type: application/json
+          requestBody:
+            size: 1
+            sort: [{ "@timestamp": desc }]
+            query: { term: { "supervisor.check": death_tripper } }
+          mappings:
+            - field: hits.hits.0._source.supervisor.tripped
+              label: tripped
+            - field: hits.hits.0._source.supervisor.falls_30m
+              label: falls 30m
+              format: number
+            - field: hits.hits.0._source.supervisor.reason
+              label: state
+
+- Watch the bots:
+    # prismarine-viewer: a live 3D view rendered around each bot -- terrain
+    # updates as blocks change, and you can orbit the camera. The camera is
+    # TETHERED to its bot and only loads chunks within that bot's view distance,
+    # which is why there is one per bot rather than one for the world. Free
+    # flight in a browser does not exist in this ecosystem: flying means
+    # streaming arbitrary chunks on demand, which is what a Minecraft client is.
+    - Scout01 · POV:
+        href: http://192.168.193.40:3007
+        description: live 3D, tethered to Scout01
+        siteMonitor: http://192.168.193.40:3007
+    - Scout02 · POV:
+        href: http://192.168.193.40:3008
+        description: live 3D, tethered to Scout02
+        siteMonitor: http://192.168.193.40:3008
+    - Miner01 · POV:
+        href: http://192.168.193.40:3009
+        description: live 3D, tethered to Miner01
+        siteMonitor: http://192.168.193.40:3009
+    - Gather01 · POV:
+        href: http://192.168.193.40:3010
+        description: live 3D, tethered to Gather01
+        siteMonitor: http://192.168.193.40:3010
+    - Gather02 · POV:
+        href: http://192.168.193.40:3011
+        description: live 3D, tethered to Gather02
+        siteMonitor: http://192.168.193.40:3011
+    - World map · squaremap:
+        href: http://192.168.193.100:8080
+        description: live 2D overview, all five bots — pick who to watch
+        siteMonitor: http://192.168.193.100:8080
+
 - Lab hosts:
-    - mc01 · Minecraft server:
-        href: http://mc01:25565
-        description: Paper 1.21.8 — the world the agents live in
-        widget:
-          type: glances
-          url: http://192.168.193.100:61208
-          version: 4
-          metric: info
+    - mc01 · Minecraft:
+        widget: { type: glances, url: http://192.168.193.100:61208, version: 4, metric: info }
     - lab01 · Bot fleet:
-        href: http://lab01
-        description: mineflayer agents, observer, trial coordinator
-        widget:
-          type: glances
-          url: http://192.168.193.40:61208
-          version: 4
-          metric: info
-    - evd01 · Evidence store:
-        description: durable trial archive · DuckDB
-        widget:
-          type: glances
-          url: http://192.168.193.21:61208
-          version: 4
-          metric: info
-    - elk01 · Elasticsearch + Kibana:
-        href: http://elk01:5601
-        description: live dashboards and bot telemetry
-        widget:
-          type: glances
-          url: http://192.168.193.30:61208
-          version: 4
-          metric: info
-    - ctl01 · Agent control:
-        description: Claude Code · Codex · schedulers · this dashboard
-        widget:
-          type: glances
-          url: http://192.168.193.10:61208
-          version: 4
-          metric: info
+        widget: { type: glances, url: http://192.168.193.40:61208, version: 4, metric: info }
+    - evd01 · Evidence:
+        widget: { type: glances, url: http://192.168.193.21:61208, version: 4, metric: info }
+    - elk01 · ELK:
+        widget: { type: glances, url: http://192.168.193.30:61208, version: 4, metric: info }
+    - ctl01 · Control:
+        widget: { type: glances, url: http://192.168.193.10:61208, version: 4, metric: info }
 
-- Storage and load:
-    - lab01 filesystem:
-        widget:
-          type: glances
-          url: http://192.168.193.40:61208
-          version: 4
-          metric: fs
-    - evd01 filesystem:
-        widget:
-          type: glances
-          url: http://192.168.193.21:61208
-          version: 4
-          metric: fs
-    - elk01 filesystem:
-        widget:
-          type: glances
-          url: http://192.168.193.30:61208
-          version: 4
-          metric: fs
+- Storage:
+    - lab01:
+        widget: { type: glances, url: http://192.168.193.40:61208, version: 4, metric: fs }
+    - evd01:
+        widget: { type: glances, url: http://192.168.193.21:61208, version: 4, metric: fs }
+    - elk01:
+        widget: { type: glances, url: http://192.168.193.30:61208, version: 4, metric: fs }
 
-- Infrastructure:
-    # NO PROXMOX WIDGET, deliberately. Homepage widgets are fetched SERVER-side,
-    # and the lab VLAN has no route to the Proxmox management network
-    # (10.4.0.0/24) -- management is kept separate on purpose. Routing the lab to
-    # the hypervisor management plane to satisfy a dashboard tile would hand a
-    # VLAN full of autonomous, code-executing agents a path to the thing that
-    # controls their own VMs. Proxmox stays a BOOKMARK: those load in your
-    # browser, which is on the management network and reaches it fine.
+- Services:
     - Kibana:
-        href: http://elk01:5601
-        description: bot telemetry, veto rates, failure classes
+        href: http://192.168.193.30:5601
+        description: dashboards · bot telemetry
         siteMonitor: http://192.168.193.30:5601
     - Elasticsearch:
-        href: http://elk01:9200
-        description: trial indices
-        siteMonitor: http://192.168.193.30:9200
+        description: cluster health
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/_cluster/health
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          mappings:
+            - field: status
+              label: status
+            - field: active_shards
+              label: shards
+              format: number
