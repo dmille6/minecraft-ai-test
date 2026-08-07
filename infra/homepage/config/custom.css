@@ -1,0 +1,69 @@
+/* MC-AI Lab -- a restrained Minecraft theme.
+ *
+ * Built for demos, so legibility wins over novelty: blocky edges, a grass-and-
+ * dirt palette and a pixel face for HEADINGS only. Numbers stay in a normal
+ * face, because a pixel font at 11px turns "73%" into a guess, and the numbers
+ * are the entire point of the dashboard.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+:root {
+  --mc-grass:  #5D923B;
+  --mc-grass2: #7CB342;
+  --mc-dirt:   #6B4A2F;
+  --mc-stone:  #3A3F44;
+  --mc-deep:   #16181B;
+}
+
+body { background: var(--mc-deep) !important; }
+
+/* Blocky, not rounded. Minecraft has no rounded corners. */
+.services-group .service,
+#information-widgets > div,
+.bookmark-group .bookmark { border-radius: 0 !important; }
+
+.services-group .service {
+  border: 2px solid rgba(124,179,66,.22) !important;
+  background: linear-gradient(180deg, rgba(58,63,68,.55) 0%, rgba(22,24,27,.75) 100%) !important;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.services-group .service:hover {
+  border-color: var(--mc-grass2) !important;
+  transform: translateY(-2px);
+}
+
+/* Group headings: pixel face, grass green, with a dirt underline -- the
+ * grass-block silhouette, at a size where it still reads. */
+h2, .services-group > h2, #myself h2 {
+  font-family: 'Press Start 2P', ui-monospace, monospace !important;
+  font-size: .78rem !important;
+  letter-spacing: .06em;
+  color: var(--mc-grass2) !important;
+  text-transform: uppercase;
+  padding-bottom: .45rem;
+  border-bottom: 3px solid var(--mc-dirt);
+  margin-bottom: .7rem !important;
+}
+
+/* Page title only -- not the numbers. */
+#page_container header h1 {
+  font-family: 'Press Start 2P', ui-monospace, monospace !important;
+  font-size: 1.05rem !important;
+  color: var(--mc-grass2) !important;
+  text-shadow: 2px 2px 0 rgba(0,0,0,.6);
+}
+
+/* Widget values: tabular figures so columns line up as numbers change. */
+.service-block .font-bold,
+.widget-label, .widget-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Service names slightly brighter than the description, so a wall of cards
+ * still has a scan order. */
+.service-title, .service-name { color: #E8F2DC !important; letter-spacing: .01em; }
+.service-description { opacity: .62; font-size: .74rem; }
+
+/* Denser cards: the previous tiles were tall and mostly empty. */
+.services-group .service { padding: .5rem .65rem !important; }
+.service-block { gap: .3rem !important; }

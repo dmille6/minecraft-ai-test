@@ -1,23 +1,31 @@
 ---
 title: MC-AI Lab
-description: Minecraft AI agent laboratory
-headerStyle: clean
+description: A Minecraft server as a laboratory for autonomous LLM agents
+startUrl: http://192.168.193.10
+
+theme: dark
+color: green
+headerStyle: boxedWidgets
+# Equal heights stop one long card stretching a whole row -- the main reason the
+# old layout looked ragged.
+useEqualHeights: true
+hideVersion: true
+disableCollapse: false
+showStats: false
+
 layout:
-  The lab:
+  Overview:
     style: row
     columns: 3
-  Bot health · 1h:
+  Bots:
     style: row
     columns: 5
-  Watch the bots:
+  Hosts:
+    style: row
+    columns: 5
+  Disk:
+    style: row
+    columns: 5
+  Tools:
     style: row
     columns: 3
-  Lab hosts:
-    style: rows
-    columns: 1
-  Storage:
-    style: row
-    columns: 3
-  Services:
-    style: row
-    columns: 2

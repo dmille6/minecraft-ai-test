@@ -1,63 +1,53 @@
 ---
-# Widgets are fetched SERVER-side by the Homepage container on ctl01, so every
-# URL here must be reachable from the lab VLAN. That is why Proxmox appears only
-# as a bookmark: bookmarks resolve in the browser, which sits on the management
-# network the lab deliberately cannot reach.
+# Homepage widgets are fetched SERVER-side by the container on ctl01, so every
+# URL must be reachable from the lab VLAN. Proxmox is a bookmark for that
+# reason: bookmarks resolve in the browser, which is on the management network
+# the lab deliberately cannot reach.
 
-- The lab:
+- Overview:
     - Minecraft server:
-        href: http://mc01:5601
-        description: Paper 1.21.8 · seed 7914455308567851796
+        icon: mdi-minecraft
+        href: http://192.168.193.100:8080
+        description: Paper 1.21.8 · live world map
         widget:
           type: minecraft
           url: udp://192.168.193.100:25565
-    - Fleet decisions · 1h:
-        description: LLM calls the bots actually completed
-        widget:
-          type: customapi
-          url: http://192.168.193.30:9200/mcai-llm-agents/_search
-          method: POST
-          username: mcai_ro
-          password: "{{HOMEPAGE_VAR_ES_RO}}"
-          headers:
-            Content-Type: application/json
-          requestBody:
-            size: 0
-            query: { range: { "@timestamp": { gte: now-1h } } }
-            aggs:
-              valid: { filter: { term: { "llm.schema_valid": true } } }
-              latency: { avg: { field: llm.latency_ms } }
-          mappings:
-            - field: hits.total.value
-              label: decisions
-              format: number
-            - field: aggregations.valid.doc_count
-              label: schema-valid
-              format: number
-            - field: aggregations.latency.value
-              label: avg ms
-              format: number
-    - Deaths · 1h:
-        # The number that mattered most and was never on a dashboard. A fleet
-        # dying every twelve minutes passed every liveness check we had.
-        description: any death, and falls specifically
+    - Fleet · 1h:
+        icon: mdi-robot
+        description: what the bots attempted
         widget:
           type: customapi
           url: http://192.168.193.30:9200/mcai-skill-agents/_search
           method: POST
           username: mcai_ro
           password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
           headers:
             Content-Type: application/json
-          requestBody:
-            size: 0
-            query:
-              bool:
-                must:
-                  - { term: { "skill.name": _death } }
-                  - { range: { "@timestamp": { gte: now-1h } } }
-            aggs:
-              falls: { filter: { term: { "skill.fail_class": fall } } }
+          requestBody: {"size": 0, "query": {"range": {"@timestamp": {"gte": "now-1h"}}}, "aggs": {"ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}}}
+          mappings:
+            - field: hits.total.value
+              label: actions
+              format: number
+            - field: aggregations.ok.doc_count
+              label: succeeded
+              format: number
+            - field: aggregations.moved.value
+              label: blocks
+              format: number
+    - Deaths · 1h:
+        icon: mdi-skull
+        description: the number that had no dashboard
+        widget:
+          type: customapi
+          url: http://192.168.193.30:9200/mcai-skill-agents/_search
+          method: POST
+          username: mcai_ro
+          password: "{{HOMEPAGE_VAR_ES_RO}}"
+          refreshInterval: 30000
+          headers:
+            Content-Type: application/json
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"skill.name": "_death"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"falls": {"filter": {"term": {"skill.fail_class": "fall"}}}}}
           mappings:
             - field: hits.total.value
               label: deaths
@@ -65,61 +55,14 @@
             - field: aggregations.falls.doc_count
               label: falls
               format: number
-    - Skill outcomes · 1h:
-        description: what the fleet attempted and how it went
-        widget:
-          type: customapi
-          url: http://192.168.193.30:9200/mcai-skill-agents/_search
-          method: POST
-          username: mcai_ro
-          password: "{{HOMEPAGE_VAR_ES_RO}}"
-          headers:
-            Content-Type: application/json
-          requestBody:
-            size: 0
-            query: { range: { "@timestamp": { gte: now-1h } } }
-            aggs:
-              ok: { filter: { term: { "skill.status": success } } }
-              moved: { sum: { field: skill.distance_moved } }
-          mappings:
-            - field: hits.total.value
-              label: attempts
-              format: number
-            - field: aggregations.ok.doc_count
-              label: succeeded
-              format: number
-            - field: aggregations.moved.value
-              label: blocks moved
-              format: number
-    - Supervisor:
-        description: death circuit breaker · last check
-        widget:
-          type: customapi
-          url: http://192.168.193.30:9200/mcai-supervisor-lab/_search
-          method: POST
-          username: mcai_ro
-          password: "{{HOMEPAGE_VAR_ES_RO}}"
-          headers:
-            Content-Type: application/json
-          requestBody:
-            size: 1
-            sort: [{ "@timestamp": desc }]
-            query: { term: { "supervisor.check": death_tripper } }
-          mappings:
-            - field: hits.hits.0._source.supervisor.tripped
-              label: tripped
-            - field: hits.hits.0._source.supervisor.falls_30m
-              label: falls 30m
-              format: number
-            - field: hits.hits.0._source.supervisor.reason
-              label: state
 
-- Bot health · 1h:
-    # 'last moved' is the stuck detector. A bot can report success every
-    # minute while standing still -- that is measured displacement, not a
-    # claim, and it is the difference between a working bot and a wedged one.
+# 'moved' is the stuck detector: measured displacement, not a claim. A bot can
+# report success every minute while standing still -- that state went unnoticed
+# for sixteen hours, and this row is what makes it visible at a glance.
+- Bots:
     - Scout01:
-        description: last action, last movement, what it is doing
+        href: http://192.168.193.40:3007
+        description: live 3D view · click to watch
         widget:
           type: customapi
           url: http://192.168.193.30:9200/mcai-skill-agents/_search
@@ -129,27 +72,25 @@
           refreshInterval: 30000
           headers:
             Content-Type: application/json
-          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}, "moved": {"sum": {"field": "skill.distance_moved"}}}}
           mappings:
             - field: aggregations.lastmove.t.value_as_string
-              label: last moved
+              label: moved
               format: relativeDate
-            - field: aggregations.last.value_as_string
-              label: last action
-              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
             - field: hits.total.value
-              label: attempts
+              label: acts
               format: number
             - field: aggregations.ok.doc_count
               label: ok
               format: number
-            - field: aggregations.top.buckets.0.key
-              label: doing
             - field: aggregations.moved.value
               label: blocks
               format: number
     - Scout02:
-        description: last action, last movement, what it is doing
+        href: http://192.168.193.40:3008
+        description: live 3D view · click to watch
         widget:
           type: customapi
           url: http://192.168.193.30:9200/mcai-skill-agents/_search
@@ -159,27 +100,25 @@
           refreshInterval: 30000
           headers:
             Content-Type: application/json
-          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Scout02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}, "moved": {"sum": {"field": "skill.distance_moved"}}}}
           mappings:
             - field: aggregations.lastmove.t.value_as_string
-              label: last moved
+              label: moved
               format: relativeDate
-            - field: aggregations.last.value_as_string
-              label: last action
-              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
             - field: hits.total.value
-              label: attempts
+              label: acts
               format: number
             - field: aggregations.ok.doc_count
               label: ok
               format: number
-            - field: aggregations.top.buckets.0.key
-              label: doing
             - field: aggregations.moved.value
               label: blocks
               format: number
     - Miner01:
-        description: last action, last movement, what it is doing
+        href: http://192.168.193.40:3009
+        description: live 3D view · click to watch
         widget:
           type: customapi
           url: http://192.168.193.30:9200/mcai-skill-agents/_search
@@ -189,27 +128,25 @@
           refreshInterval: 30000
           headers:
             Content-Type: application/json
-          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Miner01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Miner01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}, "moved": {"sum": {"field": "skill.distance_moved"}}}}
           mappings:
             - field: aggregations.lastmove.t.value_as_string
-              label: last moved
+              label: moved
               format: relativeDate
-            - field: aggregations.last.value_as_string
-              label: last action
-              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
             - field: hits.total.value
-              label: attempts
+              label: acts
               format: number
             - field: aggregations.ok.doc_count
               label: ok
               format: number
-            - field: aggregations.top.buckets.0.key
-              label: doing
             - field: aggregations.moved.value
               label: blocks
               format: number
     - Gather01:
-        description: last action, last movement, what it is doing
+        href: http://192.168.193.40:3010
+        description: live 3D view · click to watch
         widget:
           type: customapi
           url: http://192.168.193.30:9200/mcai-skill-agents/_search
@@ -219,27 +156,25 @@
           refreshInterval: 30000
           headers:
             Content-Type: application/json
-          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather01"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}, "moved": {"sum": {"field": "skill.distance_moved"}}}}
           mappings:
             - field: aggregations.lastmove.t.value_as_string
-              label: last moved
+              label: moved
               format: relativeDate
-            - field: aggregations.last.value_as_string
-              label: last action
-              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
             - field: hits.total.value
-              label: attempts
+              label: acts
               format: number
             - field: aggregations.ok.doc_count
               label: ok
               format: number
-            - field: aggregations.top.buckets.0.key
-              label: doing
             - field: aggregations.moved.value
               label: blocks
               format: number
     - Gather02:
-        description: last action, last movement, what it is doing
+        href: http://192.168.193.40:3011
+        description: live 3D view · click to watch
         widget:
           type: customapi
           url: http://192.168.193.30:9200/mcai-skill-agents/_search
@@ -249,84 +184,189 @@
           refreshInterval: 30000
           headers:
             Content-Type: application/json
-          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "last": {"max": {"field": "@timestamp"}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "moved": {"sum": {"field": "skill.distance_moved"}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}}}
+          requestBody: {"size": 0, "query": {"bool": {"must": [{"term": {"bot.name": "Gather02"}}, {"range": {"@timestamp": {"gte": "now-1h"}}}]}}, "aggs": {"lastmove": {"filter": {"range": {"skill.distance_moved": {"gt": 0}}}, "aggs": {"t": {"max": {"field": "@timestamp"}}}}, "ok": {"filter": {"term": {"skill.status": "success"}}}, "top": {"terms": {"field": "skill.name", "size": 1, "exclude": "_.*"}}, "moved": {"sum": {"field": "skill.distance_moved"}}}}
           mappings:
             - field: aggregations.lastmove.t.value_as_string
-              label: last moved
+              label: moved
               format: relativeDate
-            - field: aggregations.last.value_as_string
-              label: last action
-              format: relativeDate
+            - field: aggregations.top.buckets.0.key
+              label: doing
             - field: hits.total.value
-              label: attempts
+              label: acts
               format: number
             - field: aggregations.ok.doc_count
               label: ok
               format: number
-            - field: aggregations.top.buckets.0.key
-              label: doing
             - field: aggregations.moved.value
               label: blocks
               format: number
 
-- Watch the bots:
-    # prismarine-viewer: a live 3D view rendered around each bot -- terrain
-    # updates as blocks change, and you can orbit the camera. The camera is
-    # TETHERED to its bot and only loads chunks within that bot's view distance,
-    # which is why there is one per bot rather than one for the world. Free
-    # flight in a browser does not exist in this ecosystem: flying means
-    # streaming arbitrary chunks on demand, which is what a Minecraft client is.
-    - Scout01 · POV:
-        href: http://192.168.193.40:3007
-        description: live 3D, tethered to Scout01
-        siteMonitor: http://192.168.193.40:3007
-    - Scout02 · POV:
-        href: http://192.168.193.40:3008
-        description: live 3D, tethered to Scout02
-        siteMonitor: http://192.168.193.40:3008
-    - Miner01 · POV:
-        href: http://192.168.193.40:3009
-        description: live 3D, tethered to Miner01
-        siteMonitor: http://192.168.193.40:3009
-    - Gather01 · POV:
-        href: http://192.168.193.40:3010
-        description: live 3D, tethered to Gather01
-        siteMonitor: http://192.168.193.40:3010
-    - Gather02 · POV:
-        href: http://192.168.193.40:3011
-        description: live 3D, tethered to Gather02
-        siteMonitor: http://192.168.193.40:3011
-    - World map · squaremap:
-        href: http://192.168.193.100:8080
-        description: live 2D overview, all five bots — pick who to watch
-        siteMonitor: http://192.168.193.100:8080
+- Hosts:
+    - mc01:
+        description: Minecraft server
+        widget:
+          type: customapi
+          url: http://192.168.193.100:61208/api/4/quicklook
+          refreshInterval: 15000
+          mappings:
+            - field: cpu
+              label: cpu %
+              format: number
+            - field: mem
+              label: ram %
+              format: number
+            - field: load
+              label: load
+              format: number
 
-- Lab hosts:
-    - mc01 · Minecraft:
-        widget: { type: glances, url: http://192.168.193.100:61208, version: 4, metric: info }
-    - lab01 · Bot fleet:
-        widget: { type: glances, url: http://192.168.193.40:61208, version: 4, metric: info }
-    - evd01 · Evidence:
-        widget: { type: glances, url: http://192.168.193.21:61208, version: 4, metric: info }
-    - elk01 · ELK:
-        widget: { type: glances, url: http://192.168.193.30:61208, version: 4, metric: info }
-    - ctl01 · Control:
-        widget: { type: glances, url: http://192.168.193.10:61208, version: 4, metric: info }
-
-- Storage:
     - lab01:
-        widget: { type: glances, url: http://192.168.193.40:61208, version: 4, metric: fs }
-    - evd01:
-        widget: { type: glances, url: http://192.168.193.21:61208, version: 4, metric: fs }
-    - elk01:
-        widget: { type: glances, url: http://192.168.193.30:61208, version: 4, metric: fs }
+        description: bot fleet
+        widget:
+          type: customapi
+          url: http://192.168.193.40:61208/api/4/quicklook
+          refreshInterval: 15000
+          mappings:
+            - field: cpu
+              label: cpu %
+              format: number
+            - field: mem
+              label: ram %
+              format: number
+            - field: load
+              label: load
+              format: number
 
-- Services:
+    - evd01:
+        description: evidence · DuckDB
+        widget:
+          type: customapi
+          url: http://192.168.193.21:61208/api/4/quicklook
+          refreshInterval: 15000
+          mappings:
+            - field: cpu
+              label: cpu %
+              format: number
+            - field: mem
+              label: ram %
+              format: number
+            - field: load
+              label: load
+              format: number
+
+    - elk01:
+        description: Elasticsearch · Kibana
+        widget:
+          type: customapi
+          url: http://192.168.193.30:61208/api/4/quicklook
+          refreshInterval: 15000
+          mappings:
+            - field: cpu
+              label: cpu %
+              format: number
+            - field: mem
+              label: ram %
+              format: number
+            - field: load
+              label: load
+              format: number
+
+    - ctl01:
+        description: agent control
+        widget:
+          type: customapi
+          url: http://192.168.193.10:61208/api/4/quicklook
+          refreshInterval: 15000
+          mappings:
+            - field: cpu
+              label: cpu %
+              format: number
+            - field: mem
+              label: ram %
+              format: number
+            - field: load
+              label: load
+              format: number
+
+- Disk:
+    - mc01:
+        widget:
+          type: customapi
+          url: http://192.168.193.100:61208/api/4/fs
+          refreshInterval: 60000
+          mappings:
+            - field: 0.percent
+              label: used %
+              format: number
+            - field: 0.free
+              label: free
+              format: bytes
+
+    - lab01:
+        widget:
+          type: customapi
+          url: http://192.168.193.40:61208/api/4/fs
+          refreshInterval: 60000
+          mappings:
+            - field: 0.percent
+              label: used %
+              format: number
+            - field: 0.free
+              label: free
+              format: bytes
+
+    - evd01:
+        widget:
+          type: customapi
+          url: http://192.168.193.21:61208/api/4/fs
+          refreshInterval: 60000
+          mappings:
+            - field: 0.percent
+              label: used %
+              format: number
+            - field: 0.free
+              label: free
+              format: bytes
+
+    - elk01:
+        widget:
+          type: customapi
+          url: http://192.168.193.30:61208/api/4/fs
+          refreshInterval: 60000
+          mappings:
+            - field: 0.percent
+              label: used %
+              format: number
+            - field: 0.free
+              label: free
+              format: bytes
+
+    - ctl01:
+        widget:
+          type: customapi
+          url: http://192.168.193.10:61208/api/4/fs
+          refreshInterval: 60000
+          mappings:
+            - field: 0.percent
+              label: used %
+              format: number
+            - field: 0.free
+              label: free
+              format: bytes
+
+
+- Tools:
     - Kibana:
+        icon: elastic
         href: http://192.168.193.30:5601
-        description: dashboards · bot telemetry
+        description: dashboards · full telemetry
         siteMonitor: http://192.168.193.30:5601
+    - World map:
+        icon: mdi-map
+        href: http://192.168.193.100:8080
+        description: squaremap · live 2D, all bots
+        siteMonitor: http://192.168.193.100:8080
     - Elasticsearch:
+        icon: elastic
         description: cluster health
         widget:
           type: customapi
@@ -339,3 +379,4 @@
             - field: active_shards
               label: shards
               format: number
+
