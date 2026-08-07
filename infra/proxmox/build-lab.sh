@@ -31,7 +31,14 @@ GW="${GW:-192.168.193.1}"
 POOL="${POOL:-MC-AI-Test}"
 IMG_URL="${IMG_URL:-https://cloud-images.ubuntu.com/releases/26.04/release/ubuntu-26.04-server-cloudimg-amd64.img}"
 SSHKEY="${SSHKEY:-$HOME/.ssh/authorized_keys}"
-CIUSER="${CIUSER:-darrell}"
+CIUSER="${CIUSER:-mike}"
+# A SHA-512 crypt hash ($6$...), never a plaintext password. cloud-init accepts
+# either; passing the hash means the secret is not in this script, not in the
+# process table, and not in anyone's shell history. Console access matters
+# because if networking breaks on a guest, the Proxmox console is the only
+# remaining way in -- SSH keys alone would strand it.
+CIPASS="${CIPASS:-}"
+NAMESERVER="${NAMESERVER:-192.168.193.1}"
 APPLY=0; START=0
 for a in "$@"; do case "$a" in --apply) APPLY=1;; --start) START=1;; esac; done
 
@@ -79,6 +86,11 @@ say "pool: $POOL"
 
 [ -r "$SSHKEY" ] || die "no readable ssh public key at $SSHKEY (set SSHKEY=)"
 say "ssh key: $SSHKEY ($(wc -l < "$SSHKEY") entries)"
+case "$CIPASS" in
+  '$6$'*) say "console password: SHA-512 hash supplied" ;;
+  '')     say "console password: none (key-only)" ;;
+  *)      die "CIPASS does not look like a SHA-512 crypt hash -- refusing to set a plaintext password" ;;
+esac
 
 # VMIDs must be free. Refusing to touch an existing VM is the whole safety model.
 while read -r id name _; do
@@ -92,9 +104,23 @@ IMG="/var/lib/vz/template/qcow2/$(basename "$IMG_URL")"
 mkdir -p "$(dirname "$IMG")"
 if [ ! -s "$IMG" ]; then
   say "image not cached; downloading $(basename "$IMG_URL")"
+  command -v dig >/dev/null || apt-get install -y -qq dnsutils >/dev/null 2>&1 || true
   [ "$APPLY" = 1 ] || { say "(dry run -- would download)"; }
   if [ "$APPLY" = 1 ]; then
-    curl -fL --retry 3 -o "$IMG.part" "$IMG_URL" || die "download failed: $IMG_URL"
+    # rprox3a's /etc/resolv.conf points at 192.168.192.1, a resolver it has no
+    # route to, so name resolution fails even though the internet is reachable
+    # (dig @8.8.8.8 works, ping 8.8.8.8 works). That is a pre-existing host
+    # misconfiguration on a shared cluster, so resolve around it here rather
+    # than editing DNS for guests that are not ours.
+    HOST=$(echo "$IMG_URL" | awk -F/ '{print $3}')
+    RESOLVE=""
+    if ! getent hosts "$HOST" >/dev/null 2>&1; then
+      IP=$(dig +short +time=3 @8.8.8.8 "$HOST" 2>/dev/null | grep -E '^[0-9.]+$' | head -1)
+      [ -n "$IP" ] || die "cannot resolve $HOST (system resolver dead, 8.8.8.8 fallback also failed)"
+      say "system resolver cannot see $HOST; using $IP directly"
+      RESOLVE="--resolve $HOST:443:$IP"
+    fi
+    curl -fL --retry 3 $RESOLVE -o "$IMG.part" "$IMG_URL" || die "download failed: $IMG_URL"
     qemu-img info "$IMG.part" >/dev/null 2>&1 || die "downloaded file is not a disk image -- check IMG_URL"
     mv "$IMG.part" "$IMG"
   fi
@@ -139,12 +165,36 @@ while read -r id name cores ram disk ip; do
   qm disk resize "$id" scsi0 "${disk}G" >/dev/null
   qm set "$id" --ide2 "$STORAGE:cloudinit" --boot order=scsi0 \
                 --ciuser "$CIUSER" --sshkeys "$SSHKEY" \
+                --nameserver "$NAMESERVER" \
                 --ipconfig0 "ip=$ip/24,gw=$GW" >/dev/null
+  # Set separately so the hash never appears on the same command line as the
+  # rest, and so a missing value is a visible skip rather than a blank password.
+  if [ -n "$CIPASS" ]; then qm set "$id" --cipassword "$CIPASS" >/dev/null
+  else say "  no CIPASS set -- console login will be key-only"; fi
   # mc01 hosts the Minecraft server: its tick loop is latency-sensitive and
   # must not share physical cores with the bot runner. See PLAN-30-DAY.
   [ "$name" = "mc2-mc01-dm" ] && qm set "$id" --numa 1 >/dev/null
   say "  created"
-  [ "$START" = 1 ] && { qm start "$id"; say "  started"; }
+  if [ "$START" = 1 ]; then
+    qm start "$id"; say "  started"
+    # FIRST BOOT NEEDS A KICK. Four of the first five guests never brought up a
+    # network on their initial power-on -- identical disks, identical config,
+    # all of them burning CPU, and a plain stop/start fixed every one. The most
+    # likely cause is OVMF settling its boot entry the first time it runs, since
+    # the efidisk starts empty with pre-enrolled-keys=0 and there is no boot
+    # variable until something writes one.
+    #
+    # Rather than leave a script that silently needs babysitting, wait for the
+    # guest to answer and power-cycle it once if it does not. If it is still
+    # silent after that, say so plainly instead of reporting success.
+    for _ in $(seq 1 12); do sleep 5; ping -c1 -W1 "$ip" >/dev/null 2>&1 && break; done
+    if ! ping -c1 -W1 "$ip" >/dev/null 2>&1; then
+      say "  no network after 60s -- power-cycling once (known OVMF first-boot behaviour)"
+      qm stop "$id" >/dev/null 2>&1; sleep 3; qm start "$id" >/dev/null 2>&1
+      for _ in $(seq 1 24); do sleep 5; ping -c1 -W1 "$ip" >/dev/null 2>&1 && break; done
+    fi
+    ping -c1 -W1 "$ip" >/dev/null 2>&1 && say "  up at $ip" || say "  STILL SILENT at $ip -- check the console"
+  fi
 done <<< "$PLAN"
 
 echo
