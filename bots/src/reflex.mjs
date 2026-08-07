@@ -199,7 +199,21 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // re-armed the latch each time, so the latch could not damp it either.
       // A latch cannot fix a signal that is wrong; it only slows it down.
       const headSolid = head != null && head.boundingBox === 'block'
-      const reallyLosingAir = inWater || headSolid
+      // HEALTH IS THE ARBITER, because it is the one value the SERVER owns.
+      //
+      // My first version of this guard trusted the block lookup: head is air, so
+      // the oxygen counter must be wrong, so do not act. That was right for the
+      // case it was written for -- oxygen=0 at 20/20 health with nothing
+      // happening -- and wrong the moment mineflayer's chunk view disagreed with
+      // the server about water. Measured immediately after deploying it: 2
+      // "reading not actionable" events and 2 drowning deaths in four minutes,
+      // one for one. The bots were drowning and this was explaining it away.
+      //
+      // A bot losing health while its air is gone is drowning, whatever
+      // blockAt() thinks it is standing in. Acting costs a jump; not acting
+      // costs the bot.
+      const losingHealth = bot.health != null && bot.health < 20
+      const reallyLosingAir = inWater || headSolid || losingHealth
       if (bot.oxygenLevel != null && bot.oxygenLevel <= 4 && throttled('oxygen', 8000)
           && !reallyLosingAir) {
         // Worth SEEING -- a wrong oxygen reading is a real defect and this is
@@ -229,7 +243,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           })
           runner.interrupt(kind)
         }
-        if (inWater) {
+        // Swim up whenever air is going and the head is NOT in a solid block.
+        // Gating this on `inWater` alone meant that when mineflayer's chunk view
+        // disagreed with the server about water -- which is exactly the case
+        // that kills bots -- the drowning was detected and then not acted on,
+        // because the code below only knows how to dig out of stone. Jumping in
+        // open air costs nothing; not jumping in unreported water costs the bot.
+        if (inWater || (losingHealth && !headSolid)) {
           bot.setControlState('jump', true)
           setTimeout(() => bot.setControlState('jump', false), 1200)
           return
