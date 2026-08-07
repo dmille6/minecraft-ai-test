@@ -25,6 +25,16 @@ set -euo pipefail
 PAPER_VERSION="${PAPER_VERSION:-1.21.8}"
 HEAP="${HEAP:-6G}"
 LAN_CIDR="${LAN_CIDR:-192.168.193.0/24}"
+# VPN_CIDRS is not optional decoration. The operator does not sit on the lab
+# VLAN -- they arrive over OpenVPN as 192.168.2.x or WireGuard as 192.168.3.x.
+# Allowing only LAN_CIDR made every non-Docker service invisible to the human
+# using it, while Docker-published ports kept working, because Docker writes its
+# own iptables rules and bypasses ufw entirely. Two classes of service behaving
+# differently for reasons unrelated to intent is exactly the kind of thing that
+# gets debugged in the wrong layer: the UniFi zone policy was correct the whole
+# time.
+VPN_CIDRS="${VPN_CIDRS:-192.168.2.0/24 192.168.3.0/24}"
+
 DATA_LV_SIZE="${DATA_LV_SIZE:-120G}"
 SRV=/srv/minecraft
 
@@ -340,9 +350,15 @@ say "Firewall"
 # SSH allowed BEFORE enabling, or you lock yourself out of a remote box.
 ufw allow 22/tcp comment 'ssh' >/dev/null
 ufw allow from "$LAN_CIDR" to any port 25565 proto tcp comment 'minecraft' >/dev/null
+for v in $VPN_CIDRS; do
+  ufw allow from "$v" to any port 25565 proto tcp comment 'minecraft (vpn)' >/dev/null
+done
 ufw allow from "$LAN_CIDR" to any port 8080  proto tcp comment 'squaremap' >/dev/null
 ufw allow from "$LAN_CIDR" to any port 3007  proto tcp comment '3d viewer' >/dev/null
 ufw allow from "$LAN_CIDR" to any port 61208 proto tcp comment 'glances' >/dev/null
+for v in $VPN_CIDRS; do
+  ufw allow from "$v" to any port 61208 proto tcp comment 'glances (vpn)' >/dev/null
+done
 # Paper binds RCON to server-ip, which is blank = all interfaces. Setting
 # server-ip=127.0.0.1 would also confine the GAME port, so deny it here instead.
 # ufw permits loopback by default, so local rcon still works.
