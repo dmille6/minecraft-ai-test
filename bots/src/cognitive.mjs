@@ -41,11 +41,44 @@ import { announceUnreachable } from './comms.mjs'
 //
 // Deliberately NOT here: path_incomplete. A route that repeatedly cannot be
 // completed is genuine evidence about the world and should be learned.
-const NOT_ACTION_EVIDENCE = new Set([
-  'path_interrupted', 'path_budget', 'collect_budget', 'goal_changed', 'died',
+// AN ALLOWLIST, NOT A DENYLIST -- the polarity is the point.
+//
+// This was a denylist of classes that must not become lessons, which meant
+// anything unlisted was enforced by default, INCLUDING `other`. Every time a
+// skill's wording drifted, its failures fell to `other` and silently began
+// training the gate. That is not hypothetical: gather's collect budget did it
+// once (hence `collect_budget`), and `other` was at one point the LARGEST
+// failure class at 36%. A taxonomy whose default is "enforce a permanent block
+// on something I could not classify" will keep producing this bug.
+//
+// So: name what IS evidence about the action, and let everything else -- known
+// or not, present or added next week -- be logged, charted, and given no vote.
+const EVIDENCE_ABOUT_THE_ACTION = new Set([
+  'no_path',          // the world says there is no route
+  'path_incomplete',  // moved, but repeatedly cannot finish the route
+  'nothing_found',    // searched and the target is not there
+  'buried',           // the material exists but under solid ground
+  'bad_target',       // the args name something that does not exist
+])
+
+// SITUATIONAL: evidence only while the situation is NOT changing.
+//
+// Each of these names its own remedy -- "needs 1x oak_log", "no pickaxe",
+// "place the crafting_table". A failure that tells you how to fix it is a
+// PLANNING signal on its first occurrence and only becomes evidence if the
+// named gap stops moving. These are the tech-tree rungs: gate them outright and
+// a bot can never bootstrap, gate them never and `craft diamond_pickaxe` loops
+// forever. lessons.recordFailure() splits the two on whether `gap` changed.
+const EVIDENCE_ONLY_IF_STUCK = new Set([
+  'missing_ingredients', 'missing_tool', 'needs_station', 'inventory',
 ])
 
 const SKILL_NAMES = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly)
+
+// Exported so the classification policy can be asserted directly. The bug this
+// replaced was invisible in every test precisely because the policy lived only
+// inside a branch that needed a live bot to reach.
+export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK }
 
 export class CognitiveLoop {
   constructor(bot, runner, lessons = null, worldFacts = null) {
@@ -246,7 +279,11 @@ export class CognitiveLoop {
 
     let admitted = null, rejection = null
     if (res.schemaValid) {
-      const check = this.admission.check(res.proposal, this.bot)
+      // The same wanted-set the outcome classifier uses, so "what counts as
+      // progress" and "what may never be blocked" cannot drift apart. A null
+      // set means we could not resolve the recipe, and the gate treats that as
+      // "no exemption" rather than inventing one.
+      const check = this.admission.check(res.proposal, this.bot, this.#wantedItems(milestone))
       if (check.ok) admitted = check
       else rejection = check
     }
@@ -274,12 +311,18 @@ export class CognitiveLoop {
         // They are still logged, classified and visible in Kibana. They just do
         // not get a vote on what the bot is allowed to attempt next.
         const fc = r.failClass ?? classifyFailure(r.detail)
-        if (NOT_ACTION_EVIDENCE.has(fc)) {
+        if (EVIDENCE_ABOUT_THE_ACTION.has(fc)) {
+          this.lessons.recordFailure(admitted.skill, admitted.args, fc, this.bot.entity?.position)
+        } else if (EVIDENCE_ONLY_IF_STUCK.has(fc)) {
+          // Passing `gap` is what makes this conditional. A skill that cannot
+          // name its gap passes null, and the entry accrues as before -- so an
+          // unnamed gap is never SAFER than the old behaviour, only never worse.
+          this.lessons.recordFailure(
+            admitted.skill, admitted.args, fc, this.bot.entity?.position, r.gap ?? null)
+        } else {
           log('info', 'failure not persisted as a lesson: not evidence about the action', {
             skill: admitted.skill, failClass: fc,
           })
-        } else {
-          this.lessons.recordFailure(admitted.skill, admitted.args, fc, this.bot.entity?.position)
         }
       } else if (r.status === 'success') {
         // ADR-0003, finally implemented. Reward the skill only if the durable
@@ -301,6 +344,22 @@ export class CognitiveLoop {
           log('error', 'BUG: reinforcing verdict with no measurement behind it', {
             skill: admitted.skill, value, delta: r.delta,
           })
+        }
+        // THE DISPROOF CHANNEL MUST BE AT LEAST AS WIDE AS THE ACCRUAL CHANNEL.
+        //
+        // Failures were recorded unconditionally; successes only when the gain
+        // was on the CURRENT milestone's shopping list. So `craft stick` while
+        // the milestone wanted a crafting table scored `neutral` and decremented
+        // nothing -- correct-but-early work could never disprove the rule that
+        // was blocking it. Accrual +1 per attempt against disproof +0 is not a
+        // learning rule, it is a ratchet.
+        //
+        // The skill met its contract. That is a fact about the action and it is
+        // the exact fact an avoid rule claims is false, so it clears the rule
+        // regardless of which milestone happened to be current. Preference --
+        // what the gate uses to make a bot KEENER -- stays gated on `valuable`.
+        if (value === 'neutral') {
+          this.lessons.recordSuccess(admitted.skill, admitted.args)
         }
         if (value === 'valuable') {
           this.admission.noteSuccess(admitted.skill, admitted.args)

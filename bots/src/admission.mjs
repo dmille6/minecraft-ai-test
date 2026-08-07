@@ -43,9 +43,27 @@ export class AdmissionControl {
   clearRepeatWindow() { this.recent = [] }
 
   /**
+   * What this action would put in the inventory, or null when we cannot say.
+   * Deliberately narrow: only the two skills whose output is named directly in
+   * their own args. Guessing what `mine` or `explore` might yield would make
+   * the never-block rule that follows unfalsifiable.
+   */
+  static #output(skill, args) {
+    if (skill === 'craft') return args?.item ?? null
+    if (skill === 'gather') return args?.block ?? args?.item ?? null
+    return null
+  }
+
+  static #produces(skill, args, wanted) {
+    const out = AdmissionControl.#output(skill, args)
+    if (!out || !wanted) return false
+    return wanted instanceof Set ? wanted.has(out) : Array.isArray(wanted) && wanted.includes(out)
+  }
+
+  /**
    * @returns {{ok: true, skill, args} | {ok: false, reason: string, detail: string}}
    */
-  check(proposal, bot) {
+  check(proposal, bot, wanted = null) {
     if (!proposal || typeof proposal !== 'object') {
       return { ok: false, reason: 'no_proposal', detail: 'model produced nothing usable' }
     }
@@ -164,6 +182,29 @@ export class AdmissionControl {
     // cheerfully retry an action that has failed on every run since the world
     // was created. This is the persistent half of that.
     const priorFails = this.lessons?.failCount(skill, args) ?? 0
+
+    // A GATE MAY NOT MAKE THE GOAL UNREACHABLE.
+    //
+    // Every individual veto here is defensible; their sum was a fleet standing
+    // still. Instance #1 reached a state where the whole early tech tree --
+    // gather oak_log, craft oak_planks, craft stick, craft wooden_pickaxe --
+    // was learned-blocked at once. Each rung was blocked because it had failed,
+    // and it had failed because the rung below it was blocked. The gate had
+    // made its own milestone unsatisfiable and then enforced that forever.
+    //
+    // So an action that PRODUCES something the current milestone needs is never
+    // hard-blocked on learned evidence. It still carries its record, is still
+    // logged, still counts -- but the bot is allowed to try, because the only
+    // thing that can ever clear the rule is an attempt, and refusing the
+    // attempt is what made the state permanent. Preference is unaffected; this
+    // is purely about never closing the last door.
+    if (priorFails >= 4 && wanted && AdmissionControl.#produces(skill, args, wanted)) {
+      this.vetoStreak = 0
+      this.milestoneCriticalAdmissions = (this.milestoneCriticalAdmissions ?? 0) + 1
+      return { ok: true, skill, args,
+               forced: `produces ${AdmissionControl.#output(skill, args)}, which the milestone needs` }
+    }
+
     if (priorFails >= 4) {
       // PROBATION. A learned block with no way to be disproved is permanent,
       // and the world changes: terrain gets mined, inventories fill, the bot

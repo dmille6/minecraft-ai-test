@@ -618,10 +618,22 @@ async function craft(ctx, { item, count = 1 }, signal) {
         `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})`
       : 'missing ingredients or need a crafting_table nearby'
 
+    // TWO DIFFERENT FAILURES, and this returned one class for both. "I have the
+    // ingredients but no station" and "I have no ingredients" need different
+    // remedies, and classifyFailure() already distinguishes them -- but an
+    // explicit failClass wins over the classifier, so `needs_station` was
+    // unreachable on the live write path and only ever appeared in tests.
+    const stationOnly = hasTable && !missing.length
     return {
       status: 'failed',
-      failClass: 'missing_ingredients',
-      detail: hasTable && !missing.length
+      failClass: stationOnly ? 'needs_station' : 'missing_ingredients',
+      // THE GAP, named exactly, so the lessons store can tell "stuck on the
+      // same missing thing" from "working through the tech tree". Without it
+      // the only question the store can ask is "did craft fail again", which
+      // is how `craft oak_planks` reached 47 while the bot was doing the right
+      // thing every time. Sorted so two identical gaps compare equal.
+      gap: stationOnly ? 'crafting_table' : missing.slice().sort().join('+'),
+      detail: stationOnly
         ? `no recipe available for ${item}; place the crafting_table first`
         : `cannot craft ${item} -- ${why}`,
     }

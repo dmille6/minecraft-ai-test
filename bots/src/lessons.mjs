@@ -188,16 +188,59 @@ export class Lessons {
 
   // ------------------------------------------------------------ recording --
 
-  recordFailure(skill, args, failClass, pos) {
+  /**
+   * Record a failure against an action.
+   *
+   * `gap` names WHAT WAS MISSING, when the skill can say. It is the difference
+   * between "this action does not work" and "this action was attempted before
+   * its preconditions were met", and only the first deserves a counter.
+   *
+   * Measured: `craft oak_planks` reached 47 fails on Miner01 while every single
+   * failure was `missing_ingredients` -- the bot proposing exactly the right
+   * action at a moment it had no logs. The counter named the action; the
+   * measurement was about the inventory. A changing gap means the agent is
+   * working through a dependency chain, which is progress, not a pattern.
+   */
+  recordFailure(skill, args, failClass, pos, gap = null) {
     const k = key(skill, args)
     this.touched.add(k)
     const e = this.data.avoid[k] ?? { skill, args, fails: 0, classes: {} }
+
+    // A GAP THAT MOVED IS PROGRESS. Only a gap identical to last time says the
+    // agent is stuck rather than climbing. `craft diamond_pickaxe` with a gap
+    // that never closes still accrues normally, which is the case that keeps
+    // this from being a blanket amnesty.
+    if (gap != null && e.gap != null && e.gap !== gap) {
+      e.fails = 0
+      e.since = Date.now()
+    }
+    if (gap != null) e.gap = gap
+
+    // Wall-clock decay is measured from when the CURRENT streak started, not
+    // from the last touch. Keying it to the last touch meant probation -- which
+    // exists to disprove a rule -- refreshed the timestamp the decay depends on
+    // every ~100s, so forgiveness of one-per-20-minutes evaluated to exactly
+    // zero and the counter became a pure ratchet. The escape hatch jammed the
+    // escape hatch. See failCount().
+    if (this.#effective(e) <= 0) {
+      e.fails = 0
+      e.since = Date.now()
+    }
+    e.since = e.since ?? Date.now()
+
     e.fails++
     e.last = Date.now()
     e.classes[failClass ?? 'other'] = (e.classes[failClass ?? 'other'] ?? 0) + 1
     if (pos) e.where = { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) }
     this.data.avoid[k] = e
     this.dirty = true
+  }
+
+  /** Failures still standing after wall-clock forgiveness. */
+  #effective(e) {
+    if (!e) return 0
+    const forgiven = Math.floor((Date.now() - (e.since ?? e.last ?? 0)) / FORGET_MS)
+    return Math.max(0, (e.fails ?? 0) - forgiven)
   }
 
   /** The avoid entry behind a block, for attribution. Returns null if none. */
@@ -413,11 +456,16 @@ export class Lessons {
     // The world is not static. Terrain gets mined, inventories fill, a tree
     // grows within reach. Evidence that `gather oak_log` failed eleven times
     // this morning says very little about whether it works now, and an action
-    // nobody has attempted in an hour deserves to be tried again. One failure
-    // is forgiven per FORGET_MS of not being attempted, so an untouched block
-    // clears itself in about eighty minutes rather than never.
-    const forgiven = Math.floor((Date.now() - (e.last ?? 0)) / FORGET_MS)
-    return Math.max(0, e.fails - forgiven)
+    // nobody has attempted in an hour deserves to be tried again.
+    //
+    // Forgiveness runs from `since` -- when the current failure streak STARTED
+    // -- not from `last`, when it was most recently touched. Using `last` made
+    // decay unreachable for exactly the rules that needed it: probation retries
+    // a blocked action every ~100s, each retry refreshed `last`, and
+    // floor(100s / 20min) is 0. Counters reached 47 and 54 with a forgiveness
+    // rate of precisely nothing. A rule now ages out on wall-clock whether or
+    // not the bot keeps bumping into it.
+    return this.#effective(e)
   }
 
   /** Hazard sites within range of a point, worst first. */
