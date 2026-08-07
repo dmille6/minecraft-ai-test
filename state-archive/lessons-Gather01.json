@@ -6,16 +6,16 @@
     "player": "Gather01"
    },
    "classes": {
-    "missing_ingredients": 8,
+    "missing_ingredients": 9,
     "other": 4
    },
-   "fails": 11,
-   "last": 1786066007409,
+   "fails": 12,
+   "last": 1786066480801,
    "skill": "craft",
    "where": {
-    "x": 12,
-    "y": 82,
-    "z": -6
+    "x": 4,
+    "y": 76,
+    "z": -5
    }
   },
   "gather:{\"block\":\"dirt\",\"count\":16}": {
@@ -79,65 +79,13 @@
     "buried": 7,
     "other": 2
    },
-   "fails": 9,
+   "fails": 8,
    "last": 1786056830453,
    "skill": "gather",
    "where": {
     "x": -21,
     "y": 71,
     "z": 12
-   }
-  },
-  "gather:{\"block\":\"dirt\",\"count\":9}": {
-   "args": {
-    "block": "dirt",
-    "count": 9
-   },
-   "classes": {
-    "buried": 1
-   },
-   "fails": 1,
-   "last": 1786045901266,
-   "skill": "gather",
-   "where": {
-    "x": 22,
-    "y": 73,
-    "z": -34
-   }
-  },
-  "gather:{\"block\":\"oak_log\",\"count\":1}": {
-   "args": {
-    "block": "oak_log",
-    "count": 1
-   },
-   "classes": {
-    "other": 1
-   },
-   "fails": 1,
-   "last": 1786044073425,
-   "skill": "gather",
-   "where": {
-    "x": 35,
-    "y": 76,
-    "z": 5
-   }
-  },
-  "gather:{\"block\":\"oak_log\",\"count\":4}": {
-   "args": {
-    "block": "oak_log",
-    "count": 4
-   },
-   "classes": {
-    "no_path": 1,
-    "other": 1
-   },
-   "fails": 2,
-   "last": 1786045997028,
-   "skill": "gather",
-   "where": {
-    "x": 22,
-    "y": 73,
-    "z": -34
    }
   },
   "gather:{\"block\":\"sand\",\"count\":8}": {
@@ -265,6 +213,114 @@
     "z": -30
    }
   },
+  "goto:{\"x\":35,\"y\":70,\"z\":-10}": {
+   "args": {
+    "x": 35,
+    "y": 70,
+    "z": -10
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786067804194,
+   "skill": "goto",
+   "where": {
+    "x": -2,
+    "y": 69,
+    "z": -1
+   }
+  },
+  "goto:{\"x\":50,\"y\":69,\"z\":-50}": {
+   "args": {
+    "x": 50,
+    "y": 69,
+    "z": -50
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786067752650,
+   "skill": "goto",
+   "where": {
+    "x": -2,
+    "y": 70,
+    "z": -1
+   }
+  },
+  "goto:{\"x\":79,\"y\":69,\"z\":-1}": {
+   "args": {
+    "x": 79,
+    "y": 69,
+    "z": -1
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786067676929,
+   "skill": "goto",
+   "where": {
+    "x": -2,
+    "y": 69,
+    "z": -1
+   }
+  },
+  "goto:{\"x\":79,\"y\":75,\"z\":-19}": {
+   "args": {
+    "x": 79,
+    "y": 75,
+    "z": -19
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786067132743,
+   "skill": "goto",
+   "where": {
+    "x": 5,
+    "y": 75,
+    "z": -7
+   }
+  },
+  "goto:{\"x\":80,\"y\":75,\"z\":0}": {
+   "args": {
+    "x": 80,
+    "y": 75,
+    "z": 0
+   },
+   "classes": {
+    "path_interrupted": 2
+   },
+   "fails": 2,
+   "last": 1786067600903,
+   "skill": "goto",
+   "where": {
+    "x": -2,
+    "y": 69,
+    "z": -1
+   }
+  },
+  "goto:{\"x\":85,\"y\":74,\"z\":-20}": {
+   "args": {
+    "x": 85,
+    "y": 74,
+    "z": -20
+   },
+   "classes": {
+    "no_path": 1
+   },
+   "fails": 1,
+   "last": 1786067080767,
+   "skill": "goto",
+   "where": {
+    "x": 5,
+    "y": 75,
+    "z": -7
+   }
+  },
   "mine:{\"y\":12}": {
    "args": {
     "y": 12
@@ -336,14 +392,14 @@
     "y": 68
    },
    "classes": {
-    "missing_tool": 5
+    "missing_tool": 6
    },
-   "fails": 5,
-   "last": 1786061008803,
+   "fails": 6,
+   "last": 1786066335432,
    "skill": "mine",
    "where": {
-    "x": -7,
-    "y": 76,
+    "x": 14,
+    "y": 77,
     "z": -6
    }
   },
@@ -402,12 +458,13 @@
    "gather_dirt_16": 0,
    "gather_oak_log_12": 0,
    "gather_sand_8": 0,
-   "stockpile_stone": 7,
+   "patrol": 0,
+   "stockpile_stone": 0,
    "stockpile_wood": 0
   },
   "blocked": {
    "craft:{\"item\":\"stick\"}": 4,
-   "craft:{\"item\":\"wooden_pickaxe\"}": 33,
+   "craft:{\"item\":\"wooden_pickaxe\"}": 39,
    "eat:{}": 6,
    "explore:{}": 8,
    "gather:{\"block\":\"dirt\",\"count\":8}": 58,
@@ -424,23 +481,29 @@
    "gather_dirt_16": 1,
    "gather_oak_log_12": 3,
    "gather_sand_8": 3,
+   "patrol": 1,
+   "stockpile_stone": 1,
    "stockpile_wood": 1
   },
   "skipped": [
    "gather_oak_log_12",
    "gather_sand_8",
    "gather_cobblestone_8",
-   "stockpile_wood"
+   "stockpile_wood",
+   "stockpile_stone",
+   "patrol"
   ],
   "skippedAt": {
    "gather_cobblestone_8": 1786065537118,
    "gather_dirt_16": 1786061397245,
    "gather_oak_log_12": 1786062221937,
    "gather_sand_8": 1786064287687,
+   "patrol": 1786067804195,
+   "stockpile_stone": 1786067007401,
    "stockpile_wood": 1786065817214
   }
  },
- "runs": 67,
+ "runs": 70,
  "schema": 1,
  "sites": [
   {
@@ -452,20 +515,28 @@
    "z": 1
   },
   {
-   "count": 5,
-   "kind": "suffocating",
-   "last": 1786044675182,
-   "x": 28,
-   "y": 74,
-   "z": -37
-  },
-  {
    "count": 3,
    "kind": "suffocating",
    "last": 1786049271088,
    "x": 7,
    "y": 77,
    "z": 8
+  },
+  {
+   "count": 2,
+   "kind": "entombed",
+   "last": 1786066958952,
+   "x": 3,
+   "y": 73,
+   "z": -5
+  },
+  {
+   "count": 3,
+   "kind": "suffocating",
+   "last": 1786067599023,
+   "x": 5,
+   "y": 75,
+   "z": -7
   }
  ],
  "skillVersions": {
@@ -516,6 +587,15 @@
    "skill": "explore",
    "wins": 1
   },
+  "gather:{\"block\":\"dirt\",\"count\":1}": {
+   "args": {
+    "block": "dirt",
+    "count": 1
+   },
+   "last": 1786067391634,
+   "skill": "gather",
+   "wins": 1
+  },
   "gather:{\"block\":\"dirt\",\"count\":2}": {
    "args": {
     "block": "dirt",
@@ -540,6 +620,15 @@
     "count": 4
    },
    "last": 1786064435378,
+   "skill": "gather",
+   "wins": 1
+  },
+  "gather:{\"block\":\"dirt\",\"count\":8}": {
+   "args": {
+    "block": "dirt",
+    "count": 8
+   },
+   "last": 1786066958947,
    "skill": "gather",
    "wins": 1
   },

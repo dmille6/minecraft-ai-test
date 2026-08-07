@@ -36,15 +36,15 @@
     "item": "oak_planks"
    },
    "classes": {
-    "missing_ingredients": 14
+    "missing_ingredients": 15
    },
-   "fails": 12,
-   "last": 1786065755608,
+   "fails": 13,
+   "last": 1786067170254,
    "skill": "craft",
    "where": {
-    "x": -7,
-    "y": 71,
-    "z": 4
+    "x": -40,
+    "y": 70,
+    "z": 1
    }
   },
   "craft:{\"item\":\"stick\"}": {
@@ -109,7 +109,7 @@
     "no_path": 1,
     "other": 4
    },
-   "fails": 5,
+   "fails": 3,
    "last": 1786061931110,
    "skill": "gather",
    "where": {
@@ -415,7 +415,7 @@
  "progress": {
   "attempts": {
    "craft_crafting_table_1": 6,
-   "craft_oak_planks_16": 8,
+   "craft_oak_planks_16": 22,
    "craft_stick_8": 0,
    "craft_stone_pickaxe_1": 0,
    "craft_wooden_pickaxe_1": 0,
@@ -427,7 +427,7 @@
    "stockpile_wood": 0
   },
   "blocked": {
-   "craft:{\"item\":\"oak_planks\"}": 41,
+   "craft:{\"item\":\"oak_planks\"}": 45,
    "craft:{\"item\":\"stick\"}": 15,
    "craft:{\"item\":\"stone_pickaxe\"}": 5,
    "craft:{\"item\":\"wooden_pickaxe\"}": 10,
@@ -449,10 +449,7 @@
    "stockpile_stone": 2,
    "stockpile_wood": 2
   },
-  "skipped": [
-   "gather_oak_log_8",
-   "craft_stick_8"
-  ],
+  "skipped": [],
   "skippedAt": {
    "craft_oak_planks_16": 1786062697238,
    "craft_stick_8": 1786064803804,
@@ -462,7 +459,7 @@
    "stockpile_wood": 1786050610959
   }
  },
- "runs": 68,
+ "runs": 71,
  "schema": 1,
  "sites": [
   {
@@ -472,14 +469,6 @@
    "x": 29,
    "y": 79,
    "z": 1
-  },
-  {
-   "count": 2,
-   "kind": "suffocating",
-   "last": 1786045125128,
-   "x": -48,
-   "y": 72,
-   "z": 38
   },
   {
    "count": 2,
@@ -512,14 +501,6 @@
    "x": -20,
    "y": 70,
    "z": 2
-  },
-  {
-   "count": 1,
-   "kind": "suffocating",
-   "last": 1786065604073,
-   "x": -12,
-   "y": 71,
-   "z": 12
   }
  ],
  "skillVersions": {
@@ -596,9 +577,9 @@
     "block": "oak_log",
     "count": 1
    },
-   "last": 1786058856303,
+   "last": 1786067780962,
    "skill": "gather",
-   "wins": 38
+   "wins": 40
   },
   "gather:{\"block\":\"oak_log\",\"count\":2}": {
    "args": {

@@ -66,84 +66,30 @@
   "explore:{}": {
    "args": {},
    "classes": {
-    "other": 5,
-    "path_interrupted": 4,
+    "other": 6,
+    "path_interrupted": 5,
     "path_timeout": 2
    },
    "fails": 7,
-   "last": 1786053489386,
+   "last": 1786066997706,
    "skill": "explore",
    "where": {
-    "x": 27,
-    "y": 78,
-    "z": 1
-   }
-  },
-  "gather:{\"block\":\"cobblestone\",\"count\":1}": {
-   "args": {
-    "block": "cobblestone",
-    "count": 1
-   },
-   "classes": {
-    "nothing_found": 3
-   },
-   "fails": 3,
-   "last": 1786044879690,
-   "skill": "gather",
-   "where": {
-    "x": 47,
-    "y": 74,
-    "z": -35
-   }
-  },
-  "gather:{\"block\":\"cobblestone\",\"count\":8}": {
-   "args": {
-    "block": "cobblestone",
-    "count": 8
-   },
-   "classes": {
-    "nothing_found": 2
-   },
-   "fails": 2,
-   "last": 1786044599903,
-   "skill": "gather",
-   "where": {
-    "x": 47,
-    "y": 74,
-    "z": -34
-   }
-  },
-  "gather:{\"block\":\"dirt\",\"count\":10}": {
-   "args": {
-    "block": "dirt",
-    "count": 10
-   },
-   "classes": {
-    "buried": 1
-   },
-   "fails": 1,
-   "last": 1786045926877,
-   "skill": "gather",
-   "where": {
-    "x": 26,
-    "y": 79,
+    "x": -38,
+    "y": 70,
     "z": -5
    }
   },
-  "gather:{\"block\":\"dirt\",\"count\":2}": {
-   "args": {
-    "block": "dirt",
-    "count": 2
-   },
+  "follow:{}": {
+   "args": {},
    "classes": {
-    "buried": 2
+    "bad_target": 1
    },
    "fails": 1,
-   "last": 1786045839281,
-   "skill": "gather",
+   "last": 1786066948576,
+   "skill": "follow",
    "where": {
-    "x": 26,
-    "y": 79,
+    "x": -38,
+    "y": 70,
     "z": -5
    }
   },
@@ -249,6 +195,24 @@
     "x": 45,
     "y": 70,
     "z": 25
+   }
+  },
+  "goto:{\"x\":-200,\"y\":65,\"z\":200}": {
+   "args": {
+    "x": -200,
+    "y": 65,
+    "z": 200
+   },
+   "classes": {
+    "path_interrupted": 1
+   },
+   "fails": 1,
+   "last": 1786067677486,
+   "skill": "goto",
+   "where": {
+    "x": -21,
+    "y": 70,
+    "z": -1
    }
   },
   "goto:{\"x\":-28,\"y\":64,\"z\":19}": {
@@ -661,24 +625,25 @@
    "gather_oak_log_12": 0,
    "gather_sand_8": 0,
    "patrol": 0,
-   "return": 12,
+   "return": 0,
    "stockpile_stone": 0,
-   "stockpile_wood": 0
+   "stockpile_wood": 0,
+   "survey_wider": 2
   },
   "blocked": {
    "come:{}": 1,
    "craft:{\"item\":\"stick\"}": 67,
    "craft:{\"item\":\"wooden_pickaxe\"}": 41,
    "eat:{}": 11,
-   "explore:{}": 51,
+   "explore:{}": 66,
    "gather:{\"block\":\"oak_log\",\"count\":1}": 4,
    "gather:{\"block\":\"sand\",\"count\":8}": 3,
    "goto:{\"x\":-50,\"y\":70,\"z\":-46}": 18,
-   "home:{}": 43,
+   "home:{}": 44,
    "mine:{\"y\":12}": 37,
    "mine:{\"y\":5}": 2,
    "mine:{\"y\":65}": 40,
-   "mine:{\"y\":9}": 27
+   "mine:{\"y\":9}": 28
   },
   "cycle": 4,
   "skipCount": {
@@ -687,7 +652,7 @@
    "gather_oak_log_12": 2,
    "gather_sand_8": 4,
    "patrol": 3,
-   "return": 1,
+   "return": 2,
    "stockpile_stone": 4,
    "stockpile_wood": 4
   },
@@ -698,7 +663,8 @@
    "patrol",
    "gather_oak_log_12",
    "stockpile_wood",
-   "stockpile_stone"
+   "stockpile_stone",
+   "return"
   ],
   "skippedAt": {
    "gather_cobblestone_8": 1786062822978,
@@ -706,12 +672,12 @@
    "gather_oak_log_12": 1786065136451,
    "gather_sand_8": 1786059201250,
    "patrol": 1786063450953,
-   "return": 1786059566701,
+   "return": 1786066281880,
    "stockpile_stone": 1786066231823,
    "stockpile_wood": 1786065812822
   }
  },
- "runs": 73,
+ "runs": 76,
  "schema": 1,
  "sites": [
   {
@@ -721,14 +687,6 @@
    "x": 29,
    "y": 79,
    "z": 1
-  },
-  {
-   "count": 11,
-   "kind": "suffocating",
-   "last": 1786044675228,
-   "x": 42,
-   "y": 75,
-   "z": -41
   },
   {
    "count": 5,
@@ -761,14 +719,6 @@
    "x": -2,
    "y": 73,
    "z": 9
-  },
-  {
-   "count": 1,
-   "kind": "suffocating",
-   "last": 1786065604065,
-   "x": -16,
-   "y": 71,
-   "z": 1
   }
  ],
  "skillVersions": {
@@ -809,9 +759,9 @@
   },
   "explore:{}": {
    "args": {},
-   "last": 1786041983206,
+   "last": 1786067388707,
    "skill": "explore",
-   "wins": 9
+   "wins": 11
   },
   "gather:{\"block\":\"dirt\",\"count\":1}": {
    "args": {
