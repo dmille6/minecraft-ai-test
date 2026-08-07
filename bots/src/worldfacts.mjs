@@ -273,7 +273,18 @@ export class WorldFacts {
       if (!prev || d < prev.d) seen.set(r.kind, { r, d })
     }
     for (const { r, d } of [...seen.values()].sort((a, b) => a.d - b.d).slice(0, 4)) {
-      out.push(`${r.kind} seen at ${r.x},${r.z} (${d} blocks away, reported by ${r.by.join(' and ')})`)
+      // LABEL EVERY AXIS. This line used to read `seen at ${r.x},${r.z}` -- two
+      // numbers -- and `goto` takes three. The model filled the slots left to
+      // right, so the z it was given became the y it emitted: `goto {"x":33,
+      // "y":-176,...}`, 34 times, every one rejected as an impossible elevation.
+      // x=33 and y=-176 stayed fixed across those because they were a real
+      // stored (x,z) pair; only the invented z moved.
+      //
+      // It was never the model ignoring `REACHABLE Y RANGE`. It never had a y.
+      // Hazards on the next loop already print three numbers, so the prompt was
+      // showing two coordinate conventions in one list.
+      out.push(`${r.kind} seen at x=${r.x} y=${r.y ?? Math.round(pos.y)} z=${r.z} ` +
+               `(${d} blocks away, reported by ${r.by.join(' and ')})`)
     }
     for (const s of this.hazardsNear(pos, 60).slice(0, limit)) {
       const who = s.by.filter(n => n !== config.bot.name)

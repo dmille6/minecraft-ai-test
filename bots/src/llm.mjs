@@ -16,10 +16,27 @@ import { config } from './config.mjs'
 import { log } from './logger.mjs'
 
 /** The only shape the model is allowed to emit. */
+/**
+ * PROPERTY ORDER IS EXECUTION ORDER.
+ *
+ * Ollama compiles this schema to a GBNF grammar, and generation follows the
+ * declared property order. `reason` used to sit AFTER `skill` and `args`, which
+ * means it was written once the decision was already committed -- it could not
+ * inform the choice, only narrate it. It was pure output cost: roughly 20-25 of
+ * ~60 completion tokens, and generation is the larger half of a decision
+ * (2.90s of 4.67s measured over 959 real calls). It is never fed back into the
+ * prompt either; `LAST ACTION` is built from status and detail, not from this.
+ *
+ * So it moves to the FRONT and gets a length cap. Same field, same logs, but now
+ * the model states its intent before choosing, which is the only arrangement
+ * where a `reason` field can earn its tokens. Whether that changes decision
+ * quality is exactly what the system_hash A/B is for.
+ */
 export function skillSchema(skillNames) {
   return {
     type: 'object',
     properties: {
+      reason: { type: 'string', maxLength: 60 },
       skill: { type: 'string', enum: skillNames },
       args: {
         type: 'object',
@@ -32,7 +49,6 @@ export function skillSchema(skillNames) {
         },
         additionalProperties: false,
       },
-      reason: { type: 'string' },
       saw_end: { type: 'string' },
     },
     required: ['skill', 'args', 'reason', 'saw_end'],
@@ -94,7 +110,11 @@ export class LlmClient {
         continue
       }
 
-      if (proposal.saw_end !== sentinel) {
+      // Trimmed. Observed live: `expected=END-CUQ9RU got= END-CUQ9RU` -- a single
+      // leading space, discarded as a truncated prompt, costing a full repair
+      // retry and one wasted decision. The sentinel exists to detect a prompt
+      // the model never saw the end of; whitespace around it proves the opposite.
+      if (String(proposal.saw_end ?? '').trim() !== String(sentinel).trim()) {
         // The model never saw the end of the prompt -> it was truncated.
         lastErr = `truncation sentinel mismatch (expected ${sentinel}, got ${proposal.saw_end ?? 'nothing'})`
         log('error', 'PROMPT TRUNCATED — reduce prompt size or raise num_ctx', {

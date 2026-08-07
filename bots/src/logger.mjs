@@ -114,7 +114,7 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
 export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
                          promptText, tokensEstimated, droppedEvents,
                          proposal, rejection, outcome, milestone,
-                         perceptionSnapshot }) {
+                         systemPrompt, perceptionSnapshot }) {
   const rec = {
     '@timestamp': new Date(startedAt).toISOString(),
     run_id: config.log.runId,
@@ -137,7 +137,18 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
       retry_count: res.retryCount ?? 0,
     },
     prompt: {
-      system_hash: crypto.createHash('sha256').update(String(milestone)).digest('hex').slice(0, 16),
+      // THE PROMPT, NOT THE GOAL. This hashed `milestone`, so every arm of any
+      // prompt A/B would carry the same handful of values -- keyed on which
+      // objective was active, which changes on its own schedule. The schema
+      // (schemas/llm-call.schema.json) says "sha256 of the system prompt", and
+      // it was the only thing that could have split the data. Measuring a
+      // prompt change was impossible and would have looked like it worked.
+      // No second hash field here, however useful it would be: this index is
+      // dynamic:strict and an unmapped key rejects the WHOLE document, with no
+      // symptom but a dropped-events line in Filebeat. The milestone is already
+      // carried in messages[].milestone.
+      system_hash: crypto.createHash('sha256').update(String(systemPrompt ?? ''))
+        .digest('hex').slice(0, 16),
       text: String(promptText ?? '').slice(0, 6000),
     },
     response: { text: String(res.raw ?? '').slice(0, 4000) },

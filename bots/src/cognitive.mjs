@@ -477,7 +477,7 @@ export class CognitiveLoop {
       model: config.llm.model, endpoint: config.llm.baseUrl,
       res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
       proposal: res.proposal, rejection, outcome,
-      milestone: milestone.id, perceptionSnapshot: percept,
+      milestone: milestone.id, systemPrompt: this.system, perceptionSnapshot: percept,
     })
 
     if (this.milestones.refresh()) {
