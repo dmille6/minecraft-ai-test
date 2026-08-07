@@ -1243,8 +1243,8 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
   gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
-  come:    { run: come,    usage: 'come',                          args: [] },
-  follow:  { run: follow,  usage: 'follow [seconds]',              args: [] },
+  come:    { run: come,    usage: 'come',                          args: [], chatOnly: true },
+  follow:  { run: follow,  usage: 'follow [seconds]',              args: [], chatOnly: true },
   home:    { run: home,    usage: 'home',                          args: [] },
   deposit: { run: deposit, usage: 'deposit [item_name]',           args: [] },
   withdraw:{ run: withdraw,usage: 'withdraw [item_name] [count]',  args: ['item', 'count'] },

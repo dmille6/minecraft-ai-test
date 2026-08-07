@@ -20,7 +20,16 @@ import { config } from './config.mjs'
 import { openLessons } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
 
-const SKILL_NAMES = Object.keys(SKILLS)
+// Only skills that can succeed WITHOUT a human present.
+//
+// `come` and `follow` need a player to come to or follow, and in autonomous
+// operation there is nobody there. They were offered to the model anyway, which
+// picked them 29 times and failed 29 times -- every single failure the literal
+// string "cannot see undefined". A skill that cannot succeed still costs a
+// decision, still trains the admission gate to avoid it, and still counts
+// against the fleet's success rate. They remain available to chat, where a
+// human IS present and the argument is real.
+const SKILL_NAMES = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly)
 
 export class CognitiveLoop {
   constructor(bot, runner, lessons = null, worldFacts = null) {

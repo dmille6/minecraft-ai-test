@@ -136,7 +136,15 @@ export class AdmissionControl {
 
     if (skill === 'follow' || skill === 'come') {
       const p = args.player
-      if (p && !bot.players[p]) {
+      // `if (p && ...)` short-circuits when p is undefined, so this validated a
+      // WRONG player and waved through a MISSING one -- 29 proposals with no
+      // player at all reached the skill layer and failed there. Rejecting a bad
+      // value while accepting no value is the same missing-inverse shape as the
+      // failure counts that only ever rose.
+      if (!p) {
+        return { ok: false, reason: 'bad_args', detail: `${skill} needs a player name` }
+      }
+      if (!bot.players[p]) {
         return { ok: false, reason: 'no_such_player', detail: `${p} is not online` }
       }
     }
