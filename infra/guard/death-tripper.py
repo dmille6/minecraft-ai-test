@@ -288,8 +288,36 @@ def version_check():
     try:
         man = json.loads(ssh(LAB, "cat /srv/mcbots/trial-manifest.json").stdout)
         declared = man.get("declared_code_version", "")
+        # A DEPLOY IN PROGRESS IS NOT AN UNDECLARED CHANGE.
+        #
+        # This rule reads the evidence archive, which lags the fleet: for a few
+        # minutes after a deploy the newest lines available are still pre-deploy.
+        # Comparing them against a manifest that was updated seconds ago says
+        # "the fleet is running something nobody declared" about a fleet that is
+        # simply mid-restart -- and on 2026-08-07 it stopped all five bots on
+        # instance #2 for exactly that reason, moments after a correct deploy.
+        #
+        # So the declaration gets a grace period. The rule's real job is catching
+        # code that has been running undeclared for a while, and that job is
+        # untouched by ignoring the first few minutes after the declaration
+        # itself changed. Narrow on purpose: the window is keyed to when the
+        # DECLARATION moved, not to any observation about the bots.
+        grace_min = int(os.environ.get("DECLARE_GRACE_MIN", "20"))
+        declared_at = man.get("declared_at")
+        fresh_declaration = False
+        if declared_at:
+            try:
+                dt = datetime.fromisoformat(str(declared_at).replace("Z", "+00:00"))
+                age = (datetime.now(timezone.utc) - dt).total_seconds() / 60
+                fresh_declaration = age < grace_min
+                if fresh_declaration:
+                    print(f"    declaration is {age:.0f}m old (<{grace_min}m); "
+                          f"not judging the fleet mid-deploy")
+            except Exception:
+                pass                  # unparseable: no grace, fail closed
         # The manifest holds the sha; the fleet reports sha+digest.
-        if declared and not all(v.split("+")[0] == declared for v in versions):
+        if declared and not fresh_declaration and \
+           not all(v.split("+")[0] == declared for v in versions):
             problems.append(("ALL", f"running {sorted(versions)} but the trial declares "
                                     f"{declared} -- undeclared code change, trial uninterpretable"))
     except Exception:

@@ -84,6 +84,43 @@ def test_undeclared_version_still_trips():
           len(out) == 1 and "undeclared" in out[0][1], f"got {out}")
 
 
+# NEW and OLD deliberately share a sha (they differ only in digest), so a
+# test of the UNDECLARED rule -- which compares shas -- must name a third one.
+OTHER = "5c747f4"
+
+
+def _declared(sha, age_min):
+    at = datetime.now(timezone.utc) - timedelta(minutes=age_min)
+    return {"declared_code_version": sha, "declared_at": at.isoformat().replace("+00:00", "Z")}
+
+
+def test_fresh_declaration_is_not_an_undeclared_change():
+    # The archive still holds pre-deploy lines; the manifest moved 2m ago.
+    out = feed([line("Scout01", OLD, 1)], manifest=_declared(OTHER, 2))
+    check("a deploy in progress does not trip the undeclared rule", out == [], f"got {out}")
+
+
+def test_stale_declaration_still_trips():
+    out = feed([line("Scout01", OLD, 1)], manifest=_declared(OTHER, 120))
+    check("code still undeclared two hours later does trip",
+          len(out) == 1 and "undeclared" in out[0][1], f"got {out}")
+
+
+def test_unparseable_declared_at_fails_closed():
+    out = feed([line("Scout01", OLD, 1)],
+               manifest={"declared_code_version": OTHER, "declared_at": "whenever"})
+    check("an unreadable declared_at grants no grace",
+          len(out) == 1 and "undeclared" in out[0][1], f"got {out}")
+
+
+def test_grace_does_not_mask_a_partial_deploy():
+    # Grace covers "everyone is behind", never "the fleet is split".
+    out = feed([line("Scout01", NEW, 1), line("Gather02", OLD, 1)],
+               manifest=_declared(OTHER, 2))
+    check("grace never hides a genuinely split fleet",
+          len(out) == 1 and "disagree" in out[0][1], f"got {out}")
+
+
 if __name__ == "__main__":
     print("version_check")
     for fn in [v for k, v in sorted(globals().items()) if k.startswith("test_")]:
