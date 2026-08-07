@@ -28,6 +28,16 @@ and are left alone.
 import json, glob, os, shutil, sys, time
 
 MOVEMENT = {'goto', 'home', 'explore', 'gather'}
+
+# STOP THE FLEET FIRST. The lessons store is held in memory and flushed
+# periodically, so purging a running bot's file is overwritten by that bot
+# within seconds -- and the restart then loads the version the bot wrote, not
+# yours. Done wrong once, verified wrong by the class counts coming back
+# identical, and done right by stopping first:
+#
+#   for i in scout scout2 miner gatherer gather2; do systemctl stop mcbot@$i; done
+#   ./purge-corrupt-movement-lessons.py --apply
+#   for i in ...; do systemctl start mcbot@$i; done
 stamp = time.strftime('%Y%m%d-%H%M%S')
 dry = '--apply' not in sys.argv
 total_removed = total_blocking = 0

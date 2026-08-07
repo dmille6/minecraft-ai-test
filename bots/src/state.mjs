@@ -110,6 +110,24 @@ export function classifyFailure(detail = '') {
   if (d.includes('competing goal')) return 'goal_changed'
   if (d.includes('travel budget')) return 'path_budget'
 
+  // OUR OWN COLLECT BUDGET, not the world's refusal. gather gives up after
+  // COLLECT_MS per attempt and reports "ran out of time reaching oak_log" --
+  // structurally identical to the 25s travel budget, but it had no class, so it
+  // fell to `other` and `other` WRITES LESSONS. That is why `gather oak_log`
+  // rules rebuilt on four bots within hours of a purge that emptied them.
+  if (d.includes('ran out of time reaching')) return 'collect_budget'
+
+  // The bot died mid-skill. The skill did not fail; the world killed it.
+  // Blocking `gather oak_log` because something killed the bot while gathering
+  // teaches the wrong lesson entirely -- the danger is the PLACE, which
+  // recordHazard already captures.
+  if (d.trim() === 'death') return 'died'
+
+  // Moved, but ran out of legs before arriving. Unlike the two above this IS
+  // evidence about the world: a route that repeatedly cannot be completed is a
+  // route worth avoiding. It stays lesson-worthy.
+  if (d.includes('got within') && d.includes('blocks of')) return 'path_incomplete'
+
   // Ordered most-specific first. Every branch below was derived from the actual
   // unclassified strings in Elasticsearch, not guessed: `other` was the LARGEST
   // class at 36% of all failures, which makes a failure taxonomy decorative --

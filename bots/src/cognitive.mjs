@@ -29,9 +29,21 @@ import { announceUnreachable } from './comms.mjs'
 // decision, still trains the admission gate to avoid it, and still counts
 // against the fleet's success rate. They remain available to chat, where a
 // human IS present and the argument is real.
-// Failure classes the harness inflicts on itself. See the note at the
-// recordFailure call below.
-const SELF_INFLICTED = new Set(['path_interrupted', 'path_budget', 'goal_changed'])
+// Failure classes that are NOT evidence the action cannot work. Two kinds:
+//
+//   we caused it   path_interrupted (our reflex stopped the path), path_budget
+//                  and collect_budget (our own time limits expiring),
+//                  goal_changed (we set a competing goal)
+//   it says nothing  died -- the world killed the bot mid-skill. The danger is
+//                  the PLACE, which recordHazard captures; blocking the ACTION
+//                  teaches that gathering wood is impossible because something
+//                  killed you while doing it once.
+//
+// Deliberately NOT here: path_incomplete. A route that repeatedly cannot be
+// completed is genuine evidence about the world and should be learned.
+const NOT_ACTION_EVIDENCE = new Set([
+  'path_interrupted', 'path_budget', 'collect_budget', 'goal_changed', 'died',
+])
 
 const SKILL_NAMES = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly)
 
@@ -262,8 +274,8 @@ export class CognitiveLoop {
         // They are still logged, classified and visible in Kibana. They just do
         // not get a vote on what the bot is allowed to attempt next.
         const fc = r.failClass ?? classifyFailure(r.detail)
-        if (SELF_INFLICTED.has(fc)) {
-          log('info', 'failure not persisted as a lesson: we caused it', {
+        if (NOT_ACTION_EVIDENCE.has(fc)) {
+          log('info', 'failure not persisted as a lesson: not evidence about the action', {
             skill: admitted.skill, failClass: fc,
           })
         } else {
