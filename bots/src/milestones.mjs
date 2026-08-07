@@ -27,6 +27,18 @@ import { log } from './logger.mjs'
 // An impossible goal produces failures that look like bad model judgement,
 // which is the worst kind of confounder.
 
+/** Distinct deposits THIS bot has contributed to, beyond `minDist` from home. */
+function countMySightings(worldFacts, minDist) {
+  try {
+    const rs = worldFacts?.read?.()?.resources ?? []
+    const me = config.bot.name
+    return rs.filter(r =>
+      Array.isArray(r.by) && r.by.includes(me) &&
+      Math.hypot(r.x - config.world.homeX, r.z - config.world.homeZ) >= minDist).length
+  } catch { return 0 }
+}
+
+
 const M = {
   gather: (block, n, why) => ({
     id: `gather_${block}_${n}`,
@@ -35,6 +47,32 @@ const M = {
     progress: b => `${countItem(b, block)}/${n} ${block}`,
     hint: `gather with block=${block}.`,
   }),
+  /**
+   * A scout's output is knowledge, not inventory.
+   *
+   * Scouts and gatherers were the same bot with different labels: skill
+   * distribution showed `gather` and `goto` as the top two for both, in the same
+   * proportions, and Scout01 crafted MORE than Gather01. The role name carried
+   * no behavioural difference because both chains were measured in items.
+   *
+   * This one is measured in DISTINCT DEPOSITS this bot has personally found,
+   * beyond a distance from home. Deposits merge within 24 blocks, so standing
+   * next to one ore vein does not count twice -- covering ground does.
+   *
+   * Thresholds are set from what the fleet has actually achieved rather than
+   * from ambition: beyond 60m every bot has found at least 5, beyond 80m the
+   * range is 1-8, and beyond 100m almost nothing exists. A goal nobody can reach
+   * is the same defect as a goal of NaN.
+   */
+  survey: (n, minDist, why, hint) => ({
+    id: `survey_${n}_at_${minDist}`,
+    wants: null,                       // deliberately not an item
+    describe: `Find ${n} resource deposits at least ${minDist} blocks from home. ${why}`,
+    done: (b, _cycle, wf) => countMySightings(wf, minDist) >= n,
+    progress: (b, _cycle, wf) => `${countMySightings(wf, minDist)}/${n} deposits beyond ${minDist}m`,
+    hint: hint ?? `explore, or goto a point ${minDist}+ blocks out; deposits are recorded automatically as you travel.`,
+  }),
+
   craft: (item, n, why, hint) => ({
     id: `craft_${item}_${n}`,
     wants: item,
@@ -69,13 +107,17 @@ export const MILESTONES_BY_ROLE = {
   // Giving scouts the first two crafting steps makes each one self-sufficient
   // for basic tools, which is what a scout operating away from base needs
   // anyway. Deeper tooling stays the miner's job.
+  // A scout that gathers wood and never uses it is a warehouse with legs -- and
+  // measuring it in items made it exactly that. Its chain is now mostly SURVEY
+  // goals, which no other role has and which no amount of gathering satisfies.
+  // Enough crafting remains to keep it self-sufficient on the road.
   scout: [
-    M.gather('oak_log', 8, 'Wood is the base of every tool.'),
-    M.craft('oak_planks', 8, 'Each log yields 4 planks; a scout should carry its own materials.'),
+    M.gather('oak_log', 8, 'Enough wood to be self-sufficient out there.'),
+    M.craft('oak_planks', 8, 'Carry your own materials.'),
+    M.survey(6, 60, 'Map what is near the colony first.'),
     M.craft('stick', 4, '2 planks make 4 sticks.'),
-    M.travel(150, 0, 'Scouting east.'),
-    M.gather('oak_log', 16, 'Restock while out there.'),
-    M.travel(0, 150, 'Scouting south.'),
+    M.survey(4, 80, 'Push past the ground the gatherers already work.'),
+    M.survey(2, 100, 'Genuinely new ground -- the fleet has found almost nothing this far out.'),
   ],
 
   // The full tool chain. Exercises craft and place, which have entirely
@@ -133,6 +175,15 @@ export const SUSTAINING = [
     done: (b, n) => countItem(b, 'cobblestone') >= 16 + n * 8,
     progress: (b, n) => `${countItem(b, 'cobblestone')}/${16 + n * 8} cobblestone`,
     hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
+  },
+  {
+    // The scout's ongoing objective, escalating like the stockpile goals: each
+    // completed cycle demands more deposits, further out.
+    id: 'survey_wider',
+    describe: n => `Find ${4 + n * 2} deposits at least ${60 + n * 10} blocks from home.`,
+    done: (b, n, wf) => countMySightings(wf, 60 + n * 10) >= 4 + n * 2,
+    progress: (b, n, wf) => `${countMySightings(wf, 60 + n * 10)}/${4 + n * 2} deposits beyond ${60 + n * 10}m`,
+    hint: 'explore, or goto a distant point; deposits record themselves as you travel.',
   },
   {
     id: 'patrol',
@@ -284,7 +335,7 @@ export class MilestoneController {
     if (this.index >= this.chain.length) {
       const outstanding = this.chain.some(m => {
         if (this.skipped.includes(m.id)) return false
-        try { return !m.done(this.bot, this.cycle ?? 0) } catch { return false }
+        try { return !m.done(this.bot, this.cycle ?? 0, this.worldFacts) } catch { return false }
       })
       if (outstanding) {
         // Running off the end and finding work again is exactly one completed
@@ -299,7 +350,7 @@ export class MilestoneController {
     while (this.index < this.chain.length) {
       const m = this.chain[this.index]
       let done = false
-      try { done = m.done(this.bot) } catch { done = false }
+      try { done = m.done(this.bot, this.cycle ?? 0, this.worldFacts) } catch { done = false }
       // Step over goals already proven unreachable in an earlier run, or the
       // restored give-up is worthless -- the chain would stall on them again.
       if (!done && !this.skipped.includes(m.id)) break
@@ -320,7 +371,7 @@ export class MilestoneController {
     // impossible one. NaN is not a difficulty, it is a broken milestone.
     const n = this.cycle ?? 0
     let progress = '-'
-    try { progress = m.progress(this.bot, n) } catch { /* entity gone mid-respawn */ }
+    try { progress = m.progress(this.bot, n, this.worldFacts) } catch { /* entity gone mid-respawn */ }
     const describe = typeof m.describe === 'function' ? m.describe(n) : m.describe
     return {
       // Fixed milestones keep their plain id; sustaining ones carry the cycle.
