@@ -1,0 +1,682 @@
+{
+  "match": "no pickaxe",
+  "captured": 20,
+  "cases": [
+    {
+      "ts": "2026-08-07T21:44:06.324Z",
+      "bot": "Hive01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -45.7,
+        "y": 72,
+        "z": -24.6
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 2,
+        "leaf_litter": 4
+      },
+      "nearby": {
+        "oak_log": 5,
+        "birch_log": 4,
+        "dirt": 2,
+        "grass_block": 1,
+        "stone": 4,
+        "coal_ore": 15,
+        "iron_ore": 17,
+        "lava": 19
+      },
+      "code_version": "64eb591+3a0d45"
+    },
+    {
+      "ts": "2026-08-07T21:51:20.990Z",
+      "bot": "Hive01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -45.5,
+        "y": 72,
+        "z": -24.6
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 2,
+        "leaf_litter": 4
+      },
+      "nearby": {
+        "oak_log": 5,
+        "birch_log": 4,
+        "dirt": 2,
+        "grass_block": 2,
+        "stone": 4,
+        "coal_ore": 15,
+        "iron_ore": 17,
+        "lava": 19
+      },
+      "code_version": "64eb591+3a0d45"
+    },
+    {
+      "ts": "2026-08-07T21:54:03.237Z",
+      "bot": "Hive01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -45.5,
+        "y": 72,
+        "z": -24.6
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 2,
+        "leaf_litter": 4
+      },
+      "nearby": {
+        "oak_log": 5,
+        "birch_log": 4,
+        "dirt": 2,
+        "grass_block": 2,
+        "stone": 4,
+        "coal_ore": 15,
+        "iron_ore": 17,
+        "lava": 19
+      },
+      "code_version": "5c747f4+2d19f1"
+    },
+    {
+      "ts": "2026-08-07T21:55:48.752Z",
+      "bot": "Hive01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -45.5,
+        "y": 72,
+        "z": -24.6
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 2,
+        "leaf_litter": 4
+      },
+      "nearby": {
+        "oak_log": 5,
+        "birch_log": 4,
+        "dirt": 2,
+        "grass_block": 2,
+        "stone": 4,
+        "coal_ore": 15,
+        "iron_ore": 17,
+        "lava": 19
+      },
+      "code_version": "5c747f4+2d19f1"
+    },
+    {
+      "ts": "2026-08-07T22:22:37.967Z",
+      "bot": "Hive01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -39.3,
+        "y": 69,
+        "z": -11.6
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 8,
+        "leaf_litter": 4
+      },
+      "nearby": {
+        "oak_log": 11,
+        "birch_log": 3,
+        "dirt": 2,
+        "grass_block": 1,
+        "stone": 2,
+        "coal_ore": 6,
+        "iron_ore": 16,
+        "lava": 23
+      },
+      "code_version": "5c747f4+2d19f1"
+    },
+    {
+      "ts": "2026-08-07T22:45:29.124Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -50.7,
+        "y": 71,
+        "z": -8.3
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 3,
+        "birch_log": 7,
+        "dirt": 2,
+        "grass_block": 1,
+        "stone": 3,
+        "coal_ore": 8,
+        "iron_ore": 21,
+        "lava": 30
+      },
+      "code_version": "f6d0dcf+b6fdda"
+    },
+    {
+      "ts": "2026-08-07T22:49:40.481Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -50.6,
+        "y": 71,
+        "z": -8.3
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 3,
+        "birch_log": 7,
+        "dirt": 2,
+        "grass_block": 2,
+        "stone": 3,
+        "coal_ore": 8,
+        "iron_ore": 21,
+        "lava": 30
+      },
+      "code_version": "e390a54+d6a5d7"
+    },
+    {
+      "ts": "2026-08-07T23:07:07.515Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -50.6,
+        "y": 71,
+        "z": -8.3
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 3,
+        "birch_log": 7,
+        "dirt": 2,
+        "grass_block": 2,
+        "stone": 3,
+        "coal_ore": 8,
+        "iron_ore": 21,
+        "lava": 30
+      },
+      "code_version": "9cb27ce+89e41c"
+    },
+    {
+      "ts": "2026-08-07T23:10:40.386Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -50.6,
+        "y": 71,
+        "z": -8.3
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 3,
+        "birch_log": 7,
+        "dirt": 2,
+        "grass_block": 2,
+        "stone": 3,
+        "coal_ore": 8,
+        "iron_ore": 21,
+        "lava": 30
+      },
+      "code_version": "9cb27ce+89e41c"
+    },
+    {
+      "ts": "2026-08-07T23:13:38.120Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -50.6,
+        "y": 71,
+        "z": -8.3
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 3,
+        "birch_log": 7,
+        "dirt": 2,
+        "grass_block": 2,
+        "stone": 3,
+        "coal_ore": 8,
+        "iron_ore": 21,
+        "lava": 30
+      },
+      "code_version": "9cb27ce+89e41c"
+    },
+    {
+      "ts": "2026-08-08T00:08:26.548Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -30.3,
+        "y": 71,
+        "z": -26.7
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 5,
+        "birch_log": 2,
+        "dirt": 2,
+        "grass_block": 1,
+        "stone": 5,
+        "coal_ore": 6,
+        "iron_ore": 17,
+        "lava": 16
+      },
+      "code_version": "b07c464+d60452"
+    },
+    {
+      "ts": "2026-08-08T00:15:09.665Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50,
+        "z": -27,
+        "player": "Solo01"
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -30.3,
+        "y": 71,
+        "z": -26.7
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 5,
+        "birch_log": 2,
+        "dirt": 2,
+        "grass_block": 1,
+        "stone": 5,
+        "coal_ore": 6,
+        "iron_ore": 17,
+        "lava": 16
+      },
+      "code_version": "b07c464+d60452"
+    },
+    {
+      "ts": "2026-08-08T00:21:38.506Z",
+      "bot": "Solo01",
+      "skill": "mine",
+      "args": {
+        "y": 50,
+        "z": -27,
+        "player": "Solo01"
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -30.3,
+        "y": 71,
+        "z": -26.7
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 12,
+        "leaf_litter": 13,
+        "oak_log": 8,
+        "oak_sapling": 1
+      },
+      "nearby": {
+        "oak_log": 5,
+        "birch_log": 2,
+        "dirt": 2,
+        "grass_block": 1,
+        "stone": 5,
+        "coal_ore": 6,
+        "iron_ore": 17,
+        "lava": 16
+      },
+      "code_version": "b07c464+d60452"
+    },
+    {
+      "ts": "2026-08-07T19:55:59.177Z",
+      "bot": "Gather01",
+      "skill": "mine",
+      "args": {
+        "y": 49
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -42.4,
+        "y": 59,
+        "z": -235.4
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 7
+      },
+      "nearby": {
+        "oak_log": 32,
+        "birch_log": 30,
+        "dirt": 5,
+        "grass_block": 13,
+        "stone": 1,
+        "coal_ore": 6,
+        "iron_ore": 10,
+        "water": 24
+      },
+      "code_version": "9eca2fb+060ab8"
+    },
+    {
+      "ts": "2026-08-07T19:59:33.950Z",
+      "bot": "Gather01",
+      "skill": "mine",
+      "args": {
+        "y": 12
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -42.4,
+        "y": 59,
+        "z": -235.4
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 7
+      },
+      "nearby": {
+        "oak_log": 32,
+        "birch_log": 30,
+        "dirt": 5,
+        "grass_block": 13,
+        "stone": 1,
+        "coal_ore": 6,
+        "iron_ore": 10,
+        "water": 24
+      },
+      "code_version": "9eca2fb+060ab8"
+    },
+    {
+      "ts": "2026-08-07T20:02:13.807Z",
+      "bot": "Gather01",
+      "skill": "mine",
+      "args": {
+        "y": 29
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -42.4,
+        "y": 59,
+        "z": -235.4
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 7
+      },
+      "nearby": {
+        "oak_log": 32,
+        "birch_log": 30,
+        "dirt": 5,
+        "grass_block": 13,
+        "stone": 1,
+        "coal_ore": 6,
+        "iron_ore": 10,
+        "water": 24
+      },
+      "code_version": "9eca2fb+060ab8"
+    },
+    {
+      "ts": "2026-08-07T20:04:24.565Z",
+      "bot": "Gather01",
+      "skill": "mine",
+      "args": {
+        "y": 12
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -40.5,
+        "y": 59,
+        "z": -235.5
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 7
+      },
+      "nearby": {
+        "oak_log": 32,
+        "birch_log": 31,
+        "dirt": 5,
+        "grass_block": 12,
+        "stone": 2,
+        "coal_ore": 4,
+        "iron_ore": 10,
+        "water": 26
+      },
+      "code_version": "9eca2fb+060ab8"
+    },
+    {
+      "ts": "2026-08-07T20:14:52.099Z",
+      "bot": "Gather01",
+      "skill": "mine",
+      "args": {
+        "y": 12
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -31.2,
+        "y": 60,
+        "z": -234.5
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 7
+      },
+      "nearby": {
+        "oak_log": 31,
+        "birch_log": 29,
+        "dirt": 5,
+        "grass_block": 13,
+        "stone": 1,
+        "coal_ore": 12,
+        "iron_ore": 15,
+        "water": 35
+      },
+      "code_version": "9eca2fb+060ab8"
+    },
+    {
+      "ts": "2026-08-07T20:19:28.907Z",
+      "bot": "Gather01",
+      "skill": "mine",
+      "args": {
+        "y": 12
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -26,
+        "y": 64,
+        "z": -234.5
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 7
+      },
+      "nearby": {
+        "oak_log": 26,
+        "birch_log": 24,
+        "dirt": 7,
+        "grass_block": 10,
+        "stone": 2,
+        "coal_ore": 8,
+        "iron_ore": 14
+      },
+      "code_version": "9eca2fb+060ab8"
+    },
+    {
+      "ts": "2026-08-07T22:55:02.564Z",
+      "bot": "Gather01",
+      "skill": "mine",
+      "args": {
+        "y": 58
+      },
+      "status": "failed",
+      "detail": "no pickaxe, so descending would strand this bot beside stone it cannot mine \u2014 craft a wooden_pickaxe first (3 oak_planks + 2 sticks, at a crafting_table)",
+      "fail_class": "missing_tool",
+      "pos": {
+        "x": -41.6,
+        "y": 62,
+        "z": -236.5
+      },
+      "health": 20,
+      "food": 20,
+      "inventory": {
+        "dirt": 7,
+        "leaf_litter": 3,
+        "oak_log": 13,
+        "gravel": 1,
+        "egg": 1
+      },
+      "nearby": {
+        "oak_log": 29,
+        "birch_log": 28,
+        "dirt": 5,
+        "grass_block": 9,
+        "stone": 1,
+        "coal_ore": 4,
+        "iron_ore": 12,
+        "water": 25
+      },
+      "code_version": "e390a54+d6a5d7"
+    }
+  ]
+}

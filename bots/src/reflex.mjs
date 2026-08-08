@@ -100,6 +100,57 @@ function noteReflexInventory(bot, before, cause) {
   } catch { /* accounting must never break a rescue */ }
 }
 
+/**
+ * WHAT IS HAPPENING TO THIS BOT'S AIR -- as a pure function of its state.
+ *
+ * Extracted from the reflex loop deliberately. Every one of the three drowning
+ * bugs fixed on 2026-08-07 lived in a branch that could only be reached by a
+ * live bot underwater, which is why each took a deploy, a fleet restart and a
+ * measurement window to find:
+ *
+ *   1. the oxygen counter was trusted over the world, so a stale reading
+ *      suppressed real drownings
+ *   2. isEntombed() counted water as a wall, so the entombment escape held the
+ *      serial reflex loop for 20-30s while the bot drowned
+ *   3. the rescue was gated behind a log-spam throttle that the preceding
+ *      condition consumed -- `reflex: drowning` fired 0 times across 17 deaths
+ *
+ * All three are one-line assertions against this function. None of them needed
+ * a server.
+ *
+ * @returns {{losing: boolean, kind: 'drowning'|'suffocating'|null,
+ *            act: 'swim'|'fallthrough'|'none', suspect: boolean}}
+ *   losing   -- air is genuinely going
+ *   kind     -- what to call it in telemetry
+ *   act      -- swim up, or fall through to the entombment handler
+ *   suspect  -- the counter says one thing and every other signal disagrees
+ */
+export function assessAir(bot, { maxHealth = 20, lowOxygen = 4 } = {}) {
+  const none = { losing: false, kind: null, act: 'none', suspect: false }
+  const ox = bot?.oxygenLevel
+  if (ox == null || ox > lowOxygen) return none
+
+  const head = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
+  const inWater = head?.name === 'water' || bot.entity?.isInWater === true
+  const headSolid = head != null && head.boundingBox === 'block'
+  // Health is the one value the SERVER owns. blockAt() is a client-side view and
+  // it disagrees with the server about water exactly when it matters most.
+  const losingHealth = bot.health != null && bot.health < maxHealth
+
+  if (!(inWater || headSolid || losingHealth)) {
+    // Low air, clear head, full health: the counter disagrees with everything.
+    return { losing: false, kind: null, act: 'none', suspect: true }
+  }
+  return {
+    losing: true,
+    kind: inWater ? 'drowning' : 'suffocating',
+    // Swim whenever the head is not in stone. Digging is the only remedy the
+    // fall-through path knows, and it is the wrong one in water.
+    act: (inWater || (losingHealth && !headSolid)) ? 'swim' : 'fallthrough',
+    suspect: false,
+  }
+}
+
 function makeThrottle(defaultMs = 10_000) {
   const last = new Map()
   return (kind, ms = defaultMs) => {
@@ -212,55 +263,42 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // A bot losing health while its air is gone is drowning, whatever
       // blockAt() thinks it is standing in. Acting costs a jump; not acting
       // costs the bot.
-      const losingHealth = bot.health != null && bot.health < 20
-      const reallyLosingAir = inWater || headSolid || losingHealth
-      // ONE throttle evaluation, and it gates the LOG, never the rescue.
-      //
-      // The previous shape called throttled('oxygen') in the first condition and
-      // again in the else-if. When the bot was genuinely losing air the first
-      // call CONSUMED the token, the condition then rejected on
-      // !reallyLosingAir, and the second call returned false -- so the branch
-      // that saves the bot could never run. Measured: `reflex: drowning` fired 0
-      // times across 17 drowning deaths. A rescue must not be rate-limited by a
-      // counter whose only job is to stop log spam.
-      if (bot.oxygenLevel != null && bot.oxygenLevel <= 4) {
-        if (reallyLosingAir) {
-          if (throttled('oxygen', 8000) && !lowOxygenLatched) {
-            lowOxygenLatched = true
-            const kind = inWater ? 'drowning' : 'suffocating'
-            log('warn', `reflex: ${kind}`, {
-              oxygen: bot.oxygenLevel, head: head?.name, health: bot.health,
-            })
-            shareHazard(kind, bot.entity?.position)
-            logEvent({
-              kind: `reflex_${kind}`,
-              detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}, health ${bot.health}`,
-              snapshot: snapshot(bot),
-            })
-            runner.interrupt(kind)
-          }
-          // Unconditional: every tick that air is going and the head is not in
-          // stone, swim. Not latched, not throttled -- drowning damage lands
-          // about once a second, so an 8s gate is a death sentence.
-          if (inWater || (losingHealth && !headSolid)) {
-            bot.setControlState('jump', true)
-            setTimeout(() => bot.setControlState('jump', false), 1200)
-            return
-          }
-        } else if (!badOxygenReported) {
-          // Low oxygen, clear head, FULL health: the counter disagrees with
-          // every other signal. Worth seeing once, never worth acting on.
-          badOxygenReported = true
-          log('warn', 'reflex: low oxygen with clear head -- reading not actionable', {
-            oxygen: bot.oxygenLevel, head: head?.name ?? 'unknown', health: bot.health,
+      // The policy now lives in assessAir(), a pure function of bot state, so it
+      // can be asserted without a server. This block is only the plumbing:
+      // logging, telemetry, and the control inputs.
+      const air = assessAir(bot)
+      if (air.losing) {
+        if (throttled('oxygen', 8000) && !lowOxygenLatched) {
+          lowOxygenLatched = true
+          log('warn', `reflex: ${air.kind}`, {
+            oxygen: bot.oxygenLevel, head: head?.name, health: bot.health,
           })
+          shareHazard(air.kind, bot.entity?.position)
           logEvent({
-            kind: 'oxygen_reading_suspect',
-            detail: `oxygen ${bot.oxygenLevel} but head block is ${head?.name ?? 'unknown'} ` +
-                    `and health is ${bot.health}; not interrupting`,
+            kind: `reflex_${air.kind}`,
+            detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}, health ${bot.health}`,
             snapshot: snapshot(bot),
           })
+          runner.interrupt(air.kind)
         }
+        // Unconditional: not latched, not throttled. Drowning damage lands about
+        // once a second, so an 8s gate is a death sentence.
+        if (air.act === 'swim') {
+          bot.setControlState('jump', true)
+          setTimeout(() => bot.setControlState('jump', false), 1200)
+          return
+        }
+      } else if (air.suspect && !badOxygenReported) {
+        badOxygenReported = true
+        log('warn', 'reflex: low oxygen with clear head -- reading not actionable', {
+          oxygen: bot.oxygenLevel, head: head?.name ?? 'unknown', health: bot.health,
+        })
+        logEvent({
+          kind: 'oxygen_reading_suspect',
+          detail: `oxygen ${bot.oxygenLevel} but head block is ${head?.name ?? 'unknown'} ` +
+                  `and health is ${bot.health}; not interrupting`,
+          snapshot: snapshot(bot),
+        })
       }
 
         // Suffocating on land means walled in, and the ONLY thing that frees a
@@ -929,6 +967,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 const round1 = n => Math.round(n * 10) / 10
 
 export { isNight }
+// isEntombed is the guard that counted water as a wall and let a bot drown
+// while the wrong rescue held the loop. Exported so that is one assertion.
+export { isEntombed as isEntombedForTest }
 // Exported for tests only: the pit geometry that produced 74 false successes is
 // pure block arithmetic, and it is worth being able to assert on it directly.
 export { escapeCandidates, unstickMemory, standableAt, cellKey,
