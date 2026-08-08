@@ -66,9 +66,21 @@ export function buildSystemPrompt(skillNames) {
     '  mine    args: {"y": <target depth, e.g. 12>}   (staircases down)',
     '  sleep   args: {}                       (needs a bed, only at night)',
   ].join('\n')
+  // IDENTITY GOES LAST, AND THAT IS A PERFORMANCE DECISION.
+  //
+  // llama.cpp (and therefore Ollama) reuses the KV cache for a shared prompt
+  // PREFIX. This block used to open with `You are ${config.bot.name}` -- a
+  // unique token 0 per bot -- so no two bots in the fleet shared a single
+  // cached token, and every request paid full prefill.
+  //
+  // Measured on the Studio with a 940-token prompt, two different bot names:
+  //     identity first:  2.05s then 2.17s   (no sharing)
+  //     identity last:   2.18s then 0.19s   (11x faster on the second)
+  //
+  // Everything above the identity line is byte-identical across the fleet, so
+  // the second and subsequent bots to ask hit a warm cache. With 13 bots
+  // against shared endpoints this is the cheapest latency win available.
   return [
-    `You are ${config.bot.name}, an autonomous ${config.bot.role} agent in Minecraft.`,
-    ``,
     `Choose exactly ONE next skill to run. You do not write code and you do not`,
     `plan multiple steps -- a controller owns the plan and will tell you the`,
     `current task. Pick the single action that best advances that task.`,
@@ -91,6 +103,9 @@ export function buildSystemPrompt(skillNames) {
     `  cobblestone, so make a wooden pickaxe before mining.`,
     `- "reason" must be one short sentence explaining the choice.`,
     `- Copy the saw_end value from the end of the user message exactly.`,
+    ``,
+    // Last line on purpose -- see the note above buildSystemPrompt's return.
+    `You are ${config.bot.name}, an autonomous ${config.bot.role} agent in Minecraft.`,
   ].join('\n')
 }
 
