@@ -106,6 +106,28 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
 }
 
 /**
+ * Identify the prompt TEMPLATE, not this bot's rendering of it.
+ *
+ * The system prompt opens "You are Scout01, an autonomous scout agent...", so
+ * hashing it verbatim yields one hash per BOT. Measured after the first fix:
+ * 5 distinct hashes across 5 bots on one prompt version. That labels who is
+ * asking, which we already know from bot.name, and it still cannot split an
+ * A/B -- every arm would carry one hash per bot and none per variant.
+ *
+ * Normalising the name and role out gives one hash per prompt VERSION across
+ * the whole fleet, which is the only thing that can group an experiment arm.
+ * Escaped before use as a pattern: a bot named with a regex metacharacter would
+ * otherwise silently fail to normalise, and the failure looks like data.
+ */
+function promptTemplateHash(systemPrompt) {
+  let t = String(systemPrompt ?? '')
+  const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (config.bot.name) t = t.replace(new RegExp(esc(config.bot.name), 'g'), '<BOT>')
+  if (config.bot.role) t = t.replace(new RegExp(esc(config.bot.role), 'g'), '<ROLE>')
+  return crypto.createHash('sha256').update(t).digest('hex').slice(0, 16)
+}
+
+/**
  * One record per LLM decision, matching infra/elk/index-template.json for
  * mcai-llm-*. That mapping is dynamic:strict -- an unexpected key rejects the
  * whole document with no error beyond a dropped-events line in Filebeat.
@@ -147,8 +169,7 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
       // dynamic:strict and an unmapped key rejects the WHOLE document, with no
       // symptom but a dropped-events line in Filebeat. The milestone is already
       // carried in messages[].milestone.
-      system_hash: crypto.createHash('sha256').update(String(systemPrompt ?? ''))
-        .digest('hex').slice(0, 16),
+      system_hash: promptTemplateHash(systemPrompt),
       text: String(promptText ?? '').slice(0, 6000),
     },
     response: { text: String(res.raw ?? '').slice(0, 4000) },
@@ -165,3 +186,7 @@ export function closeLogs() {
   if (stream) { stream.end(); stream = null }
   if (llmStream) { llmStream.end(); llmStream = null }
 }
+
+// Exported for tests: the A/B label is the one thing that cannot be verified
+// after the fact -- if it is wrong, the experiment it labelled is simply lost.
+export { promptTemplateHash }
