@@ -26,11 +26,11 @@ FAILED=()
 
 # Node lives on the lab hosts, not necessarily here.
 NODE_HOST="${PREFLIGHT_NODE_HOST:-}"
+KEY="${AGENT_KEY:-$HOME/.ssh/id_ed25519_aiservers}"
 if command -v node >/dev/null 2>&1; then
   RUN_JS() { node "$1"; }
   SYNTAX() { node --check "$1"; }
 elif [ -n "$NODE_HOST" ]; then
-  KEY="${AGENT_KEY:-$HOME/.ssh/id_ed25519_aiservers}"
   say "  (no local node; running JS checks on $NODE_HOST)"
   tar czf - -C bots src test 2>/dev/null | \
     ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" 'rm -rf /tmp/preflight && mkdir -p /tmp/preflight && tar xzf - -C /tmp/preflight && ln -sf /srv/mcbots/harness/node_modules /tmp/preflight/node_modules' || {
@@ -78,6 +78,40 @@ if command -v python3 >/dev/null 2>&1; then
       FAILED+=("$(basename "$f")")
     fi
   done
+fi
+
+say ""
+say "  ---- live server movement (opt-in) ----"
+# NOTHING ABOVE THIS LINE CAN CATCH A SERVER THAT REFUSES TO MOVE BOTS.
+#
+# Instance #1 ran three days at `goto` 3/240 because its server was upgraded to
+# native Paper 1.21.11, which mineflayer 4.37.1 cannot drive -- the server
+# re-teleported every bot to byte-identical coordinates twenty times a second.
+# Every assertion above passed throughout, correctly: none of our code was wrong.
+# Nine agent-side defects were found and fixed underneath that outage before
+# anyone thought to reproduce it with a bare client.
+#
+# Set SMOKE_HOST to gate a deploy on the target server actually being drivable.
+if [ -z "${SMOKE_HOST:-}" ]; then
+  say "  skipped -- set SMOKE_HOST=<addr> to gate on a live server"
+else
+  SMOKE_ENV="MINECRAFT_HOST=$SMOKE_HOST MINECRAFT_PORT=${SMOKE_PORT:-25565} PROBE_NAME=${SMOKE_NAME:-Hive02}"
+  [ -n "${SMOKE_VERSION:-}" ] && SMOKE_ENV="$SMOKE_ENV MINECRAFT_VERSION=$SMOKE_VERSION"
+  # The probe needs mineflayer, which lives with the harness -- prefer the lab host.
+  if [ -n "$NODE_HOST" ]; then
+    scp -q -i "$KEY" scripts/movement-smoke.mjs "$NODE_HOST:/srv/mcbots/harness/movement-smoke.mjs" 2>/dev/null
+    smoke=$(ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" \
+      "cd /srv/mcbots/harness && env $SMOKE_ENV node movement-smoke.mjs" 2>&1)
+  else
+    smoke=$(env $SMOKE_ENV node scripts/movement-smoke.mjs 2>&1)
+  fi
+  if echo "$smoke" | grep -q "PASS: movement is healthy"; then
+    say "  ok    movement  $(echo "$smoke" | grep -oE 'furthest from start: *[0-9.]+ blocks' | tr -s ' ')"
+  else
+    echo "  FAIL  movement-smoke against $SMOKE_HOST"
+    echo "$smoke" | grep -E "FAIL|teleport|travelled" | head -5 | sed 's/^/        /'
+    FAILED+=("movement-smoke")
+  fi
 fi
 
 say ""
