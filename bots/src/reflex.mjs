@@ -151,6 +151,30 @@ export function assessAir(bot, { maxHealth = 20, lowOxygen = 4 } = {}) {
   }
 }
 
+/**
+ * TAKE THE BODY BEFORE YOU TRY TO MOVE IT.
+ *
+ * mineflayer has no ownership layer over the control states: `bot.controlState`
+ * is a plain object and the last writer each tick wins, silently. Worse,
+ * mineflayer-pathfinder's `monitorMovement` REWRITES forward/back/jump/sprint on
+ * EVERY physicsTick while a goal is set. So a reflex that simply calls
+ * setControlState('jump', true) is overwritten within ~50ms and nothing logs it.
+ *
+ * Measured: after the drowning rescue was made reachable, instance #2 still lost
+ * 8 bots to drowning in 45 minutes. The rescue was firing and being cancelled by
+ * the pathfinder and by pillarOut, which writes `jump` every ~550ms of its own.
+ *
+ * So: clear the goal, stop any dig, drop stale inputs -- THEN steer. Order
+ * matters. setGoal(null) is used rather than pathfinder.stop() because stop()
+ * waits for the next node, and a drowning bot does not have a next node.
+ */
+function seizeBody(bot, why) {
+  try { bot.pathfinder?.setGoal(null) } catch { /* plugin may be absent */ }
+  try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
+  try { bot.clearControlStates() } catch { /* not connected */ }
+  return why
+}
+
 function makeThrottle(defaultMs = 10_000) {
   const last = new Map()
   return (kind, ms = defaultMs) => {
@@ -284,6 +308,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // Unconditional: not latched, not throttled. Drowning damage lands about
         // once a second, so an 8s gate is a death sentence.
         if (air.act === 'swim') {
+          // Highest priority in the layer: nothing may outrank not drowning.
+          seizeBody(bot, 'drowning')
           bot.setControlState('jump', true)
           setTimeout(() => bot.setControlState('jump', false), 1200)
           return
@@ -575,6 +601,10 @@ const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andes
  * back to digging straight up when pillaring cannot work.
  */
 async function pillarOut(bot, maxBlocks = 24) {
+  // Same contention as the drowning rescue: pathfinder rewrites jump every
+  // tick while a goal is set, so a pillar that does not own the body places
+  // blocks under a bot that is being steered somewhere else.
+  seizeBody(bot, 'pillar')
 
   const startY = bot.entity.position.y
   let stalled = 0
@@ -893,6 +923,7 @@ async function unstick(bot) {
   // most open one. In the pocket the fleet was trapped in, exactly one of eight
   // neighbours qualified -- findable in a millisecond, invisible to a sprint.
   const tabu = new Set(mem.tried.map(t => t.key))
+  seizeBody(bot, 'unstick')
   let options = escapeCandidates(bot, tabu)
   if (!options.length && tabu.size) {
     // Every legal neighbour is one we already tried and that did not work. That
