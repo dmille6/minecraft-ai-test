@@ -520,7 +520,32 @@ async function eat(ctx, _args, signal) {
 // ingredients is information, not a bug. The detail string names what is
 // missing so the model can choose to gather it, which is the whole point of
 // having a cognitive layer at all.
-async function craft(ctx, { item, count = 1 }, signal) {
+//
+// CRAFT RESOLVES ITS OWN PREREQUISITES, and that is the difference between a
+// fleet that reaches stone tools and one that does not.
+//
+// Measured on the rebuilt world, one run:
+//     craft oak_planks       4/4    100%
+//     craft stick            2/2    100%
+//     craft wooden_pickaxe   0/16     0%
+// while Gather01 stood on THIRTY-ONE oak logs. Every ingredient was craftable
+// and the tool never was, because the model asks for the GOAL and the skill only
+// ever answered "you are missing planks". One decision per 70 seconds is far too
+// coarse a channel to walk a recipe tree through -- the model would need three
+// correct decisions in a row, from a prompt that never names the next step.
+//
+// So the skill walks it. It already computes exactly what is missing in order to
+// report it; making those first costs nothing extra and turns one decision into
+// a finished subtree. This is the DAG prerequisite resolution from PPA
+// (arXiv 2503.03505), which covers 790+ items with a single LLM call rather than
+// chain-length-plus-one.
+//
+// Depth is bounded because the tree bottoms out at things you gather rather than
+// craft (planks <- log <- the world). Three levels covers log -> planks -> stick
+// -> pickaxe, which is the deepest chain before stone.
+const MAX_CRAFT_DEPTH = 3
+
+async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   const { bot } = ctx
   const def = bot.registry.itemsByName[item]
   if (!def) return { status: 'failed', detail: `unknown item "${item}"` }
@@ -624,6 +649,51 @@ async function craft(ctx, { item, count = 1 }, signal) {
     // explicit failClass wins over the classifier, so `needs_station` was
     // unreachable on the live write path and only ever appeared in tests.
     const stationOnly = hasTable && !missing.length
+
+    // ---- resolve prerequisites, then try again -----------------------------
+    //
+    // Everything needed to do this was already computed above for the error
+    // message. Acting on it is the whole change.
+    if (depth < MAX_CRAFT_DEPTH) {
+      const made = []
+
+      // A CRAFTING TABLE IN THE PACK IS NOT A CRAFTING TABLE ON THE GROUND.
+      // `needs_station` fired three times in one run on bots that were carrying
+      // one, because nothing ever placed it.
+      if (stationOnly) {
+        check(signal)
+        const put = await place(ctx, { item: 'crafting_table' }, signal)
+        if (put.status === 'success') made.push('placed crafting_table')
+      }
+
+      // One level down, per missing ingredient. `missing` entries look like
+      // "3x oak_planks"; anything that does not parse is left alone rather than
+      // guessed at.
+      for (const m of missing) {
+        const parsed = /^(\d+)x\s+(\S+)$/.exec(m)
+        if (!parsed) continue
+        const [, need, name] = parsed
+        if (name === item) continue          // a recipe that needs itself: never recurse
+        check(signal)
+        const sub = await craft(ctx, { item: name, count: Number(need) }, signal, depth + 1)
+        if (sub.status === 'success') made.push(name)
+      }
+
+      // Only retry if something actually changed. Retrying after a no-op is how
+      // a bounded recursion still burns the whole skill timeout.
+      if (made.length) {
+        check(signal)
+        const retry = await craft(ctx, { item, count }, signal, depth + 1)
+        if (retry.status === 'success') {
+          return { status: 'success', detail: `${retry.detail} (first made ${made.join(', ')})` }
+        }
+        // Report the RETRY's failure, not the one computed before we changed the
+        // inventory -- that gap is now stale, and a stale gap is exactly what
+        // makes the lessons store punish an action that was making progress.
+        return { ...retry, detail: `${retry.detail} [after making ${made.join(', ')}]` }
+      }
+    }
+
     return {
       status: 'failed',
       failClass: stationOnly ? 'needs_station' : 'missing_ingredients',
