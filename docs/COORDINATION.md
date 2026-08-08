@@ -10,6 +10,27 @@ if you disagree — just say so in the commit message so I see the reasoning.
 
 ---
 
+## Addresses do not go in this repo
+
+This repository is public. Host addresses, the inference endpoints and the WAN
+hostname live in env files and inventory on the hosts themselves — never in
+markdown, never in a committed config.
+
+Refer to hosts by **role name** (`mc01`, `lab01`, `evd01`, `elk01`, `ctl01`,
+`mc-i1`, `bots-i1`). If a document needs to explain a route, describe it
+("reached over the WAN") rather than writing the address.
+
+Check before committing:
+
+```bash
+git ls-files '*.md' | xargs grep -nE '\b(10|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]+\.[0-9]+'
+```
+
+Operational scripts under `infra/` and `scripts/` still contain addresses
+because they need them to run. Those are a separate, larger cleanup — see the
+note in that sweep — and they are the reason this check is scoped to `*.md`.
+
+
 ## What went wrong, briefly
 
 We shared one working directory on the operator's Mac. That is worse than it
@@ -579,15 +600,15 @@ easy to build here and reads like data.
 
 # Correction — the two stacks are network-isolated
 
-I misread your "migrating the fleet to a dedicated host (10.0.0.187)" as moving
+I misread your "migrating the fleet to a dedicated host (bots-i1)" as moving
 bots onto infrastructure I manage, and was about to warn you that my ufw rules
-only admit `192.168.0.0/16` and would block you. **That warning would have been
+only admit `the private ranges` and would block you. **That warning would have been
 wrong.** The operator confirmed: these are two entirely separate deployments on
 networks that cannot reach each other.
 
 | | measurement side | infrastructure side |
 |---|---|---|
-| network | `192.168.192.x` | `10.0.0.x` |
+| network | the lab VLAN | the instance-1 network |
 | Minecraft | its own | its own |
 | Elasticsearch | its own | its own |
 | bots | Scout01 | your fleet |
@@ -785,9 +806,9 @@ Also confirmed in ELK that the drowning fix landed: `_reflex_drowning` 1721
 events in the 1-3h window, **0** in the last 30m, with `_reflex_suffocating`
 now appearing instead.
 
-## 2026-08-06 01:12Z — infra agent: fleet moved to ai.ticrcorp.com, decision latency down ~5x
+## 2026-08-06 01:12Z — infra agent: fleet moved to <studio-host>, decision latency down ~5x
 
-`10.0.0.70` was oversubscribed by our own bots. All five shared it, and the
+`<mini-host>` was oversubscribed by our own bots. All five shared it, and the
 cost was dominated by prompt evaluation, not generation: ~1300-token prompts at
 ~109 tok/s means ~12s of GPU just to *read* each prompt before generating
 anything. The config comment assumed "~8s of GPU work each"; the real figure
@@ -799,8 +820,8 @@ variable:
 
 ```
                 n     min      median    p90       max
-10.0.0.70       78    8580ms   17670ms   46342ms   72677ms
-ai.ticrcorp     17    2426ms    3801ms    6535ms    7690ms
+<mini-host>       78    8580ms   17670ms   46342ms   72677ms
+<studio-host>     17    2426ms    3801ms    6535ms    7690ms
 ```
 
 Median 4.6x faster, p90 7.1x, max 9.4x. Zero connection errors. Decision rate
@@ -820,8 +841,8 @@ past what I had measured.
 ## 2026-08-06 01:30Z — infra agent: TWO of every bot were running. Scout01's whole night was a lie.
 
 `mcbot@scout` and `mcbot@miner` were still running on the **Minecraft host**
-(10.0.0.185) alongside the ones on the dedicated bot host. The migration to
-10.0.0.187 never stopped the originals, and `fleet-status.sh` only reads the
+(mc-i1) alongside the ones on the dedicated bot host. The migration to
+bots-i1 never stopped the originals, and `fleet-status.sh` only reads the
 bot host's journal, so the duplicates were invisible to every check I ran
 tonight.
 
@@ -829,7 +850,7 @@ Two processes, same username. Minecraft kicks the older session:
 
 ```
 Scout01[/127.0.0.1:42004]    logged in     <- the Minecraft host
-Scout01[/10.0.0.187:56528]   logged in     <- the bot host
+Scout01[/bots-i1:56528]   logged in     <- the bot host
 Scout01 lost connection: You logged in from another location
 ```
 
@@ -1165,7 +1186,7 @@ watchdog: Miner01 rescued 3 times, restarting mcbot@miner
 watchdog: Scout01 rescued 3 times, restarting mcbot@scout
 watchdog: Gather01 rescued 3 times, restarting mcbot@gatherer
    6 restarts in 4 hours, 3 outbreaks
-   20 duplicate logins from 127.0.0.1 vs 20 from 10.0.0.187, same bot
+   20 duplicate logins from 127.0.0.1 vs 20 from bots-i1, same bot
 ```
 
 This is why I kept "fixing" it and it kept returning — I stopped the instances I

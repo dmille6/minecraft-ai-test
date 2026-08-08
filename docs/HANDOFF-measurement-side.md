@@ -59,7 +59,7 @@ Re-enable `mcai-selfcheck.timer`, `mcai-verify.timer`, `mc-backup.timer` and
 the fleet will be behind whatever `main` has become, and an undeployed fix is
 not a fix.
 
-The Studio (`192.168.192.15`) is shared hardware and was left alone; our
+The Studio (`<studio-host>`) is shared hardware and was left alone; our
 `keep_alive` lapses on its own.
 
 ---

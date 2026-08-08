@@ -1,6 +1,6 @@
 # instance #1 homepage
 
-Runs on `10.0.0.185` (the Minecraft host), port 80. Config lives in
+Runs on `mc-i1` (the Minecraft host), port 80. Config lives in
 `/srv/homepage/config`, secrets in `/srv/homepage/.env`.
 
 ## Redeploying
@@ -30,7 +30,7 @@ The deploy still reported success, because it was verified with `curl` to
 machine that will actually load the page, with the real Host header:
 
 ```bash
-curl -o /dev/null -w '%{http_code}\n' -H 'Host: 10.0.0.185' http://10.0.0.185/
+curl -o /dev/null -w '%{http_code}\n' -H 'Host: mc-i1' http://mc-i1/
 ```
 
 Required keys:

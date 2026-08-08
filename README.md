@@ -18,30 +18,30 @@ That makes cross-instance comparison nearly worthless (see *Confounds*, below)
 but it means a change can be deployed to one and held back on the other.
 
 ```
-  ═══ INSTANCE #2 — the measured lab ═════════════ 192.168.193.0/24 ═══
-                                                   (Proxmox, own VLAN)
-        homepage  http://192.168.193.10             ← start here
+  ═══ INSTANCE #2 — the measured lab ═══════════════ own VLAN, Proxmox ═══
 
-  mc01  .100   Paper 1.21.8 · pregenerated · seed 7914455308567851796
-               ├── squaremap :8080     live 2D map, all bots
-               └── observer            server-side RCON sampling, 10s
-  lab01 .40    5 mineflayer agents · Filebeat
-               └── 3D bot views :3007-3011   one per bot, live
-  evd01 .21    raw NDJSON archive · DuckDB · BlueMap (staged)
-  elk01 .30    Elasticsearch 9.4.4 + Kibana :5601
-  ctl01 .10    Claude Code · Codex · homepage · the tripper
-                        │
-                        └──► M4 Studio 128GB · qwen2.5:14b-instruct
-                             (WAN, one firewall rule)
+        homepage on ctl01                            ← start here
 
-  ═══ INSTANCE #1 — the older fleet ══════════════════ 10.0.0.0/24 ═══
+  mc01    Paper 1.21.8 · pregenerated · seed 7914455308567851796
+          ├── squaremap :8080     live 2D map, all bots
+          └── observer            server-side RCON sampling, 10s
+  lab01   5 mineflayer agents · Filebeat
+          └── 3D bot views :3007-3011   one per bot, live
+  evd01   raw NDJSON archive · DuckDB · BlueMap (staged)
+  elk01   Elasticsearch 9.4.4 + Kibana :5601
+  ctl01   Claude Code · Codex · homepage · the tripper for lab01
+                  │
+                  └──► M4 Studio 128GB · qwen2.5:14b-instruct
+                       (reached over the WAN, one firewall rule)
 
-        homepage  http://10.0.0.185
+  ═══ INSTANCE #1 — the older fleet ══════════════════ separate network ═══
 
-  .185  Paper · older world · this is where the bots live
-  .187  8 mineflayer agents · tripper runs LOCALLY here
-                        │
-                        └──► M4 mini 16GB · qwen2.5:7b-instruct
+        homepage on the Minecraft host
+
+  mc-i1     Paper · older world
+  bots-i1   8 mineflayer agents · tripper runs LOCALLY here
+                  │
+                  └──► M4 mini 16GB · qwen2.5:7b-instruct
 
         memory scopes under test:  5 private · 2 shared (hive) · 1 isolated
 ```
@@ -53,8 +53,8 @@ own ceiling is 1.21.11 regardless — Mojang moved to year-based versioning and
 second counter `prismarine-chunk` does not read. ViaVersion lets a current
 client still join.
 
-The tripper runs in **two different places**: locally on `.187` for instance #1,
-and on `ctl01` for instance #2, reaching `lab01` over SSH. Deploying a supervisor
+The tripper runs in **two different places**: locally on the instance-#1 bot
+host, and on `ctl01` for instance #2, reaching `lab01` over SSH. Deploying a supervisor
 fix to the host it *stops* rather than the host it *runs on* wastes an hour.
 
 Instances are **role names** — `scout scout2 miner gatherer gather2` — never
@@ -186,11 +186,11 @@ they do.
 
 | | |
 |---|---|
-| **Dashboard** | http://192.168.193.10 — start here. Live fleet metrics, per-bot health, host stats |
-| **Top-down live map** | http://192.168.193.100:8080 — squaremap, all five bots |
-| **3D per-bot view** | http://192.168.193.40:3007-3011 — live, in a browser, one per bot |
-| **In-game god mode** | connect to `192.168.193.100`, then `/gamemode spectator` |
-| **Kibana** | http://192.168.193.30:5601 — what it decided and why |
+| **Dashboard** | http://ctl01 — start here. Live fleet metrics, per-bot health, host stats |
+| **Top-down live map** | http://mc01:8080 — squaremap, all five bots |
+| **3D per-bot view** | http://lab01:3007-3011 — live, in a browser, one per bot |
+| **In-game god mode** | connect to `mc01`, then `/gamemode spectator` |
+| **Kibana** | http://elk01:5601 — what it decided and why |
 
 There is no *webpage* that lets you fly freely through the live world: free
 flight means streaming arbitrary chunks on demand, which is what a Minecraft

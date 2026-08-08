@@ -8,15 +8,20 @@ _Last verified: 2026-08-07._
 
 | host | RAM | serves | model | notes |
 |---|---|---|---|---|
-| **M4 Studio** `192.168.192.15` | 128 GB | instance #2 (all 5) · instance #1 (5 bots, via `ai.ticrcorp.com`) | `qwen2.5:14b-instruct` | also serves other projects; **89 GB pinned by them** |
-| **M4 Mac mini** `10.0.0.70` | **16 GB** | instance #1 (3 bots) | `qwen2.5:7b-instruct` **pinned** | dedicated to this project |
+| **M4 Studio** | 128 GB | instance #2 (all 5) | `qwen2.5:14b-instruct` | also serves other projects; **89 GB pinned by them** |
+| **M4 Mac mini** | **16 GB** | instance #1 (all 8) | `qwen2.5:7b-instruct` | dedicated to this project |
 
-Instance #1's bot host has **no route** to `192.168.192.15`; it reaches the Studio
-over the WAN via `ai.ticrcorp.com` → `76.165.200.8`.
+Instance #1's bot host has **no route** to the Studio's LAN address; when it used
+the Studio it reached it over the WAN. Addresses live in the env files on each
+host, never in this repo.
 
 ### Which bot is on which host, and why
 
-| bot | scope | host | model |
+**Superseded 2026-08-08: all 8 instance-#1 bots now run 7b on the mini.** The
+split below is kept because any analysis crossing these timestamps must treat it
+as a model change.
+
+| bot | scope | host (2026-08-07) | model |
 |---|---|---|---|
 | Scout01, Gather01 | private | mini | 7b |
 | Solo01 | isolated | mini | 7b |
@@ -116,8 +121,10 @@ the model, not the host:
 
 | bot | model | endpoint |
 |---|---|---|
-| `scout`, `gatherer` | `qwen2.5:7b-instruct` | `http://10.0.0.70:11434` |
-| `scout2`, `miner`, `gather2` | `qwen2.5:14b-instruct` | `http://ai.ticrcorp.com:11434` |
+| all eight | `qwen2.5:7b-instruct` | the mini — see `OLLAMA_BASE_URL` in each env file |
+
+Endpoints are configured per bot in `/srv/mcbots/harness/env/*.env` on the bot
+host. They are deliberately not recorded here.
 
 Pointing all five at the mini would have collapsed that A/B **and** put 14b on a
 host that swaps to hold it. Both mistakes were made and reverted; this is the

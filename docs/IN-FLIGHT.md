@@ -25,8 +25,8 @@ _Last updated: 2026-08-07, end of the build day._
 ## Inference topology (changed 2026-08-07 evening)
 
 Instance #1 now splits by model: `scout` and `gatherer` (7b) run on the
-dedicated M4 mini at `10.0.0.70`; `scout2`, `miner` and `gather2` (14b) stay on
-the M4 Studio via `ai.ticrcorp.com`. See
+dedicated M4 mini at `<mini-host>`; `scout2`, `miner` and `gather2` (14b) stay on
+the M4 Studio via `<studio-host>`. See
 [`ops/inference-hosts.md`](ops/inference-hosts.md) — the mini is 16GB and cannot
 hold 14b without swapping.
 
