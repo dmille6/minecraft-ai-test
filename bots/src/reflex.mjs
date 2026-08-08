@@ -214,11 +214,42 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // costs the bot.
       const losingHealth = bot.health != null && bot.health < 20
       const reallyLosingAir = inWater || headSolid || losingHealth
-      if (bot.oxygenLevel != null && bot.oxygenLevel <= 4 && throttled('oxygen', 8000)
-          && !reallyLosingAir) {
-        // Worth SEEING -- a wrong oxygen reading is a real defect and this is
-        // the only place it is observable -- but not worth acting on.
-        if (!badOxygenReported) {
+      // ONE throttle evaluation, and it gates the LOG, never the rescue.
+      //
+      // The previous shape called throttled('oxygen') in the first condition and
+      // again in the else-if. When the bot was genuinely losing air the first
+      // call CONSUMED the token, the condition then rejected on
+      // !reallyLosingAir, and the second call returned false -- so the branch
+      // that saves the bot could never run. Measured: `reflex: drowning` fired 0
+      // times across 17 drowning deaths. A rescue must not be rate-limited by a
+      // counter whose only job is to stop log spam.
+      if (bot.oxygenLevel != null && bot.oxygenLevel <= 4) {
+        if (reallyLosingAir) {
+          if (throttled('oxygen', 8000) && !lowOxygenLatched) {
+            lowOxygenLatched = true
+            const kind = inWater ? 'drowning' : 'suffocating'
+            log('warn', `reflex: ${kind}`, {
+              oxygen: bot.oxygenLevel, head: head?.name, health: bot.health,
+            })
+            shareHazard(kind, bot.entity?.position)
+            logEvent({
+              kind: `reflex_${kind}`,
+              detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}, health ${bot.health}`,
+              snapshot: snapshot(bot),
+            })
+            runner.interrupt(kind)
+          }
+          // Unconditional: every tick that air is going and the head is not in
+          // stone, swim. Not latched, not throttled -- drowning damage lands
+          // about once a second, so an 8s gate is a death sentence.
+          if (inWater || (losingHealth && !headSolid)) {
+            bot.setControlState('jump', true)
+            setTimeout(() => bot.setControlState('jump', false), 1200)
+            return
+          }
+        } else if (!badOxygenReported) {
+          // Low oxygen, clear head, FULL health: the counter disagrees with
+          // every other signal. Worth seeing once, never worth acting on.
           badOxygenReported = true
           log('warn', 'reflex: low oxygen with clear head -- reading not actionable', {
             oxygen: bot.oxygenLevel, head: head?.name ?? 'unknown', health: bot.health,
@@ -230,30 +261,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             snapshot: snapshot(bot),
           })
         }
-      } else if (bot.oxygenLevel != null && bot.oxygenLevel <= 4 && throttled('oxygen', 8000)) {
-        if (!lowOxygenLatched) {
-          lowOxygenLatched = true
-          const kind = inWater ? 'drowning' : 'suffocating'
-          log('warn', `reflex: ${kind}`, { oxygen: bot.oxygenLevel, head: head?.name })
-          shareHazard(kind, bot.entity?.position)
-          logEvent({
-            kind: `reflex_${kind}`,
-            detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}`,
-            snapshot: snapshot(bot),
-          })
-          runner.interrupt(kind)
-        }
-        // Swim up whenever air is going and the head is NOT in a solid block.
-        // Gating this on `inWater` alone meant that when mineflayer's chunk view
-        // disagreed with the server about water -- which is exactly the case
-        // that kills bots -- the drowning was detected and then not acted on,
-        // because the code below only knows how to dig out of stone. Jumping in
-        // open air costs nothing; not jumping in unreported water costs the bot.
-        if (inWater || (losingHealth && !headSolid)) {
-          bot.setControlState('jump', true)
-          setTimeout(() => bot.setControlState('jump', false), 1200)
-          return
-        }
+      }
+
         // Suffocating on land means walled in, and the ONLY thing that frees a
         // bot with canDig=false is the entombed handler below, which pillars or
         // digs straight up. Two corrections to my own 23:38 change:
@@ -267,7 +276,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         //     six faces are solid does nothing.
         //
         // So: fall through. Do not return.
-      }
       // Hysteresis band, matching the health check: clear only once oxygen has
       // genuinely recovered, so one incident is one reaction.
       if (bot.oxygenLevel != null && bot.oxygenLevel >= 12) lowOxygenLatched = false
