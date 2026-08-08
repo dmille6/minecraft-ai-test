@@ -62,6 +62,19 @@ function countMySightings(worldFacts, minDist) {
 
 const M = {
   gather: (block, n, why) => ({
+    // `wants` is what the admission gate reads to decide an action may not
+    // be hard-blocked: a producer of the thing this milestone needs must
+    // always get an attempt, because an attempt is the only thing that can
+    // clear the rule blocking it. Only `craft` set this, so the exemption was
+    // unreachable for ~90% of active milestones -- measured: 0 firings
+    // against 10 learned_avoid rejections in 40 minutes, while bots sat on
+    // gather_oak_log_12 with `gather oak_log` blocked.
+    //
+    // Second-order effect, and it is the right one: classifyOutcome() reads
+    // the same set, so gathering the block a milestone asked for now scores
+    // `valuable` rather than `neutral`, and decrements its avoid rule. The
+    // disproof channel was narrower than the accrual channel here too.
+    wants: block,
     id: `gather_${block}_${n}`,
     describe: `Collect ${n} ${block}. ${why}`,
     done: b => countItem(b, block) >= n,
