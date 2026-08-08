@@ -268,6 +268,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // defect to notice, not an event to count, and the last thing this needs is a
   // second signal that fires hundreds of times.
   let badOxygenReported = false
+  // A RESCUE IN PROGRESS, so the tick stops cancelling its own swim.
+  //
+  // The old branch called seizeBody() -- which clears every control state -- on
+  // EVERY tick, then armed a 1200ms timeout to clear them again. At a 500ms tick
+  // that is three overlapping timeouts in flight at once, each wiping controls
+  // that a later tick had just set. The bot got a fraction of a stroke at a time
+  // and treaded water until it died.
+  //
+  // Measured: after the flooded-cave fix shipped, drowning deaths did not move
+  // at all -- 8 per fleet in twenty minutes, unchanged. The route was almost
+  // always found (drowning_sealed fired ONCE across both fleets), so the bot
+  // knew where air was and could not swim there. Seize once, steer every tick,
+  // release when it can breathe.
+  let rescuing = false
   let escaping = false
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
@@ -346,6 +360,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // can be asserted without a server. This block is only the plumbing:
       // logging, telemetry, and the control inputs.
       const air = assessAir(bot)
+      // RELEASE THE BODY the moment breathing resumes, and say so. Without this
+      // the bot would hold `jump` forever after surfacing, and -- more useful --
+      // there was no positive signal anywhere: deaths were counted and rescues
+      // were not, so a rescue that worked and a rescue that did nothing looked
+      // identical in telemetry. Escapes are now countable against drownings.
+      if (!air.losing && rescuing) {
+        rescuing = false
+        try { bot.clearControlStates() } catch { /* not connected */ }
+        logEvent({
+          kind: 'drowning_escaped',
+          detail: `surfaced with oxygen ${bot.oxygenLevel}, health ${bot.health}`,
+          snapshot: snapshot(bot),
+        })
+      }
       if (air.losing) {
         if (throttled('oxygen', 8000) && !lowOxygenLatched) {
           lowOxygenLatched = true
@@ -363,37 +391,35 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // Unconditional: not latched, not throttled. Drowning damage lands about
         // once a second, so an 8s gate is a death sentence.
         if (air.act === 'swim') {
-          // Highest priority in the layer: nothing may outrank not drowning.
-          seizeBody(bot, 'drowning')
-          // WHICH WAY IS AIR. Holding jump under a stone ceiling is a no-op that
-          // reads as a rescue in the logs -- six deaths on the rebuilt world,
-          // every one of them in a flooded cave with the reflex firing.
           const route = breathableRoute(bot)
+          // SEIZE ONCE. Taking the body means clearing every control state, so
+          // doing it per tick destroys the stroke the previous tick started.
+          if (!rescuing) {
+            rescuing = true
+            seizeBody(bot, 'drowning')
+            // WHICH WAY, on every rescue -- not just the hopeless ones. Logging
+            // only the sealed case left no way to tell whether "up" or "out" was
+            // chosen, which is exactly the blind spot that cost three days on the
+            // movement bug. Direction and distance, once per rescue.
+            logEvent({
+              kind: 'drowning_route',
+              detail: `${route.dir ?? 'sealed'} dist=${route.dist === Infinity ? -1 : route.dist} ` +
+                      `at ${Math.round(bot.entity?.position?.x ?? 0)},` +
+                      `${Math.round(bot.entity?.position?.y ?? 0)},` +
+                      `${Math.round(bot.entity?.position?.z ?? 0)}`,
+              snapshot: snapshot(bot),
+            })
+          }
+          // Re-assert steering every tick. setControlState is idempotent, so this
+          // holds the stroke instead of restarting it, and no timeout is armed to
+          // cut it short -- the release happens when the bot can breathe again.
           if (route.dir === 'out') {
             try { bot.lookAt(route.target, true) } catch { /* not connected */ }
             bot.setControlState('forward', true)
-            bot.setControlState('jump', true)   // forward AND up: cave roofs slope
-            setTimeout(() => {
-              bot.setControlState('forward', false)
-              bot.setControlState('jump', false)
-            }, 1200)
           } else {
-            // 'up', or nothing found -- jumping is right in the first case and no
-            // worse than standing still in the second. Log the difference so a
-            // bot that is genuinely sealed in is visible rather than looking like
-            // a rescue that simply failed.
-            if (route.dir === null && throttled('sealed', 15000)) {
-              logEvent({
-                kind: 'drowning_sealed',
-                detail: `no air within reach at ${Math.round(bot.entity?.position?.x ?? 0)},` +
-                        `${Math.round(bot.entity?.position?.y ?? 0)},` +
-                        `${Math.round(bot.entity?.position?.z ?? 0)}`,
-                snapshot: snapshot(bot),
-              })
-            }
-            bot.setControlState('jump', true)
-            setTimeout(() => bot.setControlState('jump', false), 1200)
+            bot.setControlState('forward', false)
           }
+          bot.setControlState('jump', true)     // 'up' needs it; 'out' wants the lift too
           return
         }
       } else if (air.suspect && !badOxygenReported) {
