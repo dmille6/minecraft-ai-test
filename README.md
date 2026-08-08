@@ -12,32 +12,50 @@ question answerable.
 
 ## What is running
 
-Five hosts on their own VLAN (192.168.193.0/24), on one node of a shared
-Proxmox cluster.
+**Two independent instances**, deliberately. They share the harness and nothing
+else — different networks, worlds, Minecraft versions, models and bot counts.
+That makes cross-instance comparison nearly worthless (see *Confounds*, below)
+but it means a change can be deployed to one and held back on the other.
 
 ```
-        ┌──────────────────────────────────────────────┐
-        │  homepage   http://192.168.193.10            │  ← start here
-        └──────────────────────────────────────────────┘
+  ═══ INSTANCE #2 — the measured lab ═════════════ 192.168.193.0/24 ═══
+                                                   (Proxmox, own VLAN)
+        homepage  http://192.168.193.10             ← start here
 
-  mc01  .100   Paper 1.21.8 · one pregenerated world · seed 7914455308567851796
-               ├── squaremap  :8080   live 2D map, all bots
-               └── observer          server-side RCON sampling, 10s
-
-  lab01 .40    five mineflayer agents · Filebeat
+  mc01  .100   Paper 1.21.8 · pregenerated · seed 7914455308567851796
+               ├── squaremap :8080     live 2D map, all bots
+               └── observer            server-side RCON sampling, 10s
+  lab01 .40    5 mineflayer agents · Filebeat
                └── 3D bot views :3007-3011   one per bot, live
-
   evd01 .21    raw NDJSON archive · DuckDB · BlueMap (staged)
   elk01 .30    Elasticsearch 9.4.4 + Kibana :5601
-  ctl01 .10    Claude Code · Codex · homepage · the guards
+  ctl01 .10    Claude Code · Codex · homepage · the tripper
+                        │
+                        └──► M4 Studio 128GB · qwen2.5:14b-instruct
+                             (WAN, one firewall rule)
 
-  M4 Studio    Ollama — inference for the fleet (reachable by one firewall rule)
+  ═══ INSTANCE #1 — the older fleet ══════════════════ 10.0.0.0/24 ═══
+
+        homepage  http://10.0.0.185
+
+  .185  Paper · older world · this is where the bots live
+  .187  8 mineflayer agents · tripper runs LOCALLY here
+                        │
+                        └──► M4 mini 16GB · qwen2.5:7b-instruct
+
+        memory scopes under test:  5 private · 2 shared (hive) · 1 isolated
 ```
 
 **Paper is pinned to 1.21.8, not 1.21.11**, because of an open mineflayer issue
-reporting pathfinding and jumping failures specifically on 1.21.11 — and
-movement is this project's binding constraint. ViaVersion lets a current client
-still join.
+reporting pathfinding and jumping failures specifically on 1.21.11. mineflayer's
+own ceiling is 1.21.11 regardless — Mojang moved to year-based versioning and
+26.x support has been unmerged since March 2026 because chunk sections gained a
+second counter `prismarine-chunk` does not read. ViaVersion lets a current
+client still join.
+
+The tripper runs in **two different places**: locally on `.187` for instance #1,
+and on `ctl01` for instance #2, reaching `lab01` over SSH. Deploying a supervisor
+fix to the host it *stops* rather than the host it *runs on* wastes an hour.
 
 Instances are **role names** — `scout scout2 miner gatherer gather2` — never
 display names. `systemctl restart mcbot@Scout01` creates a phantom unit that
@@ -257,6 +275,68 @@ Collected because none are obvious from reading the code:
   `selfcheck` ran 02:24:56–02:25:29 and the four slowest agent decisions of the
   night — 61s, 48s, 38s, 31s — all landed inside that window. Analysis now
   shares the agents' own model instead of holding a second, larger one resident.
+- **mineflayer has no ownership layer over the body.** `bot.controlState` is a
+  plain object and the last writer each tick wins, silently. Worse,
+  `mineflayer-pathfinder` rewrites `forward`/`jump`/`sprint` on **every**
+  `physicsTick` while a goal is set — so a reflex that simply calls
+  `setControlState` is overwritten within ~50ms and nothing logs it. Nine places
+  in `reflex.mjs` write `jump`. Taking the body means `setGoal(null)` →
+  `stopDigging()` → *then* steer.
+- **A throttle that guards a log will ration the rescue behind it.**
+  `throttled('oxygen')` was evaluated in one condition and again in its `else if`;
+  the first call consumed the token, that condition then rejected, and the second
+  returned false. The branch that saves a drowning bot was **unreachable** —
+  `reflex: drowning` fired zero times across 17 drowning deaths.
+- **Water is not a wall.** `isEntombed()` tested `name !== 'air'` for its ceiling
+  and walls, so underwater *every* bot is permanently entombed. The escape then
+  held the serial reflex loop for 20–30s placing blocks into the sea while the
+  oxygen check got no tick. A bot drowns in about fifteen.
+- **A situational failure recorded as an intrinsic one gate-locks the tech tree.**
+  100% of `craft` failures were `missing_ingredients` — the right action attempted
+  before its inputs existed — and each wrote a permanent avoid rule keyed on the
+  action. `craft wooden_pickaxe` reached 54. The gate then blocked the only
+  actions that could produce the success which would clear the counter.
+- **Decay measured from the last touch is not decay.** Forgiveness ran from
+  `e.last`, and probation — which exists to disprove a rule — refreshed `e.last`
+  every ~100s. `floor(100s / 20min)` is zero. Counters ratcheted to 54 with a
+  forgiveness rate of precisely nothing. The escape hatch jammed the escape hatch.
+- **Coordinates need three labelled numbers or the model invents one.**
+  Sightings rendered as `${r.x},${r.z}` — two numbers — while `goto` takes three.
+  The model filled slots left to right, so the z it was handed became the y it
+  emitted: 34 impossible-elevation rejections, all of them our rendering bug.
+- **Oversubscribed inference shows up in the tail, not the mean.** 8 bots at a
+  45s cadence against ~8s of GPU work per decision looked survivable at p50 8.2s.
+  The tell was `p99 == 180.0s` — the request timeout, not a slow response, ten
+  times an hour. Minimum cadence is **N bots × GPU-seconds per decision**.
+- **Put the bot's identity LAST in the system prompt.** Prefix caches match from
+  token zero, so opening with `You are ${name}` gives every bot a unique first
+  token and no cross-agent sharing. Measured, 940-token prompt, two names:
+  identity-first 2.05s then 2.17s; identity-last 2.18s then **0.19s**.
+
+### The shape they all share
+
+Ten of the defects above, and every one found on 2026-08-07, are the same bug
+wearing different clothes: **a guard testing a proxy instead of the condition
+that actually matters.**
+
+```
+   proxy that was tested          condition that mattered
+   ─────────────────────          ───────────────────────
+   "head is blocked"        →     "I cannot leave here"
+   "I'm on a different block" →   "I escaped the pit"
+   "the oxygen counter is low" →  "I am losing health underwater"
+   "craft failed"           →     "crafting this is a bad idea"
+   "the skill returned"     →     "the world changed"
+   "y increased"            →     "a route exists again"
+   "the last line said v2"  →     "the bot is running v2 now"
+```
+
+The general rule that catches the class, and would have caught the pathfinder
+incident a week earlier: **a persisted belief that suppresses an action must
+name the observation that would delete it — and that observation must be
+reachable while the belief is enforced.** `avoid[craft:oak_planks]` was deleted
+by a successful craft, which the gate blocked. The disproof path routed through
+the thing being blocked.
 
 ---
 
@@ -264,7 +344,9 @@ Collected because none are obvious from reading the code:
 
 Rebuilt on new infrastructure on 2026-08-07, which is also the day the telemetry
 stopped lying. The full account is in
-[`docs/HANDOFF-2026-08-07.md`](docs/HANDOFF-2026-08-07.md).
+[`docs/HANDOFF-2026-08-07.md`](docs/HANDOFF-2026-08-07.md); the nine defects
+found the following night, and what each cost, are in
+[`docs/NIGHT-2026-08-08.md`](docs/NIGHT-2026-08-08.md).
 
 The old fleet ran 16 hours and produced **81 deaths, 80 of them falls**, with
 `goto` succeeding **3%** of the time — while every liveness check reported
@@ -293,6 +375,37 @@ LLM context mismatch. Resolving that confound with an A/A run and one-variable
 ablations is the next work, and it blocks everything else. A lab that cannot
 reproduce a run cannot support a conclusion.
 
+### Where it stands, 2026-08-08
+
+Thirteen bots across two instances, running `d072977`. Nine defects found and
+fixed in one night, all listed above, all found by measurement rather than
+reasoning — **three of them took two or three attempts, and each intermediate
+fix looked correct until it was measured.**
+
+```
+                  skills succeeded    deaths/hr        inference
+  instance #1        50/368  (14%)    0  (was ~6)      p50 6.2s  p90 6.8s
+  instance #2       108/280  (39%)   17  all drowning  p50 3.6s  p90 7.2s
+```
+
+Two results worth keeping separate from the noise:
+
+- **99% of instance #1's 134 fall deaths were one uncovered 45-block shaft** a
+  bot had dug 28 blocks from home. Not a movement problem — a hazard problem.
+  One `/fill` ended the largest single failure mode in the project.
+- **`b07c464` moved decision success from ~30% to 37%** and aborts from ~40% to
+  30%, on n=194. The first sample said 60% at n=57 and decayed as data arrived,
+  which is the honest argument for leaving a build alone before quoting it.
+
+### Confounds, stated plainly
+
+Instance #1 and instance #2 differ in **Minecraft version, world generation,
+model size, bot count, inference host and memory scope**. Six variables, one
+comparison. The correct statement is "instance #2 performs better" — full stop.
+Anything causal needs the A/B, and the A/B is not yet possible: `prompt.system_hash`
+has been wrong twice (it hashed the milestone, then the per-bot prompt) and now
+hashes the template, but that fix is committed and not yet proven in a real arm.
+
 ## What watches it now
 
 - **Death circuit breaker** — 2 fall deaths per bot per 30m stops that bot; 5
@@ -306,17 +419,50 @@ reproduce a run cannot support a conclusion.
   computing displacement itself. Nothing in the agent stack contributes to it.
 - **Evidence archive** — raw NDJSON on a host that runs none of the agents'
   code, pulled over a forced-command key that refuses a shell.
+- **Preflight gate** — `scripts/preflight.sh`. 17 source files parsed, 17 test
+  files, ~230 assertions, supervisor tests. Nothing reaches a fleet without it.
+
+## Turning failures into tests
+
+Five of the nine defects found on 2026-08-07 were **pure properties of the
+code** — provable in milliseconds, found instead by deploying to eight live
+bots and reading logs for hours. The restarts perturbed the very trial they
+were meant to measure.
+
+```
+   production failure
+          │
+          ├─►  scripts/fixture-from-telemetry.py --survey
+          │      ranks live failure shapes across both fleets
+          │
+          ├─►  --match "no pickaxe" --name mine_without_pickaxe
+          │      captures the real bot states into a fixture + test skeleton
+          │
+          ├─►  bots/test/helpers/microworld.mjs
+          │      a bot, a block grid, no server. A world is one arrow function:
+          │      ocean() · shaft() · pit() · entombed() · oceanWithStaleChunks()
+          │
+          └─►  scripts/preflight.sh   ← gates every deploy
+```
+
+Each world builder is named after the incident that motivated it.
+`oceanWithStaleChunks()` reproduces the client reporting air while the server
+drowned the bot; `shaft()` is Miner01's ninety minutes at the bottom of a hole
+it dug itself. **A fleet run tests endurance and emergence. It is not where you
+discover that a branch is unreachable.**
 
 ## Layout
 
 ```
 bots/           the agent — skills, reflexes, cognitive layer, admission gate
+bots/test/      micro-worlds and replays; helpers/microworld.mjs builds worlds
 docs/decisions/ ADRs: what was chosen, why, and what was rejected
 docs/ops/       provisioning and runbooks, with measured numbers
 infra/elk/      index templates, ILM policy — apply BEFORE first ingest
+infra/guard/    the tripper, and its own tests
 infra/homepage/ dashboard config
 schemas/        the JSONL record contract
-scripts/        reflect.py and operational helpers
+scripts/        preflight.sh, fixture-from-telemetry.py, prompt-eval.py, helpers
 ```
 
 ## Two agents build this
