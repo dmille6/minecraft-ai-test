@@ -109,6 +109,23 @@ await t('a carried crafting_table gets PLACED rather than reported as missing', 
   assert.ok(placed.includes('crafting_table'), 'the table should have been placed')
 })
 
+// --- the case that was live after the first version of this fix -----------
+await t('ingredients but NO table anywhere: makes one, places it, succeeds', async () => {
+  // Exactly Miner01's live inventory: enough planks and sticks for the pickaxe,
+  // no crafting table in the pack and none on the ground.
+  const { bot, bag, placed } = makeCraftBot({ oak_planks: 14, stick: 5 })
+  const r = await run(bot, { item: 'wooden_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', `expected success, got: ${r.detail}`)
+  assert.ok(placed.includes('crafting_table'), 'it should have built and placed a table')
+  assert.equal(bag.wooden_pickaxe, 1)
+})
+
+await t('it does not build a table for a recipe that never needed one', async () => {
+  const { bot, placed } = makeCraftBot({ oak_log: 4 })
+  await run(bot, { item: 'oak_planks', count: 1 })
+  assert.equal(placed.length, 0, 'a tableless recipe must not trigger station building')
+})
+
 // --- direct crafts must not regress --------------------------------------
 await t('crafting planks directly still works and needs no recursion', async () => {
   const { bot, bag } = makeCraftBot({ oak_log: 4 })

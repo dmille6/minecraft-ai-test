@@ -657,11 +657,25 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     if (depth < MAX_CRAFT_DEPTH) {
       const made = []
 
-      // A CRAFTING TABLE IN THE PACK IS NOT A CRAFTING TABLE ON THE GROUND.
-      // `needs_station` fired three times in one run on bots that were carrying
-      // one, because nothing ever placed it.
-      if (stationOnly) {
+      // A STATION IS A PREREQUISITE TOO, and it is the one that was actually
+      // blocking the fleet.
+      //
+      // The first version of this only handled `stationOnly` -- a bot already
+      // CARRYING a table that never placed it. Measured after deploying it,
+      // every bot had solved the ingredient half and stalled anyway:
+      //     Miner01   4 oak_log, 14 oak_planks, 5 stick   -- and no table
+      // A pickaxe needs 3 planks and 2 sticks, so nothing was missing except a
+      // crafting table nobody owned, which meant `missing` was empty, `hasTable`
+      // was false, and the resolver had no branch to take.
+      //
+      // So: no ingredients outstanding and still no recipe means the station is
+      // the gap. Make one if needed, then put it on the ground.
+      if (!missing.length && !table) {
         check(signal)
+        if (!hasTable) {
+          const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1)
+          if (built.status === 'success') made.push('crafting_table')
+        }
         const put = await place(ctx, { item: 'crafting_table' }, signal)
         if (put.status === 'success') made.push('placed crafting_table')
       }
