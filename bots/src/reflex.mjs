@@ -152,6 +152,61 @@ export function assessAir(bot, { maxHealth = 20, lowOxygen = 4 } = {}) {
 }
 
 /**
+ * WHERE IS THE NEAREST AIR, AND CAN THE BOT REACH IT?
+ *
+ * The drowning rescue held `jump` and nothing else, which swims a bot straight
+ * up. That is right in open water and useless under a ceiling -- and EVERY
+ * drowning death on the rebuilt world was underground: y=48 to 56 against a sea
+ * level of 63, scattered over 125 blocks of x. Flooded caves, not ocean.
+ *
+ * So the bot swam into stone and drowned while the reflex correctly re-reported
+ * `drowning` every 8 seconds. The diagnosis was right and the cure was chosen
+ * from a proxy -- "head is in water" implies "up is air" -- rather than from the
+ * condition that decides whether swimming up can possibly work.
+ *
+ * Straight-line scans only. This runs every 500ms on a bot that has roughly ten
+ * seconds to live, so it must be cheap and it does not need to be optimal: any
+ * air beats the ceiling it is currently pressed against.
+ *
+ * Returns { dir: 'up' | 'out' | null, target, dist }.
+ *   up   -- open column overhead; hold jump, as before
+ *   out  -- capped above but air reachable sideways; steer at it
+ *   null -- sealed in on every axis scanned; nothing here will save it
+ */
+// maxUp is deliberately generous: a bot on an ocean floor at y=48 is fourteen
+// blocks under the surface, and swimming up is correct at any depth so long as
+// the column is clear. maxOut is small because sideways swimming is a gamble --
+// it is the fallback for when up is provably sealed, not a search.
+export function breathableRoute(bot, { maxUp = 32, maxOut = 8 } = {}) {
+  const none = { dir: null, target: null, dist: Infinity }
+  const at = bot?.entity?.position
+  if (!at || !bot.blockAt) return none
+  const head = at.offset(0, 1, 0)
+  // Water and air are both boundingBox 'empty'; only air ends a drowning.
+  const isAir = b => b != null && b.name !== 'water' && b.boundingBox === 'empty'
+  const swimmable = b => b != null && (b.name === 'water' || b.boundingBox === 'empty')
+
+  for (let dy = 1; dy <= maxUp; dy++) {
+    const b = bot.blockAt(head.offset(0, dy, 0))
+    if (isAir(b)) return { dir: 'up', target: head.offset(0, dy, 0), dist: dy }
+    if (!swimmable(b)) break          // solid ceiling: up is not an exit
+  }
+  // Capped above. Look sideways along each axis for a column that opens.
+  let best = none
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (let d = 1; d <= maxOut; d++) {
+      const p = head.offset(dx * d, 0, dz * d)
+      if (!swimmable(bot.blockAt(p))) break        // wall: this axis is closed
+      if (isAir(bot.blockAt(p)) && d < best.dist) { best = { dir: 'out', target: p, dist: d }; break }
+      // an air pocket one block up counts too -- that is the usual cave shape
+      const up = p.offset(0, 1, 0)
+      if (isAir(bot.blockAt(up)) && d < best.dist) { best = { dir: 'out', target: up, dist: d }; break }
+    }
+  }
+  return best
+}
+
+/**
  * TAKE THE BODY BEFORE YOU TRY TO MOVE IT.
  *
  * mineflayer has no ownership layer over the control states: `bot.controlState`
@@ -310,8 +365,35 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         if (air.act === 'swim') {
           // Highest priority in the layer: nothing may outrank not drowning.
           seizeBody(bot, 'drowning')
-          bot.setControlState('jump', true)
-          setTimeout(() => bot.setControlState('jump', false), 1200)
+          // WHICH WAY IS AIR. Holding jump under a stone ceiling is a no-op that
+          // reads as a rescue in the logs -- six deaths on the rebuilt world,
+          // every one of them in a flooded cave with the reflex firing.
+          const route = breathableRoute(bot)
+          if (route.dir === 'out') {
+            try { bot.lookAt(route.target, true) } catch { /* not connected */ }
+            bot.setControlState('forward', true)
+            bot.setControlState('jump', true)   // forward AND up: cave roofs slope
+            setTimeout(() => {
+              bot.setControlState('forward', false)
+              bot.setControlState('jump', false)
+            }, 1200)
+          } else {
+            // 'up', or nothing found -- jumping is right in the first case and no
+            // worse than standing still in the second. Log the difference so a
+            // bot that is genuinely sealed in is visible rather than looking like
+            // a rescue that simply failed.
+            if (route.dir === null && throttled('sealed', 15000)) {
+              logEvent({
+                kind: 'drowning_sealed',
+                detail: `no air within reach at ${Math.round(bot.entity?.position?.x ?? 0)},` +
+                        `${Math.round(bot.entity?.position?.y ?? 0)},` +
+                        `${Math.round(bot.entity?.position?.z ?? 0)}`,
+                snapshot: snapshot(bot),
+              })
+            }
+            bot.setControlState('jump', true)
+            setTimeout(() => bot.setControlState('jump', false), 1200)
+          }
           return
         }
       } else if (air.suspect && !badOxygenReported) {

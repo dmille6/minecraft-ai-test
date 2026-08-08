@@ -128,6 +128,26 @@ export const pit = ({ x0 = 0, z0 = 0, w = 2, floor = 70, rim = 73 } = {}) =>
 export const entombed = ({ at = new V(0, 40, 0) } = {}) =>
   (x, y, z) => (x === at.x && y === at.y && z === at.z ? AIR : STONE)
 
+/**
+ * A FLOODED CAVE: water from `floor` to `ceiling`, solid stone above it, and a
+ * pocket of air `ventAt` blocks away along +x.
+ *
+ * This is where all six drowning deaths on the rebuilt world happened -- y=48 to
+ * 56 against a sea level of 63, so underground, not ocean. Swimming up here
+ * presses the bot into a stone roof, which is exactly what the old rescue did
+ * while logging a successful "drowning" reflex every 8 seconds.
+ *
+ * Set `ventAt = null` for the sealed case: no air anywhere, nothing can save it,
+ * and the only correct behaviour is to say so rather than look busy.
+ */
+export const floodedCave = ({ floor = 47, ceiling = 52, ventAt = 4 } = {}) =>
+  (x, y, z) => {
+    if (y <= floor) return STONE
+    if (ventAt != null && x === ventAt && z === 0 && y > floor && y <= ceiling) return AIR
+    if (y <= ceiling) return WATER
+    return STONE                       // roof: no way up, ever
+  }
+
 /** Flat open ground at `ground`; nothing above. The healthy baseline. */
 export const plain = ({ ground = 63 } = {}) =>
   (x, y, z) => (y <= ground ? DIRT : AIR)
