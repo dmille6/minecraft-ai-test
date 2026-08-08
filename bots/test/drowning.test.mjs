@@ -134,8 +134,18 @@ ok('the low-oxygen threshold is a boundary, not a cliff', () => {
   const at = ox => assessAir(makeBot({
     pos: new V(0, 50, 0), blocks: ocean(), oxygen: ox, health: 10,
   })).losing
-  assert.equal(at(5), false, 'above the threshold is not an emergency')
-  assert.equal(at(4), true, 'at the threshold it is')
+  // THE THRESHOLD MOVED FROM 4 TO 10, AND MUST NOT GO BACK.
+  //
+  // oxygenLevel is BUBBLES (0-20), not the 300-tick air timer, so 4 bubbles is
+  // about three seconds of air. Measured on instance #2, one full death:
+  //     reflex fired at health 2.33/20 with the air 12 blocks up
+  //     12 blocks is ~6 seconds of swimming; the bot had ~1 second of life
+  // The rescue was not failing, it was starting too late to finish. Ten bubbles
+  // is ~7s, which covers the ascents that were actually killing bots. Lowering
+  // this again re-creates a rescue that cannot reach the surface it identifies.
+  assert.equal(at(11), false, 'above the threshold is not an emergency')
+  assert.equal(at(10), true, 'at the threshold it is')
+  assert.equal(at(4), true, 'the old threshold must still be an emergency')
   assert.equal(at(0), true)
   assert.equal(at(-17), true, 'Air goes NEGATIVE while drowning -- observed live at -17')
 })

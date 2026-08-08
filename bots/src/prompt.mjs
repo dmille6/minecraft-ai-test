@@ -90,6 +90,13 @@ export function buildSystemPrompt(skillNames) {
     ``,
     `Rules:`,
     `- Survival first. If health or hunger is low, prefer safe actions.`,
+    // ENGLISH, STATED EXPLICITLY. qwen2.5 is bilingual and the 7B on instance #1
+    // began emitting the reason field in Chinese -- correct reasoning
+    // ("try to gather stone to make a stone pickaxe"), unreadable telemetry. The
+    // JSON schema constrains structure, not language, so nothing downstream was
+    // going to catch it. This line lives above the identity line so it stays part
+    // of the byte-identical shared prefix and costs no cache locality.
+    `- Write the reason field in English.`,
     `- Stay inside the world border (radius ${config.world.borderRadius} from 0,0).`,
     `- For goto, y is ELEVATION, not distance. Terrain here sits around y=62-90.`,
     `  Use a y close to your current one. y=140 is high in the sky and`,

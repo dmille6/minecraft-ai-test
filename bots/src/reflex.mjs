@@ -125,7 +125,21 @@ function noteReflexInventory(bot, before, cause) {
  *   act      -- swim up, or fall through to the entombment handler
  *   suspect  -- the counter says one thing and every other signal disagrees
  */
-export function assessAir(bot, { maxHealth = 20, lowOxygen = 4 } = {}) {
+// lowOxygen is BUBBLES, 0-20 -- not the 300-tick air timer. At the old value of 4
+// the rescue began with roughly three seconds of air left, and then asked the bot
+// to complete an ascent that is frequently much longer than that.
+//
+// Measured, one full death sequence on instance #2:
+//     17:12:11  reflex_drowning   health 2.33/20, oxygen -1, head=water
+//     17:12:11  drowning_route    up, dist=12
+//     17:12:14  death
+// Twelve blocks is about six seconds of swimming. The bot had one second of
+// health left when the rescue started. It was never going to arrive.
+//
+// Ten bubbles is roughly seven seconds of air, which covers the 12-block ascents
+// that are actually killing bots. The latch still re-arms at 12, so there is a
+// two-bubble gap and it cannot flap.
+export function assessAir(bot, { maxHealth = 20, lowOxygen = 10 } = {}) {
   const none = { losing: false, kind: null, act: 'none', suspect: false }
   const ox = bot?.oxygenLevel
   if (ox == null || ox > lowOxygen) return none
