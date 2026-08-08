@@ -47,3 +47,30 @@ this week. Do not "tidy" it to one model without deciding to end it.
 - The three bot roles have still never been demonstrated to behave differently.
   Tonight is the first run where the scout chain is measured in knowledge rather
   than items.
+
+## 2026-08-08 — instance #1 reduced to 5 bots
+
+Stopped `hive1`, `hive2`, `scout2`. Remaining: `scout gatherer gather2 miner
+solo1` — 4 private + 1 isolated.
+
+**Why:** a health decision, not an experiment decision. At 8 bots the mini was
+91% utilised (p90 19s, p99 69s, 7 errors/hr) and 5.7 GB into swap; the bot host
+was at 10.5 GB of 11 GB with 2 GB swapped. At 5 bots the same 70s cadence gives
+~57% utilisation, which is out of the region where queueing turns vicious.
+
+**Cadence deliberately unchanged at 70s.** The headroom is for latency, not for
+more decisions — spending it would return utilisation to ~89%.
+
+**What was given up:** the shared-lessons (hive) arm. You cannot half-stop a
+hive; one bot sharing a lessons file with nobody is a private bot with extra
+steps. The shared-world-model comparison survives (private vs isolated).
+
+State archived before stopping, under `/srv/mcbots/state/archive/` on the bot
+host: `lessons-hive-<ts>.json` (avoid=14, worked=33, every rule carrying
+`reporters=['Hive01','Hive02']`) and `world-facts-<ts>.json`.
+
+Bring the hive arm back when the A6000 lands and `goto` works — it will be a
+better experiment then, because the result will be attributable. Note before
+restarting it: `#saveMerged()` takes `max(theirs, mine)` on fail counts, so the
+hive arm structurally cannot forget. That needs fixing first or the arm measures
+the merge rule rather than the hypothesis.
