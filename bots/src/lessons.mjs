@@ -37,6 +37,19 @@ export class Lessons {
     // Keys this bot has itself recorded a failure for. Provenance must reflect
     // who OBSERVED a failure, not who happened to load the file afterwards.
     this.touched = new Set()
+    // KEYS THIS BOT DELIBERATELY LOWERED OR CLEARED since the last save.
+    //
+    // A hive merges fail counts with max() so that one bot's stale read cannot
+    // clobber another's higher, genuinely-earned count. That is correct for
+    // stale reads and catastrophic for deliberate ones: every path that lowers a
+    // count -- prune's wall-clock decay, a gap-gate reset, a success -- was
+    // restored by the next bot to merge, so a shared store could not forget
+    // anything, ever. Deleted keys never propagated either, because the merge
+    // loop only visits keys the bot still holds.
+    //
+    // max() must apply to STALE reads, not to decisions. This set is the
+    // difference between the two.
+    this.forgiven = new Set()
     this.file = file
     this.data = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0, progress: {}, skillVersions: {} }
     this.dirty = false
@@ -73,7 +86,15 @@ export class Lessons {
           : { ...mine }
         continue
       }
-      theirs.fails = Math.max(theirs.fails ?? 0, mine.fails ?? 0)
+      // max() for a STALE read, mine for a DECISION. Without this split every
+      // forgetting path in the class was silently undone by the next merge.
+      if (this.forgiven.has(k)) {
+        theirs.fails = mine.fails ?? 0
+        theirs.since = mine.since ?? theirs.since
+        theirs.classes = { ...(mine.classes ?? {}) }
+      } else {
+        theirs.fails = Math.max(theirs.fails ?? 0, mine.fails ?? 0)
+      }
       theirs.last = Math.max(theirs.last ?? 0, mine.last ?? 0)
       // PROVENANCE. In a hive a belief outlives the bot that formed it, and this
       // fleet has already been wrong in exactly that way -- all five bots once
@@ -92,11 +113,20 @@ export class Lessons {
         who.add(config.bot.name)
         theirs.reporters = [...who].sort()
       }
-      for (const [c, n] of Object.entries(mine.classes ?? {})) {
-        theirs.classes = theirs.classes ?? {}
-        theirs.classes[c] = Math.max(theirs.classes[c] ?? 0, n)
+      if (!this.forgiven.has(k)) {
+        for (const [c, n] of Object.entries(mine.classes ?? {})) {
+          theirs.classes = theirs.classes ?? {}
+          theirs.classes[c] = Math.max(theirs.classes[c] ?? 0, n)
+        }
       }
       if (mine.where) theirs.where = mine.where
+    }
+    // DELETIONS MUST PROPAGATE. The loop above only visits keys this bot still
+    // holds, so a rule cleared by decay, by the MAX_AVOID cap, or by a success
+    // simply survived in the shared file untouched -- the single most direct way
+    // for a hive to be unable to forget.
+    for (const k of this.forgiven) {
+      if (!(k in (this.data.avoid ?? {}))) delete cur.avoid[k]
     }
     // worked: successes are cumulative across bodies -- five bots each proving
     // an action works is genuinely stronger evidence than one bot proving it.
@@ -119,6 +149,10 @@ export class Lessons {
       fs.renameSync(tmp, this.file)   // atomic: peers never read a half file
       this.data = cur
       this.dirty = false
+      // Only once the decisions are durable. Clearing earlier would lose them
+      // if the write failed, and a lost forgetting reads as a belief that never
+      // decayed.
+      this.forgiven.clear()
     } catch (e) {
       log('warn', 'lessons: merged write failed', { err: e.message })
     }
@@ -149,6 +183,7 @@ export class Lessons {
       if (now - (v.last ?? 0) > DECAY_MS) {
         v.fails = Math.floor(v.fails / 2)
         if (v.fails < 2) delete this.data.avoid[k]
+        this.forgiven.add(k)   // decay is a decision; it must survive the merge
       }
     }
     for (const s of this.data.sites) {
@@ -158,6 +193,10 @@ export class Lessons {
 
     const avoid = Object.entries(this.data.avoid)
       .sort((a, b) => b[1].fails - a[1].fails).slice(0, MAX_AVOID)
+    // Whatever the cap drops must be forgiven too, or in a hive the shared file
+    // keeps every entry this bot just trimmed and MAX_AVOID means nothing there.
+    const kept = new Set(avoid.map(([k]) => k))
+    for (const k of Object.keys(this.data.avoid)) if (!kept.has(k)) this.forgiven.add(k)
     this.data.avoid = Object.fromEntries(avoid)
   }
 
@@ -170,13 +209,20 @@ export class Lessons {
     // propagate, which is a worse bug than the one it exists to study.
     // Same read-merge-write under atomic rename that worldfacts.mjs already
     // uses for exactly this reason.
-    if (this.shared) return this.#saveMerged()
     // Prune here, not only on load. MAX_AVOID was enforced once at startup, so
     // the avoid map grew unbounded for the life of a run -- Gather01 reached 42
     // entries against a cap of 40. The prompt only ever shows the worst few, so
     // this was waste rather than corruption, but a cap that holds only at
     // startup is not a cap.
+    //
+    // AND IT MUST RUN BEFORE THE SHARED BRANCH. This line used to sit below the
+    // `return this.#saveMerged()` on the next line, so a hive returned past it
+    // and never pruned AT ALL -- no wall-clock decay, no cap, no site trimming,
+    // for the entire life of the run. Together with max() on merge that made a
+    // shared avoid map monotonically non-decreasing and unbounded, which is the
+    // exact opposite of what the hive arm exists to measure.
     if (++this.savesSincePrune >= 25) { this.savesSincePrune = 0; this.#prune() }
+    if (this.shared) return this.#saveMerged()
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true })
       fs.writeFileSync(this.file, JSON.stringify(this.data, null, 1))
@@ -213,6 +259,7 @@ export class Lessons {
     if (gap != null && e.gap != null && e.gap !== gap) {
       e.fails = 0
       e.since = Date.now()
+      this.forgiven.add(k)
     }
     if (gap != null) e.gap = gap
 
@@ -225,6 +272,7 @@ export class Lessons {
     if (this.#effective(e) <= 0) {
       e.fails = 0
       e.since = Date.now()
+      this.forgiven.add(k)
     }
     e.since = e.since ?? Date.now()
 
@@ -270,6 +318,9 @@ export class Lessons {
     if (this.data.avoid[k]) {
       this.data.avoid[k].fails--
       if (this.data.avoid[k].fails <= 0) delete this.data.avoid[k]
+      // Disproof is the strongest reason to forget, so it must outrank a peer's
+      // stale higher count rather than being overwritten by it.
+      this.forgiven.add(k)
     }
     this.dirty = true
   }
