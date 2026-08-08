@@ -260,7 +260,7 @@
         siteMonitor: http://10.0.0.70:11434
     - M4 Studio · via WAN:
         description: shared with instance #2 · qwen2.5:14b
-        siteMonitor: http://ai.ticrcorp.com:11434
+        siteMonitor: ${STUDIO_OLLAMA_URL}
 
 - Tools:
     - Kibana:

@@ -26,7 +26,7 @@
 # pinned model, and Ollama will evict a pinned model to make room: a control-arm
 # bot failing over there loaded qwen2.5:14b-instruct and left 1.8GB free, having
 # already evicted the honeypot's model once earlier the same day. The bots use
-# ai.ticrcorp.com and 10.0.0.70 only. Found by the GPU/model-residency telemetry
+# the Studio and the mini only. Found by the GPU/model-residency telemetry
 # within a minute of it existing.
 #
 # ROLE-PAIRED. Roles have different milestone chains, so comparing a scout
