@@ -263,9 +263,6 @@ def version_check():
             continue
         v = (d.get("code") or {}).get("version")
         b = (d.get("bot") or {}).get("name")
-        # The arm is what makes a config difference legitimate or not. Records
-        # have carried it since the exp block was added; older lines have none.
-        arm = (d.get("exp") or {}).get("arm")
         if not (v and b):
             continue
         try:
@@ -281,7 +278,7 @@ def version_check():
         # line can arrive after its post-restart line and silently overwrite it,
         # which is a restarted fleet reporting itself as a partial deploy.
         if b not in seen or ts > seen[b][0]:
-            seen[b] = (ts, v, arm)
+            seen[b] = (ts, v)
         stale.pop(b, None)
     for b, v in sorted(stale.items()):
         if b not in seen:
@@ -289,31 +286,11 @@ def version_check():
     if not seen:
         return []                      # nothing running yet; not a fault
     problems = []
-    versions = {t[1] for t in seen.values()}
-    # THE FLEET IS SUPPOSED TO RUN MORE THAN ONE CONFIG.
-    #
-    # Bots report `sha+config_digest`. This rule compared the whole string while
-    # calling the result a disagreement about CODE, so any two bots differing
-    # only in configuration read as a partial deploy. That was harmless until
-    # the memory scope was folded into the config hash -- which was the point,
-    # since the scope is this lab's independent variable and the arms have to be
-    # distinguishable in telemetry. From that moment the fleet had two digests
-    # permanently, and this rule stopped all eight bots every five minutes:
-    #
-    #     TRIP ALL: bots disagree on code version
-    #               ['28a2cf9+7aeb0b', '28a2cf9+f64e58']
-    #
-    # Same sha. One code version, two arms -- isolated and private, exactly as
-    # designed. Left alone it would also have made the crossover trial
-    # impossible by construction, since running two arms at once IS the design.
-    #
-    # So: disagreement about CODE is a partial deploy and still trips.
-    # Disagreement about CONFIG is only a fault WITHIN an arm, checked below.
-    codes = {v.split("+")[0] for v in versions}
+    versions = {v for _, v in seen.values()}
     # Read the manifest before the disagreement rule: whether a split fleet is a
     # fault depends on whether we are mid-deploy, and only the manifest knows.
     man, declared, fresh_declaration = _declaration()
-    if len(codes) > 1:
+    if len(versions) > 1:
         # A ROLLING RESTART IS A SPLIT FLEET, BRIEFLY, ON PURPOSE.
         #
         # Bots are restarted one at a time with a gap between them -- the
@@ -327,30 +304,14 @@ def version_check():
         # some bot is ALREADY on the declared version -- that is what makes it a
         # deploy in progress rather than a fleet that has drifted. If nobody is
         # on the declared version, nothing is converging and this trips.
-        converging = fresh_declaration and declared and declared in codes
+        converging = fresh_declaration and declared and \
+            any(v.split("+")[0] == declared for v in versions)
         if converging:
-            print(f"    {len(codes)} code versions but the declaration is fresh and "
+            print(f"    {len(versions)} versions but the declaration is fresh and "
                   f"{declared} is already running: deploy in progress, not judging")
         else:
-            problems.append(("ALL", f"bots disagree on code version {sorted(codes)} "
+            problems.append(("ALL", f"bots disagree on code version {sorted(versions)} "
                                     f"-- partial deploy, aggregates are a blend of two systems"))
-
-    # WITHIN AN ARM, the config must agree -- that is the check the rule above
-    # was reaching for. Two bots in the same arm running different settings
-    # really do blend two systems, and no amount of arm labelling excuses it.
-    by_arm = {}
-    for b, (_, v, arm) in seen.items():
-        if arm:
-            by_arm.setdefault(arm, {})[b] = v
-    unlabelled = [b for b, t in seen.items() if not t[2]]
-    if unlabelled:
-        print(f"    no arm on {sorted(unlabelled)}: config split within an arm "
-              f"is uncheckable for them")
-    for arm, bots in sorted(by_arm.items()):
-        digests = {v.split("+")[1] if "+" in v else "" for v in bots.values()}
-        if len(digests) > 1 and not fresh_declaration:
-            problems.append(("ALL", f"arm {arm} is split across configs "
-                                    f"{sorted(set(bots.values()))} -- one arm, two systems"))
     # The manifest holds the sha; the fleet reports sha+digest.
     if declared and not fresh_declaration and versions and \
        not all(v.split("+")[0] == declared for v in versions):

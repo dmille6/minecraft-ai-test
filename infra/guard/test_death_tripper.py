@@ -25,13 +25,10 @@ def check(name, cond, detail=""):
     if not cond:
         FAILED.append(name)
 
-def line(bot, version, age_min, arm=None):
+def line(bot, version, age_min):
     ts = datetime.now(timezone.utc) - timedelta(minutes=age_min)
-    rec = {"@timestamp": ts.isoformat().replace("+00:00", "Z"),
-           "bot": {"name": bot}, "code": {"version": version}}
-    if arm:
-        rec["exp"] = {"arm": arm}
-    return json.dumps(rec)
+    return json.dumps({"@timestamp": ts.isoformat().replace("+00:00", "Z"),
+                       "bot": {"name": bot}, "code": {"version": version}})
 
 def feed(lines, manifest=None):
     """Point version_check at a synthetic log and manifest."""
@@ -44,11 +41,7 @@ def feed(lines, manifest=None):
     tripper.ssh = fake_ssh
     return tripper.version_check()
 
-# NEW and OLD share a sha and differ only in config digest -- that is what two
-# EXPERIMENT ARMS look like on the wire, not a partial deploy. PREV is a genuine
-# code split: a different sha.
 NEW, OLD = "64eb591+3a0d45", "64eb591+da0280"
-PREV = "3f1c9a2+3a0d45"
 
 
 def test_stopped_bot_does_not_outvote_the_living():
@@ -58,7 +51,7 @@ def test_stopped_bot_does_not_outvote_the_living():
 
 
 def test_real_partial_deploy_still_trips():
-    out = feed([line("Scout01", NEW, 1), line("Gather02", PREV, 2)])  # two shas, both live
+    out = feed([line("Scout01", NEW, 1), line("Gather02", OLD, 2)])   # both live
     check("a genuine partial deploy still trips", len(out) == 1 and out[0][0] == "ALL", f"got {out}")
 
 
@@ -100,7 +93,8 @@ def test_undeclared_version_still_trips():
           len(out) == 1 and "undeclared" in out[0][1], f"got {out}")
 
 
-# A sha nobody in these fixtures is running, for the UNDECLARED rule.
+# NEW and OLD deliberately share a sha (they differ only in digest), so a
+# test of the UNDECLARED rule -- which compares shas -- must name a third one.
 OTHER = "5c747f4"
 
 
@@ -129,9 +123,9 @@ def test_unparseable_declared_at_fails_closed():
 
 
 def test_grace_does_not_mask_a_split_nobody_is_converging_on():
-    # Neither NEW nor PREV is the declared sha, so nothing is moving toward the
+    # Neither NEW nor OLD is the declared sha, so nothing is moving toward the
     # declaration: this is drift, not a deploy, and it must still trip.
-    out = feed([line("Scout01", NEW, 1), line("Gather02", PREV, 1)],
+    out = feed([line("Scout01", NEW, 1), line("Gather02", OLD, 1)],
                manifest=_declared(OTHER, 2))
     check("a split with nobody on the declared version still trips",
           len(out) >= 1 and any("disagree" in p[1] for p in out), f"got {out}")
@@ -140,62 +134,16 @@ def test_grace_does_not_mask_a_split_nobody_is_converging_on():
 def test_rolling_restart_is_not_a_partial_deploy():
     # Half the fleet already on the declared sha, half not, declaration 1m old:
     # exactly what a rolling restart looks like from here.
-    out = feed([line("Scout01", "5c747f4+aaaaaa", 1), line("Gather02", PREV, 1)],
+    out = feed([line("Scout01", "5c747f4+aaaaaa", 1), line("Gather02", OLD, 1)],
                manifest=_declared("5c747f4", 1))
     check("a rolling restart mid-deploy does not stop the fleet", out == [], f"got {out}")
 
 
 def test_the_same_split_trips_once_the_grace_expires():
-    out = feed([line("Scout01", "5c747f4+aaaaaa", 1), line("Gather02", PREV, 1)],
+    out = feed([line("Scout01", "5c747f4+aaaaaa", 1), line("Gather02", OLD, 1)],
                manifest=_declared("5c747f4", 120))
     check("a split that outlives the grace window still trips",
           len(out) >= 1, f"got {out}")
-
-
-# --------------------------------------------------------------------------
-# THE FLEET IS SUPPOSED TO RUN MORE THAN ONE CONFIG.
-#
-# On 2026-08-09 the tripper stopped all eight bots on instance #1, twice, five
-# minutes apart, seconds after a clean deploy in which every bot rejoined:
-#
-#     TRIP ALL: bots disagree on code version
-#               ['28a2cf9+7aeb0b', '28a2cf9+f64e58']
-#
-# One sha. Two arms -- isolated and private -- which had been distinguishable
-# only since the memory scope was folded into the config hash, and folding it in
-# was the whole point: the scope is this lab's independent variable and it has
-# to be visible in telemetry. The guard was reading the experiment as a fault.
-#
-# Untouched, it would also have made the crossover trial impossible, because
-# running two arms side by side IS the design.
-def test_two_arms_are_not_a_partial_deploy():
-    out = feed([line("Solo01", NEW, 1, arm="isolated"),
-                line("Scout01", OLD, 1, arm="private"),
-                line("Miner01", OLD, 1, arm="private")])
-    check("two arms running different configs is the experiment, not a fault",
-          out == [], f"got {out}")
-
-
-def test_a_config_split_inside_one_arm_trips():
-    # This is what the old rule was reaching for and never actually tested.
-    out = feed([line("Scout01", NEW, 1, arm="private"),
-                line("Miner01", OLD, 1, arm="private")])
-    check("one arm running two configs still trips",
-          len(out) == 1 and "one arm" in out[0][1], f"got {out}")
-
-
-def test_arm_split_is_forgiven_mid_deploy():
-    out = feed([line("Scout01", NEW, 1, arm="private"),
-                line("Miner01", OLD, 1, arm="private")],
-               manifest=_declared("64eb591", 1))
-    check("an arm mid-rolling-restart is not judged", out == [], f"got {out}")
-
-
-def test_unlabelled_bots_do_not_trip_the_arm_rule():
-    # Lines predating the exp block carry no arm; they cannot be grouped, and
-    # guessing would resurrect exactly the bug this rule replaced.
-    out = feed([line("Scout01", NEW, 1), line("Miner01", OLD, 1)])
-    check("bots with no arm are not convicted of an arm split", out == [], f"got {out}")
 
 
 if __name__ == "__main__":
