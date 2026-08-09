@@ -39,6 +39,8 @@ ok "ILM: rollover 10gb/7d, delete at 180d"
 
 COMMON='"@timestamp":{"type":"date"},"run_id":{"type":"keyword"},"trigger":{"type":"keyword"},
  "code":{"properties":{"version":{"type":"keyword"},"config_hash":{"type":"keyword"}}},
+ "exp":{"properties":{"memory_scope":{"type":"keyword"},"arm":{"type":"keyword"},
+        "instance":{"type":"keyword"},"block":{"type":"keyword"}}},
  "perception":{"type":"flattened"},
  "bot":{"properties":{"name":{"type":"keyword"},"role":{"type":"keyword"},
         "health":{"type":"float"},"hunger":{"type":"float"},

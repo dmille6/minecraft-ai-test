@@ -59,6 +59,14 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
     },
     game: snapshot?.game ?? {},
     code: { version: config.code.version, config_hash: config.code.configHash },
+    // The experiment arm, on every record. See config.mjs -- this was missing
+    // entirely, which made the lab's own independent variable unqueryable.
+    exp: {
+      memory_scope: config.memory.scope,
+      arm: config.exp.arm,
+      instance: config.exp.instance,
+      block: config.exp.block,
+    },
     skill: {
       name: skill,
       args: args ?? {},
@@ -93,6 +101,14 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
     run_id: config.log.runId,
     trigger: 'reflex',
     code: { version: config.code.version, config_hash: config.code.configHash },
+    // The experiment arm, on every record. See config.mjs -- this was missing
+    // entirely, which made the lab's own independent variable unqueryable.
+    exp: {
+      memory_scope: config.memory.scope,
+      arm: config.exp.arm,
+      instance: config.exp.instance,
+      block: config.exp.block,
+    },
     bot: { name: config.bot.name, role: config.bot.role, ...(snapshot?.bot ?? {}) },
     game: snapshot?.game ?? {},
     skill: {
@@ -142,6 +158,14 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
     run_id: config.log.runId,
     trigger,
     code: { version: config.code.version, config_hash: config.code.configHash },
+    // The experiment arm, on every record. See config.mjs -- this was missing
+    // entirely, which made the lab's own independent variable unqueryable.
+    exp: {
+      memory_scope: config.memory.scope,
+      arm: config.exp.arm,
+      instance: config.exp.instance,
+      block: config.exp.block,
+    },
     bot: { name: config.bot.name, role: config.bot.role, ...(snapshot?.bot ?? {}) },
     game: snapshot?.game ?? {},
     perception: perceptionSnapshot ?? undefined,

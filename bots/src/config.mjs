@@ -73,7 +73,26 @@ export const config = {
    * NOT shared in any mode: milestone progress. That is a bot's GOALS, not its
    * experience, and sharing it is a different experiment (shared planning).
    */
+  // THE EXPERIMENT'S INDEPENDENT VARIABLE, and until now it was not in a single
+  // log record. `MEMORY_SCOPE` appeared in exactly four places in the codebase,
+  // none of them the logger, and it was absent from configHash -- so an
+  // `isolated` bot and a `shared` bot emitted byte-identical `code.config_hash`
+  // and NOTHING in Elasticsearch distinguished the arms. The only arm mapping
+  // that existed anywhere was a hardcoded dict in scripts/lib/ab_report.py,
+  // which is the same defect as reading a success rate without knowing what it
+  // was measuring: the label lived outside the data.
   memory: { scope: req('MEMORY_SCOPE', 'private') },
+
+  // Operator-declared experiment labels. `arm` is the human name for a group,
+  // `instance` partitions the two mutually-unreachable stacks, and `block`
+  // identifies a crossover period -- the two instances differ in host, model and
+  // cadence, so scope must be varied WITHIN an instance across time blocks, with
+  // each bot acting as its own control.
+  exp: {
+    arm: req('EXP_ARM', 'unassigned'),
+    instance: req('EXP_INSTANCE', 'unknown'),
+    block: req('EXP_BLOCK', 'none'),
+  },
 
   mc: {
     host: req('MINECRAFT_HOST', '127.0.0.1'),
@@ -214,6 +233,10 @@ if (config.llm.enabled && config.llm.numCtx < needCtx) {
 // Fingerprint of the tuning that was actually in effect, so a behaviour change
 // can be attributed to a threshold change rather than guessed at.
 config.code.configHash = crypto.createHash('sha256').update(JSON.stringify({
+  // MEMORY SCOPE BELONGS IN THE HASH. Without it the two arms of the experiment
+  // produce identical config hashes, so the tripper's "bots disagree on config"
+  // check cannot see a mixed fleet and no analysis can separate the arms.
+  memory: config.memory,
   reflex: config.reflex, skills: config.skills,
   watchdog: {
     // Slower than the reflex layer on purpose -- this looks for "busy but
