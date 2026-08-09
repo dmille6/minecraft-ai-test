@@ -151,6 +151,56 @@ function connect() {
     // survivable; being permanently wedged is not.
     moves.maxDropDown = 6
     bot.pathfinder.setMovements(moves)
+
+    // OUR MOVEMENT CONFIG IS NOT OURS TO KEEP.
+    //
+    // `mineflayer-collectblock`'s collect() does, in both 1.4.1 and 1.6.0:
+    //     this.movements = new Movements(bot)        // LIBRARY DEFAULTS
+    //     this.bot.pathfinder.setMovements(this.movements)
+    // with no restore in its finally block. Library defaults are canDig=true,
+    // allowParkour=true, maxDropDown=4 -- verified against the deployed
+    // node_modules. We call setMovements exactly once, here, on spawn.
+    //
+    // So from each bot's FIRST gather onward, every goto, home, explore,
+    // unstick, canStartAPath() and the watchdog's pathability probe has been
+    // running with digging on, parkour on, and maxDropDown back at 4. Every
+    // failure the comments below blame on other causes is a prediction of this:
+    // a bot at y=-3 that "cannot dig its way out" dug its way IN via ordinary
+    // navigation, and canDig=true is also why A* blows its 5s budget so often --
+    // nearly every solid block becomes a legal move.
+    //
+    // The fix is to re-assert rather than to trust. Same discipline as llm.mjs
+    // sending num_ctx on every request instead of configuring it once, and
+    // seizeBody() taking the control states before steering: shared mutable
+    // state with no ownership layer must be claimed at each use, not at startup.
+    const navFingerprint = m => [
+      m.canDig, m.allowParkour, m.allow1by1towers, m.allowSprinting, m.maxDropDown,
+      m.scafoldingBlocks?.length, m.blocksCantBreak?.size,
+    ].join('|')
+    const wanted = navFingerprint(moves)
+
+    bot.assertNav = (where) => {
+      try {
+        const live = bot.pathfinder?.movements
+        if (!live) return false
+        const got = navFingerprint(live)
+        if (got === wanted) return false
+        // Name the keys that actually changed, so this is a diagnosis rather
+        // than "something differs".
+        const changed = []
+        for (const k of ['canDig', 'allowParkour', 'allow1by1towers', 'allowSprinting', 'maxDropDown']) {
+          if (live[k] !== moves[k]) changed.push(`${k}: ${live[k]} -> ${moves[k]}`)
+        }
+        bot.pathfinder.setMovements(moves)
+        logEvent({
+          kind: 'config_drift', status: 'failed',
+          detail: `pathfinder Movements was replaced during ${where}; restored. ${changed.join(', ') || 'fingerprint differed'}`,
+          snapshot: snapshot(bot),
+        })
+        log('warn', 'nav config drifted, restored', { where, changed: changed.join(', ') })
+        return true
+      } catch { return false }
+    }
     // Default is 5s. In dense forest with canDig=false many goals are genuinely
     // unreachable, and A* needs room to prove that rather than reporting
     // "took too long" -- which is indistinguishable from a real failure.

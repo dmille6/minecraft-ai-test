@@ -88,6 +88,10 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   assertInsideBorder(x, z)
   check(signal)
 
+  // Re-assert before travelling. Cheap (a string compare), and it turns "why is
+  // this bot digging" into a named event instead of a mystery.
+  bot.assertNav?.('goto')
+
   const target = new Vec3(Number(x), Number(y), Number(z))
   let legs = 0, lastErr = null
 
@@ -437,6 +441,11 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // Remember WHY, so the failure below can tell the truth about itself.
       if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
+    } finally {
+      // collectBlock replaces the pathfinder Movements with library defaults and
+      // never restores them. Put ours back on every path out of collect(),
+      // including the throwing one -- see the note in index.mjs.
+      bot.assertNav?.('gather')
     }
 
     const gained = countItem(bot, blockName) - startHeld
