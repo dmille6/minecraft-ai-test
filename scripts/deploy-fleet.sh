@@ -91,6 +91,8 @@ ok "CODE_VERSION=$SHA RUN_ID=$RUN across $(ls "$H"/env/*.env | wc -l) env files"
 # ------------------------------------------------------------------ restart --
 # Paper throttles new connections; a tighter stagger gets bots rejected.
 say "Restart"
+# Everything before this instant is the OLD process talking. See Verify.
+T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 for u in "${LIVE[@]}"; do
   systemctl restart "mcbot@$u"
   ok "$u"
@@ -106,11 +108,18 @@ sleep 45
 # Read the SAME evidence the tripper reads: the JSONL skill logs. The version
 # never appears on stdout, so a journal scrape finds nothing and reports it as
 # agreement -- a verifier that passes when it can see nothing is worse than none.
+#
+# Only lines written AFTER the restarts began count. A bot that has not spoken
+# yet still has a pre-restart line sitting in its log, and taking that as its
+# current version reported a converged fleet as split -- the same mistake the
+# tripper had to be taught not to make, where a stopped bot's final line
+# outvoted the living. Silence is "not reporting yet", never "still on the old
+# code".
 DIGESTS=$(tail -q -n 200 /srv/mcbots/logs/skill-*.jsonl 2>/dev/null \
-  | python3 -c '
-import sys, json
-from datetime import datetime, timedelta, timezone
-since = datetime.now(timezone.utc) - timedelta(minutes=3)
+  | T0="$T0" LIVE_N="${#LIVE[@]}" python3 -c '
+import sys, os, json
+from datetime import datetime, timezone
+since = datetime.fromisoformat(os.environ["T0"].replace("Z", "+00:00"))
 seen = {}
 for line in sys.stdin:
     try: d = json.loads(line)
@@ -121,10 +130,12 @@ for line in sys.stdin:
     except Exception: continue
     if ts < since: continue
     if b not in seen or ts > seen[b][0]: seen[b] = (ts, v)
+quiet = int(os.environ["LIVE_N"]) - len(seen)
+if quiet > 0: sys.stderr.write(f"{quiet} bot(s) have not logged since the restart yet\n")
 for v in sorted({v for _, v in seen.values()}): print(v)
 ')
 N=$(printf '%s\n' "$DIGESTS" | grep -c . || true)
-[ "$N" -gt 0 ] || bad "no bot has logged in the last 3 minutes; cannot verify"
+[ "$N" -gt 0 ] || bad "no bot has logged since the restart; cannot verify yet"
 
 if [ "$N" -eq 1 ]; then
   ok "all live bots on $DIGESTS"
