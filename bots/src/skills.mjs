@@ -1394,6 +1394,37 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
   }
 
+  // MINE ONLY DESCENDS, AND ASKING IT TO GO UP RETURNED SUCCESS.
+  //
+  // The loop below is `while (y > goalY + 1)`. A bot at y=68 asked to mine to
+  // y=71 never enters it and falls straight through to the terminal
+  // `success: reached y=68`. Live, Scout02 did exactly this every 70 seconds:
+  //
+  //     LLM -> mine args={"y":71} reason=Continue mining stone for cobblestone
+  //     skill mine -> success detail=reached y=68
+  //     skill returned cleanly but changed nothing
+  //
+  // The cognitive layer noticed -- it classified the outcome `neutral` and said
+  // so -- and then recorded a SUCCESS for it, which clears any avoid rule. So
+  // the one mechanism that could have broken the loop was being reset by the
+  // loop. Four of six bots were sitting in this state, moving zero blocks while
+  // every health signal read fine.
+  //
+  // Same shape as goto's empty-path resolve and the watchdog's idle window: an
+  // operation that did nothing, reporting the outcome it would have had if it
+  // had done something. The detail names the alternative, because the model can
+  // only act on what it is told.
+  if (bot.entity.position.y <= goalY + 1) {
+    return {
+      status: 'failed',
+      failClass: 'already_below',
+      gap: `at_y${Math.round(bot.entity.position.y)}`,
+      detail: `already at y=${Math.round(bot.entity.position.y)}, at or below the requested ` +
+              `y=${goalY} — mine only digs downward, so this cannot do anything; ` +
+              `use gather for blocks you can see, or goto to move upward`,
+    }
+  }
+
   let steps = 0
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
     check(signal)
