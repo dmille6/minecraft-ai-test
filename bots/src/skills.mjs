@@ -159,6 +159,46 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
       const p = bot.pathfinder.goto(goal)
       signal?.addEventListener('abort', () => { try { bot.pathfinder.stop() } catch {} }, { once: true })
       await withTimeout(p, 25000, bot)
+
+      // A RESOLVED PROMISE IS NOT AN ARRIVAL.
+      //
+      // mineflayer-pathfinder/lib/goto.js:
+      //     function noPathListener (results) {
+      //       if (results.path.length === 0) {
+      //         cleanup()                          // <-- resolve(), no error
+      //       } else if (results.status === 'noPath') {
+      //         cleanup(error('NoPath', ...))      // unreachable when empty
+      //
+      // The empty-path case is tested BEFORE the status, so "A* could not
+      // generate a single move from where I am standing" is delivered as a
+      // FULFILLED promise. We only measured displacement in the catch branch,
+      // so a leg that went nowhere was counted as a leg completed.
+      //
+      // Measured over fleet-014: 12 of 14 such failures moved exactly 0 blocks
+      // while reporting 8 completed legs, and burned all 8 in 453-712ms --
+      // about 80ms per leg, which is not enough time to plan a route, let alone
+      // walk 13 blocks. The corresponding raw events read "noPath after 1
+      // nodes, 0ms". That single mechanism is 52% of all goto failures, and it
+      // was filed as `no_path` toward the DESTINATION, which reads as "the
+      // world is in the way" when the truth is "this bot cannot leave its own
+      // square".
+      //
+      // Those are different problems with different remedies, so they get
+      // different names. Not moving is only evidence of being stranded if we
+      // are not already standing on the leg's goal.
+      const advanced = bot.entity.position.distanceTo(before)
+      const atLeg = Math.hypot(leg.x - bot.entity.position.x, leg.z - bot.entity.position.z)
+      if (advanced < 2 && atLeg > Math.max(range, 3)) {
+        const q = bot.entity.position
+        return {
+          status: 'failed',
+          failClass: 'stranded',
+          gap: `stranded_y${Math.round(q.y)}`,
+          detail: `pathfinder returned an empty path from ` +
+                  `${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} — no route out of here, ` +
+                  `${Math.round(dist)} blocks short of ${target.x},${target.z}`,
+        }
+      }
       lastErr = null
     } catch (e) {
       // WE STOPPED IT OURSELVES. The reflex layer's stuck detector calls
@@ -208,8 +248,31 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
 
   const p = bot.entity.position
   const left = Math.hypot(target.x - p.x, target.z - p.z)
-  if (left <= Math.max(range, 3)) {
+  // ARRIVING 14 BLOCKS ABOVE THE DESTINATION IS NOT ARRIVING.
+  //
+  // This test was horizontal only. With allow1by1towers=true a bot can pillar
+  // straight up, and the XZ check then called that success: Miner01 reported
+  // "arrived at 37,80,-243" for a target at y=66, could not build its way back
+  // down (repeating place_error resets), and every later goto and craft was
+  // issued from a column A* cannot leave. One bot stranded that way produced
+  // roughly a third of the run's goto failures.
+  //
+  // Vertical tolerance is looser than horizontal because terrain height at a
+  // destination is often genuinely unknown to the caller -- but it is bounded,
+  // and exceeding it is reported as its own class rather than quietly passing.
+  const dy = Number.isFinite(target.y) ? Math.abs(target.y - p.y) : 0
+  const VERT = Math.max(range, 3) + 3
+  if (left <= Math.max(range, 3) && dy <= VERT) {
     return { status: 'success', detail: `arrived at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}` }
+  }
+  if (left <= Math.max(range, 3)) {
+    return {
+      status: 'failed',
+      failClass: 'wrong_elevation',
+      gap: `dy_${Math.round(dy)}`,
+      detail: `reached the column of ${target.x},${target.z} but ${Math.round(dy)} blocks off in y ` +
+              `(at y=${p.y.toFixed(0)}, wanted ${target.y})`,
+    }
   }
   // CLOSING MOST OF THE DISTANCE IS NOT THE SAME FAILURE AS GOING NOWHERE, and
   // the lessons store has to be able to tell them apart.
@@ -225,11 +288,16 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   // while one pinned against terrain still does.
   const closed = Math.round(startDist - left)
   const bucket = Math.round(left / 50) * 50
+  // `closed > MAX_LEG` meant travel_incomplete could not fire on any trip
+  // shorter than ~45 blocks, which is most of them: the class has never once
+  // appeared in the index. Meanwhile a trip that closed NOTHING was filed as
+  // `no_path`, indistinguishable from a genuine A* refusal. Those are the two
+  // cases this branch most needs to separate.
   return {
     status: 'failed',
-    failClass: closed > MAX_LEG ? 'travel_incomplete' : 'no_path',
+    failClass: closed >= 8 ? 'travel_incomplete' : closed <= 2 ? 'no_progress' : 'no_path',
     gap: `within_${bucket}`,
-    detail: closed > MAX_LEG
+    detail: closed >= 8
       ? `closed ${closed} of ${Math.round(startDist)} blocks toward ${target.x},${target.z} ` +
         `in ${legs} legs — ${Math.round(left)} still to go, call again to continue`
       : `got within ${Math.round(left)} blocks of ${target.x},${target.z} after ${legs} legs${lastErr ? ` (${lastErr.slice(0, 50)})` : ''}`,
@@ -660,11 +728,20 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // Ask the registry which ingredients ANY recipe for this item wants, and
     // report the ones the bot does not have. The model can act on a name.
     let missing = []
+    let notCraftable = false
     try {
       const all = [
         ...bot.recipesAll(def.id, null, null),
         ...(bot.recipesAll(def.id, null, true) ?? []),
       ]
+      // NOT EVERYTHING HAS A RECIPE, and the code below assumed everything did.
+      //
+      // oak_log has zero recipes: it is gathered, never crafted. With no recipe
+      // there are no ingredients, so `missing` came out empty, and empty
+      // `missing` plus a crafting_table in the pack means `stationOnly` -- so
+      // `craft oak_log` answered "no recipe available for oak_log; place the
+      // crafting_table first". A bot cannot place its way to a tree.
+      if (all.length === 0) notCraftable = true
       // Report the CLOSEST recipe, not the union of every variant. Minecraft
       // has a plank recipe per wood type, so unioning them told a bot holding
       // oak_log that it needed "cherry_planks and bamboo_planks and
@@ -709,6 +786,15 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       missing = best ?? []
     } catch { /* registry shape varies by version; fall back to the generic message */ }
 
+    if (notCraftable) {
+      return {
+        status: 'failed',
+        failClass: 'not_craftable',
+        gap: item,
+        detail: `${item} cannot be crafted -- nothing makes it; gather it instead`,
+      }
+    }
+
     const why = missing.length
       ? `needs ${missing.join(' and ')} (you have ` +
         `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})`
@@ -725,6 +811,10 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     //
     // Everything needed to do this was already computed above for the error
     // message. Acting on it is the whole change.
+    // What the sub-crafts below could not resolve. Reported instead of `missing`
+    // when nothing could be made -- see the return at the bottom.
+    const blockedBy = []
+
     if (depth < MAX_CRAFT_DEPTH) {
       const made = []
 
@@ -762,6 +852,9 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         check(signal)
         const sub = await craft(ctx, { item: name, count: Number(need) }, signal, depth + 1)
         if (sub.status === 'success') made.push(name)
+        // KEEP WHAT THE DEEPER CALL LEARNED. It just walked a level further
+        // down the tree and knows a truer answer than the gap computed here.
+        else blockedBy.push(sub.gap || m)
       }
 
       // Only retry if something actually changed. Retrying after a no-op is how
@@ -779,6 +872,28 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       }
     }
 
+    // REPORT THE GAP THE BOT CAN ACT ON.
+    //
+    // The recursion above already discovered the real blocker and then threw it
+    // away. Gather02 spent 56 attempts on this: it holds saplings and sticks,
+    // asks for a wooden_pickaxe, and is told "needs 3x oak_planks". It cannot
+    // make oak_planks either -- it has no oak_log, and no amount of crafting
+    // produces one. So the model re-proposed `craft wooden_pickaxe` until the
+    // lessons store banned it, at which point the bot had no next move at all.
+    //
+    // Naming the deepest unresolved requirement turns a dead end into an
+    // instruction: gather oak_log.
+    const rootGap = blockedBy.length ? [...new Set(blockedBy)].sort() : missing
+    const gatherFirst = rootGap.filter(g => {
+      const n = /^\d+x\s+(\S+)$/.exec(g)?.[1] ?? g
+      const d = bot.registry.itemsByName[n]
+      if (!d) return false
+      try {
+        return [...bot.recipesAll(d.id, null, null),
+                ...(bot.recipesAll(d.id, null, true) ?? [])].length === 0
+      } catch { return false }
+    })
+
     return {
       status: 'failed',
       failClass: stationOnly ? 'needs_station' : 'missing_ingredients',
@@ -787,10 +902,14 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       // the only question the store can ask is "did craft fail again", which
       // is how `craft oak_planks` reached 47 while the bot was doing the right
       // thing every time. Sorted so two identical gaps compare equal.
-      gap: stationOnly ? 'crafting_table' : missing.slice().sort().join('+'),
+      gap: stationOnly ? 'crafting_table' : rootGap.slice().sort().join('+'),
       detail: stationOnly
         ? `no recipe available for ${item}; place the crafting_table first`
-        : `cannot craft ${item} -- ${why}`,
+        : gatherFirst.length
+          ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
+            `nothing crafts it (you have ` +
+            `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})`
+          : `cannot craft ${item} -- ${why}`,
     }
   }
 

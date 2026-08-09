@@ -102,11 +102,35 @@ await t('a trip too long for one call reports progress, not a flat failure', asy
   assert.match(r.detail, /call again to continue/)
 })
 
+// A bot with stride 0 is not an artificial case -- it is the library's real
+// behaviour, faithfully modelled. mineflayer-pathfinder/lib/goto.js resolves
+// (no error) whenever A* returns an empty path, testing `path.length === 0`
+// BEFORE it tests `status === 'noPath'`. So "I cannot generate a single move
+// from here" arrives as a fulfilled promise, exactly as this fake does.
+//
+// We only measured displacement in the catch branch, so each no-op leg counted
+// as a leg completed. Live: 12 of 14 such failures moved 0 blocks while
+// reporting 8 legs, all 8 burned in 453-712ms.
 await t('a bot that cannot move at all is NOT reported as progress', async () => {
-  const { bot } = travelBot({ stride: 0 })
+  const { bot, legs } = travelBot({ stride: 0 })
   const r = await go(bot, 400, 0)
   assert.equal(r.status, 'failed')
-  assert.equal(r.failClass, 'no_path', 'going nowhere must stay distinct from partial progress')
+  assert.equal(r.failClass, 'stranded',
+    'a resolved-but-motionless leg means this bot cannot leave its own square, ' +
+    'which is a different problem from no route existing to the destination')
+  assert.equal(legs.length, 1,
+    'it must stop on the FIRST no-op leg, not spend the whole budget discovering ' +
+    'the same thing eight times')
+  assert.match(r.detail, /empty path/, `detail should name the cause: ${r.detail}`)
+})
+
+await t('a stranded report names where the bot is, not where it wanted to go', async () => {
+  // The remedy for stranded is about the bot's CURRENT position -- climb out,
+  // dig out, relocate -- so the position has to be in the message.
+  const { bot } = travelBot({ stride: 0 })
+  const r = await go(bot, 400, 0)
+  assert.match(r.detail, /no route out of here/, r.detail)
+  assert.match(r.gap ?? '', /^stranded_y/, `gap should group by elevation: ${r.gap}`)
 })
 
 // --- the gap must move as the bot moves, or the store punishes progress ---

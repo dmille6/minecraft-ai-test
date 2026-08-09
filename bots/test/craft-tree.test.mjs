@@ -257,5 +257,54 @@ await t('reports honestly when there is genuinely nowhere', async () => {
   assert.match(r.detail, /nowhere to place/)
 })
 
+
+// --- THE DEAD END: a gap the bot cannot act on ----------------------------
+//
+// Gather02, live, 2026-08-09. Inventory: 1 birch_sapling, 2 stick, 2
+// oak_sapling, 1 crafting_table. It asked for a wooden_pickaxe 56 times and was
+// told "needs 3x oak_planks" every time. It could not make oak_planks either --
+// that needs oak_log, and NOTHING crafts an oak_log. So the advice named a step
+// the bot could not take, the model re-proposed the same craft, and the lessons
+// store eventually banned it, leaving the bot with no next move at all. It sat
+// at y=-28 for ten minutes moving zero blocks.
+//
+// The recursion already walked down to oak_log and discovered this. It just
+// threw the answer away and reported the level above.
+await t('an uncraftable raw material says GATHER, not "place the table"', async () => {
+  const { bot } = makeCraftBot({ crafting_table: 1 })
+  const r = await run(bot, { item: 'oak_log', count: 1 })
+  assert.equal(r.status, 'failed')
+  assert.equal(r.failClass, 'not_craftable', `got ${r.failClass}: ${r.detail}`)
+  assert.match(r.detail, /gather/i, `must send the bot to go get one: ${r.detail}`)
+  assert.doesNotMatch(r.detail, /crafting_table/,
+    'a bot cannot place its way to a tree')
+})
+
+await t('the reported gap is the deepest one, not the nearest', async () => {
+  // Gather02's position exactly: sticks and a table, no wood of any kind.
+  const { bot } = makeCraftBot({ stick: 2, crafting_table: 1 })
+  const r = await run(bot, { item: 'wooden_pickaxe', count: 1 })
+  assert.equal(r.status, 'failed')
+  assert.match(r.detail, /oak_log/,
+    `must name the material that has to be gathered: ${r.detail}`)
+  assert.doesNotMatch(r.detail, /needs 3x oak_planks/,
+    `naming an intermediate it also cannot make is the dead end: ${r.detail}`)
+})
+
+await t('the gap field carries the root need, so lessons group on it', async () => {
+  const { bot } = makeCraftBot({ stick: 2, crafting_table: 1 })
+  const r = await run(bot, { item: 'wooden_pickaxe', count: 1 })
+  assert.match(r.gap ?? '', /oak_log/,
+    `gap should be the root blocker so "stuck on wood" is one lesson, not three: ${r.gap}`)
+})
+
+// A gap it CAN act on must still be reported normally.
+await t('a craftable intermediate is still reported as itself', async () => {
+  // Has logs, so oak_planks is genuinely makeable and the tree resolves.
+  const { bot } = makeCraftBot({ oak_log: 4 }, { tableNearby: true })
+  const r = await run(bot, { item: 'wooden_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', `should still succeed: ${r.detail}`)
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
