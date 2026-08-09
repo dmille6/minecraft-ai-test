@@ -16,10 +16,22 @@
 
 set -uo pipefail
 SSH="ssh -i $HOME/.ssh/id_ed25519_aiservers -o BatchMode=yes -o ConnectTimeout=8"
-MC=${MC_HOST:-10.0.0.185}
 BOTS=${BOT_HOST:-10.0.0.187}
 ES=${ES_HOST:-10.0.0.186}
 STALE_SEC=${STALE_SEC:-240}
+
+# ASK THE BOTS WHICH SERVER THEY ARE ON. A hardcoded default here spent an
+# entire session reporting "TPS 20.0 - online: nobody" from 10.0.0.185, the
+# PREVIOUS Minecraft server, which is still running and permanently empty. The
+# fleet had moved to a rebuilt 1.21.8 world on another host; the dashboard had
+# not. Both numbers were true and neither was about this experiment.
+#
+# The bots cannot be wrong about where they are connected, so derive it from
+# their environment and let MC_HOST override only when someone means to.
+MC=${MC_HOST:-$($SSH "mike@$BOTS" \
+      'sudo grep -hoP "(?<=^MINECRAFT_HOST=)[^ ]+" /srv/mcbots/harness/env/*.env 2>/dev/null | sort -u | head -1' \
+      2>/dev/null)}
+MC=${MC:-10.0.0.188}
 
 printf '\n\033[1;36m== fleet %s\033[0m\n' "$(date -u +%H:%M:%SZ)"
 
@@ -28,7 +40,7 @@ TPS=$($SSH "mike@$MC" 'sudo /srv/minecraft/shared/rcon.py "tps" 2>/dev/null' 2>/
       | sed 's/§[0-9a-fklmnor]//g' | grep -oE '[0-9]+\.[0-9]+' | head -1)
 ONLINE=$($SSH "mike@$MC" 'sudo /srv/minecraft/shared/rcon.py "list" 2>/dev/null' 2>/dev/null \
       | sed 's/§[0-9a-fklmnor]//g' | grep -oE '[A-Za-z0-9_]+[0-9]{2}' | tr '\n' ' ')
-printf '   server  TPS %s · online: %s\n' "${TPS:-?}" "${ONLINE:-nobody}"
+printf '   server  %s · TPS %s · online: %s\n' "$MC" "${TPS:-?}" "${ONLINE:-nobody}"
 
 # --- per bot -----------------------------------------------------------------
 printf '\n   %-10s %-8s %-11s %-9s %s\n' BOT STATE "LAST DECISION" MOVED NOTE
