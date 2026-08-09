@@ -31,7 +31,7 @@ const t = (name, fn) => {
 }
 
 // --- the exact defect, asserted against the installed package ---------------
-t('collectblock still constructs its own Movements (the clobber is real)', () => {
+t('collectblock still installs its own Movements (the clobber is real)', () => {
   const src = require_('node:fs').readFileSync(
     require_.resolve('mineflayer-collectblock/lib/CollectBlock.js'), 'utf8')
   const constructs = /this\.movements\s*=\s*new\s+\w+\.?Movements\(/.test(src)
@@ -39,6 +39,43 @@ t('collectblock still constructs its own Movements (the clobber is real)', () =>
   assert.ok(constructs && installs,
     'collectblock no longer clobbers Movements -- if this fails after a dependency bump, ' +
     'the workaround in index.mjs/skills.mjs may be removable. Verify before deleting it.')
+})
+
+// THE CLOBBER IS LOAD-BEARING, which is the opposite of what it looks like.
+t('collect() gates every dig on safeToBreak, which gates on canDig', () => {
+  const fs = require_('node:fs')
+  const cb = fs.readFileSync(require_.resolve('mineflayer-collectblock/lib/CollectBlock.js'), 'utf8')
+  assert.match(cb, /pathfinder\.movements\.safeToBreak\(/,
+    'if mineBlock stops consulting safeToBreak, injecting our Movements becomes safe')
+
+  const { Movements } = require_('mineflayer-pathfinder')
+  const mcData = require_('minecraft-data')('1.21.8')
+  const ours = new Movements({ registry: mcData })
+  ours.canDig = false
+  assert.equal(ours.safeToBreak({ position: { x: 0, y: 0, z: 0 }, type: 1 }), false,
+    'canDig=false makes every block unbreakable, so handing collectblock our own ' +
+    'Movements would make collect() drop every target and mine nothing, silently')
+})
+
+t('the Movements we lend collectblock grants digging and nothing else', () => {
+  // Mirrors index.mjs. If this drifts from the real thing, gather either breaks
+  // (canDig lost) or starts parkouring off ledges again.
+  const { Movements } = require_('mineflayer-pathfinder')
+  const mcData = require_('minecraft-data')('1.21.8')
+  const moves = new Movements({ registry: mcData })
+  moves.canDig = false; moves.allowParkour = false
+  moves.allow1by1towers = true; moves.maxDropDown = 6
+
+  const lent = Object.create(Object.getPrototypeOf(moves))
+  Object.assign(lent, moves)
+  lent.canDig = true
+
+  assert.equal(lent.canDig, true, 'collect() cannot mine without it')
+  assert.equal(lent.allowParkour, false, 'gather must not parkour')
+  assert.equal(lent.maxDropDown, 6, 'gather must keep our drop limit, not the default 4')
+  assert.equal(moves.canDig, false, 'lending must not mutate our own config')
+  assert.equal(typeof lent.safeToBreak, 'function',
+    'the clone must keep the prototype, or safeToBreak is undefined and gather throws')
 })
 
 t('collectblock does NOT restore the previous Movements itself', () => {

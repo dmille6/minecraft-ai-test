@@ -152,14 +152,45 @@ function connect() {
     moves.maxDropDown = 6
     bot.pathfinder.setMovements(moves)
 
+    // Grant collectblock the one setting it cannot work without, and none of
+    // the others. See the note below for why this is a clone and why injecting
+    // our own object instead would break gathering outright.
+    try {
+      if (bot.collectBlock) {
+        const gatherMoves = Object.create(Object.getPrototypeOf(moves))
+        Object.assign(gatherMoves, moves)
+        gatherMoves.canDig = true          // required: safeToBreak() gates on it
+        gatherMoves.allowParkour = false
+        gatherMoves.allow1by1towers = true
+        gatherMoves.maxDropDown = 6
+        bot.collectBlock.movements = gatherMoves
+      }
+    } catch { /* older collectblock without the property: the guard below covers us */ }
+
     // OUR MOVEMENT CONFIG IS NOT OURS TO KEEP.
     //
-    // `mineflayer-collectblock`'s collect() does, in both 1.4.1 and 1.6.0:
+    // An earlier version of this comment had the mechanism wrong, and the
+    // correction matters because it changes what the right fix is.
+    //
+    // collectblock does NOT build a fresh Movements per call. In 1.4.1 through
+    // 1.6.0 the constructor runs once at loadPlugin time (CollectBlock.js:153):
     //     this.movements = new Movements(bot)        // LIBRARY DEFAULTS
+    // and collect() only re-installs that same object (CollectBlock.js:192-195):
+    //     this.movements.dontMineUnderFallingBlock = false   // 1.6.0+
+    //     this.movements.dontCreateFlow = false              // 1.6.0+
     //     this.bot.pathfinder.setMovements(this.movements)
-    // with no restore in its finally block. Library defaults are canDig=true,
-    // allowParkour=true, maxDropDown=4 -- verified against the deployed
-    // node_modules. We call setMovements exactly once, here, on spawn.
+    // with no restore. Library defaults are canDig=true, allowParkour=true,
+    // maxDropDown=4 -- verified against the deployed node_modules.
+    //
+    // `movements` is a public, documented, writable property, so the obvious
+    // fix is to hand collectblock OUR config. THAT WOULD SILENTLY BREAK
+    // GATHERING. Its mineBlock() gates every dig on
+    //     bot.pathfinder.movements.safeToBreak(block)
+    // and pathfinder's safeToBreak returns false immediately when canDig is
+    // false. With our config injected, collect() would drop every target and
+    // resolve successfully having mined nothing -- no error, no event.
+    //
+    // The clobber is, right now, the only reason gather works at all.
     //
     // So from each bot's FIRST gather onward, every goto, home, explore,
     // unstick, canStartAPath() and the watchdog's pathability probe has been
@@ -169,10 +200,23 @@ function connect() {
     // navigation, and canDig=true is also why A* blows its 5s budget so often --
     // nearly every solid block becomes a legal move.
     //
-    // The fix is to re-assert rather than to trust. Same discipline as llm.mjs
-    // sending num_ctx on every request instead of configuring it once, and
-    // seizeBody() taking the control states before steering: shared mutable
-    // state with no ownership layer must be claimed at each use, not at startup.
+    // So the fix is two-sided. Re-assert our config after each gather rather
+    // than trusting it survives -- same discipline as llm.mjs sending num_ctx on
+    // every request instead of configuring it once, and seizeBody() taking the
+    // control states before steering: shared mutable state with no ownership
+    // layer must be claimed at each use, not at startup.
+    //
+    // And narrow the window. collectblock needs canDig=true and nothing else,
+    // so give it a CLONE that keeps our safety settings and grants only the
+    // digging. Drift during a gather then covers one deliberate setting instead
+    // of three accidental ones, and a bot pathing to a tree stops doing parkour
+    // and stops taking 4-block drops it was configured not to take.
+    //
+    // A clone specifically, never `moves` itself: 1.6.0's collect() MUTATES
+    // whatever object it is handed, forcing dontMineUnderFallingBlock=false and
+    // dontCreateFlow=false on it. Those make it willing to dig under gravel and
+    // beside liquid, which at y=-8 is how a bot drowns. Handing it a copy keeps
+    // that confined to gathering instead of becoming our permanent config.
     const navFingerprint = m => [
       m.canDig, m.allowParkour, m.allow1by1towers, m.allowSprinting, m.maxDropDown,
       m.scafoldingBlocks?.length, m.blocksCantBreak?.size,
