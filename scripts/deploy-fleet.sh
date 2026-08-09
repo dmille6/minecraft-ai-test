@@ -103,13 +103,31 @@ done
 # checking it would only prove the script can write a file.
 say "Verify"
 sleep 45
-DIGESTS=$(for u in "${LIVE[@]}"; do
-  journalctl -u "mcbot@$u" --since "2 min ago" --no-pager -o cat 2>/dev/null \
-    | grep -oE '"version":"[^"]+"' | tail -1
-done | sort -u)
+# Read the SAME evidence the tripper reads: the JSONL skill logs. The version
+# never appears on stdout, so a journal scrape finds nothing and reports it as
+# agreement -- a verifier that passes when it can see nothing is worse than none.
+DIGESTS=$(tail -q -n 200 /srv/mcbots/logs/skill-*.jsonl 2>/dev/null \
+  | python3 -c '
+import sys, json
+from datetime import datetime, timedelta, timezone
+since = datetime.now(timezone.utc) - timedelta(minutes=3)
+seen = {}
+for line in sys.stdin:
+    try: d = json.loads(line)
+    except Exception: continue
+    v = (d.get("code") or {}).get("version"); b = (d.get("bot") or {}).get("name")
+    if not (v and b): continue
+    try: ts = datetime.fromisoformat(d["@timestamp"].replace("Z", "+00:00"))
+    except Exception: continue
+    if ts < since: continue
+    if b not in seen or ts > seen[b][0]: seen[b] = (ts, v)
+for v in sorted({v for _, v in seen.values()}): print(v)
+')
 N=$(printf '%s\n' "$DIGESTS" | grep -c . || true)
+[ "$N" -gt 0 ] || bad "no bot has logged in the last 3 minutes; cannot verify"
+
 if [ "$N" -eq 1 ]; then
-  ok "all live bots on $(printf '%s' "$DIGESTS" | cut -d'"' -f4)"
+  ok "all live bots on $DIGESTS"
 else
   bad "live bots report $N versions: $DIGESTS"
   bad "the fleet is split -- do not trust aggregates until this is one line"
