@@ -118,8 +118,11 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
     const dist = Math.hypot(target.x - here.x, target.z - here.z)
     if (dist <= Math.max(range, 2)) break
 
-    // Aim at an intermediate point when the goal is far away.
+    // Aim at an intermediate point when the goal is far away. The final leg is
+    // the one that must honour the caller's elevation; the rest are just
+    // direction (see the GoalNearXZ note below).
     let leg = target
+    const isFinalLeg = dist <= MAX_LEG
     if (dist > MAX_LEG) {
       const f = MAX_LEG / dist
       leg = new Vec3(
@@ -130,7 +133,26 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
 
     const before = here.clone()
     try {
-      const p = bot.pathfinder.goto(new goals.GoalNear(leg.x, leg.y, leg.z, Math.max(range, 2)))
+      // AN INTERMEDIATE WAYPOINT HAS NO BUSINESS SPECIFYING AN ELEVATION.
+      //
+      // `leg` is a straight-line interpolation toward the target, so its y is
+      // whatever a ruler drawn through the terrain happens to pass through --
+      // routinely inside a hill or hanging in mid-air. Asking GoalNear to reach
+      // a specific y at that point makes A* search exhaustively for somewhere
+      // that does not exist, and it reports Timeout: 117 of the goto failures
+      // over a 10.5-hour run, the single largest cause after the leg budget.
+      //
+      // Measured, |dy| between the bot and the requested y:
+      //     succeeded  p90  8 blocks   max 28
+      //     failed     p90 12 blocks   max 82
+      //
+      // GoalNearXZ asks only "get to this column", letting the planner take
+      // whatever elevation the ground actually has. Only the FINAL approach
+      // needs a y, because that is what the caller asked for.
+      const goal = isFinalLeg
+        ? new goals.GoalNear(leg.x, leg.y, leg.z, Math.max(range, 2))
+        : new goals.GoalNearXZ(leg.x, leg.z, Math.max(range, 2))
+      const p = bot.pathfinder.goto(goal)
       signal?.addEventListener('abort', () => { try { bot.pathfinder.stop() } catch {} }, { once: true })
       await withTimeout(p, 25000, bot)
       lastErr = null

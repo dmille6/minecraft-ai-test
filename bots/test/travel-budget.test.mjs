@@ -47,7 +47,8 @@ function travelBot({ start = V(0, 64, 0), stride = 45 } = {}) {
     blockAt: () => ({ name: 'air', boundingBox: 'empty' }),
     pathfinder: {
       async goto(goal) {
-        legs.push({ x: goal.x, z: goal.z })
+        legs.push({ x: goal.x, z: goal.z, type: goal.constructor.name,
+                    hasY: Object.prototype.hasOwnProperty.call(goal, 'y') })
         const p = bot.entity.position
         const d = Math.hypot(goal.x - p.x, goal.z - p.z)
         if (d === 0 || stride === 0) return
@@ -131,6 +132,36 @@ await t('arriving already at the target costs no legs', async () => {
   const r = await go(bot, 0, 0)
   assert.equal(r.status, 'success')
   assert.equal(legs.length, 0)
+})
+
+// --- intermediate waypoints must not constrain elevation ------------------
+//
+// `leg` is a straight-line interpolation toward the target, so its y is whatever
+// a ruler through the terrain passes through -- often inside a hill or in
+// mid-air. Asking for a specific y there made A* search for somewhere that does
+// not exist and report Timeout: 117 of the goto failures over 10.5 hours.
+await t('intermediate legs ask for a COLUMN, not an elevation', async () => {
+  const { bot, legs } = travelBot({ stride: 45 })
+  await go(bot, 400, 0)
+  const middle = legs.slice(0, -1)
+  assert.ok(middle.length > 0, 'this trip should need several legs')
+  for (const l of middle) {
+    assert.equal(l.type, 'GoalNearXZ',
+      `an intermediate waypoint used ${l.type}, which pins a y the terrain may not have`)
+  }
+})
+
+await t('the final approach DOES honour the requested elevation', async () => {
+  const { bot, legs } = travelBot({ stride: 45 })
+  await go(bot, 400, 0)
+  const last = legs[legs.length - 1]
+  assert.equal(last.type, 'GoalNear', 'the caller asked for a specific spot; the last leg must respect it')
+})
+
+await t('a short hop is a final leg and keeps its elevation', async () => {
+  const { bot, legs } = travelBot({ stride: 45 })
+  await go(bot, 20, 0)
+  assert.equal(legs[0].type, 'GoalNear')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
