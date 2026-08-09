@@ -41,15 +41,27 @@ export function skillSchema(skillNames) {
       args: {
         type: 'object',
         properties: {
-          block: { type: 'string' },
+          // EVERY STRING GETS A LENGTH, because the grammar Ollama compiles
+          // from this schema is the only thing that can make a repetition loop
+          // inexpressible. `reason` was capped and these were not, and the
+          // runaways happened exactly here -- a real logged one:
+          //
+          //   {"skill":"mine","args":{"y":62,"player":"Gather01}}<tool_call>
+          //    \n fkkend: END-X5HYR8<tool_call>\n fkkend: END-X5HYR8...
+          //
+          // The `player` string opens and never closes, and the model loops the
+          // sentinel until the context is exhausted. Nothing downstream needs
+          // more than these lengths: the longest real block or item name is
+          // ~20 characters and bot names are 8.
+          block: { type: 'string', maxLength: 32 },
           count: { type: 'integer' },
-          item: { type: 'string' },
+          item: { type: 'string', maxLength: 32 },
           x: { type: 'integer' }, y: { type: 'integer' }, z: { type: 'integer' },
-          player: { type: 'string' },
+          player: { type: 'string', maxLength: 32 },
         },
         additionalProperties: false,
       },
-      saw_end: { type: 'string' },
+      saw_end: { type: 'string', maxLength: 16 },
     },
     required: ['skill', 'args', 'reason', 'saw_end'],
     additionalProperties: false,
@@ -57,12 +69,13 @@ export function skillSchema(skillNames) {
 }
 
 export class LlmClient {
-  constructor({ baseUrls, baseUrl, model, numCtx, temperature, timeoutMs }) {
+  constructor({ baseUrls, baseUrl, model, numCtx, maxTokens = 512, temperature, timeoutMs }) {
     const urls = (baseUrls?.length ? baseUrls : [baseUrl]).map(u => u.replace(/\/$/, ''))
     this.pool = new EndpointPool(urls)
     this.baseUrl = urls[0]          // retained for logging and back-compat
     this.model = model
     this.numCtx = numCtx
+    this.maxTokens = maxTokens
     this.temperature = temperature
     this.timeoutMs = timeoutMs
   }
@@ -167,6 +180,10 @@ export class LlmClient {
             options: {
               temperature: this.temperature,
               num_ctx: this.numCtx,   // never rely on the server default
+              // The safety net under the schema bounds below. The grammar
+              // should make a runaway inexpressible; this makes it survivable
+              // if some field is ever added without a length.
+              num_predict: this.maxTokens,
             },
           }),
         })
@@ -272,6 +289,7 @@ export function makeClient() {
     baseUrl: config.llm.baseUrl,
     model: config.llm.model,
     numCtx: config.llm.numCtx,
+    maxTokens: config.llm.maxTokens,
     temperature: config.llm.temperature,
     timeoutMs: config.llm.timeoutMs,
   })

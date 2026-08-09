@@ -172,6 +172,20 @@ export const config = {
     // so overshooting costs resident memory on every slot, not just on big
     // prompts. 8192 was costing ~6.2GB of KV to hold context we never used.
     numCtx: Number(req('OLLAMA_NUM_CTX', '4096')),
+    // A HARD CEILING ON GENERATION LENGTH.
+    //
+    // Without one, a model that slips into a repetition loop inside a string
+    // field decodes until numCtx is exhausted. Measured over 14.1 hours on the
+    // inference host: 68 runaway generations, median 6,199 tokens decoded, 58
+    // of them holding the slot for the full client timeout -- 2,836 slot-
+    // seconds in total. With OLLAMA_NUM_PARALLEL=1 the whole fleet queues
+    // behind each one, which is where the entire latency tail came from:
+    // 99.4% of slow decisions fall inside a runaway window, against 4.7% of
+    // fast ones.
+    //
+    // Completion length is p50 63, p90 83, p99 227, p99.5 315. 512 does not
+    // touch a legitimate decision and bounds a runaway to a few seconds.
+    maxTokens: Number(req('LLM_MAX_TOKENS', '512')),
     temperature: Number(req('LLM_TEMPERATURE', '0.3')),
     timeoutMs: Number(req('LLM_TIMEOUT_MS', '90000')),
     // Client-side budget, deliberately well under numCtx.
