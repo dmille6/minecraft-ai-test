@@ -38,7 +38,7 @@ export class StagnationWatchdog {
   }
 
   start() {
-    this.timer = setInterval(() => this.#check().catch(e =>
+    this.timer = setInterval(() => this.check().catch(e =>
       log('error', 'watchdog error', { err: e.message })), config.watchdog.sampleMs)
     log('info', 'stagnation watchdog started', {
       windowSec: Math.round(config.watchdog.windowMs / 1000),
@@ -55,14 +55,31 @@ export class StagnationWatchdog {
     const p = this.bot.entity?.position
     if (!p) return null
     const items = Object.values(inventorySummary(this.bot)).reduce((a, b) => a + b, 0)
-    const s = { t: Date.now(), x: p.x, y: p.y, z: p.z, items }
+    // WAS A SKILL ACTUALLY RUNNING when we took this sample?
+    //
+    // Without this the watchdog measures the decision cadence, not stagnation.
+    // At a 70s cooldown a bot acts for ~5s and then stands still for ~65s BY
+    // DESIGN, so any 180s window shows almost no movement. Measured over 913
+    // stagnation events: median displacement 0.0 blocks, and only 9% fired with
+    // the bot having moved more than 2 blocks. The watchdog was right that
+    // nothing moved and wrong about what that meant -- and then cancelled
+    // whichever skill happened to be running when the window matured, which is
+    // 97 goto and 52 home failures blamed on the wrong cause.
+    //
+    // Being motionless is only evidence of being stuck if the bot was TRYING.
+    const s = { t: Date.now(), x: p.x, y: p.y, z: p.z, items, busy: !!this.runner?.isBusy?.() }
     this.samples.push(s)
     const cutoff = Date.now() - config.watchdog.windowMs
     while (this.samples.length && this.samples[0].t < cutoff) this.samples.shift()
     return s
   }
 
-  async #check() {
+  /**
+   * One judgement pass. Public because the timer is not a testable surface:
+   * at a 15s sample interval a test would have to wait three minutes to see a
+   * single verdict, so the tests drive this directly.
+   */
+  async check() {
     if (!this.bot.entity) return
     this.#sample()
 
@@ -83,16 +100,42 @@ export class StagnationWatchdog {
     const idleFor = Date.now() - this.lastActionAt
     if (idleFor > config.watchdog.windowMs) return
 
-    const xs = this.samples.map(s => s.x), ys = this.samples.map(s => s.y), zs = this.samples.map(s => s.z)
+    // JUDGE ONLY THE TIME THE BOT WAS TRYING. Samples taken while no skill was
+    // running are idle-by-design and say nothing about being stuck.
+    const busy = this.samples.filter(s => s.busy)
+    const busyMs = busy.length > 1 ? busy[busy.length - 1].t - busy[0].t : 0
+
+    // A bot must have been actively working for a meaningful stretch before it
+    // can be called stagnant. One skill's worth is the right unit: below this
+    // the window is dominated by decision gaps and the verdict is meaningless.
+    const MIN_BUSY_MS = Math.min(60_000, config.watchdog.windowMs / 3)
+    if (busyMs < MIN_BUSY_MS) {
+      this.escalation = 0
+      return
+    }
+
+    const xs = busy.map(s => s.x), ys = busy.map(s => s.y), zs = busy.map(s => s.z)
     const spread = Math.max(
       Math.max(...xs) - Math.min(...xs),
       Math.max(...zs) - Math.min(...zs))
     const climbed = Math.max(...ys) - Math.min(...ys)
-    const gained = this.samples[this.samples.length - 1].items - this.samples[0].items
+    const gained = busy[busy.length - 1].items - busy[0].items
 
     const stagnant = spread < config.watchdog.minMoveBlocks &&
                      climbed < config.watchdog.minMoveBlocks &&
                      gained <= 0
+
+    // HOW LONG HAS IT ACTUALLY NOT MOVED -- the number people kept wanting when
+    // they read the old message. `span` cannot answer it: the gate above refuses
+    // to judge until span >= windowMs * 0.9, so span is bounded below by 162s and
+    // a "median of 165s" was a constant of the design being read as a measurement
+    // of freeze duration.
+    let frozenMs = 0
+    for (let i = this.samples.length - 1; i > 0; i--) {
+      const a = this.samples[i], b = this.samples[i - 1]
+      if (Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) >= 1) break
+      frozenMs = this.samples[this.samples.length - 1].t - b.t
+    }
 
     if (!stagnant) {
       if (this.escalation) log('info', 'watchdog: progress resumed', { escalation: this.escalation })
@@ -101,8 +144,12 @@ export class StagnationWatchdog {
     }
 
     this.escalation++
-    const detail = `no progress for ${Math.round(span / 1000)}s ` +
-                   `(moved ${spread.toFixed(1)} blocks, items ${gained >= 0 ? '+' : ''}${gained})`
+    // State the design constants separately from the observations, so no future
+    // reader can mistake a threshold for a measurement.
+    const detail = `no progress across ${Math.round(busyMs / 1000)}s of ACTIVE skill time ` +
+                   `(moved ${spread.toFixed(1)} blocks, items ${gained >= 0 ? '+' : ''}${gained}, ` +
+                   `frozen ${Math.round(frozenMs / 1000)}s; window ${Math.round(config.watchdog.windowMs / 1000)}s, ` +
+                   `threshold ${config.watchdog.minMoveBlocks} blocks)`
     log('error', `watchdog: STAGNANT (level ${this.escalation})`, { detail })
     logEvent({ kind: 'stagnation', status: 'failed',
                detail: `${detail}; escalation ${this.escalation}`,
