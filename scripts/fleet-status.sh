@@ -65,10 +65,41 @@ for U in $(systemctl list-units 'mcbot@*' --no-legend --plain 2>/dev/null | awk 
   RUN=$(sudo jq -r '.runs // "?"' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
   AV=$(sudo jq -r '.avoid | length' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
   WK=$(sudo jq -r '.worked | length' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
-  echo "$NAME|$ACT|$AGE|$RUN|$AV|$WK|$ADM|$REJ"
+  # DID IT ACTUALLY GO ANYWHERE, and did anything land in its pockets.
+  #
+  # The MOVED column was printed as an empty string from the day it was added,
+  # and the WEDGED state this script's own header documents had no branch. So
+  # the one dashboard for "are the bots doing anything" could not answer the
+  # question in its own title, and a bot standing still for ten minutes read
+  # as "ok" so long as it kept deciding.
+  #
+  # Displacement is measured exactly as the stagnation watchdog measures it --
+  # the larger of the x and z ranges -- so the operator sees the same quantity
+  # the guard acts on. Inventory change is included for the same reason it is
+  # in the watchdog: a bot mining a vein legitimately holds still.
+  MV=$(sudo tail -q -n 400 /srv/mcbots/logs/skill-$NAME.jsonl 2>/dev/null | python3 -c '
+import sys, json, time
+cut = time.time() - 600
+xs, zs, inv = [], [], []
+for line in sys.stdin:
+    try: d = json.loads(line)
+    except Exception: continue
+    p = ((d.get("bot") or {}).get("pos")) or {}
+    ts = d.get("@timestamp","")
+    if not p or not ts: continue
+    try:
+        t = time.mktime(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
+    except Exception: continue
+    if t < cut: continue
+    xs.append(p.get("x",0)); zs.append(p.get("z",0))
+    inv.append(sum(((d.get("bot") or {}).get("inventory") or {}).values()))
+if len(xs) < 2: print("?|?")
+else: print(f"{max(max(xs)-min(xs), max(zs)-min(zs)):.0f}|{inv[-1]-inv[0]:+d}")
+' 2>/dev/null)
+  echo "$NAME|$ACT|$AGE|$RUN|$AV|$WK|$ADM|$REJ|${MV:-?|?}"
 done
 REMOTE
-) 2>/dev/null | while IFS='|' read -r NAME ACT AGE RUN AV WK ADM REJ; do
+) 2>/dev/null | while IFS='|' read -r NAME ACT AGE RUN AV WK ADM REJ MOV GAIN; do
   [ -z "$NAME" ] && continue
   if [ "$ACT" != "active" ]; then STATE="DEAD"; NOTE="unit $ACT"
   elif [ "$AGE" -lt 0 ]; then STATE="SILENT"; NOTE="no decision in 20m — loop stalled?"
@@ -77,10 +108,16 @@ REMOTE
     # The loop is alive but nothing it proposes is being executed. This is what
     # a saturated inference endpoint looks like, and it used to read as "ok".
     STATE="VETOED"; NOTE="$REJ decisions, 0 admitted in 10m — endpoint or admission gate"
+  elif [ "${MOV:-?}" != "?" ] && [ "${MOV:-9}" -lt 8 ] && [ "${GAIN:-+1}" = "+0" ]; then
+    # Deciding, admitted, and achieving nothing for ten minutes. The watchdog
+    # will get here on its own timescale; the operator should not have to wait
+    # for it to find out.
+    STATE="WEDGED"; NOTE="moved ${MOV}b, no inventory change in 10m"
   else STATE="ok"; NOTE="run=$RUN avoid=$AV worked=$WK · ${ADM:-?}ok/${REJ:-?}rej"
   fi
   AGES=$([ "$AGE" -lt 0 ] && echo "never" || echo "${AGE}s ago")
-  printf '   %-10s %-8s %-11s %-9s %s\n' "$NAME" "$STATE" "$AGES" "" "$NOTE"
+  MVS=$([ "${MOV:-?}" = "?" ] && echo "?" || echo "${MOV}b ${GAIN}")
+  printf '   %-10s %-8s %-11s %-9s %s\n' "$NAME" "$STATE" "$AGES" "$MVS" "$NOTE"
 done
 
 # --- interventions since the last check --------------------------------------
