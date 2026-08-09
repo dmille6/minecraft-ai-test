@@ -91,7 +91,28 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   const target = new Vec3(Number(x), Number(y), Number(z))
   let legs = 0, lastErr = null
 
-  while (legs < 8) {
+  // THE LEG BUDGET MUST SCALE WITH THE DISTANCE, or a far target is unreachable
+  // by ARITHMETIC rather than by terrain.
+  //
+  // This was a hardcoded 8, which at MAX_LEG=45 caps total travel at 360 blocks.
+  // Measured over a 10.5-hour run: `home` failed 162 times out of 162, and all
+  // 77 of the "got within N blocks" failures reported the SAME distance -- 383 --
+  // because three of five bots had wandered further from home than the budget
+  // could ever cover:
+  //
+  //     Scout01 229   Miner01 288   Gather02 383   Solo01 477   Gather01 872
+  //
+  // The skill was not failing. It was being asked to walk 383 blocks with 360
+  // blocks of allowance, and it correctly reported that it ran out.
+  //
+  // The cap that DOES matter is the 180s skill watchdog. Measured: a successful
+  // goto takes a median 16.5s and at worst 45s, and the worst failure 70s, so
+  // roughly 9s per leg. Sixteen legs is ~145s -- inside the watchdog with margin,
+  // and 720 blocks of reach.
+  const startDist = Math.hypot(target.x - bot.entity.position.x, target.z - bot.entity.position.z)
+  const maxLegs = Math.min(16, Math.max(8, Math.ceil(startDist / MAX_LEG) + 3))
+
+  while (legs < maxLegs) {
     check(signal)
     const here = bot.entity.position
     const dist = Math.hypot(target.x - here.x, target.z - here.z)
@@ -164,9 +185,28 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   if (left <= Math.max(range, 3)) {
     return { status: 'success', detail: `arrived at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}` }
   }
+  // CLOSING MOST OF THE DISTANCE IS NOT THE SAME FAILURE AS GOING NOWHERE, and
+  // the lessons store has to be able to tell them apart.
+  //
+  // Some trips genuinely cannot finish in one skill invocation -- Gather01 was
+  // 872 blocks from home, which is two full budgets. Reporting that identically
+  // to "could not move at all" meant `home` accrued 162 straight failures and
+  // the avoid rule suppressed the one action that would have recovered the bot.
+  //
+  // `gap` is the remaining distance in 50-block buckets. The store's gap-gating
+  // already treats a CHANGING gap as progress and only accrues against a gap
+  // that stays put, so a bot walking steadily home no longer punishes itself,
+  // while one pinned against terrain still does.
+  const closed = Math.round(startDist - left)
+  const bucket = Math.round(left / 50) * 50
   return {
     status: 'failed',
-    detail: `got within ${Math.round(left)} blocks of ${target.x},${target.z} after ${legs} legs${lastErr ? ` (${lastErr.slice(0, 50)})` : ''}`,
+    failClass: closed > MAX_LEG ? 'travel_incomplete' : 'no_path',
+    gap: `within_${bucket}`,
+    detail: closed > MAX_LEG
+      ? `closed ${closed} of ${Math.round(startDist)} blocks toward ${target.x},${target.z} ` +
+        `in ${legs} legs — ${Math.round(left)} still to go, call again to continue`
+      : `got within ${Math.round(left)} blocks of ${target.x},${target.z} after ${legs} legs${lastErr ? ` (${lastErr.slice(0, 50)})` : ''}`,
   }
 }
 
