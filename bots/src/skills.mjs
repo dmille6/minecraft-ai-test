@@ -775,29 +775,75 @@ async function place(ctx, { item, x, y, z }, signal) {
   const held = bot.inventory.items().find(i => i.name === item)
   if (!held) return { status: 'failed', detail: `no ${item} in inventory` }
 
-  // Place adjacent to the bot when no explicit spot is given -- the common case
-  // (crafting table, bed) where "somewhere I can reach" is all that matters.
-  let ref = null, face = null
+  // FINDING SOMEWHERE TO PUT IT IS THE HARD PART, and this function is what
+  // gates the entire tech tree.
+  //
+  // The old version checked FOUR cardinal neighbours at exactly foot level and
+  // required the target cell to be literally named "air". Measured across both
+  // instances: 3 failures to 2 successes on instance #1, and on instance #2
+  // Miner01 accumulated THREE crafting tables it could never put down while 56
+  // oak logs sat unused across the fleet. A bot standing in tall grass, on a
+  // slope, or with its back to a wall simply found nowhere.
+  //
+  // Two separate mistakes were in that one condition:
+  //   - `at.name === 'air'` rejects grass, ferns, snow and dead bushes, all of
+  //     which Minecraft happily lets you place INTO. That is most of a forest
+  //     floor, which is exactly where a bot chopping wood is standing.
+  //   - `under.name !== 'air'` ACCEPTS water, lava and cave_air as a surface,
+  //     because none of them are named "air". Solidity is a boundingBox, not a
+  //     name.
+  const solid       = b => b != null && b.boundingBox === 'block'
+  const replaceable = b => b != null && b.boundingBox === 'empty' &&
+                           b.name !== 'water' && b.name !== 'lava'
+
+  let candidates = []
   if ([x, y, z].every(v => Number.isFinite(Number(v)))) {
     assertInsideBorder(Number(x), Number(z))
-    ref = bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z)))
-    face = new Vec3(0, 1, 0)
+    candidates = [bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z)))]
   } else {
-    for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const under = bot.blockAt(bot.entity.position.offset(d[0], -1, d[1]))
-      const at = bot.blockAt(bot.entity.position.offset(d[0], 0, d[1]))
-      if (under && under.name !== 'air' && at && at.name === 'air') { ref = under; face = new Vec3(0, 1, 0); break }
+    // Diagonals and one step up or down as well, nearest first. A bot on uneven
+    // ground has a valid spot behind it far more often than beside it.
+    const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+    for (const dy of [-1, 0, -2]) {
+      for (const [dx, dz] of around) {
+        const under = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
+        const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
+        if (solid(under) && replaceable(at)) candidates.push(under)
+      }
     }
   }
-  if (!ref || ref.name === 'air') return { status: 'failed', detail: 'no solid surface to place against' }
+  if (!candidates.length) {
+    return {
+      status: 'failed',
+      failClass: 'no_space',
+      detail: `nowhere to place ${item}: no solid block with a free space above it within reach`,
+    }
+  }
 
   check(signal)
-  try {
-    await bot.equip(held, 'hand')
-    await bot.placeBlock(ref, face)
-    return { status: 'success', detail: `placed ${item} at ${ref.position.offset(0, 1, 0)}` }
-  } catch (e) {
-    return { status: 'failed', detail: `place ${item} failed: ${e.message}` }
+  await bot.equip(held, 'hand')
+
+  // TRY MORE THAN ONE. placeBlock fails for reasons the block lookup cannot
+  // see -- an entity standing in the cell, the server disagreeing about
+  // occupancy, the bot facing the wrong way. Giving up after the first
+  // candidate turned a recoverable miss into a dead tech tree.
+  const failures = []
+  for (const ref of candidates.slice(0, 6)) {
+    check(signal)
+    try {
+      // Facing the target makes mineflayer's block interaction markedly more
+      // reliable; the same lesson the crafting-table reach check already learned.
+      try { await bot.lookAt(ref.position.offset(0.5, 1.5, 0.5), true) } catch { /* not fatal */ }
+      await bot.placeBlock(ref, new Vec3(0, 1, 0))
+      return { status: 'success', detail: `placed ${item} at ${ref.position.offset(0, 1, 0)}` }
+    } catch (e) {
+      failures.push(e.message)
+    }
+  }
+  return {
+    status: 'failed',
+    failClass: 'no_space',
+    detail: `place ${item} failed at ${candidates.length} spot(s): ${failures[0] ?? 'unknown'}`,
   }
 }
 

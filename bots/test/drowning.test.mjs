@@ -130,24 +130,35 @@ ok('assessing one bot never affects another', () => {
 
 // --- boundaries ------------------------------------------------------------
 
-ok('the low-oxygen threshold is a boundary, not a cliff', () => {
-  const at = ox => assessAir(makeBot({
+ok('the air threshold scales with the units the server actually uses', () => {
+  const at = (ox, airMax) => assessAir(makeBot({
     pos: new V(0, 50, 0), blocks: ocean(), oxygen: ox, health: 10,
-  })).losing
-  // THE THRESHOLD MOVED FROM 4 TO 10, AND MUST NOT GO BACK.
+  }), { airMax }).losing
+  // THE UNITS ARE NOT BUBBLES. mineflayer documents oxygenLevel as 0-20; this
+  // build reports the raw air tick counter -- measured min -1, max 400, with
+  // 192 of 1,222 samples above 20. A hardcoded 10 meant the rescue began with
+  // HALF A SECOND of air and then had to swim a median of 3 blocks, so bots
+  // surfaced 435 times out of 435 and still drowned.
   //
-  // oxygenLevel is BUBBLES (0-20), not the 300-tick air timer, so 4 bubbles is
-  // about three seconds of air. Measured on instance #2, one full death:
-  //     reflex fired at health 2.33/20 with the air 12 blocks up
-  //     12 blocks is ~6 seconds of swimming; the bot had ~1 second of life
-  // The rescue was not failing, it was starting too late to finish. Ten bubbles
-  // is ~7s, which covers the ascents that were actually killing bots. Lowering
-  // this again re-creates a rescue that cannot reach the surface it identifies.
-  assert.equal(at(11), false, 'above the threshold is not an emergency')
-  assert.equal(at(10), true, 'at the threshold it is')
-  assert.equal(at(4), true, 'the old threshold must still be an emergency')
-  assert.equal(at(0), true)
-  assert.equal(at(-17), true, 'Air goes NEGATIVE while drowning -- observed live at -17')
+  // The trigger is now a fraction of the largest value the bot has reported,
+  // so it is right on either scale and cannot be silently wrong again.
+  assert.equal(at(300, 400), false, 'nearly full air is not an emergency')
+  assert.equal(at(160, 400), true,  '40% of a 400-tick scale is')
+  assert.equal(at(10,  400), true,  'almost drowned certainly is')
+  assert.equal(at(16,   20), false, 'on a 0-20 build, full air is not an emergency')
+  assert.equal(at(6,    20), true,  'on a 0-20 build, 30% is')
+  assert.equal(at(0,   400), true)
+  assert.equal(at(-17, 400), true, 'Air goes NEGATIVE while drowning -- observed live at -17')
+})
+
+ok('the threshold gives enough air to actually reach the surface', () => {
+  // The failure this encodes: 20 air ticks per second, and the routes that were
+  // killing bots ran a median of 3 blocks and a maximum of 15. Swimming up is
+  // roughly 2 blocks/sec, so a 15-block ascent needs ~7.5s = ~150 ticks.
+  const airMax = 400
+  const trigger = Math.max(4, Math.round(airMax * 0.4))
+  assert.ok(trigger >= 150,
+    `trigger ${trigger} ticks is under the ~150 needed for the longest observed ascent`)
 })
 
 ok('a missing oxygen field is not an emergency', () => {

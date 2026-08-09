@@ -125,21 +125,29 @@ function noteReflexInventory(bot, before, cause) {
  *   act      -- swim up, or fall through to the entombment handler
  *   suspect  -- the counter says one thing and every other signal disagrees
  */
-// lowOxygen is BUBBLES, 0-20 -- not the 300-tick air timer. At the old value of 4
-// the rescue began with roughly three seconds of air left, and then asked the bot
-// to complete an ascent that is frequently much longer than that.
+// THE AIR THRESHOLD IS A FRACTION, BECAUSE THE UNITS ARE NOT WHAT THE DOCS SAY.
 //
-// Measured, one full death sequence on instance #2:
-//     17:12:11  reflex_drowning   health 2.33/20, oxygen -1, head=water
-//     17:12:11  drowning_route    up, dist=12
-//     17:12:14  death
-// Twelve blocks is about six seconds of swimming. The bot had one second of
-// health left when the rescue started. It was never going to arrive.
+// mineflayer documents `oxygenLevel` as bubbles, 0-20. This build reports the
+// raw air TICK counter instead. Measured over 1,222 logged values:
 //
-// Ten bubbles is roughly seven seconds of air, which covers the 12-block ascents
-// that are actually killing bots. The latch still re-arms at 12, so there is a
-// two-bubble gap and it cannot flap.
-export function assessAir(bot, { maxHealth = 20, lowOxygen = 10 } = {}) {
+//     min -1   max 400   and 192 of them above 20
+//
+// I set this to 10 believing it was bubbles -- "about seven seconds of air".
+// On a 400-tick scale, 10 ticks is HALF A SECOND. The rescue was starting with
+// half a second of air and then being asked to swim a median of 3 blocks and up
+// to 15, which is why bots surfaced perfectly 435 times out of 435 and still
+// drowned: the ones that died never had time to arrive. The 20-tick-per-second
+// drain meant a bot fell in with full air and got no reflex at all for fifteen
+// seconds.
+//
+// So do not hardcode a number in either unit. `airMax` is the largest value this
+// bot has actually reported -- it sits at full on land, which is most of the
+// time -- and the trigger is a fraction of it. That self-calibrates to a 0-20
+// build and a 0-400 build alike, and cannot be silently wrong again.
+export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4 } = {}) {
+  // Floor of 4 so a bot that has somehow only ever reported small values still
+  // gets a rescue rather than a threshold of zero.
+  const lowOxygen = Math.max(4, Math.round(airMax * lowAirFrac))
   const none = { losing: false, kind: null, act: 'none', suspect: false }
   const ox = bot?.oxygenLevel
   if (ox == null || ox > lowOxygen) return none
@@ -296,6 +304,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // knew where air was and could not swim there. Seize once, steer every tick,
   // release when it can breathe.
   let rescuing = false
+  // Largest air value this bot has reported. It sits at full whenever the bot is
+  // on land, so this converges within seconds of spawning and tells assessAir
+  // which scale the server is actually using. See the note above assessAir.
+  let airMax = 20
   let escaping = false
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
@@ -373,7 +385,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // The policy now lives in assessAir(), a pure function of bot state, so it
       // can be asserted without a server. This block is only the plumbing:
       // logging, telemetry, and the control inputs.
-      const air = assessAir(bot)
+      if (bot.oxygenLevel != null && bot.oxygenLevel > airMax) airMax = bot.oxygenLevel
+      const air = assessAir(bot, { airMax })
       // RELEASE THE BODY the moment breathing resumes, and say so. Without this
       // the bot would hold `jump` forever after surfacing, and -- more useful --
       // there was no positive signal anywhere: deaths were counted and rescues
@@ -464,7 +477,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // So: fall through. Do not return.
       // Hysteresis band, matching the health check: clear only once oxygen has
       // genuinely recovered, so one incident is one reaction.
-      if (bot.oxygenLevel != null && bot.oxygenLevel >= 12) lowOxygenLatched = false
+      // Hysteresis in the same units as the trigger: clear once air is back above
+      // half. Hardcoding 12 meant that on a 400-tick scale the latch cleared while
+      // the bot still had 3% of its air, so one incident logged as many.
+      if (bot.oxygenLevel != null && bot.oxygenLevel >= airMax * 0.5) lowOxygenLatched = false
 
       // --- standing in something that hurts --------------------------------
       const feet = bot.blockAt(bot.entity.position)

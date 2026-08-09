@@ -180,5 +180,82 @@ await t('recursion is bounded: a self-referential recipe cannot loop', async () 
   delete RECIPES.loop_item; delete ID.loop_item; delete NAME[99]
 })
 
+// --- place(): the function that was gating the whole tech tree ------------
+//
+// The old version checked four cardinal neighbours and required the target cell
+// to be literally named "air". Live result: 3 failures to 2 successes on
+// instance #1, and Miner01 on instance #2 hoarding THREE crafting tables it
+// could never put down.
+const GRASS = { name: 'short_grass', boundingBox: 'empty' }
+const WATER = { name: 'water', boundingBox: 'empty' }
+const STONE = { name: 'stone', boundingBox: 'block' }
+const AIR   = { name: 'air', boundingBox: 'empty' }
+
+function placeBot(world) {
+  const placed = []
+  return {
+    placed,
+    bot: {
+      entity: { position: V(0, 64, 0) },
+      inventory: { items: () => [{ name: 'crafting_table', count: 1 }] },
+      // Real blocks carry their own position; place() uses it for lookAt and
+      // for the success detail.
+      blockAt: p => ({ ...world(p), position: p }),
+      async equip() {},
+      async lookAt() {},
+      async placeBlock(ref) { placed.push(ref.position) },
+    },
+  }
+}
+const runPlace = bot => SKILLS.place.run({ bot }, { item: 'crafting_table' }, { aborted: false })
+
+await t('places into ground cover -- grass is replaceable, not a blocker', async () => {
+  // A forest floor: solid below, grass at foot level. This is where a bot that
+  // has just chopped wood is standing, and the old check rejected all of it.
+  const { bot, placed } = placeBot(p => (p.y < 64 ? STONE : p.y === 64 ? GRASS : AIR))
+  const r = await runPlace(bot)
+  assert.equal(r.status, 'success', `expected success, got: ${r.detail}`)
+  assert.equal(placed.length, 1)
+})
+
+await t('never treats water as a surface to place on', async () => {
+  // `under.name !== "air"` accepted water, because water is not named air.
+  const { bot } = placeBot(p => (p.y < 64 ? WATER : AIR))
+  const r = await runPlace(bot)
+  assert.equal(r.status, 'failed', 'water is not a floor')
+  assert.equal(r.failClass, 'no_space')
+})
+
+await t('falls back to a lower step when the bot is on a ledge', async () => {
+  // Solid only one block DOWN and to the east -- nothing at foot level at all.
+  const { bot, placed } = placeBot(p => {
+    if (p.x === 1 && p.y === 62) return STONE
+    return AIR
+  })
+  const r = await runPlace(bot)
+  assert.equal(r.status, 'success', `expected the ledge to be found: ${r.detail}`)
+  assert.equal(placed.length, 1)
+})
+
+await t('tries another spot when the first placement throws', async () => {
+  const { bot, placed } = placeBot(p => (p.y < 64 ? STONE : AIR))
+  let first = true
+  const orig = bot.placeBlock.bind(bot)
+  bot.placeBlock = async ref => {
+    if (first) { first = false; throw new Error('server rejected: entity in the way') }
+    return orig(ref)
+  }
+  const r = await runPlace(bot)
+  assert.equal(r.status, 'success', 'one rejection must not end the attempt')
+  assert.equal(placed.length, 1)
+})
+
+await t('reports honestly when there is genuinely nowhere', async () => {
+  const { bot } = placeBot(() => AIR)          // floating in a void
+  const r = await runPlace(bot)
+  assert.equal(r.status, 'failed')
+  assert.match(r.detail, /nowhere to place/)
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
