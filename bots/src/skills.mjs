@@ -798,7 +798,34 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (mustCollectManually(target.name)) {
         await collectManually(bot, target, signal)
       } else {
-        await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot)
+        // ABANDONING A PROMISE DOES NOT STOP THE WORK BEHIND IT.
+        //
+        // withTimeout is a Promise.race: on expiry it rejects and calls
+        // bot.pathfinder.stop(). That stops the PATHFINDER. It does not stop
+        // collectblock, whose collect() is `while (!options.targets.empty)`
+        // around a downleveled-TypeScript await. Worse, `ignoreNoPath: true`
+        // makes it SWALLOW the very error stop() produces -- the library's own
+        // comment says path-stopped errors are ignored "for cancelTask to work
+        // properly". So a timed-out collect kept looping, invisibly, forever.
+        //
+        // Measured 2026-08-10: 48 OOM kills in 8 hours, every victim
+        // role=gatherer, scouts and the miner never once. A heap snapshot at
+        // the moment of death held 180,061 each of the __awaiter closures
+        // (step/fulfilled/rejected/adopt), 360,166 Generators, 360,208
+        // Promises, 903,562 Contexts -- ~180,000 PENDING awaits from one
+        // abandoned loop. Pending promises are reachable, so GC could reclaim
+        // none of it: "FATAL ERROR: Ineffective mark-compacts near heap limit",
+        // 35s of CPU in two minutes of thrashing, the event loop blocked, the
+        // bot silent for 90s, then killed. 178MB to 1GB in under ten seconds.
+        //
+        // cancelTask() is the library's supported way out and exists in 1.5.0.
+        // Call it on EVERY exit that is not a clean return.
+        try {
+          await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot)
+        } catch (e) {
+          try { await bot.collectBlock.cancelTask?.() } catch { /* already stopped */ }
+          throw e
+        }
       }
     } catch (e) {
       if (e.aborted) throw e
@@ -806,6 +833,15 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     } finally {
+      // A CANCELLED SKILL MUST CANCEL THE LIBRARY TOO.
+      //
+      // The watchdog and the reflex layer both cancel running skills, and that
+      // unwinds OUR async function while collectblock's loop carries on -- the
+      // same abandonment as the timeout above, arriving by a different door.
+      // After a clean collect this is a no-op, because targets is already empty.
+      if (signal?.aborted) {
+        try { await bot.collectBlock?.cancelTask?.() } catch { /* already stopped */ }
+      }
       // collectBlock replaces the pathfinder Movements with library defaults and
       // never restores them. Put ours back on every path out of collect(),
       // including the throwing one -- see the note in index.mjs.
