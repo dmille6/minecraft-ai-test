@@ -27,18 +27,34 @@ def es(path, body):
     with urllib.request.urlopen(req, timeout=20) as r:
         return json.loads(r.read())
 
-OLLAMA = os.environ.get('OLLAMA', 'http://192.168.192.15:11434')
-OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL', 'qwen2.5:14b-instruct')
+# Overrides only. The DEFAULTS are derived from telemetry at run time -- see the
+# inference wedge check. These were hardcoded to http://192.168.192.15:11434 and
+# qwen2.5:14b-instruct, and by 2026-08-10 both were wrong: that host is the
+# retired AI server, unreachable from the ELK host, and the fleet had long since
+# moved to a 7b model. So the one check that asks "can the fleet think at all"
+# was probing a machine the fleet does not use, with a model it does not run.
+# A guard pointed at the wrong host does not fail loudly -- it fails as an alert
+# that is always firing, which is the same as no alert.
+OLLAMA = os.environ.get('OLLAMA')
+OLLAMA_MODEL = os.environ.get('OLLAMA_MODEL')
 
 def main():
     alerts, oks = [], []
-    W, LONG = 'now-15m', 'now-6h'
+    # ROSTER is deliberately much longer than LONG. See the bot check below: a
+    # 6h baseline forgets a bot that died overnight, which is the exact failure
+    # this guard missed.
+    W, LONG, ROSTER = 'now-15m', 'now-6h', 'now-7d'
 
     llm = es('/mcai-llm-agents/_search', {
         "size": 0, "query": {"range": {"@timestamp": {"gte": W}}},
         "aggs": {"n": {"value_count": {"field": "llm.latency_ms"}},
                  "veto": {"filter": {"exists": {"field": "llm.error"}}},
-                 "bots": {"terms": {"field": "bot.name", "size": 10}},
+                 # size 10 with a ten-bot fleet sat exactly on the limit: an
+                 # eleventh bot would have pushed one out of the bucket list and
+                 # been reported as silent. Terms aggs truncate quietly.
+                 "bots": {"terms": {"field": "bot.name", "size": 100}},
+                 # Where the fleet is ACTUALLY thinking, for the wedge probe below.
+                 "endpoints": {"terms": {"field": "llm.endpoint", "size": 10}},
                  "models": {"terms": {"field": "llm.model", "size": 5}}}})['aggregations']
     seen_long = es('/mcai-llm-agents/_search', {
         "size": 0, "query": {"range": {"@timestamp": {"gte": LONG}}},
@@ -49,6 +65,7 @@ def main():
     vetoes = llm['veto']['doc_count']
     bots = {b['key'] for b in llm['bots']['buckets']}
     models_now = {b['key'] for b in llm['models']['buckets']}
+    endpoints_now = {b['key'] for b in llm['endpoints']['buckets']}
     models_recent = {b['key'] for b in seen_long['models']['buckets']}
 
     (oks if skills else alerts).append(
@@ -65,10 +82,30 @@ def main():
             f'admission gate vetoing {pct}% of proposals -- the fleet is freezing shut'
             if pct >= 45 else f'veto rate {pct}%')
 
-    expected_bots = {'Scout01', 'Scout02', 'Miner01', 'Gather01', 'Gather02'}
+    # WHO SHOULD BE DECIDING.
+    #
+    # This was a hardcoded set of five names, written when the fleet was five
+    # bots. The fleet is ten, and the five it omitted -- Hive01/02/03 and
+    # Solo01/02 -- are the shared and isolated arms: precisely the bots the
+    # experiment exists to compare. The hive arm was dark from 2026-08-08 and
+    # this guard, whose entire job is to notice that, could not have said so.
+    # It reported "all five bots deciding" the whole time, which was even true.
+    #
+    # Derived rather than declared, per the no-SSH rule in the docstring: anyone
+    # who decided in the last WEEK is expected to be deciding now. The 6h window
+    # used for models is wrong here -- a bot that died overnight would fall out
+    # of its own baseline and become un-missable, which is how the hive arm
+    # stayed dark. Seven days also means a deliberately retired bot ages out on
+    # its own instead of needing an edit here, so this cannot drift again.
+    roster = es('/mcai-llm-agents/_search', {
+        "size": 0, "query": {"range": {"@timestamp": {"gte": ROSTER}}},
+        "aggs": {"bots": {"terms": {"field": "bot.name", "size": 100}}}})['aggregations']
+    expected_bots = {b['key'] for b in roster['bots']['buckets']}
     silent = sorted(expected_bots - bots)
     (alerts if silent else oks).append(
-        f'no decisions from: {", ".join(silent)}' if silent else 'all five bots deciding')
+        f'no decisions from: {", ".join(silent)}' if silent
+        # Never name a count this check did not verify. "all five" was a literal.
+        else f'all {len(bots)} bots deciding')
 
     # A model that answered in the last 6h but not the last 15m is a dead arm.
     dropped = sorted(models_recent - models_now)
@@ -96,21 +133,37 @@ def main():
     # healthy throughout -- tags answered 200 the whole time.
     #
     # So probe the thing that actually matters: can it GENERATE.
-    try:
-        import urllib.request
-        req = urllib.request.Request(
-            f'{OLLAMA}/api/generate',
-            data=json.dumps({'model': OLLAMA_MODEL, 'prompt': 'ok',
-                             'stream': False, 'options': {'num_predict': 1}}).encode(),
-            headers={'Content-Type': 'application/json'})
-        with urllib.request.urlopen(req, timeout=45) as r:
-            body = json.loads(r.read())
-        if 'response' in body:
-            oks.append('inference responding')
-        else:
-            alerts.append(f'inference returned no completion: {str(body)[:90]}')
-    except Exception as e:
-        alerts.append(f'INFERENCE UNAVAILABLE ({str(e)[:80]}) -- the fleet cannot think')
+    #
+    # ASK THE FLEET WHERE IT IS THINKING, rather than being told at install time.
+    # llm.endpoint became truthful in 785aea7 -- before that it echoed a static
+    # env var and could not have answered this. Deriving it means the guard
+    # follows an endpoint migration on its own, which the hardcoded value did
+    # not: it spent this whole run probing a decommissioned host.
+    probe_url = OLLAMA or (sorted(endpoints_now)[0] if endpoints_now else None)
+    probe_model = OLLAMA_MODEL or (sorted(models_now)[0] if models_now else None)
+    if not probe_url or not probe_model:
+        # A check that could not run must never print as `ok`. This duplicates
+        # the "NO LLM decisions" alert above when the fleet is fully dead, and
+        # that redundancy is the correct trade: silence here would read as health.
+        alerts.append('inference probe SKIPPED -- no endpoint/model in 15m of telemetry, '
+                      'so "can the fleet think" is unknown, not fine')
+    else:
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                f'{probe_url}/api/generate',
+                data=json.dumps({'model': probe_model, 'prompt': 'ok',
+                                 'stream': False, 'options': {'num_predict': 1}}).encode(),
+                headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=45) as r:
+                body = json.loads(r.read())
+            if 'response' in body:
+                oks.append(f'inference responding ({probe_url})')
+            else:
+                alerts.append(f'inference returned no completion: {str(body)[:90]}')
+        except Exception as e:
+            alerts.append(f'INFERENCE UNAVAILABLE at {probe_url} '
+                          f'({str(e)[:70]}) -- the fleet cannot think')
 
     for m in oks:     print(f'  ok    {m}')
     for m in alerts:  print(f'  ALERT {m}', file=sys.stderr)

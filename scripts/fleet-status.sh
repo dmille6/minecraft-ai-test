@@ -62,9 +62,19 @@ for U in $(systemctl list-units 'mcbot@*' --no-legend --plain 2>/dev/null | awk 
   ADM=$(sudo journalctl -u "$U" --since "-10 min" -o cat 2>/dev/null | grep -c 'LLM ->')
   REJ=$(sudo journalctl -u "$U" --since "-10 min" -o cat 2>/dev/null | grep -c 'decision rejected')
   AGE=$([ -n "$LAST" ] && echo $(( now - LAST )) || echo -1)
-  RUN=$(sudo jq -r '.runs // "?"' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
-  AV=$(sudo jq -r '.avoid | length' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
-  WK=$(sudo jq -r '.worked | length' /srv/mcbots/state/lessons-$NAME.json 2>/dev/null)
+  # WHICH LESSONS FILE THIS BOT ACTUALLY USES.
+  #
+  # openLessons() sends MEMORY_SCOPE=shared to a single lessons-hive.json and
+  # everyone else to lessons-<name>.json. This read only ever knew the second
+  # form, so all three hive bots showed blank run/avoid/worked -- a dashboard
+  # reporting nothing for the arm under study, indistinguishable from a bot that
+  # had learned nothing. Mirror the source of truth rather than guessing a name.
+  SCOPE=$(sudo grep -oP '(?<=^MEMORY_SCOPE=).*' /srv/mcbots/harness/env/$INST.env 2>/dev/null)
+  LF=/srv/mcbots/state/lessons-$NAME.json
+  [ "$SCOPE" = "shared" ] && LF=/srv/mcbots/state/lessons-hive.json
+  RUN=$(sudo jq -r '.runs // "?"' "$LF" 2>/dev/null)
+  AV=$(sudo jq -r '.avoid | length' "$LF" 2>/dev/null)
+  WK=$(sudo jq -r '.worked | length' "$LF" 2>/dev/null)
   # DID IT ACTUALLY GO ANYWHERE, and did anything land in its pockets.
   #
   # The MOVED column was printed as an empty string from the day it was added,
