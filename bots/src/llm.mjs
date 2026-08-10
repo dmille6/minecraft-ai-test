@@ -241,7 +241,7 @@ export class LlmClient {
  * with exponential backoff, so the fleet pays that cost once rather than on
  * every decision.
  */
-class EndpointPool {
+export class EndpointPool {
   constructor(urls, { cooldownMs = 60_000, maxCooldownMs = 900_000 } = {}) {
     this.eps = urls.map(url => ({ url, fails: 0, downUntil: 0, calls: 0, totalMs: 0 }))
     this.cooldownMs = cooldownMs
@@ -267,8 +267,29 @@ class EndpointPool {
     ep.fails++
     const wait = Math.min(this.cooldownMs * 2 ** (ep.fails - 1), this.maxCooldownMs)
     ep.downUntil = Date.now() + wait
-    log('warn', 'llm endpoint failed, cooling down', {
-      endpoint: ep.url, fails: ep.fails, cooldown_sec: Math.round(wait / 1000), err: String(err).slice(0, 120),
+
+    // SAY WHAT WILL ACTUALLY HAPPEN.
+    //
+    // available() never returns empty -- "an expired guess beats not deciding
+    // at all" -- so when this is the ONLY endpoint, downUntil is inert and the
+    // very next decision tries it again. The message still announced "cooling
+    // down, 900s", which is a claim about behaviour that does not occur.
+    //
+    // During the 2026-08-10 outage that line appeared 64 times with
+    // cooldown_sec=900 and I read it as the fleet having taken itself offline
+    // for fifteen minutes. It had not; the endpoint was simply dead, and the
+    // bots were hammering it exactly as designed. I proposed capping the
+    // backoff to "fix" a latency that was never there.
+    //
+    // A log line that describes a policy the code does not follow costs a
+    // diagnosis. Same shape as everything else this file guards against.
+    const soleEndpoint = this.eps.length === 1
+    log('warn', soleEndpoint ? 'llm endpoint failing (no alternative, will keep trying)'
+                             : 'llm endpoint failed, cooling down', {
+      endpoint: ep.url,
+      fails: ep.fails,
+      ...(soleEndpoint ? {} : { cooldown_sec: Math.round(wait / 1000) }),
+      err: String(err).slice(0, 120),
     })
   }
 
