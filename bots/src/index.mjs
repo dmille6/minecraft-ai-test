@@ -150,6 +150,23 @@ function connect() {
     // progressively nearer waypoints. 6 costs a little fall damage and is
     // survivable; being permanently wedged is not.
     moves.maxDropDown = 6
+    // A PILLAR STEP MUST NOT BE AS CHEAP AS A WALK STEP.
+    //
+    // pathfinder prices getMoveUp at 1 (move) + placeCost (1) = 2, against 1 to
+    // walk -- so towering up is only twice the cost of stepping sideways, and
+    // with allow1by1towers=true A* reaches for it constantly. Baritone prices
+    // the same action at roughly 5.4 walk steps (blockPlacementPenalty=20 on top
+    // of a jump), and says plainly that the number is high to CONSERVE BLOCKS
+    // rather than to model time.
+    //
+    // Miner01 pillared 14 blocks straight up, reported arrival because the old
+    // check was horizontal-only, then could not get back down -- and every
+    // later goto and craft was issued from a column A* could not leave. One bot
+    // stranded that way produced about a third of that run's goto failures.
+    //
+    // 5 keeps towering available for the case it exists for and stops it being
+    // the planner's first idea.
+    moves.placeCost = 5
     bot.pathfinder.setMovements(moves)
 
     // Grant collectblock the one setting it cannot work without, and none of

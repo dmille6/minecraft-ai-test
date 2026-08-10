@@ -246,9 +246,15 @@ export class CognitiveLoop {
   async #tick(trigger) {
     if (this.stopped || this.runner.isBusy()) return
 
-    const wasChainDone = this.milestones.chainComplete
+    // `chainComplete` is not a thing MilestoneController has ever defined -- the
+    // getter is `allDone` (milestones.mjs). Both reads returned undefined, so
+    // the transition below compared undefined to undefined and this branch
+    // could never fire: the fleet has never once logged entering the sustaining
+    // loop, and nobody noticed because the absence of a log line looks exactly
+    // like the condition not being met.
+    const wasChainDone = this.milestones.allDone
     this.milestones.refresh()
-    if (!wasChainDone && this.milestones.chainComplete) {
+    if (!wasChainDone && this.milestones.allDone) {
       log('info', 'fixed milestone chain complete, entering sustaining loop', { decisions: this.decisions })
       this.memory.addEvent('finished the tool-crafting chain; now stockpiling and scouting on a loop')
       try { this.bot.chat('tool chain complete — switching to sustaining goals') } catch {}

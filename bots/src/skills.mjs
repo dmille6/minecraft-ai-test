@@ -57,12 +57,34 @@ function assertInsideBorder(x, z) {
   }
 }
 
+// Pickaxe/axe/shovel tiers, worst to best. Used only to break digTime ties.
+const TOOL_TIER = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']
+const toolTier = name => TOOL_TIER.findIndex(t => name.startsWith(t + '_'))
+
 function bestTool(bot, block) {
+  // EVERY PICKAXE TIES ON 93 KINDS OF ORE, so the tie-break is not cosmetic.
+  //
+  // iron_ore, gold_ore, diamond_ore, redstone_ore, lapis_ore, emerald_ore, all
+  // the deepslate variants, obsidian, ancient_debris and the metal blocks carry
+  // `material: "incorrect_for_wooden_tool"`, and minecraft-data's table for that
+  // material lists ONLY wooden tools. prismarine-block's digTime looks up
+  // registry.materials[material][heldItemType]; for a stone or iron pickaxe on
+  // iron ore the lookup misses, isBestTool stays false, and the speed multiplier
+  // stays at 1.
+  //
+  // So digTime returns the same number for every pickaxe we own, `t < bestTime`
+  // never fires after the first, and the bot equips whichever tool happens to
+  // come first in the inventory. Bots have been mining deepslate ore with a
+  // stone pickaxe while carrying an iron one -- which is slower, which is more
+  // time against the 180s skill budget, which is a timeout we then record as a
+  // mining failure.
   let best = null, bestTime = Infinity
   for (const it of bot.inventory.items()) {
     if (!block.canHarvest(it.type)) continue
     const t = block.digTime(it.type, false, false, false)
-    if (t < bestTime) { bestTime = t; best = it }
+    if (t < bestTime || (t === bestTime && best && toolTier(it.name) > toolTier(best.name))) {
+      bestTime = t; best = it
+    }
   }
   return best
 }
@@ -448,12 +470,35 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // with no exposed face must be tunnelled to, whatever it is called.
     // Ubiquitous underground blocks are just where it surfaces first, and `mine`
     // is the skill that descends on purpose.
+    // WATER IS NOT AN OPENING, AND A WET BLOCK IS NOT A TARGET.
+    //
+    // This counted `water` as an exposing face, so a stone block with water
+    // behind it scored as exposed and was RANKED AS PREFERRED. collectblock
+    // then dug it, the water flowed into the hole, and the bot was standing in
+    // it. We have been selecting the blocks that drown us, on purpose, and the
+    // drowning reflex only ever got to clean up afterwards -- it fired 209
+    // times an hour on one run, mostly at y=-8 to -12.
+    //
+    // Water is also not somewhere the bot can stand to mine from, so it never
+    // belonged in this test on reachability grounds either.
     const exposed = p => {
       for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
         const n = bot.blockAt(p.offset(d[0], d[1], d[2]))
-        if (!n || n.name === 'air' || n.name === 'water' || n.boundingBox === 'empty') return true
+        if (!n || n.name === 'air' || n.boundingBox === 'empty') return true
       }
       return false
+    }
+    // Ask the pathfinder whether the block is safe to break at all. safeToBreak
+    // refuses anything adjacent to a liquid (dontCreateFlow) and anything under
+    // a block that can fall (dontMineUnderFallingBlock), both of which our own
+    // filters never considered. The Movements we lend collectblock already has
+    // both flags set, so this is a test we could always have run and never did.
+    const safeTarget = p => {
+      try {
+        const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+        const b = bot.blockAt(p)
+        return !m?.safeToBreak || !b ? true : m.safeToBreak(b)
+      } catch { return true }
     }
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
     // block has an air face, which is true of every log in a tree canopy -- so
@@ -479,15 +524,27 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // Approachable first, nearest first within that -- but keep merely-exposed
     // blocks as a fallback so a slightly awkward target still beats giving up.
     const exposedOnes = positions.filter(exposed)
+    // Safety is a filter, not a ranking: a block beside water is never a target,
+    // however convenient it looks. Counted separately so "everything nearby is
+    // wet" is a distinguishable answer rather than folding into "buried".
+    const safeOnes = exposedOnes.filter(safeTarget)
+    const rejectedUnsafe = exposedOnes.length - safeOnes.length
     const reachable = [
-      ...exposedOnes.filter(approachable),
-      ...exposedOnes.filter(q => !approachable(q)),
+      ...safeOnes.filter(approachable),
+      ...safeOnes.filter(q => !approachable(q)),
     ]
     if (reachable.length === 0) {
-      return collected > 0
-        ? { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried)` }
-        : { status: 'failed', failClass: 'unreachable',
-            detail: `${blockName} found but every candidate is buried — use mine to dig down` }
+      if (collected > 0) {
+        return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
+      }
+      if (rejectedUnsafe > 0 && exposedOnes.length === rejectedUnsafe) {
+        return { status: 'failed', failClass: 'no_safe_target',
+                 detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
+                         `under falling blocks — digging them would flood or bury this spot` }
+      }
+      return { status: 'failed', failClass: 'unreachable',
+               detail: `${blockName} found but every candidate is buried — use mine to dig down` +
+                       belowGroundHint(bot) }
     }
 
     const target = bot.blockAt(reachable[0])
