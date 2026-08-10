@@ -16,6 +16,7 @@ import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
+import { installPathBackoff } from './pathbackoff.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -115,6 +116,11 @@ function connect() {
   bot.loadPlugin(pathfinder)
   // Scoped to the gather skill. It manages its own movements (including
   // digging), which is why general navigation can stay canDig=false.
+  // Change WHICH half-finished route survives a timeout. See pathbackoff.mjs --
+  // this patches the shared AStar prototype, so it affects every search the
+  // fleet runs, not only the ones we start ourselves.
+  installPathBackoff()
+
   bot.loadPlugin(collectBlock)
   const runner = new Runner(bot)
   // Reason tallies for the pathfinder's own events, kept for the status line.
