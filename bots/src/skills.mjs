@@ -517,6 +517,76 @@ function depthVariant(bot, name, y) {
   return bot.registry.blocksByName[d] ? d : null
 }
 
+// BLOCKS mineflayer-collectblock CANNOT COLLECT.
+//
+// Its collect() runs a dig-and-path routine that does nothing useful for
+// crops, foliage and attached decorations: the call returns cleanly, the bot
+// gains nothing, and our barren counter then reports "found but unreachable" --
+// a claim about the WORLD derived from a library limitation, which then goes
+// into the lessons store as evidence and teaches the fleet to avoid an action
+// that was never attempted.
+//
+// The list is mindcraft's (src/utils/mcdata.js mustCollectManually), which is
+// the same list every mineflayer project converges on. Substring matches cover
+// the families where the exact names are numerous and version-dependent.
+const MANUAL_EXACT = new Set([
+  'wheat', 'carrots', 'potatoes', 'beetroots', 'nether_wart', 'cocoa',
+  'sugar_cane', 'kelp', 'short_grass', 'fern', 'tall_grass', 'bamboo',
+  'lever', 'redstone_wire', 'lantern',
+])
+const MANUAL_SUBSTRING = [
+  'sapling', 'torch', 'button', 'carpet', 'pressure_plate', 'mushroom',
+  'tulip', 'bush', 'vines', 'fern', 'flower',
+]
+const mustCollectManually = name =>
+  MANUAL_EXACT.has(name) || MANUAL_SUBSTRING.some(f => name.includes(f))
+
+/**
+ * Walk to a block, break it by hand, and pick up what it dropped.
+ *
+ * collectblock does the pickup itself; doing this by hand means doing that too,
+ * or the item lies on the ground and the inventory delta stays zero -- which is
+ * indistinguishable from not having mined it.
+ */
+async function collectManually(bot, block, signal) {
+  const p = block.position
+  try {
+    await withTimeout(
+      bot.pathfinder.goto(new goals.GoalNear(p.x, p.y, p.z, 2)), 15000, bot)
+  } catch (e) {
+    if (e.aborted || signal?.aborted) throw e
+    // Close enough to reach is good enough; the dig below decides.
+  }
+  check(signal)
+  const tool = bestTool(bot, block)
+  if (tool) await bot.equip(tool, 'hand').catch(() => {})
+  await bot.dig(block)
+  await pickupNearbyItems(bot, signal)
+}
+
+/** Walk over anything on the floor within a few blocks. */
+async function pickupNearbyItems(bot, signal, radius = 8) {
+  let last = null
+  for (let i = 0; i < 4; i++) {
+    check(signal)
+    const drop = bot.nearestEntity?.(e =>
+      e.name === 'item' && bot.entity.position.distanceTo(e.position) < radius)
+    if (!drop) return
+    // The same drop twice means walking to it is not working; stop rather than
+    // spend the budget orbiting it.
+    if (last && drop.id === last) return
+    last = drop.id
+    try {
+      await withTimeout(bot.pathfinder.goto(
+        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
+    } catch (e) {
+      if (e.aborted || signal?.aborted) throw e
+      return
+    }
+    await sleep(250, signal)
+  }
+}
+
 async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
   maxDistance = Math.min(Number(maxDistance) || 32, 48)   // callers cannot opt back into the blowup
   const { bot } = ctx
@@ -672,7 +742,11 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // 40s leaves ~35s for walking and chopping after the worst-case 5s plan,
       // and stays under the 45s stuck reflex so a genuinely wedged bot is still
       // rescued rather than sitting out its whole budget.
-      await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot)
+      if (mustCollectManually(target.name)) {
+        await collectManually(bot, target, signal)
+      } else {
+        await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot)
+      }
     } catch (e) {
       if (e.aborted) throw e
       // Remember WHY, so the failure below can tell the truth about itself.

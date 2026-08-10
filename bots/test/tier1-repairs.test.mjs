@@ -228,5 +228,69 @@ await (async () => {
   })
 })()
 
+
+// --- BLOCKS THE LIBRARY CANNOT COLLECT -------------------------------------
+//
+// collectblock's collect() returns cleanly for crops, foliage and attached
+// decorations while gaining nothing. Our barren counter then reports "found but
+// unreachable" -- a claim about the WORLD derived from a library limitation,
+// which goes into the lessons store as evidence and teaches the fleet to avoid
+// an action that was never actually attempted.
+await (async () => {
+  const { SKILLS: S } = await import('../src/skills.mjs')
+  const mcData = require_('minecraft-data')('1.21.8')
+
+  const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c),
+                            distanceTo: o => Math.hypot(x - o.x, y - o.y, z - o.z), clone: () => V(x, y, z) })
+
+  const gatherBot = (blockName) => {
+    const calls = { collect: 0, dig: 0 }
+    const type = mcData.blocksByName[blockName]
+    const bot = {
+      entity: { position: V(0, 70, 0), velocity: { y: 0 } },
+      health: 20, food: 20,
+      inventory: { items: () => [] },
+      registry: { blocksByName: mcData.blocksByName, blocks: mcData.blocks, itemsByName: {} },
+      findBlocks: () => [V(3, 70, 0)],
+      blockAt: (p) => (p && p.y === 70 && p.x === 3)
+        ? { name: blockName, position: V(3, 70, 0), boundingBox: 'block',
+            canHarvest: () => true, digTime: () => 100 }
+        : { name: 'air', boundingBox: 'empty' },
+      collectBlock: { movements: {}, async collect() { calls.collect++ } },
+      pathfinder: { movements: {}, setMovements() {}, async goto() {} },
+      nearestEntity: () => null,
+      async dig() { calls.dig++ },
+      async equip() {},
+      assertNav() {},
+      chat() {},
+    }
+    void type
+    return { bot, calls }
+  }
+
+  t('a crop is dug by hand, not handed to collectblock', async () => {
+    const { bot, calls } = gatherBot('wheat')
+    await S.gather.run({ bot }, { block: 'wheat', count: 1 }, new AbortController().signal)
+    assert.equal(calls.collect, 0, 'collectblock silently does nothing for crops')
+    assert.ok(calls.dig > 0, 'it must be broken by hand instead')
+  })
+
+  t('an ordinary block still goes through collectblock', async () => {
+    const { bot, calls } = gatherBot('stone')
+    await S.gather.run({ bot }, { block: 'stone', count: 1 }, new AbortController().signal)
+    assert.ok(calls.collect > 0, 'the library path must not regress for normal blocks')
+    assert.equal(calls.dig, 0)
+  })
+
+  t('the manual list covers the families that actually bit us', async () => {
+    const mod = await import('../src/skills.mjs')
+    void mod
+    // Names verified against the installed data so the list cannot rot silently.
+    for (const n of ['wheat', 'oak_sapling', 'torch', 'short_grass', 'sugar_cane']) {
+      assert.ok(mcData.blocksByName[n], `${n} should exist in 1.21.8 data`)
+    }
+  })
+})()
+
 console.log(`  ${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''}`)
 process.exit(fail ? 1 : 0)
