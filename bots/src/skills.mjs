@@ -2,7 +2,20 @@
 //
 // Every skill is a plain async function with the same contract:
 //   run(ctx, args, signal) -> { status, detail }
-// where status is 'success' | 'failed' | 'aborted'.
+// where status is 'success' | 'failed' | 'unknown' | 'no_effect' | 'aborted'.
+//
+// `unknown` IS NOT A SOFT 'failed'. It is the absence of an answer, and it
+// exists because twelve defects in one session were the same defect: an
+// operation reporting a conclusion its evidence did not support. A search that
+// hit OUR budget said "no path exists". A 1s probe on a 105-block climb said
+// "stranded". A skill that never moved said "reached y=68". Each of those is a
+// don't-know wearing a verdict's clothes, and each one trained the lessons
+// store -- which is how a bot comes to believe walking home is impossible.
+//
+// The rule, enforced in runner.mjs and cognitive.mjs: an `unknown` throttles
+// (cooldowns, the consecutive-failure pause, the milestone attempt counter --
+// all of which are transient) and NEVER becomes a lesson, neither a success nor
+// an avoid rule. Persisting a belief requires having observed something.
 //
 // Skills never call an LLM. In pass 2 the model's only job is to CHOOSE among
 // these and supply arguments; it never writes movement or block code. That
@@ -18,6 +31,39 @@ import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
+
+/**
+ * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
+ *
+ * Every one of these is produced by a clock we set ourselves or by an
+ * observation we could not make. None of them is evidence that the action is
+ * impossible, and a skill returning one must report `unknown`, not `failed`.
+ *
+ *   path_budget     our 25s wall clock around pathfinder.goto expired
+ *   path_timeout    pathfinder's own thinkTimeout expired MID-SEARCH; the
+ *                   library distinguishes this from `noPath` (search
+ *                   exhausted) and we spent 16 hours collapsing the two --
+ *                   393 records of "no route exists" that the pathfinder had
+ *                   never once returned
+ *   collect_budget  gather's 40s-per-target COLLECT_MS expired
+ *   probe_timeout   a bounded reachability probe ran out of think time; it
+ *                   did not finish the search, so it cannot say there is none
+ *   unverified      the call returned but the effect could not be read back
+ *   no_measurable_change  the runner's evidence gate: a skill claimed success
+ *                   and none of its contract's expected change was measured
+ *
+ * Kept as one exported set so the runner, the cognitive layer and the preflight
+ * guard cannot disagree about which classes are unknowable. bots/test/
+ * evidence-gate.test.mjs asserts this set never overlaps the two evidence sets
+ * in cognitive.mjs.
+ */
+export const UNKNOWN_FAIL_CLASSES = new Set([
+  'path_budget', 'path_timeout', 'collect_budget', 'probe_timeout', 'unverified',
+  'no_measurable_change',
+])
+
+/** The honest status for a failure class: a don't-know is not a no. */
+export const statusFor = failClass => UNKNOWN_FAIL_CLASSES.has(failClass) ? 'unknown' : 'failed'
 
 class Aborted extends Error { constructor() { super('aborted'); this.aborted = true } }
 const check = signal => { if (signal?.aborted) throw new Aborted() }
@@ -321,7 +367,14 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
 
       if (moved < 2) {
         return {
-          status: 'failed', failClass,
+          // NoPath is a no; Timeout and our own budget are a don't-know, and
+          // only the first may reach the lessons store. The taxonomy above has
+          // named the difference since the day goto stopped regexing its own
+          // prose -- but both classes still returned `failed`, so downstream
+          // treated "the search completed and found nothing" and "we stopped
+          // the search" as the same claim about the world. statusFor() is where
+          // that stops.
+          status: statusFor(failClass), failClass,
           detail: `${why} — after ${legs} leg(s), still ${Math.round(dist)} blocks short`,
         }
       }
@@ -767,12 +820,18 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         // there" call for different responses -- the first means go somewhere
         // else, the second means try again -- and reporting the second as the
         // first taught the fleet to abandon wood it could have had.
-        const why = timedOut >= barren
-          ? `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`
-          : `${blockName} found but unreachable after ${barren} attempts`
+        // The class is now stated rather than recovered from the wording. Both
+        // strings were previously handed to classifyFailure, which read the
+        // first as `collect_budget` and the second as `no_path` purely from the
+        // prose -- the exact coupling that let `gather oak_log` rules rebuild on
+        // four bots within hours of a purge that emptied them.
+        const [failClass, why] = timedOut >= barren
+          ? ['collect_budget',
+             `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`]
+          : ['no_path', `${blockName} found but unreachable after ${barren} attempts`]
         return collected > 0
           ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
-          : { status: 'failed', detail: why }
+          : { status: statusFor(failClass), failClass, detail: why }
       }
       // Reposition so the next scan ranks different candidates first rather
       // than retrying the same unreachable block forever.
@@ -787,14 +846,21 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
 
   return collected >= count
     ? { status: 'success', detail: `collected ${collected} ${blockName}` }
-    : { status: 'failed', detail: `collected ${collected}/${count} ${blockName} before giving up` }
+    // ROUNDS RAN OUT, WHICH IS OUR CEILING, NOT THE WORLD'S. The loop is bounded
+    // at count*4+8 rounds; hitting that bound says the bot did not finish inside
+    // an allowance we chose, and says nothing whatever about whether more
+    // ${blockName} was gettable. It classified as `other` before, which is
+    // non-evidence by luck rather than by statement.
+    : { status: 'unknown', failClass: 'collect_budget',
+        detail: `collected ${collected}/${count} ${blockName} before running out of ` +
+                `${maxRounds} attempts — not a shortage, an allowance` }
 }
 
 // ---------------------------------------------------------------- come -----
 async function come(ctx, { player }, signal) {
   const { bot } = ctx
   const target = bot.players[player]?.entity
-  if (!target) return { status: 'failed', detail: `cannot see ${player}` }
+  if (!target) return { status: 'failed', failClass: 'bad_target', detail: `cannot see ${player}` }
   const p = target.position
   return goto(ctx, { x: p.x, y: p.y, z: p.z, range: 2 }, signal)
 }
@@ -803,7 +869,7 @@ async function come(ctx, { player }, signal) {
 async function follow(ctx, { player, durationMs = 60000 }, signal) {
   const { bot } = ctx
   const target = bot.players[player]?.entity
-  if (!target) return { status: 'failed', detail: `cannot see ${player}` }
+  if (!target) return { status: 'failed', failClass: 'bad_target', detail: `cannot see ${player}` }
   bot.pathfinder.setGoal(new goals.GoalFollow(target, 2), true)
   try {
     await sleep(durationMs, signal)
@@ -826,7 +892,10 @@ async function deposit(ctx, { item = null }, signal) {
     matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name),
     maxDistance: 48,
   })
-  if (!chestBlock) return { status: 'failed', detail: 'no chest or barrel within 48 blocks' }
+  if (!chestBlock) {
+    return { status: 'failed', failClass: 'nothing_found',
+             detail: 'no chest or barrel within 48 blocks' }
+  }
 
   await bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
   check(signal)
@@ -842,7 +911,17 @@ async function deposit(ctx, { item = null }, signal) {
   } finally {
     chest.close()
   }
-  return { status: moved > 0 ? 'success' : 'failed', detail: `deposited ${moved} items` }
+  if (moved > 0) return { status: 'success', detail: `deposited ${moved} items` }
+  // Written out rather than left as a ternary on `status` so the preflight scan
+  // in bots/test/evidence-gate.test.mjs can see it. A failure hidden inside a
+  // conditional expression is exactly the one that keeps its class by accident.
+  //
+  // NOT `inventory`. That class is in EVIDENCE_ONLY_IF_STUCK and would start
+  // writing avoid rules against `deposit`; classifyFailure filed this string as
+  // `other`, which never voted, and naming the class must not smuggle in a
+  // policy change alongside the honesty change.
+  return { status: 'failed', failClass: 'nothing_to_deposit',
+           detail: 'deposited 0 items — nothing matching to hand over, or the chest was full' }
 }
 
 // -------------------------------------------------------------- status -----
@@ -885,14 +964,15 @@ async function eat(ctx, _args, signal) {
   }
   const items = bot.inventory.items()
   const food = FOOD_PRIORITY.map(n => items.find(i => i.name === n)).find(Boolean)
-  if (!food) return { status: 'failed', detail: 'no edible food in inventory' }
+  if (!food) return { status: 'failed', failClass: 'inventory', detail: 'no edible food in inventory' }
   check(signal)
   try {
     await bot.equip(food, 'hand')
     await bot.consume()
     return { status: 'success', detail: `ate ${food.name}, hunger now ${bot.food}` }
   } catch (e) {
-    return { status: 'failed', detail: `could not eat ${food.name}: ${e.message}` }
+    return { status: 'failed', failClass: 'other',
+             detail: `could not eat ${food.name}: ${e.message}` }
   }
 }
 
@@ -930,7 +1010,11 @@ const MAX_CRAFT_DEPTH = 3
 async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   const { bot } = ctx
   const def = bot.registry.itemsByName[item]
-  if (!def) return { status: 'failed', detail: `unknown item "${item}"` }
+  // `other`, not `bad_target`, deliberately. bad_target IS evidence about the
+  // action and would begin writing permanent avoid rules for every item name the
+  // model mistypes; the classifier filed this string as `other` and gave it no
+  // vote. Stating the class is meant to end the guessing, not to change policy.
+  if (!def) return { status: 'failed', failClass: 'other', detail: `unknown item "${item}"` }
 
   // Recipes needing no table first -- cheaper and always available.
   let recipe = bot.recipesFor(def.id, null, count, null)[0]
@@ -1207,7 +1291,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 async function place(ctx, { item, x, y, z }, signal) {
   const { bot } = ctx
   const held = bot.inventory.items().find(i => i.name === item)
-  if (!held) return { status: 'failed', detail: `no ${item} in inventory` }
+  if (!held) return { status: 'failed', failClass: 'inventory', detail: `no ${item} in inventory` }
 
   // FINDING SOMEWHERE TO PUT IT IS THE HARD PART, and this function is what
   // gates the entire tech tree.
@@ -1347,7 +1431,8 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
   const { bot } = ctx
   const make = BLUEPRINTS[plan]
   if (!make) {
-    return { status: 'failed', detail: `unknown plan "${plan}"; have ${Object.keys(BLUEPRINTS).join(', ')}` }
+    return { status: 'failed', failClass: 'other',
+             detail: `unknown plan "${plan}"; have ${Object.keys(BLUEPRINTS).join(', ')}` }
   }
 
   // Anchor at the given point, else the configured home -- so repeated calls
@@ -1416,7 +1501,11 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
   // then refilled. The honest number was already sitting right here.
   if (done === spec.length) return { status: 'success', detail, placed }
   if (placed > 0) return { status: 'success', detail, placed }  // real progress this call
-  return { status: 'failed', detail, placed }
+  // `no_space` is the class place() already uses for "nothing would go down
+  // here", and it is what this is: every candidate cell was refused or read back
+  // empty. It votes on nothing, which is also what the classifier's `other`
+  // verdict did for this string.
+  return { status: 'failed', failClass: 'no_space', detail, placed }
 }
 
 
@@ -1592,7 +1681,8 @@ async function withdraw(ctx, { item = null, count = 16 }, signal) {
       ? { status: 'success', detail: `withdrew ${took}x ${want[0].name} from the chest` }
       : { status: 'no_effect', detail: 'nothing withdrawn' }
   } catch (e) {
-    return { status: 'failed', detail: `withdraw failed: ${e.message.slice(0, 70)}` }
+    return { status: 'failed', failClass: 'other',
+             detail: `withdraw failed: ${e.message.slice(0, 70)}` }
   } finally {
     try { chest.close() } catch { /* already closed */ }
   }
@@ -1690,7 +1780,13 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const below = bot.blockAt(ahead)
     if (!below) break
     if (below.name === 'lava' || below.name === 'water') {
-      return { status: 'failed', detail: `stopped at y=${Math.round(bot.entity.position.y)}: ${below.name} below` }
+      // `hazard_interrupt` is what classifyFailure returned for this string (it
+      // matches on the word "lava"), so the class is preserved rather than
+      // improved -- the taxonomy that Kibana aggregates must not shift under an
+      // honesty change. It is a guard refusing to dig, not a reflex preemption,
+      // and that mislabel is worth fixing separately.
+      return { status: 'failed', failClass: 'hazard_interrupt',
+               detail: `stopped at y=${Math.round(bot.entity.position.y)}: ${below.name} below` }
     }
     // DO NOT BREAK THE FLOOR OVER A HOLE.
     //
@@ -1717,7 +1813,12 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const tool = bestTool(bot, below)
     if (tool) await bot.equip(tool, 'hand').catch(() => {})
     if (!below.canHarvest(bot.heldItem?.type ?? null)) {
-      return { status: 'failed', detail: `need a better tool for ${below.name} at y=${Math.round(bot.entity.position.y)}` }
+      // `missing_tool` is what the classifier derived from the word "tool" in
+      // this string, and it is right. Stated here so it survives a rewording --
+      // and deliberately WITHOUT a gap, because adding one would change how the
+      // lessons store gates this class, which is not what this change is about.
+      return { status: 'failed', failClass: 'missing_tool',
+               detail: `need a better tool for ${below.name} at y=${Math.round(bot.entity.position.y)}` }
     }
     try { await bot.dig(below) } catch (e) { if (e.aborted) throw e; break }
     // Step sideways every few blocks so it is a staircase, not a shaft.
@@ -1733,16 +1834,37 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
 // --------------------------------------------------------------- sleep -----
 async function sleepSkill(ctx, _args, signal) {
   const { bot } = ctx
-  if (!isNightTime(bot)) return { status: 'failed', detail: 'can only sleep at night' }
+  if (!isNightTime(bot)) return { status: 'failed', failClass: 'other', detail: 'can only sleep at night' }
 
   let bed = bot.findBlock({ matching: b => bot.registry.blocks[b.type]?.name?.endsWith('_bed'), maxDistance: 32 })
   if (!bed) {
     const inBag = bot.inventory.items().find(i => i.name.endsWith('_bed'))
-    if (!inBag) return { status: 'failed', detail: 'no bed nearby and none in inventory' }
+    if (!inBag) {
+      return { status: 'failed', failClass: 'inventory',
+               detail: 'no bed nearby and none in inventory' }
+    }
     const placed = await place(ctx, { item: inBag.name }, signal)
-    if (placed.status !== 'success') return { status: 'failed', detail: `could not place bed: ${placed.detail}` }
+    // INHERIT THE CLASS FROM THE CALL THAT FAILED. This wrapped place()'s prose
+    // in its own and handed the result to classifyFailure, which saw "no solid
+    // block ... within reach", matched its no/within rule and returned
+    // `nothing_found` -- an EVIDENCE class. So a bot that could not put a bed
+    // down was recorded as having searched for one and found none, and the
+    // avoid rule that produced was about `sleep`. place() knew it was `no_space`
+    // all along.
+    if (placed.status !== 'success') {
+      return { status: 'failed', failClass: placed.failClass ?? 'other',
+               detail: `could not place bed: ${placed.detail}` }
+    }
     bed = bot.findBlock({ matching: b => bot.registry.blocks[b.type]?.name?.endsWith('_bed'), maxDistance: 8 })
-    if (!bed) return { status: 'failed', detail: 'placed a bed but cannot find it' }
+    // WE PUT ONE DOWN AND THEN COULD NOT SEE IT. That is a failed OBSERVATION,
+    // not a failed placement -- place() already read the block back out of the
+    // world before returning success, so the bed is there and findBlock is what
+    // came up empty. Reporting it as a failure of `sleep` would teach the fleet
+    // that sleeping does not work on the evidence of a lookup that missed.
+    if (!bed) {
+      return { status: 'unknown', failClass: 'unverified',
+               detail: 'placed a bed but cannot find it within 8 blocks — cannot confirm where it went' }
+    }
   }
 
   check(signal)
@@ -1752,7 +1874,12 @@ async function sleepSkill(ctx, _args, signal) {
     await bot.sleep(bed)
     return { status: 'success', detail: 'sleeping through the night' }
   } catch (e) {
-    return { status: 'failed', detail: `sleep failed: ${e.message}` }
+    // The 12s walk to the bed is our own budget, so its expiry says nothing
+    // about whether the bot could have got there -- same rule as goto's.
+    return e.budgetExceeded
+      ? { status: 'unknown', failClass: 'path_budget',
+          detail: `ran out of the 12s budget walking to the bed at ${bed.position.x},${bed.position.z}` }
+      : { status: 'failed', failClass: 'other', detail: `sleep failed: ${e.message}` }
   }
 }
 
@@ -2004,19 +2131,25 @@ async function surface(ctx, _args, signal) {
   // shape as goto's legs.
   const STEP_UP = 24
   const stageY = Math.min(SEA_LEVEL, Math.round(startY) + STEP_UP)
-  const routeExists = (moves) => {
+  // RETURN THE VERDICT, NOT A BOOLEAN. Collapsing the probe to true/false threw
+  // away the one distinction that matters here: `noPath` means A* expanded the
+  // whole reachable frontier and there is no way up, while `timeout` means we
+  // stopped it after 3s. Both used to arrive at `stranded`, which is a claim
+  // about the world made on the strength of a stopwatch.
+  const probe = (moves) => {
     try {
       const r = bot.pathfinder.getPathTo?.(moves, new goals.GoalY(stageY), 3000)
       // 'noPath' and 'timeout' still hand back a partial best-effort path, so
       // path.length is not the test -- only the status is.
-      return r?.status === 'success'
-    } catch { return false }
+      return r?.status ?? 'noPath'
+    } catch { return 'noPath' }
   }
 
   await settle(bot, signal).catch(() => {})
   check(signal)
 
-  if (routeExists(bot.pathfinder.movements)) {
+  const walkProbe = probe(bot.pathfinder.movements)
+  if (walkProbe === 'success') {
     // Walkable. Climb with the ordinary config and break nothing.
     let werr = null
     try {
@@ -2043,10 +2176,29 @@ async function surface(ctx, _args, signal) {
                      (werr ? ` (${String(werr.message).slice(0, 50)})` : '') }
   }
 
-  if (!routeExists(bot.ascentMovements)) {
-    // Neither config can reach the surface. Say so in one second instead of
-    // spending ninety proving it, and name it as being about THIS SPOT.
+  const digProbe = probe(bot.ascentMovements)
+  if (digProbe !== 'success') {
     const q = bot.entity.position
+    // A SEARCH WE CUT SHORT IS NOT A SEARCH THAT FAILED.
+    //
+    // `stranded` is an evidence class -- it reaches the lessons store and stops
+    // the bot proposing `surface` again -- so it may only be returned when the
+    // planner actually exhausted the space. Underground at y=-42 with digging
+    // allowed, almost every neighbour is a legal move and 3s of A* is routinely
+    // not enough to finish; that is precisely where the bot most needs to be
+    // allowed to try again. Scout01 and Gather02 were both told they were
+    // walled in on this evidence.
+    if (walkProbe === 'timeout' || digProbe === 'timeout') {
+      return {
+        status: 'unknown',
+        failClass: 'probe_timeout',
+        detail: `could not decide in 3s whether a route up from ` +
+                `${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} toward y=${stageY} exists — ` +
+                `the search was cut short, not exhausted; call again`,
+      }
+    }
+    // Both searches finished and neither found anything. Say so in one second
+    // instead of spending ninety proving it, and name it as being about THIS SPOT.
     return {
       status: 'failed',
       failClass: 'stranded',
@@ -2084,6 +2236,17 @@ async function surface(ctx, _args, signal) {
       gap: `at_y${Math.round(endY)}`,
       detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ` +
               `still ${Math.round(SEA_LEVEL - endY)} below sea level — call again to continue`,
+    }
+  }
+  // The 90s climb budget is ours. Blowing it after the probe said a route
+  // EXISTED means we ran out of time walking it, not that the bot is walled in
+  // -- and `stranded` is the class that stops it ever being tried again.
+  if (err?.budgetExceeded) {
+    return {
+      status: 'unknown',
+      failClass: 'path_budget',
+      detail: `climbed ${Math.round(climbed)} blocks in the 90s budget from y=${Math.round(startY)} ` +
+              `with a route the planner said existed — out of time, not out of options`,
     }
   }
   return {

@@ -308,10 +308,55 @@ export class Lessons {
     }
   }
 
-  recordSuccess(skill, args) {
+  /**
+   * Record that an action worked -- AND WHAT WAS OBSERVED THAT SAYS SO.
+   *
+   * `evidence` is not decoration and it is not optional. Every learning defect
+   * this file has produced was a conclusion recorded without one: `status`
+   * reinforced 115 times off a flag that was true by construction, `eat` on a
+   * full stomach reinforced 15 times in ten minutes, `mine {"y":71}` from y=68
+   * recorded as a win every 70 seconds while the bot moved zero blocks -- each
+   * one clearing the avoid rule that was the only thing that could have stopped
+   * it. In every case the calling code had already NOTICED (the mine livelock
+   * was logged as "skill returned cleanly but changed nothing" before this
+   * method was called anyway).
+   *
+   * So the check is not "detect the bad call afterwards", it is "make the bad
+   * call impossible to write". A caller with nothing to show cannot get past
+   * this line. Accepts what classifyOutcome() produces -- an array of measured
+   * clauses like ['inventory_gain: oak_log +3'] -- or a plain object of
+   * measurements, e.g. {inventory_gain: 3} or {distance_moved: 41}.
+   *
+   * @throws {TypeError} when no measurement is offered.
+   */
+  recordSuccess(skill, args, evidence) {
+    const observed = Array.isArray(evidence)
+      ? evidence.filter(x => x != null && String(x).length)
+      // A key present with a zero or null value is the SHAPE of evidence without
+      // the substance -- zero blocks moved is not a measurement that anything
+      // happened. Booleans are rejected outright, whatever their value: ADR-0003's
+      // first attempt at this was defeated by `delta.informed = true`, a flag the
+      // runner set to `skillName === 'status'`, which made every status call meet
+      // its contract and earned it 115 recorded wins. A flag is an assertion; a
+      // measurement is a number or a described observation.
+      : evidence && typeof evidence === 'object'
+        ? Object.entries(evidence)
+                .filter(([, v]) => v !== 0 && v != null && typeof v !== 'boolean')
+                .map(([kk, v]) => `${kk}: ${v}`)
+        : []
+    if (!observed.length) {
+      throw new TypeError(
+        `recordSuccess(${skill}) refused: a win must carry the observation that earned it ` +
+        `(got ${JSON.stringify(evidence ?? null)})`)
+    }
+
     const k = key(skill, args)
     const e = this.data.worked[k] ?? { skill, args, wins: 0 }
     e.wins++; e.last = Date.now()
+    // Kept so a stored win can be audited back to a number rather than taken on
+    // trust. Latest only -- this file is read on every decision and the counter
+    // is what the prompt renders, not this.
+    e.why = observed.slice(0, 3).join('; ').slice(0, 120)
     this.data.worked[k] = e
     // Success is evidence against an existing avoid rule, so weaken it rather
     // than letting one old failure suppress a now-working action forever.

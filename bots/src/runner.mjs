@@ -7,9 +7,9 @@
 // Handoff doc S12 wants watchdogs for: task running beyond expected duration,
 // repeated failure, and agent paused after repeated failures. All three live here.
 
-import { SKILLS } from './skills.mjs'
+import { SKILLS, SKILL_CONTRACTS, classifyOutcome } from './skills.mjs'
 import { logSkill, log } from './logger.mjs'
-import { snapshot, perception, biomeAt, classifyFailure, inventorySummary } from './state.mjs'
+import { snapshot, perception, biomeAt, inventorySummary } from './state.mjs'
 import { config } from './config.mjs'
 
 export class Runner {
@@ -51,7 +51,10 @@ export class Runner {
 
   async run(skillName, args = {}, { trigger = 'chat' } = {}) {
     const def = SKILLS[skillName]
-    if (!def) return { status: 'failed', detail: `unknown skill "${skillName}"` }
+    // These three refusals never ran anything, so they carry a class that says
+    // "the runner declined", not one that says anything about the world. Named
+    // rather than left blank because nothing downstream may guess any more.
+    if (!def) return { status: 'failed', failClass: 'unknown_skill', detail: `unknown skill "${skillName}"` }
 
     // The pause is a safety valve, not a trap. It was written for chat-driven
     // operation where a human types "resume" -- in autonomous mode there is no
@@ -65,12 +68,14 @@ export class Runner {
       } else {
         return {
           status: 'failed',
+          failClass: 'runner_paused',
           detail: `paused after repeated failures; ${Math.ceil((config.skills.pauseRecoveryMs - waited) / 1000)}s until auto-resume`,
         }
       }
     }
     if (this.current) {
-      return { status: 'failed', detail: `busy with ${this.current.skill}; send "stop" first` }
+      return { status: 'failed', failClass: 'runner_busy',
+               detail: `busy with ${this.current.skill}; send "stop" first` }
     }
 
     this.watchdog?.noteActivity()
@@ -93,28 +98,22 @@ export class Runner {
     try {
       result = await def.run({ bot: this.bot, runner: this }, args, controller.signal)
     } catch (e) {
+      // A SKILL THAT THREW STILL HAS TO SAY WHAT KIND OF FAILURE IT WAS, because
+      // nothing downstream is allowed to guess from the message any more. The
+      // two escapes that matter carry their own tags: withTimeout() marks our
+      // wall clock with budgetExceeded, and everything else is a genuine bug in
+      // the skill, which is its own class rather than an opinion about the world.
       result = e?.aborted
-        ? { status: 'aborted', detail: this.interruptedReason ?? 'aborted' }
-        : { status: 'failed', detail: e?.message ?? String(e) }
+        ? { status: 'aborted', failClass: 'interrupted',
+            detail: this.interruptedReason ?? 'aborted' }
+        : e?.budgetExceeded
+          ? { status: 'unknown', failClass: e.failClass ?? 'path_budget',
+              detail: e?.message ?? String(e) }
+          : { status: 'failed', failClass: e?.failClass ?? 'skill_error',
+              detail: e?.message ?? String(e) }
     } finally {
       clearTimeout(watchdog)
       try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
-    }
-
-    // Aborts are usually the reflex layer doing its job, so they must not
-    // count toward the failure budget -- otherwise a hostile mob pauses the bot.
-    if (result.status === 'failed') {
-      this.consecutiveFailures++
-      if (this.consecutiveFailures >= config.skills.maxConsecutiveFailures) {
-        this.paused = true
-        this.pausedAt = Date.now()
-        log('error', 'pausing after repeated failures', {
-          count: this.consecutiveFailures,
-          autoResumeInSec: Math.round(config.skills.pauseRecoveryMs / 1000),
-        })
-      }
-    } else if (result.status === 'success') {
-      this.consecutiveFailures = 0
     }
 
     // What actually changed as a result of running this skill. "gather returned
@@ -128,6 +127,79 @@ export class Runner {
     }
     const posAfter = this.bot.entity?.position
     const moved = posBefore && posAfter ? Math.round(posBefore.distanceTo(posAfter)) : undefined
+
+    const measured = {
+      inventory: Object.keys(delta).length ? delta : {},
+      distance: moved ?? 0,
+      health: (this.bot.health ?? 0) - (hpBefore ?? 0),
+      food: (this.bot.food ?? 0) - (foodBefore ?? 0),
+      // Taken from the skill's own verified count, never inferred. A skill
+      // that places blocks reads them back out of the world; a skill that
+      // does not simply omits the field and gets 0. The previous version
+      // guessed from the skill NAME and any inventory decrease, which is also
+      // true of eating, dropping, depositing and crafting.
+      placed: Number(result.placed ?? 0),
+    }
+
+    // THE EVIDENCE GATE. A claim of success does not leave this function unless
+    // the contract's expected change was actually measured.
+    //
+    // This check already existed -- one layer up, AFTER the fact, in
+    // cognitive.mjs -- and being downstream is exactly why it could not help.
+    // The cognitive layer detected the no-op, logged "skill returned cleanly but
+    // changed nothing", and then called recordSuccess() anyway, which cleared
+    // the avoid rule that was the only thing capable of breaking the loop.
+    // Scout02 rode that circuit every 70 seconds: `mine {"y":71}` from y=68,
+    // a skill whose loop it never entered, reporting "reached y=68". Four of six
+    // bots sat in that state with every health signal reading fine.
+    //
+    // Downgraded to `unknown`, NOT to `failed`. Nothing here shows the action is
+    // impossible -- only that this call achieved nothing observable -- and
+    // recording a failure would be the same overclaim in the other direction.
+    //
+    // Judged against a null `wanted` set: this asks the contract question ("did
+    // the durable change the skill exists for happen?") and not the milestone
+    // question ("was it the change we currently want?"). The second is the
+    // cognitive layer's to ask, and it must not be able to turn a real harvest
+    // into an unknown just because the milestone moved on.
+    const { because: contractEvidence } = classifyOutcome(skillName, result.status, measured, null)
+    if (result.status === 'success' && !contractEvidence.length) {
+      const expects = (SKILL_CONTRACTS[skillName]?.expects ?? []).join('|') || 'nothing'
+      log('warn', 'success downgraded to unknown: no contract evidence', {
+        skill: skillName, expects, detail: String(result.detail ?? '').slice(0, 80),
+      })
+      result = {
+        ...result,
+        status: 'unknown',
+        failClass: 'no_measurable_change',
+        detail: `${result.detail ?? ''} — but nothing changed that ${skillName} exists to change ` +
+                `(expected ${expects}); cannot tell whether it worked`,
+      }
+    }
+
+    // Aborts are usually the reflex layer doing its job, so they must not
+    // count toward the failure budget -- otherwise a hostile mob pauses the bot.
+    //
+    // `unknown` counts here alongside `failed`, and that is the deliberate line:
+    // everything TRANSIENT (this pause, the admission cooldown, the milestone
+    // attempt counter) treats a don't-know like a no, because all three exist to
+    // stop the bot repeating something that is going nowhere. Everything
+    // PERSISTENT -- the lessons store -- ignores it entirely, because those are
+    // beliefs and we did not observe anything. A success downgraded above is a
+    // no-op, and a no-op that resets the failure streak is how a livelock hides.
+    if (result.status === 'failed' || result.status === 'unknown') {
+      this.consecutiveFailures++
+      if (this.consecutiveFailures >= config.skills.maxConsecutiveFailures) {
+        this.paused = true
+        this.pausedAt = Date.now()
+        log('error', 'pausing after repeated failures', {
+          count: this.consecutiveFailures,
+          autoResumeInSec: Math.round(config.skills.pauseRecoveryMs / 1000),
+        })
+      }
+    } else if (result.status === 'success') {
+      this.consecutiveFailures = 0
+    }
 
     const snap = snapshot(this.bot)
     if (snap.game) snap.game.biome = biomeAt(this.bot)
@@ -143,14 +215,23 @@ export class Runner {
       // feeding that to a failure classifier put 396 non-failures into the
       // taxonomy, half of everything it had labelled `other`. A no-op is
       // already visible as skill.status; it is not a kind of failure.
-      // A skill that KNOWS why it failed says so. classifyFailure re-derives the
-      // cause by pattern-matching the prose we just wrote, which means the
-      // taxonomy is only ever as good as the wording -- and when goto's wording
-      // and its regex drifted apart, a fifth of all failures were filed under a
-      // cause the pathfinder had never reported. Explicit beats recovered;
-      // the classifier stays as the fallback for skills that say nothing.
-      failClass: (result.status === 'failed' || result.status === 'aborted')
-        ? (result.failClass ?? classifyFailure(result.detail))
+      // THE CLASSIFIER IS OFF THE LIVE WRITE PATH.
+      //
+      // classifyFailure re-derived the cause by pattern-matching the prose we
+      // had just written, so the taxonomy was only ever as good as the wording:
+      // "pathfinding exceeded 25000ms" matched its "no path" rule and OUR wall
+      // clock was recorded as "no route exists" 393 times in 16 hours, a verdict
+      // the pathfinder never once returned. A regex over a human-readable
+      // sentence is not an observation, and it must not be able to mint one.
+      //
+      // Every failed/unknown return in skills.mjs now states its own class --
+      // bots/test/evidence-gate.test.mjs scans the source and fails if one does
+      // not -- so there is nothing left for a fallback to recover. classifyFailure
+      // stays in state.mjs for reclassifying the 16h of history already in
+      // Elasticsearch, which is the one job a prose classifier is honest at.
+      failClass: (result.status === 'failed' || result.status === 'aborted' ||
+                  result.status === 'unknown')
+        ? (result.failClass ?? 'other')
         : undefined,
       perception: perception(this.bot),
     })
@@ -169,18 +250,13 @@ export class Runner {
     // inventory. ADR-0003.
     return {
       ...result,
-      delta: {
-        inventory: Object.keys(delta).length ? delta : {},
-        distance: moved ?? 0,
-        health: (this.bot.health ?? 0) - (hpBefore ?? 0),
-        food: (this.bot.food ?? 0) - (foodBefore ?? 0),
-        // Taken from the skill's own verified count, never inferred. A skill
-        // that places blocks reads them back out of the world; a skill that
-        // does not simply omits the field and gets 0. The previous version
-        // guessed from the skill NAME and any inventory decrease, which is also
-        // true of eating, dropping, depositing and crafting.
-        placed: Number(result.placed ?? 0),
-      },
+      delta: measured,
+      // The measurements that let this call through the gate above, carried
+      // forward so the thing that RECORDS the success has the observation in
+      // hand. lessons.recordSuccess() refuses to be called without it, which is
+      // what makes "a win with nothing behind it" unwritable rather than merely
+      // detectable. Empty for every status except `success`.
+      contractEvidence,
     }
   }
 

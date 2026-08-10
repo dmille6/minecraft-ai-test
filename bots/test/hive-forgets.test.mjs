@@ -43,7 +43,7 @@ if (act === 'fail') {
   const n = Number(process.env.N || 1)
   for (let i = 0; i < n; i++) l.recordFailure(skill, args, 'missing_ingredients', null, process.env.GAP || null)
 } else if (act === 'success') {
-  l.recordSuccess(skill, args)
+  l.recordSuccess(skill, args, ['inventory_gain: oak_planks +4'])
 } else if (act === 'gapmove') {
   l.recordFailure(skill, args, 'missing_ingredients', null, process.env.GAP)
 }

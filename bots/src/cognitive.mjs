@@ -15,7 +15,12 @@ import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from 
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
-import { snapshot, perception, biomeAt, classifyFailure } from './state.mjs'
+// classifyFailure is deliberately NOT imported. It regexes the prose a skill
+// wrote and hands back a taxonomy label, which is a guess wearing a
+// measurement's clothes -- it turned "pathfinding exceeded 25000ms" into
+// `no_path` 393 times. Skills state their own class now; see the scan in
+// bots/test/evidence-gate.test.mjs that keeps it that way.
+import { snapshot, perception, biomeAt } from './state.mjs'
 import { config } from './config.mjs'
 import { openLessons } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
@@ -302,7 +307,25 @@ export class CognitiveLoop {
       })
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
-      if (r.status === 'failed') {
+      // AN UNKNOWN THROTTLES BUT NEVER TEACHES.
+      //
+      // `unknown` is what a skill returns when a budget expired, an observation
+      // could not be made, or -- via the runner's evidence gate -- a success
+      // arrived with nothing measurable behind it. The cooldown still applies,
+      // because a decision that went nowhere is still a decision worth not
+      // repeating immediately, and it is transient in-memory state that expires
+      // on its own. The lessons store is not touched at all: it holds beliefs
+      // that persist across restarts and propagate through the hive, and there
+      // is nothing here to believe. This is the branch that would have kept
+      // "pathfinding exceeded 25000ms" from becoming 393 permanent records of
+      // "no route exists".
+      if (r.status === 'unknown') {
+        this.admission.noteFailure(admitted.skill, admitted.args)
+        log('info', 'outcome unknown: throttled, not learned', {
+          skill: admitted.skill, failClass: r.failClass ?? 'other',
+          detail: String(r.detail ?? '').slice(0, 80),
+        })
+      } else if (r.status === 'failed') {
         this.admission.noteFailure(admitted.skill, admitted.args)
         // Persist it, so the next RUN starts knowing this, not just the next
         // decision in this one.
@@ -316,7 +339,11 @@ export class CognitiveLoop {
         //
         // They are still logged, classified and visible in Kibana. They just do
         // not get a vote on what the bot is allowed to attempt next.
-        const fc = r.failClass ?? classifyFailure(r.detail)
+        // `?? 'other'` is a floor, not a fallback: `other` is in neither evidence
+        // set, so a skill that forgets to classify itself gets no vote at all.
+        // That is the safe direction, and the source scan in
+        // bots/test/evidence-gate.test.mjs means it should never fire.
+        const fc = r.failClass ?? 'other'
         if (EVIDENCE_ABOUT_THE_ACTION.has(fc)) {
           this.lessons.recordFailure(admitted.skill, admitted.args, fc, this.bot.entity?.position)
         } else if (EVIDENCE_ONLY_IF_STUCK.has(fc)) {
@@ -331,26 +358,24 @@ export class CognitiveLoop {
           })
         }
       } else if (r.status === 'success') {
-        // ADR-0003, finally implemented. Reward the skill only if the durable
-        // change it EXISTS FOR actually happened -- judged against the contract
-        // in SKILL_CONTRACTS, not against whether the call returned cleanly.
+        // ADR-0003. Reward the skill only if the durable change it EXISTS FOR
+        // actually happened -- judged against the contract in SKILL_CONTRACTS,
+        // not against whether the call returned cleanly.
         //
-        // Without this, `eat` on a full stomach and `status` were reinforced
-        // exactly like chopping a tree, and the fleet learned to do the safe
-        // thing that always works. A neutral outcome is recorded as neither win
-        // nor failure: the bot did nothing wrong, and it achieved nothing.
+        // THE CONTRACT CHECK NO LONGER LIVES HERE. It runs in the runner, before
+        // this layer is handed anything, and a success that could not show its
+        // contract's change never arrives as a success at all -- it arrives as
+        // `unknown` and is handled above. This branch used to do the detecting
+        // AND the recording, which meant it logged "skill returned cleanly but
+        // changed nothing" and then called recordSuccess() on the very next
+        // line. Detecting a thing you then do anyway is not a check.
+        //
+        // What is left here is the MILESTONE question, which is a different
+        // question and belongs at this altitude: was the change the one we
+        // currently want? That governs preference and hazards only.
         const { value, because } = classifyOutcome(
           admitted.skill, r.status, r.delta ?? {}, this.#wantedItems(milestone))
-        // The invariant. A reinforcing verdict has to name the measurement that
-        // earned it; if it cannot, the verdict was derived from something that
-        // is not evidence and must not be allowed to quietly train the fleet.
-        // This is the check that would have caught status-reinforced-115-times
-        // on the first firing rather than after a night of it.
-        if ((value === 'valuable' || value === 'costly') && !because.length) {
-          log('error', 'BUG: reinforcing verdict with no measurement behind it', {
-            skill: admitted.skill, value, delta: r.delta,
-          })
-        }
+
         // THE DISPROOF CHANNEL MUST BE AT LEAST AS WIDE AS THE ACCRUAL CHANNEL.
         //
         // Failures were recorded unconditionally; successes only when the gain
@@ -360,27 +385,22 @@ export class CognitiveLoop {
         // was blocking it. Accrual +1 per attempt against disproof +0 is not a
         // learning rule, it is a ratchet.
         //
-        // The skill met its contract. That is a fact about the action and it is
-        // the exact fact an avoid rule claims is false, so it clears the rule
-        // regardless of which milestone happened to be current. Preference --
-        // what the gate uses to make a bot KEENER -- stays gated on `valuable`.
-        if (value === 'neutral') {
-          this.lessons.recordSuccess(admitted.skill, admitted.args)
-        }
+        // So the win is recorded from the CONTRACT evidence the runner measured,
+        // not from the milestone-filtered verdict: the skill did the durable
+        // thing it exists for, which is exactly the fact an avoid rule claims is
+        // false, whichever milestone happened to be current. There is no longer
+        // a `neutral` branch calling recordSuccess -- there is one call, and it
+        // cannot be made without the measurement in hand.
+        this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
+
+        // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
         if (value === 'valuable') {
           this.admission.noteSuccess(admitted.skill, admitted.args)
-          this.lessons.recordSuccess(admitted.skill, admitted.args)
         } else if (value === 'costly') {
-          // The skill DID achieve its contract, so it is recorded as having
-          // worked -- refusing that would teach the fleet to avoid the only
-          // action that works in hard terrain. But it is not fed to the
-          // admission gate, which is what builds PREFERENCE: a win that costs
-          // health should not make the bot keener to repeat it.
-          //
-          // The cost attaches to the place, not the skill. Mining at y=39 is
-          // not a bad idea; mining at y=39 THERE is, and hazardsNear() is what
-          // the prompt layer reads back.
-          this.lessons.recordSuccess(admitted.skill, admitted.args)
+          // A win that costs health is not fed to the admission gate. The cost
+          // attaches to the place, not the skill: mining at y=39 is not a bad
+          // idea; mining at y=39 THERE is, and hazardsNear() is what the prompt
+          // layer reads back.
           this.lessons.recordHazard(`costly_${admitted.skill}`, this.bot.entity?.position)
           log('warn', 'skill met its contract but cost health', {
             skill: admitted.skill, hp: r.delta?.health, food: r.delta?.food,
@@ -392,10 +412,13 @@ export class CognitiveLoop {
         // lets it tell a real harvest from a call that returned cleanly.
         outcome = { status: r.status, detail: r.detail, value, because }
         if (value === 'neutral') {
-          log('info', 'skill returned cleanly but changed nothing', {
+          // Reaching here now means one specific thing: the contract WAS met and
+          // the gain was off the milestone's list. "Changed nothing" cannot get
+          // this far any more -- the runner turns it into `unknown`.
+          log('info', 'skill met its contract, off the current milestone', {
             skill: admitted.skill,
             expected: (SKILL_CONTRACTS[admitted.skill]?.expects ?? []).join('|') || 'nothing',
-            detail: String(r.detail ?? '').slice(0, 60),
+            measured: (r.contractEvidence ?? []).join('; ').slice(0, 80),
           })
         } else {
           log('info', `skill outcome ${value}`, { skill: admitted.skill, because })

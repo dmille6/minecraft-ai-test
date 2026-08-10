@@ -107,7 +107,7 @@ ok('success is disproof: it decrements the avoid rule', () => {
   const a = { item: 'stick' }
   for (let i = 0; i < 3; i++) L.recordFailure('craft', a, 'missing_ingredients', null, 'oak_planks')
   const before = count(L, 'craft', a)
-  L.recordSuccess('craft', a)
+  L.recordSuccess('craft', a, ['inventory_gain: stick +4'])
   assert.ok(count(L, 'craft', a) < before, 'a success that does not weaken the rule is not disproof')
 })
 
