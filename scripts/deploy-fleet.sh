@@ -91,13 +91,24 @@ ok "CODE_VERSION=$SHA RUN_ID=$RUN across $(ls "$H"/env/*.env | wc -l) env files"
 # ------------------------------------------------------------------ restart --
 # Paper throttles new connections; a tighter stagger gets bots rejected.
 say "Restart"
-# Everything before this instant is the OLD process talking. See Verify.
-T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 for u in "${LIVE[@]}"; do
   systemctl restart "mcbot@$u"
   ok "$u"
   sleep 6
 done
+# EVERYTHING BEFORE THIS INSTANT MAY BE THE OLD PROCESS TALKING.
+#
+# This mark used to be taken BEFORE the loop. Units restart one at a time with a
+# gap the server's connection throttle requires, so a unit restarted 40s in can
+# still be writing old-code records well after a fleet-wide start mark -- and a
+# skill finishing during SIGTERM writes one on its way out. That reported a
+# converged fleet as split on an otherwise clean deploy.
+#
+# Taken after the last restart, any record newer than this is unambiguously
+# from a new process. The cost is that an early-restarted bot may not have
+# spoken again yet, which the check below already reports as quiet rather than
+# as disagreement.
+T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 # ------------------------------------------------------------------- verify --
 # A deploy that cannot show convergence has not finished. `srcDigest` is the

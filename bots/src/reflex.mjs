@@ -183,7 +183,14 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4,
   //
   // `prevOxygen` is optional: without it this behaves exactly as before, which
   // keeps the pure function honest for callers that have no history.
-  if (prevOxygen != null && ox >= prevOxygen && !losingHealth) {
+  // A MARGIN, because the counter is noisy. Readings oscillate by one between
+  // ticks even on dry land, so "lower than the last sample" fires constantly:
+  // the first version of this gate left the rate at 1,881 escapes/hour because
+  // a 20 -> 19 flicker read as draining. `prevOxygen` is the recent PEAK, and
+  // real drowning falls away from it fast and keeps going, so a couple of units
+  // of slack costs nothing on the cases that matter.
+  const DRAIN_MARGIN = 2
+  if (prevOxygen != null && ox >= prevOxygen - DRAIN_MARGIN && !losingHealth) {
     return { losing: false, kind: null, act: 'none', suspect: true }
   }
 
@@ -338,7 +345,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // on land, so this converges within seconds of spawning and tells assessAir
   // which scale the server is actually using. See the note above assessAir.
   let airMax = 20
-  let prevOxygen = null
   const airSamples = []
   let escaping = false
   // Per-bot, not module-level: two bots entombed at once must not share a
@@ -432,8 +438,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         if (airSamples.length > 240) airSamples.shift()   // ~2 min at 500ms
         airMax = Math.max(20, ...airSamples)
       }
+      // The PEAK of the recent window, not the immediately previous tick -- one
+      // sample is noise, and what matters is whether the counter has fallen
+      // away from where it has been sitting.
+      const recent = airSamples.slice(-12)
+      const prevOxygen = recent.length ? Math.max(...recent) : null
       const air = assessAir(bot, { airMax, prevOxygen })
-      prevOxygen = bot.oxygenLevel ?? null
       // RELEASE THE BODY the moment breathing resumes, and say so. Without this
       // the bot would hold `jump` forever after surfacing, and -- more useful --
       // there was no positive signal anywhere: deaths were counted and rescues
