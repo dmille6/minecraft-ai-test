@@ -109,10 +109,35 @@ else
   SMOKE_ENV="MINECRAFT_HOST=$SMOKE_HOST MINECRAFT_PORT=${SMOKE_PORT:-25565} PROBE_NAME=${SMOKE_NAME:-SmokeProbe}"
   [ -n "${SMOKE_VERSION:-}" ] && SMOKE_ENV="$SMOKE_ENV MINECRAFT_VERSION=$SMOKE_VERSION"
   # The probe needs mineflayer, which lives with the harness -- prefer the lab host.
+  #
+  # IT MUST BE *THIS* COPY OF THE PROBE. The old destination was inside
+  # /srv/mcbots/harness, which is root-owned; scp as the login user failed with
+  # "Permission denied", the error was swallowed by 2>/dev/null, and the gate
+  # then ran whatever stale copy happened to be there. On 2026-08-10 that copy
+  # was two days old, so an entire evening of "live server movement: ok" was
+  # produced by code nobody had edited in two days -- including runs that were
+  # supposed to be verifying edits to the probe itself.
+  #
+  # Now: a writable directory, a node_modules symlink so imports resolve, no
+  # error suppression, and a checksum comparison so a silently-stale probe is
+  # impossible rather than merely unlikely.
   if [ -n "$NODE_HOST" ]; then
-    scp -q -i "$KEY" scripts/movement-smoke.mjs "$NODE_HOST:/srv/mcbots/harness/movement-smoke.mjs" 2>/dev/null
+    if ! scp -q -i "$KEY" scripts/movement-smoke.mjs "$NODE_HOST:/tmp/movement-smoke.mjs"; then
+      echo "  FAIL  could not copy the probe to $NODE_HOST"
+      FAILED+=("movement-smoke")
+      smoke=""
+    fi
+    want=$(md5 -q scripts/movement-smoke.mjs 2>/dev/null || md5sum scripts/movement-smoke.mjs | cut -d' ' -f1)
+    got=$(ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" 'md5sum /tmp/movement-smoke.mjs 2>/dev/null | cut -d" " -f1')
+    if [ "$want" != "$got" ]; then
+      echo "  FAIL  the probe on $NODE_HOST is not the one in this working tree"
+      FAILED+=("movement-smoke")
+      smoke=""
+    fi
     smoke=$(ssh -i "$KEY" -o BatchMode=yes "$NODE_HOST" \
-      "cd /srv/mcbots/harness && env $SMOKE_ENV node movement-smoke.mjs" 2>&1)
+      "mkdir -p /tmp/smoke && cp /tmp/movement-smoke.mjs /tmp/smoke/ && \
+       ln -sfn /srv/mcbots/harness/node_modules /tmp/smoke/node_modules && \
+       cd /tmp/smoke && env $SMOKE_ENV node movement-smoke.mjs" 2>&1)
   else
     smoke=$(env $SMOKE_ENV node scripts/movement-smoke.mjs 2>&1)
   fi

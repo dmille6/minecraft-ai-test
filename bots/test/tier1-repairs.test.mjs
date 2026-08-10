@@ -6,6 +6,7 @@ import assert from 'node:assert'
 import { createRequire } from 'node:module'
 import { SKILLS } from '../src/skills.mjs'
 
+
 const require_ = createRequire(import.meta.url)
 let pass = 0, fail = 0, skip = 0
 const t = (name, fn) => {
@@ -108,6 +109,65 @@ t('the milestone controller exposes allDone, and nothing reads chainComplete', (
     `chainComplete has never been defined; reading it compares undefined to ` +
     `undefined and the branch can never fire. Found in: ${offenders.join(', ')}`)
 })
+
+
+// --- SAY THE WRONG WORD, FIND NOTHING --------------------------------------
+//
+// `nothing_found` is our largest failure class (263 in one 5.9h run) and part
+// of it is vocabulary. The model asks for "coal"; the world has `coal_ore`.
+// Below y=0 every ore is the deepslate variant, so a bot at y=-42 asking for
+// iron_ore is asking for a block that does not exist at that depth.
+await (async () => {
+  const { SKILLS: S } = await import('../src/skills.mjs')
+  const mcData = require_('minecraft-data')('1.21.8')
+  const names = Object.keys(mcData.blocksByName)
+
+  t('the aliases we rely on exist in the installed data', () => {
+    for (const n of ['coal_ore', 'deepslate_coal_ore', 'iron_ore', 'deepslate_iron_ore', 'stone', 'gravel']) {
+      assert.ok(names.includes(n), `${n} must exist for the alias table to mean anything`)
+    }
+    assert.ok(!names.includes('coal'), '"coal" is an ITEM, not a block -- which is the whole bug')
+    assert.ok(!names.includes('cobblestone_ore'))
+  })
+
+  const gatherOn = async (blockName, y) => {
+    let detail = null
+    const bot = {
+      entity: { position: { x: 0, y, z: 0, offset: () => ({ x: 0, y, z: 0 }) } },
+      registry: { blocksByName: mcData.blocksByName, blocks: mcData.blocks },
+      inventory: { items: () => [] },
+      findBlocks: () => [],
+      blockAt: () => ({ name: 'stone', boundingBox: 'block' }),
+      pathfinder: { movements: {}, async goto() {} },
+      collectBlock: { movements: {} },
+    }
+    const r = await S.gather.run({ bot }, { block: blockName, count: 1 }, new AbortController().signal)
+    detail = r.detail
+    return { r, detail }
+  }
+
+  t('"coal" resolves to coal_ore instead of being rejected as unknown', async () => {
+    const { r } = await gatherOn('coal', 70)
+    assert.notEqual(r.failClass, 'unknown_block', `should have resolved: ${r.detail}`)
+    assert.match(r.detail, /coal_ore/, r.detail)
+  })
+
+  t('the rename is REPORTED, so the model learns the right word', async () => {
+    const { r } = await gatherOn('coal', 70)
+    assert.match(r.detail, /read coal as/, `the model must be told what we did: ${r.detail}`)
+  })
+
+  t('below y=0 an ore request becomes its deepslate variant', async () => {
+    const { r } = await gatherOn('iron_ore', -42)
+    assert.match(r.detail, /deepslate_iron_ore/, r.detail)
+    assert.match(r.detail, /below y=0/, r.detail)
+  })
+
+  t('a genuinely unknown name is still refused', async () => {
+    const { r } = await gatherOn('unobtanium', 70)
+    assert.equal(r.failClass, 'unknown_block', r.detail)
+  })
+})()
 
 console.log(`  ${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''}`)
 process.exit(fail ? 1 : 0)

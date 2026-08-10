@@ -421,11 +421,58 @@ async function descendToGround(ctx, signal) {
 //
 // 32 is also just a better plan. A bot walking 96 blocks to fetch one block was
 // never going to finish inside the skill watchdog anyway.
+// SAY THE WRONG WORD, FIND NOTHING.
+//
+// `nothing_found` is our single largest failure class -- 263 in one 5.9-hour
+// run -- and a share of it is vocabulary, not scarcity. The model asks for
+// "coal" and the world contains `coal_ore`; it asks for "cobblestone" while
+// standing on `stone`, which is what drops cobblestone when mined; and below
+// y=0 every ore is the `deepslate_` variant, so a bot at y=-42 asking for
+// `iron_ore` is asking for a block that does not exist at that depth.
+//
+// Resolution is ordered and each step is reported, because "we found it under a
+// different name" is a different fact from "we found what you asked for", and
+// the lessons store should not learn that the original name worked.
+function resolveBlockName(bot, name) {
+  const has = n => bot.registry.blocksByName[n] ? n : null
+  const direct = has(name)
+  if (direct) return { name: direct, via: null }
+  for (const alt of [`${name}_ore`, `deepslate_${name}_ore`, `${name}_block`, `${name}_log`]) {
+    const hit = has(alt)
+    if (hit) return { name: hit, via: `${name} -> ${hit}` }
+  }
+  // Things whose block name is not the item name they yield.
+  const YIELDS = { cobblestone: 'stone', cobbled_deepslate: 'deepslate', flint: 'gravel' }
+  const y = YIELDS[name] && has(YIELDS[name])
+  if (y) return { name: y, via: `${name} is mined from ${y}` }
+  return { name: null, via: null }
+}
+
+/** Below y=0 an ore only exists as its deepslate variant. */
+function depthVariant(bot, name, y) {
+  if (y >= 0 || name.startsWith('deepslate_')) return null
+  const d = `deepslate_${name}`
+  return bot.registry.blocksByName[d] ? d : null
+}
+
 async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
   maxDistance = Math.min(Number(maxDistance) || 32, 48)   // callers cannot opt back into the blowup
   const { bot } = ctx
+  const asked = blockName
+  const resolved = resolveBlockName(bot, blockName)
+  if (!resolved.name) {
+    return { status: 'failed', failClass: 'unknown_block',
+             detail: `unknown block "${blockName}" — no block by that name, and no ore, ` +
+                     `block or log variant of it either` }
+  }
+  let renamed = resolved.via
+  blockName = resolved.name
+  const deep = depthVariant(bot, blockName, bot.entity?.position?.y ?? 64)
+  if (deep) {
+    renamed = `${renamed ? renamed + '; ' : ''}below y=0, so ${blockName} -> ${deep}`
+    blockName = deep
+  }
   const type = bot.registry.blocksByName[blockName]
-  if (!type) return { status: 'failed', detail: `unknown block "${blockName}"` }
 
   await descendToGround(ctx, signal).catch(() => {})
   check(signal)
@@ -445,7 +492,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     if (positions.length === 0) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
-        : { status: 'failed', detail: `no ${blockName} within ${maxDistance} blocks` +
+        : { status: 'failed', failClass: 'nothing_found',
+            detail: `no ${blockName} within ${maxDistance} blocks` +
+              (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') +
               belowGroundHint(bot) }
     }
 
@@ -1493,6 +1542,27 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     if (!below) break
     if (below.name === 'lava' || below.name === 'water') {
       return { status: 'failed', detail: `stopped at y=${Math.round(bot.entity.position.y)}: ${below.name} below` }
+    }
+    // DO NOT BREAK THE FLOOR OVER A HOLE.
+    //
+    // This checked exactly one block down, so a staircase that breaks into a
+    // cave roof dropped the bot however far the cave happened to be deep. Our
+    // death bucketing has a `fall` class and tracks peak height precisely
+    // because this keeps happening, and the reflex layer has no fall handling
+    // at all -- maxDropDown=6 governs the PATHFINDER, not our own digging.
+    let hollow = 0
+    for (let d = 2; d <= 4; d++) {
+      const b = bot.blockAt(bot.entity.position.offset(0, -d, 0))
+      if (!b || b.name === 'air' || b.name === 'cave_air' || b.boundingBox === 'empty') hollow++
+      else break
+    }
+    if (hollow >= 3) {
+      return {
+        status: 'failed', failClass: 'void_below',
+        gap: `at_y${Math.round(bot.entity.position.y)}`,
+        detail: `stopped at y=${Math.round(bot.entity.position.y)}: open space at least ` +
+                `${hollow + 1} blocks deep under this floor — breaking it would be a fall, not a step`,
+      }
     }
     if (below.name === 'air') { await sleep(300, signal); continue }
     const tool = bestTool(bot, below)
