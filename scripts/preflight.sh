@@ -95,7 +95,18 @@ say "  ---- live server movement (opt-in) ----"
 if [ -z "${SMOKE_HOST:-}" ]; then
   say "  skipped -- set SMOKE_HOST=<addr> to gate on a live server"
 else
-  SMOKE_ENV="MINECRAFT_HOST=$SMOKE_HOST MINECRAFT_PORT=${SMOKE_PORT:-25565} PROBE_NAME=${SMOKE_NAME:-Hive02}"
+  # THE PROBE MUST NOT BORROW A FLEET MEMBER'S NAME.
+  #
+  # This defaulted to Hive02. Minecraft permits one session per name, so every
+  # preflight run logged in as Hive02 and the server kicked the real bot off
+  # with duplicate_login. It went unnoticed for as long as it did because Hive02
+  # happened to be stopped -- the shared arm had been dark since Aug 8 -- so the
+  # name was genuinely free. Restarting that arm turned a silent collision into
+  # a visible one, and the failure surfaced as `write EPIPE` in the probe.
+  #
+  # A gate that only works while part of the fleet is down is not a gate.
+  # SmokeProbe belongs to nothing and is whitelisted on the server.
+  SMOKE_ENV="MINECRAFT_HOST=$SMOKE_HOST MINECRAFT_PORT=${SMOKE_PORT:-25565} PROBE_NAME=${SMOKE_NAME:-SmokeProbe}"
   [ -n "${SMOKE_VERSION:-}" ] && SMOKE_ENV="$SMOKE_ENV MINECRAFT_VERSION=$SMOKE_VERSION"
   # The probe needs mineflayer, which lives with the harness -- prefer the lab host.
   if [ -n "$NODE_HOST" ]; then

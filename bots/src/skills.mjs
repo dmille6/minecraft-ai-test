@@ -1697,6 +1697,72 @@ async function surface(ctx, _args, signal) {
              detail: 'ascent movements unavailable on this bot' }
   }
 
+  // PROBE BEFORE DIGGING.
+  //
+  // Borrowed from mindcraft (src/agent/library/skills.js), which asks the
+  // planner whether a route exists non-destructively before it allows itself to
+  // break anything. The first version of this skill handed the bot a
+  // dig-capable config unconditionally and let A* sort it out, which conflates
+  // two different situations:
+  //
+  //   walled in   no route exists without digging   -> digging is the remedy
+  //   unwilling   a walkable route exists           -> digging is vandalism
+  //
+  // Digging changes the world permanently and this project's entire navigation
+  // stance is canDig=false, so taking the destructive branch when the ordinary
+  // one would have worked is a real cost. A 1s probe is far cheaper than the
+  // 90s climb it decides.
+  const routeExists = (moves) => {
+    try {
+      const r = bot.pathfinder.getPathTo?.(moves, new goals.GoalY(SEA_LEVEL), 1000)
+      // 'noPath' and 'timeout' still hand back a partial best-effort path, so
+      // path.length is not the test -- only the status is.
+      return r?.status === 'success'
+    } catch { return false }
+  }
+
+  check(signal)
+
+  if (routeExists(bot.pathfinder.movements)) {
+    // Walkable. Climb with the ordinary config and break nothing.
+    let werr = null
+    try {
+      await withTimeout(bot.pathfinder.goto(new goals.GoalY(SEA_LEVEL)), 90000, bot)
+    } catch (e) {
+      if (e.aborted || signal?.aborted) throw e
+      werr = e
+    }
+    const y2 = bot.entity.position.y
+    if (y2 >= SEA_LEVEL) {
+      return { status: 'success',
+               detail: `walked up ${Math.round(y2 - startY)} blocks to y=${Math.round(y2)} without digging` }
+    }
+    if (y2 - startY >= 4) {
+      return { status: 'failed', failClass: 'travel_incomplete', gap: `at_y${Math.round(y2)}`,
+               detail: `walked up ${Math.round(y2 - startY)} blocks to y=${Math.round(y2)}, ` +
+                       `still ${Math.round(SEA_LEVEL - y2)} below sea level — call again to continue` }
+    }
+    // The planner said there was a route and the bot did not take it. That is
+    // the empty-path resolve or a traversal stall, not a walled-in bot, and it
+    // must not be relabelled as one.
+    return { status: 'failed', failClass: 'path_interrupted', gap: `at_y${Math.round(y2)}`,
+             detail: `a walkable route to the surface existed but the bot did not follow it` +
+                     (werr ? ` (${String(werr.message).slice(0, 50)})` : '') }
+  }
+
+  if (!routeExists(bot.ascentMovements)) {
+    // Neither config can reach the surface. Say so in one second instead of
+    // spending ninety proving it, and name it as being about THIS SPOT.
+    const q = bot.entity.position
+    return {
+      status: 'failed',
+      failClass: 'stranded',
+      gap: `stranded_y${Math.round(q.y)}`,
+      detail: `no route to the surface from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
+              `even with digging allowed — enclosed, or every way up is beside water`,
+    }
+  }
+
   check(signal)
   let err = null
   await bot.withAscentMovements(async () => {

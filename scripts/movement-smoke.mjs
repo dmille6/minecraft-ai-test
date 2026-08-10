@@ -36,7 +36,18 @@ const { pathfinder, Movements, goals } = pathfinderPkg
 const HOST = process.env.MINECRAFT_HOST
 const PORT = Number(process.env.MINECRAFT_PORT || 25565)
 const VERSION = process.env.MINECRAFT_VERSION || undefined
-const NAME = process.env.PROBE_NAME || 'Scout01'
+// A NAME NO REAL BOT USES.
+//
+// This defaulted to 'Scout01', which is a live fleet member. Minecraft allows
+// one session per name, so every preflight run logged in as Scout01 and the
+// server kicked the actual bot off with duplicate_login -- silently, from the
+// test's point of view, since the probe then measured its own movement and
+// passed. Tonight the race went the other way and the probe was the one kicked,
+// which is the only reason it was ever noticed.
+//
+// The probe must be able to join without displacing anything, so it gets its
+// own name. It has to be whitelisted on the server like any other player.
+const NAME = process.env.PROBE_NAME || 'SmokeProbe'
 const WALK_MS = Number(process.env.SMOKE_WALK_MS || 45000)
 const GOAL_DIST = Number(process.env.SMOKE_GOAL_DIST || 30)
 const MIN_TRAVEL = Number(process.env.SMOKE_MIN_TRAVEL || 12)

@@ -192,6 +192,10 @@ function connect() {
     ascendMoves.dontCreateFlow = true
     ascendMoves.allowParkour = false
     ascendMoves.maxDropDown = 6
+    // Exposed so a skill can PROBE with it (getPathTo is read-only) without
+    // installing it. Only index.mjs may call setMovements; asking "could I get
+    // there if I were allowed to dig?" is a different question from digging.
+    bot.ascentMovements = ascendMoves
     bot.withAscentMovements = async (fn) => {
       bot.pathfinder.setMovements(ascendMoves)
       try { return await fn() }
