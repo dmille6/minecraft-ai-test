@@ -211,6 +211,51 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4,
 }
 
 /**
+ * MAY THIS DETECTION TOUCH THE BODY?
+ *
+ * Detection and consequence are different questions and tonight proved they
+ * need different bars. Three attempts to tune the DETECTOR each failed
+ * differently -- 2278/hr, then 1881, then 344-524, then 2086 when a "better"
+ * split let head=water fire at full air -- because the input cannot be made
+ * reliable: bot.oxygenLevel arrives on two scales intermittently (bubbles 0-20
+ * and ticks up to 400), so any absolute threshold, peak or median can be
+ * poisoned by a sample from the other scale.
+ *
+ * So stop trying. Detection may stay noisy and keep logging, because a log line
+ * costs nothing. What must NOT happen on a bad reading is the expensive part:
+ * runner.interrupt() cancels the running skill and seizeBody() clears every
+ * control state, which stops a walking bot mid-stride. That coupling is why
+ * goto sat between 3% and 9% all night while the bots were physically fine.
+ *
+ * Two forms of evidence a unit artefact cannot fake:
+ *
+ *   HEALTH FELL SINCE THE LAST SAMPLE. Note "since the last sample", not
+ *   "below maximum" -- a bot that took fall damage an hour ago and has not
+ *   regenerated would otherwise satisfy the gate forever.
+ *
+ *   OXYGEN IS MONOTONE NON-INCREASING with at least one real decrease across
+ *   the recent samples. A genuine drain looks like [20,19,19,18]: plateaus are
+ *   expected, because the reflex ticks at 500ms and Minecraft drains about one
+ *   unit per second. Scale alternation looks like [400,20,400,20] -- it goes
+ *   back UP, which draining air never does.
+ */
+export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousHealth = null } = {}) {
+  if (!air?.losing) return false
+
+  const h = bot?.health
+  if (h != null && previousHealth != null && h < previousHealth) return true
+
+  const s = (oxygenSamples ?? []).filter(v => typeof v === 'number')
+  if (s.length < 2) return false
+  let down = 0
+  for (let i = 1; i < s.length; i++) {
+    if (s[i] > s[i - 1]) return false        // it went back up: not a drain
+    if (s[i] < s[i - 1]) down++
+  }
+  return down > 0
+}
+
+/**
  * WHERE IS THE NEAREST AIR, AND CAN THE BOT REACH IT?
  *
  * The drowning rescue held `jump` and nothing else, which swims a bot straight
@@ -345,6 +390,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // on land, so this converges within seconds of spawning and tells assessAir
   // which scale the server is actually using. See the note above assessAir.
   let airMax = 20
+  let prevHealth = null
   const airSamples = []
   let escaping = false
   // Per-bot, not module-level: two bots entombed at once must not share a
@@ -458,6 +504,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           snapshot: snapshot(bot),
         })
       }
+      // Detection is allowed to be noisy; the BODY is not.
+      const mayAct = airConsequenceEvidence(bot, air, {
+        oxygenSamples: airSamples.slice(-6),
+        previousHealth: prevHealth,
+      })
+      prevHealth = bot.health ?? prevHealth
+
       if (air.losing) {
         if (throttled('oxygen', 8000) && !lowOxygenLatched) {
           lowOxygenLatched = true
@@ -466,15 +519,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           })
           shareHazard(air.kind, bot.entity?.position)
           logEvent({
-            kind: `reflex_${air.kind}`,
+            // A distinct kind when we are only OBSERVING, so the two can be
+            // told apart in telemetry instead of inflating the same counter.
+            kind: mayAct ? `reflex_${air.kind}` : `air_${air.kind}_observed`,
             detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}, health ${bot.health}`,
             snapshot: snapshot(bot),
           })
-          runner.interrupt(air.kind)
+          if (mayAct) runner.interrupt(air.kind)
         }
         // Unconditional: not latched, not throttled. Drowning damage lands about
         // once a second, so an 8s gate is a death sentence.
-        if (air.act === 'swim') {
+        if (mayAct && air.act === 'swim') {
           const route = breathableRoute(bot)
           // SEIZE ONCE. Taking the body means clearing every control state, so
           // doing it per tick destroys the stroke the previous tick started.

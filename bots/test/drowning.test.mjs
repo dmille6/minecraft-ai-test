@@ -18,7 +18,7 @@
  * argument for this file existing.
  */
 import assert from 'node:assert'
-import { assessAir, isEntombedForTest } from '../src/reflex.mjs'
+import { airConsequenceEvidence, assessAir, isEntombedForTest } from '../src/reflex.mjs'
 import {
   makeBot, V, ocean, oceanWithStaleChunks, entombed, plain, shaft,
 } from './helpers/microworld.mjs'
@@ -216,6 +216,60 @@ ok('no history means no trend gate -- the pure function stays honest', () => {
   }
   assert.equal(assessAir(bot, { airMax: 40 }).losing, true,
     'a caller with no previous reading gets the old, cautious behaviour')
+})
+
+
+// --- DETECTION MAY BE NOISY; THE BODY MAY NOT --------------------------------
+//
+// Three attempts to tune the DETECTOR failed differently tonight -- 2278/hr,
+// 1881, 344-524, then 2086 when a "better" split let head=water fire at full
+// air. The input cannot be made reliable: oxygenLevel arrives on two scales
+// intermittently, so any threshold, peak or median can be poisoned.
+//
+// What must not happen on a bad reading is the expensive part. interrupt()
+// cancels the running skill and seizeBody() clears every control state, which
+// stops a walking bot mid-stride -- which is why goto sat between 3% and 9%
+// all night while the bots were physically fine.
+const DROWNING = { losing: true, kind: 'drowning', act: 'swim', suspect: false }
+
+ok('scale alternation is detected but must not touch the body', () => {
+  // [400,20,400,20] is the unit artefact. It goes back UP, which draining air
+  // never does.
+  assert.equal(
+    airConsequenceEvidence({ health: 20 }, DROWNING,
+      { oxygenSamples: [400, 20, 400, 20], previousHealth: 20 }),
+    false, 'a bot at full air must keep walking')
+})
+
+ok('a real drain acts, and tolerates plateaus', () => {
+  // The reflex ticks at 500ms and Minecraft drains about one unit per second,
+  // so duplicate readings are expected. Requiring a STRICT monotone decrease
+  // every tick would never fire on a genuine drowning.
+  assert.equal(
+    airConsequenceEvidence({ health: 20 }, DROWNING,
+      { oxygenSamples: [20, 19, 19, 18], previousHealth: 20 }),
+    true, 'non-increasing with a real decrease is a drain')
+})
+
+ok('health evidence is a DELTA, not a level', () => {
+  // `health < maxHealth` would be satisfied forever by a bot that took fall
+  // damage an hour ago and never regenerated -- which is most bots, most of
+  // the time, and would leak the gate wide open.
+  assert.equal(
+    airConsequenceEvidence({ health: 16 }, DROWNING,
+      { oxygenSamples: [400, 20, 400, 20], previousHealth: 16 }),
+    false, 'old damage is not evidence of drowning now')
+  assert.equal(
+    airConsequenceEvidence({ health: 15 }, DROWNING,
+      { oxygenSamples: [400, 20, 400, 20], previousHealth: 16 }),
+    true, 'losing a heart RIGHT NOW is')
+})
+
+ok('no detection means no consequence, whatever the samples say', () => {
+  assert.equal(
+    airConsequenceEvidence({ health: 20 }, { losing: false },
+      { oxygenSamples: [20, 19, 18], previousHealth: 20 }),
+    false)
 })
 
 console.log(`\n${n} passed`)
