@@ -306,8 +306,13 @@ export function openWorldFacts() {
   // and shared both keep the single shared file, which is what every run to
   // date has used: a deposit one bot finds is already visible to all, recorded
   // with a `by: [Scout01, Scout02]` array.
+  // ...and `private` and `shared` now share it WITHIN A POOL rather than
+  // globally. The old single world-facts.json was read by every non-isolated
+  // bot in the fleet, so a deposit found by a hive bot was already visible to
+  // the private arm: two arms that were never independent, and no amount of
+  // careful lesson-scoping could have made them so. See config.memory.
   const file = config.memory.scope === 'isolated'
     ? FILE.replace(/\.json$/, `-${config.bot.name}.json`)
-    : FILE
+    : FILE.replace(/\.json$/, `-${config.memory.pool}.json`)
   return new WorldFacts(path.join(config.log.stateDir, file))
 }

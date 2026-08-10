@@ -17,7 +17,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.mjs'
-import { log } from './logger.mjs'
+import { log, logEvent } from './logger.mjs'
 import { actionKey } from './skills.mjs'
 
 const SCHEMA = 1
@@ -361,6 +361,41 @@ export class Lessons {
     // Success is evidence against an existing avoid rule, so weaken it rather
     // than letting one old failure suppress a now-working action forever.
     if (this.data.avoid[k]) {
+      // A CONTRADICTED RULE IS THE ONLY OBJECTIVE FALSITY SIGNAL THIS SYSTEM
+      // GETS FOR FREE, and it was being applied silently.
+      //
+      // recordSuccess refuses to run without a measurement, so reaching this
+      // line means a stored avoidance has just been disproved by evidence --
+      // an adjudication, at no labelling cost. The rule was weakened here and
+      // nothing recorded that it had ever been wrong, so "how long did a false
+      // belief suppress behaviour, and who corrected it" was unanswerable.
+      //
+      // `reporters` decides the interesting half. A bot disproving its own rule
+      // is ordinary learning. A bot disproving a rule it INHERITED and never
+      // tested is the hive being wrong and then being rescued by a peer -- both
+      // halves of the hypothesis, in one event.
+      //
+      // HONEST LIMIT: this can only ever see rules that something went on to
+      // test. A rule that is false AND successfully deterred every attempt is
+      // never contradicted and never appears here. That silence is `unknown`,
+      // not evidence the rule was right, and any analysis that counts
+      // contradictions as "all the false rules" will understate exactly the
+      // beliefs that did the most damage.
+      const a = this.data.avoid[k]
+      const stoodSince = a.since ?? a.last ?? null
+      const reporters = Array.isArray(a.reporters) ? a.reporters : []
+      logEvent({
+        kind: 'rule_contradicted',
+        status: 'failed',          // the RULE failed, not the action
+        detail:
+          `${k} disproved after ${a.fails ?? 0} recorded failure(s)` +
+          (stoodSince ? `, stood ${Math.round((Date.now() - stoodSince) / 60000)}m` : '') +
+          `; reporters=${reporters.join('+') || '-'}` +
+          `; ${reporters.length && !reporters.includes(config.bot.name)
+                ? 'CORRECTED BY A BOT THAT NEVER OBSERVED THE FAILURE'
+                : 'self-corrected'}` +
+          `; evidence=${observed.slice(0, 2).join('; ').slice(0, 80)}`,
+      })
       this.data.avoid[k].fails--
       if (this.data.avoid[k].fails <= 0) delete this.data.avoid[k]
       // Disproof is the strongest reason to forget, so it must outrank a peer's
@@ -623,10 +658,13 @@ let instance = null
 
 export function openLessons() {
   if (instance) return instance
-  // MEMORY_SCOPE=shared puts every bot on one file; isolated and private both
-  // keep a bot's failures to itself. See config.memory for what each means.
+  // MEMORY_SCOPE=shared pools failures; isolated and private keep them to the
+  // bot. WITH WHOM they are pooled is MEMORY_POOL -- see config.memory. This
+  // was a single hardcoded 'lessons-hive.json', which meant every shared bot in
+  // the fleet was one experimental unit and the arm could never be replicated.
   const shared = config.memory.scope === 'shared'
-  const name = shared ? 'lessons-hive.json' : `lessons-${config.bot.name}.json`
+  const name = shared ? `lessons-${config.memory.pool}.json`
+                      : `lessons-${config.bot.name}.json`
   instance = new Lessons(path.join(config.log.stateDir, name), shared)
   return instance
 }

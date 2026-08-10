@@ -40,10 +40,10 @@ l.save()
 openWorldFacts().reportResource('coal_ore', { x: 5, y: 40, z: 5 })
 `)
 
-function run(scope, bot, skill, args) {
+function run(scope, bot, skill, args, pool = 'hive') {
   execFileSync(process.execPath, [DRIVER], {
-    env: { ...process.env, MEMORY_SCOPE: scope, BOT_NAME: bot, STATE_DIR: dir,
-           LOG_DIR: dir, SKILL: skill, ARGS: JSON.stringify(args) },
+    env: { ...process.env, MEMORY_SCOPE: scope, MEMORY_POOL: pool, BOT_NAME: bot,
+           STATE_DIR: dir, LOG_DIR: dir, SKILL: skill, ARGS: JSON.stringify(args) },
     stdio: 'pipe',
   })
 }
@@ -52,7 +52,10 @@ const has = f => fs.existsSync(path.join(dir, f))
 console.log('each scope puts state where it belongs')
 run('private', 'Scout01', 'goto', { x: 1 })
 t('private  -> lessons-Scout01.json', has('lessons-Scout01.json'), true)
-t('private  -> shared world-facts.json', has('world-facts.json'), true)
+// Was `world-facts.json`, one global file for every non-isolated bot in the
+// fleet -- so the private arm and the shared arm read the same world model and
+// were never independent. Shared WITHIN A POOL now.
+t('private  -> pooled world-facts-hive.json', has('world-facts-hive.json'), true)
 
 run('isolated', 'Scout02', 'goto', { x: 2 })
 t('isolated -> lessons-Scout02.json', has('lessons-Scout02.json'), true)
@@ -89,6 +92,47 @@ t('a hive accumulates across bots',          both?.fails, 2)
 console.log('\nisolation really isolates')
 t('isolated bot did not write the shared world model',
   !has('world-facts-Scout01.json'), true)
+
+// --- MEMORY_POOL: the unit of sharing, and therefore the unit of the study ---
+//
+// Scope says WHAT is shared and could never say WITH WHOM. Every shared bot
+// wrote one lessons-hive.json, so the shared arm was a single observation no
+// matter how many bots ran in it: a fourth hive bot bought more sampling inside
+// the unit and zero replication between units. An experiment cannot compare
+// arms when the arm it cares about has n=1.
+//
+// Two pools must not be able to see each other, or "independent replicate" is
+// just a label on the same file.
+console.log('\npools are independent memories')
+run('shared', 'HiveA1', 'mine', { block: 'iron_ore' }, 'alpha')
+run('shared', 'HiveB1', 'craft', { item: 'stick' },    'beta')
+t('pool alpha has its own lessons file', has('lessons-alpha.json'), true)
+t('pool beta has its own lessons file',  has('lessons-beta.json'), true)
+
+const alpha = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-alpha.json'), 'utf8'))
+const beta  = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-beta.json'), 'utf8'))
+t('alpha holds only its own rule',
+  Object.keys(alpha.avoid ?? {}).some(k => k.startsWith('mine')) &&
+  !Object.keys(alpha.avoid ?? {}).some(k => k.startsWith('craft')), true)
+t("beta never saw alpha's failure",
+  !Object.keys(beta.avoid ?? {}).some(k => k.startsWith('mine')), true)
+
+// World facts too. Pooling lessons while leaving one global world model would
+// leak the discovery half of the treatment between arms, which is exactly the
+// bug this replaced.
+t('pool alpha has its own world model', has('world-facts-alpha.json'), true)
+t('pool beta has its own world model',  has('world-facts-beta.json'), true)
+
+// A pool is a boundary, not a scope: two bots in the SAME pool still share.
+run('shared', 'HiveA2', 'goto', { x: 7 }, 'alpha')
+const alpha2 = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-alpha.json'), 'utf8'))
+t('same-pool bots still accumulate together',
+  Object.keys(alpha2.avoid ?? {}).length >= 2, true)
+
+// isolated ignores the pool entirely -- it is isolation, not a pool of one.
+run('isolated', 'LoneWolf', 'gather', { block: 'sand' }, 'alpha')
+t('isolated ignores MEMORY_POOL for lessons', has('lessons-LoneWolf.json'), true)
+t('isolated ignores MEMORY_POOL for world facts', has('world-facts-LoneWolf.json'), true)
 
 fs.rmSync(dir, { recursive: true, force: true })
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -81,7 +81,23 @@ export const config = {
   // that existed anywhere was a hardcoded dict in scripts/lib/ab_report.py,
   // which is the same defect as reading a success rate without knowing what it
   // was measuring: the label lived outside the data.
-  memory: { scope: req('MEMORY_SCOPE', 'private') },
+  // THE POOL IS THE EXPERIMENTAL UNIT, AND THE SCOPE IS NOT.
+  //
+  // MEMORY_SCOPE says WHAT is shared. It cannot say WITH WHOM, and that
+  // omission put the whole design on one observation. Every `shared` bot wrote
+  // one lessons-hive.json, so the shared arm was n=1 no matter how many bots
+  // ran in it -- adding a fourth hive bot bought more sampling INSIDE the unit
+  // and no replication between units. Worse, world-facts.json had no per-bot
+  // form at all for `private`, so the private and shared arms read the same
+  // world model: two arms that were never independent.
+  //
+  // MEMORY_POOL is the boundary of ALL sharing. Within a pool, scope decides
+  // what is shared; across pools, nothing is. Three pools of two or three bots
+  // give the shared arm three independent units instead of one.
+  memory: {
+    scope: req('MEMORY_SCOPE', 'private'),
+    pool: req('MEMORY_POOL', 'hive'),
+  },
 
   // Operator-declared experiment labels. `arm` is the human name for a group,
   // `instance` partitions the two mutually-unreachable stacks, and `block`

@@ -63,6 +63,10 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
     // entirely, which made the lab's own independent variable unqueryable.
     exp: {
       memory_scope: config.memory.scope,
+      // WITH WHOM, not just what. Grouping an analysis by memory_scope alone
+      // treats every shared bot as an independent observation; they are not,
+      // they are one memory. The unit is the pool.
+      pool: config.memory.pool,
       arm: config.exp.arm,
       instance: config.exp.instance,
       block: config.exp.block,
@@ -105,6 +109,10 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
     // entirely, which made the lab's own independent variable unqueryable.
     exp: {
       memory_scope: config.memory.scope,
+      // WITH WHOM, not just what. Grouping an analysis by memory_scope alone
+      // treats every shared bot as an independent observation; they are not,
+      // they are one memory. The unit is the pool.
+      pool: config.memory.pool,
       arm: config.exp.arm,
       instance: config.exp.instance,
       block: config.exp.block,
@@ -162,6 +170,10 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
     // entirely, which made the lab's own independent variable unqueryable.
     exp: {
       memory_scope: config.memory.scope,
+      // WITH WHOM, not just what. Grouping an analysis by memory_scope alone
+      // treats every shared bot as an independent observation; they are not,
+      // they are one memory. The unit is the pool.
+      pool: config.memory.pool,
       arm: config.exp.arm,
       instance: config.exp.instance,
       block: config.exp.block,
@@ -182,6 +194,35 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
       error: rejection ? rejection.reason : (res.error ?? null),
       retry_count: res.retryCount ?? 0,
     },
+    // WHICH STORED BELIEF ACTED ON THIS DECISION.
+    //
+    // A rule that is never read cannot have changed any behaviour, so counting
+    // rules CREATED measures nothing about harm. What matters is consultation:
+    // how many decisions a belief suppressed, for how long, before anything
+    // contradicted it.
+    //
+    // admission.mjs has cited the blocking rule for a while, complete with the
+    // reporters who observed the failures. cognitive.mjs then formatted it into
+    // a sentence and handed it to log('warn'), which goes to the journal as
+    // prose. So the attribution existed and was unqueryable -- the same shape as
+    // MEMORY_SCOPE being absent from the record, and as llm.endpoint echoing a
+    // static env var: the label living outside the data.
+    //
+    // `inherited` is the field the hypothesis actually turns on. A bot blocked
+    // by its OWN four failures learned something; a bot blocked by a peer's is
+    // carrying a belief it never tested, which is the entire proposed mechanism
+    // for being wrong faster. That distinction is unrecoverable after the fact
+    // unless it is written down at the moment of the block.
+    memory: rejection?.cited
+      ? {
+          cited_rule: rejection.cited.key ?? null,
+          cited_fails: rejection.cited.fails ?? null,
+          cited_reporters: rejection.cited.reporters ?? null,
+          inherited: Array.isArray(rejection.cited.reporters)
+            && rejection.cited.reporters.length > 0
+            && !rejection.cited.reporters.includes(config.bot.name),
+        }
+      : undefined,
     prompt: {
       // THE PROMPT, NOT THE GOAL. This hashed `milestone`, so every arm of any
       // prompt A/B would carry the same handful of values -- keyed on which
