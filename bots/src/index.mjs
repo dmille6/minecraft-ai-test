@@ -142,14 +142,33 @@ function connect() {
   // native allocations like Buffers and chunk data (which that flag cannot see
   // and which no heap snapshot will show). Journal-only on purpose -- the
   // telemetry index is dynamic:strict and this is a diagnosis, not a schema.
+  // SAMPLE FAST, LOG ON CHANGE. The first version sampled once a minute, which
+  // is the wrong instrument for this shape: every bot sits flat at ~180MB for
+  // hours, and gather2 went from nothing to 1.2GB in 67 SECONDS. That is not a
+  // leak with a slope, it is a runaway allocation, and a 60s interval would
+  // catch one point on the ramp or none at all.
+  //
+  // So poll every 10s and emit only when RSS actually moves, plus a heartbeat.
+  // The ramp gets four or five points; an idle bot still writes one line every
+  // five minutes instead of thirty.
+  //
+  // `doing` is the whole point of logging it here rather than from outside: an
+  // external sampler can see the memory but not which skill was running when it
+  // took off. That is the question.
   const MB = n => Math.round(n / 1048576)
+  let lastRss = 0, lastLog = 0
   const memTimer = setInterval(() => {
     const m = process.memoryUsage()
-    log('info', 'memory', {
-      rss_mb: MB(m.rss), heap_used_mb: MB(m.heapUsed), heap_total_mb: MB(m.heapTotal),
+    const rss = MB(m.rss)
+    const moved = Math.abs(rss - lastRss) >= 40
+    if (!moved && Date.now() - lastLog < 300_000) return
+    lastRss = rss; lastLog = Date.now()
+    log(moved && rss > 400 ? 'warn' : 'info', 'memory', {
+      rss_mb: rss, heap_used_mb: MB(m.heapUsed), heap_total_mb: MB(m.heapTotal),
       external_mb: MB(m.external), array_buffers_mb: MB(m.arrayBuffers),
+      doing: runner.describe?.() ?? 'unknown',
     })
-  }, 60_000)
+  }, 10_000)
   memTimer.unref?.()
 
   // Reason tallies for the pathfinder's own events, kept for the status line.
