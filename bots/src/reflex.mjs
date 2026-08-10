@@ -183,32 +183,18 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4,
   //
   // `prevOxygen` is optional: without it this behaves exactly as before, which
   // keeps the pure function honest for callers that have no history.
-  // STRONG AND WEAK EVIDENCE OF BEING UNDERWATER ARE NOT THE SAME CLAIM.
-  //
-  //   strong -- the head block IS water. Act immediately; no corroboration.
-  //   weak   -- only entity.isInWater says so, the head block reads air, and
-  //             health is full. That is ALSO what a bot WADING in a shallow
-  //             pond looks like, and air does not drain above the surface.
-  //
-  // The weak case is where every false positive came from: 12 of 13 survivors
-  // logged `head=air health=20`, and each one aborted the skill that was
-  // running -- goto at 0/17, gather 0/35. So the weak case must show the
-  // counter actually FALLING before it is believed. The strong case is left
-  // alone, which is what keeps a genuinely submerged bot with a stale chunk
-  // read (the isInWater lesson, pinned by a test) getting its rescue.
-  //
-  // A MARGIN, because the counter is noisy: readings oscillate by one between
-  // ticks even on dry land, so "lower than the last sample" fired constantly.
-  // `prevOxygen` is the recent MEDIAN, which one tick-scale outlier cannot move.
-  const headWater = head?.name === 'water'
-  const entityWater = bot.entity?.isInWater === true
-  const weakWaterOnly = entityWater && !headWater && !headSolid && !losingHealth
+  // A MARGIN, because the counter is noisy. Readings oscillate by one between
+  // ticks even on dry land, so "lower than the last sample" fires constantly:
+  // the first version of this gate left the rate at 1,881 escapes/hour because
+  // a 20 -> 19 flicker read as draining. `prevOxygen` is the recent PEAK, and
+  // real drowning falls away from it fast and keeps going, so a couple of units
+  // of slack costs nothing on the cases that matter.
   const DRAIN_MARGIN = 2
-  if (weakWaterOnly && prevOxygen != null && ox >= prevOxygen - DRAIN_MARGIN) {
+  if (prevOxygen != null && ox >= prevOxygen - DRAIN_MARGIN && !losingHealth) {
     return { losing: false, kind: null, act: 'none', suspect: true }
   }
 
-  const inWater = headWater || entityWater
+  const inWater = head?.name === 'water' || bot.entity?.isInWater === true
 
   if (!(inWater || headSolid || losingHealth)) {
     // Low air, clear head, full health: the counter disagrees with everything.
@@ -450,29 +436,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (bot.oxygenLevel != null) {
         airSamples.push(bot.oxygenLevel)
         if (airSamples.length > 240) airSamples.shift()   // ~2 min at 500ms
-        // Also the median, and for the same reason: `Math.max` over the window
-        // let one tick-scale sample set airMax to 160, which put the low-air
-        // trigger at 64 and made every ordinary bubble reading "critical".
-        const w = [...airSamples].sort((a, b) => a - b)
-        airMax = Math.max(20, w[Math.floor(w.length / 2)])
+        airMax = Math.max(20, ...airSamples)
       }
-      // THE MEDIAN, not the peak -- because this field changes units mid-run.
-      //
-      // bot.oxygenLevel arrives on two scales intermittently: bubbles (0-20) and
-      // ticks (observed up to 400). Using the window's PEAK as the reference
-      // meant a single tick-scale sample poisoned it: with one 160 among eleven
-      // 20s the peak was 160, a perfectly normal reading of 20 looked like a
-      // catastrophic drop, and the reflex fired. Measured after that fix, the
-      // survivors were still 12 of 13 at `head=air health=20`, one of them
-      // alongside an `oxygen=160`.
-      //
-      // A median is unmoved by one outlier in twelve, which is exactly the
-      // property a signal with intermittent unit changes needs. And because a
-      // bot spends nearly all its time on land at full air, the median IS full
-      // air -- so it doubles as the scale reference for airMax below.
+      // The PEAK of the recent window, not the immediately previous tick -- one
+      // sample is noise, and what matters is whether the counter has fallen
+      // away from where it has been sitting.
       const recent = airSamples.slice(-12)
-      const sorted = [...recent].sort((a, b) => a - b)
-      const prevOxygen = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null
+      const prevOxygen = recent.length ? Math.max(...recent) : null
       const air = assessAir(bot, { airMax, prevOxygen })
       // RELEASE THE BODY the moment breathing resumes, and say so. Without this
       // the bot would hold `jump` forever after surfacing, and -- more useful --
