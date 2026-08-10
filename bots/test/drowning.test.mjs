@@ -167,4 +167,55 @@ ok('a missing oxygen field is not an emergency', () => {
   assert.equal(assessAir(bot).losing, false, 'absent data must not manufacture a rescue')
 })
 
+
+// --- WADING IS NOT DROWNING ------------------------------------------------
+//
+// entity.isInWater is true for a bot standing in shallow water with its head in
+// open air. Air does not drain when your head is above the surface, so that bot
+// loses nothing -- but the reflex fired anyway and aborted whatever skill was
+// running. Measured on fleet-028: 2,278 drowning escapes per HOUR, every one
+// logging `head=air health=20`, with goto down to 4% success -- not because
+// pathing failed but because it was interrupted 38 times a minute.
+//
+// The fix is NOT "stop believing isInWater". The test above pays for that
+// lesson: a genuinely submerged bot can read head=air from a stale chunk. The
+// discriminator is whether the counter is MOVING.
+ok('oxygen pinned at full is not drowning, even with isInWater set', () => {
+  const bot = {
+    entity: { position: new V(0, 63, 0), isInWater: true },
+    oxygenLevel: 20, health: 20,
+    blockAt: () => ({ name: 'air', boundingBox: 'empty' }),
+  }
+  const r = assessAir(bot, { airMax: 300, prevOxygen: 20 })
+  assert.equal(r.losing, false,
+    'a wading bot at full air must not interrupt the skill that is running')
+  assert.equal(r.suspect, true, 'but the disagreement is worth recording')
+})
+
+ok('a FALLING counter is drowning, even when blockAt claims air', () => {
+  // The stale-chunk case the isInWater lesson exists for. Same head, same
+  // health -- only the trend differs, and the trend decides.
+  const bot = {
+    entity: { position: new V(0, 63, 0), isInWater: true },
+    // Below the low-air threshold (airMax 40 -> trigger 16) AND falling.
+    // Both matter: the threshold decides whether we care, the trend decides
+    // whether it is real.
+    oxygenLevel: 10, health: 20,
+    blockAt: () => ({ name: 'air', boundingBox: 'empty' }),
+  }
+  const r = assessAir(bot, { airMax: 40, prevOxygen: 14 })
+  assert.equal(r.losing, true, 'air is draining; that is the whole signal')
+  assert.equal(r.kind, 'drowning')
+})
+
+ok('no history means no trend gate -- the pure function stays honest', () => {
+  const bot = {
+    entity: { position: new V(0, 63, 0), isInWater: true },
+    oxygenLevel: 10, health: 20,
+    blockAt: () => ({ name: 'air', boundingBox: 'empty' }),
+  }
+  assert.equal(assessAir(bot, { airMax: 40 }).losing, true,
+    'a caller with no previous reading gets the old, cautious behaviour')
+})
+
 console.log(`\n${n} passed`)

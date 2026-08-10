@@ -144,7 +144,7 @@ function noteReflexInventory(bot, before, cause) {
 // bot has actually reported -- it sits at full on land, which is most of the
 // time -- and the trigger is a fraction of it. That self-calibrates to a 0-20
 // build and a 0-400 build alike, and cannot be silently wrong again.
-export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4 } = {}) {
+export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4, prevOxygen = null } = {}) {
   // Floor of 4 so a bot that has somehow only ever reported small values still
   // gets a rescue rather than a threshold of zero.
   const lowOxygen = Math.max(4, Math.round(airMax * lowAirFrac))
@@ -153,11 +153,41 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4 
   if (ox == null || ox > lowOxygen) return none
 
   const head = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
-  const inWater = head?.name === 'water' || bot.entity?.isInWater === true
   const headSolid = head != null && head.boundingBox === 'block'
   // Health is the one value the SERVER owns. blockAt() is a client-side view and
-  // it disagrees with the server about water exactly when it matters most.
+  // it disagrees with the server about water exactly when it matters most, which
+  // is why entity.isInWater is consulted at all.
   const losingHealth = bot.health != null && bot.health < maxHealth
+
+  // WADING IS NOT DROWNING, AND THE TEST IS THE TREND.
+  //
+  // entity.isInWater is true for a bot standing in a shallow pond with its head
+  // in open air. Air does not drain when your head is above the surface, so
+  // that bot loses nothing -- but the reflex fired anyway, aborted whatever
+  // skill was running, and did it again on the next tick. Measured on
+  // fleet-028: 2,278 drowning escapes per HOUR, every one logging
+  // `head=air health=20`, with goto down to 4% success -- not because pathing
+  // failed but because it was being interrupted. Solo02 logged 258 in fifteen
+  // minutes at a mean y of 62, which is the surface.
+  //
+  // The obvious fix -- stop believing isInWater when the head block is air --
+  // would undo a lesson this file already paid for: blockAt is a client-side
+  // view and it disagrees with the server about water exactly when it matters
+  // most, so a genuinely submerged bot can read `head=air` and drown while we
+  // congratulate ourselves.
+  //
+  // Both are true. What separates them is neither the block nor the health, it
+  // is whether the counter is actually MOVING. Wading holds oxygen pinned at
+  // full; drowning drains it. A trend needs no absolute scale either, so it
+  // sidesteps the bubbles-vs-ticks confusion that caused the original bug.
+  //
+  // `prevOxygen` is optional: without it this behaves exactly as before, which
+  // keeps the pure function honest for callers that have no history.
+  if (prevOxygen != null && ox >= prevOxygen && !losingHealth) {
+    return { losing: false, kind: null, act: 'none', suspect: true }
+  }
+
+  const inWater = head?.name === 'water' || bot.entity?.isInWater === true
 
   if (!(inWater || headSolid || losingHealth)) {
     // Low air, clear head, full health: the counter disagrees with everything.
@@ -308,6 +338,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // on land, so this converges within seconds of spawning and tells assessAir
   // which scale the server is actually using. See the note above assessAir.
   let airMax = 20
+  let prevOxygen = null
+  const airSamples = []
   let escaping = false
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
@@ -385,8 +417,23 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // The policy now lives in assessAir(), a pure function of bot state, so it
       // can be asserted without a server. This block is only the plumbing:
       // logging, telemetry, and the control inputs.
-      if (bot.oxygenLevel != null && bot.oxygenLevel > airMax) airMax = bot.oxygenLevel
-      const air = assessAir(bot, { airMax })
+      // AIRMAX MUST BE ABLE TO COME BACK DOWN.
+      //
+      // This only ever ratcheted UP, so a single anomalous reading -- one
+      // tick-scale value on a build that otherwise reports bubbles -- pinned
+      // airMax at 300 for the life of the process. The trigger is 40% of it, so
+      // the threshold became 120 while every real reading was <= 20, and the
+      // bot believed it was suffocating permanently.
+      //
+      // Track the max over a recent window instead. Self-calibration was the
+      // right idea; making it irreversible was the bug.
+      if (bot.oxygenLevel != null) {
+        airSamples.push(bot.oxygenLevel)
+        if (airSamples.length > 240) airSamples.shift()   // ~2 min at 500ms
+        airMax = Math.max(20, ...airSamples)
+      }
+      const air = assessAir(bot, { airMax, prevOxygen })
+      prevOxygen = bot.oxygenLevel ?? null
       // RELEASE THE BODY the moment breathing resumes, and say so. Without this
       // the bot would hold `jump` forever after surfacing, and -- more useful --
       // there was no positive signal anywhere: deaths were counted and rescues
