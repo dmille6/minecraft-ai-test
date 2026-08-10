@@ -92,7 +92,14 @@ export class LlmClient {
       { role: 'user', content: user },
     ]
 
-    let attempt = 0, lastErr = null, proposal = null, raw = '', meta = {}
+    // WHICH ENDPOINT ACTUALLY ANSWERED. #post knows -- it returns ep.url -- but
+    // decide() used to drop it, and the caller logged config.llm.baseUrl
+    // instead: a static env var that is the same string whatever the pool does.
+    // On 2026-08-10 that made an endpoint migration unverifiable. Every record
+    // said 10.0.0.72 because OLLAMA_BASE_URL said 10.0.0.72, and I read those
+    // records as proof the fleet had not moved. The same defect as an outcome
+    // reported without evidence, wearing a different hat.
+    let attempt = 0, lastErr = null, proposal = null, raw = '', meta = {}, servedBy = null
     // One repair retry, then stop. ADR-0002 D1: never best-effort parse a
     // malformed response into an action.
     while (attempt < 2) {
@@ -114,6 +121,7 @@ export class LlmClient {
       }
 
       meta = res.meta
+      servedBy = res.endpoint ?? null
       raw = res.content ?? ''
       try {
         proposal = JSON.parse(raw)
@@ -151,6 +159,9 @@ export class LlmClient {
       latencyMs: Date.now() - started,
       raw,
       ...meta,
+      // After the spread on purpose: this must never be shadowed by a future
+      // meta key. null means every attempt threw, so nothing served it.
+      endpoint: servedBy,
     }
   }
 

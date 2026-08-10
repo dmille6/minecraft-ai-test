@@ -126,7 +126,9 @@ export class CognitiveLoop {
     this.memory.remember('home', { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
     this.memory.addEvent('agent came online')
     log('info', 'cognitive loop starting', {
-      model: config.llm.model, endpoint: config.llm.baseUrl, num_ctx: config.llm.numCtx,
+      // The whole pool, in preference order. Logging only the primary hid a
+      // two-endpoint config behind a one-endpoint line.
+      model: config.llm.model, endpoints: config.llm.baseUrls, num_ctx: config.llm.numCtx,
     })
     this.#startLiveness()
     this.#tick('startup')
@@ -503,7 +505,10 @@ export class CognitiveLoop {
 
     logLlm({
       startedAt: started, snapshot: snap, trigger,
-      model: config.llm.model, endpoint: config.llm.baseUrl,
+      // res.endpoint is the url that ANSWERED; config.llm.baseUrl is only what
+      // was configured first. They differ exactly when the pool failed over --
+      // which is the case the field exists to make visible.
+      model: config.llm.model, endpoint: res.endpoint ?? config.llm.baseUrl,
       res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
       proposal: res.proposal, rejection, outcome,
       milestone: milestone.id, systemPrompt: this.system, perceptionSnapshot: percept,
