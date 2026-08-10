@@ -423,7 +423,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     if (positions.length === 0) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
-        : { status: 'failed', detail: `no ${blockName} within ${maxDistance} blocks` }
+        : { status: 'failed', detail: `no ${blockName} within ${maxDistance} blocks` +
+              belowGroundHint(bot) }
     }
 
     // ONE block per collect() call. Passing a batch makes collectblock work
@@ -908,7 +909,8 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         : gatherFirst.length
           ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
             `nothing crafts it (you have ` +
-            `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})`
+            `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})` +
+            belowGroundHint(bot)
           : `cannot craft ${item} -- ${why}`,
     }
   }
@@ -1533,6 +1535,7 @@ export const SKILL_CONTRACTS = {
   follow:   { expects: ['position'],              maxMs: 60_000 },
   gather:   { expects: ['inventory_gain'],        maxMs: 180_000 },
   mine:     { expects: ['inventory_gain', 'position'], maxMs: 180_000 },
+  surface:  { expects: ['position'],              maxMs: 120_000 },
   craft:    { expects: ['inventory_gain'],        maxMs: 60_000 },
   build:    { expects: ['world_change'],          maxMs: 180_000 },
   place:    { expects: ['world_change'],          maxMs: 30_000 },
@@ -1629,6 +1632,111 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
     : { value: 'valuable', because }
 }
 
+// SEA LEVEL IN A DEFAULT OVERWORLD. Everything the early game needs -- wood,
+// animals, plants, sand, a view of the sky -- exists at or above this.
+const SEA_LEVEL = 63
+
+/**
+ * JOIN THE TWO FACTS THE SYSTEM ALREADY HAD.
+ *
+ * A bot at y=-42 was told "gather oak_log first" by craft and "no oak_log
+ * within 32 blocks" by gather, on alternating turns, for hours. Both were true.
+ * Neither mentioned that oak_log does not occur at y=-42 at all, or that the
+ * bot was 105 blocks below the nearest one, and the model has no way to know
+ * either. The information existed in three separate places and was never
+ * assembled into the one sentence that would have changed the next decision.
+ */
+function belowGroundHint(bot) {
+  const y = bot.entity?.position?.y
+  if (y == null || y >= SEA_LEVEL) return ''
+  return ` — you are at y=${Math.round(y)}, ${Math.round(SEA_LEVEL - y)} blocks below sea level; ` +
+         `wood, plants and animals only exist above ground, so run surface first`
+}
+
+/**
+ * Climb back to the surface.
+ *
+ * Added because the fleet kept solving its own extinction. Over one 5.9-hour
+ * run, three of six bots lived below sea level -- Scout01 at a mean y of -42 --
+ * and the numbers down there are not survivable as a strategy:
+ *
+ *     nothing_found              263   (the single largest failure class)
+ *     _drowning_escaped          209/hr
+ *     craft                      permanently blocked on oak_log
+ *
+ * oak_log only grows above ground. The system already knew every fact it
+ * needed: `craft` said "gather oak_log first", `gather` said "no oak_log within
+ * 32 blocks", and every record carried y=-42. Nothing joined them, and no
+ * action existed that would have helped if something had.
+ *
+ * `mine` only descends. `goto` and `explore` use the travel config, which has
+ * canDig=false, so at y=-42 A* has almost no legal moves and returns the empty
+ * path that now reports `stranded`. The bot was not confused. It was walled in,
+ * and the skill set had no way out.
+ */
+async function surface(ctx, _args, signal) {
+  const { bot } = ctx
+  const startY = bot.entity.position.y
+
+  // Already up here. Report it as a refusal, not a success: a call that cannot
+  // change anything must not be recorded as an achievement, or it clears the
+  // avoid rules that would otherwise stop it being proposed again. Same lesson
+  // as mine's impossible ascent.
+  if (startY >= SEA_LEVEL) {
+    return {
+      status: 'failed',
+      failClass: 'already_surfaced',
+      gap: `at_y${Math.round(startY)}`,
+      detail: `already at y=${Math.round(startY)}, at or above sea level ${SEA_LEVEL} — ` +
+              `nothing to climb; use gather, explore or goto from here`,
+    }
+  }
+
+  if (!bot.withAscentMovements) {
+    return { status: 'failed', failClass: 'unsupported',
+             detail: 'ascent movements unavailable on this bot' }
+  }
+
+  check(signal)
+  let err = null
+  await bot.withAscentMovements(async () => {
+    try {
+      await withTimeout(bot.pathfinder.goto(new goals.GoalY(SEA_LEVEL)), 90000, bot)
+    } catch (e) {
+      if (e.aborted || signal?.aborted) throw e
+      err = e
+    }
+  })
+
+  // A RESOLVED PROMISE IS NOT AN ARRIVAL -- goto resolves on an empty path.
+  // Judge the climb by the altitude gained, never by how the call returned.
+  const endY = bot.entity.position.y
+  const climbed = endY - startY
+
+  if (endY >= SEA_LEVEL) {
+    return { status: 'success', detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}` }
+  }
+  if (climbed >= 4) {
+    // Real progress that ran out of budget. Distinct from going nowhere,
+    // because the store must not punish an action that is working.
+    return {
+      status: 'failed',
+      failClass: 'travel_incomplete',
+      gap: `at_y${Math.round(endY)}`,
+      detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ` +
+              `still ${Math.round(SEA_LEVEL - endY)} below sea level — call again to continue`,
+    }
+  }
+  return {
+    status: 'failed',
+    failClass: 'stranded',
+    gap: `at_y${Math.round(endY)}`,
+    detail: `could not climb from y=${Math.round(endY)}` +
+            (err ? ` (${String(err.message).slice(0, 60)})` : '') +
+            ' — no upward route even with digging allowed, and blocks beside water are refused',
+  }
+}
+
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
   gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
@@ -1645,6 +1753,7 @@ export const SKILLS = {
   explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'] },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
   sleep:   { run: sleepSkill, usage: 'sleep',                      args: [] },
+  surface: { run: surface, usage: 'surface',                       args: [] },
 }
 
 export { Aborted }

@@ -167,6 +167,37 @@ function connect() {
       }
     } catch { /* older collectblock without the property: the guard below covers us */ }
 
+    // CLIMBING OUT NEEDS DIFFERENT RULES THAN WALKING AROUND.
+    //
+    // canDig=false is right for travel -- it is what stops a bot tunnelling 383
+    // blocks toward home. It is also why a bot at y=-42 can never leave: A* can
+    // only use pre-existing air, and deepslate has very little of it. Three of
+    // six bots spent a six-hour run below sea level, where there is no wood, no
+    // surface resource of any kind, and the drowning reflex fired 209 times an
+    // hour.
+    //
+    // So `surface` borrows a dig-capable config for the ascent and gives it
+    // straight back. dontCreateFlow=true is the important one: it refuses to
+    // break any block adjacent to liquid, which is precisely how a bot digging
+    // upward out of a flooded cave drowns itself. (It is also the flag
+    // collectblock 1.6.0 forces OFF, which is why we pin 1.5.0.)
+    //
+    // The swap lives here because index.mjs owns setMovements -- the dependency
+    // contract asserts nothing else calls it, and that rule is what keeps the
+    // collectblock clobber a single known problem instead of a diffuse one.
+    const ascendMoves = Object.create(Object.getPrototypeOf(moves))
+    Object.assign(ascendMoves, moves)
+    ascendMoves.canDig = true
+    ascendMoves.allow1by1towers = true
+    ascendMoves.dontCreateFlow = true
+    ascendMoves.allowParkour = false
+    ascendMoves.maxDropDown = 6
+    bot.withAscentMovements = async (fn) => {
+      bot.pathfinder.setMovements(ascendMoves)
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves) }
+    }
+
     // OUR MOVEMENT CONFIG IS NOT OURS TO KEEP.
     //
     // An earlier version of this comment had the mechanism wrong, and the

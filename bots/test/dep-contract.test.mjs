@@ -78,6 +78,27 @@ t('the Movements we lend collectblock grants digging and nothing else', () => {
     'the clone must keep the prototype, or safeToBreak is undefined and gather throws')
 })
 
+// 1.6.0 FORCES TWO SAFETY FLAGS OFF, and we are pinned below it because of that.
+//
+// PR #140 (merged and released the same day, one line of justification, no
+// review) made collect() do, on whatever Movements object it is handed:
+//     this.movements.dontMineUnderFallingBlock = false
+//     this.movements.dontCreateFlow = false
+// i.e. willing to dig under gravel and beside liquid. This project's death
+// history is mostly drowning at y=-8 to -12, and three of six bots live below
+// sea level, so that is not an abstract risk.
+//
+// If a dependency bump brings the flags back, this fails and the pin gets
+// re-argued deliberately instead of silently.
+t('the pinned collectblock does not force the liquid/gravel safety flags off', () => {
+  const src = require_('node:fs').readFileSync(
+    require_.resolve('mineflayer-collectblock/lib/CollectBlock.js'), 'utf8')
+  const forced = /(dontCreateFlow|dontMineUnderFallingBlock)\s*=\s*false/.test(src)
+  assert.ok(!forced,
+    'collectblock is forcing dontCreateFlow/dontMineUnderFallingBlock off again -- ' +
+    'that is why this project pins 1.5.0. Re-read the drowning history before unpinning.')
+})
+
 t('collectblock does NOT restore the previous Movements itself', () => {
   const src = require_('node:fs').readFileSync(
     require_.resolve('mineflayer-collectblock/lib/CollectBlock.js'), 'utf8')
