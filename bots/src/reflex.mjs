@@ -239,6 +239,29 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4,
  *   unit per second. Scale alternation looks like [400,20,400,20] -- it goes
  *   back UP, which draining air never does.
  */
+/**
+ * Has the bot actually started BREATHING again, as opposed to merely stopped
+ * getting worse?
+ *
+ * Exported and pure for the same reason airConsequenceEvidence is: the decision
+ * that matters must be assertable without a server, or it only gets tested by
+ * losing a bot. See drowning-floor.test.mjs for the fourteen false escapes this
+ * exists to prevent.
+ *
+ * @param oxNow   current counter, either scale (bubbles 0-20 or ticks 0-400)
+ * @param recent  oldest-first window of recent readings
+ * @param airMax  the largest value this bot has actually reported
+ */
+export function breathingAgain(oxNow, recent = [], airMax = 300) {
+  const lowOx = Math.max(4, Math.round(airMax * 0.4))
+  // recent[0] is the oldest of the window, so this asks "has it come back up",
+  // not "did it avoid dropping since the last tick".
+  const oxRising = oxNow != null && recent.length >= 2 && oxNow > recent[0]
+  // A null counter still releases: unknown must not mean the body is held
+  // forever, which is the bug the release was added for in the first place.
+  return oxNow == null || oxNow > lowOx || oxRising
+}
+
 export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousHealth = null } = {}) {
   if (!air?.losing) return false
 
@@ -495,7 +518,27 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // there was no positive signal anywhere: deaths were counted and rescues
       // were not, so a rescue that worked and a rescue that did nothing looked
       // identical in telemetry. Escapes are now countable against drownings.
-      if (!air.losing && rescuing) {
+      //
+      // "NOT LOSING" IS NOT "SAFE", AND THE DIFFERENCE KILLED Miner01.
+      //
+      // assessAir reports losing=false in two OPPOSITE situations, because both
+      // are flat: oxygen pinned at FULL (wading -- the case the trend test above
+      // was written for) and oxygen pinned at the FLOOR, where a drowning bot's
+      // counter has nothing left to drain. The trend cannot tell them apart.
+      //
+      // On 2026-08-10 Miner01 logged fourteen consecutive `drowning_escaped
+      // success` at -24,60,-90 while oxygen fell 283 -> 262 -> 256 -> 18 -> 15,
+      // never moved a block, and then drowned. Every one of those releases
+      // handed the body back to a skill that walked it straight under again.
+      // The death cost the entire inventory (-236 items) and every milestone
+      // behind it: the bot spent the next several minutes failing to craft a
+      // wooden_pickaxe it no longer had the logs for.
+      //
+      // So require POSITIVE evidence of breathing -- back above the threshold
+      // that triggers a rescue, or measurably rising -- instead of inferring
+      // safety from the absence of a decline. A bot still at the floor keeps
+      // its rescue, which is the entire point of having one.
+      if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing) {
         rescuing = false
         try { bot.clearControlStates() } catch { /* not connected */ }
         logEvent({
