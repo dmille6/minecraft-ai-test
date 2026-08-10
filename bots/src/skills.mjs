@@ -591,7 +591,39 @@ const MANUAL_SUBSTRING = [
   'sapling', 'torch', 'button', 'carpet', 'pressure_plate', 'mushroom',
   'tulip', 'bush', 'vines', 'fern', 'flower',
 ]
+// EVERYTHING IS COLLECTED MANUALLY NOW. The list above is kept because it
+// documents which blocks collectblock gets WRONG, and because narrowing this
+// back down later should be a deliberate act with a reason, not a silent
+// default. `COLLECTBLOCK_ENABLED=true` restores the old routing for anyone who
+// wants to reproduce the failure.
+//
+// WHY, in full. collectblock 1.5.0 contains three unbounded awaits and a
+// cancel that cannot cancel:
+//
+//   1. collectAll's Entity branch does `yield waitForPickup` with no timeout,
+//      resolved only by an `entityGone` event for that exact item. A drop that
+//      floats away in water, despawns unobserved, or cannot be reached never
+//      fires it. ONLY gatherers chase dropped items -- which is why every one
+//      of the 48+ OOM victims was role=gatherer and the scouts and miner were
+//      never touched once.
+//   2. gotoChest awaits bot.pathfinder.goto with no timeout.
+//   3. cancelTask() does not cancel: it stops the pathfinder, then WAITS for a
+//      `collectBlock_finished` event that a stuck loop never emits.
+//   4. collect() calls cancelTask() as its FIRST action. So one stuck loop
+//      makes every future gather hang on its first line, permanently.
+//
+// That last point is the amplifier. A single unpicked-up item poisons the bot
+// for the rest of its life, and each subsequent gather adds another pending
+// __awaiter frame. The heap snapshot at death held 180,061 of them, with
+// 360,166 Generators and 903,562 Contexts -- all REACHABLE, so GC reclaimed
+// nothing and V8 died with "Ineffective mark-compacts near heap limit".
+//
+// None of this is reachable from outside the library, which is why two rounds
+// of patching around it failed. collectManually does the same job -- walk,
+// equip, dig, pick up -- with a bound on every step.
+const COLLECTBLOCK_ENABLED = process.env.COLLECTBLOCK_ENABLED === 'true'
 const mustCollectManually = name =>
+  !COLLECTBLOCK_ENABLED ||
   MANUAL_EXACT.has(name) || MANUAL_SUBSTRING.some(f => name.includes(f))
 
 /**
@@ -613,7 +645,17 @@ async function collectManually(bot, block, signal) {
   check(signal)
   const tool = bestTool(bot, block)
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
-  await bot.dig(block)
+  // BOUND THE DIG. bot.dig() has no timeout of its own: it resolves when the
+  // server confirms the break, and waits forever if that never comes -- the
+  // block changed under us, another bot took it, the chunk unloaded. This is
+  // now the ONLY path gather takes, so an unbounded await here would reproduce
+  // the exact failure that made collectblock unusable, in our own code.
+  try {
+    await withTimeout(bot.dig(block), 20_000, bot)
+  } catch (e) {
+    try { bot.stopDigging?.() } catch { /* not digging */ }
+    throw e
+  }
   await pickupNearbyItems(bot, signal)
 }
 
