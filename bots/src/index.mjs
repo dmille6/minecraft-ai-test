@@ -124,6 +124,34 @@ function connect() {
 
   bot.loadPlugin(collectBlock)
   const runner = new Runner(bot)
+
+  // MEMORY, WHICH NOTHING WAS WATCHING.
+  //
+  // On 2026-08-10 the kernel OOM killer took 26 bots in six hours -- gather2
+  // x16, solo2 x7, gatherer x2, hive1 x1, with peaks of 5-10.2G on an 11.3G
+  // host. Every one was role=gatherer; scout and miner were never touched. It
+  // had been happening all day and no dashboard, guard or log line mentioned
+  // memory, so it presented as bots that mysteriously wedged and reconnected.
+  //
+  // --heapsnapshot-near-heap-limit=1 fired three times and wrote three
+  // ZERO-BYTE snapshots: dumping a 3G heap needs several more gigabytes, so the
+  // process was killed mid-write. The diagnostic died of the disease.
+  //
+  // rss vs heapUsed vs external is the split that decides where to look: V8
+  // objects (a heap leak, and --max-old-space-size will eventually throw), or
+  // native allocations like Buffers and chunk data (which that flag cannot see
+  // and which no heap snapshot will show). Journal-only on purpose -- the
+  // telemetry index is dynamic:strict and this is a diagnosis, not a schema.
+  const MB = n => Math.round(n / 1048576)
+  const memTimer = setInterval(() => {
+    const m = process.memoryUsage()
+    log('info', 'memory', {
+      rss_mb: MB(m.rss), heap_used_mb: MB(m.heapUsed), heap_total_mb: MB(m.heapTotal),
+      external_mb: MB(m.external), array_buffers_mb: MB(m.arrayBuffers),
+    })
+  }, 60_000)
+  memTimer.unref?.()
+
   // Reason tallies for the pathfinder's own events, kept for the status line.
   const pathResets = {}
   const pathUpdates = {}
