@@ -2188,13 +2188,30 @@ async function surface(ctx, _args, signal) {
     // not enough to finish; that is precisely where the bot most needs to be
     // allowed to try again. Scout01 and Gather02 were both told they were
     // walled in on this evidence.
-    if (walkProbe === 'timeout' || digProbe === 'timeout') {
+    // `partial` belongs here too, and it is the one that was actually firing.
+    //
+    // pathfinder's getPathTo advances the search generator EXACTLY ONCE:
+    //     const generator = bot.pathfinder.getPathFromTo(...)
+    //     const { value: { result } } = generator.next()
+    //     return result
+    // and each slice is capped at tickTimeout, 40ms. So it answers `partial`
+    // for anything A* cannot fully solve in forty milliseconds, which
+    // underground is essentially everything. Only `noPath` means the space was
+    // searched and there is no way up.
+    //
+    // Reading `partial` as a refusal is why surface has never once succeeded:
+    // 0 for 28 tonight, including Miner01 at y=62 being told there was no route
+    // to y=63 -- one block above its head, with digging allowed. The same "no
+    // versus don't know" confusion the evidence gate exists to prevent, written
+    // into the skill meant to rescue the trapped bots.
+    const cutShort = v => v === 'timeout' || v === 'partial'
+    if (cutShort(walkProbe) || cutShort(digProbe)) {
       return {
         status: 'unknown',
         failClass: 'probe_timeout',
-        detail: `could not decide in 3s whether a route up from ` +
+        detail: `could not decide whether a route up from ` +
                 `${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} toward y=${stageY} exists — ` +
-                `the search was cut short, not exhausted; call again`,
+                `the search was cut short (${walkProbe}/${digProbe}), not exhausted; call again`,
       }
     }
     // Both searches finished and neither found anything. Say so in one second

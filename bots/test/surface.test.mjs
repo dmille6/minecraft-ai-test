@@ -29,7 +29,7 @@ const V = (x, y, z) => ({ x, y, z, offset: (a,b,c) => V(x+a,y+b,z+c),
 // `route` says which config can reach the surface, which is exactly what the
 // probe asks: 'walk' = reachable without digging, 'dig' = only with digging
 // allowed, 'none' = neither.
-function climbBot({ y = -42, rise = 0, borrowed = [], route = 'dig', gotos = [] } = {}) {
+function climbBot({ y = -42, rise = 0, borrowed = [], route = 'dig', gotos = [], partialOnly = false } = {}) {
   const TRAVEL = { kind: 'travel' }
   const ASCENT = { kind: 'ascent' }
   const bot = {
@@ -46,7 +46,11 @@ function climbBot({ y = -42, rise = 0, borrowed = [], route = 'dig', gotos = [] 
         const ok = route === 'walk' ? true : route === 'dig' ? moves === ASCENT : false
         // noPath and timeout still return a partial path, so the fake returns
         // one too -- a test that passes on path.length would be lying.
-        return ok ? { status: 'success', path: [1, 2] } : { status: 'noPath', path: [1] }
+        if (ok) return { status: 'success', path: [1, 2] }
+        // `partialOnly` models the REAL library: getPathTo advances the search
+        // generator once, bounded by a 40ms tick slice, so underground it
+        // almost always answers 'partial' rather than finishing.
+        return { status: partialOnly ? 'partial' : 'noPath', path: [1] }
       },
       async goto() { gotos.push(bot.pathfinder.movements.kind); bot.entity.position = V(10, y + rise, 10) },
     },
@@ -179,6 +183,33 @@ await t('a bot just under the surface still aims at sea level, not past it', asy
   bot.pathfinder.getPathTo = (m, goal, t2) => { asked.push(goal.y); return real(m, goal, t2) }
   await run(bot)
   assert.equal(asked[0], 63, `a stage must never overshoot sea level, got ${asked[0]}`)
+})
+
+
+// --- A PROBE THAT SAYS "partial" HAS NOT SAID NO ---------------------------
+//
+// pathfinder's getPathTo advances the search generator exactly once, and each
+// slice is capped at tickTimeout (40ms), so underground it answers `partial`
+// for almost everything. Requiring status==='success' read "I have not finished
+// thinking" as "there is no way out": surface reported stranded 28 times out of
+// 28, including Miner01 at y=62 told there was no route to y=63 -- one block up.
+await t('an unfinished search is not a refusal', async () => {
+  const gotos = []
+  const bot = climbBot({ y: -42, rise: 24, route: 'none', partialOnly: true, gotos })
+  const r = await run(bot)
+  assert.notEqual(r.failClass, 'stranded',
+    'partial means the search was cut short, not that there is no way out')
+  assert.equal(r.status, 'unknown',
+    'and an unknown must never reach the lessons store as evidence')
+})
+
+await t('an exhausted search IS a refusal', async () => {
+  const gotos = []
+  const bot = climbBot({ y: -42, rise: 0, route: 'none', partialOnly: false, gotos })
+  const r = await run(bot)
+  assert.equal(r.failClass, 'stranded',
+    'noPath means the space was searched and there is genuinely no way up')
+  assert.deepEqual(gotos, [], 'and a definite no should not cost a 90s attempt')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
