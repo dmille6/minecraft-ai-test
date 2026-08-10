@@ -73,10 +73,17 @@ await t('endpoint is null when nothing served the request', async () => {
   assert.equal(res.schemaValid, false)
 })
 
-await t('a later meta field cannot shadow the attribution', async () => {
-  // `...meta` is spread into the result; endpoint is placed after it on
-  // purpose. If someone adds `endpoint` to the ollama meta block, this fails
-  // loudly instead of silently reverting to an unattributable log.
+await t('a hostile field in the ollama payload cannot reach the record', async () => {
+  // HONEST SCOPE, after review: this does NOT exercise the `...meta` spread
+  // order, because #post builds meta from an explicit whitelist of ollama keys
+  // and an unexpected `endpoint` in the response never enters it. Claiming
+  // otherwise made this a test that passes for a reason unrelated to its name --
+  // the same failure mode as the bug the file exists to document.
+  //
+  // What it genuinely asserts is that whitelist: a server (or a proxy, or a
+  // future ollama version) that emits `endpoint` cannot overwrite our own
+  // attribution. The spread ordering in llm.mjs remains defence against a
+  // future edit to #post itself, which no black-box test here can reach.
   const c = client(['http://primary'], base => ({
     ok: true,
     json: async () => ({

@@ -54,7 +54,7 @@
       "additionalProperties": false,
       "properties": {
         "model":    { "type": "string" },
-        "endpoint": { "type": "string", "description": "Which Ollama host served this. Attribution matters once inference is split across the 5080 and the Mac Studio." },
+        "endpoint": { "type": ["string", "null"], "description": "Which Ollama host ANSWERED this request, not which was configured first -- they differ exactly when the pool fails over. NULL means no endpoint served it: every url in the pool failed. Required-but-nullable on purpose: the field must always be present, and 'nothing answered' is a real answer. Substituting the configured primary here would record a total inference outage as the primary serving traffic normally." },
         "prompt_tokens":     { "type": "integer" },
         "completion_tokens": { "type": "integer" },
         "latency_ms":        { "type": "integer" },

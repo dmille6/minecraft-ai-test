@@ -505,10 +505,15 @@ export class CognitiveLoop {
 
     logLlm({
       startedAt: started, snapshot: snap, trigger,
-      // res.endpoint is the url that ANSWERED; config.llm.baseUrl is only what
-      // was configured first. They differ exactly when the pool failed over --
-      // which is the case the field exists to make visible.
-      model: config.llm.model, endpoint: res.endpoint ?? config.llm.baseUrl,
+      // res.endpoint is the url that ANSWERED. NULL WHEN NOTHING DID, and it
+      // stays null: this was `res.endpoint ?? config.llm.baseUrl`, which
+      // reinstated the exact lie the rest of this change removed. When every
+      // endpoint in the pool fails, that `??` names the configured primary as
+      // though it had served a request it never answered -- so a total inference
+      // outage would be recorded as the primary handling traffic normally, with
+      // an error beside it. `llm.endpoint` is a keyword mapping; null is
+      // "nothing served this", which is the true answer and a queryable one.
+      model: config.llm.model, endpoint: res.endpoint,
       res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
       proposal: res.proposal, rejection, outcome,
       milestone: milestone.id, systemPrompt: this.system, perceptionSnapshot: percept,
