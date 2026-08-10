@@ -236,6 +236,32 @@ export class StagnationWatchdog {
     logEvent({ kind: 'stranded', status: 'failed',
                detail: `escalation ${this.escalation}; no first leg exists from this position`,
                snapshot: snapshot(this.bot) })
-    this.escalation = 0
+
+    // AND THEN IT DID NOTHING, AND RESET ITS OWN COUNTER.
+    //
+    // This branch logged the diagnosis, cleared `escalation`, and returned --
+    // so the ladder started again from zero, reached level 3, logged the same
+    // line, and reset again, forever. The one state the watchdog identifies
+    // most precisely was the one it never acted on. Measured 2026-08-10:
+    // `stranded` 12 times and `_path_noPath` 431 times in thirty minutes, with
+    // bots sitting at y=-45, -42, -42 the whole while.
+    //
+    // Reconnect is correctly ruled out above -- it changes no terrain. But
+    // "reconnect will not help" is not a reason to do nothing; it is a reason
+    // to do the thing that WILL. The bot cannot compute a first leg, so give it
+    // one: `surface` is the deterministic climb-out, it does not depend on the
+    // pathfinder finding a route first, and it is the skill written for exactly
+    // this position.
+    //
+    // Escalation is NOT reset here. A rescue that did not work must leave the
+    // ladder where it was, or the next failure is indistinguishable from the
+    // first and the bot loops at level 3 forever. It resets in #check() when
+    // real progress is observed, which is the only evidence that means it.
+    log('warn', 'watchdog: stranded -- forcing a climb-out rather than counting it again')
+    try {
+      await this.runner.run('surface', {}, { trigger: 'watchdog_stranded' })
+    } catch (e) {
+      log('error', 'watchdog: climb-out failed', { err: e.message })
+    }
   }
 }

@@ -909,7 +909,9 @@ async function pillarOut(bot, maxBlocks = 24) {
     // purposes breaking is all that matters.
     const head = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (head && head.name !== 'air' && head.name !== 'water') {
-      try { await bot.dig(head) } catch { /* may be unreachable; try anyway */ }
+      // Bounded: an escape routine that hangs on a dig strands the bot for
+      // good, because nothing else is coming.
+      try { await digBounded(bot, head) } catch { /* may be unreachable; try anyway */ }
       await sleep(150)
     }
 
@@ -973,6 +975,31 @@ async function pillarOut(bot, maxBlocks = 24) {
 
 /** Break upward until there is open sky, then
  step out. */
+/**
+ * bot.dig() with a bound, for the RESCUE path.
+ *
+ * bot.dig resolves when the server confirms the break and waits forever when
+ * that never comes -- the block changed under us, the chunk unloaded, another
+ * bot took it. An unbounded dig inside an escape routine means the escape
+ * itself hangs, which is the worst possible place for it: the bot is already
+ * stuck, and now nothing will ever try again.
+ *
+ * This is the same defect that cost the fleet 48 OOM kills today through
+ * collectblock's unbounded waits. It was sitting in the rescue the whole time.
+ */
+async function digBounded(bot, block, ms = 8000) {
+  let t
+  try {
+    await Promise.race([
+      bot.dig(block),
+      new Promise((_, rej) => { t = setTimeout(() => {
+        try { bot.stopDigging?.() } catch { /* not digging */ }
+        rej(new Error(`dig exceeded ${ms}ms`))
+      }, ms) }),
+    ])
+  } finally { clearTimeout(t) }
+}
+
 async function digStraightUp(bot, startY, maxSteps = 20) {
   for (let i = 0; i < maxSteps; i++) {
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
@@ -993,10 +1020,25 @@ async function digStraightUp(bot, startY, maxSteps = 20) {
         return
       }
     } else {
-      try { await bot.dig(above) } catch { break }
+      try { await digBounded(bot, above) } catch { break }
       await sleep(150)
     }
-    if (!isEntombed(bot)) break
+    // THE SAME MISTAKE pillarOut ALREADY FIXED, LEFT IN ITS SIBLING.
+    //
+    // This was `if (!isEntombed(bot)) break`, and isEntombed() means "head
+    // blocked". The comment forty lines above records what that cost the first
+    // time: Miner01 at the bottom of a forty-block open shaft, head never
+    // blocked, one block placed per invocation, ninety minutes down there. The
+    // fix was applied to pillarOut and not to the fallback that runs WHEN
+    // PILLARING FAILS -- which is precisely the case for a bot in an open
+    // cavern, the only case this function exists to handle.
+    //
+    // 2026-08-10: 63 `marooned` events in thirty minutes, bots sitting at
+    // y=-45, -42, -42, -2 the whole time, _path_noPath 431 times. Detection was
+    // working perfectly and the rescue exited on its first iteration.
+    //
+    // Ask the question the trap actually denies, exactly as pillarOut does.
+    if (i % 3 === 2 && await canStartAPath(bot)) break
   }
   log('info', 'reflex: dug out', { from: Math.round(startY), to: Math.round(bot.entity.position.y) })
 }
