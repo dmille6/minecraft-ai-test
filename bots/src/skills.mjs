@@ -1269,7 +1269,20 @@ async function place(ctx, { item, x, y, z }, signal) {
       // reliable; the same lesson the crafting-table reach check already learned.
       try { await bot.lookAt(ref.position.offset(0.5, 1.5, 0.5), true) } catch { /* not fatal */ }
       await bot.placeBlock(ref, new Vec3(0, 1, 0))
-      return { status: 'success', detail: `placed ${item} at ${ref.position.offset(0, 1, 0)}` }
+      // READ IT BACK. placeBlock resolves without throwing when nothing was
+      // placed -- build() already documents this and checks; place() did not.
+      // The contract for `place` is `world_change`, and the runner scores that
+      // from `result.placed`, which this never returned. So every successful
+      // place was scored as changing nothing, classified `neutral`, and then
+      // recorded as a success anyway by the neutral branch in cognitive.mjs.
+      // A success nobody can falsify is not evidence.
+      const at = ref.position.offset(0, 1, 0)
+      const put = bot.blockAt(at)
+      if (!put || put.name === 'air' || put.boundingBox === 'empty') {
+        failures.push(`placeBlock returned but ${at} is still ${put?.name ?? 'unknown'}`)
+        continue
+      }
+      return { status: 'success', placed: 1, detail: `placed ${item} at ${at}` }
     } catch (e) {
       failures.push(e.message)
     }

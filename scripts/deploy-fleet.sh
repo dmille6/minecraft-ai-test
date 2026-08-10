@@ -135,14 +135,26 @@ if quiet > 0: sys.stderr.write(f"{quiet} bot(s) have not logged since the restar
 for v in sorted({v for _, v in seen.values()}): print(v)
 ')
 N=$(printf '%s\n' "$DIGESTS" | grep -c . || true)
-[ "$N" -gt 0 ] || bad "no bot has logged since the restart; cannot verify yet"
 
-if [ "$N" -eq 1 ]; then
-  ok "all live bots on $DIGESTS"
-else
-  bad "live bots report $N versions: $DIGESTS"
-  bad "the fleet is split -- do not trust aggregates until this is one line"
-fi
-
+# A VERIFIER THAT DOES NOT FAIL IS A NARRATOR.
+#
+# `bad` prints in red and returns 0, so under `set -e` this block detected a
+# split fleet, said so, and exited successfully anyway. It caught Miner01
+# running the previous build on 2026-08-10 and the deploy still reported done.
+#
+# Same shape as everything else this file was written to prevent: an
+# observation that does not reach the decision it exists to inform. Three
+# distinct outcomes now, and only one of them is success.
 printf '\n'
 /usr/local/bin/mcai-tripper 2>&1 | sed 's/^/   /'
+
+if [ "$N" -eq 0 ]; then
+  bad "no bot has logged since the restart -- convergence is UNKNOWN, not confirmed"
+  exit 2
+fi
+if [ "$N" -ne 1 ]; then
+  bad "live bots report $N versions: $DIGESTS"
+  bad "the fleet is split -- aggregates blend two builds until this is one line"
+  exit 1
+fi
+ok "all live bots on $DIGESTS"

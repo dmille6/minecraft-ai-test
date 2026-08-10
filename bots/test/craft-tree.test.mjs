@@ -50,6 +50,7 @@ const RECIPES = {
 function makeCraftBot(inv = {}, { tableNearby = false } = {}) {
   const bag = { ...inv }
   const placed = []
+  const placedAt = []
   const bot = {
     entity: { position: V(0, 64, 0) },
     registry: {
@@ -68,7 +69,16 @@ function makeCraftBot(inv = {}, { tableNearby = false } = {}) {
     recipesAll(id) { return RECIPES[NAME[id]] ?? [] },
     findBlock() { return tableNearby || placed.includes('crafting_table')
       ? { position: V(1, 64, 0), name: 'crafting_table' } : null },
-    blockAt(p) { return { name: p && p.y < 64 ? 'stone' : 'air', position: p, boundingBox: p && p.y < 64 ? 'block' : 'empty' } },
+    // A PLACED BLOCK HAS TO BE THERE AFTERWARDS. place() now reads the block
+    // back, because mineflayer's placeBlock resolves without throwing even when
+    // nothing was placed -- so a fake that never materialises the block is
+    // modelling the bug rather than the world.
+    blockAt(p) {
+      if (p && placedAt.some(q => q.x === p.x && q.y === p.y && q.z === p.z)) {
+        return { name: 'crafting_table', position: p, boundingBox: 'block' }
+      }
+      return { name: p && p.y < 64 ? 'stone' : 'air', position: p, boundingBox: p && p.y < 64 ? 'block' : 'empty' }
+    },
     async craft(recipe, count = 1) {
       for (const d of recipe.delta) {
         const n = NAME[d.id]
@@ -76,7 +86,11 @@ function makeCraftBot(inv = {}, { tableNearby = false } = {}) {
       }
     },
     async equip() {},
-    async placeBlock() { placed.push('crafting_table'); bag.crafting_table -= 1 },
+    async placeBlock(ref, face) {
+      placed.push('crafting_table')
+      placedAt.push({ x: ref.position.x + face.x, y: ref.position.y + face.y, z: ref.position.z + face.z })
+      bag.crafting_table -= 1
+    },
     async lookAt() {},
     pathfinder: { async goto() {} },
   }
@@ -191,8 +205,10 @@ const WATER = { name: 'water', boundingBox: 'empty' }
 const STONE = { name: 'stone', boundingBox: 'block' }
 const AIR   = { name: 'air', boundingBox: 'empty' }
 
-function placeBot(world) {
+function placeBot(world, { placementWorks = true } = {}) {
   const placed = []
+  const put = []          // where a block now actually exists
+  const key = p => `${p.x},${p.y},${p.z}`
   return {
     placed,
     bot: {
@@ -200,10 +216,21 @@ function placeBot(world) {
       inventory: { items: () => [{ name: 'crafting_table', count: 1 }] },
       // Real blocks carry their own position; place() uses it for lookAt and
       // for the success detail.
-      blockAt: p => ({ ...world(p), position: p }),
+      //
+      // A PLACED BLOCK EXISTS AFTERWARDS. place() now reads the block back,
+      // because mineflayer's placeBlock resolves without throwing even when
+      // nothing was placed -- so a fake whose world never changes is modelling
+      // the bug rather than the world. `placementWorks: false` models the
+      // silent-no-op case on purpose.
+      blockAt: p => (put.includes(key(p))
+        ? { name: 'crafting_table', boundingBox: 'block', position: p }
+        : { ...world(p), position: p }),
       async equip() {},
       async lookAt() {},
-      async placeBlock(ref) { placed.push(ref.position) },
+      async placeBlock(ref, face) {
+        placed.push(ref.position)
+        if (placementWorks) put.push(key(ref.position.offset(face.x, face.y, face.z)))
+      },
     },
   }
 }
@@ -241,9 +268,9 @@ await t('tries another spot when the first placement throws', async () => {
   const { bot, placed } = placeBot(p => (p.y < 64 ? STONE : AIR))
   let first = true
   const orig = bot.placeBlock.bind(bot)
-  bot.placeBlock = async ref => {
+  bot.placeBlock = async (ref, face) => {
     if (first) { first = false; throw new Error('server rejected: entity in the way') }
-    return orig(ref)
+    return orig(ref, face)      // forward the face, or nothing materialises
   }
   const r = await runPlace(bot)
   assert.equal(r.status, 'success', 'one rejection must not end the attempt')
@@ -304,6 +331,26 @@ await t('a craftable intermediate is still reported as itself', async () => {
   const { bot } = makeCraftBot({ oak_log: 4 }, { tableNearby: true })
   const r = await run(bot, { item: 'wooden_pickaxe', count: 1 })
   assert.equal(r.status, 'success', `should still succeed: ${r.detail}`)
+})
+
+
+// The read-back exists for exactly this: placeBlock resolving while the world
+// is unchanged. Before it, `place` returned success here.
+await t('a placement that silently does nothing is NOT reported as success', async () => {
+  const { bot } = placeBot(p => (p.y < 64 ? STONE : AIR), { placementWorks: false })
+  const r = await runPlace(bot)
+  assert.equal(r.status, 'failed',
+    'placeBlock resolves without throwing when nothing was placed -- a success ' +
+    'nobody can falsify is not evidence')
+})
+
+await t('a real placement reports the world_change its contract asks for', async () => {
+  const { bot } = placeBot(p => (p.y < 64 ? STONE : AIR))
+  const r = await runPlace(bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(r.placed, 1,
+    'the runner scores world_change from result.placed; without it every ' +
+    'successful place was classified as changing nothing')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
