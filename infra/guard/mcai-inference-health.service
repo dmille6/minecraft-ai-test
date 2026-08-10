@@ -1,0 +1,10 @@
+[Unit]
+Description=Restart Ollama when it is wedged (idle GPU, refused requests)
+After=ollama.service
+
+[Service]
+Type=oneshot
+Environment=PROBE_MODEL=qwen2.5:7b-instruct
+Environment=FAILS_BEFORE_ACTION=2
+Environment=RESTART_COOLDOWN=900
+ExecStart=/usr/local/bin/mcai-inference-health

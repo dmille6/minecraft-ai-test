@@ -1,0 +1,12 @@
+[Unit]
+Description=Check the inference endpoint every 2 minutes
+
+[Timer]
+# Two minutes, so two consecutive failures means action within ~4 -- against the
+# 90 minutes the wedge went unnoticed on 2026-08-10.
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target
