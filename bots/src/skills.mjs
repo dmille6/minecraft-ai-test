@@ -2039,6 +2039,11 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
 // animals, plants, sand, a view of the sky -- exists at or above this.
 const SEA_LEVEL = 63
 
+// How far one climb stage reaches. Bounded so each pathfinder search is a
+// question it can answer, rather than asking for a 107-block ascent in one go
+// -- the mistake that made every probe come back `partial`.
+const STEP_UP = 24
+
 /**
  * JOIN THE TWO FACTS THE SYSTEM ALREADY HAD.
  *
@@ -2083,8 +2088,7 @@ async function surface(ctx, _args, signal) {
 
   // Already up here. Report it as a refusal, not a success: a call that cannot
   // change anything must not be recorded as an achievement, or it clears the
-  // avoid rules that would otherwise stop it being proposed again. Same lesson
-  // as mine's impossible ascent.
+  // avoid rules that would otherwise stop it being proposed again.
   if (startY >= SEA_LEVEL) {
     return {
       status: 'failed',
@@ -2100,47 +2104,22 @@ async function surface(ctx, _args, signal) {
              detail: 'ascent movements unavailable on this bot' }
   }
 
-  // PROBE BEFORE DIGGING.
+  // A PROBE CHOOSES THE TOOL. IT DOES NOT DECIDE WHETHER TO ACT.
   //
-  // Borrowed from mindcraft (src/agent/library/skills.js), which asks the
-  // planner whether a route exists non-destructively before it allows itself to
-  // break anything. The first version of this skill handed the bot a
-  // dig-capable config unconditionally and let A* sort it out, which conflates
-  // two different situations:
+  // getPathTo advances the search generator exactly once and each slice is
+  // capped at tickTimeout (40ms), so underground it answers `partial` for
+  // essentially everything. Gating the ATTEMPT on it meant surface never
+  // attempted: 15 of 15 invocations returned unknown/probe_timeout and the
+  // altitude-judging code below was unreachable. Before that it read the same
+  // `partial` as `stranded` and poisoned the lessons store. Two ways of being
+  // wrong about the same forty milliseconds.
   //
-  //   walled in   no route exists without digging   -> digging is the remedy
-  //   unwilling   a walkable route exists           -> digging is vandalism
-  //
-  // Digging changes the world permanently and this project's entire navigation
-  // stance is canDig=false, so taking the destructive branch when the ordinary
-  // one would have worked is a real cost. A 1s probe is far cheaper than the
-  // 90s climb it decides.
-  // CLIMB IN STAGES, AND PROBE FOR THE STAGE.
-  //
-  // The first version probed for GoalY(63) with a 1000ms budget. From y=-42
-  // that is a 105-block vertical route, and A* cannot find one in a second --
-  // so `surface` reported "no route to the surface even with digging allowed"
-  // when the truth was "I did not search long enough". Live, Scout01 at y=-42
-  // and Gather02 at y=-2 were told they were walled in, repeatedly, on evidence
-  // that could not support it.
-  //
-  // Exactly the failure this project keeps rediscovering: a guard stating a
-  // conclusion its evidence does not reach. A short probe is fine, but it has
-  // to be asked a question it can actually answer, so each call climbs a
-  // bounded step and reports travel_incomplete to be called again -- the same
-  // shape as goto's legs.
-  const STEP_UP = 24
-  const stageY = Math.min(SEA_LEVEL, Math.round(startY) + STEP_UP)
-  // RETURN THE VERDICT, NOT A BOOLEAN. Collapsing the probe to true/false threw
-  // away the one distinction that matters here: `noPath` means A* expanded the
-  // whole reachable frontier and there is no way up, while `timeout` means we
-  // stopped it after 3s. Both used to arrive at `stranded`, which is a claim
-  // about the world made on the strength of a stopwatch.
-  const probe = (moves) => {
+  // So: only a COMPLETED noPath from both configs is a reason to skip. Anything
+  // else, we climb and let the altitude say what happened -- which no probe can
+  // fool, and which this skill already measured correctly all along.
+  const probe = (moves, stageY) => {
     try {
       const r = bot.pathfinder.getPathTo?.(moves, new goals.GoalY(stageY), 3000)
-      // 'noPath' and 'timeout' still hand back a partial best-effort path, so
-      // path.length is not the test -- only the status is.
       return r?.status ?? 'noPath'
     } catch { return 'noPath' }
   }
@@ -2148,131 +2127,108 @@ async function surface(ctx, _args, signal) {
   await settle(bot, signal).catch(() => {})
   check(signal)
 
-  const walkProbe = probe(bot.pathfinder.movements)
-  if (walkProbe === 'success') {
-    // Walkable. Climb with the ordinary config and break nothing.
-    let werr = null
-    try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), 90000, bot)
-    } catch (e) {
-      if (e.aborted || signal?.aborted) throw e
-      werr = e
-    }
-    const y2 = bot.entity.position.y
-    if (y2 >= SEA_LEVEL) {
-      return { status: 'success',
-               detail: `walked up ${Math.round(y2 - startY)} blocks to y=${Math.round(y2)} without digging` }
-    }
-    if (y2 - startY >= 4) {
-      return { status: 'failed', failClass: 'travel_incomplete', gap: `at_y${Math.round(y2)}`,
-               detail: `walked up ${Math.round(y2 - startY)} blocks to y=${Math.round(y2)}, ` +
-                       `still ${Math.round(SEA_LEVEL - y2)} below sea level — call again to continue` }
-    }
-    // The planner said there was a route and the bot did not take it. That is
-    // the empty-path resolve or a traversal stall, not a walled-in bot, and it
-    // must not be relabelled as one.
-    return { status: 'failed', failClass: 'path_interrupted', gap: `at_y${Math.round(y2)}`,
-             detail: `a walkable route to the surface existed but the bot did not follow it` +
-                     (werr ? ` (${String(werr.message).slice(0, 50)})` : '') }
-  }
+  // CLIMB UNTIL THE BUDGET IS SPENT, NOT UNTIL THE NEXT DECISION.
+  //
+  // Stages used to be one per invocation, so a bot at y=-44 needed five
+  // separate LLM decisions 30 seconds apart -- two and a half minutes at best,
+  // and only if the model re-chose `surface` every time against every other
+  // skill competing for the slot. Deterministic progress does not belong in the
+  // decision loop. One call now climbs as far as it can.
+  const DEADLINE = Date.now() + 120_000
+  const STAGE_MS = 40_000
+  let usedDig = false
+  let stalls = 0
+  let lastErr = null
+  // Did the planner ever COMMIT to a walkable route? If it did and the bot
+  // still went nowhere, that is a traversal stall -- goto's empty-path resolve
+  // or a stuck body -- and it is a definite answer, not a don't-know. Losing
+  // that distinction would throw away the one case where we know the fault is
+  // ours rather than the terrain's.
+  let plannerCommitted = false
 
-  const digProbe = probe(bot.ascentMovements)
-  if (digProbe !== 'success') {
-    const q = bot.entity.position
-    // A SEARCH WE CUT SHORT IS NOT A SEARCH THAT FAILED.
-    //
-    // `stranded` is an evidence class -- it reaches the lessons store and stops
-    // the bot proposing `surface` again -- so it may only be returned when the
-    // planner actually exhausted the space. Underground at y=-42 with digging
-    // allowed, almost every neighbour is a legal move and 3s of A* is routinely
-    // not enough to finish; that is precisely where the bot most needs to be
-    // allowed to try again. Scout01 and Gather02 were both told they were
-    // walled in on this evidence.
-    // `partial` belongs here too, and it is the one that was actually firing.
-    //
-    // pathfinder's getPathTo advances the search generator EXACTLY ONCE:
-    //     const generator = bot.pathfinder.getPathFromTo(...)
-    //     const { value: { result } } = generator.next()
-    //     return result
-    // and each slice is capped at tickTimeout, 40ms. So it answers `partial`
-    // for anything A* cannot fully solve in forty milliseconds, which
-    // underground is essentially everything. Only `noPath` means the space was
-    // searched and there is no way up.
-    //
-    // Reading `partial` as a refusal is why surface has never once succeeded:
-    // 0 for 28 tonight, including Miner01 at y=62 being told there was no route
-    // to y=63 -- one block above its head, with digging allowed. The same "no
-    // versus don't know" confusion the evidence gate exists to prevent, written
-    // into the skill meant to rescue the trapped bots.
-    const cutShort = v => v === 'timeout' || v === 'partial'
-    if (cutShort(walkProbe) || cutShort(digProbe)) {
+  while (bot.entity.position.y < SEA_LEVEL && Date.now() < DEADLINE) {
+    check(signal)
+    const y0 = bot.entity.position.y
+    const stageY = Math.min(SEA_LEVEL, Math.round(y0) + STEP_UP)
+
+    const walk = probe(bot.pathfinder.movements, stageY)
+    const dig = walk === 'success' ? null : probe(bot.ascentMovements, stageY)
+    // EITHER planner finishing and saying "yes" is a commitment. If one of them
+    // found a route and the bot still went nowhere, the fault is traversal --
+    // goto's empty-path resolve, or a stuck body -- not the terrain.
+    if (walk === 'success' || dig === 'success') plannerCommitted = true
+    if (walk === 'noPath' && dig === 'noPath') {
+      const q = bot.entity.position
+      // Both searches finished and neither found anything. This is the one
+      // case that is genuinely about the world, so it is the one case allowed
+      // to become a lesson.
+      if (q.y - startY >= 4) break        // we did climb; report that instead
       return {
-        status: 'unknown',
-        failClass: 'probe_timeout',
-        detail: `could not decide whether a route up from ` +
-                `${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} toward y=${stageY} exists — ` +
-                `the search was cut short (${walkProbe}/${digProbe}), not exhausted; call again`,
+        status: 'failed',
+        failClass: 'stranded',
+        gap: `stranded_y${Math.round(q.y)}`,
+        detail: `no route up from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
+                `toward y=${stageY}; both searches finished and found nothing — ` +
+                `enclosed, or every way up is beside water`,
       }
     }
-    // Both searches finished and neither found anything. Say so in one second
-    // instead of spending ninety proving it, and name it as being about THIS SPOT.
-    return {
-      status: 'failed',
-      failClass: 'stranded',
-      gap: `stranded_y${Math.round(q.y)}`,
-      detail: `no route up from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
-              `toward y=${stageY} even with digging allowed — enclosed, or every way up is beside water`,
-    }
-  }
 
-  check(signal)
-  let err = null
-  await bot.withAscentMovements(async () => {
     try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), 90000, bot)
+      if (walk === 'success') {
+        await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot)
+      } else {
+        usedDig = true
+        await bot.withAscentMovements(async () => {
+          await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot)
+        })
+      }
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
-      err = e
+      lastErr = e
     }
-  })
 
-  // A RESOLVED PROMISE IS NOT AN ARRIVAL -- goto resolves on an empty path.
-  // Judge the climb by the altitude gained, never by how the call returned.
+    // A stage that gained nothing twice running is not going to gain anything
+    // on the third, and spinning here burns the budget a later stage needs.
+    if (bot.entity.position.y - y0 < 1) {
+      if (++stalls >= 2) break
+    } else {
+      stalls = 0
+    }
+  }
+
+  // JUDGED ON ALTITUDE, never on how a promise returned -- goto resolves on an
+  // empty path, so only the height is evidence.
   const endY = bot.entity.position.y
   const climbed = endY - startY
+  const how = usedDig ? 'digging where it had to' : 'without digging'
 
   if (endY >= SEA_LEVEL) {
-    return { status: 'success', detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}` }
+    return { status: 'success', placed: undefined,
+             detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ${how}` }
   }
   if (climbed >= 4) {
-    // Real progress that ran out of budget. Distinct from going nowhere,
-    // because the store must not punish an action that is working.
     return {
-      status: 'failed',
-      failClass: 'travel_incomplete',
-      gap: `at_y${Math.round(endY)}`,
+      status: 'failed', failClass: 'travel_incomplete', gap: `at_y${Math.round(endY)}`,
       detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ` +
               `still ${Math.round(SEA_LEVEL - endY)} below sea level — call again to continue`,
     }
   }
-  // The 90s climb budget is ours. Blowing it after the probe said a route
-  // EXISTED means we ran out of time walking it, not that the bot is walled in
-  // -- and `stranded` is the class that stops it ever being tried again.
-  if (err?.budgetExceeded) {
+  // Went nowhere, but no search ever finished to say it was impossible. That is
+  // a don't-know, and a don't-know must never teach the fleet that escape is
+  // hopeless.
+  const q = bot.entity.position
+  if (plannerCommitted) {
     return {
-      status: 'unknown',
-      failClass: 'path_budget',
-      detail: `climbed ${Math.round(climbed)} blocks in the 90s budget from y=${Math.round(startY)} ` +
-              `with a route the planner said existed — out of time, not out of options`,
+      status: 'failed', failClass: 'path_interrupted', gap: `at_y${Math.round(endY)}`,
+      detail: `a walkable route upward existed and the bot did not follow it` +
+              (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : ''),
     }
   }
   return {
-    status: 'failed',
-    failClass: 'stranded',
-    gap: `at_y${Math.round(endY)}`,
-    detail: `could not climb from y=${Math.round(endY)}` +
-            (err ? ` (${String(err.message).slice(0, 60)})` : '') +
-            ' — no upward route even with digging allowed, and blocks beside water are refused',
+    status: 'unknown', failClass: 'no_measurable_change', gap: `at_y${Math.round(endY)}`,
+    detail: `no altitude gained from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
+            `in ${Math.round((Date.now() - (DEADLINE - 120_000)) / 1000)}s of trying` +
+            (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : ''),
   }
 }
 

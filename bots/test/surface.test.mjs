@@ -91,8 +91,14 @@ await t('a climb that goes nowhere is stranded, not success', async () => {
   // goto resolves on an empty path, so the promise says nothing. Only altitude does.
   const bot = climbBot({ y: -42, rise: 0, route: 'dig' })
   const r = await run(bot)
-  assert.equal(r.status, 'failed')
-  assert.equal(r.failClass, 'stranded', r.detail)
+  // The property that matters is that going nowhere is NEVER success. The class
+  // is `path_interrupted` rather than `stranded` here, and deliberately so: the
+  // ascent planner finished and found a route, so the terrain is not the
+  // problem -- the traversal is. `stranded` is reserved for both searches
+  // completing and finding nothing, which is the only case that is genuinely
+  // about the world and the only one allowed to become a lesson.
+  assert.notEqual(r.status, 'success', 'zero altitude gained is not a climb')
+  assert.equal(r.failClass, 'path_interrupted', r.detail)
 })
 
 await t('partial progress is distinct from going nowhere', async () => {
@@ -140,7 +146,7 @@ await t('when neither config can reach the surface it says so immediately', asyn
   assert.equal(r.failClass, 'stranded')
   assert.deepEqual(gotos, [], 'a 1s probe must not become a 90s climb to learn the same thing')
   assert.deepEqual(borrowed, [])
-  assert.match(r.detail, /even with digging allowed/, r.detail)
+  assert.match(r.detail, /both searches finished and found nothing/, r.detail)
 })
 
 await t('a route that exists but is not followed is NOT called stranded', async () => {
@@ -199,8 +205,10 @@ await t('an unfinished search is not a refusal', async () => {
   const r = await run(bot)
   assert.notEqual(r.failClass, 'stranded',
     'partial means the search was cut short, not that there is no way out')
-  assert.equal(r.status, 'unknown',
-    'and an unknown must never reach the lessons store as evidence')
+  // And the point of the rewrite: an unfinished search must not stop the bot
+  // from TRYING. Before it, 15 of 15 invocations returned unknown and the
+  // altitude-judging code below was unreachable.
+  assert.ok(gotos.length > 0, 'it must have attempted the climb anyway')
 })
 
 await t('an exhausted search IS a refusal', async () => {
