@@ -4,6 +4,7 @@
 // intelligence -- recover after death or disconnection, and run four hours
 // without unrecoverable failure. That is what this file is for.
 
+import net from 'node:net'
 import mineflayer from 'mineflayer'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const { pathfinder, Movements } = pathfinderPkg
@@ -377,13 +378,41 @@ function connect() {
     bot.chat(`${config.bot.name} online (${config.bot.role}) — say "${config.bot.name} help"`)
 
     if (config.viewer.enabled) {
-      try {
-        const { mineflayer: mineflayerViewer } = require_('prismarine-viewer')
-        mineflayerViewer(bot, { port: config.viewer.port, firstPerson: config.viewer.firstPerson })
-        log('info', 'viewer started', { url: `http://<host>:${config.viewer.port}`, firstPerson: config.viewer.firstPerson })
-      } catch (e) {
-        log('error', 'viewer failed to start', { err: e.message })
-      }
+      // A DEBUG VIEWER MUST NOT BE ABLE TO KILL THE AGENT.
+      //
+      // EADDRINUSE ARRIVES AS AN EVENT, NOT AS A THROW. The try/catch that used
+      // to wrap this looked like it handled a failed viewer and could never have
+      // caught the only failure that actually happens: net emits 'error' on the
+      // server asynchronously, nothing is listening, and Node's default for an
+      // unhandled 'error' event is to throw and exit.
+      //
+      // 2026-08-10: a restart left the previous process holding port 3015 for a
+      // moment. solo1 came up, hit EADDRINUSE, and DIED -- over a viewer.
+      // systemd restarted it instantly, Paper answered "Connection throttled!",
+      // it died again. Ten bots doing that drove the host to load 20.48, which
+      // starved sshd to the point of failing banner exchange and hung the bots
+      // that had not crashed. The whole fleet was down for ~15 minutes because
+      // an optional debugging convenience could not bind a socket.
+      //
+      // Probe first and skip the viewer if the port is busy. Ports are per-bot,
+      // so the only real collision is a bot restarting over its own stale
+      // listener -- exactly what this catches, and it catches it without
+      // touching the process's error semantics.
+      const probe = net.createServer()
+      probe.once('error', e => {
+        log('error', 'viewer port busy — running WITHOUT a viewer (the bot is fine)',
+          { port: config.viewer.port, err: e.code ?? e.message })
+      })
+      probe.once('listening', () => probe.close(() => {
+        try {
+          const { mineflayer: mineflayerViewer } = require_('prismarine-viewer')
+          mineflayerViewer(bot, { port: config.viewer.port, firstPerson: config.viewer.firstPerson })
+          log('info', 'viewer started', { url: `http://<host>:${config.viewer.port}`, firstPerson: config.viewer.firstPerson })
+        } catch (e) {
+          log('error', 'viewer failed to start', { err: e.message })
+        }
+      }))
+      probe.listen(config.viewer.port)
     }
 
     if (config.llm.enabled) {
