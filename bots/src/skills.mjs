@@ -31,8 +31,66 @@ const sleep = (ms, signal) => new Promise((res, rej) => {
  * re-planning toward an unreachable goal, during which the bot never moves --
  * indistinguishable from being stuck, and it burns the whole skill timeout.
  */
+/**
+ * DON'T ASK A* FOR A ROUTE FROM A PLACE THE BOT ISN'T STANDING.
+ *
+ * mineflayer-pathfinder searches from `bot.entity.position.floored()`
+ * unconditionally. If that node has no legal neighbours -- because the bot is
+ * mid-fall, or perched on a block edge with its floored position hanging in
+ * air -- A* expands one node and quits. The raw events read "noPath after 1
+ * nodes, 0ms", which is exactly the string behind our empty-path `stranded`
+ * result, and it happens most after a maxDropDown=6 descent.
+ *
+ * Baritone solves this by substituting a nearby standable block as the search
+ * origin (PathingBehavior.pathStart, its issue #209). We cannot pass a start
+ * position to goto(), so we do the physical equivalent: wait for the bot to
+ * come to rest before asking. Bounded, because a bot that never settles is a
+ * different problem and must not hang here.
+ */
+async function settle(bot, signal, ms = 1500) {
+  const t0 = Date.now()
+  while (Date.now() - t0 < ms) {
+    check(signal)
+    const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+    const falling = Math.abs(bot.entity.velocity?.y ?? 0) > 0.08
+    if (below && below.boundingBox === 'block' && !falling) return true
+    await sleep(100, signal)
+  }
+  return false
+}
+
+/**
+ * Cancel a path that is trying to dig something this bot cannot break.
+ *
+ * With any dig-capable profile A* can route through a block the bot has no tool
+ * for; the bot then stands there swinging until the budget expires. Our stuck
+ * reflex cannot see it -- it treats `bot.targetDigBlock != null` as evidence of
+ * WORK and resets its timer -- so a bot futilely mining obsidian reads as
+ * perfectly healthy for the full 40s collect or 90s ascent budget.
+ * (mindcraft's checkDigProgress, skills.js.)
+ */
+function watchDigging(bot, onStuck) {
+  return setInterval(() => {
+    try {
+      const b = bot.targetDigBlock
+      if (!b) return
+      if (!b.canHarvest(bot.heldItem?.type ?? null)) {
+        try { bot.pathfinder.stop() } catch {}
+        try { bot.stopDigging?.() } catch {}
+        onStuck(b.name)
+      }
+    } catch { /* transient world state */ }
+  }, 1000)
+}
+
 function withTimeout(promise, ms, bot) {
   let t
+  // A path that is digging the undiggable will otherwise run out the clock and
+  // be recorded as a timeout, which names our budget rather than the cause.
+  let undiggable = null
+  const watch = bot?.targetDigBlock !== undefined || bot?.pathfinder
+    ? watchDigging(bot, name => { undiggable = name })
+    : null
   return Promise.race([
     promise,
     new Promise((_, rej) => {
@@ -42,11 +100,14 @@ function withTimeout(promise, ms, bot) {
         // also matched "no path", so OUR wall clock expiring was reported to
         // the model and persisted to the lessons store as "no route exists" --
         // 393 times in 16 hours. The pathfinder never once said no path exists.
-        rej(Object.assign(new Error(`pathfinding exceeded ${ms}ms`),
+        rej(undiggable
+          ? Object.assign(new Error(`cannot break ${undiggable} on the way there`),
+                          { failClass: 'undiggable_en_route' })
+          : Object.assign(new Error(`pathfinding exceeded ${ms}ms`),
                           { failClass: 'path_budget', budgetExceeded: true }))
       }, ms)
     }),
-  ]).finally(() => clearTimeout(t))
+  ]).finally(() => { clearTimeout(t); if (watch) clearInterval(watch) })
 }
 
 /** Refuse any destination outside the world border. */
@@ -135,6 +196,7 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   // goto takes a median 16.5s and at worst 45s, and the worst failure 70s, so
   // roughly 9s per leg. Sixteen legs is ~145s -- inside the watchdog with margin,
   // and 720 blocks of reach.
+  await settle(bot, signal).catch(() => {})
   const startDist = Math.hypot(target.x - bot.entity.position.x, target.z - bot.entity.position.z)
   const maxLegs = Math.min(16, Math.max(8, Math.ceil(startDist / MAX_LEG) + 3))
 
@@ -1848,6 +1910,7 @@ async function surface(ctx, _args, signal) {
     } catch { return false }
   }
 
+  await settle(bot, signal).catch(() => {})
   check(signal)
 
   if (routeExists(bot.pathfinder.movements)) {

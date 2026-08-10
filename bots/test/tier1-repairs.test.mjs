@@ -169,5 +169,64 @@ await (async () => {
   })
 })()
 
+
+// --- DON'T PLAN A ROUTE WHILE FALLING --------------------------------------
+//
+// pathfinder searches from bot.entity.position.floored() unconditionally. Mid-
+// fall, or perched on a block edge, that node has no legal neighbours: A*
+// expands one node and quits, logging "noPath after 1 nodes, 0ms" -- the exact
+// string behind our empty-path `stranded` result. Most common right after a
+// maxDropDown=6 descent.
+await (async () => {
+  const { SKILLS: S } = await import('../src/skills.mjs')
+  const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c),
+                            distanceTo: o => Math.hypot(x - o.x, y - o.y, z - o.z), clone: () => V(x, y, z) })
+
+  const fallingBot = ({ landAfter = 3 }) => {
+    let polls = 0
+    const bot = {
+      entity: { position: V(0, 70, 0), velocity: { y: -0.6 } },
+      health: 20, food: 20,
+      inventory: { items: () => [] },
+      registry: { blocksByName: {}, blocks: {}, itemsByName: {} },
+      blockAt: () => {
+        // Airborne for the first few polls, then solid ground appears.
+        polls++
+        return polls > landAfter
+          ? { name: 'stone', boundingBox: 'block' }
+          : { name: 'air', boundingBox: 'empty' }
+      },
+      pathfinder: {
+        movements: {}, setMovements() {},
+        getPathTo: () => ({ status: 'success', path: [1, 2] }),
+        async goto() { bot.entity.position = V(0, 70, 0) },
+      },
+      ascentMovements: {},
+      async withAscentMovements(fn) { return fn() },
+      chat() {},
+    }
+    Object.defineProperty(bot.entity, 'velocity', {
+      get: () => ({ y: polls > landAfter ? 0 : -0.6 }),
+    })
+    return bot
+  }
+
+  t('goto waits for the bot to come to rest before planning', async () => {
+    const bot = fallingBot({ landAfter: 2 })
+    const before = Date.now()
+    await S.goto.run({ bot }, { x: 5, y: 70, z: 5 }, new AbortController().signal)
+    assert.ok(Date.now() - before >= 100,
+      'it must have polled at least once rather than planning mid-fall')
+  })
+
+  t('a bot that never settles does not hang the skill', async () => {
+    const bot = fallingBot({ landAfter: 10_000 })   // never lands
+    const before = Date.now()
+    await S.goto.run({ bot }, { x: 5, y: 70, z: 5 }, new AbortController().signal)
+    const took = Date.now() - before
+    assert.ok(took < 8000, `the settle wait must be bounded, took ${took}ms`)
+  })
+})()
+
 console.log(`  ${pass} passed, ${fail} failed${skip ? `, ${skip} skipped` : ''}`)
 process.exit(fail ? 1 : 0)
