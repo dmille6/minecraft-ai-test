@@ -129,7 +129,29 @@ function watchDigging(bot, onStuck) {
   }, 1000)
 }
 
-function withTimeout(promise, ms, bot) {
+/**
+ * Bound an await, SAY WHAT WAS BOUNDED, and clean up after it.
+ *
+ * `what` exists because this function used to report every timeout as
+ * "pathfinding exceeded Nms" whatever it wrapped. The moment a dig was wrapped
+ * (2026-08-10, when gather stopped using collectblock), a dig that never
+ * finished was reported to the model, and persisted to the lessons store, as a
+ * PATHFINDING failure -- teaching the fleet that a route was bad when the route
+ * was fine and the block would not break. Exactly the defect this file's own
+ * comment below describes, reintroduced by widening the helper's use without
+ * widening its vocabulary.
+ *
+ * `onTimeout` exists because Promise.race does not cancel. Whatever we stop
+ * waiting for keeps running unless something ends it, and what "ends it"
+ * differs per API: a path needs the goal cleared, a dig needs stopDigging(), a
+ * container needs closing. A generic wrapper cannot know, so callers say.
+ *
+ * The default is the pathfinder case, and it now clears the GOAL rather than
+ * only calling stop(). stop() takes effect at the next path node, so a bot that
+ * cannot reach its next node never stops -- setGoal(null) is what actually
+ * ends it, which reflex.mjs already had to learn the hard way.
+ */
+function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout = null } = {}) {
   let t
   // A path that is digging the undiggable will otherwise run out the clock and
   // be recorded as a timeout, which names our budget rather than the cause.
@@ -141,7 +163,12 @@ function withTimeout(promise, ms, bot) {
     promise,
     new Promise((_, rej) => {
       t = setTimeout(() => {
-        try { bot.pathfinder.stop() } catch {}
+        if (onTimeout) {
+          try { onTimeout() } catch { /* best effort; the reject still happens */ }
+        } else {
+          try { bot.pathfinder?.setGoal(null) } catch {}
+          try { bot.pathfinder?.stop() } catch {}
+        }
         // TAGGED, not just worded. The old message was matched by a regex that
         // also matched "no path", so OUR wall clock expiring was reported to
         // the model and persisted to the lessons store as "no route exists" --
@@ -149,8 +176,9 @@ function withTimeout(promise, ms, bot) {
         rej(undiggable
           ? Object.assign(new Error(`cannot break ${undiggable} on the way there`),
                           { failClass: 'undiggable_en_route' })
-          : Object.assign(new Error(`pathfinding exceeded ${ms}ms`),
-                          { failClass: 'path_budget', budgetExceeded: true }))
+          : Object.assign(new Error(`${what} exceeded ${ms}ms`),
+                          { failClass: what === 'pathfinding' ? 'path_budget' : `${what}_budget`,
+                            budgetExceeded: true }))
       }, ms)
     }),
   ]).finally(() => { clearTimeout(t); if (watch) clearInterval(watch) })
@@ -650,12 +678,13 @@ async function collectManually(bot, block, signal) {
   // block changed under us, another bot took it, the chunk unloaded. This is
   // now the ONLY path gather takes, so an unbounded await here would reproduce
   // the exact failure that made collectblock unusable, in our own code.
-  try {
-    await withTimeout(bot.dig(block), 20_000, bot)
-  } catch (e) {
-    try { bot.stopDigging?.() } catch { /* not digging */ }
-    throw e
-  }
+  // Named `dig` so a dig that never finishes is not filed as a pathing failure,
+  // and cleaned up with stopDigging() rather than the pathfinder default --
+  // clearing a path goal does nothing for a stuck dig.
+  await withTimeout(bot.dig(block), 20_000, bot, {
+    what: 'dig',
+    onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+  })
   await pickupNearbyItems(bot, signal)
 }
 

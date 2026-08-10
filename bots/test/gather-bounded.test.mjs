@@ -89,5 +89,36 @@ t('any surviving collectblock call bounds the cancel too', () => {
     'unbounded was itself a leak (measured: solo2 0 -> 35 kills per 30min)')
 })
 
+// --- a bounded await must also say WHAT it bounded ------------------------
+//
+// withTimeout reported every timeout as "pathfinding exceeded Nms" regardless
+// of what it wrapped. The moment a dig was wrapped, a block that would not
+// break was reported to the model, and written to the lessons store, as a
+// PATHFINDING failure -- teaching the fleet to avoid a route that was fine.
+// Found by an independent review, not by us, after we introduced it.
+t('withTimeout names what it bounded, not always "pathfinding"', () => {
+  assert.match(src, /function withTimeout\(promise, ms, bot, \{ what = 'pathfinding', onTimeout = null \} = \{\}\)/,
+    'the helper must take a label and a cleanup callback')
+  assert.match(src, /new Error\(`\$\{what\} exceeded \$\{ms\}ms`\)/,
+    'the message must use the label')
+  assert.ok(!/new Error\(`pathfinding exceeded/.test(src),
+    'the hardcoded pathfinding wording must be gone')
+})
+
+t('the dig timeout is labelled and cleans up with stopDigging', () => {
+  const b = body('collectManually')
+  assert.match(b, /what: 'dig'/, 'a dig timeout must not be filed as a path failure')
+  assert.match(b, /onTimeout: \(\) => \{ try \{ bot\.stopDigging/,
+    'clearing a path goal does nothing for a stuck dig')
+})
+
+t('the default cleanup clears the GOAL, not just stop()', () => {
+  // pathfinder.stop() takes effect at the next path node, so a bot that cannot
+  // reach its next node never stops. setGoal(null) is what actually ends it --
+  // reflex.mjs already had to learn this.
+  assert.match(src, /bot\.pathfinder\?\.setGoal\(null\)[\s\S]{0,120}bot\.pathfinder\?\.stop\(\)/,
+    'setGoal(null) must come with (and before) stop()')
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
