@@ -820,10 +820,32 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         //
         // cancelTask() is the library's supported way out and exists in 1.5.0.
         // Call it on EVERY exit that is not a clean return.
+        // ...AND cancelTask() DOES NOT CANCEL. Read its source before trusting
+        // the name -- 1.5.0 is:
+        //
+        //     this.bot.pathfinder.stop()
+        //     yield once(this.bot, 'collectBlock_finished')
+        //
+        // It stops the pathfinder and then WAITS for the loop to end by itself.
+        // In the exact case we need it for -- a loop that will not end -- that
+        // event never fires, so cancelTask hangs forever, holding another
+        // pending await and another listener on `bot`. Awaiting it unbounded
+        // (which the first version of this fix did) blocks the gather skill and
+        // adds to the very pile it was meant to drain. Measured: gather2 halved
+        // afterwards, and solo2 went from zero to 35 OOM kills per half hour.
+        //
+        // So: ask it to stop, bound the wait, and never let the request itself
+        // become the leak. If it has not finished in two seconds it is not
+        // going to, and the process will be recycled by MemoryMax anyway.
         try {
           await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot)
         } catch (e) {
-          try { await bot.collectBlock.cancelTask?.() } catch { /* already stopped */ }
+          try {
+            await Promise.race([
+              Promise.resolve(bot.collectBlock.cancelTask?.()).catch(() => {}),
+              new Promise(r => setTimeout(r, 2000)),
+            ])
+          } catch { /* already stopped */ }
           throw e
         }
       }
@@ -840,7 +862,15 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // same abandonment as the timeout above, arriving by a different door.
       // After a clean collect this is a no-op, because targets is already empty.
       if (signal?.aborted) {
-        try { await bot.collectBlock?.cancelTask?.() } catch { /* already stopped */ }
+        // Bounded for the same reason as above: cancelTask waits on an event a
+        // wedged loop never emits, and an unbounded await here would hang the
+        // cancellation path itself.
+        try {
+          await Promise.race([
+            Promise.resolve(bot.collectBlock?.cancelTask?.()).catch(() => {}),
+            new Promise(r => setTimeout(r, 2000)),
+          ])
+        } catch { /* already stopped */ }
       }
       // collectBlock replaces the pathfinder Movements with library defaults and
       // never restores them. Put ours back on every path out of collect(),
