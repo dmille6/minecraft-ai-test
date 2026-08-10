@@ -1975,9 +1975,25 @@ async function surface(ctx, _args, signal) {
   // stance is canDig=false, so taking the destructive branch when the ordinary
   // one would have worked is a real cost. A 1s probe is far cheaper than the
   // 90s climb it decides.
+  // CLIMB IN STAGES, AND PROBE FOR THE STAGE.
+  //
+  // The first version probed for GoalY(63) with a 1000ms budget. From y=-42
+  // that is a 105-block vertical route, and A* cannot find one in a second --
+  // so `surface` reported "no route to the surface even with digging allowed"
+  // when the truth was "I did not search long enough". Live, Scout01 at y=-42
+  // and Gather02 at y=-2 were told they were walled in, repeatedly, on evidence
+  // that could not support it.
+  //
+  // Exactly the failure this project keeps rediscovering: a guard stating a
+  // conclusion its evidence does not reach. A short probe is fine, but it has
+  // to be asked a question it can actually answer, so each call climbs a
+  // bounded step and reports travel_incomplete to be called again -- the same
+  // shape as goto's legs.
+  const STEP_UP = 24
+  const stageY = Math.min(SEA_LEVEL, Math.round(startY) + STEP_UP)
   const routeExists = (moves) => {
     try {
-      const r = bot.pathfinder.getPathTo?.(moves, new goals.GoalY(SEA_LEVEL), 1000)
+      const r = bot.pathfinder.getPathTo?.(moves, new goals.GoalY(stageY), 3000)
       // 'noPath' and 'timeout' still hand back a partial best-effort path, so
       // path.length is not the test -- only the status is.
       return r?.status === 'success'
@@ -1991,7 +2007,7 @@ async function surface(ctx, _args, signal) {
     // Walkable. Climb with the ordinary config and break nothing.
     let werr = null
     try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalY(SEA_LEVEL)), 90000, bot)
+      await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), 90000, bot)
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
       werr = e
@@ -2022,8 +2038,8 @@ async function surface(ctx, _args, signal) {
       status: 'failed',
       failClass: 'stranded',
       gap: `stranded_y${Math.round(q.y)}`,
-      detail: `no route to the surface from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
-              `even with digging allowed — enclosed, or every way up is beside water`,
+      detail: `no route up from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
+              `toward y=${stageY} even with digging allowed — enclosed, or every way up is beside water`,
     }
   }
 
@@ -2031,7 +2047,7 @@ async function surface(ctx, _args, signal) {
   let err = null
   await bot.withAscentMovements(async () => {
     try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalY(SEA_LEVEL)), 90000, bot)
+      await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), 90000, bot)
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
       err = e

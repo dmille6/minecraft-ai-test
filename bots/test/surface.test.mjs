@@ -148,5 +148,38 @@ await t('a route that exists but is not followed is NOT called stranded', async 
   assert.equal(r.failClass, 'path_interrupted', r.detail)
 })
 
+
+// --- A PROBE MUST BE ASKED A QUESTION IT CAN ANSWER ------------------------
+//
+// The first version probed for GoalY(63) with a 1000ms budget. From y=-42 that
+// is a 105-block vertical route; A* cannot find one in a second, so `surface`
+// reported "no route to the surface even with digging allowed" -- a conclusion
+// its evidence could not reach. Live, Scout01 at y=-42 and Gather02 at y=-2
+// were told they were walled in, over and over, on that basis.
+await t('a deep bot climbs in a bounded stage, not to sea level in one search', async () => {
+  const asked = []
+  const bot = climbBot({ y: -42, rise: 24, route: 'dig' })
+  const realGetPath = bot.pathfinder.getPathTo
+  bot.pathfinder.getPathTo = (m, goal, timeout) => {
+    asked.push({ y: goal.y, timeout })
+    return realGetPath(m, goal, timeout)
+  }
+  await run(bot)
+  assert.ok(asked.length > 0, 'the probe should have run')
+  const target = asked[0].y
+  assert.ok(target < 0, `a bot at y=-42 should aim for a nearby stage, not 63 -- asked for ${target}`)
+  assert.ok(asked[0].timeout >= 3000,
+    `and the budget must fit the question: ${asked[0].timeout}ms`)
+})
+
+await t('a bot just under the surface still aims at sea level, not past it', async () => {
+  const asked = []
+  const bot = climbBot({ y: 55, rise: 8, route: 'walk' })
+  const real = bot.pathfinder.getPathTo
+  bot.pathfinder.getPathTo = (m, goal, t2) => { asked.push(goal.y); return real(m, goal, t2) }
+  await run(bot)
+  assert.equal(asked[0], 63, `a stage must never overshoot sea level, got ${asked[0]}`)
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
