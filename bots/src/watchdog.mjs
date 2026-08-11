@@ -45,8 +45,9 @@ export class StagnationWatchdog {
     // record of its own rather than lengthening the stagnation window and
     // changing what that judgement means.
     this.strandHistory = []    // { t, y, items, milestone }
-    this.strandWindows = 0     // consecutive windows meeting the condition
+    this.strandWindows = 0     // consecutive WINDOWS (not ticks) meeting the condition
     this.surfaceAttempts = 0   // climb-outs tried since the last real progress
+    this.lastStrandJudgedAt = 0
   }
 
   start() {
@@ -64,34 +65,6 @@ export class StagnationWatchdog {
   noteActivity() { this.lastActionAt = Date.now() }
 
   /**
-   * IS THIS BOT STRANDED UNDERGROUND? An OUTCOME test, deliberately not a
-   * capability test.
-   *
-   * Every capability probe this project has written has been satisfied by the
-   * broken state it was meant to catch. isEntombed() asks "is my head blocked",
-   * and Miner01 sat at the bottom of an open shaft for ninety minutes with a
-   * clear head. canStartAPath() asks for a route to (x+8, y, z+8) -- eight
-   * blocks DIAGONALLY AT THE SAME DEPTH -- which a bot in a large cavern
-   * satisfies instantly while a hundred blocks below anything useful. On
-   * 2026-08-10 five bots sat at y=-42, -42, -2, 29 and 55 for 45 minutes while
-   * every guard in the system reported success.
-   *
-   * The pathfinder cannot answer the real question: getPathTo advances its
-   * incremental search exactly once per call, so any distant or vertical goal
-   * returns `partial`. Aiming the probe higher would report NOT-REACHABLE for
-   * healthy bots too. That constraint is why the check was written to look
-   * eight blocks sideways in the first place, and it is not going away.
-   *
-   * So stop asking whether the bot COULD leave and ask whether it HAS got
-   * anywhere. A bot deep underground that has gained no height, completed no
-   * milestone and collected nothing over two consecutive windows is stranded,
-   * whatever any probe says about its local mobility.
-   *
-   * The inventory term is what keeps a working miner out of this. Miner01
-   * legitimately spends long stretches below y=50; what it does NOT do is spend
-   * them without its inventory changing.
-   */
-  /**
    * Act on the stranding verdict, and only after it has held twice.
    *
    * TWO WINDOWS, not one. A single six-minute window can legitimately show no
@@ -100,8 +73,32 @@ export class StagnationWatchdog {
    * consecutive windows costs twelve minutes before acting and is the
    * difference between rescuing a stuck bot and interrupting a working one.
    */
-  async #judgeStranding() {
-    const v = this.#strandingVerdict()
+  /**
+   * Public for the same reason check() is: the 15s timer is not a testable
+   * surface. At a six-minute window a test driving the timer would take twelve
+   * minutes to see one verdict, so the tests call this directly with a
+   * controlled clock -- which is how the tick-vs-window unit bug was caught.
+   */
+  async judgeStranding() {
+    // ONE VERDICT PER WINDOW, NOT ONE PER SAMPLE.
+    //
+    // check() runs every 15s. Counting a "window" on every call made the
+    // two-window requirement mean thirty seconds instead of twelve minutes:
+    // deployed 2026-08-11, it burned through both climb-outs inside a minute
+    // and wrote 43 `stranded_underground` events in 22 minutes, one every
+    // sample. The threshold was reasoned about in minutes and implemented in
+    // ticks.
+    //
+    // The history still accumulates every call -- that is what makes the
+    // six-minute measurement possible -- but the JUDGEMENT is rate-limited to
+    // the window it is defined over.
+    const now = Date.now()
+    const W = config.watchdog.strandWindowMs ?? 6 * 60_000
+    // Sample on EVERY call -- the six-minute measurement is built from these --
+    // but judge at most once per window.
+    const v = this.#strandingVerdict(now)
+    if (now - (this.lastStrandJudgedAt ?? 0) < W) return
+    this.lastStrandJudgedAt = now
     if (!v) return
 
     const stranded = v.deep && v.altitudeGain < v.needGain && !v.milestoneMoved && !v.itemsChanged
@@ -174,6 +171,34 @@ export class StagnationWatchdog {
     this.strandWindows = 1
   }
 
+  /**
+   * IS THIS BOT STRANDED UNDERGROUND? An OUTCOME test, deliberately not a
+   * capability test.
+   *
+   * Every capability probe this project has written has been satisfied by the
+   * broken state it was meant to catch. isEntombed() asks "is my head blocked",
+   * and Miner01 sat at the bottom of an open shaft for ninety minutes with a
+   * clear head. canStartAPath() asks for a route to (x+8, y, z+8) -- eight
+   * blocks DIAGONALLY AT THE SAME DEPTH -- which a bot in a large cavern
+   * satisfies instantly while a hundred blocks below anything useful. On
+   * 2026-08-10 five bots sat at y=-42, -42, -2, 29 and 55 for 45 minutes while
+   * every guard in the system reported success.
+   *
+   * The pathfinder cannot answer the real question: getPathTo advances its
+   * incremental search exactly once per call, so any distant or vertical goal
+   * returns `partial`. Aiming the probe higher would report NOT-REACHABLE for
+   * healthy bots too. That constraint is why the check was written to look
+   * eight blocks sideways in the first place, and it is not going away.
+   *
+   * So stop asking whether the bot COULD leave and ask whether it HAS got
+   * anywhere. A bot deep underground that has gained no height, completed no
+   * milestone and collected nothing over two consecutive windows is stranded,
+   * whatever any probe says about its local mobility.
+   *
+   * The inventory term is what keeps a working miner out of this. Miner01
+   * legitimately spends long stretches below y=50; what it does NOT do is spend
+   * them without its inventory changing.
+   */
   #strandingVerdict(now = Date.now()) {
     const W = config.watchdog.strandWindowMs ?? 6 * 60_000
     const p = this.bot.entity?.position
@@ -258,7 +283,7 @@ export class StagnationWatchdog {
     // displacement looks fine. It is going nowhere in the only direction that
     // matters. That is invisible to a 180-second window and obvious over six
     // minutes.
-    await this.#judgeStranding()
+    await this.judgeStranding()
 
     const idleFor = Date.now() - this.lastActionAt
     if (idleFor > config.watchdog.windowMs) return
