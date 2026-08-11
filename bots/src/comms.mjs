@@ -29,25 +29,45 @@ import { config } from './config.mjs'
 import { log } from './logger.mjs'
 
 const TAG = '[fleet]'
-const NAME_RE = /^(Scout|Miner|Gather|Builder|Crafter)\d{2}$/
+// Matches the FLEET, not a 2024 snapshot of it. The old pattern predated the
+// Hive/Solo names, so half the current fleet was silently distrusted as
+// senders while the other half was believed -- contamination that varied by
+// what a bot happened to be CALLED.
+const NAME_RE = /^(Scout|Miner|Gather|Builder|Crafter|Hive|Solo)\d{2}$/
 const MIN_GAP_MS = 20_000          // per-bot floor between announcements
 const MAX_ABS = 30_000_000         // sanity bound on any coordinate
 
-/** `[fleet] hazard entombed -1 70 5 x6` */
+// EVERY ANNOUNCEMENT NAMES ITS POOL, AND INGESTION IS SCOPED TO IT.
+//
+// Chat is global: the server delivers every line to every bot regardless of
+// experiment arm. Before exp-001 that was the point -- one fleet, one memory.
+// Under the experiment it was a leak: a shared-arm bot giving up on a goal
+// broadcast that belief, and ISOLATED bots ingested it into their world model
+// (tagged 'reported over chat', so block-1 contamination is quantifiable).
+// "Unreachable" claims are the exact false-belief object this lab studies, so
+// the control arm was receiving a dilute dose of the treatment.
+//
+// The rule now mirrors the memory design exactly: chat may only carry a fact
+// between bots whose MEMORY_POOL matches, and an isolated bot ingests nothing
+// from anyone -- that is what isolated means. Announcing stays unrestricted:
+// speech is free, belief is scoped.
+const POOL = String(config.memory.pool ?? 'hive').replace(/\s+/g, '_').slice(0, 24)
+
+/** `[fleet] hive-b hazard entombed -1 70 5 x6` */
 export function announceHazard(bot, kind, pos, count) {
-  return say(bot, `${TAG} hazard ${kind} ${Math.round(pos.x)} ${Math.round(pos.y)} ${Math.round(pos.z)} x${count}`)
+  return say(bot, `${TAG} ${POOL} hazard ${kind} ${Math.round(pos.x)} ${Math.round(pos.y)} ${Math.round(pos.z)} x${count}`)
 }
 
-/** `[fleet] unreachable travel_150_0 -9 70 -21` -- WHERE matters as much as what. */
+/** `[fleet] hive-b unreachable travel_150_0 -9 70 -21` -- WHERE matters as much as what. */
 export function announceUnreachable(bot, id, pos = null) {
   const p = pos ?? bot.entity?.position
   const at = p ? ` ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.z)}` : ''
-  return say(bot, `${TAG} unreachable ${String(id).replace(/\s+/g, '_').slice(0, 40)}${at}`)
+  return say(bot, `${TAG} ${POOL} unreachable ${String(id).replace(/\s+/g, '_').slice(0, 40)}${at}`)
 }
 
-/** `[fleet] built pillar 0 77 0 6/6` -- progress worth telling the others about. */
+/** `[fleet] hive-b built pillar 0 77 0 6/6` -- progress worth telling the others about. */
 export function announceBuild(bot, plan, pos, done, total) {
-  return say(bot, `${TAG} built ${plan} ${pos.x} ${pos.y} ${pos.z} ${done}/${total}`)
+  return say(bot, `${TAG} ${POOL} built ${plan} ${pos.x} ${pos.y} ${pos.z} ${done}/${total}`)
 }
 
 let lastSaid = 0
@@ -70,6 +90,16 @@ export function startComms(bot, worldFacts, onFact = null) {
     if (typeof message !== 'string' || !message.startsWith(TAG)) return
 
     const parts = message.slice(TAG.length).trim().split(/\s+/)
+
+    // BELIEF IS SCOPED. An isolated bot ingests nothing -- not "less", nothing;
+    // any ingestion makes the control arm a dilute treatment arm. Everyone else
+    // believes only their own pool. The sender's pool is the first token; a
+    // message without one is the pre-scoping format and is not trusted either,
+    // because its sender's pool is unknowable.
+    if (config.memory.scope === 'isolated') return
+    const senderPool = parts.shift()
+    if (senderPool !== POOL) return
+
     const kind = parts[0]
 
     if (kind === 'hazard' && parts.length >= 5) {
