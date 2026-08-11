@@ -139,14 +139,22 @@ await t('digging is only used when walking cannot reach the surface', async () =
   assert.deepEqual(gotos, ['ascent'], 'the dig branch is the fallback, not the default')
 })
 
-await t('when neither config can reach the surface it says so immediately', async () => {
+await t('when neither config finds a route, the SHAFT is tried before stranded is concluded', async () => {
+  // The old contract returned `stranded` the moment both searches came back
+  // empty -- "says so immediately". That immediacy is exactly what left seven
+  // bots underground on 2026-08-10: the pathfinder cannot see a route through
+  // solid rock, but a shaft climb MAKES one, and concluding without trying it
+  // reported a fixable situation as hopeless. Stranded is now a conclusion the
+  // bot has to EARN: both searches empty AND a direct dig-and-pillar attempt
+  // that measurably gained no height.
   const gotos = [], borrowed = []
   const bot = climbBot({ y: -42, rise: 0, route: 'none', gotos, borrowed })
   const r = await run(bot)
   assert.equal(r.failClass, 'stranded')
-  assert.deepEqual(gotos, [], 'a 1s probe must not become a 90s climb to learn the same thing')
+  assert.deepEqual(gotos, [], 'the pathfinder is still not asked to walk an unroutable climb')
   assert.deepEqual(borrowed, [])
-  assert.match(r.detail, /both searches finished and found nothing/, r.detail)
+  assert.match(r.detail, /shaft climb stopped/,
+    `stranded must carry the shaft evidence, or it is the old proxy verdict: ${r.detail}`)
 })
 
 await t('a route that exists but is not followed is NOT called stranded', async () => {

@@ -2219,6 +2219,97 @@ function belowGroundHint(bot) {
  * path that now reports `stranded`. The bot was not confused. It was walled in,
  * and the skill set had no way out.
  */
+// Blocks a shaft climb may stand on. Deliberately narrow: common, solid, and
+// worthless enough that spending them on an escape is always the right trade.
+const SCAFFOLD = /^(cobblestone|cobbled_deepslate|dirt|netherrack|tuff|granite|diorite|andesite|deepslate|stone|.*_planks)$/
+const LIQUID = new Set(['water', 'lava', 'flowing_water', 'flowing_lava'])
+const FALLING = new Set(['gravel', 'sand', 'red_sand'])
+
+/**
+ * Climb straight up by digging and pillaring, WITHOUT the pathfinder.
+ *
+ * surface's ascent already had dig-capable Movements -- and used them through
+ * pathfinder.goto(GoalY), which is why it never worked where it mattered.
+ * Measured: "no altitude gained ... in 2s of trying (Path was stopped before it
+ * could be completed)" while the budget was 120s. Two independent killers:
+ * underground A* with canDig=true explores a volume (the search dies of
+ * branching before committing), and anything that calls setGoal(null) -- the
+ * drowning reflex does, on bots that are wet precisely because they are deep --
+ * cancels the walk instantly. A shaft climb owns no pathfinder goal, so there
+ * is nothing to clear.
+ *
+ * Safety refusals, each the lesson of a logged death:
+ *   liquid above or beside the block being broken  -> stop (dontCreateFlow's
+ *     reason: breaking beside water while below it is how ascents drown)
+ *   lava anywhere adjacent                          -> stop
+ *   falling block above -> dig it, wait for the column to settle, re-check;
+ *     bounded by the same step budget as everything else
+ *
+ * Altitude is verified every step because that is the entire point: a climb
+ * that is not gaining height within a few steps is not a climb, whatever the
+ * promises returned.
+ */
+async function shaftAscend(bot, targetY, signal, maxSteps = 96) {
+  const startY = bot.entity.position.y
+  let noGain = 0
+  for (let i = 0; i < maxSteps; i++) {
+    check(signal)
+    const p = bot.entity.position
+    if (p.y >= targetY) break
+    const yBefore = p.y
+
+    const head = bot.blockAt(p.offset(0, 2, 0))
+    if (head && LIQUID.has(head.name)) {
+      return { gained: p.y - startY, stopped: `liquid overhead (${head.name})` }
+    }
+    // Breaking a block whose neighbour is liquid floods the shaft.
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const side = bot.blockAt(p.offset(dx, 2, dz))
+      if (side && LIQUID.has(side.name)) {
+        return { gained: p.y - startY, stopped: `liquid beside the shaft (${side.name})` }
+      }
+    }
+
+    if (head && head.name !== 'air' && head.boundingBox !== 'empty') {
+      if (!bestTool(bot, head) && head.name.includes('obsidian')) {
+        return { gained: p.y - startY, stopped: `cannot break ${head.name}` }
+      }
+      const tool = bestTool(bot, head)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      try {
+        await withTimeout(bot.dig(head), 15_000, bot, {
+          what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} },
+        })
+      } catch {
+        return { gained: p.y - startY, stopped: `dig failed on ${head.name}` }
+      }
+      if (FALLING.has(head.name)) { await sleep(500); continue }  // column settles, re-check
+      await sleep(120)
+    }
+
+    // Gain the block: jump and place under our feet.
+    const item = bot.inventory.items().find(it => SCAFFOLD.test(it.name))
+    if (!item) {
+      return { gained: bot.entity.position.y - startY, stopped: 'no scaffold blocks left' }
+    }
+    await bot.equip(item, 'hand').catch(() => {})
+    const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+    if (!below) return { gained: bot.entity.position.y - startY, stopped: 'no block below' }
+    bot.setControlState('jump', true)
+    await sleep(320)
+    try { await withTimeout(bot.placeBlock(below, new Vec3(0, 1, 0)), 6_000, bot, { what: 'place', onTimeout: () => {} }) } catch { /* mistimed; retried next step */ }
+    bot.setControlState('jump', false)
+    await sleep(250)
+
+    if (bot.entity.position.y - yBefore < 0.5) {
+      if (++noGain >= 4) {
+        return { gained: bot.entity.position.y - startY, stopped: 'no height gained over 4 steps' }
+      }
+    } else noGain = 0
+  }
+  return { gained: bot.entity.position.y - startY, stopped: null }
+}
+
 async function surface(ctx, _args, signal) {
   const { bot } = ctx
   const startY = bot.entity.position.y
@@ -2295,18 +2386,22 @@ async function surface(ctx, _args, signal) {
     // goto's empty-path resolve, or a stuck body -- not the terrain.
     if (walk === 'success' || dig === 'success') plannerCommitted = true
     if (walk === 'noPath' && dig === 'noPath') {
+      // Both searches finished and found nothing -- which is exactly the sealed
+      // pocket the SHAFT exists for. The pathfinder needs a route to exist; the
+      // shaft makes one. Only if the shaft ALSO cannot move is "stranded" a
+      // conclusion the evidence supports.
+      usedDig = true
+      const shaft = await shaftAscend(bot, stageY, signal)
+      if (shaft.gained >= 1) continue     // made height; re-plan from up there
       const q = bot.entity.position
-      // Both searches finished and neither found anything. This is the one
-      // case that is genuinely about the world, so it is the one case allowed
-      // to become a lesson.
-      if (q.y - startY >= 4) break        // we did climb; report that instead
+      if (q.y - startY >= 4) break        // we did climb earlier; report that instead
       return {
         status: 'failed',
         failClass: 'stranded',
         gap: `stranded_y${Math.round(q.y)}`,
         detail: `no route up from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
-                `toward y=${stageY}; both searches finished and found nothing — ` +
-                `enclosed, or every way up is beside water`,
+                `toward y=${stageY}; both searches found nothing AND a direct shaft ` +
+                `climb stopped: ${shaft.stopped ?? 'no height gained'}`,
       }
     }
 
@@ -2324,10 +2419,17 @@ async function surface(ctx, _args, signal) {
       lastErr = e
     }
 
-    // A stage that gained nothing twice running is not going to gain anything
-    // on the third, and spinning here burns the budget a later stage needs.
+    // A pathfinder stage that gained nothing gets ONE shaft stage before it
+    // counts as a stall. The measured failure mode was precisely this: a
+    // walkable route existed, goto was cancelled within 2s (reflex goal-clears,
+    // A* dying of underground branching), and the stall counter gave up while
+    // 120s of budget sat unused. The shaft owns no pathfinder goal, so the
+    // things that killed the walk cannot touch it.
     if (bot.entity.position.y - y0 < 1) {
-      if (++stalls >= 2) break
+      usedDig = true
+      const shaft = await shaftAscend(bot, stageY, signal)
+      if (shaft.gained < 1 && ++stalls >= 2) break
+      if (shaft.gained >= 1) stalls = 0
     } else {
       stalls = 0
     }
