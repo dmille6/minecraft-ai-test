@@ -18,7 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
-import { actionKey } from './skills.mjs'
+import { actionKey, SKILLS } from './skills.mjs'
 
 const SCHEMA = 1
 const MAX_AVOID = 40
@@ -55,6 +55,24 @@ export class Lessons {
     this.dirty = false
     this.savesSincePrune = 0
     this.#load()
+    this.#purgeRescueAvoids()
+  }
+
+  /**
+   * Drop avoid entries the fleet accumulated BEFORE rescue skills were exempt.
+   * Without this, every live bot keeps its old "surfacing fails" rule until
+   * the forgiveness clock crawls it away, and the exemption only protects
+   * bots that have not yet been hurt.
+   */
+  #purgeRescueAvoids() {
+    for (const k of Object.keys(this.data.avoid ?? {})) {
+      const skill = k.split(':')[0]
+      if (SKILLS[skill]?.rescue) {
+        delete this.data.avoid[k]
+        this.forgiven.add(k)      // a deliberate clear must survive a hive merge
+        this.dirty = true
+      }
+    }
   }
 
   /** Merge our deltas into whatever peers have written since we loaded. */
@@ -247,7 +265,20 @@ export class Lessons {
    * measurement was about the inventory. A changing gap means the agent is
    * working through a dependency chain, which is progress, not a pattern.
    */
+  /**
+   * A RESCUE SKILL MUST NEVER BECOME AN AVOID RULE.
+   *
+   * Avoid keys are skill+args, and surface/home take no args -- so every
+   * failure anywhere pooled into ONE context-free rule ("surfacing fails"),
+   * observed live as explore:{} fails=29 blocking exploration fleet-wide. A
+   * bot that failed to climb out of one wet cave learned not to try climbing
+   * ANYWHERE: learned helplessness, implemented by accident. The one class of
+   * action whose suppression can only ever hurt is the class that gets you out
+   * of trouble. Failures still land in telemetry with full detail -- they are
+   * data; they are just not allowed to become policy.
+   */
   recordFailure(skill, args, failClass, pos, gap = null) {
+    if (SKILLS[skill]?.rescue) return
     const k = key(skill, args)
     this.touched.add(k)
     const e = this.data.avoid[k] ?? { skill, args, fails: 0, classes: {} }

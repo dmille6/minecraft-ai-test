@@ -2310,6 +2310,34 @@ async function shaftAscend(bot, targetY, signal, maxSteps = 96) {
   return { gained: bot.entity.position.y - startY, stopped: null }
 }
 
+/**
+ * Turn a shaft's stopping reason into the sentence that fixes it.
+ *
+ * The belowGroundHint pattern, applied to escape: the climb KNOWS why it
+ * stopped ("no scaffold blocks left") and the model used to see only that a
+ * climb failed -- a dead end. A failure that carries its own recipe is a
+ * lesson; one that does not is just a bruise. When following the recipe works,
+ * the evidence gate records a genuine worked-rule, and "gather blocks, then
+ * surface" becomes knowledge the bot EARNED rather than behaviour we scripted.
+ */
+export function climbAdvice(stopped) {
+  if (!stopped) return ''
+  const s = String(stopped)
+  if (s.includes('no scaffold')) {
+    return ' — you need blocks to pillar: gather 8+ dirt or cobblestone first, then run surface again'
+  }
+  if (s.includes('liquid')) {
+    return ' — water blocks the shaft here: walk a few blocks away from the water, then run surface again'
+  }
+  if (s.includes('dig failed') || s.includes('cannot break')) {
+    return ' — this stone needs a pickaxe: gather wood, craft a pickaxe, then run surface again'
+  }
+  if (s.includes('no height gained')) {
+    return ' — this spot is blocked overhead: move somewhere more open, then run surface again'
+  }
+  return ' — run surface again to keep climbing'
+}
+
 async function surface(ctx, _args, signal) {
   const { bot } = ctx
   const startY = bot.entity.position.y
@@ -2367,6 +2395,7 @@ async function surface(ctx, _args, signal) {
   let usedDig = false
   let stalls = 0
   let lastErr = null
+  let lastStop = null   // the shaft's most recent stopping reason, for the advice line
   // Did the planner ever COMMIT to a walkable route? If it did and the bot
   // still went nowhere, that is a traversal stall -- goto's empty-path resolve
   // or a stuck body -- and it is a definite answer, not a don't-know. Losing
@@ -2392,6 +2421,7 @@ async function surface(ctx, _args, signal) {
       // conclusion the evidence supports.
       usedDig = true
       const shaft = await shaftAscend(bot, stageY, signal)
+      lastStop = shaft.stopped ?? lastStop
       if (shaft.gained >= 1) continue     // made height; re-plan from up there
       const q = bot.entity.position
       if (q.y - startY >= 4) break        // we did climb earlier; report that instead
@@ -2401,7 +2431,8 @@ async function surface(ctx, _args, signal) {
         gap: `stranded_y${Math.round(q.y)}`,
         detail: `no route up from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
                 `toward y=${stageY}; both searches found nothing AND a direct shaft ` +
-                `climb stopped: ${shaft.stopped ?? 'no height gained'}`,
+                `climb stopped: ${shaft.stopped ?? 'no height gained'}` +
+                climbAdvice(shaft.stopped),
       }
     }
 
@@ -2428,6 +2459,7 @@ async function surface(ctx, _args, signal) {
     if (bot.entity.position.y - y0 < 1) {
       usedDig = true
       const shaft = await shaftAscend(bot, stageY, signal)
+      lastStop = shaft.stopped ?? lastStop
       if (shaft.gained < 1 && ++stalls >= 2) break
       if (shaft.gained >= 1) stalls = 0
     } else {
@@ -2449,7 +2481,8 @@ async function surface(ctx, _args, signal) {
     return {
       status: 'failed', failClass: 'travel_incomplete', gap: `at_y${Math.round(endY)}`,
       detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ` +
-              `still ${Math.round(SEA_LEVEL - endY)} below sea level — call again to continue`,
+              `still ${Math.round(SEA_LEVEL - endY)} below sea level` +
+              (climbAdvice(lastStop) || ' — call again to continue'),
     }
   }
   // Went nowhere, but no search ever finished to say it was impossible. That is
@@ -2467,7 +2500,8 @@ async function surface(ctx, _args, signal) {
     status: 'unknown', failClass: 'no_measurable_change', gap: `at_y${Math.round(endY)}`,
     detail: `no altitude gained from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
             `in ${Math.round((Date.now() - (DEADLINE - 120_000)) / 1000)}s of trying` +
-            (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : ''),
+            (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : '') +
+            climbAdvice(lastStop),
   }
 }
 
@@ -2476,7 +2510,7 @@ export const SKILLS = {
   gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
   come:    { run: come,    usage: 'come',                          args: [], chatOnly: true },
   follow:  { run: follow,  usage: 'follow [seconds]',              args: [], chatOnly: true },
-  home:    { run: home,    usage: 'home',                          args: [] },
+  home:    { run: home,    usage: 'home',                          args: [], rescue: true },
   deposit: { run: deposit, usage: 'deposit [item_name]',           args: [] },
   withdraw:{ run: withdraw,usage: 'withdraw [item_name] [count]',  args: ['item', 'count'] },
   status:  { run: status,  usage: 'status',                        args: [] },
@@ -2487,7 +2521,7 @@ export const SKILLS = {
   explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'] },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
   sleep:   { run: sleepSkill, usage: 'sleep',                      args: [] },
-  surface: { run: surface, usage: 'surface',                       args: [] },
+  surface: { run: surface, usage: 'surface',                       args: [], rescue: true },
 }
 
 export { Aborted }
