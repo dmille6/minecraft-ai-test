@@ -35,6 +35,18 @@ export class StagnationWatchdog {
     this.escalation = 0
     this.lastActionAt = Date.now()
     this.timer = null
+
+    // CHRONIC STRANDING IS A DIFFERENT QUESTION FROM STAGNATION, ON A DIFFERENT
+    // CLOCK, AND IT NEEDS ITS OWN HISTORY.
+    //
+    // `samples` is pruned to config.watchdog.windowMs (180s) because stagnation
+    // is about the last few minutes of trying. Stranding is about whether the
+    // bot has got ANYWHERE over a much longer stretch, so it keeps a coarse
+    // record of its own rather than lengthening the stagnation window and
+    // changing what that judgement means.
+    this.strandHistory = []    // { t, y, items, milestone }
+    this.strandWindows = 0     // consecutive windows meeting the condition
+    this.surfaceAttempts = 0   // climb-outs tried since the last real progress
   }
 
   start() {
@@ -50,6 +62,147 @@ export class StagnationWatchdog {
 
   /** Called when a skill actually runs, so an idle agent is not judged as stuck. */
   noteActivity() { this.lastActionAt = Date.now() }
+
+  /**
+   * IS THIS BOT STRANDED UNDERGROUND? An OUTCOME test, deliberately not a
+   * capability test.
+   *
+   * Every capability probe this project has written has been satisfied by the
+   * broken state it was meant to catch. isEntombed() asks "is my head blocked",
+   * and Miner01 sat at the bottom of an open shaft for ninety minutes with a
+   * clear head. canStartAPath() asks for a route to (x+8, y, z+8) -- eight
+   * blocks DIAGONALLY AT THE SAME DEPTH -- which a bot in a large cavern
+   * satisfies instantly while a hundred blocks below anything useful. On
+   * 2026-08-10 five bots sat at y=-42, -42, -2, 29 and 55 for 45 minutes while
+   * every guard in the system reported success.
+   *
+   * The pathfinder cannot answer the real question: getPathTo advances its
+   * incremental search exactly once per call, so any distant or vertical goal
+   * returns `partial`. Aiming the probe higher would report NOT-REACHABLE for
+   * healthy bots too. That constraint is why the check was written to look
+   * eight blocks sideways in the first place, and it is not going away.
+   *
+   * So stop asking whether the bot COULD leave and ask whether it HAS got
+   * anywhere. A bot deep underground that has gained no height, completed no
+   * milestone and collected nothing over two consecutive windows is stranded,
+   * whatever any probe says about its local mobility.
+   *
+   * The inventory term is what keeps a working miner out of this. Miner01
+   * legitimately spends long stretches below y=50; what it does NOT do is spend
+   * them without its inventory changing.
+   */
+  /**
+   * Act on the stranding verdict, and only after it has held twice.
+   *
+   * TWO WINDOWS, not one. A single six-minute window can legitimately show no
+   * height gain and no inventory change -- a long walk, a slow craft chain, a
+   * bot waiting out a mob. Requiring the condition to hold across two
+   * consecutive windows costs twelve minutes before acting and is the
+   * difference between rescuing a stuck bot and interrupting a working one.
+   */
+  async #judgeStranding() {
+    const v = this.#strandingVerdict()
+    if (!v) return
+
+    const stranded = v.deep && v.altitudeGain < v.needGain && !v.milestoneMoved && !v.itemsChanged
+    if (!stranded) {
+      if (this.strandWindows > 0) {
+        log('info', 'watchdog: no longer stranded', {
+          y: Math.round(v.window[v.window.length - 1].y),
+          gain: Math.round(v.altitudeGain),
+        })
+      }
+      this.strandWindows = 0
+      this.surfaceAttempts = 0
+      return
+    }
+
+    this.strandWindows++
+    const y = Math.round(v.window[v.window.length - 1].y)
+    if (this.strandWindows < 2) {
+      log('warn', 'watchdog: possible stranding, waiting one more window', {
+        y, gain: Math.round(v.altitudeGain),
+      })
+      return
+    }
+
+    // Held across two windows. This bot is not working underground, it is stuck
+    // underground, and the difference is now evidenced rather than assumed.
+    this.surfaceAttempts++
+    logEvent({
+      kind: 'stranded_underground', status: 'failed',
+      detail: `y=${y}, ${Math.round(v.altitudeGain)}b net gain over ` +
+              `${Math.round((v.window[v.window.length - 1].t - v.window[0].t) / 60000)}m, ` +
+              `no milestone change, no inventory change; climb-out attempt ${this.surfaceAttempts}`,
+      snapshot: snapshot(this.bot),
+    })
+
+    if (this.surfaceAttempts <= 2) {
+      log('error', 'watchdog: STRANDED UNDERGROUND -- forcing a climb-out',
+          { y, attempt: this.surfaceAttempts })
+      this.runner.cancel('stranded')
+      this.runner.resume()
+      try {
+        await this.runner.run('surface', {}, { trigger: 'watchdog_stranded_underground' })
+      } catch (e) {
+        log('error', 'watchdog: climb-out failed', { err: e.message })
+      }
+      // Do NOT clear strandWindows here. The next window decides whether it
+      // worked, and altitude is what answers that -- not the fact that a rescue
+      // ran. A rescue that reports success while the bot stays at y=-42 is the
+      // exact failure this whole class of bug is made of.
+      this.strandWindows = 1
+      return
+    }
+
+    // Two climb-outs and still down there. Say so as a distinct, countable
+    // state rather than trying a third identical rescue.
+    //
+    // TELEPORT IS THE OBVIOUS NEXT STEP AND IS DELIBERATELY NOT DONE HERE. It
+    // would work, but a teleported bot did not solve its own problem, and this
+    // is an experiment about how agents learn. Moving one is an EXTERNAL
+    // INTERVENTION: legitimate only if it is recorded as one so those episodes
+    // can be excluded from analysis. That needs an operator decision and a
+    // telemetry field, not a quiet line in a watchdog.
+    log('error', 'watchdog: STRANDED after 2 climb-outs -- needs intervention', { y })
+    logEvent({
+      kind: 'stranded_unrecoverable', status: 'failed',
+      detail: `y=${y}: two climb-out attempts produced under ${v.needGain}b of gain each. ` +
+              `Deterministic rescue has been exhausted; escalating rather than repeating it.`,
+      snapshot: snapshot(this.bot),
+    })
+    this.strandWindows = 1
+  }
+
+  #strandingVerdict(now = Date.now()) {
+    const W = config.watchdog.strandWindowMs ?? 6 * 60_000
+    const p = this.bot.entity?.position
+    if (!p) return null
+    const items = Object.values(inventorySummary(this.bot)).reduce((a, b) => a + b, 0)
+    const milestone = (() => {
+      try { return this.cognitive?.milestones?.status?.()?.id ?? null } catch { return null }
+    })()
+    this.strandHistory.push({ t: now, y: p.y, items, milestone })
+    // Keep a little over two windows so a verdict always has a full one behind it.
+    const cutoff = now - W * 2.5
+    while (this.strandHistory.length && this.strandHistory[0].t < cutoff) this.strandHistory.shift()
+
+    const win = this.strandHistory.filter(s => s.t >= now - W)
+    if (win.length < 2 || (win[win.length - 1].t - win[0].t) < W * 0.9) return null
+
+    const depth = config.watchdog.strandDepthY ?? 50
+    const gain = config.watchdog.strandMinGainY ?? 8
+    const ys = win.map(s => s.y)
+    return {
+      deep: p.y < depth,
+      // NET gain, not range: a bot bouncing up and down a shaft is not leaving.
+      altitudeGain: ys[ys.length - 1] - ys[0],
+      milestoneMoved: win[0].milestone !== win[win.length - 1].milestone,
+      itemsChanged: win[win.length - 1].items !== win[0].items,
+      window: win,
+      needGain: gain,
+    }
+  }
 
   #sample() {
     const p = this.bot.entity?.position
@@ -97,6 +250,16 @@ export class StagnationWatchdog {
     //   - nothing has been attempted recently (idle, awaiting a command)
     if (this.cognitive && !this.cognitive.running) return
     if (this.cognitive?.milestones?.allDone) return
+
+    // CHRONIC STRANDING, judged before stagnation and on its own clock.
+    //
+    // A stranded bot is usually not stagnant by the definition above: it walks
+    // around its cave, runs skills, and fails them, so `busy` time accrues and
+    // displacement looks fine. It is going nowhere in the only direction that
+    // matters. That is invisible to a 180-second window and obvious over six
+    // minutes.
+    await this.#judgeStranding()
+
     const idleFor = Date.now() - this.lastActionAt
     if (idleFor > config.watchdog.windowMs) return
 

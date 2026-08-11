@@ -160,6 +160,21 @@ export const config = {
     windowMs: Number(req('WATCHDOG_WINDOW_MS', '180000')),
     // Movement below this over the whole window counts as no movement.
     minMoveBlocks: Number(req('WATCHDOG_MIN_MOVE_BLOCKS', '8')),
+    // CHRONIC STRANDING, on a longer clock than stagnation.
+    //
+    // Stagnation asks "has this bot moved while trying" over 180s. Stranding
+    // asks "has it got anywhere at all" over six minutes, because a bot stuck
+    // in a cave system walks about, runs skills and fails them -- it looks busy
+    // and it is going nowhere in the only direction that matters.
+    //
+    // The thresholds are a working miner's, not a stranded bot's: Miner01
+    // legitimately spends long stretches below y=50, but not without its
+    // inventory changing. Two consecutive windows must hold before anything
+    // acts, so the cost of a false positive is twelve minutes of patience
+    // rather than an interrupted miner.
+    strandWindowMs: Number(req('WATCHDOG_STRAND_WINDOW_MS', '360000')),
+    strandDepthY: Number(req('WATCHDOG_STRAND_DEPTH_Y', '50')),
+    strandMinGainY: Number(req('WATCHDOG_STRAND_MIN_GAIN_Y', '8')),
   },
 
   llm: {
@@ -275,6 +290,21 @@ config.code.configHash = crypto.createHash('sha256').update(JSON.stringify({
     windowMs: Number(req('WATCHDOG_WINDOW_MS', '180000')),
     // Movement below this over the whole window counts as no movement.
     minMoveBlocks: Number(req('WATCHDOG_MIN_MOVE_BLOCKS', '8')),
+    // CHRONIC STRANDING, on a longer clock than stagnation.
+    //
+    // Stagnation asks "has this bot moved while trying" over 180s. Stranding
+    // asks "has it got anywhere at all" over six minutes, because a bot stuck
+    // in a cave system walks about, runs skills and fails them -- it looks busy
+    // and it is going nowhere in the only direction that matters.
+    //
+    // The thresholds are a working miner's, not a stranded bot's: Miner01
+    // legitimately spends long stretches below y=50, but not without its
+    // inventory changing. Two consecutive windows must hold before anything
+    // acts, so the cost of a false positive is twelve minutes of patience
+    // rather than an interrupted miner.
+    strandWindowMs: Number(req('WATCHDOG_STRAND_WINDOW_MS', '360000')),
+    strandDepthY: Number(req('WATCHDOG_STRAND_DEPTH_Y', '50')),
+    strandMinGainY: Number(req('WATCHDOG_STRAND_MIN_GAIN_Y', '8')),
   },
 
   llm: { model: config.llm.model, numCtx: config.llm.numCtx,
