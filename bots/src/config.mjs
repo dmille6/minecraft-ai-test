@@ -22,7 +22,15 @@ function srcDigest() {
   try {
     const dir = new URL('./', import.meta.url).pathname
     const h = crypto.createHash('sha256')
-    for (const f of readdirSync(dir).filter(f => f.endsWith('.mjs')).sort()) {
+    // NOT dotfiles. macOS tar/scp onto ext4 writes AppleDouble companions --
+    // `._skills.mjs` beside every real file -- and they end in `.mjs`, so this
+    // digest hashed them as source. Instance #1 carried 17 of them (hand-copies
+    // from a Mac, preserved forever by cp -r's merge semantics), instance #2
+    // got 18 fresh ones from a tarball, and the same commit reported three
+    // different digests across three machines while every REAL file was
+    // byte-identical. A version stamp that varies with transport metadata
+    // cannot prove convergence, which is its entire job.
+    for (const f of readdirSync(dir).filter(f => f.endsWith('.mjs') && !f.startsWith('.')).sort()) {
       h.update(f); h.update(readFileSync(dir + f))
     }
     return h.digest('hex').slice(0, 6)
