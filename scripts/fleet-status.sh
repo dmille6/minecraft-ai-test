@@ -70,8 +70,11 @@ for U in $(systemctl list-units 'mcbot@*' --no-legend --plain 2>/dev/null | awk 
   # reporting nothing for the arm under study, indistinguishable from a bot that
   # had learned nothing. Mirror the source of truth rather than guessing a name.
   SCOPE=$(sudo grep -oP '(?<=^MEMORY_SCOPE=).*' /srv/mcbots/harness/env/$INST.env 2>/dev/null)
+  # The POOL names the file since exp-001 (lessons-hive-a.json etc). Reading a
+  # hardcoded 'hive' here blanked every shared bot's stats the day pools landed.
+  POOL=$(sudo grep -oP '(?<=^MEMORY_POOL=).*' /srv/mcbots/harness/env/$INST.env 2>/dev/null)
   LF=/srv/mcbots/state/lessons-$NAME.json
-  [ "$SCOPE" = "shared" ] && LF=/srv/mcbots/state/lessons-hive.json
+  [ "$SCOPE" = "shared" ] && LF=/srv/mcbots/state/lessons-${POOL:-hive}.json
   RUN=$(sudo jq -r '.runs // "?"' "$LF" 2>/dev/null)
   AV=$(sudo jq -r '.avoid | length' "$LF" 2>/dev/null)
   WK=$(sudo jq -r '.worked | length' "$LF" 2>/dev/null)
