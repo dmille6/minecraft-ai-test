@@ -2358,6 +2358,43 @@ async function shaftAscend(bot, targetY, signal, maxSteps = 96) {
  * the evidence gate records a genuine worked-rule, and "gather blocks, then
  * surface" becomes knowledge the bot EARNED rather than behaviour we scripted.
  */
+/**
+ * The same advice as climbAdvice, but as DATA the planner can act on.
+ *
+ * Prose advice reaches the model and dies there. Scout01 sat at y=29 for four
+ * days being told "gather 8+ dirt or cobblestone first" after every failed
+ * climb, and proposed `gather oak_log` every time -- 126 recorded failures --
+ * because the milestone said oak logs and the advice was only a sentence. A
+ * recipe the goal layer cannot see is not a recipe, it is a comment.
+ *
+ * `items` is an OR-list and `count` the total across them: eight cobblestone,
+ * eight dirt, or four of each all satisfy it. Returns null when the stop
+ * reason names no acquirable prerequisite (blocked overhead, standing water),
+ * because inventing a shopping list for those would send the bot fetching
+ * things that cannot help.
+ */
+export function climbPrerequisite(stopped) {
+  if (!stopped) return null
+  const s = String(stopped)
+  if (s.includes('no scaffold')) {
+    return {
+      items: ['dirt', 'cobblestone', 'stone', 'andesite', 'diorite', 'granite', 'gravel', 'netherrack'],
+      count: 8,
+      describe: 'Gather 8 dirt or cobblestone. You are trapped and need blocks in hand to pillar out.',
+      because: 'the climb stopped for lack of scaffold',
+    }
+  }
+  if (s.includes('dig failed') || s.includes('cannot break')) {
+    return {
+      items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
+      count: 1,
+      describe: 'Get a pickaxe. The stone above you cannot be broken without one.',
+      because: 'the climb stopped on stone it could not break',
+    }
+  }
+  return null
+}
+
 export function climbAdvice(stopped) {
   if (!stopped) return ''
   const s = String(stopped)
@@ -2471,6 +2508,7 @@ async function surface(ctx, _args, signal) {
                 `toward y=${stageY}; both searches found nothing AND a direct shaft ` +
                 `climb stopped: ${shaft.stopped ?? 'no height gained'}` +
                 climbAdvice(shaft.stopped),
+        need: climbPrerequisite(shaft.stopped),
       }
     }
 
@@ -2521,6 +2559,7 @@ async function surface(ctx, _args, signal) {
       detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ` +
               `still ${Math.round(SEA_LEVEL - endY)} below sea level` +
               (climbAdvice(lastStop) || ' — call again to continue'),
+      need: climbPrerequisite(lastStop),
     }
   }
   // Went nowhere, but no search ever finished to say it was impossible. That is
@@ -2540,6 +2579,7 @@ async function surface(ctx, _args, signal) {
             `in ${Math.round((Date.now() - (DEADLINE - 120_000)) / 1000)}s of trying` +
             (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : '') +
             climbAdvice(lastStop),
+    need: climbPrerequisite(lastStop),
   }
 }
 

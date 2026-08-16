@@ -85,12 +85,52 @@ const SKILL_NAMES = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly)
 // inside a branch that needed a live bot to reach.
 export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK }
 
+// A prerequisite that cannot be met (no dirt reachable from a sealed pocket)
+// must not become a permanent goal -- that would be this fix wearing its own
+// uniform. Fifteen minutes is several cognitive cycles plus a gather attempt.
+export const PREREQ_TTL_MS = 15 * 60_000
+
+/**
+ * Does a held prerequisite replace the milestone this cycle?
+ *
+ * Pure, so the decision that governs what the model reads as TASK: can be
+ * tested without standing up a bot, an LLM client and a lessons store. Returns
+ * the task to render plus, when the prereq is finished, WHY it finished --
+ * `satisfied` (the bot holds enough) or `abandoned` (it ran out of patience).
+ */
+export function applyPrereq(milestone, prereq, have, now = Date.now()) {
+  if (!prereq) return { task: milestone, clear: null }
+  if (have >= prereq.count) return { task: milestone, clear: 'satisfied' }
+  if (now - prereq.since > PREREQ_TTL_MS) return { task: milestone, clear: 'abandoned' }
+  return {
+    clear: null,
+    task: {
+      ...milestone,
+      id: `${milestone.id}+prereq`,
+      describe: prereq.describe,
+      progress: `${have}/${prereq.count} held`,
+      hint: `This is a detour, not the goal. Once you hold ${prereq.count}, ` +
+            `run ${prereq.fromSkill} again and the original task resumes.`,
+      // `wants` MOVES WITH THE TASK, and that is the half that makes this work:
+      // the admission gate's milestone-critical exemption and the value
+      // classifier both read it, so while the detour stands, gathering the
+      // blocks can never be hard-blocked by an avoid rule and counts as
+      // progress rather than busywork.
+      wants: prereq.items[0],
+    },
+  }
+}
+
 export class CognitiveLoop {
   constructor(bot, runner, lessons = null, worldFacts = null) {
     this.bot = bot
     this.runner = runner
     this.llm = makeClient()
     this.memory = new WorkingMemory()
+    // In-memory ONLY, and deliberately so: a prerequisite is about the spot the
+    // bot is standing in right now. Persisting it across a reconnect would
+    // restore a shopping list for a hole the bot is no longer in.
+    this.prereq = null
     this.lessons = lessons ?? openLessons()
     this.worldFacts = worldFacts
     // Invalidate what this bot learned about any skill whose code has changed.
@@ -231,6 +271,65 @@ export class CognitiveLoop {
    * and a null set means "we do not know", which the classifier treats as
    * permissive rather than inventing a judgement it cannot support.
    */
+  /**
+   * THE RECIPE BECOMES THE TASK.
+   *
+   * Four days of Scout01 at y=29: every failed climb handed the model the
+   * sentence "gather 8+ dirt or cobblestone first", and every next decision
+   * proposed `gather oak_log` -- an action with 126 recorded failures -- because
+   * TASK: still said "Stockpile oak logs" and advice is not a goal. The bot was
+   * standing inside a solid mass of diggable stone the whole time.
+   *
+   * So a prerequisite reported by a skill PREEMPTS the milestone until it is
+   * satisfied. Not a new milestone (the chain must not be rewritten by a
+   * failure), not a hint (hints were already being ignored) -- a temporary
+   * override of the one line the model actually plans against.
+   *
+   * `wants` moves with it, which is the half that makes it work: the admission
+   * gate's milestone-critical exemption and the value classifier both read
+   * `wants`, so while the override stands, `gather dirt` can never be
+   * hard-blocked by an avoid rule and counts as real progress rather than
+   * busywork.
+   */
+  #adoptPrereq(need, fromSkill) {
+    if (!need?.items?.length) return
+    if (this.prereq && this.#prereqHave() < this.prereq.count) return   // one at a time
+    this.prereq = { ...need, since: Date.now(), fromSkill }
+    log('warn', 'prerequisite adopted as the current task', {
+      need: need.items.slice(0, 3).join('/'), count: need.count, after: fromSkill,
+    })
+    logEvent({ kind: 'prereq_adopted', status: 'failed',
+               detail: `${fromSkill} needs ${need.count}x ${need.items.slice(0, 3).join(' or ')} ` +
+                       `(${need.because}); it is now the task until satisfied`,
+               snapshot: snapshot(this.bot) })
+  }
+
+  #prereqHave() {
+    if (!this.prereq) return 0
+    const want = new Set(this.prereq.items)
+    let n = 0
+    for (const it of (this.bot.inventory?.items() ?? [])) if (want.has(it.name)) n += it.count
+    return n
+  }
+
+  #activeTask() {
+    const m = this.milestones.status()
+    const { task, clear } = applyPrereq(m, this.prereq, this.#prereqHave())
+    if (clear) {
+      const held = this.prereq
+      this.prereq = null
+      logEvent({ kind: clear === 'satisfied' ? 'prereq_satisfied' : 'prereq_abandoned',
+                 status: clear === 'satisfied' ? 'success' : 'failed',
+                 detail: `${held.items[0]}-class: had ${this.#prereqHave()}/${held.count} ` +
+                         `after ${Math.round((Date.now() - held.since) / 1000)}s`,
+                 snapshot: snapshot(this.bot) })
+      if (clear === 'satisfied') {
+        this.memory.addEvent(`got the ${held.count} blocks the climb needed; run ${held.fromSkill} again now`)
+      }
+    }
+    return task
+  }
+
   #wantedItems(milestone) {
     const target = milestone?.wants
     if (!target) return null
@@ -267,7 +366,7 @@ export class CognitiveLoop {
       try { this.bot.chat('tool chain complete — switching to sustaining goals') } catch {}
     }
 
-    const milestone = this.milestones.status()
+    const milestone = this.#activeTask()
     const sentinel = makeSentinel()
     const { user, tokens, dropped } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory,
@@ -309,6 +408,9 @@ export class CognitiveLoop {
       })
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
+      // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
+      // Adopt whatever the skill said it needed; #activeTask makes it the task.
+      if (r.need) this.#adoptPrereq(r.need, admitted.skill)
       // AN UNKNOWN THROTTLES BUT NEVER TEACHES.
       //
       // `unknown` is what a skill returns when a budget expired, an observation
