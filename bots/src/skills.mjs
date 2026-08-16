@@ -1038,10 +1038,14 @@ async function deposit(ctx, { item = null }, signal) {
     const { homeX, homeY, homeZ } = config.world
     const walked = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
     check(signal)
-    if (walked.status === 'failed') {
+    // Rescan BEFORE judging the walk. Gather02 ran out of legs 33 blocks from
+    // home -- chest well inside the 48-block scan -- and the first version
+    // returned goto's failure without ever looking around. A walk that fell
+    // short can still have arrived.
+    chestBlock = findChest()
+    if (!chestBlock && walked.status === 'failed') {
       return { ...walked, detail: `no chest nearby; walking home to the town chest failed: ${walked.detail}` }
     }
-    chestBlock = findChest()
   }
   if (!chestBlock) {
     return { status: 'failed', failClass: 'nothing_found',
@@ -1998,10 +2002,12 @@ async function sleepSkill(ctx, _args, signal) {
       const { homeX, homeY, homeZ } = config.world
       const walked = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
       check(signal)
-      if (walked.status === 'failed') {
+      // Rescan before judging the walk -- same lesson as deposit: a walk that
+      // fell short of home can still have brought the beds into scan range.
+      bed = findBed()
+      if (!bed && walked.status === 'failed') {
         return { ...walked, detail: `no bed nearby; walking home to the town beds failed: ${walked.detail}` }
       }
-      bed = findBed()
       if (!bed) {
         return { status: 'failed', failClass: 'inventory',
                  detail: 'no bed nearby and none in inventory, even at home' }
