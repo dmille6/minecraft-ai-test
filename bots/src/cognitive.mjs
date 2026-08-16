@@ -313,6 +313,15 @@ export class CognitiveLoop {
   }
 
   #activeTask() {
+    // The reflex layer cannot reach this object, so it leaves prerequisites on
+    // the bot (the same bus assertNav and withAscentMovements ride). Drain it
+    // here, before the task is chosen, so an escape that failed for want of a
+    // pickaxe becomes the goal on the very next decision.
+    if (this.bot.pendingPrereq) {
+      const p = this.bot.pendingPrereq
+      this.bot.pendingPrereq = null
+      this.#adoptPrereq(p, 'the escape reflex')
+    }
     const m = this.milestones.status()
     const { task, clear } = applyPrereq(m, this.prereq, this.#prereqHave())
     if (clear) {

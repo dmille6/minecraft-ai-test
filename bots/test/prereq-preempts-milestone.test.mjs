@@ -112,5 +112,34 @@ await t('satisfaction beats staleness (a late success still counts)', () => {
   assert.equal(applyPrereq(MILESTONE, old, 8).clear, 'satisfied')
 })
 
+// ---- the reflex layer's channel: a pickaxe request from an escape ----------
+
+await t('SOLO02 CASE: a sealed-in escape asks for a pickaxe, not blocks', () => {
+  // Solo02 sat at y=-16 inside deepslate holding 64 dirt and no pickaxe:
+  // pillaring cannot gain height against a solid ceiling, and bare-handed
+  // deepslate is ~11s per block, past the dig budget. More dirt could never
+  // help; the escape was short exactly one item. The reflex now leaves this
+  // shape on bot.pendingPrereq for the cognitive layer to adopt.
+  const fromReflex = {
+    items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
+    count: 1,
+    describe: 'Get a pickaxe. You are sealed in and cannot break the ceiling without one.',
+    because: '4 escape attempts could not break out at y=-16',
+    since: Date.now(), fromSkill: 'the escape reflex',
+  }
+  const { task, clear } = applyPrereq(MILESTONE, fromReflex, 0)
+  assert.equal(clear, null)
+  assert.match(task.describe, /pickaxe/i)
+  assert.equal(task.wants, 'wooden_pickaxe',
+    'wants must name a pickaxe so crafting one counts as progress and cannot be vetoed')
+  assert.equal(task.progress, '0/1 held')
+})
+
+await t('holding any pickaxe satisfies it', () => {
+  const fromReflex = { ...climbPrerequisite('dig failed on stone'),
+                       since: Date.now(), fromSkill: 'the escape reflex' }
+  assert.equal(applyPrereq(MILESTONE, fromReflex, 1).clear, 'satisfied')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

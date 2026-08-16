@@ -436,6 +436,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // cooldown or a failure count.
   let lastEscapeAt = 0
   let escapeFailures = 0
+  // Cumulative, NOT reset by a give-up. The give-up branch used to zero
+  // escapeFailures and return, so a bot that could never escape ran
+  // four-attempt cycles forever at a constant rate while its log claimed the
+  // watchdog had taken over. Solo02 did exactly that at y=-16, and the
+  // watchdog has no entombed handler at all.
+  let escapeGiveUps = 0
   let reflexErrors = 0
 
   const timer = setInterval(async () => {
@@ -767,12 +773,37 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
           // Repeating an escape that has failed four times is not a strategy.
+          escapeGiveUps++
+          // ASK FOR THE THING THAT IS MISSING.
+          //
+          // A bot walled into deepslate with 64 dirt and no pickaxe is not
+          // having bad luck, it is short one item -- pillaring cannot gain
+          // height against a solid ceiling, and bare-handed deepslate takes
+          // ~11s per block, well past the dig budget. The escape is
+          // arithmetically impossible and no amount of retrying changes that.
+          // The goal layer can fix it (craft or fetch a pickaxe) but only if
+          // it is told, so hand it the prerequisite the same way skills do.
+          // `bot` is this codebase's shared bus (assertNav, withAscentMovements
+          // ride it too); cognitive.mjs drains this on its next tick.
+          bot.pendingPrereq = {
+            items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
+            count: 1,
+            describe: 'Get a pickaxe. You are sealed in and cannot break the ceiling without one.',
+            because: `${escapeGiveUps} escape attempts could not break out at y=${Math.round(bot.entity.position.y)}`,
+          }
           logEvent({ kind: 'entombed_unrecoverable', status: 'failed',
-                     detail: `gave up after ${escapeFailures} escape attempts at y=${Math.round(bot.entity.position.y)}`,
+                     detail: `gave up after ${escapeFailures} escape attempts at ` +
+                             `y=${Math.round(bot.entity.position.y)} (give-up #${escapeGiveUps}); ` +
+                             `asked the goal layer for a pickaxe`,
                      snapshot: snapshot(bot) })
-          log('error', 'reflex: entombed and cannot escape, leaving it to the watchdog',
-              { attempts: escapeFailures })
-          lastEscapeAt = Date.now()
+          // Say what actually happens. The old line claimed the watchdog would
+          // take it, and the watchdog does not watch for this.
+          log('error', 'reflex: entombed and cannot escape; asked the goal layer for a pickaxe',
+              { attempts: escapeFailures, giveUps: escapeGiveUps })
+          // BACK OFF, don't reset. Retrying an impossible escape every 15s
+          // buries the telemetry that says this bot is finished, and burns the
+          // tick budget of a bot that needs the cognitive layer to act instead.
+          lastEscapeAt = Date.now() + Math.min(escapeGiveUps * 60_000, 10 * 60_000)
           escapeFailures = 0
           return
         }
