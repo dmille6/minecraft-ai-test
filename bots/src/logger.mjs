@@ -159,7 +159,7 @@ function promptTemplateHash(systemPrompt) {
  */
 export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
                          promptText, tokensEstimated, droppedEvents,
-                         proposal, rejection, outcome, milestone,
+                         proposal, rejection, outcome, milestone, admission,
                          systemPrompt, perceptionSnapshot }) {
   const rec = {
     '@timestamp': new Date(startedAt).toISOString(),
@@ -193,6 +193,12 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
       schema_valid: !!res.schemaValid,
       error: rejection ? rejection.reason : (res.error ?? null),
       retry_count: res.retryCount ?? 0,
+      // WHICH DOOR THE DECISION CAME THROUGH. The valve and the
+      // milestone-critical exemption were computed in admission.mjs and then
+      // dropped on the floor -- Block 1's forced-admit outcome breakdown
+      // ("was Scout02's escape a forced admission?") was unanswerable because
+      // this field did not exist. null when nothing was admitted.
+      admission: admission?.kind ?? null,
     },
     // WHICH STORED BELIEF ACTED ON THIS DECISION.
     //

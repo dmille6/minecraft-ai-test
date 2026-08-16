@@ -201,7 +201,7 @@ export class AdmissionControl {
     if (priorFails >= 4 && wanted && AdmissionControl.#produces(skill, args, wanted)) {
       this.vetoStreak = 0
       this.milestoneCriticalAdmissions = (this.milestoneCriticalAdmissions ?? 0) + 1
-      return { ok: true, skill, args,
+      return { ok: true, skill, args, kind: 'milestone_critical',
                forced: `produces ${AdmissionControl.#output(skill, args)}, which the milestone needs` }
     }
 
@@ -237,7 +237,7 @@ export class AdmissionControl {
       if (n % 5 !== 0 && this.vetoStreak >= MAX_VETO_STREAK) {
         this.vetoStreak = 0
         this.forcedAdmissions = (this.forcedAdmissions ?? 0) + 1
-        return { ok: true, skill, args, forced: `${MAX_VETO_STREAK} consecutive vetoes` }
+        return { ok: true, skill, args, kind: 'forced', forced: `${MAX_VETO_STREAK} consecutive vetoes` }
       }
 
       if (n % 5 !== 0) {
@@ -264,6 +264,6 @@ export class AdmissionControl {
     this.recent.push(key)
     if (this.recent.length > REPEAT_WINDOW * 2) this.recent.shift()
     this.vetoStreak = 0
-    return { ok: true, skill, args }
+    return { ok: true, skill, args, kind: 'normal' }
   }
 }

@@ -515,7 +515,7 @@ export class CognitiveLoop {
       // "nothing served this", which is the true answer and a queryable one.
       model: config.llm.model, endpoint: res.endpoint,
       res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
-      proposal: res.proposal, rejection, outcome,
+      proposal: res.proposal, rejection, outcome, admission: admitted,
       milestone: milestone.id, systemPrompt: this.system, perceptionSnapshot: percept,
     })
 
