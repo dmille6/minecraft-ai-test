@@ -221,6 +221,19 @@ function connect() {
     // 5 keeps towering available for the case it exists for and stops it being
     // the planner's first idea.
     moves.placeCost = 5
+    // A WATER STEP MUST NOT BE AS CHEAP AS A LAND STEP.
+    //
+    // Default liquidCost is 1 -- water priced like pavement -- so A* routinely
+    // planned straight across lakes, and Block 1 paid for it: drowning near
+    // water was the top death cause, the drowning-route reflex fired 300+
+    // times per bot-hour in the worst cases, and the biggest producer donated
+    // its inventory to the lake floor repeatedly. The bots do not need to
+    // cross water; they need to stop volunteering for it. At 10, a detour of
+    // up to ~10 land steps per water step wins, which in this terrain turns
+    // almost every lake crossing into a shoreline walk. Deliberately NOT
+    // Infinity: if water is genuinely the only route, taking it (and letting
+    // the reflex layer fight for the bot) still beats standing still forever.
+    moves.liquidCost = 10
     bot.pathfinder.setMovements(moves)
 
     // Grant collectblock the one setting it cannot work without, and none of

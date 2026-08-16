@@ -409,6 +409,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // knew where air was and could not swim there. Seize once, steer every tick,
   // release when it can breathe.
   let rescuing = false
+  let seizedAt = 0
+  // ASHORE, NOT JUST BREATHING. Releasing the body at first breath left the
+  // bot bobbing mid-lake: cognition resumed, re-proposed the same crossing,
+  // and the reflex fired again -- 300+ drowning_route firings per bot-hour of
+  // exactly this loop in Block 1. The rescue is finished when the bot is
+  // STANDING ON GROUND THAT IS NOT WATER, not when its lungs refill; the held
+  // control states keep the last stroke (toward land) running in between.
+  // The 20s deadline is the owner's own explicit release for the sealed-cave
+  // case where no shore exists -- not a timeout clearing someone else's
+  // controls.
+  const ashore = () => {
+    if (!bot.entity?.onGround) return false
+    const below = bot.blockAt?.(bot.entity.position.offset(0, -1, 0))
+    return !!below && below.name !== 'water' && below.name !== 'bubble_column' &&
+           !below.name.includes('kelp') && !below.name.includes('seagrass')
+  }
   // Largest air value this bot has reported. It sits at full whenever the bot is
   // on land, so this converges within seconds of spawning and tells assessAir
   // which scale the server is actually using. See the note above assessAir.
@@ -538,7 +554,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // that triggers a rescue, or measurably rising -- instead of inferring
       // safety from the absence of a decline. A bot still at the floor keeps
       // its rescue, which is the entire point of having one.
-      if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing) {
+      if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing &&
+          (ashore() || Date.now() - seizedAt > 20_000)) {
         rescuing = false
         try { bot.clearControlStates() } catch { /* not connected */ }
         logEvent({
@@ -578,6 +595,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // doing it per tick destroys the stroke the previous tick started.
           if (!rescuing) {
             rescuing = true
+            seizedAt = Date.now()
             seizeBody(bot, 'drowning')
             // WHICH WAY, on every rescue -- not just the hopeless ones. Logging
             // only the sealed case left no way to tell whether "up" or "out" was
