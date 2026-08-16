@@ -749,7 +749,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       //
       // This is a survival condition, so it lives here rather than in a skill --
       // it must fire regardless of what the agent thinks it is doing.
-      if (!escaping && isEntombed(bot) &&
+      // `!marooned` IS LOAD-BEARING: BEING WALLED IN IS WHAT A PILLAR CLIMB IS.
+      //
+      // The maroon branch guards itself with `!escaping`, so an entombed escape
+      // blocks a maroon climb -- but the guard was never symmetric, and this
+      // loop keeps ticking while pillarOut is awaited. Observed on Scout01, who
+      // had sat at y=29 for four days: given dirt, the maroon reflex correctly
+      // began climbing out, and fourteen seconds later THIS branch looked at a
+      // bot standing in a one-block column of its own making, called it
+      // entombed, and dug it back down. It spent 7 dirt to return to the exact
+      // block it started on.
+      //
+      // A bot mid-climb is sealed in by design. Only the climb may decide the
+      // climb has failed.
+      if (!escaping && !marooned && isEntombed(bot) &&
           Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
