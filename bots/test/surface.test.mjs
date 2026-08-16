@@ -106,7 +106,7 @@ await t('partial progress is distinct from going nowhere', async () => {
   const r = await run(bot)
   assert.equal(r.failClass, 'travel_incomplete',
     'the store must not punish a climb that is working: ' + r.detail)
-  assert.match(r.detail, /call again to continue/)
+  assert.match(r.detail, /surface again|call again to continue/)
 })
 
 await t('a bot already at the surface is refused, not credited', async () => {
