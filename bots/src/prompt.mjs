@@ -55,7 +55,7 @@ export function buildSystemPrompt(skillNames) {
   const usage = [
     '  gather  args: {"block": "<block id e.g. oak_log>", "count": <integer>}',
     '  goto    args: {"x": <int>, "y": <int>, "z": <int>}',
-    '  deposit args: {"item": "<item id>"}   (needs a chest nearby)',
+    '  deposit args: {"item": "<item id>"}   (walks home to the town chest if none nearby; omit item to deposit everything)',
     '  come    args: {}',
     '  follow  args: {}',
     '  home    args: {}',
@@ -97,6 +97,14 @@ export function buildSystemPrompt(skillNames) {
     // going to catch it. This line lives above the identity line so it stays part
     // of the byte-identical shared prefix and costs no cache locality.
     `- Write the reason field in English.`,
+    // The town chest is a fact of the world, and the death-economics behind it
+    // are the fact that matters: Block 1's biggest producer drowned with full
+    // pockets over and over, and nothing it gathered outlived it. Same for
+    // every bot, so this line stays in the byte-identical shared prefix.
+    `- A town stockpile chest sits at home. Items you CARRY are lost when you`,
+    `  die; items you DEPOSIT are kept forever and count as the colony's`,
+    `  progress. When your inventory holds more than you need for the current`,
+    `  task, run deposit.`,
     `- Stay inside the world border (radius ${config.world.borderRadius} from 0,0).`,
     `- For goto, y is ELEVATION, not distance. Terrain here sits around y=62-90.`,
     `  Use a y close to your current one. y=140 is high in the sky and`,

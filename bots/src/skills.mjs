@@ -1025,13 +1025,27 @@ async function home(ctx, _args, signal) {
 // ------------------------------------------------------------- deposit -----
 async function deposit(ctx, { item = null }, signal) {
   const { bot } = ctx
-  const chestBlock = bot.findBlock({
+  const findChest = () => bot.findBlock({
     matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name),
     maxDistance: 48,
   })
+  let chestBlock = findChest()
+  if (!chestBlock) {
+    // The town chest lives at home, and a 48-block scan cannot see it from a
+    // mine. Walking home first is the difference between "deposit works near
+    // town" and "deposit works" -- and it reuses goto's own budgets rather
+    // than inventing a second travel path.
+    const { homeX, homeY, homeZ } = config.world
+    const walked = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+    check(signal)
+    if (walked.status === 'failed') {
+      return { ...walked, detail: `no chest nearby; walking home to the town chest failed: ${walked.detail}` }
+    }
+    chestBlock = findChest()
+  }
   if (!chestBlock) {
     return { status: 'failed', failClass: 'nothing_found',
-             detail: 'no chest or barrel within 48 blocks' }
+             detail: 'no chest or barrel within 48 blocks, even at home' }
   }
 
   await bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
@@ -2079,7 +2093,9 @@ export const SKILL_CONTRACTS = {
   craft:    { expects: ['inventory_gain'],        maxMs: 60_000 },
   build:    { expects: ['world_change'],          maxMs: 180_000 },
   place:    { expects: ['world_change'],          maxMs: 30_000 },
-  deposit:  { expects: ['inventory_loss'],        maxMs: 60_000 },
+  // 60s covered "chest in sight"; the walk-home fallback makes deposit a
+  // travel skill, and home's own budget (120s) plus the transfer must fit.
+  deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
   withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   sleep:    { expects: ['survival'],              maxMs: 60_000 },
