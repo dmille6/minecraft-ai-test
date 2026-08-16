@@ -64,7 +64,7 @@ export function buildSystemPrompt(skillNames) {
     '  craft   args: {"item": "<item id e.g. stick>", "count": <integer>}',
     '  place   args: {"item": "<item id in inventory>"}',
     '  mine    args: {"y": <target depth, e.g. 12>}   (staircases down)',
-    '  sleep   args: {}                       (needs a bed, only at night)',
+    '  sleep   args: {}                       (only at night; walks home to the town beds if none nearby)',
   ].join('\n')
   // IDENTITY GOES LAST, AND THAT IS A PERFORMANCE DECISION.
   //
@@ -105,6 +105,9 @@ export function buildSystemPrompt(skillNames) {
     `  die; items you DEPOSIT are kept forever and count as the colony's`,
     `  progress. When your inventory holds more than you need for the current`,
     `  task, run deposit.`,
+    `- Beds stand at home, and the town keeps torches in the stockpile chest.`,
+    `  Sleeping at night moves your respawn to your bed, so dying costs you`,
+    `  far less travel. At night, prefer sleep over wandering in the dark.`,
     `- Stay inside the world border (radius ${config.world.borderRadius} from 0,0).`,
     `- For goto, y is ELEVATION, not distance. Terrain here sits around y=62-90.`,
     `  Use a y close to your current one. y=140 is high in the sky and`,

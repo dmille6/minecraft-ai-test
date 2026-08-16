@@ -1987,13 +1987,27 @@ async function sleepSkill(ctx, _args, signal) {
   const { bot } = ctx
   if (!isNightTime(bot)) return { status: 'failed', failClass: 'other', detail: 'can only sleep at night' }
 
-  let bed = bot.findBlock({ matching: b => bot.registry.blocks[b.type]?.name?.endsWith('_bed'), maxDistance: 32 })
+  const findBed = () => bot.findBlock({ matching: b => bot.registry.blocks[b.type]?.name?.endsWith('_bed'), maxDistance: 32 })
+  let bed = findBed()
   if (!bed) {
     const inBag = bot.inventory.items().find(i => i.name.endsWith('_bed'))
     if (!inBag) {
-      return { status: 'failed', failClass: 'inventory',
-               detail: 'no bed nearby and none in inventory' }
+      // Same reachability flaw deposit had: the town beds stand at home and a
+      // 32-block scan cannot see them from a mine. Walk home, rescan, and only
+      // then admit there is nowhere to sleep.
+      const { homeX, homeY, homeZ } = config.world
+      const walked = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+      check(signal)
+      if (walked.status === 'failed') {
+        return { ...walked, detail: `no bed nearby; walking home to the town beds failed: ${walked.detail}` }
+      }
+      bed = findBed()
+      if (!bed) {
+        return { status: 'failed', failClass: 'inventory',
+                 detail: 'no bed nearby and none in inventory, even at home' }
+      }
     }
+    if (!bed && inBag) {
     const placed = await place(ctx, { item: inBag.name }, signal)
     // INHERIT THE CLASS FROM THE CALL THAT FAILED. This wrapped place()'s prose
     // in its own and handed the result to classifyFailure, which saw "no solid
@@ -2015,6 +2029,7 @@ async function sleepSkill(ctx, _args, signal) {
     if (!bed) {
       return { status: 'unknown', failClass: 'unverified',
                detail: 'placed a bed but cannot find it within 8 blocks — cannot confirm where it went' }
+    }
     }
   }
 
@@ -2098,7 +2113,8 @@ export const SKILL_CONTRACTS = {
   deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
   withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
-  sleep:    { expects: ['survival'],              maxMs: 60_000 },
+  // Walk-home fallback makes sleep a travel skill too (same as deposit).
+  sleep:    { expects: ['survival'],              maxMs: 240_000 },
   // Genuinely produces no durable change. Useful only when the bot's picture of
   // itself is stale, never as achievement -- which is exactly what it was being
   // recorded as.
