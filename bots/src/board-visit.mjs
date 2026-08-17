@@ -96,19 +96,26 @@ export function doVisit({ board, lessons, self, pos, now = Date.now(), filed = n
     const distance = r.where
       ? Math.hypot(r.where.x - config.world.boardX, r.where.z - config.world.boardZ) : 0
     const ev = board.post({ ...r, reporter: self, distance, now })
-    events.push(ev)
     filed.add(r.id)
     nFiled++
     const claim = board.data.claims[r.id]
     const mine = claim?.reports?.find(x => x.reporter === self)
-    if (mine) credit += freshnessCredit(mine, claim, now)
+    const myCredit = mine ? freshnessCredit(mine, claim, now) : 0
+    credit += myCredit
+    // carried_ms IS the treatment: how long this knowledge sat in a pocket
+    // before it reached the town. The hive pays zero here by construction.
+    events.push({ ...ev, credit: myCredit, distance,
+                  carried_ms: mine ? Math.max(0, (mine.posted_at ?? now) - (mine.observed_at ?? now)) : 0 })
   }
 
   for (const claim of board.readable(now)) {
     if (adoptInto(lessons, claim, self)) {
       nAdopted++
       events.push({ event: 'read', claim: claim.id, state: quorumState(claim),
-                    reporters: claim.reports.length })
+                    reporters: claim.reports.length,
+                    // how stale the claim was when this bot took it on
+                    carried_ms: Math.max(0, now - (claim.posted_at ?? now)),
+                    distance: claim.distance ?? 0 })
     }
   }
 
@@ -121,7 +128,11 @@ export function doVisit({ board, lessons, self, pos, now = Date.now(), filed = n
   for (const ev of events) {
     logEvent({ kind: `board_${ev.event}`, status: 'success',
                detail: `${ev.claim} -> ${ev.state} (${ev.reporters ?? 0} reporters)`,
-               snapshot: { bot: { name: self }, game: {} } })
+               snapshot: { bot: { name: self }, game: {} },
+               board: { id: board.boardId, event: ev.event, claim: ev.claim,
+                        state: ev.state, reporters: ev.reporters ?? 0,
+                        credit: ev.credit ?? 0, carried_ms: ev.carried_ms ?? 0,
+                        distance: ev.distance ?? 0 } })
   }
   log('info', 'board visit', { filed: nFiled, adopted: nAdopted, credit })
   return { filed: nFiled, adopted: nAdopted, credit: Math.round(credit * 100) / 100, events }

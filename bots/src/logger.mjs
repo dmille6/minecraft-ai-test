@@ -99,7 +99,7 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
  * Reuses the skill index with a leading underscore on the name (as _death
  * already does), so it lands in the existing strict mapping unchanged.
  */
-export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'success' }) {
+export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'success', board = null }) {
   const rec = {
     '@timestamp': new Date().toISOString(),
     run_id: config.log.runId,
@@ -123,6 +123,24 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
       name: `_${kind}`, args: {}, status,
       duration_ms: durationMs, detail: String(detail ?? '').slice(0, 300),
     },
+    // THE BOARD LEDGER, STRUCTURED.
+    //
+    // Prose in `detail` is readable and useless: the board arm's whole claim
+    // rests on rates and latencies -- how often a claim reaches quorum, how
+    // long knowledge takes to walk home, who does the carrying -- and none of
+    // that is aggregatable from a sentence. `carried_ms` in particular IS the
+    // treatment: it is the cost of physical sharing, the thing the hive pays
+    // zero and the board pays in full.
+    ...(board ? { board: {
+      id: String(board.id ?? 'town'),
+      event: String(board.event ?? ''),
+      claim: String(board.claim ?? ''),
+      state: String(board.state ?? ''),
+      reporters: Number(board.reporters ?? 0),
+      credit: Number(board.credit ?? 0),
+      carried_ms: Number(board.carried_ms ?? 0),
+      distance: Number(board.distance ?? 0),
+    } } : {}),
   }
   try { out().write(JSON.stringify(rec) + '\n') }
   catch (e) { console.error('failed to write event log:', e.message) }
