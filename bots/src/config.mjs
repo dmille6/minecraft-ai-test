@@ -139,6 +139,14 @@ export const config = {
     homeX: Number(req('HOME_X', '0')),
     homeY: Number(req('HOME_Y', '70')),
     homeZ: Number(req('HOME_Z', '0')),
+    // THE BOARD IS A PLACE, not a service. Reads and writes are gated on being
+    // within BOARD_RADIUS of these coordinates, which is the whole treatment:
+    // sharing costs a walk. Defaults sit beside the town chest so the board arm
+    // and the banking loop share one destination.
+    boardX: Number(req('BOARD_X', '26')),
+    boardY: Number(req('BOARD_Y', '79')),
+    boardZ: Number(req('BOARD_Z', '0')),
+    boardRadius: Number(req('BOARD_RADIUS', '8')),
   },
 
   reflex: {

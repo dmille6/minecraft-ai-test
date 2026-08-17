@@ -139,6 +139,10 @@ export class Runner {
       // guessed from the skill NAME and any inventory decrease, which is also
       // true of eating, dropping, depositing and crafting.
       placed: Number(result.placed ?? 0),
+      // Same rule as `placed`: the board skill reports what the ledger actually
+      // recorded, so a visit that changed no minds cannot claim it did.
+      adopted: Number(result.adopted ?? 0),
+      filed: Number(result.filed ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless

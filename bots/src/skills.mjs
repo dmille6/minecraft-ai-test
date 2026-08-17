@@ -31,6 +31,9 @@ import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
+import fs from 'node:fs'
+import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
+import { openLessons } from './lessons.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -1079,6 +1082,73 @@ async function deposit(ctx, { item = null }, signal) {
            detail: 'deposited 0 items — nothing matching to hand over, or the chest was full' }
 }
 
+// --------------------------------------------------------------- board -----
+//
+// The board arm's only means of sharing, and the placebo arm's structurally
+// identical trip to nowhere. Both walk; only one files.
+//
+// A module-level set, not persisted: it records what THIS PROCESS has already
+// filed, so a bot loitering at the lectern cannot re-file the same belief every
+// cycle. The board's own dedup is the real defence (one reporter is never two
+// witnesses however often it files); this just keeps the ledger from filling
+// with no-op posts.
+const filedThisRun = new Set()
+let boardHandle = null
+
+async function board(ctx, _args, signal) {
+  const { bot } = ctx
+  const { boardX, boardY, boardZ } = config.world
+
+  // The hive and isolated arms have no board in their worlds. The prompt does
+  // not offer it to them, but a model can still emit any skill name, and a bot
+  // walking to a lectern that does not exist would be a silent cross-arm
+  // contamination -- the isolated arm paying the board arm's travel cost.
+  if (config.memory.scope !== 'board' && config.memory.scope !== 'checkpoint') {
+    return { status: 'no_effect', detail: 'there is no bulletin board in this world' }
+  }
+
+  // THE WALK IS THE TREATMENT. Everything else in this function is bookkeeping.
+  if (!withinBoard(bot.entity?.position)) {
+    const walked = await goto(ctx, { x: boardX, y: boardY, z: boardZ, range: 2 }, signal)
+    check(signal)
+    if (!withinBoard(bot.entity?.position)) {
+      return { ...walked, status: 'failed', failClass: walked.failClass ?? 'travel_incomplete',
+               detail: `could not reach the town board at ${boardX},${boardZ}: ${walked.detail ?? 'no route'}` }
+    }
+  }
+
+  const lessons = openLessons()
+  const self = config.bot.name
+
+  // PLACEBO ARM. Same journey, same prompt affordance, same evidence shape --
+  // but nothing is shared. It exists because the board bundles four treatments
+  // at once (travel, ritual, a spatial attractor, and sharing), and without
+  // this arm any board effect could be any of the four. Checkpointing private
+  // memory is a real act with a real cost and no informational value, which is
+  // exactly the control we want.
+  if (config.memory.scope === 'checkpoint') {
+    lessons.save()
+    const n = Object.keys(lessons.data?.avoid ?? {}).length
+    return { status: 'success', adopted: 0, filed: n,
+             detail: `checkpointed ${n} private beliefs at the totem (nothing shared)` }
+  }
+
+  boardHandle ??= openBoard(fs)
+  boardHandle.load()                       // another bot may have filed since we last looked
+  const r = doVisit({ board: boardHandle, lessons, self,
+                      pos: bot.entity?.position, filed: filedThisRun })
+
+  if (!r.filed && !r.adopted) {
+    // Honest no-op: the evidence gate would catch this anyway, but saying so
+    // here gives the model a reason not to keep walking back.
+    return { status: 'unknown', failClass: 'no_measurable_change', adopted: 0, filed: 0,
+             detail: 'visited the board: nothing new to file and nothing new to adopt' }
+  }
+  return { status: 'success', adopted: r.adopted, filed: r.filed,
+           detail: `filed ${r.filed}, adopted ${r.adopted} from the board` +
+                   (r.credit ? ` (freshness credit ${r.credit})` : '') }
+}
+
 // -------------------------------------------------------------- status -----
 // Reports state and changes nothing. Genuinely useful when the agent's picture
 // of itself is stale, and pure procrastination otherwise -- one bot called it 17
@@ -2121,6 +2191,9 @@ export const SKILL_CONTRACTS = {
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },
+  // A board visit is a journey plus a memory change; the budget must cover the
+  // walk from wherever the bot was working.
+  board:    { expects: ['memory_change'],         maxMs: 240_000 },
   // Genuinely produces no durable change. Useful only when the bot's picture of
   // itself is stale, never as achievement -- which is exactly what it was being
   // recorded as.
@@ -2202,6 +2275,16 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   }
   if (expects.includes('survival') && ((delta.health ?? 0) > 0 || (delta.food ?? 0) > 0)) {
     because.push(`survival: health ${delta.health ?? 0}, food ${delta.food ?? 0}`)
+  }
+  // A BOARD VISIT CHANGES MEMORY AND NOTHING ELSE. It moves no items, places no
+  // blocks and heals nothing, so without its own dimension the evidence gate
+  // would downgrade every successful visit to `unknown` -- and the board arm's
+  // central action would be unable to prove it ever worked. Counted by the
+  // skill from the board's own ledger events, never inferred, same rule as
+  // `placed`: a visit that adopted nothing and filed nothing scores zero and
+  // is correctly called a no-op.
+  if (expects.includes('memory_change') && ((delta.adopted ?? 0) > 0 || (delta.filed ?? 0) > 0)) {
+    because.push(`memory_change: adopted ${delta.adopted ?? 0}, filed ${delta.filed ?? 0}`)
   }
 
   if (!because.length) return { value: 'neutral', because: [] }
@@ -2599,6 +2682,7 @@ export const SKILLS = {
   explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'] },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
   sleep:   { run: sleepSkill, usage: 'sleep',                      args: [] },
+  board:   { run: board,   usage: 'board',                         args: [] },
   surface: { run: surface, usage: 'surface',                       args: [], rescue: true },
 }
 

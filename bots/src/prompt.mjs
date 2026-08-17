@@ -65,6 +65,16 @@ export function buildSystemPrompt(skillNames) {
     '  place   args: {"item": "<item id in inventory>"}',
     '  mine    args: {"y": <target depth, e.g. 12>}   (staircases down)',
     '  sleep   args: {}                       (only at night; walks home to the town beds if none nearby)',
+    // ARM-SPECIFIC CAPABILITY APPENDIX. The board exists only in the arms that
+    // have one, and the placebo arm gets a structurally equivalent line for a
+    // trip that shares nothing -- if one arm's prompt gains an affordance, the
+    // control's must gain one of the same shape, or the comparison measures
+    // prompt length as well as memory.
+    ...(config.memory.scope === 'board'
+        ? ['  board   args: {}                       (walk to the town board: file what you have learned, read what others filed)']
+        : config.memory.scope === 'checkpoint'
+        ? ['  board   args: {}                       (walk to the town totem and checkpoint your own memory)']
+        : []),
   ].join('\n')
   // IDENTITY GOES LAST, AND THAT IS A PERFORMANCE DECISION.
   //
