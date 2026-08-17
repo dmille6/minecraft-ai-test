@@ -120,3 +120,38 @@ Committed in advance:
 - Productivity is decomposed rather than aggregated: gathers by target type,
   and gathered-vs-retained, so a large ratio driven by repetitive easy
   actions cannot read as progress.
+
+## Entrapment as the dominant variance source (added 2026-08-17, before any Block 2 data)
+
+Observed during interim, and it undermines a load-bearing assumption of this
+document: **productivity in this world is dominated by whether a bot is
+physically stuck, not by what it knows.**
+
+Evidence. In Block 1 the isolated arm spent 55% of the block below y=45 and
+the shared arm 12%; the shared arm out-gathered it 4.2:1. After three
+capability fixes freed the trapped bots during interim, the ranking inverted
+completely -- one hour showed 46 gathers from the isolated arm against 1 from
+the shared arm -- for the mirror-image reason: the shared bots were now the
+stuck ones (tree canopy, mountain ledges, surface pins). Neither ratio
+measured memory. Both measured mobility.
+
+An arm comparison that does not control for this is measuring terrain luck.
+Committed in advance:
+
+1. **Entrapment is a reported covariate, not a footnote.** Every arm
+   comparison reports fraction-of-time-immobile (no net position change over
+   a 10-minute window) and fraction-of-time-below-y=45 alongside the primary
+   endpoint. An arm difference in the primary endpoint accompanied by a
+   comparable difference in immobility is reported as CONFOUNDED, not as a
+   memory effect.
+2. **Exposure is redefined as MOBILE bot-hours.** The primary endpoint's
+   denominator excludes windows in which a bot was immobile, so productivity
+   measures what a working bot achieved rather than how many of an arm's bots
+   happened to be free.
+3. **Both denominators are published.** Raw per-bot-hour and per-mobile-bot-hour
+   appear side by side in every confirmatory plot; if they disagree, the
+   disagreement is the finding.
+4. **Shakedown gate.** Block 2 does not start until, across a full shakedown
+   day, no arm's immobile fraction exceeds another's by more than 2x. If the
+   worlds cannot meet that, the terrain or the spawn placement is changed
+   before the block, not after.
