@@ -624,7 +624,9 @@ export class CognitiveLoop {
       // outage would be recorded as the primary handling traffic normally, with
       // an error beside it. `llm.endpoint` is a keyword mapping; null is
       // "nothing served this", which is the true answer and a queryable one.
-      model: config.llm.model, endpoint: res.endpoint,
+      // res.model is what SERVED the decision, which is not config.llm.model
+      // when the pool degraded to an endpoint pinned to a smaller one.
+      model: res.model ?? config.llm.model, endpoint: res.endpoint,
       res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
       proposal: res.proposal, rejection, outcome, admission: admitted,
       milestone: milestone.id, systemPrompt: this.system, perceptionSnapshot: percept,

@@ -69,10 +69,27 @@ export function skillSchema(skillNames) {
 }
 
 export class LlmClient {
+  /**
+   * An endpoint may pin its OWN model, written `url|model`.
+   *
+   * The pool sent one model name to every endpoint, which silently assumes the
+   * fallback holds the same weights. It usually does not: the 32b lives on the
+   * Blackwell and nothing else in the fleet has 19.9GB of VRAM to spare, so a
+   * plain fallback would answer "model not found" and the pool would burn every
+   * endpoint before failing the decision -- an outage dressed as redundancy.
+   *
+   * `http://blackwell:11438|qwen2.5:32b,http://10.0.0.72:11434|qwen2.5:7b-instruct`
+   * degrades to a smaller model instead of to nothing. The cost is that a run
+   * can contain two models, which is exactly why the SERVED model is what gets
+   * logged (see #post) rather than the configured one.
+   */
   constructor({ baseUrls, baseUrl, model, numCtx, maxTokens = 512, temperature, timeoutMs }) {
-    const urls = (baseUrls?.length ? baseUrls : [baseUrl]).map(u => u.replace(/\/$/, ''))
-    this.pool = new EndpointPool(urls)
-    this.baseUrl = urls[0]          // retained for logging and back-compat
+    const eps = (baseUrls?.length ? baseUrls : [baseUrl]).map(entry => {
+      const [url, m] = String(entry).split('|')
+      return { url: url.trim().replace(/\/$/, ''), model: m?.trim() || null }
+    })
+    this.pool = new EndpointPool(eps)
+    this.baseUrl = eps[0].url       // retained for logging and back-compat
     this.model = model
     this.numCtx = numCtx
     this.maxTokens = maxTokens
@@ -99,7 +116,8 @@ export class LlmClient {
     // said 10.0.0.72 because OLLAMA_BASE_URL said 10.0.0.72, and I read those
     // records as proof the fleet had not moved. The same defect as an outcome
     // reported without evidence, wearing a different hat.
-    let attempt = 0, lastErr = null, proposal = null, raw = '', meta = {}, servedBy = null
+    let attempt = 0, lastErr = null, proposal = null, raw = '', meta = {}
+    let servedBy = null, servedModel = null
     // One repair retry, then stop. ADR-0002 D1: never best-effort parse a
     // malformed response into an action.
     while (attempt < 2) {
@@ -122,6 +140,7 @@ export class LlmClient {
 
       meta = res.meta
       servedBy = res.endpoint ?? null
+      servedModel = res.model ?? null
       raw = res.content ?? ''
       try {
         proposal = JSON.parse(raw)
@@ -162,6 +181,7 @@ export class LlmClient {
       // After the spread on purpose: this must never be shadowed by a future
       // meta key. null means every attempt threw, so nothing served it.
       endpoint: servedBy,
+      model: servedModel,
     }
   }
 
@@ -180,7 +200,7 @@ export class LlmClient {
           headers: { 'Content-Type': 'application/json' },
           signal: ctl.signal,
           body: JSON.stringify({
-            model: this.model,
+            model: ep.model ?? this.model,
             stream: false,
             // Handoff doc S7. Without this the model unloads between decisions
             // and every call pays a 55-80s reload -- observed live, and the
@@ -207,6 +227,14 @@ export class LlmClient {
         return {
           content: d.message?.content,
           endpoint: ep.url,
+          // WHAT ACTUALLY SERVED IT, preferring Ollama's own answer over what
+          // we asked for. `endpoint` was made honest after a migration became
+          // unverifiable because the logs recorded the configured host instead
+          // of the serving one; a pool that can degrade to a different model
+          // puts `model` in exactly that position. Attributing a 7b fallback
+          // decision to the 32b would corrupt the comparison this pool exists
+          // to make survivable.
+          model: d.model ?? ep.model ?? this.model,
           meta: {
             prompt_tokens: d.prompt_eval_count ?? null,
             completion_tokens: d.eval_count ?? null,
@@ -254,7 +282,10 @@ export class LlmClient {
  */
 export class EndpointPool {
   constructor(urls, { cooldownMs = 60_000, maxCooldownMs = 900_000 } = {}) {
-    this.eps = urls.map(url => ({ url, fails: 0, downUntil: 0, calls: 0, totalMs: 0 }))
+    // Accepts plain strings (every existing caller) or {url, model} entries.
+    this.eps = urls.map(u => (typeof u === 'string' ? { url: u, model: null } : u))
+      .map(({ url, model }) => ({ url, model: model ?? null,
+                                  fails: 0, downUntil: 0, calls: 0, totalMs: 0 }))
     this.cooldownMs = cooldownMs
     this.maxCooldownMs = maxCooldownMs
   }
