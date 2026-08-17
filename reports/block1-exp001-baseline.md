@@ -14,25 +14,64 @@ digest), converged on both instances. **Fleet:** 10 bots, all role=gatherer.
 
 |                          | shared (6 bots) | isolated (4 bots) | per-bot ratio |
 |--------------------------|-----------------|-------------------|---------------|
-| gathers succeeded        | 856 (143/bot)   | 140 (35/bot)      | **4.1× more** |
-| deaths                   | 249 (41/bot)    | 53 (13/bot)       | **3.1× more** |
-| rule contradictions      | 1,498 (250/bot) | 280 (70/bot)      | **3.6× more** |
-| stranded events          | 157 (26/bot)    | 476 (119/bot)     | **4.5× less** |
-| LLM decisions            | 59,834          | 41,642            | —             |
+| gathers succeeded        | 879 (147/bot)   | 140 (35/bot)      | **4.2× more** |
+| deaths                   | 250 (42/bot)    | 53 (13/bot)       | 3.1× more     |
+| rule contradictions      | 1,542 (257/bot) | 280 (70/bot)      | 3.7× more/bot |
+| beliefs held at close    | 78 (26/pool)    | 37 (9/bot)        | —             |
+| **contradictions per belief** | **19.8**   | **7.6**           | **2.6× more** |
+| stranded events          | 160 (27/bot)    | 476 (119/bot)     | 4.5× less     |
+| **time below y=45**      | **12%**         | **55%**           | **4.6× less** |
+| LLM decisions            | 61,038          | 42,485            | —             |
 | decisions executed       | 42%             | 46%               | —             |
-| learned_avoid vetoes     | 28,769          | 15,533            | 1.2× more/bot |
+| learned_avoid vetoes     | 29,424          | 15,974            | 1.2× more/bot |
 | inherited-belief blocks  | 114             | 0 (by construction) | —           |
 | operator interventions   | 4               | 1                 | arm-blind     |
 | milestones completed     | 0               | 0                 | —             |
 
-**The thesis survived contact with the data: shared memory made the fleet learn
-faster, be wrong faster, and freeze less.** 4.1× the production per bot, at the
-cost of 3.1× the deaths and 3.6× the contradicted beliefs — while isolated bots
-spent the block overwhelmingly stuck (4.5× the stranding events, and by day 3
-all four were pinned motionless underground or on terrain features).
+*(Counts re-pulled 2026-08-17 after a telemetry outage was found and
+backfilled; the first pull on close night undercounted shared gathers by 23
+and contradictions by 44. The outage was caused by rotating a shared
+Elasticsearch credential without updating instance #1's own shipper.)*
 
-Every shared pool out-produced every isolated bot. Worst pool (hive-a, 173)
-beat best isolated (Scout02, 82) by 2:1.
+## The confound that changes how this reads
+
+**The isolated arm spent 55% of the block below y=45; the shared arm spent
+12%.** Isolated bots were not merely less productive -- they were physically
+trapped for most of the observation window, in terrain where the milestone's
+target (surface wood) does not exist. A large share of the 4.2× productivity
+ratio is therefore an ARTIFACT OF ENTRAPMENT, not a demonstration that shared
+memory produces better decisions.
+
+The interim period after Block 1 supports that reading. Once three
+capability fixes landed -- rescue skills exempted from avoid-rules, a reflex
+conflict resolved (an entombed check was cancelling the pillar-climb that
+would have freed the bot), and prerequisites promoted into the task line --
+all four trapped isolated bots reached the surface, and within an hour the
+isolated arm was OUT-PRODUCING the shared arm (Solo01 alone: 15 successful
+gathers, against 1 for the entire shared arm). One hour is not a result, but
+it is strong evidence that the Block 1 gap measured mobility, not memory.
+
+**Contradictions per belief is the honest version of "wrong faster."** Per
+bot, shared looks 3.7× more error-prone; but shared pools also HELD more
+beliefs (78 vs 37), so part of that ratio is belief volume rather than belief
+quality. Normalised per belief, each shared belief was contradicted 2.6× as
+often as each isolated one. That is a smaller claim and a better-supported
+one: beliefs that propagate without being personally tested are individually
+less reliable, which is the mechanism the experiment was built to detect.
+The 114 inherited-belief blocks -- decisions vetoed by a rule the acting bot
+never tested, structurally impossible in the isolated arm -- remain the
+cleanest single piece of evidence for that mechanism.
+
+**What survives the confound:** shared memory propagated beliefs faster, and
+those beliefs were individually less reliable (2.6× the contradiction rate per
+belief, plus 114 blocks from beliefs the acting bot never tested). What does
+NOT survive unqualified is the productivity claim: the shared arm out-gathered
+the isolated arm 4.2:1, but the isolated arm was underground 55% of the time,
+and removing that entrapment reversed the ranking within an hour.
+
+Every shared pool out-produced every isolated bot (worst pool hive-a at 173 vs
+best isolated Scout02 at 82), but this comparison inherits the same mobility
+confound and should not be read as a memory effect.
 
 ## What actually happened, day by day
 
