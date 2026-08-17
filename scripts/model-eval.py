@@ -61,11 +61,11 @@ def es_search(query, size=0, aggs=None, source=None, index='mcai-llm-agents'):
     return _post(url, payload, 120, auth)
 
 
-def ollama_chat(base, model, messages, timeout=600):
+def ollama_chat(base, model, messages, timeout=90):
     """Returns (text, seconds). Retries transient socket errors; those are the
     local machine running out of ephemeral ports, not the model failing."""
     payload = {'model': model, 'stream': False, 'format': 'json',
-               'options': {'num_ctx': 4096, 'temperature': 0.3},
+               'options': {'num_ctx': 8192, 'temperature': 0.3},
                'messages': messages}
     last = None
     for attempt in range(3):
@@ -117,11 +117,24 @@ def proposal_of(text):
         if m:
             try: d = json.loads(m.group(0))
             except Exception: return None
-    if not isinstance(d, dict) or not d.get('skill'):
+    if not isinstance(d, dict):
         return None
-    args = d.get('args') or {}
+    # THE MODEL DOES NOT ALWAYS SAY `skill`. qwen2.5 emits `action` for a
+    # meaningful share of replies, and requiring `skill` scored those as
+    # unparseable -- which threw away the exact evidence this harness exists to
+    # collect. Two of the first three "unparseable" responses were
+    # {"action":"gather","args":{"block":"oak_log"}} and
+    # {"action":"gather","args":{"block":"dirt"}}: the fixation and the fix,
+    # discarded by the scorer. Production's schema check is stricter for good
+    # reasons; an ANALYSIS tool must read what the model actually said.
+    skill = d.get('skill') or d.get('action') or d.get('tool')
+    if not skill:
+        return None
+    args = d.get('args') or d.get('arguments') or {}
+    if not isinstance(args, dict):
+        args = {}
     key = args.get('block') or args.get('item') or ''
-    return (str(d['skill']), str(key))
+    return (str(skill), str(key))
 
 
 def cmd_corpus(a):
@@ -356,19 +369,28 @@ def cmd_ablate(a):
     for model in a.models.split(','):
         res = {'as-logged (milestone in TASK)': [], 'promoted (prereq in TASK)': [], 'BOGUS prereq in TASK': []}
         for r in sample:
+            print(f'    ...state {sample.index(r)+1}/{len(sample)}', flush=True)
             for label, prompt in (
-                ('as-logged (milestone in TASK)', r['prompt']),
-                ('promoted (prereq in TASK)', variant(r['prompt'], PROMOTED)),
-                ('BOGUS prereq in TASK', variant(r['prompt'], BOGUS)),
-            ):
-                msgs = ([{'role': 'system', 'content': sysmsg}] if sysmsg else []) + \
-                       [{'role': 'user', 'content': prompt}]
-                try:
-                    txt, _ = ollama_chat(a.ollama, model, msgs)
-                except Exception:
-                    continue
-                res[label].append(proposal_of(txt))
-                time.sleep(0.3)
+                    ('as-logged (milestone in TASK)', r['prompt']),
+                    ('promoted (prereq in TASK)', variant(r['prompt'], PROMOTED)),
+                    ('BOGUS prereq in TASK', variant(r['prompt'], BOGUS)),
+                ):
+                    msgs = ([{'role': 'system', 'content': sysmsg}] if sysmsg else []) + \
+                           [{'role': 'user', 'content': prompt}]
+                    try:
+                        txt, _ = ollama_chat(a.ollama, model, msgs)
+                    except Exception as e:
+                        # NEVER swallow these silently. A bare `continue` here
+                        # reported a clean 0/0 for every arm on 2026-08-17 and cost
+                        # an hour of debugging a result that was really a transport
+                        # failure wearing a data costume.
+                        print(f'      ERROR {label}: {type(e).__name__}: {str(e)[:90]}', flush=True)
+                        continue
+                    p = proposal_of(txt)
+                    if p is None:
+                        print(f'      UNPARSEABLE {label}: {txt[:80]!r}', flush=True)
+                    res[label].append(p)
+                    time.sleep(0.3)
         print(f'\n{model}  paired ablation on {len(sample)} identical trapped states')
         for label, props in res.items():
             ok = [p for p in props if p]
