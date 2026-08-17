@@ -62,10 +62,19 @@ await t('an OCCUPIED port is reported busy instead of throwing', async () => {
 
 await t('the probe never emits an unhandled error, whatever the port', async () => {
   // The whole point: no path through this may reach Node's default 'error'
-  // behaviour. A privileged port fails for a DIFFERENT reason (EACCES) and must
-  // still come back as a plain false.
+  // behaviour. Port 1 exercises a failure that is NOT EADDRINUSE.
+  //
+  // The assertion is on the contract -- resolves a boolean, never rejects,
+  // needs no process-level handler -- and deliberately NOT on which boolean.
+  // Whether an unprivileged user may bind port 1 is OS policy, not a promise
+  // this code makes: Linux refuses with EACCES, macOS allows it. Asserting
+  // `false` made preflight fail on every developer Mac for a reason that had
+  // nothing to do with the guard, and a gate that fails for irrelevant reasons
+  // is a gate people learn to skip.
   const before = process.listenerCount('uncaughtException')
-  assert.equal(await probePort(1), false, 'port 1 is not bindable as an ordinary user')
+  const got = await probePort(1)
+  assert.equal(typeof got, 'boolean',
+    'the probe must resolve a boolean on every path, never reject')
   assert.equal(process.listenerCount('uncaughtException'), before,
     'the guard must not need a process-level handler to be safe')
 })

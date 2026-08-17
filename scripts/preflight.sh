@@ -28,8 +28,14 @@ FAILED=()
 NODE_HOST="${PREFLIGHT_NODE_HOST:-}"
 KEY="${AGENT_KEY:-$HOME/.ssh/id_ed25519_aiservers}"
 if command -v node >/dev/null 2>&1; then
-  RUN_JS() { node "$1"; }
-  SYNTAX() { node --check "$1"; }
+  # Paths arrive as src/x.mjs and test/x.mjs -- relative to bots/, because the
+  # remote branch below stages those two directories at the root of a scratch
+  # dir and runs there. The local branch must enter bots/ to match, or every
+  # check fails with "Cannot find module" and preflight reports a 63-item
+  # DO NOT DEPLOY that says nothing about the code. A gate that cries wolf on
+  # every local run is worse than no gate: it teaches you to skip it.
+  RUN_JS() { (cd bots && node "$1"); }
+  SYNTAX() { (cd bots && node --check "$1"); }
 elif [ -n "$NODE_HOST" ]; then
   say "  (no local node; running JS checks on $NODE_HOST)"
   tar czf - -C bots src test 2>/dev/null | \
