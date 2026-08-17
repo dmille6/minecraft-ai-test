@@ -85,3 +85,38 @@ invention, no cathedral, no tempo variation in this block.
    memory is a pure cost).
 5. isolated shows the highest stranding time despite learnable rescue
    (recovery exists but does not compound without sharing).
+
+## Model sensitivity (added 2026-08-17 after adversarial review)
+
+Block 2 runs ONE model across all four arms, so its result is properly stated
+as "the memory effect **under this model**", not "the memory effect". The
+objection that forces this wording: model capability may interact with the
+memory condition -- a suggestible model may adopt peer-reported beliefs
+uncritically while a stronger one checks them against observation, in which
+case the shared-memory arm's contradiction rate is partly a fact about the
+model.
+
+Committed in advance:
+
+1. Before Block 2, run `scripts/model-eval.py suggest` across at least three
+   models spanning size, family, and reasoning-tuning. It measures
+   suggestibility directly: a false peer report is injected contradicting a
+   resource the bot can see, paired against the uninjected prompt.
+2. If suggestibility is comparable across models, Block 2 proceeds
+   single-model and this limitation is a stated footnote.
+3. If suggestibility falls materially with capability, the interaction is
+   real. Block 2 still runs single-model, but afterwards the hive-vs-isolated
+   contrast is replicated with a stronger model for >=2 days, and no general
+   claim about LLM collectives is made until that replication agrees.
+4. The decision rule and the model set are fixed HERE, before any Block 2
+   data exists.
+
+## Metric corrections carried into Block 2
+
+- Contradictions are reported per BELIEF and per ACTED-UPON belief, not per
+  bot. Shared bots generate more beliefs, so a per-bot ratio partly measures
+  belief volume rather than belief quality. (Block 1's 3.6x figure is
+  re-stated on this basis in the report.)
+- Productivity is decomposed rather than aggregated: gathers by target type,
+  and gathered-vs-retained, so a large ratio driven by repetitive easy
+  actions cannot read as progress.
