@@ -254,6 +254,9 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
 
   const target = new Vec3(Number(x), Number(y), Number(z))
   let legs = 0, lastErr = null
+  // One dig-assisted retry per goto, not per leg: a bot that must tunnel every
+  // leg is not travelling, it is excavating, and the budget should say so.
+  let diggingRetry = false
 
   // THE LEG BUDGET MUST SCALE WITH THE DISTANCE, or a far target is unreachable
   // by ARITHMETIC rather than by terrain.
@@ -350,14 +353,43 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
       const advanced = bot.entity.position.distanceTo(before)
       const atLeg = Math.hypot(leg.x - bot.entity.position.x, leg.z - bot.entity.position.z)
       if (advanced < 2 && atLeg > Math.max(range, 3)) {
+        // IF IT WALKED OUT, A WALK BACK EXISTS -- UNLESS WE BUILT THE TRAP.
+        //
+        // Every bot starts at home, so a route home existed at least once.
+        // What breaks the symmetry is our own stack: `mine` staircases down and
+        // pillarOut towers up, while navigation runs canDig=false so it never
+        // digs. One layer manufactures terrain another layer is forbidden to
+        // cross, and the bot that dug the shaft is the one bot that cannot
+        // climb it. That asymmetry is 25 of the 44 logged deposit failures --
+        // filed as "no route out of here", which reads as hostile terrain when
+        // the truth is a self-inflicted one-way trip.
+        //
+        // `surface` already has the cure for the vertical case: borrow the
+        // dig-capable config for one bounded attempt. This is the horizontal
+        // case, and it gets the same treatment -- ONE retry, still budgeted,
+        // config always given back. Digging stays a deliberate act with a
+        // named reason; it does not become how the bot walks.
+        if (!diggingRetry && bot.withAscentMovements) {
+          diggingRetry = true
+          log('warn', 'no route on foot; retrying this leg with digging allowed',
+              { from: `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)}` })
+          try {
+            await bot.withAscentMovements(async () => {
+              await withTimeout(bot.pathfinder.goto(goal), 25000, bot)
+            })
+            check(signal)
+            if (bot.entity.position.distanceTo(before) >= 2) continue   // it worked; carry on
+          } catch { /* fall through to the honest failure below */ }
+        }
         const q = bot.entity.position
         return {
           status: 'failed',
           failClass: 'stranded',
           gap: `stranded_y${Math.round(q.y)}`,
           detail: `pathfinder returned an empty path from ` +
-                  `${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} — no route out of here, ` +
-                  `${Math.round(dist)} blocks short of ${target.x},${target.z}`,
+                  `${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} — no route out of here ` +
+                  `even with digging allowed, ${Math.round(dist)} blocks short of ` +
+                  `${target.x},${target.z}`,
         }
       }
       lastErr = null
