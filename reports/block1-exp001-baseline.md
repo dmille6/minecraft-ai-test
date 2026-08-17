@@ -140,3 +140,38 @@ breakdown is unavailable for Block 1 and is claimed nowhere in this report.
 #1's cluster; collector queries in /tmp/block1.sh (to be committed under
 scripts/). Case-study events carry `_operator_intervention`,
 `_rule_contradicted`, `_stranded_*` markers and are re-derivable.*
+
+## The prompt-representation result, now properly controlled (2026-08-17)
+
+The interim claim -- that Scout01's four-day fixation was an interface failure
+rather than a model limitation -- was first supported by an uncontrolled
+before/after (0 of 126 proposals were a scaffold block; 9 of 12 were once the
+prerequisite was promoted into the TASK line). An adversarial review rightly
+called that confounded: a reflex fix and hand-given dirt landed in the same
+window.
+
+Re-run as a paired ablation over 30 identical logged trapped states -- same
+model, same decoding settings, no environment change, only the TASK line
+varying:
+
+| prompt variant | proposed a scaffold block |
+|---|---|
+| as-logged (milestone in TASK, prerequisite in prose) | 2 / 30 |
+| prerequisite promoted into TASK | 20 / 28 |
+| BOGUS prerequisite (`sea_pickle`) in TASK | 4 / 30 scaffold; 8 / 30 chased the sea pickle |
+
+**The claim survives**: moving identical information from prose into the task
+slot moved scaffold-gathering from 7% to 71%. A 7B model was never unable to
+name the prerequisite; the production prompt made the milestone more salient
+than the recipe.
+
+**The third arm is the caution.** The model obeyed an implausible prerequisite
+27% of the time, so promotion is partly obedience rather than reasoning. Since
+a promoted prerequisite is also immune to the admission gate (`wants` moves
+with it), a bad extraction can force a pointless detour that nothing is allowed
+to veto. A plausibility guard -- is the named item obtainable here at all? --
+is required before this mechanism runs inside a measured block.
+
+This is proposal-selection evidence only. It does NOT establish that prompt
+representation caused the escapes; those also involved a reflex fix and
+hand-delivered materials, and are reported separately as interventions.
