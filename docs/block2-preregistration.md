@@ -212,3 +212,50 @@ look natural to a Minecraft player.
 4. **Prompt budget is a hidden treatment.** Arms carry different amounts of
    memory text, so token count and dropped-event counts are logged per arm and
    reported alongside the endpoints.
+
+## Model choice for Block 2 — decided 2026-08-17 on evidence
+
+The sensitivity rule fixed above required running the model sweep before
+Block 2. First results, on the Blackwell (idle, no fleet contention), 13
+identical logged trapped states, both models seeing byte-identical prompts:
+
+| prompt variant | qwen2.5:7b | qwen2.5:32b |
+|---|---|---|
+| as-logged (prerequisite only as prose) | 0/13 | **6/13** |
+| prerequisite promoted into TASK | 3/13 | **12/13** |
+| BOGUS `sea_pickle` prerequisite obeyed | 3x | **1x** |
+
+warm latency: 7b = 0.79s (~37 bots at 30s cadence); 32b = 1.76s (~17 bots).
+
+Three findings, all bearing on the pre-registration:
+
+1. **Model size is NOT irrelevant to this failure.** An earlier interim note
+   claimed the four-day fixation was "an interface failure, not a model
+   limitation". That was too strong: the 32b solves the trap from prose alone
+   where the 7b never does. The prompt fix is real AND the capability gap is
+   real; they compound (32b + promotion = 12/13, the best any configuration
+   has produced).
+2. **The larger model is markedly harder to fool.** It obeyed a nonsense
+   prerequisite a third as often. That matters because a promoted prerequisite
+   is immune to the admission gate, so the override channel is safer under a
+   model that reasons about plausibility.
+3. **17 bots at a 30s cadence is inside Block 2's envelope** (4 arms x 5 bots
+   = 20 bots), but only just, and only with the Blackwell healthy. The 7b has
+   roughly twice the headroom.
+
+DECISION: Block 2 runs **qwen2.5:7b-instruct**, unchanged, because (a) it is
+what Block 1 ran, so the arms stay comparable to the existing baseline, (b) it
+leaves inference headroom for 20 bots on a single host, and (c) the
+capability gap is now MEASURED rather than assumed, so it can be stated as a
+limitation instead of discovered later.
+
+The 32b result converts the earlier hand-waving into a concrete follow-up:
+after Block 2, replicate the hive-vs-isolated contrast on qwen2.5:32b for >=2
+days. If the memory effect changes size under the stronger model, the
+interaction the review warned about is real and the Block 2 claim is scoped to
+"under this model" permanently.
+
+CAVEAT ON THESE NUMBERS: n=13, drawn mostly from one bot, and the 7b's rates
+here differ from a 30-state run on a different corpus (2/30 and 20/28). The
+BETWEEN-MODEL comparison within this run is the sound part; the absolute rates
+are noisy.
