@@ -40,7 +40,8 @@ ok "ILM: rollover 10gb/7d, delete at 180d"
 COMMON='"@timestamp":{"type":"date"},"run_id":{"type":"keyword"},"trigger":{"type":"keyword"},
  "code":{"properties":{"version":{"type":"keyword"},"config_hash":{"type":"keyword"}}},
  "exp":{"properties":{"memory_scope":{"type":"keyword"},"arm":{"type":"keyword"},
-        "instance":{"type":"keyword"},"block":{"type":"keyword"}}},
+        "instance":{"type":"keyword"},"block":{"type":"keyword"},
+        "pool":{"type":"keyword"}}},
  "perception":{"type":"flattened"},
  "bot":{"properties":{"name":{"type":"keyword"},"role":{"type":"keyword"},
         "health":{"type":"float"},"hunger":{"type":"float"},
@@ -59,7 +60,11 @@ q -XPUT "http://localhost:9200/_index_template/mcai-skill" -H 'Content-Type: app
   \"skill\":{\"properties\":{\"name\":{\"type\":\"keyword\"},\"args\":{\"type\":\"flattened\"},
    \"status\":{\"type\":\"keyword\"},\"duration_ms\":{\"type\":\"long\"},\"detail\":{\"type\":\"text\"},
    \"fail_class\":{\"type\":\"keyword\"},\"distance_moved\":{\"type\":\"float\"},
-   \"inventory_delta\":{\"type\":\"flattened\"}}}}}}}" >/dev/null
+   \"inventory_delta\":{\"type\":\"flattened\"}}},
+  \"board\":{\"properties\":{\"id\":{\"type\":\"keyword\"},\"event\":{\"type\":\"keyword\"},
+   \"claim\":{\"type\":\"keyword\"},\"state\":{\"type\":\"keyword\"},
+   \"reporters\":{\"type\":\"short\"},\"credit\":{\"type\":\"float\"},
+   \"carried_ms\":{\"type\":\"long\"},\"distance\":{\"type\":\"float\"}}}}}}}" >/dev/null
 ok "mcai-skill-* template"
 
 q -XPUT "http://localhost:9200/_index_template/mcai-llm" -H 'Content-Type: application/json' -d "{
@@ -70,7 +75,11 @@ q -XPUT "http://localhost:9200/_index_template/mcai-llm" -H 'Content-Type: appli
    \"latency_ms\":{\"type\":\"long\"},\"total_duration_ns\":{\"type\":\"long\"},
    \"load_duration_ns\":{\"type\":\"long\"},\"prompt_eval_duration_ns\":{\"type\":\"long\"},
    \"eval_duration_ns\":{\"type\":\"long\"},\"schema_valid\":{\"type\":\"boolean\"},
-   \"error\":{\"type\":\"keyword\"},\"retry_count\":{\"type\":\"short\"}}},
+   \"error\":{\"type\":\"keyword\"},\"retry_count\":{\"type\":\"short\"},
+   \"admission\":{\"type\":\"keyword\"}}},
+  \"memory\":{\"properties\":{\"cited_rule\":{\"type\":\"keyword\"},
+   \"cited_fails\":{\"type\":\"integer\"},\"cited_reporters\":{\"type\":\"short\"},
+   \"inherited\":{\"type\":\"boolean\"}}},
   \"prompt\":{\"properties\":{\"system_hash\":{\"type\":\"keyword\"},\"text\":{\"type\":\"text\"}}},
   \"response\":{\"properties\":{\"text\":{\"type\":\"text\"}}},
   \"messages\":{\"type\":\"flattened\"},\"tool_calls\":{\"type\":\"flattened\"},
