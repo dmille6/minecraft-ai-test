@@ -5,12 +5,20 @@
     ./shakedown-gate.py --block block2 --hours 24
     echo $?          # 0 = GO, 1 = NO-GO, 2 = INSUFFICIENT DATA
 
-THE GATE, quoted from docs/block2-preregistration.md:
+THE GATE, as amended 2026-08-18 (before any Block 2 data existed):
 
-    "Block 2 does not start until, across a full shakedown day, no arm's
-     immobile fraction exceeds another's by more than 2x. If the worlds cannot
-     meet that, the terrain or the spawn placement is changed before the block,
-     not after."
+    Across a full shakedown day, no arm's MOBILE fraction may exceed another's
+    by more than 2x, AND every arm must be at least 30% mobile. If the worlds
+    cannot meet that, the terrain or the spawn placement is changed before the
+    block, not after.
+
+The threshold is the originally pre-registered 2x. What changed is the
+statistic it binds on, because the original could not reject the case it was
+written for: a ratio of IMMOBILE fractions compresses toward 1 precisely when
+both arms are badly stuck. Block 1's fixed-arms-01b reads 1.36x on immobile
+fractions and PASSES at every slack value tried; the same data as working time
+reads 2.43x and fails at every slack value. The mobile form is also the one
+that matches the primary endpoint, whose denominator is mobile bot-hours.
 
 This exists as a program rather than a judgement because the judgement gets
 made at midnight on the day the hardware arrives, by someone who wants to start
@@ -104,11 +112,20 @@ def main():
     ap.add_argument('--block', default='block2')
     ap.add_argument('--hours', type=int, default=24,
                     help='the pre-registration says a FULL shakedown day')
+    # FIXED IN ADVANCE, 2026-08-18. Verdicts were stable at slack 2 and 4 and
+    # began drifting at 8 and 16 (baseline's worst arm falls to 20.9% mobile at
+    # 16, tripping the floor for the wrong reason). 4 blocks of net travel in
+    # ten minutes is not movement. Pinning it now is what stops it being tuned
+    # later to produce a wanted answer.
     ap.add_argument('--slack', type=float, default=4.0,
                     help='blocks of net displacement still counted as immobile')
     ap.add_argument('--ratio', type=float, default=2.0,
-                    help='pre-registered threshold; changing it changes the gate')
-    ap.add_argument('--min-windows', type=int, default=100,
+                    help='pre-registered threshold, now applied to MOBILE fraction')
+    ap.add_argument('--floor', type=float, default=0.30,
+                    help='every arm must be at least this mobile, regardless of ratio')
+    # 4 arms x 5 bots x 144 windows/day is ~720 per arm when everything reports.
+    # 100 was lenient enough for a mostly-dead arm to pass.
+    ap.add_argument('--min-windows', type=int, default=500,
                     help='per arm, below which the answer is INSUFFICIENT not GO')
     a = ap.parse_args()
 
@@ -191,60 +208,82 @@ def main():
         print(f"  INSUFFICIENT — only {len(stats)} arm reporting; the gate compares arms")
         return 2
 
-    fracs = {k: v['frac'] for k, v in stats.items()}
-    lo_arm, lo = min(fracs.items(), key=lambda kv: kv[1])
-    hi_arm, hi = max(fracs.items(), key=lambda kv: kv[1])
-    if lo == 0:
-        # A 2x rule is undefined against zero. Treat a genuinely-zero arm as a
-        # pass only if the worst arm is also negligible, rather than dividing.
-        ok = hi < 0.05
-        ratio_s = f"{hi_arm} {hi*100:.1f}% vs {lo_arm} 0.0% (ratio undefined)"
+    # ---- THE GATE BINDS ON MOBILE FRACTION -----------------------------
+    #
+    # Amended 2026-08-18, before any Block 2 data exists. The threshold is
+    # unchanged at 2x; what it is computed on changed, because the original
+    # statistic could not reject the case it was written for.
+    #
+    # A ratio of IMMOBILE fractions compresses toward 1 exactly when both arms
+    # are badly stuck -- which is the situation the gate exists to catch. Block
+    # 1's fixed-arms-01b reads 84.3% vs 61.9% immobile = 1.36x and PASSES at
+    # every slack value tried (2, 4, 8, 16). The same data as WORKING time is
+    # 15.7% vs 38.1% = 2.43x and fails at every slack value. Same measurements,
+    # opposite verdict, and the mobile form is the one that matches the primary
+    # endpoint, whose denominator is mobile bot-hours.
+    mobile = {k: 1.0 - v['frac'] for k, v in stats.items()}
+    lo_arm, lo = min(mobile.items(), key=lambda kv: kv[1])
+    hi_arm, hi = max(mobile.items(), key=lambda kv: kv[1])
+
+    imm = {k: v['frac'] for k, v in stats.items()}
+    i_ratio = max(imm.values()) / min(imm.values()) if min(imm.values()) > 0 else float('inf')
+    print(f"  immobile fraction (superseded statistic, reported for continuity): "
+          f"{i_ratio:.2f}x")
+    print(f"  MOBILE fraction: " + ", ".join(f"{k}={v*100:.1f}%" for k, v in sorted(mobile.items())))
+
+    if lo <= 0:
+        print(f"  spread: undefined — arm '{lo_arm}' was never mobile")
+        ok_ratio, ratio = False, float('inf')
     else:
         ratio = hi / lo
-        ok = ratio <= a.ratio
-        ratio_s = (f"worst {hi_arm} {hi*100:.1f}% / best {lo_arm} {lo*100:.1f}% "
-                   f"= {ratio:.2f}x (limit {a.ratio}x)")
-    print(f"  immobile spread: {ratio_s}")
+        ok_ratio = ratio <= a.ratio
+        print(f"  spread: best {hi_arm} {hi*100:.1f}% / worst {lo_arm} {lo*100:.1f}% "
+              f"= {ratio:.2f}x (limit {a.ratio}x)")
 
-    # THE PRE-REGISTERED RULE IS NOT SUFFICIENT ON ITS OWN, and the gate should
-    # say so rather than quietly return GO.
-    #
-    # Validated against Block 1's own fixed-arms-01b: isolated 84.3% immobile
-    # vs shared 61.9% is a ratio of 1.36x and PASSES -- while the arms differed
-    # by 3.6x in mobile bot-hours (57.3 vs 208.2), and Scout01 was immobile and
-    # below y45 for 545 of 545 windows. That is the block whose result we now
-    # describe as confounded by entrapment. A fraction ratio compresses exactly
-    # the difference that matters, because the endpoint's denominator is mobile
-    # bot-hours, not the fraction.
-    #
-    # Reported, not enforced. Moving a pre-registered threshold because it
-    # rejects the data is how a gate becomes decoration; amending it is the
-    # operator's decision, made in the document, before the block.
+    # THE FLOOR. A ratio alone passes when every arm is equally broken, and an
+    # arm below roughly a third mobile is spending most of its exposure getting
+    # unstuck -- the per-mobile-bot-hour denominator goes thin and noisy, and
+    # what is being measured is recovery rather than memory. Block 1's worst arm
+    # sat at 15.7%; baseline's at 38.1%.
+    ok_floor = lo >= a.floor
+    print(f"  floor: worst arm {lo*100:.1f}% mobile (minimum {a.floor*100:.0f}%)"
+          + ("" if ok_floor else "   <-- BELOW FLOOR"))
+
     mh = {k: v['mobile_h'] for k, v in stats.items()}
-    lo_m, hi_m = min(mh.values()), max(mh.values())
-    m_ratio = (hi_m / lo_m) if lo_m > 0 else float('inf')
-    print(f"  mobile bot-hours: "
-          + ", ".join(f"{k}={v:.1f}" for k, v in sorted(mh.items()))
-          + f"  spread {m_ratio:.2f}x")
-    if ok and m_ratio > a.ratio:
-        print(f"\n  ** WARNING ** the pre-registered fraction test passes, but the arms\n"
-              f"  differ by {m_ratio:.2f}x in MOBILE BOT-HOURS -- the primary endpoint's own\n"
-              f"  denominator. Block 1's fixed-arms-01b passes this same test at 1.36x\n"
-              f"  while differing 3.6x in working time. Treat GO as provisional and\n"
-              f"  decide, in the pre-registration, whether the threshold should bind\n"
-              f"  on exposure rather than on fraction.")
+    print(f"  mobile bot-hours: " + ", ".join(f"{k}={v:.1f}" for k, v in sorted(mh.items())))
+
+    # Reported, never enforced: depth is partly a CONSEQUENCE of the treatment
+    # (bots choose to mine), so hard-gating it would select for worlds that
+    # suppress the behaviour under study.
+    df = {k: v['deep_frac'] for k, v in stats.items()}
+    d_ratio = max(df.values()) / min(df.values()) if min(df.values()) > 0 else float('inf')
+    print(f"  below y45 (reported, not gated): "
+          + ", ".join(f"{k}={v*100:.1f}%" for k, v in sorted(df.items()))
+          + f"  spread {d_ratio:.2f}x")
+    if d_ratio > a.ratio:
+        print(f"  NOTE: depth spread exceeds {a.ratio}x. Not a NO-GO, but if the primary\n"
+              f"  endpoint also differs, report the comparison as CONFOUNDED.")
+
+    ok = ok_ratio and ok_floor
 
     if a.hours < 24:
         print(f"  NOTE: --hours {a.hours} is less than the pre-registered full day.")
 
     if ok:
-        print("\n  GO — no arm's immobile fraction exceeds another's by more than "
-              f"{a.ratio}x.\n  Publish BOTH denominators in every confirmatory plot; "
-              "if raw and mobile\n  bot-hours disagree, the disagreement is the finding.")
+        print(f"\n  GO — every arm is at least {a.floor*100:.0f}% mobile and no arm's mobile\n"
+              f"  fraction exceeds another's by more than {a.ratio}x.\n"
+              "  Publish BOTH denominators in every confirmatory plot; if raw and mobile\n"
+              "  bot-hours disagree, the disagreement is the finding.")
         return 0
-    print("\n  NO-GO — the arms are not comparably mobile. Per the pre-registration,\n"
-          "  change the terrain or the spawn placement BEFORE the block, not after.\n"
-          "  Starting anyway measures terrain luck and calls it memory.")
+    if not ok_floor:
+        print(f"\n  NO-GO — arm '{lo_arm}' is only {lo*100:.1f}% mobile, below the {a.floor*100:.0f}% floor.\n"
+              "  Even matched arms cannot carry a block when most of the exposure is\n"
+              "  spent getting unstuck; the endpoint would measure recovery, not memory.")
+    else:
+        print(f"\n  NO-GO — the arms are not comparably mobile ({ratio:.2f}x > {a.ratio}x).\n"
+              "  Per the pre-registration, change the terrain or the spawn placement\n"
+              "  BEFORE the block, not after. Starting anyway measures terrain luck\n"
+              "  and calls it memory.")
     return 1
 
 

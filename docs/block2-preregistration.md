@@ -259,3 +259,87 @@ CAVEAT ON THESE NUMBERS: n=13, drawn mostly from one bot, and the 7b's rates
 here differ from a 30-state run on a different corpus (2/30 and 20/28). The
 BETWEEN-MODEL comparison within this run is the sound part; the absolute rates
 are noisy.
+
+## AMENDMENT — the shakedown gate binds on mobile fraction (2026-08-18)
+
+Made **before any Block 2 data exists**, which is the only condition under
+which amending this document is legitimate. Once Block 2 starts, the numbers
+below are frozen and any further change is reported as a deviation.
+
+### What changed
+
+The gate previously read: *"no arm's immobile fraction exceeds another's by
+more than 2x."* It now reads:
+
+> Across a full shakedown day, no arm's **mobile** fraction may exceed
+> another's by more than **2x**, AND every arm must be at least **30% mobile**.
+> If the worlds cannot meet that, the terrain or the spawn placement is changed
+> before the block, not after.
+
+**The 2x threshold is unchanged.** What changed is the statistic it binds on.
+
+### Why — the original rule could not reject the case it was written for
+
+Building the gate as an executable check (`scripts/shakedown-gate.py`) made it
+possible to run the rule against blocks whose outcome we already know. Applied
+to Block 1's own `fixed-arms-01b` — the block this document already describes
+as confounded by entrapment:
+
+| slack (blocks) | immobile-fraction ratio | mobile-fraction ratio | worst arm mobile |
+|---|---|---|---|
+| 2 | 1.39x **PASS** | 2.38x FAIL | 16.9% |
+| 4 | 1.36x **PASS** | 2.43x FAIL | 15.7% |
+| 8 | 1.36x **PASS** | 3.06x FAIL | 11.3% |
+| 16 | 1.31x **PASS** | 4.20x FAIL | 6.9% |
+
+The immobile-fraction test passes the confounded block at *every* slack value
+tried. That is structural, not bad luck: a ratio of large fractions compresses
+toward 1 exactly when both arms are badly stuck, which is the situation the
+gate exists to catch. Isolated 84.3% vs shared 61.9% immobile reads as a 1.36x
+difference; the same measurements as *working* time read 15.7% vs 38.1%, a
+2.43x difference. The mobile form is also the one that matches the primary
+endpoint, whose denominator is mobile bot-hours.
+
+On a healthy block (`baseline`) the mobile-fraction test passes at every slack
+value (1.08x-1.56x), so the change discriminates rather than merely tightening.
+
+### The floor, and why a ratio alone is not enough
+
+A ratio passes when every arm is equally broken. Block 1's worst arm sat at
+15.7% mobile; `baseline`'s at 38.1%. Below roughly a third, most of an arm's
+exposure is spent getting unstuck, the per-mobile-bot-hour denominator becomes
+thin and noisy, and the endpoint measures recovery from entrapment rather than
+memory. **30%** is a judgement call, fixed here in advance rather than chosen
+later.
+
+### Parameters fixed in advance
+
+| parameter | value | rationale |
+|---|---|---|
+| window | 10 min | unchanged from the original |
+| immobile if net move < | **4 blocks** | verdicts stable at slack 2 and 4, drifting at 8 and 16 |
+| mobile-fraction ratio limit | **2.0x** | the originally pre-registered threshold, unchanged |
+| minimum mobile fraction | **30%** | separates Block 1 (15.7%) from baseline (38.1%) |
+| minimum windows per arm | **500** | 4 arms x 5 bots x 144 windows/day is ~720; 100 let a mostly-dead arm pass |
+
+`--slack` is printed on every run because it is the one judgement call inside
+the definition of "no net position change".
+
+### What was deliberately NOT changed
+
+- **below-y45 remains reported, never gated.** Depth is partly a *consequence*
+  of the treatment — bots choose to mine — so hard-gating it would select for
+  worlds that suppress the behaviour under study. A depth spread above 2x
+  prints a warning, and if the primary endpoint also differs the comparison is
+  reported as CONFOUNDED, per rule 1 above.
+- **The 2x threshold itself.** Moving a pre-registered number because it fails
+  to reject data one dislikes is how a gate becomes decoration.
+
+### Additional stop conditions found while building it
+
+- **INSUFFICIENT is a distinct verdict from GO** (exit 2, not 0). A gate that
+  passes because an arm shipped no telemetry is worse than no gate.
+- **Arms must be disjoint.** `exp.arm` is stamped per document, so a bot
+  reassigned mid-window contributes to two arms at once — observed on
+  `interim-01`, where five bots straddled. The gate refuses rather than
+  computing a ratio between overlapping sets.
