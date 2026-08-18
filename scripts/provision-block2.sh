@@ -14,16 +14,22 @@
 # Never pin an arm to a GPU.
 #
 # Arms and their memory scopes (see docs/block2-preregistration.md):
-#   hive       MEMORY_SCOPE=shared      pool shared by the arm's 5 bots
-#   board      MEMORY_SCOPE=board       private memory + the town lectern
-#   isolated   MEMORY_SCOPE=isolated    per-bot memory, no sharing at all
-#   placebo    MEMORY_SCOPE=checkpoint  same walk to the totem, shares nothing
+#   hive-a/b   MEMORY_SCOPE=shared      one pool per world, 5 bots each
+#   board-a/b  MEMORY_SCOPE=board       private memory + the town lectern
+#   isolated-a/b MEMORY_SCOPE=isolated  per-bot memory, no sharing at all
+#   placebo-a/b MEMORY_SCOPE=checkpoint same walk to the totem, shares nothing
 set -euo pipefail
 
 SEED="${1:?usage: provision-block2.sh <seed> [base_port]}"
 BASE_PORT="${2:-25570}"
 ROOT=/srv/block2
-ARMS=(hive board isolated placebo)
+# EIGHT WORLDS: two independent pools per arm. Five bots sharing one memory are
+# five correlated samples of ONE unit, so hive/board/placebo had n=1 each. A
+# second pool makes n=2 -- the difference between having a number per arm and
+# being able to see whether two pools in the same arm agree with each other.
+# They need separate worlds: two pools in one world would compete for the same
+# ore and cross each other's terrain, adding correlation rather than replication.
+ARMS=(hive-a hive-b board-a board-b isolated-a isolated-b placebo-a placebo-b)
 
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
 
@@ -108,7 +114,7 @@ cat <<'EOT'
       isolated bots simply never walk to it. Placing the lectern in only two
       worlds would make the WORLDS differ between arms, which is exactly the
       confound the shared seed exists to prevent.
-   3. generate the 20 bot env files (5 per arm), CODE_VERSION frozen
+   3. generate the 40 bot env files (5 per world), CODE_VERSION frozen
    4. 1-2 shakedown days, EXCLUDED from analysis
    5. THE MOBILITY GATE, from the pre-registration: Block 2 does not start
       until no arm's immobile fraction exceeds another's by more than 2x

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""generate-roster.py -- write the 20 bot env files for Block 2.
+"""generate-roster.py -- write the 40 bot env files for Block 2.
 
     ./generate-roster.py --town town-*.json --out ./env [--endpoints a,b,c]
 
-Twenty bots: four arms of five. What varies between arms is MEMORY_SCOPE and
+Forty bots: four arms, two independent pools each, five bots per pool. What varies between arms is MEMORY_SCOPE and
 the world port. EVERYTHING ELSE IS HELD IDENTICAL BY CONSTRUCTION -- same model,
 same cadence, same role, same timeouts, same endpoint pool -- because every
 field that differs between arms is a rival explanation for the result, and the
@@ -31,6 +31,20 @@ from pathlib import Path
 # separates "sharing beliefs helped" from "walking to town helped".
 SCOPES = {"hive": "shared", "board": "board",
           "isolated": "isolated", "placebo": "checkpoint"}
+
+# TWO POOLS PER ARM, IN SEPARATE WORLDS.
+#
+# Five bots sharing one memory are five correlated samples of ONE unit, so the
+# hive, board and placebo arms had n=1 each -- one number per arm per
+# repetition, with no way to tell an effect from noise inside a run. A second
+# independent pool makes n=2, which is the difference between "we have a
+# number" and "we can see whether two pools in the same arm agree".
+#
+# They need SEPARATE WORLDS. Two pools in one world would compete for the same
+# ore, chop the same trees and cross each other's terrain, so their outcomes
+# would be coupled and the second pool would add correlation rather than
+# replication. Eight worlds is 24GB and ~6 cores each on the new host.
+REPLICATES = ["a", "b"]
 
 NAMES = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]
 
@@ -106,7 +120,8 @@ def main():
         for f in glob.glob(pattern):
             d = json.loads(Path(f).read_text())
             towns[d["arm"]] = d
-    missing = set(SCOPES) - set(towns)
+    wanted = {f"{arm}-{r}" for arm in SCOPES for r in REPLICATES}
+    missing = wanted - set(towns)
     if missing:
         raise SystemExit(f"no town data for: {', '.join(sorted(missing))} -- "
                          f"run place-town.py for every arm first")
@@ -116,20 +131,24 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     units, pools = [], {}
-    for arm in sorted(SCOPES):
-        t = towns[arm]
+    worlds = [f"{arm}-{r}" for arm in sorted(SCOPES) for r in REPLICATES]
+    for world in worlds:
+        arm = world.rsplit("-", 1)[0]
+        t = towns[world]
         hx, hy, hz = t["home"]
         bx, by, bz = t["board"]
-        port = t.get("port") or t.get("mc_port") or (25570 + sorted(SCOPES).index(arm))
+        port = t.get("port") or t.get("mc_port") or (25570 + worlds.index(world))
         for i, nm in enumerate(NAMES):
-            bot = f"{arm}-{nm}"
+            bot = f"{world}-{nm}"
             scope = SCOPES[arm]
             # Under isolated, sharing has no boundary to draw, so each bot is
             # its own pool. Under the others the arm is the pool -- and that is
             # the unit the statistics get, however many bots are in it.
             # `self-<bot>` matches the live fleet's naming for isolated pools,
             # so tooling that keys on the prefix keeps working across blocks.
-            pool = f"self-{bot}" if scope == "isolated" else arm
+            # The POOL is the world, not the arm: that is what makes the two
+            # replicates independent units rather than one big pool.
+            pool = f"self-{bot}" if scope == "isolated" else world
             pools.setdefault(arm, set()).add(pool)
             # EVERY BOT GETS ITS OWN VIEWER PORT. Two bots sharing one is the
             # exact fault that killed solo1 on 2026-08-10: the loser of the
@@ -158,7 +177,7 @@ def main():
                 # that reads the old variable still reports something true.
                 # config.mjs prefers OLLAMA_BASE_URLS when both are present.
                 "OLLAMA_BASE_URL": endpoints[i % len(endpoints)],
-                "RUN_ID": f"block2-{arm}-{nm.lower()}",
+                "RUN_ID": f"block2-{world}-{nm.lower()}",
                 "LOG_DIR": f"/var/log/mcai/{bot}",
                 "STATE_DIR": f"/var/lib/mcai/{bot}",
             }
@@ -172,19 +191,20 @@ def main():
         "".join(sorted((out / f"{b}.env").read_text() for b in units)).encode()
     ).hexdigest()[:16]
     manifest = {
-        "block": "block2", "roster_sha": digest, "bots": len(units),
-        "arms": {arm: {"bots": 5, "scope": SCOPES[arm],
+        "block": "block2", "roster_sha": digest, "bots": len(units), "worlds": len(worlds),
+        "arms": {arm: {"bots": 5 * len(REPLICATES), "scope": SCOPES[arm],
                        "independent_units_n": len(pools[arm])}
                  for arm in sorted(SCOPES)},
         "endpoints": endpoints,
-        "town": {arm: towns[arm] for arm in sorted(SCOPES)},
+        "town": {w: towns[w] for w in worlds},
     }
     (out / "block2-manifest.json").write_text(json.dumps(manifest, indent=2))
 
     print(f"wrote {len(units)} env files to {out}/  (roster_sha {digest})")
     for arm in sorted(SCOPES):
         n = len(pools[arm])
-        print(f"  {arm:9s} scope={SCOPES[arm]:10s} 5 bots, n={n} independent unit(s)")
+        print(f"  {arm:9s} scope={SCOPES[arm]:10s} {5*len(REPLICATES)} bots across "
+              f"{len(REPLICATES)} worlds, n={n} independent unit(s)")
     if any(len(p) == 1 for p in pools.values()):
         print("\n  NOTE FOR THE ANALYSIS: the arms with n=1 give one independent\n"
               "  observation each, not five. Five bots sharing one memory are five\n"

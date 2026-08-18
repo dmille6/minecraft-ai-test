@@ -425,3 +425,66 @@ underground in flooded caves — and every fix for it is arm-neutral because it
 applies wherever a bot is, not because it visited town: water-avoidant
 pathfinding, refusing wet mining targets, honest drowning-release accounting
 (93b3a48), and water-exposure telemetry.
+
+## AMENDMENT — two pools per arm, forty bots (2026-08-18)
+
+Made **before any Block 2 data exists**, the only condition under which this
+document may change. Once Block 2 starts these numbers are frozen and any
+further change is reported as a deviation, not an amendment.
+
+### What changed
+
+Block 2 was specified as four arms × 5 bots = 20 bots in four worlds. It is now
+**four arms × 2 independent pools × 5 bots = 40 bots in eight worlds.**
+
+| | was | now |
+|---|---|---|
+| worlds | 4 | **8** (two per arm, same seed) |
+| bots | 20 | **40** |
+| hive / board / placebo | n=1 each | **n=2 each** |
+| isolated | n=5 | **n=10** |
+
+### Why
+
+The pool, not the bot, is the experimental unit — five bots sharing one memory
+are five correlated samples of one thing. Under the original design the three
+pooled arms produced **exactly one observation each per repetition**, which
+means no within-repetition estimate of variance is possible: any difference
+between arms and any difference caused by terrain luck are the same number.
+The design leaned entirely on 3 repetitions to supply replication.
+
+A second pool per arm does not merely add bots. It answers a question the
+original design could not ask at all: **do two pools under the same treatment
+agree with each other?** The gap between them is a direct measurement of how
+much of an arm difference is noise, and it is available within a single
+repetition rather than only across three.
+
+The two pools require **separate worlds**. Two pools in one world would compete
+for the same ore, fell the same trees and cross each other's terrain, so their
+outcomes would be coupled — adding correlation rather than replication, which
+is the defect being fixed.
+
+### Why it is affordable now
+
+The new host (54 cores / 512GB / RTX 3090, with the RTX 5080 dedicated to the
+fleet once the honeypot workload moves off it):
+
+- 8 Paper servers × 3GB = 24GB, ~6 cores each — trivial against 512GB / 54c
+- inference, from the 7b's **measured** p50 under real 10-bot fleet load
+  (865ms, on a 5080 that was *also* serving another model at the time):
+
+      40 bots @ 30s cadence = 1.33 decisions/sec
+      x 0.865s each         = 1.15 GPU-seconds/sec
+      / 2 dedicated GPUs    = 58% utilisation
+
+  The figure to watch is not the mean but the tail: p99 was 21.9s at 10 bots.
+  Oversubscription shows up in the tail well before it shows up in p50, so p99
+  is the quantity that decides whether 40 was too many.
+
+### What did NOT change
+
+Everything else: the four scopes, one seed, one host, one endpoint pool with
+per-bot rotation, 7 days per repetition, 3 repetitions, the endpoints, the
+shakedown gate (mobile fraction, 2x, 30% floor), the entrapment covariate
+rules, the code freeze, and the ban on new verbs and macros. Arm size is a
+power decision; none of the above is affected by it.
