@@ -343,3 +343,85 @@ the definition of "no net position change".
   reassigned mid-window contributes to two arms at once — observed on
   `interim-01`, where five bots straddled. The gate refuses rather than
   computing a ratio between overlapping sets.
+
+## AMENDMENT — town economy: deposits gated, sleeping and torches cut (2026-08-18)
+
+Made **before any Block 2 data exists**. Two independent analyses (Claude from
+~620K logged skill events, ChatGPT from the source) reached the same three
+conclusions, and the measurements below are the reason.
+
+### Torches — CUT as an economy mechanism
+
+The stated rationale was suppressing mob spawns near town so deaths would not
+be an uneven nuisance across arms. The death record does not support it:
+
+| cause | deaths | share |
+|---|---:|---:|
+| drowning | 663 | 76% |
+| fall | 169 | 19% |
+| fire | 11 | 1% |
+| suffocation | 1 | — |
+| **mob** | **0** | **0%** |
+
+And by elevation, **94% of all deaths occur at y=20–59** — underground — against
+36 at surface level. The problem torches were built to equalise does not appear
+in twelve days of data.
+
+They are also dormant by construction. `place` has been called 42 times in the
+entire corpus (crafting_table 35, birch_log 4, stone_pickaxe 2, oak_sapling 1);
+**no torch has ever been placed, and no bot has ever held one** — zero inventory
+events containing a torch. The only route to the stocked torch chest is
+`withdraw`, which scans 48 blocks and does not walk home, so a bot away from
+town cannot reach it even in principle.
+
+Static torches may remain as inert world setup — removing them would cost a
+world rebuild for no benefit — but they are no longer treated as town economy,
+no endpoint depends on them, and no implementation effort goes to autonomous
+torch use.
+
+### Sleeping — CUT from the autonomous action space
+
+**0 successes in 505 calls.** 377 (75%) failed on travel; 113 (22%) were chosen
+in daylight against a prompt that already says night-only, which makes it a
+model/action-selection mismatch rather than a missing instruction.
+
+The decisive objection is arm-neutrality, not the success rate: **board and
+placebo bots travel to town by obligation**, so they are near the beds at night
+more often than hive and isolated bots. A sleep mechanism whose opportunity
+rate is a function of town-visit frequency is treatment-mediated — the same
+defect that got stockpile perception rejected above. Beds stay in the world as
+spawn infrastructure; the LLM no longer spends decisions on sleeping.
+
+### Deposits — KEPT, but gated
+
+`deposit` is a co-primary endpoint and had **8 successes in 823 calls over
+twelve days** (199 items, four bots ever). It is currently a sparse incident
+log, not an endpoint. Of 815 failures, 650 (80%) were travel — stranded 466,
+no_path 75, interrupted 65, path_interrupted 44 — against only 75 where the
+deposit logic failed to find a chest.
+
+The cause was structural: `deposit` walked home with a raw `goto` and therefore
+inherited none of the `home` repairs (retry across hazard interrupts, route
+repair below sea level, chaining past goto's 720-block ceiling). Fixed in
+93b3a48+; `deposit` and `sleep` now both travel via `home`.
+
+**Viability gate, fixed in advance.** Deposits are confirmatory in Block 2 only
+if the shakedown day produces **at least 30 successful deposits fleet-wide AND
+at least one in every arm**. If it does not, retained-items is reported as
+**unmeasurable by pre-registered rule**, gathered-vs-retained accounting is
+reported descriptively, and the primary endpoint stands alone. This is an
+event-count gate, not an effect-size gate, and it is set here so it cannot be
+argued after seeing the block.
+
+**Rejected again, for the record:** satellite chests near work sites. They
+would change the estimand from "can a bot return home with value" to "can a bot
+touch a nearby cache", and they remove the return-home construct the endpoint
+exists to measure.
+
+### Where the effort goes instead
+
+Water. It is the actual mortality mechanism — 663 of 868 deaths, overwhelmingly
+underground in flooded caves — and every fix for it is arm-neutral because it
+applies wherever a bot is, not because it visited town: water-avoidant
+pathfinding, refusing wet mining targets, honest drowning-release accounting
+(93b3a48), and water-exposure telemetry.

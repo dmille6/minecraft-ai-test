@@ -1192,10 +1192,20 @@ async function deposit(ctx, { item = null }, signal) {
   if (!chestBlock) {
     // The town chest lives at home, and a 48-block scan cannot see it from a
     // mine. Walking home first is the difference between "deposit works near
-    // town" and "deposit works" -- and it reuses goto's own budgets rather
-    // than inventing a second travel path.
-    const { homeX, homeY, homeZ } = config.world
-    const walked = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+    // town" and "deposit works" -- and it reuses the RESCUE path's budgets
+    // rather than inventing a second travel path.
+    //
+    // This called `goto` directly, which meant deposit inherited none of the
+    // repairs that made `home` work: no retry across hazard interrupts, no
+    // route repair below sea level, and goto's own 16-leg/720-block ceiling.
+    // The cost is the whole endpoint -- 823 deposit attempts produced EIGHT
+    // successes in twelve days, and 650 of the 815 failures (80%) were travel:
+    // stranded 466, no_path 75, interrupted 65, path_interrupted 44. Only 75
+    // were the actual deposit logic failing to find a chest.
+    //
+    // `deposit` is a co-primary endpoint in the pre-registration. It cannot be
+    // measured through a walk that does not work.
+    const walked = await home(ctx, {}, signal)
     check(signal)
     // Rescan BEFORE judging the walk. Gather02 ran out of legs 33 blocks from
     // home -- chest well inside the 48-block scan -- and the first version
@@ -2225,8 +2235,10 @@ async function sleepSkill(ctx, _args, signal) {
       // Same reachability flaw deposit had: the town beds stand at home and a
       // 32-block scan cannot see them from a mine. Walk home, rescan, and only
       // then admit there is nowhere to sleep.
-      const { homeX, homeY, homeZ } = config.world
-      const walked = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+      // Same rescue path as deposit. The comment above says "same reachability
+      // flaw deposit had" and then repeated deposit's OTHER flaw: a raw goto
+      // that surrenders to the first hazard interrupt.
+      const walked = await home(ctx, {}, signal)
       check(signal)
       // Rescan before judging the walk -- same lesson as deposit: a walk that
       // fell short of home can still have brought the beds into scan range.
@@ -2837,7 +2849,18 @@ export const SKILLS = {
   build:   { run: build,   usage: 'build <plan> [block_name]',      args: ['plan', 'block'] },
   explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'] },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
-  sleep:   { run: sleepSkill, usage: 'sleep',                      args: [] },
+  // OPERATOR-ONLY from 2026-08-18. Beds remain in the world as spawn
+  // infrastructure; the LLM no longer spends decisions on sleeping.
+  //
+  // 0 successes in 505 calls. 75% of those failed on travel and 22% were chosen
+  // in daylight against a prompt that already says night-only -- a
+  // model/action-selection mismatch, not a missing instruction. But the
+  // decisive objection is arm-neutrality: board and placebo bots travel to town
+  // by obligation, so they stand near the beds at night far more often than
+  // hive and isolated bots. A mechanism whose opportunity rate is a function of
+  // town-visit frequency is treatment-mediated, which is the same defect that
+  // kept stockpile perception out of Block 2.
+  sleep:   { run: sleepSkill, usage: 'sleep',                      args: [], chatOnly: true },
   board:   { run: board,   usage: 'board',                         args: [] },
   surface: { run: surface, usage: 'surface',                       args: [], rescue: true },
 }

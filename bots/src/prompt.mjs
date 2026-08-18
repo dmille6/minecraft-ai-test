@@ -71,13 +71,15 @@ export function buildSystemPrompt(skillNames) {
   // which jumps and places under the feet. Advertising `place` as an escape
   // would have manufactured a false affordance and taught the model to pick a
   // verb that cannot do the job.
+  // `come`, `follow` and `sleep` are chatOnly and therefore NOT in this list:
+  // the schema enum excludes them, so the grammar makes them inexpressible and
+  // documenting them spends prompt tokens teaching moves the model cannot make.
+  // prompt-usage-coverage.test.mjs asserts both directions of that rule.
   const usage = [
     '  gather  args: {"block": "<block id e.g. oak_log>", "count": <integer>}',
     '  goto    args: {"x": <int>, "y": <int>, "z": <int>}',
     '  deposit args: {"item": "<item id>"}   (walks home to the town chest if none nearby; omit item to deposit everything)',
     '  withdraw args: {"item": "<item id>", "count": <integer>}  (takes from a chest or barrel within 48 blocks)',
-    '  come    args: {}',
-    '  follow  args: {}',
     '  home    args: {}',
     '  status  args: {}',
     '  eat     args: {}                       (eats food from inventory)',
@@ -87,7 +89,6 @@ export function buildSystemPrompt(skillNames) {
     '  mine    args: {"y": <target depth, e.g. 12>}   (staircases down)',
     '  explore args: {"blocks": <distance, e.g. 60>}  (travels away from spawn looking for new ground)',
     '  surface args: {}                       (THE WAY OUT when stuck below ground: climbs, and pillars up under itself using blocks you carry. If it reports needing scaffold, gather that block and run surface again)',
-    '  sleep   args: {}                       (only at night; walks home to the town beds if none nearby)',
     // ARM-SPECIFIC CAPABILITY APPENDIX. The board exists only in the arms that
     // have one, and the placebo arm gets a structurally equivalent line for a
     // trip that shares nothing -- if one arm's prompt gains an affordance, the

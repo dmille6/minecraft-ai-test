@@ -82,5 +82,18 @@ t('surface is described as the escape skill and names its prerequisite loop', ()
     `surface's line should tell the model what to do when it needs scaffold: "${line.trim()}"`)
 })
 
+
+t('skills the model CANNOT select are not documented to it', () => {
+  // The reverse of the coverage rule, and it bit immediately: `sleep` became
+  // operator-only, was correctly dropped from the available list, and its usage
+  // line stayed behind -- so the prompt described an action the grammar would
+  // not let the model emit. A described-but-unavailable verb is worse than an
+  // undocumented one: it spends prompt tokens teaching an impossible move.
+  const chatOnly = Object.keys(SKILLS).filter(n => SKILLS[n].chatOnly)
+  const leaked = chatOnly.filter(n => documented(n))
+  assert.deepEqual(leaked, [],
+    `documented but not selectable: ${leaked.join(', ')}`)
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
