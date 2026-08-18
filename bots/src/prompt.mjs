@@ -52,18 +52,41 @@ export function buildSystemPrompt(skillNames) {
   // {item: "oak_log"} for gather when told "gather <count> <block_name>",
   // because "oak_log" reads like an item. Naming the JSON keys removes the
   // ambiguity at the source instead of rejecting it afterwards.
+  // EVERY SELECTABLE SKILL NEEDS A LINE HERE, and the hints must describe what
+  // the skill ACTUALLY does.
+  //
+  // Both halves were violated. `SKILL_NAMES` is every non-chatOnly skill, and
+  // it feeds the schema enum AND the "Available skills" list -- so the model
+  // could select `build`, `withdraw`, `explore` and `surface` while this block
+  // documented none of them. Over ~200K logged decisions `build` was proposed
+  // ZERO times and `withdraw` 25, which is what an undocumented affordance
+  // looks like from the outside. A preflight assertion now fails if the two
+  // lists diverge again.
+  //
+  // The accuracy half matters just as much. 732 decisions stated an intent to
+  // "pillar out" of a hole and fell back to `gather`, and the tempting fix was
+  // to advertise `place` as the way out. It is not: place() searches the eight
+  // HORIZONTAL neighbours (and one step up or down) for a solid block with room
+  // above it -- it never places underfoot. Pillaring lives inside `surface`,
+  // which jumps and places under the feet. Advertising `place` as an escape
+  // would have manufactured a false affordance and taught the model to pick a
+  // verb that cannot do the job.
   const usage = [
     '  gather  args: {"block": "<block id e.g. oak_log>", "count": <integer>}',
     '  goto    args: {"x": <int>, "y": <int>, "z": <int>}',
     '  deposit args: {"item": "<item id>"}   (walks home to the town chest if none nearby; omit item to deposit everything)',
+    '  withdraw args: {"item": "<item id>", "count": <integer>}  (takes from a chest or barrel within 48 blocks)',
     '  come    args: {}',
     '  follow  args: {}',
     '  home    args: {}',
     '  status  args: {}',
     '  eat     args: {}                       (eats food from inventory)',
     '  craft   args: {"item": "<item id e.g. stick>", "count": <integer>}',
-    '  place   args: {"item": "<item id in inventory>"}',
+    '  place   args: {"item": "<item id in inventory>"}   (places NEXT TO you, not underfoot — to climb out of a hole use surface)',
+    '  build   args: {"plan": "pillar", "block": "<block id>"}',
     '  mine    args: {"y": <target depth, e.g. 12>}   (staircases down)',
+    '  explore args: {"blocks": <distance, e.g. 60>}  (travels away from spawn looking for new ground)',
+    '  surface args: {}                       (THE WAY OUT when stuck below ground: climbs, and pillars up under itself using blocks you carry. If it reports needing scaffold, gather that block and run surface again)',
     '  sleep   args: {}                       (only at night; walks home to the town beds if none nearby)',
     // ARM-SPECIFIC CAPABILITY APPENDIX. The board exists only in the arms that
     // have one, and the placebo arm gets a structurally equivalent line for a
