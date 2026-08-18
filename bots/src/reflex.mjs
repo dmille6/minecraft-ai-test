@@ -360,6 +360,84 @@ export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousH
 // blocks under the surface, and swimming up is correct at any depth so long as
 // the column is clear. maxOut is small because sideways swimming is a gamble --
 // it is the fallback for when up is provably sealed, not a search.
+/**
+ * The nearest block this bot could STAND on -- which is not the same question
+ * as the nearest air, and that difference is the whole bug.
+ *
+ * `breathableRoute()` answers "where can I breathe" and correctly returns
+ * {dir:'up', dist:1} for anything just under a surface; drowning-cave.test.mjs
+ * asserts that on purpose, because in a flooded cave air IS the emergency exit.
+ * But the rescue is only RELEASED by `ashore()`, which requires standing on
+ * ground that is not water. So the escape pursued one place and was graded on
+ * another, and a bot that surfaced simply floated until the 20s ownership
+ * ceiling expired: 2,113 timeouts, at oxygen 399-400 out of ~400 and health 20.
+ * Those bots were not drowning. They were safe, wet, and holding the body of a
+ * rescue that could never end -- roughly 11.7 fleet-hours of it, interrupting
+ * every travel skill they attempted.
+ *
+ * Block reads only, no pathfinding: this runs inside a 500ms tick that also
+ * owns health, hunger, entombment and stuck detection. It answers one narrow
+ * question -- "is there something I could stand on if I swam at it" -- and if
+ * the answer is no, open water stays an honest failed rescue.
+ */
+export function shoreRoute(bot, { radius = 10, maxRise = 2 } = {}) {
+  const none = { dir: null, target: null, dist: Infinity }
+  const at = bot?.entity?.position
+  if (!at || !bot.blockAt) return none
+  const empty = b => b != null && b.boundingBox === 'empty'
+  // Deliberately the same ground test as ashore(). If these two ever disagree,
+  // the reflex would swim to a spot that does not release it -- the original
+  // defect wearing different coordinates.
+  const standable = b => !!b && b.name !== 'water' && b.name !== 'bubble_column' &&
+                         !b.name.includes('kelp') && !b.name.includes('seagrass') &&
+                         b.boundingBox === 'block'
+
+  let best = none
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      if (dx === 0 && dz === 0) continue
+      const d = Math.hypot(dx, dz)
+      if (d > radius || d >= best.dist) continue
+      // A bank a little above the waterline is still shore; a cliff is not.
+      for (let dy = 0; dy <= maxRise; dy++) {
+        const foot = at.offset(dx, dy, dz)
+        if (!standable(bot.blockAt(foot.offset(0, -1, 0)))) continue
+        if (!empty(bot.blockAt(foot)) || !empty(bot.blockAt(foot.offset(0, 1, 0)))) continue
+        best = { dir: 'shore', target: foot, dist: d, rise: dy }
+        break
+      }
+    }
+  }
+  return best
+}
+
+/**
+ * What the body should do this tick, as a value rather than three scattered
+ * setControlState calls.
+ *
+ * Extracted so the FORWARD=FALSE branch is testable. That branch is where the
+ * bug lived: for any non-'out' route the old code set forward=false and held
+ * jump, which is a vertical surface-hold -- exactly the behaviour that produced
+ * a floating bot with full lungs and a rescue that never ended.
+ */
+export function drowningControls({ losing, ashore, route, shore }) {
+  if (ashore) return { forward: false, jump: false, lookAt: null, phase: 'done' }
+  // PHASE 1 -- still losing air. Reaching air outranks reaching land; a bot
+  // that drowns on the way to a beach is not rescued.
+  if (losing) {
+    return route?.dir === 'out'
+      ? { forward: true, jump: true, lookAt: route.target, phase: 'to_air' }
+      : { forward: false, jump: true, lookAt: null, phase: 'up' }
+  }
+  // PHASE 2 -- breathing, not ashore. This is the phase that did not exist.
+  if (shore?.dir === 'shore') {
+    return { forward: true, jump: true, lookAt: shore.target, phase: 'to_shore' }
+  }
+  // No reachable shore. Do not thrash: hold the head up and let the ceiling
+  // expire honestly, which is what open ocean should look like.
+  return { forward: false, jump: true, lookAt: null, phase: 'no_shore' }
+}
+
 export function breathableRoute(bot, { maxUp = 32, maxOut = 8 } = {}) {
   const none = { dir: null, target: null, dist: Infinity }
   const at = bot?.entity?.position
@@ -466,6 +544,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // release when it can breathe.
   let rescuing = false
   let seizedAt = 0
+  // Logged only on change: the phase is re-evaluated twice a second.
+  let lastDrownPhase = null
   // ASHORE, NOT JUST BREATHING. Releasing the body at first breath left the
   // bot bobbing mid-lake: cognition resumed, re-proposed the same crossing,
   // and the reflex fired again -- 300+ drowning_route firings per bot-hour of
@@ -635,6 +715,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // water, and everything else is a timeout.
         const rel = drowningRelease(ashore())
         rescuing = false
+        lastDrownPhase = null
         try { bot.clearControlStates() } catch { /* not connected */ }
         logEvent({
           kind: rel.kind,
@@ -696,13 +777,30 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // Re-assert steering every tick. setControlState is idempotent, so this
           // holds the stroke instead of restarting it, and no timeout is armed to
           // cut it short -- the release happens when the bot can breathe again.
-          if (route.dir === 'out') {
-            try { bot.lookAt(route.target, true) } catch { /* not connected */ }
-            bot.setControlState('forward', true)
-          } else {
-            bot.setControlState('forward', false)
+          //
+          // TWO PHASES, because the rescue is graded on reaching LAND and used
+          // to pursue only AIR. Once the lungs are refilling, the nearest air is
+          // the surface the bot is already touching and steering at it means
+          // holding still -- so the second phase re-aims at something the bot
+          // could stand on. Shore is only scanned in that phase: it is a
+          // radius-10 block sweep, too costly to run while the urgent swim is
+          // the right answer anyway.
+          const nowAshore = ashore()
+          const shore = (!air.losing && !nowAshore) ? shoreRoute(bot) : null
+          const ctl = drowningControls({ losing: air.losing, ashore: nowAshore, route, shore })
+          if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
+          bot.setControlState('forward', ctl.forward)
+          bot.setControlState('jump', ctl.jump)
+          if (ctl.phase !== lastDrownPhase) {
+            lastDrownPhase = ctl.phase
+            logEvent({ kind: `drowning_${ctl.phase}`,
+                       status: ctl.phase === 'no_shore' ? 'failed' : 'success',
+                       detail: ctl.phase === 'to_shore'
+                         ? `breathing; swimming ${shore.dist.toFixed(1)}b to shore at ` +
+                           `${Math.round(shore.target.x)},${Math.round(shore.target.y)},${Math.round(shore.target.z)}`
+                         : `phase ${ctl.phase}`,
+                       snapshot: snapshot(bot) })
           }
-          bot.setControlState('jump', true)     // 'up' needs it; 'out' wants the lift too
           return
         }
       } else if (air.suspect && !badOxygenReported) {
