@@ -2889,7 +2889,24 @@ export const SKILLS = {
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
   place:   { run: place,   usage: 'place <item_name>',             args: ['item'] },
   build:   { run: build,   usage: 'build <plan> [block_name]',      args: ['plan', 'block'] },
-  explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'] },
+  // RESCUE-CLASS, like home and surface. `explore` is the generic relocation
+  // valve -- what a bot reaches for when it does not know what else to do --
+  // and it became the single most suppressed action in the system: 35,304
+  // learned_avoid vetoes fleet-wide, more than twice the next worst.
+  //
+  // The cause is the key, not the skill. actionKey keeps only DECLARED args, and
+  // the model usually omits `blocks`, so every failed explore anywhere in a
+  // 3,900-block world collapses onto one counter: `explore:{}`. Four failures
+  // in one bad corner of the map is enough to make relocating "known bad"
+  // everywhere, forever -- and the average vetoed action carries 198 accumulated
+  // failures, which at one forgiven per 20 idle minutes is ~66 hours of aging
+  // to become proposable again.
+  //
+  // Context-free memory about a location-dependent action is not knowledge.
+  // Arm-neutral: every arm loses the same invalid rule, and every other avoid
+  // rule -- which is where the shared-memory treatment actually lives -- is
+  // untouched.
+  explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'], rescue: true },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
   // OPERATOR-ONLY from 2026-08-18. Beds remain in the world as spawn
   // infrastructure; the LLM no longer spends decisions on sleeping.

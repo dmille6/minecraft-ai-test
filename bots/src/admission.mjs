@@ -150,6 +150,34 @@ export class AdmissionControl {
       if (!Number.isFinite(y) || y < -59 || y > 120) {
         return { ok: false, reason: 'bad_args', detail: `mine target y=${args.y} outside -59..120` }
       }
+      // TWO PRECONDITIONS THAT WERE COSTING A WHOLE EXECUTION EACH.
+      //
+      // `mine` only digs downward and refuses without a pickaxe, but both
+      // checks live INSIDE the skill -- so a doomed proposal was dispatched to
+      // the runner, failed, and incremented the consecutive-failure streak that
+      // pauses the runner for 120s. Every skill attempted during that pause
+      // then returns `runner_paused`, so one impossible argument can cost four
+      // decisions rather than one. Miner01 was observed cycling exactly this at
+      // y=89, asking to mine to y=100.
+      //
+      // Fleet-wide these two are 5,255 of 7,380 mine calls -- 71% of everything
+      // the verb was ever asked to do. Rejecting at admission is not a new
+      // capability and invents no intent: the same proposal is refused, just
+      // before it can cost a runner slot and poison the streak. The model still
+      // gets the reason, and telemetry still records the mistake.
+      const here = bot.entity?.position?.y
+      if (Number.isFinite(here) && y >= here - 1) {
+        return { ok: false, reason: 'bad_args',
+                 detail: `mine only digs DOWNWARD and you are at y=${Math.round(here)}; ` +
+                         `a target of y=${y} is at or above you. Use a LOWER y to descend, ` +
+                         `or goto/surface to move upward.` }
+      }
+      const hasPick = bot.inventory?.items?.().some(i => /_pickaxe$/.test(i.name))
+      if (!hasPick && Number.isFinite(here) && here - y > 2) {
+        return { ok: false, reason: 'bad_args',
+                 detail: `no pickaxe, so descending would strand this bot beside stone it ` +
+                         `cannot mine — craft a wooden_pickaxe first` }
+      }
     }
 
     if (skill === 'follow' || skill === 'come') {
@@ -203,6 +231,34 @@ export class AdmissionControl {
       this.milestoneCriticalAdmissions = (this.milestoneCriticalAdmissions ?? 0) + 1
       return { ok: true, skill, args, kind: 'milestone_critical',
                forced: `produces ${AdmissionControl.#output(skill, args)}, which the milestone needs` }
+    }
+
+    // THE BOOTSTRAP DEADLOCK, made narrow on purpose.
+    //
+    // `craft wooden_pickaxe` is vetoed 14,533 times fleet-wide while `mine`
+    // fails `missing_tool` 2,408 times for want of exactly that pickaxe. The
+    // rung is blocked because it failed, and it failed because the bot had no
+    // materials -- but the veto outlives the shortage, so acquiring the tool
+    // stays forbidden long after it became possible. milestone_critical above
+    // only covers it when the CURRENT milestone names the pickaxe; a bot whose
+    // milestone is "gather stone" needs the tool just as much and gets no
+    // exemption.
+    //
+    // Deliberately not a blanket craft exemption, which would erase a real
+    // memory contrast for ordinary recipes. This fires only when the bot holds
+    // NO pickaxe at all -- a state check, not a memory one, so it is identical
+    // in every arm and leaves the shared-vs-isolated comparison intact.
+    // WOODEN specifically, not every pickaxe. A stone pickaxe needs cobblestone,
+    // which needs a pickaxe to mine -- so higher tiers are downstream of the
+    // bootstrap rather than part of it, and exempting them would widen this
+    // into the blanket craft exemption the narrowness exists to avoid.
+    // livelock.test.mjs uses `craft stone_pickaxe` as its example of an action
+    // that must STAY blocked, and it is right to.
+    if (priorFails >= 4 && skill === 'craft' && args.item === 'wooden_pickaxe' &&
+        !bot.inventory?.items?.().some(i => /_pickaxe$/.test(i.name))) {
+      this.vetoStreak = 0
+      return { ok: true, skill, args, kind: 'bootstrap',
+               forced: 'holds no pickaxe; acquiring the first tool is never hard-blocked' }
     }
 
     if (priorFails >= 4) {
