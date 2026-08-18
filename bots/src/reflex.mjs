@@ -697,6 +697,36 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // that triggers a rescue, or measurably rising -- instead of inferring
       // safety from the absence of a decline. A bot still at the floor keeps
       // its rescue, which is the entire point of having one.
+      // PHASE 2 CANNOT LIVE INSIDE THE DROWNING BRANCH.
+      //
+      // assessAir() reports act:'swim' only while the bot is LOSING air -- every
+      // other path returns act:'none' -- so the moment oxygen recovers, the
+      // swim branch below stops running entirely. The first version of this fix
+      // put the swim-to-shore steering there and it never executed once: 34
+      // `drowning_up` events and ZERO `drowning_to_shore` in eight minutes of
+      // live fleet. The bot surfaced, the branch went quiet, and the held
+      // controls (forward=false, jump=true) kept it floating exactly as before.
+      //
+      // So the breathing-but-not-ashore phase runs here, on its own terms: it
+      // is a rescue we still own, not a drowning we are still fighting.
+      if (rescuing && !air.losing && !ashore() && Date.now() - seizedAt <= 20_000) {
+        const shore = shoreRoute(bot)
+        const ctl = drowningControls({ losing: false, ashore: false, route: null, shore })
+        if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
+        bot.setControlState('forward', ctl.forward)
+        bot.setControlState('jump', ctl.jump)
+        if (ctl.phase !== lastDrownPhase) {
+          lastDrownPhase = ctl.phase
+          logEvent({ kind: `drowning_${ctl.phase}`,
+                     status: ctl.phase === 'no_shore' ? 'failed' : 'success',
+                     detail: ctl.phase === 'to_shore'
+                       ? `breathing; swimming ${shore.dist.toFixed(1)}b to shore at ` +
+                         `${Math.round(shore.target.x)},${Math.round(shore.target.y)},${Math.round(shore.target.z)}`
+                       : 'breathing but no shore within reach',
+                     snapshot: snapshot(bot) })
+        }
+      }
+
       if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing &&
           (ashore() || Date.now() - seizedAt > 20_000)) {
         // THE CEILING IS NOT AN ESCAPE, AND MUST NOT BE LOGGED AS ONE.
@@ -785,21 +815,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // could stand on. Shore is only scanned in that phase: it is a
           // radius-10 block sweep, too costly to run while the urgent swim is
           // the right answer anyway.
-          const nowAshore = ashore()
-          const shore = (!air.losing && !nowAshore) ? shoreRoute(bot) : null
-          const ctl = drowningControls({ losing: air.losing, ashore: nowAshore, route, shore })
+          const ctl = drowningControls({ losing: true, ashore: false, route, shore: null })
           if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
           bot.setControlState('forward', ctl.forward)
           bot.setControlState('jump', ctl.jump)
           if (ctl.phase !== lastDrownPhase) {
             lastDrownPhase = ctl.phase
-            logEvent({ kind: `drowning_${ctl.phase}`,
-                       status: ctl.phase === 'no_shore' ? 'failed' : 'success',
-                       detail: ctl.phase === 'to_shore'
-                         ? `breathing; swimming ${shore.dist.toFixed(1)}b to shore at ` +
-                           `${Math.round(shore.target.x)},${Math.round(shore.target.y)},${Math.round(shore.target.z)}`
-                         : `phase ${ctl.phase}`,
-                       snapshot: snapshot(bot) })
+            logEvent({ kind: `drowning_${ctl.phase}`, status: 'success',
+                       detail: `phase ${ctl.phase}`, snapshot: snapshot(bot) })
           }
           return
         }
