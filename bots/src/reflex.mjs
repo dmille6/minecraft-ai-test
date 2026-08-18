@@ -53,6 +53,62 @@ const ESCAPE_GIVE_UP_AFTER = 4          // then hand it to the watchdog, which c
 // that cannot leave will still be unable to leave in a minute, and the check is
 // the expensive kind: a real search rather than a block lookup.
 const MAROON_CHECK_MS = 60_000
+// A trapped bot with no blocks cannot fix itself, so the ask must not repeat
+// every check -- applyPrereq needs time to make it the task and gather.
+const MAROON_PREREQ_COOLDOWN_MS = 120_000
+
+/**
+ * What a drowning release actually WAS.
+ *
+ * Both exits -- reaching land, and the 20s ownership ceiling expiring -- used to
+ * release the body under one `drowning_escaped` event, so a bot still floating
+ * mid-lake recorded the same success as one standing on a beach. Over fourteen
+ * hours `_drowning_route` and `_drowning_escaped` arrived in near-equal pairs
+ * (3,334 / 3,329) while bots stayed pinned in water: the pairs were the loop
+ * restarting, and the shared name hid it.
+ *
+ * The ceiling still releases -- holding a body that cannot be saved starves
+ * every other reflex -- but only reaching ground that is not water is an escape.
+ */
+export function drowningRelease(ashore) {
+  return ashore
+    ? { kind: 'drowning_escaped', status: 'success', escaped: true }
+    : { kind: 'drowning_released_timeout', status: 'failed', escaped: false }
+}
+
+/**
+ * The four-way marooned decision, as a value rather than a nested condition.
+ *
+ * `need_scaffold` is the case that did not exist. The branch required
+ * `haveBlocks` and had no else, so a bot that could not start a path, with an
+ * open column overhead and an empty inventory, produced NOTHING -- no event, no
+ * prerequisite, no log line. The most trapped state the system can reach was
+ * the only one that was silent, which is a large part of why `_prereq_adopted`
+ * fired 73 times against 1,601 trap events.
+ *
+ * The reflex cannot resolve it either way: acquiring dirt is planning work at
+ * the cognitive cadence, not something to do while owning the body at 500ms. So
+ * the trapped-without-blocks case publishes a prerequisite and lets applyPrereq
+ * make it the task.
+ */
+export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath }) {
+  if (!upIsOpen || entombed || canStartPath) return 'none'
+  return haveBlocks ? 'climb' : 'need_scaffold'
+}
+
+/** The scaffold ask, shared with climbPrerequisite('no scaffold') by intent:
+ *  a bot rescued by the reflex and one rescued through `surface` must request
+ *  exactly the same thing, or the two paths teach the fleet different lessons. */
+export function scaffoldPrereq(because) {
+  return {
+    items: ['dirt', 'cobblestone', 'stone', 'andesite', 'diorite',
+            'granite', 'gravel', 'netherrack'],
+    count: 8,
+    describe: 'Gather 8 dirt or cobblestone. You are trapped and need blocks in hand to pillar out.',
+    because,
+  }
+}
+
 
 // At tickMs=500 these are 5s to raise the alarm and 30s to give up -- long
 // enough that a transient world/pathfinder hiccup does not trip them, short
@@ -435,6 +491,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
   let lastEscapeAt = 0
+  let lastMaroonPrereqAt = 0
   let escapeFailures = 0
   // Cumulative, NOT reset by a give-up. The give-up branch used to zero
   // escapeFailures and return, so a bot that could never escape ran
@@ -562,11 +619,31 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // its rescue, which is the entire point of having one.
       if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing &&
           (ashore() || Date.now() - seizedAt > 20_000)) {
+        // THE CEILING IS NOT AN ESCAPE, AND MUST NOT BE LOGGED AS ONE.
+        //
+        // Both exits released the body under one `drowning_escaped` event, so a
+        // bot that merely ran out the 20s ownership ceiling while still floating
+        // recorded the same success as one that reached land. That is why
+        // `_drowning_route` and `_drowning_escaped` arrive in near-equal pairs --
+        // 3,334 and 3,329 over fourteen hours -- while bots stayed pinned in
+        // water: the pairs were not evidence of rescue, they were evidence of
+        // the loop restarting, and the name hid it.
+        //
+        // The ceiling still fires. Releasing a body that cannot be saved is
+        // correct, because holding it forever starves every other reflex. It is
+        // only the CLAIM that changes: an escape is reaching ground that is not
+        // water, and everything else is a timeout.
+        const rel = drowningRelease(ashore())
         rescuing = false
         try { bot.clearControlStates() } catch { /* not connected */ }
         logEvent({
-          kind: 'drowning_escaped',
-          detail: `surfaced with oxygen ${bot.oxygenLevel}, health ${bot.health}`,
+          kind: rel.kind,
+          status: rel.status,
+          detail: rel.escaped
+            ? `ashore with oxygen ${bot.oxygenLevel}, health ${bot.health}`
+            : `released after ${Math.round((Date.now() - seizedAt) / 1000)}s still in water ` +
+              `(oxygen ${bot.oxygenLevel}, health ${bot.health}) — the ceiling expired, ` +
+              `the bot did not reach land`,
           snapshot: snapshot(bot),
         })
       }
@@ -727,7 +804,31 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
         const upIsOpen = !above || above.name === 'air' || above.boundingBox === 'empty'
         const haveBlocks = bot.inventory.items().some(it => PLACEABLE.test(it.name))
-        if (upIsOpen && haveBlocks && !isEntombed(bot) && !(await canStartAPath(bot))) {
+        // ONE DECISION, not two overlapping conditions. See maroonState().
+        // CHEAP GUARDS FIRST. canStartAPath() runs a real search, and the
+        // original condition short-circuited before reaching it. Computing the
+        // state eagerly would pay for that search on every check regardless of
+        // whether the column is even open.
+        const entombedNow = isEntombed(bot)
+        const mstate = (!upIsOpen || entombedNow)
+          ? 'none'
+          : maroonState({ upIsOpen, haveBlocks, entombed: entombedNow,
+                          canStartPath: await canStartAPath(bot) })
+        if (mstate === 'need_scaffold' &&
+            Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
+          lastMaroonPrereqAt = Date.now()
+          // cognitive.mjs drains this bus on its next tick, the same way the
+          // entombed branch and the skill layer hand over a prerequisite.
+          bot.pendingPrereq = scaffoldPrereq(
+            `no path can start from y=${Math.round(bot.entity.position.y)} and there is ` +
+            `nothing in the inventory to pillar with`)
+          logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
+                     detail: `no route from y=${Math.round(bot.entity.position.y)}, column above ` +
+                             `is open, but no placeable blocks — asked for scaffold`,
+                     snapshot: snapshot(bot) })
+        }
+        if (mstate === 'climb') {
+
           marooned = true
           const invBefore = inventorySummary(bot)
           const yBefore = bot.entity.position.y

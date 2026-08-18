@@ -235,6 +235,12 @@ function bestTool(bot, block) {
 // learned. Incremental legs make partial progress real and turn one opaque
 // failure into a specific one ("leg 2 of 3 was unreachable").
 const MAX_LEG = 45
+// `home` gets a bigger budget than a plain `goto` because it is the rescue
+// path: goto's own 16-leg ceiling is 720 blocks and bots are routinely further
+// out than that, so a single attempt cannot arrive and the value of the call is
+// the ground it closes. Kept under the skill contract's maxMs below it.
+const HOME_BUDGET_MS = 200_000
+const MAX_HAZARD_RETRIES = 6
 
 // Per-block harvest budget, and how many fruitless attempts end the skill.
 // COLLECT_MS must be several times pathfinder.thinkTimeout (5s) so planning
@@ -1052,9 +1058,127 @@ async function follow(ctx, { player, durationMs = 60000 }, signal) {
 }
 
 // ---------------------------------------------------------------- home -----
+/**
+ * `home` was a one-line wrapper around `goto`, and it succeeded ZERO times in
+ * 353 calls across a fourteen-hour fleet run. Three separate reasons, all
+ * measured, and a thin wrapper could not address any of them:
+ *
+ *  1. INTERRUPTION. A third of all travel failures (836 of 2,560) were the
+ *     reflex layer seizing the body mid-walk -- overwhelmingly drowning. The
+ *     skill returned `aborted` and the bot waited ~30s for a fresh decision,
+ *     so a crossing that took three interruptions cost three whole skill
+ *     invocations and made no progress. Gather01 sat SIX BLOCKS from home and
+ *     failed `home` 47 times out of 47, every one of them `interrupted:
+ *     drowning`.
+ *  2. NO ROUTE FROM HERE. `stranded`/`no_path` with the bot below ground.
+ *     `surface` is the deterministic repair for that and `home` never called
+ *     it, so the watchdog escalating to `home` escalated into the same wall.
+ *  3. DISTANCE. goto caps at 16 legs of 45 blocks = 720. Scout02 sat at 1,893
+ *     blocks from home for the entire run -- every three-hour bucket reported
+ *     the same 1893 -- so `home` was arithmetically impossible for it and said
+ *     only "no route", which reads as terrain rather than budget.
+ *
+ * So this retries across interruptions instead of surrendering to them, repairs
+ * the route once when it is below ground, and REPORTS DISTANCE CLOSED. The last
+ * part matters as much as the walking: a bot that gets 700 blocks closer has
+ * done the most useful thing available to it, and recording that as a flat
+ * failure both wastes the evidence and teaches the fleet that going home never
+ * works.
+ */
 async function home(ctx, _args, signal) {
+  const { bot } = ctx
   const { homeX, homeY, homeZ } = config.world
-  return goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+  const distTo = () => Math.hypot(homeX - bot.entity.position.x,
+                                  homeZ - bot.entity.position.z)
+
+  const startDist = distTo()
+  // Bounded by the skill contract's own budget, not by an attempt count: the
+  // point is to keep walking while there is time, not to retry a fixed number
+  // of times regardless of how long each one took.
+  const deadline = Date.now() + HOME_BUDGET_MS
+  let repaired = false
+  let last = null
+  let noProgressRuns = 0
+  // Bounded so a bot standing in a lake cannot spend the whole budget being
+  // rescued over and over; the deadline is the real ceiling, this is the guard
+  // against a hazard that never clears.
+  let hazardRuns = 0
+
+  while (Date.now() < deadline) {
+    check(signal)
+    const before = distTo()
+    last = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+    const after = distTo()
+
+    if (after <= 2) {
+      // failClass is deliberately dropped, not spread through. The last leg
+      // often reports something like `wrong_elevation` on its way to arriving,
+      // and carrying that onto a success produces a record that is graded as a
+      // win while naming a failure -- the exact ambiguity the evidence gate
+      // exists to remove.
+      return { status: 'success', distanceMoved: startDist - after,
+               detail: `home (${Math.round(after)}b from the town centre)` }
+    }
+
+    const closed = before - after
+    if (closed >= 2) {
+      // Progress. Interruptions are normal on a long walk -- keep going rather
+      // than handing a half-finished trip back to a loop that will pick
+      // something else entirely.
+      noProgressRuns = 0
+      continue
+    }
+
+    // AN INTERRUPTION IS NOT A DEAD END, and counting it as one is what made
+    // this loop no better than the single goto it replaced. The reflex seizing
+    // the body means a hazard was handled -- the route is unchanged and the
+    // walk is worth resuming. Only a route failure (stranded/no_path) is
+    // evidence that continuing is pointless. Gather01's 47/47 failures six
+    // blocks from home were ALL interruptions; giving up after two would have
+    // reproduced the bug this skill exists to fix.
+    const interrupted = last?.failClass === 'interrupted' ||
+                        last?.failClass === 'path_interrupted' ||
+                        last?.failClass === 'hazard_interrupt'
+    if (interrupted) {
+      if (++hazardRuns > MAX_HAZARD_RETRIES) break
+      continue
+    }
+
+    noProgressRuns++
+    // ROUTE REPAIR, ONCE. Below sea level with no route is exactly what
+    // `surface` exists for, and it is the difference between "home is a walk"
+    // and "home is a walk that first climbs out of the hole it is in".
+    const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path'
+    if (stuck && !repaired && bot.entity.position.y < SEA_LEVEL) {
+      repaired = true
+      const up = await surface(ctx, {}, signal)
+      check(signal)
+      // Carry a genuine scaffold prerequisite outward: applyPrereq turns it
+      // into the task, which is the only mechanism measured to break this loop
+      // (0/13 from prose, 3/13 on 7b and 12/13 on 32b once promoted).
+      if (up?.need) return { ...up, status: 'failed', failClass: up.failClass ?? 'stranded',
+                             detail: `cannot go home yet: ${up.detail ?? 'no route out'}` }
+      continue
+    }
+    // Two rounds with no ground gained and no repair left to try. Anything
+    // further is the same wall at a slower rate.
+    if (noProgressRuns >= 2) break
+  }
+
+  const endDist = distTo()
+  const closed = startDist - endDist
+  // HONEST PARTIAL CREDIT. Still a failure -- the bot is not home -- but the
+  // class and the detail say "this was progress, run it again", which is true
+  // and is what the next decision needs to hear. `home` is a rescue skill and
+  // therefore exempt from avoid rules, so reporting the attempt cannot poison
+  // it either way.
+  if (closed >= 16) {
+    return { status: 'failed', failClass: 'travel_incomplete',
+             detail: `closed ${Math.round(closed)} blocks toward home, ` +
+                     `${Math.round(endDist)} still to go — run home again to continue` }
+  }
+  return last ?? { status: 'failed', failClass: 'no_path',
+                   detail: `could not start toward home from ${Math.round(endDist)}b out` }
 }
 
 // ------------------------------------------------------------- deposit -----
@@ -2207,7 +2331,7 @@ export function actionKey(skill, args) {
 export const SKILL_CONTRACTS = {
   goto:     { expects: ['position'],              maxMs: 120_000 },
   explore:  { expects: ['position'],              maxMs: 120_000 },
-  home:     { expects: ['position'],              maxMs: 120_000 },
+  home:     { expects: ['position'],              maxMs: 240_000 },
   come:     { expects: ['position'],              maxMs: 60_000 },
   follow:   { expects: ['position'],              maxMs: 60_000 },
   gather:   { expects: ['inventory_gain'],        maxMs: 180_000 },
