@@ -263,6 +263,9 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   // One dig-assisted retry per goto, not per leg: a bot that must tunnel every
   // leg is not travelling, it is excavating, and the budget should say so.
   let diggingRetry = false
+  // One descent attempt per goto, same discipline: a bot that must be dropped
+  // off a ledge on every leg is not travelling either.
+  let descentRetry = false
 
   // THE LEG BUDGET MUST SCALE WITH THE DISTANCE, or a far target is unreachable
   // by ARITHMETIC rather than by terrain.
@@ -385,6 +388,45 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
             })
             check(signal)
             if (bot.entity.position.distanceTo(before) >= 2) continue   // it worked; carry on
+          } catch { /* fall through to the honest failure below */ }
+        }
+        // STRANDED ABOVE SEA LEVEL IS A DESCENT PROBLEM, NOT A DIGGING ONE.
+        //
+        // Both configs above cap maxDropDown at 6, so a bot on a ledge or on
+        // top of its own tower -- every exit a 7+ block drop -- has no legal
+        // first move and the dig retry cannot invent one. That is the shape
+        // behind "no route out of here even with digging allowed, 26 blocks
+        // short": twenty-six blocks is not distance, it is a local constraint.
+        //
+        // It lives HERE rather than in `home` or `surface`. In `goto` every
+        // caller inherits it -- home, deposit, explore, the watchdog -- and
+        // `surface` would be the wrong owner regardless: its contract is
+        // climbing to sea level and its success evidence is altitude GAIN, so
+        // teaching it to descend would make the skill name lie to the evidence
+        // gate.
+        //
+        // Gated on health because the whole repair is a bigger fall: 169 of 868
+        // deaths are already falls, and rescuing a wounded bot by dropping it
+        // eight blocks is not a rescue.
+        if (!descentRetry && bot.withDescentMovements &&
+            bot.entity.position.y >= SEA_LEVEL && (bot.health ?? 20) >= 18) {
+          descentRetry = true
+          log('warn', 'stranded above sea level; retrying this leg with a larger drop allowed',
+              { y: Math.round(bot.entity.position.y), health: bot.health })
+          try {
+            await bot.withDescentMovements(async () => {
+              await withTimeout(bot.pathfinder.goto(goal), 20000, bot)
+            })
+            check(signal)
+            // Same postcondition as the dig retry, and self-verifying: if it
+            // moved, the loop re-plans from the new cell; if that cell is still
+            // unroutable the next pass returns the honest failure below.
+            if (bot.entity.position.distanceTo(before) >= 2) {
+              logEvent({ kind: 'descent_escape', status: 'success',
+                         detail: `dropped clear of a perch at y=${Math.round(before.y)}`,
+                         snapshot: snapshot(bot) })
+              continue
+            }
           } catch { /* fall through to the honest failure below */ }
         }
         const q = bot.entity.position

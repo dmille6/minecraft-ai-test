@@ -286,6 +286,47 @@ function connect() {
       finally { bot.pathfinder.setMovements(moves) }
     }
 
+    // GETTING DOWN IS A DIFFERENT PROBLEM FROM GETTING OUT, and neither travel
+    // nor the ascent config can do it.
+    //
+    // 61% of fleet activity is at or above sea level and that is where
+    // stranding dominates -- 5,115 stranded and 3,340 no_path at y=60-79 alone
+    // over seven days, against 40,696 events in the deep caves everyone assumes
+    // is the problem. Bots DIE underground; they LOSE THEIR TIME up here.
+    //
+    // The binding constraint is maxDropDown=6, in BOTH configs. A bot on a
+    // ledge or on top of its own tower, where every exit is a 7+ block drop,
+    // has no legal first move -- which is exactly the "no route out of here
+    // even with digging allowed, 26 blocks short" the logs keep reporting.
+    // Twenty-six blocks is not distance and not terrain, it is a local descent
+    // constraint.
+    //
+    // Three deliberate differences from the ascent config:
+    //   canDig stays FALSE. This is a controlled step down, not excavation.
+    //     Digging down manufactures the one-way shaft that maroons bots, which
+    //     is the failure mode the whole marooned/pillarOut apparatus exists to
+    //     undo. Non-destructive or not at all.
+    //   allow1by1towers goes FALSE. With towers legal, A* can answer "I cannot
+    //     get down" by climbing HIGHER to find a route, making the perch worse
+    //     while reporting progress.
+    //   maxDropDown rises to 8, and ONLY here. Fall is already 169 of 868
+    //     deaths, so raising it globally would price bigger drops as ordinary
+    //     travel everywhere. Vanilla fall damage is (blocks-3) half-hearts, so
+    //     eight blocks costs at most 2.5 hearts -- survivable, and the caller
+    //     gates on health besides.
+    const descendMoves = Object.create(Object.getPrototypeOf(moves))
+    Object.assign(descendMoves, moves)
+    descendMoves.canDig = false
+    descendMoves.allow1by1towers = false
+    descendMoves.allowParkour = false
+    descendMoves.maxDropDown = 8
+    bot.descentMovements = descendMoves
+    bot.withDescentMovements = async (fn) => {
+      bot.pathfinder.setMovements(descendMoves)
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves) }
+    }
+
     // OUR MOVEMENT CONFIG IS NOT OURS TO KEEP.
     //
     // An earlier version of this comment had the mechanism wrong, and the
