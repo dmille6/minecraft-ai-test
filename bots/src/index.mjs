@@ -234,6 +234,50 @@ function connect() {
     // Infinity: if water is genuinely the only route, taking it (and letting
     // the reflex layer fight for the bot) still beats standing still forever.
     moves.liquidCost = 10
+
+    // ...AND liquidCost DOES NOT PRICE ENTERING WATER. It prices being wet.
+    //
+    // movements.js:398 reads `if (this.getBlock(node, 0, 0, 0).liquid) cost +=
+    // this.liquidCost` -- node 0,0,0 is the CURRENT block, so the penalty lands
+    // when a wet bot moves, never when a dry one steps in. A step from grass
+    // into a lake costs 1, exactly like a step onto more grass. The comment
+    // above claims "a detour of up to ~10 land steps per water step wins";
+    // that was never what the code did, and twelve hours of telemetry says so:
+    // 3,090 drowning reflex firings, 2,241 of them at y60-69 against a sea
+    // level of 63, and every one of the last nine deaths.
+    //
+    // exclusionAreasStep IS priced on the destination (movements.js:122, applied
+    // at :367 and again inside safeOrBreak at :284), so it is the hook that
+    // makes entering water expensive. Per forward move it lands two or three
+    // times:
+    //
+    //     land -> shallow water   1 + 2N        = 51
+    //     land -> deep water      1 + 3N        = 76
+    //     water -> deep water     1 + 3N + 10   = 86
+    //
+    // 25 IS THE LARGEST SAFE VALUE, and that is arithmetic rather than taste.
+    // Every one of the fifteen `if (cost > 100) return` guards DELETES the
+    // neighbour outright, so at N=30 a wet bot's next wet step costs 101 and
+    // water stops existing for the planner. That would trade drowning for
+    // immobility -- a bot in a flooded cave could not swim out, and the only
+    // route home across a river would vanish. 25 keeps every wet move legal
+    // while making a one-block paddle cost about as much as a 25-block walk
+    // around, which is the trade we actually want.
+    const WATER_ENTRY_COST = 25
+    const waterEntryPenalty = (block) => (block?.liquid ? WATER_ENTRY_COST : 0)
+    moves.exclusionAreasStep = [waterEntryPenalty]
+    // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
+    // built below with Object.assign(clone, moves), so they copy this array's
+    // reference and inherit one shared policy. That is deliberate -- gathering
+    // is not worth drowning for, and a descent profile should not treat "jump
+    // in the lake" as a cheap way off a ledge. Moving this line below the
+    // clones would silently exempt three of the four configs.
+    //
+    // Ascent keeps it too. A bot in a flooded cave is ALREADY wet, so the entry
+    // price does not gate its first move; it only stops the climb preferring a
+    // lateral swim when a dry way up exists. dontCreateFlow stays the guard
+    // against digging into water.
+
     bot.pathfinder.setMovements(moves)
 
     // Grant collectblock the one setting it cannot work without, and none of
