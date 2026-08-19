@@ -95,6 +95,30 @@ def pos_of(r, name):
     return [float(v) for v in m[:3]] if len(m) >= 3 else None
 
 
+DEATH_OBJ = "obsdeaths"
+
+
+def ensure_death_counter(r):
+    """A server-side deathCount objective, which is the only exact death signal.
+
+    Polling `Health <= 0` at 30s intervals cannot work: Minecraft respawns in
+    well under a second, so a death almost never coincides with a sample. The
+    first version of this reported ZERO deaths for both fleets across 8.5 hours
+    while our own telemetry recorded nine in two hours -- a column that was
+    quietly, confidently wrong.
+
+    `deathCount` is maintained by the server itself and is cumulative, so it
+    cannot be missed between polls. Deltas of it are real deaths.
+    """
+    r.run(f"scoreboard objectives add {DEATH_OBJ} deathCount")   # no-op if it exists
+
+
+def deaths_of(r, name):
+    out = r.run(f"scoreboard players get {name} {DEATH_OBJ}")
+    m = re.search(r"has (\d+) ", out)
+    return int(m.group(1)) if m else 0
+
+
 def health_of(r, name):
     m = re.search(r"(-?\d+\.?\d*)f", r.run(f"data get entity {name} Health"))
     return float(m.group(1)) if m else None
@@ -126,6 +150,7 @@ def main():
 
     host, _, port = a.rcon.partition(":")
     r = Rcon(host, int(port or 25575), a.password)
+    ensure_death_counter(r)
     out = open(a.out, "a", buffering=1)
 
     while True:
@@ -138,6 +163,7 @@ def main():
                    "bot": {"name": name,
                            "pos": {"x": p[0], "y": p[1], "z": p[2]},
                            "health": health_of(r, name),
+                           "deaths": deaths_of(r, name),
                            "inventory": inventory_of(r, name)}}
             out.write(json.dumps(rec) + "\n")
         if a.once:

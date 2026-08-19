@@ -21,7 +21,9 @@
 // keep passing after reflex.mjs changed, which is the class of test that lets a
 // defect ship.
 import assert from 'node:assert'
-import { drowningRelease, maroonState, scaffoldPrereq } from '../src/reflex.mjs'
+import {
+  drowningRelease, maroonState, scaffoldPrereq, pickaxePrereq, shaftCapNeedsTool,
+} from '../src/reflex.mjs'
 import { climbPrerequisite } from '../src/skills.mjs'
 
 let pass = 0, fail = 0
@@ -62,6 +64,10 @@ t('trapped with blocks climbs, as before', () => {
   assert.equal(maroonState({ ...base, haveBlocks: true }), 'climb')
 })
 
+t('an open shaft capped by hard stone asks for a pickaxe before climbing', () => {
+  assert.equal(maroonState({ ...base, haveBlocks: true, cappedNeedsTool: true }), 'need_pickaxe')
+})
+
 t('a bot that can start a path is not marooned', () => {
   assert.equal(maroonState({ ...base, canStartPath: true }), 'none')
   assert.equal(maroonState({ ...base, haveBlocks: true, canStartPath: true }), 'none')
@@ -80,16 +86,43 @@ t('every trapped case now produces SOME state -- none is silent', () => {
     for (const haveBlocks of [true, false]) {
       for (const entombed of [true, false]) {
         for (const canStartPath of [true, false]) {
-          const st = maroonState({ upIsOpen, haveBlocks, entombed, canStartPath })
-          assert.ok(['none', 'climb', 'need_scaffold'].includes(st),
-            `unhandled combination produced ${st}`)
-          seen.add(st)
+          for (const cappedNeedsTool of [true, false]) {
+            const st = maroonState({ upIsOpen, haveBlocks, entombed, canStartPath, cappedNeedsTool })
+            assert.ok(['none', 'climb', 'need_scaffold', 'need_pickaxe'].includes(st),
+              `unhandled combination produced ${st}`)
+            seen.add(st)
+          }
         }
       }
     }
   }
   assert.ok(seen.has('need_scaffold'),
     'the case that used to fall through must now be reachable')
+})
+
+const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c) })
+function shaftBot({ tool = false, cap = 'stone' } = {}) {
+  const blocks = new Map()
+  blocks.set('0,6,0', {
+    name: cap, boundingBox: 'block',
+    canHarvest: type => type === 101,
+    digTime: type => type === 101 ? 1200 : 7500,
+  })
+  return {
+    entity: { position: V(0, 0, 0) },
+    inventory: { items: () => tool ? [{ name: 'wooden_pickaxe', type: 101 }] : [{ name: 'dirt', type: 3 }] },
+    blockAt: p => blocks.get(`${p.x},${p.y},${p.z}`) ?? { name: 'air', boundingBox: 'empty' },
+  }
+}
+
+t('the capped-shaft detector sees the Hive03 shape', () => {
+  const cap = shaftCapNeedsTool(shaftBot())
+  assert.equal(cap.block.name, 'stone')
+  assert.equal(cap.dy, 6)
+})
+
+t('the capped-shaft detector stands down when a usable tool exists', () => {
+  assert.equal(shaftCapNeedsTool(shaftBot({ tool: true })), null)
 })
 
 // ------------------------------------------------------- one shared ask ------
@@ -99,6 +132,14 @@ t('reflex and skill layers ask for the SAME scaffold', () => {
   // the avoid rules learned from one do not transfer to the other.
   const fromSkill = climbPrerequisite('no scaffold blocks left')
   const fromReflex = scaffoldPrereq('marooned')
+  assert.deepEqual(fromReflex.items, fromSkill.items)
+  assert.equal(fromReflex.count, fromSkill.count)
+  assert.equal(fromReflex.describe, fromSkill.describe)
+})
+
+t('reflex and skill layers ask for the SAME pickaxe', () => {
+  const fromSkill = climbPrerequisite('dig failed on stone')
+  const fromReflex = pickaxePrereq('capped shaft')
   assert.deepEqual(fromReflex.items, fromSkill.items)
   assert.equal(fromReflex.count, fromSkill.count)
   assert.equal(fromReflex.describe, fromSkill.describe)

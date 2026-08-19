@@ -91,8 +91,9 @@ export function drowningRelease(ashore) {
  * the trapped-without-blocks case publishes a prerequisite and lets applyPrereq
  * make it the task.
  */
-export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath }) {
+export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath, cappedNeedsTool = false }) {
   if (!upIsOpen || entombed || canStartPath) return 'none'
+  if (haveBlocks && cappedNeedsTool) return 'need_pickaxe'
   return haveBlocks ? 'climb' : 'need_scaffold'
 }
 
@@ -105,6 +106,15 @@ export function scaffoldPrereq(because) {
             'granite', 'gravel', 'netherrack'],
     count: 8,
     describe: 'Gather 8 dirt or cobblestone. You are trapped and need blocks in hand to pillar out.',
+    because,
+  }
+}
+
+export function pickaxePrereq(because) {
+  return {
+    items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
+    count: 1,
+    describe: 'Get a pickaxe. The stone above you cannot be broken without one.',
     because,
   }
 }
@@ -931,10 +941,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // state eagerly would pay for that search on every check regardless of
         // whether the column is even open.
         const entombedNow = isEntombed(bot)
+        const canStartPath = (!upIsOpen || entombedNow) ? true : await canStartAPath(bot)
+        const cappedNeedsTool = (!upIsOpen || entombedNow || canStartPath)
+          ? false
+          : !!shaftCapNeedsTool(bot)
         const mstate = (!upIsOpen || entombedNow)
           ? 'none'
           : maroonState({ upIsOpen, haveBlocks, entombed: entombedNow,
-                          canStartPath: await canStartAPath(bot) })
+                          canStartPath, cappedNeedsTool })
         if (mstate === 'need_scaffold' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
@@ -946,6 +960,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
                      detail: `no route from y=${Math.round(bot.entity.position.y)}, column above ` +
                              `is open, but no placeable blocks — asked for scaffold`,
+                     snapshot: snapshot(bot) })
+        }
+        if (mstate === 'need_pickaxe' &&
+            Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
+          lastMaroonPrereqAt = Date.now()
+          const cap = shaftCapNeedsTool(bot)
+          bot.pendingPrereq = pickaxePrereq(
+            `no path can start from y=${Math.round(bot.entity.position.y)}; ` +
+            `the open shaft is capped by ${cap?.block?.name ?? 'a hard block'} ` +
+            `${cap ? `${cap.dy} blocks overhead` : 'overhead'}`)
+          logEvent({ kind: 'marooned_needs_pickaxe', status: 'failed',
+                     detail: `no route from y=${Math.round(bot.entity.position.y)}, column above ` +
+                             `is capped by ${cap?.block?.name ?? 'a hard block'}, and no usable tool ` +
+                             `is available — asked for pickaxe`,
                      snapshot: snapshot(bot) })
         }
         if (mstate === 'climb') {
@@ -1164,6 +1192,38 @@ function isEntombed(bot) {
 }
 
 const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate)$/
+const TOOL_TIER = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']
+const toolTier = name => TOOL_TIER.findIndex(t => name.startsWith(t + '_'))
+
+function bestTool(bot, block) {
+  let best = null, bestTime = Infinity
+  for (const it of bot.inventory.items()) {
+    if (!block.canHarvest?.(it.type)) continue
+    const t = block.digTime?.(it.type, false, false, false) ?? Infinity
+    if (t < bestTime || (t === bestTime && best && toolTier(it.name) > toolTier(best.name))) {
+      bestTime = t
+      best = it
+    }
+  }
+  return best
+}
+
+function shaftCap(bot, maxClearance = 12) {
+  const p = bot.entity.position
+  for (let dy = 2; dy <= maxClearance; dy++) {
+    const b = bot.blockAt(p.offset(0, dy, 0))
+    if (!passableFor(b)) return { block: b, dy }
+  }
+  return null
+}
+
+export function shaftCapNeedsTool(bot, maxClearance = 12) {
+  const cap = shaftCap(bot, maxClearance)
+  if (!cap) return null
+  const handCanHarvest = cap.block.canHarvest?.(null) === true
+  if (handCanHarvest || bestTool(bot, cap.block)) return null
+  return cap
+}
 
 /**
  * Escape a pit. Two failure modes the first version got wrong:
@@ -1195,6 +1255,8 @@ async function pillarOut(bot, maxBlocks = 24) {
     if (head && head.name !== 'air' && head.name !== 'water') {
       // Bounded: an escape routine that hangs on a dig strands the bot for
       // good, because nothing else is coming.
+      const tool = bestTool(bot, head)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
       try { await digBounded(bot, head) } catch { /* may be unreachable; try anyway */ }
       await sleep(150)
     }
@@ -1304,6 +1366,8 @@ async function digStraightUp(bot, startY, maxSteps = 20) {
         return
       }
     } else {
+      const tool = bestTool(bot, above)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
       try { await digBounded(bot, above) } catch { break }
       await sleep(150)
     }
