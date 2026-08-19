@@ -488,3 +488,59 @@ per-bot rotation, 7 days per repetition, 3 repetitions, the endpoints, the
 shakedown gate (mobile fraction, 2x, 30% floor), the entrapment covariate
 rules, the code freeze, and the ban on new verbs and macros. Arm size is a
 power decision; none of the above is affected by it.
+
+## AMENDMENT — world difficulty is declared (2026-08-19)
+
+Made **before any Block 2 data exists**.
+
+### What was missing
+
+This document specifies the seed, the border, the arms, the model, the cadence
+and the endpoints. It never states the **difficulty setting**, and the fleet has
+run on `difficulty=peaceful` since the world was built.
+
+That is not a detail. On peaceful:
+
+- no hostile mobs spawn at all
+- hunger does not deplete
+- health regenerates
+
+Two of the pre-registered secondary endpoints are **death count** and **death
+cost**. On peaceful, an entire class of death — being killed — cannot occur, so
+those endpoints measure only environmental death (drowning, falling,
+suffocation, fire). Reporting "deaths per arm" without stating that would imply
+a survival result the design cannot produce.
+
+### Declared for Block 2
+
+**`difficulty=peaceful` on all eight worlds**, identical across arms.
+
+Keeping it (rather than moving to `normal`) is deliberate:
+
+- It is what Block 1 ran, so the arms stay comparable to the existing baseline.
+- Mob deaths are a large, terrain- and time-of-day-correlated variance source
+  that is unrelated to memory. Entrapment already swamped Block 1; adding a
+  second confound of that size would make the memory effect harder to see, not
+  easier.
+- The question is whether shared memory amplifies false belief, not whether
+  agents can survive a night. Combat competence is a different study.
+
+The cost is stated plainly: **Block 2 cannot say anything about survival under
+threat**, and its death endpoints mean "death by environment" only. Any future
+comparison against a system running `normal` is invalid unless difficulty is
+matched first.
+
+### How this was found
+
+A capability baseline was stood up on `mindcraft` for comparison, and its server
+was created with `difficulty=normal` while ours ran peaceful. The resulting
+head-to-head showed mindcraft dying 89 times to our 15 — 106 of its 110 deaths
+being mobs, against zero mob deaths in our fleet's entire recorded history. That
+was read, briefly, as evidence that our reflex layer prevents mob deaths. It is
+not: there were no mobs. The baseline has been set to peaceful and its
+comparison window restarted from 2026-08-19T21:12Z.
+
+The general lesson, which is why this amendment exists rather than a quiet
+config change: a condition that is identical across arms is invisible in an
+arm comparison, and therefore easy to leave undeclared -- right up until
+something outside the experiment is compared against it.
