@@ -35,7 +35,10 @@ const t = (name, got, want) => {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`}`)
 }
 
-const bot = ({ y = 70, items = [] } = {}) => ({
+const bot = ({ y = 70, items = [], canCraft = true } = {}) => ({
+  // recipesFor is what the craft skill itself consults; the exemption must ask
+  // the same question rather than assuming the recipe is satisfiable.
+  recipesFor: () => (canCraft ? [{ id: 1 }] : []),
   entity: { position: { x: 0, y, z: 0 } },
   inventory: { items: () => items.map(name => ({ name, count: 1 })) },
   players: {},
@@ -106,6 +109,13 @@ t('...and it is labelled, not disguised as normal', r.kind, 'bootstrap')
 const armed = B.check({ skill: 'craft', args: { item: 'wooden_pickaxe' } },
                       bot({ items: ['stone_pickaxe'] }), null)
 t('a bot that ALREADY has a pickaxe gets no exemption', armed.ok, false)
+
+// The regression that shipped and had to be corrected: exempting a toolless bot
+// that also has no WOOD just converts a cheap veto into an expensive failure.
+// 116 doomed attempts and crafting output fell 37-in-69-bot-hours to 1-in-27.
+t('a toolless bot with NO MATERIALS is still blocked',
+  B.check({ skill: 'craft', args: { item: 'wooden_pickaxe' } },
+          bot({ items: [], canCraft: false }), null).ok, false)
 
 BL.data.avoid['craft:{"item":"stick"}'] =
   { skill: 'craft', args: { item: 'stick' }, fails: 900, classes: {}, last: Date.now() }

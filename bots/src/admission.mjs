@@ -254,8 +254,30 @@ export class AdmissionControl {
     // into the blanket craft exemption the narrowness exists to avoid.
     // livelock.test.mjs uses `craft stone_pickaxe` as its example of an action
     // that must STAY blocked, and it is right to.
+    // ...AND ONLY IF THE BOT CAN ACTUALLY MAKE ONE.
+    //
+    // The first version checked "holds no pickaxe" and stopped there, which
+    // admitted the craft for bots with no wood either. Measured over the next
+    // few hours: 116 `craft wooden_pickaxe` attempts, 150 of 160 craft calls
+    // failing `missing_ingredients`, and crafting output collapsing from 37
+    // successes in 69 bot-hours to 1 in 27. A cheap veto had been traded for an
+    // expensive failure -- each doomed attempt now costs a runner slot instead
+    // of a rejection.
+    //
+    // recipesFor() is the same call the craft skill itself uses to decide
+    // whether the recipe is satisfiable right now, so this asks exactly the
+    // question the skill would answer a second later. When the answer is no,
+    // the veto is CORRECT: the bot needs to gather wood, and the milestone
+    // chain is what should be driving that.
+    const canCraftPick = () => {
+      try {
+        const def = bot.registry?.itemsByName?.wooden_pickaxe
+        if (!def) return false
+        return (bot.recipesFor?.(def.id, null, 1, null) ?? []).length > 0
+      } catch { return false }
+    }
     if (priorFails >= 4 && skill === 'craft' && args.item === 'wooden_pickaxe' &&
-        !bot.inventory?.items?.().some(i => /_pickaxe$/.test(i.name))) {
+        !bot.inventory?.items?.().some(i => /_pickaxe$/.test(i.name)) && canCraftPick()) {
       this.vetoStreak = 0
       return { ok: true, skill, args, kind: 'bootstrap',
                forced: 'holds no pickaxe; acquiring the first tool is never hard-blocked' }
