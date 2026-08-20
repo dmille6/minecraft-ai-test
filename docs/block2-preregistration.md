@@ -656,3 +656,67 @@ repetition, 3 repetitions, the mobile-fraction gate itself (2x ratio, 30% floor,
 500 windows), the entrapment covariate rules, the code freeze, the ban on new
 verbs and macros, and every analysis rule. This amendment adds start criteria
 and improves the worlds; it changes nothing about what is measured or how.
+
+## AMENDMENT — the seed is changed, and this is why (2026-08-20)
+
+Made **before any Block 2 data exists**. Seed `20260820` -> `31415926`.
+
+### What the fleet said
+
+Forty bots ran for one hour on `20260820`. The mobility gate PASSED -- spread
+1.50x against a 2.0x limit, worst arm 32.8% mobile against a 30% floor -- and the
+operational gate failed hard:
+
+    gather              19/805 = 2.4%      (needs 20% fleet, 10% per arm)
+    productive:path     1673:15175 = 0.11  (needs 0.5)
+
+Both failures had ONE cause. Of 15,175 path events in that hour, **86.2% were
+`stuck`** -- mineflayer-pathfinder's own stuck detector. The bots were not failing
+to PLAN routes; they were failing to WALK them. Gather could not reach what it
+found, and recovery churn drowned every productive event nine to one.
+
+### Why the seed, and not the agent
+
+The town scored `platform_relief 2` -- a genuinely flat 13x13 shelf -- at y=119,
+with the surrounding terrain spread over 14 blocks. The criteria gated the ground
+the CHEST stands on and merely recorded the ground the BOTS walk over.
+
+Tightening that criterion alone would not have helped. A probe of 19 candidate
+sites across `20260820` found terrain spread from **11 to 116 blocks and nothing
+both flat and wooded**. There was nowhere on that seed to put a town the fleet
+could operate from.
+
+### How the new seed was chosen
+
+Eight candidate seeds were scored on a scratch world by probing spawn terrain for
+flatness, standing water and wood. The choice was made on terrain statistics
+alone, before any bot ran on any of them, and no outcome measure was involved.
+
+| | 20260820 | 31415926 |
+|---|---|---|
+| y_spread at the sited town | 14 | **7** |
+| canopy fraction | 4% | **32%** |
+| home elevation | y=119 | **y=74** |
+| candidates the search rejected | 1 | **242** |
+
+`MAX_TERRAIN_SPREAD` is now a rejection criterion rather than a recorded
+statistic, which is what rejects those 242.
+
+### Why this is legitimate
+
+**The seed is experimental MATERIAL, not an outcome.** It is fixed in advance,
+shared identically by all eight worlds and all four arms, and recorded here
+before any data exists -- the same class of decision as declaring
+`difficulty=peaceful`.
+
+It would be far less defensible to run seven days on terrain the fleet
+demonstrably cannot cross and then report the result as a fact about memory. A
+world where no arm can act is not a harder test of the hypothesis; it is no test
+of it at all.
+
+### What did NOT change
+
+The four scopes, two pools per arm, per-bot endpoint rotation, 7 days per
+repetition, 3 repetitions, the mobility gate, every operational threshold, the
+entrapment covariate rules, the code freeze, the ban on new verbs, and every
+analysis rule. Only the terrain the experiment runs on.
