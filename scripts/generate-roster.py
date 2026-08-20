@@ -46,7 +46,22 @@ SCOPES = {"hive": "shared", "board": "board",
 # replication. Eight worlds is 24GB and ~6 cores each on the new host.
 REPLICATES = ["a", "b"]
 
-NAMES = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]
+MC_NAME_MAX = 16
+
+# MINECRAFT USERNAMES ARE CAPPED AT 16 CHARACTERS, and the cap is enforced by
+# the server as a protocol decode error, not as a readable rejection: the bot
+# connects, is kicked with a netty DecoderException, and reconnects forever with
+# a growing backoff. The unit stays `active`, NRestarts stays 0, and nothing
+# looks wrong anywhere.
+#
+# "Charlie" is 7 characters. With "isolated-a-" (11) that is 18, and with
+# "placebo-a-" (10) it is 17. So the four Charlies in the isolated and placebo
+# worlds never joined, while hive and board kept all five bots each -- an
+# ARM-ASYMMETRIC handicap of 2 bots per arm, silently applied to exactly half
+# the experiment.
+#
+# Every name here is <= 5 characters, which is what "isolated-a-" leaves.
+NAMES = ["Alpha", "Bravo", "Comet", "Delta", "Echo"]
 
 # Held identical across all twenty bots. Anything added here lands on every arm
 # or on none.
@@ -193,6 +208,14 @@ def main():
                 "LOG_DIR": f"/var/log/mcai/{bot}",
                 "STATE_DIR": f"/var/lib/mcai/{bot}",
             }
+            # FAIL LOUDLY. A roster that names a bot the server cannot accept is
+            # worse than no roster: the fleet looks healthy and runs short.
+            if len(bot) > MC_NAME_MAX:
+                raise SystemExit(
+                    f"bot name {bot!r} is {len(bot)} characters; Minecraft caps "
+                    f"usernames at {MC_NAME_MAX}. The server rejects it as a protocol "
+                    f"decode error, so the bot reconnects forever while its unit "
+                    f"reports active. Shorten NAMES or the world names.")
             body = "\n".join(f"{k}={v}" for k, v in env.items()) + "\n"
             (out / f"{bot}.env").write_text(body)
             units.append(bot)
