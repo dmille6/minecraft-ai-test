@@ -67,18 +67,38 @@ def bad(r, frag):
 
 
 # ------------------------------------------------------------- terrains ----
-flat    = lambda x, z: (64, "solid")
+def _wooded(base, cx=0, cz=0):
+    """Ring the candidate with trees so fixtures satisfy the oak_log criterion.
+
+    Parameterised by the candidate because wood_nearby() samples rings around it:
+    a pattern keyed to the origin passes or fails depending on where the spiral
+    happened to look. Trees sit BETWEEN the town checks (radius <= 32) and the
+    outer wood rings (48 and 80), so the site stays clear and the wood is
+    reachable -- which is exactly the band the real criterion encodes.
+    """
+    import math
+
+    def f(x, z):
+        d = math.hypot(x - cx, z - cz)
+        if 40 < d < 95:
+            return (base(x, z)[0] + 6, "canopy")
+        return base(x, z)
+    return f
+
+_flat   = lambda x, z: (64, "solid")
+flat    = _wooded(_flat)
 ocean   = lambda x, z: (62, "water")
 # A dry 20-block island in open water -- the exact shape the old test passed.
-spit    = lambda x, z: (64, "solid") if abs(x) <= 10 and abs(z) <= 10 else (62, "water")
+spit    = _wooded(lambda x, z: (64, "solid") if abs(x) <= 10 and abs(z) <= 10 else (62, "water"))
 # Dry everywhere, but the ground falls away past the platform.
-cliffed = lambda x, z: (64, "solid") if max(abs(x), abs(z)) <= 10 else (40, "solid")
-lumpy   = lambda x, z: (64 + (abs(x) % 9), "solid")
+cliffed = _wooded(lambda x, z: (64, "solid") if max(abs(x), abs(z)) <= 10 else (40, "solid"))
+lumpy   = _wooded(lambda x, z: (64 + (abs(x) % 9), "solid"))
 # Clear platform, dense forest beyond it: the probe reads treetops out there.
 forest  = lambda x, z: (64, "solid") if max(abs(x), abs(z)) <= 6 else (78, "canopy")
 # A few scattered trees -- counted, but not enough to distrust the terrain.
-sparse  = lambda x, z: (78, "canopy") if (x == 16 and z == 0) else (64, "solid")
-sea_then_land = lambda x, z: (64, "solid") if x >= 90 else (62, "water")
+sparse  = _wooded(lambda x, z: (78, "canopy") if (x == 16 and z == 0) else (64, "solid"))
+# the spiral lands at 96,0 on this fixture, so its wood ring is centred there
+sea_then_land = _wooded(lambda x, z: (64, "solid") if x >= 90 else (62, "water"), cx=96, cz=0)
 
 # ---------------------------------------------------------------- tests ----
 t("flat dry ground is accepted",
@@ -150,6 +170,13 @@ def refuses_to_site_in_the_sea():
 
 
 t("all-water within the radius fails loudly rather than siting anyway", refuses_to_site_in_the_sea)
+
+def treeless_rejected():
+    bad(pt.score_site(FakeRcon(_flat), 0, 0), "oak_log")
+
+
+t("PERFECT FLAT DRY GROUND WITH NO TREES IS REJECTED -- the tech tree starts at wood",
+  treeless_rejected)
 
 print(f"\n  {P} passed, {F} failed")
 sys.exit(1 if F else 0)

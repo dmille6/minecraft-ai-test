@@ -88,6 +88,35 @@ MAX_ROUTE_DROP = 6         # a cardinal route that falls further is a trap
 # surface. Past this fraction the site's terrain numbers cannot be trusted.
 MAX_CANOPY_FRACTION = 0.35
 
+# WOOD MUST BE REACHABLE, and this is the criterion whose absence made the first
+# eight worlds unusable.
+#
+# Rejecting water, rejecting canopy and rejecting relief all push the search
+# toward flat dry treeless ground -- and the entire tech tree starts at oak_log.
+# The first site scored perfectly (0% wet, relief 2) and had ZERO trees within
+# 288 blocks. Forty bots produced 57 craft attempts, every one of them
+# `missing_ingredients: gather oak_log first`, and not one bot ever held wood.
+#
+# So canopy is a BAND, not a ceiling: too much and the terrain probe is reading
+# treetops, too little and the fleet cannot bootstrap. The town stays clear; the
+# surroundings must not be.
+WOOD_RINGS = (48, 80)      # far enough to be outside the platform, near enough to walk
+WOOD_SAMPLES = 12          # per ring
+MIN_WOOD_HITS = 3          # of 24 sampled columns, at least this many must be tree
+
+
+def wood_nearby(rcon, cx, cz):
+    """How many sampled columns within walking distance are trees."""
+    hits, sampled = 0, 0
+    for r in WOOD_RINGS:
+        for dx, dz in _ring(r, n=WOOD_SAMPLES):
+            sampled += 1
+            y = surface_y(rcon, cx + dx, cz + dz)
+            if (matches(rcon, cx + dx, y, cz + dz, "#minecraft:logs")
+                    or matches(rcon, cx + dx, y, cz + dz, "#minecraft:leaves")):
+                hits += 1
+    return hits, sampled
+
 
 def matches(rcon, x, y, z, spec):
     """True when the block at x,y,z matches a block id or #tag.
@@ -227,6 +256,16 @@ def _score_loaded(rcon, cx, cz, stats):
                 return {"ok": False, "reason": f"route {dx},{dz} drops {prev - y} at {step} blocks",
                         "y": centre_y, "stats": stats}
             prev = y
+
+    # LAST, because it is the most expensive check and the cheap rejections above
+    # eliminate most candidates before it runs.
+    wood, wood_n = wood_nearby(rcon, cx, cz)
+    stats["wood_hits"], stats["wood_sampled"] = wood, wood_n
+    if wood < MIN_WOOD_HITS:
+        return {"ok": False,
+                "reason": f"only {wood}/{wood_n} columns within {WOOD_RINGS[-1]} blocks are "
+                          f"tree; the tech tree starts at oak_log",
+                "y": centre_y, "stats": stats}
 
     stats["y_spread"] = max(stats["ys"]) - min(stats["ys"])
     return {"ok": True, "reason": "ok", "y": centre_y, "stats": stats}
