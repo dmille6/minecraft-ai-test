@@ -544,3 +544,115 @@ The general lesson, which is why this amendment exists rather than a quiet
 config change: a condition that is identical across arms is invisible in an
 arm comparison, and therefore easy to leave undeclared -- right up until
 something outside the experiment is compared against it.
+
+## AMENDMENT — operational readiness gates and town siting (2026-08-20)
+
+Made **before any Block 2 data exists**, the only condition under which this
+document may change. Once Block 2 starts these numbers are frozen and any
+further change is reported as a deviation, not an amendment.
+
+### What the existing gate could not catch
+
+The shakedown gate added on 2026-08-18 binds on MOBILE FRACTION and protects
+COMPARABILITY: it stops one arm being more trapped than another. It cannot
+detect that every arm is equally broken, and by construction it never will --
+eight equally-crippled worlds pass it exactly as eight healthy ones do.
+
+That gap is not hypothetical. Run against the live fleet over 24 hours on
+2026-08-20, the mobility gate returned a comfortable pass:
+
+    MOBILE fraction: isolated=74.1%, shared=52.3%
+    spread 1.42x (limit 2.0x)   floor 52.3% (minimum 30%)
+
+while the same window contained:
+
+    gather                 11.0% success fleet-wide
+    productive:path        14,406 : 38,951 = 0.37
+    deposit                211 attempts, 0 successes
+    decisions/bot-hour     47.3% apart between arms
+    _prereq_adopted 479 -> _prereq_satisfied 22  (5% closure)
+
+A block started on those numbers measures mobility pathology, water pathology
+and recovery pathology, and reports the residue as a memory effect.
+
+### Thresholds, fixed in advance
+
+These are **START/NO-START operational gates**. They are NOT analysis endpoints
+and must never be reported as results. Their only job is to answer "is the
+apparatus measuring anything at all" before the seven-day clock starts.
+
+| gate | threshold | rationale |
+|---|---|---|
+| fleet gather success | **>= 20%** | below this the primary endpoint has no dynamic range for an effect to appear in |
+| per-arm gather success | **>= 10%** | one dead arm cannot be averaged away by seven healthy ones |
+| productive : path-failure | **>= 0.5** | measured 0.37 live; below parity the fleet is mostly failing to move |
+| LLM p95 latency, per arm | **<= 15s** | p99 <= 25s; oversubscription shows in the tail long before the mean |
+| decisions/bot-hour spread | **<= 10%** | see below -- this one is a confound, not an inconvenience |
+| rescue paths >= 100 firings with 0 successes | **none** | outside the declared observation set |
+| deposits | unchanged: >= 30 fleet-wide and >= 1 per arm, or reported unmeasurable | |
+
+`--skip-viability` reproduces the pre-amendment behaviour, so the two gates can
+be compared on the same window.
+
+### Why decisions/bot-hour is a confound and not an inconvenience
+
+Hive and board arms accumulate more memory than isolated arms, so their prompts
+grow longer. If the inference endpoint saturates, those arms complete FEWER
+decisions per bot-hour than isolated -- an arm effect manufactured by hardware
+rather than by memory, which would read as a treatment difference in every
+downstream plot. Measured capacity (2026-08-19, RTX 3090, 40 concurrent unique
+prompts at the 3,000-token budget cap) is 13.8s against a 30s cadence, 46%
+utilisation, so this should not bite. The gate exists so that if it ever does,
+it is caught before the block rather than argued about after it.
+
+### The observation set, and why it is declared
+
+A 0% success rate is only a defect for an event that reports on an ACTION IT
+PERFORMED. An event that reports an OBSERVATION -- "no shore is reachable", "I
+am stagnating", "I am asking for scaffold" -- has no success available to it,
+and gating on it would punish the telemetry for being truthful.
+
+`shakedown-gate.py` therefore carries an explicit, auditable set of observation
+labels. Adding a label to that set is a claim that the label is an observation
+and must be justified in this document; it is not a way to silence the gate.
+
+This distinction was learned the hard way. Three labels were initially read as
+"rescue paths that never work". On inspection one was a genuine defect
+(`_livelock_escape` hardcoded `status: 'failed'` BEFORE the relocation it was
+reporting on ran, so 2,305 relocations recorded 0% regardless of outcome), one
+was correct reporting (`_drowning_no_shore` is a fact about open water), and one
+was a request whose outcome lives in a different event (`_prereq_adopted` ->
+`_prereq_satisfied`). Only the first was worth fixing.
+
+### Town siting is now a scored search, not a single probe
+
+The worlds are shared material: all eight use one seed, and a town is stamped
+into each. Siting therefore decides how much of every arm's exposure is spent in
+water, and drowning accounted for 21,442 of the live fleet's logged events in
+24 hours -- roughly a third of everything.
+
+The previous test probed ONE column and asked only whether it was void or deep
+water. A town on a dry spit in the middle of a lake passes that test.
+
+`place-town.py` now runs a deterministic outward spiral and scores candidates
+over a 32-block radius, rejecting a site for any of:
+
+- water anywhere inside the 13x13 platform footprint
+- more than 5% of sampled columns within 32 blocks being water
+- platform relief greater than 3 blocks
+- more than 35% canopy (the probe returns treetops, so terrain readings there
+  are measuring the wrong surface)
+- any cardinal route to 32 blocks crossing water or dropping more than 6 blocks
+
+DETERMINISM IS THE POINT: one seed and one search from one origin put the same
+town in all eight worlds, which is what keeps terrain out of the arm effect. The
+chosen site, its statistics and every rejected candidate are written into the
+town JSON so the decision can be audited and reproduced.
+
+### What did NOT change
+
+The four scopes, one seed, one host, per-bot endpoint rotation, 7 days per
+repetition, 3 repetitions, the mobile-fraction gate itself (2x ratio, 30% floor,
+500 windows), the entrapment covariate rules, the code freeze, the ban on new
+verbs and macros, and every analysis rule. This amendment adds start criteria
+and improves the worlds; it changes nothing about what is measured or how.
