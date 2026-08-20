@@ -36,6 +36,9 @@ them produced worlds that looked provisioned and were not.
 | explicit filebeat unit list | `mcbot@*.service` matches nothing in `include_matches` and the input looks perfectly healthy while shipping zero events |
 | search once, stamp N times | eight independent searches over one seed produced TWO towns (y=119 vs y=72): forceload returns when QUEUED and generation is async, so the probes scored terrain that did not exist yet |
 | wood_nearby() | rejecting water, canopy and relief selects for flat dry TREELESS ground, and the tech tree starts at oak_log. The first site had zero trees within 288 blocks |
+| fleet-doctor timer | every health signal in the stack is self-reported: systemd knows a PROCESS runs, not that the bot is PLAYING. Two faults have silently shrunk this fleet (over-long usernames, memory stalls) with all 40 units green |
+| no MemoryHigh | it THROTTLES instead of killing. Processes stalled 57% of the time, never crashed, never tripped Restart=always, and were dropped by their servers while systemd saw them healthy |
+| chunk evictor | ArrayBuffers are not bounded by --max-old-space-size. The JS heap stayed flat at 172MB while chunk columns grew to 1GB RSS |
 | pregeneration | an arm that explores into fresh chunks under load pays tick time an arm on generated ground never pays |
 | equal cgroup envelopes | same host is required by the design; same scheduler is not. Eight Paper servers in one domain starve each other |
 
