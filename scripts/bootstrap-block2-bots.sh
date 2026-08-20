@@ -30,8 +30,17 @@ Restart=always
 RestartSec=10
 StartLimitIntervalSec=300
 StartLimitBurst=10
+# MemoryMax ONLY, deliberately. MemoryHigh was here and it is what turned a
+# memory leak into a silent fifteen-hour degradation: the kernel THROTTLES a
+# cgroup past MemoryHigh rather than killing it, so the processes were stalled
+# 57% of the time (memory.pressure full avg300=57.30), never crashed, never
+# tripped Restart=always, and were quietly dropped by their servers while
+# systemd reported all forty units active with NRestarts=0.
+#
+# A hard ceiling that KILLS is better than a soft one that stalls: the OOM kill
+# is loud, Restart=always makes it self-healing, and NRestarts becomes the
+# signal that something is wrong. Prefer a crash you can see.
 MemoryMax=1G
-MemoryHigh=850M
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

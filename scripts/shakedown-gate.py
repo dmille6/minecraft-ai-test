@@ -217,6 +217,15 @@ def _llm_stats(block, hours):
     return out
 
 
+def _reporting_bots(block, hours):
+    d = es('mcai-skill-*/_search?size=0', {
+        'query': {'bool': {'filter': [
+            {'term': {'exp.block': block}},
+            {'range': {'@timestamp': {'gte': f'now-{hours}h'}}}]}},
+        'aggs': {'b': {'terms': {'field': 'bot.name', 'size': 200}}}})
+    return {x['key'] for x in d['aggregations']['b']['buckets']}
+
+
 def viability_gates(block, hours, a):
     """Operational start/no-start checks. Returns a list of failures."""
     fails = []
@@ -228,6 +237,25 @@ def viability_gates(block, hours, a):
     if not overall:
         print('  INSUFFICIENT - no skill telemetry in the window')
         return ['no skill telemetry']
+
+    # ROSTER COMPLETENESS, checked before anything is computed from it.
+    #
+    # Two separate faults have now silently shrunk the fleet: four bots whose
+    # usernames exceeded Minecraft's 16-character cap and were rejected as a
+    # protocol decode error, and twenty-nine dropped by memory-pressure stalls.
+    # BOTH left every systemd unit reporting `active` with NRestarts=0.
+    #
+    # Every rate below is a ratio whose denominator is the fleet. Computing them
+    # over a fleet that is quietly at 27% strength produces numbers that look
+    # like results, so the roster is verified first and a short fleet is a fault
+    # rather than a footnote.
+    if a.expect_bots:
+        seen = _reporting_bots(block, hours)
+        print(f"\n  roster: {len(seen)} of {a.expect_bots} bots reporting telemetry")
+        if len(seen) < a.expect_bots:
+            print(f"    MISSING: the fleet is at {100*len(seen)//a.expect_bots}% strength")
+            fails.append(f'only {len(seen)}/{a.expect_bots} bots reporting - every rate '
+                         f'below has the wrong denominator')
 
     g = overall.get('gather', {'total': 0, 'success': 0})
     rate = g['success'] / g['total'] if g['total'] else 0.0
@@ -389,6 +417,9 @@ def main():
     ap.add_argument('--max-p99', type=float, default=25000, help='LLM p99 ms, per arm')
     ap.add_argument('--max-decision-spread', type=float, default=0.10,
                     help='max relative gap in decisions/bot-hour between arms')
+    ap.add_argument('--expect-bots', type=int, default=40,
+                    help='roster size; a fleet short of this is a FAULT, because every '
+                         'rate below it has the wrong denominator. 0 disables.')
     ap.add_argument('--min-deposits', type=int, default=30,
                     help='fleet-wide deposit successes for retained-items to be measurable')
     ap.add_argument('--dead-rescue-min', type=int, default=100,
