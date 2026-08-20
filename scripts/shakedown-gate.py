@@ -107,6 +107,191 @@ def bot_windows(bot, block, hours):
     return out
 
 
+# ---------------------------------------------------------------------------
+# OPERATIONAL READINESS — amendment 2026-08-20, before any Block 2 data.
+#
+# The mobility gate above protects COMPARABILITY: it stops one arm being more
+# trapped than another. It cannot detect that every arm is equally broken, and
+# by construction it never will -- eight equally-crippled worlds pass it exactly
+# as eight healthy ones do.
+#
+# On the live fleet that gap was not hypothetical. Gather ran at 12% success,
+# path failures outnumbered productive work five to one, and the prerequisite
+# loop closed 22 times out of 479. A block started on those numbers measures
+# mobility pathology and recovery pathology and calls the residue memory.
+#
+# These are START/NO-START operational gates. They are NOT analysis endpoints
+# and must never be reported as results. Their only job is to answer "is the
+# apparatus measuring anything at all" before the seven-day clock starts.
+# ---------------------------------------------------------------------------
+
+# Labels that are HONEST TERMINAL FAILURES or REQUESTS, not rescues that never
+# work. A 0% success rate on these is correct reporting, and gating on it would
+# punish the telemetry for being truthful: `_drowning_no_shore` means the bot is
+# in open water with no land in reach, which is a fact about the world, and
+# `_prereq_adopted` records an intention whose outcome is `_prereq_satisfied`.
+#
+# Anything NOT on this list with many firings and no successes is a defect. That
+# is exactly how `_livelock_escape` was caught -- 2,296 firings, 0 successes,
+# because its status was hardcoded before the action it reported on had run.
+#
+# THE DISCRIMINATOR IS NOT "is the status hardcoded to failed". It is: DOES THIS
+# EVENT REPORT ON AN ACTION IT PERFORMED?
+#
+#   - An OBSERVATION ("I notice I am stagnating", "no shore is reachable", "I am
+#     asking for scaffold") has no success available to it. 0% is the only honest
+#     number and gating on it would punish correct reporting.
+#   - An ACTION REPORT ("I relocated", "I deposited") must carry the outcome of
+#     the thing it did. 0% across thousands of firings means either the action
+#     never works or the report is fabricated.
+#
+# `_livelock_escape` sat on the wrong side of that line: it reported a
+# relocation, so it owed an outcome, and instead hardcoded failure before the
+# goto ran. That is why it is NOT on this list.
+#
+# This list is a DECLARED, AUDITABLE SET. Adding a label to it is a claim that
+# the label is an observation, and must be justified -- it is not a way to
+# silence the gate.
+TERMINAL_LABELS = {
+    # water and entrapment: facts about the world, not attempts
+    '_drowning_no_shore', '_drowning_released_timeout',
+    '_marooned', '_marooned_needs_scaffold', '_marooned_needs_pickaxe',
+    '_entombed', '_entombed_unrecoverable',
+    '_stranded_underground', '_trapped_in_canopy',
+    # detections raised by the watchdog and the cognitive loop
+    '_stagnation', '_loop_restart', '_milestone_skipped',
+    # bookkeeping: adoption is an intention, closure is `_prereq_satisfied`
+    '_prereq_adopted', '_prereq_abandoned', '_rule_contradicted',
+}
+
+PATH_FAILURE = {'_path_noPath', '_path_reset', '_path_timeout'}
+PRODUCTIVE = {'gather', 'goto', 'explore', 'craft', 'mine', 'deposit'}
+
+
+def _skill_stats(block, hours):
+    body = {
+        'query': {'bool': {'filter': [
+            {'range': {'@timestamp': {'gte': f'now-{hours}h'}}},
+            {'term': {'exp.block': block}}]}},
+        'aggs': {'arm': {'terms': {'field': 'exp.arm', 'size': 20},
+                         'aggs': {'n': {'terms': {'field': 'skill.name', 'size': 80},
+                                        'aggs': {'s': {'terms': {'field': 'skill.status', 'size': 6}}}}}}},
+    }
+    d = es('mcai-skill-*/_search?size=0', body)
+    per_arm, overall = {}, defaultdict(lambda: {'total': 0, 'success': 0})
+    for ab in d.get('aggregations', {}).get('arm', {}).get('buckets', []):
+        per_arm[ab['key']] = {}
+        for nb in ab['n']['buckets']:
+            st = {x['key']: x['doc_count'] for x in nb['s']['buckets']}
+            rec = {'total': nb['doc_count'], 'success': st.get('success', 0)}
+            per_arm[ab['key']][nb['key']] = rec
+            overall[nb['key']]['total'] += rec['total']
+            overall[nb['key']]['success'] += rec['success']
+    return dict(overall), per_arm
+
+
+def _llm_stats(block, hours):
+    body = {
+        'query': {'bool': {'filter': [
+            {'range': {'@timestamp': {'gte': f'now-{hours}h'}}},
+            {'term': {'exp.block': block}},
+            {'exists': {'field': 'llm.latency_ms'}}]}},
+        'aggs': {'arm': {'terms': {'field': 'exp.arm', 'size': 20},
+                         'aggs': {'p': {'percentiles': {'field': 'llm.latency_ms',
+                                                        'percents': [50, 95, 99]}},
+                                  'bots': {'cardinality': {'field': 'bot.name'}}}}},
+    }
+    d = es('mcai-llm-agents*/_search?size=0', body)
+    out = {}
+    for ab in d.get('aggregations', {}).get('arm', {}).get('buckets', []):
+        v = ab['p']['values']
+        out[ab['key']] = {'decisions': ab['doc_count'],
+                          'bots': ab['bots']['value'] or 1,
+                          'p50': v.get('50.0'), 'p95': v.get('95.0'), 'p99': v.get('99.0')}
+    return out
+
+
+def viability_gates(block, hours, a):
+    """Operational start/no-start checks. Returns a list of failures."""
+    fails = []
+    print('\n  ' + '=' * 74)
+    print('  OPERATIONAL READINESS (start/no-start; NOT analysis endpoints)')
+    print('  ' + '=' * 74)
+
+    overall, per_arm = _skill_stats(block, hours)
+    if not overall:
+        print('  INSUFFICIENT - no skill telemetry in the window')
+        return ['no skill telemetry']
+
+    g = overall.get('gather', {'total': 0, 'success': 0})
+    rate = g['success'] / g['total'] if g['total'] else 0.0
+    print(f"\n  gather: {g['success']}/{g['total']} = {rate*100:.1f}% "
+          f"(fleet minimum {a.min_gather*100:.0f}%)")
+    if not g['total']:
+        fails.append('no gather attempts at all')
+    elif rate < a.min_gather:
+        fails.append(f'fleet gather {rate*100:.1f}% < {a.min_gather*100:.0f}%')
+    for arm, sk in sorted(per_arm.items()):
+        ag = sk.get('gather', {'total': 0, 'success': 0})
+        ar = ag['success'] / ag['total'] if ag['total'] else 0.0
+        low = ag['total'] and ar < a.min_gather_arm
+        print(f"    {arm:<12} {ag['success']:>5}/{ag['total']:<7} {ar*100:>5.1f}%"
+              + ('   <-- BELOW ARM FLOOR' if low else ''))
+        if low:
+            fails.append(f'arm {arm} gather {ar*100:.1f}% < {a.min_gather_arm*100:.0f}%')
+
+    prod = sum(v['total'] for k, v in overall.items() if k in PRODUCTIVE)
+    pathf = sum(v['total'] for k, v in overall.items() if k in PATH_FAILURE)
+    ratio = prod / pathf if pathf else float('inf')
+    print(f'\n  productive:path-failure = {prod}:{pathf} = {ratio:.2f} '
+          f'(minimum {a.min_productive_ratio})')
+    if ratio < a.min_productive_ratio:
+        fails.append(f'productive:path ratio {ratio:.2f} < {a.min_productive_ratio}')
+
+    print(f'\n  rescue paths with >={a.dead_rescue_min} firings and zero successes:')
+    dead = [(k, v['total']) for k, v in sorted(overall.items())
+            if v['total'] >= a.dead_rescue_min and v['success'] == 0
+            and k not in TERMINAL_LABELS]
+    if not dead:
+        print('    none')
+    for k, n in dead:
+        print(f'    {k:<28} {n:>6} firings, 0 successes   <-- DEFECT OR MISLABEL')
+        fails.append(f'{k} never succeeds ({n} firings)')
+
+    llm = _llm_stats(block, hours)
+    if llm:
+        print('\n  LLM latency and decision throughput per arm:')
+        print(f"    {'arm':<12}{'decisions':>10}{'/bot-h':>9}{'p50':>8}{'p95':>8}{'p99':>8}")
+        dbh = {}
+        for arm, v in sorted(llm.items()):
+            dbh[arm] = v['decisions'] / max(1e-9, v['bots'] * hours)
+            slow = v['p95'] and v['p95'] > a.max_p95
+            print(f"    {arm:<12}{v['decisions']:>10}{dbh[arm]:>9.1f}"
+                  f"{(v['p50'] or 0):>8.0f}{(v['p95'] or 0):>8.0f}{(v['p99'] or 0):>8.0f}"
+                  + ('  <--' if slow else ''))
+            if slow:
+                fails.append(f"arm {arm} p95 {v['p95']:.0f}ms > {a.max_p95:.0f}ms")
+            if v['p99'] and v['p99'] > a.max_p99:
+                fails.append(f"arm {arm} p99 {v['p99']:.0f}ms > {a.max_p99:.0f}ms")
+        # THE CAPACITY CONFOUND. hive and board accumulate more memory, so their
+        # prompts grow longer. If the endpoint saturates, those arms get FEWER
+        # decisions per bot-hour than isolated -- an arm effect manufactured by
+        # hardware rather than by memory, which would read as a treatment
+        # difference in every downstream plot.
+        if len(dbh) > 1:
+            hi, lo = max(dbh.values()), min(dbh.values())
+            spread = (hi - lo) / hi if hi else 0
+            print(f'\n  decisions/bot-hour spread: {spread*100:.1f}% '
+                  f'(maximum {a.max_decision_spread*100:.0f}%)')
+            if spread > a.max_decision_spread:
+                fails.append(f'decisions/bot-hour differ by {spread*100:.1f}% between arms '
+                             f'- that is capacity, not memory')
+    else:
+        print('\n  (no llm.latency_ms telemetry in the window)')
+
+    return fails
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--block', default='block2')
@@ -125,6 +310,22 @@ def main():
                     help='every arm must be at least this mobile, regardless of ratio')
     # 4 arms x 5 bots x 144 windows/day is ~720 per arm when everything reports.
     # 100 was lenient enough for a mostly-dead arm to pass.
+    # OPERATIONAL READINESS THRESHOLDS (amendment 2026-08-20, pre-data).
+    # These gate the START of the block, not the analysis of it.
+    ap.add_argument('--min-gather', type=float, default=0.20,
+                    help='fleet-wide gather success floor')
+    ap.add_argument('--min-gather-arm', type=float, default=0.10,
+                    help='per-arm gather success floor')
+    ap.add_argument('--min-productive-ratio', type=float, default=0.5,
+                    help='productive skills : path failures')
+    ap.add_argument('--max-p95', type=float, default=15000, help='LLM p95 ms, per arm')
+    ap.add_argument('--max-p99', type=float, default=25000, help='LLM p99 ms, per arm')
+    ap.add_argument('--max-decision-spread', type=float, default=0.10,
+                    help='max relative gap in decisions/bot-hour between arms')
+    ap.add_argument('--dead-rescue-min', type=int, default=100,
+                    help='firings above which a 0%% success rate is a defect')
+    ap.add_argument('--skip-viability', action='store_true',
+                    help='mobility gate only, as it ran before this amendment')
     ap.add_argument('--min-windows', type=int, default=500,
                     help='per arm, below which the answer is INSUFFICIENT not GO')
     a = ap.parse_args()
@@ -266,15 +467,32 @@ def main():
 
     ok = ok_ratio and ok_floor
 
+    # The mobility gate answers "are the arms comparable". It cannot answer "is
+    # the apparatus measuring anything", and eight equally-broken worlds pass it.
+    v_fails = [] if a.skip_viability else viability_gates(a.block, a.hours, a)
+
     if a.hours < 24:
         print(f"  NOTE: --hours {a.hours} is less than the pre-registered full day.")
 
-    if ok:
+    if v_fails:
+        print("\n  " + "=" * 74)
+        print("  OPERATIONAL NO-GO:")
+        for f in v_fails:
+            print(f"    - {f}")
+        print("\n  These are apparatus faults, not results. Fix them and re-run the\n"
+              "  shakedown; the seven-day clock has not started and nothing is lost.")
+
+    if ok and not v_fails:
         print(f"\n  GO — every arm is at least {a.floor*100:.0f}% mobile and no arm's mobile\n"
               f"  fraction exceeds another's by more than {a.ratio}x.\n"
               "  Publish BOTH denominators in every confirmatory plot; if raw and mobile\n"
               "  bot-hours disagree, the disagreement is the finding.")
         return 0
+    if ok and v_fails:
+        print("\n  NO-GO — the arms are comparably mobile, but the apparatus is not\n"
+              "  producing measurable work. Comparability without viability means a\n"
+              "  clean comparison between two things that are both broken.")
+        return 1
     if not ok_floor:
         print(f"\n  NO-GO — arm '{lo_arm}' is only {lo*100:.1f}% mobile, below the {a.floor*100:.0f}% floor.\n"
               "  Even matched arms cannot carry a block when most of the exposure is\n"
