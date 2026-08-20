@@ -178,5 +178,20 @@ def treeless_rejected():
 t("PERFECT FLAT DRY GROUND WITH NO TREES IS REJECTED -- the tech tree starts at wood",
   treeless_rejected)
 
+def rough_terrain_rejected():
+    # a flat 13x13 shelf on a mountainside: platform_relief passes, the ground
+    # the bots must WALK does not
+    import math
+    def shelf(x, z):
+        if max(abs(x), abs(z)) <= 8:
+            return (100, "solid")
+        return (100 - min(40, int(math.hypot(x, z))), "solid")
+    r = pt.score_site(FakeRcon(_wooded(shelf)), 0, 0)
+    assert not r["ok"], "a flat shelf on a mountainside must not pass"
+
+
+t("A FLAT SHELF ON A MOUNTAINSIDE IS REJECTED -- planning a route is not walking it",
+  rough_terrain_rejected)
+
 print(f"\n  {P} passed, {F} failed")
 sys.exit(1 if F else 0)

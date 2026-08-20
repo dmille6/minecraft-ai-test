@@ -83,6 +83,16 @@ PLATFORM_HALF = 6          # town_plan fills a 13x13 platform
 MAX_PLATFORM_SLOPE = 3     # blocks of relief across the footprint
 MAX_WET_FRACTION = 0.05    # of sampled columns within 32 blocks
 MAX_ROUTE_DROP = 6         # a cardinal route that falls further is a trap
+# WIDE-AREA ROUGHNESS, which is the criterion whose absence cost the third
+# rebuild. platform_relief only measures the 13x13 footprint the town is stamped
+# on, so a flat shelf on a mountainside scores 2 and passes. The town that did
+# exactly that sat at y=119 with the surrounding terrain spread over 14 blocks,
+# and 86% of 15,175 path events in one hour were the pathfinder's own stuck
+# detector: the bots planned routes they could not walk.
+#
+# Gate the ground the bots actually travel over, not just the ground the chest
+# stands on.
+MAX_TERRAIN_SPREAD = 10
 # Canopy is not merely inconvenient: the surface probe returns the TREETOP, so
 # every slope and route reading taken through a forest is measuring the wrong
 # surface. Past this fraction the site's terrain numbers cannot be trusted.
@@ -210,7 +220,7 @@ def score_site(rcon, cx, cz):
     can record what the search rejected and why -- a siting decision that cannot
     be audited is one nobody can reproduce.
     """
-    stats = {"wet": 0, "canopy": 0, "sampled": 0, "ys": []}
+    stats = {"wet": 0, "canopy": 0, "sampled": 0, "ys": [], "kinds": []}
     _forceload(rcon, cx, cz, on=True)
     try:
         return _score_loaded(rcon, cx, cz, stats)
@@ -229,6 +239,7 @@ def _score_loaded(rcon, cx, cz, stats):
         y, kind = column(rcon, cx + dx, cz + dz)
         stats["sampled"] += 1
         stats["ys"].append(y)
+        stats["kinds"].append(kind)
         if kind == "water":
             stats["wet"] += 1
             # Water anywhere inside the platform footprint is disqualifying: the
@@ -256,8 +267,9 @@ def _score_loaded(rcon, cx, cz, stats):
         return {"ok": False, "reason": f"{wet_frac:.0%} of columns within 32 are water",
                 "y": centre_y, "stats": stats}
 
-    near = [y for (dx, dz), y in zip(SAMPLE_OFFSETS, stats["ys"])
-            if abs(dx) <= PLATFORM_HALF and abs(dz) <= PLATFORM_HALF]
+    near = [y for (dx, dz), y, k in zip(SAMPLE_OFFSETS, stats["ys"], stats["kinds"])
+            if abs(dx) <= PLATFORM_HALF and abs(dz) <= PLATFORM_HALF and k == "solid"]
+    near = near or [centre_y]
     relief = max(near) - min(near)
     stats["platform_relief"] = relief
     if relief > MAX_PLATFORM_SLOPE:
@@ -293,7 +305,17 @@ def _score_loaded(rcon, cx, cz, stats):
                           f"tree; the tech tree starts at oak_log",
                 "y": centre_y, "stats": stats}
 
-    stats["y_spread"] = max(stats["ys"]) - min(stats["ys"])
+    # A TREE IS NOT A HILL -- the same mistake the route check already makes once.
+    # The probe returns the TREETOP, so a flat wooded plain would show a spread
+    # made entirely of canopy and be rejected as unwalkable ground.
+    ground = [y for y, k in zip(stats["ys"], stats["kinds"]) if k == "solid"]
+    stats["y_spread"] = (max(ground) - min(ground)) if ground else 0
+    if stats["y_spread"] > MAX_TERRAIN_SPREAD:
+        return {"ok": False,
+                "reason": f"terrain spread {stats['y_spread']} over the sampled radius "
+                          f"> {MAX_TERRAIN_SPREAD}; bots cannot walk what they can plan",
+                "y": centre_y, "stats": stats}
+    stats.pop("kinds", None)
     return {"ok": True, "reason": "ok", "y": centre_y, "stats": stats}
 
 
