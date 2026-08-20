@@ -344,6 +344,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--step", type=int, default=96,
                     help="blocks between candidate centres in the spiral")
+    ap.add_argument("--force", action="store_true",
+                    help="re-site a world that already has a town (only after wiping it)")
     ap.add_argument("--border", type=int, default=1950,
                     help="world border RADIUS in blocks, centred on the chosen town")
     ap.add_argument("--rings", type=int, default=5,
@@ -356,6 +358,20 @@ def main():
     conf = dict(l.split("=", 1) for l in props.read_text().splitlines()
                 if "=" in l and not l.startswith("#"))
     port = int(conf.get("rcon.port", BASE_RCON + ARMS[a.arm]))
+
+    # SITING IS NOT IDEMPOTENT, so it must not be repeatable by accident.
+    #
+    # Every run STAMPS a town, and a stamped town changes the terrain the scorer
+    # reads. Running this three times on one world produced three towns in three
+    # different places -- the second search rejected the site the first had built
+    # on, and the third rejected both. The worlds stayed identical to each other
+    # only because the mistake was made uniformly, which is luck, not design.
+    marker = ROOT / a.arm / "TOWN-PLACED.json"
+    if marker.exists() and not a.force:
+        print(f"  {a.arm} already has a town (see {marker}). Re-running would stamp a\n"
+              f"  SECOND one and move the site. Use --force only if the world was wiped.")
+        print(marker.read_text())
+        return
 
     rcon = Rcon("127.0.0.1", port, conf["rcon.password"].strip())
     print(f"  searching outward from {a.x},{a.z} for a dry, walkable, level site")
@@ -382,7 +398,7 @@ def main():
         if re.search(r"error|failed|Unknown|cannot|expected", out, re.I):
             print(f"   !! {c}\n      -> {out}", file=sys.stderr)
 
-    print(json.dumps({"arm": a.arm, "home": [cx, y + 1, cz],
+    payload = json.dumps({"arm": a.arm, "home": [cx, y + 1, cz],
                       "board": [bx, by, bz], "rcon_port": port,
                       # The siting decision, recorded so it can be audited and
                       # reproduced. Terrain differences between arms would be a
@@ -393,7 +409,11 @@ def main():
                                  "rejected": [c for c in tried if not c["ok"]]},
                       # the game port, so generate-roster.py needs no second
                       # source of truth for which world this arm is
-                      "port": int(conf["server-port"])}, indent=2))
+                      "port": int(conf["server-port"])}, indent=2)
+    print(payload)
+    # The marker IS the town record: written only after the stamp succeeded, and
+    # read on the next run to refuse a second stamp.
+    marker.write_text(payload)
     print(f"\n  env for this arm:\n    HOME_X={cx} HOME_Y={y+1} HOME_Z={cz}"
           f"\n    BOARD_X={bx} BOARD_Y={by} BOARD_Z={bz} BOARD_RADIUS=8")
 

@@ -153,15 +153,21 @@ def bot_windows(bot, block, hours):
 # the label is an observation, and must be justified -- it is not a way to
 # silence the gate.
 TERMINAL_LABELS = {
-    # water and entrapment: facts about the world, not attempts
+    # STATES THE BOT IS IN, not rescues that failed. Each is logged with
+    # status='failed' because something IS wrong, but a 0% success rate on them
+    # is definitionally correct and must not read as a defect -- a gate that
+    # cries wolf is a gate people learn to override.
     '_drowning_no_shore', '_drowning_released_timeout',
     '_marooned', '_marooned_needs_scaffold', '_marooned_needs_pickaxe',
     '_entombed', '_entombed_unrecoverable',
-    '_stranded_underground', '_trapped_in_canopy',
-    # detections raised by the watchdog and the cognitive loop
-    '_stagnation', '_loop_restart', '_milestone_skipped',
-    # bookkeeping: adoption is an intention, closure is `_prereq_satisfied`
-    '_prereq_adopted', '_prereq_abandoned', '_rule_contradicted',
+    '_prereq_adopted', '_prereq_abandoned',
+    # Added 2026-08-20 after the first real gate run flagged all of these.
+    # Classified by reading each call site, not by name:
+    '_milestone_skipped',      # a goal abandoned after 25 attempts; a decision
+    '_rule_contradicted',      # an avoid rule DISPROVED -- the learning working
+    '_stagnation',             # watchdog detection; the escalation owns the outcome
+    '_loop_restart',           # liveness caught a silent loop and restarted it
+    '_stranded_underground',   # watchdog detection + climb-out attempt counter
 }
 
 PATH_FAILURE = {'_path_noPath', '_path_reset', '_path_timeout'}

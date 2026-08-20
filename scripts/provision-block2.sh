@@ -90,9 +90,37 @@ EOF
   # joining as any username -- including as a bot, mid-block. Seed it with this
   # arm's five bots so the server is never briefly open while it fills.
   : > "$DIR/whitelist.json.pending"
+  # OWNERSHIP BEFORE MODE. chmod 600 alone left this file root-owned and
+  # unreadable by the service user, so Paper silently fell back to its DEFAULTS:
+  # every world bound the default port 25565 and seven of eight crash-looped on
+  # "Address already in use", while the one that won the race ran on default
+  # difficulty with the declared settings sitting unread on disk beside it.
+  #
+  # A config the server cannot read is not a config, and Paper does not say so --
+  # it just quietly becomes a different experiment.
+  chown -R minecraft:minecraft "$DIR"
   chmod 600 "$DIR/server.properties"
   ok "$ARM -> $DIR  port $PORT  rcon $RCON  seed $SEED"
 done
+
+say "Verify the service user can actually READ what we just wrote"
+# This check exists because its absence cost a full provisioning cycle. The
+# config was correct on disk and unreadable to the process that needed it, so
+# Paper fell back to defaults -- same port for all eight worlds, default
+# difficulty -- and reported nothing wrong. Seven crash-looped; the eighth ran
+# the wrong experiment quietly.
+FAILED=0
+for ARM in "${ARMS[@]}"; do
+  F="$ROOT/$ARM/server.properties"
+  if sudo -u minecraft test -r "$F"; then
+    ok "$ARM config readable by the service user"
+  else
+    echo "   !! $ARM: $F is NOT readable by 'minecraft' -- Paper would silently"
+    echo "      use its defaults instead. Refusing to continue."
+    FAILED=1
+  fi
+done
+[ "$FAILED" -eq 0 ] || exit 1
 
 say "Systemd units"
 for i in "${!ARMS[@]}"; do

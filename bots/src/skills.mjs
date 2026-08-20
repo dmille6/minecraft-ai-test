@@ -595,14 +595,21 @@ async function descendToGround(ctx, signal) {
   // bounded decision, not the pathfinder rearranging terrain as a side effect.
   log('info', 'gather: no walkable route down, digging through foliage',
       { y: Math.round(bot.entity.position.y) })
-  logEvent({ kind: 'trapped_in_canopy', status: 'failed',
-             detail: `stranded on foliage at y=${Math.round(bot.entity.position.y)}, digging out`,
-             snapshot: snapshot(bot) })
+  // LOG THE OUTCOME, NOT THE INTENTION.
+  //
+  // This carried a hardcoded status:'failed' written BEFORE the dig loop ran, so
+  // 217 canopy escapes in one day recorded 0% success whether or not the bot
+  // reached the ground. That is the same defect as `livelock_escape`, and as
+  // `drowning_escaped` before it: an event named after what the code was ABOUT
+  // to do rather than what happened. The loop already knows the answer -- it
+  // only leaves early when it is standing on something that is not foliage.
+  const startY = bot.entity.position.y
+  let freed = false
   for (let i = 0; i < 12; i++) {
     check(signal)
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
-    if (!FOLIAGE.test(below.name)) return true          // reached solid ground
+    if (!FOLIAGE.test(below.name)) { freed = true; break }   // reached solid ground
     if (below.name === 'air') { await sleep(400, signal); continue }   // falling
     try {
       const tool = bestTool(bot, below)
@@ -614,7 +621,13 @@ async function descendToGround(ctx, signal) {
       break
     }
   }
-  return false
+  const dropped = Math.max(0, startY - bot.entity.position.y)
+  logEvent({ kind: 'trapped_in_canopy', status: freed ? 'success' : 'failed',
+             detail: `stranded on foliage at y=${Math.round(startY)}; dug down ` +
+                     `${dropped.toFixed(0)} block(s) and ` +
+                     `${freed ? 'reached solid ground' : 'did not get free'}`,
+             snapshot: snapshot(bot) })
+  return freed
 }
 
 // -------------------------------------------------------------- gather -----
