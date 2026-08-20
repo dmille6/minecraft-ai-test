@@ -52,14 +52,21 @@ def in_world(world):
 
 
 def unit_state(bot, host=None):
-    cmd = ["systemctl", "show", f"mcbot@{bot}", "-p", "ActiveState", "-p", "NRestarts",
-           "-p", "MemoryCurrent", "--value"]
+    # NOT `--value` with several -p: systemd returns them in ITS order, not the
+    # order asked for, so positional parsing silently mislabels the fields --
+    # this printed MemoryCurrent as the restart count (restarts=143060992).
+    # Ask for key=value and read them by name.
+    cmd = ["systemctl", "show", f"mcbot@{bot}",
+           "-p", "ActiveState", "-p", "NRestarts", "-p", "MemoryCurrent"]
     if host:
         cmd = ["ssh", "-o", "BatchMode=yes", host] + cmd
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout.split()
-        return {"active": out[0] if out else "?", "restarts": out[1] if len(out) > 1 else "?",
-                "mem_mb": int(out[2]) // 1048576 if len(out) > 2 and out[2].isdigit() else None}
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout
+        kv = dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+        mem = kv.get("MemoryCurrent", "")
+        return {"active": kv.get("ActiveState", "?"),
+                "restarts": kv.get("NRestarts", "?"),
+                "mem_mb": int(mem) // 1048576 if mem.isdigit() else None}
     except Exception:
         return {"active": "?", "restarts": "?", "mem_mb": None}
 
