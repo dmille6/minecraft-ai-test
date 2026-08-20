@@ -90,6 +90,11 @@ export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK }
 // uniform. Fifteen minutes is several cognitive cycles plus a gather attempt.
 export const PREREQ_TTL_MS = 15 * 60_000
 
+// Enough displacement that the bot's surroundings -- and so the blocks in its
+// prompt -- are different ones. Below this the breaker has not broken anything
+// and must not report that it did.
+export const LIVELOCK_MIN_MOVE = 8
+
 /**
  * Does a held prerequisite replace the milestone this cycle?
  *
@@ -199,10 +204,27 @@ export class CognitiveLoop {
     const x = Math.round(p.x + Math.cos(ang) * dist)
     const z = Math.round(p.z + Math.sin(ang) * dist)
     log('warn', 'livelock breaker: relocating', { to: `${x},${z}` })
-    logEvent({ kind: 'livelock_escape', status: 'failed',
-               detail: `fixated on one action; relocating to ${x},${z}`, snapshot: snapshot(this.bot) })
     this.memory.addEvent(`stuck choosing the same action; relocated toward ${x},${z} to find different surroundings`)
+    // LOG THE OUTCOME, NOT THE INTENTION.
+    //
+    // This event carried a hardcoded `status: 'failed'` written BEFORE the goto
+    // ran, so 2,296 relocations in 24 hours recorded 0% success regardless of
+    // whether the bot moved. That is not a rescue path that never works; it is
+    // one that was never measured -- the same defect that let `drowning_escaped`
+    // count ceiling timeouts as rescues.
+    //
+    // Success here is DISPLACEMENT, not arrival. The breaker exists to put the
+    // bot where its perception differs so the model stops proposing the same
+    // action; reaching the exact square 25-60 blocks out was never the goal.
+    const from = { x: p.x, z: p.z }
     await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
+    const at = this.bot.entity?.position
+    const moved = at ? Math.hypot(at.x - from.x, at.z - from.z) : 0
+    logEvent({ kind: 'livelock_escape',
+               status: moved >= LIVELOCK_MIN_MOVE ? 'success' : 'failed',
+               detail: `fixated on one action; relocating to ${x},${z} -- moved ` +
+                       `${moved.toFixed(0)} of the ${Math.round(dist)} blocks asked for`,
+               snapshot: snapshot(this.bot) })
     this.admission.clearRepeatWindow()
     this.consecutiveRejections = 0
   }
