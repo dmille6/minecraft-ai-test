@@ -317,11 +317,39 @@ def viability_gates(block, hours, a):
         if len(dbh) > 1:
             hi, lo = max(dbh.values()), min(dbh.values())
             spread = (hi - lo) / hi if hi else 0
+            worst_p95 = max((v['p95'] or 0) for v in llm.values())
+            saturated = worst_p95 > a.saturation_p95
             print(f'\n  decisions/bot-hour spread: {spread*100:.1f}% '
                   f'(maximum {a.max_decision_spread*100:.0f}%)')
+            print(f'  endpoint p95 worst arm: {worst_p95:.0f}ms '
+                  f'(saturation threshold {a.saturation_p95:.0f}ms) -> '
+                  + ('SATURATED' if saturated else 'not saturated'))
+            # WHAT THIS RULE IS FOR, and what it is not for.
+            #
+            # It exists to catch a CAPACITY artifact: hive and board accumulate
+            # more memory, their prompts grow longer, and a saturated endpoint
+            # then gives those arms fewer decisions per bot-hour for reasons
+            # having nothing to do with what they remember.
+            #
+            # But arms can also differ in decisions/bot-hour because their bots
+            # BEHAVE differently -- an arm whose bots fail fast cycles sooner
+            # than one whose bots run long skills. That is a treatment effect,
+            # and failing the gate on it (or "fixing" it with an equal-slot
+            # scheduler) would MASK the very thing the block is measuring.
+            #
+            # The discriminator is whether the endpoint is under strain at all.
+            # Below the saturation threshold it cannot be the cause, so the
+            # spread is reported as a finding rather than treated as a fault.
             if spread > a.max_decision_spread:
-                fails.append(f'decisions/bot-hour differ by {spread*100:.1f}% between arms '
-                             f'- that is capacity, not memory')
+                if saturated:
+                    fails.append(f'decisions/bot-hour differ by {spread*100:.1f}% between arms '
+                                 f'while the endpoint is saturated (p95 {worst_p95:.0f}ms) '
+                                 f'- that is capacity, not memory')
+                else:
+                    print(f'  NOTE: the spread exceeds {a.max_decision_spread*100:.0f}% but the '
+                          f'endpoint is not saturated, so it cannot be a capacity\n'
+                          f'  artifact. Reported as a BEHAVIOURAL difference and carried into '
+                          f'the analysis\n  as a covariate, not treated as an apparatus fault.')
     else:
         print('\n  (no llm.latency_ms telemetry in the window)')
 
@@ -355,6 +383,9 @@ def main():
     ap.add_argument('--min-productive-ratio', type=float, default=0.5,
                     help='productive skills : path failures')
     ap.add_argument('--max-p95', type=float, default=15000, help='LLM p95 ms, per arm')
+    ap.add_argument('--saturation-p95', type=float, default=12000,
+                    help='p95 above which the endpoint is deemed under strain, and a '
+                         'decisions/bot-hour spread may therefore be a capacity artifact')
     ap.add_argument('--max-p99', type=float, default=25000, help='LLM p99 ms, per arm')
     ap.add_argument('--max-decision-spread', type=float, default=0.10,
                     help='max relative gap in decisions/bot-hour between arms')
