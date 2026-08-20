@@ -952,15 +952,40 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         if (mstate === 'need_scaffold' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
-          // cognitive.mjs drains this bus on its next tick, the same way the
-          // entombed branch and the skill layer hand over a prerequisite.
-          bot.pendingPrereq = scaffoldPrereq(
-            `no path can start from y=${Math.round(bot.entity.position.y)} and there is ` +
-            `nothing in the inventory to pillar with`)
-          logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
-                     detail: `no route from y=${Math.round(bot.entity.position.y)}, column above ` +
-                             `is open, but no placeable blocks — asked for scaffold`,
-                     snapshot: snapshot(bot) })
+          // TAKE THE WALL BEFORE ASKING ANYONE FOR ANYTHING.
+          //
+          // Handing this to the goal layer first is what measured 0/8 across 453
+          // expired prerequisites. The bot cannot travel -- that is why it is
+          // here -- so the fetch it was being asked to perform was impossible by
+          // construction. Its own walls are made of the thing it needs.
+          const yNow = Math.round(bot.entity.position.y)
+          const invBefore = inventorySummary(bot)
+          const got = await harvestAdjacent(bot).catch(e => {
+            log('warn', 'reflex: adjacent harvest failed', { err: e.message })
+            return { gained: 0, dug: 0, tried: 0 }
+          })
+          if (got.gained > 0) {
+            noteReflexInventory(bot, invBefore, 'maroon_harvest')
+            logEvent({ kind: 'marooned_self_sourced', status: 'success',
+                       detail: `no route from y=${yNow}; dug ${got.dug} of ${got.tried} ` +
+                               `neighbouring block(s) and gained ${got.gained} placeable — ` +
+                               `haveBlocks is now true, so the next check climbs`,
+                       snapshot: snapshot(bot) })
+          } else {
+            // Genuinely nothing to take: bedrock, liquid, or everything around
+            // needs a tool the bot has not got. NOW the goal layer is the right
+            // owner, because the answer really is elsewhere.
+            // cognitive.mjs drains this bus on its next tick, the same way the
+            // entombed branch and the skill layer hand over a prerequisite.
+            bot.pendingPrereq = scaffoldPrereq(
+              `no path can start from y=${yNow}, nothing in the inventory to pillar ` +
+              `with, and ${got.tried} adjacent block(s) yielded nothing when dug`)
+            logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
+                       detail: `no route from y=${yNow}, column above is open, no placeable ` +
+                               `blocks, and self-sourcing failed (${got.dug}/${got.tried} dug) ` +
+                               `— asked for scaffold`,
+                       snapshot: snapshot(bot) })
+          }
         }
         if (mstate === 'need_pickaxe' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
@@ -1237,6 +1262,70 @@ export function shaftCapNeedsTool(bot, maxClearance = 12) {
  * Now: clear the ceiling first, verify height was actually gained, and fall
  * back to digging straight up when pillaring cannot work.
  */
+// Sides only, at foot and head height. NEVER the floor (digging down drops the
+// bot deeper into the trap it is escaping) and NEVER the ceiling (that column is
+// the escape route and pillarOut owns it).
+const HARVEST_OFFSETS = [
+  [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
+  [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1],
+]
+
+// Four is enough to pillar clear of most pits, but the number that actually
+// matters is ONE: `haveBlocks` is a .some() test, so a single placeable block
+// flips the next maroon check from need_scaffold to climb.
+export const SCAFFOLD_SELF_SOURCE = 4
+
+/**
+ * SOURCE SCAFFOLD FROM THE WALL THE BOT IS ALREADY TOUCHING.
+ *
+ * The prerequisite mechanism assumes a bot can go and fetch what it lacks. A
+ * marooned bot cannot -- having no route IS the definition of marooned -- so the
+ * two mechanisms contradicted each other, and the telemetry says so plainly:
+ * over 24 hours, 453 of 479 adopted prerequisites expired at the 15-minute TTL,
+ * and every sampled detail read `dirt-class: had 0/8`. Not partial progress.
+ * ZERO. The fleet spent hours asking bots to travel for blocks they were
+ * standing inside.
+ *
+ * Digging a neighbour needs no pathfinder, no goal and no route, which makes it
+ * the one acquisition a trapped bot can always attempt.
+ *
+ * Two rules stop this from making things worse:
+ *   - ONLY BLOCKS WORTH HAVING. Breaking stone bare-handed drops nothing --
+ *     pillarOut documents the same trap -- so a dig that yields no item merely
+ *     widens the pit. A candidate must be PLACEABLE *and* harvestable with what
+ *     the bot can actually hold.
+ *   - BOUNDED, ALWAYS. An unbounded dig inside a rescue strands the bot for
+ *     good, because for a marooned bot nothing else is coming.
+ */
+export async function harvestAdjacent(bot, want = SCAFFOLD_SELF_SOURCE, budgetMs = 20_000) {
+  const held = () => bot.inventory.items()
+    .filter(it => PLACEABLE.test(it.name))
+    .reduce((n, it) => n + it.count, 0)
+  const had = held()
+  if (had >= want) return { gained: 0, dug: 0, had, skipped: 'already holds enough' }
+
+  // Same contention as every other rescue: the pathfinder rewrites controls each
+  // tick and a dig under a body being steered elsewhere never completes.
+  seizeBody(bot, 'harvest')
+  const deadline = Date.now() + budgetMs
+  let dug = 0, tried = 0
+
+  for (const [dx, dy, dz] of HARVEST_OFFSETS) {
+    if (held() >= want || Date.now() > deadline) break
+    const b = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
+    if (!b || b.boundingBox !== 'block' || !PLACEABLE.test(b.name)) continue
+    tried++
+    const tool = bestTool(bot, b)
+    if (tool) await bot.equip(tool, 'hand').catch(() => {})
+    // Bare-handed stone yields nothing; skip rather than pay the dig for free.
+    if (b.canHarvest && !b.canHarvest(bot.heldItem?.type ?? null)) continue
+    try { await digBounded(bot, b, 6000) } catch { continue }
+    dug++
+    await sleep(400)   // the drop must reach the bot before the next count
+  }
+  return { gained: held() - had, dug, tried, had }
+}
+
 async function pillarOut(bot, maxBlocks = 24) {
   // Same contention as the drowning rescue: pathfinder rewrites jump every
   // tick while a goal is set, so a pillar that does not own the body places
