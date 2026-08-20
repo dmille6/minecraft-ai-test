@@ -83,6 +83,21 @@ done
 say "Systemd units"
 for i in "${!ARMS[@]}"; do
   ARM="${ARMS[$i]}"
+  # EQUAL ENVELOPES, ENFORCED BY THE KERNEL.
+  #
+  # Same host is a design requirement -- if arms ran on different machines, every
+  # difference between those machines would become an arm effect. But same host
+  # does NOT mean shared scheduler roulette. Eight Paper servers in one scheduling
+  # domain can starve each other during GC, chunk generation or a disk stall, and
+  # a world that loses ticks produces fewer opportunities for its bots. That is an
+  # arm effect arriving through the CPU scheduler instead of through memory, and
+  # it would be invisible in the analysis.
+  #
+  # So every world gets an IDENTICAL, dedicated slice: its own CPUs, its own
+  # quota, its own memory ceiling. Identical is what matters -- not generous.
+  CPUS_PER_WORLD=4
+  CPU_LO=$((i * CPUS_PER_WORLD))
+  CPU_HI=$((CPU_LO + CPUS_PER_WORLD - 1))
   cat > "/etc/systemd/system/block2@$ARM.service" <<EOF
 [Unit]
 Description=Block 2 Paper server ($ARM)
@@ -95,6 +110,19 @@ WorkingDirectory=$ROOT/$ARM
 ExecStart=/usr/bin/java -Xms3G -Xmx3G -jar paper.jar nogui
 Restart=always
 RestartSec=15
+
+# --- the envelope. IDENTICAL for every arm; change it for one and you have
+# --- built a confound.
+AllowedCPUs=$CPU_LO-$CPU_HI
+CPUQuota=$((CPUS_PER_WORLD * 100))%
+CPUWeight=100
+MemoryHigh=5G
+MemoryMax=6G
+IOWeight=100
+# Paper is latency-critical in a way the bots are not: a lost tick is lost world
+# time for every bot in that arm, while a bot waiting 200ms longer to think is
+# not measurable in the endpoint.
+Nice=-5
 
 [Install]
 WantedBy=multi-user.target
