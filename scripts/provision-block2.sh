@@ -63,12 +63,26 @@ rcon.password=$RCONPW
 online-mode=false
 white-list=true
 enforce-whitelist=true
-difficulty=normal
+# DECLARED IN THE PRE-REGISTRATION (amendment 2026-08-19). This file said
+# `normal` while the document said `peaceful`, which is the exact mismatch that
+# invalidated the mindcraft head-to-head: an entire comparison was credited to
+# the reflex layer when the truth was that one server had no hostile mobs in it.
+# A config that disagrees with the declaration is not a typo, it is a different
+# experiment.
+difficulty=peaceful
 gamemode=survival
+pvp=false
 spawn-protection=0
 view-distance=8
 simulation-distance=6
 max-players=20
+# Pinned rather than defaulted. Anything left to a default is a thing that can
+# change under you between one arm's world creation and the next.
+level-type=minecraft:normal
+generate-structures=true
+allow-nether=false
+allow-flight=false
+spawn-monsters=false
 motd=block2-$ARM
 EOF
   # online-mode=false is required (mineflayer bots have no Microsoft accounts),
@@ -132,20 +146,29 @@ systemctl daemon-reload
 # ENABLED, not just started. A reboot silently stopping one arm mid-block would
 # void the repetition -- and that has already happened once to instance #2.
 for ARM in "${ARMS[@]}"; do systemctl enable "block2@$ARM" >/dev/null; done
-ok "four units written and enabled for boot"
+ok "${#ARMS[@]} units written and enabled for boot"
 
 say "Next"
-cat <<'EOT'
-   1. systemctl start block2@{hive,board,isolated,placebo}
-   2. wait for world generation, then: ./scripts/place-town.sh <arm>
-      Identical furniture in ALL FOUR worlds, lectern included. The hive and
-      isolated bots simply never walk to it. Placing the lectern in only two
+cat <<EOT
+   1. systemctl start block2@{$(IFS=,; echo "${ARMS[*]}")}
+   2. wait for world generation, then for EVERY arm:
+        ./scripts/place-town.py <arm>
+      Identical furniture in all ${#ARMS[@]} worlds, lectern included. The hive and
+      isolated bots simply never walk to it. Placing the lectern in only some
       worlds would make the WORLDS differ between arms, which is exactly the
       confound the shared seed exists to prevent.
-   3. generate the 40 bot env files (5 per world), CODE_VERSION frozen
-   4. 1-2 shakedown days, EXCLUDED from analysis
-   5. THE MOBILITY GATE, from the pre-registration: Block 2 does not start
-      until no arm's immobile fraction exceeds another's by more than 2x
-      across a full shakedown day. Entrapment dominated Block 1's result and
-      would do it again.
+   3. PREGENERATE the operating radius in every world, identically, BEFORE any
+      bot connects. Chunk generation during play costs tick time, and an arm
+      that explores into fresh chunks under load loses ticks an arm that does
+      not explore never pays. That is an arm effect made of terrain caching.
+   4. gamerules, identically, in every world (see set-gamerules in this repo)
+   5. generate the 40 bot env files, CODE_VERSION frozen, endpoints declared:
+        ./scripts/generate-roster.py --town /srv/block2/town-*.json \\
+            --endpoints http://10.0.0.16:11434
+   6. 2-4h smoke on all 40 bots. NOT the shakedown -- an early abort checkpoint,
+      so a failure at scale costs hours instead of two days.
+   7. 1-2 shakedown days, EXCLUDED from analysis
+   8. ./scripts/shakedown-gate.py --block block2 --hours 24
+      Both gates must pass: mobility (arms comparable) AND operational
+      readiness (the apparatus is measuring something). Exit 0 or do not start.
 EOT

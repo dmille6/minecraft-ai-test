@@ -54,7 +54,9 @@ COMMON = {
     "BOT_ROLE": "gatherer",
     "EXP_INSTANCE": "instance-1",
     "EXP_BLOCK": "block2",
-    "MINECRAFT_HOST": "127.0.0.1",
+    # The worlds VM. Bots and Paper are split so 40 Node processes
+    # cannot starve eight latency-critical tick loops.
+    "MINECRAFT_HOST": "10.0.0.30",
     "MINECRAFT_VERSION": "1.21.11",
     "MINECRAFT_AUTH": "offline",
     "WORLD_BORDER_RADIUS": "1950",
@@ -96,7 +98,17 @@ def main():
     ap.add_argument("--town", nargs="+", required=True,
                     help="place-town.py JSON outputs, one per arm")
     ap.add_argument("--out", default="./env")
-    ap.add_argument("--endpoints", default="http://10.0.0.190:11434",
+    # The DEDICATED 3090 (10.0.0.16). The old default pointed at 10.0.0.190,
+    # a host Block 2 does not use -- and a wrong default is worse than no
+    # default, because it produces a roster that looks correct and runs against
+    # the wrong hardware. Measured capacity: 40 concurrent bots at the 3000-token
+    # prompt cap complete in 13.8s against a 30s cadence, 46% utilised.
+    #
+    # ONE endpoint, no fallback, by design. A fallback to different silicon is
+    # not the per-bot rotation the pre-registration declares; it would change the
+    # treatment environment mid-block and every affected interval would have to
+    # be censored. If the endpoint dies, the outage rule applies instead.
+    ap.add_argument("--endpoints", default="http://10.0.0.16:11434",
                     help="comma-separated Ollama endpoints; shared by ALL arms")
     ap.add_argument("--code-version", default=None,
                     help="git short SHA of the frozen code; defaults to HEAD")

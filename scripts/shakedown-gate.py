@@ -258,6 +258,36 @@ def viability_gates(block, hours, a):
         print(f'    {k:<28} {n:>6} firings, 0 successes   <-- DEFECT OR MISLABEL')
         fails.append(f'{k} never succeeds ({n} firings)')
 
+    # --- deposits: an INSTRUMENT CHECK, not a target to debug toward ----------
+    #
+    # The co-primary endpoint has 9 successes in 14 days fleet-wide and 0 of 211
+    # attempts in the last day. The pre-registration's rule is >=30 fleet-wide
+    # and >=1 per arm or the endpoint is reported unmeasurable.
+    #
+    # Applying that rule to SHAKEDOWN data, and declaring the consequence in
+    # advance, is what keeps this honest: the estimand is not being changed
+    # because the result was disliked, it is being checked that the measuring
+    # instrument is alive before the seven-day block starts. `deposit` inherits
+    # whatever `home()` achieves, so the fair test is the shakedown with the
+    # repaired walk, not the already-failed live data.
+    dep = overall.get('deposit', {'total': 0, 'success': 0})
+    dep_arms = {arm: sk.get('deposit', {'success': 0})['success']
+                for arm, sk in per_arm.items()}
+    silent = [a_ for a_, n in dep_arms.items() if n == 0]
+    print(f"\n  deposits: {dep['success']} of {dep['total']} attempts fleet-wide "
+          f"(viability needs >= {a.min_deposits} and >= 1 per arm)")
+    if dep_arms:
+        print('    ' + ', '.join(f'{k}={v}' for k, v in sorted(dep_arms.items())))
+    if dep['success'] < a.min_deposits or silent:
+        why = (f"only {dep['success']} deposits" if dep['success'] < a.min_deposits
+               else f"no deposits in {', '.join(sorted(silent))}")
+        print(f"    -> {why}: retained-items is PREDECLARED UNMEASURABLE for\n"
+              f"       confirmatory analysis. This does NOT block the start; successful\n"
+              f"       gathers stand as the sole confirmatory primary, as the\n"
+              f"       pre-registration provides for.")
+        # deliberately NOT appended to fails -- a dead co-primary is reported,
+        # not a reason to refuse to run.
+
     llm = _llm_stats(block, hours)
     if llm:
         print('\n  LLM latency and decision throughput per arm:')
@@ -322,6 +352,8 @@ def main():
     ap.add_argument('--max-p99', type=float, default=25000, help='LLM p99 ms, per arm')
     ap.add_argument('--max-decision-spread', type=float, default=0.10,
                     help='max relative gap in decisions/bot-hour between arms')
+    ap.add_argument('--min-deposits', type=int, default=30,
+                    help='fleet-wide deposit successes for retained-items to be measurable')
     ap.add_argument('--dead-rescue-min', type=int, default=100,
                     help='firings above which a 0%% success rate is a defect')
     ap.add_argument('--skip-viability', action='store_true',

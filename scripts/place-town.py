@@ -256,6 +256,47 @@ def find_site(rcon, x0, z0, step=96, rings=5, verbose=True):
                      f"tried {len(tried)} candidates; widen --rings or move --x/--z")
 
 
+# PINNED, NOT DEFAULTED. Every one of these is identical in all eight worlds.
+# A gamerule left at its default is a value that can differ between two worlds
+# created minutes apart under different server states, and nothing would report
+# it. `keepInventory` is the one with teeth: without it a death destroys the
+# carried inventory, which is the very quantity the retained-items endpoint
+# measures, and death rates are not guaranteed equal across arms.
+GAMERULES = {
+    "keepInventory": "true",
+    "doDaylightCycle": "true",
+    "doWeatherCycle": "false",     # weather is unmodelled noise the bots cannot see
+    "doImmediateRespawn": "true",  # a respawn screen is a bot frozen for no reason
+    "mobGriefing": "false",
+    "doFireTick": "false",
+    "randomTickSpeed": "3",        # vanilla default, stated so it cannot drift
+    "doInsomnia": "false",
+    "announceAdvancements": "false",
+    "sendCommandFeedback": "false",
+    "logAdminCommands": "false",
+}
+
+
+def world_rules(rcon, cx, cz, radius):
+    """Gamerules and the world border, applied identically to every world.
+
+    THE BORDER IS CENTRED ON THE TOWN, not on the origin. Siting now searches
+    outward for dry, walkable ground, so the town is no longer guaranteed to sit
+    at 0,0 -- and a border centred elsewhere would hand each arm a differently
+    shaped world with the town off to one side of it.
+    """
+    out = []
+    for rule, value in sorted(GAMERULES.items()):
+        out.append(f"gamerule {rule} {value}")
+    out.append(f"worldborder center {cx} {cz}")
+    out.append(f"worldborder set {radius * 2}")     # the command takes DIAMETER
+    out.append("worldborder warning distance 0")
+    out.append("worldborder damage amount 0")       # the border stops bots; it must not kill them
+    out.append("time set day")
+    out.append("weather clear")
+    return out
+
+
 def town_plan(x, y, z):
     """The town, relative to the probed surface. One list, four worlds."""
     cmds = []
@@ -303,6 +344,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--step", type=int, default=96,
                     help="blocks between candidate centres in the spiral")
+    ap.add_argument("--border", type=int, default=1950,
+                    help="world border RADIUS in blocks, centred on the chosen town")
     ap.add_argument("--rings", type=int, default=5,
                     help="how far out to search before giving up")
     a = ap.parse_args()
@@ -326,7 +369,9 @@ def main():
     # unloads is a home the deposit walk cannot finish at.
     _forceload(rcon, cx, cz, pad=16, on=True)
 
-    cmds, (bx, by, bz) = town_plan(cx, y, cz)
+    cmds = world_rules(rcon, cx, cz, a.border)
+    plan, (bx, by, bz) = town_plan(cx, y, cz)
+    cmds += plan
     for c in cmds:
         if a.dry_run:
             print("   would:", c)
@@ -342,6 +387,7 @@ def main():
                       # The siting decision, recorded so it can be audited and
                       # reproduced. Terrain differences between arms would be a
                       # confound; this is the evidence that there are none.
+                      "gamerules": GAMERULES, "border_radius": a.border,
                       "siting": {"requested": [a.x, a.z], "chosen": [cx, cz],
                                  "stats": site["stats"],
                                  "rejected": [c for c in tried if not c["ok"]]},
