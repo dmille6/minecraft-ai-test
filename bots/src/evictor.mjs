@@ -26,13 +26,22 @@
  */
 import { log, logEvent } from './logger.mjs'
 
-// server.properties runs view-distance=8. Keeping 12 leaves a four-chunk margin
-// so ordinary movement never evicts something the server is still updating.
-const KEEP_CHUNK_RADIUS = 12
+// server.properties runs view-distance=8, so 8 is everything the server still
+// updates and 10 is a two-chunk margin for movement between sweeps.
+//
+// THE MARGIN IS THE MEMORY. Radius 12 keeps a 25x25 = 625-column working set;
+// radius 10 keeps 21x21 = 441; the server itself only sends 17x17 = 289. At
+// roughly half a megabyte per column that is the difference between ~310MB and
+// ~220MB of ArrayBuffers per bot, and the first measurement after deploying
+// radius 12 showed array_buffers_mb=322 -- the margin, almost exactly.
+const KEEP_CHUNK_RADIUS = 10
 const SWEEP_MS = 60_000
+// even when nothing is evicted, say so this often, so silence is never ambiguous
+const QUIET_SWEEPS = 10
 
 export function startChunkEvictor(bot, { radius = KEEP_CHUNK_RADIUS, everyMs = SWEEP_MS } = {}) {
   let evictedTotal = 0
+  let sweeps = 0
 
   const sweep = () => {
     const at = bot.entity?.position
@@ -59,18 +68,26 @@ export function startChunkEvictor(bot, { radius = KEEP_CHUNK_RADIUS, everyMs = S
       try { bot.world.unloadColumn(x, z); evicted++ } catch { /* already gone */ }
     }
 
-    if (evicted > 0) {
+    // REPORT EVERY SWEEP, not only the ones that evict.
+    //
+    // The first version logged only when it evicted something, which made its
+    // silence ambiguous: "running, nothing beyond the radius" and "never started"
+    // produce identical output, and I spent a check-in unable to tell which had
+    // happened. The held-column count is also the number that says whether the
+    // radius is right, so it has to be visible even when nothing is dropped.
+    sweeps++
+    if (evicted > 0 || sweeps % QUIET_SWEEPS === 0) {
       evictedTotal += evicted
       const mem = process.memoryUsage()
-      log('info', 'evicted stale chunk columns', {
-        evicted, kept: keys.length - evicted, total: evictedTotal,
+      log('info', 'chunk sweep', {
+        evicted, held: keys.length - evicted, total: evictedTotal, sweeps,
         array_buffers_mb: Math.round(mem.arrayBuffers / 1048576),
         rss_mb: Math.round(mem.rss / 1048576),
       })
       // Logged as an event so the leak is VISIBLE in the same telemetry the
       // gate reads. A fix whose effect cannot be measured is a hope.
       logEvent({ kind: 'chunks_evicted', status: 'success',
-                 detail: `evicted ${evicted} columns beyond ${radius} chunks, kept ` +
+                 detail: `sweep ${sweeps}: evicted ${evicted} beyond ${radius} chunks, holding ` +
                          `${keys.length - evicted}; arrayBuffers now ` +
                          `${Math.round(mem.arrayBuffers / 1048576)}MB, rss ` +
                          `${Math.round(mem.rss / 1048576)}MB` })
