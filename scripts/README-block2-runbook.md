@@ -7,8 +7,12 @@ them produced worlds that looked provisioned and were not.
     sudo ./provision-block2.sh <seed>            # refuses to continue unless the
                                                  # service user can READ its config
     systemctl start block2@{hive-a,...}          # eight units, staggered
-    sudo ./place-town.py <arm>                   # ONCE per world. Stamping twice
-                                                 # moves the site; a marker refuses.
+    sudo ./place-town.py <first-arm>             # SEARCH, once, on one world only
+    sudo ./place-town.py <arm> --at=-474,75      # the other seven REUSE that site.
+                                                 # NOTE --at=VALUE, not --at VALUE:
+                                                 # coordinates start with a minus and
+                                                 # argparse reads a bare -474,75 as an
+                                                 # option name, not a value.
     sudo ./pregen-world.py <arm> --centre-from /srv/block2/town-<arm>.json
     sudo ./whitelist-block2.py
 
@@ -30,6 +34,8 @@ them produced worlds that looked provisioned and were not.
 | config-readable check in the provisioner | root-owned mode-600 server.properties made Paper fall back to DEFAULTS: all eight worlds on port 25565, seven crash-looping, the eighth quietly running the wrong difficulty |
 | TOWN-PLACED.json marker | siting stamps a town, and a stamped town changes the terrain the next search scores. Three runs put three towns in three places |
 | explicit filebeat unit list | `mcbot@*.service` matches nothing in `include_matches` and the input looks perfectly healthy while shipping zero events |
+| search once, stamp N times | eight independent searches over one seed produced TWO towns (y=119 vs y=72): forceload returns when QUEUED and generation is async, so the probes scored terrain that did not exist yet |
+| wood_nearby() | rejecting water, canopy and relief selects for flat dry TREELESS ground, and the tech tree starts at oak_log. The first site had zero trees within 288 blocks |
 | pregeneration | an arm that explores into fresh chunks under load pays tick time an arm on generated ground never pays |
 | equal cgroup envelopes | same host is required by the design; same scheduler is not. Eight Paper servers in one domain starve each other |
 
