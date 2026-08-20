@@ -134,7 +134,7 @@ t("a few scattered trees are counted but accepted", sparse_canopy_ok)
 
 
 def forceload_released():
-    r = FakeRcon(flat)
+    r = FakeRcon(flat)   # FakeRcon answers instantly, so the settle loop exits at once
     pt.score_site(r, 0, 0)
     assert r.forceloads >= 2, f"expected an add and a remove, saw {r.forceloads}"
 

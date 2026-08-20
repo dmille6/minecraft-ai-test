@@ -169,12 +169,38 @@ def column(rcon, x, z):
     return y, "solid"
 
 
-def _forceload(rcon, cx, cz, pad=40, on=True):
-    """Probes read air in an unloaded chunk, which would score every distant
-    candidate as a perfect flat plain. The old single-column probe forceloaded
-    for the same reason."""
+def _forceload(rcon, cx, cz, pad=40, on=True, settle=True):
+    """Load (and if necessary GENERATE) the chunks a candidate will be probed in.
+
+    Probes read air in an unloaded chunk, which would score every distant
+    candidate as a perfect flat plain.
+
+    THE WAIT IS NOT OPTIONAL. `forceload add` returns as soon as the request is
+    queued; generation happens asynchronously on the server thread. Probing
+    immediately reads terrain that does not exist yet, and the answer depends on
+    how busy that world happened to be -- which is how eight worlds built from
+    ONE seed produced two different town sites, one of them on a mountain at
+    y=119. A deterministic search over non-deterministic reads is not
+    deterministic.
+    """
     verb = "add" if on else "remove"
     rcon.run(f"forceload {verb} {cx - pad} {cz - pad} {cx + pad} {cz + pad}")
+    if not on or not settle:
+        return
+    # Wait until the centre column reads the same surface twice running. Two
+    # agreeing reads mean generation has finished and settled; a timeout means
+    # the caller gets whatever it gets, but at least it waited.
+    prev, stable = None, 0
+    for _ in range(40):                     # up to ~10s per candidate
+        time.sleep(0.25)
+        y = surface_y(rcon, cx, cz)
+        if y == prev:
+            stable += 1
+            if stable >= 2:
+                return
+        else:
+            stable = 0
+        prev = y
 
 
 def score_site(rcon, cx, cz):
@@ -316,7 +342,7 @@ GAMERULES = {
 }
 
 
-def world_rules(rcon, cx, cz, radius):
+def world_rules(rcon, cx, cz, radius, cy=64):
     """Gamerules and the world border, applied identically to every world.
 
     THE BORDER IS CENTRED ON THE TOWN, not on the origin. Siting now searches
@@ -327,6 +353,12 @@ def world_rules(rcon, cx, cz, radius):
     out = []
     for rule, value in sorted(GAMERULES.items()):
         out.append(f"gamerule {rule} {value}")
+    # BOTS SPAWN AT WORLD SPAWN, NOT AT THE TOWN. With siting free to search
+    # outward for wood, the town can land hundreds of blocks from the seed's
+    # spawn point -- and every bot would begin its life that far from its chest,
+    # its bed and its lectern, walking through unknown terrain to reach the
+    # experiment. Move spawn to the town instead.
+    out.append(f"setworldspawn {cx} {cy + 1} {cz}")
     out.append(f"worldborder center {cx} {cz}")
     out.append(f"worldborder set {radius * 2}")     # the command takes DIAMETER
     out.append("worldborder warning distance 0")
@@ -383,6 +415,10 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--step", type=int, default=96,
                     help="blocks between candidate centres in the spiral")
+    ap.add_argument("--at", metavar="X,Z",
+                    help="stamp at these coordinates instead of searching. Used for worlds "
+                         "2..N so all eight get the site the first search found -- and it is "
+                         "re-scored here, so a world that disagrees refuses rather than drifts")
     ap.add_argument("--force", action="store_true",
                     help="re-site a world that already has a town (only after wiping it)")
     ap.add_argument("--border", type=int, default=1950,
@@ -413,9 +449,30 @@ def main():
         return
 
     rcon = Rcon("127.0.0.1", port, conf["rcon.password"].strip())
-    print(f"  searching outward from {a.x},{a.z} for a dry, walkable, level site")
-    cx, cz, site, tried = find_site(rcon, a.x, a.z, step=a.step, rings=a.rings)
-    y = site["y"]
+    if a.at:
+        # SEARCH ONCE, STAMP EIGHT TIMES.
+        #
+        # All eight worlds share one seed, so they are the same terrain and the
+        # answer cannot legitimately differ between them. Searching each one
+        # independently ran the race eight times and lost it: two worlds landed
+        # on a mountain at y=119 while six took a plain at y=72, because chunk
+        # generation is asynchronous and the probes did not always wait.
+        # Reusing the coordinates makes identical worlds identical BY
+        # CONSTRUCTION rather than by hoping eight searches agree.
+        cx, cz = (int(v) for v in a.at.split(","))
+        _forceload(rcon, cx, cz, pad=48, on=True)
+        site = score_site(rcon, cx, cz)
+        tried = [{"x": cx, "z": cz, "ok": site["ok"], "reason": site["reason"]}]
+        if not site["ok"]:
+            raise SystemExit(f"{a.arm}: the site given by --at scores {site['reason']!r}. "
+                             f"Identical seeds must score identically -- refusing to stamp a "
+                             f"town somewhere this world says is unusable.")
+        print(f"  using the site found for the first world: {cx},{cz}")
+        y = site["y"]
+    else:
+        print(f"  searching outward from {a.x},{a.z} for a dry, walkable, level site")
+        cx, cz, site, tried = find_site(rcon, a.x, a.z, step=a.step, rings=a.rings)
+        y = site["y"]
     st = site["stats"]
     print(f"  chose {cx},{cz} at y={y}: relief {st.get('platform_relief')}, "
           f"{st.get('wet_fraction', 0):.0%} wet within 32, "
@@ -424,7 +481,7 @@ def main():
     # unloads is a home the deposit walk cannot finish at.
     _forceload(rcon, cx, cz, pad=16, on=True)
 
-    cmds = world_rules(rcon, cx, cz, a.border)
+    cmds = world_rules(rcon, cx, cz, a.border, cy=y)
     plan, (bx, by, bz) = town_plan(cx, y, cz)
     cmds += plan
     for c in cmds:
