@@ -15,6 +15,7 @@ import { config } from './config.mjs'
 import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
+import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
@@ -499,6 +500,11 @@ function connect() {
     // found zero overlap at all. Terrain is common knowledge; policy is not.
     worldFacts = openWorldFacts()
     stopReflexes = startReflexes(bot, runner, lessons, worldFacts)
+    // Bound the bot's world model. Without this every process reached its 1GB
+    // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
+    // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
+    // See evictor.mjs: the radius is a CORRECTNESS bound, not a memory knob.
+    startChunkEvictor(bot)
     stopComms = startComms(bot, worldFacts)
     stopDeathWatch = watchForDeathCause(bot)
     // Sample height on a slow timer. Cheap, and it is the only way to know
