@@ -55,3 +55,9 @@ venv/
 bots/node_modules/
 bots/.env
 bots/logs/
+
+# cloned third-party repos (cairn, pincercraft, mindcraft) - hundreds of MB
+eval/
+
+# generated per-bot env files - rebuild with generate-roster.py
+env/

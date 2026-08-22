@@ -72,7 +72,7 @@ COMMON = {
     # The worlds VM. Bots and Paper are split so 40 Node processes
     # cannot starve eight latency-critical tick loops.
     "MINECRAFT_HOST": "10.0.0.30",
-    "MINECRAFT_VERSION": "1.21.11",
+    "MINECRAFT_VERSION": "1.21.8",
     "MINECRAFT_AUTH": "offline",
     "WORLD_BORDER_RADIUS": "1950",
     "BOARD_RADIUS": "8",

@@ -10,7 +10,12 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location("pt", Path("/home/mike/scripts/place-town.py"))
 pt = importlib.util.module_from_spec(spec); spec.loader.exec_module(pt)
 
-NAMES = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]
+MC_NAME_MAX = 16
+# "Charlie" (7) + "isolated-a-" (11) = 18 > 16, and Minecraft rejects the login
+# as a protocol error. generate-roster.py was fixed to use "Comet"; THIS FILE WAS
+# NOT, so it whitelisted a bot that does not exist and never whitelisted the one
+# that does. Keep the two lists identical.
+NAMES = ["Alpha", "Bravo", "Comet", "Delta", "Echo"]
 bad = 0
 for world, idx in sorted(pt.ARMS.items()):
     props = pt.ROOT / world / "server.properties"

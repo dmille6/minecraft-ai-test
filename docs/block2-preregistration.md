@@ -720,3 +720,353 @@ The four scopes, two pools per arm, per-bot endpoint rotation, 7 days per
 repetition, 3 repetitions, the mobility gate, every operational threshold, the
 entrapment covariate rules, the code freeze, the ban on new verbs, and every
 analysis rule. Only the terrain the experiment runs on.
+
+## AMENDMENT — the substrate is rebuilt: Paper 1.21.8, a new seed, eight new worlds (2026-08-21)
+
+Made **before any Block 2 measurement window has opened**. The shakedown clock
+had never been started, so no completed window is lost and no frozen number is
+being moved after seeing a result it was meant to test. Shakedown and
+readiness-gate telemetry does exist, and this amendment states plainly what that
+data is now worth.
+
+This is a **substrate restart**, not a design change. Nothing about the arms,
+the endpoints, the analysis rules or the gates moves. What moves is the ground
+underneath them, and the standing of everything already measured on the old
+ground.
+
+### What changed
+
+| | was | now |
+|---|---|---|
+| Paper build | `1.21.11-132-c5eb079` | **`1.21.8-60`** |
+| seed | `31415926` | **`878725988`** |
+| worlds | 8, generated on `31415926` | **8, REGENERATED** |
+| arms, endpoints, gates, model, difficulty | | unchanged |
+
+Both changes are made in one step deliberately: the version migration already
+destroys the worlds, so a seed change is free at this moment and expensive at
+any other. The cost of moving two things at once is stated below and is not
+argued away.
+
+### The evidence: a bare client failed every route we tested on 1.21.11
+
+The test removed everything of ours from the loop — a **bare mineflayer client**,
+no agent, no reflex layer, no LLM, no skills — on `mineflayer 4.37.1` and
+`mineflayer-pathfinder 2.4.5`, the libraries the fleet runs.
+
+Controls, all fixed before the runs:
+
+- **ONE world**, a pristine copy restored before every run, so no state carries
+  between runs and the terrain is byte-identical across arms
+- **identical JVM flags** on both servers (`-Xms3G -Xmx4G -XX:+UseG1GC`)
+- **exactly one server process alive at a time**, so neither arm is measured
+  under host contention
+- bot **RCON-teleported to an identical start block** `(10.5, 66, 10.5)`,
+  verified in every run's output
+- **three different start→goal routes**, each run on **both** versions
+- **randomized run order**
+
+| version | arrived | net progress mean | `path_reset` mean |
+|---|---|---|---|
+| Paper 1.21.11 | **0/3** | 3.2 blocks | 27.7 |
+| Paper 1.21.8 | **3/3** | 50.6 blocks | 1.0 |
+
+Per route: 1.21.8 arrived on A, B and C; 1.21.11 failed on A, B and C. **Route
+is eliminated as an explanation within this matrix** — there is no route on
+which the two versions agree, so "route A is harder than route B" cannot
+produce this split. That is a statement about these three routes, not about
+every route in Minecraft.
+
+**This is n=3 per arm — six runs in total, and no statistical test is claimed
+on it.** What the design supports is narrow and worth stating exactly: the
+server build was the **only manipulated variable**, so within this test the
+difference is attributable to it. What the design does NOT support: an effect
+size for the fleet, a claim about forty agents in eight worlds, a claim about
+other builds, or a claim that no other cause of fleet immobility exists.
+
+Two limits on the test itself:
+
+- `path_reset` is an observational marker for "not making progress", **not** a
+  mechanism discriminator. A reset can come from collision stuckness, chunk
+  stalls, server corrections, bad plans or unreachable goals.
+- Server configuration beyond the JVM flags — plugins, Paper config, offline
+  mode, view and simulation distance, gamerules, world border — was not
+  exhaustively diffed. "Version" here means **these two server builds as
+  configured**, and mindcraft #801 names offline-mode specifically, so mode may
+  be part of the interaction rather than neutral.
+
+### The first design was not clean, and that is on the record
+
+An earlier, less-controlled version of this comparison gave **0/6 on 1.21.11
+against 5/7 on 1.21.8**. It carried real confounds: the arms started from
+different spawn coordinates, ran different heap settings, and both servers were
+live on one host simultaneously. It is not cited here as evidence, because it
+could not distinguish "version A is bad" from "route A is harder".
+
+Those confounds were removed and **the separation did not shrink — it widened**:
+1.21.8 went from 5/7 to 3/3, and its reset counts fell to 0–3 against 27–28.
+The two designs are not strictly comparable to each other, so this is not an
+effect-size comparison; it is the observation that the direction predicted by
+"the confounds were generating the result" did not occur. Part of the earlier
+1.21.8 failure was our own uncontrolled spawn placement.
+
+Recording this matters more than the tidy number does. The clean design was
+built only after an outside review named the confounds, and a version of this
+finding written before that review would have been overclaimed on bad controls.
+
+### Corroboration, and the pin we already had
+
+Three public reports describe compatible movement failures on this version
+family: mineflayer issue **#3911**, mindcraft issue **#801** — which names
+**Paper 1.21.11-132 offline-mode** specifically, this fleet's exact build and
+mode — and mineflayer-pathfinder issue **#366**. They are cited only as
+**corroboration that similar failures have been reported outside this lab**.
+They are not the mechanism and they carry no causal weight here; the controlled
+matrix stands or falls on its own.
+
+The internal fact is sharper. **`README.md` line 49 already stated that Paper is
+pinned to 1.21.8, and gave this exact bug as the reason.** The fleet ran 1.21.11
+regardless. The finding was not new information; it was information the repo
+already held and the deployment did not honour. A documented pin that nothing
+verifies is a comment, not a control.
+
+### Mechanism is NOT established
+
+The published explanation attached to #3911 — the bot ending up roughly 0.2
+blocks in the air, glued to the block below — **did not reproduce**.
+Fractional-Y position samples were **0.6% on 1.21.11 versus 1.9% on 1.21.8**:
+tiny, and in the *opposite* direction from what that explanation predicts.
+
+Stated plainly, and to be maintained everywhere this result is used: **the
+effect is established and the mechanism is not.** The effect established is the
+observed contrast in this controlled probe — same client, same world bytes, same
+start block, same routes, opposite outcomes as a function of server build. The
+causal pathway is unknown. We cannot say why, cannot predict which other builds
+or configurations are affected, and may not treat any future build as safe on
+the grounds that it is "not 1.21.11". Nothing downstream may assume the
+mechanism is understood.
+
+### The worlds are destroyed by the migration
+
+Minecraft has **no world downgrade path**. The current worlds are at
+**DataVersion 4671**; Paper 1.21.8 requires **4440** and will not open them.
+All eight worlds are therefore **regenerated**, not converted.
+
+- **World state is destroyed** — terrain, structures, chests, bot inventories,
+  everything inside the save.
+- **Telemetry already in Elasticsearch is unaffected.** The event record
+  survives the worlds it describes.
+
+### The seed changes too
+
+Seed `31415926` is retired. An **845-point probe** (a 96×96 block grid around
+spawn, 5 sampled heights, 8-block spacing) on a Paper 1.21.8 world generated
+from `31415926` found **zero blocks matching `#minecraft:logs`**.
+
+**The probe is coarse: 0/845 is strong but not conclusive.** Eight-block spacing
+and five sampled heights can miss trees entirely, and a denser scan, a plugin,
+or reading the region files would be needed to settle it.
+
+**This appears to contradict amendment 6 and must be reconciled, not glossed.**
+Amendment 6 (2026-08-20) recorded `31415926` as having 32% canopy fraction and
+chose it partly for wood. Three differences separate the two measurements, and
+which of them dominates is **UNVERIFIED**:
+
+1. **Different locations.** Amendment 6's canopy figure was taken at the *sited
+   town*, found by the spiral search; the 845-point probe sampled the *world
+   spawn* of a separate eval world. They are not the same place.
+2. **Different quantities.** Canopy fraction came from a surface probe that
+   returns treetops — this document already notes that a high canopy reading
+   means the probe is reading the wrong surface. The 845-point probe tested for
+   the `#minecraft:logs` block tag directly. A high canopy number and zero
+   sampled log blocks are not arithmetically inconsistent.
+3. **Different generators.** Same seed does not guarantee the same terrain
+   across Paper versions; worldgen, spawn selection and decoration can differ
+   between 1.21.8 and 1.21.11. Amendment 6's world was generated under 1.21.11;
+   the probed world under 1.21.8.
+
+Reason 3 alone is enough to require regeneration and re-siting on the target
+version regardless of the seed, and it means **no terrain statistic measured on
+a 1.21.11-generated world carries over.** The whole siting search is re-run on
+1.21.8.
+
+### The seed selection method, fixed here before the seed is known
+
+This is the part that has to survive a cherry-picking accusation, so it is
+written before `878725988` exists:
+
+1. Seeds are drawn **at random**.
+2. They are screened against criteria **declared in writing before screening
+   begins**, in the screening script and its log.
+3. The **FIRST seed that passes is taken.** Not the best of N, not the prettiest,
+   not one chosen after inspecting more than one passing candidate.
+4. The criteria are **resource availability near spawn** — logs present, plus
+   the basic early tech-tree inputs — and **not** agent outcomes. No seed is
+   accepted or rejected on the basis of how any agent performed on it.
+5. Every seed drawn, its screen result, and the reason for each rejection are
+   written to an audit log, so the search that produced `878725988` can be
+   replayed.
+
+The concrete numeric thresholds — sample radius, block tags, minimum counts,
+sampled heights, rejection cutoffs — are fixed in the screening script and its
+log **before the first draw**, and are transcribed into this amendment when
+`878725988` is filled in. Declaring the method here and the numbers there is
+only legitimate if the numbers cannot move afterwards; if any threshold is
+changed after a draw, the search restarts from scratch.
+
+### Easier versus possible — and where this conflicts with the standing constraint
+
+The owner's constraint is recorded verbatim in
+`docs/research/pathfinding-options-2026-08-21.md`:
+
+> *"i do not want to change the world, thats a cheap cop out fix. i need to
+> build a problem solving platform that can work in any mindcraft environment."*
+
+The distinction this amendment relies on:
+
+- **Making a task EASIER is forbidden.** Flattening terrain, deleting water,
+  shortening routes, removing hazards, or selecting a seed *because agents
+  scored better on it* substitutes world-shaping for capability and makes the
+  platform's competence unfalsifiable.
+- **Making a task POSSIBLE is calibration, and is a precondition of grading
+  anything.** A world in which the tech tree's first input does not exist within
+  reach is not a hard test; it is a broken one. Every agent scores zero, the
+  measurement has no dynamic range, and the zero carries no information about
+  capability. If all agents score near zero, the task is not a benchmark — it is
+  a failure mode.
+
+**Where this genuinely conflicts with the constraint, stated rather than
+buried.** Adversarial review pushed back on the distinction and it does not come
+through unscathed:
+
+- A seed chosen for resource presence also changes biome, elevation, route
+  topology, hazard density and travel burden. **Difficulty moves as a side
+  effect even though difficulty was not a criterion.** The claim "resource
+  availability, not terrain difficulty" describes the *criteria*, not the
+  *consequences*.
+- The lab is already difficulty-shaping one level down: town siting rejects
+  water, relief, canopy and route drops. Calling seed selection categorically
+  different from siting is not sustainable — they differ in degree, not in kind.
+- The trigger for this change was readiness data showing failure. A rule that
+  only ever fires after a bad result is structurally close to a rationalisation,
+  whatever its stated content.
+
+So this is recorded as a **declared exception to the constraint, not as
+something falling outside it**. The exception is taken because the alternative
+is a seven-day block on a substrate where the first tech-tree input may not
+exist, which produces no test of the hypothesis at all. The damage is bounded by
+the pre-declared, outcome-blind screening method above, by keeping
+`difficulty=peaceful` and every hazard untouched, and by this rule:
+
+**No siting or seed criterion may ever be justified by an agent outcome. If a
+future criterion is defended by a result rather than by a resource, it is
+world-shaping and this document must reject it.**
+
+### Consequences for everything measured before today
+
+**Any prior Block 2 or instance #1 metric coupled to travel, mining, reaching
+resources, or exploring chunks is CONFOUNDED.** That includes gather success
+rate, productive-to-path ratio, deposit counts, mobile and immobile fractions,
+below-y=45 time, and every readiness-gate number reported on the 1.21.11 fleet.
+
+Those results are neither discarded nor rehabilitated. They are salvageable as
+exactly two things:
+
+1. a **lower bound** on travel-coupled agent capability, and
+2. a **robustness record** — behaviour under a degraded locomotion substrate.
+
+They are **never** an unbiased estimate of agent capability, and no conclusion of
+the form "the agents rarely gather", "the planner fails to explore" or "LLM
+strategy is ineffective" may be drawn from them. One caution on the lower-bound
+reading: a degraded substrate does not only depress scores, it also generates
+retry churn, spurious observations and inflated recovery activity, so "lower
+bound" applies to the travel-coupled capability measures and not to event counts
+in general.
+
+**Two axes move at once, and this costs comparability.** Post-migration results
+differ from prior Block 2 numbers in **both** server version **and** seed, and
+the two are not separable. Therefore:
+
+- **No post-migration result may be cited as evidence of improvement over
+  pre-migration readiness or shakedown numbers.** Any such comparison credits an
+  unknown mixture of build and terrain.
+- **The migration is a fresh start, not a continuation.** Block 2's confirmatory
+  claims rest on **within-substrate, between-arm** comparison only, and its
+  repetitions are counted from the new substrate.
+
+**The shakedown clock had not started**, so no completed measurement window is
+lost.
+
+### Falsifier — written before the migrated fleet runs
+
+Stated precisely, because a vague falsifier is decoration. What follows
+falsifies **"changing the server build is sufficient to fix fleet locomotion"**.
+It does not, and cannot, falsify the bare-client contrast, which has already
+been measured under controls this fleet does not have.
+
+**The fleet-level claim is UNSUPPORTED if,** over the first full shakedown day
+on `1.21.8-60` under matched conditions — same bot count, same 30s cadence, same
+model, same siting rules, at least 500 windows per arm, identical event
+definitions — **both** of the following hold against the pre-migration 1.21.11
+baseline window:
+
+- `path_reset` per mobile bot-hour remains inside the 1.21.11 baseline interval,
+  and
+- gather-active fraction remains inside the 1.21.11 baseline interval.
+
+The baseline intervals are computed from the recorded 1.21.11 fleet window and
+written down **before** the migrated fleet is started, so the comparison cannot
+be tuned afterwards.
+
+If that is the observation, the bare-client result — however clean — did not
+generalise from one client on three routes to forty agents in eight worlds, the
+fleet's movement failure has a cause we have not found, and it is reported as a
+**falsification of the fleet-level claim**. It is not to be explained away with
+a residual-1.21.11 story.
+
+Three limits on this falsifier, stated now rather than after the fact:
+
+- **Only the negative result is clean.** Because the seed changes at the same
+  time, "no improvement" falsifies informatively — a seed screened for resource
+  availability should if anything help. "Large improvement" is *consistent* with
+  the version explanation but **cannot separate build from terrain**, and must be
+  reported crediting both.
+- **Movement improving while gather success does not is NOT a falsification.**
+  It is evidence of a second blocker downstream of locomotion. The two metrics
+  are reported separately for exactly this reason.
+- **Passing this falsifier is not proof of the mechanism.** It shows the
+  migration removed the fleet-level blocker; it says nothing about why.
+
+### What did NOT change
+
+The four scopes, two pools per arm, forty bots in eight worlds, one model
+(`qwen2.5:7b-instruct`), `difficulty=peaceful`, per-bot endpoint rotation, 7 days
+per repetition, 3 repetitions, the primary and secondary endpoints, the
+mobile-fraction shakedown gate (2× ratio, 30% floor, 500 windows), every
+operational readiness threshold, the deposit viability gate, the entrapment
+covariate rules, the code freeze, the ban on new verbs and macros, and every
+analysis rule.
+
+What DID change, said without hedging: the **server build**, the **seed**, the
+**worlds**, and the **standing of every travel-coupled number measured before
+today**. The treatment arms, endpoints, duration, model, gates and analysis
+rules are untouched; the substrate is replaced before the measurement window
+opens.
+
+**Screening thresholds as actually run (transcribed 2026-08-21).** Candidate
+seeds drawn uniformly at random; screened in draw order; the FIRST passing seed
+taken. Criterion: the nearest tree-bearing biome, located from origin via
+`locate biome`, lies within **128 blocks**. Biomes accepted as tree-bearing:
+`forest`, `birch_forest`, `dark_forest`, `taiga`, `old_growth_birch_forest`,
+`flower_forest`, `jungle`. Eight seeds were screened; seven passed; the first,
+**878725988**, was taken at 90 blocks to `minecraft:forest`. Three later seeds
+spawned inside a tree biome (0 blocks) and were **not** taken, because taking
+them would have been selection on the outcome.
+
+An earlier block-probe operationalisation (">=8 `#minecraft:logs` blocks within a
+96x96 grid") was discarded before any seed was accepted: its detector was proven
+non-functional against a known planted log block. The 845-probe null result on
+seed 31415926 quoted above is therefore **withdrawn as evidence of treelessness**;
+the correct measurement is that seed 31415926's nearest forest is **273 blocks**
+from origin, which is outside the probe radius used and outside the 128-block
+criterion adopted here.
