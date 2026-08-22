@@ -11,6 +11,7 @@
 
 import { SKILLS } from './skills.mjs'
 import { inventorySummary, isNight } from './state.mjs'
+import { shoreRoute } from './reflex.mjs'
 import { config } from './config.mjs'
 
 const MAX_EVENTS = 12
@@ -165,6 +166,35 @@ export function buildSystemPrompt(skillNames) {
 /**
  * @returns {{user: string, sentinel: string, tokens: number, dropped: number}}
  */
+// TELLING THE MODEL IT IS IN WATER, which it previously had no way to know.
+//
+// The STATE line carried health, hunger, position and time of day, and nothing
+// about the medium the bot was standing in. So `swim_to` shipped with a usage
+// line saying "use this when you are ALREADY IN WATER" to a model that was never
+// told when that was true -- a capability the fleet had on paper and could not
+// reach.
+//
+// It deliberately reuses shoreRoute, the SAME detector the drowning reflex
+// steers by. If the model's picture of the shoreline and the reflex's ever
+// disagree, the model will ask for crossings the body then fights, which is the
+// livelock this whole change set exists to remove.
+function waterSituation (bot) {
+  const at = bot?.entity?.position
+  if (!at || !bot.blockAt) return ''
+  const feet = bot.blockAt(at)
+  const inWater = !!feet && (feet.name === 'water' || feet.name === 'bubble_column')
+  if (!inWater) return ''
+  const shore = shoreRoute(bot)
+  if (shore.dir === 'shore') {
+    return `IN WATER: you are swimming. Nearest land is ${shore.dist.toFixed(0)} blocks away at ` +
+           `${Math.round(shore.target.x)},${Math.round(shore.target.y)},${Math.round(shore.target.z)}. ` +
+           `goto that spot to get out.`
+  }
+  return `IN WATER: you are in OPEN WATER with no land within 24 blocks. This is not an ` +
+         `emergency — you are at the surface and breathing. goto will not work out here ` +
+         `because it walks around water; use swim_to <x> <y> <z> to cross to where you want to be.`
+}
+
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
   const p = bot.entity.position
   const inv = inventorySummary(bot)
@@ -181,6 +211,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
     `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
+    waterSituation(bot),
     `REACHABLE Y RANGE: ${Math.round(p.y) - 30} to ${Math.round(p.y) + 30} (you are at y=${p.y.toFixed(0)})`,
     Object.keys(memory.locations).length
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`

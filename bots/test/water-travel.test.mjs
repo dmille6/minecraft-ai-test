@@ -27,6 +27,7 @@ import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { SKILLS } from '../src/skills.mjs'
 import { makeBot, ocean, V, AIR, WATER, DIRT } from './helpers/microworld.mjs'
+import { buildUserPrompt } from '../src/prompt.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -144,6 +145,44 @@ t('a yield is not counted as a rescue outcome', () => {
   const near = r.slice(i - 400, i + 200)
   assert.ok(!/drowningRelease\(ashore\(\), \{\s*reason: 'swim/.test(near),
     'the yield is routed through drowningRelease and will pollute the escape rate')
+})
+
+// --- the model has to be able to SEE that it is in water --------------------
+
+const promptFor = (blocks, pos) => {
+  const bot = makeBot({ pos, blocks })
+  bot.time = { day: 1, age: 100 }
+  return buildUserPrompt({
+    bot,
+    milestone: { describe: 'test', progress: '0/1' },
+    memory: { locations: {}, events: [] },
+    lastOutcome: null, trigger: 'test', sentinel: 'x', lessons: [],
+  }).user
+}
+
+t('a bot in open water is told so, and told what to do about it', () => {
+  // swim_to shipped with "use this when you are ALREADY IN WATER" in its usage
+  // line, to a model that was never told when that was true. A capability the
+  // model cannot know applies is a capability the fleet does not have.
+  const u = promptFor(ocean(), new V(0, 62, 0))
+  assert.match(u, /IN WATER/, 'the observation never mentions water')
+  assert.match(u, /swim_to/, 'it does not name the skill that solves this')
+  assert.match(u, /not an emergency/i,
+    'open water must be described as terrain; the whole bug was treating it as a crisis')
+})
+
+t('a bot near a bank is pointed at the bank, not told to swim the ocean', () => {
+  const lake = (x, y) => (x >= 5 ? (y <= 62 ? DIRT : AIR) : (y <= 62 ? WATER : AIR))
+  const u = promptFor(lake, new V(0, 62, 0))
+  assert.match(u, /IN WATER/)
+  assert.match(u, /Nearest land is \d+ blocks/, 'a reachable bank must be named with its distance')
+})
+
+t('a dry bot is not told about water at all', () => {
+  // Prompt budget is real and events are dropped to fit it. A line that fires
+  // on land would spend that budget on nothing.
+  const u = promptFor(() => AIR, new V(0, 64, 0))
+  assert.ok(!/IN WATER/.test(u), 'the water line fires when the bot is dry')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
