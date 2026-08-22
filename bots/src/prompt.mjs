@@ -79,7 +79,7 @@ export function buildSystemPrompt(skillNames) {
   const usage = [
     '  gather  args: {"block": "<block id e.g. oak_log>", "count": <integer>}',
     '  goto    args: {"x": <int>, "y": <int>, "z": <int>}',
-    '  swim_to args: {"x": <int>, "y": <int>, "z": <int>}  (CROSSING WATER on purpose. Use this only when you are ALREADY IN WATER and the place you want is across it. goto walks around water and will refuse a long crossing; swim_to swims it. It ends when you reach land near the target)',
+    '  swim_to args: {"x": <int>, "y": <int>, "z": <int>}  (CROSSING WATER on purpose. ONLY valid when an IN WATER line appears above — on land it is rejected before it runs. goto walks around water and cannot route across open water; swim_to swims it, and ends when you reach land near the target)',
     '  deposit args: {"item": "<item id>"}   (walks home to the town chest if none nearby; omit item to deposit everything)',
     '  withdraw args: {"item": "<item id>", "count": <integer>}  (takes from a chest or barrel within 48 blocks)',
     '  home    args: {}',

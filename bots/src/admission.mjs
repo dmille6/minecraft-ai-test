@@ -12,11 +12,33 @@
 import { SKILLS, actionKey } from './skills.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
+import { shoreRoute } from './reflex.mjs'
 
 
 const REPEAT_WINDOW = 4
 // Consecutive learned_avoid vetoes before the gate must let something through.
 const MAX_VETO_STREAK = 4
+
+// THE SAME VALVE, FOR THE WATER RULE, AND IT IS NOT OPTIONAL.
+//
+// MAX_VETO_STREAK lives inside the learned_avoid branch, so a STRUCTURAL
+// rejection added earlier in check() gets no escape valve at all. A bot in open
+// water proposing goto would then be refused every decision, forever, with no
+// path out -- which is the admission gate freezing shut, the exact failure in
+// the taxonomy that climbed 23% -> 72% over sixteen hours while every dashboard
+// looked fine. Any rule that can be true for a long time needs its own bound.
+const MAX_WATER_VETO_STREAK = 3
+
+// Travel verbs that walk. A bot afloat in open water cannot execute these: the
+// land movement profile prices a wet step at ~86 against ~1 and the `cost > 100`
+// guards delete wet neighbours, so A* has nowhere to go. Measured in one 10-min
+// window on the marooned bots: 850 _path_reset and 91 _path_noPath.
+const LAND_TRAVEL = new Set(['goto', 'explore'])
+
+const inWater = (bot) => {
+  const b = bot?.blockAt?.(bot.entity?.position)
+  return !!b && (b.name === 'water' || b.name === 'bubble_column')
+}
 
 export class AdmissionControl {
   constructor(lessons = null) {
@@ -25,6 +47,7 @@ export class AdmissionControl {
     this.recent = []                   // last N admitted keys, for repeat detection
     this.blockedCount = {}             // per-key block tally, for probation
     this.vetoStreak = 0                // consecutive learned_avoid rejections
+    this.waterVetoStreak = 0           // consecutive water-rule rejections
   }
 
   static key(skill, args) { return actionKey(skill, args) }
@@ -98,6 +121,55 @@ export class AdmissionControl {
         return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..128` }
       }
     }
+
+    // SWIM_TO IS FOR WATER, AND SAYING SO HERE SAVES A WHOLE DECISION.
+    //
+    // The skill already refuses a dry bot, but by then the proposal has been
+    // admitted, dispatched and burned a ~30s cognitive cycle. Measured in 45
+    // minutes: 18 wasted decisions, placebo-b-Delta alone accounting for 6. The
+    // model reaches for swim_to because the system prompt advertises it
+    // unconditionally, while the IN WATER hint only appears when it is true.
+    if (skill === 'swim_to') {
+      const { x, y, z } = args
+      if (![x, y, z].every(v => Number.isFinite(Number(v)))) {
+        return { ok: false, reason: 'bad_args', detail: 'swim_to needs numeric x, y, z' }
+      }
+      if (!inWater(bot)) {
+        return { ok: false, reason: 'not_in_water',
+                 detail: 'swim_to crosses water and you are on land — use goto' }
+      }
+      const dw = horizontalDistanceFromSpawn({ x: Number(x), z: Number(z) })
+      if (dw > config.world.borderRadius) {
+        return { ok: false, reason: 'outside_border', detail: `${Math.round(dw)} > ${config.world.borderRadius}` }
+      }
+    }
+
+    // WALKING IS NOT AN OPTION OUT HERE.
+    //
+    // Not a hazard rule and not a discouragement: a statement of fact about the
+    // movement profile. If the bot is afloat with no shore in reach, goto and
+    // explore cannot produce a route, so admitting them spends a decision to
+    // learn something already known. The rejection names the verb that DOES
+    // work, so the model always has a legal move -- which is what keeps this
+    // from being a dead end rather than a redirect.
+    //
+    // Note the ordering: a bot in water WITH a shore in reach is left alone,
+    // because walking to that shore is exactly the right move and is what the
+    // observation tells it to do.
+    if (LAND_TRAVEL.has(skill) && inWater(bot) && shoreRoute(bot).dir !== 'shore') {
+      if (this.waterVetoStreak >= MAX_WATER_VETO_STREAK) {
+        this.waterVetoStreak = 0
+        return { ok: true, skill, args, kind: 'forced',
+                 forced: `${MAX_WATER_VETO_STREAK} consecutive water vetoes` }
+      }
+      this.waterVetoStreak++
+      return {
+        ok: false, reason: 'water_blocks_land_travel',
+        detail: `you are afloat with no shore within reach; ${skill} walks and cannot ` +
+                `route from here — use swim_to <x> <y> <z> to cross`,
+      }
+    }
+    if (!LAND_TRAVEL.has(skill) || !inWater(bot)) this.waterVetoStreak = 0
 
     if (skill === 'goto') {
       const { x, y, z } = args
