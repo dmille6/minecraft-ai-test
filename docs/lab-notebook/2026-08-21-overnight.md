@@ -473,3 +473,113 @@ prevent, and the fact that better options were visible and refused is the whole
 point of declaring the method in advance.
 
 ---
+## Entry 10 — the pregeneration gap, and why "identical" took four attempts
+
+**The gap.** The runbook requires pregenerating the operating radius in every
+world, identically, BEFORE any bot connects — *"an arm that explores into fresh
+chunks under load loses ticks an arm that does not explore never pays. That is an
+arm effect made of terrain caching."* It is also **T-24** in the failure taxonomy
+written the night before. I skipped it and started the fleet anyway.
+
+Fifteen minutes of play produced a **47% spread** in generated terrain
+(17 to 25 region files per arm), widening every minute.
+
+**What it took to close.** Four attempts, and each failure taught the same thing:
+
+1. **Pregen on top of divergence just freezes the inequality.** The worlds had to
+   be wiped first, not patched.
+2. **`--at` refused on all eight right after pregen** — "only 1/24 columns within
+   80 blocks are tree". The chunks existed in memory but had not been written, so
+   the tree probe read empty terrain. `save-all flush` plus a settle period fixed
+   it. **The tool was right and my reading of it was wrong, twice.**
+3. **Re-running the SEARCH on hive-a re-broke parity** — 12 region files and
+   24MB against 4 files and 4MB elsewhere, because the search explores 16 rings
+   and generates as it goes. The search is not parity-safe; only `--at` is. hive-a
+   had to be wiped and rebuilt by coordinate like the others.
+4. `forceload add` over a 288x288 area fails: **Minecraft caps a forceload at 256
+   chunks.** 18x18 chunks = 324. The earlier 224x224 (196 chunks) worked.
+
+**Final state, verified:**
+
+| | value |
+|---|---|
+| towns | 8/8, all `home [355,73,147]`, one distinct pair |
+| region files | **4 on every arm** |
+| world size | 4464–4492 KB — within **0.6%** |
+| bots | 40/40 in world, 5 per arm |
+
+**Learned:** "identical" is not a thing you assert, it is a thing you measure
+after every step. Three of my four attempts produced worlds I *believed* were
+identical and were not, and the only reason I know is that I counted region files
+each time instead of trusting the step that had just run.
+
+---
+## Entry 11 — Step 00: Cairn on a fair footing, and a measurable say-do gap
+
+**Controls added** after the first attempt proved uninformative (Cairn spawned at
+raw world spawn while Block 2 bots start on a sited town, so the comparison was
+about starting terrain, not agents):
+
+- eval world reseeded to **1239381899**, the same seed Block 2 now runs
+- town area force-generated and flushed to disk
+- `setworldspawn` moved to the town coordinates
+- **stale playerdata deleted** (a returning player ignores a changed world spawn)
+- bot **RCON-teleported to (355, 73, 147)** after join, before goal work
+
+**What Cairn did** in ~7 minutes before the goal aborted:
+
+| event | count |
+|---|---|
+| `collect.target` | 41 |
+| `collect.tree.start` | 11 |
+| `collect.tree.complete` | **8** |
+| `collect.drop-pickup` | 14 |
+| `collect.no-drop` | **13** |
+| `path.stuck` | 11 |
+| internal counter `sofar` | reached **8 of 10** |
+
+**What the world says.** Ground truth by RCON at the anchors Cairn logged:
+
+    ( 6, 86, -57)  NO LOGS - block was broken
+    ( 6, 86, -56)  NO LOGS - block was broken
+    (336, 69, 165) logs STILL PRESENT at y=[69,70]
+    (326, 71, 133) logs STILL PRESENT at y=[71]
+    (326, 78, 104) logs STILL PRESENT at y=[78]
+
+    bot inventory: 3 dirt, ZERO oak logs
+    dropped item entities in world: yes; dropped OAK LOGS: none
+
+So of five logged anchors, **two were genuinely broken and three are still
+standing**, while the internal counter advanced to 8 and the bot holds nothing.
+`collect.drop-pickup` records the mechanism verbatim:
+`{"ok":false,"reason":"no nearby dropped item entity"}`.
+
+**How the run ended:** a `collect` skill timed out at 120s, Cairn replanned, and
+the replan was refused —
+`plan activation rejected: stale plan activation: falling changed true -> false`
+— after which it declared `main.goal-failed` and stopped rather than replanning
+again. A safety guard that terminates the goal instead of retrying.
+
+**Learned.** This is exactly the say-do gap PincerCraft's `referee` exists to
+measure, observed independently in a different codebase: **an agent's own
+progress counter is not evidence.** Only the world is. Grading on `sofar` would
+have scored this run 8/10; grading on inventory scores it 0/10.
+
+**Do NOT over-read this.** n=1, ~7 minutes, one seed, one model
+(`qwen2.5:7b-instruct`, far weaker than the `deepseek-v4-pro` Cairn is built
+around). This is not yet evidence that Cairn is bad — it is evidence that the
+harness can catch a self-report diverging from the world, which is the thing
+Step 00 needed to prove it could do. Replication with a stronger model and
+longer windows is required before any claim about Cairn.
+
+---
+## Entry 12 — smoke run started 2026-08-22T16:30Z
+
+40/40 bots in world on Paper 1.21.8, seed 1239381899, 8/8 towns at
+[355,73,147], terrain parity 4 region files per arm. Guards active
+(fleet-doctor 5-min, fleet-recycle staggered). Endpoint: the declared
+3090 at 10.0.0.16.
+
+**This is the 2-4h SMOKE, not the shakedown.** Per the runbook it is an early
+abort checkpoint so a failure at scale costs hours instead of two days. The
+shakedown clock has NOT started.

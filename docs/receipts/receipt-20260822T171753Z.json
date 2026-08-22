@@ -1,0 +1,261 @@
+{
+  "receipt_version": 1,
+  "captured_at_utc": "2026-08-22T17:17:53Z",
+  "code": {
+    "git_sha": "9395cad",
+    "git_branch": "main",
+    "dirty_files": [
+      "ots/eslint.config.mjs",
+      "bots/package-lock.json",
+      "bots/package.json",
+      "docs/lab-notebook/2026-08-21-overnight.md",
+      "bots/scripts/",
+      "scripts/run-receipt.py"
+    ],
+    "is_dirty": true,
+    "code_version_in_env": [
+      "36c67b3"
+    ]
+  },
+  "protocol": {
+    "preregistration_path": "docs/block2-preregistration.md",
+    "preregistration_sha": "9395cad",
+    "amendments": 7
+  },
+  "worlds": {
+    "hive-a": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "hive-a-Alpha",
+        "hive-a-Bravo",
+        "hive-a-Comet",
+        "hive-a-Delta",
+        "hive-a-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 18
+    },
+    "hive-b": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "hive-b-Alpha",
+        "hive-b-Bravo",
+        "hive-b-Comet",
+        "hive-b-Delta",
+        "hive-b-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 18
+    },
+    "board-a": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "board-a-Alpha",
+        "board-a-Bravo",
+        "board-a-Comet",
+        "board-a-Delta",
+        "board-a-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 17
+    },
+    "board-b": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "board-b-Alpha",
+        "board-b-Bravo",
+        "board-b-Comet",
+        "board-b-Delta",
+        "board-b-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 20
+    },
+    "isolated-a": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "isolated-a-Alpha",
+        "isolated-a-Bravo",
+        "isolated-a-Comet",
+        "isolated-a-Delta",
+        "isolated-a-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 21
+    },
+    "isolated-b": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "isolated-b-Alpha",
+        "isolated-b-Bravo",
+        "isolated-b-Comet",
+        "isolated-b-Delta",
+        "isolated-b-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 18
+    },
+    "placebo-a": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "placebo-a-Alpha",
+        "placebo-a-Bravo",
+        "placebo-a-Comet",
+        "placebo-a-Delta",
+        "placebo-a-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 18
+    },
+    "placebo-b": {
+      "seed_reported_by_server": 1239381899,
+      "seed_in_config": 1239381899,
+      "seed_matches_config": true,
+      "paper_version": "1.21.8-60-main@29c8822",
+      "players_online": 5,
+      "player_names": [
+        "placebo-b-Alpha",
+        "placebo-b-Bravo",
+        "placebo-b-Comet",
+        "placebo-b-Delta",
+        "placebo-b-Echo"
+      ],
+      "town_home": [
+        355,
+        73,
+        147
+      ],
+      "town_board": [
+        358,
+        72,
+        147
+      ],
+      "region_files": 17
+    }
+  },
+  "roster": {
+    "systemd_active_units": 40,
+    "node_processes": 41,
+    "players_in_world": 40,
+    "per_arm": {
+      "hive-a": 5,
+      "hive-b": 5,
+      "board-a": 5,
+      "board-b": 5,
+      "isolated-a": 5,
+      "isolated-b": 5,
+      "placebo-a": 5,
+      "placebo-b": 5
+    }
+  },
+  "inference": {
+    "endpoints_declared": [
+      "http://10.0.0.16:11434"
+    ],
+    "client_versions_declared": [
+      "1.21.8"
+    ]
+  },
+  "notes": [
+    "working tree is DIRTY: the running fleet may not match any commit",
+    "env files declare CODE_VERSION ['36c67b3'] but HEAD is 9395cad -- the roster was written against different code than is checked out"
+  ],
+  "parity": {
+    "distinct_seeds": 1,
+    "distinct_town_sites": 1,
+    "distinct_paper_versions": 1,
+    "region_file_min": 17,
+    "region_file_max": 21
+  }
+}

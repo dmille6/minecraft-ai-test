@@ -17,6 +17,8 @@
 //
 // Deploys run it and refuse to install a harness that fails.
 
+import noFloatingPromise from 'eslint-plugin-no-floating-promise'
+
 export default [
   {
     files: ['**/*.mjs'],
@@ -44,8 +46,23 @@ export default [
         structuredClone: 'readonly',
       },
     },
+    plugins: { 'no-floating-promise': noFloatingPromise },
     rules: {
       'no-undef': 'error',
+
+      // A promise nobody awaits and nobody catches. Node terminates the process
+      // on an unhandled rejection, so the visible symptom is not a stack trace
+      // in the log -- it is a bot that vanishes and a systemd unit that quietly
+      // restarts it, which is indistinguishable from the crash-loop faults
+      // already in the taxonomy. The rejection that killed it is gone.
+      //
+      // Adopted only after measuring, because this file's own rule is that a
+      // gate people learn to skip is worse than no gate: the rule reports ZERO
+      // violations on src/ as it stands today. It costs no refactor and can only
+      // fire on a regression. If it ever fails for a reason someone wants to
+      // wave through, that is the signal to reconsider the rule -- not to reach
+      // for an eslint-disable.
+      'no-floating-promise/no-floating-promise': 'error',
     },
   },
 ]
