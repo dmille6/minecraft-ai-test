@@ -183,3 +183,86 @@ nothing when land is several hundred blocks away.
   re-deriving it offline.
 - `deploy-fleet.sh` hardcodes `"trial": "instance-1"`; Block 2 declares itself
   instance 1.
+
+---
+
+## The reframe: water is terrain, and the platform was built not to believe it
+
+The lab owner pushed back on the whole framing: *"isnt the solution teaching them
+to swim and travel in water? there is something across the ocean? isnt part of
+minecraft swimming or traveling on or in water? why are we ignoring that?"*
+
+He was right, and the assumption was written down in our own source:
+
+> "The bots do not need to cross water; they need to stop volunteering for it."
+> — `bots/src/index.mjs`
+
+A correct patch for Block 1, where drowning was the top death cause. It hardened
+into a platform-level decision: a wet step priced at ~86 against ~1 on land,
+fifteen `cost > 100` guards deleting wet neighbours, zero occurrences of "boat"
+in the entire agent source, and "swim" existing only as an emergency verb.
+
+### What the evidence actually said
+
+Chasing individual bots rather than aggregates:
+
+| bot | observed | nearest land |
+|---|---|---|
+| `board-b-Comet` | (1544,425) -> (1556,473), ~50b, while logging 90 `no_shore` | 24b+ (genuinely open water) |
+| `placebo-b-Delta` | (1728,335) -> (1852,334) | reached land unaided |
+| `placebo-a-Echo` | moved to y=65 | reached land unaided |
+
+All three at y~62.7, oxygen full, health 20. **They were swimming.** The reflex
+held each at `forward:false, jump:true` waiting for a shore outside its scan
+radius, released at the ceiling, re-seized on the next submersion.
+`drowning_reentry` at 74/108 was measuring that livelock, not rescue quality.
+
+### Result after shipping water competence (f43f49f, 7aee92e, a769e73)
+
+| | before | after |
+|---|---|---|
+| escape rate, all | 18.4% | **23.1%** |
+| escape rate, winnable | 18.4% | **85.7%** |
+| `released_timeout` | 64 | **2** |
+| `surfaced_stranded` | 112 | **38** |
+| `reentry` | 128 | **39** |
+| `no_shore` | 111 | **44** |
+
+And the thing that matters most, a real crossing:
+
+```
+21:37:34 placebo-a-Delta _swim_started  | crossing 1378b to 355,147
+21:37:35 placebo-a-Delta _drowning_yielded_to_swim | oxygen 20, health 20
+21:39:22 placebo-a-Delta _swim_ended    | 429 strokes over 108s
+21:40:37 placebo-a-Delta _swim_started  | crossing 1101b to 355,147
+```
+
+~277 blocks of open ocean closed, deliberately, toward town, with the reflex
+standing down instead of fighting it.
+
+### Learned
+
+1. **An instruction the model cannot act on reads as a skill failure.** swim_to
+   shipped telling the model to use it "when you are ALREADY IN WATER" — to a
+   model whose observation never said which medium it was in. Then it shipped
+   saying "swim to where you want to be" — to a bot that by definition does not
+   know where land is. It answered with 0b and 1b "crossings". Both times the
+   logs blamed the skill.
+
+2. **Three detectors of mine returned uniform negatives and I nearly believed
+   all three.** Unloaded chunks answer `"That position is not loaded"`, which
+   `"passed" in resp` scores as False; a measurement window set two minutes in
+   the future; and a `forceload` that had not finished loading. The fix each time
+   was a control probe against a known-good block first.
+
+3. **A mutation that does not mutate proves the opposite of what it looks like.**
+   One "NOT CAUGHT" was a `.replace()` whose anchor was split across a template
+   concatenation. Another was real: `SURFACE_MS = 0` passed a test that only
+   asserted ordering. Check that the mutant actually changed the file.
+
+### Next
+
+- Boats. Deliberately held back: both models agreed a boat skill added before
+  the reflex-ownership fix just gets interrupted by a "rescue" while it floats.
+- `surfaced_stranded` at 38 and reentry at 39 are still the bots to chase.
+- Longer window before any of these numbers is quotable — this is 8 minutes.
