@@ -2484,6 +2484,9 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
     await new Promise(r => setTimeout(r, 200))
   }
 
+  // One leg's worth of swimming, not a whole crossing. See the note at the
+  // deadline return below.
+  const MIN_LEG = 32
   const DEADLINE_MS = 150_000
   const STALL_MS = 12_000        // no closing progress for this long -> give up
   const TICK_MS = 250
@@ -2546,12 +2549,35 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
       strokes++
       await new Promise(r => setTimeout(r, TICK_MS))
     }
+    // A CROSSING IS LONGER THAN ONE SKILL CALL, AND PRETENDING OTHERWISE MADE
+    // EVERY REAL CROSSING A FAILURE.
+    //
+    // Sprint-swimming is about 5.6 m/s, so the 1,378-block crossing observed on
+    // placebo-a-Delta needs roughly 246 seconds. DEADLINE_MS is 150. The skill
+    // could not finish a real crossing by ARITHMETIC, exactly the way goto's
+    // hardcoded 8-leg budget once capped travel at 360 blocks and reported 162
+    // consecutive `home` failures at a distance it could never cover.
+    //
+    // goto solved this with legs, and so does this: a call that closes real
+    // ground has done its job and hands back for the next decision. The bot
+    // re-issues -- placebo-a-Delta did exactly that, 1378b then 1101b, unaided.
+    // What changes is that the 277 blocks between those two numbers is now
+    // recorded as the progress it was rather than as a deadline failure.
+    //
+    // MIN_LEG is deliberately large. A skill that reports success for closing
+    // two blocks is a skill that always reports success.
     const here = bot.entity.position
     const dist = Math.hypot(target.x - here.x, target.z - here.z)
-    // travel_incomplete, not path_budget: the swim ran, it just did not finish,
-    // and the distance closed is real evidence rather than a don't-know.
+    const closed = startDist - dist
+    if (closed >= MIN_LEG) {
+      logEvent({ kind: 'swim_progress', status: 'success',
+                 detail: `closed ${closed.toFixed(0)}b of ${startDist.toFixed(0)}b, ${dist.toFixed(0)}b to go`,
+                 snapshot: snapshot(bot) })
+      return { status: 'success',
+               detail: `swam ${closed.toFixed(0)}b; ${dist.toFixed(0)}b still to go — re-issue swim_to to continue` }
+    }
     return { status: 'failed', failClass: 'travel_incomplete',
-             detail: `deadline: ${dist.toFixed(0)}b short of target` }
+             detail: `deadline: closed only ${closed.toFixed(0)}b of ${startDist.toFixed(0)}b` }
   } finally {
     bot.waterTravel = null
     try { bot.clearControlStates() } catch { /* not connected */ }

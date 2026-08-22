@@ -228,5 +228,31 @@ t('swim_to surfaces before it travels', () => {
     `phase is decoration`)
 })
 
+t('a long crossing is measured in legs, not all-or-nothing', () => {
+  // Sprint-swimming is ~5.6 m/s, so the 1,378-block crossing seen on
+  // placebo-a-Delta needs ~246s against a 150s deadline. Without leg semantics
+  // the skill cannot finish a real crossing BY ARITHMETIC -- the same shape as
+  // goto's old 8-leg budget capping travel at 360 blocks while `home` failed
+  // 162 times at a distance it could never cover.
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const m = sk.match(/const MIN_LEG = (\d+)/)
+  assert.ok(m, 'no MIN_LEG: a crossing longer than one deadline can only fail')
+  const leg = Number(m[1])
+  assert.ok(leg >= 16,
+    `MIN_LEG is ${leg} — a skill that reports success for closing that little ` +
+    `is a skill that always reports success`)
+  assert.ok(/closed >= MIN_LEG/.test(sk),
+    'progress is not gated on MIN_LEG, so any movement at all would count')
+})
+
+t('a swim that closes nothing is still a failure', () => {
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const i = sk.indexOf('closed >= MIN_LEG')
+  const after = sk.slice(i, i + 900)
+  assert.ok(/travel_incomplete/.test(after),
+    'the else branch must still fail — otherwise every swim succeeds and the ' +
+    'metric stops meaning anything')
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
