@@ -70,10 +70,43 @@ const MAROON_PREREQ_COOLDOWN_MS = 120_000
  * The ceiling still releases -- holding a body that cannot be saved starves
  * every other reflex -- but only reaching ground that is not water is an escape.
  */
-export function drowningRelease(ashore) {
-  return ashore
-    ? { kind: 'drowning_escaped', status: 'success', escaped: true }
-    : { kind: 'drowning_released_timeout', status: 'failed', escaped: false }
+/**
+ * What a drowning release actually WAS, and the third outcome it could not say.
+ *
+ * Both exits -- reaching land, and the 20s ownership ceiling expiring -- used to
+ * release the body under one `drowning_escaped` event, so a bot still floating
+ * mid-lake recorded the same success as one standing on a beach. Over fourteen
+ * hours `_drowning_route` and `_drowning_escaped` arrived in near-equal pairs
+ * (3,334 / 3,329) while bots stayed pinned in water: the pairs were the loop
+ * restarting, and the shared name hid it.
+ *
+ * Splitting escape from timeout fixed the lie but flattened two very different
+ * failures into one counter. A bot that ran the ceiling down while SWIMMING AT A
+ * BANK failed at execution; a bot that surfaced, breathed, and found no shore in
+ * any direction never had a rescue to execute. Both logged
+ * `drowning_released_timeout`, so the 14.1% escape rate could not say which one
+ * the fleet was actually suffering -- and they want opposite fixes.
+ *
+ * So there are three kinds now, and the ceiling still releases: holding a body
+ * that cannot be saved starves every other reflex.
+ *
+ * WHY LANDING IS STILL THE ESCAPE CRITERION. The obvious "fix" to a bad escape
+ * rate is to call surfacing an escape -- the bot is breathing, after all. That
+ * is a metric fix, not a bot fix. A bot floating with full lungs has not got out
+ * of the water: cognition resumes, re-proposes the same crossing, and the reflex
+ * fires again. That loop is already in this file's history at 300+
+ * `drowning_route` firings per bot-hour. Renaming it would have moved the number
+ * without moving a single bot. The three kinds are logged distinctly so the
+ * ANALYSIS can choose its definition; the reflex does not choose for it.
+ */
+export function drowningRelease (ashore, { reason = 'ceiling' } = {}) {
+  if (ashore) {
+    return { kind: 'drowning_escaped', status: 'success', escaped: true, landed: true }
+  }
+  if (reason === 'no_shore') {
+    return { kind: 'drowning_surfaced_stranded', status: 'failed', escaped: false, landed: false }
+  }
+  return { kind: 'drowning_released_timeout', status: 'failed', escaped: false, landed: false }
 }
 
 /**
@@ -390,8 +423,55 @@ export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousH
  * question -- "is there something I could stand on if I swam at it" -- and if
  * the answer is no, open water stays an honest failed rescue.
  */
-export function shoreRoute(bot, { radius = 10, maxRise = 2 } = {}) {
-  const none = { dir: null, target: null, dist: Infinity }
+/**
+ * The nearest block this bot could STAND on -- which is not the same question
+ * as the nearest air, and that difference is the whole bug.
+ *
+ * `breathableRoute()` answers "where can I breathe" and correctly returns
+ * {dir:'up', dist:1} for anything just under a surface; drowning-cave.test.mjs
+ * asserts that on purpose, because in a flooded cave air IS the emergency exit.
+ * But the rescue is only RELEASED by `ashore()`, which requires standing on
+ * ground that is not water. So the escape pursued one place and was graded on
+ * another, and a bot that surfaced simply floated until the 20s ownership
+ * ceiling expired: 2,113 timeouts, at oxygen 399-400 out of ~400 and health 20.
+ * Those bots were not drowning. They were safe, wet, and holding the body of a
+ * rescue that could never end -- roughly 11.7 fleet-hours of it, interrupting
+ * every travel skill they attempted.
+ *
+ * Block reads only, no pathfinding: this runs inside a 500ms tick that also
+ * owns health, hunger, entombment and stuck detection. It answers one narrow
+ * question -- "is there something I could stand on if I swam at it" -- and if
+ * the answer is no, open water stays an honest failed rescue.
+ *
+ * WHY RING-ORDERED, AND WHY THE RADIUS GREW
+ *
+ * radius 10 was too small to find real shorelines: `_drowning_no_shore` fired
+ * 1,572 times in twelve hours, and a `no_shore` verdict is not "there is no
+ * shore" -- it is "there is no shore within ten blocks", which on open lakes is
+ * almost always wrong. But the old scan swept the whole square (441 columns,
+ * ~4,000 blockAt calls at radius 10); the same sweep at radius 24 is 2,401
+ * columns and roughly 21,600 reads, far too much for a 500ms tick shared with
+ * every other reflex.
+ *
+ * So the scan is ordered by Chebyshev ring, outward, and stops as soon as no
+ * further ring COULD improve on what it already has. That stopping rule is
+ * exact rather than approximate: every column in ring k has Euclidean distance
+ * >= k, so once k exceeds the best distance found, nothing beyond can be
+ * nearer. A bot next to a bank pays a few dozen reads; only genuinely open
+ * water pays the full sweep, and that is the case where the answer is stable
+ * enough for the caller to cache it. `maxReads` bounds the worst case; a scan
+ * that hits it returns `partial: true`, which a caller MUST NOT cache as a
+ * settled "no shore" -- a bank one ring past the cutoff would then be invisible
+ * for the whole TTL.
+ *
+ * NOTE ON maxRise: deliberately still 2. A larger rise finds TALLER banks, but
+ * a bot swimming at the surface cannot mount a ledge three blocks above its
+ * feet -- jumping out of water clears about 1.25 -- so raising it would aim the
+ * rescue at shore it can reach only in the log. Distance was the limit worth
+ * lifting; height was not.
+ */
+export function shoreRoute (bot, { radius = 24, maxRise = 2, maxReads = 0 } = {}) {
+  const none = { dir: null, target: null, dist: Infinity, scanned: 0, partial: false }
   const at = bot?.entity?.position
   if (!at || !bot.blockAt) return none
   const empty = b => b != null && b.boundingBox === 'empty'
@@ -402,23 +482,46 @@ export function shoreRoute(bot, { radius = 10, maxRise = 2 } = {}) {
                          !b.name.includes('kelp') && !b.name.includes('seagrass') &&
                          b.boundingBox === 'block'
 
-  let best = none
-  for (let dx = -radius; dx <= radius; dx++) {
-    for (let dz = -radius; dz <= radius; dz++) {
-      if (dx === 0 && dz === 0) continue
-      const d = Math.hypot(dx, dz)
-      if (d > radius || d >= best.dist) continue
-      // A bank a little above the waterline is still shore; a cliff is not.
-      for (let dy = 0; dy <= maxRise; dy++) {
-        const foot = at.offset(dx, dy, dz)
-        if (!standable(bot.blockAt(foot.offset(0, -1, 0)))) continue
-        if (!empty(bot.blockAt(foot)) || !empty(bot.blockAt(foot.offset(0, 1, 0)))) continue
-        best = { dir: 'shore', target: foot, dist: d, rise: dy }
-        break
+  let best = { dir: null, target: null, dist: Infinity }
+  let scanned = 0
+
+  // One Chebyshev shell at a time. Within a shell the order does not matter,
+  // because the shell is finished before the stopping rule is re-tested.
+  for (let ring = 1; ring <= radius; ring++) {
+    // Exact: nothing in this ring or beyond can beat a closer hit already held.
+    if (ring > best.dist) break
+    // A READ COUNT, NOT A CLOCK. A wall-clock budget would make this function
+    // non-deterministic and it is asserted directly by drowning-shore.test.mjs;
+    // a scan that returns different answers under test load is not a scan you
+    // can pin. Reads are the actual cost anyway.
+    if (maxReads > 0 && scanned >= maxReads) {
+      return { ...best, scanned, partial: true }
+    }
+    for (let dx = -ring; dx <= ring; dx++) {
+      const onSide = Math.abs(dx) === ring
+      for (let dz = -ring; dz <= ring; dz++) {
+        // Interior columns belong to a ring already scanned.
+        if (!onSide && Math.abs(dz) !== ring) continue
+        const d = Math.hypot(dx, dz)
+        if (d > radius || d >= best.dist) continue
+        // A bank a little above the waterline is still shore; a cliff is not.
+        for (let dy = 0; dy <= maxRise; dy++) {
+          const foot = at.offset(dx, dy, dz)
+          // Charged as the reads actually happen: the ground test short-circuits
+          // the other two on most columns, and a budget that bills for reads it
+          // never made would bail out of cheap scans early.
+          scanned += 1
+          if (!standable(bot.blockAt(foot.offset(0, -1, 0)))) continue
+          scanned += 2
+          if (!empty(bot.blockAt(foot)) || !empty(bot.blockAt(foot.offset(0, 1, 0)))) continue
+          best = { dir: 'shore', target: foot, dist: d, rise: dy }
+          break
+        }
       }
     }
   }
-  return best
+  if (best.dir === null) return { ...none, scanned }
+  return { ...best, scanned, partial: false }
 }
 
 /**
@@ -511,6 +614,31 @@ function makeThrottle(defaultMs = 10_000) {
   }
 }
 
+// THE RESCUE'S OWNERSHIP BUDGET.
+//
+// 20s was a flat ceiling: a bot two blocks from a bank and a bot alone in open
+// ocean were released at exactly the same moment, and `_drowning_released_timeout`
+// fired 1,075 times in twelve hours without distinguishing them. The ceiling is
+// kept -- holding a body that cannot be saved starves every other reflex, and
+// removing it is how the pre-ceiling deadlock came back -- but it now extends
+// while the bot is DEMONSTRABLY CLOSING ON THE SAME PIECE OF SHORE, up to a hard
+// cap that no amount of progress can exceed.
+//
+// "The same piece of shore" is the load-bearing part. Progress measured against
+// whatever the scan last returned can be fabricated by re-targeting: a bot that
+// picks a fresh bank every few seconds shows a falling distance forever and the
+// ceiling never fires. So re-targeting resets the baseline WITHOUT refreshing
+// the progress clock; only closing on a target already held counts.
+const RESCUE_CEILING_MS = 20_000
+const RESCUE_CEILING_MAX_MS = 45_000
+const PROGRESS_STALL_MS = 5_000
+// Phase 2 re-scans twice a second and the answer barely moves between ticks.
+const SHORE_TTL_MS = 2_000
+// Worst case ~2,400 columns x 3 reads; this caps a single tick's share of it.
+const SHORE_MAX_READS = 6_000
+// A release followed within this window by another rescue was not a rescue.
+const REENTRY_WINDOW_MS = 60_000
+
 export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Publish a hazard to the fleet, but only once this bot has hit it enough
   // times to be sure. One bad reading must not become everyone's belief --
@@ -554,6 +682,16 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // release when it can breathe.
   let rescuing = false
   let seizedAt = 0
+  // Per-rescue progress, reset at seizure. See RESCUE_CEILING_MS above.
+  let shoreCache = null            // { key, at, result }
+  let lastShoreTarget = null       // target identity progress is measured against
+  let bestShoreDist = Infinity     // closest approach to THAT target
+  let lastProgressAt = 0
+  let lastShoreReachable = false   // did the last scan find anywhere to stand?
+  // Consequence of the PREVIOUS release, so a release can be graded by what
+  // happened next rather than by what it claimed at the time.
+  let lastReleaseAt = 0
+  let lastReleaseKind = null
   // Logged only on change: the phase is re-evaluated twice a second.
   let lastDrownPhase = null
   // ASHORE, NOT JUST BREATHING. Releasing the body at first breath left the
@@ -571,6 +709,38 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     return !!below && below.name !== 'water' && below.name !== 'bubble_column' &&
            !below.name.includes('kelp') && !below.name.includes('seagrass')
   }
+  // Cached because phase 2 asks twice a second and a swimming bot barely moves
+  // between ticks. The key includes Y and not just X/Z: a bot that sinks two
+  // blocks has a different set of reachable banks, and a horizontally-keyed
+  // cache would hand it the answer for a depth it has already left.
+  const shoreScan = () => {
+    const at = bot.entity?.position
+    if (!at) return { dir: null, target: null, dist: Infinity }
+    const key = `${Math.round(at.x)},${Math.round(at.y)},${Math.round(at.z)}`
+    const now = Date.now()
+    if (shoreCache && shoreCache.key === key && now - shoreCache.at < SHORE_TTL_MS) {
+      return shoreCache.result
+    }
+    const result = shoreRoute(bot, { maxReads: SHORE_MAX_READS })
+    // A scan that ran out of budget is not evidence of absence. Caching it as a
+    // settled "no shore" would hide a bank one ring past the cutoff for the
+    // whole TTL -- the same shape of bug as the original: a negative result the
+    // system cannot tell from an unasked question.
+    if (!result.partial) shoreCache = { key, at: now, result }
+    return result
+  }
+
+  // ONE deadline, asked in both places. Phase-2 steering and the release branch
+  // used to test `seizedAt` against 20s independently; extending only one of
+  // them yields a bot that stops swimming at 20s but stays owned until 45s --
+  // strictly worse than the flat ceiling it replaced.
+  const rescueExpired = () => {
+    const held = Date.now() - seizedAt
+    if (held <= RESCUE_CEILING_MS) return false
+    if (held >= RESCUE_CEILING_MAX_MS) return true
+    return Date.now() - lastProgressAt >= PROGRESS_STALL_MS
+  }
+
   // Largest air value this bot has reported. It sits at full whenever the bot is
   // on land, so this converges within seconds of spawning and tells assessAir
   // which scale the server is actually using. See the note above assessAir.
@@ -719,8 +889,21 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       //
       // So the breathing-but-not-ashore phase runs here, on its own terms: it
       // is a rescue we still own, not a drowning we are still fighting.
-      if (rescuing && !air.losing && !ashore() && Date.now() - seizedAt <= 20_000) {
-        const shore = shoreRoute(bot)
+      if (rescuing && !air.losing && !ashore() && !rescueExpired()) {
+        const shore = shoreScan()
+        lastShoreReachable = shore.dir === 'shore'
+        if (shore.dir === 'shore') {
+          const tk = `${Math.round(shore.target.x)},${Math.round(shore.target.y)},${Math.round(shore.target.z)}`
+          if (tk !== lastShoreTarget) {
+            // A new target resets the baseline but NOT the clock; see the note
+            // on RESCUE_CEILING_MS. Otherwise re-targeting buys free time.
+            lastShoreTarget = tk
+            bestShoreDist = shore.dist
+          } else if (shore.dist < bestShoreDist - 0.5) {
+            bestShoreDist = shore.dist
+            lastProgressAt = Date.now()
+          }
+        }
         const ctl = drowningControls({ losing: false, ashore: false, route: null, shore })
         if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
         bot.setControlState('forward', ctl.forward)
@@ -738,7 +921,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       }
 
       if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing &&
-          (ashore() || Date.now() - seizedAt > 20_000)) {
+          (ashore() || rescueExpired())) {
         // THE CEILING IS NOT AN ESCAPE, AND MUST NOT BE LOGGED AS ONE.
         //
         // Both exits released the body under one `drowning_escaped` event, so a
@@ -753,8 +936,21 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // correct, because holding it forever starves every other reflex. It is
         // only the CLAIM that changes: an escape is reaching ground that is not
         // water, and everything else is a timeout.
-        const rel = drowningRelease(ashore())
+        // WHY THE REASON IS PASSED, AND WHAT IT COST TO LEARN.
+        //
+        // `drowning_surfaced_stranded` exists to separate two failures that the
+        // single timeout counter fused: a bot that ran the clock down SWIMMING AT
+        // A BANK failed at execution, and a bot that surfaced into open water with
+        // nowhere to stand never had a rescue to execute. They want opposite
+        // fixes. The distinction is only real if the caller supplies it -- a
+        // three-way release function called with the old boolean silently emits
+        // the old two outcomes and the new kind is dead code that reviews clean.
+        const rel = drowningRelease(ashore(), {
+          reason: lastShoreReachable ? 'ceiling' : 'no_shore',
+        })
         rescuing = false
+        lastReleaseAt = Date.now()
+        lastReleaseKind = rel.kind
         lastDrownPhase = null
         try { bot.clearControlStates() } catch { /* not connected */ }
         logEvent({
@@ -763,8 +959,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           detail: rel.escaped
             ? `ashore with oxygen ${bot.oxygenLevel}, health ${bot.health}`
             : `released after ${Math.round((Date.now() - seizedAt) / 1000)}s still in water ` +
-              `(oxygen ${bot.oxygenLevel}, health ${bot.health}) — the ceiling expired, ` +
-              `the bot did not reach land`,
+              `(oxygen ${bot.oxygenLevel}, health ${bot.health}); ` +
+              (rel.kind === 'drowning_surfaced_stranded'
+                ? `no block within ${SHORE_MAX_READS} reads it could stand on — surfaced, breathing, stranded`
+                : `it was closing on shore at ${bestShoreDist === Infinity ? '?' : bestShoreDist.toFixed(1)}b ` +
+                  `and the ceiling expired first`),
           snapshot: snapshot(bot),
         })
       }
@@ -800,6 +999,25 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           if (!rescuing) {
             rescuing = true
             seizedAt = Date.now()
+            // A RELEASE IS GRADED BY WHAT HAPPENS NEXT, not by what it claimed.
+            // Reclassifying an outcome is free; the way to tell a real escape
+            // from a renamed one is whether the bot came straight back. If
+            // `drowning_escaped` starts arriving with reentries behind it, the
+            // escape is decoration and this event is what says so.
+            if (lastReleaseAt && Date.now() - lastReleaseAt < REENTRY_WINDOW_MS) {
+              logEvent({
+                kind: 'drowning_reentry',
+                status: 'failed',
+                detail: `drowning again ${Math.round((Date.now() - lastReleaseAt) / 1000)}s after ` +
+                        `${lastReleaseKind} — that release did not hold`,
+                snapshot: snapshot(bot),
+              })
+            }
+            lastProgressAt = Date.now()
+            lastShoreTarget = null
+            bestShoreDist = Infinity
+            lastShoreReachable = false
+            shoreCache = null
             seizeBody(bot, 'drowning')
             // WHICH WAY, on every rescue -- not just the hopeless ones. Logging
             // only the sealed case left no way to tell whether "up" or "out" was
