@@ -190,9 +190,39 @@ function waterSituation (bot) {
            `${Math.round(shore.target.x)},${Math.round(shore.target.y)},${Math.round(shore.target.z)}. ` +
            `goto that spot to get out.`
   }
+  // TELLING IT TO SWIM WITHOUT TELLING IT WHERE IS WORSE THAN SAYING NOTHING.
+  //
+  // The first version of this line said "use swim_to <x> <y> <z> to cross to
+  // where you want to be" and stopped there. A bot in open water does not know
+  // where land is -- that is the definition of the situation -- so the model
+  // supplied the only coordinates it had, its own, and asked for one-block and
+  // zero-block "crossings". Measured within ten minutes of shipping it:
+  //
+  //     _swim_started | crossing 1b to 542,191
+  //     _swim_started | crossing 0b to 544,185
+  //     swim_to       | stalled 0b out; closed 0b of 1b
+  //     swim_to       | aborted: oxygen 3, letting the reflex surface us
+  //
+  // An instruction the model cannot act on gets answered with an action that
+  // does nothing, and it reads as the SKILL failing rather than the PROMPT
+  // failing. So name a destination it can actually use: home is the one place
+  // every bot knows, it is on land by construction, and swimming toward it is
+  // never the wrong direction when the alternative is treading water.
+  const hx = config.world.homeX, hy = config.world.homeY, hz = config.world.homeZ
+  const d = Math.hypot(hx - at.x, hz - at.z)
   return `IN WATER: you are in OPEN WATER with no land within 24 blocks. This is not an ` +
-         `emergency — you are at the surface and breathing. goto will not work out here ` +
-         `because it walks around water; use swim_to <x> <y> <z> to cross to where you want to be.`
+         `emergency — you are at the surface and breathing. goto cannot cross water; it ` +
+         `walks around it. Your town is ${d.toFixed(0)} blocks ${bearing(hx - at.x, hz - at.z)} ` +
+         `at ${hx},${hy},${hz} — swim_to ${hx} ${hy} ${hz} heads back to land. Give swim_to a ` +
+         `destination that is actually across the water, never your own position.`
+}
+
+/** Compass direction, because "west" is actionable and "dx=-812" is not. */
+function bearing (dx, dz) {
+  // +x is east and +z is south in Minecraft.
+  const dirs = ['east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast']
+  const a = Math.atan2(dz, dx) * 180 / Math.PI
+  return dirs[Math.round(((a + 360) % 360) / 45) % 8]
 }
 
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {

@@ -2445,6 +2445,20 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
              detail: 'not in water — use goto for land travel' }
   }
 
+  // A ONE-BLOCK SWIM IS NOT A CROSSING, AND ACCEPTING IT HID A PROMPT BUG.
+  //
+  // The model asked for 0b and 1b "crossings" because the observation told it to
+  // swim without telling it where land was. Accepting those requests turned a
+  // prompt defect into a skill that thrashed for twelve seconds and aborted at
+  // oxygen 3. A skill that cannot succeed at what it was asked should say so
+  // immediately and name the alternative, so the failure reads as the bad
+  // request it is.
+  if (startDist < 8) {
+    return { status: 'failed', failClass: 'bad_target',
+             detail: `target is ${startDist.toFixed(0)}b away — that is not a crossing. ` +
+                     `Give swim_to somewhere across the water, or use goto/surface to get out here.` }
+  }
+
   // TAKE THE BODY, for the same reason the reflex does: pathfinder's
   // monitorMovement rewrites forward/jump/sprint every physics tick while a goal
   // is set, so a swim that does not clear the goal is overwritten within ~50ms.
@@ -2452,6 +2466,23 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
   try { bot.clearControlStates() } catch { /* not connected */ }
 
   bot.waterTravel = { active: true, since: Date.now(), target }
+
+  // SURFACE FIRST. A submerged bot that starts swimming horizontally drowns on
+  // the way: measured `0 strokes over 0s` followed immediately by `aborted:
+  // oxygen 3`, because the loop's own oxygen guard fired before the first
+  // stroke. Hold jump until the head is in air, then travel.
+  const headIsAir = () => {
+    const h = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
+    return !!h && h.name !== 'water' && h.boundingBox === 'empty'
+  }
+  const SURFACE_MS = 6_000
+  const surfaceBy = Date.now() + SURFACE_MS
+  while (!headIsAir() && Date.now() < surfaceBy) {
+    check(signal)
+    bot.setControlState('jump', true)
+    bot.setControlState('forward', false)
+    await new Promise(r => setTimeout(r, 200))
+  }
 
   const DEADLINE_MS = 150_000
   const STALL_MS = 12_000        // no closing progress for this long -> give up

@@ -185,5 +185,48 @@ t('a dry bot is not told about water at all', () => {
   assert.ok(!/IN WATER/.test(u), 'the water line fires when the bot is dry')
 })
 
+t('open water names a destination the model can actually use', () => {
+  // The first version told the model to swim and did not say where. A bot in
+  // open water does not know where land is -- that IS the situation -- so the
+  // model supplied its own coordinates and asked for zero-block crossings.
+  const u = promptFor(ocean(), new V(500, 62, 300))
+  assert.match(u, /Your town is \d+ blocks/, 'no distance to a known destination')
+  assert.match(u, /(north|south|east|west)/, 'no compass bearing — "dx=-500" is not actionable')
+  assert.match(u, /swim_to 0 \d+ 0/, 'the concrete swim_to call is not spelled out')
+  assert.match(u, /never your own position/,
+    'nothing stops the model asking to swim to where it already is')
+})
+
+await ta('a one-block "crossing" is refused as a bad target', () => {
+  // Accepting these turned a prompt defect into a skill that thrashed for
+  // twelve seconds and aborted at oxygen 3.
+  const bot = makeBot({ pos: new V(0, 62, 0), blocks: ocean() })
+  bot.assertNav = () => {}
+  return SKILLS.swim_to.run({ bot }, { x: 1, y: 62, z: 0 }, null).then(r => {
+    assert.equal(r.status, 'failed')
+    assert.equal(r.failClass, 'bad_target')
+    assert.match(r.detail, /not a crossing/i)
+  })
+})
+
+t('swim_to surfaces before it travels', () => {
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const surf = sk.indexOf('SURFACE_MS')
+  const loop = sk.indexOf('const DEADLINE_MS')
+  assert.ok(surf > 0 && loop > 0, 'no surfacing phase in swim_to')
+  assert.ok(surf < loop,
+    'the surfacing phase must run BEFORE the travel loop, or a submerged bot ' +
+    'swims horizontally and the oxygen guard fires having taken zero strokes')
+  // Ordering alone is not enough: SURFACE_MS = 0 keeps the phase in the right
+  // PLACE while removing it entirely, and an earlier version of this assertion
+  // passed against exactly that mutant.
+  const ms = sk.match(/const SURFACE_MS = ([0-9_]+)/)
+  assert.ok(ms, 'SURFACE_MS is gone')
+  const budget = Number(ms[1].replace(/_/g, ''))
+  assert.ok(budget >= 2000,
+    `SURFACE_MS is ${budget}ms — too short to actually reach the surface, so the ` +
+    `phase is decoration`)
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
