@@ -2385,6 +2385,153 @@ function isNightTime(bot) {
  * fresh entry with a clean record, which passed the gate, failed, and left one
  * more permanent block behind.
  */
+// A CROSSING IS NOT A RESCUE, AND IT IS NOT A WALK EITHER.
+//
+// Until today this agent had no word for travelling through water. "swim"
+// existed only inside the drowning reflex, as something you do to stop dying,
+// and the planner priced a wet step at ~86 against ~1 on land so A* would never
+// choose one. The result was an agent that could not cross a river on purpose,
+// in a game where water is most of the map.
+//
+// It could cross one by accident, though, and did. Measured 2026-08-22:
+// board-b-Comet moved (1544,425) -> (1556,473) -- about 50 blocks -- while
+// logging ninety consecutive `drowning_no_shore` events. placebo-b-Delta and
+// placebo-a-Echo both reached land unaided. All three were swimming. All three
+// were recorded as failed rescues, and the reflex spent the whole time holding
+// them still (`forward:false, jump:true`) waiting for a shore that was not
+// within its scan radius, releasing at the ceiling, and re-seizing on the next
+// submersion. `drowning_reentry` fired 74 times against 108 releases: that
+// counter was not measuring rescue, it was measuring a livelock.
+//
+// WHY THIS DOES NOT USE THE PATHFINDER FOR THE LONG LEG.
+//
+// A* plans node by node through loaded chunks. An ocean crossing is thousands of
+// nodes of near-identical open water with no landmarks to prune on, and the far
+// shore is not loaded when the plan is made. Asking A* for that route is asking
+// it to fail slowly. So this is macro-routing: the pathfinder is not involved in
+// the open-water segment at all -- the bot points at the target and swims, which
+// is what a person does. `goto` still owns the land legs at either end.
+//
+// THE BODY HANDSHAKE. `bot.waterTravel` tells the drowning reflex that being wet
+// is intentional right now. The reflex still owns real drowning -- oxygen
+// actually falling, health actually dropping -- because that is what it was
+// written for after eight bots died in forty-five minutes. What it stops doing
+// is treating a bot at the surface with full lungs as an emergency.
+async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
+  const { bot } = ctx
+  assertInsideBorder(x, z)
+  check(signal)
+  bot.assertNav?.('swim_to')
+
+  const target = new Vec3(Number(x), Number(y), Number(z))
+  const here0 = bot.entity.position
+  const startDist = Math.hypot(target.x - here0.x, target.z - here0.z)
+
+  const inWater = () => {
+    const b = bot.blockAt?.(bot.entity.position)
+    return !!b && (b.name === 'water' || b.name === 'bubble_column')
+  }
+  const onLand = () => {
+    if (!bot.entity?.onGround) return false
+    const below = bot.blockAt?.(bot.entity.position.offset(0, -1, 0))
+    return !!below && below.name !== 'water' && below.boundingBox === 'block'
+  }
+
+  // Refuse the job rather than do it badly. A dry bot asking to swim wants
+  // `goto`, and silently doing something else is how a skill's name stops
+  // meaning anything.
+  if (!inWater()) {
+    return { status: 'failed', failClass: 'unsupported',
+             detail: 'not in water — use goto for land travel' }
+  }
+
+  // TAKE THE BODY, for the same reason the reflex does: pathfinder's
+  // monitorMovement rewrites forward/jump/sprint every physics tick while a goal
+  // is set, so a swim that does not clear the goal is overwritten within ~50ms.
+  try { bot.pathfinder.setGoal(null) } catch { /* plugin may be absent */ }
+  try { bot.clearControlStates() } catch { /* not connected */ }
+
+  bot.waterTravel = { active: true, since: Date.now(), target }
+
+  const DEADLINE_MS = 150_000
+  const STALL_MS = 12_000        // no closing progress for this long -> give up
+  const TICK_MS = 250
+  const started = Date.now()
+  let best = startDist
+  let lastProgressAt = Date.now()
+  let strokes = 0
+
+  logEvent({
+    kind: 'swim_started',
+    status: 'success',
+    detail: `crossing ${startDist.toFixed(0)}b to ${Math.round(target.x)},${Math.round(target.z)}`,
+    snapshot: snapshot(bot),
+  })
+
+  try {
+    while (Date.now() - started < DEADLINE_MS) {
+      check(signal)
+      const here = bot.entity.position
+      const dist = Math.hypot(target.x - here.x, target.z - here.z)
+
+      if (dist <= range && onLand()) {
+        logEvent({ kind: 'swim_completed', status: 'success',
+                   detail: `ashore ${dist.toFixed(1)}b from target after ${strokes} strokes`,
+                   snapshot: snapshot(bot) })
+        return { status: 'success', detail: `swam ${(startDist - dist).toFixed(0)}b and landed` }
+      }
+
+      // ARRIVING IS LANDING, NOT BEING NEAR. A bot treading water on top of its
+      // destination has not arrived, and saying it has is the same lie the
+      // drowning release used to tell.
+      if (dist <= range && !onLand()) {
+        // Close enough to look for a foothold rather than a heading.
+        const shore = bot.blockAt?.(here.offset(0, -1, 0))
+        if (shore && shore.boundingBox === 'block' && shore.name !== 'water') {
+          // standing on something already; let the next iteration's onLand() see it
+        }
+      }
+
+      if (dist < best - 1) { best = dist; lastProgressAt = Date.now() }
+      if (Date.now() - lastProgressAt > STALL_MS) {
+        return { status: 'failed', failClass: 'stuck',
+                 detail: `stalled ${(dist).toFixed(0)}b out; closed ${(startDist - best).toFixed(0)}b of ${startDist.toFixed(0)}b` }
+      }
+
+      // Real drowning outranks the crossing. Hand the body back and let the
+      // reflex do the job it exists for; the caller can re-issue the swim.
+      if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel > 0 &&
+          bot.oxygenLevel <= 4 && !onLand()) {
+        return { status: 'failed', failClass: 'hazard_interrupt',
+                 detail: `aborted: oxygen ${bot.oxygenLevel}, letting the reflex surface us` }
+      }
+
+      try { await bot.lookAt(new Vec3(target.x, here.y, target.z), true) } catch { /* not connected */ }
+      // forward drives the stroke; jump holds the head at the surface, which is
+      // both faster than submerged swimming and the only way oxygen refills.
+      bot.setControlState('forward', true)
+      bot.setControlState('jump', !onLand())
+      bot.setControlState('sprint', true)
+      strokes++
+      await new Promise(r => setTimeout(r, TICK_MS))
+    }
+    const here = bot.entity.position
+    const dist = Math.hypot(target.x - here.x, target.z - here.z)
+    // travel_incomplete, not path_budget: the swim ran, it just did not finish,
+    // and the distance closed is real evidence rather than a don't-know.
+    return { status: 'failed', failClass: 'travel_incomplete',
+             detail: `deadline: ${dist.toFixed(0)}b short of target` }
+  } finally {
+    bot.waterTravel = null
+    try { bot.clearControlStates() } catch { /* not connected */ }
+    logEvent({
+      kind: 'swim_ended', status: 'success',
+      detail: `${strokes} strokes over ${Math.round((Date.now() - started) / 1000)}s`,
+      snapshot: snapshot(bot),
+    })
+  }
+}
+
 export function actionKey(skill, args) {
   const declared = SKILLS[skill]?.args
   const src = args ?? {}
@@ -2404,6 +2551,7 @@ export const SKILL_CONTRACTS = {
   gather:   { expects: ['inventory_gain'],        maxMs: 180_000 },
   mine:     { expects: ['inventory_gain', 'position'], maxMs: 180_000 },
   surface:  { expects: ['position'],              maxMs: 120_000 },
+  swim_to:  { expects: ['position'],              maxMs: 180_000 },
   craft:    { expects: ['inventory_gain'],        maxMs: 60_000 },
   build:    { expects: ['world_change'],          maxMs: 180_000 },
   place:    { expects: ['world_change'],          maxMs: 30_000 },
@@ -2891,6 +3039,7 @@ async function surface(ctx, _args, signal) {
 
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
+  swim_to: { run: swimTo,  usage: 'swim_to <x> <y> <z>',           args: ['x', 'y', 'z'] },
   gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
   come:    { run: come,    usage: 'come',                          args: [], chatOnly: true },
   follow:  { run: follow,  usage: 'follow [seconds]',              args: [], chatOnly: true },

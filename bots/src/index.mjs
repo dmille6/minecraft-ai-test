@@ -372,6 +372,52 @@ function connect() {
       finally { bot.pathfinder.setMovements(moves) }
     }
 
+    // WATER IS TERRAIN. THE OTHER FOUR PROFILES EXIST TO REFUSE IT.
+    //
+    // Every profile above inherits one shared `exclusionAreasStep`, and that
+    // sharing is deliberate: gathering is not worth drowning for. The result is
+    // an agent that prices a wet step at ~86 against ~1 on land and, with the
+    // fifteen `cost > 100` guards, treats open water as very nearly a wall. The
+    // comment above says the quiet part out loud -- "the bots do not need to
+    // cross water" -- and that was a correct read of Block 1, where drowning was
+    // the top death cause.
+    //
+    // It is not a correct read of Minecraft. Water is most of many worlds, and a
+    // platform meant to work in ANY Minecraft environment cannot treat the
+    // majority of the map as a failure mode. Measured 2026-08-22: bots swam 50
+    // to 70 blocks between consecutive "no shore" events, and two walked out
+    // onto land unaided, while every one of those events was logged as a failed
+    // rescue. They were travelling. We had no word for it.
+    //
+    // So this profile is the word for it. It is NOT the default and must never
+    // become it: a bot does not get to volunteer for water. It is selected only
+    // by a skill that has decided to cross, the same way ascentMovements is
+    // selected only by a climb.
+    const waterMoves = Object.create(Object.getPrototypeOf(moves))
+    Object.assign(waterMoves, moves)
+    // The entry penalty is the whole reason water is unreachable, and unlike the
+    // other profiles this one REPLACES the array rather than inheriting the
+    // shared reference. Entering the water is the point of the manoeuvre.
+    waterMoves.exclusionAreasStep = []
+    // Surface swimming is real travel -- about 5.6 m/s sprint-swimming against
+    // 4.3 walking -- so a wet step is priced slightly ABOVE a land step rather
+    // than as a catastrophe. Not 1: crossing still carries drowning risk that
+    // walking does not, and a route that hugs a shoreline for free should still
+    // win over one that strikes out to sea.
+    waterMoves.liquidCost = 2
+    // Digging while swimming drops the bot into water it cannot leave, and a
+    // 1x1 tower built from a boat is not a thing. Both off.
+    waterMoves.canDig = false
+    waterMoves.allow1by1towers = false
+    waterMoves.allowParkour = false
+    waterMoves.dontCreateFlow = true
+    bot.waterMovements = waterMoves
+    bot.withWaterMovements = async (fn) => {
+      bot.pathfinder.setMovements(waterMoves)
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves) }
+    }
+
     // OUR MOVEMENT CONFIG IS NOT OURS TO KEEP.
     //
     // An earlier version of this comment had the mechanism wrong, and the

@@ -889,7 +889,23 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       //
       // So the breathing-but-not-ashore phase runs here, on its own terms: it
       // is a rescue we still own, not a drowning we are still fighting.
-      if (rescuing && !air.losing && !ashore() && !rescueExpired()) {
+      // A DELIBERATE CROSSING IS NOT AN EMERGENCY.
+      //
+      // `bot.waterTravel` is set by the swim_to skill for exactly as long as a
+      // crossing is in progress. While it is set, being wet is the plan, and a
+      // rescue that seizes the body is not saving the bot -- it is cancelling
+      // its journey. Measured 2026-08-22: bots swam 50-70 blocks between
+      // consecutive `drowning_no_shore` events while this branch held them at
+      // `forward:false`, and `drowning_reentry` fired 74 times against 108
+      // releases. That counter was measuring a livelock, not a rescue.
+      //
+      // What does NOT change: `air.losing` still outranks everything below. A
+      // swimmer whose oxygen is actually draining gets seized, because that is
+      // the case this reflex was written for after eight bots drowned in
+      // forty-five minutes.
+      const swimming = !!bot.waterTravel?.active
+
+      if (rescuing && !air.losing && !ashore() && !rescueExpired() && !swimming) {
         const shore = shoreScan()
         lastShoreReachable = shore.dir === 'shore'
         if (shore.dir === 'shore') {
@@ -920,8 +936,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         }
       }
 
+      // HOLDING A BOT THAT HAS NOWHERE TO GO IS NOT A RESCUE.
+      //
+      // `!lastShoreReachable` releases immediately instead of pinning the body
+      // for the full ceiling. The old code held a surfaced, full-lunged bot at
+      // `forward:false, jump:true` for twenty seconds, released it, and re-seized
+      // on the next submersion -- so a bot crossing open water lost twenty
+      // seconds out of every cycle to a rescue that had already established
+      // there was nothing to rescue it to. Open water is not an emergency; it is
+      // terrain, and the bot needs its body back to cross it.
+      //
+      // Phase 2 runs before this branch, so `lastShoreReachable` is this tick's
+      // answer and not a stale one.
       if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing &&
-          (ashore() || rescueExpired())) {
+          (ashore() || rescueExpired() || swimming || !lastShoreReachable)) {
         // THE CEILING IS NOT AN ESCAPE, AND MUST NOT BE LOGGED AS ONE.
         //
         // Both exits released the body under one `drowning_escaped` event, so a
@@ -945,9 +973,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // fixes. The distinction is only real if the caller supplies it -- a
         // three-way release function called with the old boolean silently emits
         // the old two outcomes and the new kind is dead code that reviews clean.
-        const rel = drowningRelease(ashore(), {
-          reason: lastShoreReachable ? 'ceiling' : 'no_shore',
-        })
+        // A YIELD IS NOT A RESCUE OUTCOME. drowningRelease answers "how did the
+        // rescue end"; a crossing that was never an emergency did not have one,
+        // and folding it in would put a correct decision into the escape-rate
+        // denominator as a failure.
+        const rel = swimming
+          ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
+          : drowningRelease(ashore(), { reason: lastShoreReachable ? 'ceiling' : 'no_shore' })
         rescuing = false
         lastReleaseAt = Date.now()
         lastReleaseKind = rel.kind
@@ -960,8 +992,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             ? `ashore with oxygen ${bot.oxygenLevel}, health ${bot.health}`
             : `released after ${Math.round((Date.now() - seizedAt) / 1000)}s still in water ` +
               `(oxygen ${bot.oxygenLevel}, health ${bot.health}); ` +
-              (rel.kind === 'drowning_surfaced_stranded'
-                ? `no block within ${SHORE_MAX_READS} reads it could stand on — surfaced, breathing, stranded`
+              (rel.kind === 'drowning_yielded_to_swim'
+                ? 'a swim_to crossing is in progress — handing the body back'
+                : rel.kind === 'drowning_surfaced_stranded'
+                ? `no block within reach it could stand on — surfaced, breathing, released to travel`
                 : `it was closing on shore at ${bestShoreDist === Infinity ? '?' : bestShoreDist.toFixed(1)}b ` +
                   `and the ceiling expired first`),
           snapshot: snapshot(bot),
