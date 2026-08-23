@@ -1346,3 +1346,72 @@ Arms, endpoints, duration, model, worlds, seed and analysis rules are untouched.
 G1, G2, G3 and G5 stand exactly as registered this morning. The `0.053/bot-h`
 drowning baseline and the `0.062/bot-h` all-cause baseline are unchanged, and
 their known weakness — both rest on a single 2.82h window — is unchanged too.
+
+---
+
+## AMENDMENT — immobile bots contribute bot-hours but no exposure; declared before the ablation window closes (2026-08-23)
+
+Written with roughly two hours left in the `e051cd5` surface-hold ablation and
+**before its G1/G2 numbers have been computed**. The reason for the timing is in
+the direction of the bias, below: it runs in my favour, so I do not get to
+discover it afterwards.
+
+### The problem
+
+The affordance ledger (`scripts/derive-affordances.py`) found two bots frozen for
+the entire window:
+
+    isolated-a-Alpha    990 events   y=2 throughout    3D displacement 0.00
+    hive-b-Alpha      1,119 events   y=19 throughout   3D displacement 0.00
+
+Confirmed against the SERVER, not the logs: both reported identical coordinates
+45 seconds apart. A moving control bot in the same check (`isolated-a-Bravo`)
+showed 0.00 horizontally while climbing 6 blocks vertically, which is why the
+criterion below is **3D** — a horizontal-only test calls a pillaring bot immobile.
+
+Every existing health check was blind to this. `fleet-status` reported 40/40,
+systemd reported all units active, and the servers reported all 40 playing.
+
+### Why it biases, and in which direction
+
+Death rates are `deaths / (bots x hours)`. An entombed bot contributes bot-hours
+but **cannot drown**, so it inflates the denominator without contributing any
+drowning exposure. With 2 of 40 bots frozen the denominator is ~5% too large and
+the measured drowning rate is correspondingly ~5% **too low**.
+
+That makes the ablation look BETTER than it is. I am the one who wants the
+surface-hold revert to look good, which is precisely why this is being written
+down now rather than noticed later.
+
+### The rule
+
+**Exposure-weighted bot-hours.** For each bot, bucket the window into 5-minute
+intervals. A bucket counts toward exposure only if the bot's maximum 3D
+displacement within it is `>= 8` blocks (one anchor cell). The denominator is the
+sum of qualifying buckets.
+
+  - The test is **3D**. A bot pillaring, mining down, or climbing is working.
+  - It is measured **independently of deaths**, so this is not outcome-dependent
+    selection. That property is what makes the exclusion legitimate at all, and
+    it is the only reason it is permitted post-hoc within a running window.
+  - It is applied to **BOTH the candidate and the baseline**, or the comparison
+    is rigged. Excluding immobile time shrinks a denominator and RAISES a
+    measured rate, so applying it to `e051cd5` but not to `d41b828`'s 0.053
+    baseline would bias against the candidate rather than for it. Both, or
+    neither.
+  - **Both numbers are always reported** — naive bot-hours and exposure-weighted.
+    If the two disagree materially, that disagreement is itself the finding and
+    the gate is not decided until it is explained.
+
+### What this does NOT license
+
+It does not license dropping bots that merely performed badly, died often, or
+produced inconvenient data. The criterion is zero movement, nothing else. A bot
+that moved and then died counts fully — its exposure was real and so was its
+death.
+
+### Consequence
+
+Frozen bots are a standing productivity tax that nothing currently measures. A
+rolling 3D-displacement check belongs in the fleet health tooling, and until it
+exists the ledger reducer is the only thing that reports it.
