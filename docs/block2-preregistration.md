@@ -1070,3 +1070,183 @@ seed 31415926 quoted above is therefore **withdrawn as evidence of treelessness*
 the correct measurement is that seed 31415926's nearest forest is **273 blocks**
 from origin, which is outside the probe radius used and outside the 128-block
 criterion adopted here.
+
+---
+
+## AMENDMENT — the water/hazard start gate replaces the drowning escape-rate threshold (2026-08-23)
+
+Written **before the 200 bot-hour collection on `7d1ee54` completes**, and before
+any of the thresholds below have been evaluated against it. The reason for the
+ordering is on the record in the previous day's work: a threshold chosen after
+seeing the number is a threshold that gets talked into passing.
+
+### Why the old gate is withdrawn
+
+The drowning-escape-rate threshold — `escaped / (escaped + timeout) >= 50%` — is
+**withdrawn as a start gate**. It is not merely too lax. It is the wrong shape,
+and it failed in the specific way a gate must not:
+
+    version    escape win%      drowning deaths / bot-h
+    d41b828        14.8%              0.053     <- baseline
+    a769e73        53.5%              0.070
+    91dbefc        44.1%              0.134     <- 2.5x the baseline
+
+Over eight hours of iteration the escape rate rose from 14.8% to the high fifties
+while drowning deaths **tripled**. The metric improved and the fleet got worse.
+
+The mechanism is structural, not a mistake in the threshold. Escape rate
+**conditions on attempted escapes**: its denominator counts only bots that
+already reached a rescue. It is therefore blind to a change that creates more
+water exposure, and every change in that period created more. A fleet that
+enters water twice as often and escapes slightly better scores better and buries
+more bots.
+
+Any replacement must have harm in the numerator and EXPOSURE — not attempts — in
+the denominator.
+
+### The gate is lexicographic; the composite is a dashboard number
+
+A weighted harm score is **not** adopted as the gate. A weighted sum permits a
+large improvement in a cheap frequent term to mask a regression in a rare
+expensive one, which is the failure above with more arithmetic on top. The
+composite is retained for ranking candidates AFTER the hard gates pass, and it
+never overrides them.
+
+Gates are evaluated in order. The first failure stops the block; later gates are
+not consulted.
+
+    G1  terminal harm, water      drowning deaths
+    G2  terminal harm, all-cause  every accidental death, water or not
+    G3  near-death water exposure oxygen-critical state, reentry, stranding
+    G4  hold efficacy             does the surface-hold actually hold
+    G5  composite                 only reached if G1-G4 pass
+
+### G1 — drowning deaths, and why they cannot be the working gate
+
+Baseline: **0.053 drowning deaths per bot-hour** (`d41b828`, 2.82h, the last
+measurement taken before any water work).
+
+Deaths are rare enough that short windows carry almost no information. Computed
+from the Poisson upper bound `chi2(2(k+1), c) / 2E`:
+
+    exposure   baseline expects   max deaths passing an 80% bound <= 1.5x baseline
+      50 bot-h       2.6                    k <= 1
+     100 bot-h       5.3                    k <= 5
+     200 bot-h      10.6                    k <= 12
+     300 bot-h      15.9                    k <= 19
+     400 bot-h      21.2                    k <= 26
+
+**At 50 bot-hours the acceptance test is unpassable by construction** — it admits
+at most 1 death where baseline itself expects 2.6. This is not a stricter
+standard; it is a window too short to distinguish any hypothesis from any other.
+The `b6a4845` run (k=3 over 50 bot-h) yields an 80% upper bound of 0.110/bot-h,
+**2.1x baseline** — which is neither evidence of regression nor of safety, and
+was correctly recorded as neither.
+
+Therefore:
+
+  - **Catastrophic veto, any 50 bot-h window:** halt on `k >= 6` drowning deaths.
+    Under baseline `P(k >= 6) = 0.053`, so this accepts a ~5% false-halt rate per
+    window in exchange for catching a real 2x+ regression quickly.
+  - **Acceptance requires >= 200 bot-hours accumulated on one code version**, and
+    passes when the 80% one-sided upper bound on the drowning death rate is
+    `<= 0.080/bot-h` (1.5x baseline).
+  - **No claim of death-rate improvement may be made from fewer than 10 observed
+    deaths**, in either direction.
+
+### G2 — all-cause accidental deaths, because water work moved other causes
+
+A water-only gate is too narrow. Across the water change set, deaths by cause:
+
+    version    drowning   falls   lava
+    d41b828        6        0       0
+    91dbefc       23        8       0
+    b6a4845        3        2       2
+
+Falls appeared and then persisted; lava deaths are new. A rescue behaviour can
+plausibly produce bad pathing, cliff exits or lava routing, and those deaths are
+not unrelated merely because the final damage type is not drowning.
+
+  - **Fail** if all-cause accidental deaths exceed **1.25x** the all-cause
+    baseline (`0.062/bot-h`, i.e. `> 0.078/bot-h`) over `>= 200` bot-hours.
+  - **Inspect** if any single non-water cause exceeds 3 deaths per 100 bot-hours,
+    even when G1 passes.
+
+### G3 — leading indicators, defined independently of the mechanisms that respond
+
+These carry the working load, because they move fast enough to measure at the
+30-90 minute timescale that iteration actually runs at.
+
+They are defined on the PHYSICAL STATE and not on any intervention. This is
+load-bearing: `oxygen_critical_state` is emitted by `airCriticalTransition()`,
+which has no knowledge of `mayAct`, `rescuing`, `swimming`, or whether any rescue
+occurred. Gating on "how often did my override fire" would count the mechanism
+rather than the world, and tuning the override would move the number whether or
+not one bot was safer — the escape-rate failure in a new costume.
+
+    indicator                      pass        warn        fail
+    oxygen_critical_state /bot-h   <= 0.75x pre-fix        > 1.0x pre-fix
+    drowning_reentry /bot-h        <= 12       12-18       > 18
+    surfaced_stranded /bot-h       <= 10       10-15       > 15
+
+Measured on `b6a4845` for reference, not as a pass: reentry 9.2, stranded 7.7.
+
+### G4 — the surface-hold must be shown to work, not merely to run
+
+Raw `_water_surface_hold` count is **explicitly not a gate**. A high count is
+ambiguous between "prevention is working" and "bots keep ending up in bad
+states", and the entry count alone cannot tell those apart. `b6a4845` produced
+560 entries across 33 of 40 bots, which on its own says nothing.
+
+Gate on the aftermath, via `water_surface_hold_ended`:
+
+  - **Fail** if median health during holds `< 18`
+  - **Fail** if `> 5%` of holds dip to critical air while held
+  - **Fail** if `> 5%` of holds exceed 5s with no controller ever acquiring the bot
+
+### G5 — composite, consulted only after G1-G4 pass
+
+    water_harm_rate = ( 100*drowning_deaths
+                      +  20*drowning_damage_episodes
+                      +  10*seconds_below_10pct_air
+                      +   5*severe_reentries
+                      +   2*seconds_surfaced_stranded
+                      +   1*failed_water_skills ) / bot_hour
+
+Durations preferred to counts wherever both are available. Pass at `<= 0.70x` the
+previous version, warn to `0.90x`, fail above.
+
+**The weights are triage, not truth**, and are recorded as such. They may be
+revised only by evidence — a survival or regression model showing which leading
+indicators actually predict later drowning, an ablation where reducing one term
+moves the death rate, or trace review showing a term is mostly benign. They may
+not be revised because a candidate narrowly failed.
+
+### What would falsify this gate design
+
+Stated now, so it can be checked later rather than argued:
+
+  - **G3 is worthless if its indicators do not predict deaths.** Once >= 400
+    bot-hours exist, regress drowning deaths on oxygen-critical entries, reentry
+    and stranding. Any indicator with no relationship is demoted to a dashboard
+    number and stops gating.
+  - **G1's baseline may be wrong.** 0.053/bot-h comes from a single 2.82h window
+    on `d41b828`. If a re-measurement under the same seed and task mix puts the
+    true baseline materially higher, every multiple above moves with it, and the
+    `91dbefc` regression shrinks accordingly.
+  - **If G2 never binds** across several hundred bot-hours while G1 varies, the
+    all-cause gate is redundant and should be dropped rather than carried as
+    decoration.
+  - **If the catastrophic veto fires on windows that later prove benign** more
+    than ~1 time in 10, the 5% false-halt rate was mis-specified and `k >= 6`
+    should move.
+
+### What did NOT change
+
+The treatment arms, the memory-scope manipulation, the primary and secondary
+endpoints, the seven-day duration, the model, the worlds, the seed, and every
+analysis rule are untouched. This amendment replaces one **operational
+START/NO-START gate** with another and adds no analysis endpoint. As with every
+gate in this document, none of these numbers may be reported as a result: their
+only job is to answer whether the apparatus is safe to measure with before the
+seven-day clock starts.
