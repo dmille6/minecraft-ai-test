@@ -361,11 +361,31 @@ export function breathingAgain(oxNow, recent = [], airMax = 300) {
   return oxNow == null || oxNow > lowOx || oxRising
 }
 
-export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousHealth = null } = {}) {
+export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousHealth = null,
+                                                   airMax = 20, criticalFrac = 0.25 } = {}) {
   if (!air?.losing) return false
 
   const h = bot?.health
   if (h != null && previousHealth != null && h < previousHealth) return true
+
+  // NEARLY OUT OF AIR OUTRANKS THE TREND TEST, AND 23 BOTS DIED PROVING IT.
+  //
+  // The monotonic check below returns false the moment ANY sample in the window
+  // ticks upward. That is correct noise-rejection for a bot wading in and out of
+  // a stream. It is lethal for a bot CYCLING: surface, breathe, sink, repeat --
+  // every cycle writes an up-tick into the window, so the rescue refuses to act
+  // on the way back down. Measured after the release-into-idle change made
+  // cycling common (drowning_reentry 0 -> 30.3 per bot-hour), refusals rose to
+  // 33.9% of drowning detections and drowning deaths tripled to 0.143/bot-hour.
+  //
+  // The pre-death traces are unambiguous: `_air_drowning_observed` -- the kind
+  // logged when this function says no -- appearing 0.1s before a death at
+  // "oxygen 20, head block water, health 1.33".
+  //
+  // So: below a quarter of a tank, the trend does not get a vote. This cannot
+  // fire for a wading bot, because a wading bot is not at 25% air.
+  const ox = bot?.oxygenLevel
+  if (typeof ox === 'number' && airMax > 0 && ox <= airMax * criticalFrac) return true
 
   const s = (oxygenSamples ?? []).filter(v => typeof v === 'number')
   if (s.length < 2) return false
@@ -533,6 +553,24 @@ export function shoreRoute (bot, { radius = 24, maxRise = 2, maxReads = 0 } = {}
  * jump, which is a vertical surface-hold -- exactly the behaviour that produced
  * a floating bot with full lungs and a rescue that never ended.
  */
+/**
+ * Does a bot NOBODY IS STEERING need its head held above water?
+ *
+ * Extracted as a value because the alternative is a source-grep test, and a
+ * source-grep test is what let `bot.waterMovements` ship as dead code: those
+ * assertions checked that the profile was CONFIGURED correctly and nothing
+ * checked that anything consumed it. The lesson generalises -- assert on the
+ * decision, not on the text that produces it.
+ *
+ * The three exclusions are ownership, not safety. A rescue, a deliberate
+ * crossing, or standing on dry land each mean somebody else is already
+ * responsible for this body; only the unowned-and-afloat case is ours.
+ */
+export function shouldHoldSurface({ rescuing, swimming, ashore, feet }) {
+  if (rescuing || swimming || ashore) return false
+  return !!feet && (feet.name === 'water' || feet.name === 'bubble_column')
+}
+
 export function drowningControls({ losing, ashore, route, shore }) {
   if (ashore) return { forward: false, jump: false, lookAt: null, phase: 'done' }
   // PHASE 1 -- still losing air. Reaching air outranks reaching land; a bot
@@ -889,6 +927,42 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       //
       // So the breathing-but-not-ashore phase runs here, on its own terms: it
       // is a rescue we still own, not a drowning we are still fighting.
+      // NOBODY MAY OWN NOTHING WHILE A BOT IS IN WATER.
+      //
+      // Releasing a stranded bot instead of pinning it was meant to give it its
+      // body back. What it actually did was hand the body to NO ONE: the release
+      // clears every control state, and if the cognitive loop has no action
+      // pending, the bot sinks. Of 23 drowning deaths, 15 have `_reflex_low_health`
+      // as their last event followed by roughly 24 seconds of total silence.
+      // They were not fighting to get out. They were idle, underwater.
+      //
+      // The old pinning behaviour was wasteful -- 20 seconds of paralysis per
+      // cycle -- and I mistook that cost for its whole effect. Holding `jump` was
+      // also LIFE SUPPORT, and removing it removed the only thing keeping an
+      // unowned bot's head above water.
+      //
+      // This restores the life support without restoring the paralysis. It is
+      // not a rescue and it does not seize the body: it asserts one control, on
+      // a bot nobody else is steering, and only while that bot is in water and
+      // not ashore. Any skill or rescue that wants the body still takes it.
+      if (shouldHoldSurface({
+        rescuing,
+        swimming: !!bot.waterTravel?.active,
+        ashore: ashore(),
+        feet: bot.blockAt?.(bot.entity.position),
+      })) {
+        {
+          bot.setControlState('jump', true)
+          if (lastDrownPhase !== 'float') {
+            lastDrownPhase = 'float'
+            logEvent({ kind: 'water_surface_hold', status: 'success',
+                       detail: `afloat and unowned — holding the surface ` +
+                               `(oxygen ${bot.oxygenLevel}, health ${bot.health})`,
+                       snapshot: snapshot(bot) })
+          }
+        }
+      }
+
       // A DELIBERATE CROSSING IS NOT AN EMERGENCY.
       //
       // `bot.waterTravel` is set by the swim_to skill for exactly as long as a
@@ -1005,6 +1079,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const mayAct = airConsequenceEvidence(bot, air, {
         oxygenSamples: airSamples.slice(-6),
         previousHealth: prevHealth,
+        // The server's actual scale, not the default: assessAir learns this at
+        // runtime because 1.21.8 reports ~400 where the constant assumes 20, and
+        // a critical threshold computed against the wrong scale never fires.
+        airMax,
       })
       prevHealth = bot.health ?? prevHealth
 
