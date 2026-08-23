@@ -12,6 +12,7 @@ import collectBlockPkg from 'mineflayer-collectblock'
 const collectBlock = collectBlockPkg.plugin ?? collectBlockPkg
 
 import { config } from './config.mjs'
+import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
@@ -519,6 +520,41 @@ function connect() {
     // chunk_loaded, block_updated, goal_updated, goal_moved, movements_updated,
     // dig_error, place_error, no_scaffolding_blocks. Each means something
     // different and only some of them are the world's fault.
+    // THE WEDGED-GOAL WATCHDOG. See src/path-watchdog.mjs for the mechanism;
+    // in short, pathfinder 2.4.5 can hold a goal with an empty path forever and
+    // emits nothing at all while it does, so this samples position instead.
+    //
+    // setGoal lives here rather than in the watchdog module because index.mjs is
+    // one of the declared movement owners; adding a second writer is the
+    // multi-writer bug the ratchet exists to prevent.
+    const posSamples = []
+    setInterval(() => {
+      try {
+        if (!bot.entity?.position) return
+        const now = Date.now()
+        const p = bot.entity.position
+        posSamples.push({ x: p.x, y: p.y, z: p.z, t: now })
+        while (posSamples.length > 40) posSamples.shift()
+        const wedged = pathfinderWedged({
+          hasGoal: !!bot.pathfinder?.goal,
+          moving: bot.pathfinder?.isMoving?.() ?? false,
+          mining: bot.pathfinder?.isMining?.() ?? false,
+          building: bot.pathfinder?.isBuilding?.() ?? false,
+          stillFor: stillnessMs(posSamples, now),
+        })
+        if (!wedged) return
+        logEvent({
+          kind: 'pathfinder_wedged', status: 'failed',
+          detail: `goal held with an empty path and no movement for ` +
+                  `${Math.round(stillnessMs(posSamples, now) / 1000)}s — clearing it ` +
+                  `(upstream issue #273 emits no event for this state)`,
+          snapshot: snapshot(bot),
+        })
+        bot.pathfinder.setGoal(null)
+        posSamples.length = 0
+      } catch { /* not connected */ }
+    }, 2000)
+
     bot.on('path_reset', (reason) => {
       pathResets[reason] = (pathResets[reason] ?? 0) + 1
       logEvent({ kind: 'path_reset', detail: reason, snapshot: snapshot(bot) })

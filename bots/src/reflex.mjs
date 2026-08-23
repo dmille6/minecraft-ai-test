@@ -362,11 +362,45 @@ export function breathingAgain(oxNow, recent = [], airMax = 300) {
 }
 
 export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousHealth = null,
-                                                   airMax = 20, criticalFrac = 0.25 } = {}) {
+                                                   airMax = 20, criticalFrac = 0.25,
+                                                   head = null } = {}) {
+  const h = bot?.health
+  const healthDropped = h != null && previousHealth != null && h < previousHealth
+
+  // THE FLOOR CASE, AND WHY IT SITS ABOVE THE `losing` RETURN.
+  //
+  // assessAir reports losing=false in two OPPOSITE situations, and this file has
+  // said so for weeks: oxygen pinned at FULL (wading) and oxygen pinned at the
+  // FLOOR, where the counter has nothing left to drain. Everything below this
+  // block returns false for the second case, so the rescue layer was provably
+  // blind to it -- two bots sat entombed for five hours logging "air fell to 6%
+  // (20/320); rescuing=false" while nothing ever fired.
+  //
+  // But hoisting a bare `oxygen <= 25%` above the return is worse than the bug.
+  // A bot standing in dry air with a stale reading would be seized and never
+  // released, because breathingAgain() reads flat-low as "not breathing". This
+  // project already logs `oxygen_reading_suspect`, so bad readings are known to
+  // occur.
+  //
+  // So the floor case requires the air to be low AND the world to agree: in
+  // water, head in water, head sealed, or health actually dropping. Two of those
+  // are physics, one is a block read, one is damage. A stale number alone is not
+  // evidence of drowning.
+  const ox = bot?.oxygenLevel
+  const critical = typeof ox === 'number' && airMax > 0 && ox <= airMax * criticalFrac
+  if (critical) {
+    const headName = head?.name
+    const environmental =
+      bot?.entity?.isInWater === true ||
+      headName === 'water' || headName === 'bubble_column' ||
+      (head != null && head.boundingBox === 'block') ||
+      healthDropped
+    if (environmental) return true
+  }
+
   if (!air?.losing) return false
 
-  const h = bot?.health
-  if (h != null && previousHealth != null && h < previousHealth) return true
+  if (healthDropped) return true
 
   // NEARLY OUT OF AIR OUTRANKS THE TREND TEST, AND 23 BOTS DIED PROVING IT.
   //
@@ -384,8 +418,6 @@ export function airConsequenceEvidence(bot, air, { oxygenSamples = [], previousH
   //
   // So: below a quarter of a tank, the trend does not get a vote. This cannot
   // fire for a wading bot, because a wading bot is not at 25% air.
-  const ox = bot?.oxygenLevel
-  if (typeof ox === 'number' && airMax > 0 && ox <= airMax * criticalFrac) return true
 
   const s = (oxygenSamples ?? []).filter(v => typeof v === 'number')
   if (s.length < 2) return false
@@ -753,6 +785,15 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let lastShoreReachable = false   // did the last scan find anywhere to stand?
   // Consequence of the PREVIOUS release, so a release can be graded by what
   // happened next rather than by what it claimed at the time.
+
+  // Surface-hold episodes. Entry alone cannot say whether holding WORKED -- a
+  // high count is ambiguous between "prevention is working" and "bots keep
+  // ending up in bad states" -- so duration and aftermath are recorded too.
+  let holdStartedAt = 0
+  let holdMinOxygen = Infinity
+  // Start values, so the hold can be graded on whether it CHANGED anything.
+  let holdStartOxygen = null
+  let holdStartHealth = null
   let lastReleaseAt = 0
   let lastReleaseKind = null
   // A GATE MUST NOT MEASURE ITS OWN TRIGGER.
@@ -984,24 +1025,92 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         }
       }
 
-      // THE SURFACE-HOLD IS REVERTED HERE, ON PURPOSE, TO TEST IT.
+      // THE SURFACE-HOLD IS BACK, AND THE ABLATION IS WHY.
       //
-      // shouldHoldSurface() was added in b6a4845 alongside a critical-oxygen
-      // override, and drowning deaths fell 0.134 -> 0.028 per bot-hour. TWO
-      // changes, one measurement: the override's effect is independently
-      // visible (rescue refusals 33.8% -> 3.7%), the hold's is not.
+      // It was removed in e051cd5 because three attempts to write an efficacy
+      // criterion for it all classified the hold HANDING OFF to a rescue as the
+      // hold failing. Rather than write a fourth, the mechanism was removed and
+      // the same G1/G2 gates re-run without it.
       //
-      // Three separate attempts to write an efficacy criterion for it all failed
-      // the same way -- each one classified the hold HANDING OFF to the rescue
-      // as the hold failing. The discriminator would be whether holding `jump`
-      // actually raises the bot, and that was never instrumented. Rather than
-      // write a fourth criterion, the mechanism is removed and the same G1/G2/G3
-      // gates are re-run without it. If deaths stay near 0.028 the hold was not
-      // load-bearing and this stays out; if they climb back toward 0.134 it was,
-      // and it returns with the Y-delta instrumentation it should have had.
+      // Drowning deaths per EXPOSURE-WEIGHTED bot-hour:
+      //     baseline (never had it)   0.0820
+      //     hold ON                   0.0361
+      //     hold OFF (the ablation)   0.1263
       //
-      // The critical-oxygen override in airConsequenceEvidence STAYS. Its effect
-      // is measured and large, and reverting both would confound the answer.
+      // 4 drowning deaths in 32 exposure-weighted bot-hours. Under the hold-ON
+      // rate that outcome has probability 0.030 -- the data REJECTS "the hold
+      // made no difference". It was load-bearing, and removing it returned
+      // drowning deaths to at or above the pre-water-work baseline.
+      //
+      // The ablation answered in 32 bot-hours what three criteria could not.
+      // When a mechanism resists specification, remove it and measure.
+      // NOBODY MAY OWN NOTHING WHILE A BOT IS IN WATER.
+      //
+      // Releasing a stranded bot instead of pinning it was meant to give it its
+      // body back. What it actually did was hand the body to NO ONE: the release
+      // clears every control state, and if the cognitive loop has no action
+      // pending, the bot sinks. Of 23 drowning deaths, 15 have `_reflex_low_health`
+      // as their last event followed by roughly 24 seconds of total silence.
+      // They were not fighting to get out. They were idle, underwater.
+      //
+      // The old pinning behaviour was wasteful -- 20 seconds of paralysis per
+      // cycle -- and I mistook that cost for its whole effect. Holding `jump` was
+      // also LIFE SUPPORT, and removing it removed the only thing keeping an
+      // unowned bot's head above water.
+      //
+      // This restores the life support without restoring the paralysis. It is
+      // not a rescue and it does not seize the body: it asserts one control, on
+      // a bot nobody else is steering, and only while that bot is in water and
+      // not ashore. Any skill or rescue that wants the body still takes it.
+      if (shouldHoldSurface({
+        rescuing,
+        swimming: !!bot.waterTravel?.active,
+        ashore: ashore(),
+        feet: bot.blockAt?.(bot.entity.position),
+      })) {
+        bot.setControlState('jump', true)
+        if (!holdStartedAt) {
+          holdStartedAt = Date.now()
+          holdMinOxygen = bot.oxygenLevel ?? Infinity
+          holdStartOxygen = bot.oxygenLevel ?? null
+          holdStartHealth = bot.health ?? null
+          logEvent({ kind: 'water_surface_hold', status: 'success',
+                     detail: `afloat and unowned — holding the surface ` +
+                             `(oxygen ${bot.oxygenLevel}, health ${bot.health})`,
+                     snapshot: snapshot(bot) })
+        }
+        if (typeof bot.oxygenLevel === 'number') {
+          holdMinOxygen = Math.min(holdMinOxygen, bot.oxygenLevel)
+        }
+      } else if (holdStartedAt) {
+        // THE AFTERMATH IS THE MEASUREMENT. Entry count alone cannot tell
+        // "prevention is working" from "bots keep ending up in bad states", and
+        // a hold that ends because the bot drowned is not a hold that worked.
+        const heldMs = Date.now() - holdStartedAt
+        const lowest = holdMinOxygen === Infinity ? null : holdMinOxygen
+        const dipped = lowest != null && airMax > 0 && lowest / airMax <= 0.25
+        // THE DELTAS ARE THE GRADE. Air falling across the hold means the hold
+        // did not arrest the decline; health falling means it did not protect.
+        const dAir = (holdStartOxygen != null && bot.oxygenLevel != null)
+          ? bot.oxygenLevel - holdStartOxygen : null
+        const dHealth = (holdStartHealth != null && bot.health != null)
+          ? bot.health - holdStartHealth : null
+        holdStartedAt = 0
+        holdMinOxygen = Infinity
+        holdStartOxygen = null
+        holdStartHealth = null
+        logEvent({
+          kind: 'water_surface_hold_ended',
+          status: dipped ? 'failed' : 'success',
+          detail: `held ${(heldMs / 1000).toFixed(1)}s; dAir ${dAir ?? '?'}; ` +
+                  `dHealth ${dHealth ?? '?'}; lowest air ` +
+                  `${lowest ?? '?'}/${airMax}${dipped ? ' — DIPPED CRITICAL while held' : ''}; ` +
+                  `ended because ${ashore() ? 'ashore' : rescuing ? 'a rescue took over'
+                    : bot.waterTravel?.active ? 'a swim took over' : 'no longer in water'}` +
+                  ` (health ${bot.health})`,
+          snapshot: snapshot(bot),
+        })
+      }
 
       // A DELIBERATE CROSSING IS NOT AN EMERGENCY.
       //
@@ -1123,6 +1232,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // runtime because 1.21.8 reports ~400 where the constant assumes 20, and
         // a critical threshold computed against the wrong scale never fires.
         airMax,
+        // The world's opinion, so a stale oxygen number cannot seize a bot that
+        // is standing in dry air. See the floor-case note in the function.
+        head,
       })
       prevHealth = bot.health ?? prevHealth
 

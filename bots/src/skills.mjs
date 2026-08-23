@@ -2475,10 +2475,20 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
     const h = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
     return !!h && h.name !== 'water' && h.boundingBox === 'empty'
   }
+  // The server's air scale, learned rather than assumed: 1.21.8 reports ~400
+  // where a constant would say 20, and a threshold on the wrong scale never fires.
+  let airScale = 20
+  let jumpTicks = 0
+  const noteAir = () => {
+    if (typeof bot.oxygenLevel === 'number') airScale = Math.max(airScale, bot.oxygenLevel)
+  }
+  noteAir()
+
   const SURFACE_MS = 6_000
   const surfaceBy = Date.now() + SURFACE_MS
   while (!headIsAir() && Date.now() < surfaceBy) {
     check(signal)
+    noteAir()
     bot.setControlState('jump', true)
     bot.setControlState('forward', false)
     await new Promise(r => setTimeout(r, 200))
@@ -2541,11 +2551,29 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
       }
 
       try { await bot.lookAt(new Vec3(target.x, here.y, target.z), true) } catch { /* not connected */ }
-      // forward drives the stroke; jump holds the head at the surface, which is
-      // both faster than submerged swimming and the only way oxygen refills.
+
+      // FAST SWIMMING IS NOT TREADING WATER.
+      //
+      // The first version held `jump` every tick to keep the head up. Measured
+      // result: median 1.32 m/s. In water, jump adds vertical velocity
+      // (prismarine-physics: vel.y += 0.04) and never produces the horizontal
+      // sprint-swim pose, so the bot bobs instead of swimming.
+      //
+      // The real numbers, which corrected an error of mine: surface swimming
+      // caps at 2.20 m/s and SPRINT-SWIMMING reaches 3.92 -- not the 5.6 I first
+      // claimed. Sprint-swimming requires being SUBMERGED and horizontal, so
+      // speed and air are a genuine trade, not a free win.
+      //
+      // So: travel by default, surface only on demand. `jump` is pulsed when the
+      // head is actually submerged or air is running low -- not held.
+      const headUp = headIsAir()
+      const lowAir = typeof bot.oxygenLevel === 'number' && airScale > 0 &&
+                     bot.oxygenLevel <= airScale * 0.35
+      const needSurface = !headUp && lowAir
       bot.setControlState('forward', true)
-      bot.setControlState('jump', !onLand())
       bot.setControlState('sprint', true)
+      bot.setControlState('jump', needSurface)
+      if (needSurface) jumpTicks++
       strokes++
       await new Promise(r => setTimeout(r, TICK_MS))
     }
@@ -2583,7 +2611,9 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
     try { bot.clearControlStates() } catch { /* not connected */ }
     logEvent({
       kind: 'swim_ended', status: 'success',
-      detail: `${strokes} strokes over ${Math.round((Date.now() - started) / 1000)}s`,
+      detail: `${strokes} strokes over ${Math.round((Date.now() - started) / 1000)}s; ` +
+              `jump duty ${strokes ? Math.round(100 * jumpTicks / strokes) : 0}%; ` +
+              `airScale ${airScale}`,
       snapshot: snapshot(bot),
     })
   }

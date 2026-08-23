@@ -65,11 +65,19 @@ t('it never fights a controller that already owns the body', () => {
 
 // --- defect 2: nearly-out-of-air outranks the trend test --------------------
 
-const samples = (...v) => ({ oxygenSamples: v, previousHealth: null, airMax: 20 })
+// A drowning bot is in water. The critical-air override now REQUIRES the world
+// to agree -- in water, head in water, head sealed, or health dropping -- because
+// a bare "oxygen <= 25%" above the losing-check would seize a bot standing in dry
+// air with a stale reading and never release it (breathingAgain reads flat-low as
+// "not breathing"). This project already logs oxygen_reading_suspect, so stale
+// readings are known to happen.
+const samples = (...v) => ({ oxygenSamples: v, previousHealth: null, airMax: 20,
+                             head: { name: 'water', boundingBox: 'empty' } })
+const wet = (o) => ({ health: 20, oxygenLevel: o, entity: { isInWater: true } })
 
 t('a single up-tick no longer disables the rescue at critical air', () => {
   // The cycling trace: sank, surfaced, sank again. Every cycle writes an up-tick.
-  const bot = { health: 20, oxygenLevel: 4 }          // 20% of a 20 tank
+  const bot = wet(4)                                  // 20% of a 20 tank, in water
   assert.equal(airConsequenceEvidence(bot, { losing: true }, samples(10, 12, 8, 6, 4)), true,
     'oxygen at 20% and falling, and the gate still refused — that is the death trace')
 })
@@ -77,7 +85,7 @@ t('a single up-tick no longer disables the rescue at critical air', () => {
 t('a wading bot is still not rescued', () => {
   // The noise-rejection this guard exists for MUST survive the fix, or every
   // paddle through a stream seizes the body.
-  const bot = { health: 20, oxygenLevel: 19 }
+  const bot = wet(19)
   assert.equal(airConsequenceEvidence(bot, { losing: true }, samples(20, 19, 20, 19)), false,
     'a bot at 95% air was rescued — the critical override is firing far too high')
 })
@@ -85,12 +93,14 @@ t('a wading bot is still not rescued', () => {
 t('the critical threshold is scaled to the SERVER, not to a constant', () => {
   // 1.21.8 reports a ~400-tick air scale where the default constant assumes 20.
   // A threshold computed against the wrong scale never fires at all.
-  const bot = { health: 20, oxygenLevel: 80 }         // 20% of a 400 tank
+  const bot = wet(80)                                 // 20% of a 400 tank
   assert.equal(airConsequenceEvidence(bot, { losing: true },
-    { oxygenSamples: [200, 220, 150, 80], previousHealth: null, airMax: 400 }), true)
+    { oxygenSamples: [200, 220, 150, 80], previousHealth: null, airMax: 400,
+      head: { name: 'water', boundingBox: 'empty' } }), true)
   // and the same reading on a 20-scale server is a FULL tank, so it must not fire
-  assert.equal(airConsequenceEvidence({ health: 20, oxygenLevel: 80 }, { losing: true },
-    { oxygenSamples: [80, 90, 80], previousHealth: null, airMax: 20 }), false)
+  assert.equal(airConsequenceEvidence(wet(80), { losing: true },
+    { oxygenSamples: [80, 90, 80], previousHealth: null, airMax: 20,
+      head: { name: 'water', boundingBox: 'empty' } }), false)
 })
 
 t('falling health still acts, regardless of air', () => {
@@ -98,33 +108,70 @@ t('falling health still acts, regardless of air', () => {
     { oxygenSamples: [20, 20], previousHealth: 14, airMax: 20 }), true)
 })
 
+t('THE FLOOR CASE: pinned-low oxygen in water is rescued even when not "losing"', () => {
+  // Two bots sat entombed for five hours logging "air fell to 6% (20/320);
+  // rescuing=false" while nothing fired, because assessAir reports losing=false
+  // at the FLOOR exactly as it does when wading, and the old code returned false
+  // on that line before any other evidence was considered.
+  assert.equal(airConsequenceEvidence(wet(20), { losing: false },
+    { oxygenSamples: [20, 20, 20], previousHealth: null, airMax: 320,
+      head: { name: 'water', boundingBox: 'empty' } }), true,
+    'a bot at 6% air in water was refused a rescue — that is the five-hour trace')
+})
+
+t('but critical air in DRY conditions is NOT an emergency', () => {
+  // The inverse, and the reason the floor case is guarded rather than hoisted
+  // bare: a stale reading on a bot standing in air must not seize the body,
+  // because breathingAgain() reads flat-low as "not breathing" and would never
+  // let go.
+  assert.equal(airConsequenceEvidence(
+    { health: 20, oxygenLevel: 2, entity: { isInWater: false } }, { losing: false },
+    { oxygenSamples: [2, 2, 2], previousHealth: null, airMax: 20,
+      head: { name: 'air', boundingBox: 'empty' } }), false,
+    'a dry bot with a stale low reading was seized — it would never be released')
+})
+
+t('isInWater ALONE is enough, because the head block can lie', () => {
+  // THE STALE-CHUNK CASE, which this project has already been bitten by: the
+  // client reported AIR at head height while the server was drowning the bot.
+  // test/helpers/microworld.mjs still carries an `oceanWithStaleChunks` fixture
+  // built from that incident.
+  //
+  // So physics (entity.isInWater, set by prismarine-physics from the server's
+  // own collision result) must be sufficient on its own. A mutation removing
+  // that clause survived every other test here, because they all supplied a
+  // water head block as well.
+  assert.equal(airConsequenceEvidence(
+    { health: 20, oxygenLevel: 2, entity: { isInWater: true } }, { losing: false },
+    { oxygenSamples: [2, 2], previousHealth: null, airMax: 20,
+      head: { name: 'air', boundingBox: 'empty' } }), true,
+    'physics said in-water and the head block said air; the head block won')
+})
+
+t('a sealed head counts as evidence even out of water', () => {
+  // Entombed in stone with air draining is drowning-shaped even though
+  // isInWater is false and the head block is not water.
+  assert.equal(airConsequenceEvidence(
+    { health: 20, oxygenLevel: 2, entity: { isInWater: false } }, { losing: false },
+    { oxygenSamples: [2, 2], previousHealth: null, airMax: 20,
+      head: { name: 'stone', boundingBox: 'block' } }), true)
+})
+
 t('a bot that is not losing air is never rescued', () => {
-  assert.equal(airConsequenceEvidence({ health: 20, oxygenLevel: 1 }, { losing: false }, samples(5, 3, 1)), false,
-    'losing:false must short-circuit, or the reflex fires on a bot standing in air')
+  // NOTE: with the floor case above, `losing:false` alone no longer short-circuits
+  // for a bot that is critically low AND in water. What must still be true is
+  // that a bot with plenty of air and losing:false is left alone.
+  assert.equal(airConsequenceEvidence(wet(18), { losing: false }, samples(19, 18)), false,
+    'a bot with 90% air and not losing was seized')
 })
 
 // --- the wiring, which is where the last one hid -----------------------------
 
-t('shouldHoldSurface is DELIBERATELY unwired right now', () => {
-  // The surface-hold was reverted so the same G1/G2/G3 gates could be re-run
-  // without it, because three attempts to write an efficacy criterion all
-  // classified the hold HANDING OFF to a rescue as the hold failing.
-  //
-  // The predicate is kept, and still tested above, because it comes back if
-  // deaths climb toward the 0.134/bot-h that preceded it. But a tested function
-  // with no caller is exactly how bot.waterMovements shipped as dead code, so
-  // the disconnection is asserted rather than left to be discovered.
-  //
-  // WIRING IT BACK? Delete this test. That is the point of it.
-  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
-  // Exclude the declaration itself: `export function shouldHoldSurface({ ... })`
-  // matches a naive call regex, and the first version of this test failed on it.
-  const calls = (src.match(/shouldHoldSurface\(\{/g) || []).length -
-                (src.match(/function shouldHoldSurface\(\{/g) || []).length
-  assert.equal(calls, 0,
-    'shouldHoldSurface has a caller again — either that is the intended restore ' +
-    '(delete this test and re-register G4) or it was wired back by accident')
-})
+// The 'deliberately unwired' assertion that lived here has been DELETED, which
+// is exactly what it instructed. The surface-hold is wired back because the
+// ablation that removed it measured drowning deaths at 0.1263 per
+// exposure-weighted bot-hour against 0.0361 with it -- P(4 deaths in 32 bot-h |
+// hold-ON rate) = 0.030, so the data rejects "the hold made no difference".
 
 t('the reflex loop actually PASSES the learned air scale', () => {
   // A WIRING ASSERTION, and labelled as one rather than dressed up as behaviour.
