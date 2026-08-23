@@ -14,6 +14,7 @@
 // tools" is unreachable. Setting an impossible goal would produce failures
 // that look like bad model judgement -- the worst kind of confounder.
 
+import { equivalentTools } from './skills.mjs'
 import { countItem } from './state.mjs'
 import { config } from './config.mjs'
 import { log } from './logger.mjs'
@@ -112,8 +113,21 @@ const M = {
     id: `craft_${item}_${n}`,
     wants: item,
     describe: `Craft ${n} ${item}. ${why}`,
-    done: b => countItem(b, item) >= n,
-    progress: b => `${countItem(b, item)}/${n} ${item}`,
+    // SATISFIED BY CAPABILITY, NOT BY NAME. The note under M.travel below
+    // already says why: a target that can be genuinely unreachable means the
+    // milestone never completes and the bot loops on it forever. A bot holding a
+    // STONE pickaxe has satisfied "craft a wooden pickaxe" in every sense that
+    // matters, and refusing to say so left isolated-a-Alpha entombed for ten
+    // hours with the materials for the better tool in its pockets.
+    done: b => countItem(b, item) + equivalentTools(item)
+                 .reduce((t, alt) => t + countItem(b, alt), 0) >= n,
+    progress: b => {
+      const exact = countItem(b, item)
+      const better = equivalentTools(item).reduce((t, alt) => t + countItem(b, alt), 0)
+      return better
+        ? `${exact + better}/${n} ${item} (${better} of them better)`
+        : `${exact}/${n} ${item}`
+    },
     hint: hint ?? `craft with item=${item}.`,
   }),
   // Direction-and-distance, not an exact spot. A fixed coordinate can be

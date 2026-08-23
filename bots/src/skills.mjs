@@ -1682,7 +1682,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
           ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
             `nothing crafts it (you have ` +
             `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})` +
-            belowGroundHint(bot)
+            belowGroundHint(bot) + craftableAlternative(bot, item)
           : `cannot craft ${item} -- ${why}`,
     }
   }
@@ -2619,6 +2619,64 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
   }
 }
 
+// A TOOL IS A CAPABILITY, NOT AN ITEM NAME.
+//
+// This file already learned the lesson for travel, and the comment sits in
+// milestones.mjs beside M.travel: "A fixed coordinate can be genuinely
+// unreachable ... and then the milestone can never complete and the bot loops on
+// it forever. Rewarding displacement lets any workable route count."
+//
+// Craft never got the same treatment, and it cost ten hours of a bot's life.
+// isolated-a-Alpha sat entombed at y=2 from 05:03 carrying 24 cobbled_deepslate,
+// 6 sticks and 99 crafting tables -- everything needed for a STONE pickaxe, which
+// would have dug it out -- while it failed over and over to craft the WOODEN one
+// the milestone named, because wood is on the surface and the surface needs a
+// pickaxe. cobbled_deepslate is a valid stone-tool ingredient in 1.21.8;
+// minecraft-data confirms cobblestone, cobbled_deepslate and blackstone.
+//
+// So when the named tool is unmakeable, look for one of the SAME KIND that is.
+// Mining capability order -- wood and gold mine the same tiers, which is why they
+// share a rank.
+const TOOL_RANK = { wooden: 1, golden: 1, stone: 2, iron: 3, diamond: 4, netherite: 5 }
+const TOOL_RE = /^(wooden|golden|stone|iron|diamond|netherite)_(pickaxe|axe|shovel|sword|hoe)$/
+
+/** Tools of the same kind that are at least as capable as `item`. */
+export function equivalentTools (item) {
+  const m = TOOL_RE.exec(item || '')
+  if (!m) return []
+  const [, tier, kind] = m
+  const want = TOOL_RANK[tier]
+  return Object.entries(TOOL_RANK)
+    .filter(([t, r]) => r >= want && t !== tier)
+    .map(([t]) => `${t}_${kind}`)
+}
+
+/**
+ * Is there a BETTER tool of the same kind the bot could make right now?
+ *
+ * The bot only sees what the failure detail tells it. Saying "gather oak_log
+ * first" to a bot sealed under 60 blocks of stone is advice it cannot take, and
+ * it will take it anyway, forever. If something in the same family is actually
+ * makeable from what it is carrying, say THAT instead -- it is the difference
+ * between a dead end and a way out.
+ */
+function craftableAlternative (bot, item) {
+  try {
+    const alts = equivalentTools(item)
+    if (!alts.length) return ''
+    const have = {}
+    for (const i of bot.inventory?.items() ?? []) have[i.name] = (have[i.name] ?? 0) + i.count
+    for (const alt of alts) {
+      const it = bot.registry?.itemsByName?.[alt]
+      if (!it) continue
+      const recipes = bot.recipesAll ? bot.recipesAll(it.id, null, true) : []
+      if (recipes.length) {
+        return ` -- BUT you can craft ${alt} right now from what you carry, and it is strictly better; craft that instead.`
+      }
+    }
+  } catch { /* registry or recipe lookup unavailable */ }
+  return ''
+}
 export function actionKey(skill, args) {
   const declared = SKILLS[skill]?.args
   const src = args ?? {}
