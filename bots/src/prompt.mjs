@@ -225,6 +225,52 @@ function bearing (dx, dz) {
   return dirs[Math.round(((a + 360) % 360) / 45) % 8]
 }
 
+// WHAT THE BOT COULD MAKE RIGHT NOW, WHICH IT WAS NEVER TOLD.
+//
+// The observation carried INVENTORY -- raw item names and counts -- and left the
+// model to derive recipes from it. That is a lot to ask of a 7B model, and it
+// failed in the most expensive way available:
+//
+// isolated-a-Alpha sat entombed at y=2 for TEN HOURS carrying 24
+// cobbled_deepslate, 6 sticks and 99 crafting tables. A stone pickaxe is 3
+// cobblestone-family blocks plus 2 sticks; cobbled_deepslate qualifies. It could
+// have dug itself out at any moment. It never tried, because nothing ever told
+// it that it could, and it spent those hours failing to craft the wooden pickaxe
+// its milestone named -- wood being on the surface, and the surface needing a
+// pickaxe.
+//
+// This is the same shape as the IN WATER line: the model cannot choose what it
+// cannot see. Inventory-aware (`recipesFor` checks requirementsMetForRecipe), so
+// it lists what is ACTUALLY makeable, not what exists in the recipe book.
+//
+// Curated rather than exhaustive: this runs once per ~30s cognitive cycle, and
+// the useful answer is "which rung of the ladder is open", not a catalogue.
+const CRAFT_TARGETS = [
+  'stone_pickaxe', 'iron_pickaxe', 'wooden_pickaxe',
+  'stone_axe', 'wooden_axe', 'stone_sword', 'wooden_sword', 'stone_shovel',
+  'furnace', 'crafting_table', 'chest', 'ladder', 'torch', 'stick', 'oak_planks',
+]
+
+function craftableNow (bot) {
+  try {
+    const items = bot.inventory?.items() ?? []
+    // A carried crafting table can be placed, so 3x3 recipes are reachable.
+    const hasTable = items.some(i => i.name === 'crafting_table')
+    const made = []
+    for (const name of CRAFT_TARGETS) {
+      if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
+      const it = bot.registry?.itemsByName?.[name]
+      if (!it) continue
+      const r = bot.recipesFor(it.id, null, 1, hasTable ? true : null)
+      if (r && r.length) made.push(name)
+      if (made.length >= 6) break
+    }
+    if (!made.length) return ''
+    return `CAN CRAFT NOW: ${made.join(', ')}` +
+           (hasTable ? ' (you carry a crafting_table — place it first for the 3x3 recipes)' : '')
+  } catch { return '' }
+}
+
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
   const p = bot.entity.position
   const inv = inventorySummary(bot)
@@ -240,6 +286,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       `position ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}, ` +
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
+    craftableNow(bot),
     `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
     waterSituation(bot),
     `REACHABLE Y RANGE: ${Math.round(p.y) - 30} to ${Math.round(p.y) + 30} (you are at y=${p.y.toFixed(0)})`,
