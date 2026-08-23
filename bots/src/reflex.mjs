@@ -566,6 +566,31 @@ export function shoreRoute (bot, { radius = 24, maxRise = 2, maxReads = 0 } = {}
  * crossing, or standing on dry land each mean somebody else is already
  * responsible for this body; only the unowned-and-afloat case is ours.
  */
+/**
+ * Has the bot ENTERED or LEFT physically-critical air, independent of whether
+ * anything chose to act on it?
+ *
+ * A GATE MUST NOT MEASURE ITS OWN TRIGGER. The critical-oxygen override added in
+ * b6a4845 acts below 25% air, so gating Block 2 on "how often was air critical"
+ * would be counting that mechanism rather than the world -- and tuning the
+ * override would move the number whether or not a single bot was safer. That is
+ * the escape-rate mistake wearing a different hat, and it is the reason this
+ * lives in its own function with no knowledge of mayAct, rescuing, or swimming.
+ *
+ * Two thresholds, not one: a bot hovering at the line would otherwise emit a
+ * stream of entries and inflate the very rate the gate reads.
+ *
+ * Returns 'enter' | 'clear' | null (no transition).
+ */
+export function airCriticalTransition(oxygen, airMax, latched,
+                                      { enter = 0.25, clear = 0.5 } = {}) {
+  if (typeof oxygen !== 'number' || !(airMax > 0)) return null
+  const frac = oxygen / airMax
+  if (frac <= enter && !latched) return 'enter'
+  if (frac > clear && latched) return 'clear'
+  return null
+}
+
 export function shouldHoldSurface({ rescuing, swimming, ashore, feet }) {
   if (rescuing || swimming || ashore) return false
   return !!feet && (feet.name === 'water' || feet.name === 'bubble_column')
@@ -730,6 +755,23 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // happened next rather than by what it claimed at the time.
   let lastReleaseAt = 0
   let lastReleaseKind = null
+  // A GATE MUST NOT MEASURE ITS OWN TRIGGER.
+  //
+  // The critical-oxygen override added in b6a4845 fires below 25% air, and the
+  // obvious safety metric -- "how often was air critical" -- would then be
+  // counting MY OWN MECHANISM rather than the world. Improving the override
+  // would move the number whether or not any bot was safer, which is precisely
+  // the escape-rate mistake wearing a different hat.
+  //
+  // So the physical state is detected here, independently of whether the
+  // override acted on it, and latched so it records ENTRY into danger rather
+  // than every tick spent there.
+  let oxCriticalLatched = false
+  // Surface-hold episodes: entry alone cannot say whether holding WORKED. A
+  // high count is ambiguous between "prevention is working" and "bots keep
+  // ending up in bad states". Duration and aftermath disambiguate it.
+  let holdStartedAt = 0
+  let holdMinOxygen = Infinity
   // Logged only on change: the phase is re-evaluated twice a second.
   let lastDrownPhase = null
   // ASHORE, NOT JUST BREATHING. Releasing the body at first breath left the
@@ -927,6 +969,25 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       //
       // So the breathing-but-not-ashore phase runs here, on its own terms: it
       // is a rescue we still own, not a drowning we are still fighting.
+      // THE PHYSICAL STATE, recorded whether or not anything acted on it.
+      const oxNow = bot.oxygenLevel
+      {
+        const frac = airMax > 0 ? (oxNow ?? 0) / airMax : 0
+        const transition = airCriticalTransition(oxNow, airMax, oxCriticalLatched)
+        if (transition === 'enter') {
+          oxCriticalLatched = true
+          logEvent({
+            kind: 'oxygen_critical_state', status: 'failed',
+            detail: `air fell to ${Math.round(frac * 100)}% (${oxNow}/${airMax}); ` +
+                    `rescuing=${rescuing} swimming=${!!bot.waterTravel?.active} ` +
+                    `health ${bot.health}`,
+            snapshot: snapshot(bot),
+          })
+        } else if (transition === 'clear') {
+          oxCriticalLatched = false
+        }
+      }
+
       // NOBODY MAY OWN NOTHING WHILE A BOT IS IN WATER.
       //
       // Releasing a stranded bot instead of pinning it was meant to give it its
@@ -951,16 +1012,37 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         ashore: ashore(),
         feet: bot.blockAt?.(bot.entity.position),
       })) {
-        {
-          bot.setControlState('jump', true)
-          if (lastDrownPhase !== 'float') {
-            lastDrownPhase = 'float'
-            logEvent({ kind: 'water_surface_hold', status: 'success',
-                       detail: `afloat and unowned — holding the surface ` +
-                               `(oxygen ${bot.oxygenLevel}, health ${bot.health})`,
-                       snapshot: snapshot(bot) })
-          }
+        bot.setControlState('jump', true)
+        if (!holdStartedAt) {
+          holdStartedAt = Date.now()
+          holdMinOxygen = bot.oxygenLevel ?? Infinity
+          logEvent({ kind: 'water_surface_hold', status: 'success',
+                     detail: `afloat and unowned — holding the surface ` +
+                             `(oxygen ${bot.oxygenLevel}, health ${bot.health})`,
+                     snapshot: snapshot(bot) })
         }
+        if (typeof bot.oxygenLevel === 'number') {
+          holdMinOxygen = Math.min(holdMinOxygen, bot.oxygenLevel)
+        }
+      } else if (holdStartedAt) {
+        // THE AFTERMATH IS THE MEASUREMENT. Entry count alone cannot tell
+        // "prevention is working" from "bots keep ending up in bad states", and
+        // a hold that ends because the bot drowned is not a hold that worked.
+        const heldMs = Date.now() - holdStartedAt
+        const lowest = holdMinOxygen === Infinity ? null : holdMinOxygen
+        const dipped = lowest != null && airMax > 0 && lowest / airMax <= 0.25
+        holdStartedAt = 0
+        holdMinOxygen = Infinity
+        logEvent({
+          kind: 'water_surface_hold_ended',
+          status: dipped ? 'failed' : 'success',
+          detail: `held ${(heldMs / 1000).toFixed(1)}s; lowest air ` +
+                  `${lowest ?? '?'}/${airMax}${dipped ? ' — DIPPED CRITICAL while held' : ''}; ` +
+                  `ended because ${ashore() ? 'ashore' : rescuing ? 'a rescue took over'
+                    : bot.waterTravel?.active ? 'a swim took over' : 'no longer in water'}` +
+                  ` (health ${bot.health})`,
+          snapshot: snapshot(bot),
+        })
       }
 
       // A DELIBERATE CROSSING IS NOT AN EMERGENCY.
