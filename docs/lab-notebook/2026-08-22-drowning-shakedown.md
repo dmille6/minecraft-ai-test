@@ -266,3 +266,39 @@ standing down instead of fighting it.
   the reflex-ownership fix just gets interrupted by a "rescue" while it floats.
 - `surfaced_stranded` at 38 and reentry at 39 are still the bots to chase.
 - Longer window before any of these numbers is quotable — this is 8 minutes.
+
+---
+
+## Decision rule for b6a4845, written 02:5x UTC BEFORE the data exists
+
+The reason for writing this down first: today I steered by drowning-escape-rate
+for eight hours while drowning DEATHS tripled underneath it, and reported ~59%
+twice from windows that turned out to be restart artifacts. A number I choose
+after seeing the result is a number I will talk myself into.
+
+**Baseline to beat** (`d41b828`, 2.82h, the last measurement before any of my
+water work): **0.053 drowning deaths per bot-hour.**
+
+**What b6a4845 must show over >= 1 hour, all 40 bots:**
+
+| outcome | rule |
+|---|---|
+| drown deaths/bot-h <= 0.053 | KEEP. The two safety fixes did their job; proceed to Phase 1 (the metric). |
+| 0.053 - 0.10 | PARTIAL. Surface-hold is helping but something else is still killing bots. Diagnose before building anything. Do NOT proceed to Phase 2. |
+| > 0.10 | ROLL BACK to `7d1611b` (0.037/bot-h measured). The water change set is unsafe apparatus and gets rebuilt behind the new metric, not patched further. |
+
+**Secondary, all diagnostic and none of them a gate:**
+- `water_surface_hold` should be firing continuously; if it is near zero the
+  invariant is not reaching the state it was written for
+- `_air_drowning_observed` share of drowning detections should fall from 33.9%
+- `drowning_reentry`/bot-h should fall from 30.3
+- escape win% is NOT a criterion here and must not be quoted as one
+
+**Pre-committed:** deaths decide this. If deaths fail the rule and the escape
+rate looks good, the escape rate is wrong -- that is the entire lesson of today,
+and it is already written into a commit message where I cannot quietly drop it.
+
+Sample-size caveat, also stated in advance: at the baseline rate one hour of 40
+bots is ~2 expected deaths, so a single hour cannot CONFIRM success -- it can
+only fail loudly. Zero or one death is "not yet contradicted", not "fixed". Two
+or more hours before anything is built on top.
