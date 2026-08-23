@@ -33,6 +33,7 @@ import { log, logEvent } from './logger.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
+import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 
 /**
@@ -2222,6 +2223,34 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
     check(signal)
     steps++
+
+    // NEVER SPEND THE EXIT. Checked before EVERY dig, not once at entry.
+    //
+    // The entry precondition above already refuses to descend without a pickaxe,
+    // and it PASSED for both bots that are now permanently entombed. Capability
+    // expired mid-task: the pickaxe broke, nothing re-checked, and the bot kept
+    // digging into a shaft it could no longer climb. 782 lost-last-pickaxe
+    // transitions fleet-wide in one day, 107 of them below y=50.
+    //
+    // Cave divers turn on a reserve rather than on empty, in exactly this kind of
+    // overhead environment where the only way out is back the way you came. See
+    // src/exit-contract.mjs for where that analogy breaks.
+    const exit = canContinueDescent({
+      y: bot.entity.position.y, health: bot.health, items: bot.inventory.items(),
+    })
+    if (!exit.ok) {
+      logEvent({ kind: 'exit_reserve_abort', status: 'failed',
+                 detail: `${exit.reason}: ${exit.detail}`, snapshot: snapshot(bot) })
+      // A CONTRACT REFUSAL, NOT A MINING FAILURE. The distinct class keeps this
+      // out of the learned-avoid counters -- a bot that correctly declined to
+      // strand itself must not learn that mining is a bad idea.
+      return {
+        status: 'failed', failClass: 'exit_capability_reserve',
+        detail: `stopped at y=${Math.round(bot.entity.position.y)} to keep an exit: ` +
+                `${exit.detail}. Run surface now, or gather blocks before going deeper.`,
+        need: exit.reason === 'scaffold' ? scaffoldPrereqFor(exit) : undefined,
+      }
+    }
     const ahead = bot.entity.position.offset(0, -1, 0)
     const below = bot.blockAt(ahead)
     if (!below) break
@@ -2677,6 +2706,18 @@ function craftableAlternative (bot, item) {
   } catch { /* registry or recipe lookup unavailable */ }
   return ''
 }
+/** What a bot needs to legally continue a descent it just aborted. */
+function scaffoldPrereqFor (exit) {
+  const short = Math.max(8, (exit.want ?? 16) - (exit.have ?? 0))
+  return {
+    items: ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite',
+            'diorite', 'granite', 'gravel', 'tuff', 'deepslate'],
+    count: short,
+    describe: `Gather ${short} blocks before descending further — you need them to pillar back out.`,
+    because: 'descent aborted to preserve an exit',
+  }
+}
+
 export function actionKey(skill, args) {
   const declared = SKILLS[skill]?.args
   const src = args ?? {}
