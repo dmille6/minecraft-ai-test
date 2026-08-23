@@ -767,18 +767,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // override acted on it, and latched so it records ENTRY into danger rather
   // than every tick spent there.
   let oxCriticalLatched = false
-  // Surface-hold episodes: entry alone cannot say whether holding WORKED. A
-  // high count is ambiguous between "prevention is working" and "bots keep
-  // ending up in bad states". Duration and aftermath disambiguate it.
-  let holdStartedAt = 0
-  let holdMinOxygen = Infinity
-  // Start values, so the hold can be graded on whether it CHANGED anything.
-  // "Did air get low while held" turned out to measure the handoff to the
-  // rescue, not the hold failing: 89.7% of dips ended in that handoff, and the
-  // paths that did not hand off died 0.000% of the time. What actually asks
-  // whether holding works is whether the decline was ARRESTED.
-  let holdStartOxygen = null
-  let holdStartHealth = null
+
   // Logged only on change: the phase is re-evaluated twice a second.
   let lastDrownPhase = null
   // ASHORE, NOT JUST BREATHING. Releasing the body at first breath left the
@@ -995,73 +984,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         }
       }
 
-      // NOBODY MAY OWN NOTHING WHILE A BOT IS IN WATER.
+      // THE SURFACE-HOLD IS REVERTED HERE, ON PURPOSE, TO TEST IT.
       //
-      // Releasing a stranded bot instead of pinning it was meant to give it its
-      // body back. What it actually did was hand the body to NO ONE: the release
-      // clears every control state, and if the cognitive loop has no action
-      // pending, the bot sinks. Of 23 drowning deaths, 15 have `_reflex_low_health`
-      // as their last event followed by roughly 24 seconds of total silence.
-      // They were not fighting to get out. They were idle, underwater.
+      // shouldHoldSurface() was added in b6a4845 alongside a critical-oxygen
+      // override, and drowning deaths fell 0.134 -> 0.028 per bot-hour. TWO
+      // changes, one measurement: the override's effect is independently
+      // visible (rescue refusals 33.8% -> 3.7%), the hold's is not.
       //
-      // The old pinning behaviour was wasteful -- 20 seconds of paralysis per
-      // cycle -- and I mistook that cost for its whole effect. Holding `jump` was
-      // also LIFE SUPPORT, and removing it removed the only thing keeping an
-      // unowned bot's head above water.
+      // Three separate attempts to write an efficacy criterion for it all failed
+      // the same way -- each one classified the hold HANDING OFF to the rescue
+      // as the hold failing. The discriminator would be whether holding `jump`
+      // actually raises the bot, and that was never instrumented. Rather than
+      // write a fourth criterion, the mechanism is removed and the same G1/G2/G3
+      // gates are re-run without it. If deaths stay near 0.028 the hold was not
+      // load-bearing and this stays out; if they climb back toward 0.134 it was,
+      // and it returns with the Y-delta instrumentation it should have had.
       //
-      // This restores the life support without restoring the paralysis. It is
-      // not a rescue and it does not seize the body: it asserts one control, on
-      // a bot nobody else is steering, and only while that bot is in water and
-      // not ashore. Any skill or rescue that wants the body still takes it.
-      if (shouldHoldSurface({
-        rescuing,
-        swimming: !!bot.waterTravel?.active,
-        ashore: ashore(),
-        feet: bot.blockAt?.(bot.entity.position),
-      })) {
-        bot.setControlState('jump', true)
-        if (!holdStartedAt) {
-          holdStartedAt = Date.now()
-          holdMinOxygen = bot.oxygenLevel ?? Infinity
-          holdStartOxygen = bot.oxygenLevel ?? null
-          holdStartHealth = bot.health ?? null
-          logEvent({ kind: 'water_surface_hold', status: 'success',
-                     detail: `afloat and unowned — holding the surface ` +
-                             `(oxygen ${bot.oxygenLevel}, health ${bot.health})`,
-                     snapshot: snapshot(bot) })
-        }
-        if (typeof bot.oxygenLevel === 'number') {
-          holdMinOxygen = Math.min(holdMinOxygen, bot.oxygenLevel)
-        }
-      } else if (holdStartedAt) {
-        // THE AFTERMATH IS THE MEASUREMENT. Entry count alone cannot tell
-        // "prevention is working" from "bots keep ending up in bad states", and
-        // a hold that ends because the bot drowned is not a hold that worked.
-        const heldMs = Date.now() - holdStartedAt
-        const lowest = holdMinOxygen === Infinity ? null : holdMinOxygen
-        const dipped = lowest != null && airMax > 0 && lowest / airMax <= 0.25
-        // THE DELTAS ARE THE GRADE. Air falling across the hold means the hold
-        // did not arrest the decline; health falling means it did not protect.
-        const dAir = (holdStartOxygen != null && bot.oxygenLevel != null)
-          ? bot.oxygenLevel - holdStartOxygen : null
-        const dHealth = (holdStartHealth != null && bot.health != null)
-          ? bot.health - holdStartHealth : null
-        holdStartedAt = 0
-        holdMinOxygen = Infinity
-        holdStartOxygen = null
-        holdStartHealth = null
-        logEvent({
-          kind: 'water_surface_hold_ended',
-          status: dipped ? 'failed' : 'success',
-          detail: `held ${(heldMs / 1000).toFixed(1)}s; dAir ${dAir ?? '?'}; ` +
-                  `dHealth ${dHealth ?? '?'}; lowest air ` +
-                  `${lowest ?? '?'}/${airMax}${dipped ? ' — DIPPED CRITICAL while held' : ''}; ` +
-                  `ended because ${ashore() ? 'ashore' : rescuing ? 'a rescue took over'
-                    : bot.waterTravel?.active ? 'a swim took over' : 'no longer in water'}` +
-                  ` (health ${bot.health})`,
-          snapshot: snapshot(bot),
-        })
-      }
+      // The critical-oxygen override in airConsequenceEvidence STAYS. Its effect
+      // is measured and large, and reverting both would confound the answer.
 
       // A DELIBERATE CROSSING IS NOT AN EMERGENCY.
       //

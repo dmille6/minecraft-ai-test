@@ -105,6 +105,27 @@ t('a bot that is not losing air is never rescued', () => {
 
 // --- the wiring, which is where the last one hid -----------------------------
 
+t('shouldHoldSurface is DELIBERATELY unwired right now', () => {
+  // The surface-hold was reverted so the same G1/G2/G3 gates could be re-run
+  // without it, because three attempts to write an efficacy criterion all
+  // classified the hold HANDING OFF to a rescue as the hold failing.
+  //
+  // The predicate is kept, and still tested above, because it comes back if
+  // deaths climb toward the 0.134/bot-h that preceded it. But a tested function
+  // with no caller is exactly how bot.waterMovements shipped as dead code, so
+  // the disconnection is asserted rather than left to be discovered.
+  //
+  // WIRING IT BACK? Delete this test. That is the point of it.
+  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  // Exclude the declaration itself: `export function shouldHoldSurface({ ... })`
+  // matches a naive call regex, and the first version of this test failed on it.
+  const calls = (src.match(/shouldHoldSurface\(\{/g) || []).length -
+                (src.match(/function shouldHoldSurface\(\{/g) || []).length
+  assert.equal(calls, 0,
+    'shouldHoldSurface has a caller again — either that is the intended restore ' +
+    '(delete this test and re-register G4) or it was wired back by accident')
+})
+
 t('the reflex loop actually PASSES the learned air scale', () => {
   // A WIRING ASSERTION, and labelled as one rather than dressed up as behaviour.
   //
