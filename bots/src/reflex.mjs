@@ -772,6 +772,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // ending up in bad states". Duration and aftermath disambiguate it.
   let holdStartedAt = 0
   let holdMinOxygen = Infinity
+  // Start values, so the hold can be graded on whether it CHANGED anything.
+  // "Did air get low while held" turned out to measure the handoff to the
+  // rescue, not the hold failing: 89.7% of dips ended in that handoff, and the
+  // paths that did not hand off died 0.000% of the time. What actually asks
+  // whether holding works is whether the decline was ARRESTED.
+  let holdStartOxygen = null
+  let holdStartHealth = null
   // Logged only on change: the phase is re-evaluated twice a second.
   let lastDrownPhase = null
   // ASHORE, NOT JUST BREATHING. Releasing the body at first breath left the
@@ -1016,6 +1023,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         if (!holdStartedAt) {
           holdStartedAt = Date.now()
           holdMinOxygen = bot.oxygenLevel ?? Infinity
+          holdStartOxygen = bot.oxygenLevel ?? null
+          holdStartHealth = bot.health ?? null
           logEvent({ kind: 'water_surface_hold', status: 'success',
                      detail: `afloat and unowned — holding the surface ` +
                              `(oxygen ${bot.oxygenLevel}, health ${bot.health})`,
@@ -1031,12 +1040,21 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const heldMs = Date.now() - holdStartedAt
         const lowest = holdMinOxygen === Infinity ? null : holdMinOxygen
         const dipped = lowest != null && airMax > 0 && lowest / airMax <= 0.25
+        // THE DELTAS ARE THE GRADE. Air falling across the hold means the hold
+        // did not arrest the decline; health falling means it did not protect.
+        const dAir = (holdStartOxygen != null && bot.oxygenLevel != null)
+          ? bot.oxygenLevel - holdStartOxygen : null
+        const dHealth = (holdStartHealth != null && bot.health != null)
+          ? bot.health - holdStartHealth : null
         holdStartedAt = 0
         holdMinOxygen = Infinity
+        holdStartOxygen = null
+        holdStartHealth = null
         logEvent({
           kind: 'water_surface_hold_ended',
           status: dipped ? 'failed' : 'success',
-          detail: `held ${(heldMs / 1000).toFixed(1)}s; lowest air ` +
+          detail: `held ${(heldMs / 1000).toFixed(1)}s; dAir ${dAir ?? '?'}; ` +
+                  `dHealth ${dHealth ?? '?'}; lowest air ` +
                   `${lowest ?? '?'}/${airMax}${dipped ? ' — DIPPED CRITICAL while held' : ''}; ` +
                   `ended because ${ashore() ? 'ashore' : rescuing ? 'a rescue took over'
                     : bot.waterTravel?.active ? 'a swim took over' : 'no longer in water'}` +

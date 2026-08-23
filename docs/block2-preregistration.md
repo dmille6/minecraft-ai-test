@@ -1250,3 +1250,99 @@ START/NO-START gate** with another and adds no analysis endpoint. As with every
 gate in this document, none of these numbers may be reported as a result: their
 only job is to answer whether the apparatus is safe to measure with before the
 seven-day clock starts.
+
+---
+
+## AMENDMENT — G4 failed as written; it is replaced with an outcome-linked test, and this is POST-HOC (2026-08-23)
+
+**This amendment was written AFTER seeing the data it concerns.** That is the
+weakest form of evidence in this document, it is stamped as such here, and it is
+the reason the seven-day clock does NOT start on this result.
+
+### The result being amended
+
+Version `7d1ee54`, 324 bot-hours, 40 bots, evaluated against the gate registered
+earlier today:
+
+    G1  drowning deaths      PASS   9 deaths = 0.0278/bot-h; 80% one-sided upper
+                                    bound 0.0387 = 0.73x the 0.053 baseline
+    G2  all-cause deaths     PASS   0.0556/bot-h vs 0.062 baseline
+                                    (drowning 9, falls 7, lava 3)
+    G3  leading indicators   PASS   reentry 6.90/bot-h, stranded 6.15/bot-h
+    G4  hold efficacy        FAIL   29.7% of holds dipped critical (threshold 5%)
+                                    9.4% of holds >5s with no controller (threshold 5%)
+
+**`7d1ee54` is recorded as FAILING the pre-registered gate.** The substantive
+safety evidence is favourable — G1 is not merely non-worse but better than the
+pre-water baseline, with the confidence bound itself below baseline — but the
+gate as written failed, and it failed on two of its three sub-criteria.
+
+### Where the criterion was wrong, and where I was
+
+**"More than 5% of holds dip to critical air" measures the handoff, not a
+failure.** Of holds ending because a rescue took over, 89.7% had dipped; the
+other exit paths dip at 9-10%. The dip is the surface-hold keeping an unowned
+bot up while its air drains and then passing it to the rescue, which is the
+designed sequence.
+
+**But my first reading of this was wrong, and the correction matters more than
+the concession.** I argued that 190 dipped holds per death proved dipping did not
+predict death. That confuses a base rate with predictive power. The conditional
+outcomes say the opposite:
+
+    group        n       death <=60s    re-critical <=60s
+    dipped     3,670        0.245%           54.8%
+    not dipped 8,393        0.024%           24.0%
+
+A **ten-fold relative risk**. Dipping does predict death. The absolute risk is
+small and the majority of dips resolve safely — of holds ending `left_water` or
+`ashore`, 0.000% were followed by a death — but the claim I made was false and
+the reasoning that produced it was motivated.
+
+**The second sub-criterion also failed, and I had not evaluated it.** ">5% of
+holds exceed 5s with no controller acquiring the bot" comes in at 9.4%. Its
+operationalisation is also suspect — it counted holds ending because the bot
+LEFT THE WATER, which is a safe-state transition rather than an abandonment, and
+that path had a 0.000% death rate. But two sub-criteria failing and both being
+declared mis-specified by the person who benefits is a pattern that deserves
+naming rather than explaining, so it is named here.
+
+### The replacement, and why these criteria and not others
+
+The old test asked "did air get low". The right question is whether the hold
+**preserved the bot until ownership or safety, without leaving it worse off**.
+That requires deltas across the hold, which the instrumentation did not record;
+`water_surface_hold_ended` now carries `dAir` and `dHealth`.
+
+    G4a  EFFICACY     of holds lasting >5s, <=5% may end with air LOWER than it
+                      started. A hold that does not arrest the decline is not
+                      holding anything.
+    G4b  NO HARM      <=1% of holds may end with health more than 4 below where
+                      it started (two hearts). The hold must not cost what it
+                      was added to protect.
+    G4c  RESOLUTION   >=95% of holds that reach critical air must be followed
+                      within 5s by a controller acquisition (rescue or swim) or
+                      a safe-state transition (ashore, or out of the water).
+
+These are stated as properties of the mechanism rather than as rates tuned to
+the present data, and **none of the three can be evaluated against `7d1ee54` at
+all**, because `dAir` and `dHealth` did not exist when it ran. That is
+deliberate: a threshold that the existing data already passes is a threshold
+chosen by the data.
+
+### The retest, fixed before it runs
+
+  - New version, deployed to all 40 bots, `>= 200` bot-hours accumulated.
+  - G1, G2 and G3 are **unchanged** and must pass again on the new data. They are
+    not carried over from `7d1ee54`.
+  - G4a/G4b/G4c must pass as stated above.
+  - If G4 fails again, the mechanism is at fault rather than the criterion, and
+    the surface-hold is reverted rather than re-amended. **This amendment is the
+    only one G4 gets.**
+
+### What did NOT change
+
+Arms, endpoints, duration, model, worlds, seed and analysis rules are untouched.
+G1, G2, G3 and G5 stand exactly as registered this morning. The `0.053/bot-h`
+drowning baseline and the `0.062/bot-h` all-cause baseline are unchanged, and
+their known weakness — both rest on a single 2.82h window — is unchanged too.
