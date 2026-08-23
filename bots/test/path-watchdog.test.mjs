@@ -12,6 +12,7 @@
 // only just begun. Clearing a goal in those states aborts valid work. Most of
 // these tests are about NOT firing.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { pathfinderWedged, stillnessMs } from '../src/path-watchdog.mjs'
 
 let pass = 0, fail = 0
@@ -19,7 +20,8 @@ const t = (name, fn) => {
   try { fn(); pass++; console.log(`  PASS  ${name}`) }
   catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) }
 }
-const base = { hasGoal: true, moving: false, mining: false, building: false, stillFor: 10000 }
+const base = { hasGoal: true, moving: false, mining: false, building: false,
+               busy: false, stillFor: 30000 }
 
 t('the wedged state is detected', () => {
   assert.equal(pathfinderWedged(base), true)
@@ -45,12 +47,31 @@ t('no goal means nothing to clear', () => {
   assert.equal(pathfinderWedged({ ...base, hasGoal: false }), false)
 })
 
+t('A SKILL THAT OWNS THE BOT IS NEVER WEDGED', () => {
+  // THE MEASURED FAILURE. The first version excluded only the pathfinder's own
+  // mining/building flags, which are set when the PATHFINDER digs for a path.
+  // `mine` and `gather` dig with bot.dig() directly, so those stayed false and
+  // the watchdog cleared their goals mid-work: 31% of 328 live firings happened
+  // while a work skill was active, _path_reset rose 82.3 -> 108.9 per bot-hour,
+  // and goto success FELL from 47.2% to 41.8%.
+  //
+  // A goal wedged underneath a running skill is that skill's problem and its
+  // timeout handles it. The case only this watchdog can fix is a goal left set
+  // with nothing running.
+  assert.equal(pathfinderWedged({ ...base, busy: true }), false,
+    'the watchdog cleared a goal out from under a running skill')
+})
+
 t('a brief pause is not a wedge', () => {
   // A search that has only just started has an empty path for a moment. Firing
   // on a single sample would abort goals before they ever computed.
+  // The floor rose from 6s to 15s after measurement: half of all live firings
+  // arrived at the 6s minimum, which is short enough to catch an ordinary pause.
   assert.equal(pathfinderWedged({ ...base, stillFor: 500 }), false)
-  assert.equal(pathfinderWedged({ ...base, stillFor: 5999 }), false)
-  assert.equal(pathfinderWedged({ ...base, stillFor: 6000 }), true)
+  assert.equal(pathfinderWedged({ ...base, stillFor: 6000 }), false,
+    '6s was the old floor and it fired on ordinary pauses')
+  assert.equal(pathfinderWedged({ ...base, stillFor: 14999 }), false)
+  assert.equal(pathfinderWedged({ ...base, stillFor: 15000 }), true)
 })
 
 // --- stillness is 3D, and that is not a detail ------------------------------
@@ -90,6 +111,18 @@ t('too few samples is not evidence of stillness', () => {
   assert.equal(stillnessMs([], 1000), 0)
   assert.equal(stillnessMs([{ x: 0, y: 0, z: 0, t: 0 }], 1000), 0,
     'one sample cannot establish that a bot has not moved')
+})
+
+t('the call site actually PASSES busy', () => {
+  // A WIRING ASSERTION, labelled as one. Every behaviour test above supplies
+  // `busy` explicitly, so they all still pass if index.mjs stops sending it --
+  // and then the watchdog silently returns to clearing goals out from under
+  // running skills. This is the same seam that hid a missing airMax earlier
+  // today, and the same class as bot.waterMovements shipping as dead code.
+  const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+  const call = src.slice(src.indexOf('pathfinderWedged({'))
+  const args = call.slice(0, call.indexOf('})'))
+  assert.match(args, /busy:\s*runner/, 'index.mjs no longer passes the runner busy state')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

@@ -540,6 +540,9 @@ function connect() {
           moving: bot.pathfinder?.isMoving?.() ?? false,
           mining: bot.pathfinder?.isMining?.() ?? false,
           building: bot.pathfinder?.isBuilding?.() ?? false,
+          // The runner's answer, not the pathfinder's. See path-watchdog.mjs:
+          // mine/gather dig outside the pathfinder, so its own flags say nothing.
+          busy: runner?.isBusy?.() ?? false,
           stillFor: stillnessMs(posSamples, now),
         })
         if (!wedged) return
