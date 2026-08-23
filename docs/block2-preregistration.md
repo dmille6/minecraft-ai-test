@@ -1415,3 +1415,57 @@ death.
 Frozen bots are a standing productivity tax that nothing currently measures. A
 rolling 3D-displacement check belongs in the fleet health tooling, and until it
 exists the ledger reducer is the only thing that reports it.
+
+---
+
+## AMENDMENT — Layer 2 shipped by accident; its tripwire, declared before the sample exists (2026-08-23)
+
+`a989fd0` was committed with "DRAFTED, NOT DEPLOYED" in its subject line and the
+body explaining why deploying it would be premature. `eb6eb00` was then deployed
+as a single-change regression fix. `a989fd0` is its ancestor, so the descent
+contract went out with it and has been live since.
+
+Two things follow, and both are mine:
+
+  1. The watchdog measurement reported as a clean single-change result was NOT
+     one. `goto` 41.8% -> 51.1% and `_path_reset` 108.9 -> 79.6 are real, but they
+     are the joint effect of the watchdog narrowing AND the descent contract.
+  2. The productivity-collapse risk that the contract was explicitly held back
+     for has been running unmeasured.
+
+### The early signal, stated before it is conclusive
+
+Over 0.54h and 61 mine attempts -- far too thin to act on:
+
+    mine attempts /bot-h    4.6  ->  2.8      (down 39%)
+    mine success rate       54%  ->  52%      (flat)
+    exit_reserve_abort        0  ->    7
+    _entombed /bot-h        2.2  ->  4.2      (up)
+
+That is the shape of the trap: refusals appear and mining falls. It is equally
+consistent with noise, or with the crafting changes shifting what bots choose.
+
+### The tripwire, fixed now
+
+Evaluated at `>= 100` bot-hours on a build carrying the contract:
+
+    REVERT if  mine attempts /bot-h is below 3.5        (a >25% fall from 4.6)
+          AND  exit_reserve_abort /bot-h is above 0.5
+    KEEP   if  mine attempts /bot-h >= 4.0
+          AND  entombed /bot-h has fallen below 2.2
+    otherwise INCONCLUSIVE -- collect to 200 bot-hours, change nothing
+
+The conjunction matters. Refusals alone are the contract working. A fall in
+mining alone could be anything. Only both together mean the contract is
+suppressing work rather than making it safe.
+
+`_entombed` is the outcome the contract exists to prevent. If it does not fall by
+200 bot-hours, the contract is not buying what it costs, whatever the mining rate.
+
+### Why this is written before the numbers
+
+The same reason as the immobile-bot amendment: the direction of the error favours
+the conclusion I would prefer. I built the contract, I would like it to survive,
+and a threshold chosen after seeing 100 bot-hours is a threshold I would talk
+myself into. This is the second time today that reasoning has applied, and the
+first time it was right.
