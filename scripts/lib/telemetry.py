@@ -130,5 +130,34 @@ class Events:
             return 0.0
         return self.count(name, allow_zero) / (bots * self.span)
 
+    def of(self, name, allow_zero=False):
+        """Every row for an event kind, name-canonicalised and zero-guarded.
+
+        THIS EXISTS BECAUSE I BYPASSED MY OWN GUARD. count() canonicalises, but
+        the first analysis written on top of this module iterated `ev.rows`
+        directly and compared `r['name'] != 'water_surface_hold_ended'` -- the
+        bare name against the stored `_water_surface_hold_ended`. Every group
+        came back empty, and it was the FOURTH time in two days that the
+        `_${kind}` convention produced a silent, confident zero.
+
+        A guard with a documented bypass is not a guard. Iterate this, not rows.
+        """
+        self.count(name, allow_zero)          # raises if the zero looks wrong
+        return list(self._by.get(canon(name), []))
+
+    def by_bot(self, name=None, allow_zero=False):
+        """Rows grouped per bot and time-ordered, for 'what happened next' work."""
+        rows = self.of(name, allow_zero) if name else self.rows
+        out = {}
+        for r in rows:
+            out.setdefault((r['bot'] or {}).get('name'), []).append(r)
+        for v in out.values():
+            v.sort(key=lambda r: r['t'])
+        return out
+
+    def is_kind(self, row, name):
+        """Compare a row's kind without tripping over the leading underscore."""
+        return canon(row['name']) == canon(name)
+
     def where(self, name, pred):
-        return [r for r in self._by.get(canon(name), []) if pred(r)]
+        return [r for r in self.of(name) if pred(r)]
