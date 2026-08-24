@@ -16,6 +16,7 @@ import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
+import { installAirTrace } from './air-trace.mjs'
 import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
@@ -176,6 +177,22 @@ function connect() {
   // Reason tallies for the pathfinder's own events, kept for the status line.
   const pathResets = {}
   const pathUpdates = {}
+  // AIR PACKET TRACE -- observability only, off unless switched on.
+  //
+  // AIR_TRACE_MIN=<minutes> records every entity_metadata packet that moved
+  // bot.oxygenLevel, with the entity's name attached, so the question "is the
+  // drowning reflex reading fish" is answered by the wire rather than by me.
+  // Nothing about the bot's behaviour changes; see air-trace.mjs for why this
+  // exists and what it cost not to have it.
+  const traceMin = Number(process.env.AIR_TRACE_MIN || 0)
+  if (traceMin > 0) {
+    const stopTrace = installAirTrace(bot, {
+      dir: config.log.dir, name: config.bot.name, minutes: traceMin,
+    })
+    log('warn', 'air trace recording', { minutes: traceMin, file: `air-trace-${config.bot.name}.jsonl` })
+    process.once('exit', stopTrace)
+  }
+
   bot.once('spawn', () => {
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
