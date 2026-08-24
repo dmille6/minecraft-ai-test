@@ -171,6 +171,21 @@ function connect() {
       external_mb: MB(m.external), array_buffers_mb: MB(m.arrayBuffers),
       doing: runner.describe?.() ?? 'unknown',
     })
+    // HOW OFTEN A FISH TRIED TO SET OUR AIR, and whether we caught it. Rides
+    // the existing five-minute heartbeat rather than adding an event stream:
+    // 40 bots need this checkable in flight, not chatty. `dropped` is the case
+    // to watch -- a foreign write we could not repair because we had never
+    // heard our own air yet. See own-air.mjs.
+    const oa = bot.ownAirStats
+    if (oa && (oa.foreign || oa.dropped)) {
+      logEvent({
+        kind: 'own_air_guard', status: oa.dropped ? 'unknown' : 'success',
+        detail: `air packets: ${oa.ours} ours, ${oa.foreign} foreign ` +
+                `(${oa.repaired} repaired, ${oa.dropped} dropped before our first ` +
+                `reading); own oxygen now ${bot.ownOxygenLevel}`,
+        snapshot: snapshot(bot),
+      })
+    }
   }, 10_000)
   memTimer.unref?.()
 

@@ -53,7 +53,12 @@ function fakeBot (selfId = 7) {
     bot.oxygenLevel = Math.round(airSupply / 15)     // <- the upstream bug
     for (const h of handlers) h({ entityId })
   }
-  return { bot, emit }
+  // A metadata packet with no air_supply in it, which is MOST of them: pose,
+  // flags, custom name. mineflayer leaves oxygenLevel untouched.
+  const emitOther = (entityId) => {
+    for (const h of handlers) h({ entityId })
+  }
+  return { bot, emit, emitOther }
 }
 
 t('a player air supply of 300 reads as 20', () => {
@@ -107,6 +112,59 @@ t('no player value can exceed 20, which is the invariant the fleet violated', ()
   for (const [id, air] of [[7, 300], [11, 4800], [7, 285], [12, 6000], [7, 270]]) emit(id, air)
   assert.ok(bot.oxygenLevel <= 20,
     `oxygen read ${bot.oxygenLevel}; a player's air supply is 300 and 300/15 = 20`)
+})
+
+t('A DELTA PACKET OF OURS CANNOT LAUNDER A FISH VALUE', () => {
+  // The flaw in the first version of this guard, and the reason it only half
+  // worked in production. Entity metadata is a delta: most packets about us
+  // carry no air_supply, so oxygenLevel still holds whatever the last write
+  // left. Asking only "was that packet ours?" then adopts a fish as our own.
+  const { bot, emit, emitOther } = fakeBot()
+  installOwnAir(bot)
+  emit(7, 300)          // us, full: 20
+  emit(88, 4800)        // a cod: 320, repaired back to 20
+  emitOther(7)          // us again, but a pose update with no air in it
+  assert.equal(bot.ownOxygenLevel, 20,
+    `our air was recorded as ${bot.ownOxygenLevel} from a packet that never ` +
+    `contained an air reading`)
+  assert.equal(bot.oxygenLevel, 20)
+})
+
+t('a fish before we know our own air is dropped, not adopted', () => {
+  const { bot, emit, emitOther } = fakeBot()
+  installOwnAir(bot)
+  emit(88, 4800)        // cod first, nothing of ours to restore
+  emitOther(7)
+  assert.equal(bot.ownOxygenLevel, null, 'a fish became our baseline')
+  assert.ok(bot.oxygenLevel == null || bot.oxygenLevel <= 20,
+    `oxygen left at ${bot.oxygenLevel}`)
+})
+
+t('the guard counts what it did, so the fix is checkable in flight', () => {
+  const { bot, emit } = fakeBot()
+  installOwnAir(bot)
+  emit(7, 300); emit(88, 4800); emit(88, 4500); emit(7, 150)
+  assert.equal(bot.ownAirStats.ours, 2)
+  assert.equal(bot.ownAirStats.foreign, 2)
+  assert.equal(bot.ownAirStats.repaired, 2)
+})
+
+t('packets that carry no air reading are not counted as air events', () => {
+  // The early return exists for this. Mutating it away does NOT corrupt the
+  // reading -- the restore-to-last rule is what protects that -- but it does
+  // make every pose update look like an air packet, and these counters are how
+  // the fix gets verified in flight against 40 live bots. A diagnostic that
+  // counts the wrong thing is the failure mode this whole day has been about.
+  const { bot, emit, emitOther } = fakeBot()
+  installOwnAir(bot)
+  emit(7, 300)
+  emitOther(7)          // our pose
+  emitOther(88)         // a cod's pose
+  emitOther(88)
+  assert.equal(bot.ownAirStats.ours, 1,
+    `${bot.ownAirStats.ours} air readings counted from 1 real one`)
+  assert.equal(bot.ownAirStats.foreign, 0,
+    `${bot.ownAirStats.foreign} foreign air writes counted from 0 real ones`)
 })
 
 t('isOwnEntity is strict about a missing id rather than guessing', () => {

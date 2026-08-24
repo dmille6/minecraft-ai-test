@@ -52,22 +52,47 @@ export function isOwnEntity (packet, selfId) {
  */
 export function installOwnAir (bot) {
   bot.ownOxygenLevel = null
+  bot.ownAirStats = { ours: 0, foreign: 0, repaired: 0, dropped: 0 }
+
+  // WHOSE PACKET IS NOT ENOUGH. IT MUST ALSO BE A PACKET THAT WROTE.
+  //
+  // The first version of this guard asked only "was that packet ours?" and, if
+  // so, adopted whatever was standing in bot.oxygenLevel. That is wrong, and
+  // wrong in a way that quietly re-created the bug it was fixing: entity
+  // metadata is a DELTA. Most packets about us carry a pose or a flag and no
+  // air_supply at all, so mineflayer does not touch oxygenLevel, so the value
+  // standing there is whatever the last write left -- frequently a fish. The
+  // guard then latched that fish value as our own and defended it.
+  //
+  // Deployed, that half-fix moved airMax=20 from uncommon to the most common
+  // value and still left 190 readings above 20 in ten bot-hours, on a scale
+  // whose maximum is 20. Partly working is how this class of bug hides.
+  //
+  // So watch the VALUE, not just the sender. If oxygenLevel changed across the
+  // dispatch of this packet, mineflayer wrote it, and the sender says whether
+  // to keep it. No metadata keys are parsed, which is the point -- keys move
+  // between versions and guessing them is how this breaks again.
+  let last = bot.oxygenLevel ?? null
   const onMeta = (packet) => {
+    const now = bot.oxygenLevel ?? null
+    if (now === last) return                 // this packet carried no air_supply
     if (isOwnEntity(packet, bot.entity?.id)) {
-      // mineflayer has already decoded this one and it really is ours.
-      if (typeof bot.oxygenLevel === 'number') bot.ownOxygenLevel = bot.oxygenLevel
-    } else if (bot.ownOxygenLevel != null) {
-      // A foreign entity just overwrote our reading. Put ours back.
-      //
-      // REPAIRING THE PROPERTY RATHER THAN ADDING A SECOND ONE is deliberate.
-      // `bot.oxygenLevel` is read in twenty-five places across reflex.mjs and
-      // skills.mjs and in every water test's fake bot. A parallel
-      // `ownOxygenLevel` that callers must remember to prefer is one more thing
-      // to forget, and the next reader of the wrong property gets no error --
-      // just a quietly wrong number, which is the entire failure mode being
-      // fixed here. One repair, at the only place that can tell the difference.
-      bot.oxygenLevel = bot.ownOxygenLevel
+      bot.ownOxygenLevel = now
+      bot.ownAirStats.ours++
+    } else {
+      bot.ownAirStats.foreign++
+      if (bot.ownOxygenLevel != null) {
+        bot.oxygenLevel = bot.ownOxygenLevel
+        bot.ownAirStats.repaired++
+      } else {
+        // Nothing of ours to restore yet. Put back whatever preceded rather
+        // than adopting a fish -- at worst that is null, and null is honest:
+        // assessAir falls back to the drain trend, which needs no scale.
+        bot.oxygenLevel = last
+        bot.ownAirStats.dropped++
+      }
     }
+    last = bot.oxygenLevel ?? null
   }
   bot._client?.on?.('entity_metadata', onMeta)
   return () => bot._client?.removeListener?.('entity_metadata', onMeta)
