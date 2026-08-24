@@ -1,0 +1,94 @@
+{
+  "_why": [
+    "EVERY SKILL THE MODEL CAN SELECT IS ACCOUNTED FOR HERE, in one of three",
+    "buckets, and test/affordance-contract.test.mjs fails if any is missing from",
+    "all three.",
+    "",
+    "prompt-usage-coverage.test.mjs already asserts that a selectable skill is",
+    "DOCUMENTED -- that the prompt says what its arguments are. That caught the",
+    "four skills the model was offered and could not use. It does not catch the",
+    "next failure along, which happened four times in one day:",
+    "",
+    "  swim_to shipped with a usage line and ZERO uses, because nothing in the",
+    "  observation ever told the model it was in water.",
+    "  Then the IN WATER line shipped without a destination, and the model asked",
+    "  for zero-block crossings.",
+    "  Tool equivalence surfaced the better pickaxe only inside a craft failure",
+    "  the trapped bot never triggered; one bot sat entombed for ten hours",
+    "  carrying the materials for its own rescue.",
+    "  deposit_surplus was added to the milestone chain behind a rung requiring",
+    "  15 blocks from home, when the median bot is 804 blocks away. Zero deposits.",
+    "",
+    "Documented is not the same as discoverable. A capability the model cannot",
+    "see the applicability of is not shipped, it is merely present -- and its",
+    "silence looks exactly like the model choosing not to use it.",
+    "",
+    "So: `contract` means an observation line names this skill's situation, and",
+    "the test renders a real prompt from a canonical eligible state to prove the",
+    "line appears -- plus an ineligible state to prove it does not always appear,",
+    "because a line that is always on carries no information.",
+    "`unconditional` means the skill applies in nearly any state, so there is",
+    "nothing situational to announce. The reason is required, and is the thing to",
+    "argue with.",
+    "`gap` means we KNOW the observation is missing. It is here so the silence is",
+    "recorded rather than mistaken for a finding, and so scripts/affordance-funnel.py",
+    "reports it every run instead of it becoming a thing everyone stopped seeing.",
+    "",
+    "`eligibility` names a rule implemented in scripts/affordance-funnel.py, over",
+    "the LOGGED SNAPSHOT rather than the prompt -- deliberately a second, ",
+    "independent source. If the snapshot says the bot was in water and the prompt",
+    "had no IN WATER line, that disagreement IS the bug, and it is only visible",
+    "because the two answers do not come from the same function."
+  ],
+
+  "contracts": [
+    {
+      "skill": "swim_to",
+      "observation": "IN WATER:",
+      "eligibility": "in_water",
+      "why": "Water is terrain, not a hazard. A bot in open water cannot know where land is; that is the definition of the situation."
+    },
+    {
+      "skill": "craft",
+      "observation": "CAN CRAFT NOW:",
+      "eligibility": "can_craft_stone_tier",
+      "why": "A 7B model will not derive recipes from raw inventory. isolated-a-Alpha carried a stone pickaxe's ingredients for ten hours underground and asked for a wooden one."
+    },
+    {
+      "skill": "deposit",
+      "observation": "CARRYING:",
+      "eligibility": "bankable_surplus",
+      "why": "Banked items survive death and carried ones do not, and nothing said so at the moment the bot was carrying a load worth banking."
+    }
+  ],
+
+  "unconditional": {
+    "goto": "Travel applies from any position; the destination comes from the task, not from an observation.",
+    "explore": "The affordance for not knowing where anything is. Always available by construction.",
+    "gather": "The primary verb. Every milestone in the ladder names something to gather.",
+    "mine": "Named directly by the milestone chain whenever ore is the objective.",
+    "home": "One fixed destination the bot always knows; KNOWN PLACES already carries it.",
+    "status": "A reporting verb with no world precondition.",
+    "place": "Its usage line covers when it works, and it has no situational trigger beyond carrying a placeable.",
+    "board": "Offered only under the arms that have a board, so its availability IS the observation. See prompt-usage-coverage.test.mjs."
+  },
+
+  "gaps": {
+    "build": {
+      "why": "ZERO proposals in roughly 200,000 logged decisions, before and after it was documented. Nothing ever tells the model a structure would help, and it is not clear what would.",
+      "watch": "eligible is unmeasurable until a trigger exists; the funnel reports the zero so it stays visible."
+    },
+    "withdraw": {
+      "why": "25 proposals in roughly 200,000 decisions. Symmetric to deposit, and deposit only started moving once CARRYING named it. There is no observation for 'the chest you own has something you need'.",
+      "watch": "The CARRYING work is the template if this is ever worth doing."
+    },
+    "eat": {
+      "why": "difficulty=peaceful means hunger does not deplete, so the eligible set may be genuinely empty. That is a real answer, not a defect -- but it has never been measured, and 'never applicable' and 'never announced' are indistinguishable from the outside.",
+      "watch": "If the funnel shows eligible>0 and prompted=0, this becomes a contract."
+    },
+    "surface": {
+      "why": "The escape skill. Entombment is transient and self-resolving in the median case, and correlates POSITIVELY with productivity (r=+0.47), so an observation urging escape could easily make things worse.",
+      "watch": "Deliberately left alone. The exit contract in exit-contract.mjs handles the descent side."
+    }
+  }
+}
