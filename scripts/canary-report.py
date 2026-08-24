@@ -38,16 +38,48 @@ WATER = {"oxygen_critical_state", "drowning_up", "drowning_to_shore", "drowning_
          "drowning_escaped", "water_surface_hold", "reflex_drowning"}
 ESCAPED = "drowning_escaped"
 
-# Pre-declared acceptance gates. A change that does not clear these is not an
-# improvement, whatever its event counts do.
-GATES = [
-    ("land-release rate",     "escape_rate",  0.60, "at least", "of episodes end on land (baseline 0.21)"),
-    ("median re-entry gap",   "reentry_s",    60.0, "at least", "seconds before drowning again (baseline 6)"),
-    ("reflex-owned time",     "held_frac",    0.10, "at most",  "of exposure spent in water trouble"),
-    ("gather rate retained",  "gather_ratio", 0.90, "at least", "of the control's gathers per exposure-hour"),
-    ("deaths",                "death_ratio",  1.25, "at most",  "times the control's death rate"),
+# TWO KINDS OF GATE, AND CONFLATING THEM MAKES THE REPORT USELESS.
+#
+# The first live run of this script judged a NO-OP canary -- identical bots/src,
+# only the version label differed -- and failed three gates. Two of them were
+# absolute targets that the baseline fleet also fails (land-release 0.60 when
+# both arms sit near 0.20; reflex-owned 0.10 when both sit near 0.20), and the
+# third was noise off 0.9 exposure-hours. A gate that rejects a change which
+# does nothing would block every rollout, so nobody would use it.
+#
+# So the canary answers ONE question -- is this better than what we already have
+# -- and it answers it against a control running the same minutes. Whether the
+# result is GOOD ENOUGH is a different question, belonging to the shakedown
+# gate, and mixing the two is what produced the nonsense above.
+#
+# REGRESSION gates block a rollout: the change must not make these worse.
+REGRESSION = [
+    ("harvest vs control",  "gather_ratio",     0.90, "at least",
+     "of the control's gathers per exposure-hour"),
+    ("deaths vs control",   "death_ratio",      1.25, "at most",
+     "times the control's death rate"),
+    ("reflex time vs ctrl", "held_ratio",       1.10, "at most",
+     "times the control's share of exposure spent in water trouble"),
 ]
 
+# PROGRESS metrics are reported against the control and against the standing
+# target, and they never block on their own. `--expect <metric>` names the one
+# this change is supposed to move, and THAT one is required to improve.
+PROGRESS = [
+    ("ended on land",       "escape_rate",      0.60, "at least",
+     "of episodes end on land"),
+    ("re-entry gap (s)",    "reentry_s",       60.00, "at least",
+     "seconds before drowning again"),
+    ("reflex-owned share",  "held_frac",        0.10, "at most",
+     "of exposure spent in water trouble"),
+]
+
+# A CANARY IS FIVE BOTS. It needs enough exposure before its numbers mean
+# anything, and it has just restarted while the control has not -- so its first
+# minutes are burn-in that the control does not have. Comparing across that is a
+# systematic bias against every canary, which is worse than no comparison.
+MIN_EXPOSURE_H = 2.0
+BURN_IN_MIN = 15
 
 def load(paths, since, pool):
     rows = collections.defaultdict(list)
@@ -69,8 +101,13 @@ def load(paths, since, pool):
     return rows
 
 
-def summarise(rows, bots):
-    """Episode-level outcomes for one group of bots."""
+def summarise(rows, bots, skip_before=None):
+    """Episode-level outcomes for one group of bots.
+
+    `skip_before` drops each bot's first minutes after its restart. Only the
+    canary restarted, so without this every canary is compared against a control
+    that has been settled for hours -- a bias against the change, every time.
+    """
     eps, gathers, deaths, events, water_events = [], 0, 0, 0, 0
     exposure = 0.0
     reentry_gaps = []
@@ -78,6 +115,8 @@ def summarise(rows, bots):
         cur, last_end = None, None
         buckets = collections.defaultdict(list)
         for t, d in rows[bot]:
+            if skip_before and t < skip_before.get(bot, t):
+                continue
             events += 1
             sk = d.get("skill") or {}
             k = (sk.get("name") or "").lstrip("_")
@@ -129,6 +168,11 @@ def main():
     ap.add_argument("--pool", required=True)
     ap.add_argument("--minutes", type=int, default=20)
     ap.add_argument("--paths", default="/var/log/mcai/*/skill-*.jsonl")
+    ap.add_argument("--expect", default="",
+                    help="the PROGRESS metric this change claims to improve "
+                         "(escape_rate | reentry_s | held_frac)")
+    ap.add_argument("--burn-in", type=int, default=BURN_IN_MIN,
+                    help="minutes to drop after each canary bot's restart")
     a = ap.parse_args()
 
     since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=a.minutes)
@@ -140,13 +184,18 @@ def main():
     if not control:
         sys.exit("no control bots -- a canary with no control is just a deploy")
 
-    c, k = summarise(rows, canary), summarise(rows, control)
+    # Only the canary restarted, so only the canary gets a burn-in cut.
+    first = {b: rows[b][0][0] + datetime.timedelta(minutes=a.burn_in)
+             for b in canary if rows[b]}
+    c, k = summarise(rows, canary, skip_before=first), summarise(rows, control)
     print(f"\n  window {a.minutes}m · canary pool {a.pool} ({c['bots']} bots) "
           f"vs control ({k['bots']} bots)")
     print(f"  DENOMINATORS  canary {c['exposure']:.1f} exposure-h / {c['events']} events   "
           f"control {k['exposure']:.1f} / {k['events']}")
-    if c["exposure"] < 0.5 or k["exposure"] < 0.5:
-        print("\n  INSUFFICIENT EXPOSURE -- nothing below is worth reading yet.\n")
+    if c["exposure"] < MIN_EXPOSURE_H or k["exposure"] < MIN_EXPOSURE_H:
+        print(f"\n  INSUFFICIENT EXPOSURE (need {MIN_EXPOSURE_H}h per arm after a "
+              f"{a.burn_in}m burn-in cut on the canary).")
+        print("  Five bots need time. Nothing below would mean anything yet.\n")
         return 2
 
     print(f"\n  {'':<26}{'CANARY':>10}{'CONTROL':>10}")
@@ -163,17 +212,52 @@ def main():
                             if k["gather_per_exp"] else None)
     vals["death_ratio"] = (c["death_per_exp"] / k["death_per_exp"]
                            if k["death_per_exp"] else (0.0 if c["death_per_exp"] == 0 else None))
-    print(f"\n  GATES (declared before the change, not after)")
+    def ratio(a, b, default=None):
+        if a is None or b is None: return default
+        return a / b if b else (1.0 if a == 0 else None)
+
+    vals = dict(c)
+    vals["gather_ratio"] = ratio(c["gather_per_exp"], k["gather_per_exp"])
+    vals["death_ratio"] = ratio(c["death_per_exp"], k["death_per_exp"],
+                                default=(1.0 if c["death_per_exp"] == 0 else None))
+    vals["held_ratio"] = ratio(c["held_frac"], k["held_frac"])
+
+    print(f"\n  REGRESSION GATES — the change must not make these worse")
     failed = 0
-    for label, key, thr, sense, why in GATES:
+    for label, key, thr, sense, why in REGRESSION:
         v = vals.get(key)
         if v is None:
-            print(f"    ?  {label:<24} no data — {why}")
+            print(f"    ?     {label:<22} no data — {why}")
             continue
         good = v >= thr if sense == "at least" else v <= thr
         failed += 0 if good else 1
-        print(f"    {'PASS' if good else 'FAIL'}  {label:<24}{v:>8.2f}  {sense} {thr}  — {why}")
-    print(f"\n  {'ALL GATES PASS — roll out' if failed == 0 else f'{failed} GATE(S) FAILED — do not roll out'}\n")
+        print(f"    {'PASS' if good else 'FAIL'}  {label:<22}{v:>8.2f}  {sense} {thr}  — {why}")
+
+    print(f"\n  PROGRESS — reported against the control AND the standing target."
+          f"\n  These never block on their own; --expect names the one this change must move.")
+    for label, key, target, sense, why in PROGRESS:
+        cv, kv = c.get(key), k.get(key)
+        if cv is None or kv is None:
+            print(f"    ?     {label:<22} no data")
+            continue
+        better = cv > kv if sense == "at least" else cv < kv
+        hit = cv >= target if sense == "at least" else cv <= target
+        mark = "better" if better else ("same" if cv == kv else "WORSE")
+        print(f"          {label:<22}{cv:>8.2f} vs control {kv:>7.2f}  ({mark}; "
+              f"target {sense} {target}{' — MET' if hit else ''})  — {why}")
+        if a.expect == key:
+            if better:
+                print(f"    PASS  {label:<22}improved, which is what this change claimed")
+            else:
+                failed += 1
+                print(f"    FAIL  {label:<22}did NOT improve, and it is what this change claimed")
+    if a.expect and a.expect not in {g[1] for g in PROGRESS}:
+        print(f"\n    !  --expect {a.expect} is not a progress metric; nothing was checked")
+        failed += 1
+    if not a.expect:
+        print(f"\n    !  no --expect given: nothing checked that the change did what it claimed")
+
+    print(f"\n  {'PASS — safe to roll out' if failed == 0 else f'{failed} GATE(S) FAILED — do not roll out'}\n")
     return 0 if failed == 0 else 1
 
 

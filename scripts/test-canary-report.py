@@ -156,11 +156,51 @@ t("exposure is measured in 3D", exposure_is_3d)
 
 
 def gates_are_declared():
-    keys = {g[1] for g in cr.GATES}
-    assert "escape_rate" in keys and "gather_ratio" in keys, "the gates lost an outcome"
-    assert len(cr.GATES) >= 5, "gates were quietly dropped"
+    reg = {g[1] for g in cr.REGRESSION}
+    prog = {g[1] for g in cr.PROGRESS}
+    assert "gather_ratio" in reg and "death_ratio" in reg, "a regression gate was dropped"
+    assert "escape_rate" in prog, "the land-release metric was dropped"
+    assert not (reg & prog), "a metric is both a blocker and informational"
 
-t("the acceptance gates are declared in the file, not argued afterwards", gates_are_declared)
+t("the gates are declared in the file, not argued afterwards", gates_are_declared)
+
+
+def regression_gates_are_all_relative():
+    """THE FIRST LIVE RUN FAILED A NO-OP CANARY on three gates, two of which
+    were absolute targets the baseline also missed. A gate that rejects a change
+    doing nothing blocks every rollout, so nobody would use it. Everything that
+    can BLOCK must therefore be a comparison against the concurrent control."""
+    for label, key, thr, sense, why in cr.REGRESSION:
+        assert key.endswith("_ratio"), (
+            f"blocking gate '{label}' is on absolute metric {key}; blockers must "
+            f"compare against the control or they fail on no-op changes")
+
+t("EVERY BLOCKING GATE IS RELATIVE TO THE CONTROL", regression_gates_are_all_relative)
+
+
+def burn_in_is_canary_only():
+    """Only the canary restarted. Cutting burn-in from both arms, or neither,
+    biases every canary against itself."""
+    import datetime as _dt
+    def one(b, i):
+        return moving(b, 0, 40, ["drowning_up"], span=2400) + \
+               [ev(b, "gather", 5 + j * 60) for j in range(40)]
+    rows = world(["hive-a-A"], one)
+    full = cr.summarise(rows, ["hive-a-A"])
+    cut = {"hive-a-A": rows["hive-a-A"][0][0] + _dt.timedelta(minutes=15)}
+    trimmed = cr.summarise(rows, ["hive-a-A"], skip_before=cut)
+    assert trimmed["events"] < full["events"], "burn-in cut nothing"
+    assert trimmed["events"] > 0, "burn-in cut everything"
+
+t("the burn-in cut applies and does not swallow the window", burn_in_is_canary_only)
+
+
+def min_exposure_is_meaningful():
+    assert cr.MIN_EXPOSURE_H >= 1.0, (
+        f"MIN_EXPOSURE_H={cr.MIN_EXPOSURE_H} — the first live run judged a "
+        f"canary on 0.9 exposure-hours and called noise a regression")
+
+t("a canary is not judged on a fraction of an hour", min_exposure_is_meaningful)
 
 print(f"\n  {P} passed, {F} failed")
 sys.exit(1 if F else 0)
