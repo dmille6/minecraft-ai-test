@@ -1469,3 +1469,76 @@ the conclusion I would prefer. I built the contract, I would like it to survive,
 and a threshold chosen after seeing 100 bot-hours is a threshold I would talk
 myself into. This is the second time today that reasoning has applied, and the
 first time it was right.
+
+---
+
+## AMENDMENT — the descent contract is kept, and its success metric was wrong (2026-08-23)
+
+Evaluated at 280 exposure-weighted bot-hours, past the 100 the tripwire required.
+
+    mine attempts /bot-h        4.6  ->  4.4      unchanged
+    exit_reserve_abort /bot-h   0.00 ->  0.80     firing
+    entombed EPISODES /bot-h    0.96 ->  1.09     did not fall
+
+**The productivity trap did not happen.** Mining is unchanged, so the REVERT rule
+is not triggered. The 39% fall observed at 61 mine attempts was noise, exactly as
+the sample size warned.
+
+**The KEEP rule is not triggered either, and it was the wrong rule.** Two errors,
+both mine.
+
+### Error 1: the contract was aimed at 4% of the problem
+
+Of 729 entombment events, the bot's activity in the preceding two minutes was:
+
+    no skill running       40%
+    gathering              29%
+    travelling             26%
+    descended via `mine`    4%   <- the only case the contract touches
+
+And by depth, 269 of 729 occurred at y=64-79 — ABOVE sea level.
+
+The contract was designed from two vivid cases (bots sealed at y=2 and y=19)
+without checking the distribution. This repo's own source already warned about
+precisely that generalisation: "61% of fleet activity is at or above sea level
+and that is where stranding dominates ... Bots DIE underground; they LOSE THEIR
+TIME up here."
+
+### Error 2: the metric counted firings, not incidents
+
+`entombed` re-fires while a bot remains walled in, so "2.6 per bot-hour" was
+measuring TIME SPENT STUCK. Collapsed into episodes (a gap of >180s ends one):
+
+    episodes /bot-h            0.96 -> 1.09
+    median episode length      0 seconds
+    p90                        ~145 seconds
+    episodes over 10 minutes   2 -> 5, across 7 hours
+
+Most entombment is transient and self-resolving. The rate metric made a mostly
+benign, mostly instantaneous condition look like a standing catastrophe.
+
+### The corrected success metric
+
+The descent contract is KEPT. It costs 0.80 refused descents per bot-hour and
+costs no measurable mining, and the failure it prevents is PERMANENT: a bot
+sealed with no tool and no workspace cannot be recovered by any means available
+to it, as two bots proved over ten hours each.
+
+But it is no longer measured on entombment. Its success metric is:
+
+    permanently lost bots per 100 bot-hours
+      = bots whose 3D displacement is < 8 blocks for an entire measurement window
+        AND which never recover in any later window
+
+Baseline: 2 bots lost in roughly 24 hours of fleet operation before the contract.
+The contract passes if that rate falls and mining stays >= 4.0 attempts/bot-hour.
+This is a RARE-EVENT metric and will need several hundred bot-hours, which is the
+honest cost of measuring a rare failure.
+
+### What this redirects
+
+96% of entombment is above sea level, transient, and happens while gathering,
+travelling or idle. That is not a descent problem and no descent contract will
+touch it. It is the controlled-descent and route-construction gap — Layer 4 items
+1 and 2 in docs/design/2026-08-23-affordances-and-modes.md — and it is now the
+highest-value target on evidence rather than on anecdote.
