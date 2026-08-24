@@ -410,12 +410,25 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4,
  * Detection and consequence are different questions and tonight proved they
  * need different bars. Three attempts to tune the DETECTOR each failed
  * differently -- 2278/hr, then 1881, then 344-524, then 2086 when a "better"
- * split let head=water fire at full air -- because the input cannot be made
- * reliable: bot.oxygenLevel arrives on two scales intermittently (bubbles 0-20
- * and ticks up to 400), so any absolute threshold, peak or median can be
- * poisoned by a sample from the other scale.
+ * split let head=water fire at full air -- because the input could not be made
+ * reliable.
  *
- * So stop trying. Detection may stay noisy and keep logging, because a log line
+ * WHY IT COULD NOT. This note used to end "bot.oxygenLevel arrives on two
+ * scales intermittently (bubbles 0-20 and ticks up to 400), so any absolute
+ * threshold can be poisoned by a sample from the other scale", and then moved
+ * on. That was a description of the symptom promoted to an explanation, and it
+ * closed the question: a single bot cannot have two scales, and asking why it
+ * appeared to would have found the cause in one step.
+ *
+ * The cause is mineflayer, lib/plugins/entities.js: `bot.oxygenLevel` is
+ * written from ANY entity's air_supply metadata with no check that the entity
+ * is the bot. A player carries 300 air, which is 20 after its /15; fish and
+ * dolphins carry 4800, which is 320. There was only ever one scale -- ours --
+ * and 41% of this fleet's decisions had an aquatic mob within 24 blocks.
+ * own-air.mjs repairs the reading; see the note there.
+ *
+ * The conclusion below still stands on its own merits, and is kept: detection
+ * and consequence want different bars whatever the input quality. Detection may stay noisy and keep logging, because a log line
  * costs nothing. What must NOT happen on a bad reading is the expensive part:
  * runner.interrupt() cancels the running skill and seizeBody() clears every
  * control state, which stops a walking bot mid-stride. That coupling is why

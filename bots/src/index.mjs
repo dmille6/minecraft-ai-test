@@ -16,6 +16,7 @@ import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
+import { installOwnAir } from './own-air.mjs'
 import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
@@ -176,6 +177,10 @@ function connect() {
   // Reason tallies for the pathfinder's own events, kept for the status line.
   const pathResets = {}
   const pathUpdates = {}
+  // BEFORE ANYTHING ELSE. mineflayer writes bot.oxygenLevel from any entity's
+  // metadata, so the drowning reflex was reading fish. See own-air.mjs.
+  installOwnAir(bot)
+
   bot.once('spawn', () => {
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
