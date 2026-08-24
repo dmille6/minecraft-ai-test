@@ -204,3 +204,32 @@ The costs actually worth attacking, on measured evidence:
 a repeating event measures DURATION, not INCIDENTS. `_drowning_no_shore`,
 `_water_surface_hold` and `_entombed` all had it. Before optimising any rate, ask
 whether the event fires once per incident or once per tick of a condition.
+
+---
+
+## Deposit demand — predictions, written before deploying `687b3df`
+
+Baseline, measured on `eb6eb00` over 280 exposure-weighted bot-hours:
+
+    deposit share of actions       0.6-0.9%   (identical in the most and least
+                                               productive bots, which is the tell)
+    deposit success rate           16.5%
+    gather success /bot-hour       3.7 median
+    median distance from town      804 blocks
+    inventory occupancy            16 of 36 stacks median
+
+| prediction | falsified if |
+|---|---|
+| deposit share of actions rises above 3% | stays below 2% |
+| deposit success rate rises above 30% | stays below 25% |
+| gather success/bot-hour falls by less than 15% | falls more than 25% |
+| junk share of deposited items stays under 25% | exceeds 40% |
+| travel-failure share of deposits does not rise | stuck+drowning share climbs above today's 40% |
+
+The win condition is a CONJUNCTION and not "deposits went up": bankable deposits
+rise AND gather throughput barely moves AND junk stays low. Any one of those
+alone is either noise or gaming.
+
+The specific failure to watch for is the one the design was built to avoid: bots
+walking home from 800 blocks to bank a handful. It would show as deposit share
+rising while gather/bot-hour falls hard and deposit travel failures climb.
