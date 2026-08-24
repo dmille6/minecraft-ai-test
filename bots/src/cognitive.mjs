@@ -426,6 +426,11 @@ export class CognitiveLoop {
       // progress" and "what may never be blocked" cannot drift apart. A null
       // set means we could not resolve the recipe, and the gate treats that as
       // "no exemption" rather than inventing one.
+      // The gate needs to know which rung is active: a deposit is worth making
+      // under a deposit goal and not worth a 800-block walk otherwise. Set here
+      // rather than passed, because every other check() argument is about the
+      // PROPOSAL and this is about the bot's current obligation.
+      this.admission.activeMilestoneId = milestone?.id ?? null
       const check = this.admission.check(res.proposal, this.bot, this.#wantedItems(milestone))
       if (check.ok) admitted = check
       else rejection = check

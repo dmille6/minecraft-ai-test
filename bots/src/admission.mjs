@@ -13,6 +13,7 @@ import { SKILLS, actionKey } from './skills.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './reflex.mjs'
+import { bankableInventory, depositDue } from './bankable.mjs'
 
 
 const REPEAT_WINDOW = 4
@@ -47,6 +48,7 @@ export class AdmissionControl {
     this.recent = []                   // last N admitted keys, for repeat detection
     this.blockedCount = {}             // per-key block tally, for probation
     this.vetoStreak = 0                // consecutive learned_avoid rejections
+    this.activeMilestoneId = null      // set by the cognitive layer each decision
     this.waterVetoStreak = 0           // consecutive water-rule rejections
   }
 
@@ -129,6 +131,37 @@ export class AdmissionControl {
     // minutes: 18 wasted decisions, placebo-b-Delta alone accounting for 6. The
     // model reaches for swim_to because the system prompt advertises it
     // unconditionally, while the IN WATER hint only appears when it is true.
+    // A DEPOSIT THAT COSTS MORE THAN IT BANKS IS NOT A DEPOSIT.
+    //
+    // The measured fleet sits a MEDIAN OF 804 BLOCKS from town with 16 of 36
+    // stacks used. Admitting "deposit" out there sends a bot on a six-minute
+    // round trip to bank a handful of cobblestone, through the travel failures
+    // that already account for most deposit failures (156 stuck, 107 drowning).
+    //
+    // So the gate asks whether banking is CHEAP, not whether the bot is full:
+    // storage in sight, already near home, or working a deposit goal it accepted.
+    // The milestone creates the demand; this stops the demand being answered in
+    // the most expensive possible place.
+    if (skill === 'deposit') {
+      const items = bot.inventory?.items?.() ?? []
+      const bank = bankableInventory(items, { wants: wanted ? [wanted].flat() : [] })
+      const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
+      const due = depositDue({
+        bankable: bank.count,
+        distHome: horizontalDistanceFromSpawn(bot.entity.position),
+        storageWithin48: !!bot.findBlock?.({
+          matching: b => ['chest','barrel','trapped_chest']
+            .includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: 48 }),
+        onDepositMilestone,
+        occupiedSlots: items.length,
+      })
+      if (!due) {
+        return { ok: false, reason: 'deposit_not_worth_it',
+                 detail: `${bank.count} bankable items and no storage in reach — ` +
+                         `bank it when you are next near the chest, not from out here` }
+      }
+    }
+
     if (skill === 'swim_to') {
       const { x, y, z } = args
       if (![x, y, z].every(v => Number.isFinite(Number(v)))) {

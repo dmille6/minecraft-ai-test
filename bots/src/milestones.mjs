@@ -15,6 +15,7 @@
 // that look like bad model judgement -- the worst kind of confounder.
 
 import { equivalentTools } from './skills.mjs'
+import { bankableInventory } from './bankable.mjs'
 import { countItem } from './state.mjs'
 import { config } from './config.mjs'
 import { log } from './logger.mjs'
@@ -253,6 +254,46 @@ export const SUSTAINING = [
     progress: b => `${Math.round(b.entity.position.distanceTo(
       { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }))}/80 blocks out`,
     hint: 'goto somewhere 80+ blocks from home, staying inside the border.',
+  },
+  {
+    // THE CO-PRIMARY ENDPOINT NOBODY ASKED FOR.
+    //
+    // "deposited items per bot-hour" is co-primary in the pre-registration, and
+    // until now no milestone requested a deposit. `return` below is scored on
+    // POSITION -- a bot satisfies it by standing near home with a full inventory
+    // and walking away. 647 deposit calls across 1.18M events were the model
+    // choosing it unprompted.
+    //
+    // Placed AFTER `return` on purpose: the bot is already home by then, so this
+    // costs the walk it was making anyway. The measured median distance from town
+    // is 804 blocks and only 9% of samples are within 100, so a deposit goal that
+    // fires anywhere would be a six-minute round trip through the travel failures
+    // that already kill deposits.
+    id: 'deposit_surplus',
+    wants: null,
+    describe: () => 'Put your surplus in the town chest before heading out again.',
+    // SATISFIABLE EVEN WHEN IT CANNOT BE DONE, which is the whole lesson of the
+    // note under M.travel below -- and which the first version of THIS rung got
+    // wrong within an hour of me quoting it. Written as `count < 4` alone, a bot
+    // carrying surplus with no chest in reach could never complete it and sat on
+    // it for all 60 refreshes of survey.test.mjs, blocking the entire sustaining
+    // chain forever.
+    //
+    // So the goal is "bank your surplus WHERE YOU CAN", and it is vacuously met
+    // where you cannot: no storage within reach means there is nothing to do here
+    // and the bot moves on. That also survives the town chest being destroyed,
+    // which a strict version would not.
+    done: b => {
+      if (bankableInventory(b.inventory?.items?.() ?? []).count < 4) return true
+      const chest = b.findBlock?.({
+        matching: blk => ['chest', 'barrel', 'trapped_chest']
+          .includes(b.registry?.blocks?.[blk.type]?.name),
+        maxDistance: 48,
+      })
+      return !chest
+    },
+    progress: b => `${bankableInventory(b.inventory?.items?.() ?? []).count} bankable items carried`,
+    hint: 'deposit — you are at the chest already; keep your tools and enough blocks to climb out.',
   },
   {
     id: 'return',
