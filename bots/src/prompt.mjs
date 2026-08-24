@@ -12,6 +12,7 @@
 import { SKILLS } from './skills.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { shoreRoute } from './reflex.mjs'
+import { bankableInventory, depositDue } from './bankable.mjs'
 import { config } from './config.mjs'
 
 const MAX_EVENTS = 12
@@ -271,6 +272,50 @@ function craftableNow (bot) {
   } catch { return '' }
 }
 
+// MILESTONES CREATE OBLIGATIONS; THE OBSERVATION CREATES BEHAVIOUR.
+//
+// `deposit_surplus` was added to the SUSTAINING chain and produced ZERO deposits
+// in six bot-hours, because it sits behind `return`, which requires being within
+// 15 blocks of home -- and the median bot is 804 blocks away, with only 9% of
+// samples inside 100. The rung was placed behind a gate bots essentially never
+// pass. The model asked for `deposit` once in ~630 tool calls.
+//
+// This is the third time today the same thing has been true: a capability
+// existed, the goal layer knew about it, and nothing changed until the
+// OBSERVATION named it. `IN WATER` moved swim behaviour within minutes.
+// `CAN CRAFT NOW` moved a ten-hour-entombed bot from asking for a wooden pickaxe
+// to asking for a stone one, also within minutes.
+//
+// So the same treatment. Shown only when a deposit is actually WORTH making --
+// the same predicate the admission gate uses -- because a line urging a bot to
+// bank from 800 blocks out would be advice it should not take.
+function depositSituation (bot, memory) {
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    if (!items.length) return ''
+    const bank = bankableInventory(items)
+    const home = memory?.locations?.home
+    const p = bot.entity?.position
+    if (!p) return ''
+    const distHome = home
+      ? Math.hypot(home.x - p.x, home.z - p.z)
+      : Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z)
+    const storage = bot.findBlock?.({
+      matching: b => ['chest', 'barrel', 'trapped_chest']
+        .includes(bot.registry?.blocks?.[b.type]?.name),
+      maxDistance: 48,
+    })
+    if (!depositDue({ bankable: bank.count, distHome, storageWithin48: !!storage,
+                      occupiedSlots: items.length })) return ''
+    const where = storage
+      ? `storage is ${Math.round(p.distanceTo(storage.position))} blocks away`
+      : `the town chest is ${Math.round(distHome)} blocks away`
+    return `CARRYING: ${bank.count} items worth banking and ${where}. ` +
+           `Use deposit — banked items survive your death, carried ones do not. ` +
+           `Your tools and climb-out blocks are kept automatically.`
+  } catch { return '' }
+}
+
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
   const p = bot.entity.position
   const inv = inventorySummary(bot)
@@ -287,6 +332,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
     craftableNow(bot),
+    depositSituation(bot, memory),
     `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
     waterSituation(bot),
     `REACHABLE Y RANGE: ${Math.round(p.y) - 30} to ${Math.round(p.y) + 30} (you are at y=${p.y.toFixed(0)})`,

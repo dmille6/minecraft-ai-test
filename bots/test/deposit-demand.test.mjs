@@ -13,7 +13,11 @@
 // "walk home and bank" is a six-minute round trip through the travel failures
 // that already kill deposits: 156 stuck, 107 drowning, 53 stagnation.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { bankableInventory, depositDue } from '../src/bankable.mjs'
+import { buildUserPrompt } from '../src/prompt.mjs'
+const mcData = createRequire(import.meta.url)('minecraft-data')('1.21.8')
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -110,6 +114,46 @@ t('THE MILESTONE MUST BE SATISFIABLE WHERE IT CANNOT BE DONE', () => {
   // killed by that one.
 })
 
-import { readFileSync } from 'node:fs'
+// --- the observation, which is what actually changes behaviour ---------------
+
+const promptWith = (invObj, pos) => {
+  const items = Object.entries(invObj).map(([name, count], slot) =>
+    ({ name, count, slot, type: mcData.itemsByName[name]?.id }))
+  const bot = {
+    entity: { position: { ...pos, distanceTo: () => 6 } },
+    health: 20, food: 20, time: { day: 1, age: 1 },
+    inventory: { items: () => items },
+    registry: mcData,
+    recipesFor: () => [],
+    blockAt: () => ({ name: 'stone', boundingBox: 'block' }),
+    findBlock: () => null, findBlocks: () => [], entities: {}, players: {},
+  }
+  return buildUserPrompt({ bot, milestone: { describe: 't', progress: '0/1' },
+    memory: { locations: {}, events: [] }, lastOutcome: null,
+    trigger: 't', sentinel: 'x', lessons: [] }).user
+}
+
+t('a bot NEAR HOME with surplus is told to bank it', () => {
+  // The milestone alone produced ZERO deposits in six bot-hours, because it sits
+  // behind `return` and the median bot is 804 blocks from home. The observation
+  // is what moved swim behaviour and craft behaviour today; same treatment.
+  const u = promptWith({ oak_log: 40, cobblestone: 40 }, { x: 20, y: 64, z: 20 })
+  assert.match(u, /CARRYING/, 'no deposit line for a bot standing next to the chest with surplus')
+  assert.match(u, /survive your death/, 'the reason to bank is not stated')
+})
+
+t('A BOT 800 BLOCKS OUT IS NOT TOLD TO WALK HOME', () => {
+  // The whole point of the predicate. Telling a bot to bank from out here is
+  // advice it should not take, through the travel failures that already kill
+  // most deposit attempts.
+  const u = promptWith({ oak_log: 40, cobblestone: 40 }, { x: 900, y: 64, z: 900 })
+  assert.ok(!u.includes('CARRYING'), 'the bot was urged to bank from 800+ blocks out')
+})
+
+t('a bot carrying only junk is told nothing', () => {
+  const u = promptWith({ crafting_table: 99, leaf_litter: 8 }, { x: 20, y: 64, z: 20 })
+  assert.ok(!u.includes('CARRYING'), 'ballast was described as worth banking')
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
