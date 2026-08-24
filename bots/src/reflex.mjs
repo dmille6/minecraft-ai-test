@@ -243,109 +243,13 @@ function noteReflexInventory(bot, before, cause) {
 // bot has actually reported -- it sits at full on land, which is most of the
 // time -- and the trigger is a fraction of it. That self-calibrates to a 0-20
 // build and a 0-400 build alike, and cannot be silently wrong again.
-// Readings oscillate by one between ticks even on dry land, so "lower than the
-// last sample" fires constantly: the first version of the drain gate left the
-// escape rate at 1,881/hour because a 20 -> 19 flicker read as draining. Real
-// drowning falls away from the recent peak fast and keeps going.
-const DRAIN_MARGIN = 2
-
-// THE SCALE IS A PROPERTY OF THE SERVER. THE SITUATION IS NOT THE SCALE.
-//
-// This is the third version of airMax and the second time the calibration
-// itself was the bug.
-//
-// v1 ratcheted UP forever, so one anomalous tick-scale reading pinned it at 300
-// on a build reporting bubbles, the 40% trigger became 120 against readings of
-// <=20, and the bot believed it was suffocating permanently.
-//
-// v2 replaced the ratchet with `Math.max(20, ...last 240 samples)` -- a two
-// minute sliding window. That fixed the pin and introduced its mirror image: a
-// bot submerged for longer than the window has NO high readings left in it, so
-// airMax collapses to the highest value it has seen while drowning. Measured
-// over 6 hours on 40 bots, EVERY bot's airMax took several values:
-//
-//     hive-b-Delta      400(x373), 20(x64)
-//     placebo-a-Alpha   320(x109), 20(x99), 319(x24), 318(x12), 309(x9)
-//     board-b-Echo      320(x112), 319(x50), 20(x37), 400(x31), 189(x5)
-//
-// 189, 241, 271, 284, 290 are not scales. They are "the most air this bot
-// happened to have in the last two minutes", promoted to the definition of
-// full. And 20 is this function's own floor, reached whenever the window holds
-// nothing higher -- at which point a bot at 20/400, five percent of its air,
-// computes 100% and gets no rescue at all until it reaches 8.
-//
-// That is what produced 9,171 critical entries, 2,386 re-entries at a median of
-// 6 seconds, and releases logged as `oxygen 20, health 20` that the code
-// believed were safe. The safety system recalibrated itself out of existence
-// using the very condition it exists to detect -- absence of high readings read
-// as information about the scale, when it was information about the bot.
-//
-// So: calibrate ONLY on samples where the bot is demonstrably breathing, and
-// take the THIRD-HIGHEST rather than the max, so no single anomalous reading --
-// v1's failure -- can define the scale either. Two bad samples cannot move it.
-// Returns null when there is not enough evidence yet, and null is honest: the
-// caller falls back to the drain TREND, which needs no absolute scale at all
-// and is what this file already uses to tell wading from drowning.
-//
-// @param samples  [{ oxygen, rising }] newest last; `rising` means this reading
-//                 did not fall from the one before it, which is what breathing
-//                 looks like -- air refills at a bubble per 4 ticks at the
-//                 surface and falls every tick under water.
-// The two rules together, as one thing a test can reach. `calibrateAirMax`
-// alone was wired into the reflex loop behind a `> airMax` comparison, and a
-// comparison inside a closure is not something any test can mutate -- so the
-// monotonic rule, which is the belt to the calibrator's braces, was unguarded.
-//
-// It is load-bearing on its own: a bot that spends fifteen minutes in water
-// surfacing only briefly produces genuine BREATHING samples at partial air
-// (a surfacing bot's counter rises), three of them establish a scale of, say,
-// 100, and without this the server's 400 would be replaced by it as the older
-// land samples age out of the window. The calibrator stops drowning readings
-// getting in; this stops shallow ones redefining full.
-export function updateAirMax (current, samples, opts) {
-  const learned = calibrateAirMax(samples, opts)
-  return (learned != null && learned > (current ?? 0)) ? learned : (current ?? 0)
-}
-
-export function calibrateAirMax (samples, { need = 3 } = {}) {
-  const breathing = []
-  for (const s of samples) {
-    if (typeof s?.oxygen !== 'number' || !s.rising) continue
-    breathing.push(s.oxygen)
-  }
-  if (breathing.length < need) return null
-  breathing.sort((a, b) => b - a)
-  // The third-highest breathing reading. One outlier cannot pin it (v1's bug)
-  // and a drowning stretch contributes nothing at all (v2's bug), because a
-  // falling counter is never admissible.
-  const v = breathing[need - 1]
-  return v > 0 ? v : null
-}
-
 export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4, prevOxygen = null } = {}) {
-  const none = { losing: false, kind: null, act: 'none', suspect: false }
-  const ox = bot?.oxygenLevel
-  if (ox == null) return none
-
-  // NO SCALE MEANS THE TREND IS THE TRIGGER, NOT A GUESSED NUMBER.
-  //
-  // airMax is 0 until calibrateAirMax has three breathing samples -- a few
-  // seconds after spawn, but also any time we would rather admit we do not know
-  // than assert a number. The old code could not express that: it multiplied
-  // whatever airMax held by 0.4, so an unknown scale silently became a
-  // threshold of 4, and a threshold of 4 on a 0-400 server means the rescue
-  // fires at one percent of air, which is to say never.
-  //
-  // Guessing high would be just as wrong in the other direction -- that is v1,
-  // where every bot believed it was permanently suffocating. So do not guess.
-  // A falling counter is drowning on every scale, and the rest of this function
-  // still has to agree before anything is declared.
-  const scaleKnown = airMax > 0
   // Floor of 4 so a bot that has somehow only ever reported small values still
   // gets a rescue rather than a threshold of zero.
-  const lowOxygen = scaleKnown ? Math.max(4, Math.round(airMax * lowAirFrac)) : null
-  const draining = prevOxygen != null && ox < prevOxygen - DRAIN_MARGIN
-  if (scaleKnown ? ox > lowOxygen : !draining) return none
+  const lowOxygen = Math.max(4, Math.round(airMax * lowAirFrac))
+  const none = { losing: false, kind: null, act: 'none', suspect: false }
+  const ox = bot?.oxygenLevel
+  if (ox == null || ox > lowOxygen) return none
 
   const head = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
   const headSolid = head != null && head.boundingBox === 'block'
@@ -384,6 +288,7 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4,
   // a 20 -> 19 flicker read as draining. `prevOxygen` is the recent PEAK, and
   // real drowning falls away from it fast and keeps going, so a couple of units
   // of slack costs nothing on the cases that matter.
+  const DRAIN_MARGIN = 2
   if (prevOxygen != null && ox >= prevOxygen - DRAIN_MARGIN && !losingHealth) {
     return { losing: false, kind: null, act: 'none', suspect: true }
   }
@@ -410,25 +315,12 @@ export function assessAir(bot, { maxHealth = 20, airMax = 300, lowAirFrac = 0.4,
  * Detection and consequence are different questions and tonight proved they
  * need different bars. Three attempts to tune the DETECTOR each failed
  * differently -- 2278/hr, then 1881, then 344-524, then 2086 when a "better"
- * split let head=water fire at full air -- because the input could not be made
- * reliable.
+ * split let head=water fire at full air -- because the input cannot be made
+ * reliable: bot.oxygenLevel arrives on two scales intermittently (bubbles 0-20
+ * and ticks up to 400), so any absolute threshold, peak or median can be
+ * poisoned by a sample from the other scale.
  *
- * WHY IT COULD NOT. This note used to end "bot.oxygenLevel arrives on two
- * scales intermittently (bubbles 0-20 and ticks up to 400), so any absolute
- * threshold can be poisoned by a sample from the other scale", and then moved
- * on. That was a description of the symptom promoted to an explanation, and it
- * closed the question: a single bot cannot have two scales, and asking why it
- * appeared to would have found the cause in one step.
- *
- * The cause is mineflayer, lib/plugins/entities.js: `bot.oxygenLevel` is
- * written from ANY entity's air_supply metadata with no check that the entity
- * is the bot. A player carries 300 air, which is 20 after its /15; fish and
- * dolphins carry 4800, which is 320. There was only ever one scale -- ours --
- * and 41% of this fleet's decisions had an aquatic mob within 24 blocks.
- * own-air.mjs repairs the reading; see the note there.
- *
- * The conclusion below still stands on its own merits, and is kept: detection
- * and consequence want different bars whatever the input quality. Detection may stay noisy and keep logging, because a log line
+ * So stop trying. Detection may stay noisy and keep logging, because a log line
  * costs nothing. What must NOT happen on a bad reading is the expensive part:
  * runner.interrupt() cancels the running skill and seizeBody() clears every
  * control state, which stops a walking bot mid-stride. That coupling is why
@@ -966,13 +858,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     return Date.now() - lastProgressAt >= PROGRESS_STALL_MS
   }
 
-  // The server's air scale, learned from BREATHING samples only. See
-  // calibrateAirMax. Starts at 0 meaning "not established yet" rather than at a
-  // number, because a wrong small number is the failure that costs bots: it
-  // makes five percent of air compute as full and suppresses the rescue
-  // entirely. Until it is established the reflex leans on the drain trend,
-  // which needs no scale.
-  let airMax = 0
+  // Largest air value this bot has reported. It sits at full whenever the bot is
+  // on land, so this converges within seconds of spawning and tells assessAir
+  // which scale the server is actually using. See the note above assessAir.
+  let airMax = 20
   let prevHealth = null
   const airSamples = []
   let escaping = false
@@ -1070,22 +959,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // Track the max over a recent window instead. Self-calibration was the
       // right idea; making it irreversible was the bug.
       if (bot.oxygenLevel != null) {
-        const prev = airSamples.length ? airSamples[airSamples.length - 1].oxygen : null
-        airSamples.push({
-          oxygen: bot.oxygenLevel,
-          // Breathing, not drowning. A counter that did not fall is either
-          // refilling at the surface or sitting at full on land; a submerged
-          // bot's falls every tick. No block read is involved, so the
-          // client-side blockAt disagreement that this file has been bitten by
-          // twice cannot corrupt the calibration.
-          rising: prev == null || bot.oxygenLevel >= prev,
-        })
-        // Long enough to hold a calibration through a dive, which the two
-        // minute window was not.
-        if (airSamples.length > 1800) airSamples.shift()   // ~15 min at 500ms
-        // NEVER LOWER IT. The scale cannot shrink, and every incident where it
-        // appeared to was a bot that had been underwater too long.
-        airMax = updateAirMax(airMax, airSamples)
+        airSamples.push(bot.oxygenLevel)
+        if (airSamples.length > 240) airSamples.shift()   // ~2 min at 500ms
+        airMax = Math.max(20, ...airSamples)
       }
       // The PEAK of the recent window, not the immediately previous tick -- one
       // sample is noise, and what matters is whether the counter has fallen

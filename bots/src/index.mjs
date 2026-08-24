@@ -16,7 +16,6 @@ import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
-import { installOwnAir } from './own-air.mjs'
 import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
@@ -171,32 +170,12 @@ function connect() {
       external_mb: MB(m.external), array_buffers_mb: MB(m.arrayBuffers),
       doing: runner.describe?.() ?? 'unknown',
     })
-    // HOW OFTEN A FISH TRIED TO SET OUR AIR, and whether we caught it. Rides
-    // the existing five-minute heartbeat rather than adding an event stream:
-    // 40 bots need this checkable in flight, not chatty. `dropped` is the case
-    // to watch -- a foreign write we could not repair because we had never
-    // heard our own air yet. See own-air.mjs.
-    const oa = bot.ownAirStats
-    if (oa && (oa.foreign || oa.dropped)) {
-      logEvent({
-        kind: 'own_air_guard', status: oa.dropped ? 'unknown' : 'success',
-        detail: `air packets: ${oa.ours} ours, ${oa.foreign} foreign ` +
-                `(${oa.repaired} repaired, ${oa.dropped} dropped before our first ` +
-                `reading, ${oa.implausible} impossible-from-our-own-id); ` +
-                `own oxygen now ${bot.ownOxygenLevel}`,
-        snapshot: snapshot(bot),
-      })
-    }
   }, 10_000)
   memTimer.unref?.()
 
   // Reason tallies for the pathfinder's own events, kept for the status line.
   const pathResets = {}
   const pathUpdates = {}
-  // BEFORE ANYTHING ELSE. mineflayer writes bot.oxygenLevel from any entity's
-  // metadata, so the drowning reflex was reading fish. See own-air.mjs.
-  installOwnAir(bot)
-
   bot.once('spawn', () => {
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
