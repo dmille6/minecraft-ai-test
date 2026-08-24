@@ -146,9 +146,109 @@ def test_the_same_split_trips_once_the_grace_expires():
           len(out) >= 1, f"got {out}")
 
 
+# ---------------------------------------------------------------- canaries --
+#
+# A CANARY IS A SPLIT FLEET ON PURPOSE, FOR HOURS, and the disagreement rule
+# exists precisely to stop split fleets. The exemption therefore has to be
+# narrow enough that it cannot excuse a real partial deploy.
+#
+# Why it is worth the risk at all: on 2026-08-24 six fleet-wide deploys and two
+# reverts cost roughly 80 bot-hours of degraded fleet. The same two mistakes
+# caught on one five-bot pool in twenty minutes would have cost under two.
+
+def _canary(seen, declared="aaa", cver="bbb", pool="hive-a"):
+    return tripper.canary_split_ok(seen, declared, cver, pool)
+
+
+def test_canary_declared_split_is_allowed():
+    seen = {"hive-a-Alpha": "bbb+1", "hive-a-Bravo": "bbb+1",
+            "hive-b-Alpha": "aaa+1", "board-a-Echo": "aaa+1"}
+    ok, why = _canary(seen)
+    check("a declared canary split is allowed", ok, why)
+
+
+def test_undeclared_split_is_still_a_fault():
+    # No canary in the manifest: the original rule, untouched.
+    seen = {"hive-a-Alpha": "bbb+1", "hive-b-Alpha": "aaa+1"}
+    ok, why = _canary(seen, cver="", pool="")
+    check("an UNDECLARED split is still a fault", not ok and "no canary" in why, why)
+
+
+def test_a_bot_outside_the_pool_on_the_canary_version_trips():
+    # THE CLAUSE THAT MATTERS. Without exact membership a canary declaration
+    # would excuse a failed rollout that stranded random bots on the new code.
+    seen = {"hive-a-Alpha": "bbb+1", "board-b-Echo": "bbb+1", "hive-b-Alpha": "aaa+1"}
+    ok, why = _canary(seen)
+    check("a bot OUTSIDE the pool on the canary version trips",
+          not ok and "membership" in why, why)
+
+
+def test_a_pool_member_left_behind_on_the_baseline_trips():
+    # The other direction: a canary restart that missed one of its own bots.
+    seen = {"hive-a-Alpha": "bbb+1", "hive-a-Bravo": "aaa+1", "hive-b-Alpha": "aaa+1"}
+    ok, why = _canary(seen)
+    check("a pool member LEFT BEHIND on the baseline trips",
+          not ok and "membership" in why, why)
+
+
+def test_three_versions_is_never_a_canary():
+    seen = {"hive-a-Alpha": "bbb+1", "hive-b-Alpha": "aaa+1", "board-a-Echo": "ccc+1"}
+    ok, why = _canary(seen)
+    check("three versions is never a canary", not ok and "exactly two" in why, why)
+
+
+def test_a_split_that_is_not_the_declared_pair_trips():
+    seen = {"hive-a-Alpha": "zzz+1", "hive-b-Alpha": "aaa+1"}
+    ok, why = _canary(seen)
+    check("a split that is not the declared pair trips", not ok and "declares" in why, why)
+
+
+def test_pool_prefix_does_not_match_a_longer_name():
+    # `hive-a` must not swallow `hive-ab`. The separator is part of the match.
+    #
+    # The first version of this test put hive-a-Alpha on the BASELINE, so the
+    # membership check failed for that bot whether or not the separator was
+    # honoured -- it passed against a mutant that dropped the separator
+    # entirely. Both bots have to be on the canary version for the question to
+    # be about the prefix at all.
+    seen = {"hive-ab-Alpha": "bbb+1", "hive-a-Alpha": "bbb+1", "hive-b-Alpha": "aaa+1"}
+    ok, why = _canary(seen)
+    check("pool hive-a does not swallow hive-ab", not ok and "membership" in why,
+          f"hive-ab counted as in-pool: {why}")
+
+
+def test_a_canary_that_fails_its_own_check_is_still_undeclared_code():
+    # ONE BAD DECLARATION MUST NOT OPEN TWO HOLES. The disagreement rule and the
+    # undeclared-change rule are separate; a canary named in the manifest whose
+    # membership does not check out must satisfy neither.
+    man = {"declared_code_version": "aaa",
+           "declared_at": "2020-01-01T00:00:00Z",      # long stale: no grace
+           "canary_pool": "hive-a", "canary_code_version": "bbb"}
+    out = feed([line("hive-a-Alpha", "bbb+1", 1),
+                line("board-b-Echo", "bbb+1", 1),      # NOT in the canary pool
+                line("hive-b-Alpha", "aaa+1", 1)], man)
+    reasons = " ".join(r for _, r in out)
+    check("a canary that fails its own check is still undeclared code",
+          any("undeclared" in r for _, r in out), f"got {out}")
+    check("and it is still reported as a disagreement",
+          any("disagree" in r for _, r in out), f"got {out}")
+
+
+def test_a_clean_canary_trips_nothing_even_when_stale():
+    # The point of the feature: a canary is allowed to outlive the deploy grace.
+    man = {"declared_code_version": "aaa",
+           "declared_at": "2020-01-01T00:00:00Z",
+           "canary_pool": "hive-a", "canary_code_version": "bbb"}
+    out = feed([line("hive-a-Alpha", "bbb+1", 1), line("hive-a-Bravo", "bbb+1", 1),
+                line("hive-b-Alpha", "aaa+1", 1), line("board-a-Echo", "aaa+1", 2)], man)
+    check("a CLEAN canary trips nothing hours later", out == [], f"got {out}")
+
+
 if __name__ == "__main__":
     print("version_check")
     for fn in [v for k, v in sorted(globals().items()) if k.startswith("test_")]:
         fn()
     print(f"\n{'FAILED: ' + ', '.join(FAILED) if FAILED else 'all passed'}")
     sys.exit(1 if FAILED else 0)
+
+

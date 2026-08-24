@@ -25,8 +25,30 @@
 # claims to have finished.
 set -euo pipefail
 
-SHA="${1:?usage: deploy-fleet.sh <sha> <run_id> [notes]}"
-RUN="${2:?usage: deploy-fleet.sh <sha> <run_id> [notes]}"
+# CANARY MODE: --pool <name> sends the change to ONE pool and leaves the other
+# thirty-five bots on the baseline, in identical worlds, running right now.
+#
+# On 2026-08-24 six fleet-wide deploys and two reverts cost roughly 80 bot-hours
+# of degraded fleet -- two of those changes looked correct, passed a full test
+# suite, and one was validated offline against a recorded packet trace before it
+# went out. Neither could have been caught by inspection; both were obvious
+# within twenty minutes of telemetry. Caught on one five-bot pool that is under
+# two bot-hours, a ~47x reduction in the cost of being wrong.
+#
+# The split is DECLARED in the manifest, and the tripper's canary rule checks
+# membership in both directions before allowing it. See canary_split_ok.
+USAGE="usage: deploy-fleet.sh <sha> <run_id> [notes] [--pool <pool>]"
+POOL=""
+ARGS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --pool) POOL="${2:?$USAGE}"; shift 2 ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+set -- "${ARGS[@]}"
+SHA="${1:?$USAGE}"
+RUN="${2:?$USAGE}"
 NOTES="${3:-}"
 REPO=/opt/minecraft-ai
 H=/srv/mcbots/harness
@@ -52,6 +74,19 @@ mapfile -t LIVE < <(systemctl list-units 'mcbot@*' --state=active --no-legend \
 [ "${#LIVE[@]}" -gt 0 ] || { bad "no active mcbot units; nothing to deploy to"; exit 1; }
 ok "active: ${LIVE[*]}"
 
+# TARGET is who gets the new code; LIVE stays the whole fleet, because the
+# verifier has to reason about the bots being LEFT BEHIND as well.
+if [ -n "$POOL" ]; then
+  mapfile -t TARGET < <(printf '%s\n' "${LIVE[@]}" | grep -E "^${POOL}-" || true)
+  [ "${#TARGET[@]}" -gt 0 ] || { bad "pool '$POOL' matches no active bot"; exit 1; }
+  [ "${#TARGET[@]}" -lt "${#LIVE[@]}" ] || {
+    bad "pool '$POOL' matches EVERY active bot -- that is a fleet deploy, not a canary"; exit 1; }
+  ok "CANARY: ${#TARGET[@]} of ${#LIVE[@]} bots -- ${TARGET[*]}"
+  ok "control: the other $(( ${#LIVE[@]} - ${#TARGET[@]} )) stay on the current build"
+else
+  TARGET=("${LIVE[@]}")
+fi
+
 mapfile -t IDLE < <(ls /etc/systemd/system/multi-user.target.wants/mcbot@*.service 2>/dev/null \
                     | sed 's|.*mcbot@||; s|\.service$||' \
                     | grep -vxF -f <(printf '%s\n' "${LIVE[@]}") || true)
@@ -61,16 +96,29 @@ mapfile -t IDLE < <(ls /etc/systemd/system/multi-user.target.wants/mcbot@*.servi
 # The tripper grants a grace period keyed to declared_at, so the declaration has
 # to move before the restarts, not after.
 say "Declaration"
+# In canary mode the BASELINE stays the declared version -- most of the fleet is
+# still running it -- and the canary is declared alongside. Declaring the canary
+# as `declared_code_version` would make the thirty-five control bots look like
+# undeclared code, which is exactly backwards.
+BASE_SHA="$SHA"
+if [ -n "$POOL" ]; then
+  BASE_SHA=$(grep -hoP '(?<=^CODE_VERSION=)[^ ]+' "$H"/env/*.env 2>/dev/null \
+             | grep -vxF "$SHA" | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
+  [ -n "$BASE_SHA" ] || { bad "cannot determine the baseline version to declare"; exit 1; }
+  ok "baseline stays $BASE_SHA; canary is $SHA on pool $POOL"
+fi
 cat > /srv/mcbots/trial-manifest.json <<JSON
 {
   "trial": "instance-1",
   "run_id": "$RUN",
-  "declared_code_version": "$SHA",
+  "declared_code_version": "$BASE_SHA",
   "declared_at": "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)",
+  "canary_pool": "$POOL",
+  "canary_code_version": "$([ -n "$POOL" ] && echo "$SHA")",
   "notes": "$NOTES"
 }
 JSON
-ok "declared $RUN / $SHA"
+ok "declared $RUN / $BASE_SHA${POOL:+ (canary $SHA on $POOL)}"
 
 # ------------------------------------------------------------------ install --
 say "Harness"
@@ -80,18 +128,36 @@ chown -R mcbot:mcbot "$H/src" "$H/package.json"
 install -m 0755 "$REPO/infra/guard/death-tripper.py" /usr/local/bin/mcai-tripper
 ok "source and tripper installed"
 
+# THE SOURCE MOVES FOR EVERYONE, THE LABEL DOES NOT, AND THAT IS SURVIVABLE.
+#
+# $H/src was just overwritten, so a CONTROL bot that restarts for any other
+# reason -- a crash, the watchdog, an operator -- comes back on the canary code
+# while still labelled baseline. Running two source trees to prevent that means
+# teaching the systemd unit about a second directory, which is more machinery
+# than the risk deserves.
+#
+# It is survivable because the tripper already catches it, twice over. The
+# reported version is `<sha>+<digest of the .mjs actually loaded>`: such a bot
+# reports baseline-sha with the CANARY digest, so it is a third distinct version
+# string, `canary_split_ok` refuses anything that is not exactly two, and the
+# disagreement rule fires. That is the whole reason the digest exists.
 for f in "$H"/env/*.env; do
-  grep -q '^CODE_VERSION=' "$f" && sed -i "s/^CODE_VERSION=.*/CODE_VERSION=$SHA/" "$f" \
-                               || echo "CODE_VERSION=$SHA" >> "$f"
-  grep -q '^RUN_ID=' "$f"       && sed -i "s/^RUN_ID=.*/RUN_ID=$RUN/" "$f" \
-                               || echo "RUN_ID=$RUN" >> "$f"
+  b=$(basename "$f" .env)
+  V="$SHA"; R="$RUN"
+  if [ -n "$POOL" ] && ! printf '%s\n' "${TARGET[@]}" | grep -qxF "$b"; then
+    continue          # a control bot: its label and its run id both stand
+  fi
+  grep -q '^CODE_VERSION=' "$f" && sed -i "s/^CODE_VERSION=.*/CODE_VERSION=$V/" "$f" \
+                               || echo "CODE_VERSION=$V" >> "$f"
+  grep -q '^RUN_ID=' "$f"       && sed -i "s/^RUN_ID=.*/RUN_ID=$R/" "$f" \
+                               || echo "RUN_ID=$R" >> "$f"
 done
-ok "CODE_VERSION=$SHA RUN_ID=$RUN across $(ls "$H"/env/*.env | wc -l) env files"
+ok "CODE_VERSION=$SHA RUN_ID=$RUN across ${#TARGET[@]} env file(s)"
 
 # ------------------------------------------------------------------ restart --
 # Paper throttles new connections; a tighter stagger gets bots rejected.
 say "Restart"
-for u in "${LIVE[@]}"; do
+for u in "${TARGET[@]}"; do
   systemctl restart "mcbot@$u"
   ok "$u"
   sleep 6
@@ -126,7 +192,22 @@ sleep 45
 # tripper had to be taught not to make, where a stopped bot's final line
 # outvoted the living. Silence is "not reporting yet", never "still on the old
 # code".
-DIGESTS=$(tail -q -n 200 /srv/mcbots/logs/skill-*.jsonl 2>/dev/null \
+# THE VERIFIER HAS BEEN BLIND FOR THE WHOLE OF BLOCK 2.
+#
+# This read /srv/mcbots/logs/skill-*.jsonl, which is instance #1's layout. Block
+# 2 writes to $LOG_DIR from each bot's env file -- /var/log/mcai/<bot>/ -- so the
+# glob matched nothing, DIGESTS came back empty, and every deploy printed
+# "40 bot(s) have not logged since the restart yet" and exited 2. I read past
+# that line on six deploys in one day because I was verifying convergence by
+# hand afterwards.
+#
+# It is the same stale path that had fleet-status printing "?" in its MOVED
+# column for forty bots, and the same shape as everything else here: an
+# observation that does not reach the decision it exists to inform.
+LOGGLOB=$(grep -hoP '(?<=^LOG_DIR=).*' "$H"/env/*.env 2>/dev/null | sort -u \
+          | sed 's|$|/skill-*.jsonl|' | tr '\n' ' ')
+LOGGLOB=${LOGGLOB:-/var/log/mcai/*/skill-*.jsonl}
+DIGESTS=$(tail -q -n 200 $LOGGLOB 2>/dev/null \
   | T0="$T0" LIVE_N="${#LIVE[@]}" python3 -c '
 import sys, os, json
 from datetime import datetime, timezone
@@ -163,9 +244,25 @@ if [ "$N" -eq 0 ]; then
   bad "no bot has logged since the restart -- convergence is UNKNOWN, not confirmed"
   exit 2
 fi
-if [ "$N" -ne 1 ]; then
-  bad "live bots report $N versions: $DIGESTS"
-  bad "the fleet is split -- aggregates blend two builds until this is one line"
+
+# A CANARY EXPECTS TWO VERSIONS. One would mean the split never happened.
+EXPECT=1
+[ -n "$POOL" ] && EXPECT=2
+if [ "$N" -ne "$EXPECT" ]; then
+  bad "live bots report $N version(s), expected $EXPECT: $DIGESTS"
+  if [ -n "$POOL" ]; then
+    bad "a canary that is not split is not a canary -- either the pool did not"
+    bad "restart, or the controls restarted too. Check before trusting any"
+    bad "comparison between them."
+  else
+    bad "the fleet is split -- aggregates blend two builds until this is one line"
+  fi
   exit 1
 fi
-ok "all live bots on $DIGESTS"
+if [ -n "$POOL" ]; then
+  ok "canary split confirmed: $(printf '%s' "$DIGESTS" | tr '\n' ' ')"
+  ok "compare pool $POOL against the other $(( ${#LIVE[@]} - ${#TARGET[@]} )) bots"
+  ok "then: scripts/canary-report.py --pool $POOL --minutes 20"
+else
+  ok "all live bots on $DIGESTS"
+fi

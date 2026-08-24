@@ -228,6 +228,59 @@ def ship(trips, stopped, per_bot, falls30, depth, bundle=None):
     except Exception as e:
         print(f"    (could not ship supervisor telemetry: {e})")
 
+def canary_split_ok(seen, declared, canary_version, canary_pool):
+    """Is this two-version fleet a DECLARED canary rather than a partial deploy?
+
+    A CANARY IS A SPLIT FLEET ON PURPOSE, FOR HOURS.
+    ---------------------------------------------------------------------------
+    The rolling-restart exemption above lasts only while the declaration is
+    fresh, because a rolling restart is over in a minute. A canary is the same
+    observation -- two versions running at once -- with the opposite intent and
+    a much longer life: one pool of five bots carries a change while the other
+    thirty-five stay on the baseline, so the change can be measured against a
+    control that is running right now in an identical world.
+
+    That is worth having. Six fleet-wide deploys and two reverts in one day cost
+    roughly 80 bot-hours of degraded fleet; the same mistakes caught on one pool
+    in twenty minutes cost under two. But an undeclared split is still the
+    failure this rule exists for -- half the fleet quietly on old code makes
+    every aggregate a blend -- so the exemption has to be narrow, and it is:
+
+      * the manifest must name the canary pool AND its version, in advance;
+      * exactly two versions may be running, no more;
+      * every bot on the canary version must be IN that pool;
+      * every bot in that pool must be on the canary version.
+
+    The last clause is the one that matters and it is easy to leave out. Without
+    it a canary declaration would excuse any split that happened to include the
+    canary version -- including a failed rollout that stranded four random bots
+    on the new code. Membership has to be exact in both directions, or this is
+    a licence rather than a rule.
+
+    `seen` is {bot: version}; versions carry the +digest suffix, the manifest
+    holds bare shas.
+    """
+    if not (canary_version and canary_pool):
+        return False, "no canary declared"
+    base = {v.split("+")[0] for v in seen.values()}
+    if len(base) != 2:
+        return False, f"{len(base)} versions running, a canary is exactly two"
+    if base != {declared, canary_version}:
+        return False, (f"running {sorted(base)} but the canary declares "
+                       f"{sorted({declared, canary_version})}")
+    wrong = []
+    for bot, v in sorted(seen.items()):
+        in_pool = bot.startswith(canary_pool + "-")
+        on_canary = v.split("+")[0] == canary_version
+        if in_pool != on_canary:
+            wrong.append(f"{bot}@{v.split('+')[0]}"
+                         + (" (in pool, not on canary)" if in_pool else " (on canary, not in pool)"))
+    if wrong:
+        return False, "canary membership does not match the split: " + ", ".join(wrong[:6])
+    n = sum(1 for b in seen if b.startswith(canary_pool + "-"))
+    return True, f"declared canary: {n} bot(s) of pool {canary_pool} on {canary_version}"
+
+
 def version_check():
     """Are all bots running the same code, and is it the code the trial declares?
 
@@ -290,6 +343,7 @@ def version_check():
     # Read the manifest before the disagreement rule: whether a split fleet is a
     # fault depends on whether we are mid-deploy, and only the manifest knows.
     man, declared, fresh_declaration = _declaration()
+    canary_ok = False
     if len(versions) > 1:
         # A ROLLING RESTART IS A SPLIT FLEET, BRIEFLY, ON PURPOSE.
         #
@@ -306,15 +360,29 @@ def version_check():
         # on the declared version, nothing is converging and this trips.
         converging = fresh_declaration and declared and \
             any(v.split("+")[0] == declared for v in versions)
-        if converging:
+        canary_ok, canary_why = canary_split_ok(
+            {b: v for b, (_, v) in seen.items()}, declared,
+            man.get("canary_code_version", ""), man.get("canary_pool", ""))
+        if canary_ok:
+            print(f"    {canary_why} -- split is declared, not judging")
+        elif converging:
             print(f"    {len(versions)} versions but the declaration is fresh and "
                   f"{declared} is already running: deploy in progress, not judging")
         else:
+            if man.get("canary_pool"):
+                print(f"    a canary is declared but does not explain this split: {canary_why}")
             problems.append(("ALL", f"bots disagree on code version {sorted(versions)} "
                                     f"-- partial deploy, aggregates are a blend of two systems"))
     # The manifest holds the sha; the fleet reports sha+digest.
+    # The canary version is DECLARED code, so it is not an undeclared change --
+    # but only when the split itself checked out above. A canary named in the
+    # manifest whose membership is wrong must not launder the version past this
+    # rule as well; that would turn one bad declaration into two silent holes.
+    allowed = {declared}
+    if canary_ok:
+        allowed.add(man.get("canary_code_version", ""))
     if declared and not fresh_declaration and versions and \
-       not all(v.split("+")[0] == declared for v in versions):
+       not all(v.split("+")[0] in allowed for v in versions):
         problems.append(("ALL", f"running {sorted(versions)} but the trial declares "
                                 f"{declared} -- undeclared code change, trial uninterpretable"))
     return problems
