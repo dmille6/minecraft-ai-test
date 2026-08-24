@@ -54,8 +54,23 @@ ESCAPED = "drowning_escaped"
 #
 # REGRESSION gates block a rollout: the change must not make these worse.
 REGRESSION = [
-    ("harvest vs control",  "gather_ratio",     0.90, "at least",
-     "of the control's gathers per exposure-hour"),
+    # 0.75, NOT 0.90, AND THE NUMBER IS MEASURED RATHER THAN CHOSEN.
+    #
+    # A no-op canary -- identical bots/src, only the version label differing --
+    # produced a harvest ratio of 0.88 over an hour. One pool against
+    # thirty-five bots is five samples against thirty-five, so a threshold of
+    # 0.90 sits inside the instrument's own noise and fails changes that do
+    # nothing. Separately, two pools under IDENTICAL treatment have been
+    # measured 1.8-2.0x apart on this endpoint over six hours, so the null
+    # distribution here is wide and is NOT yet characterised: one no-op run is
+    # one sample of it.
+    #
+    # So this catches a harvest collapse, not a harvest dip, and that is the
+    # honest claim. Tightening it needs repeated no-op canaries to establish
+    # what the null actually looks like -- until then a number tighter than the
+    # single observation would be false precision.
+    ("harvest vs control",  "gather_ratio",     0.75, "at least",
+     "of the control's gathers per exposure-hour (no-op canary measured 0.88)"),
     ("deaths vs control",   "death_ratio",      1.25, "at most",
      "times the control's death rate"),
     ("reflex time vs ctrl", "held_ratio",       1.10, "at most",

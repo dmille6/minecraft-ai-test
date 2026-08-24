@@ -202,5 +202,20 @@ def min_exposure_is_meaningful():
 
 t("a canary is not judged on a fraction of an hour", min_exposure_is_meaningful)
 
+
+def harvest_gate_clears_the_measured_null():
+    """The harvest gate must sit BELOW what a no-op canary actually produced.
+
+    A no-op run -- identical source, only the version label differing --
+    measured 0.88 over an hour. A threshold above that fails changes which do
+    nothing, which is the defect this whole file was rewritten to remove. The
+    number is an observation, so the test cites it."""
+    g = {k: thr for _, k, thr, _, _ in cr.REGRESSION}
+    assert g["gather_ratio"] < 0.88, (
+        f"harvest gate {g['gather_ratio']} is at or above the 0.88 a NO-OP "
+        f"canary measured; it would fail changes that do nothing")
+
+t("the harvest gate clears the measured no-op null", harvest_gate_clears_the_measured_null)
+
 print(f"\n  {P} passed, {F} failed")
 sys.exit(1 if F else 0)
