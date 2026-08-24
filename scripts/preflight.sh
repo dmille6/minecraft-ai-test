@@ -72,9 +72,12 @@ for f in bots/test/*.test.mjs; do
 done
 
 say ""
-say "  ---- supervisor ----"
+say "  ---- supervisor and tooling ----"
+# scripts/test-*.py was not in this loop, so test-place-town.py -- the only
+# thing standing between a bad siting run and eight unusable worlds -- ran only
+# when someone remembered to run it. A gate nobody executes is not a gate.
 if command -v python3 >/dev/null 2>&1; then
-  for f in infra/guard/test_*.py; do
+  for f in infra/guard/test_*.py scripts/test-*.py; do
     [ -e "$f" ] || continue
     if out=$(python3 "$f" 2>&1); then
       say "  ok    $(basename "$f")  $(echo "$out" | tail -1)"

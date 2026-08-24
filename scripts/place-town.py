@@ -20,6 +20,17 @@ resulting coordinates are printed for the env files.
 import argparse, json, math, re, secrets, socket, struct, sys, time
 from pathlib import Path
 
+# A PROBE THAT CAN ANSWER "I DON'T KNOW" MAY NOT BE TYPED AS A BOOLEAN.
+#
+# `matches()` below used to be `"Test passed" in rcon.run(...)`. An unloaded
+# chunk answers neither sentence -- it answers "That position is not loaded" --
+# so it collapsed to False, which reads as "this block is not water". See
+# lib/probe.py for the six-in-one-day version of this mistake. The import is
+# safe here despite the vendored Rcon above: deploy-harness.sh clones the whole
+# repository, so scripts/lib travels with scripts/.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from probe import Survey, classify_execute_if, UnknownWorldState   # noqa: E402
+
 ROOT = Path("/srv/block2")
 # EIGHT WORLDS, in provision-block2.sh's order -- the index is what maps an arm
 # to its port, so the two files must agree or a town is stamped into the wrong
@@ -116,30 +127,78 @@ MIN_WOOD_HITS = 3          # of 24 sampled columns, at least this many must be t
 
 
 def wood_nearby(rcon, cx, cz):
-    """How many sampled columns within walking distance are trees."""
-    hits, sampled = 0, 0
+    """How many sampled columns within walking distance are trees.
+
+    THIS PROBES OUTSIDE THE FORCELOADED PAD, which is why it now carries a
+    survey with controls. score_site() forceloads `pad` blocks around the
+    candidate; the wood rings are at 48 and 80. Before the tri-state, every
+    probe out there against an unloaded chunk answered "not loaded", collapsed
+    to False, and the criterion that exists specifically because a site with
+    ZERO trees within 288 blocks passed siting once already would have counted
+    zero hits and blamed the terrain. _forceload's pad is derived from
+    WOOD_RINGS now (see score_site) so the reads are real, and the survey is
+    what proves they were: it refuses to report unless a column known to be
+    tree came back tree and one known to be sky came back not-tree.
+    """
+    survey = Survey(f"wood within {WOOD_RINGS[-1]}b of {cx},{cz}")
+    hits, sampled, confirmed = 0, 0, None
     for r in WOOD_RINGS:
         for dx, dz in _ring(r, n=WOOD_SAMPLES):
             sampled += 1
             y = surface_y(rcon, cx + dx, cz + dz)
-            if (matches(rcon, cx + dx, y, cz + dz, "#minecraft:logs")
-                    or matches(rcon, cx + dx, y, cz + dz, "#minecraft:leaves")):
+            wood = None
+            for spec in ("#minecraft:logs", "#minecraft:leaves"):
+                pr = survey.record(matches(rcon, cx + dx, y, cz + dz, spec))
+                if pr.require(f"{spec} at {cx + dx},{y},{cz + dz}"):
+                    wood = pr
+                    break
+            if wood is not None:
                 hits += 1
+                if confirmed is None:
+                    confirmed = wood
+
+    # CONTROLS, so that a zero is a finding rather than a shrug. Air forty
+    # blocks above the surface is not a log in any world; an instrument that
+    # cannot say so has not earned the right to report "no trees here", which is
+    # the criterion that eight unusable worlds turned on. The positive control
+    # is a column this run already read as wood -- a real read, not a second
+    # round trip -- so it can only be offered when something was found. A run
+    # that found nothing prints its denominators and says the positive control
+    # is missing, which is the honest shape of that result.
+    sky_y = surface_y(rcon, cx, cz) + 40
+    survey.control("sky above the centre is not a log",
+                   matches(rcon, cx, sky_y, cz, "#minecraft:logs"), "no")
+    if confirmed is not None:
+        survey.control("a column counted as wood reads as wood", confirmed, "yes")
+    print(survey.report(strict=confirmed is not None), file=sys.stderr)
     return hits, sampled
 
 
 def matches(rcon, x, y, z, spec):
-    """True when the block at x,y,z matches a block id or #tag.
+    """yes | no | unknown for "the block at x,y,z matches this id or #tag".
 
     `execute if block` reports "Test passed"/"Test failed" without needing a
-    player online, which is what makes hundreds of cheap probes possible.
+    player online, which is what makes hundreds of cheap probes possible. It
+    reports NEITHER for a position in an unloaded chunk, and that third answer
+    is the one that matters: this function used to fold it into False and hand
+    back a confident "not water" about terrain it had never seen.
+
+    The returned Probe raises if used as a boolean, so every caller has to say
+    what it wants unknown to mean. That is the entire mechanism.
     """
-    return "Test passed" in rcon.run(f"execute if block {x} {y} {z} {spec}")
+    return classify_execute_if(rcon.run(f"execute if block {x} {y} {z} {spec}"))
 
 
 def biome_at(rcon, x, y, z, candidates):
+    """The first candidate biome that matches, or None if none of them do.
+
+    An unknown here is fatal rather than "none of the above": returning None
+    from an unloaded column would record the site as having no biome, which is
+    not a thing any position in the overworld actually is.
+    """
     for b in candidates:
-        if "Test passed" in rcon.run(f"execute if biome {x} {y} {z} {b}"):
+        if classify_execute_if(
+                rcon.run(f"execute if biome {x} {y} {z} {b}")).require(f"biome {b} at {x},{y},{z}"):
             return b
     return None
 
@@ -156,11 +215,20 @@ def surface_y(rcon, x, z, hi=200, lo=-64):
     overhangs -- which are exactly the sites this search exists to reject, and
     they are caught by the slope and canopy tests below.
     """
-    if not matches(rcon, x, hi, z, "minecraft:air"):
+    # UNKNOWN IS FATAL IN HERE, and this is the call site that proves why the
+    # tri-state is worth the noise. A binary search does not return "I could not
+    # tell"; it returns a NUMBER, and every caller believes numbers. Against an
+    # unloaded column the old boolean read every probe as "not air", took the
+    # early return, and reported a ground level of 200 -- which then scored the
+    # candidate, chose the town site, and left no trace of having guessed.
+    def air(y):
+        return matches(rcon, x, y, z, "minecraft:air").require(f"air at {x},{y},{z}")
+
+    if not air(hi):
         return hi                                   # column is full to the ceiling
     while hi - lo > 1:
         mid = (hi + lo) // 2
-        if matches(rcon, x, mid, z, "minecraft:air"):
+        if air(mid):
             hi = mid
         else:
             lo = mid
@@ -172,14 +240,31 @@ def column(rcon, x, z):
     y = surface_y(rcon, x, z)
     if y <= -63:
         return y, "void"
-    if matches(rcon, x, y, z, "minecraft:water") or matches(rcon, x, y, z, "minecraft:ice"):
+    # `solid` is this function's fallthrough, so an unknown that folded into
+    # "no" would silently become "solid ground" -- the single most permissive
+    # answer available, handed out about a column nobody looked at.
+    def is_(spec):
+        return matches(rcon, x, y, z, spec).require(f"{spec} at {x},{y},{z}")
+
+    if is_("minecraft:water") or is_("minecraft:ice"):
         return y, "water"
-    if matches(rcon, x, y, z, "#minecraft:leaves") or matches(rcon, x, y, z, "#minecraft:logs"):
+    if is_("#minecraft:leaves") or is_("#minecraft:logs"):
         return y, "canopy"
     return y, "solid"
 
 
-def _forceload(rcon, cx, cz, pad=40, on=True, settle=True):
+# THE PAD MUST COVER EVERYTHING THAT GETS PROBED, and for a long time it did
+# not: it was 40 while WOOD_RINGS reach 80, so all 24 wood samples read chunks
+# the server had not loaded. The old boolean probe turned every one of those
+# into "not a tree" without a word, so the wood criterion -- added precisely
+# because a treeless site had already passed siting once -- was scoring terrain
+# it had never seen. Derived from the constants now, so moving a ring moves the
+# pad with it, and the tri-state above makes a shortfall raise instead of
+# quietly answering no.
+_PAD = max(32, max(WOOD_RINGS), max(abs(d) for o in SAMPLE_OFFSETS for d in o)) + 24
+
+
+def _forceload(rcon, cx, cz, pad=_PAD, on=True, settle=True):
     """Load (and if necessary GENERATE) the chunks a candidate will be probed in.
 
     Probes read air in an unloaded chunk, which would score every distant

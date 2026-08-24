@@ -35,17 +35,36 @@ def t(name, fn):
 class FakeRcon:
     """terrain(x, z) -> (surface_y, kind); kind in solid|water|canopy."""
 
-    def __init__(self, terrain):
+    def __init__(self, terrain, loaded=None):
         self.terrain = terrain
         self.forceloads = 0
+        self.forceloaded = None      # (x0, z0, x1, z1) of the live forceload
+        # AN UNLOADED CHUNK IS A THIRD ANSWER, and until this fixture existed
+        # the fake could not produce it -- so the suite could not have caught
+        # the bug it was written to guard. `loaded(x, z)` returning False makes
+        # the server answer the sentence it really answers.
+        self.loaded = loaded
+
+    def _is_loaded(self, x, z):
+        if self.forceloaded:
+            x0, z0, x1, z1 = self.forceloaded
+            if x0 <= x <= x1 and z0 <= z <= z1:
+                return True
+        return True if self.loaded is None else self.loaded(x, z)
 
     def run(self, cmd):
         p = cmd.split()
         if p[0] == "forceload":
             self.forceloads += 1
+            if p[1] == "add":
+                self.forceloaded = (int(p[2]), int(p[3]), int(p[4]), int(p[5]))
+            else:
+                self.forceloaded = None
             return "ok"
         if p[:3] == ["execute", "if", "block"]:
             x, y, z, want = int(p[3]), int(p[4]), int(p[5]), p[6]
+            if not self._is_loaded(x, z):
+                return "That position is not loaded"
             sy, kind = self.terrain(x, z)
             if want == "minecraft:air":
                 return "Test passed" if y > sy else "Test failed"
@@ -192,6 +211,65 @@ def rough_terrain_rejected():
 
 t("A FLAT SHELF ON A MOUNTAINSIDE IS REJECTED -- planning a route is not walking it",
   rough_terrain_rejected)
+
+# ------------------------------------------- the unloaded-chunk answer ----
+#
+# THE BUG THIS FILE COULD NOT HAVE CAUGHT. `matches()` was
+# `"Test passed" in rcon.run(...)`, and "That position is not loaded" contains
+# neither sentence, so it read as "no" -- meaning "not water", "not a log",
+# "not air". A probe outside the loaded region did not fail; it answered
+# confidently and wrongly, and nothing downstream could tell.
+#
+# Two things had to be true for that to bite, and both were: the answer had to
+# be collapsible into a boolean, and something had to actually be probed out
+# there. WOOD_RINGS reach 80 blocks while _forceload's pad was 40.
+
+def unloaded_reads_as_unknown_not_no():
+    r = pt.classify_execute_if("That position is not loaded")
+    assert r.is_unknown, f"unloaded chunk classified as {r.status}, not unknown"
+    assert not r.is_no, "the sentence must never be read as a negative result"
+    try:
+        bool(r)
+    except Exception as e:
+        assert "boolean" in str(e), e
+        return
+    raise AssertionError("a tri-state probe was usable as a bool")
+
+
+t("'not loaded' is UNKNOWN, and cannot be used as a bool at all",
+  unloaded_reads_as_unknown_not_no)
+
+
+def wood_rings_are_inside_the_pad():
+    # The derived pad, not a number someone remembered to update.
+    assert pt._PAD > max(pt.WOOD_RINGS), (
+        f"pad {pt._PAD} does not cover wood ring {max(pt.WOOD_RINGS)} — "
+        f"every wood sample would probe an unloaded chunk")
+    assert pt._PAD > max(abs(d) for o in pt.SAMPLE_OFFSETS for d in o), (
+        "pad does not cover the terrain samples")
+
+
+t("the forceload pad covers EVERYTHING that gets probed", wood_rings_are_inside_the_pad)
+
+
+def unloaded_terrain_fails_loudly():
+    # A world that only exists within 40 blocks of the origin: exactly the shape
+    # the old pad produced. Siting must refuse, not score.
+    near_only = FakeRcon(flat, loaded=lambda x, z: max(abs(x), abs(z)) <= 40)
+    near_only.forceloaded = None
+    try:
+        pt._score_loaded(near_only, 0, 0,
+                         {"wet": 0, "canopy": 0, "sampled": 0, "ys": [], "kinds": []})
+    except pt.UnknownWorldState:
+        return
+    raise AssertionError(
+        "scored a site using terrain the server had not loaded — the exact "
+        "silent-false this whole change exists to remove")
+
+
+t("terrain that cannot be read STOPS the siting instead of scoring it",
+  unloaded_terrain_fails_loudly)
+
 
 print(f"\n  {P} passed, {F} failed")
 sys.exit(1 if F else 0)
