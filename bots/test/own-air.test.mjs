@@ -25,7 +25,7 @@
 // asking why a single bot had two. Absence of an explanation was taken for a
 // property of the server.
 import assert from 'node:assert'
-import { isOwnEntity, installOwnAir } from '../src/own-air.mjs'
+import { isOwnEntity, installOwnAir, plausibleOwnOxygen, MAX_PLAYER_OXYGEN } from '../src/own-air.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -165,6 +165,30 @@ t('packets that carry no air reading are not counted as air events', () => {
     `${bot.ownAirStats.ours} air readings counted from 1 real one`)
   assert.equal(bot.ownAirStats.foreign, 0,
     `${bot.ownAirStats.foreign} foreign air writes counted from 0 real ones`)
+})
+
+t('AN IMPOSSIBLE VALUE IS REJECTED EVEN FROM OUR OWN ENTITY ID', () => {
+  // With the entity check deployed the guard still logged "own oxygen now 280".
+  // Entity-id reuse after a death, or metadata index drift between
+  // minecraft-data and this Paper build -- both plausible, and the same
+  // invariant closes both without needing to know which. A player carries 300
+  // ticks of air and mineflayer divides by 15, so 20 is the ceiling.
+  const { bot, emit } = fakeBot()
+  installOwnAir(bot)
+  emit(7, 300)          // us, 20
+  emit(7, 4200)         // "us", 280 -- impossible for a player
+  assert.equal(bot.ownOxygenLevel, 20,
+    `our air was recorded as ${bot.ownOxygenLevel}; no player can hold that`)
+  assert.equal(bot.ownAirStats.implausible, 1)
+})
+
+t('the ceiling is derived, not remembered', () => {
+  assert.equal(MAX_PLAYER_OXYGEN, 20)
+  assert.equal(plausibleOwnOxygen(20), true)
+  assert.equal(plausibleOwnOxygen(0), true)
+  assert.equal(plausibleOwnOxygen(21), false)
+  assert.equal(plausibleOwnOxygen(320), false)
+  assert.equal(plausibleOwnOxygen(null), false)
 })
 
 t('isOwnEntity is strict about a missing id rather than guessing', () => {

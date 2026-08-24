@@ -182,7 +182,8 @@ function connect() {
         kind: 'own_air_guard', status: oa.dropped ? 'unknown' : 'success',
         detail: `air packets: ${oa.ours} ours, ${oa.foreign} foreign ` +
                 `(${oa.repaired} repaired, ${oa.dropped} dropped before our first ` +
-                `reading); own oxygen now ${bot.ownOxygenLevel}`,
+                `reading, ${oa.implausible} impossible-from-our-own-id); ` +
+                `own oxygen now ${bot.ownOxygenLevel}`,
         snapshot: snapshot(bot),
       })
     }

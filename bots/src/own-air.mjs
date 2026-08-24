@@ -37,6 +37,32 @@
 //
 // Upstream should guard the assignment; until it does, this is the whole fix.
 
+// A PLAYER'S AIR CANNOT EXCEED THIS, WHOEVER SENT THE PACKET.
+//
+// The entity check is necessary and turned out not to be sufficient. With it
+// deployed the guard reported 2,245 foreign air packets against 8 of its own --
+// a 280:1 ratio that confirms the diagnosis outright -- and still logged
+// `own oxygen now 280` on a scale whose maximum is 20. Something reaches the
+// own-entity branch carrying a value no player can hold.
+//
+// I do not know what: entity-id reuse after the bot's death, or metadata index
+// drift between minecraft-data and this Paper build putting a different field
+// where air_supply is expected. Both are plausible and neither is worth another
+// deploy to distinguish, because the same invariant closes both and does not
+// depend on knowing which.
+//
+// Vanilla air supply is 300 ticks and mineflayer reports Math.round(air/15), so
+// a player reads 0..20. The 15 is mineflayer's constant, not the server's, so
+// this is derived rather than remembered:
+const PLAYER_MAX_AIR = 300        // vanilla ticks of breath
+const MINEFLAYER_AIR_DIVISOR = 15 // lib/plugins/entities.js
+export const MAX_PLAYER_OXYGEN = PLAYER_MAX_AIR / MINEFLAYER_AIR_DIVISOR   // 20
+
+/** Whether a reading could belong to a player at all. */
+export function plausibleOwnOxygen (v) {
+  return typeof v === 'number' && v >= 0 && v <= MAX_PLAYER_OXYGEN
+}
+
 /** Whether this metadata packet is about the bot itself. */
 export function isOwnEntity (packet, selfId) {
   return selfId != null && packet != null && packet.entityId === selfId
@@ -52,7 +78,7 @@ export function isOwnEntity (packet, selfId) {
  */
 export function installOwnAir (bot) {
   bot.ownOxygenLevel = null
-  bot.ownAirStats = { ours: 0, foreign: 0, repaired: 0, dropped: 0 }
+  bot.ownAirStats = { ours: 0, foreign: 0, repaired: 0, dropped: 0, implausible: 0 }
 
   // WHOSE PACKET IS NOT ENOUGH. IT MUST ALSO BE A PACKET THAT WROTE.
   //
@@ -76,10 +102,11 @@ export function installOwnAir (bot) {
   const onMeta = (packet) => {
     const now = bot.oxygenLevel ?? null
     if (now === last) return                 // this packet carried no air_supply
-    if (isOwnEntity(packet, bot.entity?.id)) {
+    if (isOwnEntity(packet, bot.entity?.id) && plausibleOwnOxygen(now)) {
       bot.ownOxygenLevel = now
       bot.ownAirStats.ours++
     } else {
+      if (isOwnEntity(packet, bot.entity?.id)) bot.ownAirStats.implausible++
       bot.ownAirStats.foreign++
       if (bot.ownOxygenLevel != null) {
         bot.oxygenLevel = bot.ownOxygenLevel
