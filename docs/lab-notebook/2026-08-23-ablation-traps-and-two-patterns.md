@@ -143,3 +143,64 @@ ANCESTRY. Before any deploy: check what else the SHA carries.
     unresolved.
   - two bots permanently entombed and left that way deliberately; the
     exposure-weighting rule keeps them out of the denominators
+
+---
+
+## Addendum — entombment is mostly not a problem, and I nearly built for it
+
+Having amended the descent contract's success metric, the obvious next move was
+controlled descent (`climb_down`) targeting the 96% of entombment that happens
+above sea level. Chasing the mechanism first turned that into a negative result.
+
+### What the numbers actually say
+
+    entombment EVENTS /bot-h            2.6
+    entombment EPISODES /bot-h          1.09     (gap of >180s ends an episode)
+    MEDIAN EPISODE LENGTH               0 seconds
+    p90 episode length                  ~148 seconds
+    episodes over 10 minutes            5, across 7 hours and 266 bot-hours
+
+Above sea level, 48% of episodes follow a `gather oak_log`, and 92 of 160 involve
+ZERO vertical movement -- the bot is not falling into anything.
+
+### Three hypotheses, all wrong
+
+1. "Bots dig into pits reaching for canopy." The source documents this, but the
+   sink distribution says otherwise: 92 of 160 at +0 blocks.
+2. "Bots are walled in by leaves and cannot cut them without a hoe." No bot has
+   ever carried a hoe, and the upstream tracker says pathfinder will not break
+   leaves without one -- but `passableFor` in reflex.mjs ALREADY treats leaves as
+   passable, so a leaf-surrounded bot never counts as entombed.
+3. "They are stuck and the escape fails." Probed a currently-entombed bot against
+   the server: `placebo-a-Comet` fired six entombment events, and by the time it
+   was probed it had moved 90 blocks and was standing on grass with open air on
+   all four sides at head and ceiling height.
+
+### What it is
+
+A transient, self-resolving condition that re-fires while it lasts. The rate
+metric turned a mostly instantaneous state into what looked like a standing
+catastrophe -- the same shape as `_drowning_no_shore` firing 3,856 times for bots
+that were swimming perfectly well.
+
+This repo has been here before, and the comment is in `isEntombed` itself: an
+earlier version without a ceiling check "fired 1,997 times in 40 minutes at an
+average y of 64 -- surface level, open sky overhead". The ceiling check reduced
+that. It did not eliminate it.
+
+### What this changes
+
+**Do not build `climb_down` for entombment.** On this evidence it would be
+optimising noise. Genuinely-stuck episodes run at roughly 0.019 per bot-hour, and
+permanent losses at 2 per 24 fleet-hours.
+
+The costs actually worth attacking, on measured evidence:
+
+    goto success                 ~51%   (half of all travel fails)
+    _path_reset                  ~80 /bot-h
+    edges with no proven reverse  87%   (affordance ledger, 4,062 edges)
+
+**The transferable lesson, and it is the third instance today:** a rate built from
+a repeating event measures DURATION, not INCIDENTS. `_drowning_no_shore`,
+`_water_surface_hold` and `_entombed` all had it. Before optimising any rate, ask
+whether the event fires once per incident or once per tick of a condition.
