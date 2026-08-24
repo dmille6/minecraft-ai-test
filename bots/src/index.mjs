@@ -17,7 +17,6 @@ import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { installAirTrace } from './air-trace.mjs'
-import { installOwnAir } from './own-air.mjs'
 import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
@@ -178,11 +177,6 @@ function connect() {
   // Reason tallies for the pathfinder's own events, kept for the status line.
   const pathResets = {}
   const pathUpdates = {}
-  // THE AIR SUPPLY, READ OFF THE WIRE. mineflayer's bot.oxygenLevel does not
-  // track it on this server -- it changed in 0 of 4,058 recorded packets that
-  // carried the real value. See own-air.mjs.
-  installOwnAir(bot)
-
   // AIR PACKET TRACE -- observability only, off unless switched on.
   //
   // AIR_TRACE_MIN=<minutes> records every entity_metadata packet that moved
