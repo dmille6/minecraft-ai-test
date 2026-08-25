@@ -52,7 +52,14 @@ class Rcon:
     """Minimal RCON client. Vendored deliberately: the shared helper has lived
     in /tmp on at least one host, and /tmp does not survive a reboot."""
 
-    def __init__(self, host, port, password, timeout=10):
+    # 120s, NOT 10. Siting forceloads a region derived from the probe radii --
+    # 104 blocks now that the pad covers the wood rings at 80 -- which is about
+    # 169 chunks generated on the SERVER THREAD. Paper cannot answer RCON while
+    # it does that, so a ten-second timeout gave a socket timeout on eight
+    # freshly-created worlds in a row, which reads exactly like RCON being
+    # misconfigured and is nothing of the sort. The generation is the work; the
+    # client just has to be willing to wait for it.
+    def __init__(self, host, port, password, timeout=120):
         self.sock = socket.create_connection((host, port), timeout)
         self.rid = 0
         if self._cmd(3, password) is None:
