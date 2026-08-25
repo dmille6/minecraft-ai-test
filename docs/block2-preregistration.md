@@ -1542,3 +1542,112 @@ travelling or idle. That is not a descent problem and no descent contract will
 touch it. It is the controlled-descent and route-construction gap — Layer 4 items
 1 and 2 in docs/design/2026-08-23-affordances-and-modes.md — and it is now the
 highest-value target on evidence rather than on anecdote.
+
+---
+
+## AMENDMENT — sixteen worlds, n=4 pools per arm, and the minimum effect worth claiming moves from 1.5x to 2x (2026-08-25)
+
+**Written before the measurement clock starts.** No block has begun; no outcome
+data has been analysed for this decision. The numbers below come from shakedown
+telemetry and from capacity measurement on the hosts.
+
+### The problem this fixes
+
+The pool is the experimental unit. At two pools per arm, the design had n=2 for
+hive, board and placebo. Shakedown measured two pools under the **same**
+treatment differing by **1.8-2.0x** on the primary endpoint over six hours
+(board 7.99 vs 4.43; hive 3.00 vs 5.97; placebo 9.78 vs 4.79).
+
+Against that spread, the declared minimum effect of 1.5x is not reachable. On a
+log scale, a same-treatment pool ratio of ~1.9x implies a per-pool SD of about
+`log(1.9)/sqrt(2) = 0.45`, and
+
+    n per arm ~= 2 * (1.96 + 0.84)^2 * 0.45^2 / log(1.5)^2 ~= 20
+
+Twenty pools per arm is not reachable on this hardware, or plausibly any. The
+same arithmetic against a **2x** effect gives `n ~= 7`, which four pools per arm
+across three repetitions (n=12) clears.
+
+So the honest choice was between a design that cannot support its own claim and
+a claim the design can support. This amendment takes the second.
+
+### What changes
+
+| | before | after |
+|---|---|---|
+| worlds | 8 | **16** |
+| pools per arm | 2 | **4** |
+| bots per pool | 5 | 5 (unchanged) |
+| total bots | 40 | **80** |
+| minimum effect worth claiming | 1.5x | **2x** |
+| n per arm (hive/board/placebo) | 2 | **4** |
+| n per arm (isolated) | 10 | **20** |
+
+Nothing about the treatment changes. MEMORY_SCOPE, the town, the seed, the
+gamerules and the furniture are identical across all sixteen worlds — verified
+by hashing `home`, `board`, `border_radius` and `gamerules` from every
+`TOWN-PLACED.json`: one distinct value across all sixteen.
+
+### The capacity was always there and a heap setting hid it
+
+Each world was allotted 4 CPUs and used **0.21**, and held 3.5GB of RSS because
+`-Xms3G` pre-commits the heap whether the world needs it or not. Measured side
+by side for eight minutes with five bots online:
+
+| | -Xms3G -Xmx3G | -Xms1G -Xmx2G |
+|---|---|---|
+| RSS | 3.50 GB | **1.49 GB** |
+| TPS | 20.0 | 20.0 |
+| tick time avg | 11.0 ms | 8.4 ms |
+| tick time 1m max | 57.5 ms | 58.7 ms |
+
+The ~58ms maximum appears on **both**, so it is not GC pressure from the smaller
+heap. Sixteen worlds now fit in the RAM that looked full at eight, at 2 CPUs
+each against a measured 0.21-0.43.
+
+### A confound that was there from the start, and is now removed
+
+CPU slots were handed out in arm order: `hive-a` permanently on cores 0-3,
+`placebo-b` on 28-31. Every difference between those cores — NUMA distance,
+hyperthread siblings, whatever else the host is doing to them — was a **fixed
+property of the arm**, and would have arrived in the results as a memory-regime
+effect that nothing in the analysis could separate from the treatment.
+
+Slots are now drawn from a seeded assignment, **stratified rather than merely
+shuffled**. That distinction is not pedantry: a plain shuffle of sixteen slots
+gave `isolated` {0,1,3,9} and `placebo` {4,10,13,15} — means of 3.25 against
+10.5, the same confound arriving by luck and harder to notice. Cutting the range
+into four strata and giving every arm exactly one slot from each puts every
+arm's mean at 7.0-8.5.
+
+**Re-randomise between repetitions.** That is what turns a fixed confound into
+noise that averages out, and it is a standing requirement of this design now.
+
+### What got worse, declared here rather than discovered later
+
+Eighty bots share one inference endpoint, and doubling the fleet costs latency:
+
+| | 40 bots | 80 bots |
+|---|---|---|
+| decision latency median | 3.6 s | **9.5 s** |
+| p90 / p99 | 6.8 / 10.0 s | 13.4 / 24.4 s |
+| decision cadence median | 36.6 s | **42.2 s** |
+| GPU utilisation | 23% | 33% |
+
+Cadence slips about 15%, so bots make roughly 13% fewer decisions per bot-hour
+than the 40-bot fleet did. This applies to **every arm equally** — one shared
+endpoint, no per-arm rotation — so it is not a between-arm confound. It does
+make this block's decision rate non-comparable with the 40-bot shakedown
+history, and any analysis spanning both must treat that as a regime change.
+
+Raising `OLLAMA_NUM_PARALLEL` from 16 to 32 was tried and **made it worse**:
+latency median 16.2s and cadence 49.2s after settling, against 8.9s and 40.4s at
+16. GPU utilisation rose to 69% and VRAM to 19.0GB, so the extra slots bought
+throughput capacity at the cost of per-request speed. Reverted to 16.
+
+### What this does not fix
+
+Four pools per arm is not twenty. A 1.5x effect remains unresolvable and this
+amendment stops claiming it. If more independent worlds become available, more
+pools are worth more to this experiment than more bots per pool — the limiting
+variance is between pools, not within them.
