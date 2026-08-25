@@ -36,9 +36,14 @@ ROOT = Path("/srv/block2")
 # to its port, so the two files must agree or a town is stamped into the wrong
 # world. This map was still the pre-amendment four when the build moved to two
 # pools per arm.
+# SAME ORDER AS provision-block2.sh, and the first eight indices are frozen.
+# The index IS the port offset, so appending is safe and reordering silently
+# repoints every probe at a different world.
 ARMS = {w: i for i, w in enumerate([
     "hive-a", "hive-b", "board-a", "board-b",
     "isolated-a", "isolated-b", "placebo-a", "placebo-b",
+    "hive-c", "hive-d", "board-c", "board-d",
+    "isolated-c", "isolated-d", "placebo-c", "placebo-d",
 ])}
 BASE_RCON = 25670
 

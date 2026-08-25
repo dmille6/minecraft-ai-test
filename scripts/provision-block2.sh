@@ -29,7 +29,75 @@ ROOT=/srv/block2
 # being able to see whether two pools in the same arm agree with each other.
 # They need separate worlds: two pools in one world would compete for the same
 # ore and cross each other's terrain, adding correlation rather than replication.
-ARMS=(hive-a hive-b board-a board-b isolated-a isolated-b placebo-a placebo-b)
+# SIXTEEN WORLDS: FOUR independent pools per arm.
+#
+# Two pools per arm was enough to see whether pools in one arm agree. It is not
+# enough to CLAIM anything. Two pools under the SAME treatment were measured
+# 1.8-2.0x apart on the primary endpoint, and against that spread a 1.5x arm
+# effect needs roughly twenty pools per arm for 80% power -- a number no amount
+# of hardware here reaches. At n=4 per arm per repetition (12 across three
+# repetitions) the resolvable effect is about 2x, which is a claim this fleet
+# can actually support. See docs/block2-preregistration.md, amendment 7.
+#
+# The capacity was there the whole time and was hidden by a heap setting: each
+# world was allotted 4 CPUs and used 0.21, and held 3.5GB of RSS because -Xms3G
+# pre-commits the heap whether or not the world needs it.
+# THE FIRST EIGHT KEEP THEIR POSITIONS, and that is not cosmetic. Ports are
+# derived from the index (BASE_PORT + i), the existing worlds are skipped by the
+# already-provisioned check so their server.properties is never rewritten, and
+# place-town.py maps arm -> index -> rcon port independently. Group the new
+# pools with their families and board-a moves from index 2 to 4, so every tool
+# that recomputes a port from an index would start talking to the wrong world
+# while every file on disk still looked correct. Append; never reorder.
+ARMS=(hive-a hive-b board-a board-b isolated-a isolated-b placebo-a placebo-b
+      hive-c hive-d board-c board-d isolated-c isolated-d placebo-c placebo-d)
+
+# WHICH CPUS AN ARM GETS MUST NOT BE DECIDED BY WHICH ARM IT IS.
+#
+# The previous layout handed slots out in arm order: hive-a always on cores 0-3,
+# placebo-b always on 28-31. Every difference between those cores -- NUMA
+# distance, hyperthread siblings, whatever else the host is doing to them -- was
+# therefore a permanent property of the ARM, and would have arrived in the
+# results as a memory-regime effect. Nothing in the analysis could have told
+# them apart.
+#
+# So the slot is drawn from a seeded assignment instead, reproducible from the
+# world seed and different for a differently-seeded block.
+#
+# STRATIFIED, NOT MERELY SHUFFLED, and the difference is not pedantic. A plain
+# shuffle of sixteen slots handed `isolated` the slots {0,1,3,9} and `placebo`
+# {4,10,13,15} -- means of 3.25 against 10.5. Random is not balanced at n=16,
+# and a draw like that leaves arm correlated with CPU position exactly as the
+# old fixed layout did, only now by accident and harder to notice.
+#
+# So the CPU range is cut into four strata and every arm takes exactly one slot
+# from each. Whatever varies across the range -- NUMA distance, hyperthread
+# siblings, whatever else the host is doing -- now varies identically within
+# every arm, while the assignment inside a stratum stays random.
+mapfile -t SLOT < <(python3 - "${ARMS[*]}" "$SEED" <<'PYSLOT'
+import random, sys
+arms = sys.argv[1].split()
+r = random.Random('cpu-slots-' + sys.argv[2])
+families, order = {}, []
+for a in arms:
+    fam = a.rsplit('-', 1)[0]
+    families.setdefault(fam, []).append(a)
+    if fam not in order:
+        order.append(fam)
+n_strata = max(len(v) for v in families.values())
+per = len(arms) // n_strata
+assign = {}
+for s in range(n_strata):
+    fams = list(order)
+    r.shuffle(fams)
+    for j, fam in enumerate(fams):
+        members = families[fam]
+        if s < len(members):
+            assign[members[s]] = s * per + j
+for a in arms:
+    print(assign[a])
+PYSLOT
+)
 
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
 
@@ -137,8 +205,11 @@ for i in "${!ARMS[@]}"; do
   #
   # So every world gets an IDENTICAL, dedicated slice: its own CPUs, its own
   # quota, its own memory ceiling. Identical is what matters -- not generous.
-  CPUS_PER_WORLD=4
-  CPU_LO=$((i * CPUS_PER_WORLD))
+  # 2, not 4: measured usage is 0.21-0.43 of ONE core per world at 20.0 TPS with
+  # 8-11ms tick times against a 50ms budget. Four was never used; it merely
+  # capped the fleet at eight worlds on a 32-core host.
+  CPUS_PER_WORLD=2
+  CPU_LO=$(( ${SLOT[$i]} * CPUS_PER_WORLD ))
   CPU_HI=$((CPU_LO + CPUS_PER_WORLD - 1))
   cat > "/etc/systemd/system/block2@$ARM.service" <<EOF
 [Unit]
@@ -149,7 +220,13 @@ After=network-online.target
 Type=simple
 User=minecraft
 WorkingDirectory=$ROOT/$ARM
-ExecStart=/usr/bin/java -Xms3G -Xmx3G -jar paper.jar nogui
+# -Xms1G, NOT -Xms3G. The old setting pre-committed three gigabytes per world
+# whether the world used them or not, which is the entire reason this host
+# looked full at eight worlds. Measured side by side for eight minutes with five
+# bots online: RSS 1.49GB against 3.50GB, TPS 20.0 on both, average tick times
+# 8.4ms against 11.0ms, and the same ~58ms one-minute maximum on BOTH -- so that
+# spike is something else and not GC pressure from the smaller heap.
+ExecStart=/usr/bin/java -Xms1G -Xmx2G -jar paper.jar nogui
 Restart=always
 RestartSec=15
 
@@ -158,8 +235,8 @@ RestartSec=15
 AllowedCPUs=$CPU_LO-$CPU_HI
 CPUQuota=$((CPUS_PER_WORLD * 100))%
 CPUWeight=100
-MemoryHigh=5G
-MemoryMax=6G
+MemoryHigh=3G
+MemoryMax=4G
 IOWeight=100
 # Paper is latency-critical in a way the bots are not: a lost tick is lost world
 # time for every bot in that arm, while a bot waiting 200ms longer to think is
