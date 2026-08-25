@@ -17,7 +17,7 @@ Two design rules, both load-bearing:
      a reviewable report, and changes stay a human decision.
 
 Usage:
-    ./reflect.py                        # local model on the Studio
+    ./reflect.py                        # 122B on the analysis box (10.0.0.61)
     ./reflect.py --backend codex        # ChatGPT via codex CLI
     ./reflect.py --backend claude       # Claude Code CLI
     ./reflect.py --hours 24 --backend ollama --model qwen2.5:32b
@@ -28,10 +28,20 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-ES_URL  = os.environ.get("MCAI_ES_URL",  "http://mcelk.lan:9200")
+# ADDRESSES, NOT NAMES. Both defaults here were .lan hostnames and NEITHER
+# resolves any more, so the tool failed at the first request with a DNS error
+# that reads like the analysis backend being down.
+#
+# The analysis box is deliberately NOT the one serving the fleet. 10.0.0.72 (RTX
+# 5080) runs bot inference and is latency-critical -- eighty bots decide against
+# it every ~33s. 10.0.0.61 has the large models (122B MoE, 120B, 72B, 70B) and
+# nothing depends on its latency, which is exactly the right place for work that
+# thinks for two minutes. Never point this at the fleet endpoint: a single 16k
+# analysis prompt would sit in the same queue the bots are using.
+ES_URL  = os.environ.get("MCAI_ES_URL",  "http://10.0.0.186:9200")
 ES_USER = os.environ.get("MCAI_ES_USER", "mike")
 ES_PASS = os.environ.get("MCAI_ES_PASS", "")
-OLLAMA  = os.environ.get("OLLAMA_BASE_URL", "http://studio.lan:11434")
+OLLAMA  = os.environ.get("OLLAMA_BASE_URL", "http://10.0.0.61:11434")
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -243,13 +253,33 @@ def build_prompt(facts, hours):
 
 # ---------------------------------------------------------------- backends --
 def ask_ollama(prompt, model):
+    """Ask the analysis box, and survive a THINKING model.
+
+    qwen3.5:122b-a10b spends its budget in a separate `thinking` field and
+    leaves `content` EMPTY if the budget runs out first. Measured: 1,400 tokens
+    produced 5,462 characters of thinking and an empty answer, which looks
+    exactly like a broken endpoint and is not one. 6,000 tokens produced 21,539
+    characters of thinking and a complete 1,855-character answer.
+
+    So the budget is explicit and generous, and an empty answer reports the
+    thinking length rather than returning "" -- a silent empty string here would
+    be read as "the model had nothing to say".
+    """
     body = {"model": model, "stream": False, "keep_alive": "30m",
             "messages": [{"role": "user", "content": prompt}],
-            "options": {"temperature": 0.2, "num_ctx": 16384}}
+            "options": {"temperature": 0.2, "num_ctx": 16384, "num_predict": 8192}}
     req = urllib.request.Request(f"{OLLAMA}/api/chat", data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=900) as r:
-        return json.load(r)["message"]["content"]
+    with urllib.request.urlopen(req, timeout=1800) as r:
+        d = json.load(r)
+    msg = d.get("message") or {}
+    out = (msg.get("content") or "").strip()
+    if out:
+        return out
+    think = (msg.get("thinking") or d.get("thinking") or "")
+    return (f"(the model produced no answer: {len(think)} characters of thinking and "
+            f"done_reason={d.get('done_reason')}. Raise num_predict -- a thinking "
+            f"model spends the budget before it starts writing.)")
 
 
 def ask_cli(prompt, cmd):
@@ -265,7 +295,10 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--hours", type=int, default=6)
     ap.add_argument("--backend", choices=["ollama", "codex", "claude"], default="ollama")
-    ap.add_argument("--model", default="qwen2.5:32b", help="ollama backend only")
+    # The 122B MoE has 10B active parameters, so it runs at 45-60 tok/s despite
+    # its size -- measured on 10.0.0.61 with a 16k context. qwen2.5:72b-instruct
+    # and llama3.3:70b are there too if a non-thinking model is wanted.
+    ap.add_argument("--model", default="qwen3.5:122b-a10b", help="ollama backend only")
     ap.add_argument("--facts-only", action="store_true", help="print the aggregation and stop")
     args = ap.parse_args()
 
