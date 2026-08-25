@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""generate-roster.py -- write the 40 bot env files for Block 2.
+"""generate-roster.py -- write the 80 bot env files for Block 2.
 
     ./generate-roster.py --town town-*.json --out ./env [--endpoints a,b,c]
 
-Forty bots: four arms, two independent pools each, five bots per pool. What varies between arms is MEMORY_SCOPE and
+Eighty bots: four arms, FOUR independent pools each, five bots per pool. What varies between arms is MEMORY_SCOPE and
 the world port. EVERYTHING ELSE IS HELD IDENTICAL BY CONSTRUCTION -- same model,
 same cadence, same role, same timeouts, same endpoint pool -- because every
 field that differs between arms is a rival explanation for the result, and the
@@ -44,7 +44,16 @@ SCOPES = {"hive": "shared", "board": "board",
 # ore, chop the same trees and cross each other's terrain, so their outcomes
 # would be coupled and the second pool would add correlation rather than
 # replication. Eight worlds is 24GB and ~6 cores each on the new host.
-REPLICATES = ["a", "b"]
+# FOUR POOLS PER ARM since the sixteen-world expansion. Two was enough to see
+# whether pools in one arm agree; it was never enough to claim anything. Two
+# pools under the SAME treatment measured 1.8-2.0x apart on the primary
+# endpoint, and against that spread a 1.5x arm effect needs roughly twenty pools
+# per arm. Four per arm per repetition puts the resolvable effect near 2x, which
+# is a claim this fleet can support. See preregistration amendment 7.
+#
+# The username cap is unaffected: "isolated-d-" is the same eleven characters as
+# "isolated-a-", so the <=5-character names below still fit inside sixteen.
+REPLICATES = ["a", "b", "c", "d"]
 
 MC_NAME_MAX = 16
 
