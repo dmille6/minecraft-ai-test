@@ -13,6 +13,7 @@ import { config } from './config.mjs'
 import { announceHazard } from './comms.mjs'
 import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { Vec3 } from 'vec3'
+import { updateDryMs, DRY_HOLD_MS, SEARCH_RADII } from './water-release.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -811,6 +812,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let shoreCache = null            // { key, at, result }
   let lastShoreTarget = null       // target identity progress is measured against
   let bestShoreDist = Infinity     // closest approach to THAT target
+  // CONTINUOUS dry time, not "is ashore right now". Standing on land for a
+  // single tick is what `drowning_escaped` used to mean, and 45% of those bots
+  // were back in the water immediately -- the release was real, the escape was
+  // not. One tick back in the water resets this to zero.
+  let dryMs = 0
   let lastProgressAt = 0
   let lastShoreReachable = false   // did the last scan find anywhere to stand?
   // Consequence of the PREVIOUS release, so a release can be graded by what
@@ -860,15 +866,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // between ticks. The key includes Y and not just X/Z: a bot that sinks two
   // blocks has a different set of reachable banks, and a horizontally-keyed
   // cache would hand it the answer for a depth it has already left.
-  const shoreScan = () => {
+  const shoreScan = (radius = SEARCH_RADII[SEARCH_RADII.length - 1]) => {
     const at = bot.entity?.position
     if (!at) return { dir: null, target: null, dist: Infinity }
-    const key = `${Math.round(at.x)},${Math.round(at.y)},${Math.round(at.z)}`
+    // THE RADIUS IS PART OF THE KEY. Without it, the 24-block scan that found
+    // nothing caches as a settled "no shore" and the widened 48-block scan
+    // never runs -- the widening would be dead code that reviews clean, which
+    // is the same failure as a negative result the system cannot tell from an
+    // unasked question.
+    const key = `${Math.round(at.x)},${Math.round(at.y)},${Math.round(at.z)}@${radius}`
     const now = Date.now()
     if (shoreCache && shoreCache.key === key && now - shoreCache.at < SHORE_TTL_MS) {
       return shoreCache.result
     }
-    const result = shoreRoute(bot, { maxReads: SHORE_MAX_READS })
+    const result = shoreRoute(bot, { radius, maxReads: SHORE_MAX_READS })
     // A scan that ran out of budget is not evidence of absence. Caching it as a
     // settled "no shore" would hide a bank one ring past the cutoff for the
     // whole TTL -- the same shape of bug as the original: a negative result the
@@ -944,6 +955,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // them, one with its head inside a grass_block.
       const head = bot.blockAt(bot.entity.position.offset(0, 1, 0))
       const inWater = head?.name === 'water' || bot.entity.isInWater === true
+      // Advanced on EVERY tick, not only while rescuing: a bot released ashore
+      // and re-seized seconds later must not inherit dry time it did not earn.
+      dryMs = updateDryMs(dryMs, inWater, config.reflex.tickMs)
       // THE COUNTER IS NOT THE CONDITION.
       //
       // Suffocation needs a head inside a solid block; drowning needs a head in
@@ -1201,8 +1215,19 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       //
       // Phase 2 runs before this branch, so `lastShoreReachable` is this tick's
       // answer and not a stale one.
+      // Standing ashore is no longer sufficient on its own, and neither is one
+      // scan coming back empty. The other three exits are unchanged: a bot
+      // whose air is draining, one past the ceiling, and one crossing water
+      // under its own skill are all decided exactly as before.
+      if (ashore() && !inWater && dryMs < DRY_HOLD_MS && rescuing && !rescueExpired()) {
+        // Hold, but do not FIGHT. Phase 2 does not steer a bot that is ashore,
+        // so leaving the swim controls latched would bunny-hop it along the
+        // bank for three seconds instead of letting it stand still and dry.
+        try { bot.clearControlStates() } catch { /* not connected */ }
+      }
       if (!air.losing && breathingAgain(bot.oxygenLevel, recent, airMax) && rescuing &&
-          (ashore() || rescueExpired() || swimming || !lastShoreReachable)) {
+          ((ashore() && dryMs >= DRY_HOLD_MS) || rescueExpired() || swimming ||
+           !lastShoreReachable)) {
         // THE CEILING IS NOT AN ESCAPE, AND MUST NOT BE LOGGED AS ONE.
         //
         // Both exits released the body under one `drowning_escaped` event, so a

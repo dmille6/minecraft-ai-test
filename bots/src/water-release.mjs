@@ -34,6 +34,29 @@
 // and often would spend the tick budget that keeps the bot breathing.
 
 /** Out of water this long before a release counts as durable, not momentary. */
+// WHAT IS ACTUALLY WIRED, AND WHAT IS NOT.
+//
+// This file shipped on 2026-08-24 and ran nothing for two days: the commit
+// added the module and its unit tests and imported it from neither. Green
+// tests on dead code read exactly like green tests on live code, so the split
+// is written down here and asserted in water-release.test.mjs.
+//
+//   LIVE   updateDryMs, DRY_HOLD_MS   reflex.mjs advances dry time every tick
+//                                     and will not call a rescue an escape
+//                                     until the bot has stayed dry
+//   LIVE   SEARCH_RADII               the shore scan's stopping point
+//
+//   DEAD   waterReleaseDecision       reflex.mjs keeps its own predicate
+//   DEAD   radiusFor, WIDEN_AT_MS     time-earned radii were TRIED and REVERTED:
+//                                     holding a bot thirty seconds to earn a
+//                                     wider look is the paralysis that
+//                                     water-travel.test.mjs forbids
+//   DEAD   WATER_STUCK_MS             120s is past RESCUE_CEILING_MAX_MS (45s),
+//                                     so `give_up` is unreachable by construction
+//
+// The dead half is kept because it is the written form of the policy and its
+// fixtures are the measured failures. It is not kept because it runs.
+
 export const DRY_HOLD_MS = 3_000
 
 /** Shore search radii, in order. The first is what the old code always used. */

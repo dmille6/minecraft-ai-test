@@ -131,9 +131,32 @@ t('real drowning still outranks a crossing', () => {
 
 t('a bot with nowhere to stand is released, not pinned', () => {
   const r = src('reflex.mjs')
-  assert.ok(/ashore\(\) \|\| rescueExpired\(\) \|\| swimming \|\| !lastShoreReachable/.test(r),
+  // Asserts the INVARIANT, not the spelling. This used to match the whole
+  // predicate as one literal string, which meant any reformatting broke it and
+  // the only way to keep it green was to leave the line alone forever. What
+  // actually matters is that `!lastShoreReachable` reaches the release as a
+  // bare top-level disjunct: conjoin anything onto it and a bot in open water
+  // waits for whatever that term is.
+  assert.ok(/\|\|\s*!lastShoreReachable\)/.test(r),
     'the release still waits for the ceiling when no shore exists — that is twenty ' +
     'seconds of paralysis per cycle for a bot in open water')
+})
+
+t('widening the shore search must not cost the bot its body', () => {
+  const r = src('reflex.mjs')
+  // A wider search was wanted -- 24 blocks was declaring "no shore" with a bank
+  // at 30 -- and the first attempt earned the wider radius by TIME HELD, 48
+  // after 15s and 96 after 30s. That reinstates exactly the paralysis the test
+  // above forbids, and this is the tripwire that caught it.
+  //
+  // The shape that works costs nothing: shoreRoute already walks Chebyshev
+  // shells outward from ring 1 and breaks once `ring > best.dist`, so the
+  // radius is a STOPPING POINT and not a search order. Scanning to the widest
+  // radius still finds the nearest bank first; it only changes what happens
+  // when nothing near was found. The read budget bounds the cost.
+  assert.ok(!/radiusFor\s*\(/.test(r),
+    'reflex.mjs is choosing a shore-scan radius from time held again — that ' +
+    'holds a bot in open water for thirty seconds to earn a wider look')
 })
 
 t('a yield is not counted as a rescue outcome', () => {

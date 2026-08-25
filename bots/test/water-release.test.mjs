@@ -4,6 +4,7 @@
 // land. Re-entry after a release had a median of 6 seconds and a p10 of ZERO.
 // Each test below is one of the shapes in that data.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import {
   waterReleaseDecision, radiusFor, updateDryMs,
   DRY_HOLD_MS, SEARCH_RADII, WATER_STUCK_MS,
@@ -120,6 +121,73 @@ t('a bot that reaches shore and stays is released promptly', () => {
     if (d.action === 'release' && releasedAt == null) releasedAt = dry
   }
   assert.equal(releasedAt, DRY_HOLD_MS, `released at ${releasedAt}ms dry, expected ${DRY_HOLD_MS}`)
+})
+
+// ---------------------------------------------------------------------------
+// THE WIRING. Everything above this line passed for two days while the module
+// was DEAD CODE: commit 7e947f0 added water-release.mjs and this file and
+// wired it into nothing. The unit tests were green, the policy was correct,
+// and no bot ever executed a line of it. A capability is not shipped until
+// something calls it, so the calling is what gets asserted here.
+// ---------------------------------------------------------------------------
+const reflexSrc = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+
+t('THE WIRING: the reflex imports the release policy at all', () => {
+  assert.ok(/from '\.\/water-release\.mjs'/.test(reflexSrc),
+    'water-release.mjs is orphaned again — unit-tested policy that no bot runs')
+})
+
+t('THE WIRING: dry time is advanced every tick, not only while rescuing', () => {
+  assert.ok(/dryMs = updateDryMs\(dryMs, inWater, config\.reflex\.tickMs\)/.test(reflexSrc),
+    'dryMs is not being advanced from the reflex tick — it would sit at 0 and ' +
+    'the durability clause would hold every rescued bot until the ceiling')
+  // Advancing it only inside the rescue branch would let a bot released ashore
+  // and re-seized four seconds later inherit dry time it never earned.
+  const tick = reflexSrc.indexOf('dryMs = updateDryMs')
+  const phase2 = reflexSrc.indexOf('if (rescuing && !air.losing && !ashore()')
+  assert.ok(tick > 0 && tick < phase2,
+    'dryMs is advanced inside the rescue path — it must be advanced from the ' +
+    'plain tick, or dry time survives across rescues')
+})
+
+t('THE WIRING: reaching land is not enough; it has to STICK', () => {
+  assert.ok(/ashore\(\) && dryMs >= DRY_HOLD_MS/.test(reflexSrc),
+    'the release still fires on one tick of ashore() — that is what made 45% ' +
+    'of `drowning_escaped` bots re-enter the water immediately')
+})
+
+t('THE WIRING: the shore scan looks as far as the policy says', () => {
+  // The bug was not the search, it was the stopping point: 24 blocks declared
+  // "no shore" with a bank at 30. shoreRoute walks outward from ring 1, so the
+  // widest radius costs nothing when a near bank exists.
+  assert.ok(/SEARCH_RADII\[SEARCH_RADII\.length - 1\]/.test(reflexSrc),
+    'the shore scan is back on a hard-coded near radius')
+})
+
+t('THE WIRING: a held bot ashore is not also being steered', () => {
+  assert.ok(/dryMs < DRY_HOLD_MS[\s\S]{0,400}clearControlStates/.test(reflexSrc),
+    'the bot is held ashore with its swim controls still latched — it would ' +
+    'bunny-hop along the bank for three seconds instead of standing still')
+})
+
+t('THE WIRING: the live/dead split at the top of the module is TRUE', () => {
+  // Without this, the note ages into a lie the first time someone wires one of
+  // the dead exports up -- and a stale map of what runs is worse than none.
+  const live = ['updateDryMs', 'DRY_HOLD_MS', 'SEARCH_RADII']
+  const dead = ['waterReleaseDecision', 'radiusFor', 'WATER_STUCK_MS', 'WIDEN_AT_MS']
+  const callers = ['reflex.mjs', 'skills.mjs', 'index.mjs']
+    .map(f => { try { return readFileSync(new URL('../src/' + f, import.meta.url), 'utf8') } catch { return '' } })
+    .join('\n')
+  for (const name of live) {
+    assert.ok(callers.includes(name),
+      `${name} is documented LIVE and nothing calls it — either wire it or ` +
+      'move it to the DEAD list in water-release.mjs')
+  }
+  for (const name of dead) {
+    assert.ok(!callers.includes(name),
+      `${name} is documented DEAD but something now uses it — update the note ` +
+      'at the top of water-release.mjs, which is the map of what actually runs')
+  }
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
