@@ -18,6 +18,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Lessons, sharedStorePath } from '../src/lessons.mjs'
+import { poolStateDir } from '../src/worldfacts.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -87,6 +88,19 @@ t('CONCURRENT WRITERS DO NOT LOSE BELIEFS', () => {
   const reader = new Lessons(file, true)
   const got = Object.keys(reader.data.avoid ?? {}).length
   assert.equal(got, 5, `${got} of 5 beliefs survived concurrent writes`)
+})
+
+t('ALL THREE shared stores resolve to the same pool directory', () => {
+  // lessons, world facts and the board are three separate call sites that each
+  // built their own path, and all three put a pool-named file in a per-bot
+  // directory. One definition now, so a fourth store cannot repeat it.
+  const dir = poolStateDir('hive-a', '/var/lib/mcai/hive-a-Alpha')
+  assert.ok(!dir.includes('hive-a-Alpha'), `pool dir is inside a bot dir: ${dir}`)
+  const src = fs.readFileSync(new URL('../src/board-visit.mjs', import.meta.url), 'utf8')
+  assert.ok(/poolStateDir\(/.test(src),
+    'the board still builds its own path; it was the third instance of this bug')
+  assert.ok(!/config\.log\.stateDir\}\/board-/.test(src),
+    'the board file is still resolved against the per-bot STATE_DIR')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

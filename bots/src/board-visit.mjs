@@ -14,6 +14,7 @@
  */
 import { Board, claimId, freshnessCredit, quorumState } from './board.mjs'
 import { config } from './config.mjs'
+import { poolStateDir } from './worldfacts.mjs'
 import { log, logEvent } from './logger.mjs'
 
 /** Euclidean distance ignoring nothing -- the walk is vertical too. */
@@ -77,7 +78,17 @@ export function adoptInto(lessons, claim, self) {
 
 /** Open the town board for this world. One board per arm, named for the ledger. */
 export function openBoard(fs, id = config.memory.pool) {
-  return new Board(`${config.log.stateDir}/board-${id}.json`, fs, id)
+  // THE THIRD INSTANCE OF THE SAME DEFECT, found 2026-08-25 by a file that
+  // survived a wipe: /var/lib/mcai/board-b-Comet/board-board-b.json -- a
+  // pool-NAMED board inside a per-bot directory.
+  //
+  // The board is the whole point of this arm: a bot walks to the lectern and
+  // files a belief so its poolmates can read it later. Backed by a bot-private
+  // file, a filed belief is one nobody else can ever see, so the arm was
+  // structurally incapable of sharing even on the two occasions the skill was
+  // proposed. Same shape as lessons.mjs and worldfacts.mjs, same fix, same
+  // single definition of where pool state lives.
+  return new Board(`${poolStateDir(id)}/board-${id}.json`, fs, id)
 }
 
 /**
