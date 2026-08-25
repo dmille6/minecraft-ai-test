@@ -38,7 +38,16 @@ if (!files.length) {
 function run (file) {
   return new Promise(resolve => {
     const started = Date.now()
-    const child = spawn(process.execPath, [`test/${file}`], { stdio: ['ignore', 'pipe', 'pipe'] })
+    // Short deadlines for the suite. hard-stop.test.mjs exercises the real
+    // runner path -- a skill that ignores its abort -- and at the production
+    // 180s + 30s grace that single test would add three and a half minutes.
+    // A suite people wait for is a suite people skip.
+    const child = spawn(process.execPath, [`test/${file}`], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env,
+             SKILL_TIMEOUT_MS: process.env.SKILL_TIMEOUT_MS || '300',
+             SKILL_HARD_STOP_GRACE_MS: process.env.SKILL_HARD_STOP_GRACE_MS || '300' },
+    })
     let out = ''
     child.stdout.on('data', d => { out += d })
     child.stderr.on('data', d => { out += d })

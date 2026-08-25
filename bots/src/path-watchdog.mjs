@@ -53,15 +53,28 @@
  * by that skill's own timeout; the case only this watchdog can fix is a goal left
  * set with nothing running, which was 58% of firings.
  *
+ * EXCEPT WHEN THAT TIMEOUT HAS ALREADY FAILED, 2026-08-25. board-d-Alpha held a
+ * `gather` for 83 minutes against a 3-minute timeout: the abort fired on time
+ * and the skill never returned, so `busy` stayed true forever and this watchdog
+ * -- the only other thing that could have looked -- declined to, on the strength
+ * of the sentence above. Two nets, both bypassed, for the same bot.
+ *
+ * So the exemption now ends where its own justification does. Past the skill's
+ * timeout, "its own timeout will handle it" is a statement the evidence has
+ * already refuted, and the watchdog is allowed to act.
+ *
  * The floor also rises. Half of all firings came in at the 6s minimum, which is
  * short enough to catch an ordinary pause.
  */
 export function pathfinderWedged({ hasGoal, moving, mining, building, busy,
-                                   stillFor = 0, stillThresholdMs = 15000 }) {
+                                   stillFor = 0, stillThresholdMs = 15000,
+                                   skillElapsedMs = 0, skillTimeoutMs = 0 }) {
   if (!hasGoal) return false
   if (moving) return false          // isMoving() === path.length > 0
   if (mining || building) return false   // pathfinder is digging/placing for a path
-  if (busy) return false            // a SKILL owns the bot; its own timeout applies
+  // A skill owns the bot -- unless it is already past its own timeout, in which
+  // case the mechanism this exemption defers to has demonstrably not worked.
+  if (busy && !(skillTimeoutMs > 0 && skillElapsedMs >= skillTimeoutMs)) return false
   return stillFor >= stillThresholdMs
 }
 

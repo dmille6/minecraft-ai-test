@@ -560,6 +560,13 @@ function connect() {
           // The runner's answer, not the pathfinder's. See path-watchdog.mjs:
           // mine/gather dig outside the pathfinder, so its own flags say nothing.
           busy: runner?.isBusy?.() ?? false,
+          // HOW LONG THAT SKILL HAS OWNED THE BOT. The `busy` exemption defers
+          // to the skill's own timeout, and on 2026-08-25 that timeout fired and
+          // the skill ignored it for 83 minutes -- so `busy` alone kept this
+          // watchdog looking away from the only bot that needed it. Past the
+          // timeout the exemption's justification is already disproven.
+          skillElapsedMs: runner?.current ? now - runner.current.startedAt : 0,
+          skillTimeoutMs: config.skills.defaultTimeoutMs,
           stillFor: stillnessMs(posSamples, now),
         })
         if (!wedged) return

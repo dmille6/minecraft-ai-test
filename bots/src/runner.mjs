@@ -8,14 +8,18 @@
 // repeated failure, and agent paused after repeated failures. All three live here.
 
 import { SKILLS, SKILL_CONTRACTS, classifyOutcome } from './skills.mjs'
-import { logSkill, log } from './logger.mjs'
+import { logSkill, log, logEvent } from './logger.mjs'
 import { snapshot, perception, biomeAt, inventorySummary } from './state.mjs'
+import { HARD_STOP_GRACE_MS, hardStopResult } from './hard-stop.mjs'
 import { config } from './config.mjs'
 
 export class Runner {
   constructor(bot) {
     this.bot = bot
     this.current = null          // { skill, args, controller, startedAt }
+    // Bumped on every run so a result from an ABANDONED skill can be told apart
+    // from the current one. See the hard-stop race below.
+    this.generation = 0
     this.interruptedReason = null
     this.consecutiveFailures = 0
     this.paused = false
@@ -94,9 +98,38 @@ export class Runner {
       controller.abort()
     }, config.skills.defaultTimeoutMs)
 
+    // THE RUNNER STOPS WAITING IF THE SKILL WILL NOT. See hard-stop.mjs: a
+    // `gather` on board-d-Alpha ran 83 minutes past a 3-minute timeout, holding
+    // `this.current` and therefore the whole cognitive loop, because it never
+    // reached a line that checks the signal.
+    //
+    // The abandoned promise keeps running -- there is no way to kill it -- so
+    // the generation counter below makes sure a late resolution cannot write
+    // over whatever the bot is doing by then. The bot's controls and pathfinder
+    // goal are cleared on the way out, so the zombie spins without a body.
+    const generation = ++this.generation
+    let hardStop = null
     let result
     try {
-      result = await def.run({ bot: this.bot, runner: this }, args, controller.signal)
+      result = await Promise.race([
+        def.run({ bot: this.bot, runner: this }, args, controller.signal),
+        new Promise(resolve => {
+          hardStop = setTimeout(() => {
+            const elapsed = Date.now() - startedAt
+            log('error', 'skill ignored its abort; releasing the bot', {
+              skill: skillName, elapsedSec: Math.round(elapsed / 1000),
+              timeoutMs: config.skills.defaultTimeoutMs,
+            })
+            logEvent({ kind: 'skill_abort_ignored', status: 'failed',
+                       detail: `${skillName} still running ${Math.round(elapsed / 1000)}s after ` +
+                               `abort; runner released the bot`,
+                       snapshot: snapshot(this.bot) })
+            try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
+            try { this.bot.clearControlStates() } catch { /* not connected */ }
+            resolve(hardStopResult(skillName, elapsed))
+          }, config.skills.defaultTimeoutMs + HARD_STOP_GRACE_MS)
+        }),
+      ])
     } catch (e) {
       // A SKILL THAT THREW STILL HAS TO SAY WHAT KIND OF FAILURE IT WAS, because
       // nothing downstream is allowed to guess from the message any more. The
@@ -113,7 +146,17 @@ export class Runner {
               detail: e?.message ?? String(e) }
     } finally {
       clearTimeout(watchdog)
+      if (hardStop) clearTimeout(hardStop)
       try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
+    }
+
+    // A LATE RESOLUTION FROM AN ABANDONED SKILL MUST NOT LAND. If the runner
+    // hard-stopped and moved on, the original promise may still resolve minutes
+    // later, into a bot that is now doing something else. Its result is dropped.
+    if (generation !== this.generation) {
+      log('warn', 'discarding a result from a superseded run', { skill: skillName })
+      return { status: 'failed', failClass: 'superseded',
+               detail: `${skillName} returned after the runner had moved on` }
     }
 
     // What actually changed as a result of running this skill. "gather returned
