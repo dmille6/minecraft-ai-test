@@ -53,6 +53,20 @@ ESCAPED = "drowning_escaped"
 # gate, and mixing the two is what produced the nonsense above.
 #
 # REGRESSION gates block a rollout: the change must not make these worse.
+# MEASURED NULLS, difference-in-differences, 5-bot pool vs 35, 4-hour windows,
+# swept over 8 pools x 5 pseudo-deploy times on a UNIFORM fleet (no change
+# deployed). scripts/measure-null.py reproduces these.
+#
+#     metric          p5    median   p95    usable?
+#     re-entry gap   0.75    0.98   1.40    yes -- resolves ~30%
+#     ended on land  0.64    1.04   2.29    yes -- resolves ~35% down, 2.3x up
+#     reflex-owned   0.49    1.02   2.13    weak, and does NOT improve with window
+#     harvest        0.43    0.96   3.87    NO -- catches a collapse, not a dip
+#
+# Harvest is the important one to be honest about: at five bots it cannot
+# certify that a change did not cost 2x the harvest. It is kept as a blocking
+# gate at the p5 of its measured null, which catches a collapse and nothing
+# subtler. Claiming more would be the false precision this file already had once.
 REGRESSION = [
     # 0.75, NOT 0.90, AND THE NUMBER IS MEASURED RATHER THAN CHOSEN.
     #
@@ -116,7 +130,7 @@ def load(paths, since, pool):
     return rows
 
 
-def summarise(rows, bots, skip_before=None):
+def summarise(rows, bots, skip_before=None, lo=None, hi=None):
     """Episode-level outcomes for one group of bots.
 
     `skip_before` drops each bot's first minutes after its restart. Only the
@@ -132,6 +146,8 @@ def summarise(rows, bots, skip_before=None):
         for t, d in rows[bot]:
             if skip_before and t < skip_before.get(bot, t):
                 continue
+            if lo is not None and t < lo: continue
+            if hi is not None and t >= hi: continue
             events += 1
             sk = d.get("skill") or {}
             k = (sk.get("name") or "").lstrip("_")
@@ -174,8 +190,85 @@ def summarise(rows, bots, skip_before=None):
     }
 
 
+def did(c_before, c_after, k_before, k_after, key):
+    """Difference-in-differences for one metric, as a ratio of ratios.
+
+    WHY THIS AND NOT THE CONCURRENT COMPARISON.
+    ---------------------------------------------------------------------------
+    The first version of this script compared the canary pool against the other
+    thirty-five bots over the same minutes, which removes time-of-day and server
+    load. It does NOT remove the pool itself, and the pool is the dominant term:
+    measured on a UNIFORM fleet where every bot ran identical code, pool-vs-rest
+    harvest ratios came out
+
+        0.26  0.30  0.44  0.95  1.03  1.62  1.81  2.53
+
+    a tenfold spread with no change deployed at all. Gates set on that would
+    reject a no-op roughly a third of the time and wave a real regression
+    through about as often -- a coin flip wearing a number.
+
+    So each arm is compared against ITSELF before the change, and the control's
+    own before/after shift is divided out. The pool effect cancels because a
+    pool appears in both terms; the time effect cancels because the control
+    moved through the same hours. What is left is the change.
+
+        DiD = (canary_after / canary_before) / (control_after / control_before)
+
+    1.0 is "did nothing". Returns None when any term is missing or zero -- a
+    pool that gathered nothing in the before window cannot tell you what its
+    harvest did, and inventing a denominator there is how a confident zero gets
+    into a report.
+    """
+    a, b = c_after.get(key), c_before.get(key)
+    ka, kb = k_after.get(key), k_before.get(key)
+    if None in (a, b, ka, kb) or b == 0 or kb == 0:
+        return None
+    control_shift = ka / kb
+    if control_shift == 0:
+        return None
+    return (a / b) / control_shift
+
+
 def fmt(v, nd=2):
     return "n/a" if v is None else f"{v:.{nd}f}"
+
+
+def report_did(rows, canary, control, t0, a):
+    """Before/after on both arms, with the control's own drift divided out."""
+    W = datetime.timedelta(minutes=a.window)
+    burn = datetime.timedelta(minutes=a.burn_in)
+    cb = summarise(rows, canary,  lo=t0 - W, hi=t0)
+    ca = summarise(rows, canary,  lo=t0 + burn, hi=t0 + burn + W)
+    kb = summarise(rows, control, lo=t0 - W, hi=t0)
+    ka = summarise(rows, control, lo=t0 + burn, hi=t0 + burn + W)
+
+    print(f"\n  DIFFERENCE-IN-DIFFERENCES around {t0:%Y-%m-%d %H:%M}Z"
+          f"  (+/-{a.window}m, {a.burn_in}m burn-in)")
+    print(f"  canary pool {a.pool}: {len(canary)} bots · control: {len(control)} bots")
+    print(f"  EXPOSURE-H   canary {cb['exposure']:.1f} -> {ca['exposure']:.1f}   "
+          f"control {kb['exposure']:.1f} -> {ka['exposure']:.1f}")
+    thin = [n for n, x in (("canary before", cb), ("canary after", ca),
+                           ("control before", kb), ("control after", ka))
+            if x["exposure"] < MIN_EXPOSURE_H]
+    if thin:
+        print(f"\n  INSUFFICIENT EXPOSURE in: {', '.join(thin)} "
+              f"(need {MIN_EXPOSURE_H}h each)\n")
+        return 2
+
+    print(f"\n  {'METRIC':<24}{'CANARY b->a':>16}{'CONTROL b->a':>16}{'DiD':>8}")
+    out = {}
+    for label, key in [("gathers / exposure-h", "gather_per_exp"),
+                       ("deaths / exposure-h", "death_per_exp"),
+                       ("reflex-owned share", "held_frac"),
+                       ("ended on land", "escape_rate"),
+                       ("re-entry gap (s)", "reentry_s")]:
+        d = did(cb, ca, kb, ka, key)
+        out[key] = d
+        print(f"  {label:<24}{fmt(cb[key])+' -> '+fmt(ca[key]):>16}"
+              f"{fmt(kb[key])+' -> '+fmt(ka[key]):>16}{fmt(d):>8}")
+    print(f"\n  DiD of 1.00 means the change did nothing. Gates are calibrated"
+          f"\n  against a measured null -- see scripts/measure-null.py.\n")
+    return 0
 
 
 def main():
@@ -188,9 +281,21 @@ def main():
                          "(escape_rate | reentry_s | held_frac)")
     ap.add_argument("--burn-in", type=int, default=BURN_IN_MIN,
                     help="minutes to drop after each canary bot's restart")
+    ap.add_argument("--at", default="",
+                    help="ISO time of the canary deploy. Enables "
+                         "difference-in-differences, which is the only mode "
+                         "whose null has been measured. Without it you get the "
+                         "concurrent comparison, whose null spans 0.26-2.53.")
+    ap.add_argument("--window", type=int, default=90,
+                    help="minutes on each side of --at")
     a = ap.parse_args()
 
-    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=a.minutes)
+    if a.at:
+        t0 = datetime.datetime.fromisoformat(a.at.replace("Z", "+00:00"))
+        since = t0 - datetime.timedelta(minutes=a.window + 5)
+    else:
+        t0 = None
+        since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=a.minutes)
     rows = load(a.paths, since, a.pool)
     canary = sorted(b for b in rows if b.startswith(a.pool + "-"))
     control = sorted(b for b in rows if not b.startswith(a.pool + "-"))
@@ -199,10 +304,15 @@ def main():
     if not control:
         sys.exit("no control bots -- a canary with no control is just a deploy")
 
+    if t0 is not None:
+        return report_did(rows, canary, control, t0, a)
+
     # Only the canary restarted, so only the canary gets a burn-in cut.
     first = {b: rows[b][0][0] + datetime.timedelta(minutes=a.burn_in)
              for b in canary if rows[b]}
     c, k = summarise(rows, canary, skip_before=first), summarise(rows, control)
+    print("\n  WARNING: no --at, so this is the concurrent comparison. Its null"
+          "\n  spans 0.26-2.53 on harvest with NO change deployed. Prefer --at.")
     print(f"\n  window {a.minutes}m · canary pool {a.pool} ({c['bots']} bots) "
           f"vs control ({k['bots']} bots)")
     print(f"  DENOMINATORS  canary {c['exposure']:.1f} exposure-h / {c['events']} events   "
