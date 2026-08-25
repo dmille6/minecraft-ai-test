@@ -41,7 +41,11 @@ from pathlib import Path
 ES_URL  = os.environ.get("MCAI_ES_URL",  "http://10.0.0.186:9200")
 ES_USER = os.environ.get("MCAI_ES_USER", "mike")
 ES_PASS = os.environ.get("MCAI_ES_PASS", "")
-OLLAMA  = os.environ.get("OLLAMA_BASE_URL", "http://10.0.0.61:11434")
+# THE HOSTNAME, NOT THE INTERNAL IP. 10.0.0.61 is on the home LAN and the lab
+# hosts reach it over a site link that is documented as unreliable -- it went
+# fully unreachable mid-analysis on 2026-08-25 while the box itself was fine.
+# ai.ticrcorp.com resolves and hairpins from both sides.
+OLLAMA  = os.environ.get("OLLAMA_BASE_URL", "http://ai.ticrcorp.com:11434")
 
 REPO = Path(__file__).resolve().parent.parent
 

@@ -6,7 +6,7 @@ use, one is a warm spare, one is broken.
 | host | hardware | role | models |
 |---|---|---|---|
 | `10.0.0.72` | RTX 5080 | **fleet inference** — 80 bots, latency-critical | `qwen2.5:7b-instruct` |
-| `10.0.0.61` | 96GB (no SSH; API only) | **analysis** — latency-insensitive | 11, up to `qwen3.5:122b-a10b` |
+| `ai.ticrcorp.com:11434` | 96GB (no SSH; API only) | **analysis** — latency-insensitive | 19, up to `qwen3.5:122b-a10b` |
 | `10.0.0.16` | RTX 3090, 24GB | warm spare for the fleet | `qwen2.5:7b-instruct` |
 | `10.0.0.75` | — | **broken**: port 11434 open, API never answers | — |
 
@@ -69,7 +69,13 @@ indistinguishable from a broken endpoint. At 6,000 it produced 21,539 characters
 of thinking and a complete answer. `reflect.py` now asks for 8,192 and reports
 the thinking length rather than returning an empty string.
 
-**`10.0.0.61` refuses SSH.** Use the HTTP API; there is no shell on it from here.
+**Use the hostname, never `10.0.0.61`.** That address is on the home LAN and the
+lab reaches it across a site link documented as unreliable — it went fully
+unreachable mid-analysis on 2026-08-25 while the box itself was serving
+normally. `ai.ticrcorp.com:11434` resolves and hairpins from both sides.
+`ai.ticrcorp.net` has no A record.
+
+**It refuses SSH.** Use the HTTP API; there is no shell on it from here.
 
 ## Why the 3090 cannot carry the fleet
 
