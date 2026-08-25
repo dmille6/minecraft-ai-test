@@ -295,10 +295,30 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--hours", type=int, default=6)
     ap.add_argument("--backend", choices=["ollama", "codex", "claude"], default="ollama")
-    # The 122B MoE has 10B active parameters, so it runs at 45-60 tok/s despite
-    # its size -- measured on 10.0.0.61 with a 16k context. qwen2.5:72b-instruct
-    # and llama3.3:70b are there too if a non-thinking model is wanted.
-    ap.add_argument("--model", default="qwen3.5:122b-a10b", help="ollama backend only")
+    # llama3.3:70b, NOT the 122B, and the reason is measured rather than assumed.
+    #
+    # Blind head-to-head on a real telemetry brief (four models, rubric fixed
+    # before the runs, answer NOT leaked into the prompt):
+    #
+    #   7B    4s    scored 4/4 and was WRONG -- "bamboo requires a tool to
+    #               gather" (it breaks by hand) and proposed "provide the bots
+    #               with a tool", which is not a change an agent can make.
+    #   32B   30s   correct on bamboo; fix was still an operator intervention.
+    #   70B   75s   most ACTIONABLE proposal: a scoped `scavenge` skill,
+    #               "contained within a single new skill rather than altering
+    #               multiple existing ones".
+    #   122B  203s  most factually precise -- correctly enumerated what drops
+    #               without tools -- but TRUNCATED at the token cap after 31,636
+    #               characters of thinking, so it never reached questions 3-4.
+    #
+    # The 122B is worth reaching for on genuinely hard problems, with
+    # num_predict raised to 24k+. It is the wrong default because thinking eats
+    # the budget on ordinary questions.
+    #
+    # Note the 7B result carefully: it scored FULL MARKS on a keyword rubric
+    # while being factually wrong. Do not trust an automated score here; read
+    # the output.
+    ap.add_argument("--model", default="llama3.3:70b", help="ollama backend only")
     ap.add_argument("--facts-only", action="store_true", help="print the aggregation and stop")
     args = ap.parse_args()
 

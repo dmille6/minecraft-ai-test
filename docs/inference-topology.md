@@ -33,6 +33,33 @@ limiting the experiment. See preregistration amendment 7.
 Its 24GB fits models up to ~32B (`qwen2.5:32b-instruct` is 19.9GB) if a second
 analysis tier is ever wanted.
 
+## Does the bigger model analyse better? Partly — and not measurably by score
+
+Blind head-to-head on a real telemetry brief, rubric fixed before the runs, the
+answer deliberately **not** leaked into the prompt:
+
+| model | time | rubric | what it actually said |
+|---|---|---|---|
+| `qwen2.5:7b` | 4s | **4/4** | **wrong** — "bamboo requires a tool to gather" (it breaks by hand); fix was "provide the bots with a tool" |
+| `qwen2.5:32b` | 30s | 4/4 | correct on bamboo; fix was still an operator intervention |
+| `llama3.3:70b` | 75s | 4/4 | **most actionable** — a scoped `scavenge` skill, "contained within a single new skill" |
+| `qwen3.5:122b-a10b` | 203s | 2/4 | **most accurate** — correctly enumerated what drops without tools — but truncated after 31,636 chars of thinking |
+
+Two things to take from this:
+
+**The bigger models were more factually accurate about game mechanics**, which
+is exactly what a larger model should buy. The 7B was fast and confidently wrong.
+
+**The automated rubric was worthless.** It gave the 7B full marks for an answer
+that was incorrect and unimplementable, because it matched keywords rather than
+correctness. A first version of the test was worse still: it stated "logs need
+no tool to break" *in the prompt* and then scored models on knowing that. Read
+the outputs; do not trust the score.
+
+Default for `reflect.py` is `llama3.3:70b` — accurate, actionable, 75s, and no
+thinking overhead. Reach for the 122B on hard problems with `num_predict` at
+24k+.
+
 ## Two traps
 
 **Thinking models return an empty answer if the budget is too small.**
