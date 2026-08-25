@@ -36,8 +36,13 @@ import pathlib
 WORLDS_HOST = "mike@10.0.0.30"
 BOTS_HOST = "mike@10.0.0.31"
 KEY = "~/.ssh/id_ed25519_aiservers"
+# FOUR POOLS PER ARM since the sixteen-world expansion. Kept in the same order
+# as provision-block2.sh and place-town.py, appended rather than regrouped,
+# because the index is the port offset everywhere it is used.
 ARMS = ["hive-a", "hive-b", "board-a", "board-b",
-        "isolated-a", "isolated-b", "placebo-a", "placebo-b"]
+        "isolated-a", "isolated-b", "placebo-a", "placebo-b",
+        "hive-c", "hive-d", "board-c", "board-d",
+        "isolated-c", "isolated-d", "placebo-c", "placebo-d"]
 
 
 def sh(cmd, host=None, timeout=60):

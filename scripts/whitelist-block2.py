@@ -7,7 +7,13 @@ as any username -- including as a bot, mid-block.
 """
 import importlib.util, sys
 from pathlib import Path
-spec = importlib.util.spec_from_file_location("pt", Path("/home/mike/scripts/place-town.py"))
+# BESIDE THIS FILE, not in somebody's home directory. The absolute path here
+# was /home/mike/scripts/place-town.py, so this script worked only from one
+# checkout on one host and failed with an unhelpful import error anywhere else
+# -- including from the repo clone the deploy script maintains. pregen-world.py
+# next door already does it relatively; this is the same fix.
+spec = importlib.util.spec_from_file_location(
+    "pt", Path(__file__).resolve().parent / "place-town.py")
 pt = importlib.util.module_from_spec(spec); spec.loader.exec_module(pt)
 
 MC_NAME_MAX = 16
