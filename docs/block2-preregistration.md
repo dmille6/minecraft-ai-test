@@ -1623,27 +1623,47 @@ arm's mean at 7.0-8.5.
 **Re-randomise between repetitions.** That is what turns a fixed confound into
 noise that averages out, and it is a standing requirement of this design now.
 
-### What got worse, declared here rather than discovered later
+### Inference: the fleet moved to the RTX 5080, and the cadence got BETTER
 
-Eighty bots share one inference endpoint, and doubling the fleet costs latency:
+The first attempt ran all eighty bots against the RTX 3090 at 10.0.0.16 and it
+did not hold. Decomposing the latency showed the request was not queueing
+(0.02s) and not prompt-bound (0.27s for 1781 tokens): it was **generation-bound
+at 6.8 tok/s per stream**, with one `llama-server` thread pegged at 90.9% while
+all eight vCPUs sat 62% idle and the GPU oscillated between 19% and 99%. That is
+a single-threaded scheduler starving the GPU, not a GPU limit.
 
-| | 40 bots | 80 bots |
-|---|---|---|
-| decision latency median | 3.6 s | **9.5 s** |
-| p90 / p99 | 6.8 / 10.0 s | 13.4 / 24.4 s |
-| decision cadence median | 36.6 s | **42.2 s** |
-| GPU utilisation | 23% | 33% |
+Two settings changes were tried and measured, and both are recorded because
+both failed. `OLLAMA_NUM_PARALLEL=32` made it worse (16.2s median, cadence
+49.2s) — more slots is more work in the one loop. `OLLAMA_NUM_PARALLEL=8`
+doubled per-stream generation to 12.3 tok/s and unpegged the thread to 63.6%,
+confirming the diagnosis, but eight slots cannot absorb seventeen concurrent
+requests and the wall time rose to 16.8s. `OLLAMA_FLASH_ATTENTION=1` changed
+nothing, which is itself evidence the bottleneck is not attention compute.
 
-Cadence slips about 15%, so bots make roughly 13% fewer decisions per bot-hour
-than the 40-bot fleet did. This applies to **every arm equally** — one shared
-endpoint, no per-arm rotation — so it is not a between-arm confound. It does
-make this block's decision rate non-comparable with the 40-bot shakedown
-history, and any analysis spanning both must treat that as a regime change.
+The fleet now runs against the **RTX 5080 at 10.0.0.72**, serving the
+byte-identical model — digest `845dbda0ea48ed74`, Q4_K_M, qwen2 — verified
+against the 3090's copy before the move. Load-tested first at fleet-shaped
+prompts and fleet concurrency, then measured live:
 
-Raising `OLLAMA_NUM_PARALLEL` from 16 to 32 was tried and **made it worse**:
-latency median 16.2s and cadence 49.2s after settling, against 8.9s and 40.4s at
-16. GPU utilisation rose to 69% and VRAM to 19.0GB, so the extra slots bought
-throughput capacity at the cost of per-request speed. Reverted to 16.
+| | 40 bots / 3090 | 80 bots / 3090 | **80 bots / 5080** |
+|---|---|---|---|
+| decision latency median | 3.6 s | 10.9 s | **1.1 s** |
+| p99 | 10.0 s | 24.9 s | **2.5 s** |
+| generation | ~17 tok/s | 7.2 tok/s | **68.5 tok/s** |
+| prompt processing | — | 6,522 tok/s | **15,974 tok/s** |
+| cadence median | 36.6 s | 44.7 s | **32.4 s** |
+
+So doubling the fleet cost nothing in cadence: eighty bots on the 5080 decide
+FASTER than forty did on the 3090, and cadence is back within 8% of the 30s
+design target. **This block is therefore not cadence-comparable with the 40-bot
+shakedown history in either direction** — the earlier fleet ran slower — and any
+analysis spanning both must treat it as a regime change.
+
+Still ONE endpoint, no fallback, as declared. The 3090 is now idle and is
+deliberately NOT added as a second endpoint: at 7 tok/s against the 5080's 68,
+rotating bots across the two would put a large speed difference inside pools,
+and between-pool variance is already the term limiting this design. A
+heterogeneous pool is worse than an idle card.
 
 ### What this does not fix
 

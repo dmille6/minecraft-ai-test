@@ -122,7 +122,16 @@ def main():
     ap.add_argument("--town", nargs="+", required=True,
                     help="place-town.py JSON outputs, one per arm")
     ap.add_argument("--out", default="./env")
-    # The DEDICATED 3090 (10.0.0.16). The old default pointed at 10.0.0.190,
+    # THE RTX 5080 (10.0.0.72). Was the 3090 at 10.0.0.16, which could not carry
+    # eighty bots: generation-bound at 6.8 tok/s per stream with one
+    # llama-server thread pegged at 90.9% while the GPU oscillated 19-99% -- a
+    # single-threaded scheduler starving the card. The 5080 serves the
+    # byte-identical model (digest 845dbda0ea48ed74, Q4_K_M) at 68.5 tok/s under
+    # the same load, and cadence went 44.7s -> 32.4s. Verify the digest matches
+    # before ever moving this again; a different quantisation is a different
+    # treatment.
+    #
+    # The old default pointed at 10.0.0.190,
     # a host Block 2 does not use -- and a wrong default is worse than no
     # default, because it produces a roster that looks correct and runs against
     # the wrong hardware. Measured capacity: 40 concurrent bots at the 3000-token
@@ -132,7 +141,7 @@ def main():
     # not the per-bot rotation the pre-registration declares; it would change the
     # treatment environment mid-block and every affected interval would have to
     # be censored. If the endpoint dies, the outage rule applies instead.
-    ap.add_argument("--endpoints", default="http://10.0.0.16:11434",
+    ap.add_argument("--endpoints", default="http://10.0.0.72:11434",
                     help="comma-separated Ollama endpoints; shared by ALL arms")
     ap.add_argument("--code-version", default=None,
                     help="git short SHA of the frozen code; defaults to HEAD")
