@@ -40,7 +40,6 @@
     "had no IN WATER line, that disagreement IS the bug, and it is only visible",
     "because the two answers do not come from the same function."
   ],
-
   "contracts": [
     {
       "skill": "swim_to",
@@ -61,7 +60,6 @@
       "why": "Banked items survive death and carried ones do not, and nothing said so at the moment the bot was carrying a load worth banking."
     }
   ],
-
   "unconditional": {
     "goto": "Travel applies from any position; the destination comes from the task, not from an observation.",
     "explore": "The affordance for not knowing where anything is. Always available by construction.",
@@ -69,11 +67,13 @@
     "mine": "Named directly by the milestone chain whenever ore is the objective.",
     "home": "One fixed destination the bot always knows; KNOWN PLACES already carries it.",
     "status": "A reporting verb with no world precondition.",
-    "place": "Its usage line covers when it works, and it has no situational trigger beyond carrying a placeable.",
-    "board": "Offered only under the arms that have a board, so its availability IS the observation. See prompt-usage-coverage.test.mjs."
+    "place": "Its usage line covers when it works, and it has no situational trigger beyond carrying a placeable."
   },
-
   "gaps": {
+    "board": {
+      "why": "13,734 board-arm decisions, usage line present, lectern within 8 blocks on 1,000 of them, and ZERO proposals. The model is told the verb exists and what it takes, and never chooses it. Nothing tells it WHEN -- that it is standing at the board, or that it has unfiled lessons worth filing.",
+      "watch": "This is the third instance of the pattern that swim_to and deposit each demonstrated: the fix that worked both times was an observation line naming the situation, not more documentation."
+    },
     "build": {
       "why": "ZERO proposals in roughly 200,000 logged decisions, before and after it was documented. Nothing ever tells the model a structure would help, and it is not clear what would.",
       "watch": "eligible is unmeasurable until a trigger exists; the funnel reports the zero so it stays visible."

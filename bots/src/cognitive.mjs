@@ -78,7 +78,26 @@ const EVIDENCE_ONLY_IF_STUCK = new Set([
   'missing_ingredients', 'missing_tool', 'needs_station', 'inventory',
 ])
 
-const SKILL_NAMES = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly)
+// A SKILL IS OFFERED ONLY WHERE IT EXISTS, and `board` did not honour that.
+//
+// This list feeds BOTH the JSON-schema enum the model must emit into AND the
+// prompt's "Available skills" line. The usage line for `board` is gated on
+// memory scope -- correctly, since only the board and placebo arms have a
+// lectern -- but the NAME was offered to every arm. Rendered per scope:
+//
+//     board       usage-line YES   in available list YES
+//     checkpoint  usage-line YES   in available list YES
+//     shared      usage-line NO    in available list YES   <- offered, undocumented
+//     isolated    usage-line NO    in available list YES   <- offered, undocumented
+//
+// So hive and isolated bots were told a verb existed, never told what it took,
+// and their grammar permitted them to emit it -- for a lectern their world does
+// not have. That is precisely the drift prompt-usage-coverage.test.mjs was
+// written to catch, and `board` was its one hand-written exemption.
+const HAS_BOARD = config.memory.scope === 'board' || config.memory.scope === 'checkpoint'
+const SKILL_NAMES = Object.keys(SKILLS)
+  .filter(n => !SKILLS[n].chatOnly)
+  .filter(n => n !== 'board' || HAS_BOARD)
 
 // Exported so the classification policy can be asserted directly. The bug this
 // replaced was invisible in every test precisely because the policy lived only

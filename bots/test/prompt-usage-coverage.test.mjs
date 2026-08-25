@@ -16,7 +16,9 @@
 //
 // This asserts the registry, the enum, and the prose stay one list.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { SKILLS } from '../src/skills.mjs'
+import { config } from '../src/config.mjs'
 import { buildSystemPrompt } from '../src/prompt.mjs'
 
 let pass = 0, fail = 0
@@ -27,18 +29,42 @@ const t = (name, fn) => {
 
 // Mirrors cognitive.mjs:81 exactly. If that filter changes, this must too --
 // and the test failing is the notification.
-const SKILL_NAMES = Object.keys(SKILLS).filter(n => !SKILLS[n].chatOnly)
+// Mirrors cognitive.mjs exactly, INCLUDING the scope gate. If that filter
+// changes, this must too -- and the test failing is the notification.
+const HAS_BOARD = config.memory.scope === 'board' || config.memory.scope === 'checkpoint'
+const SKILL_NAMES = Object.keys(SKILLS)
+  .filter(n => !SKILLS[n].chatOnly)
+  .filter(n => n !== 'board' || HAS_BOARD)
 const sys = buildSystemPrompt(SKILL_NAMES)
 const documented = n => new RegExp(`^\\s+${n}\\s+args:`, 'm').test(sys)
 
 t('every selectable skill has a usage line', () => {
-  // `board` is the deliberate exception: it is offered only under the arms that
-  // have a board in their world, so its line is conditional on memory scope.
-  const missing = SKILL_NAMES.filter(n => n !== 'board' && !documented(n))
+  // THE EXEMPTION IS GONE, and it was hiding a real defect for the whole run.
+  //
+  // `board` used to be excused here as "conditional on memory scope" -- true of
+  // its USAGE LINE, and not of its NAME, which was offered to every arm. Hive
+  // and isolated bots were handed a verb with no explanation, for a lectern
+  // their world does not contain. The one skill this test exempted was the one
+  // skill that was broken.
+  //
+  // Availability is now gated on scope in cognitive.mjs, so the two lists agree
+  // and no exemption is needed.
+  const missing = SKILL_NAMES.filter(n => !documented(n))
   assert.deepEqual(missing, [],
     `selectable but undocumented: ${missing.join(', ')}. The model can emit ` +
     `these (they are in the schema enum) and is told they exist, but not what ` +
     `they take or what they are for.`)
+})
+
+t('AVAILABILITY AND DOCUMENTATION AGREE IN EVERY ARM', () => {
+  // Rendered per memory scope. `board` was listed for all four arms while its
+  // usage line existed only in two, so hive and isolated bots could emit a verb
+  // for a lectern their world does not have.
+  const src = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8')
+  assert.ok(/HAS_BOARD/.test(src),
+    'nothing gates board availability on memory scope; the two lists can drift again')
+  assert.ok(/n !== 'board' \|\| HAS_BOARD/.test(src),
+    'board is still offered to arms that have no board')
 })
 
 t('the available-skills list matches the documented set', () => {
