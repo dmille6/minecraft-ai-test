@@ -231,6 +231,96 @@ export const MILESTONES = MILESTONES_BY_ROLE.scout   // default / back-compat
 const SKIP_RETRY_BASE_MS = 45 * 60 * 1000        // first retry 45 min after giving up
 const SKIP_RETRY_MAX_MS  = 6 * 60 * 60 * 1000    // backs off, never past six hours
 
+// THE TECH LADDER, AND WHY IT LIVES HERE RATHER THAN IN A ROLE CHAIN.
+//
+// 0 of 80 bots passed stone_pickaxe in 20 days, and the reason was not the
+// model, the skills, the prompt or the pathfinder. NOTHING EVER ASKED THEM TO.
+//
+// The `gatherer` chain is four gather rungs and no craft rung at all -- by
+// design, and the comment above it says so: "deliberately simple, so it is the
+// control case". That was a sound diagnostic choice. Then every bot in the
+// fleet was assigned BOT_ROLE=gatherer, and the control case became the whole
+// experiment. The `miner` chain, which does drive wooden -> stone, is assigned
+// to nobody. And even it terminates at stone_pickaxe: no chain has ever
+// mentioned a furnace, coal or iron.
+//
+// So the ladder goes in SUSTAINING, which every role receives, rather than into
+// one role's chain. Three properties make that safe:
+//
+//   * M.craft is SATISFIED BY CAPABILITY -- a bot holding an iron pickaxe has
+//     already satisfied "craft a wooden pickaxe" (see the note on M.craft). So
+//     each rung is a no-op for a bot already above it and only bites below.
+//     The ladder self-advances and never re-does work.
+//   * SUSTAINING repeats forever with escalating targets, so a bot that loses
+//     its tools to a death is asked to rebuild them rather than carrying on
+//     without.
+//   * A rung that genuinely cannot be met is not a deadlock: the skip path
+//     gives up after 25 attempts and backs off, which is the same protection
+//     every other rung relies on.
+//
+// Ordered cheapest-first so a toolless bot is asked for wood before iron.
+const LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
+              'dark_oak_log', 'mangrove_log', 'cherry_log']
+const PLANKS = ['oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
+                'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks']
+const COBBLE = ['cobblestone', 'cobbled_deepslate', 'blackstone', 'stone',
+                'andesite', 'diorite', 'granite', 'tuff']
+
+/** Total of several item names in the inventory. */
+const countAny = (b, names) => names.reduce((t, n) => t + countItem(b, n), 0)
+
+/**
+ * A ladder rung that DRIVES progress when it can and gets out of the way when
+ * it cannot.
+ *
+ * `deposit_surplus` learned this the hard way and its note says it plainly: a
+ * rung written as a bare requirement blocks the entire chain for a bot that
+ * cannot meet it. Here that would be worse than merely stalled -- SUSTAINING is
+ * the lap that produces the PRIMARY ENDPOINT, so a bot with no wood would burn
+ * 25 attempts per rung against six rungs before returning to the gathering the
+ * experiment actually measures.
+ *
+ * So: satisfied if the bot HAS the thing (capability, per M.craft), and
+ * vacuously satisfied if it has no plausible means to make it. The rung fires
+ * exactly when it is actionable, which is the only time asking is useful.
+ */
+const ladder = (item, n, why, hint, hasMeans) => {
+  const base = M.craft(item, n, why, hint)
+  return { ...base, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) }
+}
+
+const TECH_LADDER = [
+  ladder('crafting_table', 1, 'Tools need one nearby.',
+         'craft item=crafting_table, then place item=crafting_table.',
+         b => countAny(b, PLANKS) >= 4 || countAny(b, LOGS) >= 1),
+  ladder('wooden_pickaxe', 1, 'Stone only drops cobblestone if mined with a pickaxe.',
+         'Needs a crafting_table nearby.',
+         b => countItem(b, 'crafting_table') >= 1 &&
+              (countAny(b, PLANKS) >= 5 || countAny(b, LOGS) >= 2)),
+  ladder('stone_pickaxe', 1, 'Better tools last longer, and iron needs one.',
+         'Needs a crafting_table nearby.',
+         b => countItem(b, 'crafting_table') >= 1 && countAny(b, COBBLE) >= 3 &&
+              (countItem(b, 'stick') >= 2 || countAny(b, PLANKS) >= 2)),
+  ladder('furnace', 1, 'Smelting needs one; 8 cobblestone.',
+         'craft item=furnace, then place item=furnace.',
+         b => countAny(b, COBBLE) >= 8),
+]
+
+// IRON IS DELIBERATELY NOT ON THIS LADDER YET, and the reason is measurable.
+//
+// Every rung above is a CRAFT gated on carrying the materials, so it is either
+// immediately actionable or vacuously satisfied -- it can never cost a failed
+// attempt. `gather iron_ore` is not like that. A well-equipped bot with no ore
+// would fail it 25 times before the skip path fired, EVERY LAP of SUSTAINING,
+// and SUSTAINING is the lap that produces the primary endpoint. That is a tax
+// on the number the experiment exists to measure, paid by the bots that are
+// doing best.
+//
+// So: ship the ladder that cannot cost anything, measure whether bots start
+// reaching stone, and add iron once there is evidence the lower rungs are being
+// climbed. The ceiling that mattered was "nothing ever asks for a pickaxe", and
+// that is what these four fix.
+
 export const SUSTAINING = [
   {
     id: 'stockpile_wood',
@@ -239,6 +329,11 @@ export const SUSTAINING = [
     progress: (b, n) => `${countItem(b, 'oak_log')}/${8 + n * 4} oak_log`,
     hint: 'gather with block=oak_log.',
   },
+  // The ladder sits between wood and stone: a bot has just been asked for logs,
+  // which is what the first rungs need, and cobblestone below needs the pickaxe
+  // this produces. Spread rather than bunched, so one long ladder does not
+  // starve the gathering the primary endpoint measures.
+  ...TECH_LADDER,
   {
     id: 'stockpile_stone',
     describe: n => `Stockpile ${16 + n * 8} cobblestone.`,

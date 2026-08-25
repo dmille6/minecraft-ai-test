@@ -122,8 +122,17 @@ console.log('\nthe controller counts completions and hands them to the goal')
 let dist = 90
 const bot = {
   entity: { position: { x: 28, y: 70, z: 0, distanceTo: () => dist } },
+  // Carries a crafting_table and a furnace so the TECH LADDER in SUSTAINING is
+  // already satisfied for this bot. This file's subject is survey_wider
+  // escalation, and without them the controller correctly parks on
+  // craft_crafting_table_1 -- a bot holding 64 planks SHOULD be asked to make
+  // one -- which a static fixture can never satisfy because it never crafts.
+  // That is the fixture's limit, not the chain's: in flight the bot crafts and
+  // moves on, and a bot with no materials skips the rung vacuously.
   inventory: { items: () => [{ name: 'oak_log', count: 64 }, { name: 'oak_planks', count: 64 },
-                             { name: 'stick', count: 64 }, { name: 'cobblestone', count: 64 }] },
+                             { name: 'stick', count: 64 }, { name: 'cobblestone', count: 64 },
+                             { name: 'crafting_table', count: 1 }, { name: 'furnace', count: 1 },
+                             { name: 'stone_pickaxe', count: 1 }] },
 }
 const store = { attempts: {}, skipped: [], skippedAt: {}, skipCount: {}, cycle: 0, completions: {} }
 const lessons = {
