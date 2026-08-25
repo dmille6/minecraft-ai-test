@@ -220,6 +220,17 @@ def did(c_before, c_after, k_before, k_after, key):
     return (a / b) / control_shift
 
 
+def _versions(rows, bots):
+    """The distinct `sha+digest` strings a group of bots actually reported."""
+    out = set()
+    for b in bots:
+        for _, d in rows.get(b, []):
+            v = (d.get("code") or {}).get("version")
+            if v:
+                out.add(v)
+    return out
+
+
 def fmt(v, nd=2):
     return "n/a" if v is None else f"{v:.{nd}f}"
 
@@ -294,6 +305,35 @@ def main():
         sys.exit(f"no bots matched pool '{a.pool}' -- nothing to report")
     if not control:
         sys.exit("no control bots -- a canary with no control is just a deploy")
+
+    # ARE THE TWO GROUPS ACTUALLY RUNNING DIFFERENT CODE?
+    #
+    # Membership is decided by POOL NAME, which says nothing about what the bots
+    # are executing. On 2026-08-25 a scheduled fleet recycle restarted all eighty
+    # bots onto whatever was in $H/src -- the canary build -- without touching
+    # their env labels. The fleet then reported 75 x `78ab136+ab359c` and
+    # 5 x `34892cc+ab359c`: identical DIGESTS, different shas. This report
+    # cheerfully compared the build against itself and printed 34% versus 28%.
+    #
+    # The digest is the hash of the .mjs actually loaded, so it is the only field
+    # that describes what ran. If both sides share it, there is no experiment
+    # here and saying so is the entire job.
+    cver = _versions(rows, canary)
+    kver = _versions(rows, control)
+    print(f"\n  canary  code: {', '.join(sorted(cver)) or 'unknown'}")
+    print(f"  control code: {', '.join(sorted(kver)) or 'unknown'}")
+    cdig = {v.split('+')[-1] for v in cver}
+    kdig = {v.split('+')[-1] for v in kver}
+    if cdig and kdig and cdig == kdig:
+        print("\n  NOT A CANARY: both groups are running the same code digest "
+              f"({', '.join(sorted(cdig))}).")
+        print("  Labels differ, the loaded source does not. Nothing below would")
+        print("  mean anything, so it is not printed. A scheduled fleet recycle")
+        print("  does exactly this -- see scripts/fleet-recycle.sh.\n")
+        return 2
+    if len(cdig) > 1 or len(kdig) > 1:
+        print("\n  MIXED CODE within a group; the split is not clean. Refusing.\n")
+        return 2
 
     if t0 is not None:
         return report_did(rows, canary, control, t0, a)

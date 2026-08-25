@@ -25,6 +25,36 @@ set -u
 STAGGER="${STAGGER:-6}"
 ENVDIR=/srv/mcbots/harness/env
 
+# A RECYCLE DESTROYS A CANARY, SILENTLY, AND DID.
+#
+# 2026-08-25: a canary put pool hive-a on 34892cc while 75 bots stayed on
+# 78ab136. This timer fired at 13:18, restarted all eighty, and every one of
+# them came back on whatever was in $H/src -- the canary build. The env labels
+# did not move, so the fleet reported
+#
+#     75 x 78ab136+ab359c        <- old label, NEW code
+#      5 x 34892cc+ab359c
+#
+# All eighty running identical code, and a canary report comparing hive-a
+# against "control" was comparing the build against itself. It read 34% versus
+# 28% and meant nothing.
+#
+# The restart itself is correct and stays: memory grows with runtime and an
+# unscheduled OOM restart is arm-asymmetric, which is a worse confound. What was
+# missing is that the recycle had no idea a canary existed.
+#
+# So: if the manifest declares one, refuse. A skipped recycle costs some memory
+# headroom for a few hours; a silently dissolved canary costs the experiment.
+MANIFEST=/srv/mcbots/trial-manifest.json
+if [ -f "$MANIFEST" ] && grep -q '"canary_pool": *"[^"]\+"' "$MANIFEST" 2>/dev/null; then
+  POOL=$(grep -o '"canary_pool": *"[^"]*"' "$MANIFEST" | sed 's/.*: *"//;s/"//')
+  echo "$(date -Is) fleet recycle SKIPPED: a canary is declared on pool '$POOL'."
+  echo "  Restarting now would put every bot on the canary source while leaving"
+  echo "  the control labels untouched, which dissolves the split without saying so."
+  echo "  Clear canary_pool in $MANIFEST (a fleet-wide deploy does this) to re-enable."
+  exit 0
+fi
+
 echo "$(date -Is) fleet recycle starting"
 for f in "$ENVDIR"/*.env; do
   B=$(basename "$f" .env)

@@ -203,6 +203,41 @@ def min_exposure_is_meaningful():
 t("a canary is not judged on a fraction of an hour", min_exposure_is_meaningful)
 
 
+def identical_digests_are_not_a_canary():
+    """Membership is decided by POOL NAME, which says nothing about what the
+    bots are RUNNING. A scheduled fleet recycle restarted all eighty onto the
+    canary source without moving their labels, and this report compared the
+    build against itself and printed 34% versus 28%."""
+    def one(b, i):
+        return [(NOW + datetime.timedelta(seconds=s),
+                 {"bot": {"name": b, "pos": {"x": s, "y": 64, "z": 0}},
+                  "code": {"version": "78ab136+SAMEDIGEST"},
+                  "skill": {"name": "_gather", "status": "success"}}) for s in range(0, 600, 30)]
+    rows = {**world(["hive-a-A"], one), **world(["hive-b-A"], one)}
+    cv = cr._versions(rows, ["hive-a-A"])
+    kv = cr._versions(rows, ["hive-b-A"])
+    assert cv and kv, "no versions extracted at all"
+    assert {v.split("+")[-1] for v in cv} == {v.split("+")[-1] for v in kv}, \
+        "the fixture should have identical digests"
+    src = open(__file__.replace("test-canary-report.py", "canary-report.py")).read()
+    assert "NOT A CANARY" in src, "the report does not check digests at all"
+    assert "cdig == kdig" in src, "no equality check on the loaded-code digest"
+
+t("IDENTICAL DIGESTS ARE NOT A CANARY, whatever the labels say",
+  identical_digests_are_not_a_canary)
+
+
+def versions_are_read_from_the_loaded_code():
+    def one(b, i):
+        return [(NOW, {"bot": {"name": b}, "code": {"version": "abc+111"},
+                       "skill": {"name": "_gather", "status": "success"}})]
+    v = cr._versions(world(["hive-a-A"], one), ["hive-a-A"])
+    assert v == {"abc+111"}, v
+
+t("versions come from the record, not from the pool name",
+  versions_are_read_from_the_loaded_code)
+
+
 def harvest_gate_clears_the_measured_null():
     """The harvest gate must sit BELOW what a no-op canary actually produced.
 
