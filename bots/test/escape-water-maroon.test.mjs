@@ -23,6 +23,7 @@
 import assert from 'node:assert'
 import {
   drowningRelease, maroonState, scaffoldPrereq, pickaxePrereq, shaftCapNeedsTool,
+  CLIMB_CEILING,
 } from '../src/reflex.mjs'
 import { climbPrerequisite } from '../src/skills.mjs'
 
@@ -62,6 +63,65 @@ t('trapped with no blocks asks for scaffold instead of doing nothing', () => {
 
 t('trapped with blocks climbs, as before', () => {
   assert.equal(maroonState({ ...base, haveBlocks: true }), 'climb')
+
+// --- THE SKY PILLAR ---------------------------------------------------------
+//
+// The overworld build limit is y=320, so above the terrain "up is open" is
+// ALWAYS true and stays true however far the bot climbs. Two bots reached
+// y=320.5 and y=320 and logged
+//
+//     no path can start from y=320 with an open column above -- climbing out
+//
+// 163 times in three hours, pillaring against the ceiling of the world. The
+// climb trigger -- open column, no route from here -- is satisfied perfectly by
+// a bot standing on a one-block tower in the sky, and climbing is the single
+// thing that cannot help it.
+
+t('A BOT AT THE BUILD LIMIT IS NOT ASKED TO CLIMB', () => {
+  const sky = { ...base, haveBlocks: true, y: 320 }
+  assert.equal(maroonState(sky), 'stranded_high',
+    'told a bot at y=320 to pillar higher, which is what it did 163 times')
+})
+
+t('and it is not asked for MORE BLOCKS either', () => {
+  // `need_scaffold` publishes a prerequisite to go and gather dirt. For a bot
+  // stranded in the sky that sends the cognitive layer to fetch materials for a
+  // tower that cannot go anywhere.
+  const sky = { ...base, haveBlocks: false, y: 320 }
+  assert.equal(maroonState(sky), 'stranded_high')
+  assert.notEqual(maroonState(sky), 'need_scaffold')
+})
+
+t('the ceiling does not misfire on ordinary ground', () => {
+  // The pregenerated terrain around the town sits near y=73.
+  assert.equal(maroonState({ ...base, haveBlocks: true, y: 73 }), 'climb')
+  assert.equal(maroonState({ ...base, haveBlocks: false, y: 19 }), 'need_scaffold',
+    'a bot trapped underground still needs scaffold')
+})
+
+t('the ceiling is USABLE, not just technically below the build limit', () => {
+  // A ceiling of 319 passes "below 320" and is worthless: the bot still climbs
+  // to 319 before anything notices. It has to fire with room to spare above
+  // real terrain and well before the world runs out.
+  assert.ok(CLIMB_CEILING >= 196, `CLIMB_CEILING ${CLIMB_CEILING} would misfire on mountains`)
+  assert.ok(CLIMB_CEILING <= 256,
+    `CLIMB_CEILING ${CLIMB_CEILING} is so close to the build limit that a bot reaches ` +
+    `the ceiling of the world before the rule fires`)
+})
+
+t('THE CEILING OUTRANKS THE BLOCK AND TOOL BRANCHES', () => {
+  // Order matters and is easy to get wrong. A sky-stranded bot whose column is
+  // also capped would otherwise be told to go and find a pickaxe, sending the
+  // cognitive layer after a tool to break the sky.
+  const cappedSky = { ...base, haveBlocks: true, cappedNeedsTool: true, y: 320 }
+  assert.equal(maroonState(cappedSky), 'stranded_high',
+    'asked a bot at the build limit for a pickaxe instead of a way down')
+})
+
+t('a bot with no y still gets the old behaviour, not a wrong one', () => {
+  // Callers that cannot supply a position must not be silently reclassified.
+  assert.equal(maroonState({ ...base, haveBlocks: true }), 'climb')
+})
 })
 
 t('an open shaft capped by hard stone asks for a pickaxe before climbing', () => {

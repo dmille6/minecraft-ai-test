@@ -124,8 +124,38 @@ export function drowningRelease (ashore, { reason = 'ceiling' } = {}) {
  * the trapped-without-blocks case publishes a prerequisite and lets applyPrereq
  * make it the task.
  */
-export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath, cappedNeedsTool = false }) {
+/**
+ * The overworld build limit is y=320, so ABOVE THE TERRAIN "up is open" is
+ * always true and stays true no matter how far the bot climbs. Two bots reached
+ * y=320.5 and y=320 and logged
+ *
+ *     no path can start from y=320 with an open column above -- climbing out
+ *
+ * 163 times in three hours, pillaring against the ceiling of the world. The
+ * condition that triggers a climb -- open column, no route from here -- is
+ * satisfied perfectly by a bot standing on a one-block tower in the sky, and
+ * climbing is the one thing that cannot help it.
+ *
+ * A bot that high is not trapped under something; it is stranded above
+ * everything, and the direction it needs is down. The reflex cannot plan a
+ * descent at 500ms, so this is published rather than acted on.
+ *
+ * The ceiling is generous: the pregenerated terrain around the town sits near
+ * y=73 and the tallest overworld peaks reach ~256, so 200 cannot be mistaken
+ * for legitimate mountain travel while still catching the sky-pillar case by a
+ * wide margin.
+ */
+export const CLIMB_CEILING = 200
+
+export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath,
+                              cappedNeedsTool = false, y = null,
+                              climbCeiling = CLIMB_CEILING }) {
   if (!upIsOpen || entombed || canStartPath) return 'none'
+  // Checked BEFORE the block/tool branches: a bot at the build limit with a
+  // full inventory of dirt is not one scaffold away from rescue, and asking it
+  // for more blocks -- which `need_scaffold` does -- sends the cognitive layer
+  // to gather materials for a tower that cannot go anywhere.
+  if (typeof y === 'number' && y >= climbCeiling) return 'stranded_high'
   if (haveBlocks && cappedNeedsTool) return 'need_pickaxe'
   return haveBlocks ? 'climb' : 'need_scaffold'
 }
@@ -1430,7 +1460,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const mstate = (!upIsOpen || entombedNow)
           ? 'none'
           : maroonState({ upIsOpen, haveBlocks, entombed: entombedNow,
-                          canStartPath, cappedNeedsTool })
+                          canStartPath, cappedNeedsTool,
+                          y: bot.entity?.position?.y })
         if (mstate === 'need_scaffold' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
@@ -1483,6 +1514,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                              `is available — asked for pickaxe`,
                      snapshot: snapshot(bot) })
         }
+        // STRANDED ABOVE EVERYTHING, not trapped under it. Pillaring is what got
+        // the bot here and cannot get it out; the direction it needs is down,
+        // and planning a descent is cognitive work, not a 500ms reflex.
+        if (mstate === 'stranded_high' &&
+            Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
+          lastMaroonPrereqAt = Date.now()
+          const yNow = Math.round(bot.entity.position.y)
+          logEvent({ kind: 'marooned_stranded_high', status: 'failed',
+                     detail: `no route from y=${yNow}, which is at or above the climb ceiling ` +
+                             `of ${CLIMB_CEILING} — the column above is open because the build ` +
+                             `limit is, not because there is anywhere to go. Climbing cannot ` +
+                             `help; this bot needs to descend`,
+                     snapshot: snapshot(bot) })
+          runner.interrupt('stranded_high')
+        }
+
         if (mstate === 'climb') {
 
           marooned = true
