@@ -217,5 +217,42 @@ def harvest_gate_clears_the_measured_null():
 
 t("the harvest gate clears the measured no-op null", harvest_gate_clears_the_measured_null)
 
+
+def gates_sit_at_the_measured_null():
+    """Every blocking gate must sit at or below the p5 of its MEASURED DiD null.
+
+    Measured on a uniform fleet, 4h windows, 5-bot pool:
+        harvest p5 0.43 · deaths (rate, not ratio) · reflex-owned p5 0.49
+    A gate above its own p5 fires on changes that did nothing."""
+    NULL_P5 = {"gather_ratio": 0.43}
+    for label, key, thr, sense, why in cr.REGRESSION:
+        if key in NULL_P5 and sense == "at least":
+            assert thr <= NULL_P5[key] + 1e-9, (
+                f"{label} gate {thr} is above its measured null p5 {NULL_P5[key]}")
+
+t("blocking gates sit at the measured null, not above it", gates_sit_at_the_measured_null)
+
+
+def reflex_owned_is_not_a_blocker():
+    """Its null spread was 3-4x at one hour AND at four hours. A term that does
+    not shrink with exposure is heterogeneity, not sampling noise, and cannot be
+    fixed by running longer -- so it must not decide whether code ships."""
+    blockers = {g[1] for g in cr.REGRESSION}
+    assert "held_ratio" not in blockers and "held_frac" not in blockers, (
+        "reflex-owned is back as a blocking gate; its null does not tighten "
+        "with window, so the block rate would be unpredictable")
+    assert "held_frac" in {g[1] for g in cr.PROGRESS}, "it should remain a diagnostic"
+
+t("reflex-owned is a DIAGNOSTIC, never a blocker", reflex_owned_is_not_a_blocker)
+
+
+def the_harvest_gate_admits_what_it_cannot_do():
+    """A catastrophe gate that reads as a safety guarantee is worse than none."""
+    why = [g[4] for g in cr.REGRESSION if g[1] == "gather_ratio"][0]
+    assert "CATASTROPHE" in why.upper(), "the harvest gate does not say what it is"
+    assert "cannot rule out" in why, "it does not state its own limit"
+
+t("the harvest gate states its own limit in the output", the_harvest_gate_admits_what_it_cannot_do)
+
 print(f"\n  {P} passed, {F} failed")
 sys.exit(1 if F else 0)

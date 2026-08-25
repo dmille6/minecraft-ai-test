@@ -52,55 +52,46 @@ ESCAPED = "drowning_escaped"
 # result is GOOD ENOUGH is a different question, belonging to the shakedown
 # gate, and mixing the two is what produced the nonsense above.
 #
-# REGRESSION gates block a rollout: the change must not make these worse.
-# MEASURED NULLS, difference-in-differences, 5-bot pool vs 35, 4-hour windows,
-# swept over 8 pools x 5 pseudo-deploy times on a UNIFORM fleet (no change
-# deployed). scripts/measure-null.py reproduces these.
+# REGRESSION gates block a rollout. Each is set at the p5 of its MEASURED null,
+# so it fires on things the instrument can actually resolve and not on things it
+# cannot.
 #
-#     metric          p5    median   p95    usable?
-#     re-entry gap   0.75    0.98   1.40    yes -- resolves ~30%
-#     ended on land  0.64    1.04   2.29    yes -- resolves ~35% down, 2.3x up
-#     reflex-owned   0.49    1.02   2.13    weak, and does NOT improve with window
-#     harvest        0.43    0.96   3.87    NO -- catches a collapse, not a dip
-#
-# Harvest is the important one to be honest about: at five bots it cannot
-# certify that a change did not cost 2x the harvest. It is kept as a blocking
-# gate at the p5 of its measured null, which catches a collapse and nothing
-# subtler. Claiming more would be the false precision this file already had once.
+# THE HARVEST GATE IS A CATASTROPHE GATE, NOT A NON-INFERIORITY GATE, and
+# calling it anything else would be the false confidence this file has already
+# produced once. At five bots over four hours it means: block if harvest
+# plausibly fell by more than about 57%. It does NOT mean harvest is safe. A
+# change that quietly costs 30% of the harvest passes this gate, and only the
+# 7-day block can say otherwise.
 REGRESSION = [
-    # 0.75, NOT 0.90, AND THE NUMBER IS MEASURED RATHER THAN CHOSEN.
-    #
-    # A no-op canary -- identical bots/src, only the version label differing --
-    # produced a harvest ratio of 0.88 over an hour. One pool against
-    # thirty-five bots is five samples against thirty-five, so a threshold of
-    # 0.90 sits inside the instrument's own noise and fails changes that do
-    # nothing. Separately, two pools under IDENTICAL treatment have been
-    # measured 1.8-2.0x apart on this endpoint over six hours, so the null
-    # distribution here is wide and is NOT yet characterised: one no-op run is
-    # one sample of it.
-    #
-    # So this catches a harvest collapse, not a harvest dip, and that is the
-    # honest claim. Tightening it needs repeated no-op canaries to establish
-    # what the null actually looks like -- until then a number tighter than the
-    # single observation would be false precision.
-    ("harvest vs control",  "gather_ratio",     0.75, "at least",
-     "of the control's gathers per exposure-hour (no-op canary measured 0.88)"),
+    ("harvest COLLAPSE",    "gather_ratio",     0.43, "at least",
+     "of the control's harvest — CATASTROPHE GATE ONLY; cannot rule out losses "
+     "smaller than ~2x (measured null p5=0.43, p95=3.87)"),
     ("deaths vs control",   "death_ratio",      1.25, "at most",
      "times the control's death rate"),
-    ("reflex time vs ctrl", "held_ratio",       1.10, "at most",
-     "times the control's share of exposure spent in water trouble"),
 ]
+
+# DROPPED AS A BLOCKING GATE: reflex-owned share.
+#
+# Its null spread stayed at 3-4x whether the window was one hour or four. A
+# sampling-noise term shrinks with exposure; this one does not, so it is pool
+# and world heterogeneity, or instability in what counts as an event. A gate
+# that cannot be tightened by running longer is not measuring the change, and
+# blocking on it would have rejected good work at a rate nobody could predict.
+# It stays below as a diagnostic, where being noisy is harmless.
 
 # PROGRESS metrics are reported against the control and against the standing
 # target, and they never block on their own. `--expect <metric>` names the one
 # this change is supposed to move, and THAT one is required to improve.
 PROGRESS = [
+    # Measured DiD nulls at 4h/5 bots: escape_rate p5 0.64 p95 2.29 (usable),
+    # reentry_s p5 0.75 p95 1.40 (the tightest metric here).
     ("ended on land",       "escape_rate",      0.60, "at least",
-     "of episodes end on land"),
+     "of episodes end on land (DiD outside 0.64..2.29 is real)"),
     ("re-entry gap (s)",    "reentry_s",       60.00, "at least",
-     "seconds before drowning again"),
+     "seconds before drowning again (DiD outside 0.75..1.40 is real)"),
+    # Diagnostic only. See the note above the REGRESSION list.
     ("reflex-owned share",  "held_frac",        0.10, "at most",
-     "of exposure spent in water trouble"),
+     "of exposure in water trouble — DIAGNOSTIC, null does not tighten (0.49..2.13)"),
 ]
 
 # A CANARY IS FIVE BOTS. It needs enough exposure before its numbers mean
