@@ -20,7 +20,18 @@
 #   placebo-a/b MEMORY_SCOPE=checkpoint same walk to the totem, shares nothing
 set -euo pipefail
 
-SEED="${1:?usage: provision-block2.sh <seed> [base_port]}"
+SEED="${1:?usage: provision-block2.sh <seed> [base_port] [repetition]}"
+# WHICH REPETITION THIS IS, and it exists so the CPU layout can actually change
+# between them. The stratified assignment below is seeded, which makes it
+# reproducible -- and seeded on $SEED ALONE it is also CONSTANT, so re-running
+# the provisioner for repetition 2 would reproduce repetition 1's layout exactly
+# and the "re-randomise between repetitions" requirement of preregistration
+# amendment 7 could never have happened. A seeded shuffle nobody varies is a
+# fixed assignment with extra steps, which is the confound it was meant to fix.
+#
+# The WORLD seed must not change between repetitions -- identical terrain is the
+# entire point -- so the repetition index is mixed into the CPU seed only.
+REP="${3:-1}"
 BASE_PORT="${2:-25570}"
 ROOT=/srv/block2
 # EIGHT WORLDS: two independent pools per arm. Five bots sharing one memory are
@@ -74,7 +85,7 @@ ARMS=(hive-a hive-b board-a board-b isolated-a isolated-b placebo-a placebo-b
 # from each. Whatever varies across the range -- NUMA distance, hyperthread
 # siblings, whatever else the host is doing -- now varies identically within
 # every arm, while the assignment inside a stratum stays random.
-mapfile -t SLOT < <(python3 - "${ARMS[*]}" "$SEED" <<'PYSLOT'
+mapfile -t SLOT < <(python3 - "${ARMS[*]}" "$SEED-rep$REP" <<'PYSLOT'
 import random, sys
 arms = sys.argv[1].split()
 r = random.Random('cpu-slots-' + sys.argv[2])

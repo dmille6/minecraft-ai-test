@@ -77,9 +77,10 @@ say "  ---- supervisor and tooling ----"
 # thing standing between a bad siting run and eight unusable worlds -- ran only
 # when someone remembered to run it. A gate nobody executes is not a gate.
 if command -v python3 >/dev/null 2>&1; then
-  for f in infra/guard/test_*.py scripts/test-*.py; do
+  for f in infra/guard/test_*.py scripts/test-*.py scripts/test-*.sh; do
     [ -e "$f" ] || continue
-    if out=$(python3 "$f" 2>&1); then
+    case "$f" in *.sh) RUN="bash";; *) RUN="python3";; esac
+    if out=$($RUN "$f" 2>&1); then
       say "  ok    $(basename "$f")  $(echo "$out" | tail -1)"
     else
       echo "  FAIL  $(basename "$f")"
