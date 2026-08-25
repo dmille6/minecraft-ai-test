@@ -62,7 +62,16 @@ say "  ---- behaviour (micro-worlds and replays) ----"
 for f in bots/test/*.test.mjs; do
   b="test/$(basename "$f")"
   out=$(RUN_JS "$b" 2>&1)
-  if [ $? -ne 0 ] || echo "$out" | grep -q "FAIL"; then
+  # ANCHORED. This was `grep -q "FAIL"`, unanchored, so it matched the letters
+  # F-A-I-L anywhere in the output -- including inside the NAME of a passing
+  # test. "PERMANENT OWNERSHIP CAPTURE IS ITS OWN FAILURE" is a test that
+  # passes, and preflight refused a deploy over it. A gate that reads prose as
+  # a verdict is a gate people learn to override.
+  #
+  # The exit code is the real signal; every runner here exits non-zero on
+  # failure. This grep is the belt for a runner that forgets to, so it must
+  # match the failure LINE FORMAT and nothing else.
+  if [ $? -ne 0 ] || echo "$out" | grep -qE "^  FAIL[[:space:]]|^FAILED"; then
     echo "  FAIL  $b"
     echo "$out" | grep -E "FAIL|Error|assert" | head -4 | sed 's/^/        /'
     FAILED+=("$b")
@@ -84,7 +93,7 @@ if command -v python3 >/dev/null 2>&1; then
       say "  ok    $(basename "$f")  $(echo "$out" | tail -1)"
     else
       echo "  FAIL  $(basename "$f")"
-      echo "$out" | grep -E "FAIL" | head -4 | sed 's/^/        /'
+      echo "$out" | grep -E "^  FAIL[[:space:]]|^FAILED" | head -4 | sed 's/^/        /'
       FAILED+=("$(basename "$f")")
     fi
   done
