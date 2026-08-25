@@ -209,6 +209,59 @@ await ta('a one-block "crossing" is refused as a bad target', () => {
   })
 })
 
+// --- the PORPOISE CYCLE, tested through swim_to and not around it ----------
+//
+// swim-breath.mjs is unit-tested on its own, and that is not enough: a mutation
+// that pinned `breathPhase` to 'dive' -- discarding the planner's carried state
+// inside the real loop -- passed the entire suite. The module was right and the
+// CALLER was wrong, which is the seam that produced three separate defects here
+// in one day. So this drives the actual skill and reads the actual controls.
+
+await ta('THE WIRING: swim_to jumps for air LONG before the reflex band', async () => {
+  // An ocean crossing with air draining as the loop ticks. The reflex fires at
+  // 25% of scale; the planner must have surfaced well above that.
+  const bot = makeBot({ pos: new V(0, 62, 0), blocks: ocean() })
+  bot.assertNav = () => {}
+  bot.oxygenLevel = 300
+  let minSeenWhenJumped = 1
+  let jumped = false
+  const origSet = bot.setControlState
+  bot.setControlState = (k, v) => {
+    if (k === 'jump' && v === true) {
+      jumped = true
+      minSeenWhenJumped = Math.min(minSeenWhenJumped, bot.oxygenLevel / 300)
+    }
+    origSet(k, v)
+  }
+  // Drain air the way the server does, and stop the run once we have seen enough.
+  const ctl = new AbortController()
+  const drain = setInterval(() => {
+    bot.oxygenLevel = Math.max(0, bot.oxygenLevel - 12)
+    if (bot.oxygenLevel <= 300 * 0.30 || jumped) ctl.abort()
+  }, 40)
+  try {
+    await SKILLS.swim_to.run({ bot }, { x: 400, y: 62, z: 0 }, ctl.signal)
+  } catch { /* aborted on purpose */ }
+  clearInterval(drain)
+  assert.ok(jumped, 'swim_to never asked for air at all during a draining crossing')
+  assert.ok(minSeenWhenJumped > 0.25,
+    `first surfaced at ${(minSeenWhenJumped * 100).toFixed(0)}% air, inside the reflex band`)
+})
+
+t('the loop drives the planner, and carries its phase', () => {
+  // The specific mutation that survived: breathPhase = 'dive' instead of
+  // plan.phase. Without the carried phase the bot re-decides every tick and
+  // bobs instead of breathing.
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.ok(/breathPlan\(/.test(sk), 'swim_to no longer consults the breath planner')
+  assert.ok(/breathPhase = plan\.phase/.test(sk),
+    'the planner\'s phase is not carried between ticks; surfacing will oscillate')
+  assert.ok(/setControlState\('sprint', plan\.sprint\)/.test(sk),
+    'sprint is not driven by the plan')
+  assert.ok(/setControlState\('jump', plan\.jump\)/.test(sk),
+    'jump is not driven by the plan')
+})
+
 t('swim_to surfaces before it travels', () => {
   const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
   const surf = sk.indexOf('SURFACE_MS')

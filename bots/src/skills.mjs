@@ -30,6 +30,7 @@ const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
+import { breathPlan } from './swim-breath.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -2504,6 +2505,21 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
     const h = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
     return !!h && h.name !== 'water' && h.boundingBox === 'empty'
   }
+  // IS THERE ANY AIR ABOVE US AT ALL. Porpoising assumes the surface is
+  // reachable; under ice, an overhang or a flooded ceiling it is not, and
+  // burning the last of a breath rising into stone is worse than handing the
+  // body to the reflex early. Four blocks is what a bot can rise through inside
+  // one breath's margin.
+  const canSurface = () => {
+    for (let dy = 1; dy <= 4; dy++) {
+      const b = bot.blockAt?.(bot.entity.position.offset(0, dy, 0))
+      if (!b) return true                       // unloaded: assume open, do not trap
+      if (b.name !== 'water' && b.boundingBox === 'empty') return true
+      if (b.boundingBox === 'block') return false   // solid lid
+    }
+    return true
+  }
+  let breathPhase = 'dive'
   // The server's air scale, learned rather than assumed: 1.21.8 reports ~400
   // where a constant would say 20, and a threshold on the wrong scale never fires.
   let airScale = 20
@@ -2571,12 +2587,17 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
                  detail: `stalled ${(dist).toFixed(0)}b out; closed ${(startDist - best).toFixed(0)}b of ${startDist.toFixed(0)}b` }
       }
 
-      // Real drowning outranks the crossing. Hand the body back and let the
-      // reflex do the job it exists for; the caller can re-issue the swim.
+      // Real drowning still outranks the crossing, but this is now a BACKSTOP
+      // rather than the plan. It fired 28 times over six hours as
+      // "aborted: oxygen 4" -- which is inside the reflex band, so by then the
+      // body was already being taken. breathPlan surfaces long before here;
+      // reaching this line means the porpoise cycle failed and the honest thing
+      // is to hand over.
       if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel > 0 &&
           bot.oxygenLevel <= 4 && !onLand()) {
         return { status: 'failed', failClass: 'hazard_interrupt',
-                 detail: `aborted: oxygen ${bot.oxygenLevel}, letting the reflex surface us` }
+                 detail: `aborted: oxygen ${bot.oxygenLevel} despite porpoising, ` +
+                         `letting the reflex surface us` }
       }
 
       try { await bot.lookAt(new Vec3(target.x, here.y, target.z), true) } catch { /* not connected */ }
@@ -2595,14 +2616,28 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
       //
       // So: travel by default, surface only on demand. `jump` is pulsed when the
       // head is actually submerged or air is running low -- not held.
-      const headUp = headIsAir()
-      const lowAir = typeof bot.oxygenLevel === 'number' && airScale > 0 &&
-                     bot.oxygenLevel <= airScale * 0.35
-      const needSurface = !headUp && lowAir
+      // PORPOISE, DO NOT PANIC. The old rule surfaced at 35% air against a
+      // reflex firing at 25% -- ten points, on a signal sampled every 500ms,
+      // while rising takes time. The reflex usually won that race: of 279
+      // started crossings over six hours, `drowning` was the single largest
+      // outcome at 174. See swim-breath.mjs.
+      const plan = breathPlan({
+        airFraction: (airScale > 0 && typeof bot.oxygenLevel === 'number')
+          ? bot.oxygenLevel / airScale
+          : null,
+        headUp: headIsAir(),
+        phase: breathPhase,
+        canSurface: canSurface(),
+      })
+      breathPhase = plan.phase
+      if (plan.abort) {
+        return { status: 'failed', failClass: 'hazard_interrupt',
+                 detail: `aborted: ${plan.reason} (oxygen ${bot.oxygenLevel})` }
+      }
       bot.setControlState('forward', true)
-      bot.setControlState('sprint', true)
-      bot.setControlState('jump', needSurface)
-      if (needSurface) jumpTicks++
+      bot.setControlState('sprint', plan.sprint)
+      bot.setControlState('jump', plan.jump)
+      if (plan.jump) jumpTicks++
       strokes++
       await new Promise(r => setTimeout(r, TICK_MS))
     }
