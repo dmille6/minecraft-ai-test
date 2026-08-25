@@ -50,16 +50,29 @@ if (act === 'fail') {
 l.save()
 `)
 
-const run = (bot, env) => execFileSync(process.execPath, [DRIVER], {
-  env: { ...process.env, MEMORY_SCOPE: 'shared', BOT_NAME: bot, STATE_DIR: dir,
-         LOG_LEVEL: 'error', ...env },
-  stdio: ['ignore', 'ignore', 'pipe'],
-})
+// EACH BOT GETS ITS OWN STATE_DIR, as production does. This fixture used to
+// hand every bot the same directory, which makes a pool-NAMED file shared for
+// free -- and that is why it never caught the real defect, where the roster
+// gives each bot /var/lib/mcai/<bot> and five hive bots ended up with five
+// private stores. These are real child processes, so this is also the only
+// genuine concurrency test of the shared write path.
+const botDir = bot => path.join(dir, bot)
+const poolDir = path.join(dir, '_pool-hive')
+
+const run = (bot, env) => {
+  fs.mkdirSync(botDir(bot), { recursive: true })
+  return execFileSync(process.execPath, [DRIVER], {
+    env: { ...process.env, MEMORY_SCOPE: 'shared', BOT_NAME: bot,
+           STATE_DIR: botDir(bot), LOG_LEVEL: 'error', ...env },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  })
+}
 
 const store = () => {
-  const f = fs.readdirSync(dir).find(f => f.includes('lesson'))
+  let f
+  try { f = fs.readdirSync(poolDir).find(f => f.includes('lesson')) } catch { return { avoid: {} } }
   if (!f) return { avoid: {} }
-  try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { return { avoid: {} } }
+  try { return JSON.parse(fs.readFileSync(path.join(poolDir, f), 'utf8')) } catch { return { avoid: {} } }
 }
 const failsFor = (k) => {
   const a = store().avoid ?? {}

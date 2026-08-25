@@ -19,6 +19,7 @@ import path from 'node:path'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { actionKey, SKILLS } from './skills.mjs'
+import { poolStateDir } from './worldfacts.mjs'
 
 const SCHEMA = 1
 const MAX_AVOID = 40
@@ -76,7 +77,46 @@ export class Lessons {
   }
 
   /** Merge our deltas into whatever peers have written since we loaded. */
+  // FIVE PROCESSES, ONE FILE. The write itself is already atomic (tmp+rename,
+  // below) so nobody reads a half file -- but read-merge-write without a lock
+  // still loses updates: A reads, B reads, A renames, B renames, A's increment
+  // is gone. The merge is convergent so nothing corrupts, yet the loss is not
+  // symmetric: it systematically UNDERCOUNTS how fast a shared belief
+  // accumulates, which is precisely the quantity this arm exists to measure.
+  //
+  // O_EXCL on a lockfile is the smallest thing that cannot silently drop one.
+  // A stale lock from a killed bot is broken after LOCK_STALE_MS so a crash
+  // cannot wedge a pool forever.
+  #withLock (fn) {
+    const lock = `${this.file}.lock`
+    const LOCK_STALE_MS = 10_000
+    for (let i = 0; i < 50; i++) {
+      try {
+        const fd = fs.openSync(lock, 'wx')
+        try { fs.writeSync(fd, String(process.pid)) } catch { /* advisory only */ }
+        try { return fn() } finally {
+          try { fs.closeSync(fd) } catch { /* already closed */ }
+          try { fs.unlinkSync(lock) } catch { /* already gone */ }
+        }
+      } catch (e) {
+        if (e.code !== 'EEXIST') return fn()          // lock unusable: do not lose the write
+        try {
+          if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) fs.unlinkSync(lock)
+        } catch { /* raced with the holder */ }
+        // Busy-wait deliberately: saves are rare and the critical section is a
+        // few milliseconds, so a timer here would cost more than it saves.
+        const until = Date.now() + 4
+        while (Date.now() < until) { /* spin */ }
+      }
+    }
+    return fn()                                        // never block a bot forever
+  }
+
   #saveMerged() {
+    return this.#withLock(() => this.#saveMergedLocked())
+  }
+
+  #saveMergedLocked() {
     let cur = { schema: SCHEMA, avoid: {}, worked: {}, sites: [], runs: 0,
                 progress: {}, skillVersions: {} }
     try {
@@ -696,6 +736,34 @@ export function openLessons() {
   const shared = config.memory.scope === 'shared'
   const name = shared ? `lessons-${config.memory.pool}.json`
                       : `lessons-${config.bot.name}.json`
-  instance = new Lessons(path.join(config.log.stateDir, name), shared)
+  // SHARED MEANS ONE FILE, NOT ONE FILENAME -- and for twenty days it meant the
+  // second thing.
+  //
+  // STATE_DIR is per-bot (/var/lib/mcai/hive-a-Alpha). Naming the file after the
+  // POOL while placing it in a BOT directory gives five bots five private files
+  // that merely agree on a name. Verified 2026-08-25: distinct inodes, sizes
+  // 1849/33867/36250/37808, every rule's `reporters` list containing only its
+  // own bot, 4-25% rule overlap between poolmates where a shared store would be
+  // 100%, and `inherited` at 0% across 3,686 admission-gate citations.
+  //
+  // The whole merge path below was written for a shared file -- provenance,
+  // forgiveness, max-on-stale-read, and a comment explaining that five bodies
+  // should reach the four-failure threshold in four TOTAL failures. All of it
+  // correct, and none of it ever reached a file more than one bot could see.
+  // The experiment's independent variable was never active.
+  //
+  // So the DIRECTORY has to be pool-scoped too. POOL_STATE_DIR is explicit when
+  // set; the default puts the pool store beside the per-bot directories rather
+  // than inside one of them.
+  const dir = shared ? poolStateDir(config.memory.pool) : config.log.stateDir
+  instance = new Lessons(path.join(dir, name), shared)
+  if (shared) {
+    log('info', 'lessons: shared store', { pool: config.memory.pool, file: instance.file })
+  }
   return instance
+}
+
+/** Where a pool's shared store lives, exported so checks can assert on it. */
+export function sharedStorePath (pool, stateDir = config.log.stateDir) {
+  return path.join(poolStateDir(pool, stateDir), `lessons-${pool}.json`)
 }

@@ -40,33 +40,54 @@ l.save()
 openWorldFacts().reportResource('coal_ore', { x: 5, y: 40, z: 5 })
 `)
 
+// EVERY BOT GETS ITS OWN STATE_DIR, BECAUSE THAT IS WHAT PRODUCTION DOES.
+//
+// This fixture used to pass one shared `dir` as STATE_DIR to every bot, and in
+// that world a pool-NAMED file is automatically a pool-SHARED file. The roster
+// generator gives each bot its own directory (/var/lib/mcai/<bot>), so the real
+// deployment got five private files that merely agreed on a name -- and this
+// test asserted the broken layout was correct for twenty days.
+//
+// A fixture that does not reproduce the deployment's directory layout cannot
+// catch a bug about directory layout.
+const botDir = bot => path.join(dir, bot)
+
 function run(scope, bot, skill, args, pool = 'hive') {
+  fs.mkdirSync(botDir(bot), { recursive: true })
   execFileSync(process.execPath, [DRIVER], {
     env: { ...process.env, MEMORY_SCOPE: scope, MEMORY_POOL: pool, BOT_NAME: bot,
-           STATE_DIR: dir, LOG_DIR: dir, SKILL: skill, ARGS: JSON.stringify(args) },
+           STATE_DIR: botDir(bot), LOG_DIR: dir, SKILL: skill,
+           ARGS: JSON.stringify(args) },
     stdio: 'pipe',
   })
 }
-const has = f => fs.existsSync(path.join(dir, f))
+const has = (f, bot) => fs.existsSync(path.join(bot ? botDir(bot) : dir, f))
+// Shared state lives beside the bot directories, not inside one of them.
+const poolFile = (f, pool = 'hive') => path.join(dir, `_pool-${pool}`, f)
+const hasPooled = (f, pool = 'hive') => fs.existsSync(poolFile(f, pool))
 
 console.log('each scope puts state where it belongs')
 run('private', 'Scout01', 'goto', { x: 1 })
-t('private  -> lessons-Scout01.json', has('lessons-Scout01.json'), true)
+t('private  -> lessons-Scout01.json', has('lessons-Scout01.json', 'Scout01'), true)
 // Was `world-facts.json`, one global file for every non-isolated bot in the
 // fleet -- so the private arm and the shared arm read the same world model and
 // were never independent. Shared WITHIN A POOL now.
-t('private  -> pooled world-facts-hive.json', has('world-facts-hive.json'), true)
+t('private  -> pooled world-facts-hive.json', hasPooled('world-facts-hive.json'), true)
 
 run('isolated', 'Scout02', 'goto', { x: 2 })
-t('isolated -> lessons-Scout02.json', has('lessons-Scout02.json'), true)
-t('isolated -> world-facts-Scout02.json', has('world-facts-Scout02.json'), true)
+t('isolated -> lessons-Scout02.json', has('lessons-Scout02.json', 'Scout02'), true)
+t('isolated -> world-facts-Scout02.json', has('world-facts-Scout02.json', 'Scout02'), true)
 
 run('shared', 'Miner01', 'gather', { block: 'oak_log' })
-t('shared   -> lessons-hive.json', has('lessons-hive.json'), true)
+// THE ASSERTION THAT WAS BACKWARDS. It used to check the file appeared in the
+// (then shared) STATE_DIR, which is exactly where the bug put it.
+t('shared   -> a POOL file, not a bot file', hasPooled('lessons-hive.json'), true)
+t('shared   -> NOT inside the writing bot\'s own directory',
+  has('lessons-hive.json', 'Miner01'), false)
 
 console.log('\nshared lessons MERGE rather than overwrite')
 run('shared', 'Gather01', 'goto', { x: 99 })          // a second bot writes
-const hive = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-hive.json'), 'utf8'))
+const hive = JSON.parse(fs.readFileSync(poolFile('lessons-hive.json'), 'utf8'))
 const keys = Object.keys(hive.avoid ?? {})
 t("the first bot's rule survived the second's write", keys.some(k => k.startsWith('gather')), true)
 t("the second bot's rule is present",                 keys.some(k => k.startsWith('goto')), true)
@@ -80,7 +101,7 @@ const shared = Object.entries(hive.avoid).find(([k]) => k.startsWith('gather'))?
 t('records who reported it', Array.isArray(shared?.reporters), true)
 t('names the reporting bot',  (shared?.reporters ?? []).includes('Miner01'), true)
 run('shared', 'Scout02', 'gather', { block: 'oak_log' })   // a second bot hits the same rule
-const again = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-hive.json'), 'utf8'))
+const again = JSON.parse(fs.readFileSync(poolFile('lessons-hive.json'), 'utf8'))
 const both = Object.entries(again.avoid).find(([k]) => k.startsWith('gather'))?.[1]
 t('a second reporter is added, not replaced', (both?.reporters ?? []).length, 2)
 // A hive ACCUMULATES across bodies: the second bot loads the shared count and
@@ -106,11 +127,11 @@ t('isolated bot did not write the shared world model',
 console.log('\npools are independent memories')
 run('shared', 'HiveA1', 'mine', { block: 'iron_ore' }, 'alpha')
 run('shared', 'HiveB1', 'craft', { item: 'stick' },    'beta')
-t('pool alpha has its own lessons file', has('lessons-alpha.json'), true)
-t('pool beta has its own lessons file',  has('lessons-beta.json'), true)
+t('pool alpha has its own lessons file', hasPooled('lessons-alpha.json', 'alpha'), true)
+t('pool beta has its own lessons file',  hasPooled('lessons-beta.json', 'beta'), true)
 
-const alpha = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-alpha.json'), 'utf8'))
-const beta  = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-beta.json'), 'utf8'))
+const alpha = JSON.parse(fs.readFileSync(poolFile('lessons-alpha.json', 'alpha'), 'utf8'))
+const beta  = JSON.parse(fs.readFileSync(poolFile('lessons-beta.json', 'beta'), 'utf8'))
 t('alpha holds only its own rule',
   Object.keys(alpha.avoid ?? {}).some(k => k.startsWith('mine')) &&
   !Object.keys(alpha.avoid ?? {}).some(k => k.startsWith('craft')), true)
@@ -120,19 +141,19 @@ t("beta never saw alpha's failure",
 // World facts too. Pooling lessons while leaving one global world model would
 // leak the discovery half of the treatment between arms, which is exactly the
 // bug this replaced.
-t('pool alpha has its own world model', has('world-facts-alpha.json'), true)
-t('pool beta has its own world model',  has('world-facts-beta.json'), true)
+t('pool alpha has its own world model', hasPooled('world-facts-alpha.json', 'alpha'), true)
+t('pool beta has its own world model',  hasPooled('world-facts-beta.json', 'beta'), true)
 
 // A pool is a boundary, not a scope: two bots in the SAME pool still share.
 run('shared', 'HiveA2', 'goto', { x: 7 }, 'alpha')
-const alpha2 = JSON.parse(fs.readFileSync(path.join(dir, 'lessons-alpha.json'), 'utf8'))
+const alpha2 = JSON.parse(fs.readFileSync(poolFile('lessons-alpha.json', 'alpha'), 'utf8'))
 t('same-pool bots still accumulate together',
   Object.keys(alpha2.avoid ?? {}).length >= 2, true)
 
 // isolated ignores the pool entirely -- it is isolation, not a pool of one.
 run('isolated', 'LoneWolf', 'gather', { block: 'sand' }, 'alpha')
-t('isolated ignores MEMORY_POOL for lessons', has('lessons-LoneWolf.json'), true)
-t('isolated ignores MEMORY_POOL for world facts', has('world-facts-LoneWolf.json'), true)
+t('isolated ignores MEMORY_POOL for lessons', has('lessons-LoneWolf.json', 'LoneWolf'), true)
+t('isolated ignores MEMORY_POOL for world facts', has('world-facts-LoneWolf.json', 'LoneWolf'), true)
 
 fs.rmSync(dir, { recursive: true, force: true })
 console.log(`\n${pass} passed, ${fail} failed`)

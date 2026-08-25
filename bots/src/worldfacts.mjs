@@ -311,8 +311,24 @@ export function openWorldFacts() {
   // bot in the fleet, so a deposit found by a hive bot was already visible to
   // the private arm: two arms that were never independent, and no amount of
   // careful lesson-scoping could have made them so. See config.memory.
-  const file = config.memory.scope === 'isolated'
-    ? FILE.replace(/\.json$/, `-${config.bot.name}.json`)
-    : FILE.replace(/\.json$/, `-${config.memory.pool}.json`)
-  return new WorldFacts(path.join(config.log.stateDir, file))
+  // ...and the DIRECTORY has to be pool-scoped too, which it was not.
+  //
+  // Same defect as lessons.mjs and found the same day: a pool-NAMED file placed
+  // in a per-bot STATE_DIR is a private file with a shared name. On the fleet,
+  // six copies of world-facts-hive-a.json with distinct inodes and sizes
+  // 32095/32350/3537/32734/30448/31791. So the pooled WORLD MODEL -- every
+  // resource sighting and hazard one bot found for another -- was never shared
+  // either, on top of the belief store.
+  const pooled = config.memory.scope !== 'isolated'
+  const file = pooled
+    ? FILE.replace(/\.json$/, `-${config.memory.pool}.json`)
+    : FILE.replace(/\.json$/, `-${config.bot.name}.json`)
+  const dir = pooled ? poolStateDir(config.memory.pool) : config.log.stateDir
+  return new WorldFacts(path.join(dir, file))
+}
+
+/** Where a pool's shared state lives. One definition, used by both stores. */
+export function poolStateDir (pool, stateDir = config.log.stateDir) {
+  return process.env.POOL_STATE_DIR ||
+         path.join(path.dirname(stateDir), `_pool-${pool}`)
 }
