@@ -841,6 +841,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let shoreCache = null            // { key, at, result }
   let lastShoreTarget = null       // target identity progress is measured against
   let bestShoreDist = Infinity     // closest approach to THAT target
+  let bestHomeDist = Infinity      // closest approach to home while crossing
   // CONTINUOUS dry time, not "is ashore right now". Standing on land for a
   // single tick is what `drowning_escaped` used to mean, and 45% of those bots
   // were back in the water immediately -- the release was real, the escape was
@@ -942,11 +943,36 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // used to test `seizedAt` against 20s independently; extending only one of
   // them yields a bot that stops swimming at 20s but stays owned until 45s --
   // strictly worse than the flat ceiling it replaced.
+  // TRAVELLING IS NOT RESCUING, AND IT MUST NOT BE ON A CLOCK.
+  //
+  // A bot at the surface of the ocean is not in danger. Air only drains while
+  // the head is submerged and refills the moment it is not, so surface
+  // swimming has no time limit in this game at all -- the only real cost is
+  // exhaustion, which drains hunger slowly. A bot with food can swim across
+  // the world.
+  //
+  // The ceiling was written for a RESCUE: hold the body briefly, get the bot
+  // out, give it back. Applied to a crossing it is absurd. Measured: bots in
+  // the no-shore state are a median 1,244 blocks from home, p90 1,513. At
+  // surface speed that is 565 seconds. RESCUE_CEILING_MAX_MS is 45.
+  //
+  // So the previous change -- swim toward home instead of treading water --
+  // bought 8% of the journey and then released an unowned body into open
+  // water exactly as before. Fixing the bearing while leaving the clock is
+  // not a fix.
+  //
+  // Ownership here is earned by PROGRESS, not granted by a stopwatch. While
+  // the bot is genuinely closing on a named target the ceiling does not
+  // apply; the stall check still does, and air, health and a waiting skill
+  // all still preempt above this.
+  let travelling = false
   const rescueExpired = () => {
     const held = Date.now() - seizedAt
     if (held <= RESCUE_CEILING_MS) return false
+    const stalled = Date.now() - lastProgressAt >= PROGRESS_STALL_MS
+    if (travelling) return stalled
     if (held >= RESCUE_CEILING_MAX_MS) return true
-    return Date.now() - lastProgressAt >= PROGRESS_STALL_MS
+    return stalled
   }
 
   // Largest air value this bot has reported. It sits at full whenever the bot is
@@ -1242,6 +1268,16 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           home: { x: config.world.homeX, z: config.world.homeZ },
           at: bot.entity?.position,
         })
+        // A crossing owns the body for as long as it is actually crossing.
+        // `travelling` is re-derived every tick and falls back to false the
+        // moment the phase changes, so a bot that stops swimming stops being
+        // exempt -- it cannot latch itself into permanent ownership.
+        travelling = ctl.phase === 'swim_home'
+        if (travelling) {
+          const hd = Math.hypot(bot.entity.position.x - config.world.homeX,
+                                bot.entity.position.z - config.world.homeZ)
+          if (hd < bestHomeDist - 1) { bestHomeDist = hd; lastProgressAt = Date.now() }
+        }
         if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
         bot.setControlState('forward', ctl.forward)
         bot.setControlState('jump', ctl.jump)
@@ -1389,6 +1425,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             lastProgressAt = Date.now()
             lastShoreTarget = null
             bestShoreDist = Infinity
+            bestHomeDist = Infinity
             lastShoreReachable = false
             shoreCache = null
             seizeBody(bot, 'drowning')

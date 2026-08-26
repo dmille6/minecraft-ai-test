@@ -21,6 +21,7 @@
 // ceiling going nowhere and then hands an unowned body back to a cognitive
 // loop that will not act for another thirty seconds -- in water.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { drowningControls } from '../src/reflex.mjs'
 
 let pass = 0, fail = 0
@@ -79,6 +80,45 @@ t('with nowhere named to swim to, holding the head up remains the fallback', () 
   assert.strictEqual(c.phase, 'no_shore')
   assert.strictEqual(c.forward, false)
   assert.strictEqual(c.jump, true, 'stopped holding the head up as well')
+})
+
+// ---------------------------------------------------------------------------
+// THE CLOCK WAS THE REAL LIMIT.
+//
+// Fixing the bearing bought 8% of the journey. Bots in the no-shore state are
+// a median 1,244 blocks from home (p90 1,513); at surface speed that is 565
+// seconds. RESCUE_CEILING_MAX_MS is 45. Air only drains while the head is
+// submerged and refills at the surface, so a surface swim has no time limit
+// in this game -- the ceiling was written for a rescue and makes no sense
+// applied to a crossing.
+// ---------------------------------------------------------------------------
+const reflexSrc = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  .replace(/^\s*\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
+
+t('THE CLOCK: a crossing is exempt from the hard ceiling', () => {
+  assert.ok(/if \(travelling\) return stalled/.test(reflexSrc),
+    'rescueExpired still ends a crossing on RESCUE_CEILING_MAX_MS — 45 seconds ' +
+    'of a 565-second swim, then an unowned body in open water')
+})
+
+t('but a STALLED crossing still ends — ownership is earned, not granted', () => {
+  // Without this the exemption is a licence to hold the body forever.
+  const fn = reflexSrc.slice(reflexSrc.indexOf('const rescueExpired'),
+                             reflexSrc.indexOf('const rescueExpired') + 400)
+  assert.ok(/stalled/.test(fn), 'no stall check on the travelling path')
+  assert.ok(/PROGRESS_STALL_MS/.test(reflexSrc))
+})
+
+t('travelling is re-derived per tick, so it cannot latch', () => {
+  assert.ok(/travelling = ctl\.phase === 'swim_home'/.test(reflexSrc),
+    'travelling is not recomputed from the current phase — a bot that stops ' +
+    'swimming would stay exempt from the ceiling forever')
+})
+
+t('progress means CLOSING ON THE TARGET, not merely moving', () => {
+  assert.ok(/hd < bestHomeDist - 1/.test(reflexSrc),
+    'progress is not measured as distance to home decreasing — a bot swimming ' +
+    'in circles would keep renewing its own ownership')
 })
 
 console.log(`\n  ${pass} passed, ${fail} failed`)
