@@ -866,7 +866,28 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // between ticks. The key includes Y and not just X/Z: a bot that sinks two
   // blocks has a different set of reachable banks, and a horizontally-keyed
   // cache would hand it the answer for a depth it has already left.
-  const shoreScan = (radius = SEARCH_RADII[SEARCH_RADII.length - 1]) => {
+  // WHY THIS IS NOT THE WIDEST POLICY RADIUS, MEASURED THE HARD WAY.
+  //
+  // It was, for two hours, on the placebo-c canary. The reasoning was that
+  // shoreRoute walks shells outward and breaks once `ring > best.dist`, so a
+  // wider limit only changes what happens when nothing near was found -- free.
+  // It is not free, because the READ BUDGET binds first. A shell costs about
+  // 19 reads per ring, so a full scan runs ~9.4r^2: radius 24 finishes inside
+  // SHORE_MAX_READS with a little room, and anything larger does not finish at
+  // all. It bails at `scanned >= maxReads` around ring 25 either way.
+  //
+  // So the wider radius bought essentially no extra search. What it did buy
+  // was `partial: true` on every scan in open water -- and a partial scan is
+  // deliberately never cached, because it is not evidence of absence. The scan
+  // went from once per SHORE_TTL_MS to once per tick, and `_drowning_no_shore`
+  // with it: +61 events per 1,000 water events against the fleet over 2.1h,
+  // difference-in-differences. That was the same bots in the same water,
+  // logging the same condition four times as often.
+  //
+  // Widening the search is still the right idea. It needs the read budget
+  // raised to match -- ~21k reads for radius 48 -- which is a deliberate CPU
+  // decision on a host already at load 8, not a free change.
+  const shoreScan = (radius = SEARCH_RADII[0]) => {
     const at = bot.entity?.position
     if (!at) return { dir: null, target: null, dist: Infinity }
     // THE RADIUS IS PART OF THE KEY. Without it, the 24-block scan that found

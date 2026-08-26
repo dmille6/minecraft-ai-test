@@ -156,12 +156,24 @@ t('THE WIRING: reaching land is not enough; it has to STICK', () => {
     'of `drowning_escaped` bots re-enter the water immediately')
 })
 
-t('THE WIRING: the shore scan looks as far as the policy says', () => {
-  // The bug was not the search, it was the stopping point: 24 blocks declared
-  // "no shore" with a bank at 30. shoreRoute walks outward from ring 1, so the
-  // widest radius costs nothing when a near bank exists.
-  assert.ok(/SEARCH_RADII\[SEARCH_RADII\.length - 1\]/.test(reflexSrc),
-    'the shore scan is back on a hard-coded near radius')
+t('THE SCAN RADIUS MUST FIT THE READ BUDGET', () => {
+  // Raising the radius without raising SHORE_MAX_READS makes every open-water
+  // scan return `partial`, and a partial scan is never cached -- so the scan
+  // runs every tick instead of every SHORE_TTL_MS and logs the same condition
+  // four times as often. Measured on the placebo-c canary: no_shore +61 per
+  // 1,000 water events, difference-in-differences, with no change in how many
+  // bots were actually stranded.
+  //
+  // A full scan costs about 9.4 * r^2 reads. This asserts the configured
+  // radius can actually COMPLETE, which is what makes it cacheable.
+  const reads = r => 9.4 * r * r
+  const budget = Number(/SHORE_MAX_READS = ([0-9_]+)/.exec(reflexSrc)[1].replace(/_/g, ''))
+  const usesWidest = /SEARCH_RADII\[SEARCH_RADII\.length - 1\]/.test(reflexSrc)
+  const radius = usesWidest ? SEARCH_RADII[SEARCH_RADII.length - 1] : SEARCH_RADII[0]
+  assert.ok(reads(radius) < budget,
+    `a full scan at radius ${radius} costs ~${Math.round(reads(radius))} reads but ` +
+    `SHORE_MAX_READS is ${budget} — every open-water scan will return partial, ` +
+    'never cache, and re-run every tick. Raise the budget or lower the radius.')
 })
 
 t('THE WIRING: a held bot ashore is not also being steered', () => {
