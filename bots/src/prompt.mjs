@@ -12,6 +12,8 @@
 import { SKILLS } from './skills.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
+import { isExposed, isSafeToBreak } from './skills.mjs'
+import { logEvent } from './logger.mjs'
 import { shoreRoute } from './reflex.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { config } from './config.mjs'
@@ -36,9 +38,11 @@ export class WorkingMemory {
   }
 }
 
+const INTERESTING_BLOCKS = ['oak_log', 'birch_log', 'spruce_log', 'dirt', 'grass_block',
+  'stone', 'coal_ore', 'iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest']
+
 function nearbyBlocks(bot, limit = 8) {
-  const interesting = ['oak_log', 'birch_log', 'spruce_log', 'dirt', 'grass_block',
-    'stone', 'coal_ore', 'iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest']
+  const interesting = INTERESTING_BLOCKS
   const out = []
   for (const name of interesting) {
     const t = bot.registry.blocksByName[name]
@@ -48,6 +52,91 @@ function nearbyBlocks(bot, limit = 8) {
     if (out.length >= limit) break
   }
   return out
+}
+
+// Bounds for the actionability scan. It runs once per decision (~30s), not per
+// reflex tick, so it can afford ~6 blockAt per candidate -- but sand and stone
+// are everywhere and would otherwise dominate the budget without adding
+// information, so each type and the whole scan are capped.
+const ACTIONABLE_PER_TYPE = 8
+const ACTIONABLE_TOTAL = 48
+
+/**
+ * WHAT IS VISIBLE VS WHAT CAN ACTUALLY BE TAKEN.
+ *
+ * NEARBY has always reported findBlock hits -- visibility. Three hours of
+ * fleet telemetry, of 7,031 non-successes:
+ *
+ *     435  "found but every candidate is BURIED — use mine to dig down"
+ *     262  "found but unreachable after N attempts"
+ *     227  "found but all candidates are beside water or under falling blocks"
+ *
+ * Every one of those was decided by tests the gather skill already runs, after
+ * the decision had been spent. This runs the same two FACT tests before it.
+ *
+ * NEARBY IS NOT FILTERED, deliberately. Hiding a visible-but-unusable resource
+ * risks a bot reading "nothing notable" while standing beside a forest and
+ * wandering off to explore; and the masking literature is clear that a filter
+ * encoding preferences rather than facts prevents the agent from ever learning
+ * the better policy. So this ADDS a line and hides nothing. `approachable`
+ * stays out of it entirely -- "can stand beside" is a heuristic, not proof of
+ * reachability, and it has no business gating anything.
+ */
+export function actionableBlocks (bot, limit = 8) {
+  const t0 = Date.now()
+  const out = []
+  const stats = []
+  let budget = ACTIONABLE_TOTAL
+  for (const name of INTERESTING_BLOCKS) {
+    if (budget <= 0 || out.length >= limit) break
+    const type = bot.registry?.blocksByName?.[name]
+    if (!type) continue
+    let found = []
+    try {
+      found = bot.findBlocks?.({ matching: type.id, maxDistance: 40,
+                                 count: ACTIONABLE_PER_TYPE }) ?? []
+    } catch { found = [] }
+    if (!found.length) continue
+    const checked = found.slice(0, Math.min(ACTIONABLE_PER_TYPE, budget))
+    budget -= checked.length
+    let usable = 0, unsafe = 0
+    for (const p of checked) {
+      if (!isExposed(bot, p)) continue          // buried
+      if (!isSafeToBreak(bot, p)) { unsafe++; continue }
+      usable++
+    }
+    stats.push({ block: name, visible: found.length, checked: checked.length,
+                 usable, unsafe })
+    out.push(`${name} visible=${found.length} usable=${usable}` +
+             (unsafe ? ` unsafe=${unsafe}` : ''))
+  }
+  const scanMs = Date.now() - t0
+  // COUNTED, NOT JUST RENDERED. Tomorrow's question is whether naming
+  // actionability helped, and that needs the denominator -- how many were
+  // visible -- beside how many were usable.
+  //
+  // Deliberately an event and not a new field on the decision row: that index
+  // is dynamic:strict, so an unmapped key rejects the WHOLE document with no
+  // symptom but a dropped-events line in Filebeat. A telemetry addition that
+  // silently deletes all the other telemetry is not an addition.
+  //
+  // It also carries the backfire check. If bots stop acting on resources they
+  // can see, it shows up here as visible>0 with usable=0, and that number
+  // exists from the first decision rather than being reconstructed later.
+  if (stats.length) {
+    const visible = stats.reduce((a, s) => a + s.visible, 0)
+    const usable = stats.reduce((a, s) => a + s.usable, 0)
+    const unsafe = stats.reduce((a, s) => a + s.unsafe, 0)
+    logEvent({
+      kind: 'affordance_scan',
+      status: usable > 0 ? 'success' : 'no_effect',
+      detail: `visible=${visible} usable=${usable} unsafe=${unsafe} ` +
+              `scan_ms=${scanMs} | ` +
+              stats.map(s => `${s.block}:${s.visible}/${s.checked}/${s.usable}`).join(' '),
+    })
+  }
+  return { line: out.length ? `ACTIONABLE: ${out.join('; ')}` : 'ACTIONABLE: nothing visible',
+           stats, scanMs }
 }
 
 export function buildSystemPrompt(skillNames) {
@@ -90,7 +179,15 @@ export function buildSystemPrompt(skillNames) {
     '  craft   args: {"item": "<item id e.g. stick>", "count": <integer>}',
     '  place   args: {"item": "<item id in inventory>"}   (places NEXT TO you, not underfoot — to climb out of a hole use surface)',
     '  build   args: {"plan": "pillar", "block": "<block id>"}',
-    '  mine    args: {"y": <target depth, e.g. 12>}   (staircases down)',
+    // "target depth" was read as a DEPTH TO DIG rather than an elevation to
+    // stop at, and the gate refused the result 2,211 times in three hours --
+    // 10% of every decision the fleet made, the single largest abort reason.
+    // The verb only descends, so the constraint is stated where the argument
+    // is described rather than left to be discovered by rejection.
+    '  mine    args: {"y": <ABSOLUTE elevation to stop at — MUST BE LOWER THAN YOUR CURRENT y>}',
+    '          (staircases DOWNWARD only; it cannot climb. To go UP use surface.',
+    '           Your current y is in the ELEVATION line. Terrain sits near y=62-90,',
+    '           ores are below y=16. A y at or above your own is always refused.)',
     '  explore args: {"blocks": <distance, e.g. 60>}  (travels away from spawn looking for new ground)',
     '  surface args: {}                       (THE WAY OUT when stuck below ground: climbs, and pillars up under itself using blocks you carry. If it reports needing scaffold, gather that block and run surface again)',
     // ARM-SPECIFIC CAPABILITY APPENDIX. The board exists only in the arms that
@@ -360,6 +457,7 @@ function depositSituation (bot, memory) {
 
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
   const p = bot.entity.position
+  const actionable = actionableBlocks(bot)
   const inv = inventorySummary(bot)
   const invStr = Object.entries(inv).map(([k, v]) => `${k} x${v}`).join(', ') || 'empty'
 
@@ -376,6 +474,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     craftableNow(bot),
     depositSituation(bot, memory),
     `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
+    actionable.line,
     waterSituation(bot),
     yContext(p.y),
     Object.keys(memory.locations).length
@@ -406,7 +505,13 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     events.shift(); dropped++
     user = render(events)
   }
-  return { user, sentinel, tokens: estTokens(user), dropped }
+  // The scan's COUNTS travel with the decision, not just its rendered line.
+  // Tomorrow's question is whether this helped, and that needs the denominator
+  // -- how many were visible -- beside how many were usable. A prompt line
+  // alone would leave us re-parsing prose to find out, which is the mistake
+  // that once recorded our own 25s wall clock as "no route exists" 393 times.
+  return { user, sentinel, tokens: estTokens(user), dropped,
+           affordance: { blocks: actionable.stats, scanMs: actionable.scanMs } }
 }
 
 export function makeSentinel() {

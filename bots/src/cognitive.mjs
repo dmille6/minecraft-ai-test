@@ -470,7 +470,7 @@ export class CognitiveLoop {
 
     const milestone = this.#activeTask()
     const sentinel = makeSentinel()
-    const { user, tokens, dropped } = buildUserPrompt({
+    const { user, tokens, dropped, affordance } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory,
       lastOutcome: this.lastOutcome, trigger, sentinel,
       // Own experience first, then what peers reported. Peer lines carry the

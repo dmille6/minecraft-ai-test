@@ -252,8 +252,19 @@ export class AdmissionControl {
 
     if (skill === 'mine') {
       const y = Number(args.y ?? 12)
-      if (!Number.isFinite(y) || y < -59 || y > 120) {
-        return { ok: false, reason: 'bad_args', detail: `mine target y=${args.y} outside -59..120` }
+      // NO UPPER CONSTANT. This read `y > 120` and it cost a bot six hours:
+      // stranded at the build limit, correctly told to descend, it proposed
+      // `mine {y:173}` -- 147 blocks down, well below the climb ceiling -- and
+      // was refused with "outside -59..120". The constant was a proxy for "do
+      // not ask to mine into the sky", written when every bot was near the
+      // surface, and above y=120 it forbids the one action that can help.
+      //
+      // The proxy was never needed: the downward precondition a few lines
+      // below already refuses any target at or above the bot, and it does so
+      // with the same rule at y=72 and at y=320.
+      if (!Number.isFinite(y) || y < -59) {
+        return { ok: false, reason: 'bad_args',
+                 detail: `mine target y=${args.y} is below bedrock (-59)` }
       }
       // TWO PRECONDITIONS THAT WERE COSTING A WHOLE EXECUTION EACH.
       //

@@ -884,25 +884,13 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     //
     // Water is also not somewhere the bot can stand to mine from, so it never
     // belonged in this test on reachability grounds either.
-    const exposed = p => {
-      for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
-        const n = bot.blockAt(p.offset(d[0], d[1], d[2]))
-        if (!n || n.name === 'air' || n.boundingBox === 'empty') return true
-      }
-      return false
-    }
+    const exposed = p => isExposed(bot, p)
     // Ask the pathfinder whether the block is safe to break at all. safeToBreak
     // refuses anything adjacent to a liquid (dontCreateFlow) and anything under
     // a block that can fall (dontMineUnderFallingBlock), both of which our own
     // filters never considered. The Movements we lend collectblock already has
     // both flags set, so this is a test we could always have run and never did.
-    const safeTarget = p => {
-      try {
-        const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
-        const b = bot.blockAt(p)
-        return !m?.safeToBreak || !b ? true : m.safeToBreak(b)
-      } catch { return true }
-    }
+    const safeTarget = p => isSafeToBreak(bot, p)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
     // block has an air face, which is true of every log in a tree canopy -- so
     // findBlocks would return a trunk section five blocks up in the foliage,
@@ -2143,7 +2131,12 @@ async function withdraw(ctx, { item = null, count = 16 }, signal) {
 // digging straight down is how bots fall into lava.
 async function mine(ctx, { y: targetY = 12 }, signal) {
   const { bot } = ctx
-  const goalY = Math.max(-59, Math.min(Number(targetY) || 12, 120))
+  // Clamped to the bot's own elevation for the same reason admission.mjs
+  // bounds the ask there: a flat 120 silently turned a stranded bot's
+  // 147-block descent request into a 200-block one.
+  const hereY = bot.entity?.position?.y
+  const descentCap = Number.isFinite(hereY) ? Math.floor(hereY) - 1 : 120
+  const goalY = Math.max(-59, Math.min(Number(targetY) || 12, descentCap))
 
   // REFUSE THE DESCENT rather than failing partway down it.
   //
@@ -2751,6 +2744,44 @@ function scaffoldPrereqFor (exit) {
     describe: `Gather ${short} blocks before descending further — you need them to pillar back out.`,
     because: 'descent aborted to preserve an exit',
   }
+}
+
+/**
+ * Does this block have a face the bot could reach? A FACT, not a preference.
+ *
+ * Lifted out of gather() so the observation layer can ask the same question
+ * the skill asks. It was answered 435 times in three hours as
+ * "found but every candidate is buried" -- AFTER the model had already spent
+ * its decision on that block, because NEARBY reports what is visible and
+ * nothing had ever reported what is actionable.
+ *
+ * One definition on purpose. A second copy in prompt.mjs would drift, and the
+ * observation would start promising things the skill then refuses.
+ */
+export function isExposed (bot, p) {
+  for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+    const n = bot.blockAt(p.offset(d[0], d[1], d[2]))
+    if (!n || n.name === 'air' || n.boundingBox === 'empty') return true
+  }
+  return false
+}
+
+/**
+ * Would the pathfinder refuse to break this? Also a FACT: safeToBreak rejects
+ * anything adjacent to a liquid (dontCreateFlow) and anything under a block
+ * that can fall (dontMineUnderFallingBlock).
+ *
+ * Defaults to TRUE when it cannot be asked. An observation that reports
+ * "unusable" because the movements object was missing would teach the model
+ * the world is emptier than it is, and a false negative here is worse than a
+ * false positive: it removes a real option.
+ */
+export function isSafeToBreak (bot, p) {
+  try {
+    const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+    const b = bot.blockAt(p)
+    return !m?.safeToBreak || !b ? true : m.safeToBreak(b)
+  } catch { return true }
 }
 
 export function actionKey(skill, args) {
