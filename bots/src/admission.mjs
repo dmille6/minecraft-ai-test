@@ -219,11 +219,28 @@ export class AdmissionControl {
       // chose y=140 while standing at y=70, which passes any sane global check
       // and then fails to path because it is 70 blocks up in open sky.
       // Plausibility is RELATIVE to where the bot currently is.
-      const dy = Math.abs(Number(y) - bot.entity.position.y)
+      // ASYMMETRIC, because the two directions are not alike. The comment above
+      // describes the case this was built for -- "y=140 while standing at
+      // y=70" -- and that is UP. A bot cannot fly, so a target far overhead is
+      // implausible on its face.
+      //
+      // Down is different: a bot can fall, dig, or walk down terrain. Written
+      // with Math.abs, this refused every attempt by a stranded bot to aim at
+      // the ground. Measured over six hours, three bots at y>=200 made 164
+      // descent attempts -- 13% of their decisions -- and roughly half were
+      // refused right here, reading "y=73 is 247 blocks from your y=320".
+      // They were complying with an instruction the gate would not let them
+      // act on.
+      //
+      // A downward target that cannot be pathed still fails -- at the
+      // pathfinder, which is the layer entitled to make claims about the
+      // world, and which records real evidence when it does.
+      const dy = Number(y) - bot.entity.position.y
       if (dy > 40) {
         return {
           ok: false, reason: 'unreachable_elevation',
-          detail: `y=${y} is ${Math.round(dy)} blocks from your y=${bot.entity.position.y.toFixed(0)}`,
+          detail: `y=${y} is ${Math.round(dy)} blocks ABOVE your y=${bot.entity.position.y.toFixed(0)} — ` +
+                  `you cannot climb that in one move. Descending is not limited this way.`,
         }
       }
     }

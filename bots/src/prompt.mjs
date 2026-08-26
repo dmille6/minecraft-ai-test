@@ -107,7 +107,20 @@ export function actionableBlocks (bot, limit = 8) {
     }
     stats.push({ block: name, visible: found.length, checked: checked.length,
                  usable, unsafe })
-    out.push(`${name} visible=${found.length} usable=${usable}` +
+    // `usable` WAS A LIE OF OMISSION AND IT COST A NIGHT.
+    //
+    // Both facts behind it -- isExposed and isSafeToBreak -- are LOCAL. Neither
+    // says anything about whether the bot can get there, and unreachability is
+    // the dominant failure: 264/h "found but unreachable" against 281/h buried.
+    // A bot stranded at y=320 read `oak_log visible=8 usable=8` about logs 230
+    // blocks below it. Measured over 7.4h the line moved gather success 16.3%
+    // -> 16.0% while attempts rose 8%, which is what a confident wrong signal
+    // looks like.
+    //
+    // So the field says what it actually checked, and names the property it
+    // does NOT know. An observation that overclaims is worse than no
+    // observation, because the model has no way to discount it.
+    out.push(`${name} visible=${found.length} exposed_safe=${usable}` +
              (unsafe ? ` unsafe=${unsafe}` : ''))
   }
   const scanMs = Date.now() - t0
@@ -135,7 +148,9 @@ export function actionableBlocks (bot, limit = 8) {
               stats.map(s => `${s.block}:${s.visible}/${s.checked}/${s.usable}`).join(' '),
     })
   }
-  return { line: out.length ? `ACTIONABLE: ${out.join('; ')}` : 'ACTIONABLE: nothing visible',
+  return { line: out.length
+             ? `BLOCK CHECKS (reachability NOT checked): ${out.join('; ')}`
+             : 'BLOCK CHECKS: nothing visible',
            stats, scanMs }
 }
 

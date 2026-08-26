@@ -82,8 +82,24 @@ export function scaffoldCount (items = []) {
  */
 export function canContinueDescent ({ y, health, items = [], seaLevel = SEA_LEVEL }) {
   const debt = Math.max(0, seaLevel - Math.floor(y))
-  const blockReserve = Math.max(8, Math.ceil(debt / 4))
-  const pickReserve = Math.max(12, Math.ceil(debt / 4))
+  // THE FLOOR APPLIES TO A CLIMB THAT EXISTS.
+  //
+  // A bot stranded at y=320 has debt 0 -- not because it is barely below sea
+  // level, but because it is 250 blocks ABOVE it, where descending moves it
+  // TOWARD safety. The floors still demanded 8 scaffold and 12 pickaxe uses,
+  // so the refusal read:
+  //
+  //     "0 scaffold blocks against a 0-block climb out (need 8 with reserve)"
+  //
+  // a reserve against a climb this function had itself computed as zero. Three
+  // bots sat at the build limit for eight hours, and 164 of their descent
+  // attempts in six hours were refused, this being one of the refusals.
+  //
+  // The floors stay exactly as they were for anything below sea level, which
+  // is the case they were written for: a shallow bot that loses its tool is
+  // annoying, a deep one is dead.
+  const blockReserve = debt > 0 ? Math.max(8, Math.ceil(debt / 4)) : 0
+  const pickReserve = debt > 0 ? Math.max(12, Math.ceil(debt / 4)) : 0
   const needBlocks = debt + blockReserve
   const needUses = debt + 2 + pickReserve
 
