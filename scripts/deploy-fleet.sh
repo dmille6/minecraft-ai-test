@@ -1,268 +1,60 @@
 #!/usr/bin/env bash
-# deploy-fleet.sh -- move a running fleet to a new commit, on the fleet host.
+# ONE BUILD, ONE LABEL, DERIVED — NEVER TYPED.
 #
-#   sudo ./deploy-fleet.sh <sha> <run_id> [notes]
+# 2026-08-26: two different builds ran simultaneously under the label
+# `swim-not-tread` (+8954f5 and +1f9cfd). config.mjs already warns that
+# CODE_VERSION "is a CLAIM about what is running", and the srcDigest half
+# caught the divergence — the half a human types is the half that lied.
 #
-# This exists because deploying by hand went wrong in three ways on 2026-08-09,
-# and all three are the same mistake: changing one of the things that must move
-# together and not the others.
-#
-#   1. src/ was copied but CODE_VERSION was not updated, so every bot reported a
-#      commit it was not running. The trial manifest, the tripper's version rule
-#      and any analysis that attributes an outcome to a commit all read that
-#      label. A stale label is worse than no deploy: the fleet looks declared.
-#
-#   2. Five units were restarted by name. Solo01 and the hive bots stayed up on
-#      the old source. The fleet ran two versions of the harness for eleven
-#      minutes and its aggregates were a blend of both.
-#
-#   3. Both were invisible in the obvious places -- the bots were healthy, the
-#      world had them all connected, telemetry flowed. The only thing that saw
-#      it was the tripper, via `srcDigest`, and the tripper was overruled.
-#
-# So: the unit list comes from systemd, not from memory; CODE_VERSION moves with
-# the source; and the deploy verifies that every live bot converged before it
-# claims to have finished.
+# So this script is the only sanctioned way to put code on the fleet, and it
+# derives the label from git. A dirty tree refuses outright: a label that says
+# d64d75c while the tree has uncommitted edits is the same lie in a subtler form.
 set -euo pipefail
+HOST="${HOST:-10.0.0.31}"
+KEY="${KEY:-$HOME/.ssh/id_ed25519_aiservers}"
+SRC="$(cd "$(dirname "$0")/.." && pwd)/bots/src"
 
-# CANARY MODE: --pool <name> sends the change to ONE pool and leaves the other
-# thirty-five bots on the baseline, in identical worlds, running right now.
-#
-# On 2026-08-24 six fleet-wide deploys and two reverts cost roughly 80 bot-hours
-# of degraded fleet -- two of those changes looked correct, passed a full test
-# suite, and one was validated offline against a recorded packet trace before it
-# went out. Neither could have been caught by inspection; both were obvious
-# within twenty minutes of telemetry. Caught on one five-bot pool that is under
-# two bot-hours, a ~47x reduction in the cost of being wrong.
-#
-# The split is DECLARED in the manifest, and the tripper's canary rule checks
-# membership in both directions before allowing it. See canary_split_ok.
-USAGE="usage: deploy-fleet.sh <sha> <run_id> [notes] [--pool <pool>]"
-POOL=""
-ARGS=()
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --pool) POOL="${2:?$USAGE}"; shift 2 ;;
-    *) ARGS+=("$1"); shift ;;
-  esac
-done
-set -- "${ARGS[@]}"
-SHA="${1:?$USAGE}"
-RUN="${2:?$USAGE}"
-NOTES="${3:-}"
-REPO=/opt/minecraft-ai
-H=/srv/mcbots/harness
-[ "$(id -u)" -eq 0 ] || { echo "run with sudo"; exit 1; }
-
-say() { printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
-ok()  { printf '   \033[32m*\033[0m %s\n' "$*"; }
-bad() { printf '   \033[31m!\033[0m %s\n' "$*"; }
-
-# ---------------------------------------------------------------- the code --
-say "Code"
-git config --global --add safe.directory "$REPO" 2>/dev/null || true
-git -C "$REPO" fetch -q origin main
-git -C "$REPO" reset -q --hard "$SHA"
-ok "repo at $(git -C "$REPO" rev-parse --short HEAD)"
-
-# ------------------------------------------------------------ the fleet is --
-# WHATEVER IS RUNNING, not whatever I remember running. A bot left up on the old
-# source is a partial deploy, and it is the quietest failure in this system.
-say "Fleet"
-mapfile -t LIVE < <(systemctl list-units 'mcbot@*' --state=active --no-legend \
-                    | awk '{print $1}' | sed 's/^mcbot@//; s/\.service$//')
-[ "${#LIVE[@]}" -gt 0 ] || { bad "no active mcbot units; nothing to deploy to"; exit 1; }
-ok "active: ${LIVE[*]}"
-
-# TARGET is who gets the new code; LIVE stays the whole fleet, because the
-# verifier has to reason about the bots being LEFT BEHIND as well.
-if [ -n "$POOL" ]; then
-  mapfile -t TARGET < <(printf '%s\n' "${LIVE[@]}" | grep -E "^${POOL}-" || true)
-  [ "${#TARGET[@]}" -gt 0 ] || { bad "pool '$POOL' matches no active bot"; exit 1; }
-  [ "${#TARGET[@]}" -lt "${#LIVE[@]}" ] || {
-    bad "pool '$POOL' matches EVERY active bot -- that is a fleet deploy, not a canary"; exit 1; }
-  ok "CANARY: ${#TARGET[@]} of ${#LIVE[@]} bots -- ${TARGET[*]}"
-  ok "control: the other $(( ${#LIVE[@]} - ${#TARGET[@]} )) stay on the current build"
-else
-  TARGET=("${LIVE[@]}")
-fi
-
-mapfile -t IDLE < <(ls /etc/systemd/system/multi-user.target.wants/mcbot@*.service 2>/dev/null \
-                    | sed 's|.*mcbot@||; s|\.service$||' \
-                    | grep -vxF -f <(printf '%s\n' "${LIVE[@]}") || true)
-[ "${#IDLE[@]}" -eq 0 ] || ok "enabled but stopped, left alone: ${IDLE[*]}"
-
-# ------------------------------------------------------------ declare first --
-# The tripper grants a grace period keyed to declared_at, so the declaration has
-# to move before the restarts, not after.
-say "Declaration"
-# In canary mode the BASELINE stays the declared version -- most of the fleet is
-# still running it -- and the canary is declared alongside. Declaring the canary
-# as `declared_code_version` would make the thirty-five control bots look like
-# undeclared code, which is exactly backwards.
-BASE_SHA="$SHA"
-if [ -n "$POOL" ]; then
-  BASE_SHA=$(grep -hoP '(?<=^CODE_VERSION=)[^ ]+' "$H"/env/*.env 2>/dev/null \
-             | grep -vxF "$SHA" | sort | uniq -c | sort -rn | head -1 | awk '{print $2}')
-  [ -n "$BASE_SHA" ] || { bad "cannot determine the baseline version to declare"; exit 1; }
-  ok "baseline stays $BASE_SHA; canary is $SHA on pool $POOL"
-fi
-cat > /srv/mcbots/trial-manifest.json <<JSON
-{
-  "trial": "instance-1",
-  "run_id": "$RUN",
-  "declared_code_version": "$BASE_SHA",
-  "declared_at": "$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)",
-  "canary_pool": "$POOL",
-  "canary_code_version": "$([ -n "$POOL" ] && echo "$SHA")",
-  "notes": "$NOTES"
-}
-JSON
-ok "declared $RUN / $BASE_SHA${POOL:+ (canary $SHA on $POOL)}"
-
-# ------------------------------------------------------------------ install --
-say "Harness"
-cp -r "$REPO/bots/src" "$H/"
-cp "$REPO/bots/package.json" "$H/"
-chown -R mcbot:mcbot "$H/src" "$H/package.json"
-install -m 0755 "$REPO/infra/guard/death-tripper.py" /usr/local/bin/mcai-tripper
-ok "source and tripper installed"
-
-# THE SOURCE MOVES FOR EVERYONE, THE LABEL DOES NOT, AND THAT IS SURVIVABLE.
-#
-# $H/src was just overwritten, so a CONTROL bot that restarts for any other
-# reason -- a crash, the watchdog, an operator -- comes back on the canary code
-# while still labelled baseline. Running two source trees to prevent that means
-# teaching the systemd unit about a second directory, which is more machinery
-# than the risk deserves.
-#
-# It is survivable because the tripper already catches it, twice over. The
-# reported version is `<sha>+<digest of the .mjs actually loaded>`: such a bot
-# reports baseline-sha with the CANARY digest, so it is a third distinct version
-# string, `canary_split_ok` refuses anything that is not exactly two, and the
-# disagreement rule fires. That is the whole reason the digest exists.
-for f in "$H"/env/*.env; do
-  b=$(basename "$f" .env)
-  V="$SHA"; R="$RUN"
-  if [ -n "$POOL" ] && ! printf '%s\n' "${TARGET[@]}" | grep -qxF "$b"; then
-    continue          # a control bot: its label and its run id both stand
-  fi
-  grep -q '^CODE_VERSION=' "$f" && sed -i "s/^CODE_VERSION=.*/CODE_VERSION=$V/" "$f" \
-                               || echo "CODE_VERSION=$V" >> "$f"
-  grep -q '^RUN_ID=' "$f"       && sed -i "s/^RUN_ID=.*/RUN_ID=$R/" "$f" \
-                               || echo "RUN_ID=$R" >> "$f"
-done
-ok "CODE_VERSION=$SHA RUN_ID=$RUN across ${#TARGET[@]} env file(s)"
-
-# ------------------------------------------------------------------ restart --
-# Paper throttles new connections; a tighter stagger gets bots rejected.
-say "Restart"
-for u in "${TARGET[@]}"; do
-  systemctl restart "mcbot@$u"
-  ok "$u"
-  sleep 6
-done
-# EVERYTHING BEFORE THIS INSTANT MAY BE THE OLD PROCESS TALKING.
-#
-# This mark used to be taken BEFORE the loop. Units restart one at a time with a
-# gap the server's connection throttle requires, so a unit restarted 40s in can
-# still be writing old-code records well after a fleet-wide start mark -- and a
-# skill finishing during SIGTERM writes one on its way out. That reported a
-# converged fleet as split on an otherwise clean deploy.
-#
-# Taken after the last restart, any record newer than this is unambiguously
-# from a new process. The cost is that an early-restarted bot may not have
-# spoken again yet, which the check below already reports as quiet rather than
-# as disagreement.
-T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-
-# ------------------------------------------------------------------- verify --
-# A deploy that cannot show convergence has not finished. `srcDigest` is the
-# evidence here: CODE_VERSION is a claim this script itself just wrote, so
-# checking it would only prove the script can write a file.
-say "Verify"
-sleep 45
-# Read the SAME evidence the tripper reads: the JSONL skill logs. The version
-# never appears on stdout, so a journal scrape finds nothing and reports it as
-# agreement -- a verifier that passes when it can see nothing is worse than none.
-#
-# Only lines written AFTER the restarts began count. A bot that has not spoken
-# yet still has a pre-restart line sitting in its log, and taking that as its
-# current version reported a converged fleet as split -- the same mistake the
-# tripper had to be taught not to make, where a stopped bot's final line
-# outvoted the living. Silence is "not reporting yet", never "still on the old
-# code".
-# THE VERIFIER HAS BEEN BLIND FOR THE WHOLE OF BLOCK 2.
-#
-# This read /srv/mcbots/logs/skill-*.jsonl, which is instance #1's layout. Block
-# 2 writes to $LOG_DIR from each bot's env file -- /var/log/mcai/<bot>/ -- so the
-# glob matched nothing, DIGESTS came back empty, and every deploy printed
-# "40 bot(s) have not logged since the restart yet" and exited 2. I read past
-# that line on six deploys in one day because I was verifying convergence by
-# hand afterwards.
-#
-# It is the same stale path that had fleet-status printing "?" in its MOVED
-# column for forty bots, and the same shape as everything else here: an
-# observation that does not reach the decision it exists to inform.
-LOGGLOB=$(grep -hoP '(?<=^LOG_DIR=).*' "$H"/env/*.env 2>/dev/null | sort -u \
-          | sed 's|$|/skill-*.jsonl|' | tr '\n' ' ')
-LOGGLOB=${LOGGLOB:-/var/log/mcai/*/skill-*.jsonl}
-DIGESTS=$(tail -q -n 200 $LOGGLOB 2>/dev/null \
-  | T0="$T0" LIVE_N="${#LIVE[@]}" python3 -c '
-import sys, os, json
-from datetime import datetime, timezone
-since = datetime.fromisoformat(os.environ["T0"].replace("Z", "+00:00"))
-seen = {}
-for line in sys.stdin:
-    try: d = json.loads(line)
-    except Exception: continue
-    v = (d.get("code") or {}).get("version"); b = (d.get("bot") or {}).get("name")
-    if not (v and b): continue
-    try: ts = datetime.fromisoformat(d["@timestamp"].replace("Z", "+00:00"))
-    except Exception: continue
-    if ts < since: continue
-    if b not in seen or ts > seen[b][0]: seen[b] = (ts, v)
-quiet = int(os.environ["LIVE_N"]) - len(seen)
-if quiet > 0: sys.stderr.write(f"{quiet} bot(s) have not logged since the restart yet\n")
-for v in sorted({v for _, v in seen.values()}): print(v)
-')
-N=$(printf '%s\n' "$DIGESTS" | grep -c . || true)
-
-# A VERIFIER THAT DOES NOT FAIL IS A NARRATOR.
-#
-# `bad` prints in red and returns 0, so under `set -e` this block detected a
-# split fleet, said so, and exited successfully anyway. It caught Miner01
-# running the previous build on 2026-08-10 and the deploy still reported done.
-#
-# Same shape as everything else this file was written to prevent: an
-# observation that does not reach the decision it exists to inform. Three
-# distinct outcomes now, and only one of them is success.
-printf '\n'
-/usr/local/bin/mcai-tripper 2>&1 | sed 's/^/   /'
-
-if [ "$N" -eq 0 ]; then
-  bad "no bot has logged since the restart -- convergence is UNKNOWN, not confirmed"
-  exit 2
-fi
-
-# A CANARY EXPECTS TWO VERSIONS. One would mean the split never happened.
-EXPECT=1
-[ -n "$POOL" ] && EXPECT=2
-if [ "$N" -ne "$EXPECT" ]; then
-  bad "live bots report $N version(s), expected $EXPECT: $DIGESTS"
-  if [ -n "$POOL" ]; then
-    bad "a canary that is not split is not a canary -- either the pool did not"
-    bad "restart, or the controls restarted too. Check before trusting any"
-    bad "comparison between them."
-  else
-    bad "the fleet is split -- aggregates blend two builds until this is one line"
-  fi
+cd "$(dirname "$0")/.."
+if [ -n "$(git status --porcelain -- bots/src)" ]; then
+  echo "REFUSING: bots/src has uncommitted changes. The version label would be a lie." >&2
+  git status --short -- bots/src >&2
   exit 1
 fi
-if [ -n "$POOL" ]; then
-  ok "canary split confirmed: $(printf '%s' "$DIGESTS" | tr '\n' ' ')"
-  ok "compare pool $POOL against the other $(( ${#LIVE[@]} - ${#TARGET[@]} )) bots"
-  ok "then: scripts/canary-report.py --pool $POOL --minutes 20"
-else
-  ok "all live bots on $DIGESTS"
-fi
+SHA=$(git rev-parse --short HEAD)
+echo "deploying $SHA to the whole fleet"
+
+( cd bots && node scripts/run-tests.mjs >/tmp/deploy-tests.log 2>&1 ) || {
+  echo "REFUSING: tests failed. Tail of /tmp/deploy-tests.log:" >&2; tail -20 /tmp/deploy-tests.log >&2; exit 1; }
+echo "tests pass"
+
+ssh -i "$KEY" -o BatchMode=yes "mike@$HOST" "mkdir -p /tmp/deploy-$SHA"
+scp -i "$KEY" -o BatchMode=yes "$SRC"/*.mjs "mike@$HOST:/tmp/deploy-$SHA/" >/dev/null
+ssh -i "$KEY" -o BatchMode=yes "mike@$HOST" "sudo bash -s $SHA" <<'REMOTE'
+set -euo pipefail
+SHA="$1"
+tar czf "/var/lib/mcai-archive/src-pre-$SHA-$(date +%H%M%S).tgz" -C /srv/mcbots/harness src 2>/dev/null || true
+install -o mcbot -g mcbot -m 644 /tmp/deploy-$SHA/*.mjs /srv/mcbots/harness/src/
+
+# TEAR DOWN EVERY CANARY. Leaving a drop-in behind is how a pool silently
+# stays on old code while the manifest claims the fleet is uniform.
+rm -rf /etc/systemd/system/mcbot@*.service.d
+rm -rf /srv/mcbots/harness-canary /srv/mcbots/harness-obs /srv/mcbots/harness-descent /srv/mcbots/harness-swim
+rm -f /srv/mcbots/harness/env/_canary.env /srv/mcbots/harness/env/_obs.env \
+      /srv/mcbots/harness/env/_descent.env /srv/mcbots/harness/env/_swim.env
+sed -i "s/^CODE_VERSION=.*/CODE_VERSION=$SHA/" /srv/mcbots/harness/env/*.env
+python3 - "$SHA" <<'PY'
+import json, sys, datetime
+sha = sys.argv[1]; p = '/srv/mcbots/trial-manifest.json'
+m = json.load(open(p))
+m['declared_code_version'] = sha
+m['declared_at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+m['canary_pool'] = ''; m['canary_code_version'] = ''
+json.dump(m, open(p, 'w'), indent=2)
+PY
+systemctl daemon-reload
+n=0
+for u in $(systemctl list-units 'mcbot@*' --no-legend | awk '{print $1}'); do
+  systemctl restart "$u"; n=$((n+1)); sleep 4
+done
+echo "restarted $n bots on $SHA"
+REMOTE
