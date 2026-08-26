@@ -268,6 +268,7 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
   // One descent attempt per goto, same discipline: a bot that must be dropped
   // off a ledge on every leg is not travelling either.
   let descentRetry = false
+  let rodeDown = false
 
   // THE LEG BUDGET MUST SCALE WITH THE DISTANCE, or a far target is unreachable
   // by ARITHMETIC rather than by terrain.
@@ -430,6 +431,35 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
               continue
             }
           } catch { /* fall through to the honest failure below */ }
+        }
+        // LAST RUNG: nothing can be pathed and there is a void underneath.
+        //
+        // Everything above tries to WALK out, including with a bigger drop
+        // allowed. A bot on an isolated platform at the build limit has no
+        // legal first move for any of it, and `mine` correctly refuses to dig
+        // into a 250-block fall. Measured: three bots made 164 descent
+        // attempts in six hours and not one was permitted.
+        //
+        // Deliberately last, and deliberately narrow. It only runs once per
+        // goto, only well above sea level, only at full health, and only when
+        // the pathfinder has already proved there is no route -- so an
+        // ordinary bot on a cliff at y=80, which can simply walk down, never
+        // reaches this line.
+        if (!rodeDown && bot.entity.position.y >= SEA_LEVEL + 20 &&
+            (bot.health ?? 20) >= 18 && Number(target.y) < bot.entity.position.y - 8 &&
+            rescueBlocks(bot).length > 0) {
+          rodeDown = true
+          const before2 = bot.entity.position.clone()
+          const r = await rideFloorDown(bot, { signal })
+          check(signal)
+          logEvent({
+            kind: 'ride_floor_down',
+            status: r.descended >= 1 ? 'success' : 'failed',
+            detail: `descended ${r.descended.toFixed(0)} blocks from y=${Math.round(before2.y)} ` +
+                    `using ${r.placed} placed block(s)` + (r.stopped ? ` — stopped: ${r.stopped}` : ''),
+            snapshot: snapshot(bot),
+          })
+          if (bot.entity.position.distanceTo(before2) >= 2) continue
         }
         const q = bot.entity.position
         return {
@@ -2970,6 +3000,27 @@ const LIQUID = new Set(['water', 'lava', 'flowing_water', 'flowing_lava'])
 const FALLING = new Set(['gravel', 'sand', 'red_sand'])
 
 /**
+ * WHAT A STRANDED BOT MAY SPEND TO GET DOWN.
+ *
+ * Wider than SCAFFOLD on purpose. SCAFFOLD is the list of blocks cheap enough
+ * to abandon in a shaft, so it excludes logs -- correctly, since a log is four
+ * planks. A bot that has been stuck at the build limit for eight hours is in a
+ * different trade: the two stranded bots carry 226 and 101 logs and between
+ * them THREE blocks that SCAFFOLD recognises, so the careful list would have
+ * left them exactly where they were.
+ *
+ * FALLING blocks are excluded and this is the whole reason the set is written
+ * out rather than expressed as "anything solid". The move here is to place a
+ * block beneath the floor and then break the floor. Do that with sand and the
+ * sand falls the instant it is unsupported -- the bot drops with it, 250
+ * blocks, into the void it was trying to bridge. The one block type that looks
+ * most like scaffold is the one that kills.
+ */
+export const RESCUE_BLOCK = /^(cobblestone|cobbled_deepslate|dirt|coarse_dirt|rooted_dirt|netherrack|tuff|granite|diorite|andesite|deepslate|stone|sandstone|red_sandstone|.*_planks|.*_log|.*_wood|.*_stem)$/
+export const rescueBlocks = bot => bot.inventory.items()
+  .filter(it => RESCUE_BLOCK.test(it.name) && !FALLING.has(it.name))
+
+/**
  * Climb straight up by digging and pillaring, WITHOUT the pathfinder.
  *
  * surface's ascent already had dig-capable Movements -- and used them through
@@ -3052,6 +3103,82 @@ async function shaftAscend(bot, targetY, signal, maxSteps = 96) {
     } else noGain = 0
   }
   return { gained: bot.entity.position.y - startY, stopped: null }
+}
+
+/**
+ * RIDE YOUR OWN FLOOR DOWN.
+ *
+ * The last thing standing between three bots and the ground. They pillared to
+ * the build limit and every other exit is now legal and still useless:
+ *
+ *   goto    -> "pathfinder returned an empty path — no route out of here"
+ *   mine    -> "open space at least 4 blocks under" — correct, it is a
+ *              250-block void and digging is a fall
+ *   explore -> "explored 0 blocks in 14 legs" — it is a platform
+ *   surface -> pillars UP; wrong direction by contract
+ *   place   -> searches the eight HORIZONTAL neighbours, never underfoot
+ *
+ * In open air the only placeable position is against a face of the block you
+ * are standing on, and the only exposed face pointing anywhere useful is its
+ * UNDERSIDE. So the move is not to dig down into nothing -- it is to put
+ * something there first, then dig. Place a block beneath the floor, break the
+ * floor, fall exactly one block onto what you just placed. Repeat.
+ *
+ * That turns the void the `mine` guard correctly refuses into solid ground,
+ * one block at a time, and the fall exposure is never more than one block.
+ * It costs one carried block per block of descent -- the stranded bots carry
+ * 226 logs, which is 226 blocks of it.
+ *
+ * NOT A NEW SKILL, deliberately. It hangs off `goto` after the pathfinder has
+ * proved there is no route, so the model needs to learn nothing: it already
+ * proposes `goto <the ground>` and is right to. A new verb would add prompt,
+ * admission and telemetry surface for a state that affects 3 bots in 80.
+ *
+ * Bounded hard. One bad precondition here turns a rare stranding into a
+ * fleet-wide fall, and 169 of 868 deaths on this project are already falls.
+ * Every step verifies the placement by reading the world back and verifies
+ * that the bot actually descended; anything unexpected stops the whole thing.
+ */
+async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
+  const startY = bot.entity.position.y
+  let placed = 0, stopped = null
+  for (let step = 0; step < maxSteps; step++) {
+    if (signal?.aborted) { stopped = 'aborted'; break }
+    const yBefore = bot.entity.position.y
+    const floor = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+    if (!floor || floor.boundingBox !== 'block') { stopped = 'nothing underfoot to stand on'; break }
+    // The space we are about to fall into must be empty, or this is not a
+    // one-block descent and the guard in `mine` was right about it.
+    const target = bot.entity.position.offset(0, -2, 0)
+    const under = bot.blockAt(target)
+    if (under && under.boundingBox === 'block') { stopped = 'solid below — ordinary digging applies'; break }
+    if (under && /water|lava/.test(under.name ?? '')) { stopped = `${under.name} below`; break }
+
+    const item = rescueBlocks(bot)[0]
+    if (!item) { stopped = 'no placeable blocks left'; break }
+    await bot.equip(item, 'hand').catch(() => {})
+    // Place against the UNDERSIDE of the floor we are standing on.
+    try {
+      await withTimeout(bot.placeBlock(floor, new Vec3(0, -1, 0)), 6_000, bot,
+                        { what: 'place', onTimeout: () => {} })
+    } catch { /* verified by readback below, not by the absence of a throw */ }
+    await sleep(180)
+    const nowUnder = bot.blockAt(target)
+    if (!nowUnder || nowUnder.boundingBox !== 'block') {
+      stopped = 'could not place beneath the floor'; break
+    }
+    placed++
+
+    // Break the floor and drop exactly one block onto what we just placed.
+    try {
+      await withTimeout(bot.dig(floor), 10_000, bot, { what: 'dig', onTimeout: () => {} })
+    } catch { stopped = 'could not break the floor'; break }
+    await sleep(420)
+    const fell = yBefore - bot.entity.position.y
+    if (fell < 0.5) { stopped = 'floor broke but the bot did not descend'; break }
+    if (fell > 3.5) { stopped = `fell ${Math.round(fell)} blocks — stopping before that repeats`; break }
+  }
+  return { descended: startY - bot.entity.position.y, placed, stopped }
 }
 
 /**
