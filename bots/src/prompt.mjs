@@ -11,6 +11,7 @@
 
 import { SKILLS } from './skills.mjs'
 import { inventorySummary, isNight } from './state.mjs'
+import { CLIMB_CEILING } from './reflex.mjs'
 import { shoreRoute } from './reflex.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { config } from './config.mjs'
@@ -219,6 +220,47 @@ function waterSituation (bot) {
 }
 
 /** Compass direction, because "west" is actionable and "dx=-812" is not. */
+// Terrain band for this world, stated once. The system prompt quotes the same
+// numbers; if they ever disagree the model gets two answers to one question.
+const TERRAIN_LOW = 62
+const TERRAIN_HIGH = 90
+
+/**
+ * WHAT THIS LINE USED TO SAY, AND WHAT IT COST.
+ *
+ *     `REACHABLE Y RANGE: ${y - 30} to ${y + 30} (you are at y=${y})`
+ *
+ * It is relative to wherever the bot already is, so it can only ever agree
+ * with the bot. Two bots sat at the build limit for six hours reading
+ *
+ *     REACHABLE Y RANGE: 290 to 350 (you are at y=320)
+ *
+ * which says the SKY is reachable and never mentions that the ground is 250
+ * blocks below. It was the only elevation information in the whole prompt, and
+ * it argued for staying exactly where they were.
+ *
+ * An absolute band cannot do that: it is the same sentence wherever the bot
+ * stands, so it disagrees with a bot that has climbed somewhere silly. The
+ * stranded case names `mine` because an affordance the observation does not
+ * name is one the model does not have -- and both stranded bots were carrying
+ * the pickaxe `mine` needs while trying to craft another one.
+ */
+export function yContext (y) {
+  const yr = Math.round(y)
+  if (yr >= CLIMB_CEILING) {
+    return `ELEVATION: y=${yr} — ABOVE THE CLIMB CEILING (${CLIMB_CEILING}). ` +
+      `Ground is ~${yr - TERRAIN_HIGH} blocks BELOW you, around y=${TERRAIN_LOW}-${TERRAIN_HIGH}. ` +
+      `Climbing cannot help and falling from here is lethal: you must DESCEND ` +
+      `(mine digs a staircase down). Do not goto a distant target until you are down.`
+  }
+  if (yr < TERRAIN_LOW) {
+    return `ELEVATION: y=${yr} — below the surface, which is around ` +
+      `y=${TERRAIN_LOW}-${TERRAIN_HIGH}. Use surface to get out before a distant goto.`
+  }
+  return `ELEVATION: y=${yr}. Surface terrain here is y=${TERRAIN_LOW}-${TERRAIN_HIGH}; ` +
+    `keep goto targets near your current elevation.`
+}
+
 function bearing (dx, dz) {
   // +x is east and +z is south in Minecraft.
   const dirs = ['east', 'southeast', 'south', 'southwest', 'west', 'northwest', 'north', 'northeast']
@@ -335,7 +377,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     depositSituation(bot, memory),
     `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
     waterSituation(bot),
-    `REACHABLE Y RANGE: ${Math.round(p.y) - 30} to ${Math.round(p.y) + 30} (you are at y=${p.y.toFixed(0)})`,
+    yContext(p.y),
     Object.keys(memory.locations).length
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`
       : '',

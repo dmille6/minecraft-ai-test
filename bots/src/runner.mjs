@@ -287,6 +287,20 @@ export class Runner {
     this.recent.push({ skill: skillName, status: result.status, at: Date.now() })
     if (this.recent.length > Runner.RECENT_MAX) this.recent.shift()
 
+    // WHY THE REASON IS RETURNED RATHER THAN DISPATCHED FROM HERE.
+    //
+    // The reflex decides some situations are cognitive work and hands them up
+    // by interrupting the running skill. Nothing was listening: `notify()` is
+    // called from exactly one place in the tree, and every reflex reason
+    // reached the model as `idle` -- 99.0% of 21,180 decisions over 3h.
+    //
+    // The obvious fix, calling notify() from here, is wrong twice over. It
+    // fires before run() returns to the CognitiveLoop's own #tick(), so the
+    // notify nests a fresh decision inside the one still unwinding; and
+    // notify() drops anything arriving while the runner is busy, which during
+    // an abort it still is. So the reason is DATA on the result, and the
+    // caller acts on it once it is safe to.
+    const interruptedBy = this.interruptedReason
     this.current = null
     this.interruptedReason = null
     // Hand the DELTA back, not just the status. The runner already computed
@@ -297,6 +311,7 @@ export class Runner {
     // inventory. ADR-0003.
     return {
       ...result,
+      interruptedBy,
       delta: measured,
       // The measurements that let this call through the gate above, carried
       // forward so the thing that RECORDS the success has the observation in

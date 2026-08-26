@@ -203,6 +203,58 @@ export class CognitiveLoop {
     clearTimeout(this.nextTimer); clearInterval(this.liveness)
     try { this.lessons.save() } catch {} }
 
+  /**
+   * WHY A REFLEX INTERRUPT BECOMES THE NEXT TRIGGER.
+   *
+   * The reflex hands a situation up to cognition by interrupting the skill.
+   * That handoff carried no information: every reason arrived as `idle`, 99.0%
+   * of 21,180 decisions in three hours, which is how two bots read
+   * `TRIGGER: idle` on their 59th diagnosed stranding at the build limit.
+   *
+   * Held rather than dispatched, for two reasons. `notify()` drops anything
+   * that arrives while the runner is busy, and dispatching from the runner
+   * would nest a decision inside the one still unwinding.
+   *
+   * PRIORITY, NOT LAST-WINS. Two reflexes can fire in quick succession and the
+   * runner keeps only the newest reason, so `stranded_high` can be overwritten
+   * by a `stuck` that is merely its symptom. The ranking below is by how badly
+   * the situation needs a DIFFERENT plan rather than a retry.
+   */
+  static TRIGGER_RANK = {
+    death: 6,
+    stranded_high: 5, entombed: 5,
+    marooned: 4, stranded: 4,
+    drowning: 3, suffocating: 3, low_health: 3,
+    danger_block: 2,
+    stuck: 1, stagnation: 1,
+  }
+
+  /**
+   * REASONS THAT MUST NOT WAKE A DECISION.
+   *
+   * `user_stop` is a human saying stop. Treating it as a situation to think
+   * about would have the bot make a fresh decision the instant it was stopped,
+   * which is the opposite of what was asked. It is an instruction, not a
+   * predicament, and the difference is not visible from the reason string --
+   * which is exactly why it is written down rather than left to rank 0.
+   */
+  static TRIGGER_SUPPRESSED = new Set(['user_stop'])
+
+  #raiseTrigger (reason, detail) {
+    if (CognitiveLoop.TRIGGER_SUPPRESSED.has(reason)) return
+    const rank = r => CognitiveLoop.TRIGGER_RANK[r] ?? 0
+    if (this.pendingTrigger && rank(this.pendingTrigger) > rank(reason)) return
+    this.pendingTrigger = reason
+    // The model reads RECENT EVENTS, not the enum, so record what happened.
+    if (detail) this.memory.addEvent(`reflex took over (${reason}): ${detail}`.slice(0, 160))
+  }
+
+  #takePendingTrigger () {
+    const t = this.pendingTrigger
+    this.pendingTrigger = null
+    return t
+  }
+
   /** Called by the harness when something interesting happens. */
   notify(trigger, detail) {
     if (detail) this.memory.addEvent(detail)
@@ -274,7 +326,7 @@ export class CognitiveLoop {
         this.#scheduleNext(Math.min(delay, 10_000))
         return
       }
-      this.#tick('idle')
+      this.#tick(this.#takePendingTrigger() ?? 'idle')
     }, delay)
   }
 
@@ -463,6 +515,8 @@ export class CognitiveLoop {
       })
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
+      // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
+      if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
       // Adopt whatever the skill said it needed; #activeTask makes it the task.
       if (r.need) this.#adoptPrereq(r.need, admitted.skill)
