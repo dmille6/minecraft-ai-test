@@ -654,12 +654,58 @@ export function airCriticalTransition(oxygen, airMax, latched,
   return null
 }
 
+/**
+ * WHERE A SWIMMER WITH NO BANK IN SIGHT SHOULD AIM.
+ *
+ * The first version of this sent every such bot HOME, and that was a bad
+ * mistake in an experiment about exploration. A bot that walks east until it
+ * runs out of continent is doing exactly what it should; turning it around at
+ * the water's edge makes home an attractor and puts a ceiling on how much of
+ * the world can ever be seen. It also meant the reflex could own a body for
+ * nine minutes dragging it in a direction the bot never chose.
+ *
+ * So the reflex does not pick a DESTINATION. It preserves an INTENTION, and
+ * only falls back to home when there is none to preserve:
+ *
+ *   1. the target of whatever skill is running -- the bot was going
+ *      somewhere, and swimming is how you cross water to get there
+ *   2. the nearest place the world model has actually seen land
+ *   3. home, for a bot that is genuinely lost
+ *
+ * A DELIBERATE crossing never reaches this code at all: phase 2 requires
+ * `!swimming`, and `swim_to` sets `waterTravel.active`. Columbus keeps his
+ * heading; it is the bot who fell in that gets pointed at something.
+ */
+export function swimBearing ({ current = null, sites = [], at = null, home = null } = {}) {
+  const a = current?.args ?? {}
+  if (Number.isFinite(Number(a.x)) && Number.isFinite(Number(a.z))) {
+    return { x: Number(a.x), z: Number(a.z), phase: 'swim_to_goal' }
+  }
+  if (at && sites.length) {
+    let best = null
+    for (const s of sites) {
+      if (!Number.isFinite(s?.x) || !Number.isFinite(s?.z)) continue
+      const d = Math.hypot(s.x - at.x, s.z - at.z)
+      if (!best || d < best.d) best = { x: s.x, z: s.z, d }
+    }
+    // Only worth aiming at if it beats the walk home; otherwise home is
+    // simpler and at least as good.
+    if (best && (!home || best.d < Math.hypot(home.x - at.x, home.z - at.z))) {
+      return { x: best.x, z: best.z, phase: 'swim_to_known_land' }
+    }
+  }
+  if (home && Number.isFinite(home.x) && Number.isFinite(home.z)) {
+    return { x: home.x, z: home.z, phase: 'swim_home' }
+  }
+  return null
+}
+
 export function shouldHoldSurface({ rescuing, swimming, ashore, feet }) {
   if (rescuing || swimming || ashore) return false
   return !!feet && (feet.name === 'water' || feet.name === 'bubble_column')
 }
 
-export function drowningControls({ losing, ashore, route, shore, home = null, at = null }) {
+export function drowningControls({ losing, ashore, route, shore, bearing = null, at = null }) {
   if (ashore) return { forward: false, jump: false, lookAt: null, phase: 'done' }
   // PHASE 1 -- still losing air. Reaching air outranks reaching land; a bot
   // that drowns on the way to a beach is not rescued.
@@ -697,9 +743,9 @@ export function drowningControls({ losing, ashore, route, shore, home = null, at
   // because the world border is finite and land is not evenly rare. Home is
   // the one direction guaranteed to end on land, and it is already the target
   // every other lost-bot path uses.
-  if (home && Number.isFinite(home.x) && Number.isFinite(home.z)) {
-    return { forward: true, jump: true, phase: 'swim_home',
-             lookAt: { x: home.x, y: (at?.y ?? 63), z: home.z } }
+  if (bearing && Number.isFinite(bearing.x) && Number.isFinite(bearing.z)) {
+    return { forward: true, jump: true, phase: bearing.phase,
+             lookAt: { x: bearing.x, y: (at?.y ?? 63), z: bearing.z } }
   }
   // Only with nowhere named to swim to does holding the head up remain the
   // least-bad option.
@@ -1265,17 +1311,26 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         }
         const ctl = drowningControls({
           losing: false, ashore: false, route: null, shore,
-          home: { x: config.world.homeX, z: config.world.homeZ },
+          bearing: swimBearing({
+            current: runner?.current,
+            sites: worldFacts?.cache?.resources ?? [],
+            at: bot.entity?.position,
+            home: { x: config.world.homeX, z: config.world.homeZ },
+          }),
           at: bot.entity?.position,
         })
         // A crossing owns the body for as long as it is actually crossing.
         // `travelling` is re-derived every tick and falls back to false the
         // moment the phase changes, so a bot that stops swimming stops being
         // exempt -- it cannot latch itself into permanent ownership.
-        travelling = ctl.phase === 'swim_home'
+        travelling = ctl.phase?.startsWith('swim_') === true
         if (travelling) {
-          const hd = Math.hypot(bot.entity.position.x - config.world.homeX,
-                                bot.entity.position.z - config.world.homeZ)
+          // Progress is measured against whatever it is actually aiming at,
+          // not against home -- otherwise a bot correctly swimming AWAY from
+          // home toward its goal would read as stalled and be released.
+          const tgt = ctl.lookAt
+          const hd = tgt ? Math.hypot(bot.entity.position.x - tgt.x,
+                                      bot.entity.position.z - tgt.z) : Infinity
           if (hd < bestHomeDist - 1) { bestHomeDist = hd; lastProgressAt = Date.now() }
         }
         if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }

@@ -22,7 +22,7 @@
 // loop that will not act for another thirty seconds -- in water.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { drowningControls } from '../src/reflex.mjs'
+import { drowningControls, swimBearing } from '../src/reflex.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -30,11 +30,12 @@ const t = (name, fn) => {
   catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) }
 }
 const HOME = { x: 355, z: 147 }
+const B = (x, z, phase='swim_home') => ({ x, z, phase })
 const AT = { x: 900, y: 62, z: 900 }
 
 t('THE 4,295: open water with no bank must SWIM, not tread', () => {
   const c = drowningControls({ losing: false, ashore: false, route: null,
-                               shore: null, home: HOME, at: AT })
+                               shore: null, bearing: B(HOME.x, HOME.z), at: AT })
   assert.strictEqual(c.forward, true,
     'still treading water — this is the branch that spends the whole ceiling ' +
     'going nowhere and then drops an unowned body into open water')
@@ -42,11 +43,46 @@ t('THE 4,295: open water with no bank must SWIM, not tread', () => {
   assert.strictEqual(c.phase, 'swim_home')
 })
 
-t('it swims toward the one direction guaranteed to end on land', () => {
+t('it swims toward the bearing it was given', () => {
   const c = drowningControls({ losing: false, ashore: false, route: null,
-                               shore: null, home: HOME, at: AT })
+                               shore: null, bearing: B(HOME.x, HOME.z), at: AT })
   assert.strictEqual(c.lookAt.x, HOME.x)
   assert.strictEqual(c.lookAt.z, HOME.z)
+})
+
+// -------------------------------------------------------------------------
+// CHRISTOPHER COLUMBUS. The first version of this sent EVERY swimmer home,
+// which in an experiment about exploration makes home an attractor and puts a
+// hard ceiling on how much of the world can ever be seen. The reflex must
+// preserve an INTENTION, not impose a destination.
+// -------------------------------------------------------------------------
+
+t('a bot with a goal keeps its heading — it does not get turned around', () => {
+  // Walked east until the continent ran out, mid-goto to somewhere far east.
+  const b = swimBearing({ current: { skill: 'goto', args: { x: 4000, y: 63, z: 4000 } },
+                          sites: [], at: AT, home: HOME })
+  assert.strictEqual(b.phase, 'swim_to_goal')
+  assert.strictEqual(b.x, 4000)
+  assert.strictEqual(b.z, 4000, 'the bot was dragged home instead of continuing east')
+})
+
+t('with no goal it aims at land the world model has SEEN, if that is nearer', () => {
+  const b = swimBearing({ current: null, sites: [{ x: 920, z: 920 }, { x: 5, z: 5 }],
+                          at: AT, home: HOME })
+  assert.strictEqual(b.phase, 'swim_to_known_land')
+  assert.strictEqual(b.x, 920)
+})
+
+t('known land is only used when it BEATS the walk home', () => {
+  // A "known site" on the far side of the world is worse than going home.
+  const b = swimBearing({ current: null, sites: [{ x: -9000, z: -9000 }], at: AT, home: HOME })
+  assert.strictEqual(b.phase, 'swim_home')
+})
+
+t('home is the last resort, for a bot that is genuinely lost', () => {
+  const b = swimBearing({ current: null, sites: [], at: AT, home: HOME })
+  assert.strictEqual(b.phase, 'swim_home')
+  assert.strictEqual(swimBearing({ current: null, sites: [], at: AT, home: null }), null)
 })
 
 t('a REACHABLE bank still outranks the long swim home', () => {
@@ -54,7 +90,7 @@ t('a REACHABLE bank still outranks the long swim home', () => {
   // swimming home past a beach three blocks away.
   const shore = { dir: 'shore', target: { x: 10, y: 63, z: 10 }, dist: 4 }
   const c = drowningControls({ losing: false, ashore: false, route: null,
-                               shore, home: HOME, at: AT })
+                               shore, bearing: B(HOME.x, HOME.z), at: AT })
   assert.strictEqual(c.phase, 'to_shore')
   assert.strictEqual(c.lookAt, shore.target)
 })
@@ -62,21 +98,21 @@ t('a REACHABLE bank still outranks the long swim home', () => {
 t('AIR STILL OUTRANKS EVERYTHING — a bot that drowns en route is not rescued', () => {
   const route = { dir: 'out', target: { x: 1, y: 70, z: 1 } }
   const c = drowningControls({ losing: true, ashore: false, route,
-                               shore: null, home: HOME, at: AT })
+                               shore: null, bearing: B(HOME.x, HOME.z), at: AT })
   assert.strictEqual(c.phase, 'to_air',
     'the swim-home bearing has been allowed to preempt surfacing for air')
 })
 
 t('ashore is still done, and is not overridden by a bearing', () => {
   const c = drowningControls({ losing: false, ashore: true, route: null,
-                               shore: null, home: HOME, at: AT })
+                               shore: null, bearing: B(HOME.x, HOME.z), at: AT })
   assert.strictEqual(c.phase, 'done')
   assert.strictEqual(c.forward, false)
 })
 
 t('with nowhere named to swim to, holding the head up remains the fallback', () => {
   const c = drowningControls({ losing: false, ashore: false, route: null,
-                               shore: null, home: null, at: AT })
+                               shore: null, bearing: null, at: AT })
   assert.strictEqual(c.phase, 'no_shore')
   assert.strictEqual(c.forward, false)
   assert.strictEqual(c.jump, true, 'stopped holding the head up as well')
@@ -110,15 +146,20 @@ t('but a STALLED crossing still ends — ownership is earned, not granted', () =
 })
 
 t('travelling is re-derived per tick, so it cannot latch', () => {
-  assert.ok(/travelling = ctl\.phase === 'swim_home'/.test(reflexSrc),
+  assert.ok(/travelling = ctl\.phase\?\.startsWith\('swim_'\) === true/.test(reflexSrc),
     'travelling is not recomputed from the current phase — a bot that stops ' +
     'swimming would stay exempt from the ceiling forever')
 })
 
 t('progress means CLOSING ON THE TARGET, not merely moving', () => {
   assert.ok(/hd < bestHomeDist - 1/.test(reflexSrc),
-    'progress is not measured as distance to home decreasing — a bot swimming ' +
-    'in circles would keep renewing its own ownership')
+    'progress is not measured as distance decreasing — a bot swimming in ' +
+    'circles would keep renewing its own ownership')
+  // Measured against the TARGET, not home: a bot correctly swimming away from
+  // home toward its goal must not read as stalled.
+  assert.ok(/const tgt = ctl\.lookAt/.test(reflexSrc),
+    'progress is still measured against home — an outbound explorer would be ' +
+    'released for making perfect progress in the wrong direction')
 })
 
 console.log(`\n  ${pass} passed, ${fail} failed`)
