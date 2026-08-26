@@ -659,7 +659,7 @@ export function shouldHoldSurface({ rescuing, swimming, ashore, feet }) {
   return !!feet && (feet.name === 'water' || feet.name === 'bubble_column')
 }
 
-export function drowningControls({ losing, ashore, route, shore }) {
+export function drowningControls({ losing, ashore, route, shore, home = null, at = null }) {
   if (ashore) return { forward: false, jump: false, lookAt: null, phase: 'done' }
   // PHASE 1 -- still losing air. Reaching air outranks reaching land; a bot
   // that drowns on the way to a beach is not rescued.
@@ -672,8 +672,37 @@ export function drowningControls({ losing, ashore, route, shore }) {
   if (shore?.dir === 'shore') {
     return { forward: true, jump: true, lookAt: shore.target, phase: 'to_shore' }
   }
-  // No reachable shore. Do not thrash: hold the head up and let the ceiling
-  // expire honestly, which is what open ocean should look like.
+  // NO SHORE IN RANGE. This line used to read `forward: false` -- tread water,
+  // hold the head up, and let the ceiling expire "honestly".
+  //
+  // Measured over 22 days, that is the largest single killer in the project.
+  // The ledger for one six-hour window:
+  //
+  //     _drowning_escaped              1,054   reached land
+  //     _drowning_no_shore             4,295   treaded, then dropped
+  //     _drowning_reentry              4,185   came straight back
+  //     _drowning_surfaced_stranded    2,271
+  //     _drowning_released_timeout     1,955
+  //
+  // 1,054 rescues that held against 8,521 that did not, and 17 of 19 drowning
+  // deaths in six hours happened AFTER a release, median 46 seconds later.
+  // Treading water is not a neutral wait. It spends the whole ownership
+  // ceiling going nowhere and then hands an unowned body back to a cognitive
+  // loop that will not act for another thirty seconds, in water, which is why
+  // 58 of 61 drowning deaths carry "idle at the moment of death".
+  //
+  // Swimming is a MODE OF MOVEMENT, not an emergency. A bot in open water with
+  // no bank within the scan radius is not in an emergency -- it is somewhere,
+  // and it needs to go somewhere else. Any committed bearing beats treading,
+  // because the world border is finite and land is not evenly rare. Home is
+  // the one direction guaranteed to end on land, and it is already the target
+  // every other lost-bot path uses.
+  if (home && Number.isFinite(home.x) && Number.isFinite(home.z)) {
+    return { forward: true, jump: true, phase: 'swim_home',
+             lookAt: { x: home.x, y: (at?.y ?? 63), z: home.z } }
+  }
+  // Only with nowhere named to swim to does holding the head up remain the
+  // least-bad option.
   return { forward: false, jump: true, lookAt: null, phase: 'no_shore' }
 }
 
@@ -1208,7 +1237,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             lastProgressAt = Date.now()
           }
         }
-        const ctl = drowningControls({ losing: false, ashore: false, route: null, shore })
+        const ctl = drowningControls({
+          losing: false, ashore: false, route: null, shore,
+          home: { x: config.world.homeX, z: config.world.homeZ },
+          at: bot.entity?.position,
+        })
         if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
         bot.setControlState('forward', ctl.forward)
         bot.setControlState('jump', ctl.jump)
