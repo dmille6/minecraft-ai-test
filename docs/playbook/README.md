@@ -43,6 +43,7 @@ bring the verdicts back.
 | 11 | [Measure from the deploy](measure-from-deploy.md) | Windows start at the deploy timestamp, and exposure must be confirmed |
 | 12 | [The method](the-method.md) | Arms, pre-registration, freeze, and arm-blind hands |
 | 13 | [The harness is the contribution](harness-is-the-contribution.md) | Tooling outlives results |
+| 14 | [Refused, not unwilling](refused-not-unwilling.md) | Count the agent's attempts before believing it chose not to |
 
 ## House rules for this directory
 
