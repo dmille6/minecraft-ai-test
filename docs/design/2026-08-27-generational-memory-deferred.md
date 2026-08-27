@@ -53,12 +53,35 @@ between units. The community's own reverse-engineered API reference has pages
 for Actor, City, Kingdom, Building, WorldTile and **no page for a behaviour or
 decision API at all**.
 
-Blockers beyond that: closed source (Unity 2022.3.60f1, Mono), no official mod
-API, **no headless mode** — every working bridge needs the game window, and the
-best one is Windows-only — a hard **20x** speed ceiling (`WorldTimeScaleLibrary`
-is exactly `slow_mo … x20`), unverified tick determinism, and ~16 GB RAM for a
-30x30 map with 40x40 crashing. The one bright spot is the save format: `.wbox`
-is zlib-compressed JSON beside a SQLite stats DB, both parseable offline.
+Blockers beyond that: closed source (Unity, Mono backend), no official mod API,
+**no headless mode** — every working bridge needs the game window, the best is
+Windows-only — unverified tick determinism, and ~16 GB RAM for a 30x30-zone map
+with 40x40 crashing. The save format is the bright spot: `.wbox` is
+zlib-compressed JSON beside a SQLite stats DB, both parseable offline, with
+three independent third-party readers.
+
+**Two corrections from a second pass that read the binary directly**, recorded
+because the first version of this doc got them wrong:
+
+- **Speed is NOT capped at 20x.** `x10/x15/x20` are hidden from the UI but
+  accepted programmatically, and the game computes
+  `Time.fixedDeltaTime * Config.time_scale_asset.multiplier` — mutating that
+  multiplier in place gives arbitrary turbo in about two lines. The real
+  throughput limit is that the simulation appears **single-threaded** (no
+  `Thread`, `Task`, `Parallel`, `IJob` or `Burst` symbols in the binary), so
+  parallel worlds are core-bound rather than GPU-bound.
+- **The game ships its own undocumented automation harness.**
+  `Assets/Scripts/tools/auto_tester/` — 66 files, `AutoTesterBot.cs` and ~60
+  behaviours including `TesterBehGenerateMap`, `LoadWorld`, `FillWorld`,
+  `SpawnRandomCivUnit`, `ChangeWorldSpeed`, `WaitYears`, `RequireUnits`,
+  `CheckWorld`, `Shutdown`. It is driven by a debug-menu button rather than a
+  CLI flag, but a Harmony mod can drive it. Nobody appears to have written
+  about this publicly.
+
+Neither correction changes the verdict, and that is the point worth keeping:
+the disqualifier was never speed or tooling. It is that the action space is
+god-only and the units hold no beliefs. A faster, better-instrumented way to
+play deity is still not a way to study agents.
 
 The whole AI-adjacent niche is four months old, every repo single-author, and
 the star ceiling is 6.
