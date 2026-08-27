@@ -55,10 +55,26 @@ decision API at all**.
 
 Blockers beyond that: closed source (Unity, Mono backend), no official mod API,
 **no headless mode** — every working bridge needs the game window, the best is
-Windows-only — unverified tick determinism, and ~16 GB RAM for a 30x30-zone map
+Windows-only — **very likely non-reproducible** simulation, and ~16 GB RAM for a 30x30-zone map
 with 40x40 crashing. The save format is the bright spot: `.wbox` is
 zlib-compressed JSON beside a SQLite stats DB, both parseable offline, with
 three independent third-party readers.
+
+**Determinism: assume NO, and this is the decisive technical disqualifier
+independent of everything else.** There is an internal world seed but *you
+cannot enter one* — `generateNewMap()` takes no parameters, "add world seeds"
+is an open and never-implemented feature request, and the genetics seed is
+derived from the wall-clock UTC creation hour. Version 0.51.0 shipped
+"fixed: a single-thread random number generator was running during multi-thread"
+and "increased random entropy in general". Nobody has ever tested save-reload
+reproducibility. For a lab whose entire method is controlled arms compared
+against each other, plan for replicates rather than seed-matched pairs — which
+is a much weaker experimental instrument than what Minecraft already gives us.
+
+Also: there is **no culling**. The developer, on Steam: *"WorldBox simulat[es]
+all existing entities… Opposite to example, Minecraft, where if there's no
+players on a specific chunk it's kept in 'storage'."* Cost is O(total
+entities), lag onset is reported around 1,000 population, and ~30fps at 6,000.
 
 **Two corrections from a second pass that read the binary directly**, recorded
 because the first version of this doc got them wrong:
@@ -66,10 +82,17 @@ because the first version of this doc got them wrong:
 - **Speed is NOT capped at 20x.** `x10/x15/x20` are hidden from the UI but
   accepted programmatically, and the game computes
   `Time.fixedDeltaTime * Config.time_scale_asset.multiplier` — mutating that
-  multiplier in place gives arbitrary turbo in about two lines. The real
-  throughput limit is that the simulation appears **single-threaded** (no
-  `Thread`, `Task`, `Parallel`, `IJob` or `Burst` symbols in the binary), so
-  parallel worlds are core-bound rather than GPU-bound.
+  multiplier in place gives arbitrary turbo in about two lines. But the speed
+  is not faithful: the game's own debug menu warns that its fastest mode
+  "can cause lag and **simulation inconsistencies**" and that "some process
+  will not go past 20x speed", and the changelog is a long history of fixing
+  individual subsystems that behaved differently when sped up. **Do not assume
+  5x is 5x the same simulation.**
+
+  (An earlier version of this note said the sim was single-threaded, inferred
+  from the absence of Job System and Burst symbols. That inference was wrong —
+  the changelog shows the game is multithreaded. Absence of those symbols means
+  it does not use Unity's job system, not that it uses one thread.)
 - **The game ships its own undocumented automation harness.**
   `Assets/Scripts/tools/auto_tester/` — 66 files, `AutoTesterBot.cs` and ~60
   behaviours including `TesterBehGenerateMap`, `LoadWorld`, `FillWorld`,
