@@ -45,13 +45,36 @@ inhabitants.** The community bridge's action space is `invoke_power`, `spawn`,
 people imagine — Project Sid-style agents living inside a civilization — is
 precisely what WorldBox does not afford.
 
-The units confirm it. The decompiled namespace is `ai.behaviours`:
-hierarchical task→action lists with retry checks at unit/city/kingdom tiers,
-hand-authored and stateless-reactive. Units carry `money, experience, renown,
-kills, food_consumed, births` — counters, not memory. Nothing transfers
-between units. The community's own reverse-engineered API reference has pages
-for Actor, City, Kingdom, Building, WorldTile and **no page for a behaviour or
-decision API at all**.
+The units confirm it, and a decompilation of `Assembly-CSharp.dll` puts hard
+numbers on it:
+
+- The class is `UtilityBasedDecisionSystem`, but `chooseBestAction()` is a
+  linear scan over a cumulative sum — a **weighted random draw**, not a
+  utility calculation. Of **127 decisions, 118 carry hardcoded constant
+  weights**; 9 compute a weight, and 7 of those 9 are the same two-valued step
+  function. **Exactly two decisions in the entire game vary continuously with
+  unit state.**
+- **A unit's whole decision-time world model is 8 booleans** — `is_hungry,
+  is_fighting, is_herd, is_adult, is_civ, is_sapient, city_is_in_danger,
+  can_capture_city` — rebuilt fresh each decision. Working memory is 4
+  pointers. Total persistent AI state per unit: current job, `task_index`,
+  `action_index`, `restarts`.
+- A grep for `known|seen|remember|memor|learn|belief|relation` returns **no
+  hits**. Nothing transfers between units; culture and religion spread by
+  assigning an ID, not by transmitting anything learned.
+- Kingdom AI is **one job with three entries**, and
+  `KingdomCheckAttackTarget.cs` is a **completely empty class body**. City AI
+  is a single fixed round-robin with no choice in it.
+- `AITask`, `BrainsLibrary` and `MindLibrary` are **empty subclasses**. The
+  brain/mind/neuron vocabulary is a skin over an ordered list.
+- **Technology progression does not exist** — the culture-level tech tree was
+  removed in 0.50 and is marked for a future update. The culture, religion and
+  language trait libraries add **zero** decisions between them, which
+  contradicts the 0.50 marketing claim that they influence behaviour.
+
+That is a weaker baseline than a Minecraft bot with a world model, and it is
+the reason the platform cannot host this question: there is no belief to
+share.
 
 Blockers beyond that: closed source (Unity, Mono backend), no official mod API,
 **no headless mode** — every working bridge needs the game window, the best is
@@ -106,8 +129,26 @@ the disqualifier was never speed or tooling. It is that the action space is
 god-only and the units hold no beliefs. A faster, better-instrumented way to
 play deity is still not a way to study agents.
 
-The whole AI-adjacent niche is four months old, every repo single-author, and
-the star ceiling is 6.
+The AI-adjacent GitHub niche is four months old, single-author, star ceiling 6.
+But one real LLM mod exists and I was wrong to wave it away: **AIbox**
+(gamebanana.com/mods/647640) is a genuine "LLM-Powered Kingdom AI" with
+**4,484 downloads**, configurable provider URL (OpenRouter / OpenAI / Groq /
+local Ollama), a kingdom think interval, and structured actions across ~14
+policy categories. Its comment threads show users debugging real API plumbing
+— Ollama stalls, OpenRouter 401/429, a working DeepSeek recipe, one user's
+kingdom reasoning tripping a provider content filter. That is not fakeable.
+
+It is also **kingdom-tier, not per-unit**, which is the whole point: even the
+one adopted LLM integration plays a government, not an inhabitant. A per-unit
+attempt exists (Qi-Ling_AI_mod, "give a creature an LLM soul") at **72
+downloads**, closed-source and unverified.
+
+Community shape, for scale: the official Discord has **665,032 members**, and
+Steam Workshop carries **65,706 worlds against 96 mods**. It is a
+share-your-world community, not a modding one. On YouTube, "I Let ChatGPT
+Control My Simulation" has 509,075 views while the actual AIbox configuration
+tutorial has 7,580 — entertainment outdraws the real technical work about
+70 to 1.
 
 **The likely source of the claim** is Project Sid ([arXiv:2411.00114], 10–1000+
 Minecraft agents under the PIANO architecture) or AIvilization
