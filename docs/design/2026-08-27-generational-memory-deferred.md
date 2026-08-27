@@ -136,7 +136,18 @@ But one real LLM mod exists and I was wrong to wave it away: **AIbox**
 local Ollama), a kingdom think interval, and structured actions across ~14
 policy categories. Its comment threads show users debugging real API plumbing
 — Ollama stalls, OpenRouter 401/429, a working DeepSeek recipe, one user's
-kingdom reasoning tripping a provider content filter. That is not fakeable.
+kingdom reasoning tripping a provider content filter. That the integration
+*runs* is not fakeable.
+
+But it is **closed-source with no repository**, so what it actually does is the
+author's own description. A later pass verified the download count, the file,
+the date and the configuration text — and explicitly could not verify that the
+model's output changes kingdom state at all. Treat "AIbox drives kingdom
+policy" as a claim, not a finding.
+
+One architectural note worth keeping: because the base game has essentially no
+kingdom AI (one job, three tasks, an empty `KingdomCheckAttackTarget`), AIbox
+is not overriding a strategic layer — it is **adding the first one**.
 
 It is also **kingdom-tier, not per-unit**, which is the whole point: even the
 one adopted LLM integration plays a government, not an inhabitant. A per-unit
