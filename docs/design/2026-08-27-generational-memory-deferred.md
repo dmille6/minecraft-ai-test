@@ -25,6 +25,68 @@ support:
   on a fleet that caps at stone tools and has gathered iron ore zero times.
   A second platform now rewards platform shopping over measurement.
 
+### What the search found (added after the write-up)
+
+A web pass against the indexes directly, with a control query to prove the
+queries worked, settles it harder than the reasoning above:
+
+| index | query | result |
+|---|---|---|
+| arXiv | `all:"WorldBox"` | **0** |
+| arXiv | `all:"MineDojo"` (control) | 8 |
+| Semantic Scholar / DBLP / Crossref | `WorldBox` | **0 / 0 / 0** |
+
+Not "hard to find" — absent. No papers, no preprints, no workshop papers.
+
+And the decisive technical fact: **the LLM plays the god, not the
+inhabitants.** The community bridge's action space is `invoke_power`, `spawn`,
+`paint_tile`, `set_speed`, `pause`; the read space is `get_world_state`,
+`list_kingdoms`, `query_actors`. There is **no per-unit action API**. The thing
+people imagine — Project Sid-style agents living inside a civilization — is
+precisely what WorldBox does not afford.
+
+The units confirm it. The decompiled namespace is `ai.behaviours`:
+hierarchical task→action lists with retry checks at unit/city/kingdom tiers,
+hand-authored and stateless-reactive. Units carry `money, experience, renown,
+kills, food_consumed, births` — counters, not memory. Nothing transfers
+between units. The community's own reverse-engineered API reference has pages
+for Actor, City, Kingdom, Building, WorldTile and **no page for a behaviour or
+decision API at all**.
+
+Blockers beyond that: closed source (Unity 2022.3.60f1, Mono), no official mod
+API, **no headless mode** — every working bridge needs the game window, and the
+best one is Windows-only — a hard **20x** speed ceiling (`WorldTimeScaleLibrary`
+is exactly `slow_mo … x20`), unverified tick determinism, and ~16 GB RAM for a
+30x30 map with 40x40 crashing. The one bright spot is the save format: `.wbox`
+is zlib-compressed JSON beside a SQLite stats DB, both parseable offline.
+
+The whole AI-adjacent niche is four months old, every repo single-author, and
+the star ceiling is 6.
+
+**The likely source of the claim** is Project Sid ([arXiv:2411.00114], 10–1000+
+Minecraft agents under the PIANO architecture) or AIvilization
+([arXiv:2602.10429], tens of thousands of agents in a resource-constrained
+pixel sandbox — which *looks* like WorldBox and does what people imagine
+WorldBox does).
+
+### Worth stealing from the search, unrelated to WorldBox
+
+- **`vukyn/worldbit`** — someone looked at WorldBox and *rebuilt* it in Go as
+  "a deterministic agent-based world simulator — an experiment harness with a
+  viewer attached, not a game." Headless batch seed runs, parameter sweeps,
+  FNV-1a state hash identical at every tick, no floats, no uncontrolled
+  randomness. That is what wanting the research thing actually looks like.
+- **`Lous12/worldbox-modding-docs`** tags every API claim with an evidence
+  status — `VERIFIED-REVERSIBLE` under snapshot→one-write→restore proof,
+  `VERIFIED-LIFECYCLE` with stale-read counts — and keeps a `graveyard/` of
+  falsified assumptions. Unpaid modders running our own evidence-gate
+  discipline, independently.
+- **Better second platforms than WorldBox, if it ever comes up**: RimWorld has
+  `pardeike/RimBridgeServer`, an in-game MCP server by the author of Harmony;
+  Dwarf Fortress has DFHack and has been run headless in text mode by an LLM.
+  Both expose the *colonist* layer and run without a display. WorldBox does
+  neither.
+
 But WorldBox does offer **one thing Minecraft does not give naturally**, and
 that thing is worth keeping.
 
