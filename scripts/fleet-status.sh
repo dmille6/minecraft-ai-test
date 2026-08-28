@@ -81,7 +81,20 @@ for U in $(systemctl list-units 'mcbot@*' --no-legend --plain 2>/dev/null | awk 
   # decision proves the loop is alive; only an admitted one proves the bot can
   # act. Both come from `llm.admission`, which is the gate's own record of which
   # door the decision came through, and is null when nothing was admitted.
-  read -r LAST ADM REJ <<<"$(sudo tail -q -c 2000000 $LDIR/llm-$NAME.jsonl 2>/dev/null | python3 -c '
+  # AND THE REPLACEMENT ACQUIRED THE SAME FAULT AT DOUBLE THE FLEET SIZE.
+  #
+  # 2MB per bot was fine for forty. At eighty it is 160MB of sequential reads
+  # every run, and under that load the reader returns EMPTY for a random handful
+  # -- which the AGE=-1 line below then printed as SILENT. Verified 2026-08-28:
+  # seven bots read SILENT while their own llm-*.jsonl showed a decision within
+  # the last thirty seconds, and the set changed completely between two runs a
+  # minute apart. A bot cannot go from "decided 1s ago" to "silent for 20m".
+  #
+  # 256KB covers the ten-minute window this needs by a wide margin (a decision
+  # record is 1-3KB and they arrive every ~30s). Seeking to the tail is only
+  # safe BECAUSE the window wanted is the newest one -- see
+  # docs/playbook and scripts/lib/telemetry.py: for any baseline, walk the file.
+  read -r LAST ADM REJ <<<"$(sudo tail -q -c 262144 $LDIR/llm-$NAME.jsonl 2>/dev/null | python3 -c '
 import sys, json, calendar, time
 now = time.time()
 newest, adm, rej = 0, 0, 0
@@ -153,7 +166,13 @@ REMOTE
 ) 2>/dev/null | while IFS='|' read -r NAME ACT AGE RUN AV WK ADM REJ MOV GAIN; do
   [ -z "$NAME" ] && continue
   if [ "$ACT" != "active" ]; then STATE="DEAD"; NOTE="unit $ACT"
-  elif [ "$AGE" -lt 0 ]; then STATE="SILENT"; NOTE="no decision in 20m — loop stalled?"
+  elif [ "$AGE" -lt 0 ]; then
+    # UNREADABLE IS NOT STALLED. AGE<0 means the reader returned nothing, which
+    # happens when the log is missing, unreadable, or the read failed under
+    # load. Calling that SILENT sends an operator to restart a healthy bot and
+    # hides the ones that actually stopped -- the exact failure this file's
+    # liveness comment above describes. Say what is actually known.
+    STATE="UNKNOWN"; NOTE="could not read llm-$NAME.jsonl — status unknown, NOT a stall"
   elif [ "$AGE" -gt "$STALE_SEC" ]; then STATE="SLOW"; NOTE="${AGE}s since last decision"
   elif [ "${ADM:-0}" -eq 0 ] && [ "${REJ:-0}" -gt 0 ]; then
     # The loop is alive but nothing it proposes is being executed. This is what
