@@ -17,6 +17,18 @@ identical arithmetic, two files.
 NEVER SEEK. A full walk of the fleet's telemetry is ~4 seconds; seeking to the
 tail silently truncates the OLDEST end of the window, which is the baseline,
 and every such truncation has flattered the recent change.
+
+H-BAD IS NOT COMPARABLE ACROSS THE 19d18a5 BOUNDARY. `water_surface_hold_ended`
+graded itself `dipped ? failed : success` (air fell below a quarter) before that
+commit, and `headEndInAir && dHealth >= 0` after it. A canary and its controls
+therefore grade the same episode by different rules, and the canary's lower
+"bad" rate is mostly a REDEFINITION, not an improvement. Reporting it as one
+would be the same error as grading a rescue by escape rate.
+
+What IS comparable across that boundary: deaths by cause per bot-hour, water
+exposure, and descents. What is NEW INFORMATION rather than a comparison: the
+`surface_first` / `route_out` / `blocked_surface` split, which has no
+counterpart in the old code at all.
 """
 import argparse, collections, datetime, glob, json, re, sys
 
@@ -156,7 +168,7 @@ def main():
 
     print(f"\n  CANARY BASELINE  {since.isoformat()} .. {until.isoformat()}\n")
     print(f"  {'POOL':<12}{'BOTS':>5}{'BOT-H':>8}{'MINE':>6}{'DESC':>6}{'DESC%':>7}"
-          f"{'DOWN':>7}{'DEEP':>6}{'HOLDS':>7}{'H-BAD':>7}{'WATER':>8}"
+          f"{'DOWN':>7}{'DEEP':>6}{'HOLDS':>7}{'H-BAD*':>7}{'WATER':>8}"
           f"{'DEATH':>7}{'DROWN':>7}{'FALL':>6}{'LAVA':>6}")
     for r in rows:
         print(f"  {r['pool']:<12}{r['bots']:>5}{r['bot_hours']:>8}{r['mine']:>6}"
@@ -171,6 +183,8 @@ def main():
             json.dump({'since': since.isoformat(), 'until': until.isoformat(),
                        'rows': rows}, fh, indent=1)
         print(f"\n  wrote {a.json}")
+    print("\n  * H-BAD changed definition at 19d18a5 — do NOT compare it across"
+          "\n    that boundary, in either direction. See the module docstring.")
     if not rows:
         print("  NO DATA -- this reads the fleet host's logs. Run it there.")
         return 4
