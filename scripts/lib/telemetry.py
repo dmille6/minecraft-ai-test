@@ -1,5 +1,25 @@
 """Reading fleet telemetry without confidently reporting a zero that isn't one.
 
+NEVER SEEK. A FULL WALK OF THE ENTIRE FLEET HISTORY IS ~4 SECONDS.
+
+Measured 2026-08-28: 84 files, 7.4 GB, 4,774,009 lines, **4.2 seconds** to read
+end to end. There has never been a performance reason to do anything else, and
+`load()` below reads every file whole.
+
+This is written at the top because the temptation is real and it cost two days.
+Ad-hoc queries during the water investigation all seeked to the last few
+megabytes of each log "to stay fast". That truncates the OLDEST window as files
+grow, and the oldest window is always the baseline. The same pre-freeze drowning
+count read 42, then 33, then 65 on a full walk -- the baseline was being
+undercounted by half while everything after it was compared against a shrinking
+number. Two days were spent reporting that a change had made drowning 48-64%
+worse. On the full data it was neutral.
+
+Note the shape of the mistake: the cost of a full walk was never measured. It
+was assumed, an optimisation was applied against that assumption, and the price
+was a silent bias in the direction that flatters recent changes. An
+unmeasured optimisation is a guess with consequences.
+
 WHY THIS EXISTS
 
 Three times in one day an analysis query of mine answered uniformly negative and
