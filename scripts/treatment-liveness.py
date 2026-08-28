@@ -253,6 +253,20 @@ def main():
                          'to be blocked by a sibling.')
     a = ap.parse_args()
 
+    # NO LOGS IS NOT A PASS.
+    #
+    # LOGS defaults to /var/log/mcai, which exists on the fleet host and nowhere
+    # else. Run from a laptop checkout the globs matched nothing, every loop
+    # below iterated over an empty set, `sev` stayed 'ok', and the gate exited 0
+    # under an EMPTY TABLE. That is the shape of every confident-zero bug this
+    # lab has shipped: a detector that answers the same whether or not it can
+    # see. It would have green-lit a canary deploy from the wrong machine.
+    if not glob.glob(f'{LOGS}/*/llm-*.jsonl'):
+        print(f"\n  NO DATA: {LOGS}/*/llm-*.jsonl matched nothing.\n"
+              f"  This check reads the fleet host's logs directly. Run it there,\n"
+              f"  or point MCAI_LOGS at a mirror. An empty table is NOT a pass.\n")
+        return 4
+
     pools, strays = read_stores()
     dec = read_decisions(a.hours)
     rows, sev, notes = [], 'ok', []
