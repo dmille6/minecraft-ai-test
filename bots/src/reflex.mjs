@@ -700,9 +700,69 @@ export function swimBearing ({ current = null, sites = [], at = null, home = nul
   return null
 }
 
-export function shouldHoldSurface({ rescuing, swimming, ashore, feet }) {
+/**
+ * WHAT AN UNOWNED BOT IN WATER SHOULD DO — AND IT IS NOT ALWAYS "HOLD".
+ *
+ * This asked only about the FEET. A fully submerged bot — feet in water AND
+ * head in water — was told to "hold the surface" while it was underwater, and
+ * the hold is `jump: true`, which from three metres down is not a surface hold,
+ * it is drowning with the jump key pressed. Measured: **32% of 33,420 holds
+ * ended having LOST air.**
+ *
+ * That matters more than it sounds, because this is the branch that owns a bot
+ * nobody else owns. A full walk of the logs puts **90% of drowning deaths (90
+ * of 100) at `idle` in the moment of death** — no skill running. Bots are not
+ * dying while swimming. They die after a skill gives up and leaves them in
+ * water, and this is the only thing standing between that bot and the bottom.
+ *
+ * So it returns a STATE rather than a boolean, because the three cases want
+ * different things and the caller must be able to tell them apart in telemetry:
+ *
+ *   'hold_surface'   feet wet, head in air — floating. Hold.
+ *   'surface_first'  feet wet, head wet, a way up exists. Get the head up.
+ *   'blocked_surface' submerged with no reachable air. Jumping will not fix
+ *                    this; it is logged as its own thing so it stops hiding
+ *                    inside the hold count.
+ *
+ * `swimming` still suppresses all of it: a deliberate crossing owns its own
+ * body and this must not fight it.
+ */
+export function shouldHoldSurface({ rescuing, swimming, ashore, feet, head = null,
+                                    route = null }) {
   if (rescuing || swimming || ashore) return false
-  return !!feet && (feet.name === 'water' || feet.name === 'bubble_column')
+  if (!isWet(feet)) return false
+  // Air is the absence of water AND of a solid block: a head inside stone is
+  // suffocating, which is a different reflex and must not read as "afloat".
+  if (!isWet(head) && head?.boundingBox === 'empty') return 'hold_surface'
+  // Only now is the route scan worth its ~40 block reads.
+  const dir = (typeof route === 'function' ? route() : route)?.dir ?? null
+  if (dir === 'up') return 'surface_first'
+  // A SIDEWAYS POCKET IS NOT A BLOCKED SURFACE. Jumping cannot reach it, so the
+  // action is the same -- but filing it as `blocked_surface` would inflate the
+  // count of bots that genuinely had nowhere to go, and that count is the one
+  // that would justify building an escape. Acting on this route is deliberately
+  // left to the drowning path, which already knows how to swim a bearing.
+  if (dir === 'out') return 'route_out'
+  return 'blocked_surface'
+}
+
+/**
+ * WET IS NOT THE SAME AS "NAMED WATER".
+ *
+ * `boundingBox === 'empty' && name !== 'water'` reads as breathable air, and
+ * kelp, seagrass and any waterlogged block satisfy it while being fully
+ * underwater. That is the `oxygenLevel` sensor bug's shape exactly: a predicate
+ * that is right about the common case and silently wrong about the one the bot
+ * dies in. Unknown waterlogged blocks count as wet, deliberately -- the safe
+ * error is treating air as water, not water as air.
+ */
+const UNDERWATER_PLANT = /^(kelp|kelp_plant|seagrass|tall_seagrass)$/
+export function isWet (b) {
+  if (!b) return false
+  if (b.name === 'water' || b.name === 'bubble_column') return true
+  if (UNDERWATER_PLANT.test(b.name)) return true
+  const wl = b.getProperties?.().waterlogged
+  return wl === true || wl === 'true'
 }
 
 export function drowningControls({ losing, ashore, route, shore, bearing = null, at = null }) {
@@ -906,6 +966,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Start values, so the hold can be graded on whether it CHANGED anything.
   let holdStartOxygen = null
   let holdStartHealth = null
+  // Was the head ever underwater during this episode? A "hold" that spent any
+  // of its life submerged is not the same event as one that floated, and
+  // averaging them together is what hid the 32%.
+  let holdStartHeadInAir = false
+  let holdHeadEverSubmerged = false
+  let holdStartState = null
   let lastReleaseAt = 0
   let lastReleaseKind = null
   // A GATE MUST NOT MEASURE ITS OWN TRIGGER.
@@ -1228,23 +1294,37 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // not a rescue and it does not seize the body: it asserts one control, on
       // a bot nobody else is steering, and only while that bot is in water and
       // not ashore. Any skill or rescue that wants the body still takes it.
-      if (shouldHoldSurface({
+      const feetBlock = bot.blockAt?.(bot.entity.position)
+      const headBlock = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
+      const holdState = shouldHoldSurface({
         rescuing,
         swimming: !!bot.waterTravel?.active,
         ashore: ashore(),
-        feet: bot.blockAt?.(bot.entity.position),
-      })) {
+        feet: feetBlock,
+        head: headBlock,
+        route: () => breathableRoute(bot),
+      })
+      if (holdState) {
         bot.setControlState('jump', true)
         if (!holdStartedAt) {
           holdStartedAt = Date.now()
           holdMinOxygen = bot.oxygenLevel ?? Infinity
           holdStartOxygen = bot.oxygenLevel ?? null
           holdStartHealth = bot.health ?? null
-          logEvent({ kind: 'water_surface_hold', status: 'success',
-                     detail: `afloat and unowned — holding the surface ` +
-                             `(oxygen ${bot.oxygenLevel}, health ${bot.health})`,
+          holdStartState = holdState
+          holdStartHeadInAir = holdState === 'hold_surface'
+          holdHeadEverSubmerged = holdState !== 'hold_surface'
+          // Only a real surface hold is logged as one. `surface_first` and
+          // `blocked_surface` used to be counted here, which is how a third of
+          // "holds" came to end with less air than they started.
+          logEvent({ kind: holdState === 'hold_surface' ? 'water_surface_hold'
+                                                        : `water_${holdState}`,
+                     status: 'success',
+                     detail: `afloat and unowned — ${holdState} ` +
+                             `(head ${headBlock?.name ?? '?'}, health ${bot.health})`,
                      snapshot: snapshot(bot) })
         }
+        if (holdState !== 'hold_surface') holdHeadEverSubmerged = true
         if (typeof bot.oxygenLevel === 'number') {
           holdMinOxygen = Math.min(holdMinOxygen, bot.oxygenLevel)
         }
@@ -1261,14 +1341,44 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           ? bot.oxygenLevel - holdStartOxygen : null
         const dHealth = (holdStartHealth != null && bot.health != null)
           ? bot.health - holdStartHealth : null
+        // THE GRADE IS THE HEAD AND THE HEALTH, NOT A DIP THRESHOLD.
+        // `dipped` asks whether air fell below a quarter, which a bot that was
+        // ALREADY submerged when the hold began fails through no fault of the
+        // hold. What the hold owes is: the head stayed breathable, and nothing
+        // got hurt. Anything else is a failure regardless of the air trace.
+        const headEndInAir = (() => {
+          const h = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
+          return !isWet(h) && h?.boundingBox === 'empty'
+        })()
+        // GRADE THE INTERVENTION, NOT THE SITUATION IT INHERITED.
+        // `holdStartHeadInAir` is an ENTRY condition. Folding it into the grade
+        // marks a hold that found a submerged bot and got its head up as a
+        // FAILURE, and a run of them would read as the reflex getting worse
+        // exactly when it was working hardest. The entry condition is reported
+        // instead, so the two populations can be split downstream.
+        const startedSubmerged = !holdStartHeadInAir
+        const wentUnder = holdHeadEverSubmerged
+        const startedAs = holdStartState ?? 'hold_surface'
+        holdStartState = null
         holdStartedAt = 0
         holdMinOxygen = Infinity
         holdStartOxygen = null
         holdStartHealth = null
+        holdStartHeadInAir = false
+        holdHeadEverSubmerged = false
         logEvent({
-          kind: 'water_surface_hold_ended',
-          status: dipped ? 'failed' : 'success',
-          detail: `held ${(heldMs / 1000).toFixed(1)}s; dAir ${dAir ?? '?'}; ` +
+          // ONE KIND PER START STATE. A single `..._ended` kind puts true floats
+          // and submerged recoveries in one bucket, which is the ambiguity this
+          // change exists to remove -- and no count-based query would see it.
+          // `water_surface_hold_ended` still means what it always meant.
+          kind: startedAs === 'hold_surface'
+            ? 'water_surface_hold_ended' : `water_${startedAs}_ended`,
+          status: (headEndInAir && (dHealth ?? 0) >= 0) ? 'success' : 'failed',
+          detail: `held ${(heldMs / 1000).toFixed(1)}s; ` +
+                  `head ${startedSubmerged ? 'started SUBMERGED' : 'started in air'}` +
+                  `${headEndInAir ? ', ended in air' : ', ended SUBMERGED'}` +
+                  `${wentUnder && !startedSubmerged ? ', went under mid-hold' : ''}; ` +
+                  `dAir ${dAir ?? '?'}; ` +
                   `dHealth ${dHealth ?? '?'}; lowest air ` +
                   `${lowest ?? '?'}/${airMax}${dipped ? ' — DIPPED CRITICAL while held' : ''}; ` +
                   `ended because ${ashore() ? 'ashore' : rescuing ? 'a rescue took over'
