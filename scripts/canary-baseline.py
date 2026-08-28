@@ -42,7 +42,11 @@ def main():
         'dx': 0.0, 'dy': 0.0, 'ratio_n': 0, 'deepest': None,
         'holds': 0, 'hold_ended_ok': 0, 'hold_ended_bad': 0,
         'surface_first': 0, 'route_out': 0, 'blocked': 0,
-        'reentry': 0, 'water_ev': 0, 'deaths_drown': 0,
+        'reentry': 0, 'water_ev': 0,
+        # HARM FIRST, AND BY CAUSE. A staircase that fails is a FALL, so
+        # reading only drownings would let change B's worst outcome land in a
+        # column nobody was looking at. `fail_class` carries the cause.
+        'deaths': collections.Counter(), 'deaths_total': 0,
         'bots': set(), 'first': None, 'last': None,
         'fail': collections.Counter(),
     })
@@ -80,6 +84,11 @@ def main():
                 elif name == '_water_route_out_ended': p['route_out'] += 1
                 elif name == '_water_blocked_surface_ended': p['blocked'] += 1
                 elif name == '_drowning_reentry': p['reentry'] += 1
+                elif name == '_death':
+                    p['deaths_total'] += 1
+                    p['deaths'][sk.get('fail_class') or '?'] += 1
+                    if 'idle at the moment of death' in (sk.get('detail') or ''):
+                        p['deaths']['_idle_at_death'] += 1
 
                 if name == 'mine':
                     p['mine'] += 1
@@ -139,17 +148,24 @@ def main():
             'surface_first': p['surface_first'], 'route_out': p['route_out'],
             'blocked_surface': p['blocked'],
             'water_ev': p['water_ev'], 'reentry': p['reentry'],
+            'deaths': p['deaths_total'],
+            'deaths_per_bot_h': round(p['deaths_total'] / hours, 4) if hours else None,
+            'death_causes': dict(p['deaths']),
             'top_mine_fail': p['fail'].most_common(2),
         })
 
     print(f"\n  CANARY BASELINE  {since.isoformat()} .. {until.isoformat()}\n")
     print(f"  {'POOL':<12}{'BOTS':>5}{'BOT-H':>8}{'MINE':>6}{'DESC':>6}{'DESC%':>7}"
-          f"{'DOWN':>7}{'MEAN':>6}{'DEEP':>6}{'HOLDS':>7}{'H-BAD':>7}{'WATER':>8}")
+          f"{'DOWN':>7}{'DEEP':>6}{'HOLDS':>7}{'H-BAD':>7}{'WATER':>8}"
+          f"{'DEATH':>7}{'DROWN':>7}{'FALL':>6}{'LAVA':>6}")
     for r in rows:
         print(f"  {r['pool']:<12}{r['bots']:>5}{r['bot_hours']:>8}{r['mine']:>6}"
               f"{r['descents']:>6}{str(r['descent_rate']):>7}{r['blocks_down']:>7}"
-              f"{str(r['mean_drop']):>6}{str(r['deepest_y']):>6}"
-              f"{r['holds']:>7}{r['hold_bad']:>7}{r['water_ev']:>8}")
+              f"{str(r['deepest_y']):>6}"
+              f"{r['holds']:>7}{r['hold_bad']:>7}{r['water_ev']:>8}"
+              f"{r['deaths']:>7}{r['death_causes'].get('drowning', 0):>7}"
+              f"{r['death_causes'].get('fall', 0):>6}"
+              f"{r['death_causes'].get('lava', 0):>6}")
     if a.json:
         with open(a.json, 'w') as fh:
             json.dump({'since': since.isoformat(), 'until': until.isoformat(),
