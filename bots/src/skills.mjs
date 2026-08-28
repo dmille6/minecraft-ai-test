@@ -2243,6 +2243,11 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
   }
 
+  // ONE BEARING FOR THE WHOLE DESCENT. A bearing recomputed per step follows
+  // the bot's own yaw, and the yaw swings while the pathfinder walks it into
+  // each tread -- so the stair curls back into itself and the bot digs through
+  // its own steps. Chosen once, from where the bot is already facing, and held.
+  const bear = stairBearing(bot)
   let steps = 0
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
     check(signal)
@@ -2275,17 +2280,36 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         need: exit.reason === 'scaffold' ? scaffoldPrereqFor(exit) : undefined,
       }
     }
-    const ahead = bot.entity.position.offset(0, -1, 0)
-    const below = bot.blockAt(ahead)
+    // THE TREAD, NOT THE FLOOR. `mine` used to dig the block directly under the
+    // bot and step sideways every third block, which is not a staircase -- it is
+    // a shaft with ledges. Measured over 23 days: a horizontal:vertical shape
+    // ratio of 0.25 (a staircase is ~1.0), 0 iron ore gathered in 65 attempts,
+    // and no bot below y=56. The exit contract then priced climbing back out of
+    // a sheer shaft at 59 scaffold blocks, which no gatherer ever carries, so
+    // the descent refused itself before it ever reached iron at y≈15.
+    //
+    // A tread is dug one block ALONG the bearing and one block DOWN, with the
+    // cell above it opened for headroom, and then the bot WALKS INTO IT. That
+    // is 1:1, it is walkable in both directions, and the way back up costs
+    // nothing but time.
+    const p0 = bot.entity.position.floored()
+    const cellFeet = p0.offset(bear.x, -1, bear.z)   // where the bot will stand
+    const cellHead = p0.offset(bear.x, 0, bear.z)    // headroom over the tread
+    const treadFloor = p0.offset(bear.x, -2, bear.z) // what holds it up
+    const below = bot.blockAt(cellFeet)
     if (!below) break
-    if (below.name === 'lava' || below.name === 'water') {
-      // `hazard_interrupt` is what classifyFailure returned for this string (it
-      // matches on the word "lava"), so the class is preserved rather than
-      // improved -- the taxonomy that Kibana aggregates must not shift under an
-      // honesty change. It is a guard refusing to dig, not a reflex preemption,
-      // and that mislabel is worth fixing separately.
-      return { status: 'failed', failClass: 'hazard_interrupt',
-               detail: `stopped at y=${Math.round(bot.entity.position.y)}: ${below.name} below` }
+    for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom']]) {
+      const b = bot.blockAt(pos)
+      if (b && (b.name === 'lava' || b.name === 'water')) {
+        // `hazard_interrupt` is what classifyFailure returned for this string (it
+        // matches on the word "lava"), so the class is preserved rather than
+        // improved -- the taxonomy that Kibana aggregates must not shift under an
+        // honesty change. It is a guard refusing to dig, not a reflex preemption,
+        // and that mislabel is worth fixing separately.
+        return { status: 'failed', failClass: 'hazard_interrupt',
+                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: ` +
+                         `${b.name} in the ${what} ahead` }
+      }
     }
     // DO NOT BREAK THE FLOOR OVER A HOLE.
     //
@@ -2294,9 +2318,11 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // death bucketing has a `fall` class and tracks peak height precisely
     // because this keeps happening, and the reflex layer has no fall handling
     // at all -- maxDropDown=6 governs the PATHFINDER, not our own digging.
+    // Anchored on the TREAD's floor now, because that is what the bot is about
+    // to put its weight on.
     let hollow = 0
-    for (let d = 2; d <= 4; d++) {
-      const b = bot.blockAt(bot.entity.position.offset(0, -d, 0))
+    for (let d = 0; d <= 2; d++) {
+      const b = bot.blockAt(treadFloor.offset(0, -d, 0))
       if (!b || b.name === 'air' || b.name === 'cave_air' || b.boundingBox === 'empty') hollow++
       else break
     }
@@ -2305,29 +2331,98 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         status: 'failed', failClass: 'void_below',
         gap: `at_y${Math.round(bot.entity.position.y)}`,
         detail: `stopped at y=${Math.round(bot.entity.position.y)}: open space at least ` +
-                `${hollow + 1} blocks deep under this floor — breaking it would be a fall, not a step`,
+                `${hollow + 1} blocks deep under the next step — that is a fall, not a stair`,
       }
     }
-    if (below.name === 'air') { await sleep(300, signal); continue }
-    const tool = bestTool(bot, below)
-    if (tool) await bot.equip(tool, 'hand').catch(() => {})
-    if (!below.canHarvest(bot.heldItem?.type ?? null)) {
-      // `missing_tool` is what the classifier derived from the word "tool" in
-      // this string, and it is right. Stated here so it survives a rewording --
-      // and deliberately WITHOUT a gap, because adding one would change how the
-      // lessons store gates this class, which is not what this change is about.
-      return { status: 'failed', failClass: 'missing_tool',
-               detail: `need a better tool for ${below.name} at y=${Math.round(bot.entity.position.y)}` }
+    // Dig headroom first: a falling-block column above an already-open tread
+    // pours gravel into the cell the bot is about to occupy.
+    for (const pos of [cellHead, cellFeet]) {
+      const b = bot.blockAt(pos)
+      if (!b || b.name === 'air' || b.name === 'cave_air') continue
+      const tool = bestTool(bot, b)
+      if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      if (!b.canHarvest(bot.heldItem?.type ?? null)) {
+        // `missing_tool` is what the classifier derived from the word "tool" in
+        // this string, and it is right. Stated here so it survives a rewording --
+        // and deliberately WITHOUT a gap, because adding one would change how the
+        // lessons store gates this class, which is not what this change is about.
+        return { status: 'failed', failClass: 'missing_tool',
+                 detail: `need a better tool for ${b.name} at y=${Math.round(bot.entity.position.y)}` }
+      }
+      try { await bot.dig(b) } catch (e) { if (e.aborted) throw e; break }
     }
-    try { await bot.dig(below) } catch (e) { if (e.aborted) throw e; break }
-    // Step sideways every few blocks so it is a staircase, not a shaft.
-    if (steps % 3 === 0) {
-      const side = bot.blockAt(bot.entity.position.offset(1, 0, 0))
-      if (side && side.name !== 'air') { try { await bot.dig(side) } catch { /* optional */ } }
+
+    // DIGGING IS NOT DESCENDING. `bot.dig()` removes a block; it does not move
+    // the bot, and for 23 days nothing here checked. A stair the bot never walks
+    // down is just a wider hole -- and the specific failure to avoid is digging
+    // a side cell, failing to enter it, and digging again next iteration, which
+    // carves a widened shaft with ledges and reports success the whole way.
+    const before = bot.entity.position.clone()
+    let moved = 0
+    try {
+      await withTimeout(
+        bot.pathfinder.goto(new goals.GoalBlock(cellFeet.x, cellFeet.y, cellFeet.z)),
+        5000, bot, { what: 'stepping down the stair' })
+    } catch (e) {
+      if (e.aborted) throw e
+      /* fall through to the displacement check, which is the real verdict */
+    }
+    // ARRIVAL, NOT DISPLACEMENT. `moved >= 0.7` only says the bot went
+    // SOMEWHERE. Pathfinder times out mid-route, mobs shove, and a bot that
+    // slid a metre sideways at the same elevation would pass -- and the next
+    // iteration would then cut a tread from the wrong place, carving a trench
+    // while every log line said the descent was progressing.
+    const now = bot.entity.position
+    const at = now.floored()
+    moved = Math.hypot(now.x - before.x, now.z - before.z)
+    const arrived = at.x === cellFeet.x && at.z === cellFeet.z &&
+                    Math.abs(now.y - cellFeet.y) <= 0.5
+    if (!arrived) {
+      // Do NOT keep digging. Stop, say the step is unverified, and leave the
+      // shaft no wider than it already is.
+      try { bot.pathfinder.setGoal(null) } catch { /* plugin may be absent */ }
+      logEvent({ kind: 'mine_stair_step_failed', status: 'failed',
+                 detail: `dug the tread at (${cellFeet.x},${cellFeet.y},${cellFeet.z}) ` +
+                         `but ended at (${at.x},${at.y},${at.z}) after moving ` +
+                         `${moved.toFixed(2)} horizontally — the stair was cut and not taken`,
+                 snapshot: snapshot(bot) })
+      return {
+        status: 'unknown', failClass: 'unverified',
+        detail: `stopped at y=${Math.round(bot.entity.position.y)}: cut a step but could ` +
+                `not stand in it (moved ${moved.toFixed(2)} blocks, wrong cell). The shaft was not ` +
+                `widened further. Try goto to reposition, or gather to clear what is in the way.`,
+      }
     }
     await sleep(150, signal)
   }
-  return { status: 'success', detail: `reached y=${Math.round(bot.entity.position.y)}` }
+  // THE CAP IS NOT AN ARRIVAL. Falling out of the loop on `steps < 90` used to
+  // return the same success as reaching the target, which is the defect this
+  // skill was already caught doing once: reporting the outcome it would have
+  // had. A cleared avoid-rule on a descent that stopped 40 blocks short is how
+  // a bot learns that mining works when it does not.
+  const endY = Math.round(bot.entity.position.y)
+  if (bot.entity.position.y > goalY + 1) {
+    return {
+      status: 'unknown', failClass: 'unverified',
+      detail: `stopped at y=${endY} after ${steps} steps, short of the requested ` +
+              `y=${goalY}. Call mine again to continue, or gather first if the ` +
+              `pickaxe is nearly spent.`,
+    }
+  }
+  return { status: 'success', detail: `reached y=${endY}` }
+}
+
+/**
+ * WHICH WAY THE STAIR RUNS.
+ *
+ * Snapped to a cardinal, because a diagonal tread needs two cells opened per
+ * step and the bot clips the corner between them. mineflayer's yaw is 0 at
+ * south (+z) and increases counter-clockwise.
+ */
+export function stairBearing (bot) {
+  const yaw = bot?.entity?.yaw ?? 0
+  const q = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4
+  return [{ x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }, { x: 1, z: 0 }][q]
 }
 
 // --------------------------------------------------------------- sleep -----

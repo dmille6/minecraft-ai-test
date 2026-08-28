@@ -27,6 +27,9 @@ const V = (x, y, z) => ({
   offset: (a, b, c) => V(x + a, y + b, z + c),
   distanceTo: o => Math.hypot(x - o.x, y - o.y, z - o.z),
   clone: () => V(x, y, z),
+  // mine's staircase hands these coordinates to GoalBlock, which needs whole
+  // blocks -- a live position is a float.
+  floored: () => V(Math.floor(x), Math.floor(y), Math.floor(z)),
 })
 
 function mineBot({ y = 68 } = {}) {
