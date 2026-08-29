@@ -2615,10 +2615,24 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
   // oxygen 3. A skill that cannot succeed at what it was asked should say so
   // immediately and name the alternative, so the failure reads as the bad
   // request it is.
-  if (startDist < 8) {
-    return { status: 'failed', failClass: 'bad_target',
-             detail: `target is ${startDist.toFixed(0)}b away — that is not a crossing. ` +
-                     `Give swim_to somewhere across the water, or use goto/surface to get out here.` }
+  // A SHORT SWIM IS STILL A SWIM.
+  //
+  // This refused anything under 8 blocks as "not a crossing". Measured over 636
+  // bot-hours it was the single largest swim_to failure: 1,158 `bad_target`, of
+  // which 597 were targets ONE BLOCK away. A bot in water asking to move one
+  // block to land is the most sympathetic request in the system, and we
+  // answered it by naming two other skills -- `goto`, which paths through water
+  // it could not afford, and `surface`, which does not go anywhere.
+  //
+  // The original reasoning was that 0b and 1b requests were a PROMPT defect
+  // wearing a skill's clothes. That was true and is still worth logging, but
+  // refusing the bot does not fix the prompt; it just leaves it in the water.
+  // Do the short swim, and record that it was short.
+  if (startDist < 2) {
+    logEvent({ kind: 'swim_short_hop', status: 'success',
+               detail: `target ${startDist.toFixed(1)}b away — doing it anyway; ` +
+                       `a bot in water asking to move one block is not a bad request`,
+               snapshot: snapshot(bot) })
   }
 
   // TAKE THE BODY, for the same reason the reflex does: pathfinder's

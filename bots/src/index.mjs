@@ -252,7 +252,26 @@ function connect() {
     // almost every lake crossing into a shoreline walk. Deliberately NOT
     // Infinity: if water is genuinely the only route, taking it (and letting
     // the reflex layer fight for the bot) still beats standing still forever.
-    moves.liquidCost = 10
+    // WATER IS TERRAIN, PRICED AT WHAT IT COSTS TO CROSS.
+    //
+    // This was 10, with the stated intent "the bots do not need to cross water;
+    // they need to stop volunteering for it." That was written when swimming did
+    // not work. It does: mineflayer-pathfinder aims at the next node, holds
+    // `forward`, and holds `jump` whenever `isInWater` (index.js:607-613). We
+    // priced out a working feature and then built `swim_to` and a rescue reflex
+    // to replace it.
+    //
+    // What the old price actually bought, measured over 636 bot-hours: water was
+    // still 32% of every skill record, so it never kept bots dry. It only
+    // removed their ROUTE once wet -- a wet step cost 86 against a 100-cost
+    // threshold where pathfinder deletes the neighbour outright. That is why
+    // 20 of 20 drowning deaths were `idle` with nobody owning the body.
+    //
+    // Surface swimming is 2.2 m/s against a walk of ~4.3 -- 1.95x slower. 2
+    // prices the stroke at just above its real time cost; the risk premium
+    // lives in the entry penalty below, where it belongs, because entering is
+    // the decision and being wet is the consequence.
+    moves.liquidCost = 2
 
     // ...AND liquidCost DOES NOT PRICE ENTERING WATER. It prices being wet.
     //
@@ -282,7 +301,27 @@ function connect() {
     // route home across a river would vanish. 25 keeps every wet move legal
     // while making a one-block paddle cost about as much as a 25-block walk
     // around, which is the trade we actually want.
-    const WATER_ENTRY_COST = 25
+    // 25 was chosen as "the largest safe value" under the old regime, where the
+    // goal was to make water nearly unreachable without deleting it outright.
+    // At 1 the arithmetic gives land->shallow 3, land->deep 4, water->deep 6
+    // against a land step of 1. A wet step therefore costs about six paces --
+    // three times its real time cost, which is the risk premium -- and a
+    // 20-block crossing comes to 118 against the ~150 paces of shore walk it
+    // replaces. So a bot swims a lake rather than walking a long way round it,
+    // and still prefers a SHORT walk round. I first set this to 2 and the test
+    // rejected it: a 20-block crossing came to 197 and still lost to a 150-step
+    // detour, which is the old policy wearing smaller numbers.
+    //
+    // This is NOT a return to Block 1's liquidCost=1 with no entry price at
+    // all, which ran alongside broken swimming and made drowning the top death
+    // cause.
+    //
+    // TOO EXPENSIVE still looks like: bots walking long shore detours where a
+    // short swim is obviously cheaper, and wet bots with no route out.
+    // TOO CHEAP looks like: water's share of routes rising faster than water's
+    // share of terrain, crossings ATTEMPTED rising without crossings COMPLETED,
+    // and drowning damage per bot-hour going up.
+    const WATER_ENTRY_COST = 1
     const waterEntryPenalty = (block) => (block?.liquid ? WATER_ENTRY_COST : 0)
     moves.exclusionAreasStep = [waterEntryPenalty]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all

@@ -25,6 +25,7 @@
 // and pin that water remains reachable, because a fix that strands bots in
 // flooded caves is worse than the bug.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 const require_ = createRequire(import.meta.url)
 const { Movements } = require_('mineflayer-pathfinder')
@@ -35,7 +36,18 @@ const t = (name, fn) => {
   catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) }
 }
 
-const WATER_ENTRY_COST = 25          // must match index.mjs
+// READ THE REAL CONSTANT. This was a local copy with a "must match index.mjs"
+// comment, and on 2026-08-29 it stopped matching: index.mjs shipped 2 while the
+// test asserted against 1, so every cost assertion here was checking a number
+// no bot would ever use. A mutation setting index.mjs to 25 — the old
+// prohibition — passed this file untouched. A test that keeps its own copy of
+// the value it is testing cannot fail.
+const INDEX_SRC = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+const WATER_ENTRY_COST = Number(/const WATER_ENTRY_COST = (\d+)/.exec(INDEX_SRC)?.[1])
+if (!Number.isFinite(WATER_ENTRY_COST)) {
+  console.log('  FAIL  could not read WATER_ENTRY_COST from index.mjs')
+  process.exit(1)
+}
 const penalty = (block) => (block?.liquid ? WATER_ENTRY_COST : 0)
 
 const water = { liquid: true, name: 'water' }
@@ -64,7 +76,7 @@ t('a missing block does not throw or charge', () => {
 })
 
 // --- the arithmetic that fixes the number ----------------------------------
-const LIQUID_COST = 10
+const LIQUID_COST = Number(/moves\.liquidCost = (\d+)/.exec(INDEX_SRC)?.[1])
 const landToShallow = 1 + 2 * WATER_ENTRY_COST
 const landToDeep    = 1 + 3 * WATER_ENTRY_COST
 const waterToDeep   = 1 + 3 * WATER_ENTRY_COST + LIQUID_COST
@@ -77,16 +89,47 @@ t('every wet move stays under the neighbour-drop ceiling of 100', () => {
   assert.ok(landToShallow < 100)
 })
 
-t('N=30 WOULD have banned water -- the value is a ceiling, not a preference', () => {
-  const at30 = 1 + 3 * 30 + LIQUID_COST
-  assert.ok(at30 > 100,
-    'if this ever stops being true the safety margin has moved and 25 should be revisited')
+t('a STROKE is never priced like a PACE', () => {
+  // liquidCost = 1 is not a hypothetical: it is the Block 1 configuration,
+  // where water was priced like pavement, A* planned straight across lakes, and
+  // drowning became the top death cause. The floor is the speed ratio -- 4.3
+  // m/s walking against 2.2 swimming is 1.95x -- so 2 is the least it may be.
+  // A mutation setting this to 1 survived every other assertion in this file.
+  assert.ok(LIQUID_COST >= 2,
+    `liquidCost is ${LIQUID_COST}; at 1 a stroke costs the same as a pace, ` +
+    'which is the configuration Block 1 died of')
 })
 
-t('entering water costs more than a substantial dry detour', () => {
-  // The point of the change: a one-block paddle should lose to walking around.
-  // A dry step is 1, so land->shallow at 51 buys roughly a 50-step detour.
-  assert.ok(landToShallow > 25, 'a shoreline dip must not be cheaper than a short walk around')
+t('a wet step still costs meaningfully more than a dry one', () => {
+  // Water is terrain, not a free shortcut. Surface swimming is 2.2 m/s against
+  // a walk of ~4.3, plus a real risk premium, so a stroke must never price like
+  // a pace or A* will treat lakes as pavement. Block 1 ran liquidCost=1 with
+  // broken swimming and drowning became the top death cause.
+  // The floor is the SPEED RATIO: 4.3 m/s walking against 2.2 swimming is
+  // 1.95x, so anything at or below 2 is pricing a stroke like a pace.
+  assert.ok(landToShallow >= 3,
+    `land->shallow is ${landToShallow}; water is being priced like ground`)
+  assert.ok(waterToDeep > landToShallow,
+    'going deeper must cost more than getting wet')
+})
+
+t('BUT A CROSSING MUST BEAT A LONG DETOUR', () => {
+  // This is the change. The old price (land->shallow 51, water->deep 86) meant
+  // a 20-block swim lost to a 1,700-block walk, so routes never included water
+  // -- and a bot already wet had a nearly empty search graph, which is why
+  // 20 of 20 drowning deaths were `idle` with nobody owning the body.
+  const crossing = landToDeep + 19 * waterToDeep      // 20-block swim
+  const detour = 150                                  // 150 dry paces around
+  assert.ok(crossing < detour,
+    `a 20-block crossing costs ${crossing} against a ${detour}-step walk around; ` +
+    'water is still priced out of every route')
+})
+
+t('a short hop out of water is not priced like an expedition', () => {
+  // The most sympathetic request in the system: a bot in water moving one block
+  // to land. Under the old numbers that single step cost 86.
+  assert.ok(waterToDeep <= 12,
+    `one wet step costs ${waterToDeep}; a bot in water cannot afford to move`)
 })
 
 t('water is still cheaper than not existing', () => {

@@ -97,11 +97,20 @@ t('a wet step is cheap enough to plan but not free', () => {
     `again; above 4 a long crossing loses to any shoreline detour`)
 })
 
-t('the land profile still refuses water', () => {
+t('the land profile still PRICES water, it just no longer bans it', () => {
   // The fix must not become "water is now free everywhere", which is the exact
-  // configuration that made drowning the top death cause in Block 1.
+  // configuration that made drowning the top death cause in Block 1. The
+  // penalty must exist and be positive; it is deliberately NOT pinned to a
+  // literal, because the number is a calibration and the policy is that a
+  // number is charged at all.
   const i = src('index.mjs')
-  assert.ok(/const WATER_ENTRY_COST = 25/.test(i), 'the land-travel entry penalty was removed')
+  const m = /const WATER_ENTRY_COST = (\d+)/.exec(i)
+  assert.ok(m, 'the land-travel entry penalty was removed entirely')
+  const cost = Number(m[1])
+  assert.ok(cost >= 1, 'entering water must cost something')
+  assert.ok(cost <= 4,
+    `WATER_ENTRY_COST ${cost}: applied 2-3x per move, above 4 a crossing loses ` +
+    'to any shoreline detour and water is priced out of routes again')
   assert.ok(/moves\.exclusionAreasStep = \[waterEntryPenalty\]/.test(i),
     'the default profile no longer prices entering water')
 })
@@ -220,15 +229,21 @@ t('open water names a destination the model can actually use', () => {
     'nothing stops the model asking to swim to where it already is')
 })
 
-await ta('a one-block "crossing" is refused as a bad target', () => {
-  // Accepting these turned a prompt defect into a skill that thrashed for
-  // twelve seconds and aborted at oxygen 3.
+await ta('a one-block swim is ATTEMPTED, not refused', () => {
+  // This used to be refused as "not a crossing". Over 636 bot-hours that was
+  // the single largest swim_to failure -- 1,158 `bad_target`, 597 of them for
+  // targets ONE BLOCK away. A bot in water asking to move one block to land is
+  // the most sympathetic request in the system, and refusing it left the bot in
+  // the water while naming two skills that could not help.
   const bot = makeBot({ pos: new V(0, 62, 0), blocks: ocean() })
   bot.assertNav = () => {}
   return SKILLS.swim_to.run({ bot }, { x: 1, y: 62, z: 0 }, null).then(r => {
-    assert.equal(r.status, 'failed')
-    assert.equal(r.failClass, 'bad_target')
-    assert.match(r.detail, /not a crossing/i)
+    assert.notEqual(r.failClass, 'bad_target',
+      'a short swim must not be refused for being short')
+    if (r.detail) {
+      assert.ok(!/not a crossing/i.test(r.detail),
+        'the refusal text is back')
+    }
   })
 })
 

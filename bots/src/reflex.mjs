@@ -949,6 +949,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let holdStartHeadInAir = false
   let holdHeadEverSubmerged = false
   let holdStartState = null
+  // Air the local wildlife cannot edit. See air.mjs.
+  const airClock = makeAirClock()
+  let lastAirDist = Infinity
   let lastReleaseAt = 0
   let lastReleaseKind = null
   // A GATE MUST NOT MEASURE ITS OWN TRIGGER.
@@ -1555,9 +1558,47 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           })
           if (mayAct) runner.interrupt(air.kind)
         }
-        // Unconditional: not latched, not throttled. Drowning damage lands about
-        // once a second, so an 8s gate is a death sentence.
-        if (mayAct && air.act === 'swim') {
+        // THE REFLEX MAY NOT CANCEL A JOURNEY.
+        //
+        // Water is terrain and swimming is a mode of travel. mineflayer-
+        // pathfinder ALREADY swims: while a goal is set it aims at the next
+        // node, holds `forward`, and holds `jump` whenever `isInWater`
+        // (index.js:607-613) -- jump WITH a direction, which is exactly the
+        // stroke this reflex kept replacing with a shore dash. `seizeBody()`
+        // calls `setGoal(null)`, so every seizure on a wet bot DELETED a
+        // working swim. Measured: wet travel was `interrupted` in 28% of calls
+        // against 7% dry, `swim_to` succeeded 4% of the time, and 231 crossings
+        // produced 11 arrivals.
+        //
+        // So being wet, being submerged, and even having little air are no
+        // longer sufficient. The gate is `airEmergency`: head actually under,
+        // the derived clock nearly out, and nothing already fixing it. A bot
+        // closing on air is left alone -- it is solving the problem, and taking
+        // the body destroys the solution.
+        const airSeconds = airClock.update(bot, Date.now())
+        const route = breathableRoute(bot)
+        const airDist = route?.dist ?? Infinity
+        const closingOnAir = airDist < lastAirDist - 0.01
+        lastAirDist = airDist
+        const emergency = airEmergency({
+          headUnder: !breathable(head),
+          airSeconds,
+          closingOnAir,
+          healthFalling: prevHealth != null && (bot.health ?? prevHealth) < prevHealth,
+        })
+        if (!emergency && bot.pathfinder?.goal) {
+          // Travelling, and not actually drowning. Say so once in a while so
+          // "the reflex stopped firing" is visible as a decision rather than as
+          // silence, and leave the body alone.
+          if (throttled('swim_yield', 30_000)) {
+            logEvent({ kind: 'water_travel_uninterrupted', status: 'success',
+                       detail: `crossing with ${airSeconds.toFixed(1)}s air, ` +
+                               `air ${airDist === Infinity ? 'unknown' : airDist + 'b'} away` +
+                               `${closingOnAir ? ' and closing' : ''} — not seizing`,
+                       snapshot: snapshot(bot) })
+          }
+        }
+        if (mayAct && emergency && air.act === 'swim') {
           const route = breathableRoute(bot)
           // SEIZE ONCE. Taking the body means clearing every control state, so
           // doing it per tick destroys the stroke the previous tick started.
