@@ -59,6 +59,13 @@ def main():
         # reading only drownings would let change B's worst outcome land in a
         # column nobody was looking at. `fail_class` carries the cause.
         'deaths': collections.Counter(), 'deaths_total': 0,
+        # THE WATER REWORK'S OWN METRICS. The goal is not fewer water events --
+        # water is terrain and bots should be crossing it. The goal is bots
+        # ARRIVING. Counting events alone would score "stayed out of the lake"
+        # as a win, which is the policy being replaced.
+        'swim_ok': 0, 'swim_fail': 0, 'swim_bad_target': 0,
+        'escaped': 0, 'reentry': 0, 'uninterrupted': 0,
+        'travel_ok': 0, 'travel_interrupted': 0, 'travel_total': 0,
         'bots': set(), 'first': None, 'last': None,
         'fail': collections.Counter(),
     })
@@ -96,6 +103,17 @@ def main():
                 elif name == '_water_route_out_ended': p['route_out'] += 1
                 elif name == '_water_blocked_surface_ended': p['blocked'] += 1
                 elif name == '_drowning_reentry': p['reentry'] += 1
+                elif name == '_drowning_escaped': p['escaped'] += 1
+                elif name == '_water_travel_uninterrupted': p['uninterrupted'] += 1
+                elif name == 'swim_to':
+                    if status == 'success': p['swim_ok'] += 1
+                    else:
+                        p['swim_fail'] += 1
+                        if sk.get('fail_class') == 'bad_target': p['swim_bad_target'] += 1
+                elif name in ('goto', 'explore'):
+                    p['travel_total'] += 1
+                    if status == 'success': p['travel_ok'] += 1
+                    elif sk.get('fail_class') == 'interrupted': p['travel_interrupted'] += 1
                 elif name == '_death':
                     p['deaths_total'] += 1
                     p['deaths'][sk.get('fail_class') or '?'] += 1
@@ -163,13 +181,25 @@ def main():
             'deaths': p['deaths_total'],
             'deaths_per_bot_h': round(p['deaths_total'] / hours, 4) if hours else None,
             'death_causes': dict(p['deaths']),
+            'swim_ok': p['swim_ok'], 'swim_fail': p['swim_fail'],
+            'swim_bad_target': p['swim_bad_target'],
+            'swim_rate': round(p['swim_ok'] / (p['swim_ok'] + p['swim_fail']), 3)
+                         if (p['swim_ok'] + p['swim_fail']) else None,
+            'escaped': p['escaped'], 'reentry': p['reentry'],
+            # The revolving door. >1 means bots come back faster than they leave.
+            'reentry_per_escape': round(p['reentry'] / p['escaped'], 2) if p['escaped'] else None,
+            'uninterrupted': p['uninterrupted'],
+            'travel_ok_rate': round(p['travel_ok'] / p['travel_total'], 3) if p['travel_total'] else None,
+            'travel_interrupt_rate': round(p['travel_interrupted'] / p['travel_total'], 3)
+                                     if p['travel_total'] else None,
             'top_mine_fail': p['fail'].most_common(2),
         })
 
     print(f"\n  CANARY BASELINE  {since.isoformat()} .. {until.isoformat()}\n")
     print(f"  {'POOL':<12}{'BOTS':>5}{'BOT-H':>8}{'MINE':>6}{'DESC':>6}{'DESC%':>7}"
           f"{'DOWN':>7}{'DEEP':>6}{'HOLDS':>7}{'H-BAD*':>7}{'WATER':>8}"
-          f"{'DEATH':>7}{'DROWN':>7}{'FALL':>6}{'LAVA':>6}")
+          f"{'DEATH':>7}{'DROWN':>7}{'FALL':>6}"
+          f"{'SWIM%':>7}{'RE/ESC':>8}{'TRVL%':>7}{'INT%':>6}")
     for r in rows:
         print(f"  {r['pool']:<12}{r['bots']:>5}{r['bot_hours']:>8}{r['mine']:>6}"
               f"{r['descents']:>6}{str(r['descent_rate']):>7}{r['blocks_down']:>7}"
@@ -177,7 +207,8 @@ def main():
               f"{r['holds']:>7}{r['hold_bad']:>7}{r['water_ev']:>8}"
               f"{r['deaths']:>7}{r['death_causes'].get('drowning', 0):>7}"
               f"{r['death_causes'].get('fall', 0):>6}"
-              f"{r['death_causes'].get('lava', 0):>6}")
+              f"{str(r['swim_rate']):>7}{str(r['reentry_per_escape']):>8}"
+              f"{str(r['travel_ok_rate']):>7}{str(r['travel_interrupt_rate']):>6}")
     if a.json:
         with open(a.json, 'w') as fh:
             json.dump({'since': since.isoformat(), 'until': until.isoformat(),
