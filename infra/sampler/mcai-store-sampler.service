@@ -1,0 +1,8 @@
+[Unit]
+Description=Snapshot each pool's memory stores (read-only; store state is not recoverable retrospectively)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/mcai-store-sampler
+Nice=10
+IOSchedulingClass=idle
