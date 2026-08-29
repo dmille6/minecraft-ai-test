@@ -419,10 +419,16 @@ export class CognitiveLoop {
     const { task, clear } = applyPrereq(m, this.prereq, this.#prereqHave())
     if (clear) {
       const held = this.prereq
+      // READ IT BEFORE YOU CLEAR IT. `#prereqHave()` returns 0 when
+      // `this.prereq` is null, and the log line below called it AFTER the null
+      // -- so every prerequisite event ever written said "had 0/N", including
+      // the ones written at the exact moment the prerequisite was satisfied.
+      // Confirmed over the full log: 226 of 226 events, not one non-zero.
+      const haveNow = this.#prereqHave()
       this.prereq = null
       logEvent({ kind: clear === 'satisfied' ? 'prereq_satisfied' : 'prereq_abandoned',
                  status: clear === 'satisfied' ? 'success' : 'failed',
-                 detail: `${held.items[0]}-class: had ${this.#prereqHave()}/${held.count} ` +
+                 detail: `${held.items[0]}-class: had ${haveNow}/${held.count} ` +
                          `after ${Math.round((Date.now() - held.since) / 1000)}s`,
                  snapshot: snapshot(this.bot) })
       if (clear === 'satisfied') {

@@ -29,6 +29,7 @@ the split, and it is worth more than any single metric below.
 
 THE GATES are pre-declared here rather than argued about afterwards.
 """
+import math
 import argparse, json, glob, datetime, collections, os, sys
 
 # Contiguous water trouble for one bot, split on a gap this long.
@@ -369,8 +370,19 @@ def main():
     vals["death_ratio"] = (c["death_per_exp"] / k["death_per_exp"]
                            if k["death_per_exp"] else (0.0 if c["death_per_exp"] == 0 else None))
     def ratio(a, b, default=None):
+        # ZERO CONTROL IS NOT "NO DATA". It is the strongest possible signal.
+        #
+        # This returned None when the control was 0 and the canary was not, the
+        # caller printed "? no data" and CONTINUED WITHOUT COUNTING A FAILURE,
+        # and the run ended "PASS -- safe to roll out". The worst result a canary
+        # can produce -- the control killed nobody, the canary killed bots --
+        # read as approval. Every other refusal path in this file exits 2.
+        #
+        # 0/0 and N/0 are opposite cases and must never share an answer.
         if a is None or b is None: return default
-        return a / b if b else (1.0 if a == 0 else None)
+        if b == 0:
+            return 1.0 if a == 0 else math.inf
+        return a / b
 
     vals = dict(c)
     vals["gather_ratio"] = ratio(c["gather_per_exp"], k["gather_per_exp"])
@@ -383,7 +395,14 @@ def main():
     for label, key, thr, sense, why in REGRESSION:
         v = vals.get(key)
         if v is None:
-            print(f"    ?     {label:<22} no data — {why}")
+            # Genuinely absent input is not a pass either. It is refused, and it
+            # is counted, so a gate that cannot see cannot approve.
+            print(f"    ?     {label:<22} NO DATA — cannot clear this gate — {why}")
+            failed += 1
+            continue
+        if v == math.inf:
+            print(f"    FAIL  {label:<22}     inf  — control saw none, canary saw some — {why}")
+            failed += 1
             continue
         good = v >= thr if sense == "at least" else v <= thr
         failed += 0 if good else 1

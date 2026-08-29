@@ -36,6 +36,7 @@ import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
+import { dropsOf, heldFromBlock } from './drops.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -861,7 +862,22 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   await descendToGround(ctx, signal).catch(() => {})
   check(signal)
 
-  const startHeld = countItem(bot, blockName)
+  // GRADE THE DROP, NOT THE BLOCK. Stone does not drop stone. See drops.mjs:
+  // this counter could never rise for stone/coal_ore/iron_ore, so the skill
+  // reported failure every time it worked -- 13,550 `gather stone` attempts
+  // with zero recorded successes, ever.
+  const startHeld = heldFromBlock(bot, blockName)
+  const wantDrops = dropsOf(bot.registry, blockName)
+  if (wantDrops.length === 1 && wantDrops[0] === blockName &&
+      !bot.registry?.blocksByName?.[blockName]?.drops?.length) {
+    // LOUD FALLBACK. Falling back to the block's own name is what the old code
+    // did implicitly for every block; doing it silently is how this survived
+    // for months. If a block genuinely has no modelled drop, say so once so the
+    // gap is visible rather than inferred from a zero.
+    logEvent({ kind: 'unknown_drop_mapping', status: 'failed',
+               detail: `no drop mapping for ${blockName}; scoring on its own name`,
+               snapshot: snapshot(bot) })
+  }
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
   const maxRounds = count * 4 + 8
 
@@ -1065,7 +1081,16 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       bot.assertNav?.('gather')
     }
 
-    const gained = countItem(bot, blockName) - startHeld
+    // A WINDFALL IS NOT A HARVEST. A bot dying beside this one drops its whole
+    // inventory, and some of those bots carry hundreds of items -- so an
+    // unbounded delta could credit a corpse. Credit at most what the blocks we
+    // actually dug could plausibly have yielded.
+    // Cap against what was ASKED FOR, not against `collected` -- `collected` is
+    // the running item total and is 0 on the first round, which would score
+    // every gather barren before it began.
+    const MAX_PER_BLOCK = 8
+    const raw = heldFromBlock(bot, blockName) - startHeld
+    const gained = Math.max(0, Math.min(raw, count * MAX_PER_BLOCK))
     if (gained === collected) {
       barren++
       if (barren >= BARREN_LIMIT) {
@@ -3091,8 +3116,41 @@ const STEP_UP = 24
 function belowGroundHint(bot) {
   const y = bot.entity?.position?.y
   if (y == null || y >= SEA_LEVEL) return ''
+  // SEA LEVEL IS NOT GROUND LEVEL.
+  //
+  // The guard was `y < 63` alone. Beaches, riverbanks, swamps and most valley
+  // floors sit at y=55-62, so this told bots standing OUTDOORS, in daylight,
+  // that plants and animals only exist above ground. Measured over 24h: 11,679
+  // firings, 8,686 of them (74%) at y>=40 with surface blocks visible in the
+  // same perception record. One bot was traced holding apples and bamboo --
+  // surface loot, in hand -- while being told for three hours that surface loot
+  // does not exist where it was standing.
+  //
+  // The cheap self-observation that actually answers "am I underground" is
+  // whether there is sky above. A solid ceiling means underground whatever the
+  // altitude; open air means outdoors even at y=55.
+  if (!hasCeiling(bot)) return ''
   return ` — you are at y=${Math.round(y)}, ${Math.round(SEA_LEVEL - y)} blocks below sea level; ` +
          `wood, plants and animals only exist above ground, so run surface first`
+}
+
+/**
+ * IS THERE ROCK OVERHEAD? The honest test for "underground".
+ *
+ * Deliberately bounded: a full sky check to y=320 would cost hundreds of block
+ * reads on a path that runs inside failure messages. 12 blocks is enough to
+ * separate a cave from a valley, and an unloaded chunk reads as open sky --
+ * which errs toward saying LESS, since a wrong "you are underground" is what
+ * this whole function got wrong for months.
+ */
+function hasCeiling (bot, up = 12) {
+  const at = bot?.entity?.position
+  if (!at || !bot.blockAt) return false
+  for (let dy = 2; dy <= up; dy++) {
+    const b = bot.blockAt(at.offset(0, dy, 0))
+    if (b && b.boundingBox === 'block') return true
+  }
+  return false
 }
 
 /**

@@ -50,6 +50,31 @@ def main():
         with fh:
             for line in fh:
                 lines += 1
+                # THE DENOMINATOR MUST NOT COME FROM THE NUMERATOR.
+                #
+                # This `continue` used to sit above the `bots[name].add(bot)`
+                # below, so the "bots" set only ever contained bots that DIED or
+                # drowned. Every per-bot-hour rate in this report was therefore
+                # divided by the number of casualties, not the number running --
+                # a denominator the treatment itself moves, in the direction
+                # that hides improvement. Measured: it read 71 and 68 against a
+                # true roster of 80, and reported -1.4% where the truth was
+                # -5.6%.
+                #
+                # Exposure is now established from ANY line the bot logged,
+                # before the death filter, which is the only way a quiet healthy
+                # bot counts as much as a dying noisy one.
+                if '"@timestamp"' in line:
+                    try:
+                        td = json.loads(line)
+                        tt = datetime.datetime.fromisoformat(
+                            td['@timestamp'].replace('Z', '+00:00'))
+                    except Exception:
+                        tt = None
+                    if tt is not None and not (OUT_A <= tt < OUT_B):
+                        for wname, wa, wb in wins:
+                            if wa <= tt < wb:
+                                bots[wname].add(bot)
                 if '"_death"' not in line and '"_reflex_drowning"' not in line:
                     continue
                 try:
