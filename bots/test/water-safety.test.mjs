@@ -32,7 +32,7 @@
 // consumer used it.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { shouldHoldSurface, airConsequenceEvidence, isWet } from '../src/reflex.mjs'
+import { waterPosture, airConsequenceEvidence } from '../src/reflex.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -44,117 +44,81 @@ const AIR = { name: 'air', boundingBox: 'empty' }
 
 // --- defect 1: never release into idle -------------------------------------
 
-t('an afloat bot nobody is steering gets its head held up', () => {
-  assert.equal(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                   feet: WATER, head: AIR }), 'hold_surface',
+t('an afloat bot nobody is steering keeps its head up', () => {
+  assert.equal(waterPosture({ owned: false, ashore: false, feet: WATER, head: AIR }),
+    'float',
     'this is the exact state 15 of 23 drowning deaths were in: afloat, unowned, silent')
 })
 
-// --- the feet were never the question --------------------------------------
+// --- KELP IS NOT A REASON TO TREAD WATER -----------------------------------
 //
-// The original predicate asked ONLY about the feet, so a bot three metres down
-// -- feet wet, head wet -- was told to "hold the surface", and the hold is
-// `jump: true`. Measured over the freeze: 32% of 33,420 holds ENDED HAVING LOST
-// AIR. That is not a hold failing, it is a hold that was never a hold. These
-// three cases are the ones the boolean could not tell apart.
+// The previous version asked one wide question -- "is this wet" -- and counted
+// kelp and seagrass as water. It then pressed `jump` and nothing else. In kelp
+// the older code did nothing at all; the wide version made the bot tread water
+// in place, which is the measured killer: 4 drownings in 26 bot-hours against 8
+// in 365 control bot-hours, p ~ 0.003, rolled back 2026-08-29.
+//
+// The two questions are now permanently separate. Being IN water is narrow.
+// Being able to BREATHE is broad.
 
-t('a submerged bot with air above is told to surface, not to hold', () => {
-  assert.equal(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                   feet: WATER, head: WATER, route: { dir: 'up' } }),
-    'surface_first',
-    'head underwater is not afloat; calling it a hold is how the 32% hid')
+t('standing in kelp is not standing in water', () => {
+  const KELP = { name: 'kelp_plant', boundingBox: 'empty' }
+  assert.equal(waterPosture({ owned: false, ashore: false, feet: KELP, head: AIR }), false,
+    'kelp at the feet must not trigger a water posture — that is what drowned bots')
 })
 
-t('a submerged bot with no way up is BLOCKED, and says so', () => {
-  assert.equal(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                   feet: WATER, head: WATER, route: null }),
-    'blocked_surface',
-    'under ice or an overhang, jump is not a plan — it must not be filed as one')
+t('but kelp at the HEAD still means it cannot breathe', () => {
+  const KELP = { name: 'kelp_plant', boundingBox: 'empty' }
+  assert.notEqual(waterPosture({ owned: false, ashore: false, feet: WATER, head: KELP,
+                                 route: { dir: 'up' } }), 'float',
+    'a head inside kelp is underwater, however empty the block looks')
 })
 
-t('a sideways air pocket is NOT counted as a blocked surface', () => {
-  // breathableRoute() returns dir:'out' for a pocket the bot could swim to.
-  // Jumping still cannot reach it, so the action is unchanged -- but filing it
-  // as `blocked_surface` inflates the one count that would justify building an
-  // escape, and that count is what such a decision would rest on.
-  assert.equal(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                   feet: WATER, head: WATER, route: { dir: 'out' } }),
-    'route_out')
+// --- every posture carries a direction -------------------------------------
+
+t('a submerged bot with air above RISES, and up is the direction', () => {
+  assert.equal(waterPosture({ owned: false, ashore: false, feet: WATER, head: WATER,
+                              route: { dir: 'up' } }), 'surface')
 })
 
-t('kelp is not air, and a head in it is not afloat', () => {
-  // The `oxygenLevel`-reads-from-a-fish bug in another costume: a predicate that
-  // is right about the common case and wrong about the one the bot dies in.
-  // kelp and seagrass are boundingBox 'empty' and are not named water.
-  for (const name of ['kelp', 'kelp_plant', 'seagrass', 'tall_seagrass']) {
-    const plant = { name, boundingBox: 'empty' }
-    assert.ok(isWet(plant), `${name} read as dry`)
-    assert.notEqual(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                        feet: WATER, head: plant, route: null }),
-      'hold_surface', `a head in ${name} was graded a successful float`)
-  }
+t('a submerged bot whose only air is sideways is steered to it', () => {
+  assert.equal(waterPosture({ owned: false, ashore: false, feet: WATER, head: WATER,
+                              route: { dir: 'out' } }), 'surface_out',
+    'jumping cannot reach a sideways pocket; this posture must also steer')
 })
 
-t('an unknown waterlogged block counts as wet', () => {
-  // The safe error is calling air water, never water air. Stairs, slabs, fences
-  // and coral all waterlog, and the list of names is not knowable up front.
-  const slab = { name: 'stone_brick_slab', boundingBox: 'empty',
-                 getProperties: () => ({ waterlogged: 'true' }) }
-  assert.ok(isWet(slab))
-  assert.notEqual(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                      feet: WATER, head: slab, route: null }),
-    'hold_surface')
-  const dry = { name: 'stone_brick_slab', boundingBox: 'empty',
-                getProperties: () => ({ waterlogged: 'false' }) }
-  assert.equal(isWet(dry), false, 'a dry slab must not be called wet')
-})
-
-t('a head inside a solid block is not "in air"', () => {
-  // Suffocating is a different reflex. If this read as hold_surface, an entombed
-  // bot would be graded a successful float.
-  const STONE = { name: 'stone', boundingBox: 'block' }
-  assert.notEqual(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                      feet: WATER, head: STONE, route: null }),
-    'hold_surface')
+t('no reachable air is SAID, not mimed', () => {
+  assert.equal(waterPosture({ owned: false, ashore: false, feet: WATER, head: WATER,
+                              route: null }), 'no_air_route')
 })
 
 t('the route scan is not paid for by a bot that is already afloat', () => {
-  // breathableRoute() is ~40 blockAt reads and this runs every 500ms on every
-  // unowned wet bot in the fleet. A floating bot must never trigger it.
   let scans = 0
-  const r = shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                feet: WATER, head: AIR,
-                                route: () => { scans++; return { dir: 'up' } } })
-  assert.equal(r, 'hold_surface')
+  const r = waterPosture({ owned: false, ashore: false, feet: WATER, head: AIR,
+                           route: () => { scans++; return { dir: 'up' } } })
+  assert.equal(r, 'float')
   assert.equal(scans, 0, 'head already in air: nothing to decide, nothing to scan')
 })
 
 t('a bot on land is left alone', () => {
-  assert.equal(shouldHoldSurface({ rescuing: false, swimming: false, ashore: true, feet: AIR }), false)
-  assert.equal(shouldHoldSurface({ rescuing: false, swimming: false, ashore: false, feet: AIR }), false,
+  assert.equal(waterPosture({ owned: false, ashore: true, feet: AIR, head: AIR }), false)
+  assert.equal(waterPosture({ owned: false, ashore: false, feet: AIR, head: AIR }), false,
     'not in water: holding jump would make it bunny-hop across the map')
 })
 
-t('it never fights a controller that already owns the body', () => {
-  // Ownership, not safety. A rescue and a deliberate crossing both steer jump
-  // themselves, and a second writer is the multi-writer bug the movement ratchet
-  // exists to prevent.
-  assert.equal(shouldHoldSurface({ rescuing: true, swimming: false, ashore: false,
-                                   feet: WATER, head: WATER }), false)
-  assert.equal(shouldHoldSurface({ rescuing: false, swimming: true, ashore: false,
-                                   feet: WATER, head: WATER }), false,
-    'a deliberate crossing travels submerged on purpose — do not surface it')
+t('IT NEVER TOUCHES A BOT THAT IS TRAVELLING', () => {
+  // The directive: water is terrain and swimming is a mode of travel. A bot
+  // crossing a river on purpose owns its own body, and this must not cancel the
+  // journey — that is how 231 crossings became 11.
+  assert.equal(waterPosture({ owned: true, ashore: false, feet: WATER, head: WATER }), false)
 })
 
-t('every non-false answer is a state the caller can log', () => {
-  // A boolean cannot be told apart in telemetry, which is why "hold" absorbed
-  // three different situations for 33,420 episodes. Guard the contract.
-  const STATES = new Set(['hold_surface', 'surface_first', 'route_out', 'blocked_surface'])
+t('every non-false answer is a named posture the caller can log', () => {
+  const STATES = new Set(['float', 'surface', 'surface_out', 'no_air_route'])
   for (const head of [AIR, WATER]) {
     for (const route of [{ dir: 'up' }, { dir: 'out' }, null]) {
-      const r = shouldHoldSurface({ rescuing: false, swimming: false, ashore: false,
-                                    feet: WATER, head, route })
-      assert.ok(STATES.has(r), `returned ${JSON.stringify(r)}, not a named state`)
+      const r = waterPosture({ owned: false, ashore: false, feet: WATER, head, route })
+      assert.ok(STATES.has(r), `returned ${JSON.stringify(r)}, not a named posture`)
     }
   }
 })
@@ -296,25 +260,39 @@ t('the reflex loop actually PASSES the head block and the route', () => {
   // feet-only invocation -- in which case `head` defaults to null, every wet
   // bot reads as `surface_first`, and the 32% is renamed instead of fixed.
   const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
-  const call = src.slice(src.indexOf('shouldHoldSurface({', src.indexOf('const holdState =')))
+  const call = src.slice(src.indexOf('waterPosture({', src.indexOf('const holdState =')))
   const args = call.slice(0, call.indexOf('})'))
   assert.ok(/\bhead:/.test(args),
-    'shouldHoldSurface is called without head — a submerged bot reads as afloat')
+    'waterPosture is called without head — a submerged bot reads as afloat')
   assert.ok(/\broute:/.test(args),
-    'shouldHoldSurface is called without route — blocked_surface can never be reported')
+    'waterPosture is called without route — blocked_surface can never be reported')
   assert.ok(/breathableRoute\(bot\)/.test(args),
     'the route must come from breathableRoute, or every submerged bot reads as blocked')
 })
 
 t('the ended event is split by how the episode STARTED', () => {
-  // A single `water_surface_hold_ended` kind puts true floats and submerged
-  // recoveries in one bucket, and no count-based query can tell them apart --
-  // which is the exact ambiguity this change exists to remove.
+  // A single `..._ended` kind puts floats and submerged recoveries in one
+  // bucket, and no count-based query can tell them apart.
   const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
   assert.ok(/water_\$\{startedAs\}_ended/.test(src),
-    'every hold ends as one kind regardless of how it began')
-  assert.ok(/'water_surface_hold_ended'/.test(src),
-    'the existing series must keep its name for the population it always meant')
+    'every posture ends as one kind regardless of how it began')
+  // The OLD series must not be reused. It graded episodes by an air dip and by
+  // a predicate that counted kelp as water; continuing the name would splice
+  // two different definitions into one line on a dashboard.
+  assert.ok(!/'water_surface_hold_ended'/.test(src),
+    'the retired hold series must not be revived under its old name')
+})
+
+t('the reflex never issues jump as the whole action when the head is under', () => {
+  // Treading water is jump without a direction, and it is the measured killer.
+  // `float` is the one posture where up is all that is wanted, because the head
+  // is already out. Every other posture must set a direction too.
+  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  const block = src.slice(src.indexOf('if (holdState) {'))
+  const body = block.slice(0, block.indexOf('if (!holdStartedAt)'))
+  assert.ok(/setControlState\('forward', true\)/.test(body),
+    'no posture steers: this is the treading-water bug being rebuilt')
+  assert.ok(/lookAt/.test(body), 'steering without aiming is not steering')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
