@@ -998,10 +998,43 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // wet" is a distinguishable answer rather than folding into "buried".
     const safeOnes = exposedOnes.filter(safeTarget)
     const rejectedUnsafe = exposedOnes.length - safeOnes.length
-    const reachable = [
+    let reachable = [
       ...safeOnes.filter(approachable),
       ...safeOnes.filter(q => !approachable(q)),
     ]
+
+    // THE TRAP IS HERE, NOT AT "FOUND NOTHING".
+    //
+    // Natural dirt on a plain IS found -- findBlocks returns plenty -- and then
+    // every candidate fails `exposed` because grass_block caps it. So the
+    // fallback fired at `positions.length === 0` never ran for the case it was
+    // written for. Caught by watching `gather_via_source` stay at zero while
+    // `gather dirt` kept failing on the canary, four minutes after deploying it.
+    //
+    // Still a fallback: it runs only when the exact block yielded no reachable
+    // candidate, so it can only turn a failure into an attempt.
+    if (reachable.length === 0 && !viaSource) {
+      for (const alt of sourcesOf(bot.registry, blockName)) {
+        if (alt === blockName) continue
+        const altType = bot.registry?.blocksByName?.[alt]
+        if (!altType) continue
+        const found = bot
+          .findBlocks({ matching: altType.id, maxDistance, count: 32 })
+          .filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
+        const cand = found.filter(exposed).filter(safeTarget)
+        const ok = [...cand.filter(approachable), ...cand.filter(q => !approachable(q))]
+        if (ok.length) {
+          reachable = ok
+          viaSource = alt
+          logEvent({ kind: 'gather_via_source', status: 'success',
+                     detail: `every ${blockName} candidate was buried or unsafe; ` +
+                             `${alt} yields ${blockName} — ${ok.length} reachable`,
+                     snapshot: snapshot(bot) })
+          break
+        }
+      }
+    }
+
     if (reachable.length === 0) {
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }

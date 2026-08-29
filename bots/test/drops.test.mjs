@@ -116,5 +116,23 @@ t('the candidate check accepts the SOURCE block once one was chosen', () => {
     'the reachability check still demands the original block name')
 })
 
+t('THE FALLBACK SITS WHERE THE TRAP IS: unreachable, not merely not-found', () => {
+  // First version guarded only on `positions.length === 0`. But dirt on a plain
+  // IS found — findBlocks returns plenty — and then every candidate fails the
+  // exposed check because grass_block caps it. The fallback could never fire
+  // for the case it was written for. Caught on a live canary by watching
+  // gather_via_source stay at zero while gather dirt kept failing.
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const j = src.indexOf('if (reachable.length === 0 && !viaSource)')
+  assert.ok(j > 0,
+    'no alternate-source attempt at the unreachable branch — the dirt trap is ' +
+    'that candidates are FOUND and then all rejected, not that none are found')
+  const body = src.slice(j, j + 900)
+  assert.ok(/sourcesOf\(bot\.registry, blockName\)/.test(body))
+  assert.ok(/\.filter\(exposed\)/.test(body),
+    'the alternate candidates must pass the same exposed/safe filters as the ' +
+    'originals, or this trades a refusal for an impossible dig')
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
