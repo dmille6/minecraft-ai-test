@@ -33,7 +33,7 @@ const key = (x, y, z) => `${x},${y},${z}`
  * Solid stone everywhere below y=64, air above, and a bot standing on it.
  * `canMove` lets a test simulate a pathfinder that cannot deliver the bot.
  */
-function mineWorld ({ canMove = true, yaw = 0, drift = false } = {}) {
+function mineWorld ({ canMove = true, yaw = 0, drift = false, settleY = 0 } = {}) {
   const carved = new Set()
   const digs = []
   const events = []
@@ -70,7 +70,12 @@ function mineWorld ({ canMove = true, yaw = 0, drift = false } = {}) {
         // Only step in if the cell and its headroom are actually open.
         const at = new V(goal.x, goal.y, goal.z)
         if (blockAt(at) !== AIR || blockAt(at.offset(0, 1, 0)) !== AIR) return
-        bot.entity.position = at
+        // A REAL BOT IS STILL FALLING when goto returns: the pathfinder walks
+        // it over the lip and hands back before physics settles. `settleY`
+        // reproduces that -- the fixture used to teleport to exact integers,
+        // which is precisely why it could not catch a tolerance bug that
+        // rejected five of six successful steps on the fleet.
+        bot.entity.position = new V(at.x, at.y + settleY, at.z)
         // A REAL PATHFINDER SWINGS THE YAW. It looks ahead to the next node, so
         // the bot's facing wobbles by tens of degrees every step. Without this,
         // a bearing recomputed per step LOOKS stable in a fixture and curls the
@@ -94,7 +99,7 @@ const run = (bot, y) => SKILLS.mine.run({ bot }, { y }, new AbortController().si
 await t('the bot descends a 1:1 staircase, not a shaft', async () => {
   const bot = mineWorld()
   const start = bot.entity.position.clone()
-  await run(bot, 50)
+  await run(bot, 52)
   const drop = start.y - bot.entity.position.y
   const across = Math.hypot(bot.entity.position.x - start.x, bot.entity.position.z - start.z)
   assert.ok(drop >= 10, `descended only ${drop} blocks`)
@@ -105,10 +110,10 @@ await t('the bot descends a 1:1 staircase, not a shaft', async () => {
 
 await t('it actually reaches the requested depth', async () => {
   const bot = mineWorld()
-  const r = await run(bot, 40)
+  const r = await run(bot, 54)
   assert.equal(r.status, 'success', `got ${r.status}: ${r.detail}`)
-  assert.ok(bot.entity.position.y <= 41,
-    `reported success at y=${bot.entity.position.y}, having been asked for y=40`)
+  assert.ok(bot.entity.position.y <= 55,
+    `reported success at y=${bot.entity.position.y}, having been asked for y=54`)
 })
 
 await t('it opens headroom, so the bot is never walking into its own ceiling', async () => {
@@ -161,6 +166,20 @@ await t('running out of steps is not the same as arriving', async () => {
   assert.ok(/short of the requested/.test(r.detail), `unhelpful detail: ${r.detail}`)
 })
 
+await t('a bot still falling into the tread has ARRIVED', async () => {
+  // Live failure, 2026-08-28 23:18:33Z, placebo-d-Alpha:
+  //   "dug the tread at (1646,63,722) but ended at (1646,63,722) after moving
+  //    1.08 horizontally -- the stair was cut and not taken"
+  // Identical coordinates, rejected: raw y read 63.9 against a tread at 63.
+  const bot = mineWorld({ settleY: 0.9 })
+  const start = bot.entity.position.clone()
+  const r = await run(bot, 52)
+  assert.equal(r.status, 'success',
+    `a step that landed in the right block was filed as ${r.status}: ${r.detail}`)
+  assert.ok(start.y - bot.entity.position.y >= 10,
+    'the descent stopped early despite every step landing correctly')
+})
+
 // --- the bearing ------------------------------------------------------------
 
 await t('the bearing is cardinal, and holds for the whole descent', async () => {
@@ -173,7 +192,7 @@ await t('the bearing is cardinal, and holds for the whole descent', async () => 
   // Held, not recomputed: the stair must be straight, or it curls into itself.
   const bot = mineWorld()
   const start = bot.entity.position.clone()
-  await run(bot, 50)
+  await run(bot, 52)
   const dx = bot.entity.position.x - start.x, dz = bot.entity.position.z - start.z
   assert.ok(dx === 0 || dz === 0,
     `stair wandered to (${dx}, ${dz}); it should run along one axis`)

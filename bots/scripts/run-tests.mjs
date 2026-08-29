@@ -22,7 +22,12 @@ import { spawn } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import process from 'node:process'
 
-const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 60_000)
+// 60s was right when every file was pure arithmetic. mine-staircase.test.mjs
+// drives a 90-step descent through the skill's real 150ms per-step pacing --
+// deliberately, because the bug it now guards against (a bot still falling
+// when arrival is checked) only exists in the timing. Raised rather than
+// letting that test fake the clock and stop testing the thing.
+const TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS || 120_000)
 const filter = process.argv[2] || ''
 
 const files = readdirSync('test')

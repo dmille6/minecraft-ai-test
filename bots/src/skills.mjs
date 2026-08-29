@@ -2372,11 +2372,25 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // slid a metre sideways at the same elevation would pass -- and the next
     // iteration would then cut a tread from the wrong place, carving a trench
     // while every log line said the descent was progressing.
+    // MEASURE THE BLOCK, NOT THE FLOAT -- AND LET IT LAND FIRST.
+    //
+    // The first version compared raw `position.y` to the tread with a 0.5
+    // tolerance. Live, that rejected five of six SUCCESSFUL steps: the
+    // pathfinder walks the bot over the lip and returns while it is still
+    // falling, so y read 63.9 against a tread at 63 and the step was filed as
+    // `unverified`. The log line said so in its own words -- "dug the tread at
+    // (1646,63,722) but ended at (1646,63,722)" -- identical coordinates,
+    // rejected. The instrument was wrong, not the staircase.
+    //
+    // A block is the unit that matters, so floor both sides and compare
+    // exactly. The brief settle is what makes that honest rather than lucky:
+    // without it the bot can still be a whole block high and floor to the
+    // wrong cell.
+    await sleep(250, signal)
     const now = bot.entity.position
     const at = now.floored()
     moved = Math.hypot(now.x - before.x, now.z - before.z)
-    const arrived = at.x === cellFeet.x && at.z === cellFeet.z &&
-                    Math.abs(now.y - cellFeet.y) <= 0.5
+    const arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
     if (!arrived) {
       // Do NOT keep digging. Stop, say the step is unverified, and leave the
       // shaft no wider than it already is.
