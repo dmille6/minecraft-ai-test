@@ -36,7 +36,7 @@ import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
-import { dropsOf, heldFromBlock } from './drops.mjs'
+import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -885,9 +885,41 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     check(signal)
     rounds++
 
-    const positions = bot
+    // ASK FOR THE ITEM, ACCEPT ANY BLOCK THAT YIELDS IT.
+    //
+    // Natural dirt on a plain is capped by grass_block, so every dirt candidate
+    // reads as "buried" and the skill refuses. In this pool's last 12 hours
+    // `gather dirt` failed 520 times out of 1,084 gather calls -- 48% of all
+    // gathering -- for the one item the exit contract, climbAdvice and
+    // climbPrerequisite all demand. The bot was standing on its answer.
+    //
+    // DELIBERATELY A FALLBACK, NOT A WIDENING. The exact block is searched
+    // first and alternates are consulted only when it found nothing, so this
+    // can only turn a failure into an attempt. It never redirects a search that
+    // was already working.
+    let positions = bot
       .findBlocks({ matching: type.id, maxDistance, count: 32 })
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
+    let viaSource = null
+    if (positions.length === 0) {
+      for (const alt of sourcesOf(bot.registry, blockName)) {
+        if (alt === blockName) continue
+        const altType = bot.registry?.blocksByName?.[alt]
+        if (!altType) continue
+        const found = bot
+          .findBlocks({ matching: altType.id, maxDistance, count: 32 })
+          .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
+        if (found.length) {
+          positions = found
+          viaSource = alt
+          logEvent({ kind: 'gather_via_source', status: 'success',
+                     detail: `no ${blockName} exposed; ${alt} yields it — ` +
+                             `${found.length} candidate(s)`,
+                     snapshot: snapshot(bot) })
+          break
+        }
+      }
+    }
 
     if (positions.length === 0) {
       return collected > 0
@@ -985,7 +1017,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     }
 
     const target = bot.blockAt(reachable[0])
-    if (!target || target.name !== blockName) continue
+    if (!target || target.name !== (viaSource ?? blockName)) continue
 
     try {
       // The budget has to cover PLANNING PLUS DOING. It was 10000ms while

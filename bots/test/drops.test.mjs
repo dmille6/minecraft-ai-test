@@ -11,6 +11,7 @@
 // while 33 bots had been carrying raw_iron since 2026-08-26 and one had smelted
 // an iron pickaxe. A counter that can only return zero carries no information.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import mcdata from 'minecraft-data'
 import { dropsOf, sourcesOf, heldFromBlock } from '../src/drops.mjs'
 
@@ -82,6 +83,37 @@ t('a missing registry degrades to the old behaviour rather than throwing', () =>
   assert.deepEqual(dropsOf(null, 'stone'), ['stone'])
   assert.deepEqual(sourcesOf(undefined, 'dirt'), ['dirt'])
   assert.equal(heldFromBlock({ inventory: { items: () => [] } }, 'stone'), 0)
+})
+
+// --- the WIRING, which is a separate thing from the module -------------------
+//
+// I built sourcesOf, tested it, and very nearly shipped a canary without ever
+// connecting it to the search. The module being right is not the same as the
+// caller using it — that seam has produced three separate defects in this
+// codebase, so it gets its own assertion.
+
+t('gather actually CONSULTS sourcesOf when the exact block is not found', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.ok(/sourcesOf/.test(src), 'sourcesOf is imported but never called')
+  // Check the guard IMMEDIATELY PRECEDING the loop, not merely that the string
+  // appears somewhere nearby. The first version of this test matched a
+  // different `positions.length === 0` further down the same block and passed
+  // against a mutant that had replaced the real guard with `if (false)`.
+  const j = src.indexOf('for (const alt of sourcesOf')
+  assert.ok(j > 0, 'the alternate-source loop is gone')
+  const guard = src.slice(Math.max(0, j - 120), j)
+  assert.ok(/if \(positions\.length === 0\) \{\s*$/.test(guard),
+    'the alternate search must be guarded by the exact block finding NOTHING, ' +
+    `so it can only turn a failure into an attempt. Saw: ${JSON.stringify(guard.slice(-60))}`)
+  assert.ok(/viaSource/.test(src.slice(j, j + 800)), 'the chosen source is not recorded')
+})
+
+t('the candidate check accepts the SOURCE block once one was chosen', () => {
+  // Searching for grass_block and then rejecting every candidate for not being
+  // named "dirt" would find the answer and throw it away.
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  assert.ok(/target\.name !== \(viaSource \?\? blockName\)/.test(src),
+    'the reachability check still demands the original block name')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
