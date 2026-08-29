@@ -1586,7 +1586,27 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           closingOnAir,
           healthFalling: prevHealth != null && (bot.health ?? prevHealth) < prevHealth,
         })
-        if (!emergency && bot.pathfinder?.goal) {
+        // WHO IS DRIVING DECIDES WHETHER THIS STANDS DOWN.
+        //
+        // The first version gated EVERY seizure on `airEmergency`, including
+        // for a bot nobody was steering. Canary 4a1dfcb, pool placebo-c, 70
+        // minutes: swim success rose 6.7% -> 16.3% and reentry-per-escape fell
+        // 8.56 -> 3.25, and it drowned bots at 0.526/bot-h against 0.070 for
+        // concurrent controls -- 7.5x, p = 0.0079. Rolled back.
+        //
+        // The event mix says exactly why: 193 `_water_float` + 156
+        // `_water_surface` (nobody steering) against 17
+        // `_water_travel_uninterrupted` (someone steering). Bots spend almost
+        // all their water time UNOWNED, and the rescue was the only thing
+        // coming for them. All three drownings were `idle at the moment of
+        // death`.
+        //
+        // So: a bot with a goal is crossing on purpose and is left alone unless
+        // it is genuinely out of air. A bot with NO goal gets the full rescue,
+        // exactly as before. Water is still terrain; nobody is being pulled out
+        // of it for being wet. This only decides who is already responsible.
+        const owned = !!bot.pathfinder?.goal
+        if (!emergency && owned) {
           // Travelling, and not actually drowning. Say so once in a while so
           // "the reflex stopped firing" is visible as a decision rather than as
           // silence, and leave the body alone.
@@ -1598,7 +1618,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                        snapshot: snapshot(bot) })
           }
         }
-        if (mayAct && emergency && air.act === 'swim') {
+        if (mayAct && (emergency || !owned) && air.act === 'swim') {
           const route = breathableRoute(bot)
           // SEIZE ONCE. Taking the body means clearing every control state, so
           // doing it per tick destroys the stroke the previous tick started.

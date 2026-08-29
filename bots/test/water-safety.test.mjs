@@ -295,5 +295,21 @@ t('the reflex never issues jump as the whole action when the head is under', () 
   assert.ok(/lookAt/.test(body), 'steering without aiming is not steering')
 })
 
+t('THE ROLLBACK GUARD: an UNOWNED bot still gets the full rescue', () => {
+  // Canary 4a1dfcb demoted the reflex for every bot, not just travelling ones.
+  // 5 deaths in 5.7 bot-hours, 0.526 drownings/bot-h against 0.070 for
+  // controls — 7.5x, p = 0.0079 — because 193 float + 156 surface episodes had
+  // nobody steering while only 17 crossings did. The rescue was the only thing
+  // coming for them.
+  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  const site = src.slice(src.indexOf('const owned = !!bot.pathfinder?.goal'))
+  const guard = site.slice(0, site.indexOf('air.act') + 40)
+  assert.ok(/\(emergency \|\| !owned\)/.test(guard),
+    'the seizure is gated on emergency ALONE again — an unowned bot in water ' +
+    'now has nothing coming for it, which is what killed five bots')
+  assert.ok(/if \(!emergency && owned\)/.test(src),
+    'the stand-down must require a travel owner, not just the absence of an emergency')
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
