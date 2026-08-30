@@ -19,10 +19,12 @@
  */
 
 export const MAX_AIR_SECONDS = 15      // 300 ticks, vanilla
-// Refilling is much faster than draining; a surfaced bot is topped up in well
-// under a second. Modelled as instant because every consumer asks "do I have
-// time", and rounding that in the bot's favour is the unsafe direction.
-export const REFILL_INSTANT = true
+// Refilling is modelled as instant -- a surfaced bot is topped up in well under
+// a second, and every consumer asks "do I have time", so rounding in the bot's
+// favour is the unsafe direction. Deliberately NOT a constant: an exported flag
+// nothing reads is the `bot.waterMovements` defect, where a correctly
+// configured value had no consumer and a test asserted it was set correctly.
+// The behaviour lives in makeAirClock() below, where it is actually applied.
 
 const UNDERWATER_PLANT = /^(kelp|kelp_plant|seagrass|tall_seagrass)$/
 
