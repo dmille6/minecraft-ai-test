@@ -122,37 +122,77 @@ ok "declared $RUN / $BASE_SHA${POOL:+ (canary $SHA on $POOL)}"
 
 # ------------------------------------------------------------------ install --
 say "Harness"
-cp -r "$REPO/bots/src" "$H/"
-cp "$REPO/bots/package.json" "$H/"
-chown -R mcbot:mcbot "$H/src" "$H/package.json"
 install -m 0755 "$REPO/infra/guard/death-tripper.py" /usr/local/bin/mcai-tripper
-ok "source and tripper installed"
+if [ -n "$POOL" ]; then
+  # A CANARY MUST NOT WRITE WHERE A CONTROL LOOKS.
+  #
+  # This used to `cp -r bots/src $H/` for a canary too, and relied on the 75
+  # controls never restarting. They restart: measured over 9 hours with a canary
+  # live, board-b-Alpha and isolated-c-Bravo both came back running canary code
+  # under a baseline label -- about one control every four hours. Stopping them
+  # did not hold, because systemd restarts them onto whatever is in $H/src.
+  #
+  # Canary source now goes to its own tree and five per-instance drop-ins point
+  # only the target units at it. Baseline src is untouched, so a control that
+  # restarts at ANY moment during this deploy lands on baseline.
+  /usr/local/sbin/mcai-canary-tree build "$REPO" "$SHA" "$RUN" "${TARGET[@]}"
+  ok "canary source isolated; baseline tree untouched"
+else
+  # A FLEET DEPLOY OWNS THE BASELINE TREE, and ends any canary. Tearing the
+  # drop-ins down FIRST matters: if they survived, the five canary units would
+  # keep booting from harness-canary while the manifest said everyone was on the
+  # new build -- a split that looks like a clean deploy from every angle.
+  /usr/local/sbin/mcai-canary-tree teardown || true
+  # rsync --delete, not cp: `cp -r` never removes, so $H/src accumulated three
+  # orphan modules from past canaries and identical shas kept producing
+  # different digests.
+  rsync -a --delete "$REPO/bots/src/" "$H/src/"
+  cp "$REPO/bots/package.json" "$H/"
+  chown -R mcbot:mcbot "$H/src" "$H/package.json"
+  ok "baseline source installed"
+fi
 
-# THE SOURCE MOVES FOR EVERYONE, THE LABEL DOES NOT, AND THAT IS SURVIVABLE.
+# THE SOURCE NO LONGER MOVES FOR EVERYONE.
 #
-# $H/src was just overwritten, so a CONTROL bot that restarts for any other
-# reason -- a crash, the watchdog, an operator -- comes back on the canary code
-# while still labelled baseline. Running two source trees to prevent that means
-# teaching the systemd unit about a second directory, which is more machinery
-# than the risk deserves.
+# This block used to be headed "the source moves for everyone, the label does
+# not, and that is survivable", and argued that running two source trees was
+# "more machinery than the risk deserves" because the tripper would catch any
+# control that drifted. Both halves were wrong.
 #
-# It is survivable because the tripper already catches it, twice over. The
-# reported version is `<sha>+<digest of the .mjs actually loaded>`: such a bot
-# reports baseline-sha with the CANARY digest, so it is a third distinct version
-# string, `canary_split_ok` refuses anything that is not exactly two, and the
-# disagreement rule fires. That is the whole reason the digest exists.
+# The tripper did NOT catch it: canary_split_ok compared bare shas and threw
+# away the digest that exists precisely to detect this, and separately the whole
+# version guard was reading a manifest and logs from hosts decommissioned on
+# 2026-08-20, so it returned "not a fault" on every run for weeks.
+#
+# And the risk was not hypothetical. Over 9 hours with a canary live, two
+# controls came back on canary code. Stopping them did not hold. That is not a
+# tolerable background rate; it is a control group dissolving while the
+# experiment runs.
+#
+# A canary now writes only harness-canary, so a restarting control cannot load
+# it. In canary mode the label comes from the canary tree's own env file, and
+# these per-bot files are left alone entirely -- one place sets the version for
+# canary bots, not two that can disagree.
+if [ -n "$POOL" ]; then
+  ok "canary labels come from harness-canary/canary.env; per-bot env untouched"
+fi
 for f in "$H"/env/*.env; do
   b=$(basename "$f" .env)
   V="$SHA"; R="$RUN"
-  if [ -n "$POOL" ] && ! printf '%s\n' "${TARGET[@]}" | grep -qxF "$b"; then
-    continue          # a control bot: its label and its run id both stand
+  if [ -n "$POOL" ]; then
+    continue          # canary mode: every per-bot label stands; the canary
+                      # tree's env file carries the canary version
   fi
   grep -q '^CODE_VERSION=' "$f" && sed -i "s/^CODE_VERSION=.*/CODE_VERSION=$V/" "$f" \
                                || echo "CODE_VERSION=$V" >> "$f"
   grep -q '^RUN_ID=' "$f"       && sed -i "s/^RUN_ID=.*/RUN_ID=$R/" "$f" \
                                || echo "RUN_ID=$R" >> "$f"
 done
-ok "CODE_VERSION=$SHA RUN_ID=$RUN across ${#TARGET[@]} env file(s)"
+if [ -n "$POOL" ]; then
+  ok "CODE_VERSION=$SHA RUN_ID=$RUN via harness-canary/canary.env (${#TARGET[@]} unit(s))"
+else
+  ok "CODE_VERSION=$SHA RUN_ID=$RUN across ${#TARGET[@]} env file(s)"
+fi
 
 # ------------------------------------------------------------------ restart --
 # Paper throttles new connections; a tighter stagger gets bots rejected.
