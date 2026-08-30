@@ -302,13 +302,27 @@ t('THE ROLLBACK GUARD: an UNOWNED bot still gets the full rescue', () => {
   // nobody steering while only 17 crossings did. The rescue was the only thing
   // coming for them.
   const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
-  const site = src.slice(src.indexOf('const owned = !!bot.pathfinder?.goal'))
+  const site = src.slice(src.indexOf('const owned ='))
   const guard = site.slice(0, site.indexOf('air.act') + 40)
   assert.ok(/\(emergency \|\| !owned\)/.test(guard),
     'the seizure is gated on emergency ALONE again — an unowned bot in water ' +
     'now has nothing coming for it, which is what killed five bots')
   assert.ok(/if \(!emergency && owned\)/.test(src),
     'the stand-down must require a travel owner, not just the absence of an emergency')
+})
+
+t('A LEFTOVER GOAL IS NOT AN OWNER', () => {
+  // pathfinder goals outlive the skill that set them. Gating the rescue on the
+  // goal alone meant an idle bot with a stale goal was treated as travelling
+  // and never rescued: fleet-wide, drownings went to 0.76 per 1,000 water
+  // events against a pre-deploy 0.26-0.33, and 42 of 45 were `idle at the
+  // moment of death`.
+  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  const line = src.slice(src.indexOf('const owned ='), src.indexOf('const owned =') + 120)
+  assert.ok(/isBusy/.test(line),
+    'ownership is back to the bare pathfinder goal — a stale goal will again ' +
+    'exempt an idle bot from rescue')
+  assert.ok(/pathfinder\?\.goal/.test(line), 'a running skill alone is not travel')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

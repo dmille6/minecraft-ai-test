@@ -1605,7 +1605,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // it is genuinely out of air. A bot with NO goal gets the full rescue,
         // exactly as before. Water is still terrain; nobody is being pulled out
         // of it for being wet. This only decides who is already responsible.
-        const owned = !!bot.pathfinder?.goal
+        // A LEFTOVER GOAL IS NOT AN OWNER.
+        //
+        // This was `!!bot.pathfinder?.goal` alone, and pathfinder goals outlive
+        // the skill that set them: a bot whose skill ended without clearing the
+        // goal reads as "travelling" while nothing is steering it. The rescue
+        // was then gated on airEmergency and never fired.
+        //
+        // Measured over 5.6 hours fleet-wide: drownings rose to 0.76 per 1,000
+        // water events against a pre-deploy 0.26-0.33, and STILL RISING -- and
+        // 42 of 45 of them were `idle at the moment of death`, only 3 mid-skill.
+        // The gate was never cancelling real crossings; it was declining to
+        // rescue bots that had merely forgotten to put their goal down.
+        //
+        // Ownership means a skill is RUNNING. Both conditions, so a stale goal
+        // cannot exempt a body nobody is driving.
+        const owned = runner?.isBusy?.() === true && !!bot.pathfinder?.goal
         if (!emergency && owned) {
           // Travelling, and not actually drowning. Say so once in a while so
           // "the reflex stopped firing" is visible as a decision rather than as
