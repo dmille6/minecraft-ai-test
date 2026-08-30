@@ -257,21 +257,48 @@ def canary_split_ok(seen, declared, canary_version, canary_pool):
     on the new code. Membership has to be exact in both directions, or this is
     a licence rather than a rule.
 
+    THE DIGEST IS THE DISCRIMINATOR, AND THIS THREW IT AWAY.
+    ---------------------------------------------------------------------------
+    `base` used to strip `+digest` and compare bare shas. deploy-fleet.sh copies
+    the new source over $H/src for EVERY bot and relies on the controls not being
+    restarted, so a control that restarts for its own reasons -- a crash, the
+    watchdog, an operator -- comes back running CANARY CODE under a BASELINE
+    label: `16e7e77+71154f`. Stripping the digest collapses that to `16e7e77`,
+    identical to a real baseline bot, and the check passed.
+
+    deploy-fleet.sh's own comment asserts the opposite: "such a bot reports
+    baseline-sha with the CANARY digest, so it is a third distinct version
+    string, canary_split_ok refuses anything that is not exactly two." The digest
+    exists for exactly this case and the comparison discarded it -- a comment
+    describing behaviour the code never had.
+
+    Observed 2026-08-30: board-d-Bravo running canary code as a control, for
+    hours, while this returned ok. Full strings are compared now.
+
     `seen` is {bot: version}; versions carry the +digest suffix, the manifest
     holds bare shas.
     """
     if not (canary_version and canary_pool):
         return False, "no canary declared"
+    full = set(seen.values())
+    if len(full) != 2:
+        return False, (f"{len(full)} distinct builds running, a canary is exactly "
+                       f"two: {sorted(full)}")
     base = {v.split("+")[0] for v in seen.values()}
     if len(base) != 2:
-        return False, f"{len(base)} versions running, a canary is exactly two"
+        return False, (f"two builds but {len(base)} sha(s): a control is running "
+                       f"canary code under a baseline label -- {sorted(full)}")
     if base != {declared, canary_version}:
         return False, (f"running {sorted(base)} but the canary declares "
                        f"{sorted({declared, canary_version})}")
+    # Membership is checked on the FULL string too, so a bot carrying the canary
+    # digest under a baseline sha is counted as being on the canary build --
+    # which is what it actually is, and what makes it a membership violation.
+    canary_full = {v for v in full if v.split("+")[0] == canary_version}
     wrong = []
     for bot, v in sorted(seen.items()):
         in_pool = bot.startswith(canary_pool + "-")
-        on_canary = v.split("+")[0] == canary_version
+        on_canary = v in canary_full
         if in_pool != on_canary:
             wrong.append(f"{bot}@{v.split('+')[0]}"
                          + (" (in pool, not on canary)" if in_pool else " (on canary, not in pool)"))
