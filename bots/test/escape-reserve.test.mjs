@@ -86,5 +86,30 @@ t('a pickaxe with no durability metadata is counted as usable, not discarded', (
                                 { name: 'stone_pickaxe', count: 1 }]), true)
 })
 
+t('SOFT BLOCKS NEED NO TOOL, so digging through them is never refused', () => {
+  // The first version refused all escape digging without a spare pickaxe, and
+  // on the canary that turned two bots which were at least TRYING into two bots
+  // doing nothing — 33 and 39 refusals, both stationary. Dirt, sand and gravel
+  // break bare-handed; the pickaxe only matters for stone.
+  for (const name of ['dirt', 'sand', 'gravel', 'grass_block', 'clay']) {
+    assert.equal(mayDigForEscape([pick()], { name, boundingBox: 'block' }), true,
+      `${name} breaks bare-handed and must not be refused`)
+  }
+})
+
+t('stone still requires the spare, because that is what ends escapes', () => {
+  assert.equal(mayDigForEscape([pick()], { name: 'stone', boundingBox: 'block' }), false)
+  assert.equal(mayDigForEscape([pick(), pick()], { name: 'stone', boundingBox: 'block' }), true)
+})
+
+t('an unidentifiable ceiling is treated as needing the tool', () => {
+  // Erring toward the stone case: that is the one that ends escapes permanently.
+  assert.equal(mayDigForEscape([pick()], null), false)
+})
+
+t('air overhead is not a dig at all', () => {
+  assert.equal(mayDigForEscape([pick()], { name: 'air', boundingBox: 'empty' }), true)
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

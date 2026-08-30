@@ -2078,6 +2078,9 @@ function isEntombed(bot) {
   return highest - p.y >= 4
 }
 
+// Breaks bare-handed, so an escape through it costs no tool at all.
+const SOFT_BLOCK = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|sand|red_sand|gravel|clay|snow|snow_block|dirt_path|farmland|moss_block|mud)$/
+
 const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$/
 
 /**
@@ -2121,7 +2124,21 @@ export function canFinishClimb ({ have, need, headroomBlocked = false }) {
  * lags by a tick, and a tool that breaks one swing early is the entire failure
  * being prevented.
  */
-export function mayDigForEscape (items = []) {
+export function mayDigForEscape (items = [], block = null) {
+  // ONLY WHAT ACTUALLY NEEDS A TOOL.
+  //
+  // The first version refused ALL escape digging without a spare pickaxe. But
+  // dirt, sand and gravel break bare-handed -- the pickaxe only matters for
+  // stone. On the canary that turned two bots which were at least TRYING into
+  // two bots doing nothing: board-c-Alpha 33 refusals and board-c-Echo 39, both
+  // stationary. Gating a whole capability on a tool most blocking blocks do not
+  // need is the same over-broad predicate that widened isWet() into kelp and
+  // drowned bots.
+  //
+  // A block we cannot identify is treated as needing the tool, because the
+  // stone case is the one that ends escapes permanently.
+  if (block && block.boundingBox === 'empty') return true
+  if (block && SOFT_BLOCK.test(block.name)) return true
   let usable = 0
   for (const it of items) {
     if (!it?.name || !/_pickaxe$/.test(it.name)) continue
@@ -2384,10 +2401,12 @@ async function digStraightUp(bot, startY, maxSteps = 20) {
   // and 24 of 26 permanently-stuck bots now hold none -- at which point
   // harvestAdjacent fails 99.4% of the time with "0/8 dug", because the walls
   // are stone and nothing is left to break them with.
-  if (!mayDigForEscape(bot.inventory?.items?.() ?? [])) {
+  const blocking = bot.blockAt?.(bot.entity.position.offset(0, 2, 0))
+  if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking)) {
     logEvent({ kind: 'maroon_dig_refused', status: 'failed',
-               detail: 'will not dig out on the last pickaxe: breaking it here ' +
-                       'ends every future escape this bot could make',
+               detail: `will not dig out on the last pickaxe: ${blocking?.name ?? 'the ceiling'} ` +
+                       'needs a tool, and breaking it here ends every future ' +
+                       'escape this bot could make',
                snapshot: snapshot(bot) })
     return false
   }
