@@ -27,7 +27,7 @@ WHY IT ONLY STOPS
     deploys -- those change the experiment, and a change mid-trial makes the
     trial uninterpretable, which is worse than losing it cleanly.
 """
-import json, os, re, subprocess, sys, time
+import glob, json, os, re, subprocess, sys, time
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
@@ -36,7 +36,12 @@ from datetime import datetime, timezone, timedelta
 # that runs no agent code -- but the thing it stops lives on this host too, so if
 # this host is gone the bots are gone with it.
 LOCAL     = os.environ.get("TRIPPER_LOCAL", "") == "1"
-LOGS      = os.environ.get("LOG_GLOB", "/srv/mcbots/logs/*.jsonl")
+# THE LOGS MOVED AND THIS DID NOT. `/srv/mcbots/logs/*.jsonl` matches ZERO files
+# on the current bot host; the fleet writes `/var/log/mcai/<bot>/skill-*.jsonl`
+# (84 files). Combined with the manifest being read over ssh from a host
+# decommissioned on 2026-08-20, the version guard could not see the fleet OR its
+# declaration -- it returned "nothing running yet; not a fault" on every run.
+LOGS      = os.environ.get("LOG_GLOB", "/var/log/mcai/*/skill-*.jsonl")
 MANIFEST  = os.environ.get("MANIFEST", "/srv/mcbots/bot-manifest.json")
 EVD       = os.environ.get("EVD_HOST", "192.168.193.21")
 LAB       = os.environ.get("LAB_HOST", "192.168.193.40")
@@ -334,7 +339,13 @@ def version_check():
     """
     fresh_min = int(os.environ.get("VERSION_FRESH_MIN", "15"))
     since = datetime.now(timezone.utc) - timedelta(minutes=fresh_min)
-    r = ssh(EVD, f"tail -q -n 400 {(LOGS if LOCAL else ARCHIVE + '/*.jsonl')} 2>/dev/null")
+    # LOCAL FIRST, for the same reason as the manifest: EVD is on the retired
+    # instance-#2 network. Only the NEWEST lines are wanted here (what is running
+    # right now), so a bounded tail is legitimate -- unlike a baseline walk.
+    if glob.glob(LOGS):
+        r = sh(f"tail -q -n 400 {LOGS} 2>/dev/null")
+    else:
+        r = ssh(EVD, f"tail -q -n 400 {(LOGS if LOCAL else ARCHIVE + '/*.jsonl')} 2>/dev/null")
     seen, stale = {}, {}
     for line in r.stdout.splitlines():
         try:
@@ -398,7 +409,42 @@ def version_check():
         else:
             if man.get("canary_pool"):
                 print(f"    a canary is declared but does not explain this split: {canary_why}")
-            problems.append(("ALL", f"bots disagree on code version {sorted(versions)} "
+            # SCOPE THE STOP TO THE OFFENDERS, NOT THE FLEET.
+            #
+            # "ALL" is right for a genuine undeclared split -- half the fleet on
+            # old code makes every aggregate a blend. It is disproportionate for
+            # the case that actually happens: a declared canary where one or two
+            # CONTROLS restarted onto the canary source and now carry its digest
+            # under a baseline label. Stopping 80 bots to correct 2 is an outage
+            # in response to a contamination.
+            #
+            # And it cannot be corrected by restarting them: while a canary is
+            # live, $H/src holds the canary build, so a restarted control comes
+            # back contaminated again. Stopping the offenders keeps them out of
+            # the data, which is the actual harm.
+            # `seen` maps bot -> (timestamp, version), NOT bot -> version. The
+            # first version of this grouped on the whole tuple, which is unique
+            # per bot, so every group had size one and it selected an arbitrary
+            # HEALTHY control to stop. Caught by running it non-destructively
+            # before installing -- which is the only reason it never ran.
+            def _ver(x):
+                return x[1] if isinstance(x, (tuple, list)) else x
+            minority = None
+            if declared and man.get("canary_pool"):
+                by_ver = {}
+                for b, v in seen.items():
+                    by_ver.setdefault(_ver(v), []).append(b)
+                small = sorted(by_ver.values(), key=len)[0]
+                if len(small) <= 3 and len(small) < len(seen) / 4:
+                    minority = small
+            if minority:
+                others = sorted({_ver(v) for b, v in seen.items() if b not in minority})
+                for b in minority:
+                    problems.append((b, f"running {_ver(seen[b])} while the fleet runs "
+                                        f"{others} -- a control restarted onto canary "
+                                        f"source; stopping it keeps it out of the comparison"))
+            else:
+                problems.append(("ALL", f"bots disagree on code version {sorted(versions)} "
                                     f"-- partial deploy, aggregates are a blend of two systems"))
     # The manifest holds the sha; the fleet reports sha+digest.
     # The canary version is DECLARED code, so it is not an undeclared change --
@@ -438,9 +484,35 @@ def _declaration():
     An unparseable or missing declared_at grants no grace: fail closed.
     """
     grace_min = int(os.environ.get("DECLARE_GRACE_MIN", "20"))
+    # LOCAL FIRST. This read `ssh(LAB, ...)` unconditionally, and LAB defaults to
+    # 192.168.193.40 -- a host on the old instance-#2 network that was
+    # decommissioned on 2026-08-20. The ssh fails, the except returns empty, and
+    # so `declared` is "" and `canary_pool` is None on every run.
+    #
+    # THE CONSEQUENCE, unnoticed until 2026-08-30: canary_split_ok returns
+    # immediately on "no canary declared", so the ENTIRE version-disagreement
+    # guard has been inert. Two control bots ran canary code for hours while this
+    # reported clean, and a correctness fix I made to the split comparison
+    # changed nothing in production because the function it lives in never runs.
+    #
+    # The tripper now runs on the bot host itself -- it stops units there -- so
+    # the manifest is a local file. The remote read is kept as a fallback for the
+    # two-host topology this was written for, but it is no longer the only path.
+    TRIAL = os.environ.get("TRIAL_MANIFEST", "/srv/mcbots/trial-manifest.json")
+    man = None
     try:
-        man = json.loads(ssh(LAB, "cat /srv/mcbots/trial-manifest.json").stdout)
+        with open(TRIAL) as fh:
+            man = json.load(fh)
     except Exception:
+        try:
+            man = json.loads(ssh(LAB, f"cat {TRIAL}").stdout)
+        except Exception:
+            man = None
+    if not man:
+        # NOT a silent pass. An unreadable declaration means this guard cannot
+        # do its job, and saying so is the difference between "clean" and "blind"
+        # -- the distinction that let this sit broken.
+        print("    cannot read the trial manifest -- version rules are BLIND")
         return {}, "", False
     declared = man.get("declared_code_version", "")
     declared_at = man.get("declared_at")
