@@ -73,7 +73,18 @@ export function adoptInto(lessons, claim, self) {
   e.last = Date.now()
   e.adopted_from_board = true
   lessons.dirty = true
-  return e.fails > before || true
+  // `return e.fails > before || true` -- the comparison was dead and this
+  // returned true on every re-read of an already-adopted claim. `doVisit` then
+  // counted the re-read as an adoption, which satisfies SKILL_CONTRACTS.board's
+  // `memory_change`, which scores the visit a success, which calls
+  // recordSuccess -- so `board` accrues wins for walking to a lectern and
+  // learning nothing. That is the `eat -> success "not hungry"` ratchet
+  // ADR-0003 exists to prevent, rebuilt inside the third arm.
+  //
+  // The doc comment three lines above already promised the opposite: "a visit
+  // that adopted nothing and filed nothing scores zero and is correctly called
+  // a no-op." Now it does.
+  return e.fails > before
 }
 
 /** Open the town board for this world. One board per arm, named for the ledger. */

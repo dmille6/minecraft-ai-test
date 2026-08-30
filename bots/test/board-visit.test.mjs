@@ -142,5 +142,27 @@ t('a visit that changes nothing reports zeroes', () => {
   assert.equal(r.adopted, 0)
 })
 
+t('RE-READING AN ADOPTED CLAIM IS A NO-OP, not another adoption', () => {
+  // `return e.fails > before || true` made the comparison dead: every re-read of
+  // an already-adopted claim returned true, doVisit counted it as an adoption,
+  // that satisfied SKILL_CONTRACTS.board's `memory_change`, the visit scored
+  // success, and recordSuccess fired. `board` accrued wins for walking to a
+  // lectern and learning nothing — the eat->success ratchet ADR-0003 exists to
+  // prevent, rebuilt inside the third arm.
+  //
+  // The existing "returns false" assertion in this file never caught it: that
+  // case returns from the no-foreign-reporters guard and never reaches the line.
+  const l = { data: { avoid: {} } }
+  const claim = {
+    subject: 'gather:{"block":"oak_log"}',
+    reports: [{ reporter: 'hive-a-Bravo', failClass: 'no_path' },
+              { reporter: 'hive-a-Comet', failClass: 'no_path' }],
+  }
+  assert.equal(adoptInto(l, claim, 'hive-a-Alpha'), true,
+    'the first adoption must count')
+  assert.equal(adoptInto(l, claim, 'hive-a-Alpha'), false,
+    're-reading the same claim reported it as a fresh adoption')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

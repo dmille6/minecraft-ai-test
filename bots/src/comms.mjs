@@ -29,11 +29,43 @@ import { config } from './config.mjs'
 import { log } from './logger.mjs'
 
 const TAG = '[fleet]'
-// Matches the FLEET, not a 2024 snapshot of it. The old pattern predated the
-// Hive/Solo names, so half the current fleet was silently distrusted as
-// senders while the other half was believed -- contamination that varied by
-// what a bot happened to be CALLED.
-const NAME_RE = /^(Scout|Miner|Gather|Builder|Crafter|Hive|Solo)\d{2}$/
+// A LITERAL ROSTER GOES STALE, AND THIS ONE HAS DONE IT TWICE.
+//
+// The comment that used to sit here said the pattern had been fixed for the
+// Hive/Solo rename. It then went stale again at the arm-pool rename, and this
+// time it excluded the ENTIRE fleet: Block 2 names are `hive-a-Alpha`,
+// `board-d-Comet`, `isolated-a-Bravo` -- lowercase, hyphenated, no two-digit
+// suffix -- and every one of them fails
+// /^(Scout|Miner|Gather|Builder|Crafter|Hive|Solo)\d{2}$/.
+//
+// Verified across 4.6 GB of telemetry and every store on disk: the ingestion
+// marker "reported over chat" appears ZERO times. `say()` has no name filter,
+// so bots announced hazards normally and every listener dropped the line at the
+// door. The fleet talked and nothing listened, for the whole block.
+//
+// So the pattern is no longer a list of names. It is derived from THIS BOT'S
+// OWN NAME, because a peer is something shaped like me. Rename the fleet and it
+// keeps working; that is the property the two previous versions lacked.
+//
+// A human could still mimic the shape deliberately. That is a smaller risk than
+// a silent total outage of the channel, and it is now stated rather than
+// assumed.
+function peerPattern (selfName = '') {
+  const parts = String(selfName || '').split('-').filter(Boolean)
+  // What identifies a peer is the HYPHEN STRUCTURE, not the character classes.
+  // My first attempt derived a class per segment from its case, and broke the
+  // moment a segment was a digit -- a renamed fleet would have been deaf again,
+  // which is the exact property this is supposed to guarantee. Segment content
+  // is deliberately permissive; the arity is what a stray player name fails.
+  if (parts.length >= 2) {
+    return new RegExp(`^${parts.map(() => '[A-Za-z0-9_]+').join('-')}$`)
+  }
+  // Fall back to the historical roster if our own name is unusable, so a
+  // misconfigured bot degrades to the old behaviour rather than trusting nobody
+  // -- which would be this same outage arriving by a different door.
+  return /^(Scout|Miner|Gather|Builder|Crafter|Hive|Solo)\d{2}$/
+}
+const NAME_RE = peerPattern(config.bot?.name)
 const MIN_GAP_MS = 20_000          // per-bot floor between announcements
 const MAX_ABS = 30_000_000         // sanity bound on any coordinate
 
