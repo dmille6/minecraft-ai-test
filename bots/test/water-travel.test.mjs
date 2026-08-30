@@ -141,7 +141,7 @@ t('real drowning still outranks a crossing', () => {
   // actually draining gets seized, crossing or not: the release is gated on
   // `!air.losing`, so a losing bot can never reach it.
   const r = src('reflex.mjs')
-  assert.ok(/if \(rescuing && !air\.losing && breathingAgain\(/.test(r),
+  assert.ok(/if \(rescuing && !air\.losing && breathing\)/.test(r),
     'the release must be gated on !air.losing, or a draining swimmer is handed back')
 })
 
@@ -158,7 +158,7 @@ t('a bot with nowhere to stand is released, not pinned', () => {
   // consult shore AT ALL, so there is no case left where a bot in open water
   // waits for anything except its own breath.
   assert.ok(!/lastShoreReachable/.test(r), 'the release consults shore again')
-  assert.ok(/if \(rescuing && !air\.losing && breathingAgain\(bot\.oxygenLevel/.test(r),
+  assert.ok(/if \(rescuing && !air\.losing && breathing\)/.test(r),
     'the release must be breath and nothing else')
 })
 

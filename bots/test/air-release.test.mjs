@@ -146,9 +146,14 @@ t('THE RELEASE CONDITION IS BREATH, AND ashore() IS NOT PART OF IT', () => {
   // `rescuing` on a normal release and prove what it tests.
   const m = reflexCode.match(/if \(rescuing && !air\.losing && ([^)]*)\)/)
   assert.ok(m, 'the normal release branch is gone or was reshaped without updating this test')
-  assert.ok(/breathingAgain/.test(m[1]), `release must be gated on breath (got: ${m[1]})`)
+  assert.ok(/breathing/.test(m[1]), `release must be gated on breath (got: ${m[1]})`)
   assert.ok(!/ashore/.test(m[1]), `release must NOT be gated on standing on land (got: ${m[1]})`)
   assert.ok(!/dryMs/.test(m[1]), `release must NOT be gated on being dry (got: ${m[1]})`)
+  // And `breathing` must be the GEOMETRIC fact, not the spoofable sensor.
+  assert.ok(/const breathing = headOut/.test(reflexCode),
+    'breathing must be derived from the head block')
+  assert.ok(/headOutSince = headOut \? \(headOutSince \|\| Date\.now\(\)\) : 0/.test(reflexCode),
+    'the head-out dwell clock is gone; a one-tick bob would release mid-drown')
 })
 
 t('DELETING ashore() WITHOUT breathingAgain WOULD BE WORSE: the backstop is separate', () => {
@@ -161,6 +166,42 @@ t('DELETING ashore() WITHOUT breathingAgain WOULD BE WORSE: the backstop is sepa
   assert.ok(reflexCode.indexOf('breathingAgain(bot.oxygenLevel') <
             reflexCode.indexOf('drowning_ceiling_no_air'),
     'breath must be tested before the ceiling, or the ceiling grades honest rescues as failures')
+})
+
+// Both of the next two tests anchor on the BREATHING EXPRESSION ITSELF, not on
+// the presence of a constant somewhere in the file. An earlier version of this
+// guard asserted only that RELEASE_DWELL_MS was declared, and a mutant that
+// deleted the dwell from the comparison while leaving the constant in place
+// passed it cleanly. Declaring a safety value is not using it -- that is the
+// same defect as a correctly-configured thing nothing reads.
+const breathingExpr = (() => {
+  const i = reflexCode.indexOf('const breathing = headOut')
+  return i < 0 ? null : reflexCode.slice(i, reflexCode.indexOf('\n      if (', i))
+})()
+
+t('THE DWELL IS APPLIED, not merely declared', () => {
+  assert.ok(breathingExpr, 'the breathing derivation is gone or was reshaped')
+  assert.ok(/RELEASE_DWELL_MS/.test(breathingExpr),
+    'the head-out duration is not compared against the dwell — a one-tick bob at a ' +
+    'wave crest releases the body mid-drown, which is the "idle at the moment of ' +
+    'death" shape this exists to prevent')
+  assert.ok(/Date\.now\(\) - headOutSince >= RELEASE_DWELL_MS/.test(breathingExpr),
+    'the dwell comparison is not the head-out branch of the release')
+  const dwell = reflexCode.match(/RELEASE_DWELL_MS = ([\d_]+)/)
+  assert.ok(dwell && parseInt(dwell[1].replace(/_/g, ''), 10) >= 500,
+    'a dwell under 500ms does not outlast a wave')
+})
+
+t('OXYGEN IS FISH: the release must not trust bot.oxygenLevel alone', () => {
+  // mineflayer writes bot.oxygenLevel from ANY nearby entity's air_supply, so a
+  // fish swimming past sets a drowning bot's oxygen to full. Confirmed; three
+  // fixes failed. If that field could release the rescue, wildlife could hand
+  // back the body of a drowning bot.
+  assert.ok(breathingExpr, 'the breathing derivation is gone or was reshaped')
+  // oxygenLevel may appear ONLY behind the head == null guard.
+  assert.ok(/head == null && breathingAgain/.test(breathingExpr),
+    'breathingAgain must be reachable only when the head block cannot be read at all — ' +
+    'otherwise a fish swimming past hands back the body of a drowning bot')
 })
 
 t('shore.mjs exists and reflex.mjs does not import it', () => {

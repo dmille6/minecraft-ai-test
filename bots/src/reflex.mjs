@@ -717,6 +717,11 @@ function makeThrottle(defaultMs = 10_000) {
 // picks a fresh bank every few seconds shows a falling distance forever and the
 // ceiling never fires. So re-targeting resets the baseline WITHOUT refreshing
 // the progress clock; only closing on a target already held counts.
+// A HEAD THAT BREAKS THE SURFACE FOR ONE TICK IS NOT BREATHING.
+// A bot bobbing at a wave crest clears the plane, releases, and sinks again
+// still short of air -- handing the body back mid-drown, which is the shape
+// behind "idle at the moment of death". The head must STAY out.
+const RELEASE_DWELL_MS = 1_000
 const RESCUE_CEILING_MS = 20_000
 const RESCUE_CEILING_MAX_MS = 45_000
 const PROGRESS_STALL_MS = 5_000
@@ -764,6 +769,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // release when it can breathe.
   let rescuing = false
   let seizedAt = 0
+  let headOutSince = 0
   // Per-rescue progress, reset at seizure. See RESCUE_CEILING_MS above.
   let bestHomeDist = Infinity      // closest approach to home while crossing
   let lastProgressAt = 0
@@ -1213,7 +1219,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // `rescueExpired()` stays as a backstop for the sealed case -- a bot with
       // no route up and none sideways is not breathing and would otherwise be
       // held forever -- but it is no longer how a normal rescue ends.
-      if (rescuing && !air.losing && breathingAgain(bot.oxygenLevel, recent, airMax)) {
+      // BREATHING IS A GEOMETRIC FACT, NOT A SENSOR READING.
+      //
+      // This used to ask `breathingAgain(bot.oxygenLevel, ...)`. mineflayer
+      // writes bot.oxygenLevel from ANY nearby entity's air_supply -- a fish
+      // swimming past sets a drowning bot's oxygen to full. That is confirmed,
+      // three attempted fixes failed, and the field is not trustworthy. Making
+      // it the release condition for the rescue would have handed the body back
+      // to whatever swam past.
+      //
+      // The head block is read directly and cannot be spoofed by wildlife. The
+      // oxygen heuristic survives only for the case where the block cannot be
+      // read at all, where geometry has nothing to say.
+      const headOut = breathable(head)
+      headOutSince = headOut ? (headOutSince || Date.now()) : 0
+      const breathing = headOut
+        ? Date.now() - headOutSince >= RELEASE_DWELL_MS
+        : (head == null && breathingAgain(bot.oxygenLevel, recent, airMax))
+      if (rescuing && !air.losing && breathing) {
         const rel = swimming
           ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
           : drowningRelease()
@@ -1363,6 +1386,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           if (!rescuing) {
             rescuing = true
             seizedAt = Date.now()
+            headOutSince = 0
             // `drowning_reentry` was logged here, 144,356 times. It graded a
             // release by whether the bot came back into the water. Under the
             // model that swimming is travel, coming back into the water is not
