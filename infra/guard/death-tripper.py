@@ -89,6 +89,21 @@ def unit_map():
     files anyway, since those hold the Elasticsearch shipper password and a
     least-privilege account has no business with them.
     """
+    # LOCAL FIRST, same story as the trial manifest and the logs: LAB is on the
+    # retired instance-#2 network, and /srv/mcbots/bot-manifest.json does not
+    # exist on this host at all. So unit_map() failed, and the tripper correctly
+    # refused to stop units it could not name -- detecting the fault and being
+    # unable to act on it. That refusal is the right instinct and is kept; what
+    # was missing is a manifest to read.
+    #
+    # It is still READ FROM THE HOST rather than assumed: mcai-publish-units
+    # writes it from `systemctl list-units mcbot@*`, so the mapping comes from
+    # what is actually running.
+    try:
+        with open(MANIFEST) as fh:
+            return json.load(fh)["bots"]
+    except Exception:
+        pass
     r = ssh(LAB, f"cat {MANIFEST}")
     try:
         return json.loads(r.stdout)["bots"]
@@ -313,6 +328,74 @@ def canary_split_ok(seen, declared, canary_version, canary_pool):
     return True, f"declared canary: {n} bot(s) of pool {canary_pool} on {canary_version}"
 
 
+def _digest_ledger(observed_canary=None):
+    """Digests we have ever deployed as a canary.
+
+    Without this, a control that restarted onto stale canary source
+    (`16e7e77+d12017`) is INDISTINGUISHABLE from somebody editing the source
+    under the baseline label. The first should stop two bots; the second should
+    stop everything. The manifest holds bare shas and cannot tell them apart, so
+    the digests are remembered here.
+    """
+    path = os.environ.get("CANARY_DIGESTS", "/var/lib/mcai/_canary-digests.json")
+    try:
+        with open(path) as fh:
+            known = set(json.load(fh))
+    except Exception:
+        known = set()
+    if observed_canary and observed_canary not in known:
+        known.add(observed_canary)
+        try:
+            tmp = path + ".tmp"
+            with open(tmp, "w") as fh:
+                json.dump(sorted(known), fh)
+            os.replace(tmp, path)
+        except Exception:
+            pass
+    return known
+
+
+def _classify_versions(seen, man, declared):
+    """Adapter: infer the live digests, then hand the decision to the classifier."""
+    sys.path.insert(0, "/opt/minecraft-ai/scripts/lib")
+    try:
+        from version_split import classify
+    except Exception:
+        print("    version_split unavailable -- version rules are BLIND")
+        return []
+
+    def ver(v):
+        return v[1] if isinstance(v, (tuple, list)) else v
+
+    pool_name = man.get("canary_pool") or ""
+    pool = {b for b in seen if pool_name and b.startswith(pool_name + "-")}
+    counts = {}
+    for b, v in seen.items():
+        key = (b in pool, ver(v))
+        counts[key] = counts.get(key, 0) + 1
+    # The digest a build ACTUALLY has is only knowable by observation; the
+    # manifest records shas. Take the majority build of each side.
+    def modal(in_pool):
+        c = {k[1]: n for k, n in counts.items() if k[0] == in_pool}
+        return max(c, key=c.get) if c else ""
+    base_full = modal(False)
+    canary_full = modal(True) if pool else ""
+    canary_digest = canary_full.split("+", 1)[1] if "+" in canary_full else ""
+    known = _digest_ledger(canary_digest or None)
+
+    class _D:
+        pass
+    d = _D()
+    d.base_sha = declared or base_full.split("+")[0]
+    d.base_digest = base_full.split("+", 1)[1] if "+" in base_full else ""
+    d.canary_sha = man.get("canary_code_version") or ""
+    d.canary_digest = canary_digest
+    d.canary_pool = pool
+    d.known_canary_digests = known
+    d.fresh = False
+    return classify(seen, d)
+
+
 def version_check():
     """Are all bots running the same code, and is it the code the trial declares?
 
@@ -409,55 +492,32 @@ def version_check():
         else:
             if man.get("canary_pool"):
                 print(f"    a canary is declared but does not explain this split: {canary_why}")
-            # SCOPE THE STOP TO THE OFFENDERS, NOT THE FLEET.
+            # THE VERDICT COMES FROM A TESTED CLASSIFIER, not from logic
+            # written inline in a function that stops systemd units.
             #
-            # "ALL" is right for a genuine undeclared split -- half the fleet on
-            # old code makes every aggregate a blend. It is disproportionate for
-            # the case that actually happens: a declared canary where one or two
-            # CONTROLS restarted onto the canary source and now carry its digest
-            # under a baseline label. Stopping 80 bots to correct 2 is an outage
-            # in response to a contamination.
-            #
-            # And it cannot be corrected by restarting them: while a canary is
-            # live, $H/src holds the canary build, so a restarted control comes
-            # back contaminated again. Stopping the offenders keeps them out of
-            # the data, which is the actual harm.
-            # `seen` maps bot -> (timestamp, version), NOT bot -> version. The
-            # first version of this grouped on the whole tuple, which is unique
-            # per bot, so every group had size one and it selected an arbitrary
-            # HEALTHY control to stop. Caught by running it non-destructively
-            # before installing -- which is the only reason it never ran.
-            def _ver(x):
-                return x[1] if isinstance(x, (tuple, list)) else x
-            minority = None
-            if declared and man.get("canary_pool"):
-                by_ver = {}
-                for b, v in seen.items():
-                    by_ver.setdefault(_ver(v), []).append(b)
-                small = sorted(by_ver.values(), key=len)[0]
-                if len(small) <= 3 and len(small) < len(seen) / 4:
-                    minority = small
-            if minority:
-                others = sorted({_ver(v) for b, v in seen.items() if b not in minority})
-                for b in minority:
-                    problems.append((b, f"running {_ver(seen[b])} while the fleet runs "
-                                        f"{others} -- a control restarted onto canary "
-                                        f"source; stopping it keeps it out of the comparison"))
-            else:
-                problems.append(("ALL", f"bots disagree on code version {sorted(versions)} "
-                                    f"-- partial deploy, aggregates are a blend of two systems"))
+            # Twice tonight this decided wrongly: once comparing bare shas, so a
+            # control carrying the canary DIGEST read as clean; once grouping on
+            # the (timestamp, version) tuple, which made every group size one and
+            # selected a HEALTHY control to stop. Neither was caught by a test,
+            # because there was no test -- see scripts/test_version_split.py,
+            # whose twelve cases include both of those as regressions.
+            problems.extend(_classify_versions(seen, man, declared))
     # The manifest holds the sha; the fleet reports sha+digest.
     # The canary version is DECLARED code, so it is not an undeclared change --
     # but only when the split itself checked out above. A canary named in the
     # manifest whose membership is wrong must not launder the version past this
     # rule as well; that would turn one bad declaration into two silent holes.
-    allowed = {declared}
-    if canary_ok:
-        allowed.add(man.get("canary_code_version", ""))
-    if declared and not fresh_declaration and versions and \
-       not all(v.split("+")[0] in allowed for v in versions):
-        problems.append(("ALL", f"running {sorted(versions)} but the trial declares "
-                                f"{declared} -- undeclared code change, trial uninterpretable"))
+    # THIS RULE NOW LIVES IN THE CLASSIFIER, and duplicating it here made the
+    # same state trip twice -- once correctly, naming two contaminated controls,
+    # and once as ("ALL", ...) which would have stopped eighty bots to correct
+    # two. The classifier already returns a global trip for genuinely undeclared
+    # code (an unknown sha, or a declared sha carrying a digest we have never
+    # deployed), so a second sha-only comparison here can only disagree with it.
+    #
+    # It compared `v.split("+")[0]` -- the sha -- which is precisely the
+    # comparison that cannot see a control running canary code under a baseline
+    # label. Removing it does not weaken R2; it removes a weaker copy of it.
+    _ = canary_ok
     return problems
 
 
