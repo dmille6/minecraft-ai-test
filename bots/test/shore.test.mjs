@@ -1,3 +1,15 @@
+// SHORE IS AN ADMISSION QUESTION, NOT A REFLEX ONE.
+//
+// shoreRoute used to live in reflex.mjs, and living there is most of why it was
+// misused: the drowning rescue called it to decide where to swim, which made
+// LAND the goal of an emergency that was only ever about AIR. That rescue is
+// deleted (see air-release.test.mjs). The function survives because one caller
+// asks a question shore genuinely answers -- admission.mjs vetoing a LAND-travel
+// skill for a bot that is in water with no bank to route from.
+//
+// These are the geometry and read-budget tests, salvaged intact. They were
+// always correct about what shoreRoute COMPUTES; the defect was in what the
+// caller concluded from it.
 // THE SHORE SCAN'S REACH, ITS COST, AND THE THIRD OUTCOME IT COULD NOT SAY.
 //
 // Twelve hours of Block 2 telemetry, 40 bots, Paper 1.21.8:
@@ -24,7 +36,7 @@
 // swimming at the surface clears about 1.25 blocks jumping out of water, so a
 // 3-block rise aims the rescue at shore it can only reach in the log.
 import assert from 'node:assert'
-import { shoreRoute, drowningRelease } from '../src/reflex.mjs'
+import { shoreRoute } from '../src/shore.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -160,41 +172,5 @@ t('a near bank costs a fraction of an open-ocean sweep', () => {
 
 // --- the release taxonomy --------------------------------------------------
 
-t('reaching land is still the only escape', () => {
-  const r = drowningRelease(true)
-  assert.equal(r.kind, 'drowning_escaped')
-  assert.equal(r.escaped, true)
-  assert.equal(r.landed, true)
-})
-
-t('the two non-escapes are told apart', () => {
-  // These want OPPOSITE fixes. A bot that ran the ceiling down swimming at a
-  // bank failed at execution -- steer better, hold longer. A bot that surfaced
-  // into open water with nowhere to stand never had a rescue to execute -- that
-  // is a planner question, not a reflex one. Fusing them into one counter is
-  // why 1,075 timeouts could not be acted on.
-  const ceiling = drowningRelease(false, { reason: 'ceiling' })
-  const stranded = drowningRelease(false, { reason: 'no_shore' })
-  assert.equal(ceiling.kind, 'drowning_released_timeout')
-  assert.equal(stranded.kind, 'drowning_surfaced_stranded')
-  assert.notEqual(ceiling.kind, stranded.kind)
-})
-
-t('neither non-escape claims to have escaped', () => {
-  for (const reason of ['ceiling', 'no_shore']) {
-    const r = drowningRelease(false, { reason })
-    assert.equal(r.escaped, false, `${reason} must not count as an escape`)
-    assert.equal(r.landed, false)
-    assert.equal(r.status, 'failed')
-  }
-})
-
-t('the old boolean call still means timeout', () => {
-  // escape-water-maroon.test.mjs asserts this two-argument-free contract, and
-  // more importantly the caller must not silently change meaning if someone
-  // drops the options object.
-  assert.equal(drowningRelease(false).kind, 'drowning_released_timeout')
-})
-
-console.log(`  ${pass} passed, ${fail} failed`)
+console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

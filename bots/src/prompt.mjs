@@ -14,7 +14,6 @@ import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
 import { isExposed, isSafeToBreak } from './skills.mjs'
 import { logEvent } from './logger.mjs'
-import { shoreRoute } from './reflex.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { config } from './config.mjs'
 
@@ -298,37 +297,37 @@ function waterSituation (bot) {
   const feet = bot.blockAt(at)
   const inWater = !!feet && (feet.name === 'water' || feet.name === 'bubble_column')
   if (!inWater) return ''
-  const shore = shoreRoute(bot)
-  if (shore.dir === 'shore') {
-    return `IN WATER: you are swimming. Nearest land is ${shore.dist.toFixed(0)} blocks away at ` +
-           `${Math.round(shore.target.x)},${Math.round(shore.target.y)},${Math.round(shore.target.z)}. ` +
-           `goto that spot to get out.`
-  }
+  // THIS LINE USED TO POINT AT LAND. It opened with "Nearest land is N blocks
+  // away ... goto that spot to get out", which told the model that being in
+  // water was a state to be cured. It is not. Swimming is one of the ways a bot
+  // moves, alongside walking and jumping, and a prompt that frames it as an
+  // emergency gets a bot that abandons a crossing halfway.
+  //
   // TELLING IT TO SWIM WITHOUT TELLING IT WHERE IS WORSE THAN SAYING NOTHING.
   //
-  // The first version of this line said "use swim_to <x> <y> <z> to cross to
-  // where you want to be" and stopped there. A bot in open water does not know
-  // where land is -- that is the definition of the situation -- so the model
-  // supplied the only coordinates it had, its own, and asked for one-block and
-  // zero-block "crossings". Measured within ten minutes of shipping it:
+  // An earlier version said "use swim_to <x> <y> <z> to cross to where you want
+  // to be" and stopped there. A bot in open water does not know where anything
+  // is, so the model supplied the only coordinates it had -- its own -- and
+  // asked for one-block and zero-block "crossings":
   //
   //     _swim_started | crossing 1b to 542,191
   //     _swim_started | crossing 0b to 544,185
   //     swim_to       | stalled 0b out; closed 0b of 1b
-  //     swim_to       | aborted: oxygen 3, letting the reflex surface us
   //
   // An instruction the model cannot act on gets answered with an action that
   // does nothing, and it reads as the SKILL failing rather than the PROMPT
-  // failing. So name a destination it can actually use: home is the one place
-  // every bot knows, it is on land by construction, and swimming toward it is
-  // never the wrong direction when the alternative is treading water.
+  // failing. So name a destination it can actually use. Home is the one place
+  // every bot knows and it is on land by construction -- offered as a known
+  // coordinate, not as an escape.
   const hx = config.world.homeX, hy = config.world.homeY, hz = config.world.homeZ
   const d = Math.hypot(hx - at.x, hz - at.z)
-  return `IN WATER: you are in OPEN WATER with no land within 24 blocks. This is not an ` +
-         `emergency — you are at the surface and breathing. goto cannot cross water; it ` +
-         `walks around it. Your town is ${d.toFixed(0)} blocks ${bearing(hx - at.x, hz - at.z)} ` +
-         `at ${hx},${hy},${hz} — swim_to ${hx} ${hy} ${hz} heads back to land. Give swim_to a ` +
-         `destination that is actually across the water, never your own position.`
+  return `IN WATER: you are swimming. This is travel, not an emergency — swimming is a ` +
+         `way of moving, like walking. Getting air when it runs low is handled for you, ` +
+         `so you do not need to head for land. goto cannot cross water; it walks around ` +
+         `it, so use swim_to for anything on the far side. Your town is ${d.toFixed(0)} ` +
+         `blocks ${bearing(hx - at.x, hz - at.z)} at ${hx},${hy},${hz} — swim_to ${hx} ` +
+         `${hy} ${hz} heads there. Give swim_to a destination that is actually across the ` +
+         `water, never your own position.`
 }
 
 /** Compass direction, because "west" is actionable and "dx=-812" is not. */

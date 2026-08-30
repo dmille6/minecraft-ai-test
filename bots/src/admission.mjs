@@ -12,7 +12,7 @@
 import { SKILLS, actionKey } from './skills.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
-import { shoreRoute } from './reflex.mjs'
+import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 
 

@@ -34,24 +34,17 @@ const t = (name, fn) => {
 }
 
 // ---------------------------------------------------------------- drowning --
-t('reaching land is an escape', () => {
-  const r = drowningRelease(true)
-  assert.equal(r.kind, 'drowning_escaped')
+// The three release kinds these tests pinned -- drowning_escaped,
+// drowning_released_timeout, drowning_surfaced_stranded -- are deleted. They
+// graded a rescue on whether the bot ended up on LAND, and two of the three
+// were "failures" only because it was still wet. Swimming is travel; the
+// reflex owes a drowning bot air and nothing else. The replacement policy and
+// its mutants live in air-release.test.mjs.
+t('a rescue that ends with the bot breathing succeeded, wherever it stands', () => {
+  const r = drowningRelease()
+  assert.equal(r.kind, 'drowning_breathing')
   assert.equal(r.status, 'success')
-  assert.equal(r.escaped, true)
-})
-
-t('the 20s ceiling expiring in water is NOT an escape', () => {
-  const r = drowningRelease(false)
-  assert.equal(r.kind, 'drowning_released_timeout',
-    'a timeout logged as drowning_escaped is what made 3,329 rescues look real')
-  assert.equal(r.status, 'failed')
-  assert.equal(r.escaped, false)
-})
-
-t('the two exits are distinguishable in telemetry', () => {
-  // The whole point: a query for drowning_escaped must count only real ones.
-  assert.notEqual(drowningRelease(true).kind, drowningRelease(false).kind)
+  assert.equal(r.landed, false, 'the reflex has no opinion about dry ground')
 })
 
 // ---------------------------------------------------------------- marooned --

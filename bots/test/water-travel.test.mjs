@@ -117,25 +117,32 @@ t('the land profile still PRICES water, it just no longer bans it', () => {
 
 // --- the reflex yields, without giving up rescue ----------------------------
 
-t('phase 2 stands down during a deliberate crossing', () => {
+t('THERE IS NO PHASE 2 TO STAND DOWN: it is deleted', () => {
+  // This test used to assert that the shore-seeking phase yielded politely to a
+  // deliberate crossing. The phase itself is gone -- it drove breathing bots at
+  // beaches they never asked for -- so the livelock it guarded against cannot
+  // occur. What remains is the reflex still being ABLE to see a crossing, so a
+  // release can be labelled as a yield rather than a rescue outcome.
   const r = src('reflex.mjs')
   assert.ok(/const swimming = !!bot\.waterTravel\?\.active/.test(r),
     'the reflex cannot see that a crossing is in progress')
-  assert.ok(/!ashore\(\) && !rescueExpired\(\) && !swimming/.test(r),
-    'phase 2 still steers the body while swim_to owns it — that is the livelock')
+  // Comments are where the reasoning lives -- including the ledger that
+  // justified the deletion -- so strip them before grepping for live code. A
+  // guard that fires on its own explanation gets deleted, not fixed.
+  const code = r.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+  assert.ok(!/to_shore|no_shore|lastShoreReachable/.test(code),
+    'the shore-seeking phase is back')
 })
 
 t('real drowning still outranks a crossing', () => {
-  // THE SAFETY PROPERTY. This reflex was written after eight bots drowned in
-  // forty-five minutes. Yielding to a swim must never yield oxygen loss.
+  // THE SAFETY PROPERTY, unchanged by the deletion. This reflex was written
+  // after eight bots drowned in forty-five minutes. A swimmer whose oxygen is
+  // actually draining gets seized, crossing or not: the release is gated on
+  // `!air.losing`, so a losing bot can never reach it.
   const r = src('reflex.mjs')
-  const phase2 = r.indexOf('&& !swimming')
-  assert.ok(phase2 > 0)
-  // the guard sits inside a branch already gated on !air.losing
-  const branch = r.slice(r.lastIndexOf('if (rescuing', phase2), phase2 + 40)
-  assert.ok(/!air\.losing/.test(branch),
-    'the swimming guard must sit inside a !air.losing branch, or a swimmer whose ' +
-    'oxygen is draining would never be seized')
+  assert.ok(/if \(rescuing && !air\.losing && breathingAgain\(/.test(r),
+    'the release must be gated on !air.losing, or a draining swimmer is handed back')
 })
 
 t('a bot with nowhere to stand is released, not pinned', () => {
@@ -146,9 +153,13 @@ t('a bot with nowhere to stand is released, not pinned', () => {
   // actually matters is that `!lastShoreReachable` reaches the release as a
   // bare top-level disjunct: conjoin anything onto it and a bot in open water
   // waits for whatever that term is.
-  assert.ok(/\|\|\s*!lastShoreReachable\)/.test(r),
-    'the release still waits for the ceiling when no shore exists — that is twenty ' +
-    'seconds of paralysis per cycle for a bot in open water')
+  // The old fix for this was `|| !lastShoreReachable`: release early when the
+  // shore scan came back empty. The real fix is stronger -- the release does not
+  // consult shore AT ALL, so there is no case left where a bot in open water
+  // waits for anything except its own breath.
+  assert.ok(!/lastShoreReachable/.test(r), 'the release consults shore again')
+  assert.ok(/if \(rescuing && !air\.losing && breathingAgain\(bot\.oxygenLevel/.test(r),
+    'the release must be breath and nothing else')
 })
 
 t('widening the shore search must not cost the bot its body', () => {
@@ -203,11 +214,17 @@ t('a bot in open water is told so, and told what to do about it', () => {
     'open water must be described as terrain; the whole bug was treating it as a crisis')
 })
 
-t('a bot near a bank is pointed at the bank, not told to swim the ocean', () => {
+t('A BOT NEAR A BANK IS NOT TOLD TO GET OUT', () => {
+  // This asserted the opposite: "Nearest land is N blocks away ... goto that
+  // spot to get out". That line taught the model that being in water was a
+  // state to be cured, and it is not -- swimming is one of the ways a bot
+  // moves. The prompt still says IN WATER, because the model cannot act on a
+  // situation it is not told about; it just no longer says which way is out.
   const lake = (x, y) => (x >= 5 ? (y <= 62 ? DIRT : AIR) : (y <= 62 ? WATER : AIR))
   const u = promptFor(lake, new V(0, 62, 0))
-  assert.match(u, /IN WATER/)
-  assert.match(u, /Nearest land is \d+ blocks/, 'a reachable bank must be named with its distance')
+  assert.match(u, /IN WATER/, 'the model still has to know it is swimming')
+  assert.ok(!/Nearest land/.test(u), 'the prompt is pointing at shore again')
+  assert.ok(!/to get out/.test(u), 'the prompt frames water as something to escape')
 })
 
 t('a dry bot is not told about water at all', () => {
