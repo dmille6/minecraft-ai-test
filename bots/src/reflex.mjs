@@ -2078,7 +2078,62 @@ function isEntombed(bot) {
   return highest - p.y >= 4
 }
 
-const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate)$/
+const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$/
+
+/**
+ * DO NOT START A CLIMB YOU CANNOT FINISH.
+ *
+ * This is the single mechanism that manufactures permanent entrapment here.
+ * Measured over 12 hours: 23 of 26 permanently-stuck bots emitted a marooned or
+ * entombed diagnostic within fifteen minutes of going still, and 20 of 26
+ * GAINED ALTITUDE at onset. The sequence is always the same -- the bot cannot
+ * travel, the escape seizes the body and pillars up, it runs out of material
+ * partway, and it is now sealed in the column it just dug, higher than it
+ * started and holding nothing.
+ *
+ * Fleet-wide the machinery has spent 68,457 oak_log, 35,580 sand, 34,932
+ * cobblestone, 22,471 dirt and destroyed 434 pickaxes. It spends the exit in
+ * order to escape, and then cannot escape.
+ *
+ * A partial climb is strictly worse than no climb: it costs the material AND
+ * raises the bot further from the ground it needs to reach. So the climb is now
+ * all-or-nothing. Refusing to start leaves the bot exactly where it was, with
+ * its blocks, which is a recoverable state.
+ */
+export function canFinishClimb ({ have, need, headroomBlocked = false }) {
+  if (!(need > 0)) return true
+  // One spare: the topmost placement often mistimes against the jump and has to
+  // be repeated. Running out on the last block is the case being prevented.
+  const required = need + 1 + (headroomBlocked ? 1 : 0)
+  return have >= required
+}
+
+/**
+ * NEVER SPEND THE LAST PICKAXE ON AN ESCAPE.
+ *
+ * 24 of the 26 permanently-stuck bots hold ZERO pickaxes, and 574 escape events
+ * destroyed one. Without a pickaxe the bot can never dig again, so the escape
+ * that breaks it converts a bad state into an unrecoverable one -- and
+ * `harvestAdjacent` then fails 99.4% of the time with "0/8 dug", because the
+ * walls are stone and there is nothing left to break them with.
+ *
+ * A tool with one swing left is treated as already gone: durability metadata
+ * lags by a tick, and a tool that breaks one swing early is the entire failure
+ * being prevented.
+ */
+export function mayDigForEscape (items = []) {
+  let usable = 0
+  for (const it of items) {
+    if (!it?.name || !/_pickaxe$/.test(it.name)) continue
+    // Unknown durability counts as FULL, not as spent. Assuming a tool is dead
+    // when the server does not report durability would refuse every escape --
+    // a different total outage, arriving through the safety guard.
+    const max = it.maxDurability
+    const left = max ? max - (it.durabilityUsed ?? 0) : Infinity
+    if (left > 1) usable += 1
+  }
+  return usable > 1
+}
 const TOOL_TIER = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']
 const toolTier = name => TOOL_TIER.findIndex(t => name.startsWith(t + '_'))
 
@@ -2189,6 +2244,23 @@ export async function harvestAdjacent(bot, want = SCAFFOLD_SELF_SOURCE, budgetMs
 }
 
 async function pillarOut(bot, maxBlocks = 24) {
+  // ALL OR NOTHING. See canFinishClimb: a climb that runs out partway is how
+  // this fleet manufactures permanent traps.
+  {
+    const have = bot.inventory.items()
+      .filter(it => PLACEABLE.test(it.name))
+      .reduce((a, it) => a + it.count, 0)
+    const head = bot.blockAt(bot.entity.position.offset(0, 2, 0))
+    if (!canFinishClimb({ have, need: maxBlocks,
+                          headroomBlocked: !!head && head.name !== 'air' })) {
+      logEvent({ kind: 'maroon_climb_refused', status: 'failed',
+                 detail: `will not start a ${maxBlocks}-block climb with ${have} ` +
+                         `placeable block(s): running out partway seals the bot ` +
+                         `higher than it started, holding nothing`,
+                 snapshot: snapshot(bot) })
+      return false
+    }
+  }
   // Same contention as the drowning rescue: pathfinder rewrites jump every
   // tick while a goal is set, so a pillar that does not own the body places
   // blocks under a bot that is being steered somewhere else.
@@ -2213,7 +2285,17 @@ async function pillarOut(bot, maxBlocks = 24) {
     }
 
     const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
-    if (!item) { return digStraightUp(bot, startY) }
+    if (!item) {
+      // OUT OF BLOCKS MID-CLIMB. Do NOT fall through to digging up: that is the
+      // path that spends the last pickaxe and finishes the seal. Stop here and
+      // say so; the bot is worse off than when it started and something else
+      // must decide what happens next.
+      logEvent({ kind: 'maroon_climb_exhausted', status: 'failed',
+                 detail: `ran out of placeable blocks ${i} block(s) into a ` +
+                         `${maxBlocks}-block climb at y=${Math.round(bot.entity.position.y)}`,
+                 snapshot: snapshot(bot) })
+      return false
+    }
 
     await bot.equip(item, 'hand').catch(() => {})
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
@@ -2298,6 +2380,17 @@ async function digBounded(bot, block, ms = 8000) {
 }
 
 async function digStraightUp(bot, startY, maxSteps = 20) {
+  // THE ESCAPE MAY NOT SPEND THE EXIT. 574 escape events destroyed a pickaxe,
+  // and 24 of 26 permanently-stuck bots now hold none -- at which point
+  // harvestAdjacent fails 99.4% of the time with "0/8 dug", because the walls
+  // are stone and nothing is left to break them with.
+  if (!mayDigForEscape(bot.inventory?.items?.() ?? [])) {
+    logEvent({ kind: 'maroon_dig_refused', status: 'failed',
+               detail: 'will not dig out on the last pickaxe: breaking it here ' +
+                       'ends every future escape this bot could make',
+               snapshot: snapshot(bot) })
+    return false
+  }
   for (let i = 0; i < maxSteps; i++) {
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (!above || above.name === 'air') {
