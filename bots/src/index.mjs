@@ -12,6 +12,7 @@ import collectBlockPkg from 'mineflayer-collectblock'
 const collectBlock = collectBlockPkg.plugin ?? collectBlockPkg
 
 import { config } from './config.mjs'
+import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
 import { Runner } from './runner.mjs'
@@ -215,6 +216,24 @@ function connect() {
     // pathfinder reported "no route" for a 140-block trip through forest that
     // is plainly walkable by a player.
     moves.allow1by1towers = true
+    // ...AND allow1by1towers IS INERT UNLESS THE BLOCK IS ON THIS LIST.
+    //
+    // mineflayer-pathfinder seeds `scafoldingBlocks` (its spelling) with exactly
+    // two ids -- dirt and cobblestone -- and getMoveUp bails on
+    // `node.remainingBlocks === 0`. Nothing here ever extended it, so a bot
+    // holding anything else could not tower, and A* returned NO PATH rather than
+    // "you could climb". Measured 2026-08-31 on the 32 permanently frozen bots:
+    // 7 of 10 sampled carried zero pathfinder-usable scaffold while holding
+    // plenty of blocks -- board-a-Bravo sat on 83 SAND, isolated-b-Comet on 75,
+    // hive-b-Comet on 24 andesite. `surface` succeeded 490/913 times above
+    // y=60 and 0 times in 1,902 calls below it.
+    //
+    // FALLING BLOCKS ARE DELIBERATELY EXCLUDED. `scafoldingBlocks` is used for
+    // horizontal bridging as well as towering, and a sand bridge falls out from
+    // under the bot. Straight-up pillaring with sand is fine, so `shaftAscend`
+    // keeps its wider SCAFFOLD set for that; this list is only what A* may plan
+    // a bridge with.
+    extendScaffolding(moves, bot.registry)
     moves.allowParkour = false        // parkour is the top source of stuck states
     // Default maxDropDown is 4, which means a bot on a ledge above a 5-block
     // drop has no legal move: it cannot dig, cannot parkour, and cannot pillar

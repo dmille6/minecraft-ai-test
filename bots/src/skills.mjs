@@ -29,6 +29,8 @@ import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
+import { overheadBreakRisk } from './scaffold.mjs'
+import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { breathPlan } from './swim-breath.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
@@ -2959,17 +2961,36 @@ export function equivalentTools (item) {
  * it will take it anyway, forever. If something in the same family is actually
  * makeable from what it is carrying, say THAT instead -- it is the difference
  * between a dead end and a way out.
+ *
+ * "RIGHT NOW FROM WHAT YOU CARRY" HAS TO BE TRUE, and for 24,764 recorded
+ * suggestions it was not. This asked `recipesAll`, which returns every recipe
+ * that EXISTS for an item and never looks at the inventory -- `recipesFor` is
+ * the one that checks (mineflayer craft.js:203 vs :214). It also built a `have`
+ * map and then never read it, which is the intent showing through the defect.
+ *
+ * The result was the exact opposite of the function's purpose. golden_pickaxe
+ * shares wooden's mining rank, so it comes first for a bot that asked for a
+ * wooden one -- and gold is the one metal nothing underground yields without
+ * smelting. Measured over the block: 17,523 "you can craft golden_pickaxe right
+ * now" and 6,973 "iron_pickaxe", against a fleet that has never smelted an
+ * ingot -- 98.9% of all such advice impossible, and concentrated on the frozen
+ * bots (hive-b-Echo 1,959; isolated-a-Alpha 885).
+ *
+ * isolated-a-Alpha is the case this function was written FOR -- the comment
+ * above TOOL_RANK names it -- and it sat at y=2 holding 24 cobbled_deepslate
+ * and 10 sticks, which is a stone_pickaxe, being told 885 times to make gold.
  */
 function craftableAlternative (bot, item) {
   try {
     const alts = equivalentTools(item)
     if (!alts.length) return ''
-    const have = {}
-    for (const i of bot.inventory?.items() ?? []) have[i.name] = (have[i.name] ?? 0) + i.count
     for (const alt of alts) {
       const it = bot.registry?.itemsByName?.[alt]
       if (!it) continue
-      const recipes = bot.recipesAll ? bot.recipesAll(it.id, null, true) : []
+      // recipesFor(id, metadata, minResultCount, craftingTable). The table
+      // argument stays truthy: the bot carries tables, and `craft` places one
+      // itself, so a 3x3 recipe is legitimately available to it.
+      const recipes = bot.recipesFor ? bot.recipesFor(it.id, null, 1, true) : []
       if (recipes.length) {
         return ` -- BUT you can craft ${alt} right now from what you carry, and it is strictly better; craft that instead.`
       }
@@ -3290,11 +3311,20 @@ export const rescueBlocks = bot => bot.inventory.items()
  * that is not gaining height within a few steps is not a climb, whatever the
  * promises returned.
  */
-async function shaftAscend(bot, targetY, signal, maxSteps = 96) {
+async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadline = Infinity } = {}) {
   const startY = bot.entity.position.y
   let noGain = 0
   for (let i = 0; i < maxSteps; i++) {
     check(signal)
+    // STOP ON THE CALLER'S CLOCK, NOT ON THE RUNNER'S ABORT. A bare-handed
+    // deepslate dig is legitimately ~25s now, so a 96-step climb can outlive
+    // surface's 120s budget -- and an abort throws away both the height already
+    // gained and the stopping reason that would have told the model what to do
+    // next. Ending cleanly turns the same climb into `travel_incomplete`,
+    // "call again to continue", which is progress rather than a failed attempt.
+    if (Date.now() >= deadline) {
+      return { gained: bot.entity.position.y - startY, stopped: 'out of time this call' }
+    }
     const p = bot.entity.position
     if (p.y >= targetY) break
     const yBefore = p.y
@@ -3303,22 +3333,28 @@ async function shaftAscend(bot, targetY, signal, maxSteps = 96) {
     if (head && LIQUID.has(head.name)) {
       return { gained: p.y - startY, stopped: `liquid overhead (${head.name})` }
     }
-    // Breaking a block whose neighbour is liquid floods the shaft.
-    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const side = bot.blockAt(p.offset(dx, 2, dz))
-      if (side && LIQUID.has(side.name)) {
-        return { gained: p.y - startY, stopped: `liquid beside the shaft (${side.name})` }
-      }
-    }
+    const flood = overheadBreakRisk({
+      head,
+      sides: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => bot.blockAt(p.offset(dx, 2, dz))),
+      isLiquid: b => !!b && LIQUID.has(b.name),
+    })
+    if (flood) return { gained: p.y - startY, stopped: flood }
 
     if (head && head.name !== 'air' && head.boundingBox !== 'empty') {
-      if (!bestTool(bot, head) && head.name.includes('obsidian')) {
-        return { gained: p.y - startY, stopped: `cannot break ${head.name}` }
-      }
       const tool = bestTool(bot, head)
+      // PRICE THE DIG FROM THE BLOCK, NOT FROM A CONSTANT. The flat 15,000ms
+      // this replaces is exactly the bare-handed break time of deepslate and
+      // iron_ore, and less than cobbled_deepslate's 17,500 -- so a toolless bot
+      // below y=0 could never break its own ceiling, timed out, and reported
+      // `dig failed`, which climbPrerequisite turned into "go and get a
+      // pickaxe" from a place with no wood. See digbudget.mjs.
+      const plan = planDig(predictedDigMs(head, tool))
+      if (plan.refuse) {
+        return { gained: p.y - startY, stopped: `cannot break ${head.name} by hand` }
+      }
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
       try {
-        await withTimeout(bot.dig(head), 15_000, bot, {
+        await withTimeout(bot.dig(head), plan.budgetMs, bot, {
           what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} },
         })
       } catch {
@@ -3574,7 +3610,7 @@ async function surface(ctx, _args, signal) {
       // shaft makes one. Only if the shaft ALSO cannot move is "stranded" a
       // conclusion the evidence supports.
       usedDig = true
-      const shaft = await shaftAscend(bot, stageY, signal)
+      const shaft = await shaftAscend(bot, stageY, signal, { deadline: DEADLINE })
       lastStop = shaft.stopped ?? lastStop
       if (shaft.gained >= 1) continue     // made height; re-plan from up there
       const q = bot.entity.position
@@ -3613,7 +3649,7 @@ async function surface(ctx, _args, signal) {
     // things that killed the walk cannot touch it.
     if (bot.entity.position.y - y0 < 1) {
       usedDig = true
-      const shaft = await shaftAscend(bot, stageY, signal)
+      const shaft = await shaftAscend(bot, stageY, signal, { deadline: DEADLINE })
       lastStop = shaft.stopped ?? lastStop
       if (shaft.gained < 1 && ++stalls >= 2) break
       if (shaft.gained >= 1) stalls = 0
