@@ -3329,6 +3329,28 @@ export const rescueBlocks = bot => bot.inventory.items()
  * promises returned.
  */
 export async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadline = Infinity } = {}) {
+  // TAKE THE BODY BEFORE CLIMBING.
+  //
+  // The sibling pillar in reflex.mjs does this and says why: "pathfinder
+  // rewrites jump every tick while a goal is set, so a pillar that does not own
+  // the body places blocks under a bot that is being steered somewhere else."
+  // This one never did -- and it is called immediately after a `goto` that just
+  // failed, so that goto's goal is usually STILL SET while the climb runs.
+  //
+  // The raw stop reason, once it was finally logged, reads
+  // `dig failed on stone: Digging aborted` -- mineflayer's wording for a dig
+  // interrupted from outside. The climb was not beaten by terrain or by a
+  // missing tool. It was fighting a pathfinder that still believed it was
+  // walking somewhere, losing, and then reporting "this stone needs a pickaxe"
+  // to a bot with no way to get one.
+  //
+  // setGoal(null), not stop() alone: stop() takes effect at the next path node,
+  // so a bot that cannot reach its next node never stops. withTimeout in this
+  // file already had to learn that, and so did reflex.mjs.
+  try { bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
+  try { bot.pathfinder?.stop() } catch { /* not connected */ }
+  try { bot.clearControlStates() } catch { /* not connected */ }
+
   const startY = bot.entity.position.y
   let noGain = 0
   for (let i = 0; i < maxSteps; i++) {

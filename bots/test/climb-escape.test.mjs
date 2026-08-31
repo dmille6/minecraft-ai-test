@@ -183,5 +183,28 @@ t('shaftAscend asks overheadBreakRisk rather than testing liquid itself', () => 
   assert.ok(!/liquid beside the shaft/.test(code), 'the old always-on guard is back')
 })
 
+t('THE CLIMB OWNS THE BODY: it clears the pathfinder goal before starting', () => {
+  // shaftAscend runs immediately after a goto that just failed, so that goto's
+  // goal is usually still set. A pillar that does not own the body has its dig
+  // cancelled from underneath it -- observed live as
+  // "dig failed on stone: Digging aborted" -- and the skill then blames the
+  // stone. reflex.mjs's pillarOut has always seized the body; this one did not.
+  // STRIP COMMENTS FIRST. The explanation above this fix quotes `setGoal(null)`
+  // verbatim, so a naive grep matches the reasoning even after the code is
+  // deleted -- and this test duly passed against a mutant that removed the very
+  // line it exists to protect. Third time today a comment has fooled a source
+  // grep in this repo; the other two tests already do this.
+  const raw = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const src = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+  const i = src.indexOf('export async function shaftAscend')
+  assert.ok(i > 0, 'shaftAscend moved; re-read this test')
+  const head = src.slice(i, src.indexOf('const startY', i))
+  assert.ok(/setGoal\(null\)/.test(head),
+    'the climb starts without clearing the goal — stop() alone waits for a path node it may never reach')
+  assert.ok(/clearControlStates\(\)/.test(head),
+    'stale control states from the failed goto are still latched')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
