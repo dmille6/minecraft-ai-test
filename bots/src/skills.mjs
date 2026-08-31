@@ -3721,6 +3721,17 @@ async function surface(ctx, _args, signal) {
     detail: `no altitude gained from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
             `in ${Math.round((Date.now() - (DEADLINE - 120_000)) / 1000)}s of trying` +
             (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : '') +
+            // THE RAW STOP, NOT ONLY THE ADVICE.
+            //
+            // This branch logged `climbAdvice(lastStop)` and nothing else, so
+            // the only thing reaching telemetry was a human sentence -- "this
+            // stone needs a pickaxe" -- and never the machine reason behind it.
+            // 515 of 803 of these carried that sentence while the raw string it
+            // was derived from appeared ZERO times anywhere in the logs, because
+            // the raw string is only emitted by the OTHER return in this
+            // function. Two passes were spent guessing at a cause that was
+            // being computed and discarded one line before it was needed.
+            (lastStop ? ` [stop: ${String(lastStop).slice(0, 70)}]` : '') +
             climbAdvice(lastStop),
     need: climbPrerequisite(lastStop),
   }
