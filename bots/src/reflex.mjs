@@ -884,6 +884,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // watchdog had taken over. Solo02 did exactly that at y=-16, and the
   // watchdog has no entombed handler at all.
   let escapeGiveUps = 0
+  let climbRefusals = 0        // pillar declined to START -- see the refusal branch
   let reflexErrors = 0
 
   const timer = setInterval(async () => {
@@ -1654,7 +1655,23 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       //
       // A bot mid-climb is sealed in by design. Only the climb may decide the
       // climb has failed.
-      if (!escaping && !marooned && isEntombed(bot) &&
+      // A SKILL-LAYER CLIMB IS SEALED IN BY DESIGN, exactly as the comment above
+      // says. `escaping` covers this reflex's OWN pillar; nothing covered the
+      // one `surface` runs. So the reflex saw a bot in a one-block column of a
+      // skill's making, called it entombed, tried its own pillar, had that
+      // refused for want of blocks -- and disturbed the body anyway, killing a
+      // dig that was already in progress. Observed as
+      // `dig failed on stone: Digging aborted`, up to eight interrupts inside a
+      // single 120s surface budget.
+      //
+      // TYPED, and deliberately the only reader. There is no `hasClaim()`:
+      // "is any skill running?" would stand this reflex down for `mine`, the
+      // skill that digs the trap in the first place, and it is the same
+      // question as `owned = !!pathfinder.goal`, which cost 42 of 45 drowning
+      // deaths while idle. A 'climb' claim can quiet this branch and nothing
+      // else -- no water path reads it.
+      const climbing = !!runner?.bodyClaimFor?.('climb')
+      if (!escaping && !marooned && !climbing && isEntombed(bot) &&
           Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
@@ -1706,12 +1723,63 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // digStraightUp partway through, and what matters is the net cost of
         // getting out of the hole, attributed to the reflex that caused it.
         const invBefore = inventorySummary(bot)
-        try { await pillarOut(bot) } catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+        // CAPTURE THE ANSWER. pillarOut already returns false when it declines
+        // to start, and that value was being dropped -- which is why a refusal
+        // could not be told apart from an attempt that went nowhere.
+        let climbed = null
+        try { climbed = await pillarOut(bot) }
+        catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
         noteReflexInventory(bot, invBefore, 'entombed_escape')
         // Verify the postcondition. "I ran the recovery" and "the bot is no
         // longer trapped" are different claims and only the second one counts.
-        if (bot.entity && bot.entity.position.y - yBefore < 1 && isEntombed(bot)) escapeFailures++
-        else escapeFailures = 0
+        // A REFUSAL IS NOT A FAILED ESCAPE.
+        //
+        // `pillarOut` returns false without moving when `canFinishClimb`
+        // declines -- the reflex correctly deciding not to seal the bot higher
+        // than it started. That was scored here as a failure anyway, so four
+        // refusals at 15s intervals reached ESCAPE_GIVE_UP_AFTER in a minute,
+        // emitted `_entombed_unrecoverable`, backed off, then re-armed and did
+        // it again. Declining to act is not evidence that acting failed.
+        // ASK FOR WHAT IS ACTUALLY MISSING.
+        //
+        // `pillarOut` declines for three different reasons and used to answer
+        // all of them with a bare `false`. Two of the four return paths run
+        // through `digStraightUp`, which refuses when `mayDigForEscape` says the
+        // bot has no pickaxe to spare -- and that is the DOMINANT shape here,
+        // because 28 of the 32 frozen bots hold zero pickaxes. Answering it with
+        // "gather blocks" sends a bot that is short a tool to go and fetch
+        // gravel.
+        //
+        // A refusal is still not a failed escape: nothing was attempted, so
+        // there is nothing to have failed. But it must not spin either, so it
+        // asks for the missing thing and backs off on an ESCALATING curve --
+        // `climbRefusals` is deliberately NOT reset, for the same reason
+        // `escapeGiveUps` is not: a flat backoff on a permanently blocked bot
+        // interrupts running skills forever at a fixed rate.
+        // 'exhausted' is NOT a refusal: the pillar ran out of blocks PARTWAY,
+        // which its own log line says leaves the bot worse off than when it
+        // started. That is an attempt that failed and belongs in the failure
+        // arm. Only a decline-to-start counts as a refusal.
+        if (climbed === 'needs_blocks' || climbed === 'needs_pickaxe') {
+          climbRefusals++
+          if (climbRefusals % ESCAPE_GIVE_UP_AFTER === 0) {
+            const want = climbPrereqFor(climbed)
+            bot.pendingPrereq = { ...want,
+              because: `the climb declined ${climbRefusals}x (${climbed}) at ` +
+                       `y=${Math.round(bot.entity.position.y)}` }
+            logEvent({ kind: climbed === 'needs_pickaxe' ? 'entombed_needs_pickaxe'
+                                                         : 'entombed_needs_blocks',
+                       status: 'failed',
+                       detail: `pillar declined ${climbRefusals}x (${climbed}) at ` +
+                               `y=${Math.round(bot.entity.position.y)}; asked the goal layer ` +
+                               `for ${want.count}x ${want.items[0]}`,
+                       snapshot: snapshot(bot) })
+            lastEscapeAt = Date.now() +
+              Math.min((climbRefusals / ESCAPE_GIVE_UP_AFTER) * 60_000, 10 * 60_000)
+          }
+        }
+        else if (bot.entity && bot.entity.position.y - yBefore < 1 && isEntombed(bot)) escapeFailures++
+        else { escapeFailures = 0; climbRefusals = 0 }
         escaping = false
         return
       }
@@ -2009,7 +2077,42 @@ export async function harvestAdjacent(bot, want = SCAFFOLD_SELF_SOURCE, budgetMs
   return { gained: held() - had, dug, tried, had }
 }
 
-async function pillarOut(bot, maxBlocks = 24) {
+const PILLAR_MAX_BLOCKS = 24
+
+/**
+ * WHAT A DECLINED CLIMB IS ACTUALLY SHORT OF.
+ *
+ * `pillarOut` declines for two different reasons and used to answer both with a
+ * bare `false`. Two of its four return paths run through `digStraightUp`, which
+ * refuses when `mayDigForEscape` says there is no pickaxe to spare -- and that
+ * is the dominant shape underground, where 28 of 32 frozen bots held zero
+ * pickaxes. Answering it with "gather blocks" sends a bot that is short a TOOL
+ * to go and fetch gravel.
+ *
+ * The block count is derived, not chosen. `canFinishClimb` demands
+ * `need + 1 + (headroomBlocked ? 1 : 0)`, and entombment implies a blocked
+ * ceiling, so a 24-block pillar needs 26. Asking for fewer clears the
+ * prerequisite as SATISFIED while the climb still refuses -- the bot then sits
+ * entombed forever with exactly as many blocks as it was told to fetch, and the
+ * telemetry says the goal layer was asked. A closed livelock.
+ */
+export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
+  if (reason === 'needs_pickaxe') {
+    return { items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
+             count: 1,
+             describe: 'Get a pickaxe. You are sealed in and cannot break the ceiling without one.' }
+  }
+  if (reason === 'needs_blocks') {
+    const count = maxBlocks + 2
+    return { items: ['dirt', 'cobblestone', 'stone', 'andesite', 'diorite',
+                     'granite', 'gravel', 'sand', 'netherrack'],
+             count,
+             describe: `Gather ${count} blocks. You are sealed in and cannot pillar out without them.` }
+  }
+  return null
+}
+
+async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
   // ALL OR NOTHING. See canFinishClimb: a climb that runs out partway is how
   // this fleet manufactures permanent traps.
   {
@@ -2024,7 +2127,7 @@ async function pillarOut(bot, maxBlocks = 24) {
                          `placeable block(s): running out partway seals the bot ` +
                          `higher than it started, holding nothing`,
                  snapshot: snapshot(bot) })
-      return false
+      return 'needs_blocks'
     }
   }
   // Same contention as the drowning rescue: pathfinder rewrites jump every
@@ -2060,7 +2163,7 @@ async function pillarOut(bot, maxBlocks = 24) {
                  detail: `ran out of placeable blocks ${i} block(s) into a ` +
                          `${maxBlocks}-block climb at y=${Math.round(bot.entity.position.y)}`,
                  snapshot: snapshot(bot) })
-      return false
+      return 'exhausted'
     }
 
     await bot.equip(item, 'hand').catch(() => {})
@@ -2157,7 +2260,7 @@ async function digStraightUp(bot, startY, maxSteps = 20) {
                        'needs a tool, and breaking it here ends every future ' +
                        'escape this bot could make',
                snapshot: snapshot(bot) })
-    return false
+    return 'needs_pickaxe'
   }
   for (let i = 0; i < maxSteps; i++) {
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))

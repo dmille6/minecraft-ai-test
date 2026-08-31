@@ -159,12 +159,34 @@ function watchDigging(bot, onStuck) {
  * cannot reach its next node never stops -- setGoal(null) is what actually
  * ends it, which reflex.mjs already had to learn the hard way.
  */
-function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout = null } = {}) {
+function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout = null,
+                                        needsDrop = true } = {}) {
   let t
   // A path that is digging the undiggable will otherwise run out the clock and
   // be recorded as a timeout, which names our budget rather than the cause.
+  //
+  // `needsDrop` IS THE WHOLE QUESTION, and getting it wrong sealed 27 bots in.
+  //
+  // watchDigging cancels any dig where `!block.canHarvest(heldItem)`. That is
+  // right for `gather`, which wants the ITEM: mining stone bare-handed yields
+  // nothing, so pressing on is a waste of the clock. It is exactly wrong for a
+  // bot digging its way OUT, which wants the HOLE and does not care that the
+  // stone drops nothing.
+  //
+  // Measured against the deployed 1.21.8 registry, `canHarvest(null)` returns
+  // `null` for stone, deepslate, andesite and tuff -- and `undefined` when the
+  // bot holds a scaffold block, which is what shaftAscend equips. Both are
+  // falsy, so the watchdog fired on the FIRST poll and killed every
+  // bare-handed climb dig at ~1000ms. digbudget.mjs prices those same digs at
+  // 15,000ms and 24,500ms and says plainly "BREAKING BY HAND IS THE POINT...
+  // a climb wants the hole, not the cobble" -- so two components in one call
+  // frame held opposite beliefs about bare-handed digging, and the older one
+  // won at one second. Every escape budget downstream of it was unreachable.
+  //
+  // The default stays TRUE. Only a caller that has already priced the dig and
+  // wants the hole may turn it off, and it must say so at the call site.
   let undiggable = null
-  const watch = bot?.targetDigBlock !== undefined || bot?.pathfinder
+  const watch = needsDrop && (bot?.targetDigBlock !== undefined || bot?.pathfinder)
     ? watchDigging(bot, name => { undiggable = name })
     : null
   return Promise.race([
@@ -3328,7 +3350,8 @@ export const rescueBlocks = bot => bot.inventory.items()
  * that is not gaining height within a few steps is not a climb, whatever the
  * promises returned.
  */
-export async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadline = Infinity } = {}) {
+export async function shaftAscend(bot, targetY, signal,
+                                  { maxSteps = 96, deadline = Infinity, claim = null } = {}) {
   // TAKE THE BODY BEFORE CLIMBING.
   //
   // The sibling pillar in reflex.mjs does this and says why: "pathfinder
@@ -3364,6 +3387,10 @@ export async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadlin
     if (Date.now() >= deadline) {
       return { gained: bot.entity.position.y - startY, stopped: 'out of time this call' }
     }
+    // RENEW PER STEP, so a stalled climb goes stale in seconds rather than
+    // holding the reflex off for the whole skill budget. A claim that stops
+    // being renewed stops being honoured.
+    claim?.renew?.()
     const p = bot.entity.position
     if (p.y >= targetY) break
     const yBefore = p.y
@@ -3395,6 +3422,9 @@ export async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadlin
       try {
         await withTimeout(bot.dig(head), plan.budgetMs, bot, {
           what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} },
+          // The climb wants the hole. planDig already decided this block is
+          // affordable bare-handed; the harvest watchdog must not overrule it.
+          needsDrop: false,
         })
       } catch (e) {
         // NAME THE FAILURE. This swallowed the error and reported a bare "dig
@@ -3503,7 +3533,15 @@ async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
 
     // Break the floor and drop exactly one block onto what we just placed.
     try {
-      await withTimeout(bot.dig(floor), 10_000, bot, { what: 'dig', onTimeout: () => {} })
+      // Same reasoning as the climb: breaking the floor to fall through it wants
+      // the hole, not the cobble.
+      // needsDrop:false removes the harvest watchdog, which was previously the
+      // only thing that could stop a hung floor dig. So the timeout handler has
+      // to do it -- an empty handler here would leave bot.dig running after
+      // withTimeout had already rejected.
+      await withTimeout(bot.dig(floor), 10_000, bot,
+                        { what: 'dig', needsDrop: false,
+                          onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } } })
     } catch { stopped = 'could not break the floor'; break }
     await sleep(420)
     const fell = yBefore - bot.entity.position.y
@@ -3579,7 +3617,7 @@ export function climbAdvice(stopped) {
 }
 
 async function surface(ctx, _args, signal) {
-  const { bot } = ctx
+  const { bot, runner } = ctx
   const startY = bot.entity.position.y
 
   // Already up here. Report it as a refusal, not a success: a call that cannot
@@ -3660,7 +3698,17 @@ async function surface(ctx, _args, signal) {
       // shaft makes one. Only if the shaft ALSO cannot move is "stranded" a
       // conclusion the evidence supports.
       usedDig = true
-      const shaft = await shaftAscend(bot, stageY, signal, { deadline: DEADLINE })
+      // CLAIM THE BODY FOR EXACTLY THE HAND-ROLLED PILLAR, AND NOTHING ELSE.
+      //
+      // Not around the whole skill: the pathfinder stages above are not a body
+      // seizure, and the reflex clearing a goal there is small and recoverable.
+      // This stretch is the only one where the skill drives jump, equip,
+      // placeBlock and a live targetDigBlock by hand, and it is the stretch the
+      // entombment reflex was interrupting.
+      const claim = runner?.claimBody?.('climb') ?? null
+      let shaft
+      try { shaft = await shaftAscend(bot, stageY, signal, { deadline: DEADLINE, claim }) }
+      finally { claim?.release?.() }
       lastStop = shaft.stopped ?? lastStop
       if (shaft.gained >= 1) continue     // made height; re-plan from up there
       const q = bot.entity.position
@@ -3699,7 +3747,17 @@ async function surface(ctx, _args, signal) {
     // things that killed the walk cannot touch it.
     if (bot.entity.position.y - y0 < 1) {
       usedDig = true
-      const shaft = await shaftAscend(bot, stageY, signal, { deadline: DEADLINE })
+      // CLAIM THE BODY FOR EXACTLY THE HAND-ROLLED PILLAR, AND NOTHING ELSE.
+      //
+      // Not around the whole skill: the pathfinder stages above are not a body
+      // seizure, and the reflex clearing a goal there is small and recoverable.
+      // This stretch is the only one where the skill drives jump, equip,
+      // placeBlock and a live targetDigBlock by hand, and it is the stretch the
+      // entombment reflex was interrupting.
+      const claim = runner?.claimBody?.('climb') ?? null
+      let shaft
+      try { shaft = await shaftAscend(bot, stageY, signal, { deadline: DEADLINE, claim }) }
+      finally { claim?.release?.() }
       lastStop = shaft.stopped ?? lastStop
       if (shaft.gained < 1 && ++stalls >= 2) break
       if (shaft.gained >= 1) stalls = 0

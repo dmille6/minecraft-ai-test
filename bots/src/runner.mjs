@@ -20,6 +20,7 @@ export class Runner {
     // Bumped on every run so a result from an ABANDONED skill can be told apart
     // from the current one. See the hard-stop race below.
     this.generation = 0
+    this.bodyClaim = null   // see claimBody(); typed, runner-owned, never on `bot`
     this.interruptedReason = null
     this.consecutiveFailures = 0
     this.paused = false
@@ -40,6 +41,95 @@ export class Runner {
   }
 
   isBusy() { return this.current !== null }
+
+  // ---------------------------------------------------------------------
+  // A SKILL MAY DECLARE THAT IT IS DRIVING THE BODY BY HAND.
+  //
+  // The entombment reflex interrupted `surface`'s pillar mid-dig: it saw a bot
+  // sealed in a one-block column, called that entombed, tried its own pillar,
+  // had that refused for want of blocks, and disturbed the body anyway. The
+  // reflex won the contention and then did nothing. reflex.mjs already states
+  // the principle one line above the guard -- "A bot mid-climb is sealed in by
+  // design. Only the climb may decide the climb has failed." It simply had no
+  // way to see a skill-layer climb.
+  //
+  // WHY THIS LIVES ON THE RUNNER AND NOT ON `bot`. The existing precedent,
+  // `bot.waterTravel`, is not leak-proof: it is assigned before its `try` opens,
+  // so a throw in between strands it set for the life of the bot, and its clear
+  // is unguarded by identity, so an abandoned skill unwinding minutes later
+  // nulls whatever a NEWER skill has since installed. A bot property also
+  // survives the reconnect that reflex.mjs performs precisely to rebuild state.
+  // `this.current` cannot outlive a skill -- it is nulled on every exit path --
+  // and `generation` ties a claim to one specific run.
+  //
+  // WHY IT IS TYPED. There is deliberately no `hasClaim()`. A reflex may only
+  // ask `bodyClaimFor('climb')`. The question "is any skill running?" is the
+  // one that produced a 7.5x increase in drownings when the water reflex stood
+  // down for unowned bots, and `owned = !!pathfinder.goal` wearing a new hat.
+  // The API makes it unaskable.
+  // ---------------------------------------------------------------------
+
+  // Worst single climb step: a 30s predicted dig priced at x1.5 + 2s slack
+  // (digbudget.mjs) = 47s, plus a 6s placeBlock timeout and ~0.7s of settling.
+  // 60s is that, rounded up once. A claim not renewed within one step is stale.
+  static CLAIM_STEP_TTL_MS = 60_000
+  // Absolute ceiling. Past the skill timeout plus the hard-stop grace the
+  // runner has BY DEFINITION released the body and moved on, so any surviving
+  // claim is stale by construction. Expressed as the sum so it cannot drift.
+  static CLAIM_MAX_MS = config.skills.defaultTimeoutMs + HARD_STOP_GRACE_MS
+
+  /**
+   * A skill declares it is driving the body by hand.
+   * Returns a HANDLE bound to this specific claim: { renew, release }.
+   *
+   * The handle is the whole safety property. An earlier version exposed
+   * `renewBody(what)` on the runner, which only checked the type -- so an
+   * abandoned skill still looping after a hard stop would renew whatever claim
+   * a NEWER run had since installed, keeping the reflex stood down for a bot it
+   * no longer had anything to do with. Both methods are closures over `claim`,
+   * so a zombie's handle is inert the moment it is superseded.
+   */
+  claimBody (what) {
+    const dead = { renew () {}, release () {} }
+    if (!this.current) return dead              // idle runner: nothing may claim
+    const claim = {
+      what,
+      skill: this.current.skill,
+      generation: this.generation,
+      startedAt: Date.now(),
+      at: Date.now(),                            // renewed per step
+      startY: this.bot?.entity?.position?.y ?? null,
+      bestY: this.bot?.entity?.position?.y ?? null,
+    }
+    this.bodyClaim = claim
+    // IDENTITY-GUARDED, both of them. An abandoned skill unwinding late must
+    // neither clear nor renew a claim that a newer run has since installed --
+    // the first is the exact bug in bot.waterTravel's unguarded `= null`, and
+    // the second would be worse, because it is silent.
+    return {
+      renew: () => {
+        if (this.bodyClaim !== claim) return    // superseded: this handle is inert
+        claim.at = Date.now()
+        const y = this.bot?.entity?.position?.y
+        if (typeof y === 'number' && (claim.bestY == null || y > claim.bestY)) claim.bestY = y
+      },
+      release: () => { if (this.bodyClaim === claim) this.bodyClaim = null },
+    }
+  }
+
+  /** The ONLY reader. Typed: a 'climb' claim can never quiet a water reflex. */
+  bodyClaimFor (what) {
+    const c = this.bodyClaim
+    if (!c || c.what !== what) return null
+    if (!this.current) { this.bodyClaim = null; return null }
+    if (c.generation !== this.generation) { this.bodyClaim = null; return null }
+    const now = Date.now()
+    // Stale claims are IGNORED but not cleared, so they stay visible to
+    // telemetry: a claim that keeps going stale is a bug worth seeing.
+    if (now - c.at > Runner.CLAIM_STEP_TTL_MS) return null
+    if (now - c.startedAt > Runner.CLAIM_MAX_MS) return null
+    return c
+  }
   isInterrupted() { return this.interruptedReason !== null }
   describe() { return this.current ? `${this.current.skill} ${JSON.stringify(this.current.args)}` : 'idle' }
 
@@ -126,6 +216,7 @@ export class Runner {
                        snapshot: snapshot(this.bot) })
             try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
             try { this.bot.clearControlStates() } catch { /* not connected */ }
+            this.bodyClaim = null
             resolve(hardStopResult(skillName, elapsed))
           }, config.skills.defaultTimeoutMs + HARD_STOP_GRACE_MS)
         }),
@@ -148,6 +239,7 @@ export class Runner {
       clearTimeout(watchdog)
       if (hardStop) clearTimeout(hardStop)
       try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
+      this.bodyClaim = null
     }
 
     // A LATE RESOLUTION FROM AN ABANDONED SKILL MUST NOT LAND. If the runner

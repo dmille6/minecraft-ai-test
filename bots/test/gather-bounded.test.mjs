@@ -97,8 +97,14 @@ t('any surviving collectblock call bounds the cancel too', () => {
 // PATHFINDING failure -- teaching the fleet to avoid a route that was fine.
 // Found by an independent review, not by us, after we introduced it.
 t('withTimeout names what it bounded, not always "pathfinding"', () => {
-  assert.match(src, /function withTimeout\(promise, ms, bot, \{ what = 'pathfinding', onTimeout = null \} = \{\}\)/,
-    'the helper must take a label and a cleanup callback')
+  // Signature pinned by INTENT, not by exact spelling: the helper must still
+  // take a label and a cleanup callback, and both must keep their defaults.
+  // It reflowed across lines when `needsDrop` was added, which is why this is
+  // no longer a single-line literal match.
+  const sig = src.match(/function withTimeout\s*\(promise, ms, bot,\s*\{([\s\S]*?)\}\s*=\s*\{\}\)/)
+  assert.ok(sig, 'the withTimeout signature moved; re-read this test')
+  assert.match(sig[1], /what\s*=\s*'pathfinding'/, 'the label parameter and its default are gone')
+  assert.match(sig[1], /onTimeout\s*=\s*null/, 'the cleanup callback is gone')
   assert.match(src, /new Error\(`\$\{what\} exceeded \$\{ms\}ms`\)/,
     'the message must use the label')
   assert.ok(!/new Error\(`pathfinding exceeded/.test(src),
