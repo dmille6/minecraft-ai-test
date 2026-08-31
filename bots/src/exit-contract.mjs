@@ -98,8 +98,22 @@ export function canContinueDescent ({ y, health, items = [], seaLevel = SEA_LEVE
   // The floors stay exactly as they were for anything below sea level, which
   // is the case they were written for: a shallow bot that loses its tool is
   // annoying, a deep one is dead.
-  const blockReserve = debt > 0 ? Math.max(8, Math.ceil(debt / 4)) : 0
-  const pickReserve = debt > 0 ? Math.max(12, Math.ceil(debt / 4)) : 0
+  // A RESERVE MAY NOT EXCEED THE CLIMB IT INSURES.
+  //
+  // The floors above were written for a deep bot, where losing the tool is
+  // fatal. Applied unchanged to a shallow one they invert into nonsense: at
+  // debt 1 the old form demanded NINE scaffold blocks and FIFTEEN pickaxe
+  // swings to climb a single block. Measured over 24h, 580 `mine` refusals
+  // carried a stated debt, the MEDIAN debt was 1, and 69% were at debt <= 4 --
+  // so the floor, not the depth, was doing almost all of the refusing.
+  //
+  // Clamping the floor to the debt keeps the deep case bit-for-bit identical --
+  // at debt 12 and beyond `min(FLOOR, debt)` is just FLOOR, so y=15 still
+  // prices out at 60 blocks and 62 uses exactly as before -- while a one-block
+  // climb now costs a one-block reserve. The ratio term still governs the deep
+  // end, which is the half that was always doing real work.
+  const blockReserve = debt > 0 ? Math.max(Math.min(8, debt), Math.ceil(debt / 4)) : 0
+  const pickReserve = debt > 0 ? Math.max(Math.min(12, debt), Math.ceil(debt / 4)) : 0
   const needBlocks = debt + blockReserve
   const needUses = debt + 2 + pickReserve
 

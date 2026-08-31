@@ -1,0 +1,466 @@
+<title>Four Gates to Iron</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+  :root {
+    --ground:      #F6F6F3;
+    --raised:      #FFFFFF;
+    --sunk:        #EDEDE8;
+    --ink:         #15181C;
+    --slate:       #4B5561;
+    --faint:       #7C8794;
+    --rule:        #DBDBD4;
+    --oxide:       #A94E28;
+    --oxide-soft:  #F0E0D8;
+    --ok:          #2C6349;
+    --warn:        #8A5F10;
+    --crit:        #9B3122;
+
+    --f-display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+    --f-body:    "Source Serif 4", Georgia, "Times New Roman", serif;
+    --f-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --measure: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:     #131619;
+      --raised:     #1B1F24;
+      --sunk:       #0E1114;
+      --ink:        #E9E7E2;
+      --slate:      #9AA5B1;
+      --faint:      #6F7A86;
+      --rule:       #2B3138;
+      --oxide:      #E0855A;
+      --oxide-soft: #33221A;
+      --ok:         #6FBF97;
+      --warn:       #D6A648;
+      --crit:       #E1786A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:     #131619;
+    --raised:     #1B1F24;
+    --sunk:       #0E1114;
+    --ink:        #E9E7E2;
+    --slate:      #9AA5B1;
+    --faint:      #6F7A86;
+    --rule:       #2B3138;
+    --oxide:      #E0855A;
+    --oxide-soft: #33221A;
+    --ok:         #6FBF97;
+    --warn:       #D6A648;
+    --crit:       #E1786A;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 17px;
+    line-height: 1.62;
+    margin: 0;
+    padding: 0 24px 96px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; }
+  .col  { max-width: var(--measure); }
+
+  header.mast {
+    padding: 64px 0 34px;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 40px;
+  }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--oxide);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 800;
+    font-size: clamp(2.5rem, 6.5vw, 4.1rem);
+    line-height: .98;
+    letter-spacing: -.025em;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.2rem;
+    line-height: 1.5;
+    color: var(--slate);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  .meta {
+    display: flex; flex-wrap: wrap; gap: 8px 26px; margin-top: 28px;
+    font-family: var(--f-mono); font-size: 12px; color: var(--faint);
+  }
+  .meta b { color: var(--slate); font-weight: 600; }
+
+  h2 {
+    font-family: var(--f-display); font-weight: 700; font-size: 1.9rem;
+    letter-spacing: -.018em; line-height: 1.14; margin: 62px 0 18px;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--f-display); font-weight: 600; font-size: 1.14rem;
+    letter-spacing: -.008em; margin: 34px 0 10px;
+  }
+  p { margin: 0 0 17px; }
+  a { color: var(--oxide); }
+  .lede { font-size: 1.06rem; color: var(--slate); }
+
+  code {
+    font-family: var(--f-mono); font-size: .855em;
+    background: var(--sunk); padding: .12em .38em; border-radius: 3px;
+  }
+
+  .scroll { overflow-x: auto; margin: 24px 0 30px; }
+  table {
+    border-collapse: collapse; width: 100%;
+    font-family: var(--f-mono); font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+  th {
+    text-align: left; font-weight: 600; font-size: 10.5px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--faint);
+    border-bottom: 1.5px solid var(--rule); padding: 0 16px 8px 0; white-space: nowrap;
+  }
+  td { padding: 9px 16px 9px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  td.num { text-align: right; padding-right: 22px; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .bad  { color: var(--crit); font-weight: 600; }
+  .good { color: var(--ok);   font-weight: 600; }
+  .mid  { color: var(--warn); font-weight: 600; }
+
+  .headline {
+    background: var(--raised);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--crit);
+    padding: 26px 28px;
+    margin: 30px 0 34px;
+  }
+  .headline .n {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 12px;
+  }
+  .headline .v {
+    font-family: var(--f-display); font-weight: 800;
+    font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1;
+    letter-spacing: -.03em; color: var(--crit); margin-bottom: 12px;
+  }
+  .headline .v small {
+    font-family: var(--f-body); font-weight: 400; font-size: 1.05rem;
+    color: var(--slate); letter-spacing: 0; display: block; margin-top: 10px;
+  }
+  .headline p { margin: 0; max-width: 62ch; }
+
+  .phase {
+    border-left: 2px solid var(--rule);
+    padding: 2px 0 2px 26px; margin: 0 0 44px; position: relative;
+  }
+  .phase::before {
+    content: ""; position: absolute; left: -5px; top: 9px;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--rule);
+  }
+  .phase.now { border-left-color: var(--oxide); }
+  .phase.now::before { background: var(--oxide); }
+  .phase-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+  .phase-id {
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .13em;
+    text-transform: uppercase; color: var(--oxide); font-weight: 600;
+  }
+  .phase h3 { margin: 0; font-size: 1.34rem; font-weight: 700; }
+  .tag {
+    font-family: var(--f-mono); font-size: 10px; letter-spacing: .09em;
+    text-transform: uppercase; padding: 3px 8px; border-radius: 2px;
+    border: 1px solid currentColor; white-space: nowrap;
+  }
+  .tag.treat  { color: var(--crit); }
+  .tag.repair { color: var(--slate); }
+  .tag.cap    { color: var(--ok); }
+  .phase p { margin: 12px 0; }
+  .phase .col { max-width: 62ch; }
+
+  dl.spec { margin: 16px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 7px 18px; }
+  dl.spec dt {
+    font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .09em;
+    text-transform: uppercase; color: var(--faint); padding-top: 4px;
+  }
+  dl.spec dd { margin: 0; font-size: .95rem; line-height: 1.5; }
+
+  .callout {
+    background: var(--oxide-soft); border-left: 3px solid var(--oxide);
+    padding: 20px 24px; margin: 30px 0;
+  }
+  .callout h3 { margin-top: 0; color: var(--oxide); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .note {
+    border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    padding: 18px 0; margin: 30px 0; font-size: .95rem; color: var(--slate);
+  }
+  .note b { color: var(--ink); }
+
+  ul.tight { margin: 12px 0 18px; padding-left: 20px; }
+  ul.tight li { margin-bottom: 7px; }
+
+  .kill { list-style: none; padding: 0; margin: 18px 0; }
+  .kill li { display: flex; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--rule); font-size: .95rem; flex-wrap: wrap; }
+  .kill li:last-child { border-bottom: none; }
+  .kill .what { font-family: var(--f-mono); font-size: 12.5px; min-width: 168px; color: var(--ink); font-weight: 600; }
+  .kill .why { color: var(--slate); flex: 1; min-width: 240px; }
+
+  footer {
+    margin-top: 72px; padding-top: 22px; border-top: 2px solid var(--ink);
+    font-family: var(--f-mono); font-size: 11.5px; color: var(--faint); line-height: 1.7;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Block 2 &middot; build plan &middot; rev 2</p>
+  <h1>Four Gates to Iron</h1>
+  <p class="standfirst">Nothing in this fleet has ever smelted anything. But the tech tree is not the binding constraint &mdash; <strong>the fleet has not passed the gate that lets the experiment start.</strong></p>
+  <div class="meta">
+    <span><b>Fleet</b> 80 bots / 16 pools / 4 arms</span>
+    <span><b>Baseline</b> f68e292</span>
+    <span><b>Live canary</b> d8fa6aa on placebo-d</span>
+    <span><b>Clock</b> never started</span>
+  </div>
+</header>
+
+<section class="col">
+  <p class="lede">Revision 2. The first draft of this plan led with a missing <code>smelt</code> verb. Two independent adversarial reviews and a re-measurement moved almost everything, including the top item. What follows is what survived being checked.</p>
+</section>
+
+<div class="headline">
+  <div class="n">Primary endpoint &middot; measured last 24h</div>
+  <div class="v">11.7%
+    <small><code>gather</code> success across 28,964 attempts &mdash; against a <strong>&ge;20% START gate</strong>. The measurement clock cannot begin until this passes, and no item in the first draft targeted it.</small>
+  </div>
+  <p>Everything below is ordered by distance to that number. The tech tree is real and worth building, but it is downstream of a gate the fleet has not cleared, and there is no experiment running to be advanced by it.</p>
+</div>
+
+<h2>What the re-measurement changed</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>First draft said</th><th>Measurement says</th><th>Effect on plan</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>place</code> is broken at 13.2%</td>
+      <td>Scaffold placement succeeds <span class="good">83.8%</span>; crafting&#8209;table <span class="bad">7.9%</span> over 2,202 attempts</td>
+      <td>Not a mechanics bug. A <em>selection</em> problem &mdash; the model only ever places tables</td>
+    </tr>
+    <tr>
+      <td>Fix the top-face vector at <code>skills.mjs:1911</code></td>
+      <td>81% of failures return earlier, from an empty candidate list</td>
+      <td>Face vector fixes none of them. The defect is candidate generation</td>
+    </tr>
+    <tr>
+      <td>Exit contract not mentioned</td>
+      <td>580 refusals, <span class="bad">median debt 1</span>, 69% at debt&nbsp;&le;&nbsp;4</td>
+      <td>Promoted to the top build item</td>
+    </tr>
+    <tr>
+      <td>Ship a <code>dig_down</code> / <code>go_up</code> verb</td>
+      <td><code>mine</code> already staircases; 473 refusals are <em>&ldquo;too close to home&rdquo;</em></td>
+      <td>Dropped. It is a precondition bug in a working skill</td>
+    </tr>
+    <tr>
+      <td>Metric: bots holding <code>iron_ingot</code></td>
+      <td>Tautological &mdash; you shipped the only verb that makes them</td>
+      <td>Replaced with a pre-ship opportunity funnel</td>
+    </tr>
+    <tr>
+      <td>Phase 1a affects all arms equally, so DiD survives</td>
+      <td>Hive avoid-rules carry 45.6 failures each against 7&ndash;16 elsewhere</td>
+      <td>DiD does <em>not</em> survive. The shock size is a function of the treatment</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout col">
+  <h3>The prompt line is a treatment, and deleting it is the wrong fix</h3>
+  <p><code>prompt.mjs:415</code> exempts pickaxes from the already-have filter, so <code>CAN CRAFT NOW: wooden_pickaxe</code> is advertised permanently &mdash; 61.3% of every craft decision the fleet makes.</p>
+  <p>It is not arm-neutral. Five hive bots write to one pooled <code>fails</code> entry, and the store truncates by <code>fails</code>, so this one key is the heaviest entry in the hive stores and a mid-weight entry in the isolated ones. Removing it deflates hive far more than isolated. That is a shock whose magnitude depends on the treatment, which is exactly what difference-in-differences cannot absorb.</p>
+  <p><strong>So do not delete it &mdash; make it endogenous.</strong> Advertise only a pickaxe strictly better than the bot's best held tier, then measure whether a bad convention <em>re-forms without the prompt handing it over</em>. If bots still lock onto one verb at ~60%, that is a real finding about LLM collectives. If they do not, the 61.3% was the prompt talking to itself and was never data. Deleting the line gets neither answer.</p>
+</div>
+
+<h2>Sequence</h2>
+
+<div class="phase now">
+  <div class="phase-head">
+    <span class="phase-id">Phase 0</span>
+    <h3>Instruments</h3>
+    <span class="tag repair">nothing ships to bots</span>
+  </div>
+  <div class="col">
+    <p>None of this changes behaviour. All of it decides whether later numbers mean anything.</p>
+    <ul class="tight">
+      <li>Two test files hang forever. They sit alphabetically before <code>prompt-usage-coverage</code> and <code>affordance-contract</code> &mdash; the exact tests that would police a new skill's observation contract. Ship <code>smelt</code> today and its guard rail runs silently unrun.</li>
+      <li>Four incompatible bot-hour denominators; no two reports have ever been comparable. One gate script still hardcodes 40 bots against an 80-bot fleet.</li>
+      <li>The placebo arm's board visits emit no telemetry at all. The control is currently unobservable.</li>
+      <li>Pickaxe durability is absent from inventory telemetry, so every claim about tool budget is unfalsifiable.</li>
+      <li>Two amendments are owed and unwritten &mdash; board non-compliance, and a declaration that the observation text is a treatment surface.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-head">
+    <span class="phase-id">Phase A</span>
+    <h3>The scaffold floor</h3>
+    <span class="tag repair">repair &middot; highest yield</span>
+  </div>
+  <div class="col">
+    <p>The single cheapest high-yield change available, and it was missing from the first draft entirely.</p>
+    <p><code>exit-contract.mjs:101</code> sets <code>blockReserve = max(8, ceil(debt/4))</code>. At <code>debt=1</code> that demands <strong>nine scaffold blocks for a one-block climb</strong>. Measured: 580 refusals carrying a stated debt, median debt 1, 69% at debt&nbsp;&le;&nbsp;4. The floor, not the depth, is doing the refusing.</p>
+    <p>At the deep end the same formula sets <code>needUses=62</code> at y=15 while a wooden pickaxe has 59 durability &mdash; a wooden-tier bot is arithmetically forbidden from reaching iron. Stone-tier passes, which is why bots reach y=&minus;55 at all.</p>
+    <dl class="spec">
+      <dt>Fix</dt><dd><code>max(min(FLOOR, debt), ceil(debt/4))</code>. Written up months ago, never built.</dd>
+      <dt>Metric</dt><dd><code>mine</code> refusals by reason per bot-hour; share of refusals at debt&nbsp;&le;&nbsp;4. High-N, moves within an hour.</dd>
+      <dt>Also here</dt><dd><code>mine</code>'s &ldquo;within 4 blocks of home&rdquo; precondition &mdash; 473 refusals, the largest single reason.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-head">
+    <span class="phase-id">Phase B</span>
+    <h3>Gather success</h3>
+    <span class="tag repair">the actual endpoint</span>
+  </div>
+  <div class="col">
+    <p>11.7% against a 20% gate, across 28,964 attempts &mdash; the largest verb in the fleet and the number the experiment is defined on. It needs its own diagnosis before anything is built: failure-reason census first, fix second.</p>
+    <dl class="spec">
+      <dt>Metric</dt><dd>Gather success per bot-hour, by failure class and by depth band.</dd>
+      <dt>Note</dt><dd>Any series spanning <code>2af8251</code> compares two definitions of success &mdash; the gather scoring fix changed what counts. Restrict to post-fix windows.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-head">
+    <span class="phase-id">Phase C</span>
+    <h3>Craft table reachability</h3>
+    <span class="tag repair">the one canary-able item</span>
+  </div>
+  <div class="col">
+    <p><code>craft</code> accepts a table found within 32 blocks regardless of whether it can be reached, and the self-placement fallback at <code>skills.mjs:1717</code> is guarded by <code>!table</code> &mdash; so it is unreachable precisely when a distant table is visible. Bots underground are sent to walk to a table through 40 blocks of rock while carrying their own.</p>
+    <dl class="spec">
+      <dt>Metric</dt><dd><code>no_path</code> per craft attempt (should collapse) <em>and</em> craft attempts per bot-hour (must not fall &mdash; if it does, the skill was short-circuited, not fixed).</dd>
+      <dt>Co-primary</dt><dd>Decisions per bot-hour. This removes up to two 12-second pathfinder walks from a 30-second cadence, so it is secretly a cadence change &mdash; and cadence spread is itself a START gate.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-head">
+    <span class="phase-id">Phase D</span>
+    <h3>Endogenous affordance</h3>
+    <span class="tag treat">treatment &middot; own amendment</span>
+  </div>
+  <div class="col">
+    <p>The strictly-better-tier change described above. Fleet-wide at a declared boundary, nothing else in the deploy, pre-specified predictions.</p>
+    <dl class="spec">
+      <dt>Cannot be canaried</dt><dd>The effect lives in the pooled store, and one canary pool is one arm &mdash; n=1.</dd>
+      <dt>Primary</dt><dd>Shannon entropy of the action-key distribution per bot-hour. Thousands of decisions hourly; non-tautological because you are measuring whether the <em>tail broadened</em>, not whether the deleted line stopped appearing.</dd>
+      <dt>Prediction</dt><dd>Entropy rises <em>more in hive than isolated</em>. Falsifiable, pre-registered, and it is the whole experiment.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-head">
+    <span class="phase-id">Phase E</span>
+    <h3>Smelt</h3>
+    <span class="tag cap">new capability</span>
+  </div>
+  <div class="col">
+    <p>Roughly 150 lines of core mineflayer, no plugin. It moved from first to fifth &mdash; not because it is wrong, but because it is downstream of a descent gate and a placement gate, and because the fleet has not passed the gate that starts the experiment.</p>
+    <p>The payoff is nonetheless already banked: <strong>18 of the 19 bots holding raw iron also hold a furnace and fuel</strong>, across all four arms. That is 33 raw iron and about eleven iron pickaxes one verb away.</p>
+    <dl class="spec">
+      <dt>Gate it on</dt><dd>A measured opportunity rate &mdash; bot-hours holding <code>raw_iron</code> &and; furnace &and; fuel. Measurable today, costs one query. If it is near zero, smelt is another rung behind a gate nobody passes.</dd>
+      <dt>Metric</dt><dd>Three-stage funnel: opportunity &rarr; proposals per opportunity &rarr; successes per proposal. Never &ldquo;bots holding ingots&rdquo;.</dd>
+      <dt>Traps</dt><dd><code>recipesFor(iron_ingot)</code> returns <code>[]</code> (minecraft-data #290, open since 2020). <code>takeOutput()</code> <em>throws</em> on an empty slot. <code>fuel</code>/<code>progress</code> are null until the first update, which can report a spurious zero. Take <code>raw_iron</code>, never <code>iron_ore</code>.</dd>
+    </dl>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-head">
+    <span class="phase-id">Phase F</span>
+    <h3>Prospect</h3>
+    <span class="tag cap">the experiment&rsquo;s real surface</span>
+  </div>
+  <div class="col">
+    <p>The collective already shares ore coordinates in the prompt and has no verb that can act on them. Verified post-scoring-fix: <code>gather iron_ore</code> is 29 attempts and <span class="bad">0 successes</span> in the last 24 hours, <code>coal_ore</code> 91 and 0. Ore is buried by definition and gather refuses buried candidates, so iron is obtained only by accident while tunnelling.</p>
+    <p>&ldquo;Where is the iron&rdquo; is a belief about where payoff is: shareable, actionable, and capable of being <em>wrong</em>. A collective that shares it can lock onto a bad answer faster than one that does not.</p>
+    <dl class="spec">
+      <dt>Blocked on</dt><dd>Parent claim ids. Without them, five bots agreeing is not five observations if four copied the first, and hive will look better-informed purely by echo.</dd>
+      <dt>Unit</dt><dd>The belief, not the pool &mdash; which turns n=4 into n=(pools &times; beliefs) and is the sample-size fix this design has been missing.</dd>
+      <dt>Design risk</dt><dd>Instrument whether a coordinate came from self or shared memory, and separate <em>used a shared coordinate</em> from <em>successfully dug to it</em>. Otherwise belief propagation and motor competence move together and neither is measurable.</dd>
+    </dl>
+  </div>
+</div>
+
+<h2>What not to build</h2>
+
+<section class="col">
+  <p>The server runs <code>difficulty=peaceful</code>, pre-registered and load-bearing for two death endpoints. That single fact voids an entire category of obvious-looking work.</p>
+</section>
+
+<ul class="kill">
+  <li><span class="what">combat / armour</span><span class="why">No hostile spawns. Zero mob deaths in fleet history &mdash; already misread once as &ldquo;our reflex layer prevents mob deaths.&rdquo;</span></li>
+  <li><span class="what">torches / lighting</span><span class="why">No spawn suppression to buy. 57 bots carry torches; <code>place torch</code> has been attempted twice, ever.</span></li>
+  <li><span class="what">food / farming / auto-eat</span><span class="why">Hunger does not deplete on peaceful. <code>eat</code>: 161 lifetime calls, <strong>100% no-effect</strong>.</span></li>
+  <li><span class="what">dig_down / go_up</span><span class="why">Duplicates <code>mine</code>, which already staircases. The defect is a precondition, not a missing verb.</span></li>
+  <li><span class="what">mineflayer-tool</span><span class="why">Last published 2022, pre-1.19. Reintroduces a digTime bug the codebase already patches.</span></li>
+  <li><span class="what">LLM critic loop</span><span class="why">The evidence gate is strictly better. A critic would mark a smelt successful on an empty furnace.</span></li>
+</ul>
+
+<h2>The thing that outranks all of it</h2>
+
+<div class="note col">
+  <p><b>The board arm is not delivering its treatment.</b> Two board calls in 26,418 decisions across twenty bots in 24 hours &mdash; 0.08 per thousand. Worse, <code>scope === 'board'</code> gives private lessons plus auto-pooled world facts, which <em>is</em> the placebo condition. And the placebo arm's board visits log nothing at all.</p>
+  <p style="margin-bottom:0">So the dose ladder currently reads: hive (dose), board (= placebo), placebo (invisible), isolated (control). That is a two-arm experiment with two mislabelled arms. No amount of tech-tree work fixes it, and deciding it is Phase 0 work.</p>
+</div>
+
+<h2>Rules that hold across every phase</h2>
+
+<section class="col">
+  <ul class="tight">
+    <li><b>One canary pool, ever.</b> The tripper matches <code>canary_pool</code> literally; two canaries means three versions means a halted fleet. Teardown is two steps and half a teardown is silently wrong in both directions.</li>
+    <li><b>A canary pool is n=1.</b> The pool is the experimental unit, so five bots is one observation. It answers &ldquo;does it crash&rdquo; and almost nothing else.</li>
+    <li><b>Difference-in-differences, never canary-vs-fleet.</b> A good deploy was already rolled back once on cross-sectional noise, because the pool happened to contain two chronic emitters of a pre-existing error.</li>
+    <li><b>Reject tautological metrics.</b> If the number moves because you shipped the thing that produces it, it is compliance with your own edit, not evidence.</li>
+    <li><b>Probe a known-positive before believing a zero.</b> Two detectors in one day returned confident, uniform, wrong answers &mdash; one read a field that does not exist.</li>
+  </ul>
+</section>
+
+<footer>
+  Evidence re-derived from a full walk of 84 <code>skill-*.jsonl</code> files, restricted to post-<code>2af8251</code> windows. No tail-seeking; every zero probed against a known-positive.<br>
+  Two independent adversarial reviews (Claude, ChatGPT). They disagreed with each other on phase order and on <code>mineflayer-tool</code>, and with this document on <code>place</code>, on the exit contract, and on which endpoint matters. Disagreements resolved against measured fleet data.<br>
+  Corrections applied to the reviews: <code>canFinishClimb</code> and <code>mayDigForEscape</code> <em>are</em> deployed in f68e292; <code>rideFloorDown</code> is not built at all; <code>gather iron_ore</code> at zero survives the scoring fix; the live canary is placebo-d on d8fa6aa, verified against the host manifest rather than the stale docs.<br>
+  Open: the flooded-cave lateral branch of the live water canary still has zero live exposure &mdash; all 460 canary rescues have been at y&ge;40.
+</footer>
+
+</div>

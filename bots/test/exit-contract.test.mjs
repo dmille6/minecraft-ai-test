@@ -161,5 +161,96 @@ t('above sea level there is no debt at all', () => {
   assert.equal(r.debt, 0)
 })
 
+// --- THE RESERVE MAY NOT EXCEED THE CLIMB IT INSURES -------------------------
+//
+// The floors were written for a deep bot, where losing the tool is fatal.
+// Applied unchanged to a shallow one they inverted into nonsense: at debt 1 the
+// old form demanded 9 scaffold and 15 pickaxe swings to climb ONE block.
+// Measured over 24h: 580 `mine` refusals carried a stated debt, median debt 1,
+// and 69% were at debt <= 4. The floor, not the depth, did the refusing.
+
+t('a one-block climb costs a one-block reserve, not nine', () => {
+  const r = canContinueDescent({
+    y: SEA_LEVEL - 1, health: 20,
+    items: [blocks('cobblestone', 2), pick('stone_pickaxe', 0, 131)],
+  })
+  assert.ok(r.ok, `refused a one-block climb: ${r.detail ?? r.reason}`)
+})
+
+t('MUTANT: the old floor refused exactly this bot', () => {
+  // Guards the test above against passing for the wrong reason. Under the old
+  // form needBlocks was 1 + max(8, 1) = 9, so 2 cobblestone was a refusal.
+  const oldNeedBlocks = 1 + Math.max(8, Math.ceil(1 / 4))
+  assert.equal(oldNeedBlocks, 9, 'the old arithmetic is not what this test claims')
+  assert.ok(2 < oldNeedBlocks, 'the fixture must be one the old floor rejected')
+})
+
+t('THE DEEP END IS UNCHANGED, bit for bit', () => {
+  // The floors exist for the deep case and must not be relaxed there. At and
+  // beyond debt 12, min(FLOOR, debt) is just FLOOR.
+  for (const debt of [12, 20, 32, 48, 60, 81]) {
+    const wantBlocks = debt + Math.max(8, Math.ceil(debt / 4))
+    const wantUses = debt + 2 + Math.max(12, Math.ceil(debt / 4))
+    const short = canContinueDescent({
+      y: SEA_LEVEL - debt, health: 20,
+      items: [blocks('cobblestone', wantBlocks - 1), pick('diamond_pickaxe', 0, 1561)],
+    })
+    assert.ok(!short.ok && short.reason === 'scaffold',
+      `debt ${debt}: one block short of the old requirement must still refuse`)
+    assert.equal(short.want, wantBlocks, `debt ${debt}: block requirement moved`)
+
+    const exact = canContinueDescent({
+      y: SEA_LEVEL - debt, health: 20,
+      items: [blocks('cobblestone', wantBlocks), pick('diamond_pickaxe', 0, 1561)],
+    })
+    assert.ok(exact.ok, `debt ${debt}: the old exact requirement must still pass`)
+
+    const thin = canContinueDescent({
+      y: SEA_LEVEL - debt, health: 20,
+      items: [blocks('cobblestone', wantBlocks), pick('stone_pickaxe', 131 - (wantUses - 1), 131)],
+    })
+    assert.ok(!thin.ok && thin.reason === 'pickaxe',
+      `debt ${debt}: one swing short must still refuse`)
+    assert.equal(thin.want, wantUses, `debt ${debt}: pickaxe requirement moved`)
+  }
+})
+
+t('the reserve never exceeds the debt at any shallow depth', () => {
+  for (let debt = 1; debt <= 11; debt++) {
+    const r = canContinueDescent({
+      y: SEA_LEVEL - debt, health: 20,
+      items: [blocks('cobblestone', 2 * debt), pick('diamond_pickaxe', 0, 1561)],
+    })
+    assert.ok(r.ok, `debt ${debt}: carrying twice the climb was still refused (${r.detail})`)
+  }
+})
+
+t('a bot ABOVE sea level still owes nothing', () => {
+  // The debt>0 guard this sits inside was added for bots at the build limit;
+  // clamping must not disturb it. Note the bot still needs a TOOL: needUses is
+  // debt + 2 even at debt 0, because the two swings pay for the dig itself, not
+  // for a climb. Zero debt means zero RESERVE, not zero requirement.
+  const r = canContinueDescent({
+    y: SEA_LEVEL + 250, health: 20,
+    items: [pick('stone_pickaxe', 0, 131)],
+  })
+  assert.ok(r.ok, `descending toward safety must never be refused: ${r.detail ?? ''}`)
+  assert.ok(canContinueDescent({ y: SEA_LEVEL + 250, health: 20, items: [] }).reason === 'pickaxe',
+    'and with no tool at all it is the TOOL that is missing, never a scaffold reserve')
+})
+
+t('THE WOODEN-TIER IRON GATE IS UNCHANGED, and deliberately so', () => {
+  // At y=15 the contract prices 62 pickaxe swings; a wooden pickaxe has 59.
+  // That gate is real and is NOT what this change addresses -- pinned here so
+  // nobody reads the shallow fix as having opened iron to wooden-tier bots.
+  const r = canContinueDescent({
+    y: 15, health: 20,
+    items: [blocks('cobblestone', 64), pick('wooden_pickaxe', 0, 59)],
+  })
+  assert.ok(!r.ok && r.reason === 'pickaxe', 'wooden tier must still be refused at iron depth')
+  assert.equal(r.want, 62)
+})
+
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
