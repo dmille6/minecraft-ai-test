@@ -315,7 +315,7 @@
   <div class="col">
     <p>None of this changes behaviour. All of it decides whether later numbers mean anything.</p>
     <ul class="tight">
-      <li>Two test files hang forever. They sit alphabetically before <code>prompt-usage-coverage</code> and <code>affordance-contract</code> &mdash; the exact tests that would police a new skill's observation contract. Ship <code>smelt</code> today and its guard rail runs silently unrun.</li>
+      <li>Give the suite runner a per-file budget of at least 300s. The suite is <strong>82/82 green</strong> &mdash; but <code>hard-stop</code> takes 210s and <code>mine-staircase</code> 56s, because each <code>mine</code> step really does <code>await sleep(250)</code> plus <code>sleep(150)</code> and the loop caps at 90 steps. A 40-second timeout kills them and reports a hang. <em>Slow is not wedged;</em> an earlier revision of this document said these files never terminate, and that was a measurement artifact, not a defect.</li>
       <li>Four incompatible bot-hour denominators; no two reports have ever been comparable. One gate script still hardcodes 40 bots against an 80-bot fleet.</li>
       <li>The placebo arm's board visits emit no telemetry at all. The control is currently unobservable.</li>
       <li>Pickaxe durability is absent from inventory telemetry, so every claim about tool budget is unfalsifiable.</li>
@@ -460,6 +460,7 @@
   Evidence re-derived from a full walk of 84 <code>skill-*.jsonl</code> files, restricted to post-<code>2af8251</code> windows. No tail-seeking; every zero probed against a known-positive.<br>
   Two independent adversarial reviews (Claude, ChatGPT). They disagreed with each other on phase order and on <code>mineflayer-tool</code>, and with this document on <code>place</code>, on the exit contract, and on which endpoint matters. Disagreements resolved against measured fleet data.<br>
   Corrections applied to the reviews: <code>canFinishClimb</code> and <code>mayDigForEscape</code> <em>are</em> deployed in f68e292; <code>rideFloorDown</code> is not built at all; <code>gather iron_ore</code> at zero survives the scoring fix; the live canary is placebo-d on d8fa6aa, verified against the host manifest rather than the stale docs.<br>
+  Suite status: <strong>82/82 passing, zero failures</strong>, with a 400s per-file budget.<br>
   Open: the flooded-cave lateral branch of the live water canary still has zero live exposure &mdash; all 460 canary rescues have been at y&ge;40.
 </footer>
 
