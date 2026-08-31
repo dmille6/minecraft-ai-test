@@ -3262,7 +3262,24 @@ function hasCeiling (bot, up = 12) {
  */
 // Blocks a shaft climb may stand on. Deliberately narrow: common, solid, and
 // worthless enough that spending them on an escape is always the right trade.
-const SCAFFOLD = /^(cobblestone|cobbled_deepslate|dirt|netherrack|tuff|granite|diorite|andesite|deepslate|stone|.*_planks)$/
+// A PILLAR MAY BE BUILT OF SAND. A BRIDGE MAY NOT.
+//
+// This excluded every falling block, and two things pointed the other way at
+// once: `climbPrerequisite` and the stranded-advice list both tell a bot to go
+// and gather GRAVEL in order to climb, and the fleet's stuck bots were sitting
+// on exactly that. board-a-Bravo held 83 sand and isolated-b-Comet 75 -- more
+// than enough to climb 45 blocks -- and shaftAscend refused every one of them.
+// A bot that obeys the prerequisite, fetches the block it was told to fetch,
+// and still cannot climb has been charged a failed attempt for complying, which
+// is the one thing the ladder rule forbids.
+//
+// Gravity only matters when the block is unsupported. A pillar places each
+// block on TOP of the column already under the bot, so it never falls; a
+// horizontal bridge places into open air, where it does. That is why the
+// pathfinder's `scafoldingBlocks` list in scaffold.mjs still excludes these --
+// A* plans bridges with it -- and why the hand-rolled vertical climb does not
+// have to.
+const SCAFFOLD = /^(cobblestone|cobbled_deepslate|dirt|netherrack|tuff|granite|diorite|andesite|deepslate|stone|sand|red_sand|gravel|.*_planks)$/
 const LIQUID = new Set(['water', 'lava', 'flowing_water', 'flowing_lava'])
 const FALLING = new Set(['gravel', 'sand', 'red_sand'])
 
@@ -3311,7 +3328,7 @@ export const rescueBlocks = bot => bot.inventory.items()
  * that is not gaining height within a few steps is not a climb, whatever the
  * promises returned.
  */
-async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadline = Infinity } = {}) {
+export async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadline = Infinity } = {}) {
   const startY = bot.entity.position.y
   let noGain = 0
   for (let i = 0; i < maxSteps; i++) {

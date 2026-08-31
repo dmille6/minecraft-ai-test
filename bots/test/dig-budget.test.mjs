@@ -18,6 +18,7 @@
 // Breaking stone bare-handed drops nothing, and that is fine. A climb wants the
 // hole, not the cobble.
 import assert from 'node:assert'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import {
   planDig, predictedDigMs, MIN_DIG_MS, MAX_DIG_MS,
@@ -167,6 +168,145 @@ t('MUTANT: refusing on an unknown dig time rebuilds the trap', () => {
       : { refuse: true, budgetMs: 0 })
   assert.equal(strict(null).refuse, true, 'anchor: the mutant refuses unknowns')
   assert.equal(planDig(null).refuse, false, 'the real implementation must attempt them')
+})
+
+// --- AND IT HAS TO REACH THE CLIMB ------------------------------------------
+//
+// A budget nothing consults is a comment. These drive the real `surface` skill
+// with a real registry block overhead, and check the one thing that changed:
+// whether the climb TRIES.
+import { SKILLS, shaftAscend } from '../src/skills.mjs'
+
+const ta = async (name, fn) => {
+  try { await fn(); pass++; console.log(`  PASS  ${name}`) }
+  catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) }
+}
+
+const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c),
+                          distanceTo: o => Math.hypot(x - o.x, y - o.y, z - o.z), clone: () => V(x, y, z) })
+
+/** A bot sealed at y=2 under `ceiling`, carrying blocks and no tool. */
+function sealedBot (ceiling, digCalls) {
+  const head = block(ceiling)
+  const bot = {
+    entity: { position: V(634, 2, 276) },
+    health: 20, food: 20,
+    registry,
+    inventory: { items: () => [{ name: 'cobbled_deepslate', count: 24, slot: 0,
+                                 type: registry.itemsByName.cobbled_deepslate.id }] },
+    blockAt: () => head,
+    async equip () {}, async lookAt () {},
+    setControlState () {}, stopDigging () {},
+    async dig (b) { digCalls.push(b.name) },
+    async placeBlock () {},
+    ascentMovements: { kind: 'ascent' },
+    pathfinder: {
+      movements: { kind: 'travel' },
+      setMovements (m) { this.movements = m },
+      // Both searches finish and find nothing: the sealed pocket the shaft is for.
+      getPathTo: () => ({ status: 'noPath', path: [1] }),
+      async goto () {},
+    },
+    async withAscentMovements (fn) { return fn() },
+    chat () {},
+  }
+  return bot
+}
+const climb = bot => SKILLS.surface.run({ bot }, {}, new AbortController().signal)
+
+await ta('a toolless bot under DEEPSLATE now swings at it', async () => {
+  // The whole freeze in one case. Bare-handed deepslate is 15,000ms and the old
+  // budget was 15,000ms, so this dig could only ever time out -- and the timeout
+  // was reported as "this stone needs a pickaxe" to a bot 61 blocks below the
+  // nearest tree.
+  const digs = []
+  const r = await climb(sealedBot('deepslate', digs))
+  assert.ok(digs.length > 0, 'the climb never attempted the block over its head')
+  assert.deepEqual([...new Set(digs)], ['deepslate'])
+  assert.doesNotMatch(r.detail ?? '', /needs a pickaxe/,
+    `a bot that can break its own ceiling must not be sent for a pickaxe: ${r.detail}`)
+})
+
+await ta('and under cobbled_deepslate, which is slower still', async () => {
+  const digs = []
+  await climb(sealedBot('cobbled_deepslate', digs))
+  assert.ok(digs.length > 0, '17,500ms of rock must still be attempted')
+})
+
+// --- A LONGER DIG NEEDS A CLOCK ---------------------------------------------
+//
+// Paying real time for deepslate is only safe if the climb stops on the
+// caller's schedule. A bare-handed deepslate dig is now ~25s, and shaftAscend
+// takes up to 96 steps -- 40 minutes against `surface`'s 120s deadline. Left
+// alone it would be cut off by the runner's abort, which throws away BOTH the
+// height already gained and the stopping reason the model needs. Ending cleanly
+// turns the same climb into `travel_incomplete` -- "call again to continue" --
+// which is progress, not a failed attempt. That distinction is the ladder rule.
+
+await ta('a climb that is out of time stops itself, and keeps its progress', async () => {
+  const digs = []
+  const bot = sealedBot('deepslate', digs)
+  const r = await shaftAscend(bot, 26, new AbortController().signal,
+                              { deadline: Date.now() - 1 })
+  assert.equal(r.stopped, 'out of time this call')
+  assert.deepEqual(digs, [], 'an expired budget must not start another 25s dig')
+  assert.equal(r.gained, 0, 'and it must still report the height, not throw it away')
+})
+
+await ta('a climb with time left is not stopped by the clock', async () => {
+  const digs = []
+  const r = await shaftAscend(sealedBot('deepslate', digs), 26,
+                              new AbortController().signal, { deadline: Date.now() + 60_000 })
+  assert.notEqual(r.stopped, 'out of time this call', 'the deadline fired early')
+  assert.ok(digs.length > 0)
+})
+
+await ta('an absent deadline is unlimited, not zero', async () => {
+  // The default must never read as "already expired" -- that would silently
+  // disable the shaft for every caller that does not pass one.
+  const digs = []
+  const r = await shaftAscend(sealedBot('deepslate', digs), 26, new AbortController().signal)
+  assert.notEqual(r.stopped, 'out of time this call')
+  assert.ok(digs.length > 0, 'the default deadline stopped the climb before it began')
+})
+
+t('`surface` hands the shaft its own deadline', () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+  const calls = code.match(/shaftAscend\(bot, stageY, signal[^)]*\)/g) ?? []
+  assert.equal(calls.length, 2, `expected surface's two shaft calls, found ${calls.length}`)
+  for (const c of calls) {
+    assert.match(c, /deadline: DEADLINE/,
+      `a shaft call runs on no clock and can outlive the skill budget: ${c}`)
+  }
+})
+
+t('the climb SPENDS the planned budget, and no literal survives beside it', () => {
+  // A budget nothing passes to withTimeout is a comment. The behavioural tests
+  // above cannot see this: their fake `bot.dig` resolves at once, so a reverted
+  // constant would still let every one of them pass. Same pattern, and same
+  // reason, as climb-escape.test.mjs asserting extendScaffolding is called.
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+  const call = /withTimeout\(bot\.dig\(head\),\s*([^,]+),/.exec(code)
+  assert.ok(call, 'the climb no longer digs through withTimeout; re-read this test')
+  assert.equal(call[1].trim(), 'plan.budgetMs',
+    `the head dig is budgeted with ${call[1].trim()} instead of the planned time`)
+  assert.ok(/planDig\(predictedDigMs\(head, tool\)\)/.test(code),
+    'the budget is not derived from the block the climb is about to break')
+  assert.ok(/plan\.refuse/.test(code), 'nothing acts on the refusal, so the cap is inert')
+})
+
+await ta('OBSIDIAN is refused without swinging, and asks for a better tool', async () => {
+  // The cap earning its keep: 250s of bare-handed obsidian must not eat the
+  // 120s ascent. This is the one case where "get a pickaxe" is the truth.
+  const digs = []
+  const r = await climb(sealedBot('obsidian', digs))
+  assert.deepEqual(digs, [], 'obsidian must not be attempted bare-handed')
+  assert.match(r.detail ?? '', /cannot break obsidian/, r.detail)
+  assert.ok(SKILLS.surface, 'sanity: the skill under test exists')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

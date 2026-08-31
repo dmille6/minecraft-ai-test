@@ -119,6 +119,52 @@ t('a dry solid ceiling is broken without complaint', () => {
   assert.equal(overheadBreakRisk({ head: STONE, sides: [STONE, STONE, AIR, null], isLiquid }), null)
 })
 
+// --- a pillar may be built of sand; a bridge may not -------------------------
+
+t('THE SAND BOTS: the vertical pillar accepts falling blocks', () => {
+  // board-a-Bravo sat on 83 sand and isolated-b-Comet on 75 -- more than enough
+  // to climb 45 blocks -- and shaftAscend refused every one, because SCAFFOLD
+  // excluded anything that obeys gravity. Gravity only matters unsupported: a
+  // pillar places each block on TOP of the column under the bot.
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const m = src.match(/^const SCAFFOLD = (\/\^.*\$\/)/m)
+  assert.ok(m, 'the SCAFFOLD pattern moved; re-read this test')
+  const re = new RegExp(m[1].slice(1, -1))
+  for (const name of ['sand', 'gravel', 'red_sand']) {
+    assert.ok(re.test(name), `${name} is what the stuck bots are standing on`)
+  }
+  for (const name of ['cobblestone', 'dirt', 'oak_planks', 'deepslate']) {
+    assert.ok(re.test(name), `${name} regressed out of the pillar set`)
+  }
+  for (const name of ['diamond', 'iron_ingot', 'stick']) {
+    assert.ok(!re.test(name), `${name} is not a building block`)
+  }
+})
+
+t('A RUNG MUST NOT COST A FAILED ATTEMPT: what we ask for, we can use', () => {
+  // climbPrerequisite and the stranded-advice list both send a bot to fetch
+  // gravel. If the climb then refuses gravel, the bot is charged a failure for
+  // doing exactly what it was told -- the one shape the ladder rule forbids.
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const m = src.match(/^const SCAFFOLD = (\/\^.*\$\/)/m)
+  const re = new RegExp(m[1].slice(1, -1))
+  // Only the two lists that name BLOCKS TO PILLAR WITH -- scaffoldPrereqFor and
+  // the 'no scaffold' branch of climbPrerequisite. A third `items:` array names
+  // pickaxes for the dig-failed branch, and a pickaxe is a tool, not scaffold.
+  const advised = new Set()
+  for (const block of src.matchAll(/items:\s*\[([^\]]*)\]/gs)) {
+    const names = [...block[1].matchAll(/'([a-z_]+)'/g)].map(q => q[1])
+    if (names.some(n => /_pickaxe$/.test(n))) continue     // a tool list, not a block list
+    names.forEach(n => advised.add(n))
+  }
+  assert.ok(advised.size >= 8, `found only ${advised.size} advised climb blocks; re-read this test`)
+  assert.ok(advised.has('gravel'), 'the gravel advice is what this test exists for')
+  for (const name of advised) {
+    assert.ok(re.test(name),
+      `the bot is told to gather ${name} to climb, and the climb will not place it`)
+  }
+})
+
 // --- both fixes are actually wired in ---------------------------------------
 
 t('index.mjs installs the wider scaffold list on the live profile', () => {
