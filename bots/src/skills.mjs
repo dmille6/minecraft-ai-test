@@ -3374,8 +3374,19 @@ export async function shaftAscend(bot, targetY, signal, { maxSteps = 96, deadlin
         await withTimeout(bot.dig(head), plan.budgetMs, bot, {
           what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} },
         })
-      } catch {
-        return { gained: p.y - startY, stopped: `dig failed on ${head.name}` }
+      } catch (e) {
+        // NAME THE FAILURE. This swallowed the error and reported a bare "dig
+        // failed on <block>", which `climbAdvice` then turned into "this stone
+        // needs a pickaxe" -- advice that sends a bot underground to fetch wood
+        // that only exists on the surface it cannot reach.
+        //
+        // After the budget fix, deepslate gets 24.5s and stone 15s, and the dig
+        // should not be timing out. It still reports failure 71 times an hour at
+        // y=-17 and y=-26, and the reason is not recoverable from the logs
+        // because this line threw it away. A wrong diagnosis costs more than a
+        // missing one: the old message asserted a cause it had never checked.
+        const why = (e?.message || String(e)).slice(0, 60)
+        return { gained: p.y - startY, stopped: `dig failed on ${head.name}: ${why}` }
       }
       if (FALLING.has(head.name)) { await sleep(500); continue }  // column settles, re-check
       await sleep(120)
