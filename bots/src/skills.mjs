@@ -2980,7 +2980,7 @@ export function equivalentTools (item) {
  * above TOOL_RANK names it -- and it sat at y=2 holding 24 cobbled_deepslate
  * and 10 sticks, which is a stone_pickaxe, being told 885 times to make gold.
  */
-function craftableAlternative (bot, item) {
+export function craftableAlternative (bot, item) {
   try {
     const alts = equivalentTools(item)
     if (!alts.length) return ''
