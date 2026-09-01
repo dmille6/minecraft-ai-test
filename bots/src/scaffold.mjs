@@ -82,3 +82,77 @@ export function overheadBreakRisk ({ head = null, sides = [], isLiquid = b => fa
   }
   return null
 }
+
+/**
+ * WHERE ELSE COULD THIS COLUMN HAVE BEEN?
+ *
+ * `overheadBreakRisk` is right and stays untouched. What was missing is the
+ * next sentence. A refusal ended `shaftAscend` outright, the skill reported
+ * `liquid beside the block overhead (water)`, and the advice line told the
+ * MODEL to "walk a few blocks away from the water" -- a deterministic move
+ * handed to a decision loop that never made it.
+ *
+ * Measured 2026-09-01 over a full walk of every skill log: 262 such refusals,
+ * all water and no lava, across 9 bots, and EVERY bot pinned to one or two
+ * cells. board-c-Alpha stopped 71 times from exactly (1394, 44, 346);
+ * isolated-a-Delta 66 times from (542, 7, 220); placebo-b-Delta 81 times from
+ * (421, 44, -307). The guard refuses, the climb returns, the model re-proposes
+ * `surface`, and the bot digs at the same wet ceiling forever. Nothing in the
+ * loop ever tries a different column, so the correct refusal has become a
+ * permanent trap.
+ *
+ * THIS DOES NOT MAKE A BOT MORE WILLING TO BE NEAR WATER, which is the failure
+ * mode this project has paid for twice -- the kelp widening that tripled
+ * drownings and the global reflex demotion that multiplied them 7.5x. It only
+ * answers "which nearby column would the UNCHANGED guard already say yes to",
+ * and every candidate must satisfy the same rule verbatim. The bot ends up
+ * further from the water than it started, never closer, and the ceiling it
+ * eventually breaks has no liquid beside it -- exactly the invariant the guard
+ * has always enforced.
+ *
+ * The corridor must be dry AND walkable end to end. `clear` rejects liquid at
+ * head and foot rather than treating it as swimmable: this is a walk, not a
+ * swim, and a bot that wades sideways to reach a ladder has taken on a risk the
+ * climb never needed. `standable` rejects a liquid floor for the same reason
+ * and a missing one because a hole is a fall.
+ *
+ * LAVA CLOSES AN AXIS RATHER THAN SKIPPING A CELL. Water beside your feet is
+ * harmless -- believing otherwise is the exact opinion that cost 99.1% of
+ * pillar attempts -- but lava beside your feet burns, and a cell past lava can
+ * only be reached by walking beside it. board-c-Alpha's own perception scan
+ * reported 27 lava blocks at the frozen cell, so this is not hypothetical.
+ *
+ * @param at        (dx,dy,dz) -> block, relative to the bot's FEET
+ * @param maxOut    how far along one axis to look; the walk is straight-line
+ * @returns {dx,dz,dist} the nearest column the guard already allows, or null
+ */
+export function dryColumnStep ({
+  at = () => null,
+  isLiquid = () => false,
+  isLava = b => /lava/.test(b?.name ?? ''),
+  maxOut = 4,
+} = {}) {
+  const clear = b => !!b && !isLiquid(b) && b.boundingBox === 'empty'
+  const standable = b => !!b && !isLiquid(b) && b.boundingBox === 'block'
+  const AXES = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+  let best = null
+  for (const [ax, az] of AXES) {
+    for (let d = 1; d <= maxOut; d++) {
+      const x = ax * d, z = az * d
+      if (!clear(at(x, 0, z)) || !clear(at(x, 1, z))) break   // wall or liquid: axis closed
+      if (!standable(at(x, -1, z))) break                     // hole or liquid floor
+      if (AXES.some(([sx, sz]) => isLava(at(x + sx, 0, z + sz)) || isLava(at(x + sx, 1, z + sz)))) break
+      // THE ONE AUTHORITY. A candidate is dry because the shipped guard says
+      // so, not because this function has its own opinion about water.
+      const risk = overheadBreakRisk({
+        head: at(x, 2, z),
+        sides: AXES.map(([sx, sz]) => at(x + sx, 2, z + sz)),
+        isLiquid,
+      })
+      if (risk) continue                                      // wet here too; keep walking
+      if (!best || d < best.dist) best = { dx: ax, dz: az, dist: d }
+      break
+    }
+  }
+  return best
+}

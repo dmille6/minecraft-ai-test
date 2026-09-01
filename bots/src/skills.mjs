@@ -29,7 +29,7 @@ import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
-import { overheadBreakRisk } from './scaffold.mjs'
+import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { breathPlan } from './swim-breath.mjs'
@@ -481,7 +481,8 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
             kind: 'ride_floor_down',
             status: r.descended >= 1 ? 'success' : 'failed',
             detail: `descended ${r.descended.toFixed(0)} blocks from y=${Math.round(before2.y)} ` +
-                    `using ${r.placed} placed block(s)` + (r.stopped ? ` — stopped: ${r.stopped}` : ''),
+                    `using ${r.placed} placed block(s) and ${r.rode} free step(s)` +
+                    (r.stopped ? ` — stopped: ${r.stopped}` : ''),
             snapshot: snapshot(bot),
           })
           if (bot.entity.position.distanceTo(before2) >= 2) continue
@@ -2357,11 +2358,56 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
   }
 
-  // ONE BEARING FOR THE WHOLE DESCENT. A bearing recomputed per step follows
-  // the bot's own yaw, and the yaw swings while the pathfinder walks it into
-  // each tread -- so the stair curls back into itself and the bot digs through
-  // its own steps. Chosen once, from where the bot is already facing, and held.
-  const bear = stairBearing(bot)
+  // ONE BEARING FOR THE WHOLE DESCENT -- BUT CHOSEN, NOT INHERITED.
+  //
+  // Still chosen once and held. A bearing recomputed per step follows the bot's
+  // own yaw, and the yaw swings while the pathfinder walks it into each tread --
+  // so the stair curls back into itself and the bot digs through its own steps.
+  //
+  // What it is no longer is a READING of where the bot happens to be facing.
+  // That made the yaw a hard constraint on the world: if the single cardinal it
+  // snapped to had water in the tread, `mine` refused; the next decision cycle
+  // found the bot facing the same way, snapped to the same cardinal, and
+  // refused again. Measured over the full telemetry walk, 80 bots:
+  //
+  //     water refusals                          1,418
+  //     ...with distance_moved = 0              1,370  (96.6%)
+  //     ...in a streak of >=2 consecutive mine   249 streaks, longest 45
+  //     y at refusal                            61-63  (sea level is 63)
+  //
+  // Every one of those 1,370 refused before taking a single step, standing on
+  // dry land at a shoreline, where at least one of the other three cardinals
+  // runs inland. None of them was ever tried. That is the entrapment signature:
+  // the bot is not failing to mine, it is failing to CHOOSE.
+  //
+  // So score all four against the world: longest dry run, then fewest liquid
+  // faces exposed, then the way the bot is already facing. No turn is needed to
+  // dig -- the bearing is pure geometry, `bot.dig` looks at the block it is
+  // given and the pathfinder walks the tread -- so choosing costs nothing but
+  // the lookahead scan.
+  //
+  // This is the shape every project that solved it uses, arrived at from the
+  // other end: mineflayer-pathfinder re-derives all four cardinals at every A*
+  // node and prices a blocked one at 100 rather than aborting the search
+  // (lib/movements.js getNeighbors), and Baritone's `blacklistClosestOnFailure`
+  // demotes the candidate that failed instead of the task. A refusal that does
+  // not retire the candidate that caused it hands the next decision the same
+  // input and gets the same output -- which is the 1,418 above, exactly.
+  const choice = chooseStairBearing(bot, bot.entity.position.floored())
+  const bear = choice.bear
+  const facing = stairBearing(bot)
+  // Compared BY VALUE. Both come from the same CARDINALS array today, so `!==`
+  // would work -- and would silently stop logging the day anyone clones one.
+  if (bear.x !== facing.x || bear.z !== facing.z) {
+    // MEASURABILITY. Only logged when the choice actually departs from the yaw,
+    // because that is the event the fix exists to produce; a record on every
+    // descent would be 62,000 lines saying nothing happened.
+    logEvent({ kind: 'mine_bearing_turned',
+               detail: `stair bearing (${bear.x},${bear.z}) instead of the facing ` +
+                       `(${facing.x},${facing.z}): ${choice.runway} dry steps ahead ` +
+                       `vs ${stairRunway(bot, bot.entity.position.floored(), facing)}`,
+               snapshot: snapshot(bot) })
+  }
   let steps = 0
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
     check(signal)
@@ -2414,7 +2460,11 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     if (!below) break
     for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom']]) {
       const b = bot.blockAt(pos)
-      if (b && (b.name === 'lava' || b.name === 'water')) {
+      // ONE PREDICATE. stairLiquid is what chooseStairBearing scored the four
+      // cardinals with; if this test and that one ever drift, the chooser hands
+      // the loop a bearing the loop refuses and the livelock comes back with a
+      // lookahead scan bolted on top.
+      if (stairLiquid(b)) {
         // `hazard_interrupt` is what classifyFailure returned for this string (it
         // matches on the word "lava"), so the class is preserved rather than
         // improved -- the taxonomy that Kibana aggregates must not shift under an
@@ -2422,7 +2472,17 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         // and that mislabel is worth fixing separately.
         return { status: 'failed', failClass: 'hazard_interrupt',
                  detail: `stopped at y=${Math.round(bot.entity.position.y)}: ` +
-                         `${b.name} in the ${what} ahead` }
+                         `${b.name} in the ${what} ahead` +
+                         // THE OBSERVATION HAS TO NAME THE ONLY MOVE LEFT.
+                         // runway 0 means all four cardinals were wet at the
+                         // first tread, so calling `mine` again from this exact
+                         // cell cannot do anything -- which is precisely the
+                         // loop the fleet was in. Say so, and name `goto`.
+                         (choice.runway === 0
+                           ? ' — and in every other direction from here, so mining ' +
+                             'again from this spot cannot help; goto somewhere ' +
+                             'drier first, or gather on the surface'
+                           : '') }
       }
     }
     // DO NOT BREAK THE FLOOR OVER A HOLE.
@@ -2547,10 +2607,136 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
  * step and the bot clips the corner between them. mineflayer's yaw is 0 at
  * south (+z) and increases counter-clockwise.
  */
-export function stairBearing (bot) {
+const CARDINALS = [{ x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }, { x: 1, z: 0 }]
+
+function yawQuadrant (bot) {
   const yaw = bot?.entity?.yaw ?? 0
-  const q = ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4
-  return [{ x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }, { x: 1, z: 0 }][q]
+  return ((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4
+}
+
+export function stairBearing (bot) {
+  return CARDINALS[yawQuadrant(bot)]
+}
+
+/**
+ * The four cardinals in PREFERENCE order for a bot already facing one of them:
+ * straight ahead, then the two ninety-degree turns, then the reverse.
+ *
+ * Facing first because a bearing costs nothing to choose but something to
+ * follow: the pathfinder is already pointed that way, and a stair that runs
+ * where the bot was going is the one the model asked for. The reverse is last
+ * because it is the only turn that walks the stair back over the ground the
+ * bot just crossed.
+ */
+export function stairBearings (bot) {
+  const q = yawQuadrant(bot)
+  return [q, (q + 1) % 4, (q + 3) % 4, (q + 2) % 4].map(i => CARDINALS[i])
+}
+
+/**
+ * THE GUARD'S OWN TEST FOR "I WILL NOT DIG THIS".
+ *
+ * Exported and used by BOTH the chooser and the guard inside `mine`, because
+ * the one way a chooser can make things worse is to disagree with the guard:
+ * pick a bearing the guard then refuses and the livelock is rebuilt one layer
+ * up, with a lookahead scan added to pay for it.
+ *
+ * Deliberately NOT a general wetness test. Widening `isWet()` from `water` to
+ * kelp and seagrass on 2026-08-29 multiplied drownings sevenfold and was rolled
+ * back; block name equality is the predicate that has held.
+ */
+export function stairLiquid (b) {
+  return !!b && (b.name === 'lava' || b.name === 'water')
+}
+
+/** How far a stair can see before it has to look. Four steps is one shoreline. */
+export const STAIR_LOOKAHEAD = 4
+
+/**
+ * How many consecutive treads a stair from `from` along `bear` could cut before
+ * the guard would refuse one, capped at `depth`.
+ *
+ * This is the guard's geometry replayed on paper: at step i the bot stands at
+ * `from + i*bear - i*y`, and the cells it must open are the tread one along and
+ * one down, plus the headroom over it. Nothing is dug and nothing moves.
+ */
+export function stairRunway (bot, from, bear, depth = STAIR_LOOKAHEAD) {
+  let n = 0
+  for (let i = 0; i < depth; i++) {
+    const stand = from.offset(bear.x * i, -i, bear.z * i)
+    if (stairLiquid(bot.blockAt(stand.offset(bear.x, -1, bear.z))) ||
+        stairLiquid(bot.blockAt(stand.offset(bear.x, 0, bear.z)))) break
+    n++
+  }
+  return n
+}
+
+/**
+ * The neighbourhood that decides whether opening a cell lets a liquid in:
+ * above, and the four horizontals. NOT below -- both mineflayer-pathfinder's
+ * `dontCreateFlow` (lib/movements.js, Movements.safeToBreak) and Baritone's
+ * `avoidAdjacentBreaking` check exactly these five and deliberately skip down,
+ * because a block sitting ON liquid is not a way in.
+ */
+const FLOW_NEIGHBOURS = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
+
+/**
+ * How many liquid faces the stair would expose if it ran `bear` from `from`.
+ *
+ * A TIE-BREAK, NOT A GUARD. Upstream treats liquid adjacency as a hard refusal
+ * to break the block; mineflayer-collectblock then turns that refusal off on
+ * every single call (CollectBlock.ts sets `dontCreateFlow = false` before each
+ * collect) because as a veto it stops the bot doing anything. So it is used
+ * here only to order cardinals that are otherwise equally dry: at a shoreline,
+ * two directions can both run four dry steps while one of them runs along the
+ * water and the other runs inland. Inland is the one that does not flood.
+ *
+ * It can never add a refusal, which matters: this whole change exists to stop
+ * `mine` refusing, and a new veto smuggled in beside it would be a bad trade.
+ */
+export function stairFlowRisk (bot, from, bear, depth = STAIR_LOOKAHEAD) {
+  let touching = 0
+  const n = stairRunway(bot, from, bear, depth)
+  for (let i = 0; i < n; i++) {
+    const stand = from.offset(bear.x * i, -i, bear.z * i)
+    for (const cell of [stand.offset(bear.x, -1, bear.z), stand.offset(bear.x, 0, bear.z)]) {
+      for (const [dx, dy, dz] of FLOW_NEIGHBOURS) {
+        if (stairLiquid(bot.blockAt(cell.offset(dx, dy, dz)))) touching++
+      }
+    }
+  }
+  return touching
+}
+
+/**
+ * WHICH WAY THE STAIR SHOULD RUN.
+ *
+ * Returns `{ bear, runway, flow }` for the best cardinal, ranked
+ * lexicographically:
+ *
+ *   1. the longest DRY RUN, because a bearing that dies in one step just moves
+ *      the refusal one step along;
+ *   2. then the fewest LIQUID FACES exposed, which at a shoreline is the
+ *      difference between digging inland and digging along the water;
+ *   3. then the way the bot is already FACING, because turning for no reason
+ *      costs a walk nobody asked for and makes the stair unpredictable.
+ *
+ * `runway === 0` means every cardinal is wet at its first tread. That is a fact
+ * about where the bot is standing, not about mining, and `mine` says so.
+ *
+ * Nothing is dug and nothing moves: at most 4 bearings x 4 steps x 2 cells x
+ * 6 reads of an already-loaded chunk.
+ */
+export function chooseStairBearing (bot, from, depth = STAIR_LOOKAHEAD) {
+  let best = null
+  for (const bear of stairBearings(bot)) {
+    const runway = stairRunway(bot, from, bear, depth)
+    const flow = runway === 0 ? 0 : stairFlowRisk(bot, from, bear, depth)
+    if (!best || runway > best.runway || (runway === best.runway && flow < best.flow)) {
+      best = { bear, runway, flow }
+    }
+  }
+  return best
 }
 
 // --------------------------------------------------------------- sleep -----
@@ -3376,6 +3562,13 @@ export async function shaftAscend(bot, targetY, signal,
 
   const startY = bot.entity.position.y
   let noGain = 0
+  // A REFUSAL TO DIG IS NOT A REFUSAL TO CLIMB. See dryColumnStep in
+  // scaffold.mjs for the measurement; the cap is here because a bot that keeps
+  // finding the next column wet must stop shuffling and report, not wander. It
+  // is deliberately small: the sidestep exists to leave ONE bad column, and
+  // three tries is already two more than the observed geometry needs.
+  const MAX_SIDESTEPS = 3
+  let sidesteps = 0
   for (let i = 0; i < maxSteps; i++) {
     check(signal)
     // STOP ON THE CALLER'S CLOCK, NOT ON THE RUNNER'S ABORT. A bare-handed
@@ -3395,16 +3588,66 @@ export async function shaftAscend(bot, targetY, signal,
     if (p.y >= targetY) break
     const yBefore = p.y
 
+    // ONE LIQUID AUTHORITY. The `liquid overhead` branch that used to sit here
+    // returned the identical string overheadBreakRisk already returns for the
+    // same case -- so it was dead weight that also stole the sidestep below
+    // from the one bot shape that most needs it: a head under a water ceiling,
+    // where walking out from under it is the whole answer.
     const head = bot.blockAt(p.offset(0, 2, 0))
-    if (head && LIQUID.has(head.name)) {
-      return { gained: p.y - startY, stopped: `liquid overhead (${head.name})` }
-    }
+    const isLiquid = b => !!b && LIQUID.has(b.name)
     const flood = overheadBreakRisk({
       head,
       sides: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => bot.blockAt(p.offset(dx, 2, dz))),
-      isLiquid: b => !!b && LIQUID.has(b.name),
+      isLiquid,
     })
-    if (flood) return { gained: p.y - startY, stopped: flood }
+    if (flood) {
+      // WALK OUT FROM UNDER IT RATHER THAN GIVING UP.
+      //
+      // The guard is unchanged and still absolute: this branch never digs. It
+      // asks whether a nearby column exists that the SAME guard already
+      // permits, and if one does, walks there and lets the next iteration
+      // re-decide from the real position. 262 refusals, 9 bots, each pinned to
+      // one or two cells for days, because this was a `return`.
+      const step = sidesteps < MAX_SIDESTEPS
+        ? dryColumnStep({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz)), isLiquid })
+        : null
+      if (!step) return { gained: p.y - startY, stopped: flood }
+      sidesteps += 1
+      const fromX = Math.floor(p.x), fromZ = Math.floor(p.z)
+      const wantX = fromX + step.dx * step.dist, wantZ = fromZ + step.dz * step.dist
+      // Look at HEAD height: aiming at the target's feet pitches the bot down
+      // and the walk turns into a stare at the floor one block ahead.
+      await bot.lookAt(p.offset(step.dx * step.dist, 1, step.dz * step.dist)).catch(() => {})
+      bot.setControlState('forward', true)
+      // RELEASE THE CONTROL ON EVERY EXIT, including the abort. A control state
+      // has no owner and no timeout -- `check(signal)` throws straight out of
+      // this function, and a `forward` left latched walks the bot until
+      // something else happens to seize the body.
+      try {
+        // CUT POWER THE MOMENT THE CELL IS REACHED. A flat sleep sized for the
+        // distance overshoots -- 4.3 blocks/sec means a 600ms walk crosses two
+        // cells -- and the cell past the target is the one the corridor check
+        // never cleared.
+        const until = Date.now() + 500 * step.dist + 500
+        while (Date.now() < until) {
+          await sleep(60)
+          check(signal)
+          const q = bot.entity.position
+          if (Math.floor(q.x) === wantX && Math.floor(q.z) === wantZ) break
+        }
+      } finally { bot.setControlState('forward', false) }
+      await sleep(150)
+      // VERIFY BY READING THE WORLD BACK, but only for the thing this step
+      // owns: did the body actually move? Where it landed is re-judged by the
+      // guard at the top of the next iteration, which is a stronger check than
+      // any dead-reckoning here -- and the honest one, since a bot that cannot
+      // move at all must report that rather than loop.
+      const now = bot.entity.position
+      if (Math.floor(now.x) === fromX && Math.floor(now.z) === fromZ) {
+        return { gained: now.y - startY, stopped: `${flood}; could not step clear of it` }
+      }
+      continue
+    }
 
     if (head && head.name !== 'air' && head.boundingBox !== 'empty') {
       const tool = bestTool(bot, head)
@@ -3491,6 +3734,13 @@ export async function shaftAscend(bot, targetY, signal,
  * It costs one carried block per block of descent -- the stranded bots carry
  * 226 logs, which is 226 blocks of it.
  *
+ * AND WHEN THERE IS ALREADY SOMETHING THERE, IT COSTS NOTHING. A bot that
+ * pillared up is standing on its own pillar: the block two below its feet is
+ * solid, so breaking the floor drops it exactly one block onto the column it
+ * built, for free. That is the common case by two orders of magnitude, and for
+ * five days it was the one case this function refused. See the comment on the
+ * `needsBridge` branch.
+ *
  * NOT A NEW SKILL, deliberately. It hangs off `goto` after the pathfinder has
  * proved there is no route, so the model needs to learn nothing: it already
  * proposes `goto <the ground>` and is right to. A new verb would add prompt,
@@ -3501,37 +3751,106 @@ export async function shaftAscend(bot, targetY, signal,
  * Every step verifies the placement by reading the world back and verifies
  * that the bot actually descended; anything unexpected stops the whole thing.
  */
-async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
+export async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
   const startY = bot.entity.position.y
-  let placed = 0, stopped = null
+  let placed = 0, rode = 0, stopped = null
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) { stopped = 'aborted'; break }
     const yBefore = bot.entity.position.y
     const floor = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!floor || floor.boundingBox !== 'block') { stopped = 'nothing underfoot to stand on'; break }
-    // The space we are about to fall into must be empty, or this is not a
-    // one-block descent and the guard in `mine` was right about it.
+
     const target = bot.entity.position.offset(0, -2, 0)
     const under = bot.blockAt(target)
-    if (under && under.boundingBox === 'block') { stopped = 'solid below — ordinary digging applies'; break }
-    if (under && /water|lava/.test(under.name ?? '')) { stopped = `${under.name} below`; break }
-
-    const item = rescueBlocks(bot)[0]
-    if (!item) { stopped = 'no placeable blocks left'; break }
-    await bot.equip(item, 'hand').catch(() => {})
-    // Place against the UNDERSIDE of the floor we are standing on.
-    try {
-      await withTimeout(bot.placeBlock(floor, new Vec3(0, -1, 0)), 6_000, bot,
-                        { what: 'place', onTimeout: () => {} })
-    } catch { /* verified by readback below, not by the absence of a throw */ }
-    await sleep(180)
-    const nowUnder = bot.blockAt(target)
-    if (!nowUnder || nowUnder.boundingBox !== 'block') {
-      stopped = 'could not place beneath the floor'; break
+    // Liquid first, and only when it is not a solid block: a water_cauldron is
+    // named for water and is something to stand on. Lava or water at y-2 is a
+    // one-block drop into it, which is not a rescue.
+    if (under && under.boundingBox !== 'block' && /water|lava/.test(under.name ?? '')) {
+      stopped = `${under.name} below`; break
     }
-    placed++
 
-    // Break the floor and drop exactly one block onto what we just placed.
+    // TWO WAYS DOWN, AND THE FREE ONE IS 98% OF REALITY.
+    //
+    // This used to stop dead here:
+    //
+    //     if (under && under.boundingBox === 'block')
+    //       { stopped = 'solid below — ordinary digging applies'; break }
+    //
+    // Measured 2026-08-26..08-31: 1,879 of 1,917 calls ended on that line, and
+    // `ordinary digging` never applied to any of them. board-c-Delta alone sat
+    // at 575,221,157 for days -- 30,395 noPath, 3,689 `stranded_high`, 1,626
+    // goto failures, 810 of these -- because a bot that PILLARED to the build
+    // limit is standing on the pillar it built. The block two below its feet is
+    // its own column, so the guard fired on every attempt, and the `mine` it
+    // deferred to digs a STAIRCASE: the next tread is horizontally offset into
+    // the 250-block void, `hollow >= 3`, `void_below`, correctly refused. Two
+    // correct-looking guards, one on each side, and no way through.
+    //
+    // Solid at y-2 is not a reason to stop. It is the CHEAPEST step there is:
+    // break the floor and land on it, one block, no fall damage, no material
+    // spent. Placing is the fallback for when there is nothing there, not the
+    // point of the manoeuvre. The point is descending one block at a time.
+    //
+    // The two branches compose: ride the pillar down for free until it runs
+    // out, bridge the gap when it does, ride again on what was just placed. A
+    // cave roof mid-descent is handled by the same loop with no special case.
+    const needsBridge = !under || under.boundingBox !== 'block'
+    if (needsBridge) {
+      const item = rescueBlocks(bot)[0]
+      if (!item) { stopped = 'no placeable blocks left'; break }
+      await bot.equip(item, 'hand').catch(() => {})
+      // Place against the UNDERSIDE of the floor we are standing on. VERIFIED
+      // IN PRODUCTION, contrary to the folk belief that it cannot work: 23
+      // calls placed 140 blocks this way and 21 of them descended, three of
+      // them the full 16 steps (isolated-b-Comet y=320->304, placebo-a-Comet
+      // y=200->184, placebo-d-Bravo y=222->206). The primitive was never the
+      // defect; the guard above it was.
+      //
+      // forceLook, AND IT IS NOT A DETAIL. bot.placeBlock hardcodes
+      // `{ swingArm: 'right' }` and never sets forceLook (mineflayer 4.37.1,
+      // lib/plugins/place_block.js:33), so _genericPlace awaits a SLEWED
+      // bot.lookAt at 0.15 rad/tick and no block_place packet leaves until the
+      // head finishes turning. Straight down is the worst case for that: the
+      // look target is the floor's bottom-face centre, directly beneath a
+      // centred bot, so lookAt's `yaw = atan2(-dx, -dz)` is atan2(-0, -0) --
+      // which is -PI, a spurious 180-degree turn, ~21 ticks of slewing before
+      // anything is sent. mineflayer-pathfinder #296 is this exact bug
+      // ("the bot stands in its way ... waiting too long before sending the
+      // place packet") and IceTank's answer there is forceLook, which resolves
+      // in the same tick. Measured here: 17 of the 40 attempts that reached
+      // this line failed with `could not place beneath the floor`.
+      //
+      // _placeBlockWithOptions is the only way to pass it (place_block.js:37).
+      // It is private, so fall back rather than crash if a bump removes it.
+      const place = bot._placeBlockWithOptions
+        ? bot._placeBlockWithOptions(floor, new Vec3(0, -1, 0),
+                                     { swingArm: 'right', forceLook: true })
+        : bot.placeBlock(floor, new Vec3(0, -1, 0))
+      try {
+        await withTimeout(place, 6_000, bot, { what: 'place', onTimeout: () => {} })
+      } catch { /* verified by readback below, not by the absence of a throw */ }
+      await sleep(180)
+      const nowUnder = bot.blockAt(target)
+      if (!nowUnder || nowUnder.boundingBox !== 'block') {
+        stopped = 'could not place beneath the floor'; break
+      }
+      placed++
+    } else {
+      rode++
+    }
+
+    // Break the floor and drop exactly one block onto whatever is beneath it --
+    // the block just placed, or the pillar that was already there.
+    //
+    // PRICE THE DIG FROM THE BLOCK, as the climb does. The flat 10,000ms this
+    // replaces is under the bare-handed break time of deepslate (24.5s) and
+    // cobbled_deepslate, so a toolless bot riding its own deepslate pillar down
+    // could only ever report `could not break the floor` -- naming our budget,
+    // not the cause. Refusing up front says the true thing instead.
+    const tool = bestTool(bot, floor)
+    const plan = planDig(predictedDigMs(floor, tool))
+    if (plan.refuse) { stopped = `cannot break ${floor.name} by hand`; break }
+    if (tool) await bot.equip(tool, 'hand').catch(() => {})
     try {
       // Same reasoning as the climb: breaking the floor to fall through it wants
       // the hole, not the cobble.
@@ -3539,7 +3858,7 @@ async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
       // only thing that could stop a hung floor dig. So the timeout handler has
       // to do it -- an empty handler here would leave bot.dig running after
       // withTimeout had already rejected.
-      await withTimeout(bot.dig(floor), 10_000, bot,
+      await withTimeout(bot.dig(floor), plan.budgetMs, bot,
                         { what: 'dig', needsDrop: false,
                           onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } } })
     } catch { stopped = 'could not break the floor'; break }
@@ -3548,7 +3867,7 @@ async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
     if (fell < 0.5) { stopped = 'floor broke but the bot did not descend'; break }
     if (fell > 3.5) { stopped = `fell ${Math.round(fell)} blocks — stopping before that repeats`; break }
   }
-  return { descended: startY - bot.entity.position.y, placed, stopped }
+  return { descended: startY - bot.entity.position.y, placed, rode, stopped }
 }
 
 /**
