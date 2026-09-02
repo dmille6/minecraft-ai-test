@@ -51,7 +51,7 @@ answering. A crash is recoverable. A confident zero gets written into a report.
     ev.rate('_death', bots='auto')     # per bot-hour over the ACTUAL span
     ev.names()                         # what is really in there
 """
-import json, glob, gzip, datetime, difflib
+import json, glob, gzip, os, datetime, difflib
 
 
 def canon(name):
@@ -83,6 +83,13 @@ def open_log(path):
     return open(path, errors='replace')
 
 
+MAX_WALK_BYTES = 6 * 2**30   # ~6 GB of raw telemetry; see the guard in load()
+
+
+class WalkTooWide(MemoryError):
+    """A walk large enough to OOM the host it runs on."""
+
+
 class ZeroLooksWrong(LookupError):
     """A zero that is probably a query bug rather than a finding."""
 
@@ -101,8 +108,56 @@ class Events:
         now = datetime.datetime.now(datetime.timezone.utc)
         if since_minutes is not None:
             since = now - datetime.timedelta(minutes=since_minutes)
+        # REFUSE A WALK THAT WOULD OOM THE HOST.
+        #
+        # These files live on the FLEET host. `Events.load()` holds every row in
+        # RAM, and Python objects run ~10x the raw JSON, so a wide window over
+        # rotated history is tens of GB. Measured 2026-09-02: two such loads were
+        # OOM-killed (exit 137). Killing python is survivable; the kernel picking
+        # a bot process instead is not, and an analysis query must never be able
+        # to take the fleet down.
+        #
+        # Compressed files are counted at an assumed 25x, which is conservative
+        # for this data (16 GB -> 634 MB measured, ~26x). Raising the cap is not
+        # the fix -- Elasticsearch holds the full archive and is where a wide
+        # window belongs.
+        est = 0
+        for f in glob.glob(paths):
+            try:
+                sz = os.path.getsize(f)
+                est += sz * 25 if f.endswith('.gz') else sz
+            except OSError:
+                pass
+        if est > MAX_WALK_BYTES:
+            raise WalkTooWide(
+                'this walk would read ~%.1f GB of telemetry into memory, over the '
+                '%.1f GB cap. Narrow the window with since_minutes=, or query '
+                'Elasticsearch (mcai-skill-agents) for anything wider than a few '
+                'days -- it is the authoritative archive.'
+                % (est / 2**30, MAX_WALK_BYTES / 2**30))
+
         rows, newest = [], None
         for f in sorted(glob.glob(paths)):
+            # A ROTATED FILE CANNOT CONTAIN ROWS NEWER THAN ITS OWN MTIME.
+            #
+            # Without this the walk decompresses all 14 rotated generations to
+            # answer a 30-minute question: measured 130s for 26k rows, against
+            # the 4.2s this module's docstring still advertises. That gap is how
+            # the full-walk rule stops being followed.
+            #
+            # mtime, not the `-YYYYMMDD` in the name: it is exact rather than a
+            # day-granularity guess, and it is right for the live file too (still
+            # being appended, so never skipped). Skipping only ever removes files
+            # that provably predate the window, so the walk stays FULL for the
+            # window asked for -- which is the property that matters.
+            if since is not None:
+                try:
+                    import os as _os, datetime as _dt
+                    mt = _dt.datetime.fromtimestamp(_os.path.getmtime(f), _dt.timezone.utc)
+                    if mt < since:
+                        continue
+                except OSError:
+                    pass
             try:
                 with open_log(f) as fh:
                     for line in fh:
