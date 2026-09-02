@@ -169,3 +169,90 @@ so a bot **one block** below sea level must carry 9 blocks for a 1-block climb.
 982 of 1,538 refusals are at y=60–69 with a median debt of 1. The fix is
 `max(min(FLOOR, debt), ceil(debt/4))` — no cliff at the top, byte-identical at
 depth. Written up, not built.
+
+---
+
+## 7. Position-delta watchdog — entrapment is now the largest term in the endpoint
+
+**Why this is first among the unstarted work.** The gather collapse decomposes
+into two unrelated things, and only one of them is about gathering:
+
+```
+             immobile   gather%      gather% among
+day            bots     ALL bots     bots that MOVED >100 blocks
+2026-08-22        0      27.8%          27.8%
+2026-08-25        3      23.5%          24.7%      <- fleet doubled 40 -> 80
+2026-08-26        6      15.9%          17.3%      <- a real one-day STEP
+2026-08-29       23      12.1%          16.6%
+2026-08-31       23      13.0%          19.3%
+2026-09-01       19      10.5%          16.3%
+```
+
+Among bots that still move, the rate has been **flat at 16–19% since 08-26**.
+The headline kept falling only because the immobile fraction grew from 6 to 28.
+The "steady −0.20 pp/day decline" was an artifact of averaging a step change
+against growing dead weight. `bots.distance_moved > 100/day` is an *independent*
+criterion — it does not condition on the gather outcome, so this is not the
+selection effect that the same cut on "zero gather successes" would produce.
+
+**So entrapment is not a side issue competing with the endpoint. Right now it IS
+most of the endpoint's movement.** This restates [[entrapment-dominates]] with a
+number.
+
+**Build.** `fleet-watchdog.sh` already exists and has **no committed timer**.
+It must watch **position deltas**, not events. `mineflayer-pathfinder#222`
+documents hangs where `thinkTimeout` never fires and *no event is emitted at
+all* — which is what the 922/day `cognitive loop went silent` restarts are.
+A stuck bot cannot be detected by listening for its complaints. Liveness is not
+health: all 15 frozen bots emit ~900 decisions/day and pass every liveness check.
+
+**Detect, then classify, then act — in that order, and do not skip to acting.**
+Two trap classes are already named: drowning-reflex livelock (~3,000
+`_drowning_ceiling_no_air` per bot per day at a flat 125/hour) and marooned-high
+(~1,390 `_maroon_climb_refused` per day). A restart does NOT free either.
+
+**Do not** auto-restart on detection as the first move. That converts a
+measurable trap into an invisible one, and restarts destroy WorkingMemory
+**arm-asymmetrically** — the exact confound `fleet-recycle.sh` exists to prevent.
+Detect and record first; intervene only with a named remedy per trap class.
+
+**Blocked on nothing.** This is pure instrumentation and can start immediately.
+
+---
+
+## 8. `smelt` — the tech ceiling is a missing verb, not a capability limit
+
+**Measured 2026-09-01, 7 days, positive control on every zero** (the identical
+`exists`+`cardinality` query returns 1,032,353 docs / 35 bots for `raw_iron` and
+3,711,216 docs / 73 bots for `furnace`, so the instrument sees presence):
+
+```
+furnace        73 / 80 bots        raw_iron      35 / 80 bots
+coal           72 / 80 bots        raw_copper    61 / 80 bots
+iron_ingot      0 / 80  ever       copper_ingot   0 / 80  ever
+```
+
+`grep -rn smelt bots/src` returns **nothing**. A bot can craft a furnace
+(`milestones.mjs:304-306`), place it (`skills.mjs:1872`), and then has no action
+that can put anything into it. Every hour spent gathering ore is discarded.
+
+Two upstream blockages compound it, and a `smelt` verb alone will not clear them:
+- `TECH_LADDER` (`milestones.mjs:292-307`) **terminates at `furnace ×1`**.
+- Every Block-2 bot runs `BOT_ROLE=gatherer`, whose chain
+  (`milestones.mjs:210-215`) is four `gather` rungs with **no craft rung at all**.
+  The miner chain that has the real ladder (`:196-206`) is assigned to nobody.
+
+**Fleet lifetime high-water mark:** `isolated-b-Bravo` held 6 `iron_ingot` for
+five hours on 2026-08-25 and an `iron_pickaxe` until the 26th. One bot, one
+window, never repeated. All 3,937 `iron_ingot` docs in history are that bot.
+
+**Sequence after #7 and after the 08-26 step is explained.** A new rung landing
+on a moving baseline cannot be evaluated. This is a straightforward feature, not
+a research problem — the research problem is why the baseline moves.
+
+**Context, so nobody reads the ceiling as a result:** iron is where every
+published system falls over — Optimus-3 0.55, JARVIS-1 0.36, Plan4MC 0.17,
+DEPS 0.126, GPT-4V 0.00, human 0.86. Being below iron is the field norm. Being
+below iron with no smelt verb is not a capability finding. And do not compare
+against Voyager's 21±7 iterations-to-iron: its own install docs require a
+*Multi Server Pause* mod that freezes the world during inference, n=3.
