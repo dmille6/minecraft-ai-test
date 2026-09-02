@@ -36,6 +36,108 @@ const MAX_WATER_VETO_STREAK = 3
 // window on the marooned bots: 850 _path_reset and 91 _path_noPath.
 const LAND_TRAVEL = new Set(['goto', 'explore'])
 
+// --------------------------------------------------------------------------
+// THE BOOTSTRAP EXEMPTION'S TWO QUESTIONS, PULLED OUT AND MADE PURE
+// --------------------------------------------------------------------------
+//
+// Both used to be one line inside check(), and that line was wrong in a way no
+// test could see. They are decisions, so they are exported functions with
+// asserted behaviour -- see test/bootstrap-table.test.mjs.
+
+/**
+ * Where would a crafting table come from, if the bot needed one right now?
+ *
+ * ASK "CAN I GET TO A TABLE", NOT "DO I HAVE ONE". The craft skill has three
+ * routes and takes them in this order (skills.mjs): a table already placed
+ * within 32 blocks; one in the pack, which it places; or none at all, in which
+ * case -- when nothing else is missing -- it CRAFTS one and places it. That
+ * third route is not hypothetical: it was added because the measured modal
+ * blocked bot was
+ *
+ *     Miner01   4 oak_log, 14 oak_planks, 5 stick   -- and no table
+ *
+ * which can trivially make one. A gate that only counted tables in inventory
+ * and tables on the ground would refuse exactly that bot, so this asks the
+ * third question too. `crafting_table` itself has requiresTable = false, so
+ * recipesFor answers it with no table argument at all.
+ *
+ * maxDistance 32 is not a free parameter: it must equal the craft skill's own
+ * findBlock radius, or the gate admits bots the skill will then refuse.
+ *
+ * @returns {'reach'|'pack'|'craft'|null}
+ */
+export function tableRoute(bot) {
+  try {
+    const near = bot?.findBlock?.({
+      matching: b => bot.registry?.blocks?.[b.type]?.name === 'crafting_table',
+      maxDistance: 32,
+    })
+    if (near) return 'reach'
+    if (bot?.inventory?.items?.().some(i => i.name === 'crafting_table')) return 'pack'
+    const t = bot?.registry?.itemsByName?.crafting_table
+    if (t && (bot.recipesFor?.(t.id, null, 1, null) ?? []).length > 0) return 'craft'
+    return null
+  } catch { return null }
+}
+
+/** What one craft consumes, as {name: count}. `null` when it cannot be priced. */
+export function recipeCost(recipe, registry) {
+  const out = {}
+  for (const d of recipe?.delta ?? []) {
+    if (d.count >= 0) continue                       // positive = produced
+    const n = registry?.items?.[d.id]?.name
+    if (!n) return null
+    out[n] = (out[n] ?? 0) + (-d.count)
+  }
+  return out
+}
+
+/**
+ * Can ONE inventory pay for the pickaxe AND, when it must make one, the table?
+ *
+ * THE TABLE IS NOT FREE WHEN IT HAS TO BE CRAFTED. A crafting_table is 4 planks
+ * and a wooden_pickaxe is 3 planks + 2 sticks, and mineflayer's recipesFor
+ * prices each recipe against the inventory in ISOLATION -- so a bot holding
+ * exactly 4 planks and 2 sticks passes both checks separately and can satisfy
+ * neither after the other. Admitting it would be the 3f1e942 regression in
+ * miniature: a cheap veto traded for an expensive failure, each doomed attempt
+ * costing a runner slot instead of a rejection.
+ *
+ * A cost of `null` means "could not be priced", and an unpriceable cost is
+ * treated as PAYABLE. mineflayer has already said the recipe is satisfiable on
+ * its own; the only thing this function adds is the interaction between two
+ * recipes, and with no information about that interaction there is no grounds
+ * for an extra refusal.
+ *
+ * @param have        {name: count} held right now
+ * @param pickCosts   one entry per candidate pickaxe recipe
+ * @param tableCosts  one entry per candidate table recipe, or null when the
+ *                    table costs nothing (already placed, or already in the pack)
+ */
+export function affordsBootstrap(have, pickCosts, tableCosts = null) {
+  const pays = (inv, c) => c == null ||
+    Object.entries(c).every(([n, k]) => (inv[n] ?? 0) >= k)
+  const picks = pickCosts ?? []
+  if (!picks.length) return false
+  if (tableCosts == null) return picks.some(c => pays(have, c))
+  const tables = tableCosts
+  if (!tables.length) return false
+  for (const p of picks) {
+    if (!pays(have, p)) continue
+    const left = { ...have }
+    for (const [n, k] of Object.entries(p ?? {})) left[n] = (left[n] ?? 0) - k
+    if (tables.some(t => pays(left, t))) return true
+  }
+  return false
+}
+
+/** Everything the bot is carrying, summed by name. */
+export function heldCounts(bot) {
+  const out = {}
+  for (const i of bot?.inventory?.items?.() ?? []) out[i.name] = (out[i.name] ?? 0) + (i.count ?? 0)
+  return out
+}
+
 const inWater = (bot) => {
   const b = bot?.blockAt?.(bot.entity?.position)
   return !!b && (b.name === 'water' || b.name === 'bubble_column')
@@ -402,11 +504,51 @@ export class AdmissionControl {
     // question the skill would answer a second later. When the answer is no,
     // the veto is CORRECT: the bot needs to gather wood, and the milestone
     // chain is what should be driving that.
+    //
+    // ...AND FOR ITS WHOLE LIFE IT ASKED A QUESTION WHOSE ANSWER IS ALWAYS NO.
+    //
+    // The fourth argument to recipesFor is `craftingTable`, and this passed
+    // `null`. mineflayer's requirementsMetForRecipe (lib/plugins/craft.js:224)
+    // opens with `if (recipe.requiresTable && !craftingTable) return false`, and
+    // ALL TWELVE wooden_pickaxe recipes have requiresTable = true -- verified
+    // against minecraft-data for 1.21.8, 1.21.11 and 1.21.4, with
+    // crafting_table, stick and oak_planks as the positive control that the same
+    // query does find table-free recipes (12, 13 and 1 of them respectively).
+    // prismarine-recipe's computeRequiresTable (lib/recipe.js:39-55) has three
+    // return paths -- `inShape.length > 2`, any `row.length > 2`, and
+    // `spaceLeft < 0` -- and a pickaxe trips the first.
+    //
+    // So this returned [] on EVERY call it has ever made, and the exemption
+    // below has never once fired in production. Both halves of the fix matter:
+    // `true` for the table argument, because the skill will place or make one;
+    // and tableRoute() to check it actually can, because a blanket `true` is the
+    // 3f1e942 regression -- 160 craft calls, 150 missing_ingredients, output
+    // down from 37 successes in 69 bot-hours to 1 in 27.
+    //
+    // NOT MODELLED, DELIBERATELY: the skill also recurses one level down and
+    // would turn 4 oak_log into planks. A bot holding logs and no planks is
+    // therefore refused here. That is the conservative direction against a
+    // measured regression, and it is not a dead end -- `craft oak_planks` is a
+    // different avoid key, needs no table, and is not vetoed; probation lets
+    // every 5th attempt through; MAX_VETO_STREAK forces one through after four;
+    // and milestone_critical above already exempts the case outright when the
+    // active milestone names the pickaxe. Tested as a chain, not as a guard.
     const canCraftPick = () => {
       try {
         const def = bot.registry?.itemsByName?.wooden_pickaxe
         if (!def) return false
-        return (bot.recipesFor?.(def.id, null, 1, null) ?? []).length > 0
+        const route = tableRoute(bot)
+        if (!route) return false
+        const picks = bot.recipesFor?.(def.id, null, 1, true) ?? []
+        if (!picks.length) return false
+        if (route !== 'craft') return true
+        // The table has to come out of the same planks the pickaxe needs.
+        const tdef = bot.registry?.itemsByName?.crafting_table
+        const tables = tdef ? (bot.recipesFor?.(tdef.id, null, 1, null) ?? []) : []
+        return affordsBootstrap(
+          heldCounts(bot),
+          picks.map(r => recipeCost(r, bot.registry)),
+          tables.map(r => recipeCost(r, bot.registry)))
       } catch { return false }
     }
     if (priorFails >= 4 && skill === 'craft' && args.item === 'wooden_pickaxe' &&

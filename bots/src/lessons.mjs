@@ -32,6 +32,121 @@ const FORGET_MS = 20 * 60 * 1000   // one failure forgiven per 20 idle minutes
 
 const key = actionKey   // ONE definition, shared with the admission gate
 
+// ---------------------------------------------------------------------------
+// EVIDENCE ABOUT A PLACE, WHICH WAS BEING FILED AS EVIDENCE ABOUT A VERB
+// ---------------------------------------------------------------------------
+//
+// `nothing_found` is the honest answer to "is there any oak_log within N blocks
+// of where I am standing". That is a fact about HERE. The avoid key is
+// skill+args and carries no position, so the answer was stored as a permanent
+// global fact about the verb -- measured live as 68% of the `gather oak_log`
+// rule and 9,909 of 51,742 recorded failures fleet-wide, on the verb this
+// experiment's primary endpoint is counted in.
+//
+// WHY THE SET LIVES HERE AND NOT IN cognitive.mjs, WITH THE OTHER TWO.
+//
+// Because this is the file that ACTS on it. The first draft passed a
+// `placeScoped` boolean from cognitive.mjs's call site into recordFailure, and
+// review killed it for a reason worth writing down: flipping that one argument
+// from `true` to `false` switched the whole feature off with the suite still
+// green, because nothing bound the policy Set to the call. A policy that lives
+// one file away from its enactment is a policy with a seam in it, and
+// scripts/purge-situational-lessons.py is this repo's standing proof that
+// mirrored taxonomies drift. So the class list is defined where it is obeyed,
+// cognitive.mjs imports THIS object (not a copy of it), and recordFailure's
+// signature is unchanged -- there is no argument left to get wrong.
+export const EVIDENCE_ONLY_IF_HERE = new Set([
+  'nothing_found',
+])
+
+// How far apart two searches must be before they are different QUESTIONS.
+//
+// Every skill that can emit `nothing_found` searches a bounded radius, and the
+// largest of those radii is 48:
+//
+//   gather    maxDistance, model-supplied, defaulting to 32 and CLAMPED to 48
+//             (skills.mjs: `Math.min(Number(maxDistance) || 32, 48)`)
+//   deposit   hard-coded 48
+//   withdraw  hard-coded 48
+//
+// Two 48-radius spheres are disjoint only when their centres are more than 96
+// apart, so 96 is the smallest threshold that is honest for EVERY search this
+// class can contain. It has to be the maximum rather than the default, because
+// `maxDistance` is not in the avoid key -- actionKey keeps only
+// `SKILLS.gather.args`, which is ['count','block'] -- so one key genuinely
+// mixes 32- and 48-radius searches and there is no way to tell them apart after
+// the fact. A radius of 64 (2x the DEFAULT) was the first draft's premise and
+// it is false: two 48-radius searches 65 apart overlap by 31 blocks and would
+// have read as a new place.
+//
+// Rejected alternatives, so the choice is judgeable rather than merely made:
+//   - adding maxDistance to gather's arg key would split one learned rule into
+//     many, invalidating what the fleet has already learned, and would do
+//     nothing for deposit/withdraw, which take no radius argument at all;
+//   - storing the radius on the entry fails exactly where it is needed most:
+//     state.mjs's classifier mints `nothing_found` from prose (`d.includes('no ')
+//     && d.includes('within')`), so the class also arrives from skills that
+//     never declared a radius and could not report one.
+export const PLACE_RADIUS = 96
+
+// How many distinct places one rule remembers before it stops being about them.
+//
+// FAILING IN EIGHT DIFFERENT REGIONS IS EVIDENCE ABOUT THE VERB. Past this,
+// place scoping switches itself off for that key and the counter accrues
+// exactly as it did before -- which is the only thing that keeps a bot from
+// wandering its way out of ever learning anything.
+export const PLACE_MEMORY = 8
+
+// HORIZONTAL ONLY, which is the convention this file already keeps: recordHazard
+// (`Math.hypot(s.x - pos.x, s.z - pos.z)` plus a separate |dy| band) and
+// hazardsNear both measure places this way. The first draft used 3D distance,
+// which makes digging straight down 64 blocks read as "a new place" -- granting
+// amnesty at exactly the moment a bot has descended away from the wood it is
+// failing to find, which is the failure this change exists to stop.
+//
+// KNOWN LIMIT, stated rather than hidden: a bot that changes only its DEPTH
+// gets no amnesty, and depth genuinely changes what is findable (below y=0
+// every ore is the `deepslate_` variant). That case is left to the existing
+// wall-clock forgiveness rather than fixed here, because the alternative
+// re-opens the dig-straight-down hole above.
+const horizontal = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
+
+/**
+ * Does this failure say something new about WHERE, given where it has said it before?
+ *
+ * Pure and exported ON PURPOSE -- this is the decision, and a decision asserted
+ * by grepping the source is a decision that has never been tested.
+ *
+ * REMEMBERING A LIST RATHER THAN A LAST POSITION IS THE POINT. The first draft
+ * kept one `where` and reset whenever the bot was far from it, so a bot
+ * oscillating between two spots 70 blocks apart reset on EVERY failure and
+ * reached a fail count of 1 after 40 failures. Against a list, the second visit
+ * to either spot is `known` and accrues normally.
+ *
+ * @returns {'unusable'|'seed'|'known'|'new'|'saturated'}
+ *   unusable   position unknown -- accrue, remember nothing. An unknown place
+ *              must never be CHEAPER than a known one, or a mid-respawn gap in
+ *              bot.entity becomes a free amnesty on every rule the bot holds.
+ *   seed       the entry has no place history to compare against, so nothing
+ *              here says the bot MOVED. Accrue, and remember this place.
+ *              This is also what stops a hive peer dissolving an inherited
+ *              count on its very first observation.
+ *   known      within `radius` of somewhere this rule already failed. Accrue.
+ *   new        genuinely somewhere else, and there is room to remember it.
+ *              THE ONLY VERDICT THAT RESTARTS THE STREAK.
+ *   saturated  somewhere else, but the rule has already failed in `memory`
+ *              distinct regions. Accrue: it is about the verb now.
+ */
+export function placeVerdict(places, pos, radius = PLACE_RADIUS, memory = PLACE_MEMORY) {
+  if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return 'unusable'
+  const seen = (Array.isArray(places) ? places : [])
+    .filter(p => p && Number.isFinite(p.x) && Number.isFinite(p.z))
+  if (!seen.length) return 'seed'
+  if (seen.some(p => horizontal(p, pos) <= radius)) return 'known'
+  if (seen.length >= memory) return 'saturated'
+  return 'new'
+}
+
 export class Lessons {
   constructor(file, shared = false) {
     this.shared = shared
@@ -178,6 +293,16 @@ export class Lessons {
         }
       }
       if (mine.where) theirs.where = mine.where
+      // ...AND `where` IS THE LAST THING IN THIS ENTRY THAT MAY BE READ AS A
+      // DECISION INPUT. Last-writer-wins is fine for the board report that
+      // consumes it (board-visit.mjs) and catastrophic for anything that
+      // compares it to the reader's own body: a peer's position is not this
+      // bot's history. Place memory is therefore a MAP KEYED BY BOT, and this
+      // merge writes only our own slot, leaving every peer's untouched.
+      if (mine.placesBy?.[config.bot.name]) {
+        theirs.placesBy = { ...(theirs.placesBy ?? {}),
+                            [config.bot.name]: mine.placesBy[config.bot.name] }
+      }
     }
     // DELETIONS MUST PROPAGATE. The loop above only visits keys this bot still
     // holds, so a rule cleared by decay, by the MAX_AVOID cap, or by a success
@@ -242,6 +367,13 @@ export class Lessons {
         v.fails = Math.floor(v.fails / 2)
         if (v.fails < 2) delete this.data.avoid[k]
         this.forgiven.add(k)   // decay is a decision; it must survive the merge
+        // Place memory decays with the count it qualifies. Without this a rule
+        // that saturated its eight regions in the first hour would never be
+        // place-scoped again for the life of the store, and the feature would
+        // quietly switch itself off on exactly the long-lived rules it was
+        // written for. Every slot is equally stale here -- nobody, this bot or
+        // any peer, has touched the entry in DECAY_MS.
+        delete v.placesBy
       }
     }
     for (const s of this.data.sites) {
@@ -333,6 +465,44 @@ export class Lessons {
       this.forgiven.add(k)
     }
     if (gap != null) e.gap = gap
+
+    // A PLACE THAT MOVED IS A DIFFERENT QUESTION -- exactly the shape of the gap
+    // gate above, and for the same reason. See EVIDENCE_ONLY_IF_HERE.
+    //
+    // PLACE MEMORY IS PER-BOT AND MUST STAY THAT WAY. `e.where` is merged
+    // last-writer-wins across a shared store, so under the first draft a hive
+    // peer LOADED a teammate's body position and compared its own position
+    // against it:
+    //
+    //     Alpha: 20 failures at (0,70,0)        -> fails=20, where={0,70,0}
+    //     Bravo loads the shared store          -> inherits fails=20 AND where
+    //     Bravo's FIRST failure at (300,70,300) -> far from Alpha's body,
+    //                                              so fails=1, forgiven=true
+    //     after Bravo saves, the POOL believes  -> fails=1
+    //
+    // That fires ONLY in arms with a shared store, so it preferentially
+    // dissolves learned_avoid in precisely the hive pools whose convergence is
+    // this experiment's measured effect. Two things stop it: the history is
+    // keyed by bot name and the merge writes only this bot's own slot, and an
+    // empty history returns `seed` rather than `new` -- a bot that has never
+    // failed here has not MOVED, it has merely arrived.
+    if (EVIDENCE_ONLY_IF_HERE.has(failClass)) {
+      const me = config.bot.name
+      const places = e.placesBy?.[me] ?? []
+      const verdict = placeVerdict(places, pos)
+      if (verdict === 'new') {
+        e.fails = 0
+        e.since = Date.now()
+        this.forgiven.add(k)   // a deliberate reset must survive the hive merge
+      }
+      if (verdict === 'new' || verdict === 'seed') {
+        e.placesBy = {
+          ...(e.placesBy ?? {}),
+          [me]: [...places, { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) }]
+            .slice(-PLACE_MEMORY),
+        }
+      }
+    }
 
     // Wall-clock decay is measured from when the CURRENT streak started, not
     // from the last touch. Keying it to the last touch meant probation -- which

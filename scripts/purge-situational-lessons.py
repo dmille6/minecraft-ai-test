@@ -24,13 +24,13 @@ so they have to be removed once, explicitly.
 
 An entry is dropped when the classes that are no longer action-evidence account
 for the MAJORITY of its recorded failures. Mixed entries that are mostly genuine
-(no_path, nothing_found, buried) are kept and merely have the situational share
-subtracted, because throwing away real evidence to fix a bookkeeping bug trades
-one wrong belief for another.
+(no_path, buried) are kept and merely have the situational share subtracted,
+because throwing away real evidence to fix a bookkeeping bug trades one wrong
+belief for another.
 """
 import argparse, json, os, shutil, sys, time
 
-# Mirrors cognitive.mjs. Anything not in EVIDENCE_ABOUT_THE_ACTION there is not
+# Mirrors the evidence taxonomy. Anything not classed as evidence there is not
 # evidence here -- listed explicitly rather than inverted, so a rename in one
 # file cannot silently widen the purge in the other.
 NOT_EVIDENCE = {
@@ -39,7 +39,30 @@ NOT_EVIDENCE = {
     "path_timeout", "path_interrupted", "path_budget", "collect_budget",
     "goal_changed", "died", "other",
 }
+# STILL_EVIDENCE is EVIDENCE_ABOUT_THE_ACTION (cognitive.mjs) UNION
+# EVIDENCE_ONLY_IF_HERE (lessons.mjs). `nothing_found` moved from the first to
+# the second and is still evidence, so it still belongs here rather than in
+# NOT_EVIDENCE -- the runtime change is that its streak now restarts when the
+# bot reaches a region the rule has not failed in before, and that is a decision
+# this one-shot purge cannot make retroactively because the entries it edits
+# carry no position history. Rules written before the change therefore keep
+# their nothing_found share and shed it the normal way: decay, and the first
+# place-scoped reset once the bot moves.
+#
+# This is the stale mirror the docstring warns about, so it is no longer left to
+# vigilance: bots/test/learned-avoid-scope.test.mjs reads THIS FILE and asserts
+# both lists still agree with the Sets the bots actually run on.
 STILL_EVIDENCE = {"no_path", "path_incomplete", "nothing_found", "buried", "bad_target"}
+PLACE_SCOPED = {"nothing_found"}
+
+# STILL_EVIDENCE was documentation and nothing more -- a constant declared and
+# never read, which this repo has been bitten by before. These two lines give it
+# a job: a class that is in both lists would be purged AND kept, and a
+# place-scoped class that is not evidence at all could not be place-scoped.
+assert not (STILL_EVIDENCE & NOT_EVIDENCE), \
+    f"a class cannot be both kept and purged: {STILL_EVIDENCE & NOT_EVIDENCE}"
+assert PLACE_SCOPED <= STILL_EVIDENCE, \
+    f"place-scoped classes must still be evidence: {PLACE_SCOPED - STILL_EVIDENCE}"
 
 
 def purge_file(path, apply):

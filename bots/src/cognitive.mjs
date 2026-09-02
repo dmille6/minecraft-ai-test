@@ -22,7 +22,7 @@ import { logLlm, logEvent, log } from './logger.mjs'
 // bots/test/evidence-gate.test.mjs that keeps it that way.
 import { snapshot, perception, biomeAt } from './state.mjs'
 import { config } from './config.mjs'
-import { openLessons } from './lessons.mjs'
+import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
 
 // Only skills that can succeed WITHOUT a human present.
@@ -61,7 +61,9 @@ import { announceUnreachable } from './comms.mjs'
 const EVIDENCE_ABOUT_THE_ACTION = new Set([
   'no_path',          // the world says there is no route
   'path_incomplete',  // moved, but repeatedly cannot finish the route
-  'nothing_found',    // searched and the target is not there
+  // `nothing_found` USED TO LIVE HERE. It is still the world talking, but what
+  // it says is "there is none within N blocks of HERE" -- a fact about a place,
+  // stored against a key that carries no position. See EVIDENCE_ONLY_IF_HERE.
   'buried',           // the material exists but under solid ground
   'bad_target',       // the args name something that does not exist
 ])
@@ -102,7 +104,28 @@ const SKILL_NAMES = Object.keys(SKILLS)
 // Exported so the classification policy can be asserted directly. The bug this
 // replaced was invisible in every test precisely because the policy lived only
 // inside a branch that needed a live bot to reach.
-export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK }
+//
+// EVIDENCE_ONLY_IF_HERE is RE-EXPORTED, NOT REDECLARED -- it is the very object
+// lessons.mjs obeys, imported above, so the taxonomy still reads as three sets
+// in one place while having exactly one definition. A copy here would be the
+// stale-mirror bug that scripts/purge-situational-lessons.py already carries a
+// warning about.
+export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK, EVIDENCE_ONLY_IF_HERE }
+
+/**
+ * Which store does this failure class get a vote in, and under what condition?
+ *
+ * ONE source of truth, pure and exported, so the policy can be asserted
+ * directly instead of by reading which of three Sets a name happens to be in.
+ * `null` means "logged, charted, and given no vote" -- the default, and the
+ * polarity the allowlist exists to keep.
+ */
+export function evidenceScope(failClass) {
+  if (EVIDENCE_ABOUT_THE_ACTION.has(failClass)) return 'action'
+  if (EVIDENCE_ONLY_IF_STUCK.has(failClass)) return 'situation'
+  if (EVIDENCE_ONLY_IF_HERE.has(failClass)) return 'place'
+  return null
+}
 
 // A prerequisite that cannot be met (no dirt reachable from a sealed pocket)
 // must not become a permanent goal -- that would be this fix wearing its own
@@ -563,7 +586,17 @@ export class CognitiveLoop {
         // That is the safe direction, and the source scan in
         // bots/test/evidence-gate.test.mjs means it should never fire.
         const fc = r.failClass ?? 'other'
-        if (EVIDENCE_ABOUT_THE_ACTION.has(fc)) {
+        // ONE CALL FOR BOTH SETS, and deliberately so. A place-scoped class is
+        // recorded with exactly the arguments an action-scoped one is; whether
+        // the streak is scoped to a place is decided inside recordFailure from
+        // the class itself (lessons.mjs, EVIDENCE_ONLY_IF_HERE). The first draft
+        // passed a `placeScoped` boolean from right here, and review's verdict
+        // was fatal and correct: flipping that one literal to `false` switched
+        // the feature off with the whole suite still green. There is no longer a
+        // literal here to flip -- only the routing, and a nothing_found failure
+        // that reaches the store at all is asserted end-to-end through this
+        // exact branch in test/learned-avoid-scope.test.mjs.
+        if (EVIDENCE_ABOUT_THE_ACTION.has(fc) || EVIDENCE_ONLY_IF_HERE.has(fc)) {
           this.lessons.recordFailure(admitted.skill, admitted.args, fc, this.bot.entity?.position)
         } else if (EVIDENCE_ONLY_IF_STUCK.has(fc)) {
           // Passing `gap` is what makes this conditional. A skill that cannot

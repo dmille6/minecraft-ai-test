@@ -35,15 +35,41 @@ const t = (name, got, want) => {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  (got ${JSON.stringify(got)}, want ${JSON.stringify(want)})`}`)
 }
 
-const bot = ({ y = 70, items = [], canCraft = true } = {}) => ({
+// THIS STUB USED TO IGNORE ITS ARGUMENTS, AND THAT IS WHY IT MISSED THE BUG.
+//
+// It was `recipesFor: () => (canCraft ? [{id:1}] : [])`, which answers the same
+// thing however it is called -- so it could not see that the exemption was
+// passing `null` for mineflayer's fourth argument, `craftingTable`. Every
+// wooden_pickaxe recipe has requiresTable = true and
+// requirementsMetForRecipe() returns false immediately for those when no table
+// is supplied, so the real call returned [] on every invocation it ever made
+// and the exemption below never once fired in production. These tests passed
+// throughout. See test/bootstrap-table.test.mjs, which runs the same decisions
+// against real minecraft-data rather than against a stub.
+const ID = { wooden_pickaxe: 1, stone_pickaxe: 2, stick: 3, oak_planks: 4, crafting_table: 5 }
+const NEEDS_TABLE = new Set([ID.wooden_pickaxe, ID.stone_pickaxe])
+
+const bot = ({ y = 70, items = [], canCraft = true, tableInReach = false } = {}) => ({
   // recipesFor is what the craft skill itself consults; the exemption must ask
-  // the same question rather than assuming the recipe is satisfiable.
-  recipesFor: () => (canCraft ? [{ id: 1 }] : []),
+  // the same question rather than assuming the recipe is satisfiable. The table
+  // check is mineflayer's, reproduced: a 3x3 recipe offered no table is no
+  // recipe at all.
+  recipesFor: (id, meta, n, craftingTable) => {
+    if (!canCraft) return []
+    if (NEEDS_TABLE.has(id) && !craftingTable) return []
+    return [{ id, delta: [] }]          // empty delta: this bot can afford it
+  },
+  // The gate asks "can I get to a table", so the stub has to be able to answer.
+  findBlock: () => (tableInReach ? { position: { x: 1, y, z: 0 }, type: 9 } : null),
   entity: { position: { x: 0, y, z: 0 } },
   inventory: { items: () => items.map(name => ({ name, count: 1 })) },
   players: {},
-  registry: { itemsByName: { wooden_pickaxe: {}, stone_pickaxe: {}, stick: {}, oak_planks: {} },
-              blocksByName: {} },
+  registry: {
+    itemsByName: Object.fromEntries(Object.entries(ID).map(([n, id]) => [n, { id }])),
+    items: Object.fromEntries(Object.entries(ID).map(([n, id]) => [id, { name: n }])),
+    blocks: { 9: { name: 'crafting_table' } },
+    blocksByName: {},
+  },
 })
 
 // --- explore is rescue-class ------------------------------------------------

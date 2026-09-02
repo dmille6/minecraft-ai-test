@@ -35,7 +35,13 @@ process.env.LOG_LEVEL = process.env.LOG_LEVEL ?? 'error'
 
 const { SKILLS, SKILL_CONTRACTS, UNKNOWN_FAIL_CLASSES, statusFor, classifyOutcome } =
   await import('../src/skills.mjs')
-const { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK } = await import('../src/cognitive.mjs')
+const { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK, EVIDENCE_ONLY_IF_HERE,
+        evidenceScope } = await import('../src/cognitive.mjs')
+// Every evidence set, enumerated once. The guard below was written when
+// there were two and kept passing after a third was added -- a window too
+// narrow to see the thing it forbade.
+const EVIDENCE_SETS = { action: EVIDENCE_ABOUT_THE_ACTION, situation: EVIDENCE_ONLY_IF_STUCK,
+                        place: EVIDENCE_ONLY_IF_HERE }
 const { Lessons } = await import('../src/lessons.mjs')
 const { Runner } = await import('../src/runner.mjs')
 
@@ -146,10 +152,12 @@ await t('nothing on the write path calls classifyFailure', () => {
 
 await t('no unknown class is also an evidence class', () => {
   for (const fc of UNKNOWN_FAIL_CLASSES) {
-    assert.ok(!EVIDENCE_ABOUT_THE_ACTION.has(fc),
-      `${fc} names a budget we set, not something the world said`)
-    assert.ok(!EVIDENCE_ONLY_IF_STUCK.has(fc),
-      `${fc} names a budget we set, not a gap the bot can close`)
+    for (const [name, set] of Object.entries(EVIDENCE_SETS)) {
+      assert.ok(!set.has(fc),
+        `${fc} names a budget we set, not something the world said -- it is in the ${name} set`)
+    }
+    assert.equal(evidenceScope(fc), null,
+      `${fc} is unknowable, so it must get a vote in no store at all`)
   }
 })
 
