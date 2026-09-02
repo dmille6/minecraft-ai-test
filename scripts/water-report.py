@@ -20,6 +20,12 @@ the future. A detector that cannot say "I do not know" will eventually lie.
 """
 import json, glob, re, sys, collections, datetime
 
+import gzip as _gzip
+def _openlog(p):
+    """Rotated telemetry is gzipped; a plain open() would parse compressed bytes
+    as text and silently yield nothing. See scripts/lib/telemetry.py:open_log."""
+    return _gzip.open(p, 'rt', errors='replace') if p.endswith('.gz') else open(p, errors='replace')
+
 MINS = int(sys.argv[1]) if len(sys.argv) > 1 else None
 NOW = datetime.datetime.now(datetime.timezone.utc)
 CUT = NOW - datetime.timedelta(minutes=MINS) if MINS else NOW.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -35,9 +41,9 @@ bots = collections.defaultdict(set)
 onland = collections.Counter()
 crossings = collections.defaultdict(list)
 
-for f in glob.glob('/var/log/mcai/*/skill-*.jsonl'):
+for f in glob.glob('/var/log/mcai/*/skill-*.jsonl*'):
     try:
-        with open(f, errors='replace') as fh:
+        with _openlog(f) as fh:
             for line in fh:
                 if 'drowning' not in line and 'swim' not in line and '_path' not in line:
                     continue

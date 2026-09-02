@@ -47,6 +47,12 @@ cannot be measured here under a marker the prompt never emits.
 import argparse, datetime, glob, json, sys
 from pathlib import Path
 
+import gzip as _gzip
+def _openlog(p):
+    """Rotated telemetry is gzipped; a plain open() would parse compressed bytes
+    as text and silently yield nothing. See scripts/lib/telemetry.py:open_log."""
+    return _gzip.open(p, 'rt', errors='replace') if p.endswith('.gz') else open(p, errors='replace')
+
 ROOT = Path(__file__).resolve().parent.parent
 REG = json.loads((ROOT / "bots/src/affordances.json").read_text())
 
@@ -163,7 +169,7 @@ def load(paths, since, version=None, arm=None, home=None):
     rows, newest = [], None
     for f in glob.glob(paths):
         try:
-            fh = open(f, errors="replace")
+            fh = _openlog(f)
         except OSError:
             continue
         with fh:
@@ -262,7 +268,7 @@ DIAGNOSIS = {
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--paths", default="/var/log/mcai/*/llm-*.jsonl")
+    ap.add_argument("--paths", default="/var/log/mcai/*/llm-*.jsonl*")
     ap.add_argument("--minutes", type=int, default=120)
     ap.add_argument("--version")
     ap.add_argument("--arm")

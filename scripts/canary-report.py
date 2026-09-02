@@ -32,6 +32,12 @@ THE GATES are pre-declared here rather than argued about afterwards.
 import math
 import argparse, json, glob, datetime, collections, os, sys
 
+import gzip as _gzip
+def _openlog(p):
+    """Rotated telemetry is gzipped; a plain open() would parse compressed bytes
+    as text and silently yield nothing. See scripts/lib/telemetry.py:open_log."""
+    return _gzip.open(p, 'rt', errors='replace') if p.endswith('.gz') else open(p, errors='replace')
+
 # Contiguous water trouble for one bot, split on a gap this long.
 EPISODE_GAP_S = 30
 WATER = {"oxygen_critical_state", "drowning_up", "drowning_to_shore", "drowning_no_shore",
@@ -106,7 +112,7 @@ def load(paths, since, pool):
     rows = collections.defaultdict(list)
     for f in glob.glob(paths):
         bot = os.path.basename(os.path.dirname(f))
-        try: fh = open(f, errors="replace")
+        try: fh = _openlog(f)
         except OSError: continue
         with fh:
             fh.seek(max(0, fh.seek(0, 2) - 30_000_000)); fh.readline()
@@ -278,7 +284,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", required=True)
     ap.add_argument("--minutes", type=int, default=20)
-    ap.add_argument("--paths", default="/var/log/mcai/*/skill-*.jsonl")
+    ap.add_argument("--paths", default="/var/log/mcai/*/skill-*.jsonl*")
     ap.add_argument("--expect", default="",
                     help="the PROGRESS metric this change claims to improve "
                          "(escape_rate | reentry_s | held_frac)")

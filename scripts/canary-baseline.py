@@ -32,6 +32,12 @@ counterpart in the old code at all.
 """
 import argparse, collections, datetime, glob, json, re, sys
 
+import gzip as _gzip
+def _openlog(p):
+    """Rotated telemetry is gzipped; a plain open() would parse compressed bytes
+    as text and silently yield nothing. See scripts/lib/telemetry.py:open_log."""
+    return _gzip.open(p, 'rt', errors='replace') if p.endswith('.gz') else open(p, errors='replace')
+
 Y_RE = re.compile(r'(?:reached|stopped at) y=(-?\d+)')
 
 
@@ -43,7 +49,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--since', required=True)
     ap.add_argument('--until', default='')
-    ap.add_argument('--paths', default='/var/log/mcai/*/skill-*.jsonl')
+    ap.add_argument('--paths', default='/var/log/mcai/*/skill-*.jsonl*')
     ap.add_argument('--json', default='')
     a = ap.parse_args()
     since = parse(a.since)
@@ -71,7 +77,7 @@ def main():
     })
 
     for f in glob.glob(a.paths):
-        try: fh = open(f, errors='replace')
+        try: fh = _openlog(f)
         except OSError: continue
         with fh:
             for line in fh:

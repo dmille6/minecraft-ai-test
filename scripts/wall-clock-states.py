@@ -13,6 +13,12 @@ than blur (per review):
 """
 import json, glob, datetime, collections, os, re, statistics
 
+import gzip as _gzip
+def _openlog(p):
+    """Rotated telemetry is gzipped; a plain open() would parse compressed bytes
+    as text and silently yield nothing. See scripts/lib/telemetry.py:open_log."""
+    return _gzip.open(p, 'rt', errors='replace') if p.endswith('.gz') else open(p, errors='replace')
+
 SEIZE = {"reflex_drowning","oxygen_critical_state","water_surface_hold","drowning_reentry"}
 RELEASE = {"drowning_escaped","drowning_released_timeout","drowning_surfaced_stranded",
            "drowning_yielded_to_swim","water_surface_hold_ended"}
@@ -24,9 +30,9 @@ CAP = 300.0
 now = datetime.datetime.now(datetime.timezone.utc)
 cut = now - datetime.timedelta(hours=3)
 per = collections.defaultdict(list)
-for f in glob.glob("/var/log/mcai/*/skill-*.jsonl"):
+for f in glob.glob("/var/log/mcai/*/skill-*.jsonl*"):
     bot = os.path.basename(os.path.dirname(f))
-    try: fh = open(f, errors="replace")
+    try: fh = _openlog(f)
     except OSError: continue
     with fh:
         fh.seek(max(0, fh.seek(0,2) - 20_000_000)); fh.readline()

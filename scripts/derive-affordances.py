@@ -36,6 +36,12 @@ contamination. That is the result.
 """
 import json, glob, sys, math, collections, datetime
 
+import gzip as _gzip
+def _openlog(p):
+    """Rotated telemetry is gzipped; a plain open() would parse compressed bytes
+    as text and silently yield nothing. See scripts/lib/telemetry.py:open_log."""
+    return _gzip.open(p, 'rt', errors='replace') if p.endswith('.gz') else open(p, errors='replace')
+
 MINS = int(sys.argv[1]) if len(sys.argv) > 1 else None
 NOW = datetime.datetime.now(datetime.timezone.utc)
 CUT = NOW - datetime.timedelta(minutes=MINS) if MINS else NOW.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -62,9 +68,9 @@ TRAP_KINDS = {
 }
 
 rows = []
-for f in glob.glob('/var/log/mcai/*/skill-*.jsonl'):
+for f in glob.glob('/var/log/mcai/*/skill-*.jsonl*'):
     try:
-        with open(f, errors='replace') as fh:
+        with _openlog(f) as fh:
             for line in fh:
                 try: d = json.loads(line)
                 except Exception: continue

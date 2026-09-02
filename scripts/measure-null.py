@@ -28,6 +28,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import importlib.util
+
+import gzip as _gzip
+def _openlog(p):
+    """Rotated telemetry is gzipped; a plain open() would parse compressed bytes
+    as text and silently yield nothing. See scripts/lib/telemetry.py:open_log."""
+    return _gzip.open(p, 'rt', errors='replace') if p.endswith('.gz') else open(p, errors='replace')
 spec = importlib.util.spec_from_file_location("cr", Path(__file__).parent / "canary-report.py")
 cr = importlib.util.module_from_spec(spec); spec.loader.exec_module(cr)
 
@@ -37,7 +43,7 @@ METRICS = [("harvest", "gather_per_exp"), ("reflex-owned", "held_frac"),
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--paths", default="/var/log/mcai/*/skill-*.jsonl")
+    ap.add_argument("--paths", default="/var/log/mcai/*/skill-*.jsonl*")
     ap.add_argument("--window", type=int, default=90)
     ap.add_argument("--steps", type=int, default=6, help="pseudo-deploy times to sweep")
     ap.add_argument("--burn-in", type=int, default=0,

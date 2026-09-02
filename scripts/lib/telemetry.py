@@ -51,12 +51,36 @@ answering. A crash is recoverable. A confident zero gets written into a report.
     ev.rate('_death', bots='auto')     # per bot-hour over the ACTUAL span
     ev.names()                         # what is really in there
 """
-import json, glob, datetime, difflib
+import json, glob, gzip, datetime, difflib
 
 
 def canon(name):
     """Event names are written `_${kind}`; callers use either form."""
     return name[1:] if name.startswith('_') else name
+
+
+
+def open_log(path):
+    """Open a telemetry file whether or not logrotate has compressed it.
+
+    THE FULL-WALK RULE DEPENDS ON THIS. `/var/log/mcai` had no logrotate entry
+    and reached 16 GB; a full walk that took 4.2s when this module was written
+    took over 8 MINUTES on 2026-09-02. Rotation fixes the cost, but rotation also
+    renames history to `skill-<bot>.jsonl-20260902.gz`, which the old default
+    glob `skill-*.jsonl` does NOT match.
+
+    That would have been the worse bug: every caller would still say "full walk",
+    every query would still return rows, and the baseline would have quietly
+    vanished -- the exact failure mode the seek-to-the-tail rule exists to stop,
+    arriving through a filename instead of an offset. Hence the trailing `*` on
+    the default glob and this opener.
+
+    Elasticsearch remains the authoritative archive (mcai-skill-agents back to
+    2026-08-05); these files are the local walk, and they must stay complete.
+    """
+    if path.endswith('.gz'):
+        return gzip.open(path, 'rt', errors='replace')
+    return open(path, errors='replace')
 
 
 class ZeroLooksWrong(LookupError):
@@ -72,15 +96,15 @@ class Events:
             self._by.setdefault(canon(r['name']), []).append(r)
 
     @classmethod
-    def load(cls, paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=None,
+    def load(cls, paths='/var/log/mcai/*/skill-*.jsonl*', since_minutes=None,
              since=None, until=None, version=None):
         now = datetime.datetime.now(datetime.timezone.utc)
         if since_minutes is not None:
             since = now - datetime.timedelta(minutes=since_minutes)
         rows, newest = [], None
-        for f in glob.glob(paths):
+        for f in sorted(glob.glob(paths)):
             try:
-                with open(f, errors='replace') as fh:
+                with open_log(f) as fh:
                     for line in fh:
                         try:
                             d = json.loads(line)
