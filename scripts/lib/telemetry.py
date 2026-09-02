@@ -48,7 +48,7 @@ answering. A crash is recoverable. A confident zero gets written into a report.
     from telemetry import Events
     ev = Events.load(since_minutes=75, version='b6a4845')
     ev.count('water_surface_hold')     # finds _water_surface_hold, or raises
-    ev.rate('_death', bots=40)         # per bot-hour over the ACTUAL span
+    ev.rate('_death', bots='auto')     # per bot-hour over the ACTUAL span
     ev.names()                         # what is really in there
 """
 import json, glob, datetime, difflib
@@ -144,10 +144,27 @@ class Events:
                 f"version filter matched nothing at all")
         return 0
 
-    def rate(self, name, bots=40, allow_zero=False):
-        """Per bot-hour, over the span the data actually covers."""
+    def rate(self, name, bots=None, allow_zero=False):
+        """Per bot-hour, over the span the data actually covers.
+
+        `bots` IS REQUIRED, AND THAT IS THE POINT. It used to default to 40.
+        The fleet became 80 on 2026-08-25 and the default silently kept
+        reporting every rate at twice its true value -- a wrong blessed path,
+        which is worse than no blessed path, because it is the helper people are
+        told to trust instead of hand-rolling.
+
+        Pass `bots='auto'` to count the distinct bots that actually appear in
+        the loaded window. That is usually what you mean, and unlike a constant
+        it cannot drift away from the fleet.
+        """
         if self.span <= 0:
             return 0.0
+        if bots is None:
+            raise TypeError(
+                "rate() needs bots=N (or bots='auto'). It used to default to 40 "
+                "against an 80-bot fleet and reported every rate at 2x.")
+        if bots == 'auto':
+            bots = len({r.get('bot') for r in self.rows if r.get('bot')}) or 1
         return self.count(name, allow_zero) / (bots * self.span)
 
     def of(self, name, allow_zero=False):
