@@ -199,15 +199,62 @@ t('A REFUSAL ASKS FOR BLOCKS, NOT A PICKAXE, AND BACKS OFF', () => {
   const code = strip('../src/reflex.mjs')
   const i = code.indexOf("climbed === 'needs_blocks'")
   assert.ok(i > 0, 'the refusal branch is gone')
-  const branch = code.slice(i, i + 2600)
-  assert.match(branch, /climbRefusals\+\+/, 'a refusal is not counted at all — it will spin')
-  // Scoped to the REFUSAL ARM. Resetting on the success path is correct and
-  // must stay; resetting inside the refusal arm is what makes the backoff flat,
-  // so a permanently blocked bot would be interrupted at a fixed rate forever.
+  // A WINDOW THAT CANNOT SEE THE END OF THE BRANCH FORBIDS NOTHING. This was
+  // 2,600 characters and the branch grew to 2,308; a character budget that
+  // silently stops short is one of the five ways a source assertion has passed
+  // for the wrong reason in this repo. So the window is generous AND its
+  // sufficiency is asserted rather than assumed.
+  const branch = code.slice(i, i + 6000)
+  assert.ok(branch.includes('else if ('),
+    'the window is too narrow to reach the end of the refusal arm, so every ' +
+    'assertion below is scoped to a fragment of the branch it names')
   const arm = branch.slice(0, branch.indexOf('else if ('))
-  assert.ok(!/climbRefusals = 0/.test(arm),
-    'the refusal arm resets its own counter, flattening the backoff')
-  assert.match(arm, /climbRefusals \/ ESCAPE_GIVE_UP_AFTER/,
+
+  // TWO COUNTERS, AND BOTH MUST ADVANCE.
+  //
+  // An earlier version of this fix replaced `climbRefusals++` outright with
+  // `climbRefusals = refusalStreak(...)`, scoping the escalation to one
+  // location. That is right for the RAMP -- measured over 8h on 80 bots, 21.0%
+  // of entombed firings at y=60-79 (n=252) came from bots in motion on both
+  // sides of the event, and four of those across four counties must not buy a
+  // rescue that DIGS. It is wrong for the BACKOFF: for a moving bot the scoped
+  // streak is 1 every time, so the threshold was never reached, so the
+  // prerequisite, the telemetry and the backoff all became unreachable while
+  // the branch kept interrupting every 15s. The lifetime counter is what this
+  // line has always been about and it must still advance.
+  assert.match(arm, /climbRefusals\+\+/,
+    'a refusal is not counted at all — it will spin')
+  assert.match(arm, /refusalPlaceStreak = refusalStreak\(/,
+    'the location-scoped streak is gone, so four refusals in four counties buy ' +
+    'the same digging rescue as four in one pocket')
+
+  // THE RESET MUST BE EARNED, and that is the invariant, not the absence of a
+  // string. Resetting on the success path is correct and must stay; resetting
+  // where the bot made no progress is what makes the backoff flat, so a
+  // permanently blocked bot would be interrupted at a fixed rate forever.
+  //
+  // The refusal arm now contains a success path of its own -- an escape ramp
+  // that cut real steps -- so the scan is split at that guard instead of being
+  // applied to the whole arm. A ramp step is permanent walkable progress, and
+  // escalating a backoff against a rescue that is working is the exact failure
+  // `pillarOut` paid for: one block per invocation, ninety minutes in the hole,
+  // every log line reading "escaping".
+  const guard = arm.indexOf('if (stair && stair.steps > 0) {')
+  assert.ok(guard > 0,
+    'the ramp-progress guard is gone, so the reset below has no owner and the ' +
+    'exemption this assertion grants is unbounded')
+  const noProgress = arm.slice(arm.indexOf('} else {', guard))
+  assert.ok(noProgress.length > 200, 'the no-progress arm did not parse; the split is wrong')
+  assert.ok(!/climbRefusals = 0/.test(noProgress),
+    'the refusal arm resets its own counter without progress, flattening the backoff')
+  // THE BACKOFF MOVED INTO `refusalEscalation` and is tested by behaviour in
+  // entombed-escape.test.mjs. What is asserted here is that the branch USES it
+  // -- a computed backoff sitting in a function nobody calls is the constant
+  // asserted present but never used, which is one of the five ways a source
+  // assertion in this repo has passed for the wrong reason.
+  assert.match(noProgress, /lastEscapeAt = Date\.now\(\) \+ esc\.backoffMs/,
+    'the no-progress arm does not back off at all')
+  assert.match(code, /backoffMs: Math\.min\(\(refusals \/ every\) \* 60_000, capMs\)/,
     'the backoff must escalate with the refusal count, not sit at a fixed delay')
   assert.match(branch, /pendingPrereq/, 'a refusal never tells the goal layer anything')
   assert.match(branch, /climbPrereqFor\(climbed\)/,
