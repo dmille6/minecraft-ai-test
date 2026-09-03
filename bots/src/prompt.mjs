@@ -13,6 +13,7 @@ import { SKILLS } from './skills.mjs'
 import { fuelTicks, smeltRecipeFor } from './smelting.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
+import { mineTargetHint } from './mining.mjs'
 import { isExposed, isSafeToBreak } from './skills.mjs'
 import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
@@ -374,18 +375,22 @@ const TERRAIN_HIGH = 90
  */
 export function yContext (y) {
   const yr = Math.round(y)
+  // The mine constraint travels WITH the elevation, on every branch, because the
+  // model cannot obey a rule the observation does not carry.
+  const mh = mineTargetHint(y)
+  const tail = mh ? ` ${mh}` : ''
   if (yr >= CLIMB_CEILING) {
     return `ELEVATION: y=${yr} — ABOVE THE CLIMB CEILING (${CLIMB_CEILING}). ` +
       `Ground is ~${yr - TERRAIN_HIGH} blocks BELOW you, around y=${TERRAIN_LOW}-${TERRAIN_HIGH}. ` +
       `Climbing cannot help and falling from here is lethal: you must DESCEND ` +
-      `(mine digs a staircase down). Do not goto a distant target until you are down.`
+      `(mine digs a staircase down). Do not goto a distant target until you are down.` + tail
   }
   if (yr < TERRAIN_LOW) {
     return `ELEVATION: y=${yr} — below the surface, which is around ` +
-      `y=${TERRAIN_LOW}-${TERRAIN_HIGH}. Use surface to get out before a distant goto.`
+      `y=${TERRAIN_LOW}-${TERRAIN_HIGH}. Use surface to get out before a distant goto.` + tail
   }
   return `ELEVATION: y=${yr}. Surface terrain here is y=${TERRAIN_LOW}-${TERRAIN_HIGH}; ` +
-    `keep goto targets near your current elevation.`
+    `keep goto targets near your current elevation.` + tail
 }
 
 function bearing (dx, dz) {

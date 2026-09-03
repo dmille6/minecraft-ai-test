@@ -83,6 +83,63 @@ export function sourcesOf (registry, itemName) {
   return result
 }
 
+// A NAME THE MODEL MEANT, NOT A NAME IT INVENTED.
+//
+// Over 1,813,691 logged decisions, 741 carried a block/item name absent from the
+// registry. That is 0.041% of decisions and only 0.68% of `bad_args` -- but of
+// those 741, the overwhelming majority are not hallucinations:
+//
+//   44.5% (329)  a real ITEM handed to `gather`, which takes a BLOCK.
+//                coal, flint, stick, raw_copper, raw_iron, tropical_fish.
+//   35.8% (265)  a missing trailing "s". bamboo_plank -> bamboo_planks,
+//                oak_plank -> oak_planks. Edit distance 1.
+//   19.7% (147)  everything else: bamboo_log, wood, oak_木.
+//
+// The first two are resolvable without guessing. Asking to gather `coal` is not
+// ambiguous -- coal_ore is the block that drops it, and `sourcesOf` already knows
+// the mapping. Asking for `oak_plank` when only `oak_planks` exists is a typo with
+// exactly one candidate.
+//
+// This resolves ONLY those two shapes and refuses everything else, so a genuinely
+// invented name still fails. It never picks between candidates by preference: a
+// plural must be a real block, and a drop-source must be a real block, or the
+// resolution does not happen. Intent is read, never invented.
+
+/**
+ * Resolve a proposed block name to a real one, or null if it cannot be.
+ * @returns {{block: string, via: 'exact'|'plural'|'drop_source'} | null}
+ */
+export function resolveBlockName (registry, name) {
+  if (!registry?.blocksByName) return null
+  if (typeof name !== 'string' || !name) return null
+  if (registry.blocksByName[name]) return { block: name, via: 'exact' }
+
+  // Missing plural. One candidate or none -- there is nothing to choose between.
+  if (registry.blocksByName[name + 's']) return { block: name + 's', via: 'plural' }
+
+  // A real item, handed to a verb that takes a block. `sourcesOf` returns
+  // [itemName] as its own fallback, so every candidate is re-checked against
+  // blocksByName rather than trusted.
+  if (registry.itemsByName?.[name]) {
+    // The names must be evidently RELATED, or this is guessing at intent rather
+    // than reading it. `stick` is dropped by `dead_bush`, and resolving it would
+    // send a bot hunting dead bushes when sticks come from crafting; `string`
+    // resolves to `cobweb` the same way. Both share no token with their source.
+    // The cases worth recovering all do: coal->coal_ore, raw_iron->iron_ore,
+    // raw_copper->copper_ore.
+    //
+    // Craftability is NOT the discriminator -- coal and raw_iron are craftable
+    // too, from their block forms, so that rule would reject the good cases.
+    const parts = new Set(name.split('_').filter(w => w.length > 2))
+    for (const cand of sourcesOf(registry, name)) {
+      if (!registry.blocksByName[cand]) continue
+      const shares = cand.split('_').some(w => parts.has(w))
+      if (shares) return { block: cand, via: 'drop_source' }
+    }
+  }
+  return null
+}
+
 /** How much of what `blockName` yields does this bot hold right now? */
 export function heldFromBlock (bot, blockName) {
   const names = new Set(dropsOf(bot?.registry, blockName))

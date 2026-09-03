@@ -15,6 +15,8 @@ import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
+import { resolveBlockName } from './drops.mjs'
+import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
 
 const REPEAT_WINDOW = 4
@@ -233,8 +235,20 @@ export class AdmissionControl {
       if (!args.block || typeof args.block !== 'string') {
         return { ok: false, reason: 'bad_args', detail: 'gather needs a block name' }
       }
-      if (!bot.registry.blocksByName[args.block]) {
+      // A missing plural or an item-for-block is a name the model MEANT. Resolve
+      // those two shapes and rewrite args in place -- cognitive.mjs runs
+      // `admitted.args`, so the skill receives a real block. Anything else is a
+      // genuinely invented name and still fails here.
+      const resolved = resolveBlockName(bot.registry, args.block)
+      if (!resolved) {
         return { ok: false, reason: 'bad_args', detail: `"${args.block}" is not a real block` }
+      }
+      if (resolved.via !== 'exact') {
+        // Same treatment as the item/block normalisation above: the rewrite is
+        // applied, and COUNTED, so the rate stays visible in telemetry rather
+        // than being silently absorbed into a healthier-looking veto rate.
+        args.block = resolved.block
+        this.resolutions = (this.resolutions ?? 0) + 1
       }
       const n = Number(args.count)
       if (!Number.isFinite(n) || n <= 0 || n > 128) {
@@ -416,12 +430,18 @@ export class AdmissionControl {
       // capability and invents no intent: the same proposal is refused, just
       // before it can cost a runner slot and poison the streak. The model still
       // gets the reason, and telemetry still records the mistake.
+      // Identical rule to before -- `mineTargetOk` is `y >= here - 1` re-expressed
+      // as a ceiling -- but the refusal now names the number, and prompt.mjs
+      // prints the SAME number from the SAME function before the model proposes.
       const here = bot.entity?.position?.y
-      if (Number.isFinite(here) && y >= here - 1) {
+      if (!mineTargetOk(here, y)) {
+        const cap = mineTargetCeiling(here)
         return { ok: false, reason: 'bad_args',
-                 detail: `mine only digs DOWNWARD and you are at y=${Math.round(here)}; ` +
-                         `a target of y=${y} is at or above you. Use a LOWER y to descend, ` +
-                         `or goto/surface to move upward.` }
+                 detail: `mine only digs DOWNWARD, and it descends to an ELEVATION rather ` +
+                         `than digging a single block. You are at y=${Math.round(here)}, so ` +
+                         `the highest target it can act on is y=${cap}. Pass y=${cap} or ` +
+                         `lower; use gather for a block you can see, or goto/surface to ` +
+                         `move upward.` }
       }
       const hasPick = bot.inventory?.items?.().some(i => /_pickaxe$/.test(i.name))
       if (!hasPick && Number.isFinite(here) && here - y > 2) {
