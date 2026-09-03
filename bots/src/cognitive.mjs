@@ -10,6 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { SKILLS, classifyOutcome, SKILL_CONTRACTS } from './skills.mjs'
+import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
@@ -477,6 +478,20 @@ export class CognitiveLoop {
         }
       }
     } catch { /* registry shape varies by version; the target alone still counts */ }
+    // THE CRAFTING GRAPH DOES NOT CONTAIN THE SMELTING GRAPH, and reading only
+    // the first was a dead end waiting to happen.
+    //
+    // recipesAll('iron_ingot') returns the CRAFTING recipes -- iron_nugget and
+    // iron_block -- because the furnace route is not a recipe the registry
+    // models at all (minecraft-data ships no smelting data; see smelting.mjs).
+    // So a bot whose milestone is "1 iron_ingot", doing precisely the right
+    // thing by mining down and gathering the ore, would have had its raw_iron
+    // scored `off-target gain` by classifyOutcome, called busywork, and denied
+    // the decrement on its avoid rule.
+    //
+    // That is the CLAUDE.md failure shape exactly: two correct components
+    // meeting at a gap neither could see. One line closes it.
+    for (const src of smeltInputsFor(target)) want.add(src)
     return want
   }
 

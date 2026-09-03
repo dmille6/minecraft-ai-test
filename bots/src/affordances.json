@@ -54,6 +54,12 @@
       "why": "A 7B model will not derive recipes from raw inventory. isolated-a-Alpha carried a stone pickaxe's ingredients for ten hours underground and asked for a wooden one."
     },
     {
+      "skill": "smelt",
+      "observation": "CAN SMELT NOW:",
+      "eligibility": "can_smelt",
+      "why": "The model cannot derive this one. CAN CRAFT NOW is built from bot.recipesFor, and there is NO smelting recipe in the registry at all -- minecraft-data ships none for any version. So a bot holding raw_iron, a furnace and a coal has every ingredient of the fleet's first ingot and, without this line, not one signal that says so. 59 of 80 bots carry a furnace, 30 carry coal, 13 hold raw_iron, and iron_ingot has never existed once in the fleet's history."
+    },
+    {
       "skill": "deposit",
       "observation": "CARRYING:",
       "eligibility": "bankable_surplus",

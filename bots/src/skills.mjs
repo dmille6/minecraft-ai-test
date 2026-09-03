@@ -39,6 +39,7 @@ import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
+import { smeltPlan, smeltRecipeFor } from './smelting.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -71,6 +72,21 @@ import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 export const UNKNOWN_FAIL_CLASSES = new Set([
   'path_budget', 'path_timeout', 'collect_budget', 'probe_timeout', 'unverified',
   'no_measurable_change',
+  // smelt_budget  OUR deadline expired with the furnace still burning. A vanilla
+  //               furnace takes 10s per item and the runner's whole budget is
+  //               180s, so running out of clock is the NORMAL end of a large
+  //               batch -- "call smelt again to continue", exactly like mine's
+  //               step cap. Calling that `failed` would teach the fleet that
+  //               smelting does not work, which is the single most expensive
+  //               wrong lesson available given nothing has ever smelted.
+  'smelt_budget',
+  // furnace_window  the server never opened the furnace window. craft files the
+  //               same event as `no_path`, which is defensible there and wrong
+  //               here: the avoid key is `smelt:{"item":"raw_iron"}`, which
+  //               carries no position, so one bad furnace anywhere would teach
+  //               the whole fleet that smelting raw_iron is impossible
+  //               everywhere -- the `explore:{}` collapse documented in SKILLS.
+  'furnace_window',
 ])
 
 /** The honest status for a failure class: a don't-know is not a no. */
@@ -2272,6 +2288,269 @@ async function withdraw(ctx, { item = null, count = 16 }, signal) {
   }
 }
 
+// --------------------------------------------------------------- smelt -----
+//
+// THE MISSING RUNG. 59 bots carry a furnace, 30 carry coal, 13 hold raw_iron,
+// and `iron_ingot` has never existed in this fleet's history -- not because the
+// bots cannot smelt but because NOTHING PUTS AN ITEM IN A FURNACE. A bot could
+// craft a furnace (milestones.mjs) and place it (place, above) and then had no
+// action that used it.
+//
+// STOPPING ON OUR OWN CLOCK, NOT ON THE RUNNER'S ABORT.
+//
+// A vanilla furnace is 10s per item and one coal fuels 8, so a full batch is 80
+// seconds of standing still -- against a 180s skill budget with a 30s hard stop
+// behind it. Four of this project's documented traps are a skill holding the
+// body longer than the layer above expected, so this copies the shape
+// shaftAscend already uses and mine's step cap already proves: an internal
+// deadline WELL inside the runner's, and a resumable partial return.
+//
+// Blocking to completion was rejected for that reason. Deposit-and-return-later
+// was rejected for a different one: there is no mechanism in this codebase for
+// a bot to remember "come back to the furnace at x,z", so the ore would be left
+// in a block the bot may never see again -- a brand-new item-loss channel, and
+// a bot that dies loses its pockets already. A bounded batch loses nothing: the
+// recovery below empties the furnace back into the inventory on EVERY exit
+// path, interrupts included.
+//
+// THE BODY IS NOT CLAIMED, deliberately. runner.claimBody exists, but
+// reflex.mjs reads exactly one claim type -- `bodyClaimFor('climb')`, and
+// body-claim.test.mjs source-asserts that literal -- so a `smelt` claim would
+// protect nothing while looking like it did. Every reflex can and will abort a
+// bot standing at a furnace, which is correct: drowning outranks an ingot.
+const SMELT_DEADLINE_MS = 150_000       // inside config.skills.defaultTimeoutMs (180s)
+const SMELT_RECOVERY_MS = 12_000        // reserved to empty the furnace and close it
+const SMELT_POLL_MS     = 500           // how often the wait checks the abort signal
+const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event forever
+
+/**
+ * Empty a furnace back into the bot and close it. Bounded, never throws.
+ *
+ * THIS IS THE ANSWER TO "WHAT HAPPENS WHEN IT IS INTERRUPTED", and it runs from
+ * a `finally`, so it runs on abort, on timeout and on error alike. Without it,
+ * every preempted smelt would strand the ore, the fuel and the finished ingots
+ * inside a block, and `smelt` would be a net destroyer of exactly the items
+ * this fleet has never managed to produce.
+ *
+ * mineflayer's takeOutput/takeInput/takeFuel each `assert.ok(item)` and throw on
+ * an empty slot (node_modules/mineflayer/lib/plugins/furnace.js:75-91), and each
+ * awaits `once(window, 'updateSlot:N')` underneath, which never fires if the
+ * block is gone. So every call is both guarded and raced against a wall clock:
+ * a recovery that hangs would burn the hard-stop grace and land the bot in
+ * `abort_ignored`.
+ */
+async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {
+  const deadline = Date.now() + ms
+  const bounded = p => Promise.race([
+    p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
+  ])
+  for (const [slot, take] of [['outputItem', 'takeOutput'],
+                              ['inputItem', 'takeInput'],
+                              ['fuelItem', 'takeFuel']]) {
+    if (Date.now() >= deadline) break
+    try {
+      if (!furnace?.[slot]?.()) continue
+      await bounded(furnace[take]())
+    } catch { /* slot emptied under us, or the block is gone; nothing to recover */ }
+  }
+  try { furnace?.close?.() } catch { /* already closed */ }
+}
+
+/** Inventory as the plain {name: count} map smeltPlan reasons over. */
+function heldMap (bot) {
+  const out = {}
+  for (const it of (bot.inventory?.items?.() ?? [])) out[it.name] = (out[it.name] ?? 0) + it.count
+  return out
+}
+
+async function smelt(ctx, { item, count = 1 }, signal) {
+  const { bot } = ctx
+  const deadline = Date.now() + SMELT_DEADLINE_MS
+
+  // TWO DIFFERENT WRONG NAMES, AND ONLY ONE OF THEM IS EVIDENCE.
+  //
+  // craft files an unknown item as `other` rather than `bad_target` so that a
+  // typo cannot write a permanent avoid rule. That reasoning holds for a name
+  // the registry has never heard of. It does NOT hold for `smelt dirt`: dirt is
+  // a real item and a furnace will never turn it into anything, on any world,
+  // forever. That is exactly what `bad_target` means -- "the args name
+  // something that does not exist" -- so the split is by whether the name is
+  // real, not by whether the call failed.
+  if (!bot.registry.itemsByName[item]) {
+    return { status: 'failed', failClass: 'other', detail: `unknown item "${item}"` }
+  }
+
+  // Plan BEFORE walking. Discovering "you have no fuel" after a 40-second hike
+  // to a furnace spends the decision to learn something the inventory already
+  // knew, and travel is where 80% of this fleet's deposit failures went.
+  const dry = smeltPlan({ held: heldMap(bot), item, count,
+                          budgetMs: SMELT_DEADLINE_MS, hasFurnace: true })
+  if (!dry.ok && dry.reason === 'not_smeltable') {
+    return { status: 'failed', failClass: 'bad_target',
+             detail: `${dry.detail}; gather or craft it instead` }
+  }
+  if (!dry.ok && dry.reason === 'no_input') {
+    return { status: 'failed', failClass: 'missing_ingredients', gap: dry.item,
+             need: dry.need, detail: `${dry.detail} — gather ${dry.item} first` }
+  }
+  if (!dry.ok && dry.reason === 'no_fuel') {
+    return { status: 'failed', failClass: 'missing_ingredients', gap: 'fuel',
+             need: dry.need, detail: dry.detail }
+  }
+
+  // A NAME THIS FILE'S TABLE GOT WRONG MUST NOT BECOME A SILENT MIS-SMELT.
+  // smelting.mjs is hand-maintained because minecraft-data ships no smelting
+  // data at all; this is the check that keeps that table honest against the
+  // registry the bot is actually connected to.
+  const outDef = bot.registry.itemsByName[smeltRecipeFor(item)?.output]
+  if (!outDef) {
+    return { status: 'failed', failClass: 'other',
+             detail: `this server has no item called ${smeltRecipeFor(item)?.output}` }
+  }
+
+  // ---- get a furnace into the world, mirroring craft's two-stage station ----
+  const findFurnace = () => bot.findBlock({
+    matching: b => bot.registry.blocks[b.type]?.name === 'furnace',
+    maxDistance: 32,
+  })
+  let block = findFurnace()
+  let placed = 0
+  if (!block && bot.inventory.items().some(i => i.name === 'furnace')) {
+    check(signal)
+    // The SAME `place` the crafting-table path uses -- it searches eight
+    // horizontal neighbours plus a step up or down and READS THE BLOCK BACK,
+    // which is the repair that made the tech tree work at all.
+    const put = await place(ctx, { item: 'furnace' }, signal)
+    if (put.status === 'success') { placed = 1; block = findFurnace() }
+  }
+  if (!block) {
+    const noStation = smeltPlan({ held: heldMap(bot), item, count,
+                                  budgetMs: SMELT_DEADLINE_MS, hasFurnace: false })
+    return { status: 'failed', failClass: 'needs_station', gap: 'furnace',
+             need: noStation.need,
+             detail: 'no furnace within 32 blocks and none in your inventory — ' +
+                     'craft item=furnace (8 cobblestone); smelt places it for you' }
+  }
+
+  // Same two ranges craft uses: the first goal often fails on the approach
+  // rather than the destination, and GoalNear(3) still leaves the bot in reach.
+  for (const range of [1, 3]) {
+    check(signal)
+    try {
+      await withTimeout(bot.pathfinder.goto(new goals.GoalNear(
+        block.position.x, block.position.y, block.position.z, range)), 20000, bot)
+      break
+    } catch (e) { if (e.aborted) throw e /* try the looser goal, then the reach check */ }
+  }
+  check(signal)
+  const reach = bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5))
+  if (reach > 4.5) {
+    return { status: 'failed', failClass: 'no_path',
+             detail: `the furnace is ${Math.round(reach)} blocks away and could not be reached — ` +
+                     `smelting needs one within 4 blocks; move to ${block.position.x},${block.position.z} first` }
+  }
+  try { await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
+
+  // ---- re-plan against the clock that is ACTUALLY left ----------------------
+  const budgetMs = deadline - Date.now() - SMELT_RECOVERY_MS
+  const plan = smeltPlan({ held: heldMap(bot), item, count, budgetMs, hasFurnace: true })
+  if (!plan.ok) {
+    // The walk consumed the batch. Our own clock, so a don't-know, not a no.
+    return { status: 'unknown', failClass: 'smelt_budget',
+             detail: `${plan.detail} after reaching the furnace; call smelt again` }
+  }
+
+  const inDef = bot.registry.itemsByName[plan.input]
+  const fuelDef = bot.registry.itemsByName[plan.fuel.name]
+  // MEASURED BEFORE ANYTHING MOVES. ADR-0003: a promise resolving is not a
+  // result. The runner grades this independently from its own before/after
+  // inventory snapshot, and this number only makes the `detail` honest.
+  const before = countItem(bot, plan.output)
+
+  let furnace
+  try {
+    furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot,
+                                { what: 'furnace', needsDrop: false, onTimeout: () => {} })
+  } catch (e) {
+    if (e.aborted) throw e
+    return { status: 'unknown', failClass: 'furnace_window',
+             detail: `the furnace at ${block.position.x},${block.position.z} did not open — ` +
+                     'stand next to it and face it, then smelt again' }
+  }
+
+  let loaded = false
+  try {
+    // Anything already inside is ours to take: a previous call that was
+    // preempted between the burn and the harvest leaves finished output here,
+    // and leaving it would make an interrupt permanently lossy.
+    try { if (furnace.outputItem()) await furnace.takeOutput() } catch { /* empty */ }
+    try {
+      const inSlot = furnace.inputItem()
+      if (inSlot && inSlot.name !== plan.input) await furnace.takeInput()
+    } catch { /* empty or full inventory; putInput below will report it */ }
+
+    check(signal)
+    await furnace.putInput(inDef.id, null, plan.batch)
+    await furnace.putFuel(fuelDef.id, null, plan.fuel.count)
+    loaded = true
+
+    // THE WAIT, AND IT IS THE ONLY PLACE THIS SKILL SPENDS TIME.
+    // check(signal) first in every iteration and sleep(ms, signal) for every
+    // pause -- the idiom mine's descent loop uses, and the reason a reflex can
+    // preempt this within half a second instead of eighty.
+    //
+    // EVERY SLOT READ IS GUARDED, and that is not defensive padding. A furnace
+    // whose BLOCK has been broken under the bot -- by a creeper, by another bot,
+    // by the bot's own pathfinder digging through it -- takes the window with
+    // it, and reading a slot then throws out of this function as a raw error
+    // rather than as a classified result. Found by test/smelt-skill.test.mjs,
+    // which models the vanishing block; the first version of this loop had the
+    // takeOutput guarded and the loop CONDITION bare, so the one read that runs
+    // on every iteration was the one that could escape.
+    const slot = which => { try { return furnace[which]() ?? null } catch { return undefined } }
+    while (Date.now() < deadline - SMELT_RECOVERY_MS) {
+      check(signal)
+      const out = slot('outputItem')
+      if (out === undefined) break            // the furnace is no longer readable
+      if (out && out.count > 0) {
+        try { await furnace.takeOutput() } catch { /* taken under us, or gone */ }
+      }
+      const inp = slot('inputItem')
+      if (inp === undefined) break
+      // Nothing left to cook and nothing left to collect: done early.
+      if (!inp && !slot('outputItem')) break
+      await sleep(SMELT_POLL_MS, signal)
+    }
+  } finally {
+    await drainFurnace(furnace)
+  }
+
+  const gained = countItem(bot, plan.output) - before
+  const ran = Date.now() >= deadline - SMELT_RECOVERY_MS
+
+  // SUCCESS IS A MEASUREMENT OR IT IS NOT A SUCCESS. `status` earned 115
+  // recorded wins for doing nothing because a promise resolved; the count of
+  // the output item is the only thing that makes this claim falsifiable.
+  if (gained > 0) {
+    return {
+      status: 'success',
+      detail: `smelted ${gained}x ${plan.output} from ${plan.input} ` +
+              `(batch ${plan.batch}, burned ${plan.fuel.count}x ${plan.fuel.name}` +
+              `${placed ? ', placed the furnace first' : ''})` +
+              (gained < plan.batch ? ` — ${plan.batch - gained} still to do, call smelt again` : ''),
+    }
+  }
+  if (ran) {
+    return { status: 'unknown', failClass: 'smelt_budget',
+             detail: `the furnace was still burning when this call's ${Math.round(SMELT_DEADLINE_MS / 1000)}s ran out; ` +
+                     `the ${plan.input} and fuel are back in your inventory — call smelt again to continue` }
+  }
+  return { status: 'no_effect',
+           detail: loaded
+             ? `the furnace produced no ${plan.output}; the ${plan.input} and fuel are back in your inventory`
+             : `nothing was loaded into the furnace` }
+}
+
 // ---------------------------------------------------------------- mine -----
 //
 // Distinct from gather: gather goes to blocks it can already see, mine
@@ -3156,6 +3435,36 @@ async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
 const TOOL_RANK = { wooden: 1, golden: 1, stone: 2, iron: 3, diamond: 4, netherite: 5 }
 const TOOL_RE = /^(wooden|golden|stone|iron|diamond|netherite)_(pickaxe|axe|shovel|sword|hoe)$/
 
+/**
+ * Tools of the same kind that are STRICTLY better than `item`.
+ *
+ * `equivalentTools` is at-least-as-good, which is what a CAPABILITY test wants:
+ * a bot holding a golden pickaxe has satisfied "craft a wooden pickaxe", so
+ * M.craft is right to accept it. It is the wrong test for ADVICE, and the
+ * difference was dormant only because the fleet could not reach the tier.
+ *
+ * gold shares wooden's mining rank (TOOL_RANK above), so `equivalentTools`
+ * returns golden_pickaxe for a bot that asked for a wooden one -- and
+ * craftableAlternative then tells it the gold one is "strictly better", which is
+ * false. That was harmless while no bot could hold a gold ingot: `recipesFor`
+ * checks the inventory, and `iron_ingot`, `gold_ingot` and `charcoal` had never
+ * existed in this fleet's history, so the branch was unreachable.
+ *
+ * SHIPPING `smelt` MAKES IT REACHABLE. raw_gold and gold_ore smelt to
+ * gold_ingot, so the first bot to smelt gold gets told to downgrade its pickaxe
+ * to the same mining tier it already had. Adding the verb without this would
+ * have un-dormanted a known bug, which is worse than leaving it dormant.
+ */
+export function strictlyBetterTools (item) {
+  const m = TOOL_RE.exec(item || '')
+  if (!m) return []
+  const [, tier, kind] = m
+  const want = TOOL_RANK[tier]
+  return Object.entries(TOOL_RANK)
+    .filter(([, r]) => r > want)
+    .map(([t]) => `${t}_${kind}`)
+}
+
 /** Tools of the same kind that are at least as capable as `item`. */
 export function equivalentTools (item) {
   const m = TOOL_RE.exec(item || '')
@@ -3196,6 +3505,26 @@ export function equivalentTools (item) {
  */
 export function craftableAlternative (bot, item) {
   try {
+    // NOT SWAPPED TO strictlyBetterTools, AND THAT IS A DELIBERATE NON-CHANGE.
+    //
+    // See the note on strictlyBetterTools: shipping `smelt` makes gold_ingot
+    // reachable for the first time, which un-dormants this function's ability to
+    // call a golden pickaxe "strictly better" than a wooden one. It is not --
+    // TOOL_RANK gives them the same mining rank.
+    //
+    // The one-line fix is written, exported and tested above. It is NOT applied
+    // here, because test/craftable-alternative.test.mjs:127 deliberately asserts
+    // the opposite ("a bot that DOES carry gold is still told about gold"), and
+    // gold is genuinely the FASTEST-mining tier -- so "is a golden pickaxe worth
+    // suggesting?" is a real question about Minecraft tool semantics, not an
+    // oversight to be quietly reversed inside an unrelated change. CLAUDE.md
+    // requires independent review before resting a change on external Minecraft
+    // behaviour, and that review has not happened.
+    //
+    // Recorded rather than fixed, so the silence is not mistaken for nobody
+    // having looked. Practical exposure today is low: the branch needs 3
+    // gold_ingot AND 2 sticks in hand, gold ore is far rarer than iron, and the
+    // fleet holds 13 raw_iron against 0 raw_gold.
     const alts = equivalentTools(item)
     if (!alts.length) return ''
     for (const alt of alts) {
@@ -3366,6 +3695,18 @@ export const SKILL_CONTRACTS = {
   // win bug that ADR-0003 exists to prevent, faithfully rebuilt inside the fix
   // for it. An expectation that cannot be unmet is not an expectation.
   status:   { expects: [],                        maxMs: 10_000 },
+  // A FURNACE IS AN INVENTORY_GAIN OR IT IS NOTHING.
+  //
+  // Not `world_change`: loading a furnace changes the world and produces no
+  // ingot, and a contract satisfied by the loading would let a bot score a win
+  // for putting ore in a box. The item count of the OUTPUT is the only
+  // falsifiable claim smelt can make, and the runner measures it independently
+  // from its own before/after snapshot.
+  //
+  // Budget: the skill stops itself at 150s (SMELT_DEADLINE_MS) and reserves 12s
+  // to empty the furnace, both inside the runner's 180s. Stated here so the two
+  // cannot drift without this line looking wrong.
+  smelt:    { expects: ['inventory_gain'],        maxMs: 180_000 },
 }
 
 /**
@@ -4233,6 +4574,25 @@ export const SKILLS = {
   // untouched.
   explore: { run: explore, usage: 'explore [blocks]',              args: ['blocks'], rescue: true },
   mine:    { run: mine,    usage: 'mine <target_y>',               args: ['y'] },
+  // `args: ['item']` IS THE POLICY DECISION HERE, not a formality.
+  //
+  // actionKey keeps only DECLARED args, so this is the granularity of the
+  // learned-avoid counter. `args: []` would collapse every smelt failure in the
+  // world onto one key -- the exact defect that made `explore:{}` the single
+  // most suppressed action in the system at 35,304 vetoes. Keyed on the item,
+  // "raw_iron does not smelt here" cannot poison `smelt sand`.
+  //
+  // NOT `rescue: true`. Rescue suppresses recordFailure entirely (lessons.mjs),
+  // which is right for home/surface/explore -- verbs a trapped bot must always
+  // be allowed to try. smelt is a PRODUCTION verb: a bot that genuinely cannot
+  // smelt something should be able to learn that, and the ratchet is handled
+  // where it belongs instead. Every refusal above is either situational
+  // (`missing_ingredients`/`needs_station`, which EVIDENCE_ONLY_IF_STUCK only
+  // counts once the named gap stops moving), unknowable (`smelt_budget`,
+  // `furnace_window`, which get no vote at all), or a permanent truth about the
+  // key (`bad_target` for an item no furnace will ever transform). Marking it
+  // rescue would also delete the one honest lesson smelt can teach.
+  smelt:   { run: smelt,   usage: 'smelt <item_name>',              args: ['item', 'count'] },
   // OPERATOR-ONLY from 2026-08-18. Beds remain in the world as spawn
   // infrastructure; the LLM no longer spends decisions on sleeping.
   //

@@ -10,6 +10,7 @@
 // you can query in Kibana.
 
 import { SKILLS, actionKey } from './skills.mjs'
+import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
@@ -178,6 +179,21 @@ export class AdmissionControl {
   static #output(skill, args) {
     if (skill === 'craft') return args?.item ?? null
     if (skill === 'gather') return args?.block ?? args?.item ?? null
+    // WITHOUT THIS LINE `smelt` CAN NEVER RECEIVE THE MILESTONE EXEMPTION.
+    //
+    // This table was `craft`/`gather` and a default of null, so any new
+    // producing verb silently fell through to "produces nothing" -- and the
+    // milestone_critical branch below is the guard that stops the gate making
+    // its own goal unreachable. A brand-new verb is the WORST case for that: it
+    // starts with no record, four failures put it over the threshold, and
+    // without an exemption the only rung that reaches iron would be shut before
+    // the fleet ever smelted once.
+    //
+    // smelt takes the INPUT (`raw_iron`) and produces the OUTPUT
+    // (`iron_ingot`), so the name the milestone wants is not the name in the
+    // args -- which is exactly why the default was wrong rather than merely
+    // incomplete.
+    if (skill === 'smelt') return smeltRecipeFor(args?.item)?.output ?? null
     return null
   }
 
