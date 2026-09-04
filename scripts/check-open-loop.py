@@ -14,18 +14,20 @@ import argparse, json, os, sys, datetime
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
 from openloop import open_loop, VERDICTS          # noqa: E402
 
-MANIFEST = os.environ.get('MCAI_MANIFEST', '/etc/mcai/trial-manifest.json')
+MANIFEST = os.environ.get('MCAI_MANIFEST', '/srv/mcbots/trial-manifest.json')
 LEDGER = os.environ.get('MCAI_DECISIONS', '/var/log/mcai/_canary-decisions.jsonl')
 
 
 def load_manifest(path):
+    # A MISSING manifest is not proof that no canary is deployed -- it is the
+    # commonest way to be wrong about that, and this guard produced exactly that
+    # false all-clear on its first live run by looking at the wrong path while
+    # placebo-b was mid-trial. Absence of the file is absence of evidence.
     try:
         with open(path) as fh:
             return json.load(fh)
-    except FileNotFoundError:
-        return {}                                  # no manifest: no canary
     except Exception:
-        return None                                # unreadable: fail closed
+        return None                                # missing OR unreadable: fail closed
 
 
 def load_decisions(path):

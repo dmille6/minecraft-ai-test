@@ -55,6 +55,44 @@ check(open_loop(OPEN_M, None) is not None,
 check(open_loop(None, closed) is not None,
       'an unreadable manifest cannot prove no canary is deployed')
 
+# REGRESSION, live 2026-09-04: this guard was pointed at a manifest path that did
+# not exist while placebo-b was mid-trial, and answered "clear to start something
+# new". A missing file must reach open_loop() as None, never as {} -- absence of
+# the file is absence of evidence, not evidence of absence.
+import json as _json, tempfile as _tf, subprocess as _sp
+_here = os.path.dirname(os.path.abspath(__file__))
+_d = _tf.mkdtemp()
+_led = os.path.join(_d, 'd.jsonl')
+open(_led, 'w').close()
+_r = _sp.run([sys.executable, os.path.join(_here, 'check-open-loop.py'),
+              '--manifest', os.path.join(_d, 'does-not-exist.json'), '--ledger', _led],
+             capture_output=True, text=True)
+check(_r.returncode == 1,
+      'a MISSING manifest must exit 1, not report all-clear (exit was %d)' % _r.returncode)
+check('missing or unreadable' in (_r.stderr or ''),
+      'and it must say why, so the reader fixes the path instead of trusting it')
+
+# POSITIVE CONTROL on that subprocess: a manifest that really declares no canary
+# must still exit 0, or the assertion above passes because nothing ever exits 0.
+_ok = os.path.join(_d, 'none.json')
+open(_ok, 'w').write(_json.dumps({'run_id': 'block2'}))
+_r2 = _sp.run([sys.executable, os.path.join(_here, 'check-open-loop.py'),
+               '--manifest', _ok, '--ledger', _led], capture_output=True, text=True)
+check(_r2.returncode == 0, 'a manifest with no canary must exit 0')
+
+# --- the REAL manifest shape, copied from /srv/mcbots/trial-manifest.json ---
+# deploy-fleet.sh writes `canary_code_version`; the classifier says `canary_sha`.
+# Reading only one turned a genuine open trial into "malformed manifest" on the
+# first live run.
+LIVE = {"trial": "instance-1", "run_id": "block2-drown-yield",
+        "declared_code_version": "6adfd14",
+        "canary_pool": "placebo-b", "canary_code_version": "15d2a87"}
+check(open_loop(LIVE, []) is not None, 'the live manifest shape must read as OPEN')
+check('15d2a87' in open_loop(LIVE, []),
+      'and must name the canary, not complain the field is missing')
+check(open_loop(LIVE, [{'canary_sha': '15d2a87', 'decision': 'KEEP'}]) is None,
+      'a decision on canary_code_version must close it')
+
 # --- a pool with no sha can never be closed by anything ---------------------
 check(open_loop({'canary_pool': 'placebo-b'}, closed) is not None,
       'canary_pool with no canary_sha is unclosable and must say so')

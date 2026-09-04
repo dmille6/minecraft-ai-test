@@ -47,13 +47,20 @@ def open_loop(manifest, decisions):
     which is an open loop, not an absent one.
     """
     if not isinstance(manifest, dict):
-        return 'manifest is unreadable — cannot prove no canary is deployed'
+        # Missing counts as unreadable. On this guard's first live run it was
+        # pointed at a path that did not exist while placebo-b was mid-trial,
+        # and it answered "clear to start something new" -- the precise failure
+        # it exists to prevent.
+        return 'manifest is missing or unreadable — cannot prove no canary is deployed'
 
     pool = _pool(manifest)
     if not pool:
         return None                      # no canary declared: nothing is open
 
-    sha = manifest.get('canary_sha') or ''
+    # `deploy-fleet.sh` writes `canary_code_version`; the classifier and the
+    # analysis scripts say `canary_sha`. Both name the same thing, and reading
+    # only one of them turns every real trial into "malformed manifest".
+    sha = manifest.get('canary_code_version') or manifest.get('canary_sha') or ''
     if not sha:
         # A pool with no sha cannot be closed by any decision, because a
         # decision names a sha. Deploy declares both or neither.
