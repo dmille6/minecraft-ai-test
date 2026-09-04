@@ -77,8 +77,38 @@ t('THE PRECONDITIONS: a normal bot on a cliff must never reach it', () => {
   const guard = skills.slice(skills.indexOf('if (!rodeDown'), skills.indexOf('rideFloorDown(bot, { signal })'))
   assert.ok(/SEA_LEVEL \+ 20/.test(guard), 'no altitude floor — a bot at y=64 could trigger it')
   assert.ok(/health \?\? 20\) >= 18/.test(guard), 'no health gate — 169 of 868 deaths are already falls')
-  assert.ok(/rescueBlocks\(bot\)\.length > 0/.test(guard), 'no check that it can build at all')
   assert.ok(/!rodeDown/.test(guard), 'not latched — it could loop within one goto')
+
+  // THE MATERIAL CHECK MOVED, AND ON PURPOSE.
+  //
+  // This used to also require `rescueBlocks(bot).length > 0` here, described as
+  // "no check that it can build at all". That question is wrong at this altitude:
+  // `rideFloorDown` has TWO branches and only the bridge one spends a block. The
+  // free branch -- solid at y-2, break the floor, land on it -- is what this
+  // function's own comment calls "98% of reality", and it needs nothing.
+  //
+  // Gating the whole manoeuvre on material refused exactly the bots the free
+  // branch exists for. Measured 2026-09-04 over 6h: of 8 marooned-high frozen
+  // bots, SIX held zero rescue blocks and died on this line; `_ride_floor_down`
+  // fired 0 times across all 17 frozen bots.
+  //
+  // Note the irony recorded 40 lines below: these source-greps "passed for five
+  // days against code that had never once worked". This one outlived its reason
+  // the same way.
+  assert.ok(!/rescueBlocks\(bot\)\.length > 0/.test(guard),
+    'the material gate is back on the call site — it refuses the free branch')
+})
+
+t('...and the material check still exists, inside the branch that spends it', () => {
+  // We removed a GATE, not a CHECK. The bridge branch must still refuse cleanly.
+  const fn = skills.slice(skills.indexOf('export async function rideFloorDown'))
+  const body = fn.slice(0, 4000)
+  const needsBridge = body.indexOf('needsBridge')
+  const firstRescue = body.indexOf('rescueBlocks')
+  assert.ok(needsBridge > 0 && firstRescue > needsBridge,
+    'rescueBlocks is consulted before needsBridge — that gates the free branch again')
+  assert.ok(/no placeable blocks left/.test(body),
+    'the bridge branch must still name why it stopped')
 })
 
 t('every attempt is logged, because a silent rescue is an unlogged confound', () => {

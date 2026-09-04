@@ -54,16 +54,14 @@ test('an UNMEASURED drop is refused, not guessed at', () => {
   assert.equal(mayStepDown(undefined, 20, false), false)
 })
 
-test('holding blocks makes the guard STRICTER, never looser', () => {
-  // A bot that can build should build. Falling 17 blocks to save placing one is
-  // 14 damage spent for nothing.
-  for (const d of [4, 8, 17]) {
-    assert.equal(mayStepDown(d, 20, true), false, `depth ${d} with scaffold must build, not fall`)
-    assert.equal(mayStepDown(d, 20, false), true, `depth ${d} without scaffold may step down`)
-  }
-  // An ordinary stair tread is fine either way.
-  assert.equal(mayStepDown(1, 20, true), true)
-  assert.equal(mayStepDown(FALL_FREE, 20, true), true, 'a free-fall-height drop costs nothing')
+test('there is NO scaffold special case, because mine cannot place', () => {
+  // The first version refused any drop over 3 for a block-holding bot, advising
+  // "place one and step down". `mine()` has ZERO placeBlock calls -- that remedy
+  // did not exist. Building instead of falling belongs to `rideFloorDown`.
+  assert.equal(mayStepDown.length, 2, 'mayStepDown must take (depth, health) only')
+  // A third argument must not change the answer.
+  assert.equal(mayStepDown(8, 20, true), mayStepDown(8, 20))
+  assert.equal(mayStepDown(8, 20), true)
 })
 
 test('ordinary staircase treads are unaffected', () => {

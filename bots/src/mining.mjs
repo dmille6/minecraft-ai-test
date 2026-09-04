@@ -91,13 +91,24 @@ export function survivableDrop (health, margin = 6) {
  *
  * `depth` of null means "deeper than we probed" -- an unmeasured void is refused,
  * because the whole point of this function is to stop guessing about drops.
- * A bot holding scaffold should build rather than fall, so blocks in hand make
- * this stricter, not looser.
+ *
+ * NO SCAFFOLD SPECIAL CASE, and the first version of this function had one.
+ *
+ * It read "a bot holding blocks should build rather than fall" and refused any
+ * drop over 3 for such a bot, with the detail "place one and step down instead
+ * of falling". `mine()` contains ZERO `placeBlock` calls -- every placement in
+ * skills.mjs belongs to `place` (on top of a block), `shaftAscend` (upward) or
+ * `rideFloorDown` (under the bot's own feet). No verb places into an offset
+ * tread gap. So that refusal named a remedy nothing performs, which is the one
+ * thing a refusal in this codebase may never do.
+ *
+ * Building instead of falling IS the right instinct -- it just belongs to
+ * `rideFloorDown`, which does exactly that and has both branches. It does not
+ * belong here.
  */
-export function mayStepDown (depth, health, hasScaffold = false) {
+export function mayStepDown (depth, health) {
   if (depth == null) return false
   if (depth <= 1) return true                 // an ordinary stair tread
-  if (hasScaffold) return depth <= FALL_FREE  // can build instead; do not fall
   return depth <= survivableDrop(health)
 }
 

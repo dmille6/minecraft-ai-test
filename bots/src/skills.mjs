@@ -490,9 +490,28 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
         // the pathfinder has already proved there is no route -- so an
         // ordinary bot on a cliff at y=80, which can simply walk down, never
         // reaches this line.
+        // NO MATERIAL GATE. `rideFloorDown` has two branches and only ONE of
+        // them spends a block.
+        //
+        // `needsBridge = !under || under.boundingBox !== 'block'` -- the bridge
+        // branch, which consults `rescueBlocks`. The other branch is the free
+        // one, and this function's own comment calls it "98% of reality": a bot
+        // standing on the pillar it built has SOLID ROCK at y-2, so the step is
+        // break-the-floor-and-land-on-it. One block, no fall damage, no material.
+        //
+        // Requiring blocks HERE tested for material that only the fallback
+        // branch spends, and it refused exactly the bots the free branch exists
+        // for. Measured 2026-09-04 over 6h: of 8 marooned-high frozen bots, SIX
+        // hold zero rescue blocks and failed on this line; two of those --
+        // placebo-d-Echo (goto y=62 from y=168) and board-c-Alpha (goto y=65
+        // from y=94) -- passed every other precondition. `_ride_floor_down`
+        // fired 0 times across all 17 frozen bots.
+        //
+        // The bridge branch still refuses cleanly on its own ("no placeable
+        // blocks left"), so removing this costs nothing but a wasted call when
+        // there is genuinely nothing underneath.
         if (!rodeDown && bot.entity.position.y >= SEA_LEVEL + 20 &&
-            (bot.health ?? 20) >= 18 && Number(target.y) < bot.entity.position.y - 8 &&
-            rescueBlocks(bot).length > 0) {
+            (bot.health ?? 20) >= 18 && Number(target.y) < bot.entity.position.y - 8) {
           rodeDown = true
           const before2 = bot.entity.position.clone()
           const r = await rideFloorDown(bot, { signal })
@@ -2792,7 +2811,6 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // Probe far enough to price the fall, and refuse only what actually hurts.
     // An UNMEASURED void (deeper than the probe) is still refused -- the point is
     // to stop guessing, not to start falling.
-    const hasScaffold = bot.inventory.items().some(it => SCAFFOLD.test(it.name))
     const maxProbe = Math.max(4, survivableDrop(bot.health) + 2)
     let hollow = 0
     let floored = false
@@ -2802,7 +2820,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       else { floored = true; break }
     }
     const depth = floored ? hollow : null      // null = deeper than we can see
-    if (hollow >= 3 && !mayStepDown(depth, bot.health, hasScaffold)) {
+    if (hollow >= 3 && !mayStepDown(depth, bot.health)) {
       return {
         status: 'failed', failClass: 'void_below',
         gap: `at_y${Math.round(bot.entity.position.y)}`,
@@ -2810,10 +2828,8 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
                 (depth == null
                   ? `open space deeper than ${maxProbe} blocks under the next step — ` +
                     `that is a fall, not a stair`
-                  : `a ${depth}-block drop under the next step` +
-                    (hasScaffold
-                      ? ` and you hold blocks — place one and step down instead of falling`
-                      : ` would cost about ${Math.max(0, depth - 3)} health, leaving too little`)),
+                  : `a ${depth}-block drop under the next step would cost about ` +
+                    `${Math.max(0, depth - 3)} health, leaving too little`),
       }
     }
     // Dig headroom first: a falling-block column above an already-open tread
