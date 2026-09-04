@@ -12,7 +12,7 @@ real close; nothing recorded is not.
 import argparse, json, os, sys, datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
-from openloop import open_loop, VERDICTS          # noqa: E402
+from openloop import open_loop, canary_sha, VERDICTS   # noqa: E402
 
 MANIFEST = os.environ.get('MCAI_MANIFEST', '/srv/mcbots/trial-manifest.json')
 LEDGER = os.environ.get('MCAI_DECISIONS', '/var/log/mcai/_canary-decisions.jsonl')
@@ -61,7 +61,7 @@ def main():
     manifest = load_manifest(a.manifest)
 
     if a.record:
-        sha = (manifest or {}).get('canary_sha') or ''
+        sha = canary_sha(manifest)
         if not sha:
             print('no canary_sha in %s — nothing to close' % a.manifest, file=sys.stderr)
             return 2

@@ -93,6 +93,15 @@ check('15d2a87' in open_loop(LIVE, []),
 check(open_loop(LIVE, [{'canary_sha': '15d2a87', 'decision': 'KEEP'}]) is None,
       'a decision on canary_code_version must close it')
 
+# REGRESSION, live 2026-09-04 at the 6h read: the READER knew both field names
+# and the RECORDER did not, so --record answered "no canary_sha in the manifest
+# — nothing to close" on a trial the very same tool had just reported as open.
+# One function now, used by both.
+from openloop import canary_sha                                   # noqa: E402
+check(canary_sha(LIVE) == '15d2a87', 'canary_sha must read canary_code_version')
+check(canary_sha(OPEN_M) == SHA, 'and must still read canary_sha')
+check(canary_sha({}) == '' and canary_sha(None) == '', 'and must not invent one')
+
 # --- a pool with no sha can never be closed by anything ---------------------
 check(open_loop({'canary_pool': 'placebo-b'}, closed) is not None,
       'canary_pool with no canary_sha is unclosable and must say so')
