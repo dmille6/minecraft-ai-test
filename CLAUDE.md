@@ -13,6 +13,42 @@ The failure this project keeps repeating is **believing a cheap negative**. A
 zero from a query, an empty mutant, a short window, a green run of the wrong
 runner. Most of the rules below are guards against exactly that.
 
+The second failure is **never closing**. Analysis is unbounded here and
+validation is one change at a time; the queue can only grow. The rule below is
+the guard, and `check-open-loop.py` is its mechanism.
+
+---
+
+## Done means read on the fleet, not merged
+
+A change is DONE when all five have happened:
+
+```
+merged -> deployed -> observed on the fleet -> KEEP or REVERT recorded -> memory says SHIPPED
+```
+
+Not "analysed". Not "105/105 green". Not "the plan is published". Not
+"probably right". A local test proves the code does what you wrote; only the
+fleet says whether what you wrote was worth writing.
+
+**While a canary is deployed and unread, no new analysis starts.** Read it,
+decide, tear it down (both steps), then take the next thing. `check-open-loop.py`
+raises `OpenLoop` when the manifest declares a canary with no decision recorded
+against its sha, so this does not depend on anyone remembering it.
+
+Recording INCONCLUSIVE is a legitimate close and is often the honest one — two
+readings inside the 2.36x between-pool noise band is not a result. What is
+forbidden is walking away with nothing written, because that is indistinguishable
+from the work never having happened.
+
+Measured 2026-09-04, and this is why the rule exists: **100 memory entries, 25
+of which mention shipping anything and 17 of which correct an earlier finding.**
+Five commits sat on `main` undeployed, including all three drowning fixes, while
+that day produced six fresh analyses and one commit. Sixty commits were written
+that week; roughly two were validated. Every one of those analyses was correct.
+That is the point — being right is not the constraint, and treating "better
+grounded" as progress is how a month goes by with the endpoint flat.
+
 ---
 
 ## Telemetry: use `scripts/lib/telemetry.py`. Do not hand-roll a query.
