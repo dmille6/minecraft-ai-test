@@ -64,6 +64,23 @@ test('both escapes compose — either one alone releases the body', () => {
     'only the stuck-and-unharmed case suppresses')
 })
 
+test('an unreadable position must not permanently disable suppression', () => {
+  // THE BUG, live: the call site wrote `drownFailPos = null` when the position
+  // was unreadable on one tick. `movedSinceFail` is then Infinity forever, and
+  // the fail-open guard turns that into "never suppress" — permanently, for that
+  // bot. placebo-b-Delta yielded and was re-seized 7s later, every 32-37s.
+  //
+  // The predicate stays fail-open (that is correct and deliberate). What is
+  // asserted here is the CONTRACT the call site must honour: a finite distance
+  // has to keep arriving, because the reference position is retained.
+  assert.equal(drownRescueSuppressed({ failures: 5, movedBlocks: Infinity }), false,
+    'predicate must fail open on an unknown distance')
+  assert.equal(drownRescueSuppressed({ failures: 5, movedBlocks: 0 }), true,
+    '...so a retained reference position is what makes suppression reachable')
+  // And the sealed case must not be reachable only via Infinity.
+  assert.equal(drownRescueSuppressed({ failures: 5, movedBlocks: 0, sealedHere: true }), true)
+})
+
 test('junk input never suppresses — fail open, toward rescuing', () => {
   // If the caller cannot tell us anything, the air reflex must still run. The
   // owner directive is that the ONLY water reflex is getting air; a bug in this

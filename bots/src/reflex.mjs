@@ -1453,7 +1453,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const movedFromFail = (drownFailPos && hereNow)
           ? drownFailPos.distanceTo(hereNow) : Infinity
         drownFails = movedFromFail >= DROWN_MOVED_BLOCKS ? 1 : drownFails + 1
-        drownFailPos = hereNow ? hereNow.clone() : null
+        // KEEP THE LAST KNOWN POSITION. This wrote `null` when the position was
+        // unreadable on that tick, and `movedSinceFail` then computes Infinity
+        // forever after -- which the predicate's fail-open guard turns into
+        // "never suppress", permanently, for that bot. One unreadable tick
+        // disabled the whole mechanism. Observed live: placebo-b-Delta yielded
+        // and the rescue re-seized 7s later, every 32-37s, unbroken.
+        //
+        // A stale reference position is strictly better than none: the bot has
+        // not moved (that is the condition being measured), and if it HAS moved
+        // the distance check clears it on the next tick anyway.
+        if (hereNow) drownFailPos = hereNow.clone()
         drownFailHealth = bot.health ?? null
         lastReleaseAt = Date.now()
         lastReleaseKind = 'drowning_ceiling_no_air'
