@@ -73,18 +73,44 @@ function countMySightings(worldFacts, minDist) {
 // stockpile_stone -- `wants` was null and the milestone_critical exemption was
 // unreachable.
 //
-// Measured 2026-09-04, 12h, 79,393 decisions across all 80 bots
-// (llm-*.jsonl, field llm.admission):
+// Measured 2026-09-04, full walk, 116,771 decisions across all 80 bots
+// (llm-*.jsonl; kind in `llm.admission`, rung id in `messages[0].milestone`
+// with the `#N` cycle suffix stripped -- NOT the rendered task text, which
+// undercounts because the numeral varies):
 //
-//   milestone_critical fired  5,641 times, over 18 distinct tasks
-//   ...of them on "Stockpile N oak logs."          0
-//   ...of them on "Stockpile N cobblestone."       0
-//   ...of them on "Collect N oak_log" (M.gather)   556   <- the positive control
+//   milestone_critical fired 8,587 times over 23 distinct rungs
 //
-// Same skill, same block, same arms; the only difference is which milestone
-// object is active. Over the same window 1,437 `gather oak_log` proposals were
-// vetoed as learned_avoid while the active task was "Stockpile N oak logs", and
-// 1,128 `gather cobblestone` while it was "Stockpile N cobblestone".
+//   RUNG                     decisions   firings   per 1k
+//   gather_oak_log_N              9,578       864     90.2   <- positive control
+//   gather_cobblestone_N          7,854       611     77.8   <- positive control
+//   stockpile_wood               12,675         0      0.0
+//   stockpile_stone              12,919         0      0.0
+//   stockpile_wood+prereq         1,001       157    156.8   <- WITHIN-RUNG control
+//   stockpile_stone+prereq        1,472       219    148.8   <- WITHIN-RUNG control
+//
+// The `+prereq` rows are the load-bearing evidence, and they are stronger than
+// a neighbouring-rung control: same rung, same bots, same arms, same window.
+// The only difference is that a prereq milestone is also active -- and a prereq
+// is an M.gather/M.craft object, which DOES set `wants`. So the exemption fires
+// 152 times per 1k on these rungs when something else supplies the key, and
+// exactly 0 times in 25,594 decisions when only the rung itself does.
+//
+// Those two bare rungs are 21.9% of every decision the fleet makes.
+//
+// WHAT THIS IS WORTH, stated honestly, because the first draft of this note
+// overclaimed it. Within-bot paired comparison, 28 bots with >=100 decisions on
+// both an exemption-reachable rung and a bare one:
+//
+//   abort rate    -12.1 pts (mean), -14.1 (median)   <- the mechanism works
+//   success rate   +3.3 pts (mean),  +3.5 (median)
+//   bots improved  17 of 28                          <- sign test p ~ 0.17
+//
+// So roughly a quarter of the recovered aborts become successes and the rest
+// become failures, which is what you expect if an unblocked attempt succeeds at
+// the prevailing gather rate (~25%). This is a correctness fix with a modest and
+// not-yet-significant endpoint effect. It is NOT "the gather fix": pooled across
+// bots the success difference vanishes entirely (25.5% vs 25.1%), and only the
+// within-bot pairing shows anything at all.
 //
 // The same omission was found and fixed once before, on M.gather (see the note
 // on `wants` there: "measured: 0 firings against 10 learned_avoid rejections in
