@@ -30,6 +30,7 @@ const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
+import { mayStepDown, survivableDrop } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { breathPlan } from './swim-breath.mjs'
@@ -2779,18 +2780,40 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // at all -- maxDropDown=6 governs the PATHFINDER, not our own digging.
     // Anchored on the TREAD's floor now, because that is what the bot is about
     // to put its weight on.
+    // MEASURE THE DROP. Do not merely notice that there is one.
+    //
+    // This probed three blocks and refused, so a 4-block step-down -- ONE damage
+    // point -- was refused exactly as hard as a 118-block void. A bot marooned on
+    // a pillar is surrounded by open space by definition, so the guard against
+    // fall damage was what kept it there: of 31 `mine` calls by bots above y=90
+    // in 24h, twelve stopped here, and those bots had zero successes in ~400
+    // decisions each.
+    //
+    // Probe far enough to price the fall, and refuse only what actually hurts.
+    // An UNMEASURED void (deeper than the probe) is still refused -- the point is
+    // to stop guessing, not to start falling.
+    const hasScaffold = bot.inventory.items().some(it => SCAFFOLD.test(it.name))
+    const maxProbe = Math.max(4, survivableDrop(bot.health) + 2)
     let hollow = 0
-    for (let d = 0; d <= 2; d++) {
+    let floored = false
+    for (let d = 0; d <= maxProbe; d++) {
       const b = bot.blockAt(treadFloor.offset(0, -d, 0))
       if (!b || b.name === 'air' || b.name === 'cave_air' || b.boundingBox === 'empty') hollow++
-      else break
+      else { floored = true; break }
     }
-    if (hollow >= 3) {
+    const depth = floored ? hollow : null      // null = deeper than we can see
+    if (hollow >= 3 && !mayStepDown(depth, bot.health, hasScaffold)) {
       return {
         status: 'failed', failClass: 'void_below',
         gap: `at_y${Math.round(bot.entity.position.y)}`,
-        detail: `stopped at y=${Math.round(bot.entity.position.y)}: open space at least ` +
-                `${hollow + 1} blocks deep under the next step — that is a fall, not a stair`,
+        detail: `stopped at y=${Math.round(bot.entity.position.y)}: ` +
+                (depth == null
+                  ? `open space deeper than ${maxProbe} blocks under the next step — ` +
+                    `that is a fall, not a stair`
+                  : `a ${depth}-block drop under the next step` +
+                    (hasScaffold
+                      ? ` and you hold blocks — place one and step down instead of falling`
+                      : ` would cost about ${Math.max(0, depth - 3)} health, leaving too little`)),
       }
     }
     // Dig headroom first: a falling-block column above an already-open tread
