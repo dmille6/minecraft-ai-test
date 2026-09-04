@@ -643,31 +643,101 @@ export function drowningControls ({ losing, route }) {
     : { forward: false, jump: true, lookAt: null, phase: 'up' }
 }
 
+/**
+ * THE ROUTE AND THE RELEASE MUST ASK THE SAME QUESTION.
+ *
+ * This scan had its OWN air predicate -- `name !== 'water' && boundingBox ===
+ * 'empty'` -- and the rescue is released by `breathable()` in air.mjs, which is
+ * a different set. Against the vendored registry for the deployed 1.21.8 the
+ * two disagree about `seagrass`, `tall_seagrass`, `kelp`, `kelp_plant`,
+ * `bubble_column`, every waterlogged block with an empty box, and `lava`: all
+ * of them report `boundingBox: 'empty'` and none of them is named `water`, so
+ * the scan called every one of them AIR and the release called every one of
+ * them WATER. A rescue steered at a target it was then graded as never having
+ * reached.
+ *
+ * MEASURED 2026-09-04, and this is the whole reason the function moved. Nine
+ * bots were burning ~17% of fleet throughput in permanent drowning rescues at
+ * health 20/20. Their own `_drowning_route` was read as proof that air lay two
+ * blocks sideways. Read by RCON at placebo-b-Delta's exact coordinates
+ * (420.7, 44.2, -306.7 in world placebo-b, confirmed against the server's own
+ * `data get entity Pos`), the block this scan called air, two cells north at
+ * head height, is
+ *
+ *     (420, 45, -309)  minecraft:seagrass
+ *
+ * and the server reports that bot's `Air` as 300 of 300 with `Health` 20.0f.
+ * `out dist=2` was a plant. Six of the nine reported `sealed` and had no
+ * sideways route at all. So the horizontal escape everyone (including me) read
+ * out of that telemetry does not exist for eight of the nine.
+ *
+ * AND `lava` IS THE SAFETY HALF. It is `boundingBox: 'empty'` and not named
+ * water, so the old predicate answered `dir: 'up'` for a bot under a lava
+ * ceiling and `drowningControls` held `jump` into it -- and the sideways scan
+ * would swim THROUGH a lava column looking for air beyond it. Nothing has been
+ * observed doing that; it is one registry lookup away from happening and costs
+ * one clause to close.
+ *
+ * `sealed` IS A THIRD ANSWER, NOT A SECOND NAME FOR `dir: null`. The old return
+ * collapsed "every axis is closed by rock" and "the scan ran out of range still
+ * in open water" into the same value, which is the tri-state-as-a-bool mistake
+ * `scripts/lib/probe.py` exists to stop. A bot 33 blocks under an ocean surface
+ * scans 32 cells of water, finds no air, and is NOT sealed -- holding `jump` is
+ * exactly right for it. Only `sealed` may be read as "this rescue cannot help
+ * here", and an unreadable (null) block anywhere on a scan clears it, because
+ * an unloaded chunk is not evidence of a wall.
+ *
+ * @param at  (dx,dy,dz) -> block, relative to the bot's HEAD cell.
+ * @returns {{dir: 'up'|'out'|null, offset: number[]|null, dist: number,
+ *            sealed: boolean}}
+ */
+export function scanBreathableRoute ({ at = () => null, maxUp = 32, maxOut = 8,
+                                       isAir = breathable } = {}) {
+  // A body swims through water and air; it does not swim through lava, and it
+  // does not swim through a cell nobody can read.
+  const swimmable = b =>
+    b != null && b.name !== 'lava' && (b.name === 'water' || b.boundingBox === 'empty')
+
+  let unknown = false                 // any null cell: we did not SEE a wall
+  let capped = false                  // up ended on something solid
+
+  for (let dy = 1; dy <= maxUp; dy++) {
+    const b = at(0, dy, 0)
+    if (isAir(b)) return { dir: 'up', offset: [0, dy, 0], dist: dy, sealed: false }
+    if (!swimmable(b)) { capped = true; if (b == null) unknown = true; break }
+  }
+
+  // Capped above. Look sideways along each axis for a column that opens.
+  let best = { dir: null, offset: null, dist: Infinity }
+  let allClosed = true
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    let closed = false
+    for (let d = 1; d <= maxOut; d++) {
+      const b = at(dx * d, 0, dz * d)
+      if (!swimmable(b)) { closed = true; if (b == null) unknown = true; break }
+      if (isAir(b) && d < best.dist) { best = { dir: 'out', offset: [dx * d, 0, dz * d], dist: d }; closed = true; break }
+      // an air pocket one block up counts too -- that is the usual cave shape
+      const up = at(dx * d, 1, dz * d)
+      if (isAir(up) && d < best.dist) { best = { dir: 'out', offset: [dx * d, 1, dz * d], dist: d }; closed = true; break }
+    }
+    if (!closed) allClosed = false    // ran to maxOut still swimmable: unscanned
+  }
+  return { ...best, sealed: best.dir == null && capped && allClosed && !unknown }
+}
+
 export function breathableRoute(bot, { maxUp = 32, maxOut = 8 } = {}) {
-  const none = { dir: null, target: null, dist: Infinity }
+  const none = { dir: null, target: null, dist: Infinity, sealed: false }
   const at = bot?.entity?.position
   if (!at || !bot.blockAt) return none
   const head = at.offset(0, 1, 0)
-  // Water and air are both boundingBox 'empty'; only air ends a drowning.
-  const isAir = b => b != null && b.name !== 'water' && b.boundingBox === 'empty'
-  const swimmable = b => b != null && (b.name === 'water' || b.boundingBox === 'empty')
-
-  for (let dy = 1; dy <= maxUp; dy++) {
-    const b = bot.blockAt(head.offset(0, dy, 0))
-    if (isAir(b)) return { dir: 'up', target: head.offset(0, dy, 0), dist: dy }
-    if (!swimmable(b)) break          // solid ceiling: up is not an exit
-  }
-  // Capped above. Look sideways along each axis for a column that opens.
-  let best = none
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    for (let d = 1; d <= maxOut; d++) {
-      const p = head.offset(dx * d, 0, dz * d)
-      if (!swimmable(bot.blockAt(p))) break        // wall: this axis is closed
-      if (isAir(bot.blockAt(p)) && d < best.dist) { best = { dir: 'out', target: p, dist: d }; break }
-      // an air pocket one block up counts too -- that is the usual cave shape
-      const up = p.offset(0, 1, 0)
-      if (isAir(bot.blockAt(up)) && d < best.dist) { best = { dir: 'out', target: up, dist: d }; break }
-    }
+  const r = scanBreathableRoute({
+    at: (dx, dy, dz) => bot.blockAt(head.offset(dx, dy, dz)), maxUp, maxOut,
+  })
+  const best = {
+    dir: r.dir,
+    target: r.offset ? head.offset(r.offset[0], r.offset[1], r.offset[2]) : null,
+    dist: r.dist,
+    sealed: r.sealed,
   }
   return best
 }
@@ -763,13 +833,50 @@ const DROWN_MOVED_BLOCKS = 1.5         // moving this far means it is a new situ
 /**
  * Should the drowning rescue decline to seize the body right now?
  *
+ * THE MOVEMENT CLAUSE HAD ONE READER IT DID NOT EXPECT: THE ESCAPE ITSELF.
+ *
+ * "Moved 1.5 blocks, so it is a new situation" is right for a bot that swam
+ * somewhere. It is wrong for the only thing this suppression exists to let
+ * happen. `escapeStairUp` cuts a 1:1 ramp, so ONE step moves the bot 1.41
+ * blocks and TWO move it 2.83 -- past the threshold, on the escape's own
+ * progress. The rescue then re-arms, `seizeBody()` calls `bot.stopDigging()`
+ * mid-swing, and a bare-handed stone dig is 7.5 seconds long. That is not
+ * speculation about a future deploy; it is the second-commonest thing in the
+ * live telemetry today, quoted verbatim from `_entombed_ramp_cut`:
+ *
+ *     stopped because yielded the body to the drowning rescue
+ *     stopped because ceiling dig failed on stone: Digging aborted
+ *
+ * Measured 2026-09-04, 3h, live: those two strings are every ramp failure on
+ * five of the nine trapped bots. The ramp is already correct, already
+ * material-free, and is being cut off by this rescue in two different ways.
+ *
+ * So the clearing rule is asked to match the evidence it stands on. The
+ * evidence was "a full ceiling was held HERE and produced no air"; a metre of
+ * ramp inside the same sealed pocket does not disturb it. What does disturb it
+ * is air becoming reachable -- which is the moment the rescue becomes useful
+ * again, and is exactly when `sealedHere` goes false.
+ *
+ * WHY THIS CANNOT HIDE A DROWNING, which is the only part that matters:
+ *   - `healthDropped` still outranks everything, unchanged and first.
+ *   - `sealed` means every axis is closed by a block we READ. The rescue's only
+ *     primitives are lookAt/forward/jump; with no route there is nothing for it
+ *     to steer at, so what is being withheld is a rescue that provably cannot
+ *     act. An unreadable cell, or a scan that merely ran out of range in open
+ *     water, is NOT sealed -- see `scanBreathableRoute`.
+ *   - It defaults to `false`, so every caller that does not pass it keeps
+ *     today's behaviour exactly, and a route object without the field fails
+ *     open toward rescuing.
+ *
  * @param failures      consecutive expired rescues at ~this position
  * @param movedBlocks   distance from where the last one failed
  * @param healthDropped has the bot lost health since that failure?
+ * @param sealedHere    is air still unreachable on every axis we can read?
  * @returns true = do not seize; fall through to the escape handlers
  */
 export function drownRescueSuppressed ({ failures = 0, movedBlocks = 0,
-                                         healthDropped = false } = {}) {
+                                         healthDropped = false,
+                                         sealedHere = false } = {}) {
   if (healthDropped) return false                 // real harm always outranks this
   // FAIL OPEN, TOWARD RESCUING. An unreadable position is not evidence that the
   // bot stayed put, and reading it that way would let a bookkeeping failure
@@ -777,7 +884,10 @@ export function drownRescueSuppressed ({ failures = 0, movedBlocks = 0,
   // Caught by test: `{failures: 2, movedBlocks: NaN}` suppressed before this.
   if (!Number.isFinite(movedBlocks)) return false
   if (!Number.isFinite(failures)) return false
-  if (movedBlocks >= DROWN_MOVED_BLOCKS) return false
+  // Moving away clears it -- UNLESS the bot is still sealed in, in which case
+  // the move it made is the escape working and the situation is unchanged.
+  // `=== true` and not a truthy test: a missing field must read as "not sealed".
+  if (movedBlocks >= DROWN_MOVED_BLOCKS && sealedHere !== true) return false
   return failures >= DROWN_FAIL_SUPPRESS
 }
 
@@ -1469,12 +1579,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const hurtSinceFail = drownFailHealth != null && (bot.health ?? 20) < drownFailHealth
         const suppressed = drownRescueSuppressed({
           failures: drownFails, movedBlocks: movedSinceFail, healthDropped: hurtSinceFail,
+          // The route computed for `closingOnAir` above, reused. `sealed` is
+          // the only value that may hold suppression across a move, and it is
+          // false for an unreadable cell or a scan that ran out of range.
+          sealedHere: route?.sealed === true,
         })
         if (suppressed && throttled('drown_yield', 30_000)) {
           logEvent({
             kind: 'drowning_rescue_yielded', status: 'success',
             detail: `${drownFails} ceilings expired here with no air and no harm ` +
-                    `(health ${bot.health}) — yielding the body to the escape handlers`,
+                    `(health ${bot.health}, ${route?.sealed === true ? 'still sealed in' : 'moved on'}) ` +
+                    `— yielding the body to the escape handlers`,
             snapshot: snapshot(bot),
           })
         }
@@ -1500,7 +1615,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // movement bug. Direction and distance, once per rescue.
             logEvent({
               kind: 'drowning_route',
-              detail: `${route.dir ?? 'sealed'} dist=${route.dist === Infinity ? -1 : route.dist} ` +
+              // `sealed` AND `unscanned` USED TO SHARE A WORD, and that is how
+              // "the bots have a way out two blocks sideways" survived reading.
+              // A scan that ran out of range in open water is not a wall.
+              detail: `${route.dir ?? (route.sealed ? 'sealed' : 'unscanned')} ` +
+                      `dist=${route.dist === Infinity ? -1 : route.dist} ` +
                       `at ${Math.round(bot.entity?.position?.x ?? 0)},` +
                       `${Math.round(bot.entity?.position?.y ?? 0)},` +
                       `${Math.round(bot.entity?.position?.z ?? 0)}`,
