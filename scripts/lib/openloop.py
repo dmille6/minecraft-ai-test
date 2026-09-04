@@ -38,6 +38,21 @@ def _pool(manifest):
     return [p] if isinstance(p, str) else [x for x in p if x]
 
 
+def canary_sha(manifest):
+    """
+    The declared canary version, under either of its two names.
+
+    `deploy-fleet.sh` writes `canary_code_version`; the classifier and the
+    analysis scripts say `canary_sha`. Both name the same thing. This exists as
+    ONE function because the reader and the recorder disagreed about it once --
+    the reader was taught both names and the recorder was not, so a genuinely
+    open trial could be detected and then not closed.
+    """
+    if not isinstance(manifest, dict):
+        return ''
+    return manifest.get('canary_code_version') or manifest.get('canary_sha') or ''
+
+
 def open_loop(manifest, decisions):
     """
     Return a reason string when a loop is open, or None when nothing is open.
@@ -57,10 +72,7 @@ def open_loop(manifest, decisions):
     if not pool:
         return None                      # no canary declared: nothing is open
 
-    # `deploy-fleet.sh` writes `canary_code_version`; the classifier and the
-    # analysis scripts say `canary_sha`. Both name the same thing, and reading
-    # only one of them turns every real trial into "malformed manifest".
-    sha = manifest.get('canary_code_version') or manifest.get('canary_sha') or ''
+    sha = canary_sha(manifest)
     if not sha:
         # A pool with no sha cannot be closed by any decision, because a
         # decision names a sha. Deploy declares both or neither.
