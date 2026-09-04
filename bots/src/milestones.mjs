@@ -18,7 +18,7 @@ import { equivalentTools } from './skills.mjs'
 import { bankableInventory } from './bankable.mjs'
 import { countItem } from './state.mjs'
 import { config } from './config.mjs'
-import { log } from './logger.mjs'
+import { log, logEvent } from './logger.mjs'
 
 // Role-specific chains. Three bots running the identical chain would fail in
 // the identical way, which teaches us nothing beyond what one bot already
@@ -59,6 +59,89 @@ function countMySightings(worldFacts, minDist) {
       Array.isArray(r.by) && r.by.includes(me) &&
       Math.hypot(r.x - config.world.homeX, r.z - config.world.homeZ) >= minDist).length
   } catch { return 0 }
+}
+
+
+// ---------------------------------------------------------------------------
+// A RUNG THAT COUNTS AN ITEM MUST SAY WHICH ITEM
+// ---------------------------------------------------------------------------
+//
+// `wants` is the only thing the admission gate can read to decide that an
+// action may not be hard-blocked. M.gather and M.craft set it; the SUSTAINING
+// rungs were written as hand literals and did not, so for the two rungs the
+// primary endpoint is actually measured on -- stockpile_wood and
+// stockpile_stone -- `wants` was null and the milestone_critical exemption was
+// unreachable.
+//
+// Measured 2026-09-04, 12h, 79,393 decisions across all 80 bots
+// (llm-*.jsonl, field llm.admission):
+//
+//   milestone_critical fired  5,641 times, over 18 distinct tasks
+//   ...of them on "Stockpile N oak logs."          0
+//   ...of them on "Stockpile N cobblestone."       0
+//   ...of them on "Collect N oak_log" (M.gather)   556   <- the positive control
+//
+// Same skill, same block, same arms; the only difference is which milestone
+// object is active. Over the same window 1,437 `gather oak_log` proposals were
+// vetoed as learned_avoid while the active task was "Stockpile N oak logs", and
+// 1,128 `gather cobblestone` while it was "Stockpile N cobblestone".
+//
+// The same omission was found and fixed once before, on M.gather (see the note
+// on `wants` there: "measured: 0 firings against 10 learned_avoid rejections in
+// 40 minutes"). It came back because nothing MADE it impossible -- a new rung
+// is an object literal and an object literal can leave a key out. So the fix is
+// not only the two values below; it is the tripwire under them.
+//
+// The decision is exported and pure ON PURPOSE. Asserting `wants: 'oak_log'`
+// by grepping this file would pass on the comment that explains it.
+//
+// `isItem` defaults to "nothing is an item", so a caller without a registry
+// gets `null` rather than a fabricated gap. An instrument that cannot see must
+// report that it cannot see, not report an absence.
+
+/**
+ * The item a milestone's own progress line COUNTS, or null when what it counts
+ * is not an item.
+ *
+ * Reads the FIRST `have/need token` group anywhere in the string rather than
+ * anchoring at the end, because two live rungs put explanatory text after it:
+ * M.smelt renders `0/1 iron_ingot (3 raw_iron to smelt)` and M.craft renders
+ * `2/1 wooden_pickaxe (1 of them better)`. An end-anchored match returned null
+ * for both -- i.e. it would have called the two rungs that DO declare `wants`
+ * violations, and the two that do not, clean.
+ *
+ * The token is only an item if the registry says so. That is what keeps
+ * `45/80 blocks out` (patrol), `4/16 deposits beyond 60m` (survey) and
+ * `4/6 beyond 100m (level 2)` (survey_wider) from minting `blocks`, `deposits`
+ * and `beyond` as things a bot could go and fetch.
+ *
+ * @param {string} progress   what `MilestoneController.status().progress` renders
+ * @param {(name: string) => boolean} isItem
+ * @returns {string|null}
+ */
+export function measuredItem(progress, isItem = () => false) {
+  const m = /(\d+)\s*\/\s*(\d+)\s+([a-z][a-z0-9_]*)/.exec(String(progress ?? ''))
+  if (!m) return null
+  return isItem(m[3]) ? m[3] : null
+}
+
+/**
+ * Rungs whose progress line counts an item they do not declare as `wants`.
+ *
+ * Pure, and it takes the RENDERED progress rather than a bot, so the audit runs
+ * against the one definition of `progress` each rung already has instead of a
+ * second copy of the taxonomy. Returns [] when everything agrees.
+ */
+export function wantsGaps(rungs, renderProgress, isItem) {
+  const out = []
+  for (const m of rungs ?? []) {
+    let progress = ''
+    try { progress = renderProgress(m) } catch { continue }
+    const measured = measuredItem(progress, isItem)
+    const declared = m?.wants ?? null
+    if (measured !== declared) out.push({ id: m?.id ?? '?', measured, declared, progress })
+  }
+  return out
 }
 
 
@@ -394,6 +477,7 @@ const TECH_LADDER = [
 export const SUSTAINING = [
   {
     id: 'stockpile_wood',
+    wants: 'oak_log',
     describe: n => `Stockpile ${8 + n * 4} oak logs.`,
     done: (b, n) => countItem(b, 'oak_log') >= 8 + n * 4,
     progress: (b, n) => `${countItem(b, 'oak_log')}/${8 + n * 4} oak_log`,
@@ -406,6 +490,7 @@ export const SUSTAINING = [
   ...TECH_LADDER,
   {
     id: 'stockpile_stone',
+    wants: 'cobblestone',
     describe: n => `Stockpile ${16 + n * 8} cobblestone.`,
     done: (b, n) => countItem(b, 'cobblestone') >= 16 + n * 8,
     progress: (b, n) => `${countItem(b, 'cobblestone')}/${16 + n * 8} cobblestone`,
@@ -413,6 +498,7 @@ export const SUSTAINING = [
   },
   {
     id: 'patrol',
+    wants: null,               // covering ground, not fetching a thing
     describe: () => 'Scout terrain away from home and come back.',
     done: b => b.entity.position.distanceTo(
       { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }) > 80,
@@ -462,6 +548,7 @@ export const SUSTAINING = [
   },
   {
     id: 'return',
+    wants: null,               // a position, not an item
     describe: () => 'Return home with what you gathered.',
     done: b => b.entity.position.distanceTo(
       { x: config.world.homeX, y: b.entity.position.y, z: config.world.homeZ }) < 15,
@@ -515,6 +602,9 @@ export class MilestoneController {
     // harder each time it is met needs to count its own completions, not wait
     // for every other goal in the chain to finish first.
     this.completions = p.completions ?? {}
+    // One shout per rung per process. A tripwire that fires 79,000 times a day
+    // is noise, and noise is how the last one went unnoticed.
+    this.wantsWarned = new Set()
   }
 
   #persist() {
@@ -659,9 +749,49 @@ export class MilestoneController {
       // fleet converged on crafting sticks -- 80 of them, nothing needing more
       // than 2 -- because sticks were the most reliable way to make the number
       // go up. Productive-looking busywork is still not progress.
-      wants: m.wants ?? null,
+      wants: this.#auditedWants(m, progress),
       describe, progress, hint: m.hint,
     }
+  }
+
+  /**
+   * `m.wants`, and a shout if the rung is counting an item it never declared.
+   *
+   * WHY THIS RAISES INSTEAD OF ASKING SOMEONE TO REMEMBER. This exact omission
+   * shipped twice: once on M.gather ("Only `craft` set this, so the exemption
+   * was unreachable for ~90% of active milestones"), and then again on the two
+   * SUSTAINING rungs the primary endpoint is measured on, where it cost 2,565
+   * learned_avoid vetoes in 12 hours on the very block the active task named.
+   * Both times the suite was green, because a missing key has no behaviour of
+   * its own to test -- it is an absence, and this repo's standing lesson is that
+   * an absence needs an instrument pointed at it.
+   *
+   * It does NOT repair the value. A rung that silently acquired a want the
+   * author did not write would be a second source of truth for the plan, and
+   * the plan lives in this file deliberately. It reports, once per id per
+   * process, and the milestone behaves exactly as declared.
+   */
+  #auditedWants(m, progress) {
+    const declared = m?.wants ?? null
+    try {
+      const names = this.bot?.registry?.itemsByName
+      if (!names) return declared            // no registry: cannot see, so says nothing
+      const measured = measuredItem(progress, n => !!names[n])
+      if (measured !== declared && !this.wantsWarned.has(m.id)) {
+        this.wantsWarned.add(m.id)
+        log('warn', 'milestone counts an item it does not declare', {
+          milestone: m.id, measured, declared, progress,
+        })
+        logEvent({
+          kind: 'milestone_wants_gap',
+          status: 'failed',
+          detail: `${m.id} shows "${progress}" but declares wants=${JSON.stringify(declared)}; ` +
+                  `the admission gate's milestone_critical exemption cannot fire for ` +
+                  `${measured ?? 'it'}`,
+        })
+      }
+    } catch { /* an audit must never be able to break the plan */ }
+    return declared
   }
 
   get completedCount() { return this.index }
