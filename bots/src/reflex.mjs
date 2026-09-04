@@ -726,6 +726,61 @@ function makeThrottle(defaultMs = 10_000) {
 // still short of air -- handing the body back mid-drown, which is the shape
 // behind "idle at the moment of death". The head must STAY out.
 const RELEASE_DWELL_MS = 1_000
+// A RESCUE THAT HAS PROVEN IT CANNOT HELP MUST STOP TAKING THE BODY.
+//
+// Measured 2026-09-04 over 6h on the six captured bots: 4,603
+// `_drowning_ceiling_no_air` expiries, one every 28 seconds per bot, each
+// reading
+//
+//     held 20s and never reached air (oxygen 400, health 20) -- sealed
+//
+// Oxygen 400 of ~400 is a FULL tank and health 20 is untouched. Those bots were
+// not drowning. Zero deaths in six hours, zero health readings below 20, against
+// a fleet that does record 122 sub-20 readings in the same window -- so the field
+// varies and 20/20 is a reading, not a stuck value.
+//
+// This file already recorded the same signature once ("2,113 timeouts, at oxygen
+// 399-400 out of ~400 and health 20 ... roughly 11.7 fleet-hours") and fixed the
+// RELEASE. These bots never reach the release: their head is not breathable, so
+// they burn the whole ceiling, expire, and are re-seized ~2s later. Nothing
+// remembers that the last attempt failed.
+//
+// The cost is not the rescue, it is the RETURN. While the rescue owns the body
+// the entombed and maroon handlers never run -- they get only the ~2s gaps, and
+// this file already documents that exact shape as a bug for the suffocation
+// branch: "it could never reach the one routine that would free it ... So: fall
+// through. Do not return."
+//
+// KEYED ON OUTCOME, NOT ON CAUSE. Whatever makes the evidence guard flicker --
+// and `bot.oxygenLevel` is written from any nearby entity's air_supply, which is
+// confirmed and unfixed -- a rescue that held the full ceiling and produced no
+// air, at a position the bot has not left, with no health lost, has demonstrated
+// it cannot help there. A bot that is genuinely drowning LOSES HEALTH, and that
+// clears the suppression immediately. So this cannot hold back a real rescue.
+const DROWN_FAIL_SUPPRESS = 2          // failed ceilings at one spot before yielding
+const DROWN_MOVED_BLOCKS = 1.5         // moving this far means it is a new situation
+
+/**
+ * Should the drowning rescue decline to seize the body right now?
+ *
+ * @param failures      consecutive expired rescues at ~this position
+ * @param movedBlocks   distance from where the last one failed
+ * @param healthDropped has the bot lost health since that failure?
+ * @returns true = do not seize; fall through to the escape handlers
+ */
+export function drownRescueSuppressed ({ failures = 0, movedBlocks = 0,
+                                         healthDropped = false } = {}) {
+  if (healthDropped) return false                 // real harm always outranks this
+  // FAIL OPEN, TOWARD RESCUING. An unreadable position is not evidence that the
+  // bot stayed put, and reading it that way would let a bookkeeping failure
+  // switch off the air reflex -- the one reflex the owner directive keeps.
+  // Caught by test: `{failures: 2, movedBlocks: NaN}` suppressed before this.
+  if (!Number.isFinite(movedBlocks)) return false
+  if (!Number.isFinite(failures)) return false
+  if (movedBlocks >= DROWN_MOVED_BLOCKS) return false
+  return failures >= DROWN_FAIL_SUPPRESS
+}
+
 const RESCUE_CEILING_MS = 20_000
 const RESCUE_CEILING_MAX_MS = 45_000
 const PROGRESS_STALL_MS = 5_000
@@ -869,6 +924,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // apply; the stall check still does, and air, health and a waiting skill
   // all still preempt above this.
   let travelling = false
+  // Where the last ceiling expired, so a rescue that failed here is not retried
+  // here. Cleared by movement or by real harm -- see drownRescueSuppressed.
+  let drownFails = 0
+  let drownFailPos = null
+  let drownFailHealth = null
   const rescueExpired = () => {
     const held = Date.now() - seizedAt
     if (held <= RESCUE_CEILING_MS) return false
@@ -1277,6 +1337,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // never hide inside the success kind again.
       if (rescuing && rescueExpired()) {
         rescuing = false
+        // REMEMBER THAT IT FAILED. Nothing did, which is why the same rescue ran
+        // 4,603 times in six hours on six bots at full oxygen and full health.
+        const hereNow = bot.entity?.position
+        const movedFromFail = (drownFailPos && hereNow)
+          ? drownFailPos.distanceTo(hereNow) : Infinity
+        drownFails = movedFromFail >= DROWN_MOVED_BLOCKS ? 1 : drownFails + 1
+        drownFailPos = hereNow ? hereNow.clone() : null
+        drownFailHealth = bot.health ?? null
         lastReleaseAt = Date.now()
         lastReleaseKind = 'drowning_ceiling_no_air'
         lastDrownPhase = null
@@ -1394,7 +1462,23 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                        snapshot: snapshot(bot) })
           }
         }
-        if (mayAct && (emergency || !owned) && air.act === 'swim') {
+        // Has this rescue already failed here, with nothing to show for it?
+        const hereP = bot.entity?.position
+        const movedSinceFail = (drownFailPos && hereP)
+          ? drownFailPos.distanceTo(hereP) : Infinity
+        const hurtSinceFail = drownFailHealth != null && (bot.health ?? 20) < drownFailHealth
+        const suppressed = drownRescueSuppressed({
+          failures: drownFails, movedBlocks: movedSinceFail, healthDropped: hurtSinceFail,
+        })
+        if (suppressed && throttled('drown_yield', 30_000)) {
+          logEvent({
+            kind: 'drowning_rescue_yielded', status: 'success',
+            detail: `${drownFails} ceilings expired here with no air and no harm ` +
+                    `(health ${bot.health}) — yielding the body to the escape handlers`,
+            snapshot: snapshot(bot),
+          })
+        }
+        if (mayAct && !suppressed && (emergency || !owned) && air.act === 'swim') {
           const route = breathableRoute(bot)
           // SEIZE ONCE. Taking the body means clearing every control state, so
           // doing it per tick destroys the stroke the previous tick started.
