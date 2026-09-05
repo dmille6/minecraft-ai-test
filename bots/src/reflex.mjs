@@ -18,7 +18,12 @@ import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock } from './scaffold.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
-import { escapePlan } from './escape.mjs'
+import { escapePlan, ESCAPES } from './escape.mjs'
+// `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
+// import from it -- which is the entire reason the lattice's most-chosen rung
+// hit 'no routine wired'. skills.mjs does not import reflex.mjs, so this is
+// not a cycle.
+import { rideFloorDown } from './skills.mjs'
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -1983,23 +1988,28 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // stuck bot.
           const est = observeEscapeState(bot)
           const plan = escapePlan(est)
+          // TABLE, NOT AN IF/ELSE CHAIN, and the difference is a live defect.
+          //
+          // The chain implemented three of seven rungs. On the canary, 32 of 45
+          // consultations chose `ride_floor_down` and fell through to a fallback
+          // string I wrote myself -- 'no routine wired for this rung'. The module
+          // built to guarantee every state names an EXECUTABLE action reproduced
+          // exactly that defect inside itself, because a plan that names a routine
+          // nobody connected is a refusal wearing a plan's clothes.
+          //
+          // `ESCAPE_ROUTINES` is asserted exhaustive against ESCAPES at module load,
+          // so adding a rung to the enum without wiring it is a STARTUP failure
+          // rather than a silent runtime shrug.
           let acted = null
-          if (plan === 'step_off') {
-            if (Date.now() - lastStepOffAt < STEP_OFF_COOLDOWN_MS) {
-              acted = { ok: false, why: 'step_off on cooldown' }
-            } else {
-              lastStepOffAt = Date.now()
-              acted = await stepOff(bot).catch(e => ({ ok: false, why: `threw: ${e.message}` }))
-            }
-          } else if (plan === 'dig_down') {
-            acted = await harvestUnderfoot(bot).catch(e => ({ ok: false, why: `threw: ${e.message}` }))
-          } else if (plan === 'stair_up') {
-            const r = await escapeStairUp(bot, { yieldTo: drowningOwnsBody })
-              .catch(e => ({ steps: 0, climbed: 0, stopped: `threw: ${e.message}` }))
-            acted = { ok: r.climbed > 0, why: `ramp cut ${r.steps}, climbed ${r.climbed}` }
+          if (plan === 'step_off' && Date.now() - lastStepOffAt < STEP_OFF_COOLDOWN_MS) {
+            acted = { ok: false, why: 'step_off on cooldown' }
+          } else {
+            if (plan === 'step_off') lastStepOffAt = Date.now()
+            const routine = ESCAPE_ROUTINES[plan]
+            acted = routine
+              ? await routine(bot).catch(e => ({ ok: false, why: `threw: ${e.message}` }))
+              : { ok: false, why: `NO ROUTINE for ${plan} -- the table is not exhaustive` }
           }
-          // ONE KIND, EVERY OUTCOME, and the PLAN on it -- so the rate is computable
-          // per rung without parsing prose, and a rung that never works is visible.
           logEvent({ kind: 'escape_lattice',
                      status: acted?.ok ? 'success' : 'failed',
                      detail: `plan=${plan} y=${yNow} drop=${est.underfootDrop ?? 'unmeasured'} ` +
@@ -2725,6 +2735,101 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
     columnOpen: !solid(at(0, 2, 0)),
   }
+}
+
+/**
+ * EVERY RUNG, WIRED TO A ROUTINE THAT EXISTS.
+ *
+ * `none` is absent on purpose: it means "not trapped", and the dispatch never
+ * reaches the table for it. Everything else in `ESCAPES` must appear here, and
+ * the assertion below is what makes that true rather than hoped.
+ *
+ * Each routine takes `(bot)` and resolves `{ ok, why, ... }`, where `ok` is a
+ * POSTCONDITION -- the bot actually moved -- never "the routine was called".
+ */
+const ESCAPE_ROUTINES = {
+  dig_down: bot => harvestUnderfoot(bot),
+  // Lives in skills.mjs and was never imported here, which is the whole bug.
+  // Its free branch breaks the floor and lands on it; its bridge branch places
+  // one block first. Returns a rich object, so normalise to the common shape by
+  // its own postcondition: did the bot descend.
+  ride_floor_down: async bot => {
+    const yBefore = bot.entity?.position?.y ?? 0
+    const r = await rideFloorDown(bot, { maxSteps: 16 })
+    const fell = yBefore - (bot.entity?.position?.y ?? yBefore)
+    return { ok: fell >= 1, fell,
+             why: `rode down ${fell.toFixed(1)} (placed ${r?.placed ?? 0}, ` +
+                  `${r?.stopped ?? 'completed'})` }
+  },
+  stair_up: async bot => {
+    const r = await escapeStairUp(bot, { yieldTo: drowningOwnsBody })
+    return { ok: (r?.climbed ?? 0) > 0,
+             why: `ramp cut ${r?.steps ?? 0}, climbed ${r?.climbed ?? 0}` }
+  },
+  pillar_up: async bot => {
+    const yBefore = bot.entity?.position?.y ?? 0
+    const out = await pillarOut(bot)
+    const rose = (bot.entity?.position?.y ?? yBefore) - yBefore
+    return { ok: rose >= 1, rose, why: out ? `declined: ${out}` : `climbed ${rose.toFixed(1)}` }
+  },
+  surface_swim: bot => surfaceSwim(bot),
+  step_off: bot => stepOff(bot),
+}
+
+// THE ASSERTION THAT MAKES THE TABLE A GUARANTEE RATHER THAN AN INTENTION.
+// Adding a rung to ESCAPES without wiring it now fails at module load, loudly,
+// in every test run and every bot start -- instead of surfacing as a fallback
+// string in telemetry that nobody reads for a day.
+{
+  const wired = new Set(Object.keys(ESCAPE_ROUTINES))
+  const missing = ESCAPES.filter(e => e !== 'none' && !wired.has(e))
+  const extra = [...wired].filter(e => !ESCAPES.includes(e))
+  if (missing.length || extra.length) {
+    throw new Error(
+      `ESCAPE_ROUTINES is not exhaustive over ESCAPES -- missing: ` +
+      `[${missing}], unknown: [${extra}]. A plan naming a routine nobody wired ` +
+      `is a refusal wearing a plan's clothes.`)
+  }
+}
+
+/**
+ * TRAVERSE OPEN WATER ON A FIXED HEADING.
+ *
+ * NOT `swim_to`, and the difference is the whole point. `swim_to` sprint-swims
+ * SUBMERGED for speed, which is exactly the state the 500ms air reflex preempts,
+ * so the two fight: 5,623 calls at 2.5% success, 1,589 of the failures reading
+ * "drowning". This holds a heading at the surface and pulses jump only when the
+ * head actually goes under, so it never competes with the reflex for the body.
+ *
+ * Honours the owner's directive that water is terrain and swimming is travel:
+ * a floating bot is somewhere that needs crossing, not a bot in danger. The only
+ * water reflex remains getting air.
+ */
+async function surfaceSwim (bot, { seconds = 20 } = {}) {
+  const pos = bot.entity?.position
+  if (!pos) return { ok: false, why: 'no position' }
+  const startX = pos.x, startZ = pos.z
+  // A FIXED bearing, chosen once and held. Re-choosing every tick is how a bot
+  // circles a pond forever while every individual step looks reasonable.
+  const yaw = bot.entity.yaw ?? 0
+  const target = pos.offset(-Math.sin(yaw) * 40, 0, -Math.cos(yaw) * 40)
+  seizeBody(bot, 'surface_swim')
+  const until = Date.now() + seconds * 1000
+  try {
+    await bot.lookAt(target, true)
+    bot.setControlState('forward', true)
+    while (Date.now() < until) {
+      const head = bot.blockAt(bot.entity.position.offset(0, 1, 0))
+      const under = !!head && (head.name === 'water' || head.name === 'bubble_column')
+      bot.setControlState('jump', under)     // only when the head is actually submerged
+      await sleep(250)
+    }
+  } finally {
+    try { bot.setControlState('forward', false); bot.setControlState('jump', false) } catch { /* released */ }
+  }
+  const moved = Math.hypot((bot.entity?.position?.x ?? startX) - startX,
+                           (bot.entity?.position?.z ?? startZ) - startZ)
+  return { ok: moved >= 3, moved, why: `swam ${moved.toFixed(1)} blocks on a fixed heading` }
 }
 
 /**

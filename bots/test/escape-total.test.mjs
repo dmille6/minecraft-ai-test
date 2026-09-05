@@ -200,12 +200,19 @@ test('POSITIVE CONTROL: the stripper left executable text intact', () => {
 test('step_off is reachable ONLY through the lattice', () => {
   // If anything else could call it, the totality proof would say nothing about
   // when bots die -- the ordering is the entire safety argument.
-  const calls = REFLEX.match(/await stepOff\(/g) ?? []
-  assert.equal(calls.length, 1, `stepOff is called ${calls.length}x; exactly one call site`)
-  const i = REFLEX.indexOf('await stepOff(')
-  const before = REFLEX.slice(Math.max(0, i - 400), i)
-  assert.match(before, /plan === 'step_off'/,
-    'stepOff must be guarded by the lattice returning step_off, nothing else')
+  //
+  // The shape changed when the if/else chain became a table: `stepOff` is now
+  // reached as ESCAPE_ROUTINES.step_off, so the guarantee is structural. The
+  // table maps that key to nothing else, and nothing else maps to that routine.
+  const calls = REFLEX.match(/stepOff\(bot\)|await stepOff\(/g) ?? []
+  assert.equal(calls.length, 1, `stepOff reachable from ${calls.length} places; must be exactly one`)
+  assert.match(REFLEX, /step_off:\s*bot => stepOff\(bot\)/,
+    'the only route to stepOff must be the step_off entry in the routines table')
+  // ...and no other table entry may reach it.
+  const table = REFLEX.slice(REFLEX.indexOf('const ESCAPE_ROUTINES = {'))
+  const other = table.slice(0, table.indexOf('\n}')).split('\n')
+    .filter(l => /stepOff/.test(l) && !/step_off:/.test(l))
+  assert.deepEqual(other, [], `another rung reaches stepOff: ${other}`)
 })
 
 test('THE RESPAWN-LOOP GUARD: step_off is rate limited', () => {
@@ -240,4 +247,65 @@ test('every rung reached logs one kind carrying the plan', () => {
   const near = REFLEX.slice(i, i + 400)
   assert.match(near, /plan=\$\{plan\}/, 'the event must name which rung was chosen')
   assert.match(near, /status: acted\?\.ok/, 'and the status must be the OUTCOME, not a literal')
+})
+
+// ---------------------------------------------------------------------------
+// THE FIFTH UNREACHABLE REMEDY, BUILT INSIDE THE FIX FOR UNREACHABLE REMEDIES.
+//
+// The first dispatch was an if/else chain implementing three of seven rungs.
+// On the live canary, 32 of 45 consultations chose `ride_floor_down` and fell
+// through to a fallback string -- "no routine wired for this rung" -- that the
+// author had written himself and then, an hour later, reported the same events
+// to the owner as evidence the lattice was working.
+//
+// `rideFloorDown` had existed in skills.mjs the whole time. reflex.mjs simply
+// had no import from it.
+//
+// A plan that names a routine nobody wired is a refusal wearing a plan's
+// clothes, and totality over the PLAN says nothing about it.
+
+test('EXHAUSTIVE: every rung but `none` has a routine', () => {
+  const src = fs.readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  const i = src.indexOf('const ESCAPE_ROUTINES = {')
+  assert.ok(i > 0, 'POSITIVE CONTROL: the routines table must exist')
+  const table = src.slice(i, src.indexOf('\n}', i))
+  for (const rung of ESCAPES) {
+    if (rung === 'none') continue
+    assert.match(table, new RegExp(`\\b${rung}\\s*:`),
+      `${rung} is declared in ESCAPES and has no routine — it will hit the fallback`)
+  }
+})
+
+test('...and the chosen rung is looked up, never hard-coded per branch', () => {
+  // An if/else chain is how three-of-seven happened. A table lookup cannot
+  // silently omit a member, because the assertion below it compares key sets.
+  const src = fs.readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
+  assert.match(src, /ESCAPE_ROUTINES\[plan\]/,
+    'the dispatch must look the rung up in the table')
+  const branches = (src.match(/plan === '(?!step_off)/g) ?? [])
+  assert.equal(branches.length, 0,
+    `${branches.length} per-rung if-branches remain; the chain is how rungs got missed`)
+})
+
+test('the exhaustiveness check FAILS when a rung is unwired', async () => {
+  // An assertion never seen to fail is not an assertion. Mutate the table to
+  // drop a rung and prove the module refuses to load.
+  const url = new URL('../src/reflex.mjs', import.meta.url)
+  const src = fs.readFileSync(url, 'utf8')
+  const anchor = '  surface_swim: bot => surfaceSwim(bot),'
+  assert.ok(src.includes(anchor), 'MUTANT ANCHOR MISSING: never written reads as killed')
+  assert.strictEqual(src.split(anchor).length, 2, 'MUTANT ANCHOR NOT UNIQUE')
+
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`,
+                      import.meta.url)
+  fs.writeFileSync(out, src.replace(anchor, '').replace(/from '\.\//g, "from '../src/"))
+  let threw = null
+  try { await import(out.href) } catch (e) { threw = e }
+  finally { try { fs.unlinkSync(out) } catch {} }
+
+  assert.ok(threw, 'dropping a rung from the table must fail at module load')
+  assert.match(threw.message, /not exhaustive|surface_swim/,
+    `the failure must NAME the missing rung; got: ${threw.message.slice(0, 120)}`)
 })
