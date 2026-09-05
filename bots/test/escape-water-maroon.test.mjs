@@ -92,14 +92,29 @@ t('the ceiling does not misfire on ordinary ground', () => {
     'a bot trapped underground still needs scaffold')
 })
 
-t('the ceiling is USABLE, not just technically below the build limit', () => {
-  // A ceiling of 319 passes "below 320" and is worthless: the bot still climbs
-  // to 319 before anything notices. It has to fire with room to spare above
-  // real terrain and well before the world runs out.
-  assert.ok(CLIMB_CEILING >= 196, `CLIMB_CEILING ${CLIMB_CEILING} would misfire on mountains`)
-  assert.ok(CLIMB_CEILING <= 256,
-    `CLIMB_CEILING ${CLIMB_CEILING} is so close to the build limit that a bot reaches ` +
-    `the ceiling of the world before the rule fires`)
+t('the ceiling is USABLE — and MOUNTAINS ARE NOT WHAT PROTECTS IT', () => {
+  // This assertion used to demand CLIMB_CEILING >= 196 "or it would misfire on
+  // mountains". That reasoning was wrong, and holding it cost a live canary:
+  // the escape lattice was wired behind this state and emitted ZERO events for
+  // hours, because 200 sits above the population it was built for. The pool's
+  // stranded bots were at y=197 and y=183, and 104 of 7,911 samples reached 200.
+  //
+  // Mountains were never guarded by the height. `maroonState` returns 'none' the
+  // moment `canStartPath` is true, and a bot walking a ridge can start a path --
+  // so the ceiling is only ever consulted for a bot that is ALREADY marooned.
+  // Height alone never classifies anything. Proving that is what lets the
+  // threshold sit where the stranded bots actually are.
+  for (const y of [150, 200, 250, 319]) {
+    assert.equal(maroonState({ ...base, haveBlocks: true, canStartPath: true, y }), 'none',
+      `a bot at y=${y} that can still start a path is travelling, not stranded`)
+  }
+  // A ceiling of 319 would still be worthless -- the bot climbs to 319 before
+  // anything notices -- and one at ground level would fire on ordinary terrain.
+  assert.ok(CLIMB_CEILING > 73 + 40,
+    `CLIMB_CEILING ${CLIMB_CEILING} is too close to the town terrain at y=73`)
+  assert.ok(CLIMB_CEILING <= 200,
+    `CLIMB_CEILING ${CLIMB_CEILING} is above the measured stranded population ` +
+    `(median y=145), so the branch behind it would never run`)
 })
 
 t('THE CEILING OUTRANKS THE BLOCK AND TOOL BRANCHES', () => {

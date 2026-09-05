@@ -116,3 +116,57 @@ test('DEFECT 5: the terminal rescue must not climb a bot that is too high', () =
   assert.match(code, /STRANDED_HIGH_Y/,
     'the escalation must choose its direction from elevation')
 })
+
+// ---------------------------------------------------------------------------
+// THE MISTAKE THIS PINS: A REMEDY THAT EXISTS AND IS NEVER ROUTED TO.
+//
+// Four times in one day a fix was correct, tested, deployed -- and unreachable.
+// The mine y-ceiling was right while the model proposed `mine` 4 times in 557
+// decisions. `harvestUnderfoot` was right and refused 1,205 times. The escape
+// lattice was proved total over 8,960 states and emitted ZERO events in a live
+// canary, because the branch it hangs off required y>=200 while the stranded
+// population sits at a median of y=145 and only 1.31% of that pool's position
+// samples ever reached 200.
+//
+// A totality proof says the lattice always names an action. It says nothing
+// about whether the lattice is ever consulted. That gap is what these assert.
+
+test('CLIMB_CEILING covers the measured stranded population', () => {
+  // Of the fifteen stranded bots on 2026-09-04: six at y>=125 (three above 190),
+  // seven at y<=47, almost nothing between. The threshold must sit in the gap,
+  // not above the population it is meant to catch.
+  const STRANDED_HIGH_Y = [197, 186, 183, 178, 148, 140, 125]
+  const STRANDED_LOW_Y = [47, 44, 43, 35, 20, 7, 0, -19]
+
+  for (const y of STRANDED_HIGH_Y) {
+    assert.equal(maroonState({ ...BASE, haveBlocks: false, y }), 'stranded_high',
+      `a bot at y=${y} is stranded ABOVE the world and must route to the lattice`)
+  }
+  for (const y of STRANDED_LOW_Y) {
+    assert.notEqual(maroonState({ ...BASE, haveBlocks: false, y }), 'stranded_high',
+      `a bot at y=${y} is sealed BELOW, and climbing out is its answer, not descending`)
+  }
+})
+
+test('the ceiling is not so low that ordinary travel trips it', () => {
+  // Terrain around the town sits near y=73. A threshold that fires on normal
+  // ground would route working bots into an escape they do not need — which is
+  // the opposite failure and just as bad.
+  for (const y of [63, 73, 90, 106, 120]) {
+    assert.notEqual(maroonState({ ...BASE, haveBlocks: false, y }), 'stranded_high',
+      `y=${y} is ordinary terrain and must not read as stranded-high`)
+  }
+})
+
+test('the two thresholds agree — one number, two files', () => {
+  // `reflex.mjs` decides WHEN a bot is stranded-high; `watchdog.mjs` decides
+  // which way to escalate for one. If they disagree, a bot can be stranded-high
+  // for one and not the other, which is a composed dead end by construction.
+  const reflex = fs.readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  const watch = fs.readFileSync(new URL('../src/watchdog.mjs', import.meta.url), 'utf8')
+  const a = reflex.match(/export const CLIMB_CEILING = (\d+)/)
+  const b = watch.match(/const STRANDED_HIGH_Y = (\d+)/)
+  assert.ok(a && b, 'POSITIVE CONTROL: both constants must still be findable')
+  assert.equal(a[1], b[1],
+    `CLIMB_CEILING=${a[1]} but STRANDED_HIGH_Y=${b[1]} — the two layers disagree about who is stranded`)
+})
