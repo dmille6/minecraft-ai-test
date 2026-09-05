@@ -192,6 +192,22 @@ eats backticked identifiers.
 
 ## Standing constraints from the owner
 
+- **The memory experiment is retired (2026-09-04).** Not paused — retired. The
+  four arms, arm-stratified analysis, and the 20% gather gate are gone. This is
+  a foundation-and-harness project now: bots must survive, move, gather and
+  build in any Minecraft world.
+
+  Keep every bit of the measurement rigor. Difference-in-differences still
+  applies, but split pools **arbitrarily** rather than by arm — randomize five
+  bots per change and use the rest as control. Do NOT replace it with a
+  fleet-wide before/after: measured 2026-09-04, pools moved from -45% to +77%
+  on one metric in six hours with no code change, and a before/after would have
+  credited a fix with what was mostly world drift.
+
+  What the arms were costing: hive pools ran 109-185 learned_avoid vetoes per
+  1k decisions against 3-16 everywhere else, so every change landed differently
+  per arm and carried an interaction term; and only two conditions were ever
+  real, because board never used the board.
 - **Do not change the world to fix a bot.** No teleporting, no `/give`, no world
   edits. The fix must be code that works in any Minecraft world.
 - Swimming is travel, not danger. Water is terrain. The only water reflex is
