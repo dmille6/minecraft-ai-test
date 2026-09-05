@@ -68,6 +68,34 @@ export function skillSchema(skillNames) {
   }
 }
 
+/**
+ * DID WE GET THE MODEL WE ASKED FOR?
+ *
+ * `model` in the log is already honest -- it prefers Ollama's own answer over
+ * what we requested, and the comment at the assignment says why. But honest is
+ * not the same as CHECKED: nothing compared the two, so a pool that quietly
+ * degraded to a different model would record the truth in a field nobody read,
+ * and every comparison drawn across that boundary would be silently invalid.
+ *
+ * Measured 2026-09-05: config defaulted to `qwen2.5:14b-instruct` while all 80
+ * env files and the only pulled model on the endpoint were `qwen2.5:7b-instruct`.
+ * That particular gap was benign -- the fleet was internally consistent -- but
+ * it went a long time without anyone being able to state which model produced a
+ * decision, which is the part that matters.
+ *
+ * Returns null when they match, otherwise a reason string.
+ *
+ * A served tag may legitimately EXTEND the requested one: asking for
+ * `qwen2.5:7b-instruct` and being served `qwen2.5:7b-instruct-q4_K_M` is the
+ * same model at a stated quantisation, not a downgrade. Anything else is.
+ */
+export function modelMismatch (requested, served) {
+  if (!requested || !served) return null          // nothing served it; not a mismatch
+  if (served === requested) return null
+  if (served.startsWith(requested + '-')) return null
+  return `asked for ${requested}, served ${served}`
+}
+
 export class LlmClient {
   /**
    * An endpoint may pin its OWN model, written `url|model`.
@@ -182,6 +210,7 @@ export class LlmClient {
       // meta key. null means every attempt threw, so nothing served it.
       endpoint: servedBy,
       model: servedModel,
+      model_mismatch: modelMismatch(this.model, servedModel),
     }
   }
 

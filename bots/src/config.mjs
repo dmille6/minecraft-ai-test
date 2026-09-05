@@ -209,7 +209,14 @@ export const config = {
     // Falls back to the single OLLAMA_BASE_URL so existing env files keep working.
     baseUrls: (req('OLLAMA_BASE_URLS', '') || req('OLLAMA_BASE_URL', 'http://studio.lan:11434'))
       .split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean),
-    model: req('OLLAMA_MODEL', 'qwen2.5:14b-instruct'),
+    // NO DEFAULT, DELIBERATELY. This read `qwen2.5:14b-instruct` for months
+    // while all 80 deployed env files said `qwen2.5:7b-instruct` and the
+    // endpoint had only the 7b pulled (4.7GB, and no 14b at all). Nothing was
+    // wrong on the fleet -- the env files agreed with each other and with the
+    // server -- but a bot that ever lost its env file would have silently asked
+    // for a model that is not installed, and `req` would have handed it over
+    // without a word. A fallback that names an absent model is not a fallback.
+    model: req('OLLAMA_MODEL'),
     // Set EXPLICITLY. Ollama silently truncates at its default and a
     // truncated prompt does not error -- the model just looks stupid.
     //

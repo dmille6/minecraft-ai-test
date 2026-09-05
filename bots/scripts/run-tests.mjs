@@ -51,7 +51,17 @@ function run (file) {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env,
              SKILL_TIMEOUT_MS: process.env.SKILL_TIMEOUT_MS || '300',
-             SKILL_HARD_STOP_GRACE_MS: process.env.SKILL_HARD_STOP_GRACE_MS || '300' },
+             SKILL_HARD_STOP_GRACE_MS: process.env.SKILL_HARD_STOP_GRACE_MS || '300',
+             // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
+             // the old default named a 14b that was not installed anywhere, so a
+             // bot that lost its env file asked for a model nobody had pulled.
+             // Tests import config for unrelated reasons and must not each have
+             // to know that, so the runner supplies a value the way it already
+             // supplies the skill timeouts. `model-identity.test.mjs` asserts the
+             // SOURCE has no default, which is the check that actually matters
+             // and which this line cannot mask.
+             OLLAMA_MODEL: process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct',
+             OLLAMA_BASE_URL: process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434' },
     })
     let out = ''
     child.stdout.on('data', d => { out += d })
