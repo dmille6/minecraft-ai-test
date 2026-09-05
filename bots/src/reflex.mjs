@@ -18,6 +18,7 @@ import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock } from './scaffold.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
+import { escapePlan } from './escape.mjs'
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -62,6 +63,14 @@ const MAROON_CHECK_MS = 60_000
 // A trapped bot with no blocks cannot fix itself, so the ask must not repeat
 // every check -- applyPrereq needs time to make it the task and gather.
 const MAROON_PREREQ_COOLDOWN_MS = 120_000
+
+// A RESPAWN LOOP IS WORSE THAN A STUCK BOT, so the bottom rung is rate-limited.
+// A bot that steps off, respawns, walks back into the same hole and steps off
+// again has converted one stuck bot into an endless death machine that also
+// destroys its inventory every cycle. Ten minutes is long enough that a genuine
+// re-strand is a new event and short enough that one bad map feature does not
+// cost a whole afternoon.
+const STEP_OFF_COOLDOWN_MS = 600_000
 
 /**
  * What a drowning release actually WAS.
@@ -1074,6 +1083,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // cooldown or a failure count.
   let lastEscapeAt = 0
   let lastMaroonPrereqAt = 0
+  let lastStepOffAt = 0
   let escapeFailures = 0
   // Cumulative, NOT reset by a give-up. The give-up branch used to zero
   // escapeFailures and return, so a bot that could never escape ran
@@ -1943,6 +1953,44 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                              `help; this bot needs to descend`,
                      snapshot: snapshot(bot) })
           runner.interrupt('stranded_high')
+          
+          // AND NOW ACTUALLY DO SOMETHING, WHICH THIS BRANCH NEVER DID.
+          //
+          // Until today it logged, interrupted, and stopped -- 272 times in a 3.18h
+          // window, for bots at a median y of 145. The interrupt asks the cognitive
+          // layer to plan a descent, and the measured answer is that it does not: the
+          // population it fires for proposed `mine` 4 times in 557 decisions.
+          //
+          // `escapePlan` is total by construction and proved so over 8,960 states, so
+          // this consult cannot come back empty. Every rung above the bottom is
+          // survivable and is preferred; the bottom is only reached when none of them
+          // can work, and it is rate-limited because a respawn loop is worse than a
+          // stuck bot.
+          const est = observeEscapeState(bot)
+          const plan = escapePlan(est)
+          let acted = null
+          if (plan === 'step_off') {
+            if (Date.now() - lastStepOffAt < STEP_OFF_COOLDOWN_MS) {
+              acted = { ok: false, why: 'step_off on cooldown' }
+            } else {
+              lastStepOffAt = Date.now()
+              acted = await stepOff(bot).catch(e => ({ ok: false, why: `threw: ${e.message}` }))
+            }
+          } else if (plan === 'dig_down') {
+            acted = await harvestUnderfoot(bot).catch(e => ({ ok: false, why: `threw: ${e.message}` }))
+          } else if (plan === 'stair_up') {
+            const r = await escapeStairUp(bot, { yieldTo: drowningOwnsBody })
+              .catch(e => ({ steps: 0, climbed: 0, stopped: `threw: ${e.message}` }))
+            acted = { ok: r.climbed > 0, why: `ramp cut ${r.steps}, climbed ${r.climbed}` }
+          }
+          // ONE KIND, EVERY OUTCOME, and the PLAN on it -- so the rate is computable
+          // per rung without parsing prose, and a rung that never works is visible.
+          logEvent({ kind: 'escape_lattice',
+                     status: acted?.ok ? 'success' : 'failed',
+                     detail: `plan=${plan} y=${yNow} drop=${est.underfootDrop ?? 'unmeasured'} ` +
+                             `blocks=${est.blocks} tread=${est.lateralTread} ` +
+                             `-- ${acted ? acted.why : 'no routine wired for this rung'}`,
+                     snapshot: snapshot(bot) })
         }
 
         if (mstate === 'climb') {
@@ -2625,6 +2673,84 @@ export function shaftCapNeedsTool(bot, maxClearance = 12) {
 //     because a staircase bot WALKS INTO the tread it just cut; this one does
 //     not, and adding the probe would refuse cells for a fall that cannot
 //     happen.
+/**
+ * READ THE STATE THE LATTICE NEEDS. Nothing is inferred and nothing is guessed:
+ * every field is a direct observation, and anything unreadable stays at its
+ * conservative default so a measurement gap can never yield a MORE dangerous
+ * answer than a measurement.
+ */
+function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
+  const pos = bot.entity?.position
+  if (!pos) return { trapped: false }
+  const at = (x, y, z) => bot.blockAt(pos.offset(x, y, z))
+  const solid = b => !!b && b.boundingBox === 'block'
+
+  // PROBE DEEPER THAN THE DIG DOES. `harvestUnderfoot` stops at 24 and reported
+  // 16.3% of drops as unmeasured; at a median stranded height of y=145 that is
+  // the terrain being genuinely further away, not the probe being wrong. Knowing
+  // the real distance is what lets the lattice rank a survivable fall above the
+  // bottom rung instead of collapsing them together.
+  let drop = null
+  for (let d = 2; d <= maxProbe; d++) {
+    const b = at(0, -d, 0)
+    if (!b) break
+    if (solid(b)) { drop = d - 1; break }
+  }
+  const feet = at(0, 0, 0)
+  return {
+    trapped,
+    afloat: feet?.name === 'water' || bot.entity?.isInWater === true,
+    health: bot.health,
+    blocks: bot.inventory.items().filter(it => PLACEABLE.test(it.name))
+      .reduce((n, it) => n + it.count, 0),
+    climbNeed: PILLAR_MAX_BLOCKS + 1,
+    underfootSolid: solid(at(0, -1, 0)),
+    underfootDrop: drop,
+    floorBelowSolid: solid(at(0, -2, 0)),
+    lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
+    columnOpen: !solid(at(0, 2, 0)),
+  }
+}
+
+/**
+ * THE BOTTOM RUNG. Walk off the edge and let the fall finish it.
+ *
+ * Only ever reached through `escapePlan`, and only when every rung above it has
+ * refused -- so by construction there is no survivable move left. It costs the
+ * bot's inventory and its position, and returns it to spawn able to act. The
+ * alternative it replaces is measured: ~565 decisions an hour, forever, at zero
+ * output.
+ *
+ * Refuses rather than improvises when it cannot find an edge, because a bot that
+ * cannot walk off is a bot the lattice mis-classified, and thrashing on that is
+ * how a rescue becomes the hazard.
+ */
+async function stepOff (bot) {
+  const pos = bot.entity?.position
+  if (!pos) return { ok: false, why: 'no position' }
+  const at = (x, y, z) => bot.blockAt(pos.offset(x, y, z))
+  const solid = b => !!b && b.boundingBox === 'block'
+
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    if (solid(at(dx, 0, dz))) continue          // a wall, not an edge
+    if (solid(at(dx, -1, dz))) continue         // a step across, not a fall
+    seizeBody(bot, 'step_off')
+    const yBefore = pos.y
+    try {
+      await bot.lookAt(pos.offset(dx * 3, 0, dz * 3), true)
+      bot.setControlState('forward', true)
+      await sleep(700)
+    } finally {
+      try { bot.setControlState('forward', false) } catch { /* released anyway */ }
+    }
+    const fell = yBefore - (bot.entity?.position?.y ?? yBefore)
+    // POSTCONDITION, not "I issued the walk". Only falling counts.
+    return { ok: fell >= 1, fell, dir: `${dx},${dz}`,
+             why: fell >= 1 ? `fell ${fell.toFixed(1)}` : 'walked but did not fall' }
+  }
+  return { ok: false, why: 'no open lateral cell with a drop beneath it' }
+}
+
 /**
  * BREAK THE BLOCK YOU ARE STANDING ON, AND DESCEND ONE.
  *
