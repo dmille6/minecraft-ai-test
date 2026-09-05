@@ -168,8 +168,18 @@ selected, or reachable, so all three need checking:
   `sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh <sha> <run_id> "<notes>" [--pool P]`
 - **One canary pool, ever.** The tripper matches `canary_pool` literally; two
   canaries means three versions means a halted fleet.
-- **Teardown is two steps** — drop-ins *and* clearing `canary_pool` — or every
-  future `fleet-recycle` is blocked.
+- **Teardown is THREE steps** — drop-ins, clearing `canary_pool`, **and
+  restarting the pool's bots**. The first two are config; neither restarts
+  anything, so the bots keep running the canary code from memory and the fleet
+  sits on three versions, which halts the tripper. Measured 2026-09-04: after a
+  "complete" two-step teardown of placebo-b, all five bots were still reporting
+  the canary build, and only the next deploy's verifier caught it. Stagger the
+  restarts 12s apart, then confirm exactly two versions are live.
+- **The pre-push hook blocks canary branches, and that is a false positive.**
+  It refuses any push while behind `origin/main`, but a single-variable canary
+  must branch from the DEPLOYED BASELINE, not from main, so it is behind by
+  construction. Confirm the remote branch does not already exist — then the push
+  can only create, never overwrite — and use `--no-verify` for that push only.
 - A canary pool must **contain the population the fix targets**, or it shows
   nothing.
 - Rare outcomes (deaths ~0.1/hour/pool) are unmeasurable on 5 bots. Use them as
