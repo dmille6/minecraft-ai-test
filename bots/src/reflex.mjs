@@ -154,12 +154,27 @@ export function drowningRelease () {
  * everything, and the direction it needs is down. The reflex cannot plan a
  * descent at 500ms, so this is published rather than acted on.
  *
- * The ceiling is generous: the pregenerated terrain around the town sits near
- * y=73 and the tallest overworld peaks reach ~256, so 200 cannot be mistaken
- * for legitimate mountain travel while still catching the sky-pillar case by a
- * wide margin.
+ * LOWERED FROM 200 TO 125 ON 2026-09-05, because 200 was generous to the point
+ * of being unreachable and the branch behind it therefore never ran.
+ *
+ * The escape lattice was wired into this state, deployed to a canary pool, and
+ * emitted ZERO events in its first hours. Not a query bug -- the same query saw
+ * 67,848 rows from that pool. The reason is arithmetic: the pool's stranded bots
+ * sit at y=197 and y=183, and only 104 of 7,911 position samples across the pool
+ * ever reached 200. The remedy existed, was proved total over 8,960 states, and
+ * nothing routed to it.
+ *
+ * 125 is where the measured population actually splits. Of the fifteen stranded
+ * bots on 2026-09-04, six sat at y>=125 -- three of them above y=190 -- and seven
+ * at y<=47, with almost nothing in between. It is the same constant
+ * `watchdog.mjs` already uses to decide which way to escalate, and having the
+ * two agree is worth more than either being individually clever.
+ *
+ * Still far above legitimate travel: the pregenerated terrain around the town
+ * sits near y=73, so 125 is fifty blocks clear of ordinary ground while catching
+ * the whole sky-pillar population instead of its top 1%.
  */
-export const CLIMB_CEILING = 200
+export const CLIMB_CEILING = 125
 
 export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath,
                               cappedNeedsTool = false, y = null,
