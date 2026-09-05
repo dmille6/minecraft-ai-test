@@ -126,3 +126,38 @@ export function mineTargetHint (hereY) {
   return `To mine you must pass y=${cap} or lower (mine descends to an elevation; ` +
          `it cannot dig a single block).`
 }
+
+// THE ONE CELL THAT IS ALWAYS SOLID UNDER A BOT THAT IS STANDING UP.
+//
+// `HARVEST_OFFSETS` lists twelve neighbours -- four at foot level, four above,
+// four diagonally below -- and omits `[0,-1,0]`, the block the bot is standing
+// on. For a bot marooned on a pillar that cell is a block it placed itself, and
+// breaking it is the cheapest escape there is: it yields material AND descends
+// one, which is the only move that improves both halves of the trap at once.
+//
+// It was omitted for a good reason. Every other offset opens a cell BESIDE the
+// feet; this one opens the cell UNDER them, and the bot falls. `harvestSafe`
+// cannot price that -- it only looks for lava -- so the underfoot cell needs its
+// own predicate, and this is it.
+//
+// `drop` is how far the bot would actually fall: 1 when the cell below the
+// target is solid (step down onto your own pillar), more when it is not.
+
+/**
+ * May the bot break the block under its own feet?
+ *
+ * REFUSES AN UNMEASURED DROP, exactly as `mayStepDown` does. `null` means the
+ * probe did not reach a floor, and the whole purpose of pricing a fall is to
+ * stop guessing about the ones that are too deep to see the bottom of.
+ *
+ * The margin is deliberately the same one `survivableDrop` uses everywhere else:
+ * a bot that lands on three hearts can survive one more surprise, and a bot that
+ * lands on none has traded a trap for a death.
+ */
+export function mayHarvestUnderfoot ({ drop = null, health = 20, margin = 6 } = {}) {
+  if (drop == null || !Number.isFinite(drop)) return false
+  if (drop < 0) return false
+  // A one-block step down is free -- below FALL_FREE, it costs nothing at all.
+  if (drop <= FALL_FREE) return true
+  return drop <= survivableDrop(health, margin)
+}

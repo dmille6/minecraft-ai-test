@@ -17,6 +17,7 @@ import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock } from './scaffold.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
+import { mayHarvestUnderfoot } from './mining.mjs'
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -1867,7 +1868,29 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                                `yielded nothing when dug${lavaNote}; steps=${ramp.steps} ` +
                                `climbed=${ramp.climbed.toFixed(1)} — stopped because ${ramp.stopped}`,
                        snapshot: snapshot(bot) })
+            // BEFORE ASKING FOR MATERIALS, TRY THE ONE CELL NOBODY WAS LOOKING AT.
+            //
+            // The ramp needs a solid LATERAL neighbour to cut a tread into. A bot
+            // stranded on a pillar has air on all four cardinals by the definition
+            // of stranded, so `steps` comes back 0 -- and the branch below then asks
+            // a bot that cannot travel to go and fetch scaffold. 453 of 479 such
+            // prerequisites expired reading `had 0/8`.
+            //
+            // The block under its feet is solid, is one it placed itself, and
+            // breaking it descends one AND yields material. It is the cheapest rung
+            // there is, and it was missing from the offset list because that list
+            // could not price a fall. `mayHarvestUnderfoot` can.
+            let underfoot = null
             if (ramp.steps === 0) {
+              underfoot = await harvestUnderfoot(bot)
+                .catch(e => ({ ok: false, why: `threw: ${e.message}` }))
+              logEvent({ kind: 'marooned_underfoot',
+                         status: underfoot.ok ? 'success' : 'failed',
+                         detail: `ramp found no tread at y=${yNow}; underfoot dig ${underfoot.why}` +
+                                 (underfoot.drop != null ? ` (drop=${underfoot.drop})` : ''),
+                         snapshot: snapshot(bot) })
+            }
+            if (ramp.steps === 0 && !underfoot?.ok) {
               // THE RAMP REFUSED TOO, AND ONLY NOW IS THE GOAL LAYER RIGHT.
               //
               // Reaching here leaves the bot in EXACTLY the state this branch
@@ -2602,6 +2625,65 @@ export function shaftCapNeedsTool(bot, maxClearance = 12) {
 //     because a staircase bot WALKS INTO the tread it just cut; this one does
 //     not, and adding the probe would refuse cells for a fall that cannot
 //     happen.
+/**
+ * BREAK THE BLOCK YOU ARE STANDING ON, AND DESCEND ONE.
+ *
+ * `HARVEST_OFFSETS` deliberately omits `[0,-1,0]`, and it was right to: every
+ * other offset opens a cell BESIDE the feet, this one opens the cell UNDER them
+ * and the bot falls. `harvestSafe` cannot price that -- it looks for lava and
+ * nothing else -- so this cell gets its own routine rather than a list entry.
+ *
+ * It is worth the routine because it is the cheapest rung there is. For a bot
+ * marooned on a pillar the block underfoot is one it placed itself, so breaking
+ * it costs nothing, yields material, AND moves the bot in the only direction
+ * that helps. Every other remedy either spends blocks it has not got or goes up,
+ * which is the direction that stranded it.
+ *
+ * NO `canHarvest` GATE, and that is deliberate. `canHarvest` answers "will this
+ * DROP something", which is the right question for `harvestAdjacent` (whose job
+ * is material) and the wrong one here (whose job is descent). `escapeStairUp`
+ * already makes this distinction with `needsDrop: false`; bare-handed stone
+ * drops nothing and breaks fine, and the hole is what we came for.
+ */
+async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
+  const pos = bot.entity?.position
+  if (!pos) return { ok: false, why: 'no position' }
+  const target = bot.blockAt(pos.offset(0, -1, 0))
+  if (!target || target.boundingBox !== 'block') return { ok: false, why: 'nothing solid underfoot' }
+
+  const risk = harvestSafe({ at: (a, c, d) => bot.blockAt(pos.offset(a, c, d)),
+                             dx: 0, dy: -1, dz: 0 })
+  if (risk) return { ok: false, why: risk }
+
+  // PRICE THE FALL. Feet at y, target at y-1. If the next solid cell is at y-d
+  // the bot lands on top of it, at y-d+1, so it falls d-1. `null` means the
+  // probe never found a floor, and an unmeasured drop is refused -- breaking
+  // your own floor over a void you never saw the bottom of is not recoverable.
+  let drop = null
+  for (let d = 2; d <= maxProbe; d++) {
+    const b = bot.blockAt(pos.offset(0, -d, 0))
+    if (!b) break
+    if (b.boundingBox === 'block') { drop = d - 1; break }
+  }
+  if (!mayHarvestUnderfoot({ drop, health: bot.health })) {
+    return { ok: false, drop,
+             why: `a ${drop ?? 'unmeasured'}-block drop is not survivable at ${bot.health} hp` }
+  }
+
+  seizeBody(bot, 'underfoot')
+  const tool = bestTool(bot, target)
+  if (tool) await bot.equip(tool, 'hand').catch(() => {})
+  const yBefore = pos.y
+  try { await digBounded(bot, target, budgetMs) } catch (e) {
+    return { ok: false, drop, why: `dig failed: ${e.message}` }
+  }
+  // POSTCONDITION, not "I ran it". The same discipline the entombed branch uses:
+  // the claim that matters is that the bot is lower, not that a dig was issued.
+  const fell = yBefore - (bot.entity?.position?.y ?? yBefore)
+  return { ok: fell >= 0.5, drop, fell,
+           why: fell >= 0.5 ? `descended ${fell.toFixed(1)}` : 'dug but did not descend' }
+}
+
 const HARVEST_OFFSETS = [
   [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
   [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1],
