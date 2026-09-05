@@ -153,7 +153,8 @@ export const CLIMB_CEILING = 200
 
 export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath,
                               cappedNeedsTool = false, y = null,
-                              climbCeiling = CLIMB_CEILING }) {
+                              climbCeiling = CLIMB_CEILING,
+                              blockCount = null, climbNeed = 24 }) {
   if (!upIsOpen || entombed || canStartPath) return 'none'
   // Checked BEFORE the block/tool branches: a bot at the build limit with a
   // full inventory of dirt is not one scaffold away from rescue, and asking it
@@ -161,6 +162,19 @@ export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath,
   // to gather materials for a tower that cannot go anywhere.
   if (typeof y === 'number' && y >= climbCeiling) return 'stranded_high'
   if (haveBlocks && cappedNeedsTool) return 'need_pickaxe'
+  // `haveBlocks` IS A `.some()` TEST AND THE CLIMB NEEDS TWENTY-FIVE.
+  //
+  // One placeable block flipped this to 'climb', and `pillarOut` then refused via
+  // `canFinishClimb`, which wants `PILLAR_MAX_BLOCKS + 1`. Every bot holding
+  // 1..24 blocks was therefore routed to a remedy guaranteed to decline, instead
+  // of to `need_scaffold` -- the branch that ASKS FOR WHAT IS MISSING and is the
+  // only one of the two that can ever change the situation.
+  //
+  // `blockCount` is optional so existing callers keep working; when it is absent
+  // the old boolean behaviour stands, because a caller that cannot count is not
+  // evidence that the bot has too few.
+  if (typeof blockCount === 'number' && haveBlocks &&
+      !canFinishClimb({ have: blockCount, need: climbNeed })) return 'need_scaffold'
   return haveBlocks ? 'climb' : 'need_scaffold'
 }
 
@@ -1763,7 +1777,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // called open because lava reports an empty box -- a bot under lava is
         // not one pillar away from anywhere.
         const upIsOpen = !above || bodyPassable(above)
-        const haveBlocks = bot.inventory.items().some(it => PLACEABLE.test(it.name))
+        // COUNT, not `.some()`. The boolean stays because other readers use it,
+        // but the count is what `maroonState` needs to tell "can climb" from
+        // "will be refused for want of twenty-four more".
+        const blockCount = bot.inventory.items()
+          .filter(it => PLACEABLE.test(it.name))
+          .reduce((n, it) => n + it.count, 0)
+        const haveBlocks = blockCount > 0
         // ONE DECISION, not two overlapping conditions. See maroonState().
         // CHEAP GUARDS FIRST. canStartAPath() runs a real search, and the
         // original condition short-circuited before reaching it. Computing the
@@ -1776,7 +1796,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           : !!shaftCapNeedsTool(bot)
         const mstate = (!upIsOpen || entombedNow)
           ? 'none'
-          : maroonState({ upIsOpen, haveBlocks, entombed: entombedNow,
+          : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: PILLAR_MAX_BLOCKS, entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
         if (mstate === 'need_scaffold' &&
@@ -1917,7 +1937,49 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                              `column above -- climbing out`,
                      snapshot: snapshot(bot) })
           runner.interrupt('marooned')
-          try { await pillarOut(bot) } catch (e) { log('warn', 'maroon escape failed', { err: e.message }) }
+          // THE RETURN VALUE WAS THROWN AWAY, AND IT IS THE WHOLE OUTCOME.
+          //
+          // `pillarOut` answers 'needs_blocks' | 'exhausted' | undefined-on-success.
+          // The ENTOMBED branch reads it and escalates; this one discarded it, so a
+          // refusal was indistinguishable from a rescue. Measured 2026-09-04 over
+          // 6h: board-c-Delta logged `marooned` 350 times and `maroon_climb_refused`
+          // 350 times -- a 1:1 pairing, every detection ending in a refusal nobody
+          // acted on, then silence, 350 times over.
+          //
+          // So: mirror what entombment already does, because it is already right.
+          // A refusal for want of material falls through to the bare-handed ramp,
+          // which needs no material at all. If the ramp also declines the bot is in
+          // exactly the state this branch would have left it in anyway -- same cell,
+          // same inventory -- and now both reasons are on the record instead of none.
+          let pillarOutcome = null
+          try { pillarOutcome = await pillarOut(bot) }
+          catch (e) { log('warn', 'maroon escape failed', { err: e.message }); pillarOutcome = 'threw' }
+
+          if (pillarOutcome === 'needs_blocks' || pillarOutcome === 'exhausted') {
+            // RECORDED, NOT RE-REMEDIED.
+            //
+            // The first version of this fix cut a second ramp here, which was
+            // redundant and broke a rule the suite enforces: `marooned_ramp_cut`
+            // is emitted from exactly ONE place, so that success and failure keep
+            // a shared denominator. The suite caught it.
+            //
+            // It is redundant because the sibling fix routes the common case
+            // elsewhere. `maroonState` now compares the block COUNT against what
+            // `canFinishClimb` demands, so a bot holding 1..24 no longer arrives
+            // here at all -- it reaches `need_scaffold`, which already
+            // self-sources, cuts the ramp, and handles `steps === 0`.
+            //
+            // What is left is a bot that HAD enough and still could not finish.
+            // There is no cheaper remedy to reach for, and inventing one here
+            // would be guessing. So: say so, once, with the reason on it. A
+            // refusal that is recorded is a funnel; a refusal that is discarded
+            // is the 350-to-350 silence this whole change exists to end.
+            logEvent({ kind: 'maroon_pillar_declined', status: 'failed',
+                       detail: `pillar declined (${pillarOutcome}) from y=` +
+                               `${Math.round(bot.entity?.position?.y ?? 0)} — recorded rather ` +
+                               `than discarded; no cheaper remedy applies at this block count`,
+                       snapshot: snapshot(bot) })
+          }
           noteReflexInventory(bot, invBefore, 'maroon_escape')
           marooned = false
         }

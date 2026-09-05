@@ -21,6 +21,16 @@ const { goals } = pathfinderPkg
 import { snapshot, inventorySummary } from './state.mjs'
 import { config } from './config.mjs'
 
+/**
+ * At or above this the bot is stranded ON the world rather than under it, and
+ * the escalation must point DOWN. 125 is where the measured population splits:
+ * of the fifteen stranded bots on 2026-09-04, six sat at y>=125 and seven at
+ * y<=47, with almost nothing in between.
+ */
+const STRANDED_HIGH_Y = 125
+/** Bedrock. `mine` cannot be asked to descend past it. */
+const WORLD_FLOOR = -59
+
 export class StagnationWatchdog {
   /**
    * @param bot      mineflayer bot
@@ -445,11 +455,28 @@ export class StagnationWatchdog {
     // ladder where it was, or the next failure is indistinguishable from the
     // first and the bot loops at level 3 forever. It resets in #check() when
     // real progress is observed, which is the only evidence that means it.
-    log('warn', 'watchdog: stranded -- forcing a climb-out rather than counting it again')
+    // ESCALATE IN THE DIRECTION THE BOT IS ACTUALLY STUCK.
+    //
+    // This ran `surface` unconditionally, and `surface` CLIMBS. Measured
+    // 2026-09-04, six of the fifteen stranded bots sat at y>=125 -- three of
+    // them above y=190, on pillars they had built -- and the terminal rescue
+    // answered by sending them further up. `surface` succeeded 490/913 above
+    // y=60 and 0 times in 1,902 calls below it, so the population it works for
+    // is the one already near the top.
+    //
+    // A bot marooned ABOVE the world needs to go down. `mine` descends to an
+    // elevation and prices the fall against health, so it is the verb that can
+    // refuse safely rather than the verb that cannot help at all.
+    const y = this.bot?.entity?.position?.y
+    const tooHigh = typeof y === 'number' && y >= STRANDED_HIGH_Y
+    const verb = tooHigh ? 'mine' : 'surface'
+    const args = tooHigh ? { y: Math.max(WORLD_FLOOR, Math.round(y) - 8) } : {}
+    log('warn', `watchdog: stranded at y=${typeof y === 'number' ? Math.round(y) : '?'}` +
+                ` -- forcing ${verb} rather than counting it again`)
     try {
-      await this.runner.run('surface', {}, { trigger: 'watchdog_stranded' })
+      await this.runner.run(verb, args, { trigger: 'watchdog_stranded' })
     } catch (e) {
-      log('error', 'watchdog: climb-out failed', { err: e.message })
+      log('error', 'watchdog: escape failed', { err: e.message, verb })
     }
   }
 }
