@@ -217,6 +217,15 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
       // ("was Scout02's escape a forced admission?") was unanswerable because
       // this field did not exist. null when nothing was admitted.
       admission: admission?.kind ?? null,
+      // DID WE GET THE MODEL WE ASKED FOR? Computed in llm.mjs and, for one day,
+      // dropped right here -- this object is an ALLOWLIST, so a field added
+      // upstream reaches the log only if it is also named below. Measured
+      // 2026-09-05: 0 of 136,950 rows carried it, while a status page read the
+      // absent field as `null` and rendered "no mismatch / ok". An all-clear from
+      // a field that was never written is worse than no check, because it is
+      // trusted. This is the repo's own rule one layer up: a capability is not
+      // shipped until the OBSERVATION names it.
+      model_mismatch: res.model_mismatch ?? null,
     },
     // WHICH STORED BELIEF ACTED ON THIS DECISION.
     //
