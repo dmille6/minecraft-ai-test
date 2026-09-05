@@ -182,3 +182,62 @@ test('MUTANT: removing the bottom rung must break totality', async () => {
     assert.equal(untotalStates(states).length, 0, 'and the real module must still be total')
   } finally { try { fs.unlinkSync(out) } catch {} }
 })
+
+// ---------------------------------------------------------------------------
+// THE WIRING. Source assertions, because the shapes below are about WHERE a
+// call is and whether a guard precedes it -- neither reachable by behaviour.
+// Comments are stripped first: this codebase quotes the code it explains.
+
+const REFLEX = fs.readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
+
+test('POSITIVE CONTROL: the stripper left executable text intact', () => {
+  assert.ok(REFLEX.includes('async function stepOff'), 'stripper destroyed the source')
+  assert.ok(!/A RESPAWN LOOP IS WORSE/.test(REFLEX), 'prose survived the stripper')
+})
+
+test('step_off is reachable ONLY through the lattice', () => {
+  // If anything else could call it, the totality proof would say nothing about
+  // when bots die -- the ordering is the entire safety argument.
+  const calls = REFLEX.match(/await stepOff\(/g) ?? []
+  assert.equal(calls.length, 1, `stepOff is called ${calls.length}x; exactly one call site`)
+  const i = REFLEX.indexOf('await stepOff(')
+  const before = REFLEX.slice(Math.max(0, i - 400), i)
+  assert.match(before, /plan === 'step_off'/,
+    'stepOff must be guarded by the lattice returning step_off, nothing else')
+})
+
+test('THE RESPAWN-LOOP GUARD: step_off is rate limited', () => {
+  // A bot that steps off, respawns, walks back and steps off again has become an
+  // endless death machine that destroys its inventory every cycle. This is the
+  // one guard whose absence would make the bottom rung worse than the trap.
+  assert.match(REFLEX, /STEP_OFF_COOLDOWN_MS\s*=\s*600_000/,
+    'the cooldown constant must exist and be ten minutes')
+  const i = REFLEX.indexOf('await stepOff(')
+  const before = REFLEX.slice(Math.max(0, i - 400), i)
+  assert.match(before, /lastStepOffAt\s*<\s*STEP_OFF_COOLDOWN_MS/,
+    'the cooldown must be CHECKED immediately before the call, not merely defined')
+  assert.match(before, /lastStepOffAt\s*=\s*Date\.now\(\)/,
+    'and the clock must be stamped, or the cooldown never elapses from zero')
+})
+
+test('the observation probes deeper than the dig does', () => {
+  // 16.3% of underfoot attempts reported the drop UNMEASURED at a 24-block
+  // probe, from bots at a median y of 145. Under-probing collapses "a survivable
+  // fall" into "no information", which pushes a bot toward the bottom rung it
+  // did not need.
+  assert.match(REFLEX, /function observeEscapeState[\s\S]{0,400}maxProbe = 48/,
+    'the lattice probe must reach further than harvestUnderfoot 24')
+})
+
+test('every rung reached logs one kind carrying the plan', () => {
+  // So the success rate is computable PER RUNG without parsing prose, and a rung
+  // that never works is visible instead of hidden in an aggregate.
+  assert.strictEqual(REFLEX.split("kind: 'escape_lattice'").length, 2,
+    'escape_lattice must be emitted from exactly one place')
+  const i = REFLEX.indexOf("kind: 'escape_lattice'")
+  const near = REFLEX.slice(i, i + 400)
+  assert.match(near, /plan=\$\{plan\}/, 'the event must name which rung was chosen')
+  assert.match(near, /status: acted\?\.ok/, 'and the status must be the OUTCOME, not a literal')
+})
