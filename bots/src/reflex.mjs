@@ -16,7 +16,7 @@ import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock } from './scaffold.mjs'
-import { planDig, predictedDigMs, digHand } from './digbudget.mjs'
+import { planDig, predictedDigMs, digHand, digEnv } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
@@ -2010,13 +2010,25 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               ? await routine(bot).catch(e => ({ ok: false, why: `threw: ${e.message}` }))
               : { ok: false, why: `NO ROUTINE for ${plan} -- the table is not exhaustive` }
           }
+          // EVERY FIELD HERE EARNED ITS PLACE BY BEING MISSING.
+          //
+          // 821 identical failures could be attributed to the cell at
+          // y-1 only by inferring it from which rung was picked, and
+          // the geometry could not be resolved at all, because
+          // booleans cannot separate air from a slab from an unloaded
+          // chunk and `snapshot()` rounds y to one decimal.
+          //
+          // `onGround` vs `underfoot` is the discriminator; `yExact`
+          // vs `y` shows a sub-integer feet position; `support` is
+          // what `Math.ceil(y)-1` would have read, so `underfoot` and
+          // `support` disagreeing IS the off-by-one, demonstrated
+          // rather than argued.
           logEvent({ kind: 'escape_lattice',
                      status: acted?.ok ? 'success' : 'failed',
-                     // `underfoot` is logged because its ABSENCE cost a whole
-                     // diagnosis: 679 identical failures could be attributed to
-                     // this cell only by inferring it from which rung was picked.
-                     detail: `plan=${plan} y=${yNow} drop=${est.underfootDrop ?? 'unmeasured'} ` +
-                             `underfoot=${est.underfootSolid} below=${est.floorBelowSolid} ` +
+                     detail: `plan=${plan} y=${yNow} yExact=${est.yExact?.toFixed(6)} ` +
+                             `onGround=${est.onGround} drop=${est.underfootDrop ?? 'unmeasured'} ` +
+                             `underfoot=${est.underfootSolid}:${est.underfootName} ` +
+                             `support=${est.supportName} below=${est.belowName} ` +
                              `blocks=${est.blocks} tread=${est.lateralTread} ` +
                              `-- ${acted ? acted.why : 'no routine wired for this rung'}`,
                      snapshot: snapshot(bot) })
@@ -2738,6 +2750,43 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     floorBelowSolid: solid(at(0, -2, 0)),
     lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
     columnOpen: !solid(at(0, 2, 0)),
+
+    // ---- DIAGNOSTIC ONLY. `escapePlan` ignores these; they exist because the
+    // lattice's INPUTS have never been validated and one window of them decides
+    // whether the geometry below is real or an artefact of how we read it.
+    //
+    // 821 of 821 `ride_floor_down` consultations failed with `nothing underfoot
+    // to stand on`, from bots at exact block centres with positional span 0.0
+    // for hours. That is not a possible resting state in the WORLD, so either
+    // the reader is wrong or mineflayer's world model is. We could not tell,
+    // because we logged booleans and a position rounded to one decimal.
+    //
+    // `onGround` is the discriminator, and it is decisive because
+    // prismarine-physics derives it by simulating against THE SAME `bot.world`
+    // this function reads (index.js:301, `onGround = isCollidedVertically &&
+    // oldVelY < 0`):
+    //
+    //   onGround true  + underfootSolid false -> two readers, same data,
+    //     different answers. A coordinate-read bug: `pos.offset(0,-1,0)` floors,
+    //     so a feet-y of 196.99999999 reads block 195, one cell too deep. It is
+    //     also just wrong for any non-integer standing height -- a bot on a slab
+    //     at y=195.5 reads block 194 and never sees the slab at 195.
+    //   onGround false + underfootSolid false -> physics agrees nothing is
+    //     there. Then the cache is poisoned, and `finishDigging` is the likely
+    //     author: it calls `_updateBlockState(pos, 0)` to write AIR into the
+    //     local world with NO server acknowledgement, which is exactly what
+    //     `harvestUnderfoot` does to this cell, repeatedly. The entry event is
+    //     already in telemetry as `dug but did not descend`.
+    //
+    // Names, not booleans: `underfootSolid: false` cannot distinguish air from
+    // a slab from an unloaded chunk, and that ambiguity is the whole mystery.
+    onGround: bot.entity?.onGround ?? null,
+    yExact: pos.y,
+    underfootName: at(0, -1, 0)?.name ?? null,
+    belowName: at(0, -2, 0)?.name ?? null,
+    // What `Math.ceil(y)-1` would have read instead. If these disagree, the
+    // off-by-one is not a hypothesis any more.
+    supportName: at(0, Math.ceil(pos.y) - 1 - pos.y, 0)?.name ?? null,
   }
 }
 
@@ -2934,8 +2983,12 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   if (bot.heldItem) await bot.unequip('hand').catch(() => {})
 
   const tool = bestTool(bot, target)
-  const hand = digHand({ bareMs: predictedDigMs(target, null),
-                         toolMs: predictedDigMs(target, tool) })
+  // The REAL environment, not the on-ground fiction: an escape dig happens
+  // precisely when the bot is not standing on solid ground, and that is a 5x
+  // penalty the old call could not see.
+  const env = digEnv(bot)
+  const hand = digHand({ bareMs: predictedDigMs(target, null, env),
+                         toolMs: predictedDigMs(target, tool, env) })
   if (hand.refuse) {
     return { ok: false, drop,
       why: `${target.name} underfoot is too slow to break, tool or not` }
@@ -3622,8 +3675,9 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
       // highest-volume escape routine in the fleet, so it is also the largest
       // single contributor to the 5,951 destroyed pickaxes.
       const tool = bestTool(bot, head)
-      const hand = digHand({ bareMs: predictedDigMs(head, null),
-                             toolMs: predictedDigMs(head, tool) })
+      const env = digEnv(bot)
+      const hand = digHand({ bareMs: predictedDigMs(head, null, env),
+                             toolMs: predictedDigMs(head, tool, env) })
       if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
       else if (bot.heldItem) await bot.unequip('hand').catch(() => {})
       try {

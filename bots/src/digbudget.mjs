@@ -83,11 +83,34 @@ export function planDig (predictedMs, {
  * Wrapped because `digTime` is optional on the block objects the tests build
  * and on anything the registry does not know; a missing answer must read as
  * "unknown" (see above), never as zero.
+ *
+ * `env` IS NOT OPTIONAL IN PRACTICE, AND OMITTING IT PRICED A FICTION.
+ *
+ * This used to call `digTime(type, false, false, false)` -- creative, inWater
+ * and notOnGround all hardcoded false -- while mineflayer's own `bot.digTime`
+ * (lib/plugins/digging.js:248) passes the REAL `!bot.entity.onGround`, and
+ * `prismarine-block` (index.js:350) does `blockBreakingSpeed /= 5.0` when that
+ * is true. So the budget was computed with one formula and the dig ran on
+ * another, differing by exactly 5x for the population that matters: an escape
+ * routine is used precisely when the bot is NOT standing on solid ground.
+ *
+ *   stone, bare hand    on ground  7,500ms   airborne  37,500ms   budget 15,000
+ *   stone, stone pick   on ground    600ms   airborne   2,850ms   budget 15,000
+ *
+ * Measured 2026-09-06: `dig_down` chose 337 times, succeeded 0, and 86% ended
+ * `dig exceeded 15000ms`. Those digs were not slow, they were impossible -- and
+ * `digHand` could not fall back to the tool, because the fiction it was fed
+ * said bare hands would fit. Feeding it the truth repairs that on its own.
+ *
+ * Use `digEnv(bot)` to build this; it mirrors mineflayer argument for argument.
  */
-export function predictedDigMs (block, tool = null) {
+export function predictedDigMs (block, tool = null, env = {}) {
   try {
     if (typeof block?.digTime !== 'function') return null
-    const t = block.digTime(tool?.type ?? null, false, false, false)
+    const { creative = false, inWater = false, notOnGround = false,
+            enchantments = [], effects } = env
+    const ench = [...(tool?.enchants ?? []), ...enchantments]
+    const t = block.digTime(tool?.type ?? null, creative, inWater, notOnGround, ench, effects)
     return Number.isFinite(t) ? t : null
   } catch { return null }
 }
@@ -126,4 +149,47 @@ export function digHand ({ bareMs = null, toolMs = null } = {}) {
   const tooled = planDig(toolMs)
   if (!tooled.refuse) return { hand: 'tool', budgetMs: tooled.budgetMs, refuse: false }
   return { hand: null, budgetMs: 0, refuse: true }
+}
+
+/**
+ * The dig environment as MINEFLAYER computes it, mirrored argument for argument
+ * from `lib/plugins/digging.js:228-256` so the budget and the dig cannot drift
+ * apart again.
+ *
+ * Two details that are easy to get wrong and are wrong if you guess:
+ *   - `inWater` is water at EYE level, not at the feet.
+ *   - helmet enchantments count, because Aqua Affinity affects dig speed.
+ *
+ * `notOnGround` defaults to TRUE when the flag cannot be read, because for the
+ * call sites that use this, over-predicting makes `digHand` reach for the tool
+ * (costing durability) while under-predicting produces a dig that cannot finish
+ * (costing the bot). The second failure is the one that stranded the fleet.
+ *
+ * USE THIS ONLY WHERE THE CONSEQUENCE IS CHOOSING A HAND, NOT REFUSING.
+ *
+ * `planDig` refuses anything over MAX_DIG_MS, so feeding it a 5x airborne
+ * prediction turns deepslate (15,000ms grounded, 75,000ms airborne) from a
+ * block the climb breaks into one it declines -- and a bot that cannot break
+ * its own ceiling is trapped with no remedy, which is this repo's named bug
+ * class. The suite caught exactly that: five behaviour tests in
+ * `dig-budget.test.mjs` went red on `the climb never attempted the block over
+ * its head`.
+ *
+ * So the escape-stair and shaft-ascent budgets stay on the grounded prediction
+ * deliberately. They were never the regression -- `marooned_ramp_cut` is flat
+ * across the deploy -- and their failure mode from over-prediction is worse
+ * than their failure mode from under-prediction. The cleaner long-term shape is
+ * to split the two questions `planDig` currently answers at once: refuse on
+ * BLOCK HARDNESS (a property of block and tool) and size the deadline on the
+ * ACTUAL predicted time. That is a bigger change than this canary should carry.
+ */
+export function digEnv (bot) {
+  const head = bot?.inventory?.slots?.[bot?.getEquipmentDestSlot?.('head')]
+  return {
+    creative: bot?.game?.gameMode === 'creative',
+    inWater: ['water', 'flowing_water'].includes(bot?._getBlockAtEyeLevel?.()?.name),
+    notOnGround: !bot?.entity?.onGround,
+    enchantments: head?.enchants ?? [],
+    effects: bot?.entity?.effects,
+  }
 }
