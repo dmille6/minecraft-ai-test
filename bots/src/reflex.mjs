@@ -988,7 +988,31 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // than claiming because standing the water rescue down is the change that
   // multiplied drownings 7.5x (canary 4a1dfcb, p = 0.0079), and because a ramp
   // resumes from the step it stopped on while a drowning bot does not.
-  const drowningOwnsBody = () => (rescuing ? 'the drowning rescue' : null)
+  //
+  // ...BUT ONLY WHEN THE CLAIM COULD BE TRUE. A bot sealed in stone is not
+  // drowning, and standing its escape down for a rescue that cannot help is how
+  // five bots stayed entombed all day.
+  //
+  // Measured 2026-09-06 over 11.7h: `escapeStairUp` ran 342 times for the five
+  // permanently entombed bots (y=7, 35, 43, 47, 60, each in a 1x1 capped pocket
+  // with walls on four cardinals, confirmed by server-side scans) and succeeded
+  // ZERO times. 46.9% of those attempts stopped with "yielded the body to the
+  // drowning rescue". Each of those bots emitted ~7,300-7,800 water/drowning
+  // events in the window at mean health 19.6/20, including ~1,138
+  // `drowning_ceiling_no_air` -- the rescue concluding it cannot help, and
+  // holding the body anyway.
+  //
+  // The cause is the recorded `oxygen is fish` defect: mineflayer writes
+  // `bot.oxygenLevel` from ANY nearby entity's `air_supply`. This does NOT try
+  // to fix that sensor -- three attempts already failed and were reverted. It
+  // asks a different and cheaper question: is there water here at all?
+  //
+  // Deliberately generous. Any water touching the bot yields, because standing
+  // the water rescue down is the change that multiplied drownings 7.5x, and the
+  // asymmetry has not changed: a wrongly-yielded ramp resumes from the step it
+  // stopped on, a wrongly-refused rescue does not get its bot back.
+  const drowningOwnsBody = () =>
+    (rescuing && drowningCouldBeReal(waterCellsAround(bot)) ? 'the drowning rescue' : null)
   let seizedAt = 0
   let headOutSince = 0
   // Per-rescue progress, reset at seizure. See RESCUE_CEILING_MS above.
@@ -2730,6 +2754,42 @@ function witnessText (bot) {
   const w = bot.packetWitness?.()
   if (!w) return 'posPkts=absent physTicks=absent'
   return `posPkts=${w.posPackets} physTicks=${w.physicsTicks} blkChg=${w.blockChanges}`
+}
+
+/**
+ * COULD A DROWNING RESCUE POSSIBLY BE REAL HERE?
+ *
+ * Pure, and deliberately not a judgement about whether the bot IS drowning --
+ * only about whether water exists to drown in. `oxygenLevel` is not consulted
+ * because it is the field known to be wrong (mineflayer fills it from any
+ * nearby entity's `air_supply`), which is the whole reason this question needs
+ * asking separately.
+ *
+ * Any wet cell touching the bot counts, and `isInWater` alone is enough. The
+ * bias is toward TRUE on purpose: a false yes costs a ramp one step, which it
+ * resumes; a false no costs a drowning bot its life, and standing the water
+ * rescue down globally is the change that multiplied drownings 7.5x.
+ */
+export function drowningCouldBeReal ({ names = [], isInWater = false } = {}) {
+  if (isInWater === true) return true
+  return names.some(n => n === 'water' || n === 'flowing_water' ||
+                         n === 'bubble_column' || n === 'water_cauldron')
+}
+
+/** The cells a drowning claim could refer to: the bot's own two, and its neighbours. */
+function waterCellsAround (bot) {
+  const pos = bot?.entity?.position
+  if (!pos) return { names: [], isInWater: bot?.entity?.isInWater === true }
+  const at = (x, y, z) => bot.blockAt(pos.offset(x, y, z))?.name ?? null
+  return {
+    isInWater: bot?.entity?.isInWater === true,
+    names: [
+      at(0, 0, 0), at(0, 1, 0),                          // feet and head
+      at(1, 1, 0), at(-1, 1, 0), at(0, 1, 1), at(0, 1, -1), // beside the head
+      at(1, 0, 0), at(-1, 0, 0), at(0, 0, 1), at(0, 0, -1), // beside the feet
+      at(0, 2, 0),                                        // and just above it
+    ],
+  }
 }
 
 function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
