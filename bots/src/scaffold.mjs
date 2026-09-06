@@ -610,3 +610,78 @@ export function headroomBreach ({
   if (!canBreak(over)) return { ok: false, reason: `cannot clear ${over.name} overhead by hand` }
   return { ok: true, dig: [[0, 2, 0]] }
 }
+
+/**
+ * WHICH BLOCK IS THIS BOT STANDING ON?
+ *
+ * `pos.offset(0, -1, 0)` is only correct when the feet sit at an exact integer
+ * y. It is wrong for every partial-height support and for float error, and the
+ * difference is not rare: a just-closed canary measured `underfoot != support`
+ * in 18 of 54 samples (33%) for one stuck bot.
+ *
+ *   resting on a full block   y=197.0        offset -> 196   ceil-1 -> 196   same
+ *   resting on a slab         y=195.5        offset -> 194   ceil-1 -> 195   WRONG
+ *   float error, really on 196 y=196.99999   offset -> 195   ceil-1 -> 196   WRONG
+ *   FALLING                   y=197.4        offset -> 196   ceil-1 -> 197   the
+ *                                            cell the feet are IN, not below
+ *
+ * So "underfoot" is TWO concepts, not one: the block a resting bot STANDS ON,
+ * and the cell below a falling bot's feet. Both reviewers landed on that split
+ * independently.
+ *
+ * It is NOT gated on `bot.entity.onGround`, which would be the obvious way and
+ * is the one thing here that cannot be trusted: mineflayer's physics.js:418
+ * sets it false on EVERY inbound position packet, with no reference to the
+ * world, and a stuck bot was measured receiving up to 100 of those per 10s. A
+ * flag pinned false by network traffic cannot decide which cell to read.
+ *
+ * The geometry decides instead, and it is self-determining: if `ceil(y)-1` is
+ * solid the bot is resting on it, by definition. If it is not, the bot is not
+ * resting and the cell below its feet is the meaningful one.
+ *
+ * Pure over `solidAt(blockY)`, so every case can be tested without a bot.
+ */
+export function supportCell ({ y, solidAt } = {}) {
+  if (!Number.isFinite(y) || typeof solidAt !== 'function') return null
+  // SNAP FLOAT ERROR TO THE INTEGER IT IS TRYING TO BE, FIRST.
+  //
+  // `ceil(y)-1` is the right formula -- for a fractional feet-y it gives
+  // `floor(y)`, the cell a partial block occupies, and for an integer it gives
+  // y-1, the full block below. But float error on the HIGH side breaks it:
+  // 197.00000001 reads as fractional and returns 197, the feet cell.
+  //
+  // Review proposed mineflayer's own idiom, `floor(y - 0.2)` (prismarine-physics
+  // uses `offset(0,-0.2,0)` for "block at feet"). Tested against every real
+  // support height, that fails the other way: a snow layer is 0.125 high, which
+  // is SHORTER than the 0.2 threshold, so a bot resting at y=64.125 reads cell
+  // 63. Neither formula is right alone; snapping first makes `ceil-1` right for
+  // all of them.
+  const snapped = Math.abs(y - Math.round(y)) < 1e-6 ? Math.round(y) : y
+  const resting = Math.ceil(snapped) - 1
+  if (solidAt(resting)) return { y: resting, resting: true }
+  // Not resting: the meaningful cell is the one BELOW the feet, which is what a
+  // falling bot's consumers want.
+  return { y: Math.floor(snapped) - 1, resting: false }
+}
+
+/**
+ * The block at an ABSOLUTE y, for a bot. `supportCell` answers in block
+ * coordinates and every consumer previously worked in offsets from the feet,
+ * which is the habit that produced the off-by-one in the first place.
+ */
+export function cellAt (bot, blockY) {
+  const p = bot?.entity?.position
+  if (!p || !Number.isFinite(blockY)) return null
+  return bot.blockAt(p.offset(0, blockY - p.y, 0))
+}
+
+/** `supportCell` for a live bot, using the same solidity test the rungs use. */
+export function botSupport (bot) {
+  const p = bot?.entity?.position
+  if (!p) return null
+  return supportCell({ y: p.y, solidAt: by => {
+    const b = cellAt(bot, by)
+    return !!b && b.boundingBox === 'block'
+  } })
+}
+

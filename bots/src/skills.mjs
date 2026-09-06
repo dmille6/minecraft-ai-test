@@ -29,7 +29,7 @@ import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
-import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
+import { overheadBreakRisk, dryColumnStep, botSupport, cellAt } from './scaffold.mjs'
 import { mayStepDown, survivableDrop } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
@@ -4201,11 +4201,21 @@ export async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) { stopped = 'aborted'; break }
     const yBefore = bot.entity.position.y
-    const floor = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+    // THE SUPPORT CELL, not a fixed -1 offset. `pos.offset(0,-1,0)` is right
+    // only when the feet sit at an exact integer y; a bot on a slab reads one
+    // cell too deep, and a just-closed canary measured that disagreement at
+    // 18 of 54 (33%) for a stuck bot. This routine BREAKS the cell it reads,
+    // so reading the wrong one breaks the wrong block.
+    const sup = botSupport(bot)
+    const floor = sup ? cellAt(bot, sup.y) : bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!floor || floor.boundingBox !== 'block') { stopped = 'nothing underfoot to stand on'; break }
 
-    const target = bot.entity.position.offset(0, -2, 0)
-    const under = bot.blockAt(target)
+    const belowY = (sup ? sup.y : Math.floor(bot.entity.position.y) - 1) - 1
+    // The POSITION of the cell below the support, derived from absolute y rather
+    // than from `floor.position` -- test fakes return blocks without one, and a
+    // read that throws here surfaced as an unrelated failure class.
+    const target = bot.entity.position.offset(0, belowY - bot.entity.position.y, 0)
+    const under = cellAt(bot, belowY) ?? bot.blockAt(target)
     // Liquid first, and only when it is not a solid block: a water_cauldron is
     // named for water and is something to stand on. Lava or water at y-2 is a
     // one-block drop into it, which is not a rescue.

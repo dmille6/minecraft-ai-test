@@ -89,3 +89,43 @@ test('bad inputs return null rather than guessing at a cell', () => {
   assert.equal(supportCell({}), null)
   assert.equal(supportCell(), null)
 })
+
+test('FLOAT ERROR ON THE HIGH SIDE — the case ceil-1 alone gets wrong', () => {
+  // 197.00000001 is a bot resting on 196 whose y drifted UP. Without snapping,
+  // ceil(y)-1 reads it as fractional and returns 197 — the feet cell.
+  assert.equal(supportCell({ y: 197.00000001, ...world(196) }).y, 196)
+  assert.equal(supportCell({ y: 196.99999999, ...world(196) }).y, 196, 'and the low side')
+  assert.equal(supportCell({ y: 197.00000001, ...world(196) }).resting, true)
+})
+
+test('SNOW LAYERS — the case mineflayer\'s floor(y-0.2) idiom gets wrong', () => {
+  // A single snow layer is 0.125 high, SHORTER than the 0.2 threshold
+  // prismarine-physics uses for "block at feet", so that formula reads one cell
+  // too deep. Every real partial height must land on the block itself.
+  const heights = { 0.125: 'snow layer x1', 0.25: 'snow x2', 0.5: 'slab',
+                    0.875: 'soul_sand', 0.9: 'mud', 0.9375: 'dirt_path' }
+  for (const [h, label] of Object.entries(heights)) {
+    const y = 64 + Number(h)
+    assert.equal(supportCell({ y, ...world(64) }).y, 64, `${label} at y=${y}`)
+    // The 0.2 idiom is correct for the tall ones and wrong for the short ones.
+    // Assert BOTH, so this documents where each formula stands rather than
+    // implying the idiom is always wrong.
+    if (Number(h) < 0.2) {
+      assert.notEqual(Math.floor(y - 0.2), 64, `floor(y-0.2) should miss ${label}`)
+    } else {
+      assert.equal(Math.floor(y - 0.2), 64, `floor(y-0.2) is fine for ${label}`)
+    }
+  }
+  // The positive control, stated directly: the 0.2 idiom misses the short one.
+  assert.equal(Math.floor(64.125 - 0.2), 63, 'floor(y-0.2) reads cell 63 for a snow layer')
+  assert.equal(supportCell({ y: 64.125, ...world(64) }).y, 64, '...and this does not')
+})
+
+test('the snap never fires on a genuine partial height', () => {
+  // 1e-6 is far below any real block height, so snapping cannot swallow a slab.
+  for (const h of [0.125, 0.25, 0.5, 0.875, 0.9, 0.9375]) {
+    const y = 64 + h
+    assert.equal(supportCell({ y, ...world(64) }).y, 64, `h=${h} must not snap to an integer`)
+  }
+})
+

@@ -15,7 +15,8 @@ import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
-         bodyPassable, isFallingBlock } from './scaffold.mjs'
+         bodyPassable, isFallingBlock, supportCell, cellAt, botSupport } from './scaffold.mjs'
+export { supportCell } from './scaffold.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
@@ -75,43 +76,6 @@ const MAROON_PREREQ_COOLDOWN_MS = 120_000
 // destroys its inventory every cycle. Ten minutes is long enough that a genuine
 // re-strand is a new event and short enough that one bad map feature does not
 // cost a whole afternoon.
-/**
- * WHICH BLOCK IS THIS BOT STANDING ON?
- *
- * `pos.offset(0, -1, 0)` is only correct when the feet sit at an exact integer
- * y. It is wrong for every partial-height support and for float error, and the
- * difference is not rare: a just-closed canary measured `underfoot != support`
- * in 18 of 54 samples (33%) for one stuck bot.
- *
- *   resting on a full block   y=197.0        offset -> 196   ceil-1 -> 196   same
- *   resting on a slab         y=195.5        offset -> 194   ceil-1 -> 195   WRONG
- *   float error, really on 196 y=196.99999   offset -> 195   ceil-1 -> 196   WRONG
- *   FALLING                   y=197.4        offset -> 196   ceil-1 -> 197   the
- *                                            cell the feet are IN, not below
- *
- * So "underfoot" is TWO concepts, not one: the block a resting bot STANDS ON,
- * and the cell below a falling bot's feet. Both reviewers landed on that split
- * independently.
- *
- * It is NOT gated on `bot.entity.onGround`, which would be the obvious way and
- * is the one thing here that cannot be trusted: mineflayer's physics.js:418
- * sets it false on EVERY inbound position packet, with no reference to the
- * world, and a stuck bot was measured receiving up to 100 of those per 10s. A
- * flag pinned false by network traffic cannot decide which cell to read.
- *
- * The geometry decides instead, and it is self-determining: if `ceil(y)-1` is
- * solid the bot is resting on it, by definition. If it is not, the bot is not
- * resting and the cell below its feet is the meaningful one.
- *
- * Pure over `solidAt(blockY)`, so every case can be tested without a bot.
- */
-export function supportCell ({ y, solidAt } = {}) {
-  if (!Number.isFinite(y) || typeof solidAt !== 'function') return null
-  const resting = Math.ceil(y) - 1
-  if (solidAt(resting)) return { y: resting, resting: true }
-  return { y: Math.floor(y) - 1, resting: false }
-}
-
 /**
  * How far `stepOff` looks before calling an edge unmeasured.
  *
@@ -2916,18 +2880,29 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
   // the terrain being genuinely further away, not the probe being wrong. Knowing
   // the real distance is what lets the lattice rank a survivable fall above the
   // bottom rung instead of collapsing them together.
-  let drop = null
-  for (let d = 2; d <= maxProbe; d++) {
-    const b = at(0, -d, 0)
-    if (!b) break
-    if (solid(b)) { drop = d - 1; break }
-  }
-  const feet = at(0, 0, 0)
-  // `atY` addresses a cell by absolute block y rather than by offset, which is
-  // the whole point: the support cell is not a fixed distance below the feet.
+  // `atY` addresses a cell by ABSOLUTE block y rather than by an offset from the
+  // feet, which is the whole point: the support cell is not a fixed distance
+  // below them.
   const atY = by => bot.blockAt(pos.offset(0, by - pos.y, 0))
   const sc = supportCell({ y: pos.y, solidAt: by => solid(atY(by)) })
+  const supY = sc ? sc.y : Math.floor(pos.y) - 1
   const support = sc ? atY(sc.y) : at(0, -1, 0)
+  const feet = at(0, 0, 0)
+
+  // REBASED ON THE SUPPORT CELL, and everything below it is relative to that.
+  // The probe and `floorBelowSolid` both counted offsets from the FEET, so for a
+  // bot resting on a slab `underfootSolid` described one cell while
+  // `floorBelowSolid` described the cell two below it -- one silently skipped.
+  //
+  // The fall distance is measured to where the bot LANDS: it comes to rest on
+  // top of the next solid cell, so the drop is from its feet to that cell's top
+  // face, not a count of probe steps.
+  let drop = null
+  for (let c = supY - 1; c >= supY - maxProbe; c--) {
+    const b = atY(c)
+    if (!b) break
+    if (solid(b)) { drop = Math.max(0, Math.round(pos.y - (c + 1))); break }
+  }
   return {
     trapped,
     afloat: feet?.name === 'water' || bot.entity?.isInWater === true,
@@ -2940,7 +2915,7 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     // reading the wrong one a third of the time.
     underfootSolid: solid(support),
     underfootDrop: drop,
-    floorBelowSolid: solid(at(0, -2, 0)),
+    floorBelowSolid: solid(atY(supY - 1)),
     lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
     // HOW MANY, not whether. The boolean cannot tell a bot sealed on four sides
     // from one with a single wall and three ways out, and the lattice needs that
@@ -2987,7 +2962,7 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     onGround: bot.entity?.onGround ?? null,
     yExact: pos.y,
     underfootName: at(0, -1, 0)?.name ?? null,
-    belowName: at(0, -2, 0)?.name ?? null,
+    belowName: atY(supY - 1)?.name ?? null,
     // What `Math.ceil(y)-1` would have read instead. If these disagree, the
     // off-by-one is not a hypothesis any more.
     supportName: support?.name ?? null,
@@ -3159,7 +3134,10 @@ async function stepOff (bot) {
 async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   const pos = bot.entity?.position
   if (!pos) return { ok: false, why: 'no position' }
-  const target = bot.blockAt(pos.offset(0, -1, 0))
+  // The SUPPORT cell is the block this routine breaks. A fixed -1 offset breaks
+  // the wrong block whenever the feet are not at an exact integer y.
+  const sup = botSupport(bot)
+  const target = sup ? cellAt(bot, sup.y) : bot.blockAt(pos.offset(0, -1, 0))
   if (!target || target.boundingBox !== 'block') return { ok: false, why: 'nothing solid underfoot' }
 
   const risk = harvestSafe({ at: (a, c, d) => bot.blockAt(pos.offset(a, c, d)),
