@@ -986,6 +986,46 @@ const DROWN_MOVED_BLOCKS = 1.5         // moving this far means it is a new situ
  * @param sealedHere    is air still unreachable on every axis we can read?
  * @returns true = do not seize; fall through to the escape handlers
  */
+/**
+ * MAY THE AIR REFLEX CANCEL THE RUNNING SKILL?
+ *
+ * `seizeBody` has been gated on `airEmergency` since canary 4a1dfcb. The
+ * INTERRUPT never was. It sat eighteen lines above the comment that says "THE
+ * REFLEX MAY NOT CANCEL A JOURNEY", behind nothing but `bot.oxygenLevel` --
+ * the counter mineflayer fills from ANY nearby entity's air_supply.
+ *
+ * Measured 2026-09-06 over 7h and 80 bots:
+ *
+ *   reflex_drowning fired 16,585 times = 29.6 per bot-hour
+ *     97.8% of them at health 20/20
+ *     35.2% with the head block already AIR
+ *   2,965 skill runs aborted with reason `drowning` = 73% of ALL aborts,
+ *     and 9.8% of every skill run the fleet starts
+ *   swim_to: 941 of 1,044 aborts are drowning -- 44.4% of every swim attempt,
+ *     and swim_to succeeds 93/2,119 = 4.4%, bit-identical to the 4% recorded
+ *     months ago. The steering was fixed; the damage was in the interrupt.
+ *
+ * The tell is that both documented stand-downs log their restraint on the same
+ * tick the skill has already been cancelled: `water_travel_uninterrupted`,
+ * whose detail literally reads "not seizing", is followed by a
+ * `reflex_drowning` within 250ms 55.7% of the time, and
+ * `drowning_rescue_yielded` 75.5% -- against a 0.10% coincidence baseline
+ * measured on `affordance_scan`. 557x.
+ *
+ * THIS IS NOT CANARY 4a1dfcb. That one gated the SEIZURE and stood the rescue
+ * down for bots nobody was steering, which multiplied drownings 7.5x
+ * (p = 0.0079). The seizure condition here is untouched. The only bots spared
+ * are those with a skill running AND a pathfinder goal set AND no genuine air
+ * emergency -- which is precisely the population mineflayer-pathfinder is
+ * already swimming, holding `jump` while `isInWater` (index.js:607-613).
+ */
+export function mayInterruptForAir ({ mayAct = false, owned = false, emergency = false } = {}) {
+  if (!mayAct) return false
+  // A bot being steered, with air to spare, keeps its journey. Everything else
+  // may still be interrupted -- including any unowned bot, at any air level.
+  return !(owned && !emergency)
+}
+
 export function drownRescueSuppressed ({ failures = 0, movedBlocks = 0,
                                          healthDropped = false,
                                          sealedHere = false } = {}) {
@@ -1626,9 +1666,31 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // is standing in dry air. See the floor-case note in the function.
         head,
       })
+      // CAPTURED BEFORE THE OVERWRITE. `healthFalling` below compared
+      // `prevHealth` against itself, because this line ran first -- so that
+      // arm of `airEmergency` has never once fired. Repairing it can only make
+      // `emergency` fire MORE, which is the safe direction: it shrinks the set
+      // the new interrupt gate spares.
+      const prevHealthBefore = prevHealth
       prevHealth = bot.health ?? prevHealth
 
       if (air.losing) {
+        // HOISTED, so the interrupt can be gated by the same predicate the
+        // seizure already uses. These were computed forty lines below, which is
+        // the entire reason the interrupt escaped the gate.
+        const airSeconds = airClock.update(bot, Date.now())
+        const route = breathableRoute(bot)
+        const airDist = route?.dist ?? Infinity
+        const closingOnAir = airDist < lastAirDist - 0.01
+        lastAirDist = airDist
+        const emergency = airEmergency({
+          headUnder: !breathable(head),
+          airSeconds,
+          closingOnAir,
+          healthFalling: prevHealthBefore != null && (bot.health ?? prevHealthBefore) < prevHealthBefore,
+        })
+        const owned = runner?.isBusy?.() === true && !!bot.pathfinder?.goal
+
         if (throttled('oxygen', 8000) && !lowOxygenLatched) {
           lowOxygenLatched = true
           log('warn', `reflex: ${air.kind}`, {
@@ -1642,7 +1704,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             detail: `oxygen ${bot.oxygenLevel}, head block ${head?.name ?? 'unknown'}, health ${bot.health}`,
             snapshot: snapshot(bot),
           })
-          if (mayAct) runner.interrupt(air.kind)
+          if (mayInterruptForAir({ mayAct, owned, emergency })) runner.interrupt(air.kind)
         }
         // THE REFLEX MAY NOT CANCEL A JOURNEY.
         //
@@ -1661,17 +1723,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // the derived clock nearly out, and nothing already fixing it. A bot
         // closing on air is left alone -- it is solving the problem, and taking
         // the body destroys the solution.
-        const airSeconds = airClock.update(bot, Date.now())
-        const route = breathableRoute(bot)
-        const airDist = route?.dist ?? Infinity
-        const closingOnAir = airDist < lastAirDist - 0.01
-        lastAirDist = airDist
-        const emergency = airEmergency({
-          headUnder: !breathable(head),
-          airSeconds,
-          closingOnAir,
-          healthFalling: prevHealth != null && (bot.health ?? prevHealth) < prevHealth,
-        })
         // WHO IS DRIVING DECIDES WHETHER THIS STANDS DOWN.
         //
         // The first version gated EVERY seizure on `airEmergency`, including
@@ -1706,7 +1757,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         //
         // Ownership means a skill is RUNNING. Both conditions, so a stale goal
         // cannot exempt a body nobody is driving.
-        const owned = runner?.isBusy?.() === true && !!bot.pathfinder?.goal
+        // `owned` is hoisted above, with `emergency`, so the interrupt and the
+        // seizure are gated by the same two facts.
         if (!emergency && owned) {
           // Travelling, and not actually drowning. Say so once in a while so
           // "the reflex stopped firing" is visible as a decision rather than as
