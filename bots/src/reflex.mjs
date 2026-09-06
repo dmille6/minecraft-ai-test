@@ -16,7 +16,7 @@ import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock } from './scaffold.mjs'
-import { planDig, predictedDigMs, digHand, digEnv } from './digbudget.mjs'
+import { planDig, predictedDigMs, digHand, digEnv, planDigSplit } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
@@ -75,6 +75,55 @@ const MAROON_PREREQ_COOLDOWN_MS = 120_000
 // destroys its inventory every cycle. Ten minutes is long enough that a genuine
 // re-strand is a new event and short enough that one bad map feature does not
 // cost a whole afternoon.
+/**
+ * How far `stepOff` looks before calling an edge unmeasured.
+ *
+ * 48, matching `observeEscapeState`'s probe rather than the dig's 24. The
+ * ranking below can only prefer a shallow edge over a deep one when the deep one
+ * is MEASURABLE -- past the probe every edge reads `null` and sorts equal, so a
+ * short probe quietly turns the ranking off. The bot that died walked off 59
+ * blocks, which is past even this; the probe cannot fix that case, and the
+ * telemetry says so honestly by recording `unmeasured`.
+ */
+const STEP_OFF_PROBE = 48
+
+/**
+ * WHICH WAY TO WALK OFF, CHEAPEST FIRST.
+ *
+ * This used to be "whichever cardinal came first in the array", which is why a
+ * bot at y=143 stepped into a 59-block drop and died: `+x` happened to be first.
+ * Measured 2026-09-06, `step_off` preceded 6 of 14 fall deaths and 21% of its
+ * firings carried an UNMEASURED drop.
+ *
+ * AN ORDERING, NEVER A VETO. Gating the bottom rung on a measured drop would
+ * break totality -- something must remain available when nothing else can work
+ * -- and this repo already paid for the other version: `stairUpWetness` as a
+ * veto kept 32 bots frozen for days, and as an ordering it cost nothing. So
+ * every edge stays eligible and an UNMEASURED drop sorts last rather than being
+ * excluded, because the bot whose only exit is one it cannot price still needs
+ * an exit.
+ *
+ * Pure over `at`/`solid`, so the ranking can be tested against a synthetic
+ * world without standing up a bot.
+ */
+export function stepOffEdges ({ at, solid, probe = STEP_OFF_PROBE } = {}) {
+  if (typeof at !== 'function' || typeof solid !== 'function') return []
+  const edges = []
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    if (solid(at(dx, 0, dz))) continue          // a wall, not an edge
+    if (solid(at(dx, -1, dz))) continue         // a step across, not a fall
+    let drop = null
+    for (let d = 2; d <= probe; d++) {
+      const b = at(dx, -d, dz)
+      if (!b) break                             // unloaded: unmeasured, NOT zero
+      if (solid(b)) { drop = d - 1; break }
+    }
+    edges.push({ dx, dz, drop })
+  }
+  // Stable by construction: equal drops keep cardinal order.
+  return edges.sort((a, b) => (a.drop ?? Infinity) - (b.drop ?? Infinity))
+}
+
 const STEP_OFF_COOLDOWN_MS = 600_000
 
 /**
@@ -2976,9 +3025,9 @@ async function stepOff (bot) {
   const at = (x, y, z) => bot.blockAt(pos.offset(x, y, z))
   const solid = b => !!b && b.boundingBox === 'block'
 
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-    if (solid(at(dx, 0, dz))) continue          // a wall, not an edge
-    if (solid(at(dx, -1, dz))) continue         // a step across, not a fall
+  const edges = stepOffEdges({ at, solid })
+
+  for (const { dx, dz, drop } of edges) {
     seizeBody(bot, 'step_off')
     const yBefore = pos.y
     try {
@@ -2990,8 +3039,13 @@ async function stepOff (bot) {
     }
     const fell = yBefore - (bot.entity?.position?.y ?? yBefore)
     // POSTCONDITION, not "I issued the walk". Only falling counts.
-    return { ok: fell >= 1, fell, dir: `${dx},${dz}`,
-             why: fell >= 1 ? `fell ${fell.toFixed(1)}` : 'walked but did not fall' }
+    // The chosen drop is logged so a death can be read against what was known
+    // at the time: 21% of these fired without any measurement at all.
+    const priced = drop == null ? 'unmeasured' : `${drop}`
+    return { ok: fell >= 1, fell, dir: `${dx},${dz}`, drop,
+             why: fell >= 1 ? `fell ${fell.toFixed(1)} (chose the ${priced}-block edge` +
+                              `${edges.length > 1 ? ` of ${edges.length}` : ''})`
+                            : `walked but did not fall (${priced}-block edge)` }
   }
   return { ok: false, why: 'no open lateral cell with a drop beneath it' }
 }
@@ -3326,7 +3380,11 @@ export async function escapeStairUp (bot, {
 
   /** Dig one block inside the remaining budget, so no swing can outlive it. */
   const digWithin = async (b) => {
-    const budget = planDig(predictedDigMs(b, null))
+    // Refuse on the block's hardness; size the deadline on what the dig will
+    // ACTUALLY cost here. 23.9% of this routine's failures were `dig exceeded`
+    // -- a grounded deadline handed to an airborne dig, which is 5x slower.
+    const budget = planDigSplit({ hardnessMs: predictedDigMs(b, null),
+                                  actualMs: predictedDigMs(b, null, digEnv(bot)) })
     if (budget.refuse) return `cannot clear ${b.name} by hand`
     const left = deadline - Date.now()
     if (left <= 0) return 'budget spent'

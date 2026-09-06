@@ -193,3 +193,41 @@ export function digEnv (bot) {
     effects: bot?.entity?.effects,
   }
 }
+
+/**
+ * TWO QUESTIONS THAT `planDig` ANSWERS AT ONCE, AND THEY WANT DIFFERENT INPUTS.
+ *
+ *   "is this block breakable at all by this hand?"  -> a property of BLOCK+TOOL
+ *   "how long will this dig actually take here?"    -> a property of the SITUATION
+ *
+ * Feeding the situation-aware prediction to both turns deepslate from a block
+ * the escape ramp BREAKS (15,000ms grounded) into one it DECLINES (75,000ms
+ * airborne, past the 30s ceiling) -- and a bot that cannot break its own ceiling
+ * is trapped with no remedy, which is this repo's named bug class. That is why
+ * `digEnv` was deliberately kept away from the ramp's budget when it was
+ * introduced, and the cost of that caution was the other half of the problem:
+ * the deadline stayed grounded too, so real airborne digs were cut short.
+ *
+ * Measured 2026-09-06: of 342 `escapeStairUp` attempts by the five permanently
+ * entombed bots, 23.9% ended `dig exceeded`. Those digs were not refused and
+ * were not impossible -- they were given a grounded deadline for an airborne
+ * dig, and the gap is exactly the 5x `notOnGround` penalty.
+ *
+ * So: refuse on hardness, budget on reality. Neither question borrows the
+ * other's input.
+ */
+export function planDigSplit ({ hardnessMs = null, actualMs = null } = {}) {
+  // The refuse decision, on the grounded prediction. Unchanged behaviour.
+  const hard = planDig(hardnessMs)
+  if (hard.refuse) return { refuse: true, budgetMs: 0, hardnessMs: hard.predictedMs }
+
+  // The deadline, on what will actually happen. Never SHORTER than the grounded
+  // budget -- this may only ever lengthen a deadline, so it cannot introduce a
+  // timeout that did not already exist.
+  const a = Number(actualMs)
+  const budgetMs = Number.isFinite(a) && a > 0
+    ? Math.max(hard.budgetMs, Math.ceil(a * DIG_MARGIN) + DIG_SLACK_MS)
+    : hard.budgetMs
+  return { refuse: false, budgetMs, hardnessMs: hard.predictedMs, actualMs: Number.isFinite(a) ? a : null }
+}
+
