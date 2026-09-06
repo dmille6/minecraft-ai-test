@@ -76,6 +76,43 @@ const MAROON_PREREQ_COOLDOWN_MS = 120_000
 // re-strand is a new event and short enough that one bad map feature does not
 // cost a whole afternoon.
 /**
+ * WHICH BLOCK IS THIS BOT STANDING ON?
+ *
+ * `pos.offset(0, -1, 0)` is only correct when the feet sit at an exact integer
+ * y. It is wrong for every partial-height support and for float error, and the
+ * difference is not rare: a just-closed canary measured `underfoot != support`
+ * in 18 of 54 samples (33%) for one stuck bot.
+ *
+ *   resting on a full block   y=197.0        offset -> 196   ceil-1 -> 196   same
+ *   resting on a slab         y=195.5        offset -> 194   ceil-1 -> 195   WRONG
+ *   float error, really on 196 y=196.99999   offset -> 195   ceil-1 -> 196   WRONG
+ *   FALLING                   y=197.4        offset -> 196   ceil-1 -> 197   the
+ *                                            cell the feet are IN, not below
+ *
+ * So "underfoot" is TWO concepts, not one: the block a resting bot STANDS ON,
+ * and the cell below a falling bot's feet. Both reviewers landed on that split
+ * independently.
+ *
+ * It is NOT gated on `bot.entity.onGround`, which would be the obvious way and
+ * is the one thing here that cannot be trusted: mineflayer's physics.js:418
+ * sets it false on EVERY inbound position packet, with no reference to the
+ * world, and a stuck bot was measured receiving up to 100 of those per 10s. A
+ * flag pinned false by network traffic cannot decide which cell to read.
+ *
+ * The geometry decides instead, and it is self-determining: if `ceil(y)-1` is
+ * solid the bot is resting on it, by definition. If it is not, the bot is not
+ * resting and the cell below its feet is the meaningful one.
+ *
+ * Pure over `solidAt(blockY)`, so every case can be tested without a bot.
+ */
+export function supportCell ({ y, solidAt } = {}) {
+  if (!Number.isFinite(y) || typeof solidAt !== 'function') return null
+  const resting = Math.ceil(y) - 1
+  if (solidAt(resting)) return { y: resting, resting: true }
+  return { y: Math.floor(y) - 1, resting: false }
+}
+
+/**
  * How far `stepOff` looks before calling an edge unmeasured.
  *
  * 48, matching `observeEscapeState`'s probe rather than the dig's 24. The
@@ -2102,7 +2139,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                              `onGround=${est.onGround} ${witnessText(bot)} ` +
                              `drop=${est.underfootDrop ?? 'unmeasured'} ` +
                              `underfoot=${est.underfootSolid}:${est.underfootName} ` +
-                             `support=${est.supportName} below=${est.belowName} ` +
+                             `support=${est.supportName}:${est.supportResting} below=${est.belowName} ` +
                              `blocks=${est.blocks} tread=${est.lateralTread} walls=${est.solidLateralCount} ` +
                              `-- ${acted ? acted.why : 'no routine wired for this rung'}`,
                      snapshot: snapshot(bot) })
@@ -2867,6 +2904,11 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     if (solid(b)) { drop = d - 1; break }
   }
   const feet = at(0, 0, 0)
+  // `atY` addresses a cell by absolute block y rather than by offset, which is
+  // the whole point: the support cell is not a fixed distance below the feet.
+  const atY = by => bot.blockAt(pos.offset(0, by - pos.y, 0))
+  const sc = supportCell({ y: pos.y, solidAt: by => solid(atY(by)) })
+  const support = sc ? atY(sc.y) : at(0, -1, 0)
   return {
     trapped,
     afloat: feet?.name === 'water' || bot.entity?.isInWater === true,
@@ -2874,7 +2916,10 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     blocks: bot.inventory.items().filter(it => PLACEABLE.test(it.name))
       .reduce((n, it) => n + it.count, 0),
     climbNeed: PILLAR_MAX_BLOCKS + 1,
-    underfootSolid: solid(at(0, -1, 0)),
+    // THE SUPPORT CELL, not a fixed -1 offset. `underfoot != support` was 33%
+    // for a stuck bot, and every rung that breaks or stands on this cell was
+    // reading the wrong one a third of the time.
+    underfootSolid: solid(support),
     underfootDrop: drop,
     floorBelowSolid: solid(at(0, -2, 0)),
     lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
@@ -2926,7 +2971,10 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     belowName: at(0, -2, 0)?.name ?? null,
     // What `Math.ceil(y)-1` would have read instead. If these disagree, the
     // off-by-one is not a hypothesis any more.
-    supportName: at(0, Math.ceil(pos.y) - 1 - pos.y, 0)?.name ?? null,
+    supportName: support?.name ?? null,
+    // Whether the geometry says the bot is RESTING on that cell, which is what
+    // decides which of the two "underfoot" concepts applies.
+    supportResting: sc?.resting ?? null,
   }
 }
 
