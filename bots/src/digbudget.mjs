@@ -230,4 +230,3 @@ export function planDigSplit ({ hardnessMs = null, actualMs = null } = {}) {
     : hard.budgetMs
   return { refuse: false, budgetMs, hardnessMs: hard.predictedMs, actualMs: Number.isFinite(a) ? a : null }
 }
-

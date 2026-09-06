@@ -2821,8 +2821,16 @@ function witnessText (bot) {
  */
 export function drowningCouldBeReal ({ names = [], isInWater = false } = {}) {
   if (isInWater === true) return true
-  return names.some(n => n === 'water' || n === 'flowing_water' ||
-                         n === 'bubble_column' || n === 'water_cauldron')
+  if (names.some(n => n === 'water' || n === 'flowing_water' ||
+                      n === 'bubble_column' || n === 'water_cauldron')) return true
+  // FAIL OPEN, TOWARD RESCUING -- the same convention `drownRescueSuppressed`
+  // already uses, and for the same reason. Cells read `null` when the chunk is
+  // not loaded, and "I cannot see" is not evidence of dry land. Reading it as
+  // such would let a chunk-loading hiccup switch off the one reflex the owner
+  // directive keeps. An ENTOMBED bot is unaffected: its cells read `air` and
+  // `stone`, which is a real observation of no water.
+  if (names.length > 0 && names.every(n => n == null)) return true
+  return false
 }
 
 /** The cells a drowning claim could refer to: the bot's own two, and its neighbours. */
