@@ -2012,7 +2012,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           }
           logEvent({ kind: 'escape_lattice',
                      status: acted?.ok ? 'success' : 'failed',
+                     // `underfoot` is logged because its ABSENCE cost a whole
+                     // diagnosis: 679 identical failures could be attributed to
+                     // this cell only by inferring it from which rung was picked.
                      detail: `plan=${plan} y=${yNow} drop=${est.underfootDrop ?? 'unmeasured'} ` +
+                             `underfoot=${est.underfootSolid} below=${est.floorBelowSolid} ` +
                              `blocks=${est.blocks} tread=${est.lateralTread} ` +
                              `-- ${acted ? acted.why : 'no routine wired for this rung'}`,
                      snapshot: snapshot(bot) })

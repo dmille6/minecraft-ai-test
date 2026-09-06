@@ -109,7 +109,35 @@ export function escapePlan ({
   const dropOk = Number.isFinite(underfootDrop) && underfootDrop >= 0 &&
                  (underfootDrop <= FALL_FREE || underfootDrop <= cap)
   if (underfootSolid && dropOk) return 'dig_down'
-  if (floorBelowSolid) return 'ride_floor_down'
+
+  // `rideFloorDown` REQUIRES A SOLID BLOCK UNDERFOOT. Its first line reads the
+  // cell at y-1 and refuses with `nothing underfoot to stand on` if it is not
+  // solid, because that is the block it BREAKS -- the manoeuvre is to stand on
+  // the floor, break it, and land on whatever was under it.
+  //
+  // This rung was gated on `floorBelowSolid` (y-2) instead, which is not the
+  // routine's precondition at all: y-2 only decides WHICH BRANCH it takes once
+  // it is running -- solid means ride down for free, air means bridge by
+  // placing one block. So the lattice selected this rung in exactly the states
+  // where the routine cannot start.
+  //
+  // Measured 2026-09-06, the first window after the routines were wired:
+  // 679 of 679 consultations that chose `ride_floor_down` returned
+  // `rode down 0.0 (placed 0, nothing underfoot to stand on)`. Not some. All of
+  // them, with one identical string. The rung was unreachable-in-practice while
+  // looking wired, which is the same defect as the unwired table it replaced,
+  // one layer further in.
+  //
+  // It was also STEALING STATES FROM `stair_up`, which is tested after it:
+  // hive-c-Echo reached this rung 85 times with `tread=true` while `stair_up`
+  // was succeeding for that same bot (climbed 5.2, 21.5, 22.4 in the same
+  // window). A rung that cannot run must not out-rank one that can.
+  //
+  // `blocks > 0` covers the bridge branch: with nothing solid at y-2 and no
+  // placeable block, the routine stops at `no placeable blocks left` before
+  // breaking anything, so selecting it there would be another guaranteed
+  // refusal. It stops BEFORE the break, so falling through costs nothing.
+  if (underfootSolid && (floorBelowSolid || blocks > 0)) return 'ride_floor_down'
 
   // The ramp needs something to cut into. A bot on a pillar has air on all four
   // cardinals BY THE DEFINITION of stranded, which is why this is not first.
