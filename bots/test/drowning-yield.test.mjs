@@ -55,14 +55,28 @@ test('A GENUINELY DROWNING BOT STILL YIELDS — every way it can present', () =>
     'water beside the head is close enough to stand down for')
 })
 
-test('missing or unreadable observations do NOT invent a rescue', () => {
-  // A chunk that has not loaded gives nulls. That is not evidence of water, and
-  // reading it as such would restore the bug for exactly the bots whose chunks
-  // are flaky.
-  assert.equal(drowningCouldBeReal({ names: [null, null, null] }), false)
+test('UNREADABLE cells fail OPEN, toward rescuing', () => {
+  // Cells read null when the chunk is not loaded, and "I cannot see" is not
+  // evidence of dry land. `drownRescueSuppressed` already uses this convention
+  // verbatim -- an unreadable position must not be able to switch off the one
+  // reflex the owner directive keeps.
+  assert.equal(drowningCouldBeReal({ names: [null, null, null] }), true,
+    'a wholly unreadable neighbourhood must still yield')
+  // ...but a PARTIAL reading that contains no water is a real observation.
+  assert.equal(drowningCouldBeReal({ names: [null, 'stone', null] }), false,
+    'seeing stone and no water is evidence, not a gap')
+  // No observation at all is not a rescue either — there is nothing to yield to.
   assert.equal(drowningCouldBeReal({ names: [] }), false)
   assert.equal(drowningCouldBeReal({}), false)
   assert.equal(drowningCouldBeReal(), false)
+})
+
+test('the ENTOMBED case is unaffected by failing open', () => {
+  // Its cells are readable and say air and stone. That is a real observation of
+  // no water, not a gap in one.
+  assert.equal(drowningCouldBeReal({ isInWater: false,
+    names: ['air', 'air', 'stone', 'stone', 'stone', 'stone',
+            'stone', 'stone', 'stone', 'stone', 'stone'] }), false)
 })
 
 test('it does NOT consult oxygenLevel — that is the broken field', () => {
