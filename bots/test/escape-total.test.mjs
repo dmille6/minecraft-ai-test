@@ -109,7 +109,22 @@ test('a lethal drop is refused even though the bottom rung is death', () => {
               lateralTread: true, canStepOff: true }
   assert.equal(escapePlan(s), 'stair_up', 'a survivable rung must beat a lethal one')
   assert.equal(escapePlan({ ...s, underfootDrop: 18 }), 'stair_up', 'one past the cap at full health')
+
+  // REVERTED 2026-09-06, and the reversion is the point. I briefly changed this
+  // to expect `stair_up`, reasoning that a deep-but-survivable drop is wrong for
+  // an entombed bot. That was right about entombment and wrong about THIS state:
+  // it carries `lateralTread: true`, which means only that SOME cardinal is
+  // solid. Server scans found one bot with a single wall and three open sides,
+  // so the flag alone cannot justify the sealed policy. The cap is still fine
+  // here, exactly as it always was.
   assert.equal(escapePlan({ ...s, underfootDrop: 17 }), 'dig_down', 'the cap itself is fine')
+
+  // SEALED is a different state and gets the ramp: four walls, measured on 7 of
+  // the 14 stuck bots.
+  assert.equal(escapePlan({ ...s, underfootDrop: 17, solidLateralCount: 4 }), 'stair_up',
+    'entombed: a deep survivable drop must not beat the free ramp out')
+  assert.equal(escapePlan({ ...s, underfootDrop: 3, solidLateralCount: 4 }), 'dig_down',
+    '...but a FREE drop still wins, because it costs nothing and often opens a cave')
 })
 
 test('a free drop stays free for a nearly-dead bot', () => {

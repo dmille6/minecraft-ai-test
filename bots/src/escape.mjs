@@ -90,12 +90,15 @@ export function escapePlan ({
   underfootSolid = false,
   underfootDrop = null,      // null = probe found no floor. NOT "zero".
   floorBelowSolid = false,   // rideFloorDown's free branch: is there a floor to land on
-  lateralTread = false,      // a solid neighbour at foot level, for the ramp
+  lateralTread = false,      // ANY solid neighbour at foot level, for the ramp
+  solidLateralCount = null,  // how MANY of the four cardinals are solid, 0..4
   columnOpen = false,        // open sky above, for pillaring
   // INVARIANT: `lateralTread` and `canStepOff` are complements, not independent
   // axes. A foot-level lateral cell is solid (a tread) or passable (somewhere to
   // step). Treating them as free variables admitted 344 impossible states.
   canStepOff = true,         // default TRUE: absent evidence, open air is assumed
+  y = null,                  // elevation, only used to refuse a pointless climb
+  climbCeiling = null,
 } = {}) {
   if (!trapped) return 'none'
 
@@ -104,69 +107,110 @@ export function escapePlan ({
   // "drowning" -- it is somewhere that needs traversing.
   if (afloat) return 'surface_swim'
 
-  // DOWN BEFORE UP. Climbing produced this population.
   const cap = survivable(health)
   const dropOk = Number.isFinite(underfootDrop) && underfootDrop >= 0 &&
                  (underfootDrop <= FALL_FREE || underfootDrop <= cap)
+  const dropFree = Number.isFinite(underfootDrop) && underfootDrop >= 0 &&
+                   underfootDrop <= FALL_FREE
+
+  // ---------------------------------------------------------------- geometry --
+  // ONE ORDERING FOR TWO DIFFERENT PROBLEMS WAS THE DEFECT. THREE BANDS, NOT A
+  // BOOLEAN, IS THE CORRECTION TO THE CORRECTION.
+  //
+  // Server-side scans of all 14 stuck bots on 2026-09-06 (RCON `execute if
+  // block`, against the SERVER, not the bot's cache) found two dominant shapes
+  // and one state in between:
+  //
+  //   6 bots  PILLAR    0 of 4 cardinals solid, open above. A 1x1 tower.
+  //                     Nothing to cut into; down is the answer and it works --
+  //                     isolated-a-Echo descended y=201 -> 186 riding its own
+  //                     column one block at a time.
+  //   7 bots  ENTOMBED  4 of 4 solid AND capped. A two-block pocket at the
+  //                     bottom of a one-wide shaft. Down goes deeper and wood is
+  //                     above ground; the bare-handed ramp needs no material.
+  //   1 bot   MIXED     hive-b-Bravo: 1 of 4 solid, capped, head blocked.
+  //
+  // THE FIRST VERSION OF THIS SPLIT USED `lateralTread`, AND THE PROOF WAS
+  // WRONG. That flag means "ANY one cardinal is solid", so it lumped the middle
+  // band in with the sealed one and applied the entombed policy -- refuse a
+  // survivable drop, never step off -- to a bot with three open sides. The
+  // justification given was that `lateralTread` and "somewhere to step" are
+  // complements. They are not: with one solid and three open, BOTH a ramp anchor
+  // and an open cell exist. Review caught it; the scan showed the band is real
+  // rather than hypothetical.
+  //
+  // So the bands are separated and the middle one CHANGES NOTHING from the
+  // deployed ordering except that a free ramp now outranks the death rung.
+  // Policy without measurement behind it is the thing to avoid here.
+  const walls = Number.isFinite(solidLateralCount)
+    ? solidLateralCount
+    // A caller that can only report the boolean gets the LEAST-ASSUMING band:
+    // "some wall exists" is evidence of an anchor, never of being sealed.
+    : (lateralTread ? 1 : 0)
+  const sealed = walls >= 4
+  const open = walls === 0
+
+  if (sealed) {
+    // ENTOMBED. Walls on every side, so the ramp is affordable and terminal, and
+    // there is nowhere to step even if the bottom rung were offered.
+    //
+    // A FREE drop is still taken first: it costs nothing, needs no material, and
+    // the floor of one of these pockets often opens straight into a cave
+    // (isolated-a-Delta has open space two blocks under its floor). Anything
+    // deeper is refused even when survivable, because it buys depth in the one
+    // direction the endpoint does not live -- the recorded lesson is that the
+    // staircase work drove the endpoint down, and `surface` works 12% of the
+    // time.
+    if (underfootSolid && dropFree) return 'dig_down'
+    return 'stair_up'
+  }
+
+  // OPEN. Air on every side, so there is nothing to cut a ramp into -- the ramp
+  // routine is a null op here by its own precondition, which is why it is absent
+  // from this branch rather than merely ranked lower.
   if (underfootSolid && dropOk) return 'dig_down'
 
-  // `rideFloorDown` REQUIRES A SOLID BLOCK UNDERFOOT. Its first line reads the
-  // cell at y-1 and refuses with `nothing underfoot to stand on` if it is not
-  // solid, because that is the block it BREAKS -- the manoeuvre is to stand on
-  // the floor, break it, and land on whatever was under it.
-  //
-  // This rung was gated on `floorBelowSolid` (y-2) instead, which is not the
-  // routine's precondition at all: y-2 only decides WHICH BRANCH it takes once
-  // it is running -- solid means ride down for free, air means bridge by
-  // placing one block. So the lattice selected this rung in exactly the states
-  // where the routine cannot start.
-  //
-  // Measured 2026-09-06, the first window after the routines were wired:
-  // 679 of 679 consultations that chose `ride_floor_down` returned
-  // `rode down 0.0 (placed 0, nothing underfoot to stand on)`. Not some. All of
-  // them, with one identical string. The rung was unreachable-in-practice while
-  // looking wired, which is the same defect as the unwired table it replaced,
-  // one layer further in.
-  //
-  // It was also STEALING STATES FROM `stair_up`, which is tested after it:
-  // hive-c-Echo reached this rung 85 times with `tread=true` while `stair_up`
-  // was succeeding for that same bot (climbed 5.2, 21.5, 22.4 in the same
-  // window). A rung that cannot run must not out-rank one that can.
-  //
-  // `blocks > 0` covers the bridge branch: with nothing solid at y-2 and no
-  // placeable block, the routine stops at `no placeable blocks left` before
-  // breaking anything, so selecting it there would be another guaranteed
-  // refusal. It stops BEFORE the break, so falling through costs nothing.
+  // `rideFloorDown` REQUIRES A SOLID BLOCK UNDERFOOT. Its first line reads y-1
+  // and refuses with `nothing underfoot to stand on` if that is not solid,
+  // because that is the block it BREAKS. Gating this rung on `floorBelowSolid`
+  // (y-2) was a defect: y-2 only picks which branch runs once it is going --
+  // solid means ride down free, air means bridge by placing one block. Measured
+  // 2026-09-06: 821 of 821 consultations that chose this rung returned
+  // `rode down 0.0 (placed 0, nothing underfoot to stand on)`. Not some. All.
   if (underfootSolid && (floorBelowSolid || blocks > 0)) return 'ride_floor_down'
 
-  // The ramp needs something to cut into. A bot on a pillar has air on all four
-  // cardinals BY THE DEFINITION of stranded, which is why this is not first.
-  if (lateralTread) return 'stair_up'
+  // MIXED (1..3 solid): it HAS a ramp anchor, and the ramp is free. Preferring
+  // it over the death rung needs no new evidence -- it is strictly cheaper than
+  // dying. What this band does NOT inherit is the sealed policy above: a
+  // survivable drop was already taken by the branch above this one, exactly as
+  // the deployed lattice would have.
+  if (!open) return 'stair_up'
 
-  // Placing is last of the survivable options because it is the only one that
-  // spends inventory, and `canFinishClimb` refuses a climb it cannot finish --
-  // a half-built pillar seals the bot higher than it started, holding nothing.
-  if (columnOpen && blocks >= climbNeed) return 'pillar_up'
+  // PILLARING UP IS REFUSED ABOVE THE CEILING, and that is not a detail. This
+  // rung was chosen for `stranded_high` bots -- a branch whose own log line says
+  // "climbing cannot help; this bot needs to descend" -- and scored a 22-block
+  // climb FURTHER above the ceiling as a success.
+  const tooHigh = Number.isFinite(y) && Number.isFinite(climbCeiling) && y >= climbCeiling
+  if (columnOpen && blocks >= climbNeed && !tooHigh) return 'pillar_up'
 
-  // THE BOTTOM, AND IT IS UNCONDITIONAL. Reaching this line is itself the proof
-  // that it is available.
+  // THE BOTTOM, AND IT IS UNCONDITIONAL FOR THIS GEOMETRY ONLY.
   //
-  // The first version gated it on a `canStepOff` flag, and the totality test
-  // immediately found 344 states with no action -- every one of them carrying
-  // `lateralTread: false` AND `canStepOff: false` together. That pair cannot
-  // both be true of the world: a lateral cell at foot level is either solid, in
-  // which case it is a tread, or it is not, in which case it is somewhere to
-  // walk into. The input space permitted a contradiction and the property
-  // caught it, which is exactly what it is for.
+  // Reaching this line means no lateral tread, and a lateral cell that is not
+  // solid is somewhere to walk into. That is the whole proof of availability.
   //
-  // So the reasoning is now structural rather than a flag. Control only arrives
-  // here when `lateralTread` is FALSE -- the ramp branch above returns
-  // otherwise -- and no solid lateral neighbour means an open one. A bot sealed
-  // in rock never reaches this line at all, because being sealed IS having a
-  // solid neighbour, and `stair_up` is its answer.
-  //
-  // `canStepOff` is kept in the signature only as an override for a caller that
-  // can positively prove otherwise; absent that, the geometry decides.
+  // It is also why the geometry split matters for safety rather than only for
+  // effectiveness: an entombed bot can no longer arrive here. It used to,
+  // through the old global ordering, and `step_off` was measured causing 6 of
+  // 14 fall deaths with 21% of its firings carrying an UNMEASURED drop -- a bot
+  // walked off a 59-block drop it had never priced.
+  // `canStepOff` is kept only as an override for a caller that can positively
+  // prove otherwise. Absent that the GEOMETRY decides, because reaching this
+  // line already means `lateralTread` is false and the two are complements: a
+  // foot-level cell is solid (a tread) or passable (somewhere to step). The
+  // first version of this module gated the bottom rung on the flag alone and
+  // the totality property immediately found 344 states with no action, every
+  // one of them carrying both as false -- a pair that cannot both be true of
+  // the world.
   if (canStepOff !== false || !lateralTread) return 'step_off'
 
   // Unreachable given the above. Kept as a RAISE and never a silent `none`,

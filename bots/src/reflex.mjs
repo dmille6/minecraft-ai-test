@@ -2761,7 +2761,18 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     underfootDrop: drop,
     floorBelowSolid: solid(at(0, -2, 0)),
     lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
+    // HOW MANY, not whether. The boolean cannot tell a bot sealed on four sides
+    // from one with a single wall and three ways out, and the lattice needs that
+    // difference: 7 of the 14 stuck bots are sealed 4-of-4 and 6 have none.
+    solidLateralCount: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .filter(([x, z]) => solid(at(x, 0, z))).length,
     columnOpen: !solid(at(0, 2, 0)),
+    // Elevation, so the lattice can refuse a climb that cannot help. Without
+    // it, `pillar_up` was chosen for `stranded_high` bots -- a branch whose own
+    // log says "climbing cannot help; this bot needs to descend" -- and a
+    // 22-block climb FURTHER above the ceiling was scored as a success.
+    y: pos.y,
+    climbCeiling: CLIMB_CEILING,
 
     // ---- DIAGNOSTIC ONLY. `escapePlan` ignores these; they exist because the
     // lattice's INPUTS have never been validated and one window of them decides
