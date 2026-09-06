@@ -2030,7 +2030,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                              `drop=${est.underfootDrop ?? 'unmeasured'} ` +
                              `underfoot=${est.underfootSolid}:${est.underfootName} ` +
                              `support=${est.supportName} below=${est.belowName} ` +
-                             `blocks=${est.blocks} tread=${est.lateralTread} ` +
+                             `blocks=${est.blocks} tread=${est.lateralTread} walls=${est.solidLateralCount} ` +
                              `-- ${acted ? acted.why : 'no routine wired for this rung'}`,
                      snapshot: snapshot(bot) })
         }

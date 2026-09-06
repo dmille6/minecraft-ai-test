@@ -142,11 +142,17 @@ export function escapePlan ({
   // So the bands are separated and the middle one CHANGES NOTHING from the
   // deployed ordering except that a free ramp now outranks the death rung.
   // Policy without measurement behind it is the thing to avoid here.
-  const walls = Number.isFinite(solidLateralCount)
-    ? solidLateralCount
-    // A caller that can only report the boolean gets the LEAST-ASSUMING band:
-    // "some wall exists" is evidence of an anchor, never of being sealed.
-    : (lateralTread ? 1 : 0)
+  // `max`, not a ternary: with `solidLateralCount: 0` AND `lateralTread: true`
+  // the ternary took the count, so the open branch ran for a state that claims
+  // an anchor, and `canStepOff: false` then fell through to the raise. Adding an
+  // input widened the space and reopened 40 untotal states -- exactly the class
+  // `untotalStates` is exported to catch, and exactly what the header says about
+  // the lateralTread/canStepOff pair. A caller that can only report the boolean
+  // still gets the LEAST-ASSUMING band: "some wall exists" is evidence of an
+  // anchor, never of being sealed.
+  const walls = Math.max(
+    Number.isFinite(solidLateralCount) ? solidLateralCount : 0,
+    lateralTread ? 1 : 0)
   const sealed = walls >= 4
   const open = walls === 0
 
@@ -186,12 +192,27 @@ export function escapePlan ({
   // the deployed lattice would have.
   if (!open) return 'stair_up'
 
-  // PILLARING UP IS REFUSED ABOVE THE CEILING, and that is not a detail. This
-  // rung was chosen for `stranded_high` bots -- a branch whose own log line says
-  // "climbing cannot help; this bot needs to descend" -- and scored a 22-block
-  // climb FURTHER above the ceiling as a success.
-  const tooHigh = Number.isFinite(y) && Number.isFinite(climbCeiling) && y >= climbCeiling
-  if (columnOpen && blocks >= climbNeed && !tooHigh) return 'pillar_up'
+  // A CEILING GUARD HERE WOULD BE DEAD CODE, AND IT WOULD DELETE THE ONLY RUNG
+  // THAT WORKS.
+  //
+  // I briefly added `tooHigh = y >= climbCeiling` to stop this rung being
+  // prescribed to `stranded_high` bots -- a branch whose own log line reads
+  // "climbing cannot help; this bot needs to descend" -- after a 22-block climb
+  // FURTHER above the ceiling was scored a success.
+  //
+  // But `escapePlan` has exactly ONE call site (reflex.mjs, inside
+  // `mstate === 'stranded_high'`), and `maroonState` returns that state only
+  // when `y >= climbCeiling`. The guard's predicate is the CALLER'S ENTRY
+  // CONDITION, so it is true at 100% of call sites and this rung would never
+  // fire again. In the measured window `pillar_up` was 3 chosen and 3
+  // succeeded -- the only rung with a nonzero success rate across 1,275
+  // consultations, against dig_down 0 of 337 and ride_floor_down 0 of 821.
+  //
+  // The scoring bug is real and still open, but it belongs in the routine's
+  // POSTCONDITION -- which currently scores any rise as success -- or in what
+  // CLIMB_CEILING is taken to mean. Not in a guard that silently deletes the
+  // rung. `y` and `climbCeiling` stay in the signature as observations.
+  if (columnOpen && blocks >= climbNeed) return 'pillar_up'
 
   // THE BOTTOM, AND IT IS UNCONDITIONAL FOR THIS GEOMETRY ONLY.
   //

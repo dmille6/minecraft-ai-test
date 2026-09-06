@@ -80,17 +80,42 @@ test('a FREE drop still wins for an entombed bot — it often opens a cave', () 
   assert.equal(escapePlan({ ...ENTOMBED, underfootDrop: 17 }), 'stair_up')
 })
 
-test('pillar_up is refused ABOVE the climb ceiling', () => {
-  // The branch that chose it for `stranded_high` bots logs "climbing cannot
-  // help; this bot needs to descend" — and a 22-block climb further above the
-  // ceiling was scored as a success.
-  const high = { ...PILLAR, underfootSolid: false, floorBelowSolid: false,
-                 blocks: 64, columnOpen: true, y: 205, climbCeiling: 125 }
-  assert.notEqual(escapePlan(high), 'pillar_up', 'already above the ceiling')
-  assert.equal(escapePlan({ ...high, y: 70 }), 'pillar_up',
-    'POSITIVE CONTROL: below the ceiling it is still offered')
-  assert.equal(escapePlan({ ...high, y: null, climbCeiling: null }), 'pillar_up',
-    'a caller that cannot measure elevation keeps the old behaviour')
+test('pillar_up is NOT ceiling-gated — the guard would be dead code', () => {
+  // A `y >= climbCeiling` guard here has the same predicate as the ONLY call
+  // site's entry condition (`mstate === 'stranded_high'`, which maroonState
+  // returns only when y >= climbCeiling). It would be true at 100% of call
+  // sites and would delete the rung entirely -- and pillar_up was 3 chosen,
+  // 3 succeeded, the only rung with a nonzero success rate in 1,275
+  // consultations. The scoring bug it was meant to fix belongs in the
+  // routine's postcondition, not in a guard that silently removes the rung.
+  const high = { trapped: true, health: 20, climbNeed: 25, solidLateralCount: 0,
+                 lateralTread: false, underfootSolid: false, floorBelowSolid: false,
+                 underfootDrop: null, blocks: 64, columnOpen: true }
+  assert.equal(escapePlan({ ...high, y: 205, climbCeiling: 125 }), 'pillar_up',
+    'above the ceiling is where this rung is ACTUALLY consulted')
+  assert.equal(escapePlan({ ...high, y: 70, climbCeiling: 125 }), 'pillar_up')
+  assert.equal(escapePlan({ ...high, y: null, climbCeiling: null }), 'pillar_up')
+  // POSITIVE CONTROL: it is still refused when it cannot be paid for.
+  assert.notEqual(escapePlan({ ...high, blocks: 0, y: 205, climbCeiling: 125 }), 'pillar_up')
+})
+
+test('TOTALITY holds with an inconsistent count/boolean pair', () => {
+  // Adding `solidLateralCount` widened the input space and reopened 40 untotal
+  // states: solidLateralCount=0 with lateralTread=true took the open branch,
+  // and canStepOff=false then fell through to the raise. `walls` is a max for
+  // exactly this reason.
+  let n = 0
+  for (const canStepOff of [true, false])
+  for (const underfootSolid of [true, false])
+  for (const underfootDrop of [null, 1, 40])
+  for (const columnOpen of [true, false]) {
+    const plan = escapePlan({ trapped: true, health: 20, climbNeed: 25, blocks: 0,
+      solidLateralCount: 0, lateralTread: true, floorBelowSolid: false,
+      underfootSolid, underfootDrop, columnOpen, canStepOff })
+    assert.ok(ESCAPES.includes(plan), 'an inconsistent pair must still name a rung')
+    n++
+  }
+  assert.ok(n >= 24, `POSITIVE CONTROL: ${n} inconsistent states checked`)
 })
 
 test('TOTALITY survives the split — every state still names an action', () => {
@@ -126,7 +151,7 @@ test('and each geometry keeps its OWN guaranteed bottom rung', () => {
   for (const blocks of [0, 64]) {
     const base = { trapped: true, health: 20, climbNeed: 25, underfootSolid,
                    underfootDrop, floorBelowSolid, columnOpen, blocks }
-    const s = escapePlan({ ...base, lateralTread: true })
+    const s = escapePlan({ ...base, lateralTread: true, solidLateralCount: 4 })
     const o = escapePlan({ ...base, lateralTread: false })
     assert.ok(s !== 'step_off', 'sealed bots never step off')
     assert.ok(ESCAPES.includes(o))
