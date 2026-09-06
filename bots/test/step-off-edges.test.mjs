@@ -16,9 +16,9 @@ import test from 'node:test'
 import { stepOffEdges } from '../src/reflex.mjs'
 
 // A synthetic world: `world[`${x},${y},${z}`] = true` means solid.
-function makeWorld (solidCells) {
+function makeWorld (solidCells, named = {}) {
   const set = new Set(solidCells.map(c => c.join(',')))
-  const at = (x, y, z) => ({ x, y, z, key: `${x},${y},${z}` })
+  const at = (x, y, z) => ({ x, y, z, key: `${x},${y},${z}`, name: named[`${x},${y},${z}`] ?? 'stone' })
   const solid = b => !!b && set.has(b.key)
   return { at, solid }
 }
@@ -108,4 +108,40 @@ test('bad inputs return no edges rather than throwing on the packet path', () =>
   assert.deepEqual(stepOffEdges({}), [])
   assert.deepEqual(stepOffEdges(), [])
   assert.deepEqual(stepOffEdges({ at: 1, solid: 2 }), [])
+})
+
+test('WATER IS NOT SOLID and the probe used to walk straight through it', () => {
+  // Both water and lava have boundingBox 'empty', so probing for the first
+  // SOLID cell measures the distance to the seabed. Minecraft cancels fall
+  // damage in water, so a 25-block fall into a lake is harmless and must not
+  // rank worse than a lethal 15-block drop onto stone.
+  const w = makeWorld([...edgeWithDrop(1, 0, 15)],            // +x: 15 onto stone
+                      { '-1,-3,0': 'water' })                 // -x: water at 3 down
+  const ranked = stepOffEdges(w)
+  assert.equal(ranked[0].drop, 0, 'a water landing scores 0')
+  assert.deepEqual([ranked[0].dx, ranked[0].dz], [-1, 0], 'and must be chosen')
+  assert.ok(ranked.some(e => e.drop === 15), 'POSITIVE CONTROL: the stone drop was measured')
+})
+
+test('LAVA sorts LAST — worse than not knowing', () => {
+  // The probe passes through lava too, so before this a lava column read as a
+  // long fall or as unmeasured and could sort well. That is the one landing
+  // worse than an unmeasured one.
+  const w = makeWorld([], { '1,-4,0': 'lava' })
+  const ranked = stepOffEdges(w)
+  assert.equal(ranked[ranked.length - 1].hazard, 'lava', 'lava is the last resort')
+  assert.ok(ranked.slice(0, -1).every(e => e.hazard !== 'lava'))
+  // ...but it is still ELIGIBLE. This is the bottom rung; excluding every edge
+  // would leave the lattice with an empty admissible set.
+  assert.equal(ranked.length, 4)
+})
+
+test('the full preference order: water, shallow, deep, unmeasured, lava', () => {
+  const w = makeWorld([...edgeWithDrop(1, 0, 20)],
+                      { '-1,-2,0': 'water', '0,-6,1': 'lava' })
+  const ranked = stepOffEdges(w)
+  const seq = ranked.map(e => e.hazard === 'lava' ? 'lava'
+                            : e.drop === 0 ? 'water'
+                            : e.drop == null ? 'unmeasured' : `drop${e.drop}`)
+  assert.deepEqual(seq, ['water', 'drop20', 'unmeasured', 'lava'])
 })
