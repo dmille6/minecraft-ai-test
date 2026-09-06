@@ -112,16 +112,35 @@ export function stepOffEdges ({ at, solid, probe = STEP_OFF_PROBE } = {}) {
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     if (solid(at(dx, 0, dz))) continue          // a wall, not an edge
     if (solid(at(dx, -1, dz))) continue         // a step across, not a fall
+    // WATER AND LAVA ARE NOT SOLID, AND `solid()` WALKS STRAIGHT THROUGH THEM.
+    //
+    // Both have `boundingBox: 'empty'`, so probing for the first solid cell
+    // measures the distance to the SEABED. A 25-block fall into deep water --
+    // which is harmless, Minecraft cancels fall damage in water -- would rank
+    // worse than a lethal 15-block drop onto stone. Lava is the opposite: the
+    // probe passes through it too, so a column of lava reads as a long fall or
+    // as unmeasured, and sorts well, which is the dangerous direction.
     let drop = null
+    let hazard = null
     for (let d = 2; d <= probe; d++) {
       const b = at(dx, -d, dz)
       if (!b) break                             // unloaded: unmeasured, NOT zero
+      const n = b.name
+      if (n === 'lava') { hazard = 'lava'; drop = d - 1; break }
+      if (n === 'water' || n === 'flowing_water' || n === 'bubble_column') {
+        drop = 0                                // water cancels fall damage
+        break
+      }
       if (solid(b)) { drop = d - 1; break }
     }
-    edges.push({ dx, dz, drop })
+    edges.push({ dx, dz, drop, hazard })
   }
-  // Stable by construction: equal drops keep cardinal order.
-  return edges.sort((a, b) => (a.drop ?? Infinity) - (b.drop ?? Infinity))
+  // Cheapest first; unmeasured after everything measured; lava last of all,
+  // because it is the one landing that is worse than not knowing.
+  const rank = e => e.hazard === 'lava' ? Number.MAX_SAFE_INTEGER
+                  : e.drop == null ? Number.MAX_SAFE_INTEGER - 1
+                  : e.drop
+  return edges.sort((a, b) => rank(a) - rank(b))
 }
 
 const STEP_OFF_COOLDOWN_MS = 600_000
