@@ -22,6 +22,7 @@ import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
+import { attachPacketWitness } from './packet-witness.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -117,6 +118,12 @@ function connect() {
     auth: config.mc.auth,
     version: config.mc.version,
   })
+
+  // Two counters that answer a question every other field we log is blind to:
+  // is the world model wrong, or is the server holding the bot still? See
+  // packet-witness.mjs -- `onGround` cannot separate those and reading it as
+  // if it could is a measurement that was already retracted once.
+  bot.packetWitness = attachPacketWitness(bot)
 
   bot.loadPlugin(pathfinder)
   // Scoped to the gather skill. It manages its own movements (including

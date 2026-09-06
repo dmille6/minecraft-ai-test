@@ -2026,7 +2026,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           logEvent({ kind: 'escape_lattice',
                      status: acted?.ok ? 'success' : 'failed',
                      detail: `plan=${plan} y=${yNow} yExact=${est.yExact?.toFixed(6)} ` +
-                             `onGround=${est.onGround} drop=${est.underfootDrop ?? 'unmeasured'} ` +
+                             `onGround=${est.onGround} ${witnessText(bot)} ` +
+                             `drop=${est.underfootDrop ?? 'unmeasured'} ` +
                              `underfoot=${est.underfootSolid}:${est.underfootName} ` +
                              `support=${est.supportName} below=${est.belowName} ` +
                              `blocks=${est.blocks} tread=${est.lateralTread} ` +
@@ -2720,6 +2721,17 @@ export function shaftCapNeedsTool(bot, maxClearance = 12) {
  * conservative default so a measurement gap can never yield a MORE dangerous
  * answer than a measurement.
  */
+/**
+ * The packet counters, rendered for a log line, or a marker saying they are not
+ * attached. `absent` must never read as `0` -- a zero that means "not measured"
+ * is the exact failure `ZeroLooksWrong` exists to stop.
+ */
+function witnessText (bot) {
+  const w = bot.packetWitness?.()
+  if (!w) return 'posPkts=absent physTicks=absent'
+  return `posPkts=${w.posPackets} physTicks=${w.physicsTicks} blkChg=${w.blockChanges}`
+}
+
 function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
   const pos = bot.entity?.position
   if (!pos) return { trapped: false }
