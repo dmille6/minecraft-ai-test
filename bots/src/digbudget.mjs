@@ -91,3 +91,39 @@ export function predictedDigMs (block, tool = null) {
     return Number.isFinite(t) ? t : null
   } catch { return null }
 }
+
+/**
+ * WHICH HAND DIGS THIS, AND FOR HOW LONG?
+ *
+ * The escape routines break blocks to make a HOLE, not to collect a drop: the
+ * postcondition of `harvestUnderfoot` is `fell`, and of `pillarOut` is the rise.
+ * Neither cares what the block yields, so equipping a pickaxe buys nothing they
+ * need -- and it costs the one resource the fleet cannot replace on a pillar.
+ *
+ * Measured 2026-09-05 over every archive: of 8,803 pickaxes that ever left an
+ * inventory, 5,951 (68%) were destroyed during escape activity against 55 lost
+ * to death, at a mean health of 20.0/20 at the moment of loss. Healthy bots
+ * grinding tools to dust digging their way out. By type: wooden 3,775, stone
+ * 2,170, iron 5, diamond 1.
+ *
+ * But bare hands are SLOWER, and a tool is genuinely required for some blocks,
+ * so this is a preference and not a prohibition. Bare first; the tool comes
+ * back only when the registry says the bare-handed swing exceeds the budget
+ * ceiling. Removing the tool outright would take away a dig the bot can
+ * currently make, which is this repo's named bug class -- a new guard leaving a
+ * bot with no legal move -- and the durability saving is already banked by the
+ * common case, where the block underfoot is cobble the bot placed itself.
+ *
+ * Pure so the decision can be pinned without standing up a bot. Pass the
+ * registry's own predictions; `null` for either means "unknown", which
+ * `planDig` treats as try-it rather than as hopeless.
+ *
+ * @returns {{ hand: 'bare'|'tool'|null, budgetMs: number, refuse: boolean }}
+ */
+export function digHand ({ bareMs = null, toolMs = null } = {}) {
+  const bare = planDig(bareMs)
+  if (!bare.refuse) return { hand: 'bare', budgetMs: bare.budgetMs, refuse: false }
+  const tooled = planDig(toolMs)
+  if (!tooled.refuse) return { hand: 'tool', budgetMs: tooled.budgetMs, refuse: false }
+  return { hand: null, budgetMs: 0, refuse: true }
+}

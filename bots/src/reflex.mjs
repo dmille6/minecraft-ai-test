@@ -16,7 +16,7 @@ import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock } from './scaffold.mjs'
-import { planDig, predictedDigMs } from './digbudget.mjs'
+import { planDig, predictedDigMs, digHand } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
@@ -2917,10 +2917,33 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   }
 
   seizeBody(bot, 'underfoot')
+
+  // BARE HANDS. This routine wants the HOLE, not the drop, and a pickaxe buys
+  // nothing here that the bot does not already have: the cell underfoot is
+  // usually a block it placed itself, and the postcondition is `fell`, not
+  // `collected`. Equipping only spends durability on a descent.
+  //
+  // Measured 2026-09-05 across all archives: of 8,803 pickaxes that ever left
+  // an inventory, 5,951 -- 68% -- were destroyed during escape activity,
+  // against 55 lost to death. Mean health at the moment of loss was 20.0/20.
+  // These are healthy bots grinding their tools to dust digging their way out.
+  if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+
   const tool = bestTool(bot, target)
-  if (tool) await bot.equip(tool, 'hand').catch(() => {})
+  const hand = digHand({ bareMs: predictedDigMs(target, null),
+                         toolMs: predictedDigMs(target, tool) })
+  if (hand.refuse) {
+    return { ok: false, drop,
+      why: `${target.name} underfoot is too slow to break, tool or not` }
+  }
+  if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
+  else if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+
+  // The budget follows the hand. Bare-handed is slower, so keeping the fixed 6s
+  // deadline while dropping the tool would just turn the durability saving into
+  // `dig exceeded 6000ms` -- which is how the equip would earn itself back.
   const yBefore = pos.y
-  try { await digBounded(bot, target, budgetMs) } catch (e) {
+  try { await digBounded(bot, target, Math.max(budgetMs, hand.budgetMs)) } catch (e) {
     return { ok: false, drop, why: `dig failed: ${e.message}` }
   }
   // POSTCONDITION, not "I ran it". The same discipline the entombed branch uses:
@@ -3590,9 +3613,18 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
     if (head && head.name !== 'air' && head.name !== 'water') {
       // Bounded: an escape routine that hangs on a dig strands the bot for
       // good, because nothing else is coming.
+      // BARE HANDS, for the same reason as `harvestUnderfoot`: the climb needs
+      // the cell EMPTY and does not care what it drops. This is the
+      // highest-volume escape routine in the fleet, so it is also the largest
+      // single contributor to the 5,951 destroyed pickaxes.
       const tool = bestTool(bot, head)
-      if (tool) await bot.equip(tool, 'hand').catch(() => {})
-      try { await digBounded(bot, head) } catch { /* may be unreachable; try anyway */ }
+      const hand = digHand({ bareMs: predictedDigMs(head, null),
+                             toolMs: predictedDigMs(head, tool) })
+      if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
+      else if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+      try {
+        if (!hand.refuse) await digBounded(bot, head, Math.max(8000, hand.budgetMs))
+      } catch { /* may be unreachable; try anyway */ }
       await sleep(150)
     }
 
