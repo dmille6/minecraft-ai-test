@@ -49,7 +49,7 @@
 //     would fight the incremental search and oscillate. Baritone's bestSoFar
 //     applies where its search has ended, and so does ours.
 import { createRequire } from 'node:module'
-import { log } from './logger.mjs'
+import { log, logEvent } from './logger.mjs'
 
 const require_ = createRequire(import.meta.url)
 
@@ -66,7 +66,76 @@ const MIN_DIST_PATH = 5
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
 
 /** Which coefficient produced each returned path, so the effect is measurable. */
-export const backoffStats = { substituted: 0, kept: 0, byCoefficient: {} }
+export const backoffStats = { substituted: 0, kept: 0, byCoefficient: {}, shapes: {} }
+
+/**
+ * WHY DID A* FAIL? The four answers need different fixes and we record one word
+ * for all of them.
+ *
+ * `no_path` is 22.8% of gather runs at a median 19.6s each -- 13.3 bot-hours per
+ * 6.7h window against 0.67 for the whole no_safe_target class, a 20:1 ratio of
+ * wasted fleet time. It is also the least understood bucket we have.
+ *
+ * The discriminator is how much of the search actually happened:
+ *
+ *   visitedNodes <= 1   the start node had NO legal neighbours. A* popped the
+ *                       start, generated nothing, and drained. This is not "the
+ *                       goal is unreachable", it is "the bot cannot move at all
+ *                       from where it stands".
+ *
+ *   ...and in liquid    mineflayer-pathfinder cannot plan ANY vertical move from
+ *                       a liquid node: getMoveUp, getMoveDown, getMoveDropDown
+ *                       and getMoveParkourForward each open with a liquid check
+ *                       and return (lib/movements.js). The only escape is
+ *                       getMoveJumpUp onto an adjacent SOLID ledge. So a
+ *                       submerged bot in a walled pocket is structurally
+ *                       unpathable, by design -- issue #117 is closed WONTFIX
+ *                       ("We will likely not implement this feature", IceTank
+ *                       2022-05-30) and #137 has been open since 2021.
+ *
+ *   many nodes, noPath  the search completed and the region really is
+ *                       disconnected from the goal. astar.js returns 'noPath'
+ *                       only after `while (!this.openHeap.isEmpty())` drains, so
+ *                       this is a finished search, not a give-up.
+ *
+ *   timeout             the budget ran out. A different problem entirely, and
+ *                       the one the backoff above exists for.
+ *
+ * Pure so it can be tested; the caller supplies the counts.
+ */
+export function pathFailureShape ({ status, visitedNodes, startLiquid } = {}) {
+  if (status === 'timeout') return 'budget'
+  if (status !== 'noPath') return null
+  // `typeof`, not Number(): Number(null) is 0, and 0 is the value that means
+  // "the bot had no legal move". A missing count would then be filed as the
+  // most alarming category rather than as unknown -- a detector answering
+  // uniformly, which is the failure this instrument exists to avoid.
+  if (typeof visitedNodes !== 'number' || !Number.isFinite(visitedNodes)) return 'unknown'
+  if (visitedNodes <= 1) return startLiquid ? 'sealed_in_liquid' : 'no_legal_move'
+  return 'disconnected'
+}
+
+/** Counts since the last flush. Exact; the flush turns them into one event. */
+const pending = {}
+
+/**
+ * Emit the tally since the last call, and reset it. Returns what it emitted so
+ * a test can assert it without reading the log.
+ */
+export function flushPathShapes() {
+  const keys = Object.keys(pending)
+  if (!keys.length) return null
+  const snapshot = { ...pending }
+  for (const k of keys) delete pending[k]
+  const total = Object.values(snapshot).reduce((a, b) => a + b, 0)
+  logEvent({
+    kind: '_path_failure_shapes', status: 'failed',
+    detail: Object.entries(snapshot).sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${k}=${n}(${(100 * n / total).toFixed(0)}%)`).join(' ') +
+      ` total=${total}`,
+  })
+  return snapshot
+}
 
 export function installPathBackoff() {
   let AStar
@@ -109,6 +178,59 @@ export function installPathBackoff() {
     // the library is about to resume. Neither is ours to second-guess.
     if (status !== 'timeout' && status !== 'noPath') return original.call(this, status, node)
 
+    // RECORD THE SHAPE BEFORE SUBSTITUTING, because the substitution rewrites
+    // which node is returned and would erase the evidence of what the search
+    // actually did. Wrapped whole: an instrument must never be able to break
+    // the thing it observes.
+    try {
+      // `closedDataSet.size`, NOT `this.visitedNodes`.
+      //
+      // `visitedNodes` is not a field on AStar -- makeResult COMPUTES it from
+      // closedDataSet.size at return time (astar.js:60). Reading it off `this`
+      // gives undefined, which pathFailureShape correctly reports as 'unknown',
+      // so the instrument would have answered 'unknown' for every failure.
+      //
+      // That is the second time in one hour: breakVetoAt had the same shape of
+      // bug, reading `.liquid` off a block that only Movements.getBlock
+      // decorates. Both were found by checking the library source instead of
+      // the property name, which is now the rule rather than the anecdote.
+      const visited = this.closedDataSet?.size
+      const startBlock = this.movements?.getBlock?.(this.__startNode?.data, 0, 0, 0)
+      const shape = pathFailureShape({
+        status,
+        visitedNodes: typeof visited === 'number' ? visited : undefined,
+        startLiquid: !!startBlock?.liquid,
+      })
+      if (shape) {
+        backoffStats.shapes[shape] = (backoffStats.shapes[shape] ?? 0) + 1
+        // COUNT EXACTLY, EMIT PERIODICALLY.
+        //
+        // One event per A* failure would be the largest event kind on the
+        // fleet: `_path_reset` alone is already ~14% of all telemetry, and this
+        // fires on every noPath AND every timeout, including the library's own
+        // internal retries. A wide walk over that has OOM-killed the fleet host
+        // before.
+        //
+        // Throttling per-failure events instead would have been the obvious
+        // fix and a wrong one: a bot failing in a burst would contribute one
+        // sample and a bot failing rarely would contribute one too, biasing the
+        // proportions toward quiet bots. The proportions are the whole question.
+        // So the counters are exact and flushPathShapes() emits the delta.
+        pending[shape] = (pending[shape] ?? 0) + 1
+        if (visited === 0 || visited === 1) {
+          // The zero-neighbour case is rare, actionable, and the one the
+          // library reports as SUCCESS elsewhere (goto's empty-path branch runs
+          // before its status check, PR #357, unmerged). Worth one event each.
+          logEvent({
+            kind: '_path_no_legal_move', status: 'failed',
+            detail: `${shape} status=${status} visited=${visited} ` +
+                    `startLiquid=${!!startBlock?.liquid} ` +
+                    `h=${node?.h?.toFixed?.(1) ?? '?'}`,
+          })
+        }
+      }
+    } catch { /* an instrument must never break the path it is watching */ }
+
     const family = this.__family
     const origin = this.__startNode?.data
     if (!family || !origin) { backoffStats.kept++; return original.call(this, status, node) }
@@ -130,5 +252,10 @@ export function installPathBackoff() {
   }
 
   AStar.prototype.__backoffInstalled = true
+  // unref so a test that installs the patch does not hold the process open.
+  if (!installPathBackoff.__flusher) {
+    installPathBackoff.__flusher = setInterval(flushPathShapes, 60_000)
+    installPathBackoff.__flusher.unref?.()
+  }
   return true
 }
