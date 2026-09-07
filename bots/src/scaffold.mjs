@@ -26,6 +26,26 @@ export const PATHFINDER_SCAFFOLD = [
   'stone', 'andesite', 'diorite', 'granite', 'deepslate', 'cobbled_deepslate',
   'tuff', 'netherrack', 'sandstone', 'red_sandstone', 'dripstone_block',
   'coarse_dirt', 'rooted_dirt',
+  // WOOD, WHICH THIS LIST HAS NEVER CONTAINED.
+  //
+  // The stated exclusion is falling blocks -- a sand bridge drops out from
+  // under the bot -- and logs and planks do not fall, so the rationale never
+  // covered them. Nothing else did either; they were simply absent.
+  //
+  // Measured 2026-09-07: board-d-Bravo produced 480 zero-neighbour A* failures
+  // in three hours, 30.5% of every dry one on the fleet, while carrying 563
+  // birch logs and ZERO blocks from this list. It had 559 blocks it was not
+  // allowed to stand on. getMoveUp, getMoveForward and getMoveJumpUp each
+  // `return` when node.remainingBlocks === 0, and remainingBlocks is
+  // countScaffoldingItems() over exactly this list, so a bot holding only wood
+  // has no vertical move and no bridge.
+  //
+  // Wood is also the ONE material this fleet reliably has: 81% of bots hold
+  // logs, against 59% for stone or cobblestone.
+  'oak_log', 'oak_planks', 'birch_log', 'birch_planks',
+  'spruce_log', 'spruce_planks', 'jungle_log', 'jungle_planks',
+  'acacia_log', 'acacia_planks', 'dark_oak_log', 'dark_oak_planks',
+  'mangrove_log', 'mangrove_planks', 'cherry_log', 'cherry_planks',
 ]
 
 /** Blocks that obey gravity: never plannable as a bridge. */
