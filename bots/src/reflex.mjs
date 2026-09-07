@@ -2040,10 +2040,29 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                 `with, ${got.tried} adjacent block(s) yielded nothing when dug${lavaNote}, ` +
                 `and no escape ramp could be cut (${ramp.stopped})`)
               logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
+                         // THE WITNESS, WHERE IT CAN ACTUALLY BE READ.
+                         //
+                         // `witnessText` existed only inside the `escape_lattice`
+                         // event, which fires only inside `escapePlan`, which runs
+                         // only for `stranded_high`, which requires y >= 125. So
+                         // the counters that separate the three rival explanations
+                         // for a frozen bot were deployed, attached, and
+                         // structurally unreachable for every bot below the
+                         // ceiling -- which is where the frozen ones actually are
+                         // (y=94, 100, 105, 106).
+                         //
+                         // Three hypotheses, one readout: physTicks ~0 means
+                         // nothing is simulating the bot; sustained posPkts means
+                         // the server is stomping its position; physTicks high
+                         // with posPkts ~0 means the block cache is lying and
+                         // physics is running against a floor it cannot see. They
+                         // need completely different fixes and nothing else in the
+                         // log distinguishes them.
                          detail: `no route from y=${yNow}, column above is open, no placeable ` +
                                  `blocks, self-sourcing failed (${got.dug}/${got.tried} dug)` +
                                  `${lavaNote}, and the escape ramp stopped because ` +
-                                 `${ramp.stopped} — asked for scaffold`,
+                                 `${ramp.stopped} — asked for scaffold ` +
+                                 `[${witnessText(bot)} yExact=${bot.entity?.position?.y?.toFixed(6)}]`,
                          snapshot: snapshot(bot) })
             }
           }
