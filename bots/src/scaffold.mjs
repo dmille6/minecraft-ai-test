@@ -135,16 +135,48 @@ export function extendScaffolding (moves, registry) {
  * @param sides the four horizontal neighbours at that same level
  * @returns a refusal reason, or null when the step is safe
  */
-export function overheadBreakRisk ({ head = null, sides = [], isLiquid = b => false } = {}) {
-  // Liquid first: it has an EMPTY boundingBox, so a `solid` test would fall
-  // straight through and this branch would be unreachable. Water directly
-  // overhead ends the climb whatever else is true -- pillaring into it puts the
-  // head under, which is the state the air reflex exists to end.
-  if (head && isLiquid(head)) return `liquid overhead (${head.name})`
+export function overheadBreakRisk ({ head = null, sides = [], isLiquid = b => false,
+                                     submerged = false } = {}) {
+  // A FLOOD GUARD MUST NOT FIRE WHEN THE BOT IS ALREADY FLOODED.
+  //
+  // The rule below is right for a bot with its head in air: pillaring into
+  // water puts the head under, which is the state the air reflex exists to end.
+  // For a bot ALREADY fully submerged it forbids the only way out, to prevent a
+  // transition into the state it is already in.
+  //
+  // That is this repo's named bug class -- two individually-correct guards
+  // meeting where the bot has no legal move -- and here it composes into a
+  // complete dead end. Measured 2026-09-07: a submerged sealed bot gets ZERO
+  // moves from A* (mineflayer-pathfinder refuses every vertical move from a
+  // liquid node, and `canDig = false` makes safeToBreak refuse every horizontal
+  // one), a refusal from this guard, and `surface_swim` from a lattice branch
+  // that assumes it is floating. 23.8% of all pathfinding failures on the fleet
+  // are bots in exactly this state, 90% of them from five bots hammering it for
+  // ten to twenty minutes at a time.
+  //
+  // `dryColumnStep` was built for the neighbouring case and cannot reach this
+  // one: it looks for a dry column nearby, and a bot in a flooded pocket has no
+  // dry neighbour to find. It returns null and the climb refuses.
+  //
+  // THIS IS NOT THE KELP WIDENING AND NOT THE GLOBAL DEMOTION. Both of those
+  // made bots more willing to BE near water and multiplied drownings 7x and
+  // 7.5x. This changes nothing for a dry bot, nothing for a wading bot, and
+  // nothing for a bot whose head is in air. It fires only when the head is
+  // already under, where the guard is protecting a state that no longer exists.
+  //
+  // LAVA STILL REFUSES, ALWAYS. Breaking into lava from water is a NEW harm --
+  // the two meet, and the bot is standing where they meet.
+  const headLiquid = head && isLiquid(head)
+  if (headLiquid && head.name === 'lava') return `liquid overhead (${head.name})`
+  if (headLiquid && !submerged) return `liquid overhead (${head.name})`
   const solid = !!head && head.name !== 'air' && head.boundingBox !== 'empty'
   if (!solid) return null                 // nothing will be broken; nothing can flood
   for (const s of sides) {
-    if (s && isLiquid(s)) return `liquid beside the block overhead (${s.name})`
+    if (!s || !isLiquid(s)) continue
+    // Same exemption, same reasoning: water beside the ceiling can only flood a
+    // bot that is not already flooded. Lava beside it is a new harm regardless.
+    if (submerged && s.name !== 'lava') continue
+    return `liquid beside the block overhead (${s.name})`
   }
   return null
 }

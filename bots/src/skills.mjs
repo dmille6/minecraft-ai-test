@@ -4212,10 +4212,19 @@ export async function shaftAscend(bot, targetY, signal,
     // where walking out from under it is the whole answer.
     const head = bot.blockAt(p.offset(0, 2, 0))
     const isLiquid = b => !!b && LIQUID.has(b.name)
+    // IS THE BOT ALREADY UNDER? Both of its own cells, not one.
+    //
+    // Feet-only would be true of a bot wading a shoreline with its head in
+    // clear air, which is precisely the bot the flood guard is right about. The
+    // exemption is for a bot with nothing left to protect: head under AND feet
+    // under. Read from the bot's own occupied cells, never from oxygenLevel,
+    // which air.mjs documents as corrupted by any nearby fish.
+    const submerged = isLiquid(bot.blockAt(p.offset(0, 1, 0))) && isLiquid(bot.blockAt(p))
     const flood = overheadBreakRisk({
       head,
       sides: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => bot.blockAt(p.offset(dx, 2, dz))),
       isLiquid,
+      submerged,
     })
     if (flood) {
       // WALK OUT FROM UNDER IT RATHER THAN GIVING UP.
