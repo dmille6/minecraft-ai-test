@@ -1104,9 +1104,22 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
       }
       if (rejectedUnsafe > 0 && exposedOnes.length === rejectedUnsafe) {
+        // SAY WHICH RULE REFUSED, not "one of these two".
+        //
+        // safeToBreak ORs dontCreateFlow with dontMineUnderFallingBlock, so
+        // every refusal has read identically and the message had to name both.
+        // 18% of gather runs end here and a third of them are SAND, which is
+        // itself a falling block -- so the share attributable to liquid is
+        // unknown, and the only proxy available from telemetry bounds it
+        // between 3% and 97%. That is too wide to decide anything on.
+        const why = { liquid: 0, falling: 0, entity: 0, both: 0, unknown: 0 }
+        for (const q of exposedOnes) why[breakVetoAt(bot, q) ?? 'unknown']++
+        const named = Object.entries(why).filter(([, n]) => n > 0)
+          .sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}:${n}`).join(' ')
         return { status: 'failed', failClass: 'no_safe_target',
+                 vetoCause: why,
                  detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
-                         `under falling blocks — digging them would flood or bury this spot` }
+                         `under falling blocks — digging them would flood or bury this spot [${named}]` }
       }
       return { status: 'failed', failClass: 'unreachable',
                detail: `${blockName} found but every candidate is buried — use mine to dig down` +
@@ -3680,6 +3693,85 @@ export function isExposed (bot, p) {
  * the world is emptier than it is, and a false negative here is worse than a
  * false positive: it removes a real option.
  */
+/**
+ * The five faces `dontCreateFlow` checks. NOT below: a block sitting ON liquid
+ * is not a way in. Same set as FLOW_NEIGHBOURS, kept separate because that one
+ * describes a stair's exposure and this one names a library rule.
+ */
+export const FLOW_FACES = [[0, 1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]]
+
+/**
+ * WHICH of safeToBreak's two rules refused this block.
+ *
+ * `Movements.safeToBreak` ORs `dontCreateFlow` (liquid on any of five faces)
+ * with `dontMineUnderFallingBlock` (a fallable block, or an entity, directly
+ * above) and returns a single false. Every refusal therefore reads the same,
+ * and the skill's message says "beside water or under falling blocks" because
+ * it genuinely cannot tell.
+ *
+ * That ambiguity is currently blocking a decision. 18% of all gather runs fail
+ * `no_safe_target`, and 320 of 958 of them are SAND -- which is itself a
+ * falling block, so an unknown share of the 18% is the rule nobody proposes to
+ * touch. The best proxy available from telemetry is "no liquid of any kind in
+ * the perception scan", which bounds it at 3.2% and settles nothing, because a
+ * scan is a 32-block radius and the rule reads five cells.
+ *
+ * So: measure it instead of estimating it. Pure, so it can be tested; the
+ * caller gathers the cells.
+ *
+ * Returns 'liquid', 'falling', 'entity', 'both', or null when nothing refuses.
+ */
+export function breakVeto ({ above = null, sides = [], entitiesAbove = 0 } = {}) {
+  const isLiquid = b => !!(b && b.liquid)
+  const liquid = isLiquid(above) || sides.some(isLiquid)
+  const falls = !!(above && above.canFall)
+  const blocked = Number(entitiesAbove) > 0
+  if (liquid && (falls || blocked)) return 'both'
+  if (liquid) return 'liquid'
+  if (falls) return 'falling'
+  if (blocked) return 'entity'
+  return null
+}
+
+/**
+ * `breakVeto` for a live bot at a position. Returns null when it cannot ask --
+ * the same direction as `isSafeToBreak`, which defaults to SAFE when the
+ * movements object is missing, so this never invents a refusal that the real
+ * predicate would not make.
+ */
+export function breakVetoAt (bot, p) {
+  try {
+    const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+    if (!m) return null
+    // `m.getBlock`, NEVER `bot.blockAt`.
+    //
+    // `liquid` and `canFall` are not properties of a prismarine block. They are
+    // DECORATIONS that Movements.getBlock writes on (movements.js:236-238,
+    // `b.liquid = this.liquids.has(b.type)`), and safeToBreak only ever reads
+    // blocks that came through it. Verified against the 1.21.8 registry:
+    // Block.fromStateId for water, lava, sand and gravel all report
+    // `liquid=undefined canFall=undefined`, with hasOwnProperty false.
+    //
+    // The first version of this function read bot.blockAt, so it returned null
+    // for every real block and would have filed 100% of refusals as `unknown`
+    // -- a detector that answers uniformly, deployed as the cure for detectors
+    // that answer uniformly. Its eight tests passed because every one of them
+    // fed hand-decorated literals, including the one that claimed to check
+    // agreement with the library.
+    //
+    // Reading through `m` also makes this definitionally consistent with the
+    // rule it measures: same `liquids` set (which includes LAVA), same
+    // `gravityBlocks` set, and the same {liquid:false, canFall:false} stub for
+    // an unloaded chunk.
+    if (typeof m.getBlock !== 'function') return null
+    return breakVeto({
+      above: m.getBlock(p, 0, 1, 0),
+      sides: FLOW_FACES.slice(1).map(([dx, dy, dz]) => m.getBlock(p, dx, dy, dz)),
+      entitiesAbove: m.getNumEntitiesAt?.(p, 0, 1, 0) ?? 0,
+    })
+  } catch { return null }
+}
+
 export function isSafeToBreak (bot, p) {
   try {
     const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
