@@ -163,6 +163,23 @@ selected, or reachable, so all three need checking:
 
 ## Deploys
 
+**Run `scripts/canary-preflight.py` first.** It mechanises the five setup errors
+that wasted six trials in one day, and reports all of them at once:
+
+```
+canary-preflight.py --pool hive-d --sha ece1608 --endpoint drowning_aborts --my-rate 12.77
+```
+
+It computes the pool-selection rate itself and compares it against yours, so the
+number that picks the pool is computed twice by two different queries — the
+board-d trial died on one query wrong by 16x. It also refuses a pool that is not
+the fleet maximum on the endpoint, a window with no `declared_at`, a canary with
+no falsifiable prediction on file, and a branch not cut from the deployed sha.
+Its own first live run found that the isolated arm writes `exp.pool` as
+`self-isolated-<pool>-<Bot>`, so 20 bots read as 20 pools; rank against pools of
+a comparable size or the ranking is meaningless.
+
+
 - Run the deploy script **from a copy outside the repo** — it `git reset`s the
   tree it lives in, and bash re-reads a running script by byte offset.
   `sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh <sha> <run_id> "<notes>" [--pool P]`
@@ -181,9 +198,15 @@ selected, or reachable, so all three need checking:
   construction. Confirm the remote branch does not already exist — then the push
   can only create, never overwrite — and use `--no-verify` for that push only.
 - A canary pool must **contain the population the fix targets**, or it shows
-  nothing.
+  nothing. `canary-preflight.py` refuses anything but the argmax unless you type
+  `--allow-rank N` deliberately.
 - Rare outcomes (deaths ~0.1/hour/pool) are unmeasurable on 5 bots. Use them as
   tripwires, not proof.
+- **Never type a window boundary.** Read `declared_at` from the manifest and
+  assert it is in the past. A hand-typed cutoff landed in the FUTURE three times
+  in one day, and each time the query answered with a confident zero that was
+  believed. This is the "believing a cheap negative" failure with a clock
+  attached.
 
 ## Commits
 
