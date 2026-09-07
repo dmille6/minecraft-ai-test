@@ -116,10 +116,36 @@ def comparable_pools(bots, pool, factor=2.0):
     return {p for p, n in bots.items() if lo <= n <= hi or p == pool}
 
 
-def pool_carries_population(pool, ranking, allow_rank=1):
+import collections
+
+#: The reversion line plus what is needed to say how well it is pinned down.
+#: `mean_x` and `sxx` carry the leverage term, which is the part that matters
+#: when the canary pool sits outside the range the line was fitted on.
+_Fit = collections.namedtuple('_Fit', 'intercept slope sd n mean_x sxx')
+
+#: A pool below this fraction of the median has too little of the population for
+#: the fix to act on. board-d was 0.26 of the median and produced nothing.
+MIN_SHARE_OF_MEDIAN = 0.5
+
+
+def pool_carries_population(pool, ranking, min_share=MIN_SHARE_OF_MEDIAN):
     """
-    `ranking` maps pool -> endpoint rate. The canary pool must be the argmax
-    unless a worse rank was asked for deliberately.
+    `ranking` maps pool -> endpoint rate. The pool must have enough of the
+    population for the fix to act on.
+
+    THIS CHECK NO LONGER DEMANDS THE ARGMAX, and the reason is the whole story
+    of 2026-09-07. It did demand it, for six hours, because board-d had been
+    chosen at 0.26 of the fleet median and showed nothing. But "pick the maximum"
+    is a rule that GUARANTEES regression to the mean: the extreme pool is extreme
+    partly because of noise, and noise does not persist. hive-d was picked as the
+    fleet maximum at 12.83 drowning-aborts/bot-h and fell 4.84 -- while a fit of
+    delta-on-baseline across the untreated pools predicted a fall of 5.68 for an
+    UNTREATED pool at that baseline. The trial's headline effect was smaller than
+    doing nothing, and the guard I had just written would have insisted on that
+    pool again.
+
+    So the requirement is a FLOOR, not a maximum: enough of the population to
+    measure, and `reversion_fit` prices what the pool would have done untreated.
     """
     if not isinstance(ranking, dict) or not ranking:
         return ('no per-pool ranking for the endpoint -- cannot show this pool '
@@ -128,18 +154,97 @@ def pool_carries_population(pool, ranking, allow_rank=1):
         return ('pool %r does not appear in the endpoint ranking (%d pools '
                 'measured). Either the pool is wrong or the endpoint is'
                 % (pool, len(ranking)))
-    order = sorted(ranking.items(), key=lambda kv: -kv[1])
-    rank = [p for p, _ in order].index(pool) + 1
-    if rank > max(1, int(allow_rank)):
-        best, best_rate = order[0]
-        return ('pool %s ranks %d of %d on this endpoint (%.2f vs %s at %.2f). '
-                'A canary pool must contain the population the fix targets or it '
-                'shows nothing; pass --allow-rank %d to override deliberately'
-                % (pool, rank, len(order), ranking[pool], best, best_rate, rank))
     if ranking[pool] <= 0:
         return ('pool %s measures %.2f on this endpoint -- the fix has nothing '
                 'to act on here' % (pool, ranking[pool]))
+    vals = sorted(ranking.values())
+    median = vals[len(vals) // 2] if len(vals) % 2 else (vals[len(vals)//2 - 1] + vals[len(vals)//2]) / 2.0
+    if median > 0 and ranking[pool] < min_share * median:
+        return ('pool %s measures %.2f against a fleet median of %.2f (%.0f%% of '
+                'it) -- too little of the population for the fix to act on. This '
+                'is the board-d error: the trial cannot produce a result'
+                % (pool, ranking[pool], median, 100 * ranking[pool] / median))
     return None
+
+
+def reversion_fit(pairs):
+    """
+    Least-squares fit of (post - pre) on pre, across UNTREATED pools.
+
+    This is the instrument that would have saved 2026-09-07. Split a quiet
+    baseline window in half, take each pool's rate in each half, and fit how much
+    a pool at a given level moves on its own. The slope is reliably negative --
+    high pools fall, low pools rise -- because pool rates contain noise and noise
+    does not persist.
+
+    `pairs` is [(pre, post), ...]. Returns (intercept, slope, residual_sd), or
+    None when there are too few pools to fit. Four is already thin; the caller
+    should say the denominator.
+    """
+    pts = [(float(a), float(b) - float(a)) for a, b in pairs
+           if a is not None and b is not None]
+    n = len(pts)
+    if n < 4:
+        return None
+    mx = sum(x for x, _ in pts) / n
+    my = sum(y for _, y in pts) / n
+    sxx = sum((x - mx) ** 2 for x, _ in pts)
+    if sxx <= 0:
+        return None                      # every pool at the same level: no fit
+    slope = sum((x - mx) * (y - my) for x, y in pts) / sxx
+    intercept = my - slope * mx
+    resid = [y - (intercept + slope * x) for x, y in pts]
+    # n-2 degrees of freedom: two were spent on the fit.
+    dof = max(n - 2, 1)
+    sd = (sum(r * r for r in resid) / dof) ** 0.5
+    return _Fit(intercept, slope, sd, n, mx, sxx)
+
+
+def expected_untreated_delta(pre_rate, fit):
+    """What a pool at this baseline does with NO treatment at all."""
+    if fit is None or pre_rate is None:
+        return None
+    return fit.intercept + fit.slope * float(pre_rate)
+
+
+def prediction_sd(pre_rate, fit):
+    """
+    How well the reversion line is pinned down AT THIS POOL'S BASELINE.
+
+    Two different fits of tonight's data disagreed about hive-d: slope -0.318
+    predicted it would fall 2.66 untreated, slope -0.627 predicted 5.68. hive-d
+    fell 5.12, so one fit says a real effect and the other says less than nothing.
+    The fits differed only in which pools they included.
+
+    That is not a tie to be broken -- it is the answer. hive-d's baseline (12.86)
+    sits far outside the range the line was fitted on (0.9 to 7.3), so the
+    prediction there is an extrapolation, and the leverage term below blows up
+    exactly as it should. A pool you cannot predict the untreated behaviour of
+    is a pool whose trial cannot be read.
+    """
+    if fit is None or pre_rate is None:
+        return None
+    x = float(pre_rate)
+    lev = 1.0 + 1.0 / fit.n + ((x - fit.mean_x) ** 2) / fit.sxx
+    return fit.sd * (lev ** 0.5)
+
+
+def effect_must_exceed(pre_rate, fit, sds=2.0):
+    """
+    The delta a real change has to beat to be distinguishable from doing nothing.
+
+    Returns (predicted_untreated_delta, threshold). A canary whose observed delta
+    does not clear the threshold has not been shown to do anything, however large
+    the raw number looks -- hive-d's -4.84 against a predicted -5.68 is the case
+    in point.
+    """
+    if fit is None:
+        return None
+    pred = expected_untreated_delta(pre_rate, fit)
+    psd = prediction_sd(pre_rate, fit)
+    if pred is None or psd is None:
+        return None
+    return pred, pred - sds * psd
 
 
 #: A prediction with no way to be wrong is a description.

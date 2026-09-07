@@ -24,8 +24,9 @@ import argparse, collections, datetime, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, 'lib'))
-from preflight import (preflight, comparable_pools, CHECKS,     # noqa: E402
-                       RATE_TOLERANCE)
+from preflight import (preflight, comparable_pools, reversion_fit,   # noqa: E402
+                       expected_untreated_delta, prediction_sd,
+                       effect_must_exceed, CHECKS, RATE_TOLERANCE)
 from openloop import open_loop, canary_sha                 # noqa: E402
 
 MANIFEST = os.environ.get('MCAI_MANIFEST', '/srv/mcbots/trial-manifest.json')
@@ -102,17 +103,27 @@ def rank_pools(endpoint, minutes):
         sys.path.insert(0, HERE)
         from lib.telemetry import Events
     except Exception as e:
-        return None, None, 'telemetry library unavailable (%s)' % e
+        return None, None, None, 'telemetry library unavailable (%s)' % e
     try:
         ev = Events.load(paths=LOGS, since_minutes=minutes)
     except Exception as e:
-        return None, None, 'could not load telemetry: %s' % e
+        return None, None, None, 'could not load telemetry: %s' % e
 
     desc, pred, denom = ENDPOINTS[endpoint]
     hit = collections.Counter()
     tot = collections.Counter()
     bots = collections.defaultdict(set)
     times = collections.defaultdict(list)
+
+    # SPLIT THE BASELINE IN HALF so the reversion line can be fitted on data
+    # containing no treatment at all. A pool's two halves are what says how much
+    # a pool at a given level moves on its own.
+    stamps = [r['t'] for r in ev.rows]
+    mid = min(stamps) + (max(stamps) - min(stamps)) / 2 if len(stamps) > 1 else None
+    half = collections.defaultdict(lambda: [0, 0, 0, 0])   # pool -> hitA,totA,hitB,totB
+    halfbots = collections.defaultdict(lambda: (set(), set()))
+    halftimes = collections.defaultdict(lambda: ([], []))
+
     for r in ev.rows:
         raw = r['raw']
         pool = (raw.get('exp') or {}).get('pool')
@@ -124,13 +135,22 @@ def rank_pools(endpoint, minutes):
         if denom == 'gather-run':
             if r['name'] == 'gather':
                 tot[pool] += 1
-        if pred(r, sk):
+        got = bool(pred(r, sk))
+        if got:
             hit[pool] += 1
+        if mid is not None:
+            i = 0 if r['t'] < mid else 1
+            halfbots[pool][i].add((r['bot'] or {}).get('name'))
+            halftimes[pool][i].append(r['t'])
+            if denom == 'gather-run' and r['name'] == 'gather':
+                half[pool][1 + 2 * i] += 1
+            if got:
+                half[pool][2 * i] += 1
 
     if not tot and denom == 'gather-run':
-        return None, None, 'no gather runs found in the window at all — the instrument saw nothing'
+        return None, None, None, 'no gather runs found in the window at all — the instrument saw nothing'
     if not times:
-        return None, None, 'no pooled rows found in the window — the instrument saw nothing'
+        return None, None, None, 'no pooled rows found in the window — the instrument saw nothing'
 
     out = {}
     for pool, ts in times.items():
@@ -141,7 +161,26 @@ def rank_pools(endpoint, minutes):
             span = (max(ts) - min(ts)).total_seconds() / 3600.0
             bh = span * max(len(bots[pool]), 1)
             out[pool] = hit[pool] / bh if bh > 0 else 0.0
-    return out, {p: len(b) for p, b in bots.items()}, None
+    # Each pool's (first-half, second-half) rate, for the reversion fit.
+    halves = {}
+    for pool in out:
+        vals = []
+        for i in (0, 1):
+            ts_i, bots_i = halftimes[pool][i], halfbots[pool][i]
+            if len(ts_i) < 2 or not bots_i:
+                vals = None
+                break
+            if denom == 'gather-run':
+                n = half[pool][1 + 2 * i]
+                vals.append(100.0 * half[pool][2 * i] / n if n else None)
+            else:
+                sp = (max(ts_i) - min(ts_i)).total_seconds() / 3600.0
+                bh = sp * len(bots_i)
+                vals.append(half[pool][2 * i] / bh if bh > 0 else None)
+        if vals and all(v is not None for v in vals):
+            halves[pool] = tuple(vals)
+
+    return out, {p: len(b) for p, b in bots.items()}, halves, None
 
 
 def main():
@@ -188,7 +227,7 @@ def main():
     if facts['deployed_sha'] and head:
         facts['merge_base'] = git('merge-base', head, facts['deployed_sha'].split('+')[0])
 
-    ranking, botcount, err = rank_pools(a.endpoint, a.minutes)
+    ranking, botcount, halves, err = rank_pools(a.endpoint, a.minutes)
 
     # RANK ONLY AGAINST POOLS OF A COMPARABLE SIZE.
     #
@@ -228,6 +267,38 @@ def main():
             print('  (%d pool label(s) excluded as not comparable in size to %s: %s%s)'
                   % (len(dropped), a.pool, ', '.join(dropped[:3]),
                      ' ...' if len(dropped) > 3 else ''))
+
+    # THE DO-NOTHING BAR.
+    #
+    # A pool is extreme partly because of noise, and noise does not persist, so
+    # an extreme pool moves toward the middle whether or not anything was done
+    # to it. hive-d was chosen as the fleet maximum on 2026-09-07 and fell 4.84
+    # per bot-hour -- against a fitted expectation of 2.66 to 5.68 for doing
+    # nothing at all. The trial could not distinguish its own headline from
+    # inaction, and nothing in the setup had said so beforehand. This says so
+    # beforehand.
+    if ranking and halves:
+        pairs = [v for p, v in halves.items() if p in ranking and p != a.pool]
+        fit = reversion_fit(pairs)
+        mine = ranking.get(a.pool)
+        if fit is None:
+            print('  REVERSION: only %d comparable control pools — cannot price '
+                  'what this pool would do untreated' % len(pairs))
+        elif mine is not None:
+            pred = expected_untreated_delta(mine, fit)
+            psd = prediction_sd(mine, fit)
+            _, bar = effect_must_exceed(mine, fit)
+            xs = [x for x, _ in pairs]
+            print('  REVERSION: on %d control pools, delta = %+.2f %+.2f*pre '
+                  '(resid sd %.2f)' % (fit.n, fit.intercept, fit.slope, fit.sd))
+            print('    a pool at %.2f moves %+.2f +/- %.2f with NO treatment; '
+                  'your effect must beat %+.2f to be distinguishable'
+                  % (mine, pred, psd, bar))
+            if not (min(xs) <= mine <= max(xs)):
+                print('    WARNING: %.2f is OUTSIDE the fitted range %.2f..%.2f — '
+                      'that prediction is an extrapolation and the interval above '
+                      'is why picking the extreme pool costs you the read'
+                      % (mine, min(xs), max(xs)))
 
     blockers = preflight(facts)
     print()
