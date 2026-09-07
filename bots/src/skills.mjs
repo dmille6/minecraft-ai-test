@@ -1757,7 +1757,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 
     const why = missing.length
       ? `needs ${missing.join(' and ')} (you have ` +
-        `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})`
+        `${inventorySummary(bot.inventory.items(), { focus: [...missing, item] })})`
       : 'missing ingredients or need a crafting_table nearby'
 
     // TWO DIFFERENT FAILURES, and this returned one class for both. "I have the
@@ -1868,7 +1868,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         : gatherFirst.length
           ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
             `nothing crafts it (you have ` +
-            `${bot.inventory.items().slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'})` +
+            `${inventorySummary(bot.inventory.items(), { focus: [...gatherFirst, item] })})` +
             belowGroundHint(bot) + craftableAlternative(bot, item)
           : `cannot craft ${item} -- ${why}`,
     }
@@ -1943,9 +1943,8 @@ async function place(ctx, { item, x, y, z }, signal) {
   //   - `under.name !== 'air'` ACCEPTS water, lava and cave_air as a surface,
   //     because none of them are named "air". Solidity is a boundingBox, not a
   //     name.
-  const solid       = b => b != null && b.boundingBox === 'block'
-  const replaceable = b => b != null && b.boundingBox === 'empty' &&
-                           b.name !== 'water' && b.name !== 'lava'
+  const solid = b => b != null && b.boundingBox === 'block'
+  const replaceable = b => placeableInto(b)
 
   let candidates = []
   if ([x, y, z].every(v => Number.isFinite(Number(v)))) {
@@ -1955,13 +1954,19 @@ async function place(ctx, { item, x, y, z }, signal) {
     // Diagonals and one step up or down as well, nearest first. A bot on uneven
     // ground has a valid spot behind it far more often than beside it.
     const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+    // DRY SPOTS FIRST, then wet ones. Placing into water is legal and works,
+    // but a table on dry land stays easier to walk back to, so a wet cell is a
+    // fallback rather than an equal.
+    const wet = []
     for (const dy of [-1, 0, -2]) {
       for (const [dx, dz] of around) {
         const under = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
         const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
-        if (solid(under) && replaceable(at)) candidates.push(under)
+        if (!solid(under) || !replaceable(at)) continue
+        ;(at.name === 'water' ? wet : candidates).push(under)
       }
     }
+    candidates.push(...wet)
   }
   if (!candidates.length) {
     return {
@@ -3770,6 +3775,82 @@ export function breakVetoAt (bot, p) {
       entitiesAbove: m.getNumEntitiesAt?.(p, 0, 1, 0) ?? 0,
     })
   } catch { return null }
+}
+
+/**
+ * WHAT THE MODEL IS TOLD IT IS CARRYING.
+ *
+ * The craft refusals built this with `bot.inventory.items().slice(0, 3)` --
+ * the first three SLOTS, unaggregated and unsorted. A bot holding 7 stone
+ * pickaxes across 7 slots was told:
+ *
+ *   cannot craft stone_pickaxe -- gather cobblestone first, nothing crafts it
+ *   (you have 1x stone_pickaxe, 1x stone_pickaxe, 1x stone_pickaxe)
+ *
+ * while actually carrying 7 stone pickaxes, 150 oak logs, 48 crafting tables
+ * and the 2 cobblestone that were the real problem. The advice was right and
+ * every number attached to it was wrong.
+ *
+ * That string is not decoration. It is the observation the model reads when
+ * deciding what to do about the failure, and this repo already knows that a
+ * capability the observation does not name may as well not exist. It explains
+ * what nothing else did: 195 of 221 wooden-pickaxe craft attempts failed, on
+ * bots that already held one, because nothing ever told them so.
+ *
+ * So: aggregate by name, and lead with the items the DECISION turns on --
+ * what is missing, then what is held most of. `focus` items always appear,
+ * including at zero, because "you have 0x cobblestone" is the actionable fact
+ * and its absence from a list is not.
+ *
+ * Pure: takes plain {name, count} objects, not a bot.
+ */
+export function inventorySummary (items, { focus = [], limit = 6 } = {}) {
+  const totals = new Map()
+  for (const it of items ?? []) {
+    const n = it?.name
+    if (!n) continue
+    const c = Number(it.count)
+    totals.set(n, (totals.get(n) ?? 0) + (Number.isFinite(c) ? c : 0))
+  }
+  const wanted = [...new Set(focus.filter(Boolean))]
+  const rest = [...totals.entries()]
+    .filter(([n]) => !wanted.includes(n))
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  const shown = [
+    ...wanted.map(n => [n, totals.get(n) ?? 0]),
+    ...rest.slice(0, Math.max(0, limit - wanted.length)),
+  ]
+  if (!shown.length) return 'nothing'
+  const more = Math.max(0, totals.size - shown.filter(([n]) => totals.has(n)).length)
+  return shown.map(([n, c]) => `${c}x ${n}`).join(', ') + (more ? ` (+${more} more)` : '')
+}
+
+/**
+ * Can a block be placed INTO this cell?
+ *
+ * Water was excluded here, and that quietly gated the tech tree. Measured 3h on
+ * 2026-09-07: `place crafting_table` succeeded 19 times and failed 37, and 28 of
+ * those 37 were "nowhere to place: no solid block with a free space above it
+ * within reach". A bot at a shoreline, in a flooded pocket, or anywhere its
+ * eight neighbours are water found NO candidate at all -- so it carried up to 48
+ * crafting tables it could never put down, and `craft` fell through to
+ * "place the crafting_table first", advice it was already trying to take.
+ *
+ * Minecraft treats water as replaceable: placing a block into a water cell
+ * works and displaces the water. Excluding it was not a safety rule, it was a
+ * mistake -- and it contradicts the standing directive that water is terrain.
+ *
+ * Lava STAYS excluded. Placing into lava is equally legal and the bot would be
+ * reaching into it to do so, which is the one case where the cell being
+ * replaceable is not the whole question.
+ *
+ * `boundingBox === 'empty'` is doing the real work: it admits grass, ferns,
+ * snow and dead bushes -- most of a forest floor -- which an `=== 'air'` test
+ * rejected and which cost this fleet its first tech-tree stall.
+ */
+export function placeableInto (b) {
+  if (b == null || b.boundingBox !== 'empty') return false
+  return b.name !== 'lava'
 }
 
 export function isSafeToBreak (bot, p) {

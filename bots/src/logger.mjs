@@ -209,6 +209,17 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
       prompt_eval_duration_ns: res.prompt_eval_duration_ns ?? null,
       eval_duration_ns: res.eval_duration_ns ?? null,
       schema_valid: !!res.schemaValid,
+      // HOW MANY ARGS HAD TO BE SCRUBBED, and which fields.
+      //
+      // 28.1% of `player` args arrived corrupt on 2026-09-07 (1,754 of 6,252,
+      // across 76 of 80 bots) because a length cap cannot stop a model writing
+      // `}` inside a string. The real fix is a grammar `pattern`, and this is
+      // how we find out whether it took: once it is live these must be 0 and
+      // [] on every call. Non-zero means the fleet's model or its Ollama is not
+      // honouring the pattern the way the spare box did, and the sanitizer is
+      // carrying the load alone.
+      args_cleaned: (res.argsCleaned ?? []).length,
+      args_cleaned_fields: (res.argsCleaned ?? []).map(c => c.field).join(',') || null,
       error: rejection ? rejection.reason : (res.error ?? null),
       retry_count: res.retryCount ?? 0,
       // WHICH DOOR THE DECISION CAME THROUGH. The valve and the
