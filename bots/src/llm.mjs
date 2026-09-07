@@ -32,6 +32,51 @@ import { log } from './logger.mjs'
  * where a `reason` field can earn its tokens. Whether that changes decision
  * quality is exactly what the system_hash A/B is for.
  */
+/** What each arg field is allowed to contain, mirroring the grammar patterns. */
+export const ARG_PATTERNS = {
+  block: /^[a-z0-9_]{1,32}$/,
+  item: /^[a-z0-9_]{1,32}$/,
+  player: /^[A-Za-z0-9_-]{1,24}$/,
+}
+
+/**
+ * Trim each string arg back to the longest legal prefix, and drop it if nothing
+ * legal survives.
+ *
+ * DEFENCE IN DEPTH, AND AN INSTRUMENT. The grammar patterns are the real fix and
+ * they were verified against qwen3.6:35b -- but the fleet runs qwen2.5:7b
+ * through a different Ollama, and "the same feature works on the other box" is
+ * exactly the kind of assumption this project keeps paying for. So this runs
+ * anyway, and REPORTS what it had to clean. If the grammar is doing its job the
+ * count is zero, and a zero here is the only evidence that it landed.
+ *
+ * Prefix, not reject: `'board-d-Alpha}}iệu'` still names the right bot, and the
+ * bot name is the part the model meant. Dropping the whole arg would turn a
+ * recoverable decision into a refusal, which is the trade this repo has got
+ * wrong before -- a guard that leaves the caller with no legal move.
+ *
+ * Pure. `args` is not mutated.
+ */
+export function cleanArgs(args) {
+  if (!args || typeof args !== 'object') return { args: {}, cleaned: [] }
+  const out = {}
+  const cleaned = []
+  for (const [k, v] of Object.entries(args)) {
+    const pat = ARG_PATTERNS[k]
+    if (!pat || typeof v !== 'string') { out[k] = v; continue }
+    if (pat.test(v)) { out[k] = v; continue }
+    // Longest legal prefix. The character class is the pattern's own, so the
+    // two can never drift apart into disagreeing about what is legal.
+    const cls = new RegExp(pat.source.replace(/^\^/, '').replace(/\{1,\d+\}\$$/, '+'))
+    const m = cls.exec(v)
+    const kept = m ? m[0] : ''
+    cleaned.push({ field: k, was: v.slice(0, 40), now: kept })
+    if (kept && pat.test(kept)) out[k] = kept
+    // else: dropped entirely -- nothing legal was in there at all.
+  }
+  return { args: out, cleaned }
+}
+
 export function skillSchema(skillNames) {
   return {
     type: 'object',
@@ -53,11 +98,41 @@ export function skillSchema(skillNames) {
           // sentinel until the context is exhausted. Nothing downstream needs
           // more than these lengths: the longest real block or item name is
           // ~20 characters and bot names are 8.
-          block: { type: 'string', maxLength: 32 },
+          // A LENGTH CAP TRUNCATES A RUNAWAY. A PATTERN MAKES IT UNSAYABLE.
+          //
+          // The cap above stopped the context-exhaustion loop, and that much
+          // worked. What it could not stop is the CONTENT: `}` is a perfectly
+          // legal character inside a JSON string, so the model closes the
+          // object where it means to, the grammar keeps accepting, and the
+          // value runs to exactly 32 characters of debris. Measured over 3h on
+          // 2026-09-07: 1,754 of 6,252 `player` args (28.1%) corrupt, across 76
+          // of 80 bots. Real ones, verbatim:
+          //
+          //   'board-d-Alpha}}iệu\n팰'
+          //   'board-d-Alpha}} END-X81WL7ienieć'
+          //   "cobblestone'}} END-LBDWB6"
+          //
+          // Ollama compiles `pattern` into the GBNF, so the debris becomes
+          // ungrammatical rather than merely unwanted. Verified against
+          // qwen3.6:35b-a3b on 2026-09-07 with a prompt that ORDERED the model
+          // to append `}}` and trailing text: with maxLength alone it returned
+          // "Alpha01}} Here is some extra"; with the pattern, "Alpha01".
+          //
+          // Same philosophy as the cap: the grammar is the only layer that can
+          // make a bad output impossible rather than merely detected.
+          // BOTH, not either. The pattern bounds length too, but generation-cap
+          // .test.mjs asserts `maxLength` on every string and it is right to:
+          // the cap is the guard that does not depend on a grammar honouring
+          // regex, and dropping it traded a proven protection for a new one.
+          // 32 admits the longest real block name (polished_blackstone_brick_
+          // _slab, 30).
+          block: { type: 'string', maxLength: 32, pattern: '^[a-z0-9_]{1,32}$' },
           count: { type: 'integer' },
-          item: { type: 'string', maxLength: 32 },
+          item: { type: 'string', maxLength: 32, pattern: '^[a-z0-9_]{1,32}$' },
           x: { type: 'integer' }, y: { type: 'integer' }, z: { type: 'integer' },
-          player: { type: 'string', maxLength: 32 },
+          // Bot names carry hyphens (`placebo-d-Echo`), so the class is wider
+          // here than for block and item names, and 24 covers the longest.
+          player: { type: 'string', maxLength: 24, pattern: '^[A-Za-z0-9_-]{1,24}$' },
         },
         additionalProperties: false,
       },
@@ -198,8 +273,20 @@ export class LlmClient {
       break
     }
 
+    // Scrub the args AFTER the sentinel check, so a corrupt arg can never make a
+    // truncated response look intact. `argsCleaned` rides out with the result:
+    // once the grammar patterns are live it should be empty on every call, and
+    // that emptiness is the only proof the grammar took effect on this model.
+    let argsCleaned = []
+    if (proposal && proposal.args) {
+      const c = cleanArgs(proposal.args)
+      proposal = { ...proposal, args: c.args }
+      argsCleaned = c.cleaned
+    }
+
     return {
       proposal,
+      argsCleaned,
       schemaValid: proposal !== null,
       error: lastErr,
       retryCount: Math.max(0, attempt - (proposal ? 0 : 1)),
