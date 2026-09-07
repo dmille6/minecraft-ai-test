@@ -223,8 +223,18 @@ export function installPathBackoff() {
           // before its status check, PR #357, unmerged). Worth one event each.
           logEvent({
             kind: '_path_no_legal_move', status: 'failed',
+            // WHICH PROFILE WAS SEARCHING. This patch is on the SHARED
+            // AStar.prototype, so it fires for the base movements, gatherMoves,
+            // ascendMoves, descendMoves and waterMoves alike -- five profiles
+            // with different `canDig`. Without this the instrument cannot tell
+            // a zero-neighbour search that HAD digging enabled from one that did
+            // not, which is exactly the question any remedy turns on. It nearly
+            // cost a whole feature built on the wrong reading.
             detail: `${shape} status=${status} visited=${visited} ` +
                     `startLiquid=${!!startBlock?.liquid} ` +
+                    `canDig=${!!this.movements?.canDig} ` +
+                    `digCost=${this.movements?.digCost ?? '?'} ` +
+                    `scaffold=${this.movements?.scafoldingBlocks?.length ?? '?'} ` +
                     `h=${node?.h?.toFixed?.(1) ?? '?'}`,
           })
         }
