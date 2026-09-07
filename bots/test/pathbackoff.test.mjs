@@ -13,7 +13,7 @@
 // class rather than a stand-in.
 import assert from 'node:assert'
 import { createRequire } from 'node:module'
-import { installPathBackoff, backoffStats } from '../src/pathbackoff.mjs'
+import { installPathBackoff, backoffStats, pathFailureShape, flushPathShapes } from '../src/pathbackoff.mjs'
 
 const require_ = createRequire(import.meta.url)
 let pass = 0, fail = 0
@@ -111,6 +111,104 @@ t('which coefficient won is recorded, since the values are unjustified upstream'
   a.makeResult('timeout', node(60, 2000, 1))
   assert.ok(Object.keys(backoffStats.byCoefficient).length > 0,
     'a rising coefficient is a cheap per-bot measure of terrain difficulty')
+})
+
+// ---------------------------------------------------------------------------
+// THE WIRING, NOT THE DECISION.
+//
+// pathFailureShape has its own behaviour tests and they all passed while the
+// hook feeding it was reading two fields that do not exist: `this.visitedNodes`
+// (makeResult COMPUTES that from closedDataSet.size at astar.js:60 -- it is
+// never stored) and, in the sibling instrument, `.liquid` off an undecorated
+// block. Both would have reported one category for 100% of traffic.
+//
+// A pure function tested with hand-built inputs cannot catch either. These
+// drive the real patched prototype and assert the classification that comes out
+// the other end.
+t('the hook reads closedDataSet.size, not a field that does not exist', () => {
+  const before = { ...backoffStats.shapes }
+  const a = bare()
+  a.closedDataSet = new Set(['only-the-start'])       // one visited node
+  a.movements = { getBlock: () => ({ liquid: false }) }
+  a.bestNode = node(0, 0, 100)
+  a.makeResult('noPath', node(0, 0, 100))
+  assert.equal((backoffStats.shapes.no_legal_move ?? 0), (before.no_legal_move ?? 0) + 1,
+    'one visited node must classify as no_legal_move; `unknown` means the hook ' +
+    'is reading a field the library does not have')
+  assert.equal(backoffStats.shapes.unknown ?? 0, before.unknown ?? 0,
+    'and nothing may land in unknown')
+})
+
+t('a submerged start is separated from a dry one on identical counts', () => {
+  const before = { ...backoffStats.shapes }
+  const a = bare()
+  a.closedDataSet = new Set(['start'])
+  a.movements = { getBlock: () => ({ liquid: true }) }
+  a.bestNode = node(0, 0, 100)
+  a.makeResult('noPath', node(0, 0, 100))
+  assert.equal((backoffStats.shapes.sealed_in_liquid ?? 0), (before.sealed_in_liquid ?? 0) + 1,
+    'the WONTFIX case must be distinguishable -- it is the one with a known remedy')
+})
+
+t('a search that explored is disconnected, not sealed', () => {
+  const before = { ...backoffStats.shapes }
+  const a = bare()
+  a.closedDataSet = new Set(Array.from({ length: 900 }, (_, i) => `n${i}`))
+  a.movements = { getBlock: () => ({ liquid: true }) }
+  a.bestNode = node(0, 0, 100)
+  a.makeResult('noPath', node(0, 0, 100))
+  assert.equal((backoffStats.shapes.disconnected ?? 0), (before.disconnected ?? 0) + 1,
+    'swimming across a lake with 900 nodes explored is not being sealed in')
+})
+
+t('the instrument never breaks the search it watches', () => {
+  // An instrument that can wedge pathfinding is worse than no instrument, so
+  // every input IT reads must be survivable: movements throwing, movements
+  // absent, no getBlock, a node with no h.
+  //
+  // NOT closedDataSet: the library's own makeResult does `this.closedDataSet.size`
+  // unconditionally at astar.js:60, so removing it breaks AStar itself and the
+  // failure would be misattributed to this hook. Asserting that would have been
+  // testing the library's precondition and calling it our bug.
+  for (const [label, movements] of [
+    ['getBlock throws', { getBlock: () => { throw new Error('boom') } }],
+    ['no getBlock', {}],
+    ['movements absent', undefined],
+    ['getBlock returns junk', { getBlock: () => null }],
+  ]) {
+    const a = bare()
+    a.closedDataSet = new Set(['s'])
+    a.movements = movements
+    a.bestNode = node(0, 0, 100)
+    const r = a.makeResult('noPath', { data: { x: 0, y: 0, z: 0, hash: 'x' }, g: 0 })
+    assert.ok(r && r.status === 'noPath', `a throwing instrument must not escape: ${label}`)
+  }
+})
+
+t('the flush emits the tally and then resets, so counts are never double-reported', () => {
+  flushPathShapes()                                    // drain whatever ran above
+  assert.equal(flushPathShapes(), null, 'an empty flush emits nothing at all')
+  const a = bare()
+  a.closedDataSet = new Set(['s'])
+  a.movements = { getBlock: () => ({ liquid: false }) }
+  a.bestNode = node(0, 0, 100)
+  a.makeResult('noPath', node(0, 0, 100))
+  a.makeResult('timeout', node(0, 0, 100))
+  const first = flushPathShapes()
+  assert.ok(first, 'a flush after real failures must emit')
+  assert.equal(first.no_legal_move, 1)
+  assert.equal(first.budget, 1)
+  assert.equal(flushPathShapes(), null,
+    'the second flush must be empty -- a flush that does not reset reports the ' +
+    'same failures every minute and inflates every proportion drawn from it')
+})
+
+t('POSITIVE CONTROL: the shapes tally is actually being written', () => {
+  assert.ok(Object.keys(backoffStats.shapes).length >= 3,
+    'if this is empty every assertion above passed vacuously')
+  assert.ok((backoffStats.shapes.no_legal_move ?? 0) > 0 &&
+            (backoffStats.shapes.sealed_in_liquid ?? 0) > 0,
+    'at least two distinct categories must have been produced by the real hook')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
