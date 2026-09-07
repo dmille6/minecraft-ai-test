@@ -20,6 +20,7 @@ export { supportCell } from './scaffold.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
+import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
 // import from it -- which is the entire reason the lattice's most-chosen rung
 // hit 'no routine wired'. skills.mjs does not import reflex.mjs, so this is
@@ -1770,7 +1771,16 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                       `dist=${route.dist === Infinity ? -1 : route.dist} ` +
                       `at ${Math.round(bot.entity?.position?.x ?? 0)},` +
                       `${Math.round(bot.entity?.position?.y ?? 0)},` +
-                      `${Math.round(bot.entity?.position?.z ?? 0)}`,
+                      `${Math.round(bot.entity?.position?.z ?? 0)}` +
+                      // WOULD A BUCKET HAVE HELPED HERE? An observation, never
+                      // an action. No bot on this fleet can obtain a bucket --
+                      // 3 iron ingots against 15 in the entire fleet -- so the
+                      // capability is only worth building if this reads true on
+                      // a real share of sealed rescues. Scooping leaves lasting
+                      // air only in a sealed pocket; in open water it buys five
+                      // ticks. This is the denominator that decides it, and it
+                      // costs one pure function over blocks already being read.
+                      ` scoop=${scoopWouldHelp(bot)}`,
               snapshot: snapshot(bot),
             })
           }
@@ -2854,6 +2864,32 @@ export function drowningCouldBeReal ({ names = [], isInWater = false } = {}) {
 }
 
 /** The cells a drowning claim could refer to: the bot's own two, and its neighbours. */
+/**
+ * Would scooping the bot's own head cell leave lasting air?
+ *
+ * Reads the cells directly, never `oxygenLevel` -- air.mjs documents that as
+ * written from ANY nearby entity's air supply, fish included.
+ *
+ * Four answers, not two: 'dry' (this rescue was not underwater at all) must be
+ * distinguishable from 'no' (it was, and a bucket would not have helped).
+ * Collapsing those is how `sealed` and `unscanned` once shared a word and a
+ * wrong conclusion survived reading.
+ */
+function scoopWouldHelp (bot) {
+  try {
+    const p = bot.entity?.position
+    if (!p) return 'unknown'
+    const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
+    const head = at(0, 1, 0)
+    if (!isWaterSource(head)) return head?.name === 'water' ? 'flowing' : 'dry'
+    return scoopLeavesAir({
+      target: head,
+      above: at(0, 2, 0),
+      cardinals: [at(1, 1, 0), at(-1, 1, 0), at(0, 1, 1), at(0, 1, -1)],
+    }) ? 'yes' : 'no'
+  } catch { return 'unknown' }
+}
+
 function waterCellsAround (bot) {
   const pos = bot?.entity?.position
   if (!pos) return { names: [], isInWater: bot?.entity?.isInWater === true }
