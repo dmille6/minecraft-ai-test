@@ -1757,7 +1757,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 
     const why = missing.length
       ? `needs ${missing.join(' and ')} (you have ` +
-        `${inventorySummary(bot.inventory.items(), { focus: [...missing, item] })})`
+        `${inventoryLine(bot.inventory.items(), { focus: [...missing, item] })})`
       : 'missing ingredients or need a crafting_table nearby'
 
     // TWO DIFFERENT FAILURES, and this returned one class for both. "I have the
@@ -1868,7 +1868,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         : gatherFirst.length
           ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
             `nothing crafts it (you have ` +
-            `${inventorySummary(bot.inventory.items(), { focus: [...gatherFirst, item] })})` +
+            `${inventoryLine(bot.inventory.items(), { focus: [...gatherFirst, item] })})` +
             belowGroundHint(bot) + craftableAlternative(bot, item)
           : `cannot craft ${item} -- ${why}`,
     }
@@ -3778,7 +3778,11 @@ export function breakVetoAt (bot, p) {
 }
 
 /**
- * WHAT THE MODEL IS TOLD IT IS CARRYING.
+ * WHAT THE MODEL IS TOLD IT IS CARRYING, as one readable line.
+ *
+ * NOT `state.mjs`'s `inventorySummary`, which aggregates to an OBJECT for
+ * telemetry. Same subject, different consumer, and two exports with one name is
+ * how a later reader picks the wrong one.
  *
  * The craft refusals built this with `bot.inventory.items().slice(0, 3)` --
  * the first three SLOTS, unaggregated and unsorted. A bot holding 7 stone
@@ -3804,7 +3808,7 @@ export function breakVetoAt (bot, p) {
  *
  * Pure: takes plain {name, count} objects, not a bot.
  */
-export function inventorySummary (items, { focus = [], limit = 6 } = {}) {
+export function inventoryLine (items, { focus = [], limit = 6 } = {}) {
   const totals = new Map()
   for (const it of items ?? []) {
     const n = it?.name
