@@ -60,11 +60,35 @@ t('the wrong wood does not count', () => {
     'spruce logs do not make oak planks')
 })
 
-t('bamboo planks come from bamboo, not a log', () => {
-  assert.deepEqual(sourcesFor('bamboo_planks').sort(), ['bamboo', 'bamboo_block'])
+// --- the families that are not logs, all checked against minecraft-data 1.21.8
+
+t('bamboo planks come from bamboo_block -- and a raw stalk is NOT a source', () => {
+  assert.deepEqual(sourcesFor('bamboo_planks'), ['bamboo_block'])
   assert.equal(canProduce(held({ bamboo_block: 4 }), '3x bamboo_planks'), true)
+  assert.equal(canProduce(held({ bamboo: 1 }), '3x bamboo_planks'), false,
+    'one stalk is two steps from a plank -- counting it is the sapling bug again')
   assert.equal(canProduce(held({ bamboo_log: 4 }), '3x bamboo_planks'), false,
     'there is no bamboo_log in Minecraft')
+})
+
+t('Nether wood comes from stems and hyphae, never _log or _wood', () => {
+  for (const w of ['crimson', 'warped']) {
+    assert.deepEqual(sourcesFor(`${w}_planks`).sort(),
+      [`${w}_hyphae`, `${w}_stem`, `stripped_${w}_hyphae`, `stripped_${w}_stem`].sort())
+    assert.equal(canProduce(held({ [`${w}_stem`]: 8 }), `3x ${w}_planks`), true,
+      `${w}_stem makes ${w}_planks`)
+    assert.equal(canProduce(held({ [`${w}_log`]: 8 }), `3x ${w}_planks`), false,
+      `there is no ${w}_log in Minecraft`)
+  }
+})
+
+t('the overworld woods all resolve to their own log', () => {
+  for (const w of ['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak',
+                   'mangrove', 'cherry', 'pale_oak']) {
+    assert.equal(canProduce(held({ [`${w}_log`]: 1 }), `3x ${w}_planks`), true, w)
+    assert.equal(canProduce(held({ [`${w}_log`]: 1 }), '3x oak_planks'), w === 'oak',
+      `${w}_log must satisfy oak only when it IS oak`)
+  }
 })
 
 // --- failing closed ---------------------------------------------------------

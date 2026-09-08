@@ -2800,7 +2800,29 @@ export function mayDigForEscape (items = [], block = null) {
     const left = max ? max - (it.durabilityUsed ?? 0) : Infinity
     if (left > 1) usable += 1
   }
-  return usable > 1
+  // ZERO IS NOT ONE, AND THE RESERVE RULE DOES NOT REACH IT.
+  //
+  // This was `usable > 1`, so a bot with NO pickaxe was refused for the same
+  // reason as a bot with its last one -- but there is no last pickaxe to
+  // protect, and refusing costs the bot the only move it has left.
+  //
+  // isolated-c-Alpha is the case: sealed at y=43 behind andesite on all four
+  // sides and above, standing on cobblestone, carrying 177 placeable blocks and
+  // ZERO pickaxes. Server-side probe, 2026-09-08. placebo-b-Delta is the second,
+  // sealed at y=44 by stone with a diorite cap -- and it is the only bot in the
+  // fleet holding enough iron ingots for an iron pickaxe, which it cannot craft
+  // because it cannot reach anywhere to put a crafting table down.
+  //
+  // Bare hands DO break the stone family. Andesite, stone and diorite are all
+  // hardness 1.5, which is 7.5s a block without a tool. It drops nothing, and
+  // for an escape the drop is not the point -- the hole is. Both bots have a
+  // remedy they can perform from where they stand, which is what a refusal has
+  // to name before it is allowed to refuse.
+  //
+  // One usable pickaxe still refuses. That case is unchanged and is the one the
+  // reserve rule was written for: 68% of every pickaxe this fleet has lost was
+  // destroyed escaping, at full health.
+  return usable !== 1
 }
 const TOOL_TIER = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']
 const toolTier = name => TOOL_TIER.findIndex(t => name.startsWith(t + '_'))

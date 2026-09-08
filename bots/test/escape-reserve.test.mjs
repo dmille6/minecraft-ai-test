@@ -58,7 +58,25 @@ t('a zero-block climb is always fine', () => {
 t('THE LAST PICKAXE IS NOT SPENDABLE', () => {
   // Breaking it here ends every future escape this bot could make.
   assert.equal(mayDigForEscape([pick()]), false)
-  assert.equal(mayDigForEscape([]), false)
+})
+
+t('BUT ZERO PICKAXES IS NOT THE LAST PICKAXE', () => {
+  // This asserted false, bundled in with the rule above, and the rule does not
+  // reach it: there is no last pickaxe to protect. Refusing here costs the bot
+  // the only move it has.
+  //
+  // isolated-c-Alpha, sealed at y=43 behind andesite on four sides and above,
+  // 177 placeable blocks and no pickaxe. Bare hands break the stone family --
+  // 7.5s a block, dropping nothing, and for an escape the hole is the point.
+  assert.equal(mayDigForEscape([]), true,
+    'a bot with no tool to protect must be allowed to dig with its hands')
+  assert.equal(mayDigForEscape([{ name: 'cobblestone', count: 177 }]), true,
+    'blocks in the pack are not pickaxes and do not change the answer')
+})
+
+t('the reserve rule still bites at exactly one', () => {
+  assert.equal(mayDigForEscape([pick()]), false, 'one usable pickaxe is still refused')
+  assert.equal(mayDigForEscape([pick(), pick()]), true)
 })
 
 t('a spare pickaxe makes digging out permissible', () => {
@@ -67,9 +85,16 @@ t('a spare pickaxe makes digging out permissible', () => {
 
 t('a pickaxe with one swing left is already gone', () => {
   // Durability metadata lags a tick, and a tool that breaks one swing early is
-  // the entire failure being prevented.
-  assert.equal(mayDigForEscape([pick(58), pick(58)]), false,
-    'two nearly-dead pickaxes are not two pickaxes')
+  // the entire failure being prevented. Both assertions below are about the
+  // COUNT of usable tools, which is what this case has always been about.
+  //
+  // The first one asserted `false` before the zero case was separated out. Its
+  // reason is unchanged and still holds -- two nearly-dead pickaxes are not two
+  // pickaxes, they are zero -- but zero usable tools now permits bare-handed
+  // digging, because there is no tool left to protect. That policy change is
+  // the subject of the two cases above, not a quiet relaxation of this one.
+  assert.equal(mayDigForEscape([pick(58), pick(58)]), true,
+    'two nearly-dead pickaxes are ZERO usable tools, not two — and zero may dig')
   assert.equal(mayDigForEscape([pick(0), pick(58)]), false,
     'one healthy and one spent leaves exactly one usable — still the last')
 })

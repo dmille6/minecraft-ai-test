@@ -1716,7 +1716,17 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       // affinity test above deliberately does not use it -- that is the bug this
       // pair replaced.
       const stem = x => String(x).split(' ').pop().split('_')[0]
-      for (const r of all.slice(0, 12)) {
+      // RANK EVERY VARIANT, NOT THE FIRST TWELVE.
+      //
+      // This was slice(0, 12), sized for the 12 wooden_pickaxe recipes. `stick`
+      // has THIRTEEN in 1.21.8, so its last variant could never be chosen, and
+      // the affinity test above is only honest if it ranks the whole candidate
+      // set -- ranking a truncated one is worse than not ranking, because it
+      // looks decided. The registry's true maximum for any item is 44 (smoker).
+      //
+      // The loop body is a few array reads per recipe and breaks as soon as it
+      // finds a zero-gap variant, which is the common case.
+      for (const r of all.slice(0, RECIPE_VARIANT_CAP)) {
         const gap = []
         for (const d of (r.delta ?? [])) {
           if (d.count >= 0) continue                       // positive = produced
@@ -3851,12 +3861,26 @@ export function breakVetoAt (bot, p) {
  * affinity rather than a guessed one. Scoring an unknown as reachable is the
  * failure this replaces.
  */
+// Covers the largest recipe count in 1.21.8 (smoker, 44) with headroom.
+export const RECIPE_VARIANT_CAP = 64
+
 export function sourcesFor (name) {
   const m = /^(.+)_planks$/.exec(name ?? '')
   if (!m) return []
   const w = m[1]
-  // Bamboo is the one plank that does not come from a log.
-  if (w === 'bamboo') return ['bamboo_block', 'bamboo']
+  // THE TWO FAMILIES THAT ARE NOT LOGS. Checked against minecraft-data 1.21.8,
+  // where every *_planks has exactly ONE recipe with exactly ONE ingredient:
+  //   bamboo_planks  <- bamboo_block   (raw `bamboo` is TWO steps away: 9 bamboo
+  //                                     make a block, so holding one stalk is not
+  //                                     "can produce" -- that is the sapling bug
+  //                                     again, one family over)
+  //   crimson_planks <- crimson_stem   (Nether wood has stems and hyphae, never
+  //   warped_planks  <- warped_stem     _log or _wood; the old prefix match got
+  //                                     these right by accident)
+  if (w === 'bamboo') return ['bamboo_block']
+  if (w === 'crimson' || w === 'warped') {
+    return [`${w}_stem`, `${w}_hyphae`, `stripped_${w}_stem`, `stripped_${w}_hyphae`]
+  }
   return [`${w}_log`, `${w}_wood`, `stripped_${w}_log`, `stripped_${w}_wood`]
 }
 
