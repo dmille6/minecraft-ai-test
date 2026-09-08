@@ -304,7 +304,7 @@ await ta('MUTANT KILLED: without the fuel solve, a plan promises more than it ca
 
 await ta('MUTANT KILLED: without the same-stack guard, the bot burns its only log',
   () => withMutant(SMELTING,
-    "  const usable = fuel && fuel.name === input && fuel.count < 2\n    ? chooseFuel(held, { exclude: input })\n    : fuel",
+    "  const usable = fuel && fuel.name === input && fuel.count < 2\n    ? chooseFuel(held, { exclude: input, needTicks: SMELT_TICKS })\n    : fuel",
     '  const usable = fuel',
     m => {
       const r = m.smeltPlan({ held: { oak_log: 1 }, item: 'oak_log', budgetMs: HOUR })
