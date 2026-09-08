@@ -42,8 +42,37 @@ export class WorkingMemory {
 const INTERESTING_BLOCKS = ['oak_log', 'birch_log', 'spruce_log', 'dirt', 'grass_block',
   'stone', 'coal_ore', 'iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest']
 
-function nearbyBlocks(bot, limit = 8) {
-  const interesting = INTERESTING_BLOCKS
+/**
+ * WHAT THE BOT NEEDS GOES FIRST, BECAUSE THE SCAN RUNS OUT BEFORE THE LIST DOES.
+ *
+ * Both readers below walk INTERESTING_BLOCKS in LIST ORDER and stop early --
+ * `nearbyBlocks` at `limit` (8) entries, `actionableBlocks` at ACTIONABLE_TOTAL
+ * (48) checked positions, which is six types at eight each. `iron_ore` is
+ * EIGHTH of thirteen. In a forest world the logs, dirt, grass and stone ahead of
+ * it consume the whole budget, so iron is never checked and never named in the
+ * prompt -- and a capability the observation does not name may as well not
+ * exist, which this project has already paid for four times.
+ *
+ * Measured 2026-09-08, 6h, 80 bots: iron_ore was present in 29,656 affordance
+ * scans and USABLE 11,501 times, while `gather` asked for it 73 times -- 0.6% of
+ * the requests for something the fleet could see and take. Meanwhile 2,000
+ * gather attempts went to dirt.
+ *
+ * So the milestone's `wants` is hoisted to the front of the walk. It does not
+ * change what is scanned, only the order, and therefore which entries survive
+ * the cut. Only names already in the list are hoisted: a milestone that wants an
+ * ITEM (raw_iron) rather than a block must not turn into a block scan.
+ *
+ * Pure, so the ordering is testable without a bot.
+ */
+export function scanOrder (wants, list = INTERESTING_BLOCKS) {
+  const asked = (Array.isArray(wants) ? wants : [wants])
+    .filter(w => typeof w === 'string' && list.includes(w))
+  return [...new Set([...asked, ...list])]
+}
+
+function nearbyBlocks(bot, limit = 8, { wants = null } = {}) {
+  const interesting = scanOrder(wants)
   const out = []
   for (const name of interesting) {
     const t = bot.registry.blocksByName[name]
@@ -83,12 +112,12 @@ const ACTIONABLE_TOTAL = 48
  * stays out of it entirely -- "can stand beside" is a heuristic, not proof of
  * reachability, and it has no business gating anything.
  */
-export function actionableBlocks (bot, limit = 8) {
+export function actionableBlocks (bot, limit = 8, { wants = null } = {}) {
   const t0 = Date.now()
   const out = []
   const stats = []
   let budget = ACTIONABLE_TOTAL
-  for (const name of INTERESTING_BLOCKS) {
+  for (const name of scanOrder(wants)) {
     if (budget <= 0 || out.length >= limit) break
     const type = bot.registry?.blocksByName?.[name]
     if (!type) continue
@@ -546,7 +575,7 @@ function depositSituation (bot, memory) {
 
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
   const p = bot.entity.position
-  const actionable = actionableBlocks(bot)
+  const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
   const inv = inventorySummary(bot)
   const invStr = Object.entries(inv).map(([k, v]) => `${k} x${v}`).join(', ') || 'empty'
 
@@ -563,7 +592,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     craftableNow(bot),
     smeltableNow(bot),
     depositSituation(bot, memory),
-    `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
+    `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
     actionable.line,
     waterSituation(bot),
     yContext(p.y),

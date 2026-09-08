@@ -83,3 +83,31 @@ test('duplicate focus entries do not duplicate output', () => {
   const s = inventoryLine(REAL, { focus: ['cobblestone', 'cobblestone'] })
   assert.equal(s.match(/cobblestone/g).length, 1, s)
 })
+
+test('a count-prefixed focus entry is not printed twice', () => {
+  // Callers pass `missing` entries ("4x acacia_planks") straight into focus.
+  // This rendered "0x 4x acacia_planks" -- zero of something the bot may have,
+  // in the exact string the model reads when deciding what to do next.
+  const line = inventoryLine([{ name: 'acacia_planks', count: 12 },
+                              { name: 'crafting_table', count: 2 }],
+                             { focus: ['4x acacia_planks'] })
+  assert.match(line, /12x acacia_planks/, line)
+  assert.doesNotMatch(line, /\dx \dx/, `doubled count in: ${line}`)
+})
+
+test('a bare focus name still reports zero when absent', () => {
+  const line = inventoryLine([{ name: 'dirt', count: 5 }], { focus: ['oak_log'] })
+  assert.match(line, /0x oak_log/, line)
+})
+
+test('a count-prefixed focus for something absent reports zero, once', () => {
+  const line = inventoryLine([{ name: 'dirt', count: 5 }], { focus: ['3x oak_planks'] })
+  assert.match(line, /0x oak_planks/, line)
+  assert.doesNotMatch(line, /\dx \dx/, `doubled count in: ${line}`)
+})
+
+test('the prefixed and bare forms of the same item do not both appear', () => {
+  const line = inventoryLine([{ name: 'oak_planks', count: 7 }],
+                             { focus: ['3x oak_planks', 'oak_planks'] })
+  assert.equal(line.match(/oak_planks/g).length, 1, line)
+})

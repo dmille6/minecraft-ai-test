@@ -3918,7 +3918,20 @@ export function inventoryLine (items, { focus = [], limit = 6 } = {}) {
     const c = Number(it.count)
     totals.set(n, (totals.get(n) ?? 0) + (Number.isFinite(c) ? c : 0))
   }
-  const wanted = [...new Set(focus.filter(Boolean))]
+  // A FOCUS ENTRY MAY ARRIVE COUNT-PREFIXED, AND IT WAS PRINTED TWICE.
+  //
+  // Callers pass `missing`, whose entries are already "3x oak_planks", straight
+  // into focus. This then rendered `${count}x ${name}` on top of that and the
+  // model was told:
+  //
+  //     cannot craft crafting_table -- needs 4x acacia_planks
+  //     (you have 0x 4x acacia_planks, 2x crafting_table, ...)
+  //
+  // which reads as zero of something the bot may well have. Normalising here
+  // rather than at the two call sites keeps the next caller from reintroducing
+  // it, and a bare name passes through untouched.
+  const bare = f => /^\d+x\s+(\S+)$/.exec(String(f))?.[1] ?? f
+  const wanted = [...new Set(focus.filter(Boolean).map(bare))]
   const rest = [...totals.entries()]
     .filter(([n]) => !wanted.includes(n))
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
