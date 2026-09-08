@@ -377,19 +377,43 @@ const TECH_LADDER = [
   // "0 iron in 23 days" when 33 bots were holding raw_iron at the time.
   rungOf({
     wants: 'iron_ore',
-    id: 'gather_iron_ore_1',
+    id: 'gather_iron_ore_3',
     describe: 'Mine iron ore. It drops raw_iron, which smelts into the iron_ingot ' +
               'an iron_pickaxe needs.',
-    done: b => countItem(b, 'raw_iron') >= 1,
-    progress: b => `${countItem(b, 'raw_iron')}/1 raw_iron`,
+    // THREE, BECAUSE THAT IS WHAT THE PICKAXE COSTS.
+    //
+    // This asked for ONE, the smelt rung below asked for ONE, and the pickaxe
+    // rung above them requires THREE ingots -- so its means were false, the rung
+    // was skipped, and NOTHING ON THE LADDER EVER ASKED FOR THE OTHER TWO. That
+    // is the same defect as the note above this rung, one tier further up.
+    //
+    // Measured over 12h on 80 bots: 30 bots hold iron_ingot and 27 of them hold
+    // EXACTLY ONE. Only three bots have ever held three at once, and two of those
+    // are the only two iron pickaxes in the fleet. 70 of 80 bots are at the
+    // furnace tier or above, so the fleet is not short of capability -- it is
+    // short of an instruction.
+    //
+    // Counts raw_iron PLUS iron_ingot, so smelting cannot un-complete this rung
+    // and send the bot back for ore it already refined.
+    done: b => countItem(b, 'raw_iron') + countItem(b, 'iron_ingot') >= 3,
+    progress: b => `${countItem(b, 'raw_iron') + countItem(b, 'iron_ingot')}/3 iron ` +
+                   `(${countItem(b, 'raw_iron')} raw, ${countItem(b, 'iron_ingot')} smelted)`,
     hint: 'gather with block=iron_ore.',
   }, b => ironInReach(b) &&
           (countItem(b, 'stone_pickaxe') >= 1 || countItem(b, 'iron_pickaxe') >= 1 ||
            countItem(b, 'diamond_pickaxe') >= 1)),
   // IRON. The rung the ladder terminated one step short of; the note below this
   // array explains why it could not be added until `smelt` existed.
-  smeltRung('iron_ingot', 'raw_iron', 1,
-            'Raw iron is not a tool until a furnace has had it.',
+  // THREE for the same reason as the rung above: an iron_pickaxe costs three.
+  //
+  // Its means still require only `raw_iron >= 1`, deliberately. A bot holding two
+  // ingots and one raw iron should smelt that one; a bot with two ingots and NO
+  // raw iron has no means, so `rungOf` treats this rung as done and the ladder
+  // falls back to the gather rung above -- which is again unsatisfied at 2 of 3,
+  // and sends it for more ore. The loop closes instead of dead-ending, which is
+  // the rule this ladder is built on: a rung must never be unsatisfiable.
+  smeltRung('iron_ingot', 'raw_iron', 3,
+            'Raw iron is not a tool until a furnace has had it. A pickaxe needs three.',
             b => countItem(b, 'raw_iron') >= 1 && countItem(b, 'furnace') >= 1 &&
                  countAny(b, FUELS) >= 1),
   ladder('iron_pickaxe', 1, 'The tier above stone, and the fleet ceiling.',

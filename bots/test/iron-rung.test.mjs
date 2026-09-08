@@ -24,7 +24,7 @@ const bot = ({ inv = {}, ore = false, role = 'gatherer' } = {}) => ({
   inventory: { items: () => Object.entries(inv).map(([name, count]) => ({ name, count })) },
 })
 const ids = () => SUSTAINING.map(m => m.id)
-const ironRung = () => SUSTAINING.find(m => m.id === 'gather_iron_ore_1')
+const ironRung = () => SUSTAINING.find(m => m.id === 'gather_iron_ore_3')
 
 const EQUIPPED = { stone_pickaxe: 1, furnace: 1, crafting_table: 1, cobblestone: 20, oak_log: 8 }
 
@@ -59,8 +59,11 @@ test('it completes on raw_iron, NOT on iron_ore', () => {
   // Mining the ore drops raw_iron. A rung waiting for `iron_ore` in the
   // inventory would never complete -- the recorded trap that produced
   // "0 iron in 23 days" while 33 bots were holding raw_iron.
+  // Five ore is more than the rung's three and still must not count; three raw
+  // is the drop and must. (The rung asks for THREE now -- an iron_pickaxe costs
+  // three ingots, and asking for one is what left 27 bots holding exactly one.)
   const withOre = bot({ inv: { ...EQUIPPED, iron_ore: 5 }, ore: true })
-  const withRaw = bot({ inv: { ...EQUIPPED, raw_iron: 1 }, ore: true })
+  const withRaw = bot({ inv: { ...EQUIPPED, raw_iron: 3 }, ore: true })
   const r1 = ironRung(), r2 = ironRung()
   assert.ok(r1 && r2)
   assert.equal(r1.done(withOre), false, 'holding the BLOCK is not progress')
@@ -69,12 +72,12 @@ test('it completes on raw_iron, NOT on iron_ore', () => {
 
 test('progress reports raw_iron so the model can see it move', () => {
   const b = bot({ inv: EQUIPPED, ore: true })
-  assert.match(ironRung().progress(b), /0\/1 raw_iron/)
+  assert.match(ironRung().progress(b), /0\/3 iron/)
 })
 
 test('it sits BELOW the smelt rung, so the chain is walkable in order', () => {
   const l = ids()
-  const g = l.indexOf('gather_iron_ore_1')
+  const g = l.indexOf('gather_iron_ore_3')
   const smelt = l.findIndex(x => /iron_ingot/.test(x))
   if (g >= 0 && smelt >= 0) {
     assert.ok(g < smelt, `gather must precede smelt, got ${l.join(',')}`)

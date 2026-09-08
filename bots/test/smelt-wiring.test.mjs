@@ -210,12 +210,12 @@ const bagBot = bag => ({
 
 t('THE IRON RUNGS EXIST', () => {
   const ids = SUSTAINING.map(r => r.id)
-  assert.ok(ids.includes('smelt_iron_ingot_1'), `SUSTAINING is ${ids.join(', ')}`)
+  assert.ok(ids.includes('smelt_iron_ingot_3'), `SUSTAINING is ${ids.join(', ')}`)
   assert.ok(ids.includes('craft_iron_pickaxe_1'), `SUSTAINING is ${ids.join(', ')}`)
   // Ordered after the furnace rung -- a bot is asked for the station before the
   // thing the station makes.
-  assert.ok(ids.indexOf('craft_furnace_1') < ids.indexOf('smelt_iron_ingot_1'))
-  assert.ok(ids.indexOf('smelt_iron_ingot_1') < ids.indexOf('craft_iron_pickaxe_1'))
+  assert.ok(ids.indexOf('craft_furnace_1') < ids.indexOf('smelt_iron_ingot_3'))
+  assert.ok(ids.indexOf('smelt_iron_ingot_3') < ids.indexOf('craft_iron_pickaxe_1'))
 })
 
 t('AND THEY CANNOT COST A FAILED ATTEMPT, which is why iron was kept off', () => {
@@ -224,7 +224,7 @@ t('AND THEY CANNOT COST A FAILED ATTEMPT, which is why iron was kept off', () =>
   // lap that produces the primary endpoint. These rungs must be VACUOUSLY
   // satisfied for exactly those bots, or the change breaks the rule it claims
   // to respect.
-  const ingot = SUSTAINING.find(r => r.id === 'smelt_iron_ingot_1')
+  const ingot = SUSTAINING.find(r => r.id === 'smelt_iron_ingot_3')
   const pick  = SUSTAINING.find(r => r.id === 'craft_iron_pickaxe_1')
 
   const naked = bagBot({})
@@ -251,7 +251,7 @@ t('AND THEY CANNOT COST A FAILED ATTEMPT, which is why iron was kept off', () =>
 })
 
 t('the ingot rung tells the bot to SMELT, not to craft an impossible recipe', () => {
-  const ingot = SUSTAINING.find(r => r.id === 'smelt_iron_ingot_1')
+  const ingot = SUSTAINING.find(r => r.id === 'smelt_iron_ingot_3')
   assert.ok(/smelt with item=raw_iron/.test(ingot.hint), ingot.hint)
   assert.ok(!/craft item=iron_ingot/.test(ingot.hint),
     'there is no crafting recipe for an ingot; naming one is advice the model cannot take')
@@ -262,7 +262,7 @@ t("milestones' fuel list and smelting.mjs cannot disagree silently", () => {
   // The ladder decides whether the iron rung is ACTIONABLE from its own FUELS
   // list; the skill decides what to burn from smelting.mjs. A name in one and
   // not the other would make the rung fire for a bot the skill then refuses.
-  const ingot = SUSTAINING.find(r => r.id === 'smelt_iron_ingot_1')
+  const ingot = SUSTAINING.find(r => r.id === 'smelt_iron_ingot_3')
   for (const f of ['coal', 'charcoal', 'oak_planks', 'oak_log']) {
     assert.ok(fuelTicks(f) > 0, `${f} is offered by the ladder but does not burn`)
     assert.equal(ingot.done(bagBot({ raw_iron: 1, furnace: 1, [f]: 1 })), false,
