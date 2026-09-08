@@ -15,7 +15,7 @@ import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
-         bodyPassable, isFallingBlock } from './scaffold.mjs'
+         bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary } from './scaffold.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit } from './digbudget.mjs'
 import { mayHarvestUnderfoot } from './mining.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
@@ -3156,7 +3156,30 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   const pos = bot.entity?.position
   if (!pos) return { ok: false, why: 'no position' }
   const target = bot.blockAt(pos.offset(0, -1, 0))
-  if (!target || target.boundingBox !== 'block') return { ok: false, why: 'nothing solid underfoot' }
+  // THE CACHE IS OUTVOTED BY PHYSICS, in one direction only.
+  //
+  // A bot taking 67 inbound position packets per 10s against a fleet norm of
+  // 0-1 is being held up by the server. If its own world model says the cell
+  // under it is air, the model is wrong -- mineflayer writes air on a timer
+  // with no server ack and offers no way to re-read. Four bots sat frozen on
+  // that for hours with 0 successes.
+  //
+  // This can only turn a permanent refusal into one bounded dig attempt.
+  // Digging a cell that really is air costs a failed dig; refusing one that is
+  // really stone costs the bot forever.
+  const cachedSolid = !!target && target.boundingBox === 'block'
+  const held = supportProbablyReal({
+    cachedSolid,
+    posPkts: bot.packetWitness?.posPackets ?? null,
+    restingY: restingOnBoundary(pos.y),
+  })
+  if (!held.real) return { ok: false, why: `nothing solid underfoot (${held.why})` }
+  if (!cachedSolid) {
+    logEvent({ kind: 'support_cache_outvoted', status: 'success',
+               detail: `${held.why} — digging the support cell anyway at ` +
+                       `y=${pos.y.toFixed(6)}, cache said ${target ? target.name : 'null'}`,
+               snapshot: snapshot(bot) })
+  }
 
   const risk = harvestSafe({ at: (a, c, d) => bot.blockAt(pos.offset(a, c, d)),
                              dx: 0, dy: -1, dz: 0 })

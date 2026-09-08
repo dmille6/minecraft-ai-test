@@ -22,6 +22,64 @@
  * keeps its own wider SCAFFOLD set for that case. This list is only what A* may
  * plan a bridge with.
  */
+/**
+ * NORMAL inbound position packets per 10s, measured across the fleet 2026-09-08:
+ * bots that are MOVING sit at median 0, p90 1, max 1. Frozen bots run 30-67.
+ * Eight is an order of magnitude above the norm and an order below the
+ * pathology, which is the only kind of cutoff worth writing down.
+ */
+export const STOMP_POS_PKTS = 8
+
+/**
+ * IS THE SUPPORT CELL REAL, WHATEVER THE BLOCK CACHE SAYS?
+ *
+ * `harvestUnderfoot` refuses when the cached block under the feet is not solid.
+ * Right almost always, and catastrophic in one case: mineflayer's
+ * finishDigging writes AIR into the client's own world on a TIMER with no
+ * server acknowledgement (digging.js:158 -- there is no acknowledge handler
+ * anywhere in the library), and no API exists to re-read a block. A dig the
+ * server refused poisons that cell permanently.
+ *
+ * Measured 2026-09-08: four bots frozen for hours with 0 successes. The server
+ * says the cell under them is diorite or oak_log. Their own code says "nothing
+ * solid underfoot". They see 24-46 blocks in their affordance scans, so chunk
+ * data is loaded and a null read is ruled out.
+ *
+ * The proof is the position packets. hive-a-Bravo takes 67 per 10s against a
+ * fleet norm of 0-1. That is a closed loop: the client believes the floor is
+ * air, physics tries to fall, the server refuses and stomps it back, 67 times
+ * every ten seconds. A bot being continuously corrected is standing on
+ * something.
+ *
+ * BOTH SIGNALS ARE CACHE-FREE, deliberately. `restingY` is whether the feet sit
+ * exactly on a block boundary -- a resting bot does, a falling one does not --
+ * read from the entity position, not from any block. Using the cached support
+ * flag would have asked the poisoned source to referee its own reliability.
+ *
+ * And this only ever votes toward TRYING. It can never introduce a refusal:
+ * when the cache says solid the answer is unchanged.
+ */
+export function supportProbablyReal ({ cachedSolid = false, posPkts = null,
+                                       restingY = false } = {}) {
+  if (cachedSolid) return { real: true, why: 'cache says solid' }
+  if (!restingY) return { real: false, why: 'cache says air and the feet are between blocks' }
+  const n = Number(posPkts)
+  if (Number.isFinite(n) && n >= STOMP_POS_PKTS) {
+    return { real: true, why: `cache says air but the server is holding it up (${n} pos/10s)` }
+  }
+  return { real: false, why: 'cache says air and nothing contradicts it' }
+}
+
+/** Are the feet exactly on a block boundary? A resting bot is; a falling one is not. */
+export function restingOnBoundary (y, eps = 1e-6) {
+  // `typeof`, not Number(): Number(null) is 0, and 0 sits exactly on a boundary,
+  // so a missing position would read as RESTING and could overrule the cache.
+  // Same trap as pathFailureShape, hit twice in one day -- junk must never be
+  // the answer that votes for action.
+  if (typeof y !== 'number' || !Number.isFinite(y)) return false
+  return Math.abs(y - Math.round(y)) < eps
+}
+
 export const PATHFINDER_SCAFFOLD = [
   'stone', 'andesite', 'diorite', 'granite', 'deepslate', 'cobbled_deepslate',
   'tuff', 'netherrack', 'sandstone', 'red_sandstone', 'dripstone_block',
