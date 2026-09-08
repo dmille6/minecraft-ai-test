@@ -93,6 +93,13 @@ const CRAFTABLE = { cobbled_deepslate: 24, stick: 6, crafting_table: 99 }
 const CHEST = { position: Vec3(640, 70, 280) }
 
 const STATES = {
+  holds_bucket: {
+    // A bucket is useless to a bot that does not carry one, and 78 of 80 bots
+    // never have. The line must appear for the two that do and stay silent for
+    // everyone else -- the swim_to zero-crossing bug wearing another mask.
+    eligible: () => botIn({ inv: { bucket: 1, cobblestone: 12 } }),
+    ineligible: () => botIn({ inv: { iron_ingot: 2, cobblestone: 12 } }),
+  },
   in_water: {
     eligible: () => botIn({ block: 'water', at: [900, 62, 900] }),
     ineligible: () => botIn({ block: 'stone' }),

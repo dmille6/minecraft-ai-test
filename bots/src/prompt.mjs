@@ -232,6 +232,7 @@ export function buildSystemPrompt(skillNames) {
     '           it places one from your inventory if there is none nearby. Needs fuel:',
     '           coal, charcoal, planks or logs. One coal smelts 8 items, 10s each.)',
     '  place   args: {"item": "<item id in inventory>"}   (places NEXT TO you, not underfoot — to climb out of a hole use surface)',
+    '  bucket  args: {"action": "fill"|"pour"}  (fill scoops a water SOURCE within reach — flowing water will not fill it, and a source that would refill in 5 ticks is refused. pour places a water source in a free cell within reach: ride it down a shaft, or make water where you need it. Needs a bucket; craft one from 3 iron_ingot at a crafting_table)',
     '  build   args: {"plan": "pillar", "block": "<block id>"}',
     // "target depth" was read as a DEPTH TO DIG rather than an elevation to
     // stop at, and the gate refused the result 2,211 times in three hours --
@@ -573,6 +574,33 @@ function depositSituation (bot, memory) {
   } catch { return '' }
 }
 
+/**
+ * THE BUCKET LINE. A capability is not shipped until the observation names it.
+ *
+ * This project has paid for that four times in a day, and the affordance
+ * registry now enforces it: a new skill with no observation "defaults to
+ * invisible, and invisible reads as the model choosing not to use it".
+ *
+ * So the line appears only for a bot that HOLDS one -- 78 of 80 have never held
+ * a bucket, and a verb they cannot perform is noise in every decision they make
+ * -- and it names the skill, the two verbs, and the one Minecraft rule that
+ * otherwise wastes the attempt silently (flowing water will not fill).
+ */
+export function bucketSituation (bot) {
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    const empty = items.filter(i => i.name === 'bucket').reduce((n, i) => n + (i.count ?? 0), 0)
+    const full = items.filter(i => i.name === 'water_bucket').reduce((n, i) => n + (i.count ?? 0), 0)
+    if (!empty && !full) return ''
+    const parts = []
+    if (full) parts.push(`${full} water_bucket — bucket action=pour places a water source in a ` +
+                         `free cell within reach; you can ride it down instead of falling`)
+    if (empty) parts.push(`${empty} empty bucket — bucket action=fill on a water SOURCE within ` +
+                          `reach (flowing water will not fill it)`)
+    return `CARRYING A BUCKET: ${parts.join('. ')}.`
+  } catch { return '' }
+}
+
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
@@ -595,6 +623,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
     actionable.line,
     waterSituation(bot),
+    bucketSituation(bot),
     yContext(p.y),
     Object.keys(memory.locations).length
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`

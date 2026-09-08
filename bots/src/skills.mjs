@@ -35,6 +35,7 @@ import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { breathPlan } from './swim-breath.mjs'
 import { probeReachable } from './reachprobe.mjs'
+import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -4074,6 +4075,14 @@ export const SKILL_CONTRACTS = {
   craft:    { expects: ['inventory_gain'],        maxMs: 60_000 },
   build:    { expects: ['world_change'],          maxMs: 180_000 },
   place:    { expects: ['world_change'],          maxMs: 30_000 },
+  // A bucket use IS a world change: the cell it targets becomes water or air,
+  // and that is the half of the evidence the world can confirm. `inventory_gain`
+  // would be wrong for a pour (the bucket empties) and `inventory_loss` wrong
+  // for a fill, so the shared, always-true half is the block.
+  //
+  // 30s like `place`: three aims at ~550ms each plus equip and look is under
+  // two seconds, and anything beyond that is a bucket that is not working.
+  bucket:   { expects: ['world_change'],          maxMs: 30_000 },
   // 60s covered "chest in sight"; the walk-home fallback makes deposit a
   // travel skill, and home's own budget (120s) plus the transfer must fit.
   deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
@@ -4952,6 +4961,88 @@ async function surface(ctx, _args, signal) {
   }
 }
 
+/**
+ * USE THE BUCKET. `bucket fill` scoops a source; `bucket pour` places one.
+ *
+ * A SKILL AND NOT A REFLEX, AND THE FLEET DECIDED THAT.
+ *
+ * The obvious wiring was to make the drowning rescue scoop the water over its
+ * own head, and reflex.mjs has been carrying the instrument to decide it:
+ * `scoop=${scoopWouldHelp(bot)}` on every drowning route, under a note saying
+ * the capability is "only worth building if this reads true on a real share of
+ * sealed rescues". Measured over 12h on 80 bots across 30,006 routes:
+ *
+ *     scoop=dry 51.6%   scoop=no 43.5%   scoop=flowing 4.8%   scoop=yes 0.1%
+ *
+ * Thirty-one events. Even restricted to the sealed case that note named, 6 of
+ * 148. So the reflex does not get a bucket: 43.5% of the time the head IS in a
+ * source and scooping it refills within five ticks, which buys nothing. That is
+ * the second time this instrument has answered no -- an earlier read was 1 yes
+ * in 2,669 -- and a deterministic behaviour nobody can show a use for is how
+ * this project keeps shipping dead code that still carries risk.
+ *
+ * So the bucket is offered to the MODEL and what it does with it is measured.
+ * Every refusal is returned verbatim, because the question that decides the
+ * next change is which of these the bots actually run into.
+ */
+async function bucketSkill (ctx, args, signal) {
+  const { bot } = ctx
+  const action = String(args?.action ?? '').toLowerCase()
+  if (action !== 'fill' && action !== 'pour') {
+    return { status: 'failed', failClass: 'bad_args',
+             detail: `bucket needs action=fill or action=pour, got "${args?.action ?? ''}"` }
+  }
+  const p = bot.entity?.position
+  if (!p) return { status: 'failed', failClass: 'not_connected', detail: 'no position' }
+  const has = n => (bot.inventory?.items?.() ?? []).some(i => i.name === n)
+  const at = (dx, dy, dz) => { try { return bot.blockAt(p.offset(dx, dy, dz)) } catch { return null } }
+  // Only cells the bot can actually reach. The server ray-traces the use, so a
+  // target beyond reach is not a near miss, it is nothing at all. Head height
+  // first: that is the cell that decides whether the bot can breathe.
+  const near = []
+  for (let dy = 1; dy >= -1; dy--) {
+    for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const b = at(dx, dy, dz)
+      if (b) near.push({ b, off: [dx, dy, dz], d: Math.hypot(dx, dy, dz) })
+    }
+  }
+  const reasons = []
+  if (action === 'fill') {
+    const hasEmpty = has('bucket')
+    for (const c of near) {
+      const [dx, dy, dz] = c.off
+      const why = scoopRefusal({
+        hasEmptyBucket: hasEmpty, target: c.b, above: at(dx, dy + 1, dz),
+        cardinals: [at(dx + 1, dy, dz), at(dx - 1, dy, dz), at(dx, dy, dz + 1), at(dx, dy, dz - 1)],
+        distance: c.d,
+      })
+      if (why) { reasons.push(why); continue }
+      check(signal)
+      const r = await scoopLiquid(bot, p.offset(dx, dy, dz))
+      return r.ok
+        ? { status: 'success', detail: `filled the bucket (${r.aims} aim(s))` }
+        : { status: 'failed', failClass: 'bucket_fill', detail: `fill failed: ${r.why}` }
+    }
+    return { status: 'failed', failClass: 'bucket_fill',
+             detail: `nothing within reach to fill from [${[...new Set(reasons)].slice(0, 3).join(' | ')}]` }
+  }
+  const hasWater = has('water_bucket')
+  for (const c of near) {
+    const [dx, dy, dz] = c.off
+    const target = { ...c.b, position: p.offset(dx, dy, dz) }
+    const why = emptyRefusal({ hasWaterBucket: hasWater, target, distance: c.d,
+                               standingIn: { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) } })
+    if (why) { reasons.push(why); continue }
+    check(signal)
+    const r = await pourLiquid(bot, p.offset(dx, dy, dz))
+    return r.ok
+      ? { status: 'success', detail: `poured a water source (${r.aims} aim(s))` }
+      : { status: 'failed', failClass: 'bucket_pour', detail: `pour failed: ${r.why}` }
+  }
+  return { status: 'failed', failClass: 'bucket_pour',
+           detail: `nowhere within reach will take a pour [${[...new Set(reasons)].slice(0, 3).join(' | ')}]` }
+}
+
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
   swim_to: { run: swimTo,  usage: 'swim_to <x> <y> <z>',           args: ['x', 'y', 'z'] },
@@ -4965,6 +5056,7 @@ export const SKILLS = {
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
   place:   { run: place,   usage: 'place <item_name>',             args: ['item'] },
+  bucket:  { run: bucketSkill, usage: 'bucket <fill|pour>',        args: ['action'] },
   build:   { run: build,   usage: 'build <plan> [block_name]',      args: ['plan', 'block'] },
   // RESCUE-CLASS, like home and surface. `explore` is the generic relocation
   // valve -- what a bot reaches for when it does not know what else to do --

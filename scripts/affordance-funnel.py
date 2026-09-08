@@ -79,6 +79,21 @@ def _inv(rec):
     return (rec.get("bot") or {}).get("inventory") or {}
 
 
+def holds_bucket(rec):
+    """Carrying a bucket, empty or full.
+
+    Reads the INVENTORY off the logged snapshot, deliberately not the prompt
+    line, so eligibility and visibility never come from the same function. Both
+    forms count: `bucket` can be filled and `water_bucket` can be poured, and
+    the skill offers both verbs.
+
+    Exact rather than approximate -- unlike in_water this cannot over-count,
+    because holding the item is the whole condition.
+    """
+    inv = _inv(rec)
+    return (inv.get("bucket", 0) or 0) > 0 or (inv.get("water_bucket", 0) or 0) > 0
+
+
 def in_water(rec):
     """Standing in or at the edge of water.
 
@@ -187,6 +202,7 @@ def can_smelt(rec):
 
 
 RULES = {
+    "holds_bucket": holds_bucket,
     "in_water": in_water,
     "can_craft_stone_tier": can_craft_stone_tier,
     "bankable_surplus": bankable_surplus,
@@ -194,6 +210,7 @@ RULES = {
 }
 
 APPROXIMATION = {
+    "holds_bucket": "exact: holding the item is the whole condition",
     "in_water": "over-counts: a shoreline reads water at distance 0-1",
     "can_craft_stone_tier": "counts blocks and sticks by hand, not the recipe book",
     "bankable_surplus": "needs a home position; records without one count as unknown",
