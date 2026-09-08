@@ -824,19 +824,40 @@ export function scanBreathableRoute ({ at = () => null, maxUp = 32, maxOut = 8,
   // Capped above. Look sideways along each axis for a column that opens.
   let best = { dir: null, offset: null, dist: Infinity }
   let allClosed = true
+  // WHY THE ANSWER WAS `unscanned`. `sealed` needs EVERY cardinal to close
+  // inside maxOut, and one axis running the full distance still swimmable makes
+  // the whole answer `unscanned` -- which nothing escalates on, so the drowning
+  // rescue re-arms forever. RCON says placebo-b-Delta has walls at 1,1,1,3 and a
+  // cap, i.e. it IS sealed, and the scanner disagrees. This records WHICH axis
+  // disagreed and what stopped it, so the next reader does not have to guess
+  // between a stale block read, a wrong anchor, and `swimmable` being too broad.
+  const axes = []
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     let closed = false
+    const tag = `${dx > 0 ? '+x' : dx < 0 ? '-x' : dz > 0 ? '+z' : '-z'}`
     for (let d = 1; d <= maxOut; d++) {
       const b = at(dx * d, 0, dz * d)
-      if (!swimmable(b)) { closed = true; if (b == null) unknown = true; break }
-      if (isAir(b) && d < best.dist) { best = { dir: 'out', offset: [dx * d, 0, dz * d], dist: d }; closed = true; break }
+      if (!swimmable(b)) {
+        closed = true
+        if (b == null) unknown = true
+        axes.push(`${tag}:${b == null ? 'null' : b.name}@${d}`)
+        break
+      }
+      if (isAir(b) && d < best.dist) {
+        best = { dir: 'out', offset: [dx * d, 0, dz * d], dist: d }; closed = true
+        axes.push(`${tag}:AIR@${d}`); break
+      }
       // an air pocket one block up counts too -- that is the usual cave shape
       const up = at(dx * d, 1, dz * d)
-      if (isAir(up) && d < best.dist) { best = { dir: 'out', offset: [dx * d, 1, dz * d], dist: d }; closed = true; break }
+      if (isAir(up) && d < best.dist) {
+        best = { dir: 'out', offset: [dx * d, 1, dz * d], dist: d }; closed = true
+        axes.push(`${tag}:AIRUP@${d}`); break
+      }
     }
-    if (!closed) allClosed = false    // ran to maxOut still swimmable: unscanned
+    if (!closed) { allClosed = false; axes.push(`${tag}:RAN${maxOut}`) }
   }
-  return { ...best, sealed: best.dir == null && capped && allClosed && !unknown }
+  return { ...best, axes,
+           sealed: best.dir == null && capped && allClosed && !unknown }
 }
 
 export function breathableRoute(bot, { maxUp = 32, maxOut = 8 } = {}) {
@@ -1780,7 +1801,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                       // air only in a sealed pocket; in open water it buys five
                       // ticks. This is the denominator that decides it, and it
                       // costs one pure function over blocks already being read.
-                      ` scoop=${scoopWouldHelp(bot)}`,
+                      ` scoop=${scoopWouldHelp(bot)}` +
+                      // WHICH AXIS KEPT THIS FROM READING `sealed`.
+                      `${route.axes ? ' axes=' + route.axes.join(',') : ''}`,
               snapshot: snapshot(bot),
             })
           }
@@ -2039,6 +2062,39 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                 `no path can start from y=${yNow}, nothing in the inventory to pillar ` +
                 `with, ${got.tried} adjacent block(s) yielded nothing when dug${lavaNote}, ` +
                 `and no escape ramp could be cut (${ramp.stopped})`)
+              // WHAT THE LATTICE WOULD HAVE SAID, WITHOUT SAYING IT.
+              //
+              // OBSERVATION ONLY. This consults escapePlan and logs the rung it
+              // would pick. It does NOT act, and must not: measured 2026-09-08
+              // by RCON, the three frozen pillar bots stand on single floating
+              // blocks with the ground 24, 25 and 29 blocks below. Minecraft
+              // fall damage is one point per block past three, so those are 21,
+              // 22 and 26 against 20 hp -- EVERY ONE IS FATAL. A lattice widened
+              // to reach them without this check first would convert three
+              // stuck bots into three dead ones.
+              //
+              // It exists because `escapePlan` is gated on mstate ===
+              // 'stranded_high', which needs y >= CLIMB_CEILING (125), and every
+              // frozen bot is at y=94..113. So the lattice has never run for the
+              // population it was built for, and nobody knows what it would
+              // choose. This answers that for the cost of one log line.
+              //
+              // THREE CHANGES SHIPPED TODAY WERE INERT -- correct code on paths
+              // that never execute. The rule that would have caught all three in
+              // minutes is: log what the fix WOULD do before building the fix.
+              try {
+                const est = observeEscapeState(bot)
+                const plan = escapePlan(est)
+                logEvent({ kind: 'escape_candidate', status: 'failed',
+                           detail: `would=${plan} mstate=${mstate} y=${yNow} ` +
+                                   `underfoot=${est.underfootSolid}:${est.underfootName} ` +
+                                   `drop=${est.underfootDrop ?? 'unmeasured'} ` +
+                                   `walls=${est.solidLateralCount} blocks=${est.blocks} ` +
+                                   `tread=${est.lateralTread} ${witnessText(bot)}`,
+                           snapshot: snapshot(bot) })
+              } catch (e) {
+                log('debug', 'escape_candidate failed', { err: e.message })
+              }
               logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
                          // THE WITNESS, WHERE IT CAN ACTUALLY BE READ.
                          //
