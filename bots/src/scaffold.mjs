@@ -693,6 +693,55 @@ export function headroomBreach ({
  *
  * Pure over `solidAt(blockY)`, so every case can be tested without a bot.
  */
+/**
+ * NORMAL inbound position packets per 10s, measured 2026-09-08 across the fleet:
+ * bots that are MOVING sit at median 0, p90 1, max 1. Frozen bots run 30-67.
+ * A threshold of 8 is an order of magnitude above normal and an order below the
+ * pathology, which is the only kind of cutoff worth writing down.
+ */
+export const STOMP_POS_PKTS = 8
+
+/**
+ * IS THE SUPPORT CELL REAL, WHATEVER THE BLOCK CACHE SAYS?
+ *
+ * `harvestUnderfoot` refuses when `blockAt(y-1).boundingBox !== 'block'`. That
+ * is right almost always, and catastrophic in one case: mineflayer's
+ * finishDigging writes AIR into the client's own world on a timer with no
+ * server acknowledgement (digging.js:158, and there is no acknowledge handler
+ * anywhere in the library), so a dig the server refused leaves the client
+ * believing air FOREVER. There is no API to re-read a block.
+ *
+ * Measured 2026-09-08: four bots frozen for hours, 0 successes across hundreds
+ * of runs. The server says the cell under them is diorite or oak_log. Their own
+ * code says "nothing solid underfoot". They can see 24-46 blocks around them, so
+ * chunk data is loaded and a null read is ruled out.
+ *
+ * The proof is the position packets. hive-a-Bravo takes 67 inbound position
+ * packets per 10 seconds against a fleet norm of 0-1. That is a closed loop:
+ * the client thinks the floor is air, physics tries to fall, the server refuses
+ * and stomps it back, sixty-seven times every ten seconds. A bot being
+ * continuously corrected is a bot standing on something.
+ *
+ * So the cache is OUTVOTED by physics -- and only ever in the direction of
+ * trying something. This never turns an attempt into a refusal; it turns a
+ * permanent refusal into a bounded attempt, which is the repo rule that a
+ * refusal must name a remedy the bot can perform from where it is. Digging a
+ * cell that really is air costs one failed dig; refusing a cell that really is
+ * stone costs the bot forever.
+ */
+export function supportProbablyReal ({ cachedSolid = false, posPkts = null,
+                                       yStable = false } = {}) {
+  if (cachedSolid) return { real: true, why: 'cache says solid' }
+  // Both conditions, not either. A high packet rate while genuinely FALLING is
+  // a bot being corrected mid-descent, and digging then is the wrong move.
+  if (!yStable) return { real: false, why: 'cache says air and the bot is moving' }
+  const n = Number(posPkts)
+  if (Number.isFinite(n) && n >= STOMP_POS_PKTS) {
+    return { real: true, why: `cache says air but the server is holding it up (${n} pos/10s)` }
+  }
+  return { real: false, why: 'cache says air and nothing contradicts it' }
+}
+
 export function supportCell ({ y, solidAt } = {}) {
   if (!Number.isFinite(y) || typeof solidAt !== 'function') return null
   // SNAP FLOAT ERROR TO THE INTEGER IT IS TRYING TO BE, FIRST.
