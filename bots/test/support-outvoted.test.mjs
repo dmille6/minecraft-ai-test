@@ -101,3 +101,33 @@ test('it only ever turns a refusal into an attempt, never the reverse', () => {
     }
   }
 })
+
+test('WIRING: the call site reads the witness the way the witness is shaped', () => {
+  // THE TEST THAT WAS MISSING, THREE TIMES RUNNING. Every assertion above feeds
+  // supportProbablyReal a number directly, so all of them passed while the call
+  // site read `.posPackets` off a FUNCTION and got undefined. The pure function
+  // was never the bug; the wiring was, and hand-built inputs cannot reach it.
+  //
+  // attachPacketWitness returns `() => ({posPackets, physicsTicks, blockChanges})`.
+  const witness = () => ({ posPackets: 67, physicsTicks: 177, blockChanges: 0 })
+  const bot = { packetWitness: witness }
+
+  assert.equal(bot.packetWitness?.posPackets, undefined,
+    'reading it as a property is undefined — this is the bug being guarded')
+  assert.equal(bot.packetWitness?.()?.posPackets, 67,
+    'it must be CALLED')
+
+  // And the decision must come out right when read correctly.
+  assert.equal(supportProbablyReal({
+    cachedSolid: false,
+    posPkts: bot.packetWitness?.()?.posPackets ?? null,
+    restingY: true,
+  }).real, true)
+
+  // A bot with no witness attached must still refuse, never crash.
+  assert.equal(supportProbablyReal({
+    cachedSolid: false,
+    posPkts: ({}).packetWitness?.()?.posPackets ?? null,
+    restingY: true,
+  }).real, false)
+})
