@@ -486,8 +486,8 @@ await t('MUTANT KILLED: letting the scan swim through lava routes a bot into it'
 
 await t('MUTANT KILLED: collapsing `sealed` back onto `dir === null` suppresses in open water', async () => {
   await withMutant(REFLEX_PATH,
-    'return { ...best, sealed: best.dir == null && capped && allClosed && !unknown }',
-    'return { ...best, sealed: best.dir == null }',
+    'return { ...best, axes,\n           sealed: best.dir == null && capped && allClosed && !unknown }',
+    'return { ...best, axes, sealed: best.dir == null }',
     async mod => {
       const deepOcean = (dx, dy, dz) => (dy > 40 ? AIR : WATER)
       const r = mod.scanBreathableRoute({ at: deepOcean, maxUp: 32, maxOut: 8 })
