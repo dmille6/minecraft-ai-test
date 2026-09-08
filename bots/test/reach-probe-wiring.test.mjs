@@ -6,7 +6,7 @@
 // `bot.packetWitness?.posPackets` off a FUNCTION. So the probe is exercised
 // against a fake bot that records exactly what it was handed.
 import assert from 'node:assert'
-import { probeReachable, PROBE_SLATE, PROBE_TIMEOUT_MS, PROBE_RADIUS } from '../src/reachprobe.mjs'
+import { probeReachable, PROBE_SLATE, PROBE_TIMEOUT_MS, PROBE_RADIUS, PROBE_PUMPS } from '../src/reachprobe.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -34,7 +34,13 @@ function makeBot (result, { movements = { canDig: false, tag: 'travel' } } = {})
       movements,
       getPathFromTo (moves, from, goal, opts) {
         seen.moves = moves; seen.goal = goal; seen.opts = opts; seen.from = from
-        return { next: () => ({ value: { result } }) }
+        seen.pumps = 0
+        const seq = Array.isArray(result) ? result : [result]
+        return { next: () => {
+          const r = seq[Math.min(seen.pumps, seq.length - 1)]
+          seen.pumps++
+          return { value: { result: r } }
+        } }
       },
     },
   }
@@ -125,10 +131,45 @@ t('a generator that yields nothing usable is a fall-through', () => {
   assert.equal(probeReachable(bot, CANDS, { goals }), null)
 })
 
-t('success with an empty path does not claim a hit', () => {
-  const bot = makeBot({ status: 'success', visitedNodes: 3, path: [] })
+// --- the two defects the FLEET found in the first 555 probes ---------------
+
+t('ALREADY THERE: success with an empty path is the strongest hit, not a miss', () => {
+  // `status=success visited=0 hit=none` was the most common outcome on the
+  // fleet. A* accepts the START node, so the path is empty -- the bot is
+  // standing beside a candidate and that was being thrown away.
+  const bot = makeBot({ status: 'success', visitedNodes: 0, path: [] })
+  const r = probeReachable(bot, [P(1, 64, 0), P(40, 64, 0)], { goals })
+  assert.ok(r.hit, 'a bot at 0,64,0 IS adjacent to a block at 1,64,0')
+  assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [1, 64, 0])
+})
+
+t('...but only when the bot really is adjacent to one', () => {
+  const bot = makeBot({ status: 'success', visitedNodes: 0, path: [] })
+  const r = probeReachable(bot, [P(9, 64, 0), P(20, 64, 0)], { goals })
+  assert.equal(r.hit, null, 'nothing within one block: an empty path proves nothing')
+})
+
+t('a PARTIAL search is resumed, not discarded', () => {
+  // partial was 24.7% of the first 555 fleet probes while using 41ms of a
+  // 1500ms budget. compute() resumes the same search on the next next().
+  const bot = makeBot([
+    { status: 'partial', visitedNodes: 40, path: [] },
+    { status: 'partial', visitedNodes: 90, path: [] },
+    { status: 'success', visitedNodes: 150, path: [P(8, 64, 0)] },
+  ])
   const r = probeReachable(bot, CANDS, { goals })
-  assert.equal(r.hit, null, 'no end node means no verified candidate')
+  assert.equal(r.status, 'success', 'the resumed search finished')
+  assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [9, 64, 0])
+  assert.ok(bot.seen.pumps >= 3, `expected resumes, saw ${bot.seen.pumps}`)
+})
+
+t('the pump is BOUNDED, so a partial forever is not a hang', () => {
+  const bot = makeBot({ status: 'partial', visitedNodes: 40, path: [] })
+  const r = probeReachable(bot, CANDS, { goals })
+  assert.equal(r.status, 'partial')
+  assert.equal(r.verdict.reachable, null, 'still undecided, never a refusal')
+  assert.ok(bot.seen.pumps <= PROBE_PUMPS + 1,
+    `pumped ${bot.seen.pumps} times, cap is ${PROBE_PUMPS}`)
 })
 
 console.log(`\n  ${pass} passed, ${fail} failed`)

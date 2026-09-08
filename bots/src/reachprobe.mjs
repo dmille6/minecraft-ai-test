@@ -122,8 +122,10 @@ export function probeVerdict ({ status, checked = 0, nearest = null } = {}) {
 /** Bounds. Each is a refusal to repeat a specific incident, not a tuning knob. */
 export const PROBE_SLATE = 12        // heuristic AND isEnd are O(goals) per node
 export const PROBE_TIMEOUT_MS = 1500 // vs thinkTimeout 5000: this is a probe, not a plan
-export const PROBE_RADIUS = 96       // searchRadius is -1 (unlimited) everywhere else in this repo,
-                                     // which is how one gather reached 3.3GB and OOMed four times
+export const PROBE_RADIUS = 96        // searchRadius is -1 (unlimited) everywhere else in this
+                                     // repo, which is how one gather reached 3.3GB and OOMed
+                                     // four times
+export const PROBE_PUMPS = 6         // bounded resumes of a `partial` search; see probeReachable
 
 /**
  * Ask A* which candidate the bot can actually WALK to. Returns a hit or null.
@@ -162,6 +164,18 @@ export function probeReachable (bot, positions, { goals, slate: slateSize = PROB
     const gen = bot.pathfinder.getPathFromTo(moves, at, goal,
       { timeout, searchRadius: radius, optimizePath: true })
     result = gen.next()?.value?.result
+    // A `partial` IS NOT AN ANSWER, AND IT WAS 24.7% OF THE FIRST 555 PROBES.
+    //
+    // compute() returns `partial` when it exhausts its per-tick slice with work
+    // still to do; the generator resumes the same search on the next next().
+    // Taking only the first yield threw a quarter of all probes away while
+    // spending 41ms of a 1500ms budget -- measured p90 on the fleet. So pump it,
+    // bounded by BOTH the wall clock and a step count, because an unbounded
+    // pump is just the unbounded search this file exists to avoid.
+    for (let i = 0; i < PROBE_PUMPS && result?.status === 'partial'
+                    && Date.now() - t0 < timeout; i++) {
+      result = gen.next()?.value?.result ?? result
+    }
   } catch {
     // A probe that throws must cost nothing. Falling through to the existing
     // ranking is always safe, because the probe only ever reorders.
@@ -169,8 +183,17 @@ export function probeReachable (bot, positions, { goals, slate: slateSize = PROB
   }
   if (!result) return null
 
+  // AN EMPTY PATH ON SUCCESS MEANS "ALREADY THERE", NOT "NOWHERE".
+  //
+  // The first fleet read showed `status=success visited=0 hit=none` as the most
+  // common outcome by far: A* accepts the START node, so the path is empty and
+  // reading the last element gives null. That is a bot already standing beside
+  // one of its candidates -- the strongest possible hit -- and it was being
+  // discarded. Fall back to the bot's own position, floored, which is the node
+  // A* actually accepted.
   const end = Array.isArray(result.path) && result.path.length
-    ? result.path[result.path.length - 1] : null
+    ? result.path[result.path.length - 1]
+    : { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }
   const hit = result.status === 'success' ? slateHitBy(end, slate) : null
   return {
     hit,
