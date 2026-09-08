@@ -295,6 +295,19 @@ const MAX_HAZARD_RETRIES = 6
 // COLLECT_MS must be several times pathfinder.thinkTimeout (5s) so planning
 // cannot eat the whole allowance, and BARREN_LIMIT * COLLECT_MS must stay under
 // the 180s skill watchdog: 3 * 40s = 120s.
+// WHAT IS WORTH DIGGING A TUNNEL FOR.
+//
+// The buried copy has to be the ONLY copy. Dirt, stone and sand are buried
+// constantly and also lie exposed on every hillside, so escalating for them
+// converts a cheap failure into an expensive one 80 times over. Ore does not
+// work that way: `gather iron_ore` succeeded 10 times in 307 asks, and 59% of
+// those failures were "every candidate is buried".
+//
+// Deliberately a pattern on the NAME rather than a hand-listed set, so
+// deepslate and the 1.21 copper/emerald variants are covered without anyone
+// remembering to add them. `ancient_debris` is included and is the only
+// non-"_ore" member: it is the same shape of problem.
+const WORTH_TUNNELLING = /(_ore|^ancient_debris$)/
 const COLLECT_MS = 40_000
 const BARREN_LIMIT = 3
 
@@ -950,6 +963,10 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   // Verbatim collectblock failure messages, so a refusal it makes can be read
   // rather than guessed at. Bounded: a wedged loop must not grow an array.
   const collectErrors = []
+  // One escalation to `mine` per gather run, and what it said. Once, because a
+  // gather that tunnels on every round is a gather that never returns.
+  let escalated = false
+  let mineSaid = null
   const maxRounds = count * 4 + 8
 
   while (collected < count && rounds < maxRounds) {
@@ -1166,9 +1183,44 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                  detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
                          `under falling blocks — digging them would flood or bury this spot [${named}]` }
       }
+      // "USE MINE TO DIG DOWN" IS ADVICE, AND ADVICE PRINTED IS NOT ADVICE TAKEN.
+      //
+      // This is the same defect as the craft->gather boundary already documented
+      // in this file: a skill that knows the next move prints it as prose and
+      // hopes the model acts on it. Measured before this change, over 5h on 80
+      // bots: `gather iron_ore` was asked 307 times and succeeded TEN, and
+      // 176 of the 297 failures (59%) were exactly this line. Iron was visible
+      // in perception 210,601 times and USABLE 4.2% of the time -- because
+      // underground ore has no exposed face, and `gather` requires one.
+      //
+      // So gather escalates to `mine` itself, once per run, and then rescans.
+      //
+      // ONLY FOR THINGS WORTH A TUNNEL. Buried dirt is not worth digging for --
+      // there is exposed dirt on every hillside -- and escalating for it would
+      // turn a cheap failure into an expensive one across the whole fleet. Ores
+      // are the case where the buried copy is the ONLY copy, which is why this
+      // is the block list and not a general rule.
+      //
+      // `mine` keeps its own exit contract, so a bot that cannot afford the
+      // climb back out is still refused -- by the guard that owns that
+      // question, not by this one. Its answer is reported verbatim rather than
+      // reclassified, because a refusal is evidence and this file has been
+      // bitten before by deriving a failure class from prose.
+      if (WORTH_TUNNELLING.test(viaSource ?? blockName) && !escalated) {
+        escalated = true
+        const nearest = positions[0]
+        const depth = nearest ? Math.floor(nearest.y) : Math.floor(bot.entity.position.y) - 8
+        logEvent({ kind: 'gather_escalated_to_mine', status: 'success',
+                   detail: `${blockName}: every candidate buried, digging toward y=${depth}` })
+        check(signal)
+        const dug = await mine(ctx, { y: depth }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        mineSaid = dug?.detail ?? null
+        if (dug?.status === 'success') continue     // rescan: the tunnel may have exposed one
+      }
       return { status: 'failed', failClass: 'unreachable',
                detail: `${blockName} found but every candidate is buried — use mine to dig down` +
-                       belowGroundHint(bot) }
+                       belowGroundHint(bot) +
+                       (mineSaid ? ` [mine said: ${String(mineSaid).slice(0, 110)}]` : '') }
     }
 
     const target = bot.blockAt(reachable[0])
