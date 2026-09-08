@@ -34,6 +34,7 @@ import { mayStepDown, survivableDrop } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { breathPlan } from './swim-breath.mjs'
+import { probeReachable } from './reachprobe.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -943,6 +944,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                snapshot: snapshot(bot) })
   }
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
+  // The most recent reachability probe, so the failure can cite what A* said.
+  let lastProbe = null
   const maxRounds = count * 4 + 8
 
   while (collected < count && rounds < maxRounds) {
@@ -1066,6 +1069,44 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       ...safeOnes.filter(approachable),
       ...safeOnes.filter(q => !approachable(q)),
     ]
+
+    // ASK A* WHICH ONE IS ACTUALLY REACHABLE INSTEAD OF GUESSING.
+    //
+    // `approachable` above is a LOCAL test: it asks whether a standable cell
+    // exists beside the block, which says nothing about whether the bot can get
+    // to that cell. Measured over 5h on 80 bots, `found but unreachable` was
+    // 1,625 of 5,799 gather attempts (28.0%) across 77 of 80 bots -- and 22.3%
+    // even among the 73 bots travelling freely, so it is what the HEALTHY fleet
+    // spends its gathering on, not a stuck-bot artifact.
+    //
+    // The local stencil also misses real stances: approach from above, standing
+    // on the block below, and terrain shelves further than dy -1. GoalGetToBlock
+    // accepts all of those, because its isEnd is orthogonal adjacency including
+    // vertical, and the composite asks about every candidate in ONE search.
+    //
+    // REORDER ONLY. A miss changes nothing -- see the note in reachprobe.mjs:
+    // the probe walks and collectblock digs, so `noPath` here would be an
+    // over-broad refusal, and refusals that outrun their evidence are the most
+    // repeated mistake in this file.
+    const probe = probeReachable(bot, reachable, { goals })
+    if (probe) {
+      if (probe.hit) {
+        const i = reachable.findIndex(q =>
+          Math.floor(q.x) === probe.hit.x && Math.floor(q.y) === probe.hit.y &&
+          Math.floor(q.z) === probe.hit.z)
+        if (i > 0) reachable = [reachable[i], ...reachable.slice(0, i), ...reachable.slice(i + 1)]
+      }
+      lastProbe = probe
+      logEvent({
+        kind: 'reach_probe',
+        status: probe.hit ? 'success' : 'no_effect',
+        detail: `${blockName} slate=${probe.checked} status=${probe.status} ` +
+                `hit=${probe.hit ? `${probe.hit.x},${probe.hit.y},${probe.hit.z}` : 'none'} ` +
+                `moved_to_front=${probe.hit ? 'yes' : 'no'} ` +
+                `visited=${probe.visitedNodes ?? 'na'} nearest=${probe.nearest?.toFixed(1) ?? 'na'} ` +
+                `ms=${probe.ms}`,
+      })
+    }
 
     // THE TRAP IS HERE, NOT AT "FOUND NOTHING".
     //
@@ -1245,10 +1286,22 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         // first as `collect_budget` and the second as `no_path` purely from the
         // prose -- the exact coupling that let `gather oak_log` rules rebuild on
         // four bots within hours of a purge that emptied them.
+        // THE DISCRIMINATING FACT, recorded on the failure itself.
+        //
+        // Two rival explanations survive the numbers: real topology (no stance
+        // is connected) and a mismatch between our idea of a mining stance and
+        // collectblock's. They are told apart by exactly one observation --
+        // whether A* SAID a candidate was walkable and the collect then failed
+        // anyway. If that is common, the precheck measures the wrong thing and
+        // no amount of better ranking will help.
+        const probeNote = lastProbe
+          ? ` [probe: ${lastProbe.status}, slate ${lastProbe.checked}, ` +
+            `${lastProbe.hit ? 'A* reached a candidate' : 'A* reached none'}]`
+          : ''
         const [failClass, why] = timedOut >= barren
           ? ['collect_budget',
              `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`]
-          : ['no_path', `${blockName} found but unreachable after ${barren} attempts`]
+          : ['no_path', `${blockName} found but unreachable after ${barren} attempts${probeNote}`]
         return collected > 0
           ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
           : { status: statusFor(failClass), failClass, detail: why }
