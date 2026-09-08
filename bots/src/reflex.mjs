@@ -3090,7 +3090,9 @@ const ESCAPE_ROUTINES = {
   ride_floor_down: async bot => {
     const yBefore = bot.entity?.position?.y ?? 0
     const r = await rideFloorDown(bot, { maxSteps: 16 })
-    const fell = yBefore - (bot.entity?.position?.y ?? yBefore)
+    // Gravity is not instant. See settleForFall: this read the answer before it
+    // existed, and ride_floor_down scored 0 successes in 23 attempts.
+    const fell = await settleForFall(bot, yBefore)
     return { ok: fell >= 1, fell,
              why: `rode down ${fell.toFixed(1)} (placed ${r?.placed ?? 0}, ` +
                   `${r?.stopped ?? 'completed'})` }
@@ -3197,7 +3199,10 @@ async function stepOff (bot) {
     } finally {
       try { bot.setControlState('forward', false) } catch { /* released anyway */ }
     }
-    const fell = yBefore - (bot.entity?.position?.y ?? yBefore)
+    // Gravity is not instant, and a step_off has FURTHER to fall than a dig --
+    // it is chosen precisely when there is a drop. Reading y the moment the walk
+    // ended scored this rung 1 success in 35. See settleForFall.
+    const fell = await settleForFall(bot, yBefore)
     // POSTCONDITION, not "I issued the walk". Only falling counts.
     // The chosen drop is logged so a death can be read against what was known
     // at the time: 21% of these fired without any measurement at all.
@@ -3321,9 +3326,61 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   }
   // POSTCONDITION, not "I ran it". The same discipline the entombed branch uses:
   // the claim that matters is that the bot is lower, not that a dig was issued.
-  const fell = yBefore - (bot.entity?.position?.y ?? yBefore)
+  //
+  // BUT GRAVITY IS NOT INSTANT, AND THIS READ THE ANSWER BEFORE IT EXISTED.
+  //
+  // The fall was sampled the moment digBounded returned. A bot does not
+  // teleport downward when the block under it goes: it accelerates from rest,
+  // and one block takes about nine ticks (~450ms). So a dig that WORKED
+  // measured fell=0 and reported "dug but did not descend" -- and because
+  // escapePlan is stateless, the lattice re-picked the same rung on the next
+  // tick, forever.
+  //
+  // Measured before this change: `dig_down` chosen 120 times by the one bot
+  // above the climb ceiling and scored successful ONCE (0.7%), with 138 of 200
+  // lattice failures fleet-wide reading exactly this string. The same bot went
+  // y=150 -> 146 -> 144 across that window, which is the proof: it WAS
+  // descending the whole time this routine was calling it a failure.
+  //
+  // Bounded and polled rather than a flat sleep, so a dig that really did
+  // nothing still fails fast instead of paying the full settle every time.
+  const fell = await settleForFall(bot, yBefore)
   return { ok: fell >= 0.5, drop, fell,
            why: fell >= 0.5 ? `descended ${fell.toFixed(1)}` : 'dug but did not descend' }
+}
+
+/** How long to let gravity run before judging a descent. */
+export const FALL_SETTLE_MS = 1200
+/** How often to look. One Minecraft tick is 50ms; there is no point going finer. */
+export const FALL_POLL_MS = 50
+
+/**
+ * Wait for the bot to actually fall, then report how far. Returns blocks fallen.
+ *
+ * Returns EARLY the moment the bot has clearly moved down, so a working dig
+ * costs one or two polls rather than the whole budget, and a dig that did
+ * nothing costs FALL_SETTLE_MS once instead of being scored a failure it did
+ * not commit.
+ *
+ * `sleep` and `now` are injectable because a timing-dependent postcondition
+ * that can only be tested against a live server is a postcondition nobody
+ * tests -- and this one was wrong for months.
+ */
+export async function settleForFall (bot, yBefore, {
+  maxMs = FALL_SETTLE_MS, pollMs = FALL_POLL_MS,
+  sleep = ms => new Promise(r => setTimeout(r, ms)),
+  now = () => Date.now(),
+} = {}) {
+  const started = now()
+  let best = 0
+  for (;;) {
+    const y = bot?.entity?.position?.y
+    if (typeof y === 'number') best = Math.max(best, yBefore - y)
+    // Clearly down AND no longer moving: stop early rather than pay the budget.
+    if (best >= 0.5 && bot?.entity?.onGround === true) return best
+    if (now() - started >= maxMs) return best
+    await sleep(pollMs)
+  }
 }
 
 const HARVEST_OFFSETS = [
