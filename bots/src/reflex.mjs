@@ -3207,7 +3207,14 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   const cachedSolid = !!target && target.boundingBox === 'block'
   const held = supportProbablyReal({
     cachedSolid,
-    posPkts: bot.packetWitness?.posPackets ?? null,
+    // `packetWitness` is a FUNCTION that returns the counts, not an object of
+    // them (packet-witness.mjs:105). Reading `.posPackets` off the function
+    // gives undefined, and this branch could then never fire -- which is
+    // exactly what happened on the first canary: 0 firings, and the refusal
+    // reported "nothing contradicts it" while the bot was taking 69 packets a
+    // second. Third property-that-does-not-exist bug in one day, after
+    // `.liquid` on an undecorated block and `this.visitedNodes` on AStar.
+    posPkts: bot.packetWitness?.()?.posPackets ?? null,
     yStable: !!sup && sup.resting,
   })
   if (!held.real) return { ok: false, why: `nothing solid underfoot (${held.why})` }
