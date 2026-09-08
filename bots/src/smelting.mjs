@@ -206,16 +206,35 @@ const rank = name => {
  * Returns { name, count, ticks } where `count` is how many are held and
  * `ticks` is the burn time of ONE -- the caller decides how many to spend.
  */
-export function chooseFuel (held, { exclude = null } = {}) {
-  let best = null
+export function chooseFuel (held, { exclude = null, needTicks = 0 } = {}) {
+  // PREFERENCE IS WORTHLESS IF THE BOT CANNOT AFFORD THE JOB.
+  //
+  // This used to return the lowest-regret fuel it could find and let the caller
+  // discover, in front of the furnace, that there was not enough of it. Bamboo
+  // outranks planks and logs on regret -- correctly, it has no other use -- but
+  // it burns 50 ticks against their 300, so one item needs FOUR bamboo. A bot
+  // holding 2 bamboo and 150 oak_log chose the bamboo and failed.
+  //
+  // Measured 2026-09-08: "not enough bamboo to smelt even one raw_iron" was 12
+  // of 27 smelt failures, and smelting is the rung between raw iron and every
+  // tool above stone. 49 of 80 bots are parked at furnace.
+  //
+  // So affordability is a FILTER and regret is the tie-break within it. The
+  // fallback keeps the old behaviour when nothing is affordable, so this can
+  // only ever turn a refusal into an attempt -- never the reverse.
+  const need = Math.max(0, Number(needTicks) || 0)
+  let afford = null, any = null
   for (const [name, count] of Object.entries(held ?? {})) {
     if (!(count > 0)) continue
     if (name === exclude) continue
     const ticks = fuelTicks(name)
     if (!ticks) continue
     const r = rank(name)
-    if (!best || r < best.rank) best = { name, count, ticks, rank: r }
+    const cand = { name, count, ticks, rank: r, total: ticks * count }
+    if (!any || cand.total > any.total) any = cand
+    if (cand.total >= need && (!afford || r < afford.rank)) afford = cand
   }
+  const best = afford ?? any
   return best ? { name: best.name, count: best.count, ticks: best.ticks } : null
 }
 
@@ -273,9 +292,11 @@ export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnac
 
   // Fuel may not be the input itself unless there is enough for both jobs; a
   // bot smelting its last log into charcoal must not burn that same log.
-  const fuel = chooseFuel(held, { exclude: null })
+  // Ask for enough to finish ONE item, so a fuel the bot cannot afford is not
+  // chosen over one it can. The batch loop below still trims for the rest.
+  const fuel = chooseFuel(held, { exclude: null, needTicks: SMELT_TICKS })
   const usable = fuel && fuel.name === input && fuel.count < 2
-    ? chooseFuel(held, { exclude: input })
+    ? chooseFuel(held, { exclude: input, needTicks: SMELT_TICKS })
     : fuel
   if (!usable) {
     return { ok: false, reason: 'no_fuel', item: input, output,
