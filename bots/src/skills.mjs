@@ -946,6 +946,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
   // The most recent reachability probe, so the failure can cite what A* said.
   let lastProbe = null
+  // Verbatim collectblock failure messages, so a refusal it makes can be read
+  // rather than guessed at. Bounded: a wedged loop must not grow an array.
+  const collectErrors = []
   const maxRounds = count * 4 + 8
 
   while (collected < count && rounds < maxRounds) {
@@ -1239,6 +1242,18 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (e.aborted) throw e
       // Remember WHY, so the failure below can tell the truth about itself.
       if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
+      // AND SAY IT WHERE ANYONE CAN READ IT.
+      //
+      // This was a debug log and nothing else, so the ONE fact that explains the
+      // largest remaining gather failure -- why collectblock refused a block the
+      // pathfinder had just reached -- never entered telemetry at all. 35.0% of
+      // healthy-bot "unreachable" failures are that case and it was invisible.
+      //
+      // The message is the library's, so it is recorded verbatim rather than
+      // classified here: this file has already been bitten by deriving a failure
+      // class from prose, which is how a collect budget and a real no-path
+      // became the same lesson.
+      if (collectErrors.length < 8) collectErrors.push(String(e.message ?? e).slice(0, 120))
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     } finally {
       // A CANCELLED SKILL MUST CANCEL THE LIBRARY TOO.
@@ -1294,6 +1309,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         // whether A* SAID a candidate was walkable and the collect then failed
         // anyway. If that is common, the precheck measures the wrong thing and
         // no amount of better ranking will help.
+        const errNote = collectErrors.length
+          ? ` [collect said: ${[...new Set(collectErrors)].slice(0, 2).join(' | ')}]`
+          : ' [collect threw nothing -- it returned without gathering]'
         const probeNote = lastProbe
           ? ` [probe: ${lastProbe.status}, slate ${lastProbe.checked}, ` +
             `${lastProbe.hit ? 'A* reached a candidate' : 'A* reached none'}]`
@@ -1301,7 +1319,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         const [failClass, why] = timedOut >= barren
           ? ['collect_budget',
              `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`]
-          : ['no_path', `${blockName} found but unreachable after ${barren} attempts${probeNote}`]
+          : ['no_path', `${blockName} found but unreachable after ${barren} attempts${probeNote}${errNote}`]
         return collected > 0
           ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
           : { status: statusFor(failClass), failClass, detail: why }

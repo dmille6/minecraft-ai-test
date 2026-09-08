@@ -49,6 +49,8 @@
  * Pure: plain {x,y,z} in, plain array out, so the bound and the ordering can be
  * tested without a bot, a world, or a pathfinder.
  */
+import { Vec3 } from 'vec3'
+
 export function candidateSlate (positions, from, { limit = 12, maxDist = 64 } = {}) {
   if (!Array.isArray(positions) || !from) return []
   const fx = Number(from.x), fy = Number(from.y), fz = Number(from.z)
@@ -120,7 +122,10 @@ export function probeVerdict ({ status, checked = 0, nearest = null } = {}) {
 }
 
 /** Bounds. Each is a refusal to repeat a specific incident, not a tuning knob. */
-export const PROBE_SLATE = 12        // heuristic AND isEnd are O(goals) per node
+export const PROBE_SLATE = 4         // heuristic AND isEnd are O(goals) per node, and isEnd now
+                                     // RAYCASTS. 12 gave 22.6% `partial` on healthy bots, burning
+                                     // visited p50=1417 for a target 6.1 blocks away, while
+                                     // successes take visited p50=1. The slate was oversized.
 export const PROBE_TIMEOUT_MS = 1500 // vs thinkTimeout 5000: this is a probe, not a plan
 export const PROBE_RADIUS = 96        // searchRadius is -1 (unlimited) everywhere else in this
                                      // repo, which is how one gather reached 3.3GB and OOMed
@@ -149,16 +154,48 @@ export function probeReachable (bot, positions, { goals, slate: slateSize = PROB
                                                   timeout = PROBE_TIMEOUT_MS,
                                                   radius = PROBE_RADIUS } = {}) {
   const at = bot?.entity?.position
-  if (!at || !goals?.GoalCompositeAny || !goals?.GoalGetToBlock) return null
+  // The guard must name the goal actually used. It said GoalGetToBlock after the
+  // switch to GoalLookAtBlock, which would have made the probe silently inert on
+  // the fleet -- a dead feature that still passes its own tests.
+  if (!at || !goals?.GoalCompositeAny || !goals?.GoalLookAtBlock) return null
+  if (!bot?.world) return null   // GoalLookAtBlock raycasts through it
   if (typeof bot?.pathfinder?.getPathFromTo !== 'function') return null
   const slate = candidateSlate(positions, at, { limit: slateSize })
   if (!slate.length) return null
 
   const t0 = Date.now()
   let result
+  // Hoisted: the hit loop below reads it, and declaring it inside the try left it
+  // out of scope there -- a ReferenceError on every successful probe.
+  let perGoal = []
   try {
-    const goal = new goals.GoalCompositeAny(
-      slate.map(c => new goals.GoalGetToBlock(c.x, c.y, c.z)))
+    // ASK THE QUESTION COLLECTBLOCK ASKS, NOT A DIFFERENT ONE.
+    //
+    // This built GoalGetToBlock, whose isEnd is orthogonal adjacency. But
+    // mineflayer-collectblock does not path with that goal -- CollectBlock.js
+    // line 30 is:
+    //
+    //     const goal = new goals.GoalLookAtBlock(closest.position, bot.world)
+    //     yield bot.pathfinder.goto(goal)
+    //     // TODO: options.ignoreNoPath
+    //
+    // GoalLookAtBlock.isEnd demands TWO things adjacency does not imply: the
+    // node is within `reach` (4.5) of the block's centre at eye height, AND a
+    // raycast from the bot's eye to a visible face actually HITS this block.
+    // A block can be orthogonally adjacent and satisfy neither -- reachable
+    // from the wrong side, or with its only exposed face pointing away.
+    //
+    // Measured: among the 74 healthy bots, 35.0% of "found but unreachable"
+    // failures were cases where our probe HAD reached a candidate and the
+    // collect failed anyway. That gap is this goal mismatch: we were verifying
+    // a claim collectblock never makes.
+    //
+    // (The `ignoreNoPath: true` we pass is also inert at that call site -- the
+    // TODO above it is the library's own admission -- so a noPath there throws
+    // rather than being skipped.)
+    perGoal = slate.map(c =>
+      new goals.GoalLookAtBlock(new Vec3(c.x, c.y, c.z), bot.world))
+    const goal = new goals.GoalCompositeAny(perGoal)
     // The TRAVEL movements, deliberately. See the note above.
     const moves = bot.pathfinder.movements
     const gen = bot.pathfinder.getPathFromTo(moves, at, goal,
@@ -193,8 +230,16 @@ export function probeReachable (bot, positions, { goals, slate: slateSize = PROB
   // A* actually accepted.
   const end = Array.isArray(result.path) && result.path.length
     ? result.path[result.path.length - 1]
-    : { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }
-  const hit = result.status === 'success' ? slateHitBy(end, slate) : null
+    : new Vec3(Math.floor(at.x), Math.floor(at.y), Math.floor(at.z))
+  // WHICH candidate, decided by the GOAL'S OWN isEnd rather than by our idea of
+  // adjacency. That is the whole lesson of this change: when a library will act
+  // on a predicate, test that predicate, not a paraphrase of it.
+  let hit = null
+  if (result.status === 'success') {
+    for (let i = 0; i < perGoal.length; i++) {
+      try { if (perGoal[i].isEnd(end)) { hit = slate[i]; break } } catch { /* unusable node */ }
+    }
+  }
   return {
     hit,
     status: result.status,

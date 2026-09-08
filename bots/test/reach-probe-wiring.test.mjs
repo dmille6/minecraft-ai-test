@@ -15,16 +15,37 @@ const t = (name, fn) => {
 }
 
 // Stand-ins with the same shape the real library exposes.
-class GoalGetToBlock { constructor (x, y, z) { Object.assign(this, { x, y, z }) } }
+//
+// GoalLookAtBlock is modelled with a REAL isEnd, because the probe now decides
+// which candidate was hit by calling that predicate rather than paraphrasing it.
+// The real one demands the node be within `reach` (4.5) of the block AND that a
+// raycast from the eye hit a face; the stand-in keeps the reach test and takes
+// line of sight from a per-position `BLOCKED` set the test controls.
+const BLOCKED = new Set()
+class GoalLookAtBlock {
+  constructor (pos, world, options = {}) {
+    this.pos = pos; this.world = world; this.reach = options.reach || 4.5
+  }
+  isEnd (node) {
+    const dx = (node.x + 0.5) - (this.pos.x + 0.5)
+    const dy = (node.y + 1.6) - (this.pos.y + 0.5)
+    const dz = (node.z + 0.5) - (this.pos.z + 0.5)
+    if (Math.hypot(dx, dy, dz) > this.reach) return false
+    return !BLOCKED.has(`${this.pos.x},${this.pos.y},${this.pos.z}`)
+  }
+}
 class GoalCompositeAny { constructor (goals) { this.goals = goals } }
-const goals = { GoalGetToBlock, GoalCompositeAny }
+const goals = { GoalLookAtBlock, GoalCompositeAny }
 const P = (x, y, z) => ({ x, y, z })
+// The probe builds Vec3s and A* hands back nodes; both need distanceTo/offset
+// only inside the real goal, so plain objects with x/y/z suffice here.
 
 function makeBot (result, { movements = { canDig: false, tag: 'travel' } } = {}) {
   const seen = {}
   return {
     seen,
     entity: { position: P(0, 64, 0) },
+    world: { raycast: () => null },
     // The dig-enabled clone gather lends to collectblock MUST be present on the
     // fake, or "the probe used the travel movements" passes by accident: with no
     // collectBlock on the bot, picking the wrong one still falls back to the
@@ -45,15 +66,33 @@ function makeBot (result, { movements = { canDig: false, tag: 'travel' } } = {})
     },
   }
 }
-const CANDS = [P(4, 64, 0), P(9, 64, 0), P(20, 64, 0)]
+const CANDS = [P(3, 64, 0), P(9, 64, 0), P(20, 64, 0)]
 
-t('a hit names the candidate A* actually reached', () => {
-  // path ends orthogonally adjacent to (9,64,0)
+t('a hit names the candidate the GOAL accepts, not the nearest one', () => {
+  BLOCKED.clear()
   const bot = makeBot({ status: 'success', visitedNodes: 71, path: [P(1, 64, 0), P(8, 64, 0)] })
   const r = probeReachable(bot, CANDS, { goals })
   assert.equal(r.status, 'success')
-  assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [9, 64, 0])
+  assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [9, 64, 0], 'ends beside 9,64,0 and within reach')
   assert.equal(r.visitedNodes, 71)
+})
+
+t('THE 35% CASE: adjacent but not LOOK-AT-able is not a hit', () => {
+  // The bot stands right next to the block and still cannot see a face. That is
+  // exactly what collectblock refuses, and what the old adjacency probe called
+  // a success. 35.0% of healthy-bot unreachable failures were this.
+  BLOCKED.clear(); BLOCKED.add('9,64,0')
+  const bot = makeBot({ status: 'success', visitedNodes: 71, path: [P(8, 64, 0)] })
+  const r = probeReachable(bot, [P(9, 64, 0)], { goals })
+  assert.equal(r.hit, null, 'no visible face means collectblock cannot take it either')
+  BLOCKED.clear()
+})
+
+t('out of reach is not a hit even when the path ended there', () => {
+  BLOCKED.clear()
+  const bot = makeBot({ status: 'success', visitedNodes: 9, path: [P(0, 64, 0)] })
+  const r = probeReachable(bot, [P(20, 64, 0)], { goals })
+  assert.equal(r.hit, null, '20 blocks away is outside the 4.5 reach')
 })
 
 t('IT MAY NOT REFUSE: noPath returns a miss, never a veto', () => {
@@ -99,14 +138,16 @@ t('the slate is capped, so the O(goals) heuristic stays cheap', () => {
   assert.equal(bot.seen.goal.goals.length, PROBE_SLATE, 'the composite gets exactly the slate')
 })
 
-t('it builds a composite of GoalGetToBlock, not GoalBlock', () => {
-  // GoalGetToBlock.isEnd is orthogonal adjacency INCLUDING vertical, which is
-  // the whole point: standing on top of a block is a legal mining stance and
-  // the local test it replaces never considered it.
+t('it builds the goal COLLECTBLOCK uses, not one of our own', () => {
+  // CollectBlock.js line 30 paths with GoalLookAtBlock. Verifying any other
+  // predicate is verifying a claim the library never makes -- which is what the
+  // 35% was.
   const bot = makeBot({ status: 'noPath', path: [] })
   probeReachable(bot, CANDS, { goals })
   assert.ok(bot.seen.goal instanceof GoalCompositeAny)
-  assert.ok(bot.seen.goal.goals.every(g => g instanceof GoalGetToBlock))
+  assert.ok(bot.seen.goal.goals.every(g => g instanceof GoalLookAtBlock))
+  assert.ok(bot.seen.goal.goals.every(g => g.world === bot.world),
+    'GoalLookAtBlock raycasts through bot.world and must be given it')
 })
 
 // --- it must cost nothing when anything is missing ---------------------------
@@ -120,8 +161,15 @@ t('a throwing pathfinder costs nothing', () => {
 t('missing library pieces fall through instead of crashing gather', () => {
   const res = { status: 'success', path: [P(8, 64, 0)] }
   assert.equal(probeReachable(makeBot(res), CANDS, { goals: {} }), null)
-  assert.equal(probeReachable(makeBot(res), CANDS, { goals: { GoalGetToBlock } }), null)
+  assert.equal(probeReachable(makeBot(res), CANDS, { goals: { GoalLookAtBlock } }), null,
+    'a composite goal is required')
+  assert.equal(probeReachable(makeBot(res), CANDS, { goals: { GoalCompositeAny } }), null,
+    'the per-block goal is required')
   assert.equal(probeReachable({ entity: { position: P(0, 64, 0) } }, CANDS, { goals }), null)
+  // GoalLookAtBlock raycasts through bot.world; without it the probe must be
+  // inert rather than throwing inside gather.
+  const noWorld = makeBot(res); delete noWorld.world
+  assert.equal(probeReachable(noWorld, CANDS, { goals }), null, 'no world, no probe')
   assert.equal(probeReachable(makeBot(res), [], { goals }), null)
   assert.equal(probeReachable(makeBot(res), null, { goals }), null)
 })
@@ -137,16 +185,18 @@ t('ALREADY THERE: success with an empty path is the strongest hit, not a miss', 
   // `status=success visited=0 hit=none` was the most common outcome on the
   // fleet. A* accepts the START node, so the path is empty -- the bot is
   // standing beside a candidate and that was being thrown away.
+  BLOCKED.clear()
   const bot = makeBot({ status: 'success', visitedNodes: 0, path: [] })
   const r = probeReachable(bot, [P(1, 64, 0), P(40, 64, 0)], { goals })
-  assert.ok(r.hit, 'a bot at 0,64,0 IS adjacent to a block at 1,64,0')
+  assert.ok(r.hit, 'a bot at 0,64,0 can see a block at 1,64,0')
   assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [1, 64, 0])
 })
 
 t('...but only when the bot really is adjacent to one', () => {
+  BLOCKED.clear()
   const bot = makeBot({ status: 'success', visitedNodes: 0, path: [] })
   const r = probeReachable(bot, [P(9, 64, 0), P(20, 64, 0)], { goals })
-  assert.equal(r.hit, null, 'nothing within one block: an empty path proves nothing')
+  assert.equal(r.hit, null, 'nothing within reach: an empty path proves nothing')
 })
 
 t('a PARTIAL search is resumed, not discarded', () => {
@@ -157,6 +207,7 @@ t('a PARTIAL search is resumed, not discarded', () => {
     { status: 'partial', visitedNodes: 90, path: [] },
     { status: 'success', visitedNodes: 150, path: [P(8, 64, 0)] },
   ])
+  BLOCKED.clear()
   const r = probeReachable(bot, CANDS, { goals })
   assert.equal(r.status, 'success', 'the resumed search finished')
   assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [9, 64, 0])
