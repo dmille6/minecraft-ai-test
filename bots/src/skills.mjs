@@ -1710,6 +1710,12 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       // Fewest-missing-ingredients is the recipe the bot is nearest to being
       // able to make, which is the one worth naming.
       let best = null
+      const counted = heldCounts(bot.inventory.items())
+      // Used only by the `canonical` tiebreak below, which is a NAME preference
+      // for the common wood and not a claim about what the bot can make. The
+      // affinity test above deliberately does not use it -- that is the bug this
+      // pair replaced.
+      const stem = x => String(x).split(' ').pop().split('_')[0]
       for (const r of all.slice(0, 12)) {
         const gap = []
         for (const d of (r.delta ?? [])) {
@@ -1722,9 +1728,27 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         // "cherry_planks" -- true, and unreachable. Prefer a recipe whose
         // missing ingredients share a stem with something in the inventory
         // (oak_log -> oak_planks), because that is the one step it can take.
-        const held = bot.inventory.items().map(i => i.name.split('_')[0])
-        const stem = x => x.split(' ').pop().split('_')[0]
-        const affinity = g => g.filter(x => held.includes(stem(x))).length
+        // A STEM MATCH IS NOT A SOURCE, AND ONE SAPLING COST THE FLEET ITS WOOD.
+        //
+        // This split every inventory name on '_' and kept the first token, so
+        // `oak_sapling`, `oak_leaves` and `oak_boat` all registered as "this bot
+        // has oak". None of them craft into an oak plank. A bot carrying 186
+        // birch logs and 27 oak saplings therefore scored oak and birch EQUAL,
+        // and the `canonical` tiebreak below -- which exists to point a bot with
+        // no wood at all toward the common wood -- broke that tie for oak and
+        // sent it to look for an oak tree it did not need.
+        //
+        // Measured over 6h on 80 bots: 134 of 211 `gather oak_* first` craft
+        // failures (63.5%) were bots holding another log type at that moment.
+        // It is the single largest craft failure shape, and it feeds the gather
+        // loop -- oak_log is 32.5% of all gather requests and succeeds 8.9% of
+        // the time, because much of the fleet is standing in birch forest.
+        //
+        // So affinity now asks the question that actually matters: can the bot
+        // PRODUCE this ingredient from something in the pack? A held ingredient
+        // counts, and so does a held source for it -- birch_log for
+        // birch_planks. Nothing else does.
+        const affinity = g => g.filter(x => canProduce(counted, x)).length
         // When the bot holds NO wood at all, every wood variant ties: same
         // number of missing ingredients, zero affinity for all of them. The
         // tiebreak then kept whichever the registry happened to return first,
@@ -3808,6 +3832,60 @@ export function breakVetoAt (bot, p) {
  *
  * Pure: takes plain {name, count} objects, not a bot.
  */
+/**
+ * WHAT CAN PRODUCE THIS INGREDIENT, from one step away.
+ *
+ * Deliberately NOT a general recipe walk. The recipe walk is what the caller is
+ * already doing; this answers the narrower question the RECIPE CHOICE needs --
+ * "is this variant the one this bot is closest to being able to make" -- and it
+ * has to be cheap enough to run inside a 12-recipe loop.
+ *
+ * Only the plank family is modelled, because that is the family Minecraft
+ * duplicates per wood type and therefore the only one where choosing the wrong
+ * variant strands a bot that is holding the right material. Stone tools take
+ * cobblestone OR cobbled_deepslate OR blackstone, but those are three blocks a
+ * bot gathers, not three recipes for one block, so a missing-ingredient name is
+ * already actionable there.
+ *
+ * Returns [] for anything unmodelled, so an unknown ingredient scores zero
+ * affinity rather than a guessed one. Scoring an unknown as reachable is the
+ * failure this replaces.
+ */
+export function sourcesFor (name) {
+  const m = /^(.+)_planks$/.exec(name ?? '')
+  if (!m) return []
+  const w = m[1]
+  // Bamboo is the one plank that does not come from a log.
+  if (w === 'bamboo') return ['bamboo_block', 'bamboo']
+  return [`${w}_log`, `${w}_wood`, `stripped_${w}_log`, `stripped_${w}_wood`]
+}
+
+/** Aggregate {name, count} items into a name -> total map. */
+export function heldCounts (items) {
+  const out = new Map()
+  for (const it of items ?? []) {
+    const n = it?.name
+    if (!n) continue
+    const c = Number(it.count)
+    out.set(n, (out.get(n) ?? 0) + (Number.isFinite(c) ? c : 0))
+  }
+  return out
+}
+
+/**
+ * Can this bot produce the ingredient named in a gap entry ("3x birch_planks")?
+ *
+ * True when it holds the thing itself, or a source that makes it. A count of
+ * zero is not holding it: `heldCounts` can carry a 0 for an item the pack once
+ * had, and treating that as possession is how the old test counted a sapling.
+ */
+export function canProduce (counted, gapEntry) {
+  const name = String(gapEntry ?? '').split(' ').pop()
+  if (!name) return false
+  const has = n => (counted?.get?.(n) ?? 0) > 0
+  return has(name) || sourcesFor(name).some(has)
+}
+
 export function inventoryLine (items, { focus = [], limit = 6 } = {}) {
   const totals = new Map()
   for (const it of items ?? []) {
