@@ -86,3 +86,35 @@ test('NO ORE IN REACH: the rung still costs nothing, which is the ladder rule', 
   assert.equal(r.done(bot({ inv: EQUIPPED, ore: false })), true,
     'no ore in reach must read as done, not as work')
 })
+
+// --- what the iron is FOR ----------------------------------------------------
+
+test('a bucket rung exists, and it comes BEFORE the pickaxe', () => {
+  const ids = SUSTAINING.map(m => m.id)
+  const b = ids.indexOf('craft_bucket_1'), p = ids.indexOf('craft_iron_pickaxe_1')
+  assert.ok(b >= 0, 'no bucket rung: ' + ids.join(','))
+  assert.ok(b < p, `bucket must precede the pickaxe; got bucket@${b} pickaxe@${p}`)
+  // Both cost the same three ingots. The pickaxe's only unlock is diamond,
+  // which this project has already measured as driving the endpoint DOWN.
+})
+
+test('the bucket rung needs three ingots and a table, like the recipe does', () => {
+  const r = SUSTAINING.find(m => m.id === 'craft_bucket_1')
+  const has = inv => !r.done(bot({ inv }))          // means present => real work
+  assert.equal(has({ ...EQUIPPED, iron_ingot: 3 }), true, '3 ingots + table is workable')
+  assert.equal(has({ ...EQUIPPED, iron_ingot: 2 }), false, '2 ingots is not enough')
+  assert.equal(has({ stone_pickaxe: 1, iron_ingot: 3 }), false, 'no table, no rung')
+})
+
+test('holding a bucket completes it', () => {
+  const r = SUSTAINING.find(m => m.id === 'craft_bucket_1')
+  assert.equal(r.done(bot({ inv: { ...EQUIPPED, iron_ingot: 3, bucket: 1 } })), true)
+})
+
+test('THE LOOP REOPENS: spending the iron sends the bot back for ore', () => {
+  // A bot that just spent 3 ingots on a bucket has 0 iron, so the gather rung
+  // is unsatisfied again and it goes mining rather than parking.
+  const after = bot({ inv: { ...EQUIPPED, bucket: 1 }, ore: true })
+  assert.equal(rung('gather_iron_ore_3').done(after), false,
+    'after spending the iron there must be live work again')
+})

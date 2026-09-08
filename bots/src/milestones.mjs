@@ -416,6 +416,35 @@ const TECH_LADDER = [
             'Raw iron is not a tool until a furnace has had it. A pickaxe needs three.',
             b => countItem(b, 'raw_iron') >= 1 && countItem(b, 'furnace') >= 1 &&
                  countAny(b, FUELS) >= 1),
+  // A BUCKET BEFORE A PICKAXE, AND THE ORDER IS THE POINT.
+  //
+  // The owner's question was the right one: the tech tree had become a
+  // scoreboard. Measured over 12h on 80 bots, the fleet placed 84 blocks and
+  // made 75 deposits -- it gathers, holds, and does nothing with any of it, and
+  // every rung above iron_pickaxe is filler (stockpile, patrol, deposit,
+  // return). Climbing was the whole goal because nothing consumed the climb.
+  //
+  // A bucket is the first thing this fleet can build that acts on its LARGEST
+  // problem. Water and drowning are ~47% of all telemetry: 10,231 drowning
+  // reflex fires, 12,462 float events, and both bots still immobile are sealed
+  // in WATER, not stone. Until now every one of those was the bot reacting to
+  // water. A bucket lets it change the water instead -- scoop a flooded pocket
+  // dry, or place a source and ride it down.
+  //
+  // It goes BEFORE the pickaxe because they cost the same three ingots and the
+  // pickaxe's only unlock is diamond, which this project has already measured
+  // as a trap: the staircase work drove the endpoint DOWN, because wood is
+  // above ground, bots went below it, and `surface` worked 12% of the time.
+  // Spending the first three ingots on depth is buying the known regression.
+  //
+  // Spending them here re-opens the gather rung below (raw + ingots back under
+  // three), which sends the bot for more ore rather than parking it -- the same
+  // closed loop the iron rungs rely on.
+  ladder('bucket', 1,
+         'Water is 47% of what this fleet spends its time on. A bucket is the ' +
+         'first tool that acts on it instead of fleeing it.',
+         'Needs a crafting_table nearby: 3 iron_ingot.',
+         b => countItem(b, 'crafting_table') >= 1 && countItem(b, 'iron_ingot') >= 3),
   ladder('iron_pickaxe', 1, 'The tier above stone, and the fleet ceiling.',
          'Needs a crafting_table nearby: 3 iron_ingot + 2 stick.',
          b => countItem(b, 'crafting_table') >= 1 && countItem(b, 'iron_ingot') >= 3 &&

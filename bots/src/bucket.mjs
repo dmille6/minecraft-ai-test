@@ -188,3 +188,129 @@ export async function scoopLiquid (bot, pos, { sleep = ms => new Promise(r => se
   }
   return { ok: false, reason: 'all aims fired and the water is still there' }
 }
+
+// ---------------------------------------------------------------------------
+// EMPTYING. The half that did not exist, and the half that makes water a TOOL.
+//
+// The fleet spends roughly 47% of its telemetry on water: 10,231 drowning
+// reflex fires, 12,462 float events, and the two bots still immobile are sealed
+// in WATER, not stone. Every one of those is the bot reacting to water. A full
+// bucket is the first thing this fleet has ever had that ACTS on it -- place a
+// source and ride it down, or scoop a flooded pocket dry.
+//
+// The mechanism is the same as the scoop and so is the reason it works: the
+// server ray-traces the use from the player's reported look vector. mineflayer
+// 4.37.1 finally sends the real one --
+//
+//     bot._client.write('use_item', { hand, sequence,
+//       rotation: { x: toNotchianYaw(bot.entity.yaw), y: toNotchianPitch(bot.entity.pitch) } })
+//
+// -- where earlier versions hardcoded {x:0,y:0}, so the server raycast from a
+// direction the bot was not looking and the bucket silently did nothing. Read
+// out of node_modules, not out of a changelog: the upstream issue (#3731) is
+// still open, so the library's own tracker would have said this is broken.
+// ---------------------------------------------------------------------------
+
+/** Can a water source be created in this cell? */
+export function emptyTakes (b) {
+  if (!b) return false
+  // MC-181499 / MC-183318: a bucket does not empty into an existing SOURCE.
+  // Aiming at one wastes the attempt and, worse, reads as "nothing happened".
+  if (isWaterSource(b)) return false
+  if (b.name === 'lava') return false          // makes obsidian/cobble, not a pool
+  // Flowing water is replaceable, and so is anything with no collision:
+  // grass, ferns, snow layers. `=== 'air'` rejected most of a forest floor and
+  // cost this fleet its first tech-tree stall in a different function.
+  return b.name === 'water' || b.boundingBox === 'empty'
+}
+
+/**
+ * Why this pour cannot be attempted, or null when it can.
+ *
+ * Ordered cheapest-first, like scoopRefusal, and it names the remedy in the
+ * same breath as the refusal wherever there is one -- a refusal that does not
+ * is how this project has repeatedly stranded bots between two correct guards.
+ */
+export function emptyRefusal ({ hasWaterBucket = false, target = null,
+                                distance = Infinity, standingIn = null } = {}) {
+  if (!hasWaterBucket) return 'no water bucket'
+  if (!target) return 'nowhere to pour'
+  if (isWaterSource(target)) return 'already a water source'
+  if (target.name === 'lava') return 'refusing to pour into lava'
+  if (!emptyTakes(target)) return `cell is not free (${target.name})`
+  if (!(distance <= REACH)) return `out of reach (${Number(distance).toFixed(1)} > ${REACH})`
+  // Pouring into the cell you are standing in is how a bot drowns itself. The
+  // owner's standing rule is that water is terrain and swimming is travel, but
+  // that is about ENTERING water that exists, not about manufacturing it around
+  // your own head.
+  if (standingIn && (standingIn.x === target.position?.x &&
+                     standingIn.y === target.position?.y &&
+                     standingIn.z === target.position?.z)) {
+    return 'that is the cell I am standing in'
+  }
+  return null
+}
+
+/**
+ * Where to aim to pour into `pos`.
+ *
+ * Same multi-aim retry as the scoop and for the same reason -- a single aim
+ * fails often enough that every working implementation retries -- but biased
+ * LOW. The server places the source in the cell the ray enters, and aiming
+ * high enough to clip the cell above puts the water one block up, which for a
+ * descent is the difference between landing in it and landing beside it.
+ */
+export function emptyAims (pos) {
+  return [
+    { x: pos.x + 0.5, y: pos.y + 0.4, z: pos.z + 0.5 },
+    { x: pos.x + 0.5, y: pos.y + 0.1, z: pos.z + 0.5 },
+    { x: pos.x + 0.5, y: pos.y + 0.7, z: pos.z + 0.5 },
+  ]
+}
+
+/**
+ * Did the pour actually happen?
+ *
+ * BOTH halves, mirroring scoopSucceeded and for the same reason: a blockUpdate
+ * at the target is a lie-generator, because flowing water arriving from
+ * somewhere else fires it too. The inventory losing the water_bucket is the
+ * half that cannot be faked by the world.
+ */
+export function emptySucceeded ({ blockNow = null, heldNow = null } = {}) {
+  const wet = !!blockNow && blockNow.name === 'water'
+  return wet && heldNow === 'bucket'
+}
+
+/**
+ * Pour the water bucket into `pos`. Returns {ok, why, aims}.
+ *
+ * FILL AND POUR ARE THE SAME PRIMITIVE with different targets, so this mirrors
+ * scoopLiquid step for step deliberately: equip, look (forced), settle, use,
+ * wait, then READ THE WORLD BACK. Never placeBlock -- a bucket is an item use,
+ * not a block placement, and placeBlock is what every failed report upstream
+ * was trying.
+ */
+export async function pourLiquid (bot, pos, { sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const held = () => bot.inventory?.items?.().find(i => i.name === 'water_bucket') ?? null
+  const item = held()
+  if (!item) return { ok: false, why: 'no water bucket', aims: 0 }
+  let aims = 0
+  for (const aim of emptyAims(pos)) {
+    aims++
+    try {
+      await bot.equip(item, 'hand')
+      // force=true: the server ray-traces from the rotation we SEND, so a
+      // smoothed or skipped look is the whole failure.
+      await bot.lookAt(aim, true)
+      await sleep(AIM_SETTLE_MS)
+      bot.activateItem()
+      await sleep(CONFIRM_MS)
+    } catch (e) {
+      return { ok: false, why: String(e?.message ?? e), aims }
+    }
+    const blockNow = bot.blockAt?.(pos) ?? null
+    const heldNow = bot.heldItem?.name ?? null
+    if (emptySucceeded({ blockNow, heldNow })) return { ok: true, why: null, aims }
+  }
+  return { ok: false, why: 'poured and the cell is still dry', aims }
+}
