@@ -445,13 +445,41 @@ const TECH_LADDER = [
 // anything into one, so `iron_ingot` had never existed, not once, in its
 // history. That is what `smelt` fixes and what these two rungs now ask for.
 
+/**
+ * How much WOOD a bot has, in log-equivalents.
+ *
+ * Any log counts, because any log crafts to planks and planks are
+ * interchangeable for everything the ladder needs above. Planks count at a
+ * quarter, which is the crafting exchange rate -- a bot holding 300 planks and
+ * no logs has plenty of wood.
+ */
+function woodUnits (b) {
+  return countAny(b, LOGS) + Math.floor(countAny(b, PLANKS) / 4)
+}
+
 export const SUSTAINING = [
   {
+    // WOOD IS WOOD. This counted `oak_log` alone while the fleet held 2,966 oak
+    // and 4,105 logs of every other kind, so 58% of its wood was invisible to
+    // the check and 39 of 80 bots (49%) read as short of the 8-log floor while
+    // carrying hundreds of birch and spruce. They were then sent to gather more
+    // oak specifically. Fleet-wide, 33.5% of every gather request was for
+    // oak_log, on bots holding 7,218 logs between them.
+    //
+    // Every log crafts to planks and every plank is interchangeable for the
+    // table, the sticks and the pickaxes above -- which the TECH_LADDER right
+    // below already knew, using `countAny(b, LOGS)`. This is the same defect as
+    // counting the BLOCK instead of its DROP: a specific name standing in for a
+    // functional category.
+    //
+    // Planks count at a quarter, because that is the exchange rate: a bot
+    // holding 300 planks and no logs has plenty of wood and was being told it
+    // had none.
     id: 'stockpile_wood',
-    describe: n => `Stockpile ${8 + n * 4} oak logs.`,
-    done: (b, n) => countItem(b, 'oak_log') >= 8 + n * 4,
-    progress: (b, n) => `${countItem(b, 'oak_log')}/${8 + n * 4} oak_log`,
-    hint: 'gather with block=oak_log.',
+    describe: n => `Stockpile ${8 + n * 4} logs (any kind).`,
+    done: (b, n) => woodUnits(b) >= 8 + n * 4,
+    progress: (b, n) => `${woodUnits(b)}/${8 + n * 4} logs (any kind, planks count as 1/4)`,
+    hint: 'gather with block=oak_log, or any other _log you can see.',
   },
   // The ladder sits between wood and stone: a bot has just been asked for logs,
   // which is what the first rungs need, and cobblestone below needs the pickaxe
@@ -459,10 +487,13 @@ export const SUSTAINING = [
   // starve the gathering the primary endpoint measures.
   ...TECH_LADDER,
   {
+    // Same defect as stockpile_wood: `cobblestone` alone, while COBBLE -- which
+    // the ladder beside it uses -- also holds cobbled_deepslate, blackstone and
+    // stone. A bot mining below y=0 gets deepslate and reads as having nothing.
     id: 'stockpile_stone',
-    describe: n => `Stockpile ${16 + n * 8} cobblestone.`,
-    done: (b, n) => countItem(b, 'cobblestone') >= 16 + n * 8,
-    progress: (b, n) => `${countItem(b, 'cobblestone')}/${16 + n * 8} cobblestone`,
+    describe: n => `Stockpile ${16 + n * 8} cobblestone (or deepslate/blackstone).`,
+    done: (b, n) => countAny(b, COBBLE) >= 16 + n * 8,
+    progress: (b, n) => `${countAny(b, COBBLE)}/${16 + n * 8} stone-type blocks`,
     hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
   },
   {
