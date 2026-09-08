@@ -317,6 +317,27 @@ const ladder = (item, n, why, hint, hasMeans) =>
 const smeltRung = (output, input, n, why, hasMeans) =>
   rungOf(M.smelt(output, input, n, why), hasMeans)
 
+/**
+ * Is there iron ore this bot could actually walk to?
+ *
+ * The gate that lets the iron rung exist without taxing bots that have no ore.
+ * 32 blocks matches the perception radius the model is shown, so the rung is
+ * offered exactly when the bot can already SEE the thing it is being asked for
+ * -- never advice about terrain that is not there.
+ *
+ * Deepslate iron counts: below y=0 it is the only kind, and it drops the same
+ * raw_iron. Fails CLOSED -- if it cannot look, the rung does not exist.
+ */
+function ironInReach (b) {
+  try {
+    for (const name of ['iron_ore', 'deepslate_iron_ore']) {
+      const t = b?.registry?.blocksByName?.[name]
+      if (t && b.findBlock?.({ matching: t.id, maxDistance: 32 })) return true
+    }
+  } catch { /* no world, no rung */ }
+  return false
+}
+
 const TECH_LADDER = [
   ladder('crafting_table', 1, 'Tools need one nearby.',
          'craft item=crafting_table, then place item=crafting_table.',
@@ -332,6 +353,39 @@ const TECH_LADDER = [
   ladder('furnace', 1, 'Smelting needs one; 8 cobblestone.',
          'craft item=furnace, then place item=furnace.',
          b => countAny(b, COBBLE) >= 8),
+  // THE RUNG THAT MAKES THE TWO BELOW REACHABLE AT ALL.
+  //
+  // The iron_ingot rung requires `raw_iron >= 1` and NOTHING ON THE LADDER EVER
+  // TOLD A BOT TO GO AND GET SOME. So both iron rungs were permanently
+  // unsatisfiable: 49 of 80 bots parked at furnace, the ladder fell through to
+  // gather_dirt and gather_oak_log, and the fleet asked for iron_ore in 25 of
+  // 3,588 gathers (0.7%) while iron was visible in 11,574 perception scans.
+  // 17.5% have ever held raw iron; one bot has an iron pickaxe. That number has
+  // not moved in a day.
+  //
+  // THE ORIGINAL NOTE'S OBJECTION IS CORRECT AND THIS RUNG OBEYS IT. The
+  // objection was that `gather iron_ore` is not like the craft rungs: a
+  // well-equipped bot with no ore would fail it 25 times a lap, every lap,
+  // taxing the endpoint. So this rung does not exist unless the ore is ACTUALLY
+  // IN REACH -- `rungOf` treats a rung whose means are absent as already done,
+  // which is the same mechanism every other rung uses to avoid costing a failed
+  // attempt. A bot that cannot see iron never sees this milestone.
+  //
+  // `done` counts raw_iron, NOT iron_ore. Mining the ore drops raw_iron, and a
+  // rung that waited for `iron_ore` in the inventory would never complete --
+  // the recorded gather-scores-the-block-not-the-drop trap, which produced
+  // "0 iron in 23 days" when 33 bots were holding raw_iron at the time.
+  rungOf({
+    wants: 'iron_ore',
+    id: 'gather_iron_ore_1',
+    describe: 'Mine iron ore. It drops raw_iron, which smelts into the iron_ingot ' +
+              'an iron_pickaxe needs.',
+    done: b => countItem(b, 'raw_iron') >= 1,
+    progress: b => `${countItem(b, 'raw_iron')}/1 raw_iron`,
+    hint: 'gather with block=iron_ore.',
+  }, b => ironInReach(b) &&
+          (countItem(b, 'stone_pickaxe') >= 1 || countItem(b, 'iron_pickaxe') >= 1 ||
+           countItem(b, 'diamond_pickaxe') >= 1)),
   // IRON. The rung the ladder terminated one step short of; the note below this
   // array explains why it could not be added until `smelt` existed.
   smeltRung('iron_ingot', 'raw_iron', 1,
