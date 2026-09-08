@@ -126,11 +126,23 @@ export const PROBE_SLATE = 4         // heuristic AND isEnd are O(goals) per nod
                                      // RAYCASTS. 12 gave 22.6% `partial` on healthy bots, burning
                                      // visited p50=1417 for a target 6.1 blocks away, while
                                      // successes take visited p50=1. The slate was oversized.
-export const PROBE_TIMEOUT_MS = 1500 // vs thinkTimeout 5000: this is a probe, not a plan
+export const PROBE_TIMEOUT_MS = 600  // vs thinkTimeout 5000: this is a probe, not a plan.
+                                     // CUT FROM 1500 WHEN isEnd STARTED RAYCASTING. There is no
+                                     // node cap in this A*, so the wall clock IS the node cap --
+                                     // and every node just became up to 12 raycasts (3 faces x 4
+                                     // goals). The expensive case is the search that FAILS: the
+                                     // old slate produced visited p50=1417 for a target 6.1
+                                     // blocks away. A probe that cannot answer cheaply must stop
+                                     // asking, because an undecided probe costs nothing (no
+                                     // reorder) while a slow one costs every bot on the host.
 export const PROBE_RADIUS = 96        // searchRadius is -1 (unlimited) everywhere else in this
                                      // repo, which is how one gather reached 3.3GB and OOMed
                                      // four times
-export const PROBE_PUMPS = 6         // bounded resumes of a `partial` search; see probeReachable
+export const PROBE_PUMPS = 2         // bounded resumes of a `partial` search; see probeReachable.
+                                     // Also cut for the raycast cost: each resume is another
+                                     // tickTimeout slice of 12-raycast nodes. Fewer pumps means
+                                     // more `partial`, which is the SAFE direction -- partial
+                                     // reorders nothing and leaves behaviour exactly as it was.
 
 /**
  * Ask A* which candidate the bot can actually WALK to. Returns a hit or null.
