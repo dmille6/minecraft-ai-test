@@ -31,9 +31,9 @@ test('ZERO BLOCKS is required, because one block outranks the bottom rung', () =
   // Holding even one placeable block puts pillar_up above step_off, so reaching
   // the bottom WITH blocks means something else is wrong and killing the bot
   // would not fix it.
-  const i = CODE.indexOf("kind: 'last_resort_drop'")
+  const i = CODE.indexOf("'last_resort_drop'")
   assert.ok(i > 0, 'POSITIVE CONTROL: the last-resort block must exist')
-  assert.match(CODE.slice(Math.max(0, i - 900), i), /plan === 'step_off' && est\.blocks === 0/)
+  assert.match(CODE.slice(Math.max(0, i - 1400), i), /terminal \? est\.blocks === 0 : plan !== 'none'/)
   // and the lattice must actually behave that way
   assert.equal(escapePlan({ trapped: true, columnOpen: true, blocks: 99, climbNeed: 24 }), 'pillar_up')
   assert.equal(escapePlan({ trapped: true, blocks: 0 }), 'step_off')
@@ -43,11 +43,15 @@ test('it fires ONLY on the bottom rung, which means nothing survivable is left',
   // SCOPED to the last-resort block. An unscoped match passed against the
   // step_off COOLDOWN check elsewhere in this file, so a mutant that made the
   // branch unconditional survived -- the assertion was reading the wrong line.
-  const i = CODE.indexOf("kind: 'last_resort_drop'")
+  const i = CODE.indexOf("'last_resort_drop'")
   assert.ok(i > 0, 'POSITIVE CONTROL: the last-resort block must exist')
   const block = CODE.slice(Math.max(0, i - 900), i)
-  assert.match(block, /if \(plan === 'step_off' && est\.blocks === 0\) \{/,
-    'any plan other than the unconditional bottom must not take a fatal drop')
+  // The branch now runs every rung the lattice picks, but the FATAL one keeps
+  // its extra gate: every other rung goes up or is priced against survivable
+  // fall damage, and only step_off can kill.
+  assert.match(block, /const terminal = plan === 'step_off'/)
+  assert.match(block, /if \(terminal \? est\.blocks === 0 : plan !== 'none'\) \{/,
+    'step_off keeps the zero-blocks gate; the survivable rungs do not need it')
   assert.doesNotMatch(block, /if \(true\)/, 'the gate must not be short-circuited')
 })
 
@@ -79,8 +83,14 @@ test('THE CLOCK ONLY RULES OUT A TRANSIENT -- it cannot prove terminal', () => {
 })
 
 test('and it says what it is doing, because this one kills a bot on purpose', () => {
-  assert.match(CODE, /kind: 'last_resort_drop'/)
-  assert.match(CODE, /kind: 'last_resort_result'/)
+  // Both names still exist; the branch now also has non-fatal siblings, so the
+  // fatal pair must remain distinguishable in telemetry from an ordinary rung.
+  assert.match(CODE, /'last_resort_drop'/)
+  assert.match(CODE, /'last_resort_result'/)
+  assert.match(CODE, /'stranded_escape_try'/)
+  assert.match(CODE, /'stranded_escape_result'/)
+  assert.match(CODE, /terminal \? 'last_resort_drop' : 'stranded_escape_try'/,
+    'the fatal drop and a survivable rung must not share an event kind')
 })
 
 test('IT IS REACHABLE FOR A MAROONED BOT -- which is the only kind it is for', () => {
@@ -92,7 +102,7 @@ test('IT IS REACHABLE FOR A MAROONED BOT -- which is the only kind it is for', (
   // Walks the enclosing braces rather than eyeballing the diff, because
   // eyeballing the diff is exactly what missed it.
   const lines = SRC.split('\n')
-  const target = lines.findIndex(l => l.includes("kind: 'last_resort_drop'"))
+  const target = lines.findIndex(l => l.includes("'last_resort_drop'"))
   assert.ok(target > 0, 'POSITIVE CONTROL: the last-resort branch must exist')
   let depth = 0
   const opens = []

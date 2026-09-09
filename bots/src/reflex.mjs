@@ -2014,23 +2014,44 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // cannot catch and which would have taken the whole loop down.
         const est = observeEscapeState(bot)
         const plan = est.trapped ? escapePlan(est) : 'none'
-        // ZERO BLOCKS is the half that makes this terminal rather than merely
-        // slow. Holding even one placeable block puts `pillar_up` above the
-        // bottom rung, so reaching `step_off` WITH blocks means something else
-        // is wrong and killing the bot would not fix it.
-        if (plan === 'step_off' && est.blocks === 0) {
+        // EVERY SURVIVABLE RUNG, NOT JUST THE FATAL ONE.
+        //
+        // board-c-Alpha proved the lattice's judgement on a real bot: it chose
+        // the shallowest of four edges, fell 23 blocks, survived at full health
+        // and was moving again within minutes. The two bots still stranded are
+        // at y=-19 and y=44 -- far below the ceiling that keeps the main lattice
+        // branch away from them -- and the lattice has an answer for both
+        // (`stair_up`: they have walls to cut into). It was never being asked.
+        //
+        // Every rung except `step_off` is non-fatal by construction: dig_down
+        // and ride_floor_down are priced against survivable(health), and
+        // stair_up, climb_ladder and pillar_up all go UP.
+        //
+        // ZERO BLOCKS stays as the extra gate on `step_off` ALONE, because it is
+        // the only rung that can kill. Holding even one placeable block puts
+        // `pillar_up` above the bottom, so reaching the bottom WITH blocks means
+        // something else is wrong and killing the bot would not fix it.
+        const terminal = plan === 'step_off'
+        if (terminal ? est.blocks === 0 : plan !== 'none') {
           lastMaroonPrereqAt = Date.now()
           const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
           logEvent({
-            kind: 'last_resort_drop', status: 'success',
+            kind: terminal ? 'last_resort_drop' : 'stranded_escape_try', status: 'success',
             detail: `stranded ${hrs}h at y=${Math.round(bot.entity.position.y)} with no ` +
-                    `survivable escape (plan=${plan}, blocks=${est.blocks}, nothing to build with, ` +
-                    `drop=${est.underfootDrop ?? 'unmeasured'}); taking the fall ` +
-                    `deliberately — a respawned bot works and a stranded one does not`,
+                    `escape (plan=${plan}, blocks=${est.blocks}, ` +
+                    `drop=${est.underfootDrop ?? 'unmeasured'})` +
+                    (terminal
+                      ? '; nothing to build with, taking the fall deliberately — a respawned ' +
+                        'bot works and a stranded one does not'
+                      : '; running the rung the lattice chose, which the ceiling gate never let it try'),
             snapshot: snapshot(bot),
           })
-          const r = await ESCAPE_ROUTINES.step_off(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
-          logEvent({ kind: 'last_resort_result', status: r?.ok ? 'success' : 'failed',
+          const routine = ESCAPE_ROUTINES[plan]
+          const r = routine
+            ? await routine(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
+            : { ok: false, why: `no routine for ${plan}` }
+          logEvent({ kind: terminal ? 'last_resort_result' : 'stranded_escape_result',
+                     status: r?.ok ? 'success' : 'failed',
                      detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
           strandedFrom = null; strandedSince = 0
           return
