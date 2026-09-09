@@ -1641,7 +1641,16 @@ async function deposit(ctx, { item = null }, signal) {
   // Still logged distinctly so "arrived empty" stays countable and never
   // silently inflates the success rate of real transfers.
   if (eligible === 0) {
-    return { status: 'success', failClass: null,
+    // `no_effect`, NOT `success`. The contract for deposit expects
+    // inventory_loss, and the evidence gate downgrades a success that produces
+    // none -- so calling this a success made the number WORSE, not better:
+    // deposit read 1.1% in the window after that change against 7.3% before.
+    //
+    // `no_effect` is the status this codebase already has for exactly this:
+    // "deliberately matches NEITHER branch. It is not a success". The bot did
+    // what was asked and there was nothing to do, which is neither an
+    // achievement nor a fault, and it should not be counted as either.
+    return { status: 'no_effect', failClass: null,
              detail: item
                ? `nothing matching ${item} to hand over — nothing to deposit`
                : 'nothing worth banking — nothing to deposit' }
@@ -2142,6 +2151,23 @@ async function place(ctx, { item, x, y, z }, signal) {
   //     name.
   const solid = b => b != null && b.boundingBox === 'block'
   const replaceable = b => placeableInto(b)
+
+  // LAND FIRST. TWO THIRDS OF THE REFUSALS WERE A BOT IN MID-AIR.
+  //
+  // With the failure finally naming what it saw, the population is unambiguous:
+  // of 48 logged refusals, 32 reported `no_support=24` with every one of the 24
+  // cells reading `air`, and another 4 reading `water`. A bot with nothing solid
+  // beneath it in ANY of eight directions at three heights is not boxed in --
+  // it is falling, or swimming. The site search was correct and the moment was
+  // wrong.
+  //
+  // So wait for the ground, briefly and boundedly. This cannot rescue a bot that
+  // is genuinely mid-ocean, and it is not meant to: it costs a few hundred
+  // milliseconds and converts the common case, which is a bot that issued
+  // `place` one tick before landing.
+  for (let i = 0; i < 12 && bot.entity?.onGround === false; i++) {
+    await sleep(50, signal)
+  }
 
   let candidates = []
   if ([x, y, z].every(v => Number.isFinite(Number(v)))) {

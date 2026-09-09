@@ -20,9 +20,15 @@ test('POSITIVE CONTROL: the deposit tail is where we think it is', () => {
   assert.match(CODE, /if \(moved > 0\) return \{ status: 'success'/)
 })
 
-test('NOTHING ELIGIBLE is a success, not a failure', () => {
-  assert.match(CODE, /if \(eligible === 0\) \{\s*\n\s*return \{ status: 'success'/,
-    'a bot with nothing depositable completed its task')
+test('NOTHING ELIGIBLE is no_effect -- neither a success nor a failure', () => {
+  // It was briefly `success`, and that made the number WORSE: deposit's contract
+  // expects inventory_loss and the evidence gate downgrades a success that
+  // produces none, so the rate fell 7.3% -> 1.1%. `no_effect` is the status this
+  // codebase already carries for exactly this case.
+  assert.match(CODE, /if \(eligible === 0\) \{[\s\S]{0,700}?return \{ status: 'no_effect'/,
+    'a bot with nothing depositable neither achieved nor failed anything')
+  assert.doesNotMatch(CODE, /if \(eligible === 0\) \{[\s\S]{0,700}?return \{ status: 'success'/,
+    'claiming success against a contract that expects inventory_loss is downgraded anyway')
 })
 
 test('ELIGIBLE BUT NONE MOVED is still a failure, and a DIFFERENT one', () => {
