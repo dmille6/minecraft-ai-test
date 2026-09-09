@@ -592,11 +592,33 @@ export function bucketSituation (bot) {
     const empty = items.filter(i => i.name === 'bucket').reduce((n, i) => n + (i.count ?? 0), 0)
     const full = items.filter(i => i.name === 'water_bucket').reduce((n, i) => n + (i.count ?? 0), 0)
     if (!empty && !full) return ''
+    // NAME THE OPPORTUNITY, NOT JUST THE CAPABILITY.
+    //
+    // The first version said "you have an empty bucket, fill it on a water
+    // source" and the model dutifully tried: 29 of 30 `bucket fill` calls in the
+    // hour after the arg became expressible failed with "not water (air)" or
+    // "not water (stone)". The line named a verb the bot could say and a
+    // situation it was not in.
+    //
+    // So the fill half only appears when a water SOURCE is actually within
+    // reach, checked the same way the skill checks it. An affordance that is not
+    // true where the bot is standing is noise in every decision it makes.
+    const at = (dx, dy, dz) => { try { return bot.blockAt(bot.entity.position.offset(dx, dy, dz)) } catch { return null } }
+    let source = null
+    for (let dy = 1; dy >= -1 && !source; dy--) {
+      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const b = at(dx, dy, dz)
+        // metadata 0 is a SOURCE. Flowing water will not fill a bucket, and
+        // offering it is how the 29 failures happened.
+        if (b && b.name === 'water' && b.metadata === 0) { source = true; break }
+      }
+    }
     const parts = []
     if (full) parts.push(`${full} water_bucket — bucket action=pour places a water source in a ` +
                          `free cell within reach; you can ride it down instead of falling`)
-    if (empty) parts.push(`${empty} empty bucket — bucket action=fill on a water SOURCE within ` +
-                          `reach (flowing water will not fill it)`)
+    if (empty && source) parts.push(`${empty} empty bucket AND a water source within reach — ` +
+                                    `bucket action=fill takes it`)
+    if (!parts.length) return ''
     return `CARRYING A BUCKET: ${parts.join('. ')}.`
   } catch { return '' }
 }

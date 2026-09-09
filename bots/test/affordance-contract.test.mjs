@@ -74,7 +74,10 @@ function botIn ({ block = 'stone', inv = {}, at = [633, 70, 276],
     // Uniform terrain: whatever the bot is standing in, it is standing in it for
     // as far as any ring scan can see. That is what makes "open water with no
     // shore" a state a fixture can actually express.
-    blockAt: (v) => ({ name: block, boundingBox: solid ? 'block' : 'empty',
+    // `metadata: 0` means a SOURCE block. Without it nothing here could tell a
+    // water source from flowing water, and flowing water will not fill a bucket
+    // -- so a fixture that omits it cannot test the distinction the skill makes.
+    blockAt: (v) => ({ name: block, boundingBox: solid ? 'block' : 'empty', metadata: 0,
                        position: v ?? pos, type: mcData.blocksByName[block]?.id }),
     findBlock: () => storageAt,
     findBlocks: () => [],
@@ -93,12 +96,15 @@ const CRAFTABLE = { cobbled_deepslate: 24, stick: 6, crafting_table: 99 }
 const CHEST = { position: Vec3(640, 70, 280) }
 
 const STATES = {
-  holds_bucket: {
-    // A bucket is useless to a bot that does not carry one, and 78 of 80 bots
-    // never have. The line must appear for the two that do and stay silent for
-    // everyone else -- the swim_to zero-crossing bug wearing another mask.
-    eligible: () => botIn({ inv: { bucket: 1, cobblestone: 12 } }),
-    ineligible: () => botIn({ inv: { iron_ingot: 2, cobblestone: 12 } }),
+  bucket_and_water: {
+    // A bucket is useless without one, AND useless without water to put in it.
+    // The first version of this fixture required only the bucket, and the live
+    // fleet then produced 29 of 30 `bucket fill` calls failing "not water
+    // (air)": the observation named a verb the bot could say and a situation it
+    // was not in. Eligibility is now both halves, like the line itself.
+    eligible: () => botIn({ block: 'water', inv: { bucket: 1, cobblestone: 12 } }),
+    // A bucket and no water is INELIGIBLE -- that is the whole correction.
+    ineligible: () => botIn({ block: 'stone', inv: { bucket: 1, cobblestone: 12 } }),
   },
   in_water: {
     eligible: () => botIn({ block: 'water', at: [900, 62, 900] }),

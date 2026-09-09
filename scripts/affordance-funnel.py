@@ -79,8 +79,8 @@ def _inv(rec):
     return (rec.get("bot") or {}).get("inventory") or {}
 
 
-def holds_bucket(rec):
-    """Carrying a bucket, empty or full.
+def bucket_and_water(rec):
+    """Carrying a bucket AND water in reach.
 
     Reads the INVENTORY off the logged snapshot, deliberately not the prompt
     line, so eligibility and visibility never come from the same function. Both
@@ -91,7 +91,14 @@ def holds_bucket(rec):
     because holding the item is the whole condition.
     """
     inv = _inv(rec)
-    return (inv.get("bucket", 0) or 0) > 0 or (inv.get("water_bucket", 0) or 0) > 0
+    has = (inv.get("bucket", 0) or 0) > 0 or (inv.get("water_bucket", 0) or 0) > 0
+    if not has:
+        return False
+    # A full bucket can always be poured, so water in reach is only required for
+    # the empty case. Same split the prompt line makes.
+    if (inv.get("water_bucket", 0) or 0) > 0:
+        return True
+    return in_water(rec)
 
 
 def in_water(rec):
@@ -202,7 +209,7 @@ def can_smelt(rec):
 
 
 RULES = {
-    "holds_bucket": holds_bucket,
+    "bucket_and_water": bucket_and_water,
     "in_water": in_water,
     "can_craft_stone_tier": can_craft_stone_tier,
     "bankable_surplus": bankable_surplus,
@@ -210,7 +217,7 @@ RULES = {
 }
 
 APPROXIMATION = {
-    "holds_bucket": "exact: holding the item is the whole condition",
+    "bucket_and_water": "over-counts like in_water: a shoreline reads water at distance 0-1",
     "in_water": "over-counts: a shoreline reads water at distance 0-1",
     "can_craft_stone_tier": "counts blocks and sticks by hand, not the recipe book",
     "bankable_surplus": "needs a home position; records without one count as unknown",

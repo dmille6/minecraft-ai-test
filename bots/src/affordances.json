@@ -68,8 +68,8 @@
     {
       "skill": "bucket",
       "observation": "CARRYING A BUCKET:",
-      "eligibility": "holds_bucket",
-      "why": "A bucket is the first tool this fleet has that ACTS on water rather than reacting to it, and it is useless to a bot that does not carry one. Gated on the inventory line rather than offered unconditionally, because 78 of 80 bots have never held one and a verb they cannot perform is noise in every decision they make. It is a contract and not an unconditional entry for the same reason swim_to is: the observation that names it is already printed."
+      "eligibility": "bucket_and_water",
+      "why": "A bucket is the first tool this fleet has that ACTS on water rather than reacting to it, and it is useless both to a bot that does not carry one and to a bot with no water in reach. The first version gated on the bucket alone, and the fleet answered immediately: 29 of 30 `bucket fill` calls failed with 'not water (air)'. Naming a verb the bot can say in a situation it is not in is noise in every decision it makes, so eligibility is both halves."
     }
   ],
   "unconditional": {
