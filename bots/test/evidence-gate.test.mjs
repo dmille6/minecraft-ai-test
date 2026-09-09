@@ -417,6 +417,46 @@ await t('the upgrade asks the contract, not merely "did anything change"', async
     'goto expects position; picking something up on the spot is not arriving')
 })
 
+await t('a travel abort that merely DRIFTED is not upgraded', async () => {
+  // The bound that was missing for the first six hours this branch was live.
+  // `position` counts as evidence at two blocks, so an aborted swim scored
+  // "drowning — but position: moved 2 blocks ... so it worked". 78% of
+  // swim_to's successes were that, and removing them put it back at 12.3%.
+  const bot = runnerBot()
+  const moved = V(509, 68, 500)          // 9 blocks: comfortably past the 2 bar
+  const r = await withSkill('swim_to', async () => {
+    bot.entity.position = moved
+    return { status: 'aborted', detail: 'drowning' }
+  }, () => new Runner(bot).run('swim_to', { x: 900, y: 68, z: 900 }))
+  assert.notEqual(r.status, 'success',
+    'swim_to expects position only; drifting is not arriving, and the bot kept nothing')
+})
+
+await t('but an abort that BANKED something still is', async () => {
+  // The contrast that makes the rule a rule rather than a retreat: four logs in
+  // the bag survive the abort. That is the whole distinction.
+  const inv = []
+  const bot = runnerBot({ inventory: inv })
+  const r = await withSkill('gather', async () => {
+    inv.push({ name: 'oak_log', count: 4 })
+    return { status: 'aborted', detail: 'interrupted by the air reflex' }
+  }, () => new Runner(bot).run('gather', { block: 'oak_log', count: 16 }))
+  assert.equal(r.status, 'success', 'durable evidence still overturns an abort')
+})
+
+await t('DURABLE_EVIDENCE matches what because.push actually writes', async () => {
+  // A regex against strings built elsewhere rots silently. Lock the prefixes.
+  const { DURABLE_EVIDENCE } = await import('../src/skills.mjs')
+  for (const good of ['inventory_gain: oak_log +4', 'inventory_loss: dirt -2',
+                      'world_change: 1 block(s) read back from the world',
+                      'memory_change: adopted 1, filed 0']) {
+    assert.ok(DURABLE_EVIDENCE.test(good), `should be durable: ${good}`)
+  }
+  for (const bad of ['position: moved 47 blocks', 'survival: health 2, food 0']) {
+    assert.ok(!DURABLE_EVIDENCE.test(bad), `must NOT be durable: ${bad}`)
+  }
+})
+
 fs.rmSync(TMP, { recursive: true, force: true })
 console.log(`\n  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

@@ -7,7 +7,7 @@
 // Handoff doc S12 wants watchdogs for: task running beyond expected duration,
 // repeated failure, and agent paused after repeated failures. All three live here.
 
-import { SKILLS, SKILL_CONTRACTS, classifyOutcome } from './skills.mjs'
+import { SKILLS, SKILL_CONTRACTS, classifyOutcome, DURABLE_EVIDENCE } from './skills.mjs'
 import { logSkill, log, logEvent } from './logger.mjs'
 import { snapshot, perception, biomeAt, inventorySummary } from './state.mjs'
 import { HARD_STOP_GRACE_MS, hardStopResult } from './hard-stop.mjs'
@@ -322,7 +322,7 @@ export class Runner {
         detail: `${result.detail ?? ''} — but nothing changed that ${skillName} exists to change ` +
                 `(expected ${expects}); cannot tell whether it worked`,
       }
-    } else if (contractEvidence.length &&
+    } else if (contractEvidence.some(b => DURABLE_EVIDENCE.test(b)) &&
                (result.status === 'aborted' || result.status === 'unknown')) {
       // THE GATE SWINGS BOTH WAYS, OR IT IS NOT A GATE.
       //
@@ -334,6 +334,20 @@ export class Runner {
       // bots) put ore in the bag, and 256 of 862 `aborted` gathers (29.7%, 55
       // bots) came home with items. `mine` reads 25.8% and is nearer 57%. We
       // have been steering a fleet by a number that could only fall.
+      //
+      // DURABLE EVIDENCE ONLY, and this bound was missing for the first six
+      // hours this branch was live. `position` counts as contract evidence at
+      // two blocks, so an aborted swim scored:
+      //     drowning — but position: moved 2 blocks ... so it worked
+      // A bot the reflex dragged two blocks while it was drowning did not
+      // travel anywhere. Measured before the bound: 78% of swim_to's successes
+      // were this, and stripping them puts it back at 12.3% -- exactly where it
+      // has always been. I manufactured that improvement.
+      //
+      // The line is whether the bot STILL HAS the thing afterwards. Four logs
+      // in the bag survive the abort; two blocks of drift toward an unreached
+      // goal survive nothing. Downgrades are untouched: refusing to overturn an
+      // abort needs stronger proof than refusing to trust a claim.
       //
       // ONLY `aborted` AND `unknown`, NEVER `failed`, and that distinction is
       // the whole safety of this branch. `unknown` says in as many words that

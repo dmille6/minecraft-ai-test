@@ -4473,6 +4473,22 @@ export const SKILL_CONTRACTS = {
  * the point of use. Making the classifier show its work is what makes that
  * class of bug queryable instead of invisible.
  */
+/**
+ * Evidence of something the bot STILL HAS once the call is over.
+ *
+ * Position is not on this list and that is the whole point. A bot that gained
+ * four logs keeps them; a bot that moved two blocks toward a goal it never
+ * reached kept nothing. The distinction only matters in one place -- the
+ * runner's UPGRADE branch, which overturns an abort -- and getting it wrong
+ * there scored `drowning — but position: moved 2 blocks` as a successful swim.
+ * That single loophole took swim_to from 12.3% to 55.9% overnight and none of
+ * it was real.
+ *
+ * The prefixes are the ones `because.push` writes below; args-sayable style
+ * tests keep the two in step.
+ */
+export const DURABLE_EVIDENCE = /^(inventory_gain|inventory_loss|world_change|memory_change):/
+
 export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (status === 'failed' || status === 'aborted') return { value: 'failure', because: [] }
   if (status === 'no_effect') return { value: 'neutral', because: [] }
