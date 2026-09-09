@@ -84,6 +84,26 @@ export const PATHFINDER_SCAFFOLD = [
   'stone', 'andesite', 'diorite', 'granite', 'deepslate', 'cobbled_deepslate',
   'tuff', 'netherrack', 'sandstone', 'red_sandstone', 'dripstone_block',
   'coarse_dirt', 'rooted_dirt',
+  // WOOD WAS MISSING, and wood is what this fleet actually carries.
+  //
+  // The list above is entirely stone-family. Measured across all 80 bots:
+  // 81.2% already hold something on it -- so this is NOT the cause of the
+  // fleet's no-legal-move events, and I am not claiming it is. But 16.2% (13
+  // bots) hold WOOD and nothing else the pathfinder will accept, and for those
+  // bots A* cannot plan a tower or a bridge at all. oak_log alone is carried by
+  // 62 of 80 bots.
+  //
+  // Planks and logs are legitimate here for the same reason stone is: they do
+  // not obey gravity, so a bridge built from them does not fall out from under
+  // the bot. That is the ONLY property this list is about -- see FALLING below,
+  // which is why sand and gravel stay off it despite being carried by 62 bots.
+  'oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
+  'acacia_planks', 'dark_oak_planks', 'cherry_planks', 'mangrove_planks',
+  'bamboo_planks', 'crimson_planks', 'warped_planks',
+  'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
+  'dark_oak_log', 'cherry_log', 'mangrove_log',
+  // Common non-falling stone the list simply had not enumerated.
+  'mossy_cobblestone', 'stone_bricks', 'smooth_stone', 'blackstone', 'basalt',
 ]
 
 /** Blocks that obey gravity: never plannable as a bridge. */
