@@ -133,6 +133,27 @@ export function skillSchema(skillNames) {
           // Bot names carry hyphens (`placebo-d-Echo`), so the class is wider
           // here than for block and item names, and 24 covers the longest.
           player: { type: 'string', maxLength: 24, pattern: '^[A-Za-z0-9_-]{1,24}$' },
+          // THREE SKILLS DECLARED ARGS THE GRAMMAR FORBADE, AND SO COULD NOT BE USED.
+          //
+          // `additionalProperties: false` compiles into the GBNF, so an arg that
+          // is not listed here is not merely ignored -- it is UNSAYABLE. The
+          // model cannot emit it however clearly the prompt asks.
+          //
+          // Measured: `bucket` ran 63 times across 21 bots and failed 63 times,
+          // every one with `action` empty, because `action` was not in this
+          // object. `build` declares `plan` and could never receive one, which
+          // is a large part of why the fleet placed 84 blocks in twelve hours.
+          // And `explore` declares `blocks`, which is the arg this project's
+          // own notes blamed the model for "usually omitting" -- it was never
+          // able to send it, and every failed explore therefore collapsed onto
+          // the single avoid key `explore:{}`.
+          //
+          // ENUMS RATHER THAN FREE STRINGS, for the same reason the patterns
+          // above exist: an enum makes every wrong value unsayable instead of
+          // merely invalid, so there is no debris to clean up afterwards.
+          action: { type: 'string', enum: ['fill', 'pour'] },
+          plan: { type: 'string', enum: ['shelter', 'wall', 'pillar'] },
+          blocks: { type: 'integer' },
         },
         additionalProperties: false,
       },
