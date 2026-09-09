@@ -139,9 +139,15 @@ await t('a bot that digs but cannot move STOPS, and does not report success', as
 await t('and it stops after ONE step, rather than carving a wider shaft', async () => {
   const bot = mineWorld({ canMove: false })
   await run(bot, 40)
-  // One tread + one headroom cell. The old loop would have run all 90 steps.
-  assert.ok(bot._digs.length <= 2,
-    `dug ${bot._digs.length} blocks while going nowhere — that is the widened shaft`)
+  // COUNT CELLS, NOT CALLS. What this guards is the WIDTH of the shaft: the old
+  // loop ran all 90 steps, cutting a fresh tread from a new position each time
+  // and leaving a trench. Re-digging the SAME cell -- which the desync recovery
+  // does, once, because the server may not have accepted the first dig -- does
+  // not widen anything, and counting calls made that indistinguishable from
+  // carving.
+  const cells = new Set(bot._digs.map(d => `${d.position?.x},${d.position?.y},${d.position?.z}`))
+  assert.ok(cells.size <= 2,
+    `dug ${cells.size} distinct cells while going nowhere — that is the widened shaft`)
 })
 
 await t('drifting sideways is not arriving, and the descent stops', async () => {

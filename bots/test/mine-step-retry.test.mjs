@@ -29,9 +29,14 @@ test('the arrival check waits for the LANDING, not a flat sleep', () => {
   // The retry was reverted (mine success 27.8% -> 17.8%), so there is one
   // settle now, not two. The settle itself stays: it fixed a real measurement
   // bug, proven by the escape rungs going 0.7% -> 92.9% on the same change.
+  // Two again: the step itself, and the desync recovery that follows it. The
+  // recovery is a re-dig plus a sub-second impulse, NOT the 5s goto that was
+  // reverted for taking mine success from 27.8% to 17.8%.
   const waits = CODE.match(/await settleForFall\(bot, before\.y, \{ maxMs: STEP_SETTLE_MS \}\)/g) ?? []
-  assert.equal(waits.length, 1,
-    `the step must wait for the landing; found ${waits.length}`)
+  assert.equal(waits.length, 2,
+    `the step and its recovery must both wait for the landing; found ${waits.length}`)
+  assert.doesNotMatch(CODE, /what: 'retaking the stair step'/,
+    'the 5-second goto retry must not come back')
   // Scoped to the staircase, because an unrelated sleep(250) elsewhere in this
   // file is legitimate and forbidding it globally is the over-broad predicate
   // this project keeps re-inventing.
@@ -49,3 +54,26 @@ test('the settle budget covers a one-block fall in production', async () => {
   assert.ok(inTests <= 100, 'tests must not pay 900ms per step')
 })
 
+
+test('THE RECOVERY TARGETS ONE POPULATION: the bot that never moved', () => {
+  // The step failures are bimodal -- p50 moved 0.00 (server did not accept the
+  // dig) and p90 moved 0.99 (walked over the lip, still falling). The settle
+  // fixes the second. The re-dig is only right for the FIRST: handing another
+  // dig to a bot that moved and landed somewhere wrong is a different bug and
+  // spends budget on it.
+  assert.match(CODE, /if \(!arrived && moved < 0\.3\)/,
+    'the desync recovery must be gated on the bot having stayed put')
+})
+
+test('the recovery is BOUNDED, and its cost is measured not assumed', () => {
+  // The reverted version cost ~5s per failed step and took mine success from
+  // 27.8% to 17.8%. Re-dig plus impulse, both clamped off the skill budget.
+  assert.match(CODE, /const STEP_REDIG_MS = /)
+  assert.match(CODE, /const STEP_IMPULSE_MS = /)
+  assert.match(CODE, /stepRecoverMs \+= Date\.now\(\) - t0/,
+    'the recovery must record what it cost, so the revert condition is checkable')
+  const prodRedig = Math.max(60, Math.min(600, Math.floor(180000 / 300)))
+  const prodImpulse = Math.max(30, Math.min(350, Math.floor(180000 / 500)))
+  assert.ok(prodRedig + prodImpulse <= 1000,
+    `re-dig plus impulse is ${prodRedig + prodImpulse}ms; the review's budget was under a second`)
+})

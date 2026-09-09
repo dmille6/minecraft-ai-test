@@ -317,6 +317,11 @@ const WORTH_TUNNELLING = /(_ore|^ancient_debris$)/
 // otherwise pay the full settle on every step of every staircase, and a suite
 // that takes two minutes to say "unverified" is a suite nobody runs.
 const STEP_SETTLE_MS = Math.max(50, Math.min(900, Math.floor(config.skills.defaultTimeoutMs / 3)))
+// The recovery budget, and it is the whole difference between this and the
+// version that was reverted: a re-dig plus a shove, not a re-plan. Both clamp
+// with the skill budget so the test runner does not pay production timings.
+const STEP_REDIG_MS = Math.max(60, Math.min(600, Math.floor(config.skills.defaultTimeoutMs / 300)))
+const STEP_IMPULSE_MS = Math.max(30, Math.min(350, Math.floor(config.skills.defaultTimeoutMs / 500)))
 const COLLECT_MS = 40_000
 const BARREN_LIMIT = 3
 
@@ -2899,6 +2904,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // How many steps only worked on the RETRY. Counted so the server-desync
   // share is measurable rather than inferred from the absence of failures.
   let stepRetries = 0
+  // Total ms spent recovering. Pre-registered as a revert condition: if this
+  // grows, the recovery is the new budget problem rather than the fix for one.
+  let stepRecoverMs = 0
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
     check(signal)
     steps++
@@ -3093,18 +3101,59 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     moved = Math.hypot(now.x - before.x, now.z - before.z)
     let arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
 
-    // THE RETRY IS REVERTED, AND ITS OWN NUMBER SAYS WHY.
+    // A SURGICAL RECOVERY, NOT THE 5-SECOND ONE I ALREADY REVERTED.
     //
-    // Re-digging the pair and re-walking cost a dig plus a 5s goto on every
-    // failed step, and `mine` runs against a budget: measured over 1.20h before
-    // and 0.84h after, mine success went 27.8% -> 17.8% and successes per hour
-    // fell 134 -> 80. The pre-registered revert condition was "mine success
-    // falls below 29.4%", so this comes out.
+    // The first attempt at this re-dug the pair and re-ran a full `goto`, which
+    // cost about five seconds per failed step inside a skill that runs on a
+    // budget. Measured: mine success 27.8% -> 17.8%, successes per hour 134 ->
+    // 80, and it was reverted against its own pre-registered threshold.
     //
-    // What it was chasing is real -- half these failures are a bot that never
-    // moved, which is the local-cache dig desync -- but paying five seconds per
-    // occurrence inside a budgeted skill costs more descents than it rescues.
-    // The cheap half stays: waiting for the landing before judging the step.
+    // What it was chasing is still real and still the largest single failure in
+    // this file: half of these are a bot that never moved, because mineflayer
+    // writes air into the LOCAL block cache on a dig timer with no server
+    // acknowledgement, so the client routes into a cell the server still has
+    // filled. 60% of all mine failures are this one line, which at a 70.6%
+    // failure rate is roughly 42 percentage points of every mine attempt.
+    //
+    // So: retry the BLOCK-STATE TRANSITION, not the movement plan. Re-dig the
+    // one suspect cell on a small budget, then push into it with a brief
+    // control impulse rather than asking the planner for a route to a cell one
+    // step away. Total added cost is bounded under a second, against the five
+    // that failed.
+    if (!arrived && moved < 0.3) {
+      const t0 = Date.now()
+      const stillThere = bot.blockAt(cellFeet)
+      if (stillThere && stillThere.boundingBox === 'block') {
+        // needsDrop: false, like the two escape digs. This re-dig wants the HOLE,
+        // not the cobble -- and with the default the harvest watchdog would wait
+        // for a drop that unharvestable stone will never produce, turning a
+        // sub-second recovery into a spin. body-claim.test.mjs caught this.
+        try {
+          await withTimeout(bot.dig(stillThere), STEP_REDIG_MS, bot,
+            { what: 'redigging the tread', needsDrop: false })
+        }
+        catch (e) { if (e.aborted) throw e }
+      }
+      // AN IMPULSE, NOT A PLAN. One step away needs a shove, not a search.
+      try {
+        // Guarded: a missing lookAt must not turn a recovery into a throw that
+        // aborts the whole descent. The impulse is worth trying without it.
+        if (typeof bot.lookAt === 'function') await bot.lookAt(cellFeet.offset(0.5, 0.5, 0.5), true)
+        bot.setControlState('forward', true)
+        await sleep(STEP_IMPULSE_MS, signal)
+      } catch (e) {
+        if (e?.aborted) throw e
+      } finally {
+        try { bot.setControlState('forward', false) } catch { /* released anyway */ }
+      }
+      await settleForFall(bot, before.y, { maxMs: STEP_SETTLE_MS })
+      now = bot.entity.position
+      at = now.floored()
+      moved = Math.hypot(now.x - before.x, now.z - before.z)
+      arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
+      if (arrived) stepRetries++
+      stepRecoverMs += Date.now() - t0
+    }
     if (!arrived) {
       // Do NOT keep digging. Stop, say the step is unverified, and leave the
       // shaft no wider than it already is.
