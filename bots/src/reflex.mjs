@@ -1292,6 +1292,109 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // one hit each. `gather` at radius 96 is what nearly killed the host four
       // times tonight, so this stays small on purpose -- it is a sighting log,
       // not a search.
+      // BEFORE THE WATER REFLEX, AND THAT PLACEMENT IS THE POINT.
+      //
+      // This sat below the drowning handler, which RETURNS from the tick on
+      // every rescue phase. placebo-b-Comet logs 225 `drowning_breathing` and
+      // 226 `water_float` events an hour -- it is inside that rescue almost
+      // every tick -- so the branch was unreachable for it and produced no
+      // attempt at all in the hour after it shipped. Fourth reachability
+      // failure of the night, same root cause each time: code placed without
+      // checking what returns before it.
+      //
+      // Running ahead of the water reflex is safe for exactly one reason: this
+      // fires only after 45 minutes of no movement, and a drowning rescue that
+      // was WORKING would have moved the bot and reset the timer. Thirteen days
+      // at the same coordinates is the evidence that it is not working. A bot
+      // being genuinely rescued never reaches this code.
+      // HOW LONG HAS THIS BOT ACTUALLY BEEN STUCK? Measured from movement,
+      // not from a counter that a retry could reset. Any real displacement
+      // clears it, so a bot that is slowly working its way out never accrues
+      // the timer.
+      {
+        const p = bot.entity?.position
+        if (p) {
+          if (!strandedFrom) { strandedFrom = p.clone(); strandedSince = Date.now() }
+          else if (p.distanceTo(strandedFrom) > STRANDED_EPS) {
+            strandedFrom = p.clone(); strandedSince = Date.now()
+          }
+        }
+      }
+      // THE LAST RESORT, AND IT IS ONLY REACHED WHEN NOTHING ELSE IS LEFT.
+      //
+      // Runs BELOW the climb ceiling too, which the branch above does not,
+      // because a bot stranded for six hours at y=94 is in exactly the
+      // situation this exists for. The lattice is consulted first and its
+      // answer is obeyed: only `step_off` -- the unconditional bottom, which
+      // means every survivable rung was already refused -- is allowed to
+      // proceed into a fatal drop. Anything else and this does nothing.
+      // NOT GATED ON `!marooned`, WHICH IS WHERE THIS LIVED AND WHY IT NEVER RAN.
+      //
+      // The block below only runs for a bot that is NOT already marooned -- and
+      // board-c-Alpha is marooned, which is the entire problem. The branch built
+      // for it excluded it by construction, fired zero times, and I only found
+      // that by walking the enclosing braces rather than by reading the diff.
+      // Third time tonight that correct code sat on a path that never executes,
+      // and this file already carries the rule that would have caught it: log
+      // what the fix WOULD do before building the fix.
+      //
+      // The height check replaces the old `mstate !== 'stranded_high'` test,
+      // which is not in scope out here. Bots above the climb ceiling keep their
+      // own branch below; this one is for everything under it.
+      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && strandedSince &&
+          Date.now() - strandedSince > LAST_RESORT_STRANDED_MS &&
+          Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
+        // `trapped` comes from the lattice's own observation rather than a
+        // separate flag, so this branch and the plan it obeys are reading the
+        // same world. An earlier draft invented `trappedNow`, which does not
+        // exist -- a ReferenceError inside the 500ms reflex, which module load
+        // cannot catch and which would have taken the whole loop down.
+        const est = observeEscapeState(bot)
+        const plan = est.trapped ? escapePlan(est) : 'none'
+        // EVERY SURVIVABLE RUNG, NOT JUST THE FATAL ONE.
+        //
+        // board-c-Alpha proved the lattice's judgement on a real bot: it chose
+        // the shallowest of four edges, fell 23 blocks, survived at full health
+        // and was moving again within minutes. The two bots still stranded are
+        // at y=-19 and y=44 -- far below the ceiling that keeps the main lattice
+        // branch away from them -- and the lattice has an answer for both
+        // (`stair_up`: they have walls to cut into). It was never being asked.
+        //
+        // Every rung except `step_off` is non-fatal by construction: dig_down
+        // and ride_floor_down are priced against survivable(health), and
+        // stair_up, climb_ladder and pillar_up all go UP.
+        //
+        // ZERO BLOCKS stays as the extra gate on `step_off` ALONE, because it is
+        // the only rung that can kill. Holding even one placeable block puts
+        // `pillar_up` above the bottom, so reaching the bottom WITH blocks means
+        // something else is wrong and killing the bot would not fix it.
+        const terminal = plan === 'step_off'
+        if (terminal ? est.blocks === 0 : plan !== 'none') {
+          lastMaroonPrereqAt = Date.now()
+          const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
+          logEvent({
+            kind: terminal ? 'last_resort_drop' : 'stranded_escape_try', status: 'success',
+            detail: `stranded ${hrs}h at y=${Math.round(bot.entity.position.y)} with no ` +
+                    `escape (plan=${plan}, blocks=${est.blocks}, ` +
+                    `drop=${est.underfootDrop ?? 'unmeasured'})` +
+                    (terminal
+                      ? '; nothing to build with, taking the fall deliberately — a respawned ' +
+                        'bot works and a stranded one does not'
+                      : '; running the rung the lattice chose, which the ceiling gate never let it try'),
+            snapshot: snapshot(bot),
+          })
+          const routine = ESCAPE_ROUTINES[plan]
+          const r = routine
+            ? await routine(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
+            : { ok: false, why: `no routine for ${plan}` }
+          logEvent({ kind: terminal ? 'last_resort_result' : 'stranded_escape_result',
+                     status: r?.ok ? 'success' : 'failed',
+                     detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
+          strandedFrom = null; strandedSince = 0
+          return
+        }
+      }
+
       if (worldFacts && throttled('survey', 20000)) {
         for (const name of SURVEY_BLOCKS) {
           const t = bot.registry?.blocksByName?.[name]
@@ -1970,95 +2073,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a journey begin at all", which is what the trap denies and what
       // canStartAPath() measures. Cheap guards first, because that call runs a
       // real search and this loop ticks twice a second.
-        // HOW LONG HAS THIS BOT ACTUALLY BEEN STUCK? Measured from movement,
-      // not from a counter that a retry could reset. Any real displacement
-      // clears it, so a bot that is slowly working its way out never accrues
-      // the timer.
-      {
-        const p = bot.entity?.position
-        if (p) {
-          if (!strandedFrom) { strandedFrom = p.clone(); strandedSince = Date.now() }
-          else if (p.distanceTo(strandedFrom) > STRANDED_EPS) {
-            strandedFrom = p.clone(); strandedSince = Date.now()
-          }
-        }
-      }
-      // THE LAST RESORT, AND IT IS ONLY REACHED WHEN NOTHING ELSE IS LEFT.
-      //
-      // Runs BELOW the climb ceiling too, which the branch above does not,
-      // because a bot stranded for six hours at y=94 is in exactly the
-      // situation this exists for. The lattice is consulted first and its
-      // answer is obeyed: only `step_off` -- the unconditional bottom, which
-      // means every survivable rung was already refused -- is allowed to
-      // proceed into a fatal drop. Anything else and this does nothing.
-      // NOT GATED ON `!marooned`, WHICH IS WHERE THIS LIVED AND WHY IT NEVER RAN.
-      //
-      // The block below only runs for a bot that is NOT already marooned -- and
-      // board-c-Alpha is marooned, which is the entire problem. The branch built
-      // for it excluded it by construction, fired zero times, and I only found
-      // that by walking the enclosing braces rather than by reading the diff.
-      // Third time tonight that correct code sat on a path that never executes,
-      // and this file already carries the rule that would have caught it: log
-      // what the fix WOULD do before building the fix.
-      //
-      // The height check replaces the old `mstate !== 'stranded_high'` test,
-      // which is not in scope out here. Bots above the climb ceiling keep their
-      // own branch below; this one is for everything under it.
-      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && strandedSince &&
-          Date.now() - strandedSince > LAST_RESORT_STRANDED_MS &&
-          Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
-        // `trapped` comes from the lattice's own observation rather than a
-        // separate flag, so this branch and the plan it obeys are reading the
-        // same world. An earlier draft invented `trappedNow`, which does not
-        // exist -- a ReferenceError inside the 500ms reflex, which module load
-        // cannot catch and which would have taken the whole loop down.
-        const est = observeEscapeState(bot)
-        const plan = est.trapped ? escapePlan(est) : 'none'
-        // EVERY SURVIVABLE RUNG, NOT JUST THE FATAL ONE.
-        //
-        // board-c-Alpha proved the lattice's judgement on a real bot: it chose
-        // the shallowest of four edges, fell 23 blocks, survived at full health
-        // and was moving again within minutes. The two bots still stranded are
-        // at y=-19 and y=44 -- far below the ceiling that keeps the main lattice
-        // branch away from them -- and the lattice has an answer for both
-        // (`stair_up`: they have walls to cut into). It was never being asked.
-        //
-        // Every rung except `step_off` is non-fatal by construction: dig_down
-        // and ride_floor_down are priced against survivable(health), and
-        // stair_up, climb_ladder and pillar_up all go UP.
-        //
-        // ZERO BLOCKS stays as the extra gate on `step_off` ALONE, because it is
-        // the only rung that can kill. Holding even one placeable block puts
-        // `pillar_up` above the bottom, so reaching the bottom WITH blocks means
-        // something else is wrong and killing the bot would not fix it.
-        const terminal = plan === 'step_off'
-        if (terminal ? est.blocks === 0 : plan !== 'none') {
-          lastMaroonPrereqAt = Date.now()
-          const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
-          logEvent({
-            kind: terminal ? 'last_resort_drop' : 'stranded_escape_try', status: 'success',
-            detail: `stranded ${hrs}h at y=${Math.round(bot.entity.position.y)} with no ` +
-                    `escape (plan=${plan}, blocks=${est.blocks}, ` +
-                    `drop=${est.underfootDrop ?? 'unmeasured'})` +
-                    (terminal
-                      ? '; nothing to build with, taking the fall deliberately — a respawned ' +
-                        'bot works and a stranded one does not'
-                      : '; running the rung the lattice chose, which the ceiling gate never let it try'),
-            snapshot: snapshot(bot),
-          })
-          const routine = ESCAPE_ROUTINES[plan]
-          const r = routine
-            ? await routine(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
-            : { ok: false, why: `no routine for ${plan}` }
-          logEvent({ kind: terminal ? 'last_resort_result' : 'stranded_escape_result',
-                     status: r?.ok ? 'success' : 'failed',
-                     detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
-          strandedFrom = null; strandedSince = 0
-          return
-        }
-      }
-
-      if (!escaping && !marooned && !runner.isBusy() &&
+        if (!escaping && !marooned && !runner.isBusy() &&
           Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))

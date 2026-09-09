@@ -63,7 +63,7 @@ test('THE LATTICE STILL PREFERS EVERY SURVIVABLE OPTION', () => {
   assert.equal(escapePlan({ trapped: true, lateralTread: true }), 'stair_up')
   assert.equal(escapePlan({ trapped: true, ladderReady: true }), 'climb_ladder')
   assert.equal(escapePlan({ trapped: true, columnOpen: true, blocks: 99, climbNeed: 24 }), 'pillar_up')
-  assert.equal(escapePlan({ trapped: true, afloat: true }), 'surface_swim')
+  assert.equal(escapePlan({ trapped: true, afloat: true, columnOpen: true }), 'surface_swim')
   // and the bottom, only when none of the above apply
   assert.equal(escapePlan({ trapped: true }), 'step_off')
 })
@@ -125,4 +125,32 @@ test('IT IS REACHABLE FOR A MAROONED BOT -- which is the only kind it is for', (
     'it exists for.')
   assert.doesNotMatch(region, /mstate === /,
     'nor selected by one particular maroon state')
+})
+
+test('NOTHING RETURNS FROM THE TICK BEFORE IT', () => {
+  // The branch first sat below the drowning handler, which returns from the
+  // tick on every rescue phase. placebo-b-Comet logs 225 drowning_breathing and
+  // 226 water_float events an hour -- it is inside that rescue almost every
+  // tick -- so the branch was unreachable for it and produced no attempt at all
+  // in the hour after it shipped.
+  //
+  // That was the FOURTH reachability failure in one night, and every one had the
+  // same root cause: code placed without checking what returns before it. A gate
+  // check is not enough; an early return is just as fatal and is invisible in a
+  // diff. So this counts them.
+  const lines = SRC.split('\n')
+  const mine = lines.findIndex(l => l.includes("'last_resort_drop'"))
+  const tick = lines.findIndex(l => l.includes('const timer = setInterval'))
+  assert.ok(tick >= 0 && mine > tick, 'POSITIVE CONTROL: both landmarks must exist')
+  const early = []
+  for (let i = tick; i < mine; i++) {
+    const raw = lines[i]
+    const st = raw.trim()
+    if (st.startsWith('//')) continue
+    if ((st === 'return' || st.startsWith('return ')) &&
+        (raw.length - raw.trimStart().length) <= 10) early.push(i + 1)
+  }
+  assert.deepEqual(early, [],
+    `these lines return from the tick before the stranded branch is reached, so a ` +
+    `bot that hits any of them can never be rescued: ${early.join(', ')}`)
 })

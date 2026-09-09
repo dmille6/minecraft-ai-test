@@ -124,13 +124,24 @@ test('a free drop stays free for a nearly-dead bot', () => {
                             health: 8, lateralTread: true, canStepOff: true }), 'stair_up')
 })
 
-test('water is terrain, and it outranks everything', () => {
+test('water is terrain, and it outranks everything -- WHEN THERE IS A SURFACE', () => {
   // Owner directive: swimming is travel, the only water reflex is getting air.
   // A floating bot is somewhere that needs traversing, not a bot in danger.
-  assert.equal(escapePlan({ trapped: true, afloat: true, health: 1, canStepOff: true }),
+  assert.equal(escapePlan({ trapped: true, afloat: true, columnOpen: true, health: 1, canStepOff: true }),
     'surface_swim')
-  assert.equal(escapePlan({ trapped: true, afloat: true, underfootSolid: true, underfootDrop: 1 }),
+  assert.equal(escapePlan({ trapped: true, afloat: true, columnOpen: true, underfootSolid: true, underfootDrop: 1 }),
     'surface_swim')
+})
+
+test('BUT A CAPPED SWIMMER IS ENTOMBED AND WET, and must cut its way out', () => {
+  // placebo-b-Delta floated in a sealed flooded pocket at y=44 for thirteen
+  // days. Its first escape attempt ever chose surface_swim and reported
+  // "swam 0.0 blocks on a fixed heading" -- there is nowhere to swim TO.
+  assert.equal(escapePlan({ trapped: true, afloat: true, columnOpen: false, lateralTread: true }),
+    'stair_up')
+  // and a free descent still beats both, because down is cheaper than out
+  assert.equal(escapePlan({ trapped: true, afloat: true, columnOpen: false,
+                            underfootSolid: true, underfootDrop: 1 }), 'dig_down')
 })
 
 test('a SEALED bot never reaches the bottom rung — the ramp is its answer', () => {

@@ -160,7 +160,7 @@ test('BUT DOWN STILL BEATS UP -- climbing produced this population', () => {
 })
 
 test('and water still comes first, because swimming is travel', () => {
-  assert.equal(escapePlan({ trapped: true, afloat: true, ladderReady: true }), 'surface_swim')
+  assert.equal(escapePlan({ trapped: true, afloat: true, columnOpen: true, ladderReady: true }), 'surface_swim')
 })
 
 test('not trapped is still none, ladders or no ladders', () => {

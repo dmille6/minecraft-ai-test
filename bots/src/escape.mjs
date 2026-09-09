@@ -117,7 +117,20 @@ export function escapePlan ({
   // WATER FIRST, and it is not a hazard. The owner's directive is that swimming
   // is travel and the only water reflex is getting air, so a floating bot is not
   // "drowning" -- it is somewhere that needs traversing.
-  if (afloat) return 'surface_swim'
+  //
+  // BUT SWIMMING NEEDS SOMEWHERE TO SURFACE TO.
+  //
+  // placebo-b-Delta has floated in a sealed flooded pocket at y=44 for thirteen
+  // days: four walls and a solid cap. The first escape attempt it has ever been
+  // given, once the ceiling gate stopped excluding it, chose this rung and
+  // reported "swam 0.0 blocks on a fixed heading" -- because there is nowhere to
+  // swim TO. A capped bot in water is not traversing, it is entombed and wet,
+  // and the answer is the same as for any other entombment: cut a way out.
+  //
+  // `columnOpen` is the discriminator and it is already observed. Open water
+  // keeps this rung exactly as it was; a lid sends the bot to the digging rungs
+  // below, which is what it needed all along.
+  if (afloat && columnOpen) return 'surface_swim'
 
   // DOWN BEFORE UP. Climbing produced this population.
   const cap = survivable(health)
