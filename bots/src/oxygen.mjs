@@ -112,3 +112,21 @@ export function installOxygenGuard (bot) {
   bot.__oxygenGuard = api
   return api
 }
+
+/**
+ * A player's air is 300 ticks and mineflayer reports it as `ticks / 15`, so the
+ * bot's own oxygen is always 0-20. Named rather than inlined because the reflex
+ * derives its low-air threshold from it, and a magic 20 in two files is how the
+ * previous version of this drifted.
+ */
+export const AIR_SCALE = 20
+
+/**
+ * A reading no player can produce, and therefore proof that a foreign entity's
+ * air_supply reached this bot -- i.e. that installOxygenGuard is not holding.
+ *
+ * Pure, so the reflex's alarm can be tested without a server.
+ */
+export function outOfScale (reading) {
+  return typeof reading === 'number' && Number.isFinite(reading) && reading > AIR_SCALE
+}

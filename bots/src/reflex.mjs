@@ -8,6 +8,7 @@
 // calmly pathfinding into lava because it is "busy gathering" is the failure
 // mode this layer exists to prevent.
 
+import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
 import { announceHazard } from './comms.mjs'
@@ -433,7 +434,14 @@ function noteReflexInventory(bot, before, cause) {
 // drain meant a bot fell in with full air and got no reflex at all for fifteen
 // seconds.
 //
-// So do not hardcode a number in either unit. `airMax` is the largest value this
+// HISTORICAL: this said "do not hardcode a number in either unit", because
+// oxygenLevel appeared to arrive on two scales. It did -- but the second scale
+// was never the server's. It was other entities' air capacities leaking through
+// mineflayer's unguarded metadata handler (dolphin 4800/15=320, axolotl
+// 6000/15=400). oxygen.mjs fixes that at the source, so there is exactly one
+// unit now and AIR_SCALE names it.
+//
+// Kept as a warning: `airMax` was the largest value this
 // bot has actually reported -- it sits at full on land, which is most of the
 // time -- and the trigger is a fraction of it. That self-calibrates to a 0-20
 // build and a 0-400 build alike, and cannot be silently wrong again.
@@ -1256,7 +1264,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Largest air value this bot has reported. It sits at full whenever the bot is
   // on land, so this converges within seconds of spawning and tells assessAir
   // which scale the server is actually using. See the note above assessAir.
-  let airMax = 20
+  // Fixed, not calibrated -- see the note at the assignment below.
+  const airMax = AIR_SCALE
   let prevHealth = null
   const airSamples = []
   let escaping = false
@@ -1454,20 +1463,44 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // The policy now lives in assessAir(), a pure function of bot state, so it
       // can be asserted without a server. This block is only the plumbing:
       // logging, telemetry, and the control inputs.
-      // AIRMAX MUST BE ABLE TO COME BACK DOWN.
+      // THE SCALE IS FIXED NOW, BECAUSE THE REASON IT VARIED IS FIXED.
       //
-      // This only ever ratcheted UP, so a single anomalous reading -- one
-      // tick-scale value on a build that otherwise reports bubbles -- pinned
-      // airMax at 300 for the life of the process. The trigger is 40% of it, so
-      // the threshold became 120 while every real reading was <= 20, and the
-      // bot believed it was suffocating permanently.
+      // This used to self-calibrate: `airMax = Math.max(20, ...airSamples)` over
+      // a rolling two-minute window. That was the right answer to the wrong
+      // question. The readings never came from two scales the SERVER used --
+      // they came from other species. air_supply is entity metadata index 1 for
+      // every entity type and mineflayer divides it by 15, so a player's 300
+      // ticks give 20, a DOLPHIN's 4800 give 320, and an AXOLOTL's 6000 give
+      // 400. Those are exactly the values this window kept calibrating to.
       //
-      // Track the max over a recent window instead. Self-calibration was the
-      // right idea; making it irreversible was the bug.
+      // One axolotl swimming past therefore poisoned about two minutes of
+      // judgement at a stretch: airMax went to 400, the 40% trigger became 160,
+      // and a genuinely full 20 read as critical for the whole window. Measured
+      // before the fix: 81% of critical-air events carried a denominator above
+      // 20, 74.2% of drowning reflex fires had the bot's head in OPEN AIR, and
+      // the median oxygen AT THE MOMENT OF FIRING was 20 -- completely full.
+      //
+      // oxygen.mjs now drops foreign writes, so bot.oxygenLevel can only be the
+      // bot's own, and a player's own air is always 0-20. Self-calibration has
+      // nothing left to discover.
+      //
+      // A reading above the scale is now IMPOSSIBLE rather than merely unusual,
+      // so it is worth an alarm rather than an accommodation. Silently
+      // recalibrating around it is what hid this for weeks; the whole lesson of
+      // ZeroLooksWrong is that the surprising input should raise, not be
+      // absorbed.
       if (bot.oxygenLevel != null) {
-        airSamples.push(bot.oxygenLevel)
-        if (airSamples.length > 240) airSamples.shift()   // ~2 min at 500ms
-        airMax = Math.max(20, ...airSamples)
+        if (outOfScale(bot.oxygenLevel)) {
+          logEvent({
+            kind: 'oxygen_out_of_scale',
+            status: 'failed',
+            detail: `oxygenLevel ${bot.oxygenLevel} exceeds the bubbles scale of ` +
+                    `${AIR_SCALE} — a foreign entity's air_supply reached this bot, ` +
+                    `so oxygen.mjs's guard is not holding`,
+            snapshot: snapshot(bot),
+          })
+        }
+        /* airMax is a constant now */
       }
       // The PEAK of the recent window, not the immediately previous tick -- one
       // sample is noise, and what matters is whether the counter has fallen

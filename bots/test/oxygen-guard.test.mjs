@@ -93,6 +93,51 @@ test('isOurPacket is exact', () => {
   assert.ok(!isOurPacket({ packetEntityId: 0, botEntityId: undefined }))
 })
 
+test('the scale is fixed, and a violation raises instead of recalibrating', async () => {
+  const { AIR_SCALE, outOfScale } = await import('../src/oxygen.mjs')
+  assert.equal(AIR_SCALE, 20, "a player's 300 air ticks / 15 = 20 bubbles")
+  assert.ok(!outOfScale(20), 'full air is in scale')
+  assert.ok(!outOfScale(0), 'empty is in scale')
+  assert.ok(outOfScale(DOLPHIN), 'a dolphin reading is proof the guard leaked')
+  assert.ok(outOfScale(AXOLOTL), 'and so is an axolotl reading')
+  assert.ok(!outOfScale(null) && !outOfScale(undefined) && !outOfScale(NaN),
+    'absence is not a violation — it must not raise a false alarm')
+})
+
+test('the reflex no longer calibrates its threshold from observed samples', async () => {
+  // The old code did `airMax = Math.max(20, ...airSamples)` over a rolling
+  // two-minute window, so one axolotl put the low-air trigger at 160 and a
+  // genuinely full 20 read as critical for that whole window. Measured before
+  // the fix: 81% of critical-air events carried a denominator above 20.
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const src = fs.readFileSync(path.join(
+    path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'reflex.mjs'), 'utf8')
+  const exec = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.ok(!/airMax\s*=\s*Math\.max\(20,\s*\.\.\.airSamples\)/.test(exec),
+    'the self-calibrating latch must be gone from executable code')
+  assert.match(exec, /const airMax = AIR_SCALE/, 'the scale is a constant')
+  assert.match(exec, /outOfScale\(bot\.oxygenLevel\)/,
+    'and an impossible reading raises rather than being absorbed')
+})
+
+test('assessAir behaves at both ends of the real scale', async () => {
+  const { assessAir } = await import('../src/reflex.mjs')
+  const mk = ox => ({
+    oxygenLevel: ox, health: 20,
+    entity: { position: { offset: () => ({}) }, isInWater: true },
+    blockAt: () => ({ name: 'water', boundingBox: 'empty' }),
+  })
+  // Full air must NOT trip the reflex. This is the case that fired 74.2% of the
+  // time with the head in open air before the scale was pinned.
+  assert.equal(assessAir(mk(20), { airMax: 20 }).losing, false,
+    'a bot at full air is not drowning, whatever else is true')
+  // Genuinely low air still must.
+  assert.equal(assessAir(mk(3), { airMax: 20 }).losing, true,
+    'a real drain must still be caught — the point was never to silence the reflex')
+})
+
 test('stop() detaches — so the tests above prove the guard, not the fake', () => {
   const { bot, client } = fleet({ realOrder: true })
   bot.__oxygenGuard.stop()
