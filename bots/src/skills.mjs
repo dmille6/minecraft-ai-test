@@ -33,7 +33,6 @@ import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
-import { breathPlan } from './swim-breath.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
@@ -3652,260 +3651,34 @@ function isNightTime(bot) {
 // the open-water segment at all -- the bot points at the target and swims, which
 // is what a person does. `goto` still owns the land legs at either end.
 //
-// THE BODY HANDSHAKE. `bot.waterTravel` tells the drowning reflex that being wet
-// is intentional right now. The reflex still owns real drowning -- oxygen
-// actually falling, health actually dropping -- because that is what it was
-// written for after eight bots died in forty-five minutes. What it stops doing
-// is treating a bot at the surface with full lungs as an emergency.
-async function swimTo (ctx, { x, y, z, range = 4 }, signal) {
-  const { bot } = ctx
-  assertInsideBorder(x, z)
-  check(signal)
-  bot.assertNav?.('swim_to')
-
-  const target = new Vec3(Number(x), Number(y), Number(z))
-  const here0 = bot.entity.position
-  const startDist = Math.hypot(target.x - here0.x, target.z - here0.z)
-
-  const inWater = () => {
-    const b = bot.blockAt?.(bot.entity.position)
-    return !!b && (b.name === 'water' || b.name === 'bubble_column')
-  }
-  const onLand = () => {
-    if (!bot.entity?.onGround) return false
-    const below = bot.blockAt?.(bot.entity.position.offset(0, -1, 0))
-    return !!below && below.name !== 'water' && below.boundingBox === 'block'
-  }
-
-  // Refuse the job rather than do it badly. A dry bot asking to swim wants
-  // `goto`, and silently doing something else is how a skill's name stops
-  // meaning anything.
-  if (!inWater()) {
-    return { status: 'failed', failClass: 'unsupported',
-             detail: 'not in water — use goto for land travel' }
-  }
-
-  // A ONE-BLOCK SWIM IS NOT A CROSSING, AND ACCEPTING IT HID A PROMPT BUG.
-  //
-  // The model asked for 0b and 1b "crossings" because the observation told it to
-  // swim without telling it where land was. Accepting those requests turned a
-  // prompt defect into a skill that thrashed for twelve seconds and aborted at
-  // oxygen 3. A skill that cannot succeed at what it was asked should say so
-  // immediately and name the alternative, so the failure reads as the bad
-  // request it is.
-  // A SHORT SWIM IS STILL A SWIM.
-  //
-  // This refused anything under 8 blocks as "not a crossing". Measured over 636
-  // bot-hours it was the single largest swim_to failure: 1,158 `bad_target`, of
-  // which 597 were targets ONE BLOCK away. A bot in water asking to move one
-  // block to land is the most sympathetic request in the system, and we
-  // answered it by naming two other skills -- `goto`, which paths through water
-  // it could not afford, and `surface`, which does not go anywhere.
-  //
-  // The original reasoning was that 0b and 1b requests were a PROMPT defect
-  // wearing a skill's clothes. That was true and is still worth logging, but
-  // refusing the bot does not fix the prompt; it just leaves it in the water.
-  // Do the short swim, and record that it was short.
-  if (startDist < 2) {
-    logEvent({ kind: 'swim_short_hop', status: 'success',
-               detail: `target ${startDist.toFixed(1)}b away — doing it anyway; ` +
-                       `a bot in water asking to move one block is not a bad request`,
-               snapshot: snapshot(bot) })
-  }
-
-  // TAKE THE BODY, for the same reason the reflex does: pathfinder's
-  // monitorMovement rewrites forward/jump/sprint every physics tick while a goal
-  // is set, so a swim that does not clear the goal is overwritten within ~50ms.
-  try { bot.pathfinder.setGoal(null) } catch { /* plugin may be absent */ }
-  try { bot.clearControlStates() } catch { /* not connected */ }
-
-  bot.waterTravel = { active: true, since: Date.now(), target }
-
-  // SURFACE FIRST. A submerged bot that starts swimming horizontally drowns on
-  // the way: measured `0 strokes over 0s` followed immediately by `aborted:
-  // oxygen 3`, because the loop's own oxygen guard fired before the first
-  // stroke. Hold jump until the head is in air, then travel.
-  const headIsAir = () => {
-    const h = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
-    return !!h && h.name !== 'water' && h.boundingBox === 'empty'
-  }
-  // IS THERE ANY AIR ABOVE US AT ALL. Porpoising assumes the surface is
-  // reachable; under ice, an overhang or a flooded ceiling it is not, and
-  // burning the last of a breath rising into stone is worse than handing the
-  // body to the reflex early. Four blocks is what a bot can rise through inside
-  // one breath's margin.
-  const canSurface = () => {
-    for (let dy = 1; dy <= 4; dy++) {
-      const b = bot.blockAt?.(bot.entity.position.offset(0, dy, 0))
-      if (!b) return true                       // unloaded: assume open, do not trap
-      if (b.name !== 'water' && b.boundingBox === 'empty') return true
-      if (b.boundingBox === 'block') return false   // solid lid
-    }
-    return true
-  }
-  let breathPhase = 'dive'
-  // The server's air scale, learned rather than assumed: 1.21.8 reports ~400
-  // where a constant would say 20, and a threshold on the wrong scale never fires.
-  let airScale = 20
-  let jumpTicks = 0
-  const noteAir = () => {
-    if (typeof bot.oxygenLevel === 'number') airScale = Math.max(airScale, bot.oxygenLevel)
-  }
-  noteAir()
-
-  const SURFACE_MS = 6_000
-  const surfaceBy = Date.now() + SURFACE_MS
-  while (!headIsAir() && Date.now() < surfaceBy) {
-    check(signal)
-    noteAir()
-    bot.setControlState('jump', true)
-    bot.setControlState('forward', false)
-    await new Promise(r => setTimeout(r, 200))
-  }
-
-  // One leg's worth of swimming, not a whole crossing. See the note at the
-  // deadline return below.
-  const MIN_LEG = 32
-  const DEADLINE_MS = 150_000
-  const STALL_MS = 12_000        // no closing progress for this long -> give up
-  const TICK_MS = 250
-  const started = Date.now()
-  let best = startDist
-  let lastProgressAt = Date.now()
-  let strokes = 0
-
-  logEvent({
-    kind: 'swim_started',
-    status: 'success',
-    detail: `crossing ${startDist.toFixed(0)}b to ${Math.round(target.x)},${Math.round(target.z)}`,
-    snapshot: snapshot(bot),
-  })
-
-  try {
-    while (Date.now() - started < DEADLINE_MS) {
-      check(signal)
-      const here = bot.entity.position
-      const dist = Math.hypot(target.x - here.x, target.z - here.z)
-
-      if (dist <= range && onLand()) {
-        logEvent({ kind: 'swim_completed', status: 'success',
-                   detail: `ashore ${dist.toFixed(1)}b from target after ${strokes} strokes`,
-                   snapshot: snapshot(bot) })
-        return { status: 'success', detail: `swam ${(startDist - dist).toFixed(0)}b and landed` }
-      }
-
-      // ARRIVING IS LANDING, NOT BEING NEAR. A bot treading water on top of its
-      // destination has not arrived, and saying it has is the same lie the
-      // drowning release used to tell.
-      if (dist <= range && !onLand()) {
-        // Close enough to look for a foothold rather than a heading.
-        const shore = bot.blockAt?.(here.offset(0, -1, 0))
-        if (shore && shore.boundingBox === 'block' && shore.name !== 'water') {
-          // standing on something already; let the next iteration's onLand() see it
-        }
-      }
-
-      if (dist < best - 1) { best = dist; lastProgressAt = Date.now() }
-      if (Date.now() - lastProgressAt > STALL_MS) {
-        return { status: 'failed', failClass: 'stuck',
-                 detail: `stalled ${(dist).toFixed(0)}b out; closed ${(startDist - best).toFixed(0)}b of ${startDist.toFixed(0)}b` }
-      }
-
-      // Real drowning still outranks the crossing, but this is now a BACKSTOP
-      // rather than the plan. It fired 28 times over six hours as
-      // "aborted: oxygen 4" -- which is inside the reflex band, so by then the
-      // body was already being taken. breathPlan surfaces long before here;
-      // reaching this line means the porpoise cycle failed and the honest thing
-      // is to hand over.
-      if (typeof bot.oxygenLevel === 'number' && bot.oxygenLevel > 0 &&
-          bot.oxygenLevel <= 4 && !onLand()) {
-        return { status: 'failed', failClass: 'hazard_interrupt',
-                 detail: `aborted: oxygen ${bot.oxygenLevel} despite porpoising, ` +
-                         `letting the reflex surface us` }
-      }
-
-      try { await bot.lookAt(new Vec3(target.x, here.y, target.z), true) } catch { /* not connected */ }
-
-      // FAST SWIMMING IS NOT TREADING WATER.
-      //
-      // The first version held `jump` every tick to keep the head up. Measured
-      // result: median 1.32 m/s. In water, jump adds vertical velocity
-      // (prismarine-physics: vel.y += 0.04) and never produces the horizontal
-      // sprint-swim pose, so the bot bobs instead of swimming.
-      //
-      // The real numbers, which corrected an error of mine: surface swimming
-      // caps at 2.20 m/s and SPRINT-SWIMMING reaches 3.92 -- not the 5.6 I first
-      // claimed. Sprint-swimming requires being SUBMERGED and horizontal, so
-      // speed and air are a genuine trade, not a free win.
-      //
-      // So: travel by default, surface only on demand. `jump` is pulsed when the
-      // head is actually submerged or air is running low -- not held.
-      // PORPOISE, DO NOT PANIC. The old rule surfaced at 35% air against a
-      // reflex firing at 25% -- ten points, on a signal sampled every 500ms,
-      // while rising takes time. The reflex usually won that race: of 279
-      // started crossings over six hours, `drowning` was the single largest
-      // outcome at 174. See swim-breath.mjs.
-      const plan = breathPlan({
-        airFraction: (airScale > 0 && typeof bot.oxygenLevel === 'number')
-          ? bot.oxygenLevel / airScale
-          : null,
-        headUp: headIsAir(),
-        phase: breathPhase,
-        canSurface: canSurface(),
-      })
-      breathPhase = plan.phase
-      if (plan.abort) {
-        return { status: 'failed', failClass: 'hazard_interrupt',
-                 detail: `aborted: ${plan.reason} (oxygen ${bot.oxygenLevel})` }
-      }
-      bot.setControlState('forward', true)
-      bot.setControlState('sprint', plan.sprint)
-      bot.setControlState('jump', plan.jump)
-      if (plan.jump) jumpTicks++
-      strokes++
-      await new Promise(r => setTimeout(r, TICK_MS))
-    }
-    // A CROSSING IS LONGER THAN ONE SKILL CALL, AND PRETENDING OTHERWISE MADE
-    // EVERY REAL CROSSING A FAILURE.
-    //
-    // Sprint-swimming is about 5.6 m/s, so the 1,378-block crossing observed on
-    // placebo-a-Delta needs roughly 246 seconds. DEADLINE_MS is 150. The skill
-    // could not finish a real crossing by ARITHMETIC, exactly the way goto's
-    // hardcoded 8-leg budget once capped travel at 360 blocks and reported 162
-    // consecutive `home` failures at a distance it could never cover.
-    //
-    // goto solved this with legs, and so does this: a call that closes real
-    // ground has done its job and hands back for the next decision. The bot
-    // re-issues -- placebo-a-Delta did exactly that, 1378b then 1101b, unaided.
-    // What changes is that the 277 blocks between those two numbers is now
-    // recorded as the progress it was rather than as a deadline failure.
-    //
-    // MIN_LEG is deliberately large. A skill that reports success for closing
-    // two blocks is a skill that always reports success.
-    const here = bot.entity.position
-    const dist = Math.hypot(target.x - here.x, target.z - here.z)
-    const closed = startDist - dist
-    if (closed >= MIN_LEG) {
-      logEvent({ kind: 'swim_progress', status: 'success',
-                 detail: `closed ${closed.toFixed(0)}b of ${startDist.toFixed(0)}b, ${dist.toFixed(0)}b to go`,
-                 snapshot: snapshot(bot) })
-      return { status: 'success',
-               detail: `swam ${closed.toFixed(0)}b; ${dist.toFixed(0)}b still to go — re-issue swim_to to continue` }
-    }
-    return { status: 'failed', failClass: 'travel_incomplete',
-             detail: `deadline: closed only ${closed.toFixed(0)}b of ${startDist.toFixed(0)}b` }
-  } finally {
-    bot.waterTravel = null
-    try { bot.clearControlStates() } catch { /* not connected */ }
-    logEvent({
-      kind: 'swim_ended', status: 'success',
-      detail: `${strokes} strokes over ${Math.round((Date.now() - started) / 1000)}s; ` +
-              `jump duty ${strokes ? Math.round(100 * jumpTicks / strokes) : 0}%; ` +
-              `airScale ${airScale}`,
-      snapshot: snapshot(bot),
-    })
-  }
-}
+// swim_to WAS DELETED HERE, 2026-09-09, and this note is the receipt.
+//
+// It travelled SUBMERGED for speed. Driving prismarine-physics directly on a
+// 1.21.8 ocean, submerged is 1.9600 b/s with sprint on OR off -- bit-identical,
+// because prismarine-physics contains the string "swim" ZERO times -- against
+// 2.0853-2.1475 b/s at the surface. Diving was ~7% SLOWER. The skill's founding
+// premise was not merely unreachable, it was inverted: it dove to go slower and
+// paid drowning for it.
+//
+// It arrived 111 times in 760 crossings (14.6%) across its whole life, was
+// repaired twice, and read 55.9% for six hours in September only because a
+// scoring change of mine credited "moved 2 blocks while drowning" as travel.
+//
+// It also read bot.oxygenLevel in five places including its abort condition --
+// the field mineflayer populates from ANY nearby entity's air_supply, so a
+// passing cod could end a crossing. See oxygen.mjs.
+//
+// Nothing replaces it. mineflayer-pathfinder swims unconditionally, goto ran
+// 85.4% on the 274 crossings the admission veto accidentally let through, and
+// the one thing genuinely missing -- stepping back out onto a shore -- was a
+// height-arithmetic bug fixed in watermoves.mjs. Ten open-source Minecraft
+// agent projects were surveyed and NOT ONE exposes a water-travel verb;
+// Baritone, the most mature pathfinder in the field, prices submerged travel at
+// COST_INF and its author's swim PR has sat open since 2023.
+//
+// Diving as a deliberate capability -- shipwrecks, drowned, underwater ruins --
+// is a separate skill for the day something needs it, and it will not be this
+// one.
 
 // A TOOL IS A CAPABILITY, NOT AN ITEM NAME.
 //
@@ -4401,7 +4174,6 @@ export const SKILL_CONTRACTS = {
   gather:   { expects: ['inventory_gain'],        maxMs: 180_000 },
   mine:     { expects: ['inventory_gain', 'position'], maxMs: 180_000 },
   surface:  { expects: ['position'],              maxMs: 120_000 },
-  swim_to:  { expects: ['position'],              maxMs: 180_000 },
   craft:    { expects: ['inventory_gain'],        maxMs: 60_000 },
   build:    { expects: ['world_change'],          maxMs: 180_000 },
   place:    { expects: ['world_change'],          maxMs: 30_000 },
@@ -5391,7 +5163,6 @@ async function bucketSkill (ctx, args, signal) {
 
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
-  swim_to: { run: swimTo,  usage: 'swim_to <x> <y> <z>',           args: ['x', 'y', 'z'] },
   gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
   come:    { run: come,    usage: 'come',                          args: [], chatOnly: true },
   follow:  { run: follow,  usage: 'follow [seconds]',              args: [], chatOnly: true },

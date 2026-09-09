@@ -42,12 +42,6 @@
   ],
   "contracts": [
     {
-      "skill": "swim_to",
-      "observation": "IN WATER:",
-      "eligibility": "in_water",
-      "why": "Water is terrain, not a hazard. A bot in open water cannot know where land is; that is the definition of the situation."
-    },
-    {
       "skill": "craft",
       "observation": "CAN CRAFT NOW:",
       "eligibility": "can_craft_stone_tier",

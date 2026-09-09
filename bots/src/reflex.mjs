@@ -1572,7 +1572,16 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const headBlock = bot.blockAt?.(bot.entity.position.offset(0, 1, 0))
       let airRoute = null
       const holdState = waterPosture({
-        owned: rescuing || !!bot.waterTravel?.active,
+        // Was `rescuing || !!bot.waterTravel?.active`. swim_to was the only
+        // thing that ever set waterTravel, so with it deleted that disjunct is
+        // permanently false and dropping it changes nothing today.
+        //
+        // It is not missed either. waterTravel existed because swim_to threw
+        // away its pathfinder goal and so failed the OTHER ownership test --
+        // `runner.isBusy() && bot.pathfinder.goal` -- for the whole crossing.
+        // goto and explore hold a goal the entire way, so a bot swimming under
+        // pathfinder is owned by the test that was always there.
+        owned: rescuing,
         ashore: ashore(),
         feet: feetBlock,
         head: headBlock,
@@ -1690,7 +1699,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // swimmer whose oxygen is actually draining gets seized, because that is
       // the case this reflex was written for after eight bots drowned in
       // forty-five minutes.
-      const swimming = !!bot.waterTravel?.active
+      // Always false now: swim_to set waterTravel and swim_to is gone. Kept as
+      // a named constant rather than inlined, because the yield logic below
+      // reads better with the concept present and this is the honest value of
+      // it -- there is no bespoke swim to hand the body back to any more.
+      const swimming = false
 
       // PHASE 2 IS GONE. It ran here: breathing, not ashore, therefore swim to
       // a bank. It was the single largest source of wasted ownership in the

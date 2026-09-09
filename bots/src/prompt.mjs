@@ -215,7 +215,6 @@ export function buildSystemPrompt(skillNames) {
   const usage = [
     '  gather  args: {"block": "<block id e.g. oak_log>", "count": <integer>}',
     '  goto    args: {"x": <int>, "y": <int>, "z": <int>}',
-    '  swim_to args: {"x": <int>, "y": <int>, "z": <int>}  (CROSSING WATER on purpose. ONLY valid when an IN WATER line appears above — on land it is rejected before it runs. goto walks around water and cannot route across open water; swim_to swims it, and ends when you reach land near the target)',
     '  deposit args: {"item": "<item id>"}   (walks home to the town chest if none nearby; omit item to deposit everything)',
     '  withdraw args: {"item": "<item id>", "count": <integer>}  (takes from a chest or barrel within 48 blocks)',
     '  home    args: {}',
@@ -368,13 +367,20 @@ function waterSituation (bot) {
   // coordinate, not as an escape.
   const hx = config.world.homeX, hy = config.world.homeY, hz = config.world.homeZ
   const d = Math.hypot(hx - at.x, hz - at.z)
+  // "goto cannot cross water" WAS NEVER TRUE, and this line taught it to the
+  // model 1,278 times a day. mineflayer-pathfinder swims unconditionally, and
+  // the only thing genuinely missing was stepping back out onto a shore -- a
+  // height-arithmetic bug, now fixed in watermoves.mjs. The destination advice
+  // below is kept verbatim: it was earned separately, by a bot that asked for
+  // zero-block crossings because it had been told to swim without being told
+  // where to.
   return `IN WATER: you are swimming. This is travel, not an emergency — swimming is a ` +
          `way of moving, like walking. Getting air when it runs low is handled for you, ` +
-         `so you do not need to head for land. goto cannot cross water; it walks around ` +
-         `it, so use swim_to for anything on the far side. Your town is ${d.toFixed(0)} ` +
-         `blocks ${bearing(hx - at.x, hz - at.z)} at ${hx},${hy},${hz} — swim_to ${hx} ` +
-         `${hy} ${hz} heads there. Give swim_to a destination that is actually across the ` +
-         `water, never your own position.`
+         `so you do not need to head for land. goto and explore work here exactly as they ` +
+         `do on land; the route simply swims. Your town is ${d.toFixed(0)} ` +
+         `blocks ${bearing(hx - at.x, hz - at.z)} at ${hx},${hy},${hz} — goto ${hx} ` +
+         `${hy} ${hz} heads there. Give a destination that is actually somewhere else, ` +
+         `never your own position.`
 }
 
 /** Compass direction, because "west" is actionable and "dx=-812" is not. */

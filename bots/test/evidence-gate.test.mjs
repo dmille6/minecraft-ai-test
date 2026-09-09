@@ -422,14 +422,17 @@ await t('a travel abort that merely DRIFTED is not upgraded', async () => {
   // `position` counts as evidence at two blocks, so an aborted swim scored
   // "drowning — but position: moved 2 blocks ... so it worked". 78% of
   // swim_to's successes were that, and removing them put it back at 12.3%.
+  // Was written against swim_to, which is now deleted. `goto` carries the same
+  // position-only contract and the same hazard, so the test survives its
+  // subject: drifting is not arriving, whichever verb was asked for.
   const bot = runnerBot()
   const moved = V(509, 68, 500)          // 9 blocks: comfortably past the 2 bar
-  const r = await withSkill('swim_to', async () => {
+  const r = await withSkill('goto', async () => {
     bot.entity.position = moved
-    return { status: 'aborted', detail: 'drowning' }
-  }, () => new Runner(bot).run('swim_to', { x: 900, y: 68, z: 900 }))
+    return { status: 'aborted', detail: 'interrupted mid-route' }
+  }, () => new Runner(bot).run('goto', { x: 900, y: 68, z: 900 }))
   assert.notEqual(r.status, 'success',
-    'swim_to expects position only; drifting is not arriving, and the bot kept nothing')
+    'goto expects position only; drifting is not arriving, and the bot kept nothing')
 })
 
 await t('but an abort that BANKED something still is', async () => {
