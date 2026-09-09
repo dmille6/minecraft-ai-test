@@ -82,3 +82,37 @@ test('and it says what it is doing, because this one kills a bot on purpose', ()
   assert.match(CODE, /kind: 'last_resort_drop'/)
   assert.match(CODE, /kind: 'last_resort_result'/)
 })
+
+test('IT IS REACHABLE FOR A MAROONED BOT -- which is the only kind it is for', () => {
+  // It first shipped inside `if (!escaping && !marooned && ...)`. board-c-Alpha
+  // IS marooned -- that is the entire problem -- so the branch built for it
+  // excluded it by construction and fired zero times. Correct code on a path
+  // that never executes, for the third time in one night.
+  //
+  // Walks the enclosing braces rather than eyeballing the diff, because
+  // eyeballing the diff is exactly what missed it.
+  const lines = SRC.split('\n')
+  const target = lines.findIndex(l => l.includes("kind: 'last_resort_drop'"))
+  assert.ok(target > 0, 'POSITIVE CONTROL: the last-resort branch must exist')
+  let depth = 0
+  const opens = []
+  for (let i = target; i >= 0 && opens.length < 12; i--) {
+    const line = lines[i].replace(/\/\/.*$/, '')
+    for (const ch of [...line].reverse()) {
+      if (ch === '}') depth++
+      else if (ch === '{') { if (depth === 0) opens.push(lines[i]); else depth-- }
+    }
+  }
+  // The branch's OWN condition counts too, not just what encloses it. A first
+  // version of this test walked only the enclosing braces, and a mutant that
+  // added `!marooned` to the multi-line condition itself sailed through.
+  const ownCondition = lines.slice(Math.max(0, target - 30), target)
+    .map(l => l.replace(/\/\/.*$/, '')).join('\n')
+  const region = opens.join('\n') + '\n' + ownCondition
+  assert.doesNotMatch(region, /!marooned/,
+    'the last-resort branch must not be gated -- by its own condition or by an ' +
+    'enclosing one -- on the bot NOT being marooned. Marooned is the only state ' +
+    'it exists for.')
+  assert.doesNotMatch(region, /mstate === /,
+    'nor selected by one particular maroon state')
+})

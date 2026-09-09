@@ -1970,6 +1970,73 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a journey begin at all", which is what the trap denies and what
       // canStartAPath() measures. Cheap guards first, because that call runs a
       // real search and this loop ticks twice a second.
+        // HOW LONG HAS THIS BOT ACTUALLY BEEN STUCK? Measured from movement,
+      // not from a counter that a retry could reset. Any real displacement
+      // clears it, so a bot that is slowly working its way out never accrues
+      // the timer.
+      {
+        const p = bot.entity?.position
+        if (p) {
+          if (!strandedFrom) { strandedFrom = p.clone(); strandedSince = Date.now() }
+          else if (p.distanceTo(strandedFrom) > STRANDED_EPS) {
+            strandedFrom = p.clone(); strandedSince = Date.now()
+          }
+        }
+      }
+      // THE LAST RESORT, AND IT IS ONLY REACHED WHEN NOTHING ELSE IS LEFT.
+      //
+      // Runs BELOW the climb ceiling too, which the branch above does not,
+      // because a bot stranded for six hours at y=94 is in exactly the
+      // situation this exists for. The lattice is consulted first and its
+      // answer is obeyed: only `step_off` -- the unconditional bottom, which
+      // means every survivable rung was already refused -- is allowed to
+      // proceed into a fatal drop. Anything else and this does nothing.
+      // NOT GATED ON `!marooned`, WHICH IS WHERE THIS LIVED AND WHY IT NEVER RAN.
+      //
+      // The block below only runs for a bot that is NOT already marooned -- and
+      // board-c-Alpha is marooned, which is the entire problem. The branch built
+      // for it excluded it by construction, fired zero times, and I only found
+      // that by walking the enclosing braces rather than by reading the diff.
+      // Third time tonight that correct code sat on a path that never executes,
+      // and this file already carries the rule that would have caught it: log
+      // what the fix WOULD do before building the fix.
+      //
+      // The height check replaces the old `mstate !== 'stranded_high'` test,
+      // which is not in scope out here. Bots above the climb ceiling keep their
+      // own branch below; this one is for everything under it.
+      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && strandedSince &&
+          Date.now() - strandedSince > LAST_RESORT_STRANDED_MS &&
+          Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
+        // `trapped` comes from the lattice's own observation rather than a
+        // separate flag, so this branch and the plan it obeys are reading the
+        // same world. An earlier draft invented `trappedNow`, which does not
+        // exist -- a ReferenceError inside the 500ms reflex, which module load
+        // cannot catch and which would have taken the whole loop down.
+        const est = observeEscapeState(bot)
+        const plan = est.trapped ? escapePlan(est) : 'none'
+        // ZERO BLOCKS is the half that makes this terminal rather than merely
+        // slow. Holding even one placeable block puts `pillar_up` above the
+        // bottom rung, so reaching `step_off` WITH blocks means something else
+        // is wrong and killing the bot would not fix it.
+        if (plan === 'step_off' && est.blocks === 0) {
+          lastMaroonPrereqAt = Date.now()
+          const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
+          logEvent({
+            kind: 'last_resort_drop', status: 'success',
+            detail: `stranded ${hrs}h at y=${Math.round(bot.entity.position.y)} with no ` +
+                    `survivable escape (plan=${plan}, blocks=${est.blocks}, nothing to build with, ` +
+                    `drop=${est.underfootDrop ?? 'unmeasured'}); taking the fall ` +
+                    `deliberately — a respawned bot works and a stranded one does not`,
+            snapshot: snapshot(bot),
+          })
+          const r = await ESCAPE_ROUTINES.step_off(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
+          logEvent({ kind: 'last_resort_result', status: r?.ok ? 'success' : 'failed',
+                     detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
+          strandedFrom = null; strandedSince = 0
+          return
+        }
+      }
+
       if (!escaping && !marooned && !runner.isBusy() &&
           Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
@@ -2188,59 +2255,6 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // STRANDED ABOVE EVERYTHING, not trapped under it. Pillaring is what got
         // the bot here and cannot get it out; the direction it needs is down,
         // and planning a descent is cognitive work, not a 500ms reflex.
-        // HOW LONG HAS THIS BOT ACTUALLY BEEN STUCK? Measured from movement,
-        // not from a counter that a retry could reset. Any real displacement
-        // clears it, so a bot that is slowly working its way out never accrues
-        // the timer.
-        {
-          const p = bot.entity?.position
-          if (p) {
-            if (!strandedFrom) { strandedFrom = p.clone(); strandedSince = Date.now() }
-            else if (p.distanceTo(strandedFrom) > STRANDED_EPS) {
-              strandedFrom = p.clone(); strandedSince = Date.now()
-            }
-          }
-        }
-        // THE LAST RESORT, AND IT IS ONLY REACHED WHEN NOTHING ELSE IS LEFT.
-        //
-        // Runs BELOW the climb ceiling too, which the branch above does not,
-        // because a bot stranded for six hours at y=94 is in exactly the
-        // situation this exists for. The lattice is consulted first and its
-        // answer is obeyed: only `step_off` -- the unconditional bottom, which
-        // means every survivable rung was already refused -- is allowed to
-        // proceed into a fatal drop. Anything else and this does nothing.
-        if (mstate !== 'stranded_high' && strandedSince &&
-            Date.now() - strandedSince > LAST_RESORT_STRANDED_MS &&
-            Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
-          // `trapped` comes from the lattice's own observation rather than a
-          // separate flag, so this branch and the plan it obeys are reading the
-          // same world. An earlier draft invented `trappedNow`, which does not
-          // exist -- a ReferenceError inside the 500ms reflex, which module load
-          // cannot catch and which would have taken the whole loop down.
-          const est = observeEscapeState(bot)
-          const plan = est.trapped ? escapePlan(est) : 'none'
-          // ZERO BLOCKS is the half that makes this terminal rather than merely
-          // slow. Holding even one placeable block puts `pillar_up` above the
-          // bottom rung, so reaching `step_off` WITH blocks means something else
-          // is wrong and killing the bot would not fix it.
-          if (plan === 'step_off' && est.blocks === 0) {
-            lastMaroonPrereqAt = Date.now()
-            const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
-            logEvent({
-              kind: 'last_resort_drop', status: 'success',
-              detail: `stranded ${hrs}h at y=${Math.round(bot.entity.position.y)} with no ` +
-                      `survivable escape (plan=${plan}, blocks=${est.blocks}, nothing to build with, ` +
-                      `drop=${est.underfootDrop ?? 'unmeasured'}); taking the fall ` +
-                      `deliberately — a respawned bot works and a stranded one does not`,
-              snapshot: snapshot(bot),
-            })
-            const r = await ESCAPE_ROUTINES.step_off(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
-            logEvent({ kind: 'last_resort_result', status: r?.ok ? 'success' : 'failed',
-                       detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
-            strandedFrom = null; strandedSince = 0
-            return
-          }
-        }
         if (mstate === 'stranded_high' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
