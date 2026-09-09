@@ -901,11 +901,40 @@ async function collectManually(bot, block, signal) {
     // Close enough to reach is good enough; the dig below decides.
   }
   check(signal)
+
+  // DID WE ACTUALLY ARRIVE? Nothing above establishes it.
+  //
+  // pathfinder's goto RESOLVES AS SUCCESS on an empty path -- lib/goto.js tests
+  // `results.path.length === 0` and cleans up BEFORE it tests
+  // `results.status === 'noPath'`, so the commonest unreachable case returns
+  // like a success rather than throwing. And the catch above deliberately
+  // swallows whatever is left, on the reasoning that "the dig below decides".
+  // The dig does not decide: mineflayer's dig never checks range either
+  // (canDigBlock is not called anywhere in digging.js).
+  //
+  // So the bot could stand where it started, dig at a block forty blocks away,
+  // and return cleanly having done nothing. That is the shape of the largest
+  // bucket in the gather taxonomy: 1,005 runs across 79 bots, 93.1% of them
+  // gaining NOTHING, and 26.4% of all time the fleet spends gathering.
+  //
+  // canDigBlock is the honest test and it is the server's own: diggable, and
+  // within 5.1 blocks of the eye.
+  const here = bot.blockAt(p)
+  if (bot.canDigBlock && !bot.canDigBlock(here)) {
+    const d = bot.entity?.position ? bot.entity.position.distanceTo(p) : NaN
+    throw Object.assign(
+      new Error(`arrived_out_of_reach: still ${Number.isFinite(d) ? d.toFixed(1) : '?'} ` +
+                `blocks from ${p.x},${p.y},${p.z} — goto returned without moving`),
+      { failClass: 'arrived_out_of_reach' })
+  }
+  const wasNamed = here?.name
+
   const tool = bestTool(bot, block)
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
-  // BOUND THE DIG. bot.dig() has no timeout of its own: it resolves when the
-  // server confirms the break, and waits forever if that never comes -- the
-  // block changed under us, another bot took it, the chunk unloaded. This is
+  // BOUND THE DIG. bot.dig() has no timeout of its own. (An earlier version of
+  // this comment said it "resolves when the server confirms the break" -- see
+  // the correction below the call; it does no such thing, and believing it did
+  // is most of why this path could fail silently.) This is
   // now the ONLY path gather takes, so an unbounded await here would reproduce
   // the exact failure that made collectblock unusable, in our own code.
   // Named `dig` so a dig that never finishes is not filed as a pathing failure,
@@ -915,6 +944,30 @@ async function collectManually(bot, block, signal) {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
   })
+
+  // THE COMMENT ABOVE USED TO SAY dig() "resolves when the server confirms the
+  // break". IT DOES NOT. digging.js contains zero ack handling -- it arms
+  // `setTimeout(finishDigging, waitTime)` from bot.digTime() and, when that
+  // local timer fires, calls `_updateBlockState(block.position, 0)`, writing
+  // air into OUR OWN world model. The promise resolving means a timer elapsed,
+  // nothing more. A dig the server rejected (out of range, protection,
+  // anti-cheat, the block already gone) resolves exactly the same way.
+  //
+  // Which is why re-reading the block IMMEDIATELY proves nothing either: we
+  // would just be reading the air the library wrote. The server is the only
+  // authority, and when it disagrees it re-sends the real block -- so wait a
+  // few ticks and then look. If the block is still what it was, the break did
+  // not happen and calling this a harvest is the same overclaim the evidence
+  // gate exists to stop.
+  await sleep(250, signal)
+  const nowNamed = bot.blockAt(p)?.name
+  if (wasNamed && nowNamed === wasNamed && wasNamed !== 'air') {
+    throw Object.assign(
+      new Error(`dig_unconfirmed: ${p.x},${p.y},${p.z} is still ${nowNamed} after the ` +
+                `dig resolved — the server never broke it`),
+      { failClass: 'dig_unconfirmed' })
+  }
+
   await pickupNearbyItems(bot, signal)
 }
 
