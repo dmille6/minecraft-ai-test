@@ -1,68 +1,102 @@
-// A PASSING FISH OWNED THE BOT'S BREATH METER.
+// THE FIRST VERSION OF THIS GUARD WAS INERT FOR ITS ENTIRE LIFE.
 //
-// mineflayer writes bot.oxygenLevel from ANY entity's metadata with no
-// self-check (entities.js:494), while the very same handler DOES check
-// `entityId === bot.entity?.id` three lines above for firework rockets. 151
-// entity types carry air_supply on 1.21.8 and this fleet lives on ocean worlds.
+// It assumed it ran AFTER mineflayer's entity_metadata handler, so it read the
+// value the library had just written and put back the bot's own. But mineflayer
+// injects its plugins on `setTimeout(() => bot.emit('inject_allowed'), 0)`
+// (loader.js:134) -- a LATER tick than the createBot call that installs this.
+// The guard therefore ran FIRST, wrote back a number mineflayer had not yet
+// touched, and was then overwritten by the axolotl.
 //
-// Cost so far: three drowning fixes built on this field, all reverted; a
-// standing rule to distrust it; and 61.6% of 5,964 drowning reflex fires
-// happening with the bot's head in open air across 72 of 80 bots -- because the
-// reflex's ENTRY gate reads this value.
+// The old test passed because IT registered the fake mineflayer handler first,
+// encoding the one ordering that never happens. So every test here now runs in
+// BOTH orderings, and the real one is named as such.
+//
+// Why it matters: air_supply is metadata index 1 for every entity type and
+// mineflayer divides it by 15. A player's 300 ticks -> 20. An AXOLOTL's 6000 ->
+// 400; a DOLPHIN's 4800 -> 320. Those are exactly the out-of-scale values in our
+// telemetry, and they latch airMax = max(20, ...samples) to 400, putting the
+// low-air threshold at 160 so a genuinely full 20 reads as critical forever.
 import assert from 'node:assert'
 import test from 'node:test'
 import { EventEmitter } from 'node:events'
 
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
-const { reconcileOxygen, installOxygenGuard } = await import('../src/oxygen.mjs')
+const { installOxygenGuard, isOurPacket } = await import('../src/oxygen.mjs')
 
-test('a reading about the bot itself is kept', () => {
-  assert.equal(reconcileOxygen({ packetEntityId: 7, botEntityId: 7, reported: 12, lastOwn: 20 }), 12)
-})
+const AXOLOTL = 400   // 6000 air_supply / 15
+const DOLPHIN = 320   // 4800 / 15
+const PLAYER_FULL = 20
 
-test('a reading about anything else is discarded', () => {
-  // The cod case, exactly.
-  assert.equal(reconcileOxygen({ packetEntityId: 99, botEntityId: 7, reported: 3, lastOwn: 20 }), 20,
-    "a fish at 3 bubbles must not become the bot's reading")
-})
-
-test('before spawn, hold rather than guess', () => {
-  // No bot entity means nothing can be established. Adopting a stranger's value
-  // is the bug; inventing 20 would be a different one.
-  assert.equal(reconcileOxygen({ packetEntityId: 99, botEntityId: null, reported: 3, lastOwn: 15 }), 15)
-  assert.equal(reconcileOxygen({ packetEntityId: null, botEntityId: 7, reported: 3, lastOwn: null }), null)
-})
-
-test('end to end: a fish swims past a drowning-free bot', () => {
-  // The guard runs AFTER mineflayer's handler, so it sees what the library just
-  // wrote. This fake reproduces that ordering exactly.
+/**
+ * @param realOrder true  -> guard registers FIRST, mineflayer second (production)
+ *                  false -> mineflayer first (what the old test wrongly assumed)
+ */
+function fleet ({ realOrder = true } = {}) {
   const client = new EventEmitter()
-  const bot = { _client: client, entity: { id: 7 }, oxygenLevel: 20 }
-  // mineflayer's handler, transcribed: writes from whoever spoke, unguarded.
-  client.on('entity_metadata', p => { if (p.air != null) bot.oxygenLevel = p.air })
+  const bot = { _client: client, entity: { id: 7 }, oxygenLevel: PLAYER_FULL }
+  // mineflayer's handler, transcribed from entities.js:494 -- unguarded.
+  const mineflayer = p => { if (p.air != null) bot.oxygenLevel = p.air }
+  if (realOrder) { installOxygenGuard(bot); client.on('entity_metadata', mineflayer) }
+  else { client.on('entity_metadata', mineflayer); installOxygenGuard(bot) }
+  return { bot, client }
+}
+
+test('an axolotl cannot set a bot to 400 — in EITHER handler order', () => {
+  for (const realOrder of [true, false]) {
+    const { bot, client } = fleet({ realOrder })
+    client.emit('entity_metadata', { entityId: 7, air: PLAYER_FULL })
+    assert.equal(bot.oxygenLevel, 20, `own reading kept (realOrder=${realOrder})`)
+    client.emit('entity_metadata', { entityId: 99, air: AXOLOTL })
+    assert.equal(bot.oxygenLevel, 20,
+      `an axolotl's 400 must never land (realOrder=${realOrder}) — this is the case ` +
+      `that latches airMax to 400 and makes full air read as drowning forever`)
+    client.emit('entity_metadata', { entityId: 51, air: DOLPHIN })
+    assert.equal(bot.oxygenLevel, 20, `nor a dolphin's 320 (realOrder=${realOrder})`)
+  }
+})
+
+test('a REAL drowning still gets through, in either order', () => {
+  for (const realOrder of [true, false]) {
+    const { bot, client } = fleet({ realOrder })
+    client.emit('entity_metadata', { entityId: 7, air: 5 })
+    assert.equal(bot.oxygenLevel, 5,
+      `the bot's own low reading must not be filtered (realOrder=${realOrder})`)
+    client.emit('entity_metadata', { entityId: 99, air: PLAYER_FULL })
+    assert.equal(bot.oxygenLevel, 5,
+      `and a comfortable neighbour must not cancel it (realOrder=${realOrder})`)
+  }
+})
+
+test('PRODUCTION ORDER SPECIFICALLY: guard first, mineflayer second', () => {
+  // Named separately because this is the ordering that actually ships and the
+  // one the previous implementation silently failed in.
+  const { bot, client } = fleet({ realOrder: true })
+  client.emit('entity_metadata', { entityId: 99, air: AXOLOTL })
+  assert.notEqual(bot.oxygenLevel, AXOLOTL,
+    'the guard must survive being registered before the thing it guards against')
+})
+
+test('before spawn nothing is accepted', () => {
+  const client = new EventEmitter()
+  const bot = { _client: client, entity: undefined, oxygenLevel: 20 }
   installOxygenGuard(bot)
-
-  client.emit('entity_metadata', { entityId: 7, air: 20 })   // the bot, breathing
-  assert.equal(bot.oxygenLevel, 20)
-
-  client.emit('entity_metadata', { entityId: 99, air: 2 })   // a cod, suffocating
-  assert.equal(bot.oxygenLevel, 20,
-    "the fish's 2 bubbles must not seize this bot's body")
-
-  client.emit('entity_metadata', { entityId: 7, air: 5 })    // the bot, genuinely low
-  assert.equal(bot.oxygenLevel, 5, 'a real drowning must still get through')
-
-  client.emit('entity_metadata', { entityId: 42, air: 20 })  // a squid, fine
-  assert.equal(bot.oxygenLevel, 5,
-    'and a comfortable neighbour must not cancel a real drowning either')
+  client.on('entity_metadata', p => { if (p.air != null) bot.oxygenLevel = p.air })
+  client.emit('entity_metadata', { entityId: 99, air: AXOLOTL })
+  assert.equal(bot.oxygenLevel, 20, 'with no bot entity, ownership cannot be established')
 })
 
-test('the guard can be removed', () => {
-  const client = new EventEmitter()
-  const bot = { _client: client, entity: { id: 7 }, oxygenLevel: 20 }
-  client.on('entity_metadata', p => { if (p.air != null) bot.oxygenLevel = p.air })
-  const g = installOxygenGuard(bot)
-  g.stop()
-  client.emit('entity_metadata', { entityId: 99, air: 1 })
-  assert.equal(bot.oxygenLevel, 1, 'stop() really detaches, so the test above proves the guard')
+test('isOurPacket is exact', () => {
+  assert.ok(isOurPacket({ packetEntityId: 7, botEntityId: 7 }))
+  assert.ok(!isOurPacket({ packetEntityId: 99, botEntityId: 7 }))
+  assert.ok(!isOurPacket({ packetEntityId: null, botEntityId: 7 }))
+  assert.ok(!isOurPacket({ packetEntityId: 7, botEntityId: null }))
+  assert.ok(!isOurPacket({ packetEntityId: 0, botEntityId: undefined }))
+})
+
+test('stop() detaches — so the tests above prove the guard, not the fake', () => {
+  const { bot, client } = fleet({ realOrder: true })
+  bot.__oxygenGuard.stop()
+  client.emit('entity_metadata', { entityId: 99, air: AXOLOTL })
+  assert.equal(bot.oxygenLevel, AXOLOTL,
+    'without the guard the axolotl wins — proving the guard is what stops it')
 })
