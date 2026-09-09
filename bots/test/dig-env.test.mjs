@@ -138,10 +138,25 @@ test('THE BOUNDARY: env goes to the hand-choosers, NOT to the refusers', () => {
 
   // Every digHand call — the hand-choosers — must carry the environment.
   const handCalls = [...reflex.matchAll(/digHand\(\{[^}]*\}\)/g)].map(m => m[0])
-  assert.equal(handCalls.length, 2, 'harvestUnderfoot and the pillarOut headroom clear')
+  assert.equal(handCalls.length, 1, 'the pillarOut headroom clear')
   for (const c of handCalls) {
     assert.equal((c.match(/predictedDigMs\([^)]*, env\)/g) || []).length, 2,
       `a digHand site prices without the real environment: ${c.replace(/\s+/g, ' ')}`)
+  }
+
+  // `harvestUnderfoot` MOVED TO THE OTHER SIDE OF THIS BOUNDARY, on purpose. It
+  // was a hand-chooser AND a refuser at once, on the env prediction, which is
+  // the combination this test's own comment says traps a bot under its ceiling.
+  // placebo-b-Comet lived that: `tuff_bricks underfoot is too slow to break,
+  // tool or not` about a hardness-1.5 block, for four days at 20/20 health.
+  // `escapeDigPlan` keeps both questions and gives each its own input.
+  const escCalls = [...reflex.matchAll(/escapeDigPlan\(\{[\s\S]*?\n  \}\)/g)].map(m => m[0])
+  assert.equal(escCalls.length, 1, 'harvestUnderfoot')
+  for (const c of escCalls) {
+    assert.equal((c.match(/HardnessMs: predictedDigMs\([^)]*\)/g) || []).length, 2,
+      `a refusal is priced with the environment: ${c.replace(/\s+/g, ' ')}`)
+    assert.equal((c.match(/ActualMs: predictedDigMs\([^)]*, env\)/g) || []).length, 2,
+      `a deadline is priced without the environment: ${c.replace(/\s+/g, ' ')}`)
   }
 
   // And the refuse-path budgets must NOT, or they rebuild the ceiling trap.

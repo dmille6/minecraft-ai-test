@@ -111,8 +111,30 @@ export function escapePlan ({
   // axes. A foot-level lateral cell is solid (a tread) or passable (somewhere to
   // step). Treating them as free variables admitted 344 impossible states.
   canStepOff = true,         // default TRUE: absent evidence, open air is assumed
+  // RUNGS THIS BOT HAS ALREADY TRIED AND WHICH REFUSED.
+  //
+  // THE LATTICE WAS STATELESS, AND THAT IS ITS OWN TRAP. A rung whose routine
+  // refuses does not change the world, so the next consultation sees exactly
+  // the state that chose it and chooses it again. Forever.
+  //
+  // placebo-b-Comet is the proof: 1x1 flooded slot at y=-19, four days at
+  // (652.7, -18.8, 106.7), 20/20 health. `underfootSolid` and `drop=1` are
+  // permanent facts of that slot, so `dig_down` wins every consultation where
+  // it is not afloat and `surface_swim` wins every one where it is. Between
+  // them they cover every tick, and `stair_up` -- the rung for a bot with walls
+  // and no material, and the one established answer for a bare-handed material
+  // deadlock -- is structurally unreachable. It has never been offered once.
+  //
+  // Kept PURE and kept TOTAL: this is an input, not a field, and `step_off` is
+  // never skipped. Excluding every survivable rung therefore cannot produce an
+  // empty admissible set -- it produces the bottom, which is the same guarantee
+  // this module already makes. The caller is responsible for not walking a bot
+  // to its death on a transient refusal; see the note on the escape loop in
+  // reflex.mjs, which never lets an exclusion reach `step_off`.
+  exclude = [],
 } = {}) {
   if (!trapped) return 'none'
+  const skip = new Set(exclude)
 
   // WATER FIRST, and it is not a hazard. The owner's directive is that swimming
   // is travel and the only water reflex is getting air, so a floating bot is not
@@ -130,14 +152,14 @@ export function escapePlan ({
   // `columnOpen` is the discriminator and it is already observed. Open water
   // keeps this rung exactly as it was; a lid sends the bot to the digging rungs
   // below, which is what it needed all along.
-  if (afloat && columnOpen) return 'surface_swim'
+  if (afloat && columnOpen && !skip.has('surface_swim')) return 'surface_swim'
 
   // DOWN BEFORE UP. Climbing produced this population.
   const cap = survivable(health)
   const dropOk = Number.isFinite(underfootDrop) && underfootDrop >= 0 &&
                  (underfootDrop <= FALL_FREE || underfootDrop <= cap)
-  if (underfootSolid && dropOk) return 'dig_down'
-  if (floorBelowSolid) return 'ride_floor_down'
+  if (underfootSolid && dropOk && !skip.has('dig_down')) return 'dig_down'
+  if (floorBelowSolid && !skip.has('ride_floor_down')) return 'ride_floor_down'
 
   // A LADDER BEATS CUTTING A RAMP, WHEN ONE IS ACTUALLY BUILDABLE.
   //
@@ -150,16 +172,16 @@ export function escapePlan ({
   // `pillar_up` because a ladder is one item per level against one block per
   // level with a jump-place at every step. Below the DOWN rungs, because
   // climbing is what produced this population in the first place.
-  if (ladderReady) return 'climb_ladder'
+  if (ladderReady && !skip.has('climb_ladder')) return 'climb_ladder'
 
   // The ramp needs something to cut into. A bot on a pillar has air on all four
   // cardinals BY THE DEFINITION of stranded, which is why this is not first.
-  if (lateralTread) return 'stair_up'
+  if (lateralTread && !skip.has('stair_up')) return 'stair_up'
 
   // Placing is last of the survivable options because it is the only one that
   // spends inventory, and `canFinishClimb` refuses a climb it cannot finish --
   // a half-built pillar seals the bot higher than it started, holding nothing.
-  if (columnOpen && blocks >= climbNeed) return 'pillar_up'
+  if (columnOpen && blocks >= climbNeed && !skip.has('pillar_up')) return 'pillar_up'
 
   // THE BOTTOM, AND IT IS UNCONDITIONAL. Reaching this line is itself the proof
   // that it is available.
@@ -180,7 +202,14 @@ export function escapePlan ({
   //
   // `canStepOff` is kept in the signature only as an override for a caller that
   // can positively prove otherwise; absent that, the geometry decides.
-  if (canStepOff !== false || !lateralTread) return 'step_off'
+  // AN EXCLUSION MUST NEVER BE ABLE TO EMPTY THE SET. The structural argument
+  // below reads "no solid lateral neighbour means an open one", and it holds --
+  // but it holds because the `stair_up` branch above returns for the other case.
+  // Once a caller can EXCLUDE that branch, a bot with `lateralTread: true` and
+  // `canStepOff: false` falls through to the throw, and the whole point of this
+  // module is that no reachable state does that. So the bottom is unconditional
+  // whenever anything has been excluded.
+  if (skip.size || canStepOff !== false || !lateralTread) return 'step_off'
 
   // Unreachable given the above. Kept as a RAISE and never a silent `none`,
   // because a quiet "do nothing" here would be precisely the empty admissible

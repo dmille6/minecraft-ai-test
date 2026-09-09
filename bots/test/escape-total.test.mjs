@@ -173,7 +173,13 @@ test('MUTANT: removing the bottom rung must break totality', async () => {
   // in-place mutant would be deployed within six hours), imported, deleted.
   const url = new URL('../src/escape.mjs', import.meta.url)
   const src = fs.readFileSync(url, 'utf8')
-  const anchor = "  if (canStepOff !== false || !lateralTread) return 'step_off'"
+  // ANCHOR MOVED AGAIN, 2026-09-09, and the presence check caught it again:
+  // the bottom rung gained `skip.size ||` when `escapePlan` learned to exclude
+  // rungs a caller has already seen refuse. Without that term a caller could
+  // exclude `stair_up` from a state with `lateralTread: true, canStepOff: false`
+  // and fall through to the raise -- the empty admissible set this module exists
+  // to make impossible.
+  const anchor = "  if (skip.size || canStepOff !== false || !lateralTread) return 'step_off'"
   assert.ok(src.includes(anchor), 'MUTANT ANCHOR MISSING: never written reads as killed')
   assert.strictEqual(src.split(anchor).length, 2, 'MUTANT ANCHOR NOT UNIQUE')
 

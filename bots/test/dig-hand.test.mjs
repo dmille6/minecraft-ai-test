@@ -136,13 +136,34 @@ test('the two escape routines actually use it', () => {
   assert.match(code, /import \{[^}]*digHand[^}]*\} from '\.\/digbudget\.mjs'/,
     'digHand must be imported, not just written')
 
-  for (const [name, start] of [['harvestUnderfoot', 'async function harvestUnderfoot'],
-                               ['pillarOut', 'async function pillarOut']]) {
+  // `harvestUnderfoot` CHOOSES A HAND THROUGH `escapeDigPlan` NOW, and that is
+  // the fix, not a weakening. It called `digHand` on the situational prediction
+  // and let its `refuse` be terminal -- the one usage `digEnv`'s docstring
+  // forbids -- which told placebo-b-Comet for four days that the tuff_bricks
+  // under its feet (hardness 1.5, same as stone) could not be broken. The hand
+  // choice still happens, inside `escapeDigPlan`, still on the real numbers.
+  for (const [name, start, chooser] of [
+    ['harvestUnderfoot', 'async function harvestUnderfoot', /escapeDigPlan\(\{/],
+    ['pillarOut', 'async function pillarOut', /digHand\(\{/]]) {
     const i = code.indexOf(start)
     assert.ok(i > 0, `POSITIVE CONTROL: ${name} is still there`)
     const body = code.slice(i, i + 2600)
-    assert.match(body, /digHand\(\{/, `${name} must decide the hand, not assume the tool`)
+    assert.match(body, chooser, `${name} must decide the hand, not assume the tool`)
     assert.doesNotMatch(body, /const tool = bestTool\(bot, \w+\)\n\s*if \(tool\) await bot\.equip/,
       `${name} equips a tool unconditionally again — that is the 5,951 pickaxes`)
   }
+
+  // AND THE REFUSAL MUST NOT COME BACK ONTO THE SITUATIONAL NUMBER. This is the
+  // whole Comet defect: a 5x `notOnGround` penalty deciding whether a block is
+  // breakable AT ALL, rather than how long the swing gets.
+  const uf = code.slice(code.indexOf('async function harvestUnderfoot'))
+    .slice(0, 2600)
+  assert.doesNotMatch(uf, /\bdigHand\(\{/,
+    'harvestUnderfoot must not veto on digHand again — that is the tuff_bricks refusal')
+  const call = uf.match(/escapeDigPlan\(\{[\s\S]*?\n  \}\)/)
+  assert.ok(call, 'POSITIVE CONTROL: the escapeDigPlan call site is readable')
+  assert.match(call[0], /bareHardnessMs: predictedDigMs\(target, null\)/,
+    'the REFUSAL must be priced on the grounded prediction')
+  assert.match(call[0], /bareActualMs: predictedDigMs\(target, null, env\)/,
+    'the DEADLINE must be priced on the real one')
 })

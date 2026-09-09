@@ -16,7 +16,7 @@ import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary } from './scaffold.mjs'
-import { planDig, predictedDigMs, digHand, digEnv, planDigSplit } from './digbudget.mjs'
+import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan } from './digbudget.mjs'
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
 import { climbLadder, bestLadderWall, ladderPlan } from './ladder.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
@@ -3495,8 +3495,20 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   // precisely when the bot is not standing on solid ground, and that is a 5x
   // penalty the old call could not see.
   const env = digEnv(bot)
-  const hand = digHand({ bareMs: predictedDigMs(target, null, env),
-                         toolMs: predictedDigMs(target, tool, env) })
+  // REFUSE ON HARDNESS, CHOOSE THE HAND AND THE DEADLINE ON REALITY.
+  //
+  // This called `digHand` with the situational prediction and treated its
+  // `refuse` as terminal -- the one usage `digEnv`'s own docstring forbids, and
+  // the one `escapeStairUp` was already moved off. placebo-b-Comet has sat at
+  // (652.7, -18.8, 106.7) for four days at 20/20 health being told
+  // `tuff_bricks underfoot is too slow to break, tool or not`, about a block
+  // whose hardness is 1.5 -- the same as stone.
+  const hand = escapeDigPlan({
+    bareHardnessMs: predictedDigMs(target, null),
+    bareActualMs: predictedDigMs(target, null, env),
+    toolHardnessMs: predictedDigMs(target, tool),
+    toolActualMs: predictedDigMs(target, tool, env),
+  })
   if (hand.refuse) {
     return { ok: false, drop,
       why: `${target.name} underfoot is too slow to break, tool or not` }

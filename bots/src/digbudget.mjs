@@ -230,3 +230,63 @@ export function planDigSplit ({ hardnessMs = null, actualMs = null } = {}) {
     : hard.budgetMs
   return { refuse: false, budgetMs, hardnessMs: hard.predictedMs, actualMs: Number.isFinite(a) ? a : null }
 }
+
+/**
+ * WHICH HAND, AND MAY THIS BE ATTEMPTED AT ALL — for an ESCAPE dig.
+ *
+ * `harvestUnderfoot` asked `digHand` both questions at once, on the SITUATIONAL
+ * prediction, and let its `refuse` be terminal. That is precisely the usage the
+ * note on `digEnv` above forbids ("USE THIS ONLY WHERE THE CONSEQUENCE IS
+ * CHOOSING A HAND, NOT REFUSING"), and `escapeStairUp` had already been moved
+ * off it onto `planDigSplit`. This is the same repair for the other call site,
+ * with the hand preference kept.
+ *
+ * Measured 2026-09-09: placebo-b-Comet, four days at (652.7, -18.8, 106.7),
+ * health 20/20, no pickaxe. Its escape rung reported
+ * `tuff_bricks underfoot is too slow to break, tool or not`.
+ *
+ *   tuff_bricks hardness 1.5 -- IDENTICAL to stone, which this fleet breaks all
+ *   day. Registry (1.21.8, bare hand):
+ *       grounded, dry        7,500ms   fits the 30s cap with room to spare
+ *       airborne OR in water 37,500ms  over the cap -- refused
+ *
+ * The bot is floating in a flooded pocket, so `notOnGround` is true and the 5x
+ * penalty is real. The DIG is genuinely 37.5s. But 37.5s is not obsidian, and
+ * the cap's own docstring says what it is for: "everything a bare hand can clear
+ * in under thirty seconds is ordinary terrain". Submerged tuff IS ordinary
+ * terrain; a bot with 20/20 health and four idle days can afford 37 seconds.
+ * The refusal was the cap being asked a question it was not built to answer.
+ *
+ * So: hardness decides IF, the situation decides WHICH HAND and HOW LONG.
+ *
+ * Pure, because the whole defect was a decision that could only be tested by
+ * standing up a bot in water.
+ *
+ * @returns {{ hand: 'bare'|'tool'|null, budgetMs: number, refuse: boolean }}
+ */
+export function escapeDigPlan ({
+  bareHardnessMs = null, bareActualMs = null,
+  toolHardnessMs = null, toolActualMs = null,
+} = {}) {
+  const bareOk = !planDig(bareHardnessMs).refuse
+  const toolOk = !planDig(toolHardnessMs).refuse
+  // REFUSE ONLY WHEN NEITHER HAND CAN BREAK THE BLOCK AT ALL. Bedrock
+  // (undiggable, so the caller never gets here) and obsidian (250s bare,
+  // 125s with a wooden pick) are what this is for.
+  if (!bareOk && !toolOk) return { hand: null, budgetMs: 0, refuse: true }
+
+  // The situational preference is still worth having and is still what `digEnv`
+  // is for: an airborne bare-handed swing is 5x slower, and reaching for the
+  // pickaxe there buys a dig that finishes. It just may not VETO.
+  const wanted = digHand({ bareMs: bareActualMs, toolMs: toolActualMs }).hand
+  const hand = (wanted === 'bare' && bareOk) || (wanted === 'tool' && toolOk)
+    ? wanted
+    // Bare first among what is left -- 68% of every pickaxe this fleet has lost
+    // was destroyed during escape activity at full health.
+    : (bareOk ? 'bare' : 'tool')
+
+  const split = planDigSplit(hand === 'bare'
+    ? { hardnessMs: bareHardnessMs, actualMs: bareActualMs }
+    : { hardnessMs: toolHardnessMs, actualMs: toolActualMs })
+  return { hand, budgetMs: split.budgetMs, refuse: false }
+}
