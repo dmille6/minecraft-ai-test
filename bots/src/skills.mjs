@@ -2198,10 +2198,15 @@ async function place(ctx, { item, x, y, z }, signal) {
     await sleep(50, signal)
   }
 
+  // A candidate is a REFERENCE BLOCK PLUS THE FACE to build off, not just a
+  // block. Every placement here used to be "on top of something", which cannot
+  // express the one case that matters below: building sideways off the block
+  // you are standing on.
+  const UP = new Vec3(0, 1, 0)
   let candidates = []
   if ([x, y, z].every(v => Number.isFinite(Number(v)))) {
     assertInsideBorder(Number(x), Number(z))
-    candidates = [bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z)))]
+    candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
     // Diagonals and one step up or down as well, nearest first. A bot on uneven
     // ground has a valid spot behind it far more often than beside it.
@@ -2215,10 +2220,38 @@ async function place(ctx, { item, x, y, z }, signal) {
         const under = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
         const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
         if (!solid(under) || !replaceable(at)) continue
-        ;(at.name === 'water' ? wet : candidates).push(under)
+        ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
       }
     }
     candidates.push(...wet)
+
+    // THE BLOCK UNDER THE BOT'S OWN FEET WAS NEVER PROBED.
+    //
+    // `around` is eight horizontal offsets; [0,0] is not among them, so across
+    // three dy levels the search examined 24 cells and never the one the bot is
+    // standing on. A bot on a narrow perch -- a mountain spine, a one-wide
+    // pillar, a peak -- therefore reported "no solid block with a free space
+    // above it" while standing on solid ground.
+    //
+    // Measured: 83 refusals reading `no_support=24 [air]`, every one at FULL
+    // HEALTH with y unchanged either side, so none of them was falling. One bot,
+    // board-a-Bravo, produced 44 and has failed all 57 of its place attempts,
+    // every one a crafting_table, which is what has kept it off the tech tree
+    // for the whole window.
+    //
+    // A player in that spot does not look for a neighbour: they build off the
+    // side of the block beneath them. `placeBlock(ref, face)` can express that
+    // and the old top-face-only candidate list could not.
+    if (!candidates.length) {
+      const underfoot = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+      if (solid(underfoot)) {
+        for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
+                            new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
+          const target = bot.blockAt(underfoot.position.plus(face))
+          if (replaceable(target)) candidates.push({ ref: underfoot, face })
+        }
+      }
+    }
   }
   if (!candidates.length) {
     // SAY WHAT IT SAW, BECAUSE GUESSING HAS COST FOUR CHANGES TONIGHT.
@@ -2288,20 +2321,27 @@ async function place(ctx, { item, x, y, z }, signal) {
   // candidate turned a recoverable miss into a dead tech tree.
   const failures = []
   let tried = 0
-  for (const ref of candidates.slice(0, 6)) {
+  for (const { ref, face } of candidates.slice(0, 6)) {
     check(signal)
     tried++
     try {
       // Facing the target makes mineflayer's block interaction markedly more
       // reliable; the same lesson the crafting-table reach check already learned.
-      try { await bot.lookAt(ref.position.offset(0.5, 1.5, 0.5), true) } catch { /* not fatal */ }
+      // Aim at the CENTRE OF THE FACE being built off. The old fixed offset
+      // (0.5, 1.5, 0.5) points above the block, which is right for a top face
+      // and wrong for every side face.
+      try {
+        await bot.lookAt(ref.position.offset(0.5 + face.x * 0.5,
+                                             0.5 + face.y * 0.5,
+                                             0.5 + face.z * 0.5), true)
+      } catch { /* not fatal */ }
       // BOUNDED, because bot.placeBlock waits on a server `blockUpdate` that may
       // never arrive. Unbounded, one silent spot consumed the whole skill budget
       // and the remaining candidates were never reached -- the same open-loop
       // shape as deposit hanging on `windowOpen`. Measured: 20 place failures in
       // 200 minutes carrying mineflayer's own `Event blockUpdate:(x,y,z)` text.
       // A miss must cost one candidate, not the attempt.
-      await withTimeout(bot.placeBlock(ref, new Vec3(0, 1, 0)), PLACE_ACK_MS, bot,
+      await withTimeout(bot.placeBlock(ref, face), PLACE_ACK_MS, bot,
                         { what: 'placing', needsDrop: false })
       // READ IT BACK. placeBlock resolves without throwing when nothing was
       // placed -- build() already documents this and checks; place() did not.
@@ -2310,7 +2350,7 @@ async function place(ctx, { item, x, y, z }, signal) {
       // place was scored as changing nothing, classified `neutral`, and then
       // recorded as a success anyway by the neutral branch in cognitive.mjs.
       // A success nobody can falsify is not evidence.
-      const at = ref.position.offset(0, 1, 0)
+      const at = ref.position.plus(face)
       const put = bot.blockAt(at)
       if (!put || put.name === 'air' || put.boundingBox === 'empty') {
         failures.push(`placeBlock returned but ${at} is still ${put?.name ?? 'unknown'}`)
