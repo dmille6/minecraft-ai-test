@@ -18,6 +18,7 @@ import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary } from './scaffold.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit } from './digbudget.mjs'
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
+import { climbLadder, bestLadderWall, ladderPlan } from './ladder.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
 import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
@@ -3035,6 +3036,24 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     floorBelowSolid: solid(at(0, -2, 0)),
     lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
     columnOpen: !solid(at(0, 2, 0)),
+    // ONE FLAG, COMPUTED FROM THREE TESTED FUNCTIONS. See the note on
+    // `ladderReady` in escape.mjs for why the lattice takes a single derived
+    // boolean rather than the three inputs: this file has already produced 344
+    // contradictory states by admitting related facts as free variables.
+    //
+    // `solid()` is NOT the test for an anchor. A ladder needs the side face of a
+    // full OPAQUE block, and oak_leaves is boundingBox='block' -- in a fleet
+    // that logs _trapped_in_canopy 281 times, using `solid` here would have
+    // spent ladders on the canopy and left a column with holes in it.
+    ladderReady: (() => {
+      try {
+        const need = PILLAR_MAX_BLOCKS + 1
+        const wall = bestLadderWall((dx, dy, dz) => at(dx, dy, dz), need)
+        const have = bot.inventory.items().filter(it => it.name === 'ladder')
+          .reduce((n, it) => n + it.count, 0)
+        return ladderPlan({ need, have, reach: wall.reach }).ok
+      } catch { return false }
+    })(),
 
     // ---- DIAGNOSTIC ONLY. `escapePlan` ignores these; they exist because the
     // lattice's INPUTS have never been validated and one window of them decides
@@ -3091,6 +3110,19 @@ const ESCAPE_ROUTINES = {
   // Its free branch breaks the floor and lands on it; its bridge branch places
   // one block first. Returns a rich object, so normalise to the common shape by
   // its own postcondition: did the bot descend.
+  // THE CAPABILITY THE FLEET ALREADY OWNS. 27 bots carry ladders, 23 of them
+  // carry exactly three, and not one had ever placed one -- `place` ran 44 times
+  // in five hours and every call was a crafting_table. So this is deterministic
+  // or it does not happen.
+  //
+  // Unlike the ramp it costs no tool, and unlike the pillar what it leaves is a
+  // TWO-WAY route: mineflayer-pathfinder treats a ladder as climbable, so the
+  // bot can come back down the way it went up. `climbNeed` is the same figure
+  // the pillar rung prices its climb with, so the two rungs are comparable.
+  climb_ladder: async bot => {
+    const r = await climbLadder(bot, { need: PILLAR_MAX_BLOCKS + 1, goals: pkgGoals })
+    return { ok: r.ok, placed: r.placed, fell: -r.rose, why: r.why }
+  },
   ride_floor_down: async bot => {
     const yBefore = bot.entity?.position?.y ?? 0
     const r = await rideFloorDown(bot, { maxSteps: 16 })

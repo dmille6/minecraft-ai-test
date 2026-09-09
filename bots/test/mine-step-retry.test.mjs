@@ -26,9 +26,12 @@ test('the arrival check waits for the LANDING, not a flat sleep', () => {
   // BOTH reads must wait: the first attempt and the retry. Asserting "at least
   // one" let a mutant replace the first with the old flat sleep and still pass,
   // because the retry's call satisfied the match.
+  // The retry was reverted (mine success 27.8% -> 17.8%), so there is one
+  // settle now, not two. The settle itself stays: it fixed a real measurement
+  // bug, proven by the escape rungs going 0.7% -> 92.9% on the same change.
   const waits = CODE.match(/await settleForFall\(bot, before\.y, \{ maxMs: STEP_SETTLE_MS \}\)/g) ?? []
-  assert.equal(waits.length, 2,
-    `both the step and its retry must wait for the landing; found ${waits.length}`)
+  assert.equal(waits.length, 1,
+    `the step must wait for the landing; found ${waits.length}`)
   // Scoped to the staircase, because an unrelated sleep(250) elsewhere in this
   // file is legitimate and forbidding it globally is the over-broad predicate
   // this project keeps re-inventing.
@@ -46,34 +49,3 @@ test('the settle budget covers a one-block fall in production', async () => {
   assert.ok(inTests <= 100, 'tests must not pay 900ms per step')
 })
 
-test('IT RETRIES, and only when the bot did not move at all', () => {
-  // The retry targets the server-desync population specifically. A bot that
-  // moved and landed somewhere wrong is a different problem and must not be
-  // handed another dig.
-  assert.match(CODE, /if \(!arrived && moved < 0\.3\)/,
-    'the retry must be gated on the bot having stayed put')
-})
-
-test('the retry re-digs THE SAME TWO CELLS, so the shaft is never widened', () => {
-  // The guard this sits next to exists to stop the loop digging a DIFFERENT
-  // cell each iteration and carving a trench with ledges. Re-digging the
-  // identical pair either lands the dig the server missed or changes nothing.
-  const retry = CODE.slice(CODE.indexOf('if (!arrived && moved < 0.3)'))
-  assert.match(retry.slice(0, 400), /for \(const pos of \[cellHead, cellFeet\]\)/,
-    'the retry must re-dig cellHead and cellFeet, not pick new cells')
-})
-
-test('AT MOST ONE RETRY -- a second failure still stops the descent', () => {
-  const retry = CODE.slice(CODE.indexOf('if (!arrived && moved < 0.3)'))
-  const block = retry.slice(0, retry.indexOf('if (!arrived) {'))
-  assert.equal((block.match(/goto\(new goals\.GoalBlock/g) ?? []).length, 1,
-    'exactly one retry attempt')
-  // and the original refusal still follows it
-  assert.match(retry, /could \` \+\n\s*\`not stand in it/,
-    'the honest refusal must still be reachable when the retry also fails')
-})
-
-test('retries are COUNTED, so the desync share is measurable not inferred', () => {
-  assert.match(CODE, /let stepRetries = 0/)
-  assert.match(CODE, /if \(arrived\) stepRetries\+\+/)
-})

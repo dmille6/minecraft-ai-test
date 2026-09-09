@@ -3093,39 +3093,18 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     moved = Math.hypot(now.x - before.x, now.z - before.z)
     let arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
 
-    // ONE RETRY, BECAUSE THE FIRST DIG OFTEN DID NOT HAPPEN.
+    // THE RETRY IS REVERTED, AND ITS OWN NUMBER SAYS WHY.
     //
-    // The other half of the population -- moved 0.00, still standing where it
-    // started -- is the defect this project has already documented twice:
-    // mineflayer's digging writes air into the LOCAL cache on a timer with no
-    // server acknowledgement. The client then believes both cells are open, the
-    // pathfinder plans a route into them, and the server still has solid blocks
-    // there, so the bot does not move at all. A local read-back cannot detect
-    // it, because the local read is the thing that is wrong. Not moving is the
-    // only honest evidence available, and that is what this check already had.
+    // Re-digging the pair and re-walking cost a dig plus a 5s goto on every
+    // failed step, and `mine` runs against a budget: measured over 1.20h before
+    // and 0.84h after, mine success went 27.8% -> 17.8% and successes per hour
+    // fell 134 -> 80. The pre-registered revert condition was "mine success
+    // falls below 29.4%", so this comes out.
     //
-    // Re-digging the SAME TWO CELLS does not widen the shaft, which is what the
-    // guard below was written to prevent -- that guard is about digging a
-    // DIFFERENT cell on the next iteration and carving a trench. Retrying the
-    // identical pair either lands the dig the server missed or changes nothing.
-    if (!arrived && moved < 0.3) {
-      for (const pos of [cellHead, cellFeet]) {
-        const b = bot.blockAt(pos)
-        if (!b || b.name === 'air' || b.name === 'cave_air') continue
-        try { await bot.dig(b) } catch (e) { if (e.aborted) throw e; break }
-      }
-      try {
-        await withTimeout(
-          bot.pathfinder.goto(new goals.GoalBlock(cellFeet.x, cellFeet.y, cellFeet.z)),
-          5000, bot, { what: 'retaking the stair step' })
-      } catch (e) { if (e.aborted) throw e }
-      await settleForFall(bot, before.y, { maxMs: STEP_SETTLE_MS })
-      now = bot.entity.position
-      at = now.floored()
-      moved = Math.hypot(now.x - before.x, now.z - before.z)
-      arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
-      if (arrived) stepRetries++
-    }
+    // What it was chasing is real -- half these failures are a bot that never
+    // moved, which is the local-cache dig desync -- but paying five seconds per
+    // occurrence inside a budgeted skill costs more descents than it rescues.
+    // The cheap half stays: waiting for the landing before judging the step.
     if (!arrived) {
       // Do NOT keep digging. Stop, say the step is unverified, and leave the
       // shaft no wider than it already is.

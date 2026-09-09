@@ -126,3 +126,43 @@ test('junk in is refused rather than throwing', () => {
     assert.equal(ladderPlan(a).ok, false)
   }
 })
+
+// --- the rung in the lattice ------------------------------------------------
+import { escapePlan, ESCAPES } from '../src/escape.mjs'
+
+test('climb_ladder is a declared rung', () => {
+  assert.ok(ESCAPES.includes('climb_ladder'), ESCAPES.join(','))
+})
+
+test('DEFAULT FALSE: every existing state is unchanged', () => {
+  // The flag defaults false, so a caller that knows nothing about ladders gets
+  // exactly the lattice it had before this rung existed.
+  const base = { trapped: true, lateralTread: true }
+  assert.equal(escapePlan(base), 'stair_up')
+  assert.equal(escapePlan({ trapped: true, columnOpen: true, blocks: 99, climbNeed: 24 }), 'pillar_up')
+})
+
+test('it beats the RAMP, which costs a tool and digs', () => {
+  assert.equal(escapePlan({ trapped: true, lateralTread: true, ladderReady: true }), 'climb_ladder')
+})
+
+test('it beats the PILLAR, which is one-way and spends a block per level', () => {
+  assert.equal(escapePlan({ trapped: true, columnOpen: true, blocks: 99, climbNeed: 24,
+                            ladderReady: true }), 'climb_ladder')
+})
+
+test('BUT DOWN STILL BEATS UP -- climbing produced this population', () => {
+  // A free descent must not be traded for a climb just because ladders are held.
+  assert.equal(escapePlan({ trapped: true, underfootSolid: true, underfootDrop: 2,
+                            ladderReady: true }), 'dig_down')
+  assert.equal(escapePlan({ trapped: true, floorBelowSolid: true, ladderReady: true }),
+    'ride_floor_down')
+})
+
+test('and water still comes first, because swimming is travel', () => {
+  assert.equal(escapePlan({ trapped: true, afloat: true, ladderReady: true }), 'surface_swim')
+})
+
+test('not trapped is still none, ladders or no ladders', () => {
+  assert.equal(escapePlan({ trapped: false, ladderReady: true }), 'none')
+})

@@ -116,3 +116,111 @@ export function ladderPlan ({ need = 0, have = 0, reach = 0 } = {}) {
   }
   return { ok: true, rungs: n }
 }
+
+/** How far a bot can reach to place. Minecraft survival reach is 4.5 blocks. */
+export const PLACE_REACH_RUNGS = 3
+/** Never build a skyscraper. The measured climb demanded has a median of 24. */
+export const MAX_RUNGS = 40
+
+/**
+ * Which cardinal offers the tallest continuous ladder wall from here?
+ *
+ * The column goes in the bot's OWN cells and the anchor is the neighbour beside
+ * each one, so the bot climbs inside the shaft it is already standing in rather
+ * than trying to get around to a different column. Ladders have no collision,
+ * so occupying the cell does not prevent placing into it.
+ *
+ * Pure given `at`, which is `(dx, dy, dz) => block`. Returns the best direction
+ * and how many continuous rungs it supports.
+ */
+export function bestLadderWall (at, need) {
+  if (typeof at !== 'function') return { dx: 0, dz: 0, reach: 0 }
+  let best = { dx: 0, dz: 0, reach: 0 }
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const cells = []; const anchors = []
+    for (let i = 0; i < need; i++) {
+      cells.push(at(0, i, 0))
+      anchors.push(at(dx, i, dz))
+    }
+    const reach = ladderReach({ cells, anchors })
+    if (reach > best.reach) best = { dx, dz, reach }
+  }
+  return best
+}
+
+/**
+ * Build a ladder column and climb it. Returns {ok, placed, rose, why}.
+ *
+ * PLACE A FEW, CLIMB THEM, PLACE A FEW MORE. A bot cannot place a 24-block
+ * column from the floor -- survival reach is 4.5 blocks -- so the loop places
+ * what it can touch, climbs onto it, and continues from there. The ChatGPT
+ * review named this as the first thing a naive routine gets wrong, along with
+ * assuming one wall direction holds all the way up.
+ *
+ * EVERY PLACEMENT IS READ BACK. `bot.placeBlock` resolves without throwing when
+ * nothing was placed -- this codebase has a note about that on `place()` and
+ * another on the dig path -- and a column with a hole in it is not climbable at
+ * all, so an unverified rung is worse than a refused one.
+ *
+ * The postcondition is that the bot ROSE, not that placements happened, for the
+ * same reason the descent rungs now measure the fall: "I ran it" is not an
+ * outcome.
+ */
+export async function climbLadder (bot, { need = 8, goals, maxRungs = MAX_RUNGS,
+                                          sleep = ms => new Promise(r => setTimeout(r, ms)) } = {}) {
+  const start = bot?.entity?.position
+  if (!start || !goals?.GoalBlock) return { ok: false, placed: 0, rose: 0, why: 'no position or goals' }
+  const held = () => (bot.inventory?.items?.() ?? []).filter(i => i.name === 'ladder')
+                       .reduce((n, i) => n + (i.count ?? 0), 0)
+  const want = Math.min(Math.floor(need), maxRungs)
+  const at = (dx, dy, dz) => { try { return bot.blockAt(start.offset(dx, dy, dz)) } catch { return null } }
+  const wall = bestLadderWall(at, want)
+  const plan = ladderPlan({ need: want, have: held(), reach: wall.reach })
+  if (!plan.ok) return { ok: false, placed: 0, rose: 0, why: plan.why }
+
+  const y0 = start.y
+  let placed = 0
+  let guard = 0
+  while (placed < want && guard++ < want + 8) {
+    const here = bot.entity?.position
+    if (!here) break
+    const base = here.floored()
+    // Only what the bot can actually touch from where it now stands.
+    let putThisRound = 0
+    for (let i = 0; i < PLACE_REACH_RUNGS && placed < want; i++) {
+      const cell = base.offset(0, i, 0)
+      const anchorPos = cell.offset(wall.dx, 0, wall.dz)
+      const target = bot.blockAt(cell); const anchor = bot.blockAt(anchorPos)
+      if (target?.name === 'ladder') { placed++; continue }
+      if (!ladderCellFree(target) || !canAnchorLadder(anchor)) break
+      const item = held() > 0 ? (bot.inventory?.items?.() ?? []).find(i => i.name === 'ladder') : null
+      if (!item) return { ok: false, placed, rose: (bot.entity?.position?.y ?? y0) - y0, why: 'ran out of ladders' }
+      try {
+        await bot.equip(item, 'hand')
+        // Face vector points from the ANCHOR back into the column.
+        await bot.placeBlock(anchor, { x: -wall.dx, y: 0, z: -wall.dz })
+      } catch (e) {
+        return { ok: false, placed, rose: (bot.entity?.position?.y ?? y0) - y0, why: `place failed: ${e?.message ?? e}` }
+      }
+      await sleep(120)
+      // READ IT BACK. placeBlock resolves without throwing when nothing landed.
+      if (bot.blockAt(cell)?.name !== 'ladder') {
+        return { ok: false, placed, rose: (bot.entity?.position?.y ?? y0) - y0,
+                 why: `placeBlock returned but ${cell.x},${cell.y},${cell.z} is not a ladder` }
+      }
+      placed++; putThisRound++
+    }
+    if (!putThisRound && placed < want) {
+      return { ok: false, placed, rose: (bot.entity?.position?.y ?? y0) - y0,
+               why: placed ? 'the wall ran out partway up' : 'nothing placeable from here' }
+    }
+    // Climb what is now there. The pathfinder understands ladders natively.
+    try {
+      await bot.pathfinder.goto(new goals.GoalBlock(base.x, base.y + putThisRound, base.z))
+    } catch { /* the rise check below is the verdict */ }
+    await sleep(150)
+  }
+  const rose = (bot.entity?.position?.y ?? y0) - y0
+  return { ok: rose >= 1, placed, rose,
+           why: rose >= 1 ? `climbed ${rose.toFixed(1)} on ${placed} rungs` : 'placed rungs but did not rise' }
+}

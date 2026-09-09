@@ -53,7 +53,7 @@
  */
 export const ESCAPES = Object.freeze([
   'none', 'dig_down', 'ride_floor_down', 'stair_up',
-  'pillar_up', 'surface_swim', 'step_off',
+  'climb_ladder', 'pillar_up', 'surface_swim', 'step_off',
 ])
 
 /** Raised when a reachable state admits no action. The `ZeroLooksWrong` of this module. */
@@ -92,6 +92,21 @@ export function escapePlan ({
   floorBelowSolid = false,   // rideFloorDown's free branch: is there a floor to land on
   lateralTread = false,      // a solid neighbour at foot level, for the ramp
   columnOpen = false,        // open sky above, for pillaring
+  // A SINGLE DERIVED FLAG, ON PURPOSE.
+  //
+  // It means all of: there is a wall a ladder can actually attach to, the
+  // column above is clear for the whole climb, and the bot holds enough
+  // ladders with a reserve. The caller computes it from ladder.mjs, where each
+  // of those is a tested pure function.
+  //
+  // ONE flag rather than three inputs because this lattice has been bitten
+  // already: `lateralTread` and `canStepOff` were admitted as independent axes,
+  // and the totality property immediately found 344 states asserting both that
+  // there IS a solid lateral neighbour and that there ISN'T. Three ladder
+  // variables would multiply the state space by eight and invite the same
+  // contradiction. Default false, so every state that does not positively
+  // qualify behaves exactly as it did before this rung existed.
+  ladderReady = false,
   // INVARIANT: `lateralTread` and `canStepOff` are complements, not independent
   // axes. A foot-level lateral cell is solid (a tread) or passable (somewhere to
   // step). Treating them as free variables admitted 344 impossible states.
@@ -110,6 +125,19 @@ export function escapePlan ({
                  (underfootDrop <= FALL_FREE || underfootDrop <= cap)
   if (underfootSolid && dropOk) return 'dig_down'
   if (floorBelowSolid) return 'ride_floor_down'
+
+  // A LADDER BEATS CUTTING A RAMP, WHEN ONE IS ACTUALLY BUILDABLE.
+  //
+  // It costs no tool durability, digs nothing, and mineflayer-pathfinder
+  // already treats a ladder as climbable -- so unlike a ramp or a pillar, what
+  // it leaves behind is a permanent TWO-WAY route the navigator can use to come
+  // back down. A pillar is one-way and strands the next bot on top of it.
+  //
+  // Above `stair_up` because the ramp needs a tool and spends it; above
+  // `pillar_up` because a ladder is one item per level against one block per
+  // level with a jump-place at every step. Below the DOWN rungs, because
+  // climbing is what produced this population in the first place.
+  if (ladderReady) return 'climb_ladder'
 
   // The ramp needs something to cut into. A bot on a pillar has air on all four
   // cardinals BY THE DEFINITION of stranded, which is why this is not first.
