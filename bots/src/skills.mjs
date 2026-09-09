@@ -30,7 +30,7 @@ const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
-import { mayStepDown, survivableDrop } from './mining.mjs'
+import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { breathPlan } from './swim-breath.mjs'
@@ -308,6 +308,15 @@ const MAX_HAZARD_RETRIES = 6
 // remembering to add them. `ancient_debris` is included and is the only
 // non-"_ore" member: it is the same shape of problem.
 const WORTH_TUNNELLING = /(_ore|^ancient_debris$)/
+// A stair step IS one block of falling (~450ms from rest). The old flat 250ms
+// judged a good share of steps mid-air. Bounded, and settleForFall returns early
+// as soon as the bot is down, so a clean step never pays the whole budget.
+//
+// Clamped to the skill budget for the same reason the runner sets
+// SKILL_TIMEOUT_MS=300 in tests: a fake world where the bot never moves would
+// otherwise pay the full settle on every step of every staircase, and a suite
+// that takes two minutes to say "unverified" is a suite nobody runs.
+const STEP_SETTLE_MS = Math.max(50, Math.min(900, Math.floor(config.skills.defaultTimeoutMs / 3)))
 const COLLECT_MS = 40_000
 const BARREN_LIMIT = 3
 
@@ -2887,6 +2896,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
                snapshot: snapshot(bot) })
   }
   let steps = 0
+  // How many steps only worked on the RETRY. Counted so the server-desync
+  // share is measurable rather than inferred from the absence of failures.
+  let stepRetries = 0
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
     check(signal)
     steps++
@@ -3060,11 +3072,60 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // exactly. The brief settle is what makes that honest rather than lucky:
     // without it the bot can still be a whole block high and floor to the
     // wrong cell.
-    await sleep(250, signal)
-    const now = bot.entity.position
-    const at = now.floored()
+    // 250ms WAS NOT A LANDING, AND THE STEP IS A FALL.
+    //
+    // A step down IS one block of falling, and one block takes about nine ticks
+    // (~450ms) from rest. A flat 250ms sleep therefore judged a good number of
+    // these mid-air, floored y one too high, and filed a step the bot was in
+    // the middle of taking as "wrong cell".
+    //
+    // Measured over 172 failures across 42 bots: 85.5% ended at exactly
+    // tread.y + 1, and the horizontal distance moved was bimodal -- p50 = 0.00
+    // (never left the lip) and p90 = 0.99 (walked over it and was still coming
+    // down). The second population is this bug and nothing more.
+    //
+    // `settleForFall` is the same helper the escape rungs now use, for the same
+    // reason: it returns as soon as the bot is down and on the ground, so a
+    // clean step costs a poll or two rather than a fixed wait.
+    await settleForFall(bot, before.y, { maxMs: STEP_SETTLE_MS })
+    let now = bot.entity.position
+    let at = now.floored()
     moved = Math.hypot(now.x - before.x, now.z - before.z)
-    const arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
+    let arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
+
+    // ONE RETRY, BECAUSE THE FIRST DIG OFTEN DID NOT HAPPEN.
+    //
+    // The other half of the population -- moved 0.00, still standing where it
+    // started -- is the defect this project has already documented twice:
+    // mineflayer's digging writes air into the LOCAL cache on a timer with no
+    // server acknowledgement. The client then believes both cells are open, the
+    // pathfinder plans a route into them, and the server still has solid blocks
+    // there, so the bot does not move at all. A local read-back cannot detect
+    // it, because the local read is the thing that is wrong. Not moving is the
+    // only honest evidence available, and that is what this check already had.
+    //
+    // Re-digging the SAME TWO CELLS does not widen the shaft, which is what the
+    // guard below was written to prevent -- that guard is about digging a
+    // DIFFERENT cell on the next iteration and carving a trench. Retrying the
+    // identical pair either lands the dig the server missed or changes nothing.
+    if (!arrived && moved < 0.3) {
+      for (const pos of [cellHead, cellFeet]) {
+        const b = bot.blockAt(pos)
+        if (!b || b.name === 'air' || b.name === 'cave_air') continue
+        try { await bot.dig(b) } catch (e) { if (e.aborted) throw e; break }
+      }
+      try {
+        await withTimeout(
+          bot.pathfinder.goto(new goals.GoalBlock(cellFeet.x, cellFeet.y, cellFeet.z)),
+          5000, bot, { what: 'retaking the stair step' })
+      } catch (e) { if (e.aborted) throw e }
+      await settleForFall(bot, before.y, { maxMs: STEP_SETTLE_MS })
+      now = bot.entity.position
+      at = now.floored()
+      moved = Math.hypot(now.x - before.x, now.z - before.z)
+      arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
+      if (arrived) stepRetries++
+    }
     if (!arrived) {
       // Do NOT keep digging. Stop, say the step is unverified, and leave the
       // shaft no wider than it already is.

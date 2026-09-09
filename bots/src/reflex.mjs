@@ -17,7 +17,7 @@ import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary } from './scaffold.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit } from './digbudget.mjs'
-import { mayHarvestUnderfoot } from './mining.mjs'
+import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
 import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
@@ -25,6 +25,10 @@ import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // hit 'no routine wired'. skills.mjs does not import reflex.mjs, so this is
 // not a cycle.
 import { rideFloorDown } from './skills.mjs'
+// Re-exported from its new home so existing importers and tests keep working;
+// it lives in mining.mjs because skills.mjs needs it too and reflex.mjs already
+// imports FROM skills.mjs -- putting it here would have made an import cycle.
+export { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS }
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -3347,40 +3351,6 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   const fell = await settleForFall(bot, yBefore)
   return { ok: fell >= 0.5, drop, fell,
            why: fell >= 0.5 ? `descended ${fell.toFixed(1)}` : 'dug but did not descend' }
-}
-
-/** How long to let gravity run before judging a descent. */
-export const FALL_SETTLE_MS = 1200
-/** How often to look. One Minecraft tick is 50ms; there is no point going finer. */
-export const FALL_POLL_MS = 50
-
-/**
- * Wait for the bot to actually fall, then report how far. Returns blocks fallen.
- *
- * Returns EARLY the moment the bot has clearly moved down, so a working dig
- * costs one or two polls rather than the whole budget, and a dig that did
- * nothing costs FALL_SETTLE_MS once instead of being scored a failure it did
- * not commit.
- *
- * `sleep` and `now` are injectable because a timing-dependent postcondition
- * that can only be tested against a live server is a postcondition nobody
- * tests -- and this one was wrong for months.
- */
-export async function settleForFall (bot, yBefore, {
-  maxMs = FALL_SETTLE_MS, pollMs = FALL_POLL_MS,
-  sleep = ms => new Promise(r => setTimeout(r, ms)),
-  now = () => Date.now(),
-} = {}) {
-  const started = now()
-  let best = 0
-  for (;;) {
-    const y = bot?.entity?.position?.y
-    if (typeof y === 'number') best = Math.max(best, yBefore - y)
-    // Clearly down AND no longer moving: stop early rather than pay the budget.
-    if (best >= 0.5 && bot?.entity?.onGround === true) return best
-    if (now() - started >= maxMs) return best
-    await sleep(pollMs)
-  }
 }
 
 const HARVEST_OFFSETS = [

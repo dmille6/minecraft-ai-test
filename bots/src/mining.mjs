@@ -161,3 +161,37 @@ export function mayHarvestUnderfoot ({ drop = null, health = 20, margin = 6 } = 
   if (drop <= FALL_FREE) return true
   return drop <= survivableDrop(health, margin)
 }
+
+/** How long to let gravity run before judging a descent. */
+export const FALL_SETTLE_MS = 1200
+/** How often to look. One Minecraft tick is 50ms; there is no point going finer. */
+export const FALL_POLL_MS = 50
+
+/**
+ * Wait for the bot to actually fall, then report how far. Returns blocks fallen.
+ *
+ * Returns EARLY the moment the bot has clearly moved down, so a working dig
+ * costs one or two polls rather than the whole budget, and a dig that did
+ * nothing costs FALL_SETTLE_MS once instead of being scored a failure it did
+ * not commit.
+ *
+ * `sleep` and `now` are injectable because a timing-dependent postcondition
+ * that can only be tested against a live server is a postcondition nobody
+ * tests -- and this one was wrong for months.
+ */
+export async function settleForFall (bot, yBefore, {
+  maxMs = FALL_SETTLE_MS, pollMs = FALL_POLL_MS,
+  sleep = ms => new Promise(r => setTimeout(r, ms)),
+  now = () => Date.now(),
+} = {}) {
+  const started = now()
+  let best = 0
+  for (;;) {
+    const y = bot?.entity?.position?.y
+    if (typeof y === 'number') best = Math.max(best, yBefore - y)
+    // Clearly down AND no longer moving: stop early rather than pay the budget.
+    if (best >= 0.5 && bot?.entity?.onGround === true) return best
+    if (now() - started >= maxMs) return best
+    await sleep(pollMs)
+  }
+}

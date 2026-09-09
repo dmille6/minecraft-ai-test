@@ -12,7 +12,7 @@
 // y=150 -> 146 -> 144 across the window. It was working the whole time.
 import assert from 'node:assert'
 import test from 'node:test'
-import { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from '../src/reflex.mjs'
+import { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from '../src/mining.mjs'
 
 // A fake clock, so a timing postcondition is testable without a server. That is
 // the point: the old one could only be checked against a live world, which is
