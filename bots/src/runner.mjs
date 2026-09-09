@@ -301,7 +301,15 @@ export class Runner {
     // question ("was it the change we currently want?"). The second is the
     // cognitive layer's to ask, and it must not be able to turn a real harvest
     // into an unknown just because the milestone moved on.
-    const { because: contractEvidence } = classifyOutcome(skillName, result.status, measured, null)
+    // Asked as a COUNTERFACTUAL -- 'success' is passed literally, not
+    // `result.status`. classifyOutcome short-circuits on line one for `failed`
+    // and `aborted` and hands back an empty `because`, so asking it about a
+    // failure can only ever answer "no evidence", whatever the bot actually did.
+    // The question this gate needs is "IF this had claimed success, would the
+    // contract's change be there?" -- and that has to be asked in the same
+    // words for both directions or the gate is only ever a downgrade.
+    // For a run that really did claim success this is the identical call.
+    const { because: contractEvidence } = classifyOutcome(skillName, 'success', measured, null)
     if (result.status === 'success' && !contractEvidence.length) {
       const expects = (SKILL_CONTRACTS[skillName]?.expects ?? []).join('|') || 'nothing'
       log('warn', 'success downgraded to unknown: no contract evidence', {
@@ -313,6 +321,38 @@ export class Runner {
         failClass: 'no_measurable_change',
         detail: `${result.detail ?? ''} — but nothing changed that ${skillName} exists to change ` +
                 `(expected ${expects}); cannot tell whether it worked`,
+      }
+    } else if (contractEvidence.length &&
+               (result.status === 'aborted' || result.status === 'unknown')) {
+      // THE GATE SWINGS BOTH WAYS, OR IT IS NOT A GATE.
+      //
+      // For its whole life this gate could only take a success away. It never
+      // once gave one back, while `measured` -- the proof -- was computed for
+      // every outcome and written to every log line, unread on this side.
+      //
+      // Measured 2026-09-09 over 6h: 882 of 1,309 `unknown` mines (67.4%, 66
+      // bots) put ore in the bag, and 256 of 862 `aborted` gathers (29.7%, 55
+      // bots) came home with items. `mine` reads 25.8% and is nearer 57%. We
+      // have been steering a fleet by a number that could only fall.
+      //
+      // ONLY `aborted` AND `unknown`, NEVER `failed`, and that distinction is
+      // the whole safety of this branch. `unknown` says in as many words that
+      // we cannot tell -- evidence is exactly what it was missing. `aborted`
+      // means the reflex cut in before the skill could judge itself, so there
+      // is no verdict to overturn. But `failed` IS a verdict: the skill looked
+      // at what happened and said no. Overriding that on an inventory delta
+      // would let a log picked up in passing erase a real refusal -- the same
+      // overclaim as the downgrade, pointing the other way, and the comment
+      // above rejects it in that direction for exactly this reason.
+      log('info', 'failure upgraded to success: contract evidence present', {
+        skill: skillName, was: result.status, because: contractEvidence.join(','),
+      })
+      result = {
+        ...result,
+        status: 'success',
+        failClass: null,
+        detail: `${result.detail ?? ''} — but ${contractEvidence.join(' and ')}, ` +
+                `which is what ${skillName} is for, so it worked`,
       }
     }
 

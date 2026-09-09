@@ -348,6 +348,75 @@ await t('an escaped budget expiry is unknown, not failed', async () => {
   assert.equal(r.failClass, 'path_budget')
 })
 
+// ---- THE GATE SWINGS BOTH WAYS ------------------------------------------
+//
+// Every test above this line is the downgrade. For its whole life the gate had
+// only that direction, while `measured` -- the proof -- was computed for every
+// outcome and written to every log line, unread on the failure side. Measured
+// 2026-09-09 over six hours: 882 of 1,309 `unknown` mines (67.4%, 66 bots) put
+// ore in the bag, and 256 of 862 `aborted` gathers (29.7%, 55 bots) came home
+// carrying items. `mine` reads 25.8% and is nearer 57%.
+
+await t('an aborted gather that came home with items is a success', async () => {
+  const inv = []
+  const bot = runnerBot({ inventory: inv })
+  const r = await withSkill('gather', async () => {
+    inv.push({ name: 'oak_log', count: 4 })
+    return { status: 'aborted', detail: 'interrupted by the air reflex' }
+  }, () => new Runner(bot).run('gather', { block: 'oak_log', count: 16 }))
+  assert.equal(r.status, 'success',
+    'the reflex cut in AFTER the logs were in the bag; the durable change happened')
+  assert.equal(r.failClass, null, 'a success carries no failure class')
+  assert.match(r.contractEvidence.join(';'), /oak_log \+4/)
+})
+
+await t('an unknown mine that gained ore is a success', async () => {
+  const inv = []
+  const bot = runnerBot({ inventory: inv })
+  const r = await withSkill('mine', async () => {
+    inv.push({ name: 'raw_iron', count: 2 })
+    return { status: 'unknown', detail: 'could not tell whether the step landed' }
+  }, () => new Runner(bot).run('mine', { y: 40 }))
+  assert.equal(r.status, 'success',
+    '`unknown` means we could not tell -- evidence is precisely what it lacked')
+})
+
+await t('a FAILED skill is never upgraded, however much it gained', async () => {
+  // The safety boundary of the whole branch. `failed` is a VERDICT: the skill
+  // looked at what happened and said no. `aborted` and `unknown` are the
+  // absence of a verdict. Overriding a real refusal because a log was picked up
+  // in passing is the same overclaim as the downgrade, pointing the other way.
+  const inv = []
+  const bot = runnerBot({ inventory: inv })
+  const r = await withSkill('gather', async () => {
+    inv.push({ name: 'oak_log', count: 9 })
+    return { status: 'failed', failClass: 'unreachable', detail: 'every candidate was buried' }
+  }, () => new Runner(bot).run('gather', { block: 'oak_log', count: 16 }))
+  assert.equal(r.status, 'failed', 'the skill judged itself and the gate must not overrule it')
+  assert.equal(r.failClass, 'unreachable', 'and its reason survives intact')
+})
+
+await t('an abort with nothing to show for it stays aborted', async () => {
+  const bot = runnerBot()
+  const r = await withSkill('gather', async () => ({ status: 'aborted', detail: 'interrupted' }),
+    () => new Runner(bot).run('gather', { block: 'oak_log', count: 16 }))
+  assert.equal(r.status, 'aborted',
+    'no evidence, no upgrade -- the branch must not launder every interruption')
+})
+
+await t('the upgrade asks the contract, not merely "did anything change"', async () => {
+  // `goto` expects a POSITION change. A goto that stood still and gained an
+  // item it happened to walk over has not done what goto is for.
+  const inv = []
+  const bot = runnerBot({ inventory: inv })
+  const r = await withSkill('goto', async () => {
+    inv.push({ name: 'dirt', count: 1 })
+    return { status: 'aborted', detail: 'interrupted' }
+  }, () => new Runner(bot).run('goto', { x: 500, y: 68, z: 500 }))
+  assert.notEqual(r.status, 'success',
+    'goto expects position; picking something up on the spot is not arriving')
+})
+
 fs.rmSync(TMP, { recursive: true, force: true })
 console.log(`\n  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

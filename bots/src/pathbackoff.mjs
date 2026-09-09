@@ -129,7 +129,7 @@ export function flushPathShapes() {
   for (const k of keys) delete pending[k]
   const total = Object.values(snapshot).reduce((a, b) => a + b, 0)
   logEvent({
-    kind: '_path_failure_shapes', status: 'failed',
+    kind: 'path_failure_shapes', status: 'failed',
     detail: Object.entries(snapshot).sort((a, b) => b[1] - a[1])
       .map(([k, n]) => `${k}=${n}(${(100 * n / total).toFixed(0)}%)`).join(' ') +
       ` total=${total}`,
@@ -222,7 +222,7 @@ export function installPathBackoff() {
           // library reports as SUCCESS elsewhere (goto's empty-path branch runs
           // before its status check, PR #357, unmerged). Worth one event each.
           logEvent({
-            kind: '_path_no_legal_move', status: 'failed',
+            kind: 'path_no_legal_move', status: 'failed',
             detail: `${shape} status=${status} visited=${visited} ` +
                     `startLiquid=${!!startBlock?.liquid} ` +
                     `h=${node?.h?.toFixed?.(1) ?? '?'}`,
