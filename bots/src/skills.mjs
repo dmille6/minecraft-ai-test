@@ -1032,6 +1032,12 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                detail: `no drop mapping for ${blockName}; scoring on its own name`,
                snapshot: snapshot(bot) })
   }
+  // Per RUN. Cleared when gather returns, because a block unreachable from here
+  // may be perfectly reachable once the bot has moved -- so this must not become
+  // a persistent blacklist. A durable claim belongs in the lessons store, and a
+  // transient geometric fact is not one.
+  const excluded = new Set()
+  const key = q => `${q.x},${q.y},${q.z}`
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
   // The most recent reachability probe, so the failure can cite what A* said.
   let lastProbe = null
@@ -1298,8 +1304,39 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                        (mineSaid ? ` [mine said: ${String(mineSaid).slice(0, 110)}]` : '') }
     }
 
-    const target = bot.blockAt(reachable[0])
-    if (!target || target.name !== (viaSource ?? blockName)) continue
+    // SKIP WHAT ALREADY REFUSED US, PER RUN.
+    //
+    // This was `reachable[0]` and the candidate list is re-scanned every round,
+    // so the same block could be picked forever. Measured before the fix: 63.9%
+    // of consecutive gather pairs were "failed, then re-asked the SAME block",
+    // 89% of all attempts sat inside a same-block streak (median 4, max 58), and
+    // a retry after failure succeeded 9.6% against a 15.8% baseline. The loop
+    // was not converging; it was orbiting.
+    //
+    // Now that `arrived_out_of_reach` exists we know WHY it orbited: 134 events
+    // across 44 of 80 bots, against ZERO dig_unconfirmed. The bot could not get
+    // to that block, and nothing about re-picking it changes that. Every other
+    // agent project that works has this set -- Cairn keeps `s.excluded`,
+    // mindcraft passes an `exclude` list -- and ours did not.
+    //
+    // Per RUN, deliberately: a block that is unreachable from here may be fine
+    // once the bot has moved, so this must not become a persistent blacklist.
+    // The lessons store is where a durable claim would belong, and a transient
+    // geometric fact is not one.
+    const nextUp = reachable.find(q => !excluded.has(key(q)))
+    if (!nextUp) {
+      // Every candidate has already refused us this run. Re-scanning cannot
+      // produce a different answer, so stop rather than spend the budget.
+      if (collected > 0) {
+        return { status: 'success',
+                 detail: `collected ${collected} ${blockName} (the rest could not be reached from here)` }
+      }
+      return { status: 'failed', failClass: 'unreachable',
+               detail: `${blockName}: all ${excluded.size} candidate(s) in range refused — ` +
+                       `could not stand within reach of any of them` }
+    }
+    const target = bot.blockAt(nextUp)
+    if (!target || target.name !== (viaSource ?? blockName)) { excluded.add(key(nextUp)); continue }
 
     try {
       // The budget has to cover PLANNING PLUS DOING. It was 10000ms while
@@ -1382,6 +1419,14 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // class from prose, which is how a collect budget and a real no-path
       // became the same lesson.
       if (collectErrors.length < 8) collectErrors.push(String(e.message ?? e).slice(0, 120))
+      // THE SET IS ONLY WORTH HAVING IF SOMETHING PUTS THINGS IN IT.
+      //
+      // Every failure excludes its target for the rest of this run, not just
+      // arrived_out_of_reach. Whatever went wrong -- refused, timed out, taken
+      // by another bot -- the one thing we know is that this block did not
+      // yield, and re-picking it is what produced streaks of up to 58 attempts
+      // on a single position.
+      excluded.add(key(target.position))
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     } finally {
       // A CANCELLED SKILL MUST CANCEL THE LIBRARY TOO.
@@ -1419,6 +1464,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     const gained = Math.max(0, Math.min(raw, count * MAX_PER_BLOCK))
     if (gained === collected) {
       barren++
+      // A barren round means this target gave nothing even though nothing threw.
+      // Same reasoning as the catch above: do not come back to it this run.
+      excluded.add(key(target.position))
       if (barren >= BARREN_LIMIT) {
         // Name the actual cause. "Unreachable" and "ran out of time getting
         // there" call for different responses -- the first means go somewhere
@@ -1623,13 +1671,24 @@ async function home(ctx, _args, signal) {
 }
 
 // ------------------------------------------------------------- deposit -----
-async function deposit(ctx, { item = null }, signal) {
+async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null } = {}) {
   const { bot } = ctx
-  const findChest = () => bot.findBlock({
-    matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name),
-    maxDistance: 48,
-  })
-  let chestBlock = findChest()
+  const isContainer = b => ['chest', 'barrel', 'trapped_chest']
+    .includes(bot.registry.blocks[b.type]?.name)
+  const findChest = () => bot.findBlock({ matching: isContainer, maxDistance: 48 })
+  // PREFER THE CHEST WE WERE SENT TO, and this is not a nicety.
+  //
+  // The full-chest recovery below builds a NEW chest and calls deposit again.
+  // Without this, that retry runs findChest() and gets the NEAREST container --
+  // which is very often the same full one it just walked away from, because the
+  // new chest is placed adjacent to the bot and so is the old one. The recovery
+  // would then look like it ran and changed nothing.
+  let chestBlock = null
+  if (preferAt) {
+    const b = bot.blockAt(preferAt)
+    if (b && isContainer(b)) chestBlock = b
+  }
+  chestBlock = chestBlock || findChest()
   if (!chestBlock) {
     // The town chest lives at home, and a 48-block scan cannot see it from a
     // mine. Walking home first is the difference between "deposit works near
@@ -1716,9 +1775,44 @@ async function deposit(ctx, { item = null }, signal) {
                ? `nothing matching ${item} to hand over — nothing to deposit`
                : 'nothing worth banking — nothing to deposit' }
   }
-  // Eligible items and none moved: the chest would not take them. A real
-  // failure, and a DIFFERENT one, because the remedy is another chest rather
-  // than another attempt.
+  // A REFUSAL MUST NAME A REMEDY THE BOT CAN PERFORM FROM WHERE IT STANDS,
+  // and this one named one and then did not perform it.
+  //
+  // The comment here already said "the remedy is another chest rather than
+  // another attempt" and stopped there, which is the repo's own recurring bug:
+  // advice printed is not advice taken. Measured: 108 storage_full refusals
+  // across 33 DISTINCT BOTS in six hours, one of them holding 806 bankable
+  // items. The town chest is 27 slots and there are five bots per world.
+  //
+  // A chest is eight planks. Every bot that can gather wood can make one, and
+  // `craft` already resolves its own prerequisites recursively -- that is how
+  // the crafting table gets placed. So make storage instead of reporting the
+  // lack of it. This is also the only version of the fix that respects the
+  // owner's standing rule: adding chests by RCON would be changing the world to
+  // fix a bot; teaching bots to build storage is a capability.
+  if (!noRecovery) {
+    const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)
+    if (built.status === 'success') {
+      const put = await place(ctx, { item: 'chest' }, signal)
+      if (put.status === 'success') {
+        // ONE retry, and explicitly not recursive: `noRecovery` stops a bot that
+        // cannot place from crafting a chest per attempt forever. A bounded
+        // recovery that can re-enter itself is an unbounded recovery.
+        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: put.at })
+        if (again.status === 'success') {
+          return { ...again, detail: `${again.detail} (the old chest was full, so it built a new one)` }
+        }
+        return { status: 'failed', failClass: 'storage_full',
+                 detail: `the chest was full; built and placed a new one and still could not ` +
+                         `bank ${eligible} item(s) — ${again.detail}` }
+      }
+      return { status: 'failed', failClass: 'storage_full',
+               detail: `the chest was full and nowhere to put a new one — ${put.detail}` }
+    }
+    return { status: 'failed', failClass: 'storage_full',
+             detail: `had ${eligible} item(s) and the chest is full; could not make another ` +
+                     `chest — ${built.detail}` }
+  }
   return { status: 'failed', failClass: 'storage_full',
            detail: `had ${eligible} item(s) to hand over and the chest took none — it is full` }
 }
@@ -2408,7 +2502,11 @@ async function place(ctx, { item, x, y, z }, signal) {
         failures.push(`placeBlock returned but ${at} is still ${put?.name ?? 'unknown'}`)
         continue
       }
-      return { status: 'success', placed: 1, detail: `placed ${item} at ${at}` }
+      // `at` is returned STRUCTURALLY, not only inside the prose. deposit's
+      // full-chest recovery needs to reopen the chest it just built, and
+      // parsing a coordinate back out of an English sentence is how a caller
+      // ends up depending on the wording of a log line.
+      return { status: 'success', placed: 1, at, detail: `placed ${item} at ${at}` }
     } catch (e) {
       failures.push(e.message)
     }
