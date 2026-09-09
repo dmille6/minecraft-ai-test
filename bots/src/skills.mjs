@@ -2247,7 +2247,7 @@ async function place(ctx, { item, x, y, z }, signal) {
       if (solid(underfoot)) {
         for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
                             new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
-          const target = bot.blockAt(underfoot.position.plus(face))
+          const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
           if (replaceable(target)) candidates.push({ ref: underfoot, face })
         }
       }
@@ -2350,7 +2350,7 @@ async function place(ctx, { item, x, y, z }, signal) {
       // place was scored as changing nothing, classified `neutral`, and then
       // recorded as a success anyway by the neutral branch in cognitive.mjs.
       // A success nobody can falsify is not evidence.
-      const at = ref.position.plus(face)
+      const at = ref.position.offset(face.x, face.y, face.z)
       const put = bot.blockAt(at)
       if (!put || put.name === 'air' || put.boundingBox === 'empty') {
         failures.push(`placeBlock returned but ${at} is still ${put?.name ?? 'unknown'}`)
