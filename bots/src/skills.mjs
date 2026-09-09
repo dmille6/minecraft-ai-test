@@ -83,6 +83,15 @@ export const UNKNOWN_FAIL_CLASSES = new Set([
   //               smelting does not work, which is the single most expensive
   //               wrong lesson available given nothing has ever smelted.
   'smelt_budget',
+  // airborne     the bot was falling or swimming with nothing solid in any of
+  //              24 cells. A TRUE, TRANSIENT statement about where the bot is,
+  //              and none at all about whether placing works -- there will be a
+  //              spot the moment it lands. Filed as `failed` it would feed the
+  //              avoid machinery the lesson "place does not work", the same
+  //              most-expensive-wrong-lesson argument that put `smelt_budget`
+  //              on this list. 64 of 111 place refusals still read this way
+  //              after the land-first wait shipped.
+  'airborne',
   // furnace_window  the server never opened the furnace window. craft files the
   //               same event as `no_path`, which is defensible there and wrong
   //               here: the avoid key is `smelt:{"item":"raw_iron"}`, which
@@ -1811,6 +1820,8 @@ async function eat(ctx, _args, signal) {
 // craft (planks <- log <- the world). Three levels covers log -> planks -> stick
 // -> pickaxe, which is the deepest chain before stone.
 const MAX_CRAFT_DEPTH = 3
+/** Per-candidate ceiling on bot.placeBlock's wait for the server's blockUpdate. */
+const PLACE_ACK_MS = 3_000
 
 async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   const { bot } = ctx
@@ -1972,6 +1983,9 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // explicit failClass wins over the classifier, so `needs_station` was
     // unreachable on the live write path and only ever appeared in tests.
     const stationOnly = hasTable && !missing.length
+    // Why placing the station failed, if we got as far as trying. Declared out
+    // here because the refusal that needs it is built well below the attempt.
+    let stationFailure = ''
 
     // ---- resolve prerequisites, then try again -----------------------------
     //
@@ -2005,6 +2019,8 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         }
         const put = await place(ctx, { item: 'crafting_table' }, signal)
         if (put.status === 'success') made.push('placed crafting_table')
+        // Kept so the refusal below can say what actually stopped it.
+        else stationFailure = put.detail || put.failClass || ''
       }
 
       // One level down, per missing ingredient. `missing` entries look like
@@ -2070,7 +2086,20 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       // thing every time. Sorted so two identical gaps compare equal.
       gap: stationOnly ? 'crafting_table' : rootGap.slice().sort().join('+'),
       detail: stationOnly
-        ? `no recipe available for ${item}; place the crafting_table first`
+        // SAY WHY THE TABLE IS NOT DOWN, because we already tried to put it down.
+        //
+        // `stationOnly` means the bot HAS a table and lacks nothing else, so the
+        // resolver above has already called place() and place() has already
+        // failed. Printing "place the crafting_table first" then tells the model
+        // to redo the exact thing that just failed, and it obliges: 194 of these
+        // in 200 minutes, 187 for wooden_pickaxe, concentrated in 15 bots. The
+        // reason was computed, returned, and discarded one frame later.
+        //
+        // This is the rule about a refusal naming a remedy the bot can perform
+        // from where it is. "Place it" is not that remedy when placing is what
+        // failed; the obstacle is.
+        ? `no recipe available for ${item}: it needs a crafting table, you are carrying one, ` +
+          `and putting it down failed — ${stationFailure || 'no reason recorded'}`
         : gatherFirst.length
           ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
             `nothing crafts it (you have ` +
@@ -2221,6 +2250,28 @@ async function place(ctx, { item, x, y, z }, signal) {
     }
     const why = `no_support=${seen.noSupport} blocked_above=${seen.blocked}` +
                 ` [${[...seen.names].slice(0, 6).join(',') || 'nothing readable'}]`
+
+    // FALLING IS NOT THE SAME REFUSAL AS BOXED IN, and calling both `no_space`
+    // hid the difference behind one number.
+    //
+    // All 24 cells empty means nothing is nearby in ANY direction at three
+    // heights -- open air or open water, not a lack of room. The bot is falling
+    // or swimming, and "nowhere to place" is false: there will be somewhere the
+    // moment it lands. Boxed in is the opposite situation with the opposite
+    // remedy (dig or escape, not wait), and the two must not share a class.
+    //
+    // Measured after the land-first wait shipped: 64 of 111 place refusals still
+    // read `no_support=24 [air]`, so 600ms of waiting does not cover it -- a fall
+    // outlasts that. Waiting harder would be a third guess; naming the state
+    // truthfully is not.
+    if (seen.noSupport === 24 && bot.entity?.onGround === false) {
+      return {
+        status: 'failed',
+        failClass: 'airborne',
+        detail: `cannot place ${item} while off the ground — nothing solid in any ` +
+                `direction at three heights (${why}); wait to land, there is nothing to fix here`,
+      }
+    }
     return {
       status: 'failed',
       failClass: 'no_space',
@@ -2236,13 +2287,22 @@ async function place(ctx, { item, x, y, z }, signal) {
   // occupancy, the bot facing the wrong way. Giving up after the first
   // candidate turned a recoverable miss into a dead tech tree.
   const failures = []
+  let tried = 0
   for (const ref of candidates.slice(0, 6)) {
     check(signal)
+    tried++
     try {
       // Facing the target makes mineflayer's block interaction markedly more
       // reliable; the same lesson the crafting-table reach check already learned.
       try { await bot.lookAt(ref.position.offset(0.5, 1.5, 0.5), true) } catch { /* not fatal */ }
-      await bot.placeBlock(ref, new Vec3(0, 1, 0))
+      // BOUNDED, because bot.placeBlock waits on a server `blockUpdate` that may
+      // never arrive. Unbounded, one silent spot consumed the whole skill budget
+      // and the remaining candidates were never reached -- the same open-loop
+      // shape as deposit hanging on `windowOpen`. Measured: 20 place failures in
+      // 200 minutes carrying mineflayer's own `Event blockUpdate:(x,y,z)` text.
+      // A miss must cost one candidate, not the attempt.
+      await withTimeout(bot.placeBlock(ref, new Vec3(0, 1, 0)), PLACE_ACK_MS, bot,
+                        { what: 'placing', needsDrop: false })
       // READ IT BACK. placeBlock resolves without throwing when nothing was
       // placed -- build() already documents this and checks; place() did not.
       // The contract for `place` is `world_change`, and the runner scores that
@@ -2264,7 +2324,12 @@ async function place(ctx, { item, x, y, z }, signal) {
   return {
     status: 'failed',
     failClass: 'no_space',
-    detail: `place ${item} failed at ${candidates.length} spot(s): ${failures[0] ?? 'unknown'}`,
+    // TRIED, not `candidates.length`. The old wording reported how many spots
+    // EXISTED, so "failed at 1 spot(s)" read as "we only bothered with one" when
+    // it meant "only one was ever found". It misled a reader for a whole
+    // investigation; a count that is not a count of attempts must not print as one.
+    detail: `place ${item} failed after ${tried} of ${candidates.length} spot(s): ` +
+            `${failures[0] ?? 'unknown'}`,
   }
 }
 
@@ -2368,7 +2433,11 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
 
     try {
       await bot.equip(held, 'hand')
-      await bot.placeBlock(ref, new Vec3(0, 1, 0))
+      // Bounded for the same reason as place(): placeBlock waits on a server
+      // blockUpdate that may never arrive, and a build has far more candidates
+      // to get through than a single table does.
+      await withTimeout(bot.placeBlock(ref, new Vec3(0, 1, 0)), PLACE_ACK_MS, bot,
+                        { what: 'placing', needsDrop: false })
     } catch (e) {
       failed++; lastErr = e.message; continue
     }
