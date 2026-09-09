@@ -91,7 +91,28 @@ const MAROON_PREREQ_COOLDOWN_MS = 120_000
 // So: after a bot has been genuinely immobile this long, and the escape lattice
 // has nothing survivable left to offer, it may take the fall. OWNER DECISION,
 // 2026-09-09, asked for explicitly.
-const LAST_RESORT_STRANDED_MS = 6 * 60 * 60 * 1000
+// SIX HOURS WAS UNREACHABLE, BECAUSE THE TIMER RESETS ON EVERY DEPLOY.
+//
+// `strandedSince` is in-memory, and every deploy restarts all 80 bots. Deploys
+// have been running about hourly, so a bot stranded for SIX DAYS could never
+// accumulate six hours of tracked immobility -- the clock measured "since the
+// last restart", not "since it got stuck", and the branch fired zero times.
+//
+// The fix is not a longer clock or a persisted one. It is to stop leaning on
+// duration for the part duration cannot prove, and require the state to be
+// TERMINAL on its own terms:
+//
+//   - the lattice's answer is `step_off`, the unconditional bottom, which is
+//     only reached once every survivable rung has been refused, AND
+//   - the bot holds ZERO placeable blocks, so it cannot build its way out --
+//     with even one block `pillar_up` outranks the bottom and would have been
+//     chosen instead.
+//
+// A bot in that state is not going to recover on its own in the next hour or
+// the next six. The clock is kept, shortened, purely to rule out a transient:
+// forty-five minutes is far longer than any stuck state that resolves itself
+// and short enough to fit between restarts.
+const LAST_RESORT_STRANDED_MS = 45 * 60 * 1000
 // How far a bot must move to prove it is not stranded. Deliberately small: a
 // bot shuffling inside one block is not travelling.
 const STRANDED_EPS = 6
@@ -2198,13 +2219,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // cannot catch and which would have taken the whole loop down.
           const est = observeEscapeState(bot)
           const plan = est.trapped ? escapePlan(est) : 'none'
-          if (plan === 'step_off') {
+          // ZERO BLOCKS is the half that makes this terminal rather than merely
+          // slow. Holding even one placeable block puts `pillar_up` above the
+          // bottom rung, so reaching `step_off` WITH blocks means something else
+          // is wrong and killing the bot would not fix it.
+          if (plan === 'step_off' && est.blocks === 0) {
             lastMaroonPrereqAt = Date.now()
             const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
             logEvent({
               kind: 'last_resort_drop', status: 'success',
               detail: `stranded ${hrs}h at y=${Math.round(bot.entity.position.y)} with no ` +
-                      `survivable escape (plan=${plan}, blocks=${est.blocks}, ` +
+                      `survivable escape (plan=${plan}, blocks=${est.blocks}, nothing to build with, ` +
                       `drop=${est.underfootDrop ?? 'unmeasured'}); taking the fall ` +
                       `deliberately — a respawned bot works and a stranded one does not`,
               snapshot: snapshot(bot),

@@ -27,6 +27,18 @@ test('NO UNDEFINED IDENTIFIER in the last-resort branch', () => {
     'trapped must come from the lattice observation the plan is computed from')
 })
 
+test('ZERO BLOCKS is required, because one block outranks the bottom rung', () => {
+  // Holding even one placeable block puts pillar_up above step_off, so reaching
+  // the bottom WITH blocks means something else is wrong and killing the bot
+  // would not fix it.
+  const i = CODE.indexOf("kind: 'last_resort_drop'")
+  assert.ok(i > 0, 'POSITIVE CONTROL: the last-resort block must exist')
+  assert.match(CODE.slice(Math.max(0, i - 900), i), /plan === 'step_off' && est\.blocks === 0/)
+  // and the lattice must actually behave that way
+  assert.equal(escapePlan({ trapped: true, columnOpen: true, blocks: 99, climbNeed: 24 }), 'pillar_up')
+  assert.equal(escapePlan({ trapped: true, blocks: 0 }), 'step_off')
+})
+
 test('it fires ONLY on the bottom rung, which means nothing survivable is left', () => {
   // SCOPED to the last-resort block. An unscoped match passed against the
   // step_off COOLDOWN check elsewhere in this file, so a mutant that made the
@@ -34,7 +46,7 @@ test('it fires ONLY on the bottom rung, which means nothing survivable is left',
   const i = CODE.indexOf("kind: 'last_resort_drop'")
   assert.ok(i > 0, 'POSITIVE CONTROL: the last-resort block must exist')
   const block = CODE.slice(Math.max(0, i - 900), i)
-  assert.match(block, /if \(plan === 'step_off'\) \{/,
+  assert.match(block, /if \(plan === 'step_off' && est\.blocks === 0\) \{/,
     'any plan other than the unconditional bottom must not take a fatal drop')
   assert.doesNotMatch(block, /if \(true\)/, 'the gate must not be short-circuited')
 })
@@ -56,8 +68,11 @@ test('a bot that is not trapped is never dropped', () => {
   assert.equal(escapePlan({ trapped: false }), 'none')
 })
 
-test('SIX HOURS, and movement resets it', () => {
-  assert.match(CODE, /const LAST_RESORT_STRANDED_MS = 6 \* 60 \* 60 \* 1000/)
+test('THE CLOCK ONLY RULES OUT A TRANSIENT -- it cannot prove terminal', () => {
+  // Six hours was unreachable: the timer is in-memory and every deploy restarts
+  // all 80 bots, so a bot stranded six DAYS never accrued six hours and the
+  // branch fired zero times. Shortened, and the real gate moved to the state.
+  assert.match(CODE, /const LAST_RESORT_STRANDED_MS = 45 \* 60 \* 1000/)
   assert.match(CODE, /p\.distanceTo\(strandedFrom\) > STRANDED_EPS/,
     'any real displacement must reset the timer, so a bot slowly working its way out never accrues it')
   assert.match(CODE, /Date\.now\(\) - strandedSince > LAST_RESORT_STRANDED_MS/)
