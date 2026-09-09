@@ -24,6 +24,7 @@ import { snapshot, inventorySummary } from './state.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
+import { installShoreEgress } from './watermoves.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -248,6 +249,14 @@ function connect() {
     // a bridge with.
     extendScaffolding(moves, bot.registry)
     moves.allowParkour = false        // parkour is the top source of stuck states
+
+    // BEFORE the derived profiles below, so gatherMoves/ascendMoves/descendMoves
+    // all inherit it through their Object.assign. Without this a bot floating
+    // beside a shore is offered five moves and not one of them is onto the land:
+    // water has no collision shape, so the block under a swimmer reports its
+    // height as the block's base and a one-block step out measures as a
+    // two-block climb. See watermoves.mjs.
+    installShoreEgress(moves)
     // Default maxDropDown is 4, which means a bot on a ledge above a 5-block
     // drop has no legal move: it cannot dig, cannot parkour, and cannot pillar
     // without blocks in its inventory. Observed live -- Scout01 sat immobile
