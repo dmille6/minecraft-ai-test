@@ -2166,10 +2166,39 @@ async function place(ctx, { item, x, y, z }, signal) {
     candidates.push(...wet)
   }
   if (!candidates.length) {
+    // SAY WHAT IT SAW, BECAUSE GUESSING HAS COST FOUR CHANGES TONIGHT.
+    //
+    // "nowhere to place" fired 52 times in five hours, every one from a HEALTHY
+    // bot, 75% from three of them, at a median y of 63 -- surface level, where a
+    // bot standing on ground with air above it should always find a spot. Two
+    // independent reviews produced four plausible mechanisms and no way to
+    // choose between them, because the message names the conclusion and none of
+    // the evidence.
+    //
+    // It now gates the tech tree: `craft wooden_pickaxe` attempts tripled after
+    // the wrong-wood fix and 279 of them failed with "place the crafting_table
+    // first", which is this refusal one level up.
+    //
+    // So the failure carries the cells it rejected. Two counts separate the two
+    // candidate stories at a glance: nothing solid to stand a block on (open
+    // air, a pillar) versus nothing replaceable above it (a canopy, a cave, a
+    // bot boxed in). Naming the blocks tells us which without another night of
+    // theories.
+    const seen = { noSupport: 0, blocked: 0, names: new Set() }
+    for (const dy of [-1, 0, -2]) {
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const under = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
+        const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
+        if (!solid(under)) { seen.noSupport++; if (under?.name) seen.names.add(under.name) }
+        else if (!replaceable(at)) { seen.blocked++; if (at?.name) seen.names.add(at.name) }
+      }
+    }
+    const why = `no_support=${seen.noSupport} blocked_above=${seen.blocked}` +
+                ` [${[...seen.names].slice(0, 6).join(',') || 'nothing readable'}]`
     return {
       status: 'failed',
       failClass: 'no_space',
-      detail: `nowhere to place ${item}: no solid block with a free space above it within reach`,
+      detail: `nowhere to place ${item}: no solid block with a free space above it within reach — ${why}`,
     }
   }
 
