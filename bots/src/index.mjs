@@ -23,6 +23,7 @@ import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
+import { installOxygenGuard } from './oxygen.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -124,6 +125,11 @@ function connect() {
   // packet-witness.mjs -- `onGround` cannot separate those and reading it as
   // if it could is a measurement that was already retracted once.
   bot.packetWitness = attachPacketWitness(bot)
+
+  // BEFORE the pathfinder, before anything that might read breath. mineflayer
+  // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
+  // passing cod owns this bot's breath meter. See oxygen.mjs.
+  installOxygenGuard(bot)
 
   bot.loadPlugin(pathfinder)
   // Scoped to the gather skill. It manages its own movements (including
