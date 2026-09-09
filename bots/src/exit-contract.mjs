@@ -41,7 +41,32 @@ const PICK_DURABILITY = {
 
 // What a bot can pillar with. Deliberately narrow: it must be placeable, stack
 // well, and not be something the bot needs for anything else.
-const SCAFFOLD = /^(dirt|cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|gravel|sand|netherrack|tuff|deepslate)$/
+// WOOD IS SCAFFOLD, AND LEAVING IT OUT TOLD 16 BOTS THEY HAD NOTHING.
+//
+// This listed stone and dirt and no wood at all, so the climb accounting could
+// not see two thirds of what the fleet carries. Measured across 80 bots:
+//
+//     wood held (logs + planks)          11,295
+//     of that, counted as placeable        2,629   (oak only, elsewhere)
+//     INVISIBLE                            8,666   -- 8,422 of them birch logs
+//     bots with <25 scaffold but >=25 wood    16
+//
+// 92 climb refusals across 21 bots while the fleet stood in a birch forest
+// holding the blocks to build the climb. This is the SAME hardcoded-oak
+// assumption that produced the wrong-wood craft bug and the iron ladder rung --
+// the third place it has bitten this week.
+//
+// A log or a plank is a full opaque cube: you place it and stand on it, which
+// is the entire requirement. `PATHFINDER_SCAFFOLD` already included wood, so
+// the pathfinder would happily pillar on a birch log that this function said
+// the bot did not have.
+//
+// `_stem` IS NOT IN THE PATTERN and that is deliberate: pumpkin_stem,
+// melon_stem, attached_*_stem and big_dripleaf_stem all end in it and none is a
+// full block. The two real nether stems are named explicitly. Verified against
+// minecraft-data 1.21.8: the pattern matches 56 blocks and every one is
+// boundingBox 'block' and opaque.
+const SCAFFOLD = /^(dirt|cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|gravel|sand|netherrack|tuff|deepslate)$|(_log|_planks|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/
 
 /**
  * Remaining pickaxe swings across EVERY pickaxe carried.
@@ -66,7 +91,12 @@ export function pickaxeUses (items = []) {
 /** Blocks the bot could pillar with. */
 export function scaffoldCount (items = []) {
   let n = 0
-  for (const it of items) if (it?.name && SCAFFOLD.test(it.name)) n += it.count ?? 0
+  // `= []` only covers undefined. An explicit null threw, and this is called on
+  // an inventory read that can come back null on a disconnect -- a throw inside
+  // the exit contract would abort the descent rather than refuse it.
+  for (const it of (Array.isArray(items) ? items : [])) {
+    if (it?.name && SCAFFOLD.test(it.name)) n += Number(it.count) || 0
+  }
   return n
 }
 

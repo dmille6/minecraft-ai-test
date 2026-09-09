@@ -74,6 +74,27 @@ const MAROON_CHECK_MS = 60_000
 // A trapped bot with no blocks cannot fix itself, so the ask must not repeat
 // every check -- applyPrereq needs time to make it the task and gather.
 const MAROON_PREREQ_COOLDOWN_MS = 120_000
+// PERMANENT STRANDING IS WORSE THAN DEATH, AND THE FLEET PROVED IT.
+//
+// board-c-Alpha has stood on the same block since 2026-09-03. It holds three
+// stone pickaxes, one crafting table, and NOTHING placeable; it has air on all
+// four sides and a 24-block drop that costs 21 health against 20. There is no
+// move that gets it down alive, and the owner's standing rule forbids fixing it
+// from outside -- no teleport, no /give, no world edit.
+//
+// It has been producing nothing for six days. It already died once, on
+// 2026-09-03 ("drowned; idle at the moment of death"), respawned 1,063 blocks
+// away, and went straight back to work -- which is the whole argument: death
+// here is RECOVERABLE and stranding is not. The bot loses its inventory and
+// rejoins the fleet; the alternative is a monument.
+//
+// So: after a bot has been genuinely immobile this long, and the escape lattice
+// has nothing survivable left to offer, it may take the fall. OWNER DECISION,
+// 2026-09-09, asked for explicitly.
+const LAST_RESORT_STRANDED_MS = 6 * 60 * 60 * 1000
+// How far a bot must move to prove it is not stranded. Deliberately small: a
+// bot shuffling inside one block is not travelling.
+const STRANDED_EPS = 6
 
 // A RESPAWN LOOP IS WORSE THAN A STUCK BOT, so the bottom rung is rate-limited.
 // A bot that steps off, respawns, walks back into the same hole and steps off
@@ -1222,6 +1243,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // cooldown or a failure count.
   let lastEscapeAt = 0
   let lastMaroonPrereqAt = 0
+  let strandedSince = 0
+  let strandedFrom = null
   let lastStepOffAt = 0
   let escapeFailures = 0
   // Cumulative, NOT reset by a give-up. The give-up branch used to zero
@@ -2144,6 +2167,55 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // STRANDED ABOVE EVERYTHING, not trapped under it. Pillaring is what got
         // the bot here and cannot get it out; the direction it needs is down,
         // and planning a descent is cognitive work, not a 500ms reflex.
+        // HOW LONG HAS THIS BOT ACTUALLY BEEN STUCK? Measured from movement,
+        // not from a counter that a retry could reset. Any real displacement
+        // clears it, so a bot that is slowly working its way out never accrues
+        // the timer.
+        {
+          const p = bot.entity?.position
+          if (p) {
+            if (!strandedFrom) { strandedFrom = p.clone(); strandedSince = Date.now() }
+            else if (p.distanceTo(strandedFrom) > STRANDED_EPS) {
+              strandedFrom = p.clone(); strandedSince = Date.now()
+            }
+          }
+        }
+        // THE LAST RESORT, AND IT IS ONLY REACHED WHEN NOTHING ELSE IS LEFT.
+        //
+        // Runs BELOW the climb ceiling too, which the branch above does not,
+        // because a bot stranded for six hours at y=94 is in exactly the
+        // situation this exists for. The lattice is consulted first and its
+        // answer is obeyed: only `step_off` -- the unconditional bottom, which
+        // means every survivable rung was already refused -- is allowed to
+        // proceed into a fatal drop. Anything else and this does nothing.
+        if (mstate !== 'stranded_high' && strandedSince &&
+            Date.now() - strandedSince > LAST_RESORT_STRANDED_MS &&
+            Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
+          // `trapped` comes from the lattice's own observation rather than a
+          // separate flag, so this branch and the plan it obeys are reading the
+          // same world. An earlier draft invented `trappedNow`, which does not
+          // exist -- a ReferenceError inside the 500ms reflex, which module load
+          // cannot catch and which would have taken the whole loop down.
+          const est = observeEscapeState(bot)
+          const plan = est.trapped ? escapePlan(est) : 'none'
+          if (plan === 'step_off') {
+            lastMaroonPrereqAt = Date.now()
+            const hrs = ((Date.now() - strandedSince) / 3600000).toFixed(1)
+            logEvent({
+              kind: 'last_resort_drop', status: 'success',
+              detail: `stranded ${hrs}h at y=${Math.round(bot.entity.position.y)} with no ` +
+                      `survivable escape (plan=${plan}, blocks=${est.blocks}, ` +
+                      `drop=${est.underfootDrop ?? 'unmeasured'}); taking the fall ` +
+                      `deliberately — a respawned bot works and a stranded one does not`,
+              snapshot: snapshot(bot),
+            })
+            const r = await ESCAPE_ROUTINES.step_off(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
+            logEvent({ kind: 'last_resort_result', status: r?.ok ? 'success' : 'failed',
+                       detail: `${r?.why ?? 'no result'}`, snapshot: snapshot(bot) })
+            strandedFrom = null; strandedSince = 0
+            return
+          }
+        }
         if (mstate === 'stranded_high' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
@@ -2682,7 +2754,11 @@ function isEntombed(bot) {
 // Breaks bare-handed, so an escape through it costs no tool at all.
 const SOFT_BLOCK = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|sand|red_sand|gravel|clay|snow|snow_block|dirt_path|farmland|moss_block|mud)$/
 
-const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$/
+// OAK ONLY, IN A BIRCH FOREST. See the note on SCAFFOLD in exit-contract.mjs:
+// this counted oak_log and oak_planks and no other species, so the pillar rung
+// read 8,422 birch logs as zero placeable blocks. Same hardcoded-oak assumption,
+// third occurrence this week.
+const PLACEABLE = /^(dirt|cobblestone|stone|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$|(_log|_planks|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/
 
 /**
  * ONE REGEX WAS ANSWERING TWO DIFFERENT QUESTIONS.
