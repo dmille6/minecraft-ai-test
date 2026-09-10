@@ -11,10 +11,10 @@
 import assert from 'node:assert'
 import test from 'node:test'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
-const { orderFor, readyFor } = await import('../src/workorder.mjs')
+const { orderFor, readyFor, rungId } = await import('../src/workorder.mjs')
 
 test('a craft rung whose recipe is satisfiable becomes a craft order', () => {
-  const o = orderFor({ id: 'craft_stone_pickaxe_1', wants: 'stone_pickaxe', craftReady: true })
+  const o = orderFor({ id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe', craftReady: true })
   assert.equal(o.skill, 'craft')
   assert.deepEqual(o.args, { item: 'stone_pickaxe', count: 1 })
 })
@@ -23,23 +23,43 @@ test('a smelt rung orders the INPUT, never the output', () => {
   // `smelt item=iron_ingot` has no recipe the registry will ever return. The
   // milestone hint says so explicitly, and this project has twice shipped
   // advice naming a move the model cannot make.
-  const o = orderFor({ id: 'smelt_iron_ingot_3', wants: 'iron_ingot',
+  const o = orderFor({ id: 'smelt_iron_ingot_3#400', wants: 'iron_ingot',
                        smeltReady: true, smeltInput: 'raw_iron' })
   assert.equal(o.skill, 'smelt')
   assert.equal(o.args.item, 'raw_iron', 'the input, not iron_ingot')
 })
 
 test('NOT ready means no order — the model still decides', () => {
-  assert.equal(orderFor({ id: 'craft_stone_pickaxe_1', wants: 'stone_pickaxe', craftReady: false }), null)
-  assert.equal(orderFor({ id: 'smelt_iron_ingot_3', wants: 'iron_ingot', smeltReady: true, smeltInput: null }), null)
+  assert.equal(orderFor({ id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe', craftReady: false }), null)
+  assert.equal(orderFor({ id: 'smelt_iron_ingot_3#400', wants: 'iron_ingot', smeltReady: true, smeltInput: null }), null)
 })
 
 test('non-conversion rungs are left alone', () => {
   // gather/travel/survey rungs are the model's business. A work order that
   // claimed those would be a planner, and the chain is not one.
-  for (const id of ['gather_iron_ore_3', 'stockpile_wood', 'return_home', 'survey_wider']) {
+  for (const id of ['gather_iron_ore_3#12', 'stockpile_wood#3', 'return#1', 'survey_wider#9',
+                    'gather_iron_ore_3', 'patrol', 'idle']) {
     assert.equal(orderFor({ id, wants: 'anything', craftReady: true, smeltReady: true, smeltInput: 'x' }),
       null, `${id} must not be auto-dispatched`)
+  }
+})
+
+test('THE SHIPPED-INERT BUG: the emitted id carries a cycle suffix', () => {
+  // status() emits `${m.id}#${cycle}` for a sustaining rung, and on the live
+  // fleet that is 100% of rung ids -- `#0` included. v1 anchored on the shape
+  // the CONSTRUCTOR builds, matched none of them, and shipped completely inert
+  // across 80 bots and 20,193 rows. Its tests passed because the fixtures were
+  // written from the same wrong assumption, so code and fixture were wrong
+  // together and agreed. Every fixture in this file now uses the emitted shape;
+  // these ids are copied from the live logs.
+  assert.equal(rungId('craft_iron_pickaxe_1#351'), 'craft_iron_pickaxe_1')
+  assert.equal(rungId('smelt_iron_ingot_3#0'), 'smelt_iron_ingot_3')
+  assert.equal(rungId('craft_crafting_table_1'), 'craft_crafting_table_1')
+  assert.equal(rungId('craft_x_1#5+prereq'), 'craft_x_1#5+prereq', 'a prereq suffix is not a cycle suffix')
+  for (const id of ['craft_iron_pickaxe_1#351', 'craft_furnace_1#431',
+                    'craft_crafting_table_1#0', 'craft_wooden_pickaxe_1#292']) {
+    assert.ok(orderFor({ id, wants: 'x', craftReady: true }),
+      `${id} is a shape the fleet actually emits and must produce an order`)
   }
 })
 
@@ -48,7 +68,7 @@ test('a PREEMPTED rung is not auto-crafted', () => {
   // `wants` when a skill reports a missing material. The bot then needs the
   // PREREQ, not the craft, so the anchored rung patterns must decline it --
   // and this is the one place the id arrives in a shape I did not choose.
-  assert.equal(orderFor({ id: 'craft_stone_pickaxe_1+prereq', wants: 'cobblestone',
+  assert.equal(orderFor({ id: 'craft_stone_pickaxe_1#351+prereq', wants: 'cobblestone',
                           craftReady: true }), null)
 })
 
@@ -69,7 +89,7 @@ test('readyFor uses the SKILL predicate, and a placed table counts', async () =>
     findBlock: ({ matching }) => matching({ type: 7 }) ? { type: 7, position: { x: 1, y: 2, z: 3 } } : null,
     recipesFor: (id, meta, n, table) => { askedWithTable = table; return [{ id }] },
   }
-  const r = readyFor(bot, { id: 'craft_stone_pickaxe_1', wants: 'stone_pickaxe' })
+  const r = readyFor(bot, { id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe' })
   assert.equal(r.craftReady, true)
   assert.equal(askedWithTable, true, 'a PLACED table must be offered to recipesFor')
 })
@@ -77,7 +97,7 @@ test('readyFor uses the SKILL predicate, and a placed table counts', async () =>
 test('readyFor never throws on a broken world', () => {
   // It runs every decision. An exception here costs the bot its turn.
   const bot = { inventory: { items () { throw new Error('boom') } } }
-  assert.doesNotThrow(() => readyFor(bot, { id: 'craft_x_1', wants: 'x' }))
+  assert.doesNotThrow(() => readyFor(bot, { id: 'craft_x_1#7', wants: 'x' }))
 })
 
 test('the hook is wired and emits a liveness counter', async () => {
@@ -122,7 +142,7 @@ test('MUTANT KILLED: ordering the OUTPUT of a smelt rung', async () => {
     "return { skill: 'smelt', args: { item: smeltInput, count: 1 },",
     "return { skill: 'smelt', args: { item: wants, count: 1 },",
     mod => {
-      const o = mod.orderFor({ id: 'smelt_iron_ingot_3', wants: 'iron_ingot',
+      const o = mod.orderFor({ id: 'smelt_iron_ingot_3#400', wants: 'iron_ingot',
                                smeltReady: true, smeltInput: 'raw_iron' })
       assert.notEqual(o.args.item, 'raw_iron', 'the mutant must actually differ')
     })
@@ -134,7 +154,7 @@ test('MUTANT KILLED: dispatching a rung the bot cannot perform', async () => {
   // never reaches the LLM to do anything else.
   await withMutant(WORKORDER_PATH, 'if (c && craftReady) {', 'if (c) {',
     mod => assert.notEqual(
-      mod.orderFor({ id: 'craft_stone_pickaxe_1', wants: 'stone_pickaxe', craftReady: false }),
+      mod.orderFor({ id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe', craftReady: false }),
       null, 'the mutant must actually differ'))
 })
 
@@ -150,8 +170,17 @@ test('MUTANT KILLED: a placed crafting table stops counting', async () => {
         findBlock: ({ matching }) => matching({ type: 7 }) ? { type: 7 } : null,
         recipesFor: (id, m, n, table) => { asked = table; return table ? [{ id }] : [] },
       }
-      const r = mod.readyFor(bot, { id: 'craft_stone_pickaxe_1', wants: 'stone_pickaxe' })
+      const r = mod.readyFor(bot, { id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe' })
       assert.equal(asked, null, 'the mutant must actually differ')
       assert.equal(r.craftReady, false)
     })
+})
+
+test('MUTANT KILLED: not stripping the cycle suffix (the v1 bug, exactly)', async () => {
+  await withMutant(WORKORDER_PATH,
+    "export const rungId = id => String(id ?? '').replace(CYCLE_SUFFIX, '')",
+    "export const rungId = id => String(id ?? '')",
+    mod => assert.equal(
+      mod.orderFor({ id: 'craft_iron_pickaxe_1#351', wants: 'iron_pickaxe', craftReady: true }),
+      null, 'the mutant must actually differ -- this is what shipped inert'))
 })

@@ -27,9 +27,29 @@
 
 import { smeltInputsFor, smeltPlan } from './smelting.mjs'
 
-/** Rung ids are `craft_<item>_<n>` and `smelt_<output>_<n>`. */
+/**
+ * Rung ids are `craft_<item>_<n>` and `smelt_<output>_<n>` AS CONSTRUCTED --
+ * and that is not the shape they arrive in.
+ *
+ * `MilestoneController.status()` rewrites the id before anyone downstream sees
+ * it: a sustaining rung is emitted as `${m.id}#${cycle}`. The first version of
+ * this file anchored on the CONSTRUCTOR's shape, matched nothing, and shipped
+ * completely inert -- 0 fires across 80 bots and 20,193 rows. Its tests passed
+ * because I wrote the fixtures from the same wrong assumption, so the fixture
+ * and the code were wrong together and agreed.
+ *
+ * Measured on the live fleet afterwards: 100% of observed rung ids carry the
+ * suffix, `#0` included. So the suffix is the normal case, not the edge one.
+ *
+ * `+prereq` (applyPrereq) is deliberately NOT stripped -- a preempted rung
+ * means the bot needs the material, not the conversion.
+ */
+const CYCLE_SUFFIX = /#\d+$/
 const CRAFT_RUNG = /^craft_(.+)_(\d+)$/
 const SMELT_RUNG = /^smelt_(.+)_(\d+)$/
+
+/** The rung id as the chain built it, with the emitter's cycle suffix removed. */
+export const rungId = id => String(id ?? '').replace(CYCLE_SUFFIX, '')
 
 /**
  * The order to run, or null.
@@ -42,12 +62,13 @@ const SMELT_RUNG = /^smelt_(.+)_(\d+)$/
 export function orderFor ({ id = null, wants = null, craftReady = false,
                             smeltReady = false, smeltInput = null } = {}) {
   if (!id || !wants) return null
-  const c = CRAFT_RUNG.exec(id)
+  const rung = rungId(id)
+  const c = CRAFT_RUNG.exec(rung)
   if (c && craftReady) {
     return { skill: 'craft', args: { item: wants, count: 1 },
              why: `active rung ${id} and the recipe is satisfiable from inventory` }
   }
-  const s = SMELT_RUNG.exec(id)
+  const s = SMELT_RUNG.exec(rung)
   if (s && smeltReady && smeltInput) {
     // smelt takes the INPUT, not the output. `smelt item=iron_ingot` has no
     // recipe the registry will ever return -- the milestone hint says so
@@ -81,7 +102,7 @@ export function readyFor (bot, milestone) {
   } catch { /* an unreadable inventory is a not-ready, never a lost turn */ }
 
   let craftReady = false
-  if (CRAFT_RUNG.test(id)) {
+  if (CRAFT_RUNG.test(rungId(id))) {
     try {
       const def = bot.registry?.itemsByName?.[wants]
       // A crafting table counts whether it is CARRIED or PLACED nearby -- the
@@ -97,7 +118,7 @@ export function readyFor (bot, milestone) {
   }
 
   let smeltReady = false, smeltInput = null
-  if (SMELT_RUNG.test(id)) {
+  if (SMELT_RUNG.test(rungId(id))) {
     try {
       const inputs = smeltInputsFor(wants) ?? []
       for (const input of inputs) {
