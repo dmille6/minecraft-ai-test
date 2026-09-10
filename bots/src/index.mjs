@@ -12,6 +12,7 @@ import collectBlockPkg from 'mineflayer-collectblock'
 const collectBlock = collectBlockPkg.plugin ?? collectBlockPkg
 
 import { config } from './config.mjs'
+import { withApproachBound } from './digapproach.mjs'
 import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
@@ -410,7 +411,10 @@ function connect() {
     bot.gatherMovements = gatherMoves
     bot.withGatherMovements = async (fn) => {
       bot.pathfinder.setMovements(gatherMoves)
-      try { return await fn() }
+      // The plan was admitted under a cost cap; the walk's own re-plans were
+      // not, because bot.pathfinder.searchRadius is -1. Hold them to the same
+      // cap for the duration. See withApproachBound.
+      try { return await withApproachBound(bot, fn) }
       finally { bot.pathfinder.setMovements(moves) }
     }
     // Grant collectblock the one setting it cannot work without, and none of

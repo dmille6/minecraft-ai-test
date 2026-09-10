@@ -92,8 +92,103 @@ export const MAX_APPROACH_DIG = 16
 /** Wall clock for the approach search. thinkTimeout is 5000; this is a retry. */
 export const APPROACH_TIMEOUT_MS = 2000
 
+/**
+ * Wall clock for the approach WALK, and the bound the dig time is priced
+ * against. The two bounds above are cost and count; neither is time. A cost of
+ * 400 admits sixteen bare-handed stone digs, and sixteen bare-handed stone digs
+ * take two minutes. The watchdog that used to end such a walk at one second
+ * ended every approach dig with it (see skills.mjs at the call site), so the
+ * walk now runs unwatched and the PLAN must refuse what the clock cannot hold.
+ */
+export const APPROACH_WALK_MS = 15000
+
+/**
+ * How long would walking this path spend DIGGING, with the best tool the bot
+ * holds for each block? Distinct blocks, like approachDigCount, because the
+ * pathfinder lists a block on every move that needs it gone.
+ *
+ * Prices with `bestHarvestTool`, which is what the pathfinder equips before it
+ * digs -- so this is the time the walk will take if the equip lands, and a
+ * lower bound if it does not (the observer at the call site records `held=`
+ * for exactly that case). A block the world cannot describe (no digTime) is
+ * priced at zero: an unknown is not a refusal, and the count bound still holds.
+ */
+export function approachDigMs (bot, path) {
+  return approachDigCost(bot, path).ms
+}
+
+/**
+ * Is this a block whose loss is a loss? Ore and its raw blocks: finite, wanted,
+ * and dropped only to the right tool. Stone is none of those things.
+ */
+export function isOreLike (name) {
+  return typeof name === 'string' &&
+    (name.endsWith('_ore') || name === 'ancient_debris' || /^raw_\w+_block$/.test(name))
+}
+
+/**
+ * Price the digs and name the ore they would destroy.
+ *
+ * `destroys` is every ore-like block on the path that the bot's BEST tool
+ * cannot harvest: breaking it yields nothing and the ore is gone. A bot with
+ * no pickaxe tunnelling through iron ore to reach a log is a real trade, and
+ * it must not be made by accident on a walk that used to be cancelled at one
+ * second. The tool the drop needs is the same one the pathfinder equips.
+ */
+export function approachDigCost (bot, path) {
+  const out = { ms: 0, destroys: [] }
+  if (!Array.isArray(path)) return out
+  const seen = new Set()
+  for (const mv of path) {
+    for (const b of (mv?.toBreak ?? [])) {
+      if (!b) continue
+      const k = `${Math.floor(b.x)},${Math.floor(b.y)},${Math.floor(b.z)}`
+      if (seen.has(k)) continue
+      seen.add(k)
+      let block = null
+      try { block = bot?.blockAt?.(b) ?? null } catch { block = null }
+      if (!block) continue
+      let tool = null
+      try { tool = bot?.pathfinder?.bestHarvestTool?.(block) ?? null } catch { tool = null }
+      if (typeof block.digTime === 'function') {
+        let t = 0
+        try { t = block.digTime(tool?.type ?? null, false, false, false, [], bot?.entity?.effects ?? {}) } catch { t = 0 }
+        if (Number.isFinite(t) && t > 0) out.ms += t
+        else if (t === Infinity) out.ms += Infinity
+      }
+      if (isOreLike(block.name) && typeof block.canHarvest === 'function') {
+        let ok = true
+        try { ok = !!block.canHarvest(tool?.type ?? null) } catch { ok = true }
+        if (!ok) out.destroys.push(block.name)
+      }
+    }
+  }
+  return out
+}
+
 /** Bounded resumes of a `partial` search. Same reasoning as reachprobe.mjs. */
 export const APPROACH_PUMPS = 4
+
+/**
+ * Run one borrowed walk with the pathfinder's RUNTIME search held to the same
+ * cost cap the plan was admitted under, and give the cap back afterwards.
+ *
+ * planDigApproach probes with `searchRadius: slack`, but goto() re-plans on its
+ * own -- after a dig error, a block update, a partial -- with
+ * `bot.pathfinder.searchRadius`, which is -1 (unbounded) fleet-wide. So the
+ * walk the bot actually took was never bounded by the plan that admitted it;
+ * only the wall clock held it. Now the re-plans cannot cost more than the
+ * probe was allowed to. (Codex review, 2026-09-10.) index.mjs owns
+ * setMovements and calls this from inside withGatherMovements; nothing here
+ * touches the movements.
+ */
+export async function withApproachBound (bot, fn, { slack = APPROACH_SLACK } = {}) {
+  const pf = bot?.pathfinder
+  if (!pf || !('searchRadius' in pf)) return fn()
+  const before = pf.searchRadius
+  pf.searchRadius = slack
+  try { return await fn() } finally { pf.searchRadius = before }
+}
 
 /**
  * How many distinct blocks would walking this path break?
@@ -126,7 +221,8 @@ export function approachDigCount (path) {
  * the geometry has exactly one definition (digreach.mjs) and a second copy of
  * it is how the walk and the admission test came apart in the first place.
  */
-export function approachVerdict ({ status, path, endsInReach, maxDig = MAX_APPROACH_DIG } = {}) {
+export function approachVerdict ({ status, path, endsInReach, maxDig = MAX_APPROACH_DIG,
+                                  digMs = 0, budgetMs = APPROACH_WALK_MS, destroys = [] } = {}) {
   if (status !== 'success') {
     return { take: false, why: `approach search said ${status ?? 'nothing'}` }
   }
@@ -142,7 +238,16 @@ export function approachVerdict ({ status, path, endsInReach, maxDig = MAX_APPRO
   if (dig > maxDig) {
     return { take: false, why: `approach would break ${dig} blocks, over the ${maxDig} allowed` }
   }
-  return { take: true, why: null, dig }
+  // TIME, not just count. Two bare-handed stone digs are 15 s, which is the
+  // whole walk budget; a bot that cannot afford the digs must be refused here,
+  // with the number, rather than spend the budget and be refused by the clock.
+  if (!(digMs <= budgetMs)) {
+    return { take: false, why: `approach digs would take ${Number.isFinite(digMs) ? Math.round(digMs) : 'infinite'}ms, over the ${budgetMs}ms walk budget`, dig }
+  }
+  if (Array.isArray(destroys) && destroys.length) {
+    return { take: false, why: `approach would destroy ${destroys.join(',')} without a tool to harvest it`, dig }
+  }
+  return { take: true, why: null, dig, digMs }
 }
 
 /**
@@ -193,10 +298,13 @@ export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach
   const end = path.length
     ? path[path.length - 1]
     : { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }
+  const cost = approachDigCost(bot, path)
   const verdict = approachVerdict({
     status: result.status,
     path,
     endsInReach: endsInReach ? !!endsInReach(end) : false,
+    digMs: cost.ms,
+    destroys: cost.destroys,
   })
   return {
     ...verdict,
@@ -205,5 +313,70 @@ export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach
     path,
     visitedNodes: typeof result.visitedNodes === 'number' ? result.visitedNodes : null,
     ms: Date.now() - t0,
+  }
+}
+
+/**
+ * Watch a dig-approach walk WITHOUT touching it.
+ *
+ * The walk runs with the dig watchdog off (skills.mjs says why at the call
+ * site), so nothing else records what it broke. This does: every block whose
+ * dig completed, and the first block the held item could not harvest -- the
+ * question the watchdog used to answer by cancelling, which left the log with
+ * the word PathStopped and no block name. Twenty-two of those in ninety minutes
+ * and not one said which block.
+ *
+ * Passive by construction: it never calls stop(), stopDigging() or equip().
+ * A poll rather than an event because mineflayer emits nothing when a dig
+ * STARTS; `bot.targetDigBlock` is the only signal that one is under way.
+ */
+export function observeApproachDig (bot, { pollMs = 200 } = {}) {
+  const t0 = Date.now()
+  const attempted = []          // every distinct block a dig was seen on: {name, pos}
+  const seenAt = new Set()
+  let unharvestable = null
+  let held = null
+  let window = null             // the open container, if any, at that moment
+  // NO EVENT LISTENER, on purpose. mineflayer's diggingCompleted carries the
+  // NEW block (air), not the one that broke, and the pathfinder's
+  // detectDiggingStopped calls removeAllListeners('diggingAborted', fn), which
+  // Node reads as "remove them all". So the poll records each dig it sees by
+  // position, and stop() re-reads those positions: a block that is no longer
+  // what it was is a block that broke. (Both from the Codex review.)
+  const timer = setInterval(() => {
+    try {
+      const b = bot?.targetDigBlock
+      if (!b) return
+      const pos = b.position
+      const k = pos ? `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}` : b.name
+      if (!seenAt.has(k)) { seenAt.add(k); attempted.push({ name: b.name ?? 'unknown', pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : null }) }
+      if (unharvestable || typeof b.canHarvest !== 'function') return
+      const item = bot.heldItem
+      if (!b.canHarvest(item?.type ?? null)) {
+        unharvestable = b.name ?? 'unknown'
+        held = item?.name ?? 'nothing'
+        // The rival explanation for "unharvestable with a pickaxe in the bag":
+        // the pathfinder's equip clicks against bot.currentWindow, and a hung
+        // container window sends those clicks to the wrong slots. Record it.
+        const w = bot.currentWindow
+        window = w ? (w.type ?? w.title ?? 'open') : 'none'
+      }
+    } catch { /* transient world state */ }
+  }, pollMs)
+  let stopped = null
+  return {
+    stop () {
+      if (stopped) return stopped
+      clearInterval(timer)
+      const dug = []
+      for (const a of attempted) {
+        if (!a.pos) continue
+        let now = null
+        try { now = bot?.blockAt?.(a.pos) ?? null } catch { now = null }
+        if (now && now.name !== a.name) dug.push(a.name)
+      }
+      stopped = { walkMs: Date.now() - t0, dug, attempted: attempted.map(a => a.name), unharvestable, held, window }
+      return stopped
+    },
   }
 }

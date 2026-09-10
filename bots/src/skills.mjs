@@ -35,7 +35,7 @@ import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
-import { planDigApproach } from './digapproach.mjs'
+import { planDigApproach, observeApproachDig, APPROACH_WALK_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -191,7 +191,7 @@ function watchDigging(bot, onStuck) {
  * cannot reach its next node never stops -- setGoal(null) is what actually
  * ends it, which reflex.mjs already had to learn the hard way.
  */
-function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout = null,
+export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout = null,
                                         needsDrop = true } = {}) {
   let t
   // A path that is digging the undiggable will otherwise run out the clock and
@@ -996,20 +996,42 @@ export async function collectManually(bot, block, signal) {
         // endpoint -- the server's own predicate, asked after the fact -- and it
         // is what a difference-in-differences read should use, not the count.
         let said = null
+        // THIS WALK WANTS THE HOLE, NOT THE DROP. withTimeout's default installs
+        // watchDigging, which cancels any dig of a block the HELD item cannot
+        // harvest -- right for the target block, whose drop is the point, and
+        // exactly wrong for the blocks in the way of it. Measured on the canary
+        // (board-c, f9ddbc4, 90 min): 22 of 38 dig-approaches ended PathStopped,
+        // every one of them 1.00 s after the walk began -- the watchdog's first
+        // poll -- on a bot holding a stone pickaxe. The plan above has already
+        // priced every dig on this path by time and by count, which is the
+        // contract withTimeout names for turning the watchdog off.
+        //
+        // The observer below is PASSIVE: it records which blocks broke, and the
+        // first one the held item could not harvest, and cancels nothing. That
+        // is what names the block next time instead of the word PathStopped.
+        const watch = observeApproachDig(bot)
+        let walked
         try {
           await bot.withGatherMovements(() =>
-            withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), 15000, bot))
+            withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), APPROACH_WALK_MS, bot, { needsDrop: false }))
           pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
         } catch (e) {
           if (e.aborted || signal?.aborted) throw e
           said = e?.name && e.name !== 'Error' ? e.name : String(e?.message ?? e).slice(0, 30)
           pathSaid = `${pathSaid}, dig-approach ${said}`
+        } finally {
+          walked = watch.stop()
         }
         const inReach = !!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))
         logEvent({ kind: 'dig_approach', status: inReach ? 'success' : 'fail',
                    detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), ` +
                            `in_reach=${inReach}${said ? ` (${said})` : ''} ` +
-                           `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms}]` })
+                           `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms} ` +
+                           `walk_ms=${walked.walkMs} dig_ms=${Math.round(plan.digMs ?? 0)} ` +
+                           `attempted=${walked.attempted.length ? walked.attempted.join(',') : 'none'} ` +
+                           `dug=${walked.dug.length ? walked.dug.join(',') : 'none'} ` +
+                           `unharvestable=${walked.unharvestable ?? 'none'}` +
+                           `${walked.unharvestable ? ` held=${walked.held} window=${walked.window}` : ''}]` })
       } else if (plan?.take) {
         // A plan we are allowed to walk and no way to install the profile is a
         // WIRING failure, not a terrain one, and it must not read as terrain.
