@@ -156,3 +156,48 @@ export function dryColumnStep ({
   }
   return best
 }
+
+/**
+ * MAY THE SELF-SOURCING DIG OPEN THIS CELL BELOW THE FEET?
+ *
+ * `harvestAdjacent` gained four DIAGONAL-DOWN offsets so a bot on flat ground
+ * can reach the only solid blocks near it. Digging one does not drop the bot --
+ * its own support block is deliberately not in the offset set -- but it does
+ * OPEN A NEW CELL at foot-1 level, one block from where the bot is standing.
+ * If lava sits against that cell it now flows into it, and its surface ends up
+ * flush with the bot's feet. Fire is 12% of fleet deaths at 1.47 deaths per bot
+ * per day, and this routine runs precisely when a bot is stuck and out of
+ * options -- the worst moment to open a new lava vector.
+ *
+ * THE ASYMMETRY IS THE POINT, and it is `dryColumnStep`'s, not a new one:
+ * water beside your feet is harmless -- believing otherwise is the exact
+ * opinion that refused 561 of 566 pillar attempts, 99.1%, and kept 32 bots
+ * frozen for days -- but lava beside your feet burns. So this tests for LAVA
+ * ONLY. A liquid predicate here would be the kelp widening again.
+ *
+ * WHAT THIS IS NOT. `dryColumnStep` closes an AXIS because it is planning a
+ * walk and a cell past lava can only be reached by walking beside it. There is
+ * no walk here: each offset is an independent cell the bot digs from where it
+ * already stands and never enters. So the refusal is per-cell, and that is a
+ * deliberate departure from the shape rather than an oversight.
+ *
+ * @param at      (dx,dy,dz) -> block, relative to the bot's FEET
+ * @param dx,dy,dz the candidate cell
+ * @returns a refusal reason, or null when the dig is safe
+ */
+export function harvestSafe ({
+  at = () => null,
+  dx = 0, dy = 0, dz = 0,
+  isLava = b => /lava/.test(b?.name ?? ''),
+} = {}) {
+  const here = at(dx, dy, dz)
+  if (isLava(here)) return `lava in the cell itself (${here.name})`
+  // The six faces of the candidate. [0,1,0] is the foot-level cell above it, so
+  // lava the bot is already standing beside closes this offset too -- that is
+  // the case where the dig would let it pour DOWN into the new hole.
+  for (const [nx, ny, nz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
+    const b = at(dx + nx, dy + ny, dz + nz)
+    if (isLava(b)) return `lava against the block below (${b.name})`
+  }
+  return null
+}

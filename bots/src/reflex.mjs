@@ -13,6 +13,8 @@ import { config } from './config.mjs'
 import { announceHazard } from './comms.mjs'
 import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { breathable, makeAirClock, airEmergency } from './air.mjs'
+import { dropsOf } from './drops.mjs'
+import { harvestSafe } from './scaffold.mjs'
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -1558,8 +1560,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           const invBefore = inventorySummary(bot)
           const got = await harvestAdjacent(bot).catch(e => {
             log('warn', 'reflex: adjacent harvest failed', { err: e.message })
-            return { gained: 0, dug: 0, tried: 0 }
+            return { gained: 0, dug: 0, tried: 0, unsafe: 0 }
           })
+          // A CAPABILITY IS NOT SHIPPED UNTIL THE OBSERVATION NAMES IT. Without
+          // this, a bot ringed by lava reports the identical string as a bot
+          // standing on bedrock -- "0/0 dug" -- and both the model and the next
+          // person reading the telemetry would call it a vocabulary miss.
+          const lavaNote = got.unsafe
+            ? ` (${got.unsafe} below-level neighbour(s) refused: lava)` : ''
           if (got.gained > 0) {
             noteReflexInventory(bot, invBefore, 'maroon_harvest')
             logEvent({ kind: 'marooned_self_sourced', status: 'success',
@@ -1575,11 +1583,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // entombed branch and the skill layer hand over a prerequisite.
             bot.pendingPrereq = scaffoldPrereq(
               `no path can start from y=${yNow}, nothing in the inventory to pillar ` +
-              `with, and ${got.tried} adjacent block(s) yielded nothing when dug`)
+              `with, and ${got.tried} adjacent block(s) yielded nothing when dug${lavaNote}`)
             logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
                        detail: `no route from y=${yNow}, column above is open, no placeable ` +
-                               `blocks, and self-sourcing failed (${got.dug}/${got.tried} dug) ` +
-                               `— asked for scaffold`,
+                               `blocks, and self-sourcing failed (${got.dug}/${got.tried} dug)` +
+                               `${lavaNote} — asked for scaffold`,
                        snapshot: snapshot(bot) })
           }
         }
@@ -1901,6 +1909,61 @@ const SOFT_BLOCK = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|s
 const PLACEABLE = /^(dirt|cobblestone|stone|oak_log|oak_planks|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$/
 
 /**
+ * ONE REGEX WAS ANSWERING TWO DIFFERENT QUESTIONS.
+ *
+ * `PLACEABLE` means "an item in my inventory I can stack under my own feet".
+ * Six call sites ask exactly that and are correct. ONE asked something else --
+ * "is this adjacent block worth DIGGING for scaffold?" -- and got the wrong
+ * answer, because the two sets are not the same set.
+ *
+ * `grass_block` is the case. It breaks bare-handed and DROPS DIRT, which is the
+ * first entry in PLACEABLE. But grass_block itself is not, so `harvestAdjacent`
+ * skipped it without ever swinging. Measured over a full walk of the fleet logs
+ * (75 files carrying self-sourcing records, 37,392 failures and 150 successes
+ * parsed): above sea level 92.3% of failures never tried a single neighbour.
+ * A bot standing on a grass hillside could not find a block to pillar with
+ * while standing on several thousand of them.
+ *
+ * THE TRAP ONE LAYER DOWN, and the reason this is derived rather than listed:
+ * a candidate is only useful if what it DROPS is placeable.
+ *
+ *     grass_block  podzol  mycelium  ->  dirt        GOOD
+ *     dirt_path    farmland          ->  dirt        GOOD
+ *     warped_nylium  crimson_nylium  ->  netherrack  GOOD
+ *     clay                           ->  4x clay_ball    an ITEM. BAD.
+ *     snow_block / snow              ->  4x snowball     an ITEM. BAD.
+ *     mud / packed_mud / moss_block  ->  themselves, and they are not in
+ *                                        PLACEABLE, so the bot could not place
+ *                                        what it just dug. BAD.
+ *
+ * Adding `grass_block` to PLACEABLE would have been the cheap fix and it is
+ * wrong twice over: it asserts the bot can PLACE grass from its inventory (it
+ * cannot -- grass_block is never an item it holds), and it invites the same
+ * hand-edit to add clay next to it.
+ *
+ * So the set is computed from `dropsOf`, which reads minecraft-data for the
+ * exact protocol version the bot is connected to -- the same reason drops.mjs
+ * refuses to keep a hand table. Verified against the vendored data for BOTH
+ * 1.21.8 and 1.21.11: the derived set is the seven blocks above, identically,
+ * and every one of the five bad cases above is excluded by the data itself.
+ *
+ * With no registry this degrades to exactly the old behaviour (PLACEABLE only),
+ * because `dropsOf` falls back to the block's own name. That is a silent
+ * no-op, not a silent widening.
+ */
+export function scaffoldCandidate (blockName, registry = null) {
+  if (!blockName) return false
+  if (PLACEABLE.test(blockName)) return true
+  const drops = dropsOf(registry, blockName)
+  // EVERY drop, not SOME. A block that yields one placeable item and one
+  // useless one is a coin flip, and this is the routine of last resort for a
+  // bot that cannot travel. (Against the vendored data the two predicates
+  // select the same seven blocks, so this costs nothing today and is the safe
+  // side of the ambiguity if a future version splits a loot table.)
+  return drops.length > 0 && drops.every(n => PLACEABLE.test(n))
+}
+
+/**
  * DO NOT START A CLIMB YOU CANNOT FINISH.
  *
  * This is the single mechanism that manufactures permanent entrapment here.
@@ -2013,12 +2076,55 @@ export function shaftCapNeedsTool(bot, maxClearance = 12) {
  * Now: clear the ceiling first, verify height was actually gained, and fall
  * back to digging straight up when pillaring cannot work.
  */
-// Sides only, at foot and head height. NEVER the floor (digging down drops the
-// bot deeper into the trap it is escaping) and NEVER the ceiling (that column is
-// the escape route and pillarOut owns it).
+// Sides at foot and head height, then the four DIAGONAL-DOWN neighbours.
+//
+// NEVER the ceiling (that column is the escape route and pillarOut owns it) and
+// NEVER [0,-1,0], the block the bot is standing on. Both exclusions are load
+// bearing and the second one is the interesting one:
+//
+//   - pillarOut places against `blockAt(position.offset(0,-1,0))` and gives up
+//     with `if (!below) break`. Digging the floor deletes the thing the very
+//     next step needs.
+//   - It also drops the bot one block, which is the trade "one block of height
+//     for one block of inventory" -- and height is exactly what a marooned bot
+//     is short of. `mine` refuses to break a floor with a hollow under it for
+//     the same reason, and this routine has no such probe.
+//
+// The DIAGONAL-down neighbours have neither problem: they are not under the
+// bot, so nothing falls and nothing pillarOut needs is removed, and they are
+// where a surface bot's dirt actually is. On flat ground the ONLY solid blocks
+// near a standing bot are at foot-1 level, which is why the old eight offsets
+// found nothing 92.3% of the time above sea level. Widening the vocabulary
+// without these offsets does not fix flat ground, and adding these offsets
+// without the vocabulary does not either -- on grass, both are required.
+//
+// THREE HAZARDS WERE CONSIDERED FOR THE FOUR NEW CELLS. Two are decisions, not
+// omissions, and they are written down so the next reader does not have to
+// guess whether anyone looked:
+//
+//   LAVA -- GUARDED. See harvestSafe in scaffold.mjs. Opening a cell at foot-1
+//     lets lava flow in flush with the bot's feet, and fire is 12% of deaths at
+//     1.47 per bot per day. This routine runs when a bot is stuck and out of
+//     options, which is the worst moment to open a new burn vector.
+//
+//   GRAVITY -- NOT GUARDED, deliberately. sand and gravel are candidates, so
+//     digging [1,-1,0] can drop the column above it. But that column is not the
+//     one the bot is standing in, the drop has already been collected before
+//     anything falls, and the falling block lands in the hole rather than on the
+//     bot. The cost is a refilled cell, which is cosmetic. (scaffold.mjs exports
+//     FALLING if a future case ever makes this worth tightening.)
+//
+//   VOID BELOW -- NOT GUARDED, deliberately. Breaking a diagonal-down block over
+//     a cave opens a hole one step away. The bot never enters that cell -- it
+//     digs from where it stands -- and its own support is excluded from this
+//     list, so there is no fall vector. `mine` needs its hollow-floor probe
+//     because a staircase bot WALKS INTO the tread it just cut; this one does
+//     not, and adding the probe would refuse cells for a fall that cannot
+//     happen.
 const HARVEST_OFFSETS = [
   [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
   [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1],
+  [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1],
 ]
 
 // Four is enough to pillar clear of most pits, but the number that actually
@@ -2043,8 +2149,10 @@ export const SCAFFOLD_SELF_SOURCE = 4
  * Two rules stop this from making things worse:
  *   - ONLY BLOCKS WORTH HAVING. Breaking stone bare-handed drops nothing --
  *     pillarOut documents the same trap -- so a dig that yields no item merely
- *     widens the pit. A candidate must be PLACEABLE *and* harvestable with what
- *     the bot can actually hold.
+ *     widens the pit. A candidate must DROP something placeable (see
+ *     scaffoldCandidate -- the block itself need not be placeable, and several
+ *     placeable-looking ones drop items) *and* be harvestable with what the bot
+ *     can actually hold.
  *   - BOUNDED, ALWAYS. An unbounded dig inside a rescue strands the bot for
  *     good, because for a marooned bot nothing else is coming.
  */
@@ -2059,13 +2167,50 @@ export async function harvestAdjacent(bot, want = SCAFFOLD_SELF_SOURCE, budgetMs
   // tick and a dig under a body being steered elsewhere never completes.
   seizeBody(bot, 'harvest')
   const deadline = Date.now() + budgetMs
-  let dug = 0, tried = 0
+  let dug = 0, tried = 0, unsafe = 0
 
   for (const [dx, dy, dz] of HARVEST_OFFSETS) {
     if (held() >= want || Date.now() > deadline) break
     const b = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
-    if (!b || b.boundingBox !== 'block' || !PLACEABLE.test(b.name)) continue
+    // scaffoldCandidate, NOT PLACEABLE: the question here is "is this worth
+    // digging?", which is answered by what the block DROPS. See the comment on
+    // scaffoldCandidate for the five blocks whose drops disqualify them.
+    if (!b || b.boundingBox !== 'block' || !scaffoldCandidate(b.name, bot.registry)) continue
+    // BELOW-LEVEL OFFSETS ONLY, and the scoping is the safety property.
+    //
+    // The eight foot- and head-level offsets have shipped for weeks and are not
+    // in this patch's remit; putting a guard on them would change behaviour
+    // nobody asked to change, and an over-strict guard on the pillar path is
+    // exactly how 561 of 566 attempts got refused once already. The four
+    // diagonal-down cells are new, and they are the only ones that OPEN a cell
+    // beside the bot's feet, so they are the only ones that need the check.
+    if (dy < 0) {
+      const risk = harvestSafe({
+        at: (a, c, d) => bot.blockAt(bot.entity.position.offset(a, c, d)), dx, dy, dz,
+      })
+      if (risk) {
+        // NOT counted as `tried`. That counter's whole value is that it
+        // separates "not in the vocabulary" from "in the vocabulary and
+        // refused for a tool" -- the split this entire fix was diagnosed from.
+        // A safety refusal is a third thing and gets its own number rather than
+        // contaminating either.
+        unsafe++
+        log('warn', 'reflex: refusing a below-level harvest', { at: `${dx},${dy},${dz}`, risk })
+        continue
+      }
+    }
     tried++
+    // SILK TOUCH IS A KNOWN, ACCEPTED HOLE, recorded rather than guarded.
+    //
+    // `scaffoldCandidate` reasons about the UNENCHANTED drop, so a Silk Touch
+    // tool would make grass_block drop grass -- not placeable -- and this dig
+    // would yield nothing usable. Three things make that not worth a branch:
+    // `bestTool` ranks on digTime and knows nothing about enchantments, so it
+    // would not select for it; `gained` is an inventory delta, so the routine
+    // reports the failure honestly rather than claiming a success; and this
+    // fleet has never smelted an ingot, let alone enchanted a tool. Preferring
+    // an empty hand for hand-harvestable candidates would also cost the case
+    // that works today -- a bot WITH a pickaxe taking stone.
     const tool = bestTool(bot, b)
     if (tool) await bot.equip(tool, 'hand').catch(() => {})
     // Bare-handed stone yields nothing; skip rather than pay the dig for free.
@@ -2074,7 +2219,7 @@ export async function harvestAdjacent(bot, want = SCAFFOLD_SELF_SOURCE, budgetMs
     dug++
     await sleep(400)   // the drop must reach the bot before the next count
   }
-  return { gained: held() - had, dug, tried, had }
+  return { gained: held() - had, dug, tried, unsafe, had }
 }
 
 const PILLAR_MAX_BLOCKS = 24

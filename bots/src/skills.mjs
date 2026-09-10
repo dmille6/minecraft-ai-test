@@ -2435,9 +2435,12 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       // strand itself must not learn that mining is a bad idea.
       return {
         status: 'failed', failClass: 'exit_capability_reserve',
+        // THE REMEDY MUST MATCH THE SHORTFALL. This said "gather blocks" to
+        // every refusal, including the one that is short a pickaxe. See
+        // exitPrereqFor.
         detail: `stopped at y=${Math.round(bot.entity.position.y)} to keep an exit: ` +
-                `${exit.detail}. Run surface now, or gather blocks before going deeper.`,
-        need: exit.reason === 'scaffold' ? scaffoldPrereqFor(exit) : undefined,
+                `${exit.detail}.${exitAdviceFor(exit)}`,
+        need: exitPrereqFor(exit),
       }
     }
     // THE TREAD, NOT THE FLOOR. `mine` used to dig the block directly under the
@@ -3206,16 +3209,74 @@ export function craftableAlternative (bot, item) {
   } catch { /* registry or recipe lookup unavailable */ }
   return ''
 }
-/** What a bot needs to legally continue a descent it just aborted. */
-function scaffoldPrereqFor (exit) {
-  const short = Math.max(8, (exit.want ?? 16) - (exit.have ?? 0))
-  return {
-    items: ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite',
-            'diorite', 'granite', 'gravel', 'tuff', 'deepslate'],
-    count: short,
-    describe: `Gather ${short} blocks before descending further — you need them to pillar back out.`,
-    because: 'descent aborted to preserve an exit',
+/**
+ * WHAT A BOT NEEDS TO LEGALLY CONTINUE A DESCENT IT JUST ABORTED.
+ *
+ * THE EXIT CONTRACT REFUSES FOR THREE REASONS AND USED TO ANSWER ONE.
+ *
+ * `canContinueDescent` returns `scaffold`, `pickaxe` or `health`. The abort
+ * site turned only `scaffold` into a prerequisite -- `exit.reason === 'scaffold'
+ * ? scaffoldPrereqFor(exit) : undefined` -- so a descent stopped for a TOOL
+ * adopted no prerequisite at all, and the prose it did get read
+ *
+ *     "Run surface now, or gather blocks before going deeper."
+ *
+ * which is the wrong remedy, told to the bot for whom it is most wrong. That is
+ * not a new mistake: `climbPrereqFor` in reflex.mjs carries a comment about the
+ * identical bug one layer over -- "Answering it with 'gather blocks' sends a bot
+ * that is short a TOOL to go and fetch gravel."
+ *
+ * THIS ADDS NO REFUSAL. The refusal already fires and already stops the descent;
+ * only the remedy attached to it changes. That matters, because a new refusal is
+ * how this project has manufactured four separate traps, and the remedy channel
+ * cannot manufacture one: the bot's legal moves are identical before and after.
+ *
+ * IS THE REMEDY EXECUTABLE FROM HERE? For the pickaxe branch, yes, and it is
+ * worth saying why rather than asserting it. `mine` now descends by a WALKABLE
+ * STAIRCASE, and this refusal fires BEFORE the next tread is cut -- so the bot
+ * is standing at the top of a 1:1 ramp it can walk back up with no blocks and no
+ * tool. That is what makes "go up, then get a pickaxe" a move it can make. It
+ * would NOT have been true of the shaft this skill used to dig, and if the
+ * staircase is ever reverted this advice reverts with it.
+ *
+ * `health` gets no prerequisite on purpose. The bus fetches ITEMS; there is no
+ * item whose acquisition is "wait", and inventing one sends the bot shopping.
+ */
+export function exitPrereqFor (exit) {
+  if (!exit || exit.ok) return undefined
+  if (exit.reason === 'scaffold') {
+    const short = Math.max(8, (exit.want ?? 16) - (exit.have ?? 0))
+    return {
+      items: ['cobblestone', 'cobbled_deepslate', 'dirt', 'stone', 'andesite',
+              'diorite', 'granite', 'gravel', 'tuff', 'deepslate'],
+      count: short,
+      describe: `Gather ${short} blocks before descending further — you need them to pillar back out.`,
+      because: 'descent aborted to preserve an exit',
+    }
   }
+  if (exit.reason === 'pickaxe') {
+    return {
+      items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
+      count: 1,
+      describe: 'Get a pickaxe before descending further — you are short a TOOL, not ' +
+                'blocks. The stairs behind you are walkable: go up first, then craft one.',
+      because: 'descent aborted to preserve an exit',
+    }
+  }
+  return undefined
+}
+
+/** The one-line tail on the refusal, matched to the same three reasons. */
+export function exitAdviceFor (exit) {
+  if (!exit || exit.ok) return ''
+  if (exit.reason === 'pickaxe') {
+    return ' You are short a TOOL, not blocks: get a pickaxe before going deeper. ' +
+           'The stairs behind you are walkable, so run surface first.'
+  }
+  if (exit.reason === 'health') {
+    return ' Eat or retreat before going deeper; the climb out costs more than the dig down.'
+  }
+  return ' Run surface now, or gather blocks before going deeper.'
 }
 
 /**
