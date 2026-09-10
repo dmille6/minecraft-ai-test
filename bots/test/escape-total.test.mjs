@@ -23,6 +23,13 @@ const AXES = {
   lateralTread:    [false, true],
   columnOpen:      [false, true],
   canStepOff:      [false, true],
+  // ADDED WITH THE WATER RUNGS. Without these axes the enumeration could not
+  // reach `breach_head_wall` or `float_up` at all, so the totality property --
+  // the whole point of this file -- was silently not covering two of the ten
+  // rungs. ChatGPT caught this reviewing the design; the rungs were already
+  // written and the property would have passed regardless.
+  lateralHeadOpen: [false, true],
+  breachable:      [false, true],
 }
 
 function* cross (axes, keys = Object.keys(axes), i = 0, acc = {}) {

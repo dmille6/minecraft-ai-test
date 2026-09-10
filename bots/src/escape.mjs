@@ -53,7 +53,7 @@
  */
 export const ESCAPES = Object.freeze([
   'none', 'dig_down', 'ride_floor_down', 'stair_up',
-  'climb_ladder', 'pillar_up', 'surface_swim', 'float_up', 'step_off',
+  'climb_ladder', 'pillar_up', 'breach_head_wall', 'surface_swim', 'float_up', 'step_off',
 ])
 
 /** Raised when a reachable state admits no action. The `ZeroLooksWrong` of this module. */
@@ -100,6 +100,13 @@ export function escapePlan ({
   // water at y=61, head in an air pocket at y=62, and every cardinal at head
   // height SOLID. Open water above at y=63.
   lateralHeadOpen = true,
+  // A HEAD-HEIGHT WALL THIS BOT CAN ACTUALLY BREAK, with what it is holding.
+  //
+  // Narrow on purpose. Not "there is a wall" -- there always is, that is the
+  // trap -- but "one adjacent, physically diggable block at head height". The
+  // caller computes it from the same predicate the dig will use, so the rung
+  // cannot promise a break the bot then refuses.
+  breachable = false,
   // A SINGLE DERIVED FLAG, ON PURPOSE.
   //
   // It means all of: there is a wall a ladder can actually attach to, the
@@ -183,6 +190,28 @@ export function escapePlan ({
   //
   // Ordered ABOVE surface_swim because surface_swim would otherwise claim the
   // state and do nothing, which is how this went unnoticed for days.
+  // BREAK THE WALL BEFORE TRYING TO FLOAT OVER IT.
+  //
+  // Two bots -- hive-b-Comet at 1809,61,666 and hive-c-Alpha at 355,61,187 --
+  // are in a 1x1 waterlogged chimney OF THEIR OWN MAKING: dirt and cobblestone
+  // they placed, feet in a one-block puddle, head in a one-block air pocket,
+  // all four cardinals solid. Reconstructed over RCON and run against the real
+  // Movements class: ZERO A* successors in six configs, including canDig=true
+  // and 64 scaffold blocks. Removing ANY SINGLE head-height cardinal restores
+  // 2-3 successors. Three of the four walls are bare-hand breakable.
+  //
+  // This is the only LATERAL rung in the table. pillarOut, harvestUnderfoot and
+  // rideFloorDown are all vertical, which is why none of them touches this trap
+  // -- the bot does not need to go up or down, it needs one block sideways.
+  //
+  // Ordered ABOVE float_up and surface_swim deliberately. float_up wins exactly
+  // this predicate and is REDUNDANT here: it is `jump` until dry, and the
+  // existing water posture already ran that 920 times in 131 minutes on
+  // hive-b-Comet, each time ending with its feet clear, and the bot never
+  // moved. A rung that wins a state and cannot change it must not sit in front
+  // of one that can.
+  if (afloat && columnOpen && !lateralHeadOpen && breachable &&
+      !skip.has('breach_head_wall')) return 'breach_head_wall'
   if (afloat && columnOpen && !lateralHeadOpen && !skip.has('float_up')) return 'float_up'
   if (afloat && columnOpen && !skip.has('surface_swim')) return 'surface_swim'
 

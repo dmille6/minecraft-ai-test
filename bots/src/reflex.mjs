@@ -114,6 +114,26 @@ const MAROON_PREREQ_COOLDOWN_MS = 120_000
 // forty-five minutes is far longer than any stuck state that resolves itself
 // and short enough to fit between restarts.
 const LAST_RESORT_STRANDED_MS = 45 * 60 * 1000
+// A SECOND, SHORTER CLOCK FOR A STATE WE CAN PROVE RATHER THAN INFER.
+//
+// The 45-minute clock exists to rule out a transient, because "immobile" is
+// only ever inferred from displacement. But a bot afloat with every head-height
+// cardinal solid is not an inference -- it is a geometry we observe directly,
+// and one that A* provably cannot leave: reconstructed at 1809,61,666 and run
+// against the real Movements class, ZERO successors in six configs including
+// canDig=true and 64 scaffold blocks.
+//
+// That state does not resolve itself, so it does not need forty-five minutes of
+// evidence. Three does, and three fits inside the restart interval that made the
+// longer clock unreachable -- measured, the 45-minute mark was hit for 10 of 80
+// bots in 5.4 hours, and hive-b-Comet peaked at 43.7 minutes across five deploys
+// without ever crossing it.
+//
+// It is position-anchored to the SAME `strandedFrom` the long clock uses, so any
+// real displacement clears it, and it is deliberately a second condition on the
+// existing branch rather than a new call site: nothing new can act, the same
+// lattice simply gets consulted sooner in a state we can prove.
+const SEALED_ESCAPE_MS = 3 * 60 * 1000
 // How far a bot must move to prove it is not stranded. Deliberately small: a
 // bot shuffling inside one block is not travelling.
 const STRANDED_EPS = 6
@@ -1274,6 +1294,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let lastEscapeAt = 0
   let lastMaroonPrereqAt = 0
   let strandedSince = 0
+  // Cleared by the same displacement test as strandedSince -- see the block that
+  // maintains strandedFrom.
+  let sealedSince = 0
   let strandedFrom = null
   let lastStepOffAt = 0
   let escapeFailures = 0
@@ -1326,6 +1349,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           if (!strandedFrom) { strandedFrom = p.clone(); strandedSince = Date.now() }
           else if (p.distanceTo(strandedFrom) > STRANDED_EPS) {
             strandedFrom = p.clone(); strandedSince = Date.now()
+            sealedSince = 0            // it moved: whatever sealed it, did not
           }
         }
       }
@@ -1350,8 +1374,32 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // The height check replaces the old `mstate !== 'stranded_high'` test,
       // which is not in scope out here. Bots above the climb ceiling keep their
       // own branch below; this one is for everything under it.
-      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && strandedSince &&
-          Date.now() - strandedSince > LAST_RESORT_STRANDED_MS &&
+      // SEALED IS A PROVEN STATE; STRANDED IS AN INFERRED ONE. Different clocks.
+      //
+      // `sealedSince` tracks only the geometry above -- afloat, and no cardinal
+      // open at head height. It shares `strandedFrom`'s anchor, so it clears the
+      // instant the bot actually moves.
+      {
+        const wet = bot.entity?.isInWater === true ||
+                    bot.blockAt?.(bot.entity.position)?.name === 'water'
+        // EXPRESSION-BODIED ON PURPOSE. last-resort.test.mjs scans for `return`
+        // statements ahead of this branch, because the branch has shipped
+        // unreachable behind an early return before. Its heuristic cannot tell a
+        // callback's return from the tick's, and the right answer is to write
+        // code it can verify rather than to loosen a guard that has already
+        // caught real bugs.
+        const boxedAt = (dx, dz) =>
+          (b => b != null && b.boundingBox === 'block')(
+            bot.blockAt?.(bot.entity.position.offset(dx, 1, dz)))
+        const headBoxed = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+          .every(([dx, dz]) => boxedAt(dx, dz))
+        if (wet && headBoxed) { if (!sealedSince) sealedSince = Date.now() }
+        else sealedSince = 0
+      }
+      const longEnough =
+        (strandedSince && Date.now() - strandedSince > LAST_RESORT_STRANDED_MS) ||
+        (sealedSince && Date.now() - sealedSince > SEALED_ESCAPE_MS)
+      if (Math.round(bot.entity?.position?.y ?? 0) < CLIMB_CEILING && longEnough &&
           Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
         // `trapped` comes from the lattice's own observation rather than a
         // separate flag, so this branch and the plan it obeys are reading the
@@ -3244,6 +3292,26 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     // stone.
     lateralHeadOpen: [[1, 0], [-1, 0], [0, 1], [0, -1]]
       .some(([dx, dz]) => !solid(at(dx, 1, dz))),
+    // ONE ADJACENT HEAD-HEIGHT BLOCK THIS BOT CAN ACTUALLY BREAK.
+    //
+    // Computed from the SAME predicate the dig will use -- diggable, and
+    // harvestable with what is in hand -- so the rung cannot promise a break
+    // the bot then refuses. That mismatch between the promise and the executor
+    // is the shape of arrived_out_of_reach and of the crafting-table refusal,
+    // both paid for this week.
+    //
+    // Deliberately NOT "the bot placed it". We have no provenance for that, and
+    // the ethical line is not ownership -- it is that this is one adjacent,
+    // bounded, physically diggable block broken through normal game mechanics.
+    // No setblock, no give, no teleport.
+    breachable: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => {
+      const b = at(dx, 1, dz)
+      if (!solid(b) || !b?.diggable) return false
+      try {
+        const held = bot.heldItem ? bot.heldItem.type : null
+        return b.canHarvest ? b.canHarvest(held) : true
+      } catch { return false }
+    }),
     // ONE FLAG, COMPUTED FROM THREE TESTED FUNCTIONS. See the note on
     // `ladderReady` in escape.mjs for why the lattice takes a single derived
     // boolean rather than the three inputs: this file has already produced 344
@@ -3340,6 +3408,37 @@ const ESCAPE_ROUTINES = {
     return { ok: fell >= 1, fell,
              why: `rode down ${fell.toFixed(1)} (placed ${r?.placed ?? 0}, ` +
                   `${r?.stopped ?? 'completed'})` }
+  },
+  breach_head_wall: async (bot) => {
+    // SUCCESS IS "THE ROUTE CAME BACK", NOT "THE DIG RESOLVED".
+    //
+    // bot.dig() resolves on a LOCAL TIMER with no server acknowledgement -- see
+    // the note in skills.mjs collectManually -- so a dig that resolved proves a
+    // timer elapsed and nothing else. The postcondition that matters here is
+    // that A* can now leave, which is the thing the bot is stuck on.
+    const at = (dx, dy, dz) => bot.blockAt?.(bot.entity.position.offset(dx, dy, dz))
+    const solid = b => b != null && b.boundingBox === 'block'
+    const held = () => (bot.heldItem ? bot.heldItem.type : null)
+    const wall = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .map(([dx, dz]) => at(dx, 1, dz))
+      .find(b => solid(b) && b?.diggable &&
+                 (b.canHarvest ? b.canHarvest(held()) : true))
+    if (!wall) return { ok: false, why: 'no breakable wall at head height' }
+    const name = wall.name
+    try {
+      await bot.lookAt?.(wall.position.offset(0.5, 0.5, 0.5), true)
+      await bot.dig(wall)
+    } catch (e) {
+      return { ok: false, why: `could not break ${name}: ${String(e?.message ?? e).slice(0, 60)}` }
+    }
+    // Let a server correction land before believing our own world model, for
+    // the same reason the gather dig verification waits.
+    await new Promise(r => setTimeout(r, 300))
+    const after = bot.blockAt?.(wall.position)
+    const opened = !solid(after)
+    return { ok: opened,
+             why: opened ? `broke ${name} at head height — the way out is open`
+                         : `${name} is still there after the dig; the server did not break it` }
   },
   float_up: async (bot) => {
     // PHYSICS, NOT PLANNING. mineflayer's own tick holds `jump` whenever
