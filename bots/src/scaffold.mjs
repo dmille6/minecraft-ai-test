@@ -201,3 +201,218 @@ export function harvestSafe ({
   }
   return null
 }
+
+/**
+ * THE ONE ASCENT THAT COSTS NOTHING: A WALKABLE RAMP.
+ *
+ * Every way out of a hole this codebase owns spends an item the trapped bot
+ * has not got. `pillarOut` places blocks. `shaftAscend` places blocks.
+ * `digStraightUp` opens a ceiling the bot then cannot climb without blocks, and
+ * refuses outright without a spare pickaxe. `harvestAdjacent` -- the routine
+ * that was supposed to MAKE the blocks -- skips every stone-class neighbour at
+ * its `canHarvest` line, correctly, because bare-handed stone drops nothing.
+ * Measured over a full walk of the fleet logs (37,778 parsed failures), 71.4%
+ * of its failures are exactly that shape: eight neighbours offered, eight in
+ * the vocabulary, none harvestable by an empty hand.
+ *
+ * So the deadlock is a MATERIALS deadlock, and the way out of a materials
+ * deadlock is a move that needs no materials.
+ *
+ * A 1:1 staircase is that move. Break the two cells above the block one step
+ * ahead, and walk up into them. Nothing is placed, so no inventory is required;
+ * nothing is collected, so dropping nothing is not a failure. `digbudget.mjs`
+ * already wrote down the fact this rests on -- "BREAKING BY HAND IS THE POINT.
+ * Stone and deepslate broken bare-handed drop NOTHING, and that is fine -- a
+ * climb wants the hole, not the cobble." The fleet has had bare-handed digging,
+ * and it has had walkable staircases (`mine` cuts one, downward), since before
+ * these bots were stuck. It has never had the two combined pointing UP.
+ *
+ * THE ASYMMETRY WITH `mine`'s DESCENDING STAIR IS DELIBERATE AND IS THE WHOLE
+ * SAFETY ARGUMENT. Descending, the dangerous cell is the FLOOR -- break it over
+ * a cave and the bot falls, which is why `mine` carries a hollow-floor probe.
+ * Ascending, the floor is the tread the bot is about to stand on, and this
+ * refuses unless it is ALREADY solid, so there is no fall vector to probe for.
+ * What ascending opens instead is the two cells the bot WALKS INTO, which is
+ * why lava is checked on their faces the way `dryColumnStep` checks a walk and
+ * not the way `harvestSafe` checks a cell nobody enters.
+ *
+ * WATER IS NOT A REFUSAL HERE, and that is not an oversight. "Swimming is
+ * travel, not danger" is a standing owner directive; widening a wet predicate
+ * multiplied drownings sevenfold on 2026-08-29, and a global reflex demotion
+ * multiplied them 7.5x; and `mine`'s stair bearing meeting its own water check
+ * is one of the four named cases where two individually-correct guards left the
+ * bot no legal move. A water cell is simply passable -- there is nothing to
+ * break -- and a water TREAD is refused for the one honest reason that it
+ * cannot be stood on, which is a standability fact and not an opinion about
+ * water. Wetness only ever ORDERS the cardinals; see `chooseStairUpBearing`.
+ *
+ * @param at       (dx,dy,dz) -> block, relative to the bot's FEET
+ * @param bear     {x,z} unit cardinal the stair runs along
+ * @param canBreak (block) -> bool: may a bare hand clear this in useful time?
+ *                 Defaults to yes; the reflex passes digbudget's `planDig`, so
+ *                 bedrock and obsidian are refused by the registry's own
+ *                 numbers rather than by a hand-kept list here.
+ * @returns {{ok: true, dig: number[][]}} with the cells to break, head first,
+ *          or {{ok: false, reason: string}}
+ */
+export function stairUpStep ({
+  at = () => null,
+  bear = { x: 0, z: 0 },
+  isLava = b => /lava/.test(b?.name ?? ''),
+  canBreak = () => true,
+} = {}) {
+  const passable = b => !!b && (b.boundingBox === 'empty' || b.name === 'air' || b.name === 'cave_air')
+  const solid = b => !!b && b.boundingBox === 'block'
+  const bx = bear?.x ?? 0, bz = bear?.z ?? 0
+  if (!bx && !bz) return { ok: false, reason: 'no bearing' }
+
+  // The bot's own headroom. A jump-up needs feet+2 free; without it the bot
+  // cuts a perfect step and then head-butts its own ceiling forever, which is
+  // the exact shape of the "dug the tread and never took it" failure `mine`
+  // has already paid for once.
+  const over = at(0, 2, 0)
+  if (!passable(over)) return { ok: false, reason: `no headroom to climb (${over?.name ?? 'unknown'})` }
+
+  const tread = at(bx, 0, bz)
+  const feet = at(bx, 1, bz)
+  const head = at(bx, 2, bz)
+  // THE THIRD CELL IS THE ONE THAT MAKES THE RAMP A RAMP AND NOT ONE STEP.
+  //
+  // The first version of this cut two cells -- the new feet and the new head --
+  // and it stalled after exactly one step in solid rock, every time. The reason
+  // is that the headroom check above is asked at the bot's CURRENT column, and
+  // after a step that column is the one this step never opened: standing at
+  // `bear + y`, `at(0,2,0)` resolves to `bear + 3y`, which two cells leave as
+  // untouched stone. So the ramp cut a perfect step, climbed it, and then
+  // refused itself for want of the cell it had just declined to dig.
+  //
+  // That is the same defect `pillarOut` records under a different name -- one
+  // block placed per invocation, ninety minutes in the hole -- and it is worth
+  // naming because it is invisible to a single-step test. Only a RUNWAY over
+  // several steps can see it, which is why `stairUpRunway` exists and why it is
+  // tested to four rather than to one.
+  const clearance = at(bx, 3, bz)
+
+  // UNKNOWN TERRAIN CLOSES THIS BEARING, NEVER THE CAPABILITY. A null block is
+  // an unloaded chunk, and digging into one is a decision made on no evidence.
+  // Refusing costs nothing here because three other cardinals remain -- and if
+  // all four refuse, the caller is left in precisely the state it was already
+  // in. This routine can subtract no option the bot had before it.
+  if (!tread || !feet || !head || !clearance) return { ok: false, reason: 'terrain not loaded' }
+
+  // LAVA CLOSES THE STEP. Water beside your feet is harmless; lava beside your
+  // feet burns, and fire is 12% of fleet deaths at 1.47 per bot per day. The
+  // three upper cells are ones the bot ENTERS or jumps through, so their faces
+  // are checked the way `dryColumnStep` checks a walk -- not the way
+  // `harvestSafe` checks a cell the bot only ever reaches into.
+  const FACES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
+  for (const [cell, dy, what] of [[tread, 0, 'tread'], [feet, 1, 'step'],
+                                  [head, 2, 'step headroom'], [clearance, 3, 'jump clearance']]) {
+    if (isLava(cell)) return { ok: false, reason: `lava in the ${what} (${cell.name})` }
+    if (dy === 0) continue                    // the tread is stood on, never entered
+    for (const [nx, ny, nz] of FACES) {
+      const n = at(bx + nx, dy + ny, bz + nz)
+      if (isLava(n)) return { ok: false, reason: `lava against the ${what} (${n.name})` }
+    }
+  }
+
+  // NO FALL VECTOR, BY REFUSAL. The tread must ALREADY be solid: this routine
+  // never breaks a floor and never steps into a cell it has not proved has one.
+  if (!solid(tread)) return { ok: false, reason: `no tread to stand on (${tread.name})` }
+
+  // TOP DOWN. `mine` learned this on the way down and it is the same fact going
+  // up: a falling-block column over an already-open cell pours gravel into the
+  // space the bot is about to occupy, so the highest cell is cleared first and
+  // whatever falls, falls before the bot is under it.
+  const dig = []
+  for (const [cell, dy, what] of [[clearance, 3, 'jump clearance'], [head, 2, 'headroom'], [feet, 1, 'step']]) {
+    if (passable(cell)) continue
+    if (!canBreak(cell)) return { ok: false, reason: `cannot clear ${cell.name} in the ${what} by hand` }
+    dig.push([bx, dy, bz])
+  }
+  return { ok: true, dig }
+}
+
+/**
+ * How many consecutive steps a ramp from here along `bear` could cut, capped at
+ * `depth`. `mine`'s `stairRunway` replayed upward: nothing is dug and nothing
+ * moves, and at step i the bot stands at `bear * i` and `y + i`.
+ *
+ * A bearing that dies at its first step has only moved the refusal one cell
+ * along, which is why the chooser ranks on this before anything else.
+ */
+export function stairUpRunway ({ at = () => null, bear, depth = 4, ...opts } = {}) {
+  // A PLAN MUST SEE ITS OWN EXCAVATION, and getting this wrong reads as the
+  // ramp being impossible rather than as the lookahead being wrong. Step i+1
+  // stands where step i has already cut three cells; a replay against the
+  // UNTOUCHED world asks step 2 for headroom in the cell step 1 was about to
+  // clear, finds stone, and reports a runway of 1 through open rock. The first
+  // version of this did exactly that, and the symptom was every bearing
+  // scoring 1 -- an instrument that could not have seen a longer run.
+  const opened = new Set()
+  const AIR = { name: 'air', boundingBox: 'empty' }
+  const bx = bear?.x ?? 0, bz = bear?.z ?? 0
+  const seen = (dx, dy, dz) => (opened.has(`${dx},${dy},${dz}`) ? AIR : at(dx, dy, dz))
+  let n = 0
+  for (let i = 0; i < depth; i++) {
+    const from = (dx, dy, dz) => seen(bx * i + dx, i + dy, bz * i + dz)
+    const step = stairUpStep({ ...opts, at: from, bear })
+    if (!step.ok) break
+    for (const [dx, dy, dz] of step.dig) opened.add(`${bx * i + dx},${i + dy},${bz * i + dz}`)
+    n++
+  }
+  return n
+}
+
+/**
+ * How many water faces the ramp would touch along `bear`.
+ *
+ * A TIE-BREAK, NOT A GUARD -- the same role, and deliberately the same wording,
+ * as `stairFlowRisk` in skills.mjs. The distinction is load bearing. As a veto,
+ * a water test refused 561 of 566 pillar attempts below y=60 and kept 32 bots
+ * frozen for days. As an ORDERING it costs nothing: where two cardinals both
+ * run the full depth the drier one is chosen, and where only a wet one runs at
+ * all the bot still climbs. This function can never add a refusal, and the
+ * chooser must never let it.
+ */
+export function stairUpWetness ({ at = () => null, bear, depth = 4,
+                                  isWater = b => b?.name === 'water', ...opts } = {}) {
+  let wet = 0
+  const n = stairUpRunway({ at, bear, depth, ...opts })
+  for (let i = 0; i < n; i++) {
+    for (const dy of [1, 2, 3]) {
+      if (isWater(at((bear?.x ?? 0) * (i + 1), i + dy, (bear?.z ?? 0) * (i + 1)))) wet++
+    }
+  }
+  return wet
+}
+
+/**
+ * WHICH WAY THE ESCAPE RAMP SHOULD RUN.
+ *
+ * `bearings` arrives already in the caller's preference order -- the reflex
+ * passes the way the bot is facing first, then the two ninety-degree turns,
+ * then the reverse, exactly as `stairBearings` does for the descent. Ranked
+ * lexicographically:
+ *
+ *   1. the longest RUNWAY, because a bearing that dies in one step has only
+ *      moved the refusal;
+ *   2. then the fewest WATER faces, which is a preference and never a veto;
+ *   3. then the order given, so a bot already facing a usable direction does
+ *      not turn for nothing and the ramp stays predictable.
+ *
+ * Returns `{ bear, runway, wet }`, with `runway === 0` meaning every cardinal
+ * refused its first step. That is a fact about where the bot is standing, and
+ * the caller reports it rather than acting on it.
+ */
+export function chooseStairUpBearing ({ at = () => null, bearings = [], depth = 4, ...opts } = {}) {
+  let best = null
+  for (const bear of bearings) {
+    const runway = stairUpRunway({ at, bear, depth, ...opts })
+    const wet = runway === 0 ? 0 : stairUpWetness({ at, bear, depth, ...opts })
+    if (!best || runway > best.runway || (runway === best.runway && wet < best.wet)) {
+      best = { bear, runway, wet }
+    }
+  }
+  return best
+}
