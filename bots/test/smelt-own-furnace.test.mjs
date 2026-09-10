@@ -16,17 +16,22 @@ const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
 const CODE = fs.readFileSync(path.join(SRC, 'skills.mjs'), 'utf8')
   .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
+// The bound is matched as `4.5|STATION_REACH`: it was spelled as a bare
+// literal in three places until workorder.mjs needed exactly this number and
+// guessed 32 instead. What these tests are about is `!placed` and the
+// re-measure, not how the constant is written -- pinning the spelling turned a
+// correct refactor red once already.
 test('an unreachable furnace makes it place the one it carries', () => {
-  assert.match(CODE, /if \(reach > 4\.5 && !placed\)[\s\S]{0,400}?place\(ctx, \{ item: 'furnace' \}, signal\)/,
+  assert.match(CODE, /if \(reach > (?:4\.5|STATION_REACH) && !placed\)[\s\S]{0,400}?place\(ctx, \{ item: 'furnace' \}, signal\)/,
     'the fallback must actually place')
-  assert.match(CODE, /if \(reach > 4\.5 && !placed\)[\s\S]{0,500}?reach = bot\.entity\.position\.distanceTo/,
+  assert.match(CODE, /if \(reach > (?:4\.5|STATION_REACH) && !placed\)[\s\S]{0,500}?reach = bot\.entity\.position\.distanceTo/,
     'and RE-MEASURE reach against the new furnace, not assume it worked')
 })
 
 test('it cannot spend a furnace per attempt', () => {
   // `!placed` is the whole bound: without it a bot that places a furnace it
   // still cannot reach would place another on every call.
-  assert.match(CODE, /reach > 4\.5 && !placed/, 'guarded on not having placed one already')
+  assert.match(CODE, /reach > (?:4\.5|STATION_REACH) && !placed/, 'guarded on not having placed one already')
 })
 
 test('the refusal still names coordinates to walk to', () => {

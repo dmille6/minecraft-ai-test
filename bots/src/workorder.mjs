@@ -26,6 +26,7 @@
 // invented its own feasibility test would be the tenth.
 
 import { smeltInputsFor, smeltPlan } from './smelting.mjs'
+import { STATION_REACH } from './skills.mjs'
 
 /**
  * Rung ids are `craft_<item>_<n>` and `smelt_<output>_<n>` AS CONSTRUCTED --
@@ -50,6 +51,33 @@ const SMELT_RUNG = /^smelt_(.+)_(\d+)$/
 
 /** The rung id as the chain built it, with the emitter's cycle suffix removed. */
 export const rungId = id => String(id ?? '').replace(CYCLE_SUFFIX, '')
+
+/**
+ * Is a station usable FROM HERE, with no walk?
+ *
+ * v1 asked `findBlock({ maxDistance: 32 })` and called that ready. 32 is the
+ * SEARCH radius; the binding condition is the one `craft` and `smelt` actually
+ * enforce, `distanceTo(centre) <= STATION_REACH`. Measured over the first 90
+ * minutes live: 13 of 65 work-ordered conversions failed and 12 of those were
+ * `no_path` -- "crafting_table is 7/9/11/12/19 blocks away and could not be
+ * reached". The order was issued for a walk that then failed.
+ *
+ * So the test is the skill's own, imported rather than retyped, and measured
+ * the same way the skill measures it: position to block CENTRE.
+ *
+ * This deliberately forgoes a distant-but-walkable station. That is the point:
+ * the work order exists for conversions the bot can ALREADY perform, and a
+ * twelve-block walk is not "already". The model can still choose to craft and
+ * make the walk itself -- declining here removes a wasted order, not an option.
+ */
+function stationInReach (bot, name) {
+  const b = bot.findBlock?.({
+    matching: blk => bot.registry?.blocks?.[blk.type]?.name === name,
+    maxDistance: Math.ceil(STATION_REACH) + 1,
+  })
+  if (!b?.position?.offset) return false
+  return bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5)) <= STATION_REACH
+}
 
 /**
  * The order to run, or null.
@@ -108,11 +136,10 @@ export function readyFor (bot, milestone) {
       // A crafting table counts whether it is CARRIED or PLACED nearby -- the
       // same rule `craft` itself follows when it resolves prerequisites, and
       // the distinction that made the prompt's affordance line wrong.
+      // Carried counts with no distance test at all: `craft` places the table
+      // itself, so the bot is standing on top of it by construction.
       const carried = !!held.crafting_table
-      const near = carried || !!bot.findBlock?.({
-        matching: b => bot.registry?.blocks?.[b.type]?.name === 'crafting_table',
-        maxDistance: 32,
-      })
+      const near = carried || stationInReach(bot, 'crafting_table')
       craftReady = !!def && (bot.recipesFor(def.id, null, 1, near ? true : null) ?? []).length > 0
     } catch { craftReady = false }
   }
@@ -125,10 +152,7 @@ export function readyFor (bot, milestone) {
         // hasFurnace is true when one is carried OR placed nearby: `smelt`
         // places a carried furnace itself, so refusing here would be stricter
         // than the executor.
-        const hasFurnace = !!held.furnace || !!bot.findBlock?.({
-          matching: b => bot.registry?.blocks?.[b.type]?.name === 'furnace',
-          maxDistance: 32,
-        })
+        const hasFurnace = !!held.furnace || stationInReach(bot, 'furnace')
         const plan = smeltPlan({ held, item: input, count: 1, budgetMs: 60_000, hasFurnace })
         if (plan?.ok) { smeltReady = true; smeltInput = input; break }
       }
