@@ -13,6 +13,32 @@ import test from 'node:test'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 const { orderFor, readyFor, rungId } = await import('../src/workorder.mjs')
 
+// A position that behaves like the real one. The last inert deploy happened
+// because a fixture was invented rather than copied; `readyFor` now calls
+// `.offset()` and `.distanceTo()`, so a fake without them would silently make
+// stationInReach return false and every craft test would pass for the wrong
+// reason.
+const vec = (x, y, z) => ({
+  x, y, z,
+  offset: (dx, dy, dz) => vec(x + dx, y + dy, z + dz),
+  distanceTo: o => Math.hypot(x - o.x, y - o.y, z - o.z),
+})
+
+// A bot standing at the origin with a crafting table `dist` blocks east.
+const botWithTable = (dist, { carried = false, recipes = true } = {}) => {
+  const asked = { table: undefined }
+  const items = carried ? [{ name: 'crafting_table', count: 1 }] : []
+  return {
+    asked,
+    entity: { position: vec(0, 64, 0) },
+    inventory: { items: () => [...items, { name: 'cobblestone', count: 20 }, { name: 'stick', count: 4 }] },
+    registry: { itemsByName: { stone_pickaxe: { id: 889 } }, blocks: { 7: { name: 'crafting_table' } } },
+    findBlock: ({ matching, maxDistance }) =>
+      (matching({ type: 7 }) && dist <= maxDistance) ? { type: 7, position: vec(dist, 64, 0) } : null,
+    recipesFor: (id, m, n, table) => { asked.table = table; return (recipes && table) ? [{ id }] : [] },
+  }
+}
+
 test('a craft rung whose recipe is satisfiable becomes a craft order', () => {
   const o = orderFor({ id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe', craftReady: true })
   assert.equal(o.skill, 'craft')
@@ -78,20 +104,52 @@ test('a missing milestone yields nothing, never a throw', () => {
   assert.equal(orderFor(), null)
 })
 
-test('readyFor uses the SKILL predicate, and a placed table counts', async () => {
-  // The distinction that made the prompt affordance line wrong for weeks: craft
-  // resolves prerequisites by PLACING a table, so the commonest state right
-  // after a craft is table-on-ground, none-in-pack.
-  let askedWithTable = null
-  const bot = {
-    inventory: { items: () => [{ name: 'cobblestone', count: 20 }, { name: 'stick', count: 4 }] },
-    registry: { itemsByName: { stone_pickaxe: { id: 889 } }, blocks: { 7: { name: 'crafting_table' } } },
-    findBlock: ({ matching }) => matching({ type: 7 }) ? { type: 7, position: { x: 1, y: 2, z: 3 } } : null,
-    recipesFor: (id, meta, n, table) => { askedWithTable = table; return [{ id }] },
-  }
+test('readyFor uses the SKILL predicate, and a table IN REACH counts', () => {
+  // The distinction that made the prompt affordance line wrong for weeks:
+  // craft resolves prerequisites by PLACING a table, so the commonest state
+  // right after a craft is table-on-ground, none-in-pack.
+  const bot = botWithTable(3)
   const r = readyFor(bot, { id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe' })
   assert.equal(r.craftReady, true)
-  assert.equal(askedWithTable, true, 'a PLACED table must be offered to recipesFor')
+  assert.equal(bot.asked.table, true, 'a reachable placed table must be offered to recipesFor')
+})
+
+test('THE no_path BUG: a table beyond reach is NOT ready', () => {
+  // Every distance here is one the fleet actually refused at, copied from the
+  // failure details: "crafting_table is 7/9/11/12/19 blocks away and could not
+  // be reached". v1 accepted all of them because it asked maxDistance:32.
+  for (const d of [7, 9, 11, 12, 19]) {
+    const bot = botWithTable(d)
+    const r = readyFor(bot, { id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe' })
+    assert.equal(r.craftReady, false, `a table ${d} blocks away must not read as ready`)
+    assert.equal(orderFor(r), null, `and must not produce an order at ${d} blocks`)
+  }
+})
+
+test('a CARRIED table is ready at any distance -- craft places it itself', () => {
+  const bot = botWithTable(40, { carried: true })
+  const r = readyFor(bot, { id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe' })
+  assert.equal(r.craftReady, true)
+  assert.equal(bot.asked.table, true)
+})
+
+test('the reach bound is the SKILL constant, not a number typed here', async () => {
+  const { STATION_REACH } = await import('../src/skills.mjs')
+  assert.equal(typeof STATION_REACH, 'number')
+  // Derive the boundary with the measurement the SKILLS make -- bot position to
+  // block CENTRE -- rather than assuming it lands on a whole number. It does
+  // not: a table 4 east measures 4.56, because the +0.5,+0.5,+0.5 centre offset
+  // adds most of a block. Effective reach on the block grid is 3, not 4, and
+  // guessing that from STATION_REACH alone would have been wrong.
+  const centreDist = d => Math.hypot(d + 0.5, 0.5, 0.5)
+  const ready = d => readyFor(botWithTable(d),
+    { id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe' }).craftReady
+  for (const d of [1, 2, 3, 4, 5, 6, 12]) {
+    assert.equal(ready(d), centreDist(d) <= STATION_REACH,
+      `a table ${d} east measures ${centreDist(d).toFixed(2)} against STATION_REACH=${STATION_REACH}`)
+  }
+  // and the boundary is real, not vacuous: some of those are in and some are out
+  assert.ok(ready(3) && !ready(4), 'the fixture must straddle the bound')
 })
 
 test('readyFor never throws on a broken world', () => {
@@ -183,4 +241,15 @@ test('MUTANT KILLED: not stripping the cycle suffix (the v1 bug, exactly)', asyn
     mod => assert.equal(
       mod.orderFor({ id: 'craft_iron_pickaxe_1#351', wants: 'iron_pickaxe', craftReady: true }),
       null, 'the mutant must actually differ -- this is what shipped inert'))
+})
+
+test('MUTANT KILLED: reach widened back to the search radius (the no_path bug)', async () => {
+  await withMutant(WORKORDER_PATH,
+    '    maxDistance: Math.ceil(STATION_REACH) + 1,\n  })\n  if (!b?.position?.offset) return false\n  return bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5)) <= STATION_REACH',
+    '    maxDistance: 32,\n  })\n  if (!b?.position?.offset) return false\n  return true',
+    mod => {
+      const bot = botWithTable(12)
+      assert.equal(mod.readyFor(bot, { id: 'craft_stone_pickaxe_1#351', wants: 'stone_pickaxe' }).craftReady,
+        true, 'the mutant must actually differ -- this is exactly what shipped')
+    })
 })

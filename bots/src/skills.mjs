@@ -881,6 +881,20 @@ const MANUAL_SUBSTRING = [
 // None of this is reachable from outside the library, which is why two rounds
 // of patching around it failed. collectManually does the same job -- walk,
 // equip, dig, pick up -- with a bound on every step.
+/**
+ * How close a bot must be to a crafting table or furnace for the server to open
+ * the window. `craft` and `smelt` both refuse beyond it, and both used to spell
+ * it as a bare 4.5 in three places.
+ *
+ * EXPORTED because `workorder.mjs` needs exactly this number and guessed a
+ * different one. It asked whether a station existed within 32 -- the SEARCH
+ * radius -- ordered the craft, and the craft then died walking to it: 12 of the
+ * 13 failed work orders in the first 90 minutes were `no_path`, reading
+ * "crafting_table is 7/9/11/12/19 blocks away and could not be reached".
+ * Existence is not the binding condition; reach is.
+ */
+export const STATION_REACH = 4.5
+
 const COLLECTBLOCK_ENABLED = process.env.COLLECTBLOCK_ENABLED === 'true'
 const mustCollectManually = name =>
   !COLLECTBLOCK_ENABLED ||
@@ -2385,7 +2399,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   // more reliable when the bot is facing what it is using.
   if (table) {
     const reach = bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5))
-    if (reach > 4.5) {
+    if (reach > STATION_REACH) {
       return {
         status: 'failed',
         failClass: 'no_path',
@@ -3178,7 +3192,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   //
   // Only when we have not already placed one this call, so a bot cannot spend a
   // furnace per attempt.
-  if (reach > 4.5 && !placed) {
+  if (reach > STATION_REACH && !placed) {
     const carried = (bot.inventory?.items?.() ?? []).some(i => i.name === 'furnace')
     if (carried) {
       const put = await place(ctx, { item: 'furnace' }, signal)
@@ -3192,7 +3206,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       }
     }
   }
-  if (reach > 4.5) {
+  if (reach > STATION_REACH) {
     const carried = (bot.inventory?.items?.() ?? []).some(i => i.name === 'furnace')
     return { status: 'failed', failClass: 'no_path',
              // KEEP THE COORDINATES. A test asserts them and it is right to:
