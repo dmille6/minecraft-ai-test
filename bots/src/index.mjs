@@ -379,19 +379,45 @@ function connect() {
 
     bot.pathfinder.setMovements(moves)
 
+    // THE DIG-CAPABLE APPROACH, WHICH GATHER LOST BY ACCIDENT.
+    //
+    // This clone existed only inside `if (bot.collectBlock)`. It had readers --
+    // `breakVetoAt` and `isSafeToBreak` both resolve their movements object as
+    // `bot.collectBlock?.movements ?? bot.pathfinder?.movements`, and its
+    // canDig=true is what makes safeToBreak answer at all, so the assignment
+    // below is LOAD-BEARING and must not be deleted as dead. What it never had
+    // was a user on the WALK: collectblock has been off by default since
+    // COLLECTBLOCK_ENABLED, so from that day the approach to a gather target
+    // ran on the TRAVEL profile, which may not break a block to get anywhere.
+    // The dig-capable profile reached the break predicate and never reached A*.
+    //
+    // Measured on 48 scenes read off the live fleet by RCON -- real bot
+    // positions, real refused blocks, the surrounding world scanned cell by
+    // cell -- the travel profile reaches a legal mining stance in 10 of 48 and
+    // this one reaches it in 47. In 35 of the 48 a legal stance existed and was
+    // simply behind a wall. See src/digapproach.mjs for the numbers and for the
+    // two bounds that keep this from being the 3.3 GB OOM again.
+    //
+    // Built unconditionally now, and exposed the same way ascentMovements is:
+    // a skill may PROBE with it (getPathFromTo is read-only) and may borrow it
+    // for one bounded walk, but only index.mjs calls setMovements.
+    const gatherMoves = Object.create(Object.getPrototypeOf(moves))
+    Object.assign(gatherMoves, moves)
+    gatherMoves.canDig = true          // required: safeToBreak() gates on it
+    gatherMoves.allowParkour = false
+    gatherMoves.allow1by1towers = true
+    gatherMoves.maxDropDown = 6
+    bot.gatherMovements = gatherMoves
+    bot.withGatherMovements = async (fn) => {
+      bot.pathfinder.setMovements(gatherMoves)
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves) }
+    }
     // Grant collectblock the one setting it cannot work without, and none of
     // the others. See the note below for why this is a clone and why injecting
     // our own object instead would break gathering outright.
     try {
-      if (bot.collectBlock) {
-        const gatherMoves = Object.create(Object.getPrototypeOf(moves))
-        Object.assign(gatherMoves, moves)
-        gatherMoves.canDig = true          // required: safeToBreak() gates on it
-        gatherMoves.allowParkour = false
-        gatherMoves.allow1by1towers = true
-        gatherMoves.maxDropDown = 6
-        bot.collectBlock.movements = gatherMoves
-      }
+      if (bot.collectBlock) bot.collectBlock.movements = gatherMoves
     } catch { /* older collectblock without the property: the guard below covers us */ }
 
     // CLIMBING OUT NEEDS DIFFERENT RULES THAN WALKING AROUND.

@@ -7,6 +7,7 @@
 // against a fake bot that records exactly what it was handed.
 import assert from 'node:assert'
 import { probeReachable, PROBE_SLATE, PROBE_TIMEOUT_MS, PROBE_RADIUS, PROBE_PUMPS } from '../src/reachprobe.mjs'
+import { reachGoalClass, STANCE_REACH } from '../src/digreach.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => {
@@ -16,26 +17,27 @@ const t = (name, fn) => {
 
 // Stand-ins with the same shape the real library exposes.
 //
-// GoalLookAtBlock is modelled with a REAL isEnd, because the probe now decides
-// which candidate was hit by calling that predicate rather than paraphrasing it.
-// The real one demands the node be within `reach` (4.5) of the block AND that a
-// raycast from the eye hit a face; the stand-in keeps the reach test and takes
-// line of sight from a per-position `BLOCKED` set the test controls.
-const BLOCKED = new Set()
-class GoalLookAtBlock {
-  constructor (pos, world, options = {}) {
-    this.pos = pos; this.world = world; this.reach = options.reach || 4.5
-  }
-  isEnd (node) {
-    const dx = (node.x + 0.5) - (this.pos.x + 0.5)
-    const dy = (node.y + 1.6) - (this.pos.y + 0.5)
-    const dz = (node.z + 0.5) - (this.pos.z + 0.5)
-    if (Math.hypot(dx, dy, dz) > this.reach) return false
-    return !BLOCKED.has(`${this.pos.x},${this.pos.y},${this.pos.z}`)
-  }
+// THE PROBE'S GOAL IS NOW reachGoal, NOT GoalLookAtBlock. It was built to match
+// mineflayer-collectblock's own CollectBlock.js line 30, and collectblock is off
+// by default -- gather walks with `collectManually`, which asks for the server's
+// own 5.1 reach test. Measured over 48 scenes read off the live fleet by RCON,
+// same walking movements and same 600ms: GoalLookAtBlock hit 2/48 at visited
+// p50=29, reachGoal hit 10/48 at visited p50=9. The probe was refusing
+// candidates the walk could reach, and paying a raycast per node to do it.
+//
+// So the stand-in is GoalGetToBlock, which is what reachGoal extends. Only its
+// heuristic is ours to fake; the isEnd under test is the real one from
+// src/digreach.mjs, because the probe decides which candidate was hit by calling
+// that predicate rather than paraphrasing it.
+class GoalGetToBlock {
+  constructor (x, y, z) { this.x = x; this.y = y; this.z = z }
+  heuristic (node) { return Math.abs(node.x - this.x) + Math.abs(node.y - this.y) + Math.abs(node.z - this.z) }
+  isEnd (node) { return Math.abs(node.x - this.x) + Math.abs(node.y - this.y) + Math.abs(node.z - this.z) === 1 }
 }
 class GoalCompositeAny { constructor (goals) { this.goals = goals } }
-const goals = { GoalLookAtBlock, GoalCompositeAny }
+class GoalLookAtBlock { constructor (pos, world) { this.pos = pos; this.world = world } }
+const goals = { GoalGetToBlock, GoalCompositeAny }
+const ReachGoal = reachGoalClass(goals)
 const P = (x, y, z) => ({ x, y, z })
 // The probe builds Vec3s and A* hands back nodes; both need distanceTo/offset
 // only inside the real goal, so plain objects with x/y/z suffice here.
@@ -69,7 +71,6 @@ function makeBot (result, { movements = { canDig: false, tag: 'travel' } } = {})
 const CANDS = [P(3, 64, 0), P(9, 64, 0), P(20, 64, 0)]
 
 t('a hit names the candidate the GOAL accepts, not the nearest one', () => {
-  BLOCKED.clear()
   const bot = makeBot({ status: 'success', visitedNodes: 71, path: [P(1, 64, 0), P(8, 64, 0)] })
   const r = probeReachable(bot, CANDS, { goals })
   assert.equal(r.status, 'success')
@@ -77,19 +78,18 @@ t('a hit names the candidate the GOAL accepts, not the nearest one', () => {
   assert.equal(r.visitedNodes, 71)
 })
 
-t('THE 35% CASE: adjacent but not LOOK-AT-able is not a hit', () => {
-  // The bot stands right next to the block and still cannot see a face. That is
-  // exactly what collectblock refuses, and what the old adjacency probe called
-  // a success. 35.0% of healthy-bot unreachable failures were this.
-  BLOCKED.clear(); BLOCKED.add('9,64,0')
-  const bot = makeBot({ status: 'success', visitedNodes: 71, path: [P(8, 64, 0)] })
-  const r = probeReachable(bot, [P(9, 64, 0)], { goals })
-  assert.equal(r.hit, null, 'no visible face means collectblock cannot take it either')
-  BLOCKED.clear()
+t('THE CASE THE OLD GOAL REFUSED: straight overhead is a hit', () => {
+  // GoalLookAtBlock measures node-corner to block-centre from pos+1.6 and wants
+  // a raycast onto a visible face, so a bot standing directly under a block
+  // three above it reads 4.6 -- refused -- while canDigBlock reads 1.85. That
+  // shape is the canopy oak_log, which was 43.4% of these failures.
+  const bot = makeBot({ status: 'success', visitedNodes: 3, path: [] })
+  const r = probeReachable(bot, [P(0, 67, 0)], { goals })
+  assert.ok(r.hit, 'a block three blocks overhead is mineable from right here')
+  assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [0, 67, 0])
 })
 
 t('out of reach is not a hit even when the path ended there', () => {
-  BLOCKED.clear()
   const bot = makeBot({ status: 'success', visitedNodes: 9, path: [P(0, 64, 0)] })
   const r = probeReachable(bot, [P(20, 64, 0)], { goals })
   assert.equal(r.hit, null, '20 blocks away is outside the 4.5 reach')
@@ -138,16 +138,18 @@ t('the slate is capped, so the O(goals) heuristic stays cheap', () => {
   assert.equal(bot.seen.goal.goals.length, PROBE_SLATE, 'the composite gets exactly the slate')
 })
 
-t('it builds the goal COLLECTBLOCK uses, not one of our own', () => {
-  // CollectBlock.js line 30 paths with GoalLookAtBlock. Verifying any other
-  // predicate is verifying a claim the library never makes -- which is what the
-  // 35% was.
+t('it builds the goal THE WALK uses, not one of our own', () => {
+  // collectManually paths with reachGoal. Verifying any other predicate is
+  // verifying a claim nothing downstream makes -- which is what the old
+  // GoalLookAtBlock probe was doing after collectblock was switched off.
   const bot = makeBot({ status: 'noPath', path: [] })
   probeReachable(bot, CANDS, { goals })
   assert.ok(bot.seen.goal instanceof GoalCompositeAny)
-  assert.ok(bot.seen.goal.goals.every(g => g instanceof GoalLookAtBlock))
-  assert.ok(bot.seen.goal.goals.every(g => g.world === bot.world),
-    'GoalLookAtBlock raycasts through bot.world and must be given it')
+  assert.ok(bot.seen.goal.goals.every(g => g instanceof ReachGoal),
+    'the composite is not built from reachGoal')
+  assert.ok(bot.seen.goal.goals.every(g => g.reach === STANCE_REACH))
+  assert.ok(bot.seen.goal.goals.every(g => !(g instanceof GoalLookAtBlock)),
+    'still building the raycasting goal')
 })
 
 // --- it must cost nothing when anything is missing ---------------------------
@@ -161,15 +163,11 @@ t('a throwing pathfinder costs nothing', () => {
 t('missing library pieces fall through instead of crashing gather', () => {
   const res = { status: 'success', path: [P(8, 64, 0)] }
   assert.equal(probeReachable(makeBot(res), CANDS, { goals: {} }), null)
-  assert.equal(probeReachable(makeBot(res), CANDS, { goals: { GoalLookAtBlock } }), null,
+  assert.equal(probeReachable(makeBot(res), CANDS, { goals: { GoalGetToBlock } }), null,
     'a composite goal is required')
   assert.equal(probeReachable(makeBot(res), CANDS, { goals: { GoalCompositeAny } }), null,
     'the per-block goal is required')
   assert.equal(probeReachable({ entity: { position: P(0, 64, 0) } }, CANDS, { goals }), null)
-  // GoalLookAtBlock raycasts through bot.world; without it the probe must be
-  // inert rather than throwing inside gather.
-  const noWorld = makeBot(res); delete noWorld.world
-  assert.equal(probeReachable(noWorld, CANDS, { goals }), null, 'no world, no probe')
   assert.equal(probeReachable(makeBot(res), [], { goals }), null)
   assert.equal(probeReachable(makeBot(res), null, { goals }), null)
 })
@@ -185,15 +183,13 @@ t('ALREADY THERE: success with an empty path is the strongest hit, not a miss', 
   // `status=success visited=0 hit=none` was the most common outcome on the
   // fleet. A* accepts the START node, so the path is empty -- the bot is
   // standing beside a candidate and that was being thrown away.
-  BLOCKED.clear()
   const bot = makeBot({ status: 'success', visitedNodes: 0, path: [] })
   const r = probeReachable(bot, [P(1, 64, 0), P(40, 64, 0)], { goals })
-  assert.ok(r.hit, 'a bot at 0,64,0 can see a block at 1,64,0')
+  assert.ok(r.hit, 'a bot at 0,64,0 is within reach of a block at 1,64,0')
   assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [1, 64, 0])
 })
 
-t('...but only when the bot really is adjacent to one', () => {
-  BLOCKED.clear()
+t('...but only when the bot really is within reach of one', () => {
   const bot = makeBot({ status: 'success', visitedNodes: 0, path: [] })
   const r = probeReachable(bot, [P(9, 64, 0), P(20, 64, 0)], { goals })
   assert.equal(r.hit, null, 'nothing within reach: an empty path proves nothing')
@@ -207,7 +203,6 @@ t('a PARTIAL search is resumed, not discarded', () => {
     { status: 'partial', visitedNodes: 90, path: [] },
     { status: 'success', visitedNodes: 150, path: [P(8, 64, 0)] },
   ])
-  BLOCKED.clear()
   const r = probeReachable(bot, CANDS, { goals })
   assert.equal(r.status, 'success', 'the resumed search finished')
   assert.deepEqual([r.hit.x, r.hit.y, r.hit.z], [9, 64, 0])
