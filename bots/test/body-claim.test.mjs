@@ -199,14 +199,47 @@ t('A REFUSAL ASKS FOR BLOCKS, NOT A PICKAXE, AND BACKS OFF', () => {
   const code = strip('../src/reflex.mjs')
   const i = code.indexOf("climbed === 'needs_blocks'")
   assert.ok(i > 0, 'the refusal branch is gone')
-  const branch = code.slice(i, i + 2600)
-  assert.match(branch, /climbRefusals\+\+/, 'a refusal is not counted at all — it will spin')
-  // Scoped to the REFUSAL ARM. Resetting on the success path is correct and
-  // must stay; resetting inside the refusal arm is what makes the backoff flat,
-  // so a permanently blocked bot would be interrupted at a fixed rate forever.
+  // A WINDOW THAT CANNOT SEE THE END OF THE BRANCH FORBIDS NOTHING. This was
+  // 2,600 characters and the branch grew to 2,308; a character budget that
+  // silently stops short is one of the five ways a source assertion has passed
+  // for the wrong reason in this repo. So the window is generous AND its
+  // sufficiency is asserted rather than assumed.
+  const branch = code.slice(i, i + 6000)
+  assert.ok(branch.includes('else if ('),
+    'the window is too narrow to reach the end of the refusal arm, so every ' +
+    'assertion below is scoped to a fragment of the branch it names')
   const arm = branch.slice(0, branch.indexOf('else if ('))
-  assert.ok(!/climbRefusals = 0/.test(arm),
-    'the refusal arm resets its own counter, flattening the backoff')
+
+  // `climbRefusals++` became `climbRefusals = refusalStreak(...)` when the
+  // escalation was scoped to ONE LOCATION. Measured over 8h on 80 bots, 21.0%
+  // of entombed firings at y=60-79 (n=252) came from bots in motion on both
+  // sides of the event, and a lifetime counter turned four of those, spread
+  // across an afternoon and four counties, into the same threshold as four in a
+  // row in one stone pocket -- which now buys a rescue that DIGS. The invariant
+  // this line has always asserted is unchanged: a refusal must ADVANCE the
+  // counter, or the reflex retries every 15s forever and tells nobody.
+  assert.match(arm, /climbRefusals = refusalStreak\(/,
+    'a refusal is not counted at all — it will spin')
+
+  // THE RESET MUST BE EARNED, and that is the invariant, not the absence of a
+  // string. Resetting on the success path is correct and must stay; resetting
+  // where the bot made no progress is what makes the backoff flat, so a
+  // permanently blocked bot would be interrupted at a fixed rate forever.
+  //
+  // The refusal arm now contains a success path of its own -- an escape ramp
+  // that cut real steps -- so the scan is split at that guard instead of being
+  // applied to the whole arm. A ramp step is permanent walkable progress, and
+  // escalating a backoff against a rescue that is working is the exact failure
+  // `pillarOut` paid for: one block per invocation, ninety minutes in the hole,
+  // every log line reading "escaping".
+  const guard = arm.indexOf('if (stair.steps > 0) {')
+  assert.ok(guard > 0,
+    'the ramp-progress guard is gone, so the reset below has no owner and the ' +
+    'exemption this assertion grants is unbounded')
+  const noProgress = arm.slice(arm.indexOf('} else {', guard))
+  assert.ok(noProgress.length > 200, 'the no-progress arm did not parse; the split is wrong')
+  assert.ok(!/climbRefusals = 0/.test(noProgress),
+    'the refusal arm resets its own counter without progress, flattening the backoff')
   assert.match(arm, /climbRefusals \/ ESCAPE_GIVE_UP_AFTER/,
     'the backoff must escalate with the refusal count, not sit at a fixed delay')
   assert.match(branch, /pendingPrereq/, 'a refusal never tells the goal layer anything')
