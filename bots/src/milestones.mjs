@@ -131,6 +131,25 @@ const M = {
     },
     hint: hint ?? `craft with item=${item}.`,
   }),
+  /**
+   * A furnace rung. Same completion rule as M.craft -- satisfied by HOLDING the
+   * output -- but it describes and hints the verb that can actually produce it.
+   *
+   * Reusing M.craft here would have been the cheaper diff and a lie the bot
+   * reads every cycle: `craft item=iron_ingot` has no recipe the registry will
+   * ever return, so the hint would name a move the model cannot make. This
+   * project has shipped that mistake twice (place-as-escape, cherry_planks) and
+   * both times the model dutifully took the impossible advice.
+   */
+  smelt: (output, input, n, why) => ({
+    id: `smelt_${output}_${n}`,
+    wants: output,
+    describe: `Smelt ${n} ${output}. ${why}`,
+    done: b => countItem(b, output) >= n,
+    progress: b => `${countItem(b, output)}/${n} ${output} (${countItem(b, input)} ${input} to smelt)`,
+    hint: `smelt with item=${input} — needs a furnace nearby and fuel (coal, charcoal or planks).`,
+  }),
+
   // Direction-and-distance, not an exact spot. A fixed coordinate can be
   // genuinely unreachable -- observed: "no route toward 150,0" -- and then the
   // milestone can never complete and the bot loops on it forever. Rewarding
@@ -265,6 +284,12 @@ const PLANKS = ['oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
                 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks']
 const COBBLE = ['cobblestone', 'cobbled_deepslate', 'blackstone', 'stone',
                 'andesite', 'diorite', 'granite', 'tuff']
+// What a furnace will burn, restricted to what a Block-2 bot plausibly holds.
+// Only ever used to decide whether the iron rung is ACTIONABLE; smelting.mjs
+// owns the real fuel table and the burn times, and nothing here may disagree
+// with it silently -- test/smelt-ladder.test.mjs asserts every name in this
+// list actually burns according to that module.
+const FUELS = ['coal', 'charcoal', ...PLANKS, ...LOGS]
 
 /** Total of several item names in the inventory. */
 const countAny = (b, names) => names.reduce((t, n) => t + countItem(b, n), 0)
@@ -284,10 +309,13 @@ const countAny = (b, names) => names.reduce((t, n) => t + countItem(b, n), 0)
  * vacuously satisfied if it has no plausible means to make it. The rung fires
  * exactly when it is actionable, which is the only time asking is useful.
  */
-const ladder = (item, n, why, hint, hasMeans) => {
-  const base = M.craft(item, n, why, hint)
-  return { ...base, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) }
-}
+const rungOf = (base, hasMeans) =>
+  ({ ...base, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) })
+const ladder = (item, n, why, hint, hasMeans) =>
+  rungOf(M.craft(item, n, why, hint), hasMeans)
+/** The same wrapper over a furnace rung, so iron obeys the identical rule. */
+const smeltRung = (output, input, n, why, hasMeans) =>
+  rungOf(M.smelt(output, input, n, why), hasMeans)
 
 const TECH_LADDER = [
   ladder('crafting_table', 1, 'Tools need one nearby.',
@@ -304,9 +332,24 @@ const TECH_LADDER = [
   ladder('furnace', 1, 'Smelting needs one; 8 cobblestone.',
          'craft item=furnace, then place item=furnace.',
          b => countAny(b, COBBLE) >= 8),
+  // IRON. The rung the ladder terminated one step short of; the note below this
+  // array explains why it could not be added until `smelt` existed.
+  smeltRung('iron_ingot', 'raw_iron', 1,
+            'Raw iron is not a tool until a furnace has had it.',
+            b => countItem(b, 'raw_iron') >= 1 && countItem(b, 'furnace') >= 1 &&
+                 countAny(b, FUELS) >= 1),
+  ladder('iron_pickaxe', 1, 'The tier above stone, and the fleet ceiling.',
+         'Needs a crafting_table nearby: 3 iron_ingot + 2 stick.',
+         b => countItem(b, 'crafting_table') >= 1 && countItem(b, 'iron_ingot') >= 3 &&
+              (countItem(b, 'stick') >= 2 || countAny(b, PLANKS) >= 2)),
 ]
 
-// IRON IS DELIBERATELY NOT ON THIS LADDER YET, and the reason is measurable.
+// IRON IS NOW ON THIS LADDER, AND THE NOTE THAT KEPT IT OFF STILL STANDS.
+//
+// What follows is the original note, unedited, because its argument was correct
+// and the two rungs above satisfy it rather than overruling it. Read it first.
+//
+//   [ORIGINAL]
 //
 // Every rung above is a CRAFT gated on carrying the materials, so it is either
 // immediately actionable or vacuously satisfied -- it can never cost a failed
@@ -320,6 +363,33 @@ const TECH_LADDER = [
 // reaching stone, and add iron once there is evidence the lower rungs are being
 // climbed. The ceiling that mattered was "nothing ever asks for a pickaxe", and
 // that is what these four fix.
+//
+//   [WHY THE RUNGS ABOVE ARE CONSISTENT WITH IT]
+//
+// The objection is precise and it is NOT "iron is too ambitious". It is that
+// `gather iron_ore` is unlike every other rung: it can fail, so a well-equipped
+// bot with no ore would burn 25 attempts on it EVERY lap of SUSTAINING, and
+// SUSTAINING is the lap that produces the primary endpoint.
+//
+// Neither rung added above is a gather. Both go through `rungOf`, the same
+// wrapper the four rungs below use, so both are VACUOUSLY SATISFIED unless the
+// bot is already carrying everything the step needs:
+//
+//     iron_ingot    requires raw_iron AND a furnace AND fuel, in hand
+//     iron_pickaxe  requires 3 iron_ingot AND sticks AND a table, in hand
+//
+// A bot with no ore never sees either rung; it is done the instant it is
+// evaluated, costs no attempt, and the ladder moves on to the gathering the
+// experiment measures. That is the exact property the note above demanded, and
+// it is the property `gather iron_ore` could not have had.
+//
+// The other half of the note has also now been met. "Add iron once there is
+// evidence the lower rungs are being climbed" -- 59 of 80 bots carry a furnace
+// and 13 hold raw_iron, which is the furnace rung climbed and its output
+// stranded. The rung below iron was not the ceiling. The missing VERB was: this
+// fleet could craft a furnace and place a furnace and had no action that put
+// anything into one, so `iron_ingot` had never existed, not once, in its
+// history. That is what `smelt` fixes and what these two rungs now ask for.
 
 export const SUSTAINING = [
   {

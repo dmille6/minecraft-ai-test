@@ -150,16 +150,55 @@ def bankable_surplus(rec):
     return dist <= 96
 
 
+# What a furnace turns into something, and what burns. Deliberately a SHORTER,
+# cruder list than bots/src/smelting.mjs -- this rule exists to DISAGREE with the
+# prompt renderer, so sharing its table would defeat the point of measuring
+# eligibility from the logged snapshot instead of from the thing being checked.
+_SMELTABLE = ("raw_iron", "raw_copper", "raw_gold", "iron_ore", "copper_ore",
+              "gold_ore", "deepslate_iron_ore", "sand", "cobblestone", "clay_ball",
+              "porkchop", "beef", "chicken", "mutton", "potato", "cod", "salmon")
+_FUEL = ("coal", "charcoal", "coal_block", "stick", "bamboo")
+
+
+def can_smelt(rec):
+    """Holding something smeltable, a furnace, and something that burns.
+
+    All three have to be true at once, which is exactly when `smelt` works. The
+    reason this contract is worth having at all is that the model CANNOT derive
+    it: there is no smelting recipe in the registry, so bot.recipesFor -- which
+    is what CAN CRAFT NOW reads -- is blind to the entire furnace tier.
+
+    UNDER-counts: a furnace already standing in the world counts for the prompt
+    and not here, because the snapshot carries the inventory and not the
+    surroundings. So `eligible` here is a FLOOR, and a prompted count above it
+    is not a disagreement -- which the report must say, or the first funnel run
+    reads as a defect.
+    """
+    inv = _inv(rec)
+    if not inv:
+        return None
+    if int(inv.get("furnace", 0)) < 1:
+        return False
+    has_input = any(int(v) > 0 for k, v in inv.items()
+                    if k in _SMELTABLE or k.endswith(("_log", "_wood", "_stem")))
+    has_fuel = any(int(v) > 0 for k, v in inv.items()
+                   if k in _FUEL or k.endswith(("_planks", "_log")))
+    return has_input and has_fuel
+
+
 RULES = {
     "in_water": in_water,
     "can_craft_stone_tier": can_craft_stone_tier,
     "bankable_surplus": bankable_surplus,
+    "can_smelt": can_smelt,
 }
 
 APPROXIMATION = {
     "in_water": "over-counts: a shoreline reads water at distance 0-1",
     "can_craft_stone_tier": "counts blocks and sticks by hand, not the recipe book",
     "bankable_surplus": "needs a home position; records without one count as unknown",
+    "can_smelt": "UNDER-counts: requires a CARRIED furnace, so a bot standing at "
+                 "a placed one reads ineligible here and eligible in the prompt",
 }
 
 

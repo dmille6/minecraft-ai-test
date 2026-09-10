@@ -101,6 +101,17 @@ const STATES = {
     eligible: () => botIn({ inv: CRAFTABLE }),
     ineligible: () => botIn({ inv: { dirt: 3 } }),
   },
+  can_smelt: {
+    // The state 13 bots in this fleet are ACTUALLY IN right now: ore in the
+    // pocket, a furnace in the pocket, coal in the pocket, and iron_ingot has
+    // never once existed. Nothing in the prompt could tell them, because the
+    // registry has no smelting recipe for CAN CRAFT NOW to find.
+    eligible: () => botIn({ inv: { raw_iron: 5, furnace: 1, coal: 3 } }),
+    // Ore and a furnace and NOTHING THAT BURNS. The line must stay silent: it
+    // exists to say "you can do this now", and saying it to a bot that cannot
+    // is the swim_to zero-block-crossing bug wearing the other mask.
+    ineligible: () => botIn({ inv: { raw_iron: 5, furnace: 1 } }),
+  },
   bankable_surplus: {
     // Carrying real output with a chest in sight: worth banking, cheaply.
     eligible: () => {

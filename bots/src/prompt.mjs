@@ -10,6 +10,7 @@
 // truncates.
 
 import { SKILLS } from './skills.mjs'
+import { fuelTicks, smeltRecipeFor } from './smelting.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
 import { isExposed, isSafeToBreak } from './skills.mjs'
@@ -191,6 +192,15 @@ export function buildSystemPrompt(skillNames) {
     '  status  args: {}',
     '  eat     args: {}                       (eats food from inventory)',
     '  craft   args: {"item": "<item id e.g. stick>", "count": <integer>}',
+    // THE MODEL CANNOT SEE A CAPABILITY THAT IS NOT NAMED HERE -- four failures
+    // in one day were exactly that. The item named is the INPUT, because that
+    // is what the bot is carrying and looking at; asking for the output would
+    // make the model translate raw_iron -> iron_ingot with no table to do it.
+    '  smelt   args: {"item": "<the RAW item you carry, e.g. raw_iron>", "count": <integer>}',
+    '          (cooks it in a furnace: raw_iron -> iron_ingot, raw_copper -> copper_ingot,',
+    '           any log -> charcoal, sand -> glass, raw meat -> cooked. Needs a furnace:',
+    '           it places one from your inventory if there is none nearby. Needs fuel:',
+    '           coal, charcoal, planks or logs. One coal smelts 8 items, 10s each.)',
     '  place   args: {"item": "<item id in inventory>"}   (places NEXT TO you, not underfoot — to climb out of a hole use surface)',
     '  build   args: {"plan": "pillar", "block": "<block id>"}',
     // "target depth" was read as a DEPTH TO DIG rather than an elevation to
@@ -268,6 +278,12 @@ export function buildSystemPrompt(skillNames) {
     `  4 oak_planks -> 1 crafting_table; 3 planks + 2 sticks -> wooden_pickaxe;`,
     `  3 cobblestone + 2 sticks -> stone_pickaxe. Stone needs a pickaxe to drop`,
     `  cobblestone, so make a wooden pickaxe before mining.`,
+    // IRON IS NOW REACHABLE AND THE PROMPT HAS TO SAY SO. `craft iron_pickaxe`
+    // is not a craft the model can reason its way to: the ingot is not in any
+    // crafting recipe the registry will show it, because a furnace makes it.
+    `- Iron: mine down to find iron ore, gather it (you get raw_iron), then`,
+    `  smelt item=raw_iron to get iron_ingot. 3 iron_ingot + 2 sticks ->`,
+    `  iron_pickaxe. Smelting needs a furnace (8 cobblestone) and fuel.`,
     `- "reason" must be one short sentence explaining the choice.`,
     `- Copy the saw_end value from the end of the user message exactly.`,
     ``,
@@ -425,6 +441,60 @@ function craftableNow (bot) {
   } catch { return '' }
 }
 
+/**
+ * CAN SMELT NOW -- the observation without which `smelt` is present, not shipped.
+ *
+ * The four cases in affordances.json are all the same failure: a capability
+ * that existed, was documented, and was silent, and whose silence was
+ * indistinguishable from the model declining to use it. swim_to shipped with a
+ * usage line and ZERO uses until `IN WATER` named the situation.
+ *
+ * Smelting is the worst possible candidate for silence, because the model
+ * cannot derive it. `CAN CRAFT NOW` is built from bot.recipesFor, and there is
+ * no smelting recipe in the registry AT ALL -- minecraft-data ships none (see
+ * smelting.mjs). So a bot holding raw_iron, a furnace and a coal has every
+ * ingredient of the fleet's first ingot and not one signal that says so.
+ * Measured right now: 59 of 80 bots carry a furnace, 30 carry coal, 13 hold
+ * raw_iron, and `iron_ingot` has never existed.
+ *
+ * SILENT WHEN IT DOES NOT APPLY, which the affordance contract requires and
+ * which is half the point: a line that is always on carries no information and
+ * costs tokens on every decision. This one needs an input, a furnace and fuel
+ * to be simultaneously true, so it fires exactly when smelt would work.
+ */
+function smeltableNow (bot) {
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    if (!items.length) return ''
+    const held = {}
+    for (const i of items) held[i.name] = (held[i.name] ?? 0) + i.count
+
+    // Fuel and furnace are the two things smelt cannot proceed without, and
+    // naming which one is missing would be a different line -- this one only
+    // fires when the bot can actually act, so it never advertises a dead end.
+    if (!(held.furnace > 0 || bot.findBlock?.({
+      matching: b => bot.registry?.blocks?.[b.type]?.name === 'furnace', maxDistance: 32,
+    }))) return ''
+    if (!Object.keys(held).some(n => fuelTicks(n) > 0)) return ''
+
+    const pairs = []
+    for (const name of Object.keys(held)) {
+      const r = smeltRecipeFor(name)
+      // Never suggest burning the last of something that IS the fuel unless
+      // there is enough for both jobs -- the same guard smeltPlan applies, so
+      // the line cannot promise a smelt the skill will then refuse.
+      if (!r) continue
+      if (fuelTicks(name) > 0 && held[name] < 2 &&
+          !Object.keys(held).some(o => o !== name && fuelTicks(o) > 0)) continue
+      pairs.push(`${name} -> ${r.output}`)
+      if (pairs.length >= 4) break
+    }
+    if (!pairs.length) return ''
+    return `CAN SMELT NOW: ${pairs.join(', ')} (smelt item=<the raw one>; ` +
+           `you have a furnace and fuel). This is the ONLY way to get an ingot.`
+  } catch { return '' }
+}
+
 // MILESTONES CREATE OBLIGATIONS; THE OBSERVATION CREATES BEHAVIOUR.
 //
 // `deposit_surplus` was added to the SUSTAINING chain and produced ZERO deposits
@@ -486,6 +556,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
     craftableNow(bot),
+    smeltableNow(bot),
     depositSituation(bot, memory),
     `NEARBY: ${nearbyBlocks(bot).join(', ') || 'nothing notable'}`,
     actionable.line,
