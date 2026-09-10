@@ -15,6 +15,7 @@ import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
+import { orderFor, readyFor } from './workorder.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
 // wrote and hands back a taxonomy label, which is a guess wearing a
@@ -531,7 +532,37 @@ export class CognitiveLoop {
     if (snap.game) snap.game.biome = biomeAt(this.bot)
     const percept = perception(this.bot)
     const started = Date.now()
-    const res = await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
+    // ---- THE WORK ORDER ------------------------------------------------
+    //
+    // If the ACTIVE RUNG is a conversion the bot can already perform, perform
+    // it. Do not spend a decision asking a 7B to notice what it is holding.
+    //
+    // Measured: when the chain lands on a craft rung the model picks the craft
+    // verb 27-60% of the time against an 8.4% baseline, so the goal channel
+    // works; and craft succeeds 36.7% at 5.8 items per success with smelt at
+    // 68.6%, so the skills work. The loss is in CHOOSING -- the fleet calls
+    // gather 26 times for every smelt while carrying idle stockpiles. This is
+    // the repo's oldest lesson (`advice printed is not advice taken`) applied
+    // to the ladder itself.
+    //
+    // SYNTHESISED AS A PROPOSAL rather than dispatched directly, and that is
+    // deliberate. Everything downstream then runs unchanged: the admission gate
+    // still vets it (and already exempts milestone-critical crafts from
+    // learned_avoid), the outcome still feeds `milestones.noteAttempt`, so a
+    // work order that keeps failing still counts toward the give-up. Bypassing
+    // that would let a bot loop forever on an impossible rung by a new door.
+    const order = orderFor(readyFor(this.bot, milestone))
+    if (order) {
+      // A COUNTER, because five changes shipped inert on this project in one
+      // day and each was caught only by asking whether the branch had run.
+      logEvent({ kind: 'work_order',
+                 detail: `${order.skill} ${JSON.stringify(order.args)} — ${order.why}`,
+                 snapshot: snap })
+    }
+    const res = order
+      ? { schemaValid: true, latencyMs: 0, raw: null,
+          proposal: { skill: order.skill, args: order.args, reason: order.why } }
+      : await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
     this.decisions++
     this.lastDecisionAt = Date.now()
 
