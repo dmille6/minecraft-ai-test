@@ -21,7 +21,22 @@
 import assert from 'node:assert'
 import { Lessons } from '../src/lessons.mjs'
 import { AdmissionControl } from '../src/admission.mjs'
-import { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK } from '../src/cognitive.mjs'
+import { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK, EVIDENCE_ONLY_IF_HERE,
+         evidenceScope } from '../src/cognitive.mjs'
+
+// THREE SETS NOW, AND EVERY GUARD BELOW MUST SEE ALL THREE.
+//
+// A mutant that added collect_budget, goal_changed, path_timeout and stagnation
+// to the newest set survived the whole suite, because the "is this enforced"
+// guards had been widened in one of three places. Enumerating them once, here,
+// is what makes that impossible to repeat: a fourth set added next week has to
+// appear in this object or the overlap test below stops covering it.
+const EVIDENCE_SETS = {
+  action: EVIDENCE_ABOUT_THE_ACTION,
+  situation: EVIDENCE_ONLY_IF_STUCK,
+  place: EVIDENCE_ONLY_IF_HERE,
+}
+const inAnyEvidenceSet = fc => Object.values(EVIDENCE_SETS).some(s => s.has(fc))
 import { classifyFailure } from '../src/state.mjs'
 
 let n = 0
@@ -116,8 +131,8 @@ ok('success is disproof: it decrements the avoid rule', () => {
 ok('our own interruptions are never evidence', () => {
   for (const fc of ['path_interrupted', 'path_budget', 'collect_budget', 'goal_changed',
                     'died', 'hazard_interrupt', 'stagnation', 'stuck', 'timeout', 'path_timeout']) {
-    assert.ok(!EVIDENCE_ABOUT_THE_ACTION.has(fc) && !EVIDENCE_ONLY_IF_STUCK.has(fc),
-      `${fc} is something WE did, not something the world said`)
+    assert.ok(!inAnyEvidenceSet(fc), `${fc} is something WE did, not something the world said`)
+    assert.equal(evidenceScope(fc), null, `${fc} must get no vote in any store`)
   }
 })
 
@@ -125,15 +140,28 @@ ok('an unclassified failure defaults to not-enforced', () => {
   // The polarity that matters: `other` was once 36% of all failures and it was
   // enforced by default purely because nobody had listed it.
   for (const fc of ['other', 'a_class_added_next_week', '']) {
-    assert.ok(!EVIDENCE_ABOUT_THE_ACTION.has(fc) && !EVIDENCE_ONLY_IF_STUCK.has(fc),
-      `${fc} must not train the gate`)
+    assert.ok(!inAnyEvidenceSet(fc), `${fc} must not train the gate`)
+    assert.equal(evidenceScope(fc), null, `${fc} must not train the gate`)
   }
 })
 
 ok('the world refusing IS still evidence', () => {
-  for (const fc of ['no_path', 'path_incomplete', 'nothing_found', 'buried', 'bad_target']) {
+  for (const fc of ['no_path', 'path_incomplete', 'buried', 'bad_target']) {
     assert.ok(EVIDENCE_ABOUT_THE_ACTION.has(fc), `${fc} is the world talking; it must be learned`)
   }
+})
+
+ok('nothing_found is evidence about a PLACE, not about the verb', () => {
+  // It was in EVIDENCE_ABOUT_THE_ACTION, and moving it is the point of the
+  // change. It is still the world talking -- so it is still evidence, and must
+  // still be recorded -- but what it says is "there is none within N blocks of
+  // HERE", and the avoid key carries no position. As an unconditional rule it
+  // was a fact about a place enforced as a fact about a verb, and it is the
+  // largest single contributor to the fleet's learned_avoid mass.
+  assert.ok(!EVIDENCE_ABOUT_THE_ACTION.has('nothing_found'),
+    'nothing_found must not accrue unconditionally: it is scoped to a place')
+  assert.ok(EVIDENCE_ONLY_IF_HERE.has('nothing_found'))
+  assert.equal(evidenceScope('nothing_found'), 'place')
 })
 
 ok('precondition refusals are conditional, not free', () => {
@@ -143,9 +171,16 @@ ok('precondition refusals are conditional, not free', () => {
   }
 })
 
-ok('the two sets never overlap', () => {
-  for (const fc of EVIDENCE_ABOUT_THE_ACTION) {
-    assert.ok(!EVIDENCE_ONLY_IF_STUCK.has(fc), `${fc} cannot be both`)
+ok('the evidence sets never overlap, pairwise across all of them', () => {
+  for (const [an, a] of Object.entries(EVIDENCE_SETS)) {
+    for (const [bn, b] of Object.entries(EVIDENCE_SETS)) {
+      if (an === bn) continue
+      for (const fc of a) assert.ok(!b.has(fc), `${fc} cannot be both ${an} and ${bn}`)
+    }
+  }
+  // ...and evidenceScope must agree with the sets, or there are two policies.
+  for (const [name, s] of Object.entries(EVIDENCE_SETS)) {
+    for (const fc of s) assert.equal(evidenceScope(fc), name, `${fc} scope`)
   }
 })
 

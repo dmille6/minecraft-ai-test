@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/index.mjs",
     "dev": "node --watch src/index.mjs",
+    "test": "TEST_TIMEOUT_MS=${TEST_TIMEOUT_MS:-300000} node scripts/run-tests.mjs",
     "lint": "eslint src/*.mjs",
     "lint:movement": "node scripts/check-movement-writers.mjs",
     "check": "npm run lint && npm run lint:movement"

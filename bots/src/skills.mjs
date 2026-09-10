@@ -62,8 +62,11 @@ import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
  *
  * Kept as one exported set so the runner, the cognitive layer and the preflight
  * guard cannot disagree about which classes are unknowable. bots/test/
- * evidence-gate.test.mjs asserts this set never overlaps the two evidence sets
- * in cognitive.mjs.
+ * evidence-gate.test.mjs asserts this set never overlaps ANY of the three
+ * evidence sets cognitive.mjs exports -- EVIDENCE_ABOUT_THE_ACTION,
+ * EVIDENCE_ONLY_IF_STUCK and EVIDENCE_ONLY_IF_HERE. It said "the two evidence
+ * sets" while there were three, which is how a widened set slips past a guard
+ * that was only ever taught to check two of them.
  */
 export const UNKNOWN_FAIL_CLASSES = new Set([
   'path_budget', 'path_timeout', 'collect_budget', 'probe_timeout', 'unverified',
