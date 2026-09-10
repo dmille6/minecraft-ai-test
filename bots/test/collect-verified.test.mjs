@@ -43,8 +43,16 @@ test('the live path is collectManually, not collectblock', () => {
 test('arrival is asserted before digging', () => {
   assert.match(CODE, /bot\.canDigBlock && !bot\.canDigBlock\(here\)/,
     'canDigBlock is the honest reach test — diggable, and within 5.1 of the eye')
-  assert.match(CODE, /failClass: 'arrived_out_of_reach'/,
-    'and it gets its own class, so it stops being counted as no_path')
+  // The CLASS moved into digreach.reachRefusal, because canDigBlock tests three
+  // different things -- gone, unbreakable, too far -- and one name for all three
+  // is how the fleet came to report a distance for blocks that had simply been
+  // taken by another bot. What each class means is tested by behaviour in
+  // gather-reach.test.mjs; this only asserts the wiring.
+  assert.match(CODE, /const \{ failClass, detail \} = reachRefusal\(\{/,
+    'the refusal must come from the shared classifier, not be reassembled here')
+  const REACH = strip(fs.readFileSync(path.join(SRC, 'digreach.mjs'), 'utf8'))
+  assert.match(REACH, /failClass: 'arrived_out_of_reach'/,
+    'and the class still exists, so it stops being counted as no_path')
 })
 
 test('the break is verified against the server, not against our own cache', () => {

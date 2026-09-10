@@ -70,17 +70,37 @@ t('collectManually bounds its pathing', () => {
     'the walk to the block must be bounded too')
 })
 
-t('collectManually walks to the same look-at stance the probe verifies', () => {
+t('collectManually walks to a stance canDigBlock would accept', () => {
   const b = body('collectManually')
-  // Matches the GOAL, not the whole expression. The first version pinned the
-  // exact call text and broke the moment a `bot.world` guard was added around
-  // it -- the same over-specific-assertion mistake made twice already tonight.
-  assert.match(b, /new goals\.GoalLookAtBlock\(/,
-    'GoalNear only means near the block coordinate; gather needs a visible dig stance')
-  // GoalNear survives ONLY as the no-world fallback, never as the primary.
+  // STRUCTURAL, NOT A PARAPHRASE OF THE DECISION. What the goal MEANS is tested
+  // by behaviour in gather-reach.test.mjs, against the real Movements and the
+  // real AStar; all this asserts is that the walk is wired to the shared
+  // definition rather than growing a fourth private one. That has happened
+  // twice: GoalNear(p,2), then GoalLookAtBlock, neither of them the test the
+  // dig three lines later is actually gated on.
+  assert.match(b, /reachGoal\(goals, p\)/,
+    'the walk must use digreach.reachGoal, the same predicate canDigBlock uses')
+  // GoalNear survives ONLY as the fallback for a library without the classes.
   const primary = b.slice(0, b.indexOf('await withTimeout(bot.pathfinder.goto(stance)'))
-  assert.match(primary, /bot\.world[\s\S]{0,80}?GoalLookAtBlock/,
-    'the look-at stance is what is used when a world exists')
+  assert.match(primary, /reachGoal\(goals, p\) \?\? new goals\.GoalNear/,
+    'and GoalNear is the ?? fallback, never the primary')
+})
+
+t('collectManually does not walk when it can already dig the block', () => {
+  const b = body('collectManually')
+  // The goto is inside the guard, not beside it. `canDigBlock` reaches about
+  // four blocks up, so a canopy log or an ore underfoot needed no walk at all
+  // -- and asking for one handed A* a goal with an empty acceptance set.
+  assert.match(b, /if \(!\(bot\.canDigBlock && bot\.canDigBlock\(bot\.blockAt\(p\)\)\)\) \{[\s\S]{0,2000}?bot\.pathfinder\.goto/,
+    'the walk must be inside the not-already-in-reach branch')
+})
+
+t('the refusal quotes the pathfinder instead of guessing', () => {
+  const b = body('collectManually')
+  assert.match(b, /pathSaid = e\?\.name/,
+    "goto's error name is the pathfinder's own vocabulary and must survive the catch")
+  assert.match(b, /reachRefusal\(\{/,
+    'and the classification is a pure function, not prose assembled here')
 })
 
 t('pickupNearbyItems is bounded in both attempts and time', () => {

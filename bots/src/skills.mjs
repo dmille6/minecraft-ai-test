@@ -34,6 +34,7 @@ import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
+import { reachGoal, reachRefusal, eyeToBlock } from './digreach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -893,28 +894,63 @@ const mustCollectManually = name =>
  */
 async function collectManually(bot, block, signal) {
   const p = block.position
-  let arrivalError = null
-  try {
-    // THE SAME GOAL THE REACH PROBE VALIDATED. It was GoalNear(p, 2), which
-    // guarantees only "within 2 of the block coordinate" -- not adjacency, not
-    // line of sight, not a visible face. The probe that RANKS candidates uses
-    // GoalCompositeAny of GoalLookAtBlock (reachprobe.mjs), so the ranking
-    // proved one thing and the walk then demanded another. A candidate could
-    // pass the probe and be unreachable by the walk, which is exactly the shape
-    // of arrived_out_of_reach: 58-134 events across 28-44 of 80 bots, with ZERO
-    // dig_unconfirmed -- the digs were always fine, the arrivals were not.
-    //
-    // Guarded on bot.world for the reason reachprobe.mjs:173 guards it:
-    // GoalLookAtBlock RAYCASTS through it, and without a world it cannot judge.
-    const stance = bot.world
-      ? new goals.GoalLookAtBlock(new Vec3(p.x, p.y, p.z), bot.world)
-      : new goals.GoalNear(p.x, p.y, p.z, 2)
-    await withTimeout(bot.pathfinder.goto(stance), 15000, bot)
-  } catch (e) {
-    if (e.aborted || signal?.aborted) throw e
-    // Salvage only the case the old catch was right about: movement failed, but
-    // the bot is already close enough for the server to accept the dig.
-    arrivalError = e
+  const wanted = block.name
+  // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
+  //
+  // This was GoalNear(p, 2), then GoalLookAtBlock (ad2a74d, to match the
+  // ranking probe). Both are paraphrases of a test that already exists three
+  // lines below -- `bot.canDigBlock`, the block CENTRE within 5.1 of the EYE --
+  // and a paraphrase of the admission test is the thing that produced this
+  // failure class. So ask for canDigBlock itself: see src/digreach.mjs.
+  //
+  // WHAT THE PARAPHRASES COST, measured against the real Movements and the real
+  // AStar over synthetic worlds (test/gather-reach.test.mjs), thinkTimeout
+  // 5000, canDig=false:
+  //
+  //   scene                GoalNear(p,2)   GoalLookAtBlock  reachGoal   legal
+  //                                                                     stances
+  //   block in a wall      timeout 267k    success 4        success 2    35
+  //   block in a ceiling   timeout 252k    timeout 260k     success 2    69
+  //   oak log 5 up a trunk timeout 234k    timeout 246k     success 4    36
+  //
+  // "legal stances" is the number of nodes the bot could WALK TO from which
+  // canDigBlock is true. The goal was rejecting every one of them and A* then
+  // had to drain the walkable world to prove there was nothing -- an empty
+  // acceptance set is the most expensive query A* can be handed, and that is
+  // the mechanism behind `path_timeout` appearing in 46.2% of the runs that
+  // report this failure. GoalLookAtBlock is a real improvement on the wall and
+  // does nothing for the other two: its reach test is
+  // `node.distanceTo(pos + 1.6) <= 4.5` measured corner to corner, which
+  // refuses a bot standing directly under a block three above it -- 4.6 by that
+  // measure, 1.85 by canDigBlock's.
+  //
+  // Measured on the fleet, 3h, full walk: 673 of 4,640 gather runs (14.5%)
+  // across 75 of 80 bots, 1,269 refusals, against ONE dig_unconfirmed in the
+  // same scan. oak_log is 43.4% of them and the canopy row above is its shape.
+  //
+  // AND THE WALK IS OFTEN NOT NEEDED AT ALL. canDigBlock reaches about four
+  // blocks up and four down, so the log above the bot's head and the ore under
+  // its feet were both being handed to a planner that had nowhere legal to send
+  // it. Checking first costs one subtraction.
+  let pathSaid = 'not needed — already within reach'
+  if (!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))) {
+    // KEEP THE PATHFINDER'S VERDICT. The old catch discarded it and the refusal
+    // then asserted "goto returned without moving" as a fact it had never
+    // checked. goto's error NAMES are the library's own vocabulary -- NoPath,
+    // Timeout, PathStopped, GoalChanged -- and they mean four different things.
+    // A clean resolve is worth recording too: after an empty path that IS the
+    // library's success-shaped no-path (lib/goto.js tests
+    // `results.path.length === 0` and cleans up BEFORE it tests
+    // `results.status === 'noPath'`), and it is indistinguishable from arrival
+    // unless something downstream measures.
+    pathSaid = 'resolved'
+    const stance = reachGoal(goals, p) ?? new goals.GoalNear(p.x, p.y, p.z, 2)
+    try {
+      await withTimeout(bot.pathfinder.goto(stance), 15000, bot)
+    } catch (e) {
+      if (e.aborted || signal?.aborted) throw e
+      pathSaid = e?.name && e.name !== 'Error' ? e.name : String(e?.message ?? e).slice(0, 60)
+    }
   }
   check(signal)
 
@@ -924,10 +960,9 @@ async function collectManually(bot, block, signal) {
   // pathfinder's goto RESOLVES AS SUCCESS on an empty path -- lib/goto.js tests
   // `results.path.length === 0` and cleans up BEFORE it tests
   // `results.status === 'noPath'`, so the commonest unreachable case returns
-  // like a success rather than throwing. The catch above preserves a failure
-  // only so an already-in-range bot can salvage the dig; it is not treated as
-  // arrival. And the dig does not decide: mineflayer's dig never checks range
-  // either (canDigBlock is not called anywhere in digging.js).
+  // like a success rather than throwing. And the dig does not decide:
+  // mineflayer's dig never checks range either (canDigBlock is not called
+  // anywhere in digging.js).
   //
   // So the bot could stand where it started, dig at a block forty blocks away,
   // and return cleanly having done nothing. That is the shape of the largest
@@ -936,16 +971,22 @@ async function collectManually(bot, block, signal) {
   //
   // canDigBlock is the honest test and it is the server's own: diggable, and
   // within 5.1 blocks of the eye.
+  //
+  // AND IT TESTS THREE THINGS, WHICH USED TO WEAR ONE NAME. `block &&
+  // block.diggable && <within 5.1>`: the block is gone, the block cannot be
+  // broken by hand, or the bot is short. `arrived_out_of_reach` was thrown for
+  // all three, and its message asserted a distance that only means anything in
+  // the third case -- so the fleet reported "still 3.1 blocks away" for blocks
+  // that had simply been taken by another bot. reachRefusal splits them, and
+  // the split is a pure function so it is tested by behaviour rather than by
+  // matching this text.
   const here = bot.blockAt(p)
   if (bot.canDigBlock && !bot.canDigBlock(here)) {
-    const d = bot.entity?.position ? bot.entity.position.distanceTo(p) : NaN
-    const cause = arrivalError
-      ? `; goto failed first: ${String(arrivalError.message ?? arrivalError).slice(0, 120)}`
-      : ''
-    throw Object.assign(
-      new Error(`arrived_out_of_reach: still ${Number.isFinite(d) ? d.toFixed(1) : '?'} ` +
-                `blocks from ${p.x},${p.y},${p.z}${cause}`),
-      { failClass: 'arrived_out_of_reach' })
+    const { failClass, detail } = reachRefusal({
+      blockName: here?.name ?? null, wanted, target: p, pathSaid,
+      dist: eyeToBlock(bot.entity?.position, p),
+    })
+    throw Object.assign(new Error(detail), { failClass })
   }
   const wasNamed = here?.name
 
