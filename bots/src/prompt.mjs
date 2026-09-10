@@ -462,11 +462,42 @@ const CRAFT_TARGETS = [
   'furnace', 'crafting_table', 'chest', 'ladder', 'torch', 'stick', 'oak_planks',
 ]
 
+/**
+ * Can this bot reach a crafting table, and how?
+ *
+ * A CARRIED table was the only thing that counted, and that hid real
+ * opportunities. `craft` resolves its own prerequisites by crafting a table and
+ * PLACING it, so the common state right after a successful craft is: table on
+ * the ground, none in the pack -- and the affordance line then told the bot it
+ * could not make any 3x3 recipe while it stood next to one.
+ *
+ * 32 blocks because that is the radius `craft` itself searches before walking
+ * (skills.mjs findChest/table scan), so this promises exactly what the skill
+ * will deliver rather than a different number.
+ *
+ * Pure-but-for-the-world-read and exported, because "which recipes are
+ * available" is a decision the model acts on, and a source grep cannot tell a
+ * correct affordance from a comment about one.
+ */
+export function tableAccess (bot) {
+  const items = bot.inventory?.items?.() ?? []
+  if (items.some(i => i.name === 'crafting_table')) return { has: true, carried: true, near: null }
+  let near = null
+  try {
+    near = bot.findBlock?.({
+      matching: b => bot.registry?.blocks?.[b.type]?.name === 'crafting_table',
+      maxDistance: 32,
+    }) ?? null
+  } catch { near = null }
+  return { has: !!near, carried: false, near }
+}
+
 function craftableNow (bot) {
   try {
     const items = bot.inventory?.items() ?? []
-    // A carried crafting table can be placed, so 3x3 recipes are reachable.
-    const hasTable = items.some(i => i.name === 'crafting_table')
+    // A carried table can be placed; a PLACED one within reach counts too.
+    const access = tableAccess(bot)
+    const hasTable = access.has
     const made = []
     for (const name of CRAFT_TARGETS) {
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
@@ -477,8 +508,16 @@ function craftableNow (bot) {
       if (made.length >= 6) break
     }
     if (!made.length) return ''
-    return `CAN CRAFT NOW: ${made.join(', ')}` +
-           (hasTable ? ' (you carry a crafting_table — place it first for the 3x3 recipes)' : '')
+    // SAY WHICH, because the two need different next actions: one is "put it
+    // down", the other is "walk to it", and telling a bot to place a table it
+    // does not carry is a remedy it cannot perform.
+    const how = access.carried
+      ? ' (you carry a crafting_table — place it first for the 3x3 recipes)'
+      : access.near
+        ? ` (a crafting_table is already placed at ${access.near.position.x},` +
+          `${access.near.position.y},${access.near.position.z} — craft will walk to it)`
+        : ''
+    return `CAN CRAFT NOW: ${made.join(', ')}${how}`
   } catch { return '' }
 }
 
