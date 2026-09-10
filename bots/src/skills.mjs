@@ -2432,13 +2432,53 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   // worked, and look at the block first: mineflayer's block interaction is much
   // more reliable when the bot is facing what it is using.
   if (table) {
-    const reach = bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5))
+    let reach = bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5))
+    // THE REMEDY WAS IN ITS POCKET, craft edition.
+    //
+    // findBlock takes the nearest table within 32 blocks, the walk above may
+    // not close that distance, and this used to fail with "move to x,z first"
+    // -- advice about a place the bot has just failed to reach -- while the
+    // resolver's own place() branch only ever ran when NO table was found.
+    // Measured 2026-09-10, 3h, full walk: 77 craft runs failed here across 23
+    // bots, 58 of them CARRYING a crafting_table at the time; 66 of the 77
+    // were furnace, stone_pickaxe and iron_pickaxe -- the tier-gating crafts.
+    // smelt learned the same lesson on e2b18f0. Same rule: place the one you
+    // carry, once per call, and only when the known one is out of reach.
+    const carried = bot.inventory.items().some(i => i.name === 'crafting_table')
+    // Why putting it down failed, if it did. Both reviews of this change made
+    // the same point the stationOnly branch above already makes: a refusal
+    // that drops place()'s reason sends the model to redo the thing that just
+    // failed. So the reason travels.
+    let putSaid = ''
+    if (reach > STATION_REACH && carried) {
+      check(signal)
+      const put = await place(ctx, { item: 'crafting_table' }, signal)
+      // THE TABLE IT JUST PUT DOWN, by the coordinate place() returns -- not a
+      // second nearest-search, which could name a different table. The
+      // nearest-search is only the fallback for an older place() shape.
+      const mine = (put.status === 'success' && put.at && bot.blockAt(put.at)?.name === 'crafting_table')
+        ? bot.blockAt(put.at)
+        : put.status === 'success'
+          ? bot.findBlock({ matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table',
+                            maxDistance: STATION_REACH + 1 })
+          : null
+      if (mine) {
+        table = mine
+        recipe = bot.recipesFor(def.id, null, count, table)[0] ?? recipe
+        reach = bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5))
+      } else {
+        putSaid = put.status === 'success'
+          ? 'placed one but could not find it afterwards'
+          : `putting down the one you carry failed: ${put.detail || put.failClass || 'no reason recorded'}`
+      }
+    }
     if (reach > STATION_REACH) {
       return {
         status: 'failed',
         failClass: 'no_path',
         detail: `crafting_table is ${Math.round(reach)} blocks away and could not be reached — ` +
-                `${item} needs one within 4 blocks; move to ${table.position.x},${table.position.z} first`,
+                `${item} needs one within 4 blocks; move to ${table.position.x},${table.position.z} first` +
+                (putSaid ? ` (${putSaid})` : ''),
       }
     }
     try { await bot.lookAt(table.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
