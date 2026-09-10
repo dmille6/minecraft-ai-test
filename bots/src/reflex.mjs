@@ -3235,6 +3235,15 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     floorBelowSolid: solid(at(0, -2, 0)),
     lateralTread: [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([x, z]) => solid(at(x, 0, z))),
     columnOpen: !solid(at(0, 2, 0)),
+    // CAN THE BOT GO SIDEWAYS AT HEAD HEIGHT? The discriminator for float_up.
+    //
+    // Head height, not foot height, and that is the whole point: a bot afloat
+    // has water at its feet in every direction (passable), so a foot-level test
+    // says "yes, swim" about a bot whose head is walled in. At 1809,61,666 the
+    // feet were surrounded by open water and all four head-level cardinals were
+    // stone.
+    lateralHeadOpen: [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .some(([dx, dz]) => !solid(at(dx, 1, dz))),
     // ONE FLAG, COMPUTED FROM THREE TESTED FUNCTIONS. See the note on
     // `ladderReady` in escape.mjs for why the lattice takes a single derived
     // boolean rather than the three inputs: this file has already produced 344
@@ -3331,6 +3340,35 @@ const ESCAPE_ROUTINES = {
     return { ok: fell >= 1, fell,
              why: `rode down ${fell.toFixed(1)} (placed ${r?.placed ?? 0}, ` +
                   `${r?.stopped ?? 'completed'})` }
+  },
+  float_up: async (bot) => {
+    // PHYSICS, NOT PLANNING. mineflayer's own tick holds `jump` whenever
+    // isInWater, so a bot in a one-block air pocket can rise out under its own
+    // buoyancy -- A* just cannot express the move (getMoveUp returns early on a
+    // liquid current node, movements.js:525).
+    //
+    // Bounded and self-terminating: it stops the moment the feet leave the
+    // water, which is the postcondition that matters, and gives up after a
+    // fixed budget rather than holding a control state forever. Controls are
+    // released explicitly on every exit -- "control states have no owner".
+    const y0 = bot.entity?.position?.y ?? 0
+    const wet = () => {
+      const f = bot.blockAt?.(bot.entity.position)
+      return f?.name === 'water' || bot.entity?.isInWater === true
+    }
+    if (!wet()) return { ok: false, why: 'not in water' }
+    try {
+      bot.setControlState?.('jump', true)
+      for (let i = 0; i < 40; i++) {          // ~4s at 100ms
+        await new Promise(r => setTimeout(r, 100))
+        if (!wet()) break
+      }
+    } finally {
+      bot.setControlState?.('jump', false)
+    }
+    const rose = (bot.entity?.position?.y ?? y0) - y0
+    return { ok: !wet() || rose >= 1,
+             why: `floated ${rose.toFixed(1)} block(s); ${wet() ? 'still wet' : 'feet are clear of the water'}` }
   },
   stair_up: async (bot, { yieldTo = null } = {}) => {
     // `yieldTo` is PASSED IN, not closed over. It used to reference

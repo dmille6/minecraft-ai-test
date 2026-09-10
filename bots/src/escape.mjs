@@ -53,7 +53,7 @@
  */
 export const ESCAPES = Object.freeze([
   'none', 'dig_down', 'ride_floor_down', 'stair_up',
-  'climb_ladder', 'pillar_up', 'surface_swim', 'step_off',
+  'climb_ladder', 'pillar_up', 'surface_swim', 'float_up', 'step_off',
 ])
 
 /** Raised when a reachable state admits no action. The `ZeroLooksWrong` of this module. */
@@ -92,6 +92,14 @@ export function escapePlan ({
   floorBelowSolid = false,   // rideFloorDown's free branch: is there a floor to land on
   lateralTread = false,      // a solid neighbour at foot level, for the ramp
   columnOpen = false,        // open sky above, for pillaring
+  // A PASSABLE CELL AT HEAD HEIGHT, in any of the four cardinals.
+  //
+  // The discriminator between "afloat with somewhere to swim" and "afloat in a
+  // one-block air pocket". Reconstructed from the live world at 1809,61,666
+  // (hive-b-Comet, zero items in 40 minutes, 20/20 health for hours): feet in
+  // water at y=61, head in an air pocket at y=62, and every cardinal at head
+  // height SOLID. Open water above at y=63.
+  lateralHeadOpen = true,
   // A SINGLE DERIVED FLAG, ON PURPOSE.
   //
   // It means all of: there is a wall a ladder can actually attach to, the
@@ -152,6 +160,30 @@ export function escapePlan ({
   // `columnOpen` is the discriminator and it is already observed. Open water
   // keeps this rung exactly as it was; a lid sends the bot to the digging rungs
   // below, which is what it needed all along.
+  // RISE BEFORE YOU SWIM, WHEN SWIMMING IS NOT AVAILABLE.
+  //
+  // `surface_swim` used to win every afloat state with an open column, and for
+  // a bot in a one-block air pocket it is precisely wrong: there is nowhere to
+  // swim TO, so it reports "swam 0.0 blocks on a fixed heading" and the bot
+  // stays for hours. Confirmed against the real Movements class over the
+  // reconstructed world: ZERO legal moves with canDig=false, with canDig=true,
+  // and with 64 scaffold blocks in hand.
+  //
+  // Three of pathfinder's own rules meet there. getMoveUp returns early when
+  // the current node is liquid (movements.js:525) and getMoveDown does the same
+  // (:516), so A* cannot plan a vertical move out of water at all; and with all
+  // four cardinals blocked at head height every diagonal would corner-cut and is
+  // refused. The bot is not trapped in the WORLD -- mineflayer's own tick holds
+  // `jump` whenever isInWater, so it could float out in seconds. It is trapped
+  // in the PLANNER.
+  //
+  // So this rung is deliberately not a path: it is physics. Hold jump until the
+  // feet clear the water, then let ordinary travel resume from a cell A* can
+  // actually reason about.
+  //
+  // Ordered ABOVE surface_swim because surface_swim would otherwise claim the
+  // state and do nothing, which is how this went unnoticed for days.
+  if (afloat && columnOpen && !lateralHeadOpen && !skip.has('float_up')) return 'float_up'
   if (afloat && columnOpen && !skip.has('surface_swim')) return 'surface_swim'
 
   // DOWN BEFORE UP. Climbing produced this population.
