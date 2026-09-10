@@ -893,24 +893,41 @@ const mustCollectManually = name =>
  */
 async function collectManually(bot, block, signal) {
   const p = block.position
+  let arrivalError = null
   try {
-    await withTimeout(
-      bot.pathfinder.goto(new goals.GoalNear(p.x, p.y, p.z, 2)), 15000, bot)
+    // THE SAME GOAL THE REACH PROBE VALIDATED. It was GoalNear(p, 2), which
+    // guarantees only "within 2 of the block coordinate" -- not adjacency, not
+    // line of sight, not a visible face. The probe that RANKS candidates uses
+    // GoalCompositeAny of GoalLookAtBlock (reachprobe.mjs), so the ranking
+    // proved one thing and the walk then demanded another. A candidate could
+    // pass the probe and be unreachable by the walk, which is exactly the shape
+    // of arrived_out_of_reach: 58-134 events across 28-44 of 80 bots, with ZERO
+    // dig_unconfirmed -- the digs were always fine, the arrivals were not.
+    //
+    // Guarded on bot.world for the reason reachprobe.mjs:173 guards it:
+    // GoalLookAtBlock RAYCASTS through it, and without a world it cannot judge.
+    const stance = bot.world
+      ? new goals.GoalLookAtBlock(new Vec3(p.x, p.y, p.z), bot.world)
+      : new goals.GoalNear(p.x, p.y, p.z, 2)
+    await withTimeout(bot.pathfinder.goto(stance), 15000, bot)
   } catch (e) {
     if (e.aborted || signal?.aborted) throw e
-    // Close enough to reach is good enough; the dig below decides.
+    // Salvage only the case the old catch was right about: movement failed, but
+    // the bot is already close enough for the server to accept the dig.
+    arrivalError = e
   }
   check(signal)
 
-  // DID WE ACTUALLY ARRIVE? Nothing above establishes it.
+  // DID WE ACTUALLY ARRIVE? The stance goal is the right request, but goto()
+  // still does not make this postcondition trustworthy by itself.
   //
   // pathfinder's goto RESOLVES AS SUCCESS on an empty path -- lib/goto.js tests
   // `results.path.length === 0` and cleans up BEFORE it tests
   // `results.status === 'noPath'`, so the commonest unreachable case returns
-  // like a success rather than throwing. And the catch above deliberately
-  // swallows whatever is left, on the reasoning that "the dig below decides".
-  // The dig does not decide: mineflayer's dig never checks range either
-  // (canDigBlock is not called anywhere in digging.js).
+  // like a success rather than throwing. The catch above preserves a failure
+  // only so an already-in-range bot can salvage the dig; it is not treated as
+  // arrival. And the dig does not decide: mineflayer's dig never checks range
+  // either (canDigBlock is not called anywhere in digging.js).
   //
   // So the bot could stand where it started, dig at a block forty blocks away,
   // and return cleanly having done nothing. That is the shape of the largest
@@ -922,9 +939,12 @@ async function collectManually(bot, block, signal) {
   const here = bot.blockAt(p)
   if (bot.canDigBlock && !bot.canDigBlock(here)) {
     const d = bot.entity?.position ? bot.entity.position.distanceTo(p) : NaN
+    const cause = arrivalError
+      ? `; goto failed first: ${String(arrivalError.message ?? arrivalError).slice(0, 120)}`
+      : ''
     throw Object.assign(
       new Error(`arrived_out_of_reach: still ${Number.isFinite(d) ? d.toFixed(1) : '?'} ` +
-                `blocks from ${p.x},${p.y},${p.z} — goto returned without moving`),
+                `blocks from ${p.x},${p.y},${p.z}${cause}`),
       { failClass: 'arrived_out_of_reach' })
   }
   const wasNamed = here?.name

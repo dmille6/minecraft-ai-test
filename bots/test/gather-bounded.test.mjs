@@ -70,6 +70,19 @@ t('collectManually bounds its pathing', () => {
     'the walk to the block must be bounded too')
 })
 
+t('collectManually walks to the same look-at stance the probe verifies', () => {
+  const b = body('collectManually')
+  // Matches the GOAL, not the whole expression. The first version pinned the
+  // exact call text and broke the moment a `bot.world` guard was added around
+  // it -- the same over-specific-assertion mistake made twice already tonight.
+  assert.match(b, /new goals\.GoalLookAtBlock\(/,
+    'GoalNear only means near the block coordinate; gather needs a visible dig stance')
+  // GoalNear survives ONLY as the no-world fallback, never as the primary.
+  const primary = b.slice(0, b.indexOf('await withTimeout(bot.pathfinder.goto(stance)'))
+  assert.match(primary, /bot\.world[\s\S]{0,80}?GoalLookAtBlock/,
+    'the look-at stance is what is used when a world exists')
+})
+
 t('pickupNearbyItems is bounded in both attempts and time', () => {
   const b = body('pickupNearbyItems')
   assert.match(b, /for \(let i = 0; i < \d+; i\+\+\)/, 'a fixed attempt count')

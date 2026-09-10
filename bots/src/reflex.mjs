@@ -1394,7 +1394,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           })
           const routine = ESCAPE_ROUTINES[plan]
           const r = routine
-            ? await routine(bot).catch(e => ({ ok: false, why: String(e?.message ?? e) }))
+            ? await routine(bot, { yieldTo: drowningOwnsBody })
+                .catch(e => ({ ok: false, why: String(e?.message ?? e) }))
             : { ok: false, why: `no routine for ${plan}` }
           logEvent({ kind: terminal ? 'last_resort_result' : 'stranded_escape_result',
                      status: r?.ok ? 'success' : 'failed',
@@ -2382,7 +2383,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (plan === 'step_off') lastStepOffAt = Date.now()
             const routine = ESCAPE_ROUTINES[plan]
             acted = routine
-              ? await routine(bot).catch(e => ({ ok: false, why: `threw: ${e.message}` }))
+              ? await routine(bot, { yieldTo: drowningOwnsBody })
+                  .catch(e => ({ ok: false, why: `threw: ${e.message}` }))
               : { ok: false, why: `NO ROUTINE for ${plan} -- the table is not exhaustive` }
           }
           // EVERY FIELD HERE EARNED ITS PLACE BY BEING MISSING.
@@ -3330,8 +3332,21 @@ const ESCAPE_ROUTINES = {
              why: `rode down ${fell.toFixed(1)} (placed ${r?.placed ?? 0}, ` +
                   `${r?.stopped ?? 'completed'})` }
   },
-  stair_up: async bot => {
-    const r = await escapeStairUp(bot, { yieldTo: drowningOwnsBody })
+  stair_up: async (bot, { yieldTo = null } = {}) => {
+    // `yieldTo` is PASSED IN, not closed over. It used to reference
+    // `drowningOwnsBody`, which is declared inside startReflexes (reflex.mjs
+    // ~1159) and closes over `rescuing` -- while ESCAPE_ROUTINES is module
+    // level. So this line referenced an identifier that is not in scope here
+    // and would have thrown ReferenceError the first time it ran.
+    //
+    // It never ran: `stair_up` was the rung the escape lattice could not reach,
+    // which is why three hours of fleet logs show zero executions and zero
+    // ReferenceErrors. That is not a defence -- it means the ONE rung that can
+    // free a materially-stuck bot was a landmine, and the Comet fix that made
+    // the lattice able to offer it would have armed it.
+    //
+    // Found by ChatGPT running `npm run lint`, which I had not run all night.
+    const r = await escapeStairUp(bot, { yieldTo })
     return { ok: (r?.climbed ?? 0) > 0,
              why: `ramp cut ${r?.steps ?? 0}, climbed ${r?.climbed ?? 0}` }
   },
