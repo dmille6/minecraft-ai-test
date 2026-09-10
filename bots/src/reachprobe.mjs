@@ -50,6 +50,7 @@
  * tested without a bot, a world, or a pathfinder.
  */
 import { Vec3 } from 'vec3'
+import { reachGoal } from './digreach.mjs'
 
 export function candidateSlate (positions, from, { limit = 12, maxDist = 64 } = {}) {
   if (!Array.isArray(positions) || !from) return []
@@ -122,10 +123,14 @@ export function probeVerdict ({ status, checked = 0, nearest = null } = {}) {
 }
 
 /** Bounds. Each is a refusal to repeat a specific incident, not a tuning knob. */
-export const PROBE_SLATE = 4         // heuristic AND isEnd are O(goals) per node, and isEnd now
-                                     // RAYCASTS. 12 gave 22.6% `partial` on healthy bots, burning
-                                     // visited p50=1417 for a target 6.1 blocks away, while
-                                     // successes take visited p50=1. The slate was oversized.
+export const PROBE_SLATE = 4         // heuristic AND isEnd are O(goals) per node. 12 gave 22.6%
+                                     // `partial` on healthy bots, burning visited p50=1417 for a
+                                     // target 6.1 blocks away, while successes take visited p50=1.
+                                     // The slate was oversized. LEFT AT 4 when the goal stopped
+                                     // raycasting: the raycast was the reason it was cut this far,
+                                     // so 4 is now conservative rather than necessary -- and
+                                     // widening it is a second variable, to be measured on the
+                                     // fleet against the goal change rather than with it.
 export const PROBE_TIMEOUT_MS = 600  // vs thinkTimeout 5000: this is a probe, not a plan.
                                      // CUT FROM 1500 WHEN isEnd STARTED RAYCASTING. There is no
                                      // node cap in this A*, so the wall clock IS the node cap --
@@ -168,9 +173,10 @@ export function probeReachable (bot, positions, { goals, slate: slateSize = PROB
   const at = bot?.entity?.position
   // The guard must name the goal actually used. It said GoalGetToBlock after the
   // switch to GoalLookAtBlock, which would have made the probe silently inert on
-  // the fleet -- a dead feature that still passes its own tests.
-  if (!at || !goals?.GoalCompositeAny || !goals?.GoalLookAtBlock) return null
-  if (!bot?.world) return null   // GoalLookAtBlock raycasts through it
+  // the fleet -- a dead feature that still passes its own tests. `reachGoal`
+  // extends GoalGetToBlock, so that is what has to exist now, and the map below
+  // bails if the class could not be built rather than searching for nothing.
+  if (!at || !goals?.GoalCompositeAny || !goals?.GoalGetToBlock) return null
   if (typeof bot?.pathfinder?.getPathFromTo !== 'function') return null
   const slate = candidateSlate(positions, at, { limit: slateSize })
   if (!slate.length) return null
@@ -181,32 +187,31 @@ export function probeReachable (bot, positions, { goals, slate: slateSize = PROB
   // out of scope there -- a ReferenceError on every successful probe.
   let perGoal = []
   try {
-    // ASK THE QUESTION COLLECTBLOCK ASKS, NOT A DIFFERENT ONE.
+    // ASK THE QUESTION THE WALK ASKS, NOT A DIFFERENT ONE.
     //
-    // This built GoalGetToBlock, whose isEnd is orthogonal adjacency. But
-    // mineflayer-collectblock does not path with that goal -- CollectBlock.js
-    // line 30 is:
+    // This built GoalGetToBlock (orthogonal adjacency), then GoalLookAtBlock,
+    // to match mineflayer-collectblock's own CollectBlock.js line 30. But
+    // collectblock is off by default (COLLECTBLOCK_ENABLED) and gather walks
+    // with `collectManually`, which asks for `reachGoal` -- the server's own
+    // 5.1 reach test. So the probe was verifying a claim nothing downstream
+    // makes any more, and verifying it with a STRICTER predicate: on top of
+    // reach, GoalLookAtBlock demands that a raycast from the eye HIT a visible
+    // face, which refuses a bot standing directly under a block three above it
+    // (4.6 corner-to-corner against canDigBlock's 1.85).
     //
-    //     const goal = new goals.GoalLookAtBlock(closest.position, bot.world)
-    //     yield bot.pathfinder.goto(goal)
-    //     // TODO: options.ignoreNoPath
+    // MEASURED, on the real Movements and the real AStar over 48 scenes read
+    // off the live fleet by RCON -- real bot positions, real refused blocks,
+    // the surrounding world scanned cell by cell -- same walking movements,
+    // same 600ms, same composite shape:
     //
-    // GoalLookAtBlock.isEnd demands TWO things adjacency does not imply: the
-    // node is within `reach` (4.5) of the block's centre at eye height, AND a
-    // raycast from the bot's eye to a visible face actually HITS this block.
-    // A block can be orthogonally adjacent and satisfy neither -- reachable
-    // from the wrong side, or with its only exposed face pointing away.
+    //   GoalLookAtBlock (was)   hit  2/48   visited p50=29  p90=111
+    //   reachGoal       (is)    hit 10/48   visited p50=9   p90=99
     //
-    // Measured: among the 74 healthy bots, 35.0% of "found but unreachable"
-    // failures were cases where our probe HAD reached a candidate and the
-    // collect failed anyway. That gap is this goal mismatch: we were verifying
-    // a claim collectblock never makes.
-    //
-    // (The `ignoreNoPath: true` we pass is also inert at that call site -- the
-    // TODO above it is the library's own admission -- so a noPath there throws
-    // rather than being skipped.)
-    perGoal = slate.map(c =>
-      new goals.GoalLookAtBlock(new Vec3(c.x, c.y, c.z), bot.world))
+    // Five times the hits at a third of the nodes, and the raycast per node is
+    // gone with it. The probe still only ever REORDERS, so a wrong answer here
+    // still costs nothing -- see the contract below.
+    perGoal = slate.map(c => reachGoal(goals, { x: c.x, y: c.y, z: c.z }))
+    if (perGoal.some(g => !g)) return null
     const goal = new goals.GoalCompositeAny(perGoal)
     // The TRAVEL movements, deliberately. See the note above.
     const moves = bot.pathfinder.movements

@@ -34,7 +34,8 @@ import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
-import { reachGoal, reachRefusal, eyeToBlock } from './digreach.mjs'
+import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
+import { planDigApproach } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -906,7 +907,7 @@ const mustCollectManually = name =>
  * or the item lies on the ground and the inventory delta stays zero -- which is
  * indistinguishable from not having mined it.
  */
-async function collectManually(bot, block, signal) {
+export async function collectManually(bot, block, signal) {
   const p = block.position
   const wanted = block.name
   // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
@@ -964,6 +965,58 @@ async function collectManually(bot, block, signal) {
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
       pathSaid = e?.name && e.name !== 'Error' ? e.name : String(e?.message ?? e).slice(0, 60)
+    }
+    check(signal)
+    // THE WALL IS THE REST OF IT.
+    //
+    // The goal above is now the server's own reach test, and it still arrives
+    // in only 10 of 48 real refusals -- because a legal stance existing is not
+    // the same as being able to WALK to one, and the travel profile may not
+    // break a block to get anywhere. 35 of those 48 had a stance that was
+    // merely behind a wall. So when the cheap walk has not put us in reach, ask
+    // the same question again with digging allowed, bounded in cost AND in
+    // blocks broken, and walk it only if the plan is small. See
+    // src/digapproach.mjs -- both bounds and the measurements live there.
+    //
+    // Deliberately SECOND. The travel walk is p50 0 ms and handles the case
+    // where nothing is in the way; this runs only on the ~18.7% of gather runs
+    // that were reporting arrived_out_of_reach.
+    if (!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))) {
+      const plan = planDigApproach(bot, p, {
+        goals,
+        reachGoalFor: reachGoal,
+        endsInReach: node => nodeToBlock(node, p) <= STANCE_REACH,
+      })
+      if (plan?.take && bot.withGatherMovements) {
+        // EMITTED AFTER THE WALK, WITH THE OUTCOME THE WALK ACTUALLY HAD.
+        //
+        // The first draft logged status:'success' before attempting anything,
+        // which would have made every dig-approach read as a win in exactly the
+        // window built to judge whether digging helps. `inReach` is the real
+        // endpoint -- the server's own predicate, asked after the fact -- and it
+        // is what a difference-in-differences read should use, not the count.
+        let said = null
+        try {
+          await bot.withGatherMovements(() =>
+            withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), 15000, bot))
+          pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
+        } catch (e) {
+          if (e.aborted || signal?.aborted) throw e
+          said = e?.name && e.name !== 'Error' ? e.name : String(e?.message ?? e).slice(0, 30)
+          pathSaid = `${pathSaid}, dig-approach ${said}`
+        }
+        const inReach = !!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))
+        logEvent({ kind: 'dig_approach', status: inReach ? 'success' : 'fail',
+                   detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), ` +
+                           `in_reach=${inReach}${said ? ` (${said})` : ''} ` +
+                           `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms}]` })
+      } else if (plan?.take) {
+        // A plan we are allowed to walk and no way to install the profile is a
+        // WIRING failure, not a terrain one, and it must not read as terrain.
+        pathSaid = `${pathSaid}, no dig-approach (bot.withGatherMovements is missing)`
+      } else if (plan) {
+        pathSaid = `${pathSaid}, no dig-approach (${plan.why})`
+      }
     }
   }
   check(signal)

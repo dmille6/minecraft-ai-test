@@ -145,21 +145,34 @@ export function reachGoal (goals, p, reach = STANCE_REACH) {
  */
 export function reachRefusal ({ blockName, wanted, target, dist, pathSaid, reach = SERVER_REACH } = {}) {
   const at = target ? `${Math.floor(target.x)},${Math.floor(target.y)},${Math.floor(target.z)}` : '?'
-  const said = pathSaid ? ` [pathfinder said: ${pathSaid}]` : ''
+  // THE VERDICT GOES FIRST, BECAUSE THE TAIL OF THIS STRING IS THROWN AWAY.
+  //
+  // `gather` records collect failures with `.slice(0, 120)`, and the prose
+  // ahead of the verdict is ~118 characters, so the one fact this function
+  // exists to publish landed one character past the cut. Measured over 90
+  // minutes: 861 arrived_out_of_reach segments across 70 of 80 bots, and NOT
+  // ONE carried a readable `[pathfinder said: ...]` -- every one ended at
+  // `[pathfinder said:` or `[pathfinder said: ]`. The positive control is the
+  // same 861 strings: the distance and the coordinates, which sit before the
+  // cut, were readable in all of them.
+  //
+  // Raising the slice would fix it until the next caller picks a smaller one.
+  // Putting the short, load-bearing part first fixes it for any cut.
+  const said = pathSaid ? `[pathfinder said: ${pathSaid}] ` : ''
   const d = Number.isFinite(dist) ? dist.toFixed(1) : '?'
   // ORDER MATTERS: a block that is GONE is in reach and undiggable, and calling
   // that "out of reach" sends the bot walking for a block that is not there.
   if (blockName !== wanted && wanted) {
     return { failClass: 'target_changed',
-             detail: `target_changed: ${at} is ${blockName ?? 'nothing (unloaded)'} now, not ${wanted} — ` +
-                     `it went away while we walked${said}` }
+             detail: `target_changed: ${said}${at} is ${blockName ?? 'nothing (unloaded)'} now, ` +
+                     `not ${wanted} — it went away while we walked` }
   }
   if (Number.isFinite(dist) && dist <= reach) {
     return { failClass: 'target_undiggable',
-             detail: `target_undiggable: ${at} is ${blockName ?? 'unloaded'} and within reach ` +
-                     `(${d} <= ${reach}), but the server will not let it be broken by hand${said}` }
+             detail: `target_undiggable: ${said}${at} is ${blockName ?? 'unloaded'} and within reach ` +
+                     `(${d} <= ${reach}), but the server will not let it be broken by hand` }
   }
   return { failClass: 'arrived_out_of_reach',
-           detail: `arrived_out_of_reach: eye is ${d} blocks from the centre of ${at}, ` +
-                   `over the ${reach} the server allows${said}` }
+           detail: `arrived_out_of_reach: ${said}eye is ${d} blocks from the centre of ${at}, ` +
+                   `over the ${reach} the server allows` }
 }
