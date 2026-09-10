@@ -271,6 +271,37 @@ export class AdmissionControl {
     // storage in sight, already near home, or working a deposit goal it accepted.
     // The milestone creates the demand; this stops the demand being answered in
     // the most expensive possible place.
+    // A BUCKET ACTION WITHOUT A BUCKET IS NOT A PLAN.
+    //
+    // `bucket` ran 177 times fleet-wide and failed 177 times; 68 of those were
+    // `no empty bucket`, i.e. the bot did not have one. The skill refuses
+    // correctly at bucket.mjs:73 -- but by then the proposal has been admitted,
+    // dispatched, and has burned a ~30s decision cycle. On a fleet where the
+    // cooldown is two thirds of every bot-hour, a decision spent learning
+    // something the inventory already knew is the most expensive kind of no-op.
+    //
+    // placebo-b-Comet, one of six bots that produced NOTHING in a 40-minute
+    // window, spent 12 of its 50 skill runs here, 11 of them on this exact
+    // refusal, while stuck at y=-19.
+    //
+    // Same shape as the deposit gate below: ask whether the action is possible
+    // from where the bot stands, not whether the model was allowed to want it.
+    if (skill === 'bucket') {
+      const items = bot.inventory?.items?.() ?? []
+      const action = String(args?.action ?? 'fill').toLowerCase()
+      const has = n => items.some(i => i.name === n)
+      if (action === 'pour' && !has('water_bucket') && !has('lava_bucket')) {
+        return { ok: false, reason: 'no_filled_bucket',
+                 detail: 'nothing to pour — you are not carrying a full bucket' }
+      }
+      if (action !== 'pour' && !has('bucket')) {
+        return { ok: false, reason: 'no_empty_bucket',
+                 detail: has('water_bucket')
+                   ? 'your bucket is already full — pour it out before filling again'
+                   : 'you have no bucket to fill; craft one from 3 iron ingots first' }
+      }
+    }
+
     if (skill === 'deposit') {
       const items = bot.inventory?.items?.() ?? []
       const bank = bankableInventory(items, { wants: wanted ? [wanted].flat() : [] })
