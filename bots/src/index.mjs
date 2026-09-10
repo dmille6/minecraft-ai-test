@@ -688,6 +688,13 @@ function connect() {
     // unreachable goal, while a check for actions avoided by more than one bot
     // found zero overlap at all. Terrain is common knowledge; policy is not.
     worldFacts = openWorldFacts()
+    // ON THE BUS, so skills can read it. The reflex layer has been writing
+    // resource sightings here every 20s since it was built -- 200 per pool,
+    // with real coordinates for iron_ore, coal_ore, stone and oak_log -- and
+    // `resourcesNear` had ZERO callers. A store nothing reads is the
+    // `bot.waterMovements` defect again, and this one was full of exactly the
+    // information `explore` needed while explore picked random headings.
+    bot.worldFacts = worldFacts
     stopReflexes = startReflexes(bot, runner, lessons, worldFacts)
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed

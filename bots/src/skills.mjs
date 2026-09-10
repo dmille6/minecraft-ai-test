@@ -2673,9 +2673,69 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
 // Deliberately NOT random walking. It picks a heading away from spawn and from
 // known hazards, moves in legs the pathfinder can actually finish, and reports
 // honestly how far it got. A leg that fails is information, not a retry loop.
-async function explore(ctx, { blocks = 60, heading = null }, signal) {
+/**
+ * The nearest KNOWN sighting of something worth walking to, or null.
+ *
+ * Pure but for the store read, and exported so the choice can be tested without
+ * a server -- a heading is exactly the kind of decision that a source-grep
+ * cannot check and that silently degrades to random.
+ *
+ * `toward` wins when the caller names it. Otherwise we take the first kind that
+ * has a sighting, in the order below: ore is worth a walk, wood is worth a walk,
+ * and stone is almost always underfoot already so it is last.
+ */
+export function knownTarget (bot, toward = null, radius = 400) {
+  const wf = bot?.worldFacts
+  const at = bot?.entity?.position
+  if (!wf?.resourcesNear || !at) return null
+  const kinds = toward ? [toward]
+    : ['iron_ore', 'coal_ore', 'oak_log', 'birch_log', 'diamond_ore', 'stone']
+  for (const kind of kinds) {
+    let seen
+    try { seen = wf.resourcesNear(kind, at, radius) } catch { continue }
+    for (const r of seen ?? []) {
+      // Ignore anything we are already standing in. A sighting 6 blocks away is
+      // not a reason to "explore" -- gather can already see it, and walking to
+      // it would burn the decision that should have gathered it.
+      const d = Math.hypot(r.x - at.x, r.z - at.z)
+      if (d >= 24) return { kind, x: r.x, y: r.y, z: r.z, dist: d }
+    }
+  }
+  return null
+}
+
+async function explore(ctx, { blocks = 60, heading = null, toward = null }, signal) {
   const { bot } = ctx
   const start = bot.entity.position.clone()
+
+  // WALK TOWARD SOMETHING WE HAVE ACTUALLY SEEN, IF WE HAVE SEEN ANYTHING.
+  //
+  // explore was 36% of every decision the fleet made and produced 11 items from
+  // 574 attempts -- 0.0 per success -- while succeeding 72.6% of the time,
+  // because its contract is `position` and walking 20 blocks satisfies it. A
+  // successful explore did not even improve the NEXT gather (22.5% vs 24.3%).
+  // It was the most-chosen action in the fleet and the only one that produced
+  // nothing.
+  //
+  // Meanwhile the reflex layer has been recording resource sightings every 20
+  // seconds since it was written -- 200 per pool, real coordinates for
+  // iron_ore, coal_ore, stone and oak_log -- and `resourcesNear` had ZERO
+  // callers. The information explore needed was already on disk, and explore
+  // was picking a random heading.
+  //
+  // Falls back to the old bearing when nothing is known, which is the honest
+  // behaviour for a bot that has genuinely seen nothing: this makes explore
+  // better-informed, not conditional on being informed.
+  const known = knownTarget(bot, toward)
+  if (known) {
+    logEvent({
+      kind: 'explore_toward_known',
+      detail: `heading for ${known.kind} at ${known.x},${known.y},${known.z} ` +
+              `(${known.dist.toFixed(0)}b) instead of a random bearing`,
+      snapshot: snapshot(bot),
+    })
+    heading = (Math.atan2(known.z - start.z, known.x - start.x) * 180) / Math.PI
+  }
 
   // Head away from SPAWN, not away from home.
   //
