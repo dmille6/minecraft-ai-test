@@ -510,6 +510,54 @@ function woodUnits (b) {
   return countAny(b, LOGS) + Math.floor(countAny(b, PLANKS) / 4)
 }
 
+// AN ESCALATOR WITH NO CEILING SETS A GOAL NOBODY CAN REACH. THIS IS THE THIRD
+// TIME, AND THE COMMENT ON `survey_wider` PREDICTED IT.
+//
+// `survey_wider` is capped at SURVEY_MAX_DIST and says why in its own note:
+// "an escalator with no ceiling eventually sets a goal nobody can reach, which
+// this project has shipped twice now". The two stockpile rungs escalate on the
+// SAME counter and were never given the same ceiling.
+//
+// Measured 2026-09-10 over 6h, 36,165 decisions on 80 bots:
+//
+//   * the cycle counter has reached a median of 540 and a max of 1,055, so the
+//     goals now read "Stockpile 3,704 logs" and "Stockpile 6,208 cobblestone"
+//   * 7,062 decisions (19.5% of EVERY decision the fleet made) and 55 of 80
+//     bots were on a stockpile goal whose target EXCEEDS 36x64=2,304 -- the
+//     whole inventory, tools and food included. Not hard. Impossible.
+//   * 9,773 decisions (27.0%), 60 of 80 bots, on a target of 1,000 or more,
+//     against a live fleet record of 310 stone-family blocks and 677
+//     wood-units held by any single bot.
+//   * median progress on those goals: 1.3% of target.
+//
+// The cost is not just wasted laps. `stockpile_wood` sits IMMEDIATELY BEFORE
+// TECH_LADDER in SUSTAINING and `noteAttempt` resets the give-up counter on any
+// success, so a bot that keeps successfully gathering wood never accumulates
+// the 25 failures that would let it move on -- it grinds an impossible goal in
+// front of the ladder while carrying the materials for the next rung. Measured
+// in the same window: 749 decisions across 24 bots where the bot could craft a
+// stone_pickaxe it did not own, and the active goal was `stockpile_wood` (241),
+// `gather_oak_log_12` (142) or `stockpile_stone` (136).
+//
+// 64 IS ONE STACK, AND IT IS A THRESHOLD THE FLEET HAS ALREADY CLEARED --
+// which is the rule every other threshold in this file is set by. Right now
+// 32 of 80 bots hold 64+ wood-units and 18 of 80 hold 64+ stone-family blocks.
+// It stays a stretch for the median bot (28 wood-units, 10 stone) and it stays
+// far above what the ladder actually consumes: 8 cobblestone for a furnace,
+// 3 for a pickaxe, 2 logs for a table.
+export const STOCKPILE_MAX = 64
+
+/**
+ * What a stockpile rung asks for on lap `n`. Pure, exported and tested for
+ * REACHABILITY, not just for absence of NaN.
+ *
+ * `n` is defended because this is exactly where the NaN bug lived: the cycle
+ * counter was read in three places and assigned in none, and every comparison
+ * against NaN is false, so the goal could neither be completed nor failed.
+ */
+export const stockpileTarget = (base, step, n) =>
+  Math.min(base + (Number.isFinite(n) ? n : 0) * step, STOCKPILE_MAX)
+
 export const SUSTAINING = [
   {
     // WOOD IS WOOD. This counted `oak_log` alone while the fleet held 2,966 oak
@@ -529,9 +577,9 @@ export const SUSTAINING = [
     // holding 300 planks and no logs has plenty of wood and was being told it
     // had none.
     id: 'stockpile_wood',
-    describe: n => `Stockpile ${8 + n * 4} logs (any kind).`,
-    done: (b, n) => woodUnits(b) >= 8 + n * 4,
-    progress: (b, n) => `${woodUnits(b)}/${8 + n * 4} logs (any kind, planks count as 1/4)`,
+    describe: n => `Stockpile ${stockpileTarget(8, 4, n)} logs (any kind).`,
+    done: (b, n) => woodUnits(b) >= stockpileTarget(8, 4, n),
+    progress: (b, n) => `${woodUnits(b)}/${stockpileTarget(8, 4, n)} logs (any kind, planks count as 1/4)`,
     hint: 'gather with block=oak_log, or any other _log you can see.',
   },
   // The ladder sits between wood and stone: a bot has just been asked for logs,
@@ -544,9 +592,9 @@ export const SUSTAINING = [
     // the ladder beside it uses -- also holds cobbled_deepslate, blackstone and
     // stone. A bot mining below y=0 gets deepslate and reads as having nothing.
     id: 'stockpile_stone',
-    describe: n => `Stockpile ${16 + n * 8} cobblestone (or deepslate/blackstone).`,
-    done: (b, n) => countAny(b, COBBLE) >= 16 + n * 8,
-    progress: (b, n) => `${countAny(b, COBBLE)}/${16 + n * 8} stone-type blocks`,
+    describe: n => `Stockpile ${stockpileTarget(16, 8, n)} cobblestone (or deepslate/blackstone).`,
+    done: (b, n) => countAny(b, COBBLE) >= stockpileTarget(16, 8, n),
+    progress: (b, n) => `${countAny(b, COBBLE)}/${stockpileTarget(16, 8, n)} stone-type blocks`,
     hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
   },
   {
