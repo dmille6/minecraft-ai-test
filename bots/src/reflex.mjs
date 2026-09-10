@@ -14,7 +14,9 @@ import { announceHazard } from './comms.mjs'
 import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
-import { harvestSafe } from './scaffold.mjs'
+import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
+         bodyPassable, isFallingBlock } from './scaffold.mjs'
+import { planDig, predictedDigMs } from './digbudget.mjs'
 import { Vec3 } from 'vec3'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -770,6 +772,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // knew where air was and could not swim there. Seize once, steer every tick,
   // release when it can breathe.
   let rescuing = false
+  // WHO OUTRANKS THE ESCAPE RAMP. Passed to `escapeStairUp`, which holds the
+  // body for up to a minute and clears the controls at every step boundary --
+  // in the same tick loop the drowning branch below steers from. Without this
+  // the ramp wipes a stroke a drowning bot is depending on. It yields rather
+  // than claiming because standing the water rescue down is the change that
+  // multiplied drownings 7.5x (canary 4a1dfcb, p = 0.0079), and because a ramp
+  // resumes from the step it stopped on while a drowning bot does not.
+  const drowningOwnsBody = () => (rescuing ? 'the drowning rescue' : null)
   let seizedAt = 0
   let headOutSince = 0
   // Per-rescue progress, reset at seizure. See RESCUE_CEILING_MS above.
@@ -887,6 +897,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // watchdog has no entombed handler at all.
   let escapeGiveUps = 0
   let climbRefusals = 0        // pillar declined to START -- see the refusal branch
+  let refusalPlaceStreak = 0   // ...how many of those in a row were from HERE
+  let lastRefusalPos = null    // ...and WHERE, so the streak means one hole
   let reflexErrors = 0
 
   const timer = setInterval(async () => {
@@ -1530,7 +1542,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
-        const upIsOpen = !above || above.name === 'air' || above.boundingBox === 'empty'
+        // ONE PREDICATE WITH `isEntombed`, OR THE TWO BRANCHES LEAVE A GAP.
+        // This was a bare bounding-box test and `isEntombed` was a name list;
+        // `maroonState` returns 'none' whenever `!upIsOpen`, so any cell the
+        // two disagreed about reached neither handler. `bodyPassable` is now
+        // both. It also closes the column on LAVA, which the bounding-box test
+        // called open because lava reports an empty box -- a bot under lava is
+        // not one pillar away from anywhere.
+        const upIsOpen = !above || bodyPassable(above)
         const haveBlocks = bot.inventory.items().some(it => PLACEABLE.test(it.name))
         // ONE DECISION, not two overlapping conditions. See maroonState().
         // CHEAP GUARDS FIRST. canStartAPath() runs a real search, and the
@@ -1576,19 +1595,68 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                                `haveBlocks is now true, so the next check climbs`,
                        snapshot: snapshot(bot) })
           } else {
-            // Genuinely nothing to take: bedrock, liquid, or everything around
-            // needs a tool the bot has not got. NOW the goal layer is the right
-            // owner, because the answer really is elsewhere.
-            // cognitive.mjs drains this bus on its next tick, the same way the
-            // entombed branch and the skill layer hand over a prerequisite.
-            bot.pendingPrereq = scaffoldPrereq(
-              `no path can start from y=${yNow}, nothing in the inventory to pillar ` +
-              `with, and ${got.tried} adjacent block(s) yielded nothing when dug${lavaNote}`)
-            logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
-                       detail: `no route from y=${yNow}, column above is open, no placeable ` +
-                               `blocks, and self-sourcing failed (${got.dug}/${got.tried} dug)` +
-                               `${lavaNote} — asked for scaffold`,
+            // NOTHING TO TAKE IS NOT NOTHING TO DO.
+            //
+            // This branch used to go straight to the goal layer, and that was
+            // the trap. `got.tried > 0` with `got.dug === 0` -- 71.4% of every
+            // self-sourcing failure the fleet has logged, 37,778 parsed -- means
+            // the walls ARE in the vocabulary and simply cannot be harvested by
+            // an empty hand. Stone drops nothing bare-handed. So the ask that
+            // followed ("gather 8 dirt or cobblestone") was addressed to a bot
+            // whose defining property is that it cannot travel, and 453 of 479
+            // such prerequisites expired at the TTL with `had 0/8`. Thirteen
+            // bots have been standing in this branch, several for over ten days.
+            //
+            // A RAMP NEEDS NO MATERIALS. Before handing the problem to a layer
+            // that cannot solve it, cut one. This is deliberately control flow
+            // and not a sentence added to the prompt: the correct remedy was
+            // already being PRINTED 262 times to a model that never acted on it,
+            // and the lesson written down from that is that advice printed is
+            // not advice taken.
+            // YIELDS TO THE WATER RESCUE, NEVER THE OTHER WAY ROUND. This loop
+            // holds the body for up to a minute and clears the controls at every
+            // step boundary, and the drowning branch runs in the same tick loop
+            // -- so without this it wipes a stroke a drowning bot is depending
+            // on. A ramp resumes from the step it stopped on; a drowning bot
+            // does not resume.
+            const ramp = await escapeStairUp(bot, { yieldTo: drowningOwnsBody }).catch(e => {
+              log('warn', 'reflex: escape ramp failed', { err: e.message })
+              return { steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}` }
+            })
+            // ONE KIND, BOTH OUTCOMES. Logging only the successes made the
+            // ramp's success rate 100% by construction and buried its
+            // denominator inside a different label's `detail` string. The
+            // status carries the outcome and `steps=` carries the size, so the
+            // rate is computable without parsing prose.
+            logEvent({ kind: 'marooned_ramp_cut',
+                       status: rampStatus(ramp),
+                       detail: `no route from y=${yNow} and ${got.tried} adjacent block(s) ` +
+                               `yielded nothing when dug${lavaNote}; steps=${ramp.steps} ` +
+                               `climbed=${ramp.climbed.toFixed(1)} — stopped because ${ramp.stopped}`,
                        snapshot: snapshot(bot) })
+            if (ramp.steps === 0) {
+              // THE RAMP REFUSED TOO, AND ONLY NOW IS THE GOAL LAYER RIGHT.
+              //
+              // Reaching here leaves the bot in EXACTLY the state this branch
+              // left it in before the ramp existed -- same position, same
+              // inventory, same prerequisite. That is the property that makes
+              // this safe to add: a capability that refuses can subtract no
+              // move the bot already had, so no composition of it with an
+              // existing guard can manufacture a new dead end. The ramp's own
+              // reason rides along, because "no tread to stand on" and "lava
+              // against the step" are different worlds and a zero cannot tell
+              // them apart.
+              bot.pendingPrereq = scaffoldPrereq(
+                `no path can start from y=${yNow}, nothing in the inventory to pillar ` +
+                `with, ${got.tried} adjacent block(s) yielded nothing when dug${lavaNote}, ` +
+                `and no escape ramp could be cut (${ramp.stopped})`)
+              logEvent({ kind: 'marooned_needs_scaffold', status: 'failed',
+                         detail: `no route from y=${yNow}, column above is open, no placeable ` +
+                                 `blocks, self-sourcing failed (${got.dug}/${got.tried} dug)` +
+                                 `${lavaNote}, and the escape ramp stopped because ` +
+                                 `${ramp.stopped} — asked for scaffold`,
+                         snapshot: snapshot(bot) })
+            }
           }
         }
         if (mstate === 'need_pickaxe' &&
@@ -1719,76 +1787,171 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           return
         }
         escaping = true
-        lastEscapeAt = Date.now()
-        const yBefore = bot.entity.position.y
-        shareHazard('entombed', bot.entity?.position)
-        logEvent({ kind: 'entombed', status: 'failed',
-                   detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
-                   snapshot: snapshot(bot) })
-        log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
-        runner.interrupt('entombed')
-        // Bracket the whole escape, not each helper: pillarOut may hand off to
-        // digStraightUp partway through, and what matters is the net cost of
-        // getting out of the hole, attributed to the reflex that caused it.
-        const invBefore = inventorySummary(bot)
-        // CAPTURE THE ANSWER. pillarOut already returns false when it declines
-        // to start, and that value was being dropped -- which is why a refusal
-        // could not be told apart from an attempt that went nowhere.
-        let climbed = null
-        try { climbed = await pillarOut(bot) }
-        catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
-        noteReflexInventory(bot, invBefore, 'entombed_escape')
-        // Verify the postcondition. "I ran the recovery" and "the bot is no
-        // longer trapped" are different claims and only the second one counts.
-        // A REFUSAL IS NOT A FAILED ESCAPE.
+        // THE FLAG MUST BE PUT DOWN EVEN WHEN THE BODY THROWS.
         //
-        // `pillarOut` returns false without moving when `canFinishClimb`
-        // declines -- the reflex correctly deciding not to seal the bot higher
-        // than it started. That was scored here as a failure anyway, so four
-        // refusals at 15s intervals reached ESCAPE_GIVE_UP_AFTER in a minute,
-        // emitted `_entombed_unrecoverable`, backed off, then re-armed and did
-        // it again. Declining to act is not evidence that acting failed.
-        // ASK FOR WHAT IS ACTUALLY MISSING.
-        //
-        // `pillarOut` declines for three different reasons and used to answer
-        // all of them with a bare `false`. Two of the four return paths run
-        // through `digStraightUp`, which refuses when `mayDigForEscape` says the
-        // bot has no pickaxe to spare -- and that is the DOMINANT shape here,
-        // because 28 of the 32 frozen bots hold zero pickaxes. Answering it with
-        // "gather blocks" sends a bot that is short a tool to go and fetch
-        // gravel.
-        //
-        // A refusal is still not a failed escape: nothing was attempted, so
-        // there is nothing to have failed. But it must not spin either, so it
-        // asks for the missing thing and backs off on an ESCALATING curve --
-        // `climbRefusals` is deliberately NOT reset, for the same reason
-        // `escapeGiveUps` is not: a flat backoff on a permanently blocked bot
-        // interrupts running skills forever at a fixed rate.
-        // 'exhausted' is NOT a refusal: the pillar ran out of blocks PARTWAY,
-        // which its own log line says leaves the bot worse off than when it
-        // started. That is an attempt that failed and belongs in the failure
-        // arm. Only a decline-to-start counts as a refusal.
-        if (climbed === 'needs_blocks' || climbed === 'needs_pickaxe') {
-          climbRefusals++
-          if (climbRefusals % ESCAPE_GIVE_UP_AFTER === 0) {
-            const want = climbPrereqFor(climbed)
-            bot.pendingPrereq = { ...want,
-              because: `the climb declined ${climbRefusals}x (${climbed}) at ` +
-                       `y=${Math.round(bot.entity.position.y)}` }
-            logEvent({ kind: climbed === 'needs_pickaxe' ? 'entombed_needs_pickaxe'
-                                                         : 'entombed_needs_blocks',
-                       status: 'failed',
-                       detail: `pillar declined ${climbRefusals}x (${climbed}) at ` +
-                               `y=${Math.round(bot.entity.position.y)}; asked the goal layer ` +
-                               `for ${want.count}x ${want.items[0]}`,
-                       snapshot: snapshot(bot) })
-            lastEscapeAt = Date.now() +
-              Math.min((climbRefusals / ESCAPE_GIVE_UP_AFTER) * 60_000, 10 * 60_000)
+        // `escaping` gates BOTH this branch and the maroon branch, and it is the
+        // only thing that stops a second tick disturbing a climb already in
+        // flight. It used to be cleared by a plain assignment at the end, so any
+        // throw between here and there -- `snapshot(bot)` on a half-connected bot,
+        // `logEvent` on a full disk -- landed in the tick-level catch with the flag
+        // still true, and this bot never attempted another escape for the life of
+        // the process. A latch with no `finally` is a latch that eventually sticks.
+        try {
+          lastEscapeAt = Date.now()
+          const yBefore = bot.entity.position.y
+          shareHazard('entombed', bot.entity?.position)
+          logEvent({ kind: 'entombed', status: 'failed',
+                     detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
+                     snapshot: snapshot(bot) })
+          log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
+          runner.interrupt('entombed')
+          // Bracket the whole escape, not each helper: pillarOut may hand off to
+          // digStraightUp partway through, and what matters is the net cost of
+          // getting out of the hole, attributed to the reflex that caused it.
+          const invBefore = inventorySummary(bot)
+          // CAPTURE THE ANSWER. pillarOut already returns false when it declines
+          // to start, and that value was being dropped -- which is why a refusal
+          // could not be told apart from an attempt that went nowhere.
+          let climbed = null
+          try { climbed = await pillarOut(bot) }
+          catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
+          noteReflexInventory(bot, invBefore, 'entombed_escape')
+          // Verify the postcondition. "I ran the recovery" and "the bot is no
+          // longer trapped" are different claims and only the second one counts.
+          // A REFUSAL IS NOT A FAILED ESCAPE.
+          //
+          // `pillarOut` returns false without moving when `canFinishClimb`
+          // declines -- the reflex correctly deciding not to seal the bot higher
+          // than it started. That was scored here as a failure anyway, so four
+          // refusals at 15s intervals reached ESCAPE_GIVE_UP_AFTER in a minute,
+          // emitted `_entombed_unrecoverable`, backed off, then re-armed and did
+          // it again. Declining to act is not evidence that acting failed.
+          // ASK FOR WHAT IS ACTUALLY MISSING.
+          //
+          // `pillarOut` declines for three different reasons and used to answer
+          // all of them with a bare `false`. Two of the four return paths run
+          // through `digStraightUp`, which refuses when `mayDigForEscape` says the
+          // bot has no pickaxe to spare -- and that is the DOMINANT shape here,
+          // because 28 of the 32 frozen bots hold zero pickaxes. Answering it with
+          // "gather blocks" sends a bot that is short a tool to go and fetch
+          // gravel.
+          //
+          // A refusal is still not a failed escape: nothing was attempted, so
+          // there is nothing to have failed. But it must not spin either, so it
+          // asks for the missing thing and backs off on an ESCALATING curve --
+          // `climbRefusals` is deliberately NOT reset, for the same reason
+          // `escapeGiveUps` is not: a flat backoff on a permanently blocked bot
+          // interrupts running skills forever at a fixed rate.
+          // 'exhausted' is NOT a refusal: the pillar ran out of blocks PARTWAY,
+          // which its own log line says leaves the bot worse off than when it
+          // started. That is an attempt that failed and belongs in the failure
+          // arm. Only a decline-to-start counts as a refusal.
+          if (climbed === 'needs_blocks' || climbed === 'needs_pickaxe') {
+            // TWO COUNTERS, BECAUSE THEY ANSWER TWO QUESTIONS.
+            //
+            // `climbRefusals` is a LIFETIME total and drives the escalating
+            // backoff and the prerequisite -- both of which must keep working for
+            // a bot that moves. `refusalStreak` is scoped to a PLACE and gates
+            // only the ramp, because the ramp digs and four refusals in four
+            // counties must not buy what four refusals in one pocket buys.
+            //
+            // Folding them into one variable deleted the backoff outright. For a
+            // bot that MOVES the scoped streak is 1 every time, so
+            // `% ESCAPE_GIVE_UP_AFTER === 0` was never true, so the prerequisite,
+            // the telemetry and `lastEscapeAt` were all unreachable -- while the
+            // branch still fired every 15s and still called `runner.interrupt`.
+            // That is 21.0% of firings getting an interrupt every fifteen seconds
+            // forever with no backoff and no record, which is precisely what the
+            // comment above says the non-resetting counter exists to prevent.
+            climbRefusals++
+            refusalPlaceStreak = refusalStreak(refusalPlaceStreak, lastRefusalPos,
+                                               bot.entity?.position)
+            lastRefusalPos = bot.entity?.position?.clone?.() ?? bot.entity?.position ?? null
+            const esc = refusalEscalation({ refusals: climbRefusals,
+                                            streak: refusalPlaceStreak })
+            if (esc.due) {
+              // CUT A RAMP BEFORE ASKING FOR MATERIALS, BECAUSE A RAMP NEEDS NONE.
+              //
+              // This is where the trap actually lived. `pillarOut` refuses on a
+              // FIXED 24-block climb -- `PILLAR_MAX_BLOCKS`, not a measurement of
+              // this bot's ceiling -- and entombment forces `headroomBlocked`, so
+              // `canFinishClimb` demands 26 placeable blocks before anything at
+              // all happens. Measured on the live fleet, the four bots that have
+              // been entombed at one coordinate for the whole 8h window hold 5,
+              // 10, 12 and 20, and not one of them holds a pickaxe. They are
+              // refused, told to gather 26 dirt, and asked to travel for it by a
+              // layer whose defining property is that it cannot travel: 453 of
+              // 479 such prerequisites expired at the TTL reading `had 0/8`.
+              //
+              // Breaking stone bare-handed removes the block and drops nothing,
+              // which is exactly what a ramp wants, so the one ascent that costs
+              // no materials is available to a bot that can afford nothing. It is
+              // control flow and not a sentence in the prompt for the reason
+              // already written down here: the correct remedy was PRINTED 262
+              // times to a model that never once acted on it.
+              //
+              // COMPOSES BY SUBTRACTING NOTHING. If the ramp refuses, the bot is
+              // in precisely the state this branch left it in before -- same
+              // cell, same inventory, same prerequisite, and the ramp's own
+              // reason rides along so "sealed under bedrock" and "no tread to
+              // stand on" stay distinguishable.
+              const stair = esc.ramp ? await escapeStairUp(bot, { yieldTo: drowningOwnsBody })
+                .catch(e => {
+                  log('warn', 'reflex: entombed escape ramp failed', { err: e.message })
+                  return { steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}` }
+                }) : null
+              if (stair) {
+                // ONE KIND, BOTH OUTCOMES, AND `steps` ON IT.
+                //
+                // The first version logged `entombed_ramp_cut` only on success and
+                // folded the failures into `_entombed_needs_blocks`, which made
+                // the ramp's success rate 100% by construction and left its
+                // denominator recoverable only by string-parsing `stopped`. That
+                // is the shape CLAUDE.md names: a metric that conditions on
+                // attempts. Now every attempt is one event and the status is the
+                // outcome, so `success / (success + failed)` is a rate about
+                // something.
+                logEvent({ kind: 'entombed_ramp_cut',
+                           status: rampStatus(stair),
+                           detail: `pillar declined (${climbed}) at y=${Math.round(yBefore)} for want ` +
+                                   `of blocks; steps=${stair.steps} breached=${stair.breached} ` +
+                                   `climbed=${stair.climbed.toFixed(1)} — stopped because ${stair.stopped}`,
+                           snapshot: snapshot(bot) })
+              }
+              if (stair && stair.steps > 0) {
+                // Progress, so stop escalating against it. Unlike a pillar, every
+                // step is a permanent walkable improvement carved into the world
+                // and the next firing resumes from the top of it.
+                climbRefusals = 0
+                refusalPlaceStreak = 0
+                escapeFailures = 0
+              } else {
+                // THE BACKOFF AND THE ASK ARE REACHED WHETHER OR NOT THE RAMP RAN.
+                // A firing that declined to cut -- because the refusals came from
+                // four different places -- still has to be recorded and still has
+                // to back off, or it is an unbounded interrupt with no telemetry.
+                const rampNote = stair
+                  ? `the escape ramp stopped because ${stair.stopped}`
+                  : `no ramp was cut: ${refusalPlaceStreak} of the last refusals were from here, ` +
+                    `so the bot is not pinned to one hole`
+                const want = climbPrereqFor(climbed)
+                bot.pendingPrereq = { ...want,
+                  because: `the climb declined ${climbRefusals}x (${climbed}) at ` +
+                           `y=${Math.round(bot.entity.position.y)} and ${rampNote}` }
+                logEvent({ kind: climbed === 'needs_pickaxe' ? 'entombed_needs_pickaxe'
+                                                             : 'entombed_needs_blocks',
+                           status: 'failed',
+                           detail: `pillar declined ${climbRefusals}x (${climbed}) at ` +
+                                   `y=${Math.round(bot.entity.position.y)}; ${rampNote}; ` +
+                                   `asked the goal layer for ${want.count}x ${want.items[0]}`,
+                           snapshot: snapshot(bot) })
+                lastEscapeAt = Date.now() + esc.backoffMs
+              }
+            }
           }
-        }
-        else if (bot.entity && bot.entity.position.y - yBefore < 1 && isEntombed(bot)) escapeFailures++
-        else { escapeFailures = 0; climbRefusals = 0 }
-        escaping = false
+          else if (bot.entity && bot.entity.position.y - yBefore < 1 && isEntombed(bot)) escapeFailures++
+          else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
+        } finally { escaping = false }
         return
       }
 
@@ -1865,9 +2028,33 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
  * is what the drowning branch already does -- so the fix is simply to stop
  * calling it entombment and let that branch have the tick.
  */
-const passableFor = b =>
+/**
+ * IS THIS CELL *NOT* A WALL?
+ *
+ * DELIBERATELY WIDER THAN `bodyPassable`, and the difference is the whole
+ * reason both exist. `bodyPassable` answers "may a body occupy this cell" --
+ * geometry, used by anything that is about to move a bot into somewhere.
+ * This answers "would a reasonable person call this bot sealed in", and it is
+ * used only by the wall count and the higher-ground probe below, where a
+ * false positive is a reflex storm rather than a fall.
+ *
+ * The two extra members are each a scar:
+ *   - `water`, because counting it as a wall made an ocean floor read as a pit
+ *     and the entombment reflex won every race against the drowning one --
+ *     Scout01 drowned 13 times in two hours with `reflex: entombed` firing ten
+ *     times and `reflex: drowning` zero.
+ *   - `leaves`, because a probe that stops at the first leaf block reports the
+ *     canopy of the next tree as nearby high terrain, and every bot in a forest
+ *     is then standing at the bottom of a pit.
+ *
+ * KEEPING THEM OUT OF THE CEILING TEST IS THE POINT. See `isEntombed`.
+ */
+const notAWall = b =>
   !b || b.name === 'air' || b.name === 'cave_air' || b.name === 'void_air' ||
   b.name === 'water' || b.name === 'bubble_column' || b.name.includes('leaves')
+
+// Kept under the old name for the two readers that want the wide predicate.
+const passableFor = notAWall
 
 function isEntombed(bot) {
   const p = bot.entity.position
@@ -1877,8 +2064,27 @@ function isEntombed(bot) {
   // ordinary hillside, and the reflex fired 1,997 times in 40 minutes at an
   // average y of 64 -- surface level, open sky overhead. Being genuinely
   // entombed means something is above you.
+  //
+  // AND THE CEILING IS ASKED THE BODY'S QUESTION, NOT THE WALL'S.
+  //
+  // This used the wide `notAWall` and it created a dead end of the family
+  // CLAUDE.md names: two individually-correct guards meeting where the bot had
+  // no legal move. `leaves` report `boundingBox: 'block'`, so the maroon
+  // branch's `upIsOpen` -- a bounding-box test -- is FALSE under a canopy; and
+  // `leaves` are in `notAWall`, so `isEntombed` was FALSE too. `maroonState` is
+  // forced to 'none' whenever `!upIsOpen`, so a bot in a hole with a leaf
+  // ceiling reached NEITHER handler and no rescue in this file could see it.
+  // `_trapped_in_canopy` used to be a whole reflex of its own; it was removed
+  // for "zero effect" and this is where its population went.
+  //
+  // The remedy is executable from where the bot is, which is the test a new
+  // refusal has to pass: oak leaves are hardness 0.2 and come out bare-handed
+  // in a fraction of a second, so the ramp that now sees this bot can actually
+  // free it. Only the CEILING moves to the narrow predicate -- the wall count
+  // and the ground probe keep the wide one, so no forest gains a wall it did
+  // not have and the reflex-storm scar above is untouched.
   const ceiling = bot.blockAt(p.offset(0, 2, 0))
-  if (passableFor(ceiling)) return false
+  if (bodyPassable(ceiling) || !ceiling) return false
 
   let walls = 0
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -2220,6 +2426,495 @@ export async function harvestAdjacent(bot, want = SCAFFOLD_SELF_SOURCE, budgetMs
     await sleep(400)   // the drop must reach the bot before the next count
   }
   return { gained: held() - had, dug, tried, unsafe, had }
+}
+
+// --------------------------------------------------------- escape ramp -----
+
+/**
+ * The four cardinals in PREFERENCE order for a bot at this yaw: the way it is
+ * already pointed, then the two ninety-degree turns, then the reverse.
+ *
+ * WHICH WAY IS YAW ZERO IS NOT A MATTER OF TASTE HERE, because this routine
+ * both READS a yaw and WRITES one. It ranks bearings from `bot.entity.yaw`, and
+ * a hundred lines below it turns the bot with mineflayer's own conversion,
+ * `bot.look(atan2(-x, -z))`. Those two must be inverses or the list is a lie:
+ * `atan2(-x, -z) === 0` solves to `z = -1`, so yaw 0 is NORTH, and the array
+ * below is indexed from north. The invariant is pinned by behaviour in
+ * escape-stair.test.mjs -- for every quadrant, `atan2` of the first bearing
+ * must round-trip back to that quadrant -- rather than by agreeing with another
+ * module, which is what it used to do.
+ *
+ * IT USED TO BE INDEXED FROM SOUTH, copied from `stairBearings` in skills.mjs
+ * to keep the two rescues in step. The copy was faithful and the original is
+ * off by two: `stairBearings` says in its own comment that "yaw is 0 at south",
+ * and mineflayer's `atan2(-dx, -dz)` says otherwise. The consequence there is
+ * only that `mine` prefers to cut its descent behind itself, because nothing in
+ * that path converts a bearing back into a look -- so it is a preference bug
+ * and stays out of this patch. HERE the consequence was a bot turning a hundred
+ * and eighty degrees on every tie, which is the opposite of the property the
+ * comment claimed. The cross-check against skills.mjs is gone with it: two
+ * modules agreeing is not evidence either is right.
+ */
+const ESCAPE_CARDINALS = [{ x: 0, z: -1 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 0 }]
+
+export function escapeBearings (yaw = 0) {
+  const q = ((Math.round((yaw || 0) / (Math.PI / 2)) % 4) + 4) % 4
+  return [q, (q + 1) % 4, (q + 3) % 4, (q + 2) % 4].map(i => ESCAPE_CARDINALS[i])
+}
+
+/** How far ahead the bearing chooser looks. Four steps is one small cavern. */
+export const ESCAPE_STAIR_LOOKAHEAD = 4
+
+/**
+ * How many steps one firing may cut. Bounded for the reason every rescue here
+ * is bounded -- for a marooned bot nothing else is coming, so a routine that
+ * runs long is a routine that has replaced the bot's whole life.
+ *
+ * SIX IS NOT A DISTANCE, IT IS A CHECKPOINT. Unlike a pillar, a ramp is not
+ * all-or-nothing: every step is a permanent, walkable improvement carved into
+ * the world, and the next firing resumes from the top of what the last one cut.
+ * `canFinishClimb` exists because a half-finished pillar is strictly worse than
+ * no pillar; a half-finished ramp is strictly better than no ramp, which is why
+ * this routine may start one it cannot finish and `pillarOut` may not.
+ */
+export const ESCAPE_STAIR_MAX_STEPS = 6
+
+/**
+ * CUT A RAMP AND WALK UP IT, USING NOTHING.
+ *
+ * The remedy for the 71.4%. See `stairUpStep` in scaffold.mjs for the geometry
+ * and the safety argument; this is only the body that executes it.
+ *
+ * THE HANDS STAY EMPTY ON PURPOSE, and it is the reason this routine does not
+ * need an exemption from `mayDigForEscape`. That guard exists to stop an escape
+ * spending its last pickaxe, and it is right. A ramp never equips one, so the
+ * invariant it protects is preserved by construction rather than waived -- the
+ * bot ends the climb holding exactly the tools it started with. It also costs
+ * nothing to honour: the blocks in the way drop nothing to a bare hand either
+ * way, so there was never a tool worth swinging.
+ *
+ * WHAT COUNTS AS DONE IS A ROUTE, NOT A HEIGHT. `pillarOut` already paid for
+ * the other answer -- Miner01 at the bottom of its own forty-block shaft with
+ * its head clear, "escaping" one block per invocation for ninety minutes. The
+ * condition the trap denies is that a journey can start, so that is the
+ * condition that ends this, and height gained is progress rather than success.
+ *
+ * @returns {{steps, climbed, stopped, bearing, runway, breached, yielded}}
+ *          `yielded` names the reflex that took the body, and is the one exit
+ *          on which the controls are deliberately left alone.
+ */
+export async function escapeStairUp (bot, {
+  maxSteps = ESCAPE_STAIR_MAX_STEPS,
+  depth = ESCAPE_STAIR_LOOKAHEAD,
+  budgetMs = 60_000,
+  yieldTo = () => null,
+} = {}) {
+  const startY = bot.entity.position.y
+  const deadline = Date.now() + budgetMs
+  // ASK BEFORE TAKING. `seizeBody` clears every control state, so checking the
+  // yield only inside the loop would still wipe the owner's stroke on the way
+  // in -- the one call this routine makes before it has looked at anything.
+  const owner0 = yieldTo()
+  if (owner0) {
+    return { steps: 0, climbed: 0, stopped: `yielded the body to ${owner0}`,
+             bearing: null, runway: 0, breached: 0, yielded: owner0 }
+  }
+  // The pathfinder rewrites controls every tick, and a dig under a body being
+  // steered elsewhere never completes. Same contention as every other rescue.
+  seizeBody(bot, 'escape-stair')
+
+  // Bedrock and obsidian are refused by the registry's own numbers. `planDig`
+  // caps a bare-handed dig at 30s, which passes stone (7.5s), deepslate (15s)
+  // and cobbled_deepslate (17.5s) and rejects obsidian (250s) -- the same
+  // distinction `shaftAscend` already draws, from the same function, so a block
+  // this ramp will attempt is exactly a block that climb would attempt.
+  const canBreak = b => {
+    if (b?.diggable === false) return false
+    return !planDig(predictedDigMs(b, null)).refuse
+  }
+
+  let steps = 0
+  let stopped = null
+  let bearing = null
+  let runway = 0
+  let breached = 0
+  let yielded = null
+
+  // WHOEVER OWNS THE BODY, IT IS NOT THIS. `yieldTo` returns a reason when a
+  // reflex with a stronger claim has taken the controls -- in practice the
+  // drowning rescue, which `seizeBody`s and then re-asserts a stroke every
+  // tick while this loop is awaiting.
+  //
+  // THIS YIELDS RATHER THAN CLAIMING, and the direction is the whole point.
+  // `runner.claimBody` cannot help here: it returns a dead handle when the
+  // runner is idle, and this runs immediately after `runner.interrupt`, so the
+  // claim a reflex could take is the one that is never granted. Standing the
+  // water rescue down for a climb is the other direction, and it is the change
+  // that multiplied drownings 7.5x on 2026-08-29 (canary 4a1dfcb, p = 0.0079).
+  // A ramp can be resumed from the step it stopped on. A drowning bot cannot.
+  //
+  // Releasing is done by NOT touching the controls: the owner has already set
+  // the stroke it wants, and `clearControlStates()` on the way out is exactly
+  // the wipe this is here to prevent.
+  const finish = () => {
+    if (!yielded) bot.clearControlStates()
+    return {
+      steps,
+      climbed: bot.entity.position.y - startY,
+      stopped: stopped ?? 'step budget spent',
+      bearing,
+      runway,
+      breached,
+      yielded,
+    }
+  }
+
+  /** Dig one block inside the remaining budget, so no swing can outlive it. */
+  const digWithin = async (b) => {
+    const budget = planDig(predictedDigMs(b, null))
+    if (budget.refuse) return `cannot clear ${b.name} by hand`
+    const left = deadline - Date.now()
+    if (left <= 0) return 'budget spent'
+    try { await digBounded(bot, b, Math.min(budget.budgetMs, left)) } catch (e) {
+      return `dig failed on ${b.name}: ${e.message}`
+    }
+    return null
+  }
+
+  // TAKE THE CEILING FIRST, OR THE RAMP CANNOT HAVE A FIRST STEP.
+  //
+  // `stairUpStep` asks for `at(0,2,0)` to be passable and `isEntombed` is
+  // DEFINED by that cell being solid, so without this the ramp answers every
+  // entombed bot with `no headroom to climb` on all four cardinals -- the exact
+  // shape of the four traps already written down here, two correct guards
+  // meeting where the bot has no legal move. Verified against the built tree,
+  // not reasoned about: a 1x1 stone pocket scored `runway: 0` before and
+  // `runway: 4` after this single cell came out.
+  //
+  // A no-op wherever the column is already open, which is every caller the ramp
+  // had before this line: `headroomBreach` returns an empty dig list rather
+  // than a refusal, so the maroon branch runs exactly as it did.
+  //
+  // A LOOP, NOT A SWING, AND THAT IS THE GRAVEL FIX. `headroomBreach` hands
+  // back ONE cell at a time, highest first, and refuses to reach the ceiling
+  // while a falling block rests on it. Re-planning after every swing is what
+  // makes a gravel column of any depth safe: each iteration takes the block at
+  // (0,3,0) while the ceiling still holds the rest of the column up, waits for
+  // the next one to land there, and only opens the ceiling once nothing is
+  // left to fall through it. Bounded, because a sand column can be sixty deep
+  // and this is a rescue, not a quarry.
+  for (let swing = 0; swing <= BREACH_MAX_SWINGS; swing++) {
+    if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
+    if (Date.now() > deadline) { stopped = 'budget spent breaching the ceiling'; return finish() }
+    if (swing === BREACH_MAX_SWINGS) {
+      stopped = `a falling column overhead outlasted ${BREACH_MAX_SWINGS} swings`
+      return finish()
+    }
+    const p = bot.entity.position
+    const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
+    const plan = headroomBreach({ at, canBreak })
+    if (!plan.ok) { stopped = plan.reason; return finish() }
+    if (!plan.dig.length) break                       // ceiling open and stable
+
+    // BARE HANDS, HERE TOO. The ramp's whole exemption from `mayDigForEscape`
+    // is that it never equips a tool, so the invariant that guard protects is
+    // preserved by construction rather than waived. Breaking the ceiling by
+    // hand keeps that true of the first swing as well as the rest.
+    if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+    const [dx, dy, dz] = plan.dig[0]
+    const b = bot.blockAt(p.offset(dx, dy, dz))
+    if (!b) { stopped = 'terrain not loaded'; return finish() }
+    const failed = await digWithin(b)
+    if (failed) { stopped = `ceiling ${failed}`; return finish() }
+    if (dy === 2) breached++
+    // HALF A SECOND, NOT A FIFTH OF ONE. Falling-block gravity is 0.04
+    // blocks/tick^2, so one block is ~7 ticks -- about 350ms -- before the spawn
+    // tick and the round trip to the server are counted. `shaftAscend` has used
+    // 500ms for exactly this cell since before the ramp existed, and 200ms was
+    // a sample that could not have SEEN the thing it was sampling for.
+    await sleep(FALLING_SETTLE_MS)
+  }
+
+  // AND CHECK THAT THE CEILING DID NOT LAND ON YOU.
+  //
+  // Prevention above is the real fix; this is the admission that a rescue must
+  // survive being wrong. If a column did come down -- a chunk loaded late, a
+  // block the registry does not call falling, a sand block pushed in by a
+  // piston -- the bot is standing INSIDE it and losing 1 HP every half second.
+  // Digging its own cells out is a remedy it can perform from where it is,
+  // bare-handed, in under a second per block, and it is the only one.
+  {
+    const unburied = await unburySelf(bot, { deadline, digWithin })
+    if (unburied.stopped) { stopped = unburied.stopped; return finish() }
+  }
+
+  for (; steps < maxSteps; steps++) {
+    if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
+    if (Date.now() > deadline) { stopped = 'budget spent'; break }
+    const p = bot.entity.position
+    const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
+
+    const choice = chooseStairUpBearing({
+      at, bearings: escapeBearings(bot.entity.yaw), depth, canBreak,
+    })
+    if (!choice || choice.runway === 0) {
+      // Every cardinal refused its FIRST step. Ask the chosen one for its
+      // reason rather than reporting a bare zero: "no tread to stand on" and
+      // "lava against the step" are different worlds, and a rescue that cannot
+      // tell them apart is the instrument this project keeps being burned by.
+      const bear = choice?.bear ?? escapeBearings(bot.entity.yaw)[0]
+      stopped = stairUpStep({ at, bear, canBreak }).reason ?? 'no bearing runs'
+      break
+    }
+    bearing = choice.bear
+    runway = choice.runway
+
+    const plan = stairUpStep({ at, bear: bearing, canBreak })
+    if (!plan.ok) { stopped = plan.reason; break }
+
+    // EMPTY THE HAND BEFORE THE FIRST SWING, not per block: `unequip` is a
+    // server round trip and the durability that matters is spent on the dig.
+    if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+
+    let blocked = null
+    for (const [dx, dy, dz] of plan.dig) {
+      // THE DEADLINE IS CHECKED BETWEEN DIGS, NOT ONLY BETWEEN STEPS.
+      //
+      // A step is up to three bare-handed swings and deepslate is 15s each, so
+      // a per-step check alone lets one step overrun the whole budget by a
+      // minute while holding the body. Stopping mid-step costs nothing that
+      // matters -- the cells already cleared stay cleared, and the next firing
+      // re-plans from the same cell and finishes them.
+      if (Date.now() > deadline) { blocked = 'budget spent mid-step'; break }
+      const b = bot.blockAt(p.offset(dx, dy, dz))
+      if (!b) { blocked = 'terrain not loaded'; break }
+      const failed = await digWithin(b)
+      if (failed) { blocked = failed; break }
+    }
+    if (blocked) { stopped = blocked; break }
+
+    // GRAVEL LANDS IN THE HOLE YOU JUST MADE. Digging the headroom first makes
+    // that the common case rather than the deadly one, but it still has to be
+    // SEEN before the bot walks in: stepping under a settling column is how a
+    // suffocation gets filed as a mystery.
+    //
+    // A BOUNDED RE-CLEAR, AND ITS FAILURES ARE READ. The first version swallowed
+    // every dig error under a comment claiming they were "verified below", and
+    // nothing below verified anything -- the only downstream check is a y-gain
+    // test that stops the ramp, so a cell that refused to clear arrived as a
+    // mysterious refusal to climb. Now a failed re-clear ends the step and says
+    // which block would not move.
+    let refilledStop = null
+    for (let recut = 0; recut < REFILL_MAX_RECUTS; recut++) {
+      await sleep(FALLING_SETTLE_MS)
+      const again = stairUpStep({ at, bear: bearing, canBreak })
+      if (!again.ok) { refilledStop = `the step closed behind the dig: ${again.reason}`; break }
+      if (!again.dig.length) break
+      if (recut === REFILL_MAX_RECUTS - 1) {
+        refilledStop = 'a falling column kept refilling the step'
+        break
+      }
+      for (const [dx, dy, dz] of again.dig) {
+        const b = bot.blockAt(p.offset(dx, dy, dz))
+        if (!b) { refilledStop = 'terrain not loaded'; break }
+        const failed = await digWithin(b)
+        if (failed) { refilledStop = `re-clearing the step: ${failed}`; break }
+      }
+      if (refilledStop) break
+    }
+    if (refilledStop) { stopped = refilledStop; break }
+
+    // TAKE THE STEP. Hand-rolled rather than handed to the pathfinder: this
+    // bot is marooned by definition -- `canStartAPath` is false, which is why
+    // the reflex is here at all -- and asking a planner that has already said
+    // NO ROUTE to walk one block is how a rescue inherits someone else's
+    // refusal. Look, hold forward, jump, release.
+    const before = bot.entity.position.clone()
+    await bot.look(Math.atan2(-bearing.x, -bearing.z), 0, true).catch(() => {})
+    bot.setControlState('forward', true)
+    bot.setControlState('jump', true)
+    await sleep(450)
+    bot.setControlState('jump', false)
+    await sleep(350)
+    if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
+    bot.clearControlStates()
+    // LET IT LAND BEFORE MEASURING. `mine` rejected five of six SUCCESSFUL
+    // steps by reading a raw y while the bot was still falling over the lip;
+    // the fix there was a settle and a floored comparison, and it is the same
+    // fix here.
+    await sleep(250)
+
+    if (bot.entity.position.y - before.y < 0.5) {
+      // DUG A STEP AND DID NOT TAKE IT. Stop rather than cut another: the
+      // failure to avoid is carving a widened ledge while every log line says
+      // the climb is progressing, which `mine` did for twenty-three days.
+      stopped = `cut a step at y=${Math.round(before.y)} but could not stand in it`
+      break
+    }
+
+    if (await canStartAPath(bot)) {
+      steps++
+      stopped = 'a route exists again'
+      break
+    }
+  }
+
+  return finish()
+}
+
+/**
+ * HOW LONG A FALLING COLUMN NEEDS BEFORE THE WORLD CAN BE READ AGAIN.
+ *
+ * Falling-block gravity is 0.04 blocks/tick^2, so a one-block drop is about
+ * seven ticks -- ~350ms -- and that is before the spawn tick, the landing tick
+ * and the round trip to the server. The patch this replaces sampled at 200ms,
+ * which is an instrument that could not have seen the event it was sampling
+ * for. `shaftAscend` (skills.mjs) has used 500ms for the same cell since long
+ * before the escape ramp existed; this is that number, named once.
+ */
+export const FALLING_SETTLE_MS = 500
+
+/** How many times the ceiling breach may re-plan against a settling column. */
+export const BREACH_MAX_SWINGS = 6
+
+/** How many times one stair step may be re-cut after a refill. */
+export const REFILL_MAX_RECUTS = 3
+
+/**
+ * DIG YOURSELF OUT OF THE BLOCK THAT LANDED ON YOU.
+ *
+ * The last line of defence, and it exists because prevention has to be allowed
+ * to be wrong. A falling-block entity passes through a bot and lands on the
+ * first SOLID cell beneath it, which for a bot on a floor is its own feet cell,
+ * so a column released overhead fills (0,0,0), (0,1,0) and (0,2,0) and the bot
+ * suffocates at 1 HP per half second -- about ten seconds, inside a routine
+ * that may hold the body for a minute.
+ *
+ * TOP DOWN, so the swing that frees the head is not immediately refilled by the
+ * cell above it. Only FALLING blocks are taken: a bot whose head cell is stone
+ * has not been buried by this routine, it has walked somewhere strange, and
+ * digging blindly around a body is how a rescue becomes an excavation.
+ *
+ * Returns `{ dug, stopped }`. `stopped` is non-null only when the bot is still
+ * buried afterwards, because that is the one outcome the caller must not treat
+ * as a ramp it can go on climbing.
+ */
+export async function unburySelf (bot, { deadline = Infinity, digWithin } = {}) {
+  let dug = 0
+  const buried = () => {
+    const p = bot.entity.position
+    for (const dy of [2, 1, 0]) {
+      const b = bot.blockAt(p.offset(0, dy, 0))
+      if (b && isFallingBlock(b) && !bodyPassable(b)) return { b, dy }
+    }
+    return null
+  }
+  for (let i = 0; i < 4; i++) {
+    const hit = buried()
+    if (!hit) return { dug, stopped: null }
+    if (Date.now() > deadline) break
+    if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+    const failed = await digWithin(hit.b)
+    if (failed) return { dug, stopped: `buried in ${hit.b.name} and ${failed}` }
+    dug++
+    await sleep(FALLING_SETTLE_MS)
+  }
+  const still = buried()
+  return { dug,
+           stopped: still ? `buried in ${still.b.name} at feet+${still.dy} and could not dig out`
+                          : null }
+}
+
+/**
+ * IS THIS THE SAME TRAP, OR A DIFFERENT ONE FOUR COUNTIES AWAY?
+ *
+ * `climbRefusals` escalates a backoff and, now, gates a rescue that digs. Both
+ * are meant for a bot that is stuck HERE, and neither survives the counter
+ * being a lifetime total -- which it was, because the reset only ever ran on
+ * the tick that a refusal did NOT happen, and a bot that walks away from a
+ * momentary tomb never runs that tick at all.
+ *
+ * That matters because the detector is not clean. Measured over 8h on 80 bots
+ * (2,309 entombed events, positive control 369,850 events / 14 of 14 sampled
+ * bots seen travelling >50 blocks), 21.0% of firings at y=60-79 came from bots
+ * that were in motion both two minutes BEFORE and two minutes AFTER -- a bot
+ * walking through a cave mouth or an overhang, not a bot sealed in. Four of
+ * those spread across an afternoon used to add up to the same "4" as four in a
+ * row in a stone pocket, and would now buy a ramp cut in open terrain.
+ *
+ * So the streak is scoped to a place. Two blocks of tolerance, because a bot
+ * being interrupted mid-step drifts a fraction of a block and that is the same
+ * trap; anything further is a different hole and starts again at one.
+ *
+ * @returns the streak this refusal continues -- 1 when it starts a new one.
+ */
+/**
+ * WAS THIS RAMP ATTEMPT A SUCCESS OR A FAILURE?
+ *
+ * One line, and it is exported and shared by both call sites for one reason:
+ * the first version of this patch logged `*_ramp_cut` ONLY when the ramp cut
+ * something, and folded every refusal into `_entombed_needs_blocks` /
+ * `_marooned_needs_scaffold`. That makes the ramp's success rate 100% by
+ * construction and leaves its denominator recoverable only by string-parsing
+ * `stopped` out of a different label's `detail`. CLAUDE.md names this shape --
+ * a metric that conditions on attempts -- and the fleet has paid for it once
+ * already, when escape rate rose while deaths tripled.
+ *
+ * With one kind carrying both outcomes, `success / (success + failed)` is a
+ * rate about something, and `steps=` on the detail gives the size as well as
+ * the sign. Extracted rather than inlined so that a test can prove the failing
+ * arm is REACHABLE, which is the thing a text assertion cannot say.
+ */
+export function rampStatus (ramp) {
+  return ramp && ramp.steps > 0 ? 'success' : 'failed'
+}
+
+/**
+ * WHAT A REFUSAL BUYS: A RAMP, A BACKOFF, BOTH, OR NEITHER.
+ *
+ * The two counters this reads answer different questions and the patch that
+ * introduced them let one silently delete the other.
+ *
+ *   `refusals` is a LIFETIME total. It drives the escalating backoff and the
+ *   prerequisite ask, and it must keep counting for a bot that moves -- those
+ *   are the firings that need a backoff most, because nothing about them is
+ *   going to resolve on its own.
+ *
+ *   `streak` is scoped to a PLACE (see `refusalStreak`). It gates only the
+ *   ramp, because the ramp DIGS: 21.0% of entombed firings at y=60-79 came
+ *   from bots in motion on both sides of the event, and four of those spread
+ *   across an afternoon must not buy a bare-handed excavation in open terrain.
+ *
+ * The bug this replaces used the scoped streak for both. For a moving bot the
+ * streak is 1 every time, so `% every === 0` was never true, so the ask, the
+ * telemetry AND the backoff were unreachable -- while the branch still fired
+ * every ESCAPE_MIN_INTERVAL_MS and still interrupted the running skill. An
+ * interrupt every fifteen seconds, forever, with no record of it.
+ *
+ * @returns {{due: boolean, ramp: boolean, backoffMs: number}}
+ */
+export function refusalEscalation ({ refusals = 0, streak = 0,
+                                     every = ESCAPE_GIVE_UP_AFTER,
+                                     capMs = 10 * 60_000 } = {}) {
+  const due = refusals > 0 && refusals % every === 0
+  return {
+    due,
+    ramp: due && streak >= every,
+    backoffMs: Math.min((refusals / every) * 60_000, capMs),
+  }
+}
+
+export function refusalStreak (streak = 0, prevPos = null, nowPos = null, tol = 2) {
+  if (!prevPos || !nowPos) return 1
+  const dx = (nowPos.x ?? 0) - (prevPos.x ?? 0)
+  const dy = (nowPos.y ?? 0) - (prevPos.y ?? 0)
+  const dz = (nowPos.z ?? 0) - (prevPos.z ?? 0)
+  // Y COUNTS. A bot that gained eight blocks is being refused by a new ceiling,
+  // and calling that a continuation would escalate a backoff against a rescue
+  // that is working -- the shape `pillarOut` already paid for once, one block
+  // per invocation for ninety minutes with every log line reading "escaping".
+  if (Math.sqrt(dx * dx + dy * dy + dz * dz) > tol) return 1
+  return (streak > 0 ? streak : 0) + 1
 }
 
 const PILLAR_MAX_BLOCKS = 24
@@ -2744,6 +3439,10 @@ export { isNight }
 // isEntombed is the guard that counted water as a wall and let a bot drown
 // while the wrong rescue held the loop. Exported so that is one assertion.
 export { isEntombed as isEntombedForTest }
+// The WIDE predicate, exported only so a test can pin the documented gap
+// between it and `bodyPassable`. Two predicates that must not drift need one
+// place that says exactly how they differ.
+export { notAWall as notAWallForTest }
 // Exported for tests only: the pit geometry that produced 74 false successes is
 // pure block arithmetic, and it is worth being able to assert on it directly.
 export { escapeCandidates, unstickMemory, standableAt, cellKey,
