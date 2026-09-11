@@ -408,6 +408,16 @@ function connect() {
     gatherMoves.allowParkour = false
     gatherMoves.allow1by1towers = true
     gatherMoves.maxDropDown = 6
+    // NEVER OPEN A WALL WITH WATER OR LAVA BEHIND IT. The ascent profile below
+    // has carried this flag since the flooded-cave drownings; the approach
+    // profile did not, and in the 14 bot-hours 6d1fdba ran fleet-wide
+    // (2026-09-11 00:15-00:26, a deploy-wrapper defect) five bots died
+    // against zero in the f9ddbc4 windows either side -- two of them in a
+    // gather, one drowned "sealed, no route up or out", one fallen 46 blocks.
+    // Refusing any dig adjacent to liquid costs a few approaches and buys the
+    // one thing the observer cannot log, because a bot that dies mid-walk
+    // never reaches the log line.
+    gatherMoves.dontCreateFlow = true
     bot.gatherMovements = gatherMoves
     bot.withGatherMovements = async (fn) => {
       bot.pathfinder.setMovements(gatherMoves)

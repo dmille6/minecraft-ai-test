@@ -170,6 +170,19 @@ await ta('withApproachBound holds the runtime search to the plan\'s cap and give
   assert.equal(await withApproachBound({}, async () => 7), 7, 'no pathfinder: the walk still runs')
 })
 
+t('the approach profile refuses to open a wall with liquid behind it', () => {
+  const idx = stripComments(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
+  const body = idx.slice(idx.indexOf('const gatherMoves = '), idx.indexOf('bot.gatherMovements = gatherMoves'))
+  assert.match(body, /gatherMoves\.dontCreateFlow = true/, 'the flag the ascent profile has carried since the flooded-cave drownings')
+  assert.match(body, /gatherMoves\.canDig = true/, 'and it still digs')
+})
+
+t('an aborted approach walk still logs its event before rethrowing', () => {
+  const ev = src.slice(src.indexOf('if (e.aborted || signal?.aborted) {'), src.indexOf("said = e?.name && e.name !== 'Error'"))
+  assert.match(ev, /logEvent\(\{ kind: 'dig_approach', status: 'aborted'/, 'a bot that dies mid-walk must leave a record')
+  assert.match(ev, /throw e/, 'and the abort still propagates')
+})
+
 t('index.mjs runs the borrowed walk inside withApproachBound', () => {
   const idx = stripComments(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
   const body = idx.slice(idx.indexOf('bot.withGatherMovements = async'), idx.indexOf('bot.withGatherMovements = async') + 400)
@@ -345,7 +358,9 @@ t('the dig-approach walk, and only it, runs with needsDrop:false', () => {
 })
 
 t('the _dig_approach event carries the walk, not just the plan', () => {
-  const ev = src.slice(src.indexOf("kind: 'dig_approach'"), src.indexOf("kind: 'dig_approach'") + 1200)
+  const at = src.indexOf("kind: 'dig_approach', status: inReach ? 'success' : 'fail'")
+  assert.ok(at > 0, 'the completed-walk event moved; re-read this test')
+  const ev = src.slice(at, at + 1200)
   for (const f of ['walk_ms=', 'dig_ms=', 'attempted=', 'dug=', 'unharvestable=', 'held=', 'window=']) {
     assert.ok(ev.includes(f), `the event must print ${f}`)
   }

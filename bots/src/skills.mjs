@@ -1016,7 +1016,19 @@ export async function collectManually(bot, block, signal) {
             withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), APPROACH_WALK_MS, bot, { needsDrop: false }))
           pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
         } catch (e) {
-          if (e.aborted || signal?.aborted) throw e
+          if (e.aborted || signal?.aborted) {
+            // A WALK THAT KILLED THE BOT MUST STILL BE IN THE LOG. The abort
+            // used to rethrow past the event below, so a death or a reflex
+            // seizure during the approach left no `_dig_approach` at all --
+            // and two of the five fleet-wide deaths on 6d1fdba were "running
+            // gather" with nothing to say whether the walk was digging.
+            const w = watch.stop()
+            logEvent({ kind: 'dig_approach', status: 'aborted',
+                       detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), aborted ` +
+                               `[walk_ms=${w.walkMs} attempted=${w.attempted.length ? w.attempted.join(',') : 'none'} ` +
+                               `dug=${w.dug.length ? w.dug.join(',') : 'none'}]` })
+            throw e
+          }
           said = e?.name && e.name !== 'Error' ? e.name : String(e?.message ?? e).slice(0, 30)
           pathSaid = `${pathSaid}, dig-approach ${said}`
         } finally {
