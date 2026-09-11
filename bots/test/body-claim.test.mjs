@@ -56,12 +56,13 @@ t('the harvest watchdog is ON by default — gather still wants the drop', () =>
 t('THE CLIMB OPTS OUT: it wants the hole, not the cobble', () => {
   const code = strip('../src/skills.mjs')
   const digs = code.match(/withTimeout\(bot\.dig\([^;]*?\}\)/gs) ?? []
-  assert.equal(digs.length, 4, `expected 4 dig call sites, found ${digs.length}`)
+  assert.equal(digs.length, 5, `expected 5 dig call sites, found ${digs.length}`)
   const optedOut = digs.filter(d => /needsDrop:\s*false/.test(d))
-  assert.equal(optedOut.length, 3,
-    'the two escape digs and the staircase re-dig may opt out — all three want ' +
-    'the HOLE, not the drop. The staircase one recovers a dig the server did ' +
-    'not accept, and with the watchdog on it would wait for cobble that ' +
+  assert.equal(optedOut.length, 4,
+    'the two escape digs, the staircase re-dig and place()\'s make-room dig may ' +
+    'opt out — all four want the HOLE, not the drop. The staircase one recovers ' +
+    'a dig the server did not accept; make-room opens one cell for a station in ' +
+    'a tunnel; with the watchdog on either would wait for cobble that ' +
     'unharvestable stone never yields.')
   // gather must NOT be one of them: it mines for the item
   const gatherDig = digs.find(d => /20_000/.test(d))

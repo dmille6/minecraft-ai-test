@@ -2444,7 +2444,33 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // were furnace, stone_pickaxe and iron_pickaxe -- the tier-gating crafts.
     // smelt learned the same lesson on e2b18f0. Same rule: place the one you
     // carry, once per call, and only when the known one is out of reach.
-    const carried = bot.inventory.items().some(i => i.name === 'crafting_table')
+    let carried = bot.inventory.items().some(i => i.name === 'crafting_table')
+    // NO TABLE IN THE PACK BUT WOOD IN IT: make one. The first fleet-wide hour
+    // of the carried-table fix showed 20 of 38 far-table refusals on bots that
+    // carried no table at all -- the resolver's own make-a-table branch runs
+    // only when NO table was found, and a found-but-unreachable table blocked
+    // it. Same bound as everything else here: one level down, once.
+    if (reach > STATION_REACH && !carried && depth < MAX_CRAFT_DEPTH) {
+      const inv = bot.inventory.items()
+      const wood = inv.filter(i => /_log$|_planks$/.test(i.name)).reduce((n, i) => n + i.count, 0)
+      if (wood >= 1) {
+        check(signal)
+        const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1)
+        if (built.status === 'success') {
+          carried = bot.inventory.items().some(i => i.name === 'crafting_table')
+          // THE TABLE ATE THE PLANKS? Re-ask the recipe with the new inventory
+          // before spending the placement; a stale recipe would craft from
+          // ingredients that are no longer there (Codex review).
+          const fresh = bot.recipesFor(def.id, null, count, true)[0]
+          if (!fresh) {
+            return { status: 'failed', failClass: 'missing_ingredients', gap: item,
+                     detail: `made a crafting_table for ${item} and now lack the ingredients — ` +
+                             `gather more wood first (you have ${inventoryLine(bot.inventory.items(), { focus: [item] })})` }
+          }
+          recipe = fresh
+        }
+      }
+    }
     // Why putting it down failed, if it did. Both reviews of this change made
     // the same point the stationOnly branch above already makes: a refusal
     // that drops place()'s reason sends the model to redo the thing that just
@@ -2504,6 +2530,30 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 }
 
 // --------------------------------------------------------------- place -----
+/** Blocks that are put down to be USED, not stood on: they need a cell, not headroom. */
+export const STATION_ITEMS = new Set(['crafting_table', 'furnace', 'blast_furnace', 'smoker', 'chest', 'barrel'])
+/**
+ * May this cell be dug to make room? The pathfinder's own veto when it can be
+ * asked (liquid beside, falling block above); when it cannot, the same two
+ * questions asked of bot.blockAt directly -- never "unknown means yes".
+ */
+export function roomVeto (bot, p) {
+  const v = breakVetoAt(bot, p)
+  if (v) return v
+  // Six neighbours, and an UNREADABLE one is a veto: a wall cell that borders
+  // an unloaded chunk may have anything behind it, and the pathfinder's own
+  // stub for unloaded blocks reads as not-liquid, which is the fail-open this
+  // function exists to close (Codex review).
+  for (const [dx, dy, dz] of [[0, 1, 0], [0, -1, 0], [-1, 0, 0], [1, 0, 0], [0, 0, -1], [0, 0, 1]]) {
+    const n = bot.blockAt(p.offset(dx, dy, dz))
+    if (!n || n.name == null) return 'unknown'
+    if (n.name === 'water' || n.name === 'lava') return 'liquid'
+  }
+  const above = bot.blockAt(p.offset(0, 1, 0))
+  if (above && FALLING.has(above.name)) return 'falling'
+  return null
+}
+
 async function place(ctx, { item, x, y, z }, signal) {
   const { bot } = ctx
   const held = bot.inventory.items().find(i => i.name === item)
@@ -2599,6 +2649,44 @@ async function place(ctx, { item, x, y, z }, signal) {
           if (replaceable(target)) candidates.push({ ref: underfoot, face })
         }
       }
+    }
+  }
+  // MAKE ROOM FOR A STATION. A crafting table is not scaffold: nobody stands
+  // on it, so it does not need a free cell above, only a cell. In a one-wide
+  // mine tunnel every neighbouring cell is rock, and the first fleet-wide hour
+  // of the carried-table fix (2026-09-11 03:00-03:49) showed exactly that: 18
+  // of 38 far-table refusals had tried to place and read "no solid block with
+  // a free space above it -- no_support=2 blocked_above=22 [stone,
+  // cobblestone...]". The bot is in a mine with a pickaxe in its hand. Dig ONE
+  // orthogonal foot-level cell that is not beside liquid and not under a
+  // falling block, then place into it. Only for stations, only when no
+  // coordinates were given, only one cell per call.
+  let madeRoom = null
+  if (!candidates.length && STATION_ITEMS.has(item) && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
+    const base = bot.entity.position
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      // A real Vec3 from plain numbers: test fakes give positions without
+      // floored(), and the cell must be a block coordinate either way.
+      const cellPos = new Vec3(Math.floor(base.x) + dx, Math.floor(base.y), Math.floor(base.z) + dz)
+      const cell = bot.blockAt(cellPos)
+      const under = bot.blockAt(cellPos.offset(0, -1, 0))
+      if (!cell || !solid(under) || replaceable(cell) || !cell.diggable) continue
+      if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || /_ore$/.test(cell.name)) continue
+      if (roomVeto(bot, cellPos)) continue
+      check(signal)
+      // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
+      // its budget is cancelled here -- withTimeout's default only stops the
+      // pathfinder, and this dig is not the pathfinder's (Codex review) -- and
+      // the loop ends after the first attempt whether it opened a cell or not.
+      let dug = false
+      try {
+        await withTimeout(bot.dig(cell, true), 8000, bot,
+                          { what: 'making room', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch { /* nothing to stop */ } } })
+        dug = true
+      } catch (e) { if (e.aborted || signal?.aborted) throw e }
+      const now = bot.blockAt(cellPos); const under2 = bot.blockAt(cellPos.offset(0, -1, 0))
+      if (dug && now && replaceable(now) && solid(under2)) { candidates.push({ ref: under2, face: UP }); madeRoom = cell.name }
+      break
     }
   }
   if (!candidates.length) {
@@ -2708,7 +2796,8 @@ async function place(ctx, { item, x, y, z }, signal) {
       // full-chest recovery needs to reopen the chest it just built, and
       // parsing a coordinate back out of an English sentence is how a caller
       // ends up depending on the wording of a log line.
-      return { status: 'success', placed: 1, at, detail: `placed ${item} at ${at}` }
+      return { status: 'success', placed: 1, at,
+               detail: `placed ${item} at ${at}${madeRoom ? ` (made room by digging ${madeRoom})` : ''}` }
     } catch (e) {
       failures.push(e.message)
     }
