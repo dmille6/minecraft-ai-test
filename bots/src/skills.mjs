@@ -2143,6 +2143,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   // Recipes needing no table first -- cheaper and always available.
   let recipe = bot.recipesFor(def.id, null, count, null)[0]
   let table = null
+  const stationDid = []       // what the station branch below did, for the success line
 
   if (!recipe) {
     const tableBlock = bot.findBlock({
@@ -2445,6 +2446,11 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // smelt learned the same lesson on e2b18f0. Same rule: place the one you
     // carry, once per call, and only when the known one is out of reach.
     let carried = bot.inventory.items().some(i => i.name === 'crafting_table')
+    // WHAT THIS BRANCH DID is pushed onto stationDid and said on the success
+    // line. The station-room canary (hive-d, 2026-09-11) could not be read
+    // because a table made from wood or a cell dug for it left no mark in the
+    // craft event -- the `_dig_approach` lesson (a capability is not shipped
+    // until the observation names it), not applied here the first time.
     // NO TABLE IN THE PACK BUT WOOD IN IT: make one. The first fleet-wide hour
     // of the carried-table fix showed 20 of 38 far-table refusals on bots that
     // carried no table at all -- the resolver's own make-a-table branch runs
@@ -2458,6 +2464,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1)
         if (built.status === 'success') {
           carried = bot.inventory.items().some(i => i.name === 'crafting_table')
+          stationDid.push('made a crafting_table from wood')
           // THE TABLE ATE THE PLANKS? Re-ask the recipe with the new inventory
           // before spending the placement; a stale recipe would craft from
           // ingredients that are no longer there (Codex review).
@@ -2492,6 +2499,9 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         table = mine
         recipe = bot.recipesFor(def.id, null, count, table)[0] ?? recipe
         reach = bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5))
+        stationDid.push(/made room by digging (\w+)/.test(put.detail || '')
+          ? `placed the carried table, made room by digging ${RegExp.$1}`
+          : 'placed the carried table')
       } else {
         putSaid = put.status === 'success'
           ? 'placed one but could not find it afterwards'
@@ -2512,7 +2522,8 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 
   try {
     await bot.craft(recipe, count, table ?? undefined)
-    return { status: 'success', detail: `crafted ${count}x ${item}` }
+    return { status: 'success',
+             detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   } catch (e) {
     // Name the real problem. "Event windowOpen did not fire" is mineflayer's
     // wording for "the server refused to open the container", which in practice

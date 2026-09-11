@@ -120,4 +120,17 @@ await t('roomVeto answers liquid/falling from blockAt when the pathfinder cannot
   assert.ok(STATION_ITEMS.has('crafting_table') && STATION_ITEMS.has('furnace') && !STATION_ITEMS.has('dirt'))
 })
 
+
+
+// ---------------------------------------------------------- observability ---
+// The canary of this change could not be read: the branches left no mark.
+import { readFileSync } from 'node:fs'
+const CODE = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+await t('craft says on its success line when it made a table from wood, placed the carried one, or made room', async () => {
+  assert.match(CODE, /stationDid\.push\('made a crafting_table from wood'\)/)
+  assert.match(CODE, /stationDid\.push\(\/made room by digging/)
+  assert.match(CODE, /crafted \$\{count\}x \$\{item\}\$\{stationDid\.length \? ` \(\$\{stationDid\.join\('; '\)\}\)` : ''\}/)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
