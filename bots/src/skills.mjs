@@ -469,6 +469,12 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
           diggingRetry = true
           log('warn', 'no route on foot; retrying this leg with digging allowed',
               { from: `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)}` })
+          // The retry leaves a mark either way. Until 2026-09-11 it logged a
+          // warn line and nothing else, so its success rate was unreadable in
+          // telemetry and the canary read for the watchdog fix above had no
+          // denominator (Codex review). The dig-approach paid the same lesson.
+          const retryFrom = before.clone(); const retryT0 = Date.now()
+          let retryWhy = ''
           try {
             await bot.withAscentMovements(async () => {
               // THE HOLE, NOT THE DROP. This retry exists to dig through what
@@ -482,8 +488,17 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
               await withTimeout(bot.pathfinder.goto(goal), 25000, bot, { needsDrop: false })
             })
             check(signal)
-            if (bot.entity.position.distanceTo(before) >= 2) continue   // it worked; carry on
-          } catch { /* fall through to the honest failure below */ }
+            const moved = bot.entity.position.distanceTo(retryFrom)
+            if (moved >= 2) {   // it worked; carry on
+              logEvent({ kind: 'goto_dig_retry', status: 'success',
+                         detail: `moved ${moved.toFixed(1)} blocks dy=${(bot.entity.position.y - retryFrom.y).toFixed(1)} ` +
+                                 `from ${Math.round(retryFrom.x)},${Math.round(retryFrom.y)},${Math.round(retryFrom.z)} in ${Date.now() - retryT0}ms` })
+              continue
+            }
+            retryWhy = `moved only ${moved.toFixed(1)} blocks`
+          } catch (e) { retryWhy = String(e?.message || e).slice(0, 100) }   // fall through to the honest failure below
+          logEvent({ kind: 'goto_dig_retry', status: 'failed',
+                     detail: `${retryWhy} from ${Math.round(retryFrom.x)},${Math.round(retryFrom.y)},${Math.round(retryFrom.z)} in ${Date.now() - retryT0}ms` })
         }
         // STRANDED ABOVE SEA LEVEL IS A DESCENT PROBLEM, NOT A DIGGING ONE.
         //
