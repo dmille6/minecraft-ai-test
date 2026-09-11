@@ -35,7 +35,7 @@ import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
-import { planDigApproach, observeApproachDig, APPROACH_WALK_MS } from './digapproach.mjs'
+import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -480,7 +480,33 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
           // itself for a floating bot: hive-b-Delta's ledge is 1.5 blocks away.
           const retryFrom = bot.entity.position.clone(); const retryT0 = Date.now()
           const retryWet = !!bot.entity.isInWater
+          // PLAN FIRST, THEN SIZE THE CLOCK FROM THE PLAN. A flat 25 s cannot
+          // hold a bare-handed dig made floating (x5) in water (x5): hive-b-Delta
+          // spent three 25 s retries under a stone lid it needed 187 s to break
+          // (canary hole-walks-01). digapproach.mjs says how it is priced.
+          const retryPlan = planDigRetry(bot, bot.ascentMovements, goal)
+          const retryBudget = retryPlan.budgetMs
           let retryErr = null
+          // A FLOATING BOT NEVER DIGS THROUGH THE PATHFINDER: its executor
+          // waits for onGround before it calls bot.dig, so the plan it found
+          // for hive-b-Delta sat for 25 s doing nothing (digapproach.mjs,
+          // floatDigTargets). mineflayer's dig has no such gate: break the
+          // plan's first blocks here, then let goto walk. Each dig is on its
+          // own priced clock, cancelled the way withTimeout cancels a dig.
+          let floatDug = 0
+          for (const { block, digMs } of floatDigTargets(bot, retryPlan.path)) {
+            const d0 = Date.now(); let ok = true; let why = ''
+            try {
+              await withTimeout(bot.dig(block, true), Math.min(RETRY_CAP_MS, digMs + 5000), bot,
+                                { what: 'float dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging() } catch {} } })
+            } catch (e) { ok = false; why = String(e?.message || e).slice(0, 80) }
+            logEvent({ kind: 'goto_float_dig', status: ok ? 'success' : 'failed',
+                       detail: `${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
+                               `priced ${Math.round(digMs)}ms took ${Date.now() - d0}ms${why ? ' ' + why : ''}` })
+            if (!ok) break
+            floatDug++
+            check(signal)
+          }
           try {
             await bot.withAscentMovements(async () => {
               // THE HOLE, NOT THE DROP. This retry exists to dig through what
@@ -491,7 +517,7 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
               // the real planner (reconstructed from an RCON scan, 2026-09-11)
               // had a 3-step path: break the lid, jump west, walk. Same defect
               // as the dig-approach on 2026-09-10.
-              await withTimeout(bot.pathfinder.goto(goal), 25000, bot, { needsDrop: false })
+              await withTimeout(bot.pathfinder.goto(goal), retryBudget, bot, { needsDrop: false })
             })
             check(signal)
           } catch (e) { retryErr = e }   // judged below, by OUTCOME, not by completion
@@ -501,7 +527,7 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
           // reader can test where it started without a rounding boundary.
           const moved = bot.entity.position.distanceTo(retryFrom)
           const nowWet = !!bot.entity.isInWater
-          const where = `from ${retryFrom.x.toFixed(1)},${retryFrom.y.toFixed(1)},${retryFrom.z.toFixed(1)} in ${Date.now() - retryT0}ms`
+          const where = `from ${retryFrom.x.toFixed(1)},${retryFrom.y.toFixed(1)},${retryFrom.z.toFixed(1)} in ${Date.now() - retryT0}ms budget=${retryBudget}ms plan=${retryPlan.status} planned_dig=${Math.round(retryPlan.digMs)}ms floating=${retryPlan.notOnGround} float_dug=${floatDug}`
           if (moved >= 2 || (retryWet && !nowWet)) {   // it worked; carry on
             logEvent({ kind: 'goto_dig_retry', status: 'success',
                        detail: `moved ${moved.toFixed(1)} blocks dy=${(bot.entity.position.y - retryFrom.y).toFixed(1)} ` +

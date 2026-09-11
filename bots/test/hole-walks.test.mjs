@@ -28,7 +28,7 @@ t('every goto inside a dig-capable profile opts out of the harvest watchdog', ()
 
 t('MUTANTS: putting the default back on ANY of the three walks is caught, one at a time', () => {
   const anchors = [
-    ["await withTimeout(bot.pathfinder.goto(goal), 25000, bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(goal), 25000, bot)"],
+    ["await withTimeout(bot.pathfinder.goto(goal), retryBudget, bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(goal), retryBudget, bot)"],
     ["await withTimeout(bot.pathfinder.goto(goal), 20000, bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(goal), 20000, bot)"],
     ["await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot, { needsDrop: false })", "await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot)"],
   ]

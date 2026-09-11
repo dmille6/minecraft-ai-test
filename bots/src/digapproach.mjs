@@ -135,7 +135,7 @@ export function isOreLike (name) {
  * it must not be made by accident on a walk that used to be cancelled at one
  * second. The tool the drop needs is the same one the pathfinder equips.
  */
-export function approachDigCost (bot, path) {
+export function approachDigCost (bot, path, { inWater = false, notOnGround = false, digTimeOf = null } = {}) {
   const out = { ms: 0, destroys: [] }
   if (!Array.isArray(path)) return out
   const seen = new Set()
@@ -150,9 +150,13 @@ export function approachDigCost (bot, path) {
       if (!block) continue
       let tool = null
       try { tool = bot?.pathfinder?.bestHarvestTool?.(block) ?? null } catch { tool = null }
-      if (typeof block.digTime === 'function') {
+      if (typeof digTimeOf === 'function' || typeof block.digTime === 'function') {
         let t = 0
-        try { t = block.digTime(tool?.type ?? null, false, false, false, [], bot?.entity?.effects ?? {}) } catch { t = 0 }
+        try {
+          t = typeof digTimeOf === 'function'
+            ? digTimeOf(block)
+            : block.digTime(tool?.type ?? null, false, inWater, notOnGround, [], bot?.entity?.effects ?? {})
+        } catch { t = 0 }
         if (Number.isFinite(t) && t > 0) out.ms += t
         else if (t === Infinity) out.ms += Infinity
       }
@@ -168,6 +172,67 @@ export function approachDigCost (bot, path) {
 
 /** Bounded resumes of a `partial` search. Same reasoning as reachprobe.mjs. */
 export const APPROACH_PUMPS = 4
+
+/**
+ * THE DIG BUDGET MUST PRICE THE DIG THE BOT WILL ACTUALLY DO.
+ *
+ * goto's dig retry ran for a flat 25 s. hive-b-Delta, floating under a stone
+ * lid (2026-09-11, canary hole-walks-01): three retries from the pocket, each
+ * "pathfinding exceeded 25000ms", the lid still stone. Bare-handed stone is
+ * 7.5 s on dry ground; mineflayer multiplies by 5 when the bot is not on the
+ * ground and by 5 again when it is in water, which is exactly the state of a
+ * bot that needs this retry. 187 s of digging against a 25 s clock. The walk
+ * was no longer cancelled at one second; it was cancelled at twenty-five.
+ * Same fiction as predictedDigMs (memory dig-budget-prices-a-fiction).
+ *
+ * So: plan first, price the plan's digs under the bot's REAL conditions, and
+ * size the clock from that. Base + dig + margin, never below the base (a plan
+ * with no digs keeps the old clock), capped so a mispriced plan cannot hold a
+ * bot for ever.
+ */
+export const RETRY_BASE_MS = 25000
+export const RETRY_MARGIN_MS = 5000
+export const RETRY_CAP_MS = 240000
+
+export function digRetryBudgetMs (digMs, { base = RETRY_BASE_MS, margin = RETRY_MARGIN_MS, cap = RETRY_CAP_MS } = {}) {
+  if (digMs === Infinity) return cap            // undiggable by this pricing: the clock, not the base
+  if (!Number.isFinite(digMs) || digMs <= 0) return base
+  return Math.min(cap, base + digMs + margin)
+}
+
+/**
+ * Plan one retry under `moves` and price its digs as the bot stands now.
+ * Returns { status, path, digMs, budgetMs, inWater, notOnGround, ms }; a
+ * planner that is missing, throws, or finds nothing still returns the base
+ * budget -- the retry runs either way, and the mark says what was planned.
+ */
+export function planDigRetry (bot, moves, goal, { timeout = 3000, pumps = APPROACH_PUMPS } = {}) {
+  const inWater = !!bot?.entity?.isInWater
+  const notOnGround = !bot?.entity?.onGround
+  const base = { status: 'unplanned', path: [], digMs: 0, budgetMs: digRetryBudgetMs(0), inWater, notOnGround, ms: 0 }
+  const at = bot?.entity?.position
+  if (!at || !goal || !moves || typeof bot?.pathfinder?.getPathFromTo !== 'function') return base
+  const t0 = Date.now()
+  let result
+  try {
+    const gen = bot.pathfinder.getPathFromTo(moves, at, goal, { timeout, optimizePath: true })
+    result = gen.next()?.value?.result
+    for (let i = 0; i < pumps && result?.status === 'partial' && Date.now() - t0 < timeout; i++) {
+      result = gen.next()?.value?.result ?? result
+    }
+  } catch {
+    return { ...base, status: 'threw', ms: Date.now() - t0 }
+  }
+  if (!result) return { ...base, ms: Date.now() - t0 }
+  const path = Array.isArray(result.path) ? result.path : []
+  // mineflayer's own pricing when the bot has it: held item, helmet enchants,
+  // water at EYE level (not body contact -- prismarine-physics sets isInWater
+  // from the body box, mineflayer's dig tests the eyes; Codex review), and the
+  // real onGround. The block-level formula is the fallback for a bare block.
+  const digTimeOf = typeof bot?.digTime === 'function' ? b => bot.digTime(b) : null
+  const digMs = approachDigCost(bot, path, { inWater, notOnGround, digTimeOf }).ms
+  return { status: result.status, path, digMs, budgetMs: digRetryBudgetMs(digMs), inWater, notOnGround, ms: Date.now() - t0 }
+}
 
 /**
  * Run one borrowed walk with the pathfinder's RUNTIME search held to the same
@@ -387,4 +452,47 @@ export function observeApproachDig (bot, { pollMs = 200 } = {}) {
       return stopped
     },
   }
+}
+
+
+/**
+ * A FLOATING BOT NEVER DIGS THROUGH THE PATHFINDER.
+ *
+ * mineflayer-pathfinder's executor starts a dig only when
+ * `bot.entity.onGround` (index.js: `if (!digging && bot.entity.onGround)`).
+ * A bot treading water under a stone lid has a plan that breaks the lid and
+ * an executor that waits for ground it will never touch -- hive-b-Delta,
+ * canary hole-walks-01: three 25 s retries, a found path, no dig, no event.
+ * mineflayer's own `bot.dig` has no such gate, so the retry breaks the plan's
+ * first blocks itself when it is not on the ground, then lets goto walk.
+ *
+ * Pure over the plan: the blocks the FIRST digging move wants gone (the ones
+ * between the bot and its next node), distinct, present, reachable by
+ * mineflayer's own reach test when the bot has one, at most `max`. Anything
+ * beyond the first move is the executor's business once the bot stands.
+ */
+export function floatDigTargets (bot, path, { max = 3 } = {}) {
+  if (!bot?.entity || bot.entity.onGround) return []
+  if (!Array.isArray(path)) return []
+  const mv = path.find(m => Array.isArray(m?.toBreak) && m.toBreak.length > 0)
+  if (!mv) return []
+  const out = []; const seen = new Set()
+  for (const b of mv.toBreak) {
+    if (!b || out.length >= max) break
+    const k = `${Math.floor(b.x)},${Math.floor(b.y)},${Math.floor(b.z)}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    let block = null
+    try { block = bot.blockAt?.(b) ?? null } catch { block = null }
+    if (!block || !block.name || block.name === 'air' || block.boundingBox === 'empty') continue
+    if (typeof bot.canDigBlock === 'function') {
+      let ok = false
+      try { ok = !!bot.canDigBlock(block) } catch { ok = false }
+      if (!ok) continue
+    }
+    let digMs = 0
+    try { digMs = typeof bot.digTime === 'function' ? bot.digTime(block) : 0 } catch { digMs = 0 }
+    out.push({ block, digMs: Number.isFinite(digMs) && digMs > 0 ? digMs : 0 })
+  }
+  return out
 }
