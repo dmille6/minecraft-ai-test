@@ -471,7 +471,15 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
               { from: `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)}` })
           try {
             await bot.withAscentMovements(async () => {
-              await withTimeout(bot.pathfinder.goto(goal), 25000, bot)
+              // THE HOLE, NOT THE DROP. This retry exists to dig through what
+              // blocks the walk; with the watchdog on, a bare-handed stone dig
+              // is cancelled at its first poll and the retry reports "no route
+              // out of here even with digging allowed". hive-b-Delta floated
+              // 3.5 h under a stone lid with a one-block exit beside it while
+              // the real planner (reconstructed from an RCON scan, 2026-09-11)
+              // had a 3-step path: break the lid, jump west, walk. Same defect
+              // as the dig-approach on 2026-09-10.
+              await withTimeout(bot.pathfinder.goto(goal), 25000, bot, { needsDrop: false })
             })
             check(signal)
             if (bot.entity.position.distanceTo(before) >= 2) continue   // it worked; carry on
@@ -502,7 +510,10 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
               { y: Math.round(bot.entity.position.y), health: bot.health })
           try {
             await bot.withDescentMovements(async () => {
-              await withTimeout(bot.pathfinder.goto(goal), 20000, bot)
+              // The descent profile is canDig=false, so this flag is inert
+              // here today; it is set for the day that profile learns to dig,
+              // so the watchdog cannot silently reappear on it (Codex review).
+              await withTimeout(bot.pathfinder.goto(goal), 20000, bot, { needsDrop: false })
             })
             check(signal)
             // Same postcondition as the dig retry, and self-verifying: if it
@@ -5399,7 +5410,8 @@ async function surface(ctx, _args, signal) {
       } else {
         usedDig = true
         await bot.withAscentMovements(async () => {
-          await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot)
+          // A climb wants the hole; see the goto retry above and digbudget.mjs.
+          await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot, { needsDrop: false })
         })
       }
     } catch (e) {
