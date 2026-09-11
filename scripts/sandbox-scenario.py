@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""sandbox-scenario.py -- rebuild a scene fixture in the SANDBOX world and watch a bot try to get out.
+
+Runs ON THE WORLDS HOST against /srv/block2/sandbox (rcon from its server.properties).
+The sandbox is a test rig: tp/setblock/give are allowed HERE and nowhere else.
+
+  python3 sandbox-scenario.py <fixture.json> --bot sandbox-Delta [--minutes 15] [--no-load]
+
+Steps: forceload the fixture box -> setblock every recorded cell -> wait for the bot to
+join -> tp it to the recorded position, clear and give its recorded inventory -> poll
+Pos/OnGround/feet-in-water every 5 s -> verdict {escaped, seconds, final} on stdout.
+Escaped = dry AND on ground AND > 5 blocks from the fixture origin, held for 30 s.
+"""
+import socket, struct, subprocess, sys, json, time, math, argparse, datetime
+
+ap = argparse.ArgumentParser()
+ap.add_argument('fixture'); ap.add_argument('--bot', required=True)
+ap.add_argument('--minutes', type=float, default=15); ap.add_argument('--no-load', action='store_true')
+ap.add_argument('--server', default='sandbox'); ap.add_argument('--join-wait', type=int, default=180)
+ap.add_argument('--verify', action='store_true', help='re-probe every cell after loading and report mismatches')
+ap.add_argument('--no-bot', action='store_true', help='load and verify only')
+a = ap.parse_args()
+
+def prop(k):
+    out = subprocess.run(['sudo', 'grep', '-h', '^' + k + '=', f'/srv/block2/{a.server}/server.properties'], capture_output=True, text=True).stdout
+    return out.split('=', 1)[1].strip()
+PORT = int(prop('rcon.port')); PW = prop('rcon.password')
+s = socket.create_connection(('127.0.0.1', PORT), timeout=20)
+def send(t, body):
+    p = struct.pack('<ii', 0, t) + body.encode() + b'\0\0'; s.sendall(struct.pack('<i', len(p)) + p)
+    ln = struct.unpack('<i', s.recv(4))[0]; d = b''
+    while len(d) < ln: d += s.recv(ln - len(d))
+    return d[8:-2].decode(errors='replace')
+send(3, PW)
+cmd = lambda c: send(2, c)
+
+fx = json.load(open(a.fixture))
+ox, oy, oz = fx['origin']; r = fx.get('radius', 6); dy = fx.get('dy', 3)
+name = fx.get('name', a.fixture)
+log = lambda m: print(f"[{datetime.datetime.utcnow().strftime('%H:%M:%S')}] {m}", flush=True)
+
+# 1. forceload the chunk box so setblock and reads never answer "not loaded"
+x0, x1 = (ox - r) >> 4, (ox + r) >> 4; z0, z1 = (oz - r) >> 4, (oz + r) >> 4
+log(f"forceload chunks x{x0}..{x1} z{z0}..{z1}: " + cmd(f'forceload add {x0*16} {z0*16} {x1*16+15} {z1*16+15}')[:80])
+
+# 2. rebuild the trap cell for cell
+if not a.no_load:
+    n = 0; bad = 0
+    for key, kind in fx['cells'].items():
+        x, y, z = key.split(','); out = cmd(f'setblock {x} {y} {z} minecraft:{kind}')
+        n += 1
+        if 'Could not set' in out and 'same' not in out: bad += 1
+    log(f"setblock {n} cells ({bad} refused; 'already that block' is not a refusal)")
+
+# 2b. verify the geometry after the world settled (falling blocks, fluids): a cell the
+# world refuses to hold is a fidelity gap the fixture must record, not a surprise later
+if a.verify:
+    time.sleep(3); mism = []
+    for key, kind in fx['cells'].items():
+        x, y, z = key.split(',')
+        if 'passed' not in cmd(f'execute if block {x} {y} {z} minecraft:{kind}'): mism.append((key, kind))
+    log(f"verify: {len(fx['cells']) - len(mism)}/{len(fx['cells'])} cells hold; mismatches: {mism[:12]}{' ...' if len(mism) > 12 else ''}")
+if a.no_bot:
+    print(json.dumps({'fixture': name, 'loaded': not a.no_load, 'verified': a.verify})); sys.exit(0)
+
+# 3. wait for the bot
+t0 = time.time()
+while a.bot not in cmd('list'):
+    if time.time() - t0 > a.join_wait: log(f"{a.bot} did not join in {a.join_wait}s"); sys.exit(2)
+    time.sleep(3)
+log(f"{a.bot} joined")
+
+# 4. put it where the fixture recorded it, holding what it held
+b = fx.get('bot') or {}
+pos = b.get('pos') or [ox + 0.5, oy, oz + 0.5]
+cmd(f'gamemode survival {a.bot}')
+log('tp: ' + cmd(f'tp {a.bot} {pos[0]} {pos[1]} {pos[2]}')[:80])
+cmd(f'clear {a.bot}')
+inv = b.get('inventory') or {}
+for item, count in (inv.items() if isinstance(inv, dict) else []):
+    left = int(count)
+    while left > 0:
+        k = min(64, left); cmd(f'give {a.bot} minecraft:{item} {k}'); left -= k
+log(f"inventory given: {len(inv)} kinds")
+
+# 5. watch
+def where():
+    out = cmd(f'data get entity {a.bot} Pos'); og = cmd(f'data get entity {a.bot} OnGround')
+    import re
+    xyz = [float(v) for v in re.findall(r'(-?\d+\.?\d*)d', out)]
+    if len(xyz) != 3: return None
+    fx_, fy_, fz_ = [math.floor(v) for v in xyz]
+    wet = 'passed' in cmd(f'execute if block {fx_} {fy_} {fz_} minecraft:water')
+    return dict(pos=xyz, on_ground='1b' in og, wet=wet, dist=math.dist(xyz, [ox, oy, oz]))
+held = None; escaped = None; t1 = time.time()
+while time.time() - t1 < a.minutes * 60:
+    w = where()
+    if w:
+        ok = (not w['wet']) and w['on_ground'] and w['dist'] > 5
+        if ok and held is None: held = time.time()
+        if not ok: held = None
+        if held and time.time() - held >= 30: escaped = time.time() - t1 - 30; break
+        log(f"pos={['%.1f' % v for v in w['pos']]} on_ground={w['on_ground']} wet={w['wet']} dist={w['dist']:.1f}")
+    time.sleep(5)
+final = where()
+print(json.dumps({'fixture': name, 'bot': a.bot, 'escaped': escaped is not None, 'seconds': round(escaped, 1) if escaped is not None else None, 'minutes_watched': a.minutes, 'final': final}, default=str))
+cmd(f'forceload remove {x0*16} {z0*16} {x1*16+15} {z1*16+15}')
