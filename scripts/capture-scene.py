@@ -12,7 +12,8 @@ import socket, struct, subprocess, sys, json, datetime, argparse
 ap = argparse.ArgumentParser()
 ap.add_argument('arm'); ap.add_argument('x', type=int); ap.add_argument('y', type=int); ap.add_argument('z', type=int)
 ap.add_argument('--r', type=int, default=6); ap.add_argument('--dy', type=int, default=3); ap.add_argument('--name', default=None)
-ap.add_argument('--bot', default=None, help='bot name, to record its exact Pos/OnGround')
+ap.add_argument('--bot', default=None, help='bot name, to record its exact Pos/OnGround/Inventory')
+ap.add_argument('--sha', default=None, help='deployed code sha this scene was captured under (from the fleet manifest)')
 a = ap.parse_args()
 def prop(k): return subprocess.run(['sudo','grep','-h','^'+k, f'/srv/block2/{a.arm}/server.properties'], capture_output=True, text=True).stdout.split('=')[1].strip()
 P = int(prop('rcon.port')); W = prop('rcon.password')
@@ -35,9 +36,26 @@ for dy in range(-a.dy, a.dy + 1):
                 if 'passed' in cmd(f'execute if block {x} {y} {z} minecraft:{k}').lower(): name = k; break
             if name == '?': unknown += 1
             cells[f'{x},{y},{z}'] = name
+import hashlib, re
+def nbt_list(s):
+    m = re.search(r'\[(.*)\]', s); return [float(v.rstrip('d')) for v in m.group(1).split(',')] if m else None
 out = {'name': a.name or f'{a.arm}-{a.x}-{a.y}-{a.z}', 'arm': a.arm, 'captured_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-       'origin': [a.x, a.y, a.z], 'radius': a.r, 'dy': a.dy, 'unknown_cells': unknown, 'cells': cells}
+       'origin': [a.x, a.y, a.z], 'radius': a.r, 'dy': a.dy, 'unknown_cells': unknown, 'cells': cells,
+       # PROVENANCE. A later fix must not be "validated" against a scene that no longer exists.
+       'gametime': cmd('time query gametime')[-40:], 'deployed_sha': a.sha,
+       'cells_sha256': hashlib.sha256(json.dumps(cells, sort_keys=True).encode()).hexdigest()}
 if a.bot:
-    out['bot'] = {'name': a.bot, 'pos': cmd(f'data get entity {a.bot} Pos')[-60:], 'on_ground': cmd(f'data get entity {a.bot} OnGround')[-6:]}
+    pos = cmd(f'data get entity {a.bot} Pos'); og = cmd(f'data get entity {a.bot} OnGround'); dim = cmd(f'data get entity {a.bot} Dimension')
+    # PER SLOT. `data get entity X Inventory` is abbreviated with "..." by the
+    # server once it is long, and every stuck bot's inventory is long. One call
+    # per slot is short enough to come back whole.
+    items = {}
+    for slot in range(41):
+        one = cmd(f'data get entity {a.bot} Inventory[{slot}]')
+        mid = re.search(r'id: "minecraft:([a-z_]+)"', one); mc = re.search(r'count: (\d+)', one)
+        if mid and mc: items[mid.group(1)] = items.get(mid.group(1), 0) + int(mc.group(1))
+        elif 'Found no elements' in one or 'has no' in one or not one.strip(): break
+    out['bot'] = {'name': a.bot, 'pos': nbt_list(pos), 'on_ground': og.strip().endswith('1b'),
+                  'dimension': dim[-40:], 'inventory': items}
 json.dump(out, sys.stdout); print(file=sys.stderr, end='')
 print(f"\n# {out['name']}: {len(cells)} cells, {unknown} unknown", file=sys.stderr)
