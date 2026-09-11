@@ -394,6 +394,18 @@ def main():
     vals["gather_ratio"] = ratio(c["gather_per_exp"], k["gather_per_exp"])
     vals["death_ratio"] = ratio(c["death_per_exp"], k["death_per_exp"],
                                 default=(1.0 if c["death_per_exp"] == 0 else None))
+    # TWO DEATHS BEFORE THE GATE CAN TRIP ON ITS OWN. OWNER DECISION 2026-09-11.
+    #
+    # On a 5-bot pool over 90 min at the fleet's ~0.05 deaths/bot-hour, one
+    # unrelated death lands about a third of the time, and on 2026-09-11 it
+    # reverted two canaries whose mechanism was working (a lava swim during
+    # explore, a drowning while idle). One death is recorded and reported; it
+    # is not, by itself, a verdict. Two deaths above 1.25x the control rate are.
+    DEATH_FLOOR = 2
+    if c["deaths"] < DEATH_FLOOR and vals["death_ratio"] is not None and vals["death_ratio"] > 1.25:
+        print(f"  note: {c['deaths']} canary death(s) is below the {DEATH_FLOOR}-death floor "
+              f"(owner decision 2026-09-11): reported, not a trip (rate ratio {vals['death_ratio']:.2f})")
+        vals["death_ratio"] = 1.0
     vals["held_ratio"] = ratio(c["held_frac"], k["held_frac"])
 
     print(f"\n  REGRESSION GATES — the change must not make these worse")

@@ -184,6 +184,12 @@ selected, or reachable, so all three need checking:
   nothing.
 - Rare outcomes (deaths ~0.1/hour/pool) are unmeasurable on 5 bots. Use them as
   tripwires, not proof.
+- **The death gate needs TWO canary deaths** (and > 1.25x the control rate) before it
+  trips on its own. OWNER DECISION 2026-09-11: at ~0.05 deaths/bot-hour one unrelated
+  death lands on a 5-bot pool in 90 min about a third of the time, and it reverted two
+  working canaries in one afternoon (a lava swim during explore, a drowning while idle).
+  One death is reported in the read and named; it is not a verdict. `canary-report.py`
+  enforces the floor; the read scripts under ~/mcai-analysis say "two-death floor".
 
 ## Commits
 
