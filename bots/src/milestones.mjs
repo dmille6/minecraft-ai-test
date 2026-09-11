@@ -310,7 +310,7 @@ const countAny = (b, names) => names.reduce((t, n) => t + countItem(b, n), 0)
  * exactly when it is actionable, which is the only time asking is useful.
  */
 const rungOf = (base, hasMeans) =>
-  ({ ...base, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) })
+  ({ ...base, base, hasMeans, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) })
 const ladder = (item, n, why, hint, hasMeans) =>
   rungOf(M.craft(item, n, why, hint), hasMeans)
 /** The same wrapper over a furnace rung, so iron obeys the identical rule. */
@@ -338,7 +338,7 @@ function ironInReach (b) {
   return false
 }
 
-const TECH_LADDER = [
+export const TECH_LADDER = [
   ladder('crafting_table', 1, 'Tools need one nearby.',
          'craft item=crafting_table, then place item=crafting_table.',
          b => countAny(b, PLANKS) >= 4 || countAny(b, LOGS) >= 1),
@@ -440,16 +440,70 @@ const TECH_LADDER = [
   // Spending them here re-opens the gather rung below (raw + ingots back under
   // three), which sends the bot for more ore rather than parking it -- the same
   // closed loop the iron rungs rely on.
+  // IRON PICKAXE BEFORE BUCKET. Both cost three ingots. The note above priced
+  // the pickaxe as "only unlocks diamond" and water as 47% of telemetry; the
+  // owner has since ruled that water is terrain, and the endpoint is tech
+  // tier. Measured 2026-09-11: 29 bucket crafts, 1 success, 6 of 80 bots on
+  // iron. Both independent reviews of the crafting gap named this order.
+  ladder('iron_pickaxe', 1, 'The tier above stone, and the fleet ceiling.',
+         'Needs a crafting_table nearby: 3 iron_ingot + 2 stick.',
+         b => countItem(b, 'crafting_table') >= 1 && countItem(b, 'iron_ingot') >= 3 &&
+              (countItem(b, 'stick') >= 2 || countAny(b, PLANKS) >= 2)),
   ladder('bucket', 1,
          'Water is 47% of what this fleet spends its time on. A bucket is the ' +
          'first tool that acts on it instead of fleeing it.',
          'Needs a crafting_table nearby: 3 iron_ingot.',
          b => countItem(b, 'crafting_table') >= 1 && countItem(b, 'iron_ingot') >= 3),
-  ladder('iron_pickaxe', 1, 'The tier above stone, and the fleet ceiling.',
-         'Needs a crafting_table nearby: 3 iron_ingot + 2 stick.',
-         b => countItem(b, 'crafting_table') >= 1 && countItem(b, 'iron_ingot') >= 3 &&
-              (countItem(b, 'stick') >= 2 || countAny(b, PLANKS) >= 2)),
 ]
+
+/**
+ * CONVERT WHAT YOU CARRY.
+ *
+ * The ladder judges a rung once, when the index reaches it, and `rungOf` marks
+ * it done when the means are absent AT THAT INSTANT. Materials that arrive
+ * later are never looked at again until the whole chain runs off the end. So
+ * a bot that crafted its stone pickaxe with 2 cobblestone left advanced past
+ * `furnace`, then gathered 61 cobblestone, and no furnace order ever fired:
+ * measured 2026-09-11 over 3 h, 18 bots held >= 8 cobblestone and no furnace,
+ * and chose gather 43%, goto 17%, explore 11%, craft furnace 9.8%. Work orders
+ * fired 77 times fleet-wide in those 3 h and were followed 87% of the time --
+ * the channel works; it is only ever asked about the active rung.
+ *
+ * This is the look-back: every tech rung the bot has not genuinely met
+ * (base.done false) and has the means for now, in ladder order. Pure over
+ * the ladder and the bot's inventory; the caller asks readyFor(), the skills'
+ * own predicate, for each in turn and orders the first that answers -- a
+ * candidate whose means are looser than its recipe (two logs for a pickaxe
+ * that needs planks and sticks) must not shadow a furnace behind it.
+ */
+export const STATION_RUNGS = new Set(['crafting_table', 'furnace'])
+export function conversionsAvailable (bot, { ladder = TECH_LADDER, stationNear = null } = {}) {
+  const out = []
+  for (const r of ladder) {
+    if (!r?.base || !r?.hasMeans || !r?.wants) continue
+    // Only conversions. gather_iron_ore_3 sits on this ladder and no work
+    // order can perform it; a candidate that cannot be ordered must not be
+    // returned, because the caller takes candidates in order.
+    if (!/^(craft|smelt)_/.test(String(r.id))) continue
+    let done = true, means = false
+    try { done = !!r.base.done(bot) } catch { done = true }
+    // A STATION THAT IS PLACED IS NOT MISSING. craft and smelt put a carried
+    // table or furnace on the ground and never pick it up, so the inventory
+    // count goes to zero the moment the station is used. Judging that as
+    // "not done" would order a new table every 30 s: 4 logs per lap, then
+    // the gate, then no later rung is ever reached. (Both reviews.)
+    if (!done && STATION_RUNGS.has(r.wants) && typeof stationNear === 'function') {
+      try { if (stationNear(bot, r.wants)) done = true } catch { /* unreadable world: not done */ }
+    }
+    try { means = !!r.hasMeans(bot) } catch { means = false }
+    if (!done && means) out.push({ id: r.id, wants: r.wants, carry: true })
+  }
+  return out
+}
+/** The first candidate, for callers that want one. */
+export function conversionAvailable (bot, opts) {
+  return conversionsAvailable(bot, opts)[0] ?? null
+}
 
 // IRON IS NOW ON THIS LADDER, AND THE NOTE THAT KEPT IT OFF STILL STANDS.
 //
