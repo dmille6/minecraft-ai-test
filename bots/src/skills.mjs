@@ -500,6 +500,7 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
           // own priced clock, cancelled the way withTimeout cancels a dig.
           let floatDug = 0
           for (const { block, digMs } of floatDigTargets(bot, retryPlan.path)) {
+            check(signal)     // an abort must not start another dig
             // Re-read the target the instant before digging: the world and the
             // bot have moved since the plan was priced (digapproach.floatDigOk).
             const gate = floatDigOk(bot, block)
@@ -520,18 +521,23 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
             finally { signal?.removeEventListener?.('abort', onAbort) }
             // mineflayer sets the block to air locally when its timer runs out;
             // only the server's next update says whether the dig was accepted.
+            // A server that rejected the dig puts the block back within a tick
+            // or two; poll for it rather than trust the first read.
             let confirmed = null
             if (ok) {
-              await sleep(500)
-              try { confirmed = (bot.blockAt(block.position)?.name ?? '?') === 'air' } catch { confirmed = null }
+              for (let i = 0; i < 6; i++) {
+                await sleep(250)
+                try { confirmed = (bot.blockAt(block.position)?.name ?? '?') === 'air' } catch { confirmed = null }
+                if (confirmed === false) break
+              }
             }
             logEvent({ kind: 'goto_float_dig', status: ok ? 'success' : 'failed',
                        detail: `${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
                                `priced ${Math.round(digMs)}ms took ${Date.now() - d0}ms confirmed=${confirmed}${why ? ' ' + why : ''}` })
-            if (!ok) break
+            if (!ok || confirmed === false) break   // a rejected dig ends the float dig; goto re-plans below
             floatDug++
-            check(signal)
           }
+          check(signal)     // and an abort during the float dig must not start the walk
           try {
             await bot.withAscentMovements(async () => {
               // THE HOLE, NOT THE DROP. This retry exists to dig through what

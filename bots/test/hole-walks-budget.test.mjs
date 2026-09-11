@@ -20,9 +20,12 @@ const stone = (x, y, z) => ({
   digTime (tool, creative, inWater, notOnGround) { calls.push({ inWater, notOnGround }); return 7500 * (inWater ? 5 : 1) * (notOnGround ? 5 : 1) },
   canHarvest () { return false },
 })
+// mineflayer's blockAt accepts any {x,y,z} (verified against prismarine-world 2026-09-11);
+// the fake only insists on numeric coordinates.
+const needVec3 = p => { if (![p?.x, p?.y, p?.z].every(Number.isFinite)) throw new TypeError('blockAt wants coordinates'); return p }
 const fakeBot = ({ inWater, onGround, path, status = 'success', throws = false }) => ({
   entity: { position: { x: 406.3, y: 62.2, z: 235.3 }, isInWater: inWater, onGround, effects: {} },
-  blockAt: p => stone(p.x, p.y, p.z),
+  blockAt: p => (needVec3(p), stone(p.x, p.y, p.z)),
   pathfinder: {
     bestHarvestTool: () => null,
     getPathFromTo: function * () { if (throws) throw new Error('boom'); yield { result: { status, path } } },
@@ -89,7 +92,7 @@ t('floatDigOk re-reads the world: refuses when grounded, gone, out of reach, und
   const lid = { name: 'stone', position: { x: 406, y: 64, z: 235 }, boundingBox: 'block' }
   const world = {}
   const mk = (over = {}) => ({ entity: { position: { x: 406.3, y: 62.2, z: 235.3 }, onGround: false, ...over },
-    blockAt: p => world[`${p.x},${p.y},${p.z}`] ?? { name: 'stone', position: p, boundingBox: 'block' }, canDigBlock: () => true })
+    blockAt: p => (needVec3(p), world[`${p.x},${p.y},${p.z}`] ?? { name: 'stone', position: p, boundingBox: 'block' }), canDigBlock: () => true })
   assert.equal(floatDigOk(mk(), lid).ok, true)
   assert.equal(floatDigOk(mk({ onGround: true }), lid).why, 'grounded')
   world['406,64,235'] = { name: 'air', position: lid.position, boundingBox: 'empty' }
@@ -101,6 +104,8 @@ t('floatDigOk re-reads the world: refuses when grounded, gone, out of reach, und
   assert.match(floatDigOk(mk(), lid).why, /^lava at 407,64,235/); delete world['407,64,235']
   world['407,64,235'] = { name: 'water', position: { x: 407, y: 64, z: 235 } }
   assert.equal(floatDigOk(mk(), lid).ok, true, 'water beside the block is allowed: the bot is already in water')
+  const blind = mk(); blind.blockAt = p => { if (p.x === 407) throw new Error('unloaded'); return { name: 'stone', position: p, boundingBox: 'block' } }
+  assert.match(floatDigOk(blind, lid).why, /^cannot read 407,64,235/, 'a guard that cannot read the world refuses')
 })
 
 const RAW = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
@@ -123,6 +128,10 @@ t('a floating bot breaks the plan\'s first blocks itself before goto, and the ma
   assert.ok(gv > 0 && dv > gv, 'every float dig is re-validated the instant before it starts')
   assert.match(b, /addEventListener\?\.\('abort', onAbort/, 'the skill abort reaches the direct dig')
   assert.match(b, /confirmed=\$\{confirmed\}/, 'the mark says whether the server kept the hole')
+  assert.match(b, /if \(!ok \|\| confirmed === false\) break/, 'a rejected dig ends the float dig')
+  const loop = b.indexOf('for (const { block, digMs } of floatDigTargets'), c1 = b.indexOf('check(signal)', loop), tr = b.indexOf('try {', b.indexOf('check(signal)     // and an abort during the float dig'))
+  assert.ok(c1 > loop && c1 < b.indexOf('const gate = floatDigOk'), 'the signal is checked before every dig')
+  assert.ok(tr > 0, 'the signal is checked again before the retry walk')
 })
 t('a GROUNDED bot keeps the old retry exactly: no planning pass, the flat 25 s clock', () => {
   const b = retryBlock(strip(RAW))

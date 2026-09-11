@@ -1,3 +1,4 @@
+import { Vec3 } from 'vec3'
 /**
  * THE LAST WALL IS THE WHOLE PROBLEM.
  *
@@ -486,7 +487,9 @@ export function floatDigTargets (bot, path, { max = 3 } = {}) {
     if (seen.has(k)) continue
     seen.add(k)
     let block = null
-    try { block = bot.blockAt?.(b) ?? null } catch { block = null }
+    // toBreak entries are plain {x,y,z}; blockAt wants a Vec3 (the dig-approach
+    // observer read dug=none for a whole canary over exactly this).
+    try { block = bot.blockAt?.(new Vec3(Math.floor(b.x), Math.floor(b.y), Math.floor(b.z))) ?? null } catch { block = null }
     if (!block || !block.name || block.name === 'air' || block.boundingBox === 'empty') continue
     if (typeof bot.canDigBlock === 'function') {
       let ok = false
@@ -514,8 +517,9 @@ export function floatDigOk (bot, block) {
   if (!bot?.entity || bot.entity.onGround) return { ok: false, why: 'grounded' }
   const pos = block?.position
   if (!pos) return { ok: false, why: 'no block' }
+  const at = new Vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z))
   let now = null
-  try { now = bot.blockAt?.(pos) ?? null } catch { now = null }
+  try { now = bot.blockAt?.(at) ?? null } catch { now = null }
   if (!now || !now.name || now.name === 'air' || now.boundingBox === 'empty') return { ok: false, why: 'already open' }
   if (typeof bot.canDigBlock === 'function') {
     let ok = false
@@ -527,9 +531,11 @@ export function floatDigOk (bot, block) {
     return { ok: false, why: 'under my feet' }
   }
   for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
-    let n = null
-    try { n = bot.blockAt?.({ x: pos.x + dx, y: pos.y + dy, z: pos.z + dz }) ?? null } catch { n = null }
-    if (n && /lava/.test(n.name || '')) return { ok: false, why: `lava at ${pos.x + dx},${pos.y + dy},${pos.z + dz}` }
+    let n = null; let failed = false
+    try { n = bot.blockAt?.(at.offset(dx, dy, dz)) ?? null } catch { n = null; failed = true }
+    // A guard that cannot read the world must refuse, not wave through (Codex).
+    if (failed) return { ok: false, why: `cannot read ${at.x + dx},${at.y + dy},${at.z + dz}` }
+    if (n && /lava/.test(n.name || '')) return { ok: false, why: `lava at ${at.x + dx},${at.y + dy},${at.z + dz}` }
   }
   return { ok: true, why: '' }
 }
