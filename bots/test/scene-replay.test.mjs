@@ -66,6 +66,21 @@ export function plan (m, start, goal, { timeout = 3000, radius = -1 } = {}) {
   let r = a.compute(); while (r.status === 'partial') r = a.compute()
   return r
 }
+/**
+ * A PLAN IS NOT AN EXECUTABLE PLAN. mineflayer-pathfinder's executor starts a
+ * dig only when `bot.entity.onGround` (index.js: `if (!digging &&
+ * bot.entity.onGround)`), which the planner does not model. hive-b-Delta,
+ * 2026-09-11: this file said "three steps, break the lid" and the live bot sat
+ * for four 25 s retries doing nothing. So every plan the harness blesses is
+ * also asked whether its first move can be executed from the recorded stance.
+ */
+export function executable (path, recorded) {
+  const first = Array.isArray(path) ? path[0] : null
+  if (first && Array.isArray(first.toBreak) && first.toBreak.length > 0 && recorded && recorded.onGround === false) {
+    return { ok: false, why: 'the first move digs, and the pathfinder will not start a dig while the bot is off the ground (afloat here)' }
+  }
+  return { ok: true, why: '' }
+}
 /** Items the recorded bot held, as the inventory shape countScaffoldingItems reads. */
 const heldItems = scene => Object.entries(scene.bot?.inventory ?? {}).map(([name, count]) => ({ name, type: registry.itemsByName[name]?.id ?? -1, count }))
 const moves = (m, from) => m.getNeighbors({ ...from, remainingBlocks: from.remainingBlocks ?? m.countScaffoldingItems() })
@@ -98,6 +113,16 @@ const botAt = (world, x, y, z, inv = []) => {
     assert.equal(r.status, 'success', r.status)
     assert.ok(r.path.length <= 4, `${r.path.length} steps`)
     assert.ok(r.path[0].toBreak.some(b => b.x === 406 && b.y === 64 && b.z === 235), 'the first move breaks the lid at 406,64,235')
+  })
+  t('Delta pocket: that plan is NOT executable from the recorded stance -- afloat, the executor never starts the lid dig (the live result)', () => {
+    const r = plan(escape, from, shore)
+    const x = executable(r.path, recorded)
+    assert.equal(x.ok, false, 'a floating start must fail the executor check')
+    assert.match(x.why, /off the ground/)
+    // positive control: the same plan from a grounded stance is executable, and a
+    // plan whose first move does not dig is executable afloat.
+    assert.equal(executable(r.path, { ...recorded, onGround: true }).ok, true)
+    assert.equal(executable([{ toBreak: [] }, ...r.path], recorded).ok, true)
   })
   t('Delta pocket: without the shore-egress wrapper the escape profile is blind too (the wrapper is load-bearing)', () => {
     const bare = fleetMovements(bot); bare.canDig = true; bare.dontCreateFlow = true; bare.allow1by1towers = true
