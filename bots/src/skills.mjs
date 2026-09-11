@@ -3785,12 +3785,20 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // is 1:1, it is walkable in both directions, and the way back up costs
     // nothing but time.
     const p0 = bot.entity.position.floored()
-    const cellFeet = p0.offset(bear.x, -1, bear.z)   // where the bot will stand
-    const cellHead = p0.offset(bear.x, 0, bear.z)    // headroom over the tread
-    const treadFloor = p0.offset(bear.x, -2, bear.z) // what holds it up
+    const cells = descentStepCells(p0, bear)
+    const cellFeet = cells.feet                      // where the bot will stand
+    const cellHead = cells.head                      // headroom over the tread
+    // THE THIRD CELL. A bot steps DOWN into the tread from one block higher, so
+    // its head passes through the cell ABOVE the tread's headroom before it
+    // drops. With that cell solid the bot walks into a ceiling and stops on the
+    // lip: 388 `mine_stair_step_failed` in 90 minutes on 2026-09-11, every one
+    // "moved 0.19 blocks", and at six probed sites the tread and headroom were
+    // air while this cell was grass or dirt. A descending stair is three cells.
+    const cellAbove = cells.above                    // the bot's own head height, next column
+    const treadFloor = cells.floor                   // what holds it up
     const below = bot.blockAt(cellFeet)
     if (!below) break
-    for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom']]) {
+    for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom'], [cellAbove, 'ceiling']]) {
       const b = bot.blockAt(pos)
       // ONE PREDICATE. stairLiquid is what chooseStairBearing scored the four
       // cardinals with; if this test and that one ever drift, the chooser hands
@@ -3861,7 +3869,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
     // Dig headroom first: a falling-block column above an already-open tread
     // pours gravel into the cell the bot is about to occupy.
-    for (const pos of [cellHead, cellFeet]) {
+    for (const pos of [cellAbove, cellHead, cellFeet]) {
       const b = bot.blockAt(pos)
       if (!b || b.name === 'air' || b.name === 'cave_air') continue
       const tool = bestTool(bot, b)
@@ -4796,6 +4804,23 @@ export function isSafeToBreak (bot, p) {
     const b = bot.blockAt(p)
     return !m?.safeToBreak || !b ? true : m.safeToBreak(b)
   } catch { return true }
+}
+
+/**
+ * The cells a DESCENDING stair step must open, from the bot's floored feet
+ * cell and a unit bearing: the tread it will stand on, the headroom over the
+ * tread, and the cell above that -- which its head passes through on the way
+ * down, and which the cutter used to leave solid (2026-09-11: 388 steps cut
+ * and not taken in 90 minutes, all stopped on the lip). Pure, so the test
+ * cannot lie about it.
+ */
+export function descentStepCells(p0, bear) {
+  return {
+    feet: p0.offset(bear.x, -1, bear.z),
+    head: p0.offset(bear.x, 0, bear.z),
+    above: p0.offset(bear.x, 1, bear.z),
+    floor: p0.offset(bear.x, -2, bear.z),
+  }
 }
 
 export function actionKey(skill, args) {
