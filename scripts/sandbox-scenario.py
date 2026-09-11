@@ -117,12 +117,15 @@ held = None; escaped = None; t1 = time.time()
 while time.time() - t1 < a.minutes * 60:
     w = where()
     if w:
-        ok = (not w['wet']) and w['on_ground'] and w['dist'] > 5
+        # ESCAPED means AWAY, not DOWN: a bot that rode its own furniture six blocks down the
+        # same column (Bravo, 18:12) is still on the bridge. Horizontal distance only.
+        hdist = math.dist(w['pos'][::2], [ox, oz])
+        ok = (not w['wet']) and w['on_ground'] and hdist > 5
         if ok and held is None: held = time.time()
         if not ok: held = None
         if held and time.time() - held >= 30: escaped = time.time() - t1 - 30; break
         log(f"pos={['%.1f' % v for v in w['pos']]} on_ground={w['on_ground']} wet={w['wet']} dist={w['dist']:.1f}")
     time.sleep(5)
 final = where()
-print(json.dumps({'fixture': name, 'bot': a.bot, 'escaped': escaped is not None, 'seconds': round(escaped, 1) if escaped is not None else None, 'minutes_watched': a.minutes, 'final': final}, default=str))
+print(json.dumps({'fixture': name, 'bot': a.bot, 'escaped': escaped is not None, 'seconds': round(escaped, 1) if escaped is not None else None, 'minutes_watched': a.minutes, 'final': final, 'dy_from_start': round(final['pos'][1] - pos[1], 1) if final else None}, default=str))
 cmd(f'forceload remove {x0*16} {z0*16} {x1*16+15} {z1*16+15}')
