@@ -165,7 +165,7 @@ test('the hook is wired and emits a liveness counter', async () => {
   const src = fs.readFileSync(path.join(
     path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'cognitive.mjs'), 'utf8')
   const exec = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  assert.match(exec, /const order = orderFor\(readyFor\(this\.bot, milestone\)\)/)
+  assert.match(exec, /(?:const|let) order = orderFor\(readyFor\(this\.bot, milestone\)\)/)
   assert.match(exec, /kind: 'work_order'/, 'it must be observable or it can ship inert')
   // Synthesised as a PROPOSAL so admission still vets it and the outcome still
   // feeds noteAttempt -- bypassing those would let a bot loop forever on an

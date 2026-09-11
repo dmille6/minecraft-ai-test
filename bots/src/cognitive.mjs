@@ -14,8 +14,8 @@ import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
-import { MilestoneController } from './milestones.mjs'
-import { orderFor, readyFor } from './workorder.mjs'
+import { MilestoneController, conversionsAvailable } from './milestones.mjs'
+import { orderFor, readyFor, carryOrderFor, carryGate, carrySuppressed, stationInReach } from './workorder.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
 // wrote and hands back a taxonomy label, which is a guess wearing a
@@ -180,6 +180,7 @@ export class CognitiveLoop {
     // bot is standing in right now. Persisting it across a reconnect would
     // restore a shopping list for a hole the bot is no longer in.
     this.prereq = null
+    this.carry = null          // carryGate state: off-rung order loop guard
     this.lessons = lessons ?? openLessons()
     this.worldFacts = worldFacts
     // Invalidate what this bot learned about any skill whose code has changed.
@@ -551,7 +552,33 @@ export class CognitiveLoop {
     // learned_avoid), the outcome still feeds `milestones.noteAttempt`, so a
     // work order that keeps failing still counts toward the give-up. Bypassing
     // that would let a bot loop forever on an impossible rung by a new door.
-    const order = orderFor(readyFor(this.bot, milestone))
+    let order = orderFor(readyFor(this.bot, milestone))
+    // CONVERT WHAT YOU CARRY. When the active rung has nothing to order, look
+    // back down the tech ladder for the first rung the bot has the means for
+    // and has not met -- see conversionAvailable. Gated per item so a rung the
+    // skill keeps refusing cannot be ordered every 30 s forever (the bucket
+    // shape); the gate trips into a 30-minute suppression and says so once.
+    let carryRung = null
+    if (!order) {
+      const now = Date.now()
+      const candidates = conversionsAvailable(this.bot, { stationNear: stationInReach })
+      for (const rung of candidates) {
+        if (carrySuppressed(this.carry, rung.wants, now)) continue
+        const o = carryOrderFor(this.bot, rung)      // readyFor: the skill's own predicate
+        if (!o) continue                             // not orderable now: try the next rung
+        const gate = carryGate(this.carry, rung.wants, now)
+        this.carry = gate.state
+        if (gate.tripped) {
+          logEvent({ kind: 'work_order_loop',
+                     detail: `${rung.wants}: ordered twice without the rung completing; suppressed for 30 min`,
+                     snapshot: snap })
+          continue
+        }
+        if (!gate.allow) continue
+        order = o; carryRung = rung
+        break
+      }
+    }
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
@@ -576,8 +603,13 @@ export class CognitiveLoop {
       // under a deposit goal and not worth a 800-block walk otherwise. Set here
       // rather than passed, because every other check() argument is about the
       // PROPOSAL and this is about the bot's current obligation.
-      this.admission.activeMilestoneId = milestone?.id ?? null
-      const check = this.admission.check(res.proposal, this.bot, this.#wantedItems(milestone))
+      // A carry order is judged as the rung it serves: its wanted set is what
+      // exempts a milestone-critical craft from learned_avoid, and without it
+      // the fallback would be vetoed by the same rule that blacklisted the
+      // wooden pickaxe on 70 of 80 bots.
+      const judged = carryRung ?? milestone
+      this.admission.activeMilestoneId = judged?.id ?? null
+      const check = this.admission.check(res.proposal, this.bot, this.#wantedItems(judged))
       if (check.ok) admitted = check
       else rejection = check
     }
@@ -672,7 +704,7 @@ export class CognitiveLoop {
         // question and belongs at this altitude: was the change the one we
         // currently want? That governs preference and hazards only.
         const { value, because } = classifyOutcome(
-          admitted.skill, r.status, r.delta ?? {}, this.#wantedItems(milestone))
+          admitted.skill, r.status, r.delta ?? {}, this.#wantedItems(carryRung ?? milestone))
 
         // THE DISPROOF CHANNEL MUST BE AT LEAST AS WIDE AS THE ACCRUAL CHANNEL.
         //
@@ -783,7 +815,11 @@ export class CognitiveLoop {
     // window lost it, sending the bot back through 25 more attempts at a goal
     // it had already proven impossible.
     this.lessons.save()
-    if (this.milestones.noteAttempt(outcome.status !== 'success')) {
+    // A CARRY ORDER MUST NOT CHARGE THE ACTIVE RUNG. noteAttempt counts
+    // whatever rung is active; a furnace ordered off-rung that fails would
+    // otherwise count against patrol or gather_iron_ore and, at 25, skip it.
+    // The carry order has its own budget (carryGate).
+    if (!carryRung && this.milestones.noteAttempt(outcome.status !== 'success')) {
       const sk = this.milestones.status()
       log('warn', 'milestone unreachable, skipping', { now: sk.id })
       this.memory.addEvent(`gave up on the previous goal as unreachable; now: ${sk.describe}`)

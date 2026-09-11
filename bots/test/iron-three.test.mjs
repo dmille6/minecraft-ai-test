@@ -89,13 +89,15 @@ test('NO ORE IN REACH: the rung still costs nothing, which is the ladder rule', 
 
 // --- what the iron is FOR ----------------------------------------------------
 
-test('a bucket rung exists, and it comes BEFORE the pickaxe', () => {
+test('a bucket rung exists, and the pickaxe comes BEFORE it', () => {
   const ids = SUSTAINING.map(m => m.id)
   const b = ids.indexOf('craft_bucket_1'), p = ids.indexOf('craft_iron_pickaxe_1')
   assert.ok(b >= 0, 'no bucket rung: ' + ids.join(','))
-  assert.ok(b < p, `bucket must precede the pickaxe; got bucket@${b} pickaxe@${p}`)
-  // Both cost the same three ingots. The pickaxe's only unlock is diamond,
-  // which this project has already measured as driving the endpoint DOWN.
+  // Both cost the same three ingots. This used to assert bucket-first, priced
+  // on water being 47% of telemetry; the owner has since ruled water is
+  // terrain and the endpoint is tech tier. Measured 2026-09-11: 29 bucket
+  // crafts, 1 success, 6 of 80 bots on iron. Pickaxe first (both reviews).
+  assert.ok(p < b, `the pickaxe must precede the bucket; got bucket@${b} pickaxe@${p}`)
 })
 
 test('the bucket rung needs three ingots and a table, like the recipe does', () => {

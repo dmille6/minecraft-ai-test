@@ -70,7 +70,7 @@ export const rungId = id => String(id ?? '').replace(CYCLE_SUFFIX, '')
  * twelve-block walk is not "already". The model can still choose to craft and
  * make the walk itself -- declining here removes a wasted order, not an option.
  */
-function stationInReach (bot, name) {
+export function stationInReach (bot, name) {
   const b = bot.findBlock?.({
     matching: blk => bot.registry?.blocks?.[blk.type]?.name === name,
     maxDistance: Math.ceil(STATION_REACH) + 1,
@@ -159,4 +159,50 @@ export function readyFor (bot, milestone) {
     } catch { smeltReady = false; smeltInput = null }
   }
   return { id, wants, craftReady, smeltReady, smeltInput }
+}
+
+/**
+ * The order for a rung the bot carries the means for, off the active rung.
+ * Same predicates, one extra word in the reason so the log can tell them apart.
+ */
+export function carryOrderFor (bot, rung) {
+  const order = orderFor(readyFor(bot, rung))
+  if (!order) return null
+  return { ...order, carry: true, why: `convert what you carry: ${order.why}` }
+}
+
+/**
+ * A LOOP GUARD FOR OFF-RUNG ORDERS. The active rung has `noteAttempt` and a
+ * 25-attempt give-up; a carry order is deliberately kept out of that (it must
+ * not charge the active rung), so it needs its own. The bucket shape -- six
+ * identical orders in three minutes, 29 attempts, one success -- is what an
+ * ungated fallback would produce forever.
+ *
+ * Pure; the caller keeps `state`, a map of item -> {count, until}. Counts only
+ * orders that were ISSUED (the caller calls this after readyFor said yes), so
+ * a candidate the recipe refuses does not spend the budget. Per item, so
+ * suppressing the furnace does not touch the pickaxe and alternating items do
+ * not launder a loop. `limit` is 2: one attempt, and one 30 s later that the
+ * admission layer's 45 s failure cooldown will usually reject -- a third would
+ * only add a rejection, and three consecutive rejections trigger the livelock
+ * escape, which walks the bot away from the station it needs.
+ */
+export const CARRY_LIMIT = 2
+export const CARRY_COOL_MS = 30 * 60 * 1000
+export function carryGate (state, item, now, { limit = CARRY_LIMIT, coolMs = CARRY_COOL_MS } = {}) {
+  const all = { ...(state || {}) }
+  const st = { ...(all[item] || { count: 0, until: 0 }) }
+  if (st.until && now < st.until) { all[item] = st; return { allow: false, tripped: false, state: all } }
+  if (st.until && now >= st.until) { st.count = 0; st.until = 0 }
+  if (st.count >= limit) {
+    st.until = now + coolMs; st.count = 0; all[item] = st
+    return { allow: false, tripped: true, state: all }
+  }
+  st.count += 1; all[item] = st
+  return { allow: true, tripped: false, state: all }
+}
+/** Is `item` currently suppressed? Read-only; lets the caller skip a candidate. */
+export function carrySuppressed (state, item, now) {
+  const st = state?.[item]
+  return !!(st && st.until && now < st.until)
 }
