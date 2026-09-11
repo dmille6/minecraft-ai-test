@@ -765,10 +765,11 @@ export class CognitiveLoop {
       })
       // Name WHAT was vetoed, args included: "rejected: cooldown (...)" left the
       // model to guess which proposal it was, and it guessed the same one again.
-      const what = res.proposal?.skill
-        ? `${res.proposal.skill} ${Object.entries(res.proposal.args ?? {}).map(([k, v]) => `${k}=${v}`).join(' ')}`.trim()
-        : 'proposal'
-      this.lastOutcome = `rejected ${what}: ${why}`.slice(0, 160)
+      // The reason must survive the cap: the proposal is clipped, the reason is not.
+      const what = (res.proposal?.skill
+        ? `${res.proposal.skill} ${Object.entries(res.proposal.args ?? {}).map(([k, v]) => `${k}=${String(v ?? '').slice(0, 32)}`).join(' ')}`.trim()
+        : 'proposal').slice(0, 60)
+      this.lastOutcome = `rejected ${what}: ${String(why ?? '').slice(0, 96)}`
       this.memory.addEvent(this.lastOutcome)
 
       // A veto alone is a LIVELOCK: the model re-proposes the same action, the

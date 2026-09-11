@@ -35,6 +35,20 @@ t('offLimitsLine renders args and seconds, and is empty when nothing is off-limi
   assert.match(line, /^OFF-LIMITS/); assert.match(line, /gather block=oak_log \(41s\)/); assert.match(line, /goto x=380 y=63 z=235 \(12s\)/)
 })
 
+t('offLimitsLine is bounded: fields clipped and de-lined, the whole line capped, six long entries still fit the cap', () => {
+  const long = offLimitsLine([{ skill: 'gather', args: { block: 'x'.repeat(200), note: 'a\nb' }, secondsLeft: 9 }])
+  assert.ok(long.length <= 240, `line ${long.length} > 240`); assert.ok(!/\n/.test(long)); assert.match(long, /block=x{32}[ )]/)
+  const six = offLimitsLine(Array.from({ length: 6 }, (_, i) => ({ skill: 'gather', args: { block: 'deepslate_redstone_ore_' + i, count: 64 }, secondsLeft: 40 - i })))
+  assert.ok(six.length <= 240 && six.startsWith('OFF-LIMITS'), 'six long entries are truncated to the cap, never dropped as a whole')
+  assert.equal(offLimitsLine([{ skill: 'goto', args: {}, secondsLeft: -3 }]), 'OFF-LIMITS (failed recently; the gate refuses these until the timer ends, choose something else): goto (0s)')
+})
+
+t('an expired entry vanishes at the next snapshot (the action is eligible again)', () => {
+  const ac = new AdmissionControl(null); const now = 5_000_000
+  ac.failedCooldowns.set('gather:{"block":"oak_log"}', now + 1_000)
+  assert.equal(ac.offLimits(now).length, 1); assert.equal(ac.offLimits(now + 1_000).length, 0)
+})
+
 const promptWith = (offLimits) => {
   const bot = {
     entity: { position: { x: 0, y: 64, z: 0, distanceTo: () => 6 } }, health: 20, food: 20, time: { day: 1, age: 1 },
@@ -54,7 +68,8 @@ const COG = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8
 t('the loop passes the gate\'s refusals to the prompt and names the vetoed proposal, args included', () => {
   const c = strip(COG)
   assert.match(c, /offLimits: this\.admission\.offLimits\(\)/, 'buildUserPrompt must receive the live off-limits table')
-  assert.match(c, /this\.lastOutcome = `rejected \$\{what\}: \$\{why\}`/, 'the rejection names what was vetoed')
+  assert.match(c, /this\.lastOutcome = `rejected \$\{what\}: \$\{String\(why \?\? ''\)\.slice\(0, 96\)\}`/, 'the rejection names what was vetoed and keeps the reason')
+  assert.match(c, /: 'proposal'\)\.slice\(0, 60\)/, 'the proposal is clipped so the reason survives')
 })
 t('MUTANT: dropping the wiring is caught', () => {
   const anchor = 'offLimits: this.admission.offLimits(),'

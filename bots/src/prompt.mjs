@@ -672,13 +672,25 @@ export function bucketSituation (bot) {
  * The gate's current refusals, as one line the model can act on. Empty when
  * nothing is off-limits, so an idle bot's prompt does not grow.
  */
+export const OFF_LIMITS_FIELD_MAX = 32      // longest real block/item name is ~20
+export const OFF_LIMITS_LINE_MAX = 240       // ~60 tokens: bounded whatever the gate holds
+const clipField = v => String(v ?? '').replace(/[\r\n\t]+/g, ' ').slice(0, OFF_LIMITS_FIELD_MAX)
 export function offLimitsLine(entries) {
   if (!Array.isArray(entries) || entries.length === 0) return ''
   const items = entries.map(e => {
-    const a = Object.entries(e.args ?? {}).map(([k, v]) => `${k}=${v}`).join(' ')
-    return `${e.skill}${a ? ' ' + a : ''} (${e.secondsLeft}s)`
+    const a = Object.entries(e.args ?? {}).map(([k, v]) => `${clipField(k)}=${clipField(v)}`).join(' ')
+    return `${clipField(e.skill)}${a ? ' ' + a : ''} (${Math.max(0, Number(e.secondsLeft) || 0)}s)`
   })
-  return `OFF-LIMITS (failed recently; the gate refuses these until the timer ends, choose something else): ${items.join(', ')}`
+  // A prompt-time snapshot of exact gate keys: an entry vanishes when its timer
+  // ends, and the same action is then eligible again (subject to every other check).
+  const head = 'OFF-LIMITS (failed recently; the gate refuses these until the timer ends, choose something else): '
+  let body = ''
+  for (const it of items) {
+    const next = body ? `${body}, ${it}` : it
+    if (head.length + next.length > OFF_LIMITS_LINE_MAX) break
+    body = next
+  }
+  return body ? head + body : ''
 }
 
 export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, offLimits }) {
