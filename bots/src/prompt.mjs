@@ -668,7 +668,20 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
+/**
+ * The gate's current refusals, as one line the model can act on. Empty when
+ * nothing is off-limits, so an idle bot's prompt does not grow.
+ */
+export function offLimitsLine(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return ''
+  const items = entries.map(e => {
+    const a = Object.entries(e.args ?? {}).map(([k, v]) => `${k}=${v}`).join(' ')
+    return `${e.skill}${a ? ' ' + a : ''} (${e.secondsLeft}s)`
+  })
+  return `OFF-LIMITS (failed recently; the gate refuses these until the timer ends, choose something else): ${items.join(', ')}`
+}
+
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, offLimits }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
   const inv = inventorySummary(bot)
@@ -696,6 +709,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       ? `KNOWN PLACES: ${Object.entries(memory.locations).map(([k, v]) => `${k}(${v.x},${v.y},${v.z})`).join(', ')}`
       : '',
     lastOutcome ? `LAST ACTION: ${lastOutcome}` : '',
+    offLimitsLine(offLimits),
     ``,
     // Persistent across restarts, unlike RECENT EVENTS. This is the only part
     // of the prompt that carries experience from previous runs, and it is

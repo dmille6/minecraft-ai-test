@@ -518,6 +518,7 @@ export class CognitiveLoop {
     const { user, tokens, dropped, affordance } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory,
       lastOutcome: this.lastOutcome, trigger, sentinel,
+      offLimits: this.admission.offLimits(),
       // Own experience first, then what peers reported. Peer lines carry the
       // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
       // weigh first-hand knowledge against hearsay, and so a bad fact can be
@@ -762,7 +763,12 @@ export class CognitiveLoop {
             ` reporters=${(rejection.cited.reporters ?? ['-']).join('+')}`
           : undefined,
       })
-      this.lastOutcome = `rejected: ${why}`.slice(0, 160)
+      // Name WHAT was vetoed, args included: "rejected: cooldown (...)" left the
+      // model to guess which proposal it was, and it guessed the same one again.
+      const what = res.proposal?.skill
+        ? `${res.proposal.skill} ${Object.entries(res.proposal.args ?? {}).map(([k, v]) => `${k}=${v}`).join(' ')}`.trim()
+        : 'proposal'
+      this.lastOutcome = `rejected ${what}: ${why}`.slice(0, 160)
       this.memory.addEvent(this.lastOutcome)
 
       // A veto alone is a LIVELOCK: the model re-proposes the same action, the

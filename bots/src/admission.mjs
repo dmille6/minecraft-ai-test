@@ -166,6 +166,25 @@ export class AdmissionControl {
     this.failedCooldowns.delete(AdmissionControl.key(skill, args))
   }
 
+  /**
+   * WHAT THE GATE WILL REFUSE RIGHT NOW, for the prompt. Three cooldown canaries
+   * (2026-09-11) showed the model re-proposing a just-vetoed action: it was told
+   * "rejected: cooldown (gather with these args failed recently)" and nothing
+   * about WHICH args or WHAT ELSE is off-limits. Unexpired entries only, longest
+   * first, capped so the prompt cannot grow with the failure count.
+   */
+  offLimits(now = Date.now(), { max = 6 } = {}) {
+    const out = []
+    for (const [key, until] of this.failedCooldowns) {
+      if (until <= now) continue
+      const i = key.indexOf(':')
+      let args = {}
+      try { args = JSON.parse(key.slice(i + 1)) } catch { args = {} }
+      out.push({ key, skill: key.slice(0, i), args, secondsLeft: Math.ceil((until - now) / 1000) })
+    }
+    return out.sort((a, b) => b.secondsLeft - a.secondsLeft).slice(0, max)
+  }
+
   /** Called after an escape action, so the model gets a clean slate to choose from. */
   clearRepeatWindow() { this.recent = [] }
 
