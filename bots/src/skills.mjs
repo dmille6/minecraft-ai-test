@@ -1930,6 +1930,67 @@ async function home(ctx, _args, signal) {
 }
 
 // ------------------------------------------------------------- deposit -----
+/**
+ * WALK TO A CONTAINER AND SAY HOW CLOSE YOU GOT. Shared by deposit and withdraw.
+ *
+ * deposit called goto() bare and then openContainer() from wherever it stood.
+ * The walk swallows nothing, so a NoPath or GoalChanged surfaced as
+ * `skill_error`, and a walk that fell short went on to ask the server to open
+ * a chest it could not reach -- which it never does, so mineflayer sat there
+ * until `Event windowOpen did not fire within timeout of 20000ms`. Measured
+ * 2026-09-11, 3 h, full walk: 285 deposit runs, 29 of those stalls on 7 bots
+ * (one bot at y=-25 hit it five times in a row), 34 "No path to the goal!",
+ * 21 "goal was changed", 9 think timeouts -- 97 of 285 runs (34%) lost in
+ * the walk or the open, twenty seconds each for the stalls. craft learned this
+ * on the same line (see STATION_REACH) and withdraw had half of it.
+ *
+ * Two goals like craft and smelt: GoalNear(1) is adjacent, GoalNear(3) is the
+ * fallback that still leaves the bot in reach. Then the reach is MEASURED, not
+ * assumed, and the caller decides.
+ */
+async function reachContainer (ctx, block, signal, { budgetMs = 20000 } = {}) {
+  const { bot } = ctx
+  for (const range of [1, 3]) {
+    check(signal)
+    try {
+      await withTimeout(bot.pathfinder.goto(new goals.GoalNear(
+        block.position.x, block.position.y, block.position.z, range)), budgetMs, bot)
+      break
+    } catch (e) { if (e.aborted || signal?.aborted) throw e /* try the looser goal, then measure */ }
+  }
+  check(signal)
+  const reach = bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5))
+  const ok = reach <= STATION_REACH
+  if (ok) { try { await bot.lookAt?.(block.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ } }
+  return { ok, reach }
+}
+
+/**
+ * OPEN A CONTAINER ON A CLOCK. mineflayer's own windowOpen timeout is 20 s and
+ * it is not the bot's budget to spend; after reachContainer said yes, a window
+ * that has not opened in 8 s is the server refusing, not the server thinking.
+ * On timeout any half-open window is closed so the next click does not land
+ * in the wrong slot numbering (the hung-window rival from the equip review).
+ */
+export const OPEN_CONTAINER_MS = 8000
+async function openBounded (bot, block, signal, { budgetMs = OPEN_CONTAINER_MS } = {}) {
+  let timedOut = false
+  const opening = bot.openContainer(block)
+  // Promise.race does not cancel. A window that arrives AFTER the budget would
+  // set bot.currentWindow behind the next skill's back and its clicks would
+  // land in the chest's slot numbering (Codex review). So the late window is
+  // closed as it arrives, not only the one present at the timeout.
+  opening.then(w => { if (timedOut) { try { if (w?.close) w.close(); else bot.closeWindow(w) } catch { /* already gone */ } } },
+               () => { /* a late rejection is nobody's problem */ })
+  return withTimeout(opening, budgetMs, bot, {
+    what: 'container_open',
+    onTimeout: () => {
+      timedOut = true
+      try { if (bot.currentWindow) bot.closeWindow(bot.currentWindow) } catch { /* nothing open */ }
+    },
+  })
+}
+
 async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null } = {}) {
   const { bot } = ctx
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
@@ -1980,10 +2041,40 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
              detail: 'no chest or barrel within 48 blocks, even at home' }
   }
 
-  await bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
-  check(signal)
+  const got = await reachContainer(ctx, chestBlock, signal)
+  if (!got.ok) {
+    // THE REMEDY MAY BE IN ITS POCKET, like smelt's furnace and craft's table:
+    // a carried chest placed here is a chest in reach. Once, not recursively --
+    // the same noRecovery that bounds the full-chest retry bounds this.
+    const carried = bot.inventory.items().some(i => i.name === 'chest' || i.name === 'barrel')
+    if (!noRecovery && carried) {
+      check(signal)
+      const put = await place(ctx, { item: bot.inventory.items().find(i => i.name === 'chest') ? 'chest' : 'barrel' }, signal)
+      if (put.status === 'success' && put.at) {
+        return deposit(ctx, { item }, signal, { noRecovery: true, preferAt: put.at })
+      }
+    }
+    return { status: 'failed', failClass: 'no_path',
+             detail: `the chest at ${chestBlock.position.x},${chestBlock.position.z} is ${Math.round(got.reach)} blocks away ` +
+                     `and could not be reached — deposit needs one within 4 blocks; move to ` +
+                     `${chestBlock.position.x},${chestBlock.position.z} first` +
+                     (carried && !noRecovery ? ' (placing the one you carry did not help either)' : '') }
+  }
 
-  const chest = await bot.openContainer(chestBlock)
+  let chest
+  try {
+    chest = await openBounded(bot, chestBlock, signal)
+  } catch (e) {
+    if (e.aborted || signal?.aborted) throw e
+    // Name the real problem, as craft does: a window that would not open is
+    // the server refusing (out of reach, or the block is gone), not a crash.
+    // A BUDGET EXPIRY KEEPS ITS OWN CLASS: no_path is evidence the lessons
+    // store learns from, and eight seconds of a server not answering is not
+    // evidence that `deposit` is a bad idea here (Codex review).
+    return { status: 'failed', failClass: e.budgetExceeded ? e.failClass : 'no_path',
+             detail: `could not open the chest at ${chestBlock.position.x},${chestBlock.position.z} — ` +
+                     `${String(e.message).slice(0, 60)}; stand next to it and face it first` }
+  }
   let moved = 0
   // NOTHING TO HAND OVER IS NOT A FAILURE, AND CONFLATING THE TWO FAKED A NUMBER.
   //
@@ -3249,16 +3340,23 @@ async function withdraw(ctx, { item = null, count = 16 }, signal) {
   })
   if (!chestBlock) return { status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks' }
 
-  check(signal)
-  try {
-    await withTimeout(bot.pathfinder.goto(
-      new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2)), 20000, bot)
-  } catch {
-    return { status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${chestBlock.position.x},${chestBlock.position.z}` }
+  const got = await reachContainer(ctx, chestBlock, signal)
+  if (!got.ok) {
+    return { status: 'failed', failClass: 'no_path',
+             detail: `the chest at ${chestBlock.position.x},${chestBlock.position.z} is ${Math.round(got.reach)} blocks away ` +
+                     `and could not be reached — withdraw needs one within 4 blocks; move to ` +
+                     `${chestBlock.position.x},${chestBlock.position.z} first` }
   }
-  check(signal)
 
-  const chest = await bot.openContainer(chestBlock)
+  let chest
+  try {
+    chest = await openBounded(bot, chestBlock, signal)
+  } catch (e) {
+    if (e.aborted || signal?.aborted) throw e
+    return { status: 'failed', failClass: e.budgetExceeded ? e.failClass : 'no_path',
+             detail: `could not open the chest at ${chestBlock.position.x},${chestBlock.position.z} — ` +
+                     `${String(e.message).slice(0, 60)}; stand next to it and face it first` }
+  }
   try {
     const items = chest.containerItems()
     if (!items.length) {
