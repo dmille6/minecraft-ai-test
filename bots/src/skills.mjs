@@ -35,7 +35,7 @@ import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
-import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, RETRY_CAP_MS } from './digapproach.mjs'
+import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -484,7 +484,12 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
           // hold a bare-handed dig made floating (x5) in water (x5): hive-b-Delta
           // spent three 25 s retries under a stone lid it needed 187 s to break
           // (canary hole-walks-01). digapproach.mjs says how it is priced.
-          const retryPlan = planDigRetry(bot, bot.ascentMovements, goal)
+          // A GROUNDED BOT KEEPS THE OLD RETRY EXACTLY: no planning pass, the
+          // flat clock. The plan-then-price path exists for the floating case
+          // only, so the change is one variable on the fleet (Codex review).
+          const retryPlan = bot.entity.onGround
+            ? { status: 'grounded', path: [], digMs: 0, budgetMs: 25000, notOnGround: false }
+            : planDigRetry(bot, bot.ascentMovements, goal)
           const retryBudget = retryPlan.budgetMs
           let retryErr = null
           // A FLOATING BOT NEVER DIGS THROUGH THE PATHFINDER: its executor
@@ -495,14 +500,34 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
           // own priced clock, cancelled the way withTimeout cancels a dig.
           let floatDug = 0
           for (const { block, digMs } of floatDigTargets(bot, retryPlan.path)) {
+            // Re-read the target the instant before digging: the world and the
+            // bot have moved since the plan was priced (digapproach.floatDigOk).
+            const gate = floatDigOk(bot, block)
+            if (!gate.ok) {
+              logEvent({ kind: 'goto_float_dig', status: 'skipped',
+                         detail: `${block.name} at ${block.position.x},${block.position.y},${block.position.z}: ${gate.why}` })
+              break
+            }
             const d0 = Date.now(); let ok = true; let why = ''
+            // The skill's abort must reach THIS dig: stopping the pathfinder
+            // does not stop a direct bot.dig.
+            const onAbort = () => { try { bot.stopDigging() } catch {} }
+            signal?.addEventListener?.('abort', onAbort, { once: true })
             try {
               await withTimeout(bot.dig(block, true), Math.min(RETRY_CAP_MS, digMs + 5000), bot,
-                                { what: 'float dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging() } catch {} } })
+                                { what: 'float dig', needsDrop: false, onTimeout: onAbort })
             } catch (e) { ok = false; why = String(e?.message || e).slice(0, 80) }
+            finally { signal?.removeEventListener?.('abort', onAbort) }
+            // mineflayer sets the block to air locally when its timer runs out;
+            // only the server's next update says whether the dig was accepted.
+            let confirmed = null
+            if (ok) {
+              await sleep(500)
+              try { confirmed = (bot.blockAt(block.position)?.name ?? '?') === 'air' } catch { confirmed = null }
+            }
             logEvent({ kind: 'goto_float_dig', status: ok ? 'success' : 'failed',
                        detail: `${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
-                               `priced ${Math.round(digMs)}ms took ${Date.now() - d0}ms${why ? ' ' + why : ''}` })
+                               `priced ${Math.round(digMs)}ms took ${Date.now() - d0}ms confirmed=${confirmed}${why ? ' ' + why : ''}` })
             if (!ok) break
             floatDug++
             check(signal)

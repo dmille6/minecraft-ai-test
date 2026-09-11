@@ -8,7 +8,7 @@
 // its clock from the plan under the bot's REAL conditions.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { approachDigCost, digRetryBudgetMs, planDigRetry, floatDigTargets, RETRY_BASE_MS, RETRY_MARGIN_MS, RETRY_CAP_MS } from '../src/digapproach.mjs'
+import { approachDigCost, digRetryBudgetMs, planDigRetry, floatDigTargets, floatDigOk, RETRY_BASE_MS, RETRY_MARGIN_MS, RETRY_CAP_MS } from '../src/digapproach.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -75,13 +75,32 @@ t('planDigRetry prefers mineflayer\'s own bot.digTime (eye-level water, held ite
 t('floatDigTargets: a grounded bot digs nothing itself; a floating bot gets the first digging move\'s blocks, distinct, reachable, at most max', () => {
   assert.deepEqual(floatDigTargets(fakeBot({ inWater: false, onGround: true }), lidPath), [])
   const b = fakeBot({ inWater: true, onGround: false }); b.digTime = () => 37500; b.canDigBlock = () => true
-  const path = [{ toBreak: [] }, { toBreak: [{ x: 406, y: 64, z: 235 }, { x: 406, y: 64, z: 235 }, { x: 406, y: 65, z: 235 }, { x: 406, y: 66, z: 235 }, { x: 406, y: 67, z: 235 }] }, { toBreak: [{ x: 1, y: 1, z: 1 }] }]
+  const path = [{ toBreak: [{ x: 406, y: 64, z: 235 }, { x: 406, y: 64, z: 235 }, { x: 406, y: 65, z: 235 }, { x: 406, y: 66, z: 235 }, { x: 406, y: 67, z: 235 }] }, { toBreak: [{ x: 1, y: 1, z: 1 }] }]
+  assert.deepEqual(floatDigTargets(b, [{ toBreak: [] }, ...path]), [], 'a dig behind a walk is the executor\'s, not a dig from here')
   const t3 = floatDigTargets(b, path)
   assert.equal(t3.length, 3, 'distinct blocks of the FIRST digging move, capped at 3')
   assert.deepEqual(t3.map(x => x.block.position.y), [64, 65, 66]); assert.equal(t3[0].digMs, 37500)
   b.canDigBlock = blk => blk.position.y !== 65
   assert.deepEqual(floatDigTargets(b, path).map(x => x.block.position.y), [64, 66, 67], 'out-of-reach blocks are skipped, the cap still fills')
   assert.deepEqual(floatDigTargets(b, [{ toBreak: [] }]), [], 'a plan with no digs has no float targets')
+})
+
+t('floatDigOk re-reads the world: refuses when grounded, gone, out of reach, under the feet, or beside lava', () => {
+  const lid = { name: 'stone', position: { x: 406, y: 64, z: 235 }, boundingBox: 'block' }
+  const world = {}
+  const mk = (over = {}) => ({ entity: { position: { x: 406.3, y: 62.2, z: 235.3 }, onGround: false, ...over },
+    blockAt: p => world[`${p.x},${p.y},${p.z}`] ?? { name: 'stone', position: p, boundingBox: 'block' }, canDigBlock: () => true })
+  assert.equal(floatDigOk(mk(), lid).ok, true)
+  assert.equal(floatDigOk(mk({ onGround: true }), lid).why, 'grounded')
+  world['406,64,235'] = { name: 'air', position: lid.position, boundingBox: 'empty' }
+  assert.equal(floatDigOk(mk(), lid).why, 'already open'); delete world['406,64,235']
+  const far = mk(); far.canDigBlock = () => false
+  assert.equal(floatDigOk(far, lid).why, 'out of reach')
+  assert.equal(floatDigOk(mk({ position: { x: 406.3, y: 65.0, z: 235.3 } }), lid).why, 'under my feet')
+  world['407,64,235'] = { name: 'lava', position: { x: 407, y: 64, z: 235 } }
+  assert.match(floatDigOk(mk(), lid).why, /^lava at 407,64,235/); delete world['407,64,235']
+  world['407,64,235'] = { name: 'water', position: { x: 407, y: 64, z: 235 } }
+  assert.equal(floatDigOk(mk(), lid).ok, true, 'water beside the block is allowed: the bot is already in water')
 })
 
 const RAW = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
@@ -91,7 +110,7 @@ const retryBlock = code => {
 }
 t('the goto dig retry runs on the planned budget, and the mark names it', () => {
   const b = retryBlock(strip(RAW))
-  assert.match(b, /const retryPlan = planDigRetry\(bot, bot\.ascentMovements, goal\)/)
+  assert.match(b, /planDigRetry\(bot, bot\.ascentMovements, goal\)/)
   assert.match(b, /withTimeout\(bot\.pathfinder\.goto\(goal\), retryBudget, bot, \{ needsDrop: false \}\)/)
   assert.match(b, /budget=\$\{retryBudget\}ms plan=\$\{retryPlan\.status\} planned_dig=/)
 })
@@ -100,6 +119,14 @@ t('a floating bot breaks the plan\'s first blocks itself before goto, and the ma
   const f = b.indexOf('floatDigTargets(bot, retryPlan.path)'), g = b.indexOf('pathfinder.goto(goal), retryBudget')
   assert.ok(f > 0 && g > f, 'the float dig must run before the goto on the planned budget')
   assert.match(b, /kind: 'goto_float_dig'/); assert.match(b, /float_dug=\$\{floatDug\}/)
+  const gv = b.indexOf('const gate = floatDigOk(bot, block)'), dv = b.indexOf('bot.dig(block, true)')
+  assert.ok(gv > 0 && dv > gv, 'every float dig is re-validated the instant before it starts')
+  assert.match(b, /addEventListener\?\.\('abort', onAbort/, 'the skill abort reaches the direct dig')
+  assert.match(b, /confirmed=\$\{confirmed\}/, 'the mark says whether the server kept the hole')
+})
+t('a GROUNDED bot keeps the old retry exactly: no planning pass, the flat 25 s clock', () => {
+  const b = retryBlock(strip(RAW))
+  assert.match(b, /const retryPlan = bot\.entity\.onGround\s*\?\s*\{ status: 'grounded', path: \[\], digMs: 0, budgetMs: 25000, notOnGround: false \}\s*:\s*planDigRetry\(bot, bot\.ascentMovements, goal\)/)
 })
 t('MUTANT: removing the float dig is caught', () => {
   const anchor = 'for (const { block, digMs } of floatDigTargets(bot, retryPlan.path)) {'

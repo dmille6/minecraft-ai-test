@@ -474,8 +474,11 @@ export function observeApproachDig (bot, { pollMs = 200 } = {}) {
 export function floatDigTargets (bot, path, { max = 3 } = {}) {
   if (!bot?.entity || bot.entity.onGround) return []
   if (!Array.isArray(path)) return []
-  const mv = path.find(m => Array.isArray(m?.toBreak) && m.toBreak.length > 0)
-  if (!mv) return []
+  // Only the FIRST move: the executor digs in path order, and a dig that
+  // sits behind a walk or a placement is not a dig from here. If the plan
+  // walks first, the walk is the executor's to try (Codex review).
+  const mv = path[0]
+  if (!Array.isArray(mv?.toBreak) || mv.toBreak.length === 0) return []
   const out = []; const seen = new Set()
   for (const b of mv.toBreak) {
     if (!b || out.length >= max) break
@@ -495,4 +498,38 @@ export function floatDigTargets (bot, path, { max = 3 } = {}) {
     out.push({ block, digMs: Number.isFinite(digMs) && digMs > 0 ? digMs : 0 })
   }
   return out
+}
+
+
+/**
+ * Re-read a float-dig target the instant before digging it. Targets are
+ * priced once; the world and the bot move. Refuse when the bot has since
+ * found ground (the executor will dig, with its own checks), when the block
+ * is gone or no longer reachable, when it is the block under the bot's feet
+ * (a floating bot has none, but a bot that drifted onto a ledge does), or
+ * when lava touches it. Water beside it is allowed: the bot is already in
+ * water, and a pocket cannot flood a bot that is floating in it.
+ */
+export function floatDigOk (bot, block) {
+  if (!bot?.entity || bot.entity.onGround) return { ok: false, why: 'grounded' }
+  const pos = block?.position
+  if (!pos) return { ok: false, why: 'no block' }
+  let now = null
+  try { now = bot.blockAt?.(pos) ?? null } catch { now = null }
+  if (!now || !now.name || now.name === 'air' || now.boundingBox === 'empty') return { ok: false, why: 'already open' }
+  if (typeof bot.canDigBlock === 'function') {
+    let ok = false
+    try { ok = !!bot.canDigBlock(now) } catch { ok = false }
+    if (!ok) return { ok: false, why: 'out of reach' }
+  }
+  const p = bot.entity.position
+  if (p && Math.floor(p.x) === pos.x && Math.floor(p.z) === pos.z && pos.y === Math.floor(p.y) - 1) {
+    return { ok: false, why: 'under my feet' }
+  }
+  for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+    let n = null
+    try { n = bot.blockAt?.({ x: pos.x + dx, y: pos.y + dy, z: pos.z + dz }) ?? null } catch { n = null }
+    if (n && /lava/.test(n.name || '')) return { ok: false, why: `lava at ${pos.x + dx},${pos.y + dy},${pos.z + dz}` }
+  }
+  return { ok: true, why: '' }
 }
