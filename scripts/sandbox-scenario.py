@@ -19,6 +19,7 @@ ap.add_argument('--minutes', type=float, default=15); ap.add_argument('--no-load
 ap.add_argument('--server', default='sandbox'); ap.add_argument('--join-wait', type=int, default=180)
 ap.add_argument('--verify', action='store_true', help='re-probe every cell after loading and report mismatches')
 ap.add_argument('--give', default='', help='inventory override for old fixtures: item:count,item:count')
+ap.add_argument('--at', default='', help='place the bot at x,y,z instead of the fixture position (boundary cases)')
 ap.add_argument('--no-bot', action='store_true', help='load and verify only')
 a = ap.parse_args()
 
@@ -80,6 +81,7 @@ def parse_pos(v):
     m = re.findall(r'(-?\d+\.?\d*)d', str(v or ''))          # an old fixture kept the raw RCON reply
     return [float(x) for x in m[:3]] if len(m) >= 3 else None
 pos = parse_pos(b.get('pos')) or [ox + 0.5, oy, oz + 0.5]
+if a.at: pos = [float(v) for v in a.at.split(',')]
 time.sleep(4)   # the name shows in `list` a moment before the entity accepts commands
 log('gamemode: ' + cmd(f'gamemode survival {a.bot}')[:80])
 import re

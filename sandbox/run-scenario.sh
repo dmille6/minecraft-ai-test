@@ -6,7 +6,7 @@ FX="${1:?fixture}"; ENVF="${2:?env}"; MIN="${3:-15}"; GIVE="${GIVE:-}"; ROOT="$(
 BOT=$(grep '^BOT_NAME=' "$ROOT/$ENVF" | cut -d= -f2); BR_ROOT="${BOT_ROOT:-$ROOT}"; SHA=$(git -C "$BR_ROOT" rev-parse --short HEAD); BR=$(git -C "$BR_ROOT" branch --show-current || echo detached)
 scp -q "$ROOT/$FX" "$ROOT/scripts/sandbox-scenario.py" "$H:/tmp/"
 OUT="$ROOT/sandbox/log/scenario-$(date -u +%Y%m%dT%H%M%S).log"; mkdir -p "$ROOT/sandbox/log"
-ssh "$H" "python3 /tmp/sandbox-scenario.py /tmp/$(basename "$FX") --bot $BOT --minutes $MIN --verify ${GIVE:+--give $GIVE}" > "$OUT" 2>&1 &
+ssh "$H" "python3 /tmp/sandbox-scenario.py /tmp/$(basename "$FX") --bot $BOT --minutes $MIN --verify ${GIVE:+--give $GIVE} ${AT:+--at $AT}" > "$OUT" 2>&1 &
 LOADER=$!
 BRAINPID=""
 if [[ -n "${SCRIPT:-}" ]]; then   # scripted decisions through the bots' own model interface, loopback only
@@ -23,5 +23,5 @@ fi
 wait $LOADER || true
 kill $BOTPID 2>/dev/null || true; [[ -n "$BRAINPID" ]] && kill $BRAINPID 2>/dev/null || true; sleep 2
 V=$(grep -E '^\{"fixture"' "$OUT" | tail -1)
-echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"sha\":\"$SHA\",\"branch\":\"$BR\",\"fixture\":\"$FX\",\"env\":\"$ENVF\",\"say\":\"${SAY:-}\",\"script\":\"${SCRIPT:-}\",\"give\":\"${GIVE:-}\",\"verdict\":$V}" >> "$ROOT/sandbox/results.jsonl"
+echo "{\"ts\":\"$(date -u +%FT%TZ)\",\"sha\":\"$SHA\",\"branch\":\"$BR\",\"fixture\":\"$FX\",\"env\":\"$ENVF\",\"say\":\"${SAY:-}\",\"script\":\"${SCRIPT:-}\",\"at\":\"${AT:-}\",\"give\":\"${GIVE:-}\",\"verdict\":$V}" >> "$ROOT/sandbox/results.jsonl"
 echo "$V"; echo "loader log: $OUT"
