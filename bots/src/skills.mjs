@@ -3869,6 +3869,20 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
     // Dig headroom first: a falling-block column above an already-open tread
     // pours gravel into the cell the bot is about to occupy.
+    // OPENING THE CEILING CELL EXPOSES NEW FACES. The liquid check above reads
+    // the three cells themselves; this reads what touches the ceiling cell
+    // once it is gone (above and the four sides, as safeToBreak does).
+    const aboveBlock = bot.blockAt(cellAbove)
+    if (aboveBlock && aboveBlock.name !== 'air' && aboveBlock.name !== 'cave_air') {
+      for (const [dx, dy, dz] of FLOW_NEIGHBOURS) {
+        const n = bot.blockAt(cellAbove.offset(dx, dy, dz))
+        if (stairLiquid(n)) {
+          return { status: 'failed', failClass: 'hazard_interrupt',
+                   detail: `stopped at y=${Math.round(bot.entity.position.y)}: ${n.name} beside the ` +
+                           `ceiling cell ahead — opening it would let it in` }
+        }
+      }
+    }
     for (const pos of [cellAbove, cellHead, cellFeet]) {
       const b = bot.blockAt(pos)
       if (!b || b.name === 'air' || b.name === 'cave_air') continue
@@ -3890,6 +3904,21 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // down is just a wider hole -- and the specific failure to avoid is digging
     // a side cell, failing to enter it, and digging again next iteration, which
     // carves a widened shaft with ledges and reports success the whole way.
+        // A FALLING COLUMN ABOVE THE OPENED CEILING refills the step after the digs.
+    // Let it settle, re-open the three cells once, and refuse if it keeps coming:
+    // stepping into a cell that gravel is about to fill is how a bot gets buried.
+    if (FALLING.has(bot.blockAt(cellAbove.offset(0, 1, 0))?.name)) {
+      await sleep(600, signal)
+      for (const pos of [cellFeet, cellHead, cellAbove]) {   // re-open, bottom up
+        const b = bot.blockAt(pos)
+        if (b && b.boundingBox === 'block') { try { await bot.dig(b) } catch (e) { if (e.aborted) throw e } }
+      }
+      await sleep(600, signal)
+      if ([cellAbove, cellHead, cellFeet].some(pos => bot.blockAt(pos)?.boundingBox === 'block')) {
+        return { status: 'failed', failClass: 'hazard_interrupt',
+                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: a falling column keeps refilling the step` }
+      }
+    }
     const before = bot.entity.position.clone()
     let moved = 0
     try {
@@ -4093,7 +4122,8 @@ export function stairRunway (bot, from, bear, depth = STAIR_LOOKAHEAD) {
   for (let i = 0; i < depth; i++) {
     const stand = from.offset(bear.x * i, -i, bear.z * i)
     if (stairLiquid(bot.blockAt(stand.offset(bear.x, -1, bear.z))) ||
-        stairLiquid(bot.blockAt(stand.offset(bear.x, 0, bear.z)))) break
+        stairLiquid(bot.blockAt(stand.offset(bear.x, 0, bear.z))) ||
+        stairLiquid(bot.blockAt(stand.offset(bear.x, 1, bear.z)))) break   // the third cell, too
     n++
   }
   return n
@@ -4127,7 +4157,7 @@ export function stairFlowRisk (bot, from, bear, depth = STAIR_LOOKAHEAD) {
   const n = stairRunway(bot, from, bear, depth)
   for (let i = 0; i < n; i++) {
     const stand = from.offset(bear.x * i, -i, bear.z * i)
-    for (const cell of [stand.offset(bear.x, -1, bear.z), stand.offset(bear.x, 0, bear.z)]) {
+    for (const cell of [stand.offset(bear.x, -1, bear.z), stand.offset(bear.x, 0, bear.z), stand.offset(bear.x, 1, bear.z)]) {
       for (const [dx, dy, dz] of FLOW_NEIGHBOURS) {
         if (stairLiquid(bot.blockAt(cell.offset(dx, dy, dz)))) touching++
       }

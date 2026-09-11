@@ -35,9 +35,23 @@ t('mine digs all three cells, in order from the top, and checks the third for li
   assert.match(b, /for \(const pos of \[cellAbove, cellHead, cellFeet\]\)/, 'the third cell must be opened, and first (a dig from the top cannot bury the tread)')
   assert.match(b, /\[cellAbove, 'ceiling'\]/, 'the liquid check must cover the third cell too')
 })
+t('the bearing chooser and the flow-risk count model the third cell too (Codex: chooser and guard must agree)', () => {
+  const c = strip(RAW)
+  const runway = c.slice(c.indexOf('export function stairRunway'), c.indexOf('export function stairRunway') + 700)
+  assert.match(runway, /stand\.offset\(bear\.x, 1, bear\.z\)/, 'stairRunway must stop at a wet third cell')
+  const flow = c.slice(c.indexOf('export function stairFlowRisk'), c.indexOf('export function stairFlowRisk') + 700)
+  assert.match(flow, /stand\.offset\(bear\.x, 1, bear\.z\)/, 'stairFlowRisk must count faces around the third cell')
+})
+t('before opening the ceiling cell its exposed faces are checked for liquid, and a falling column above it is settled and re-opened once', () => {
+  const b = mineStep(strip(RAW))
+  assert.match(b, /const n = bot\.blockAt\(cellAbove\.offset\(dx, dy, dz\)\)/, 'FLOW_NEIGHBOURS of the ceiling cell are read before it is dug')
+  assert.match(b, /beside the ` \+\s*`ceiling cell ahead/)
+  assert.match(b, /FALLING\.has\(bot\.blockAt\(cellAbove\.offset\(0, 1, 0\)\)\?\.name\)/, 'a falling block above the ceiling cell triggers the settle')
+  assert.match(b, /a falling column keeps refilling the step/)
+})
 t('MUTANT: leaving the third cell out of the dig is caught', () => {
   const anchor = 'for (const pos of [cellAbove, cellHead, cellFeet])'
   assert.equal(RAW.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  assert.ok(!/\[cellAbove, cellHead, cellFeet\]/.test(mineStep(strip(RAW.replace(anchor, 'for (const pos of [cellHead, cellFeet])')))))
+  assert.ok(!/for \(const pos of \[cellAbove, cellHead, cellFeet\]\)/.test(mineStep(strip(RAW.replace(anchor, 'for (const pos of [cellHead, cellFeet])')))), 'the mutant (two-cell dig loop) must be visible as the missing third cell')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
