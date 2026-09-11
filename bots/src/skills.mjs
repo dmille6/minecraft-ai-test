@@ -3883,6 +3883,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         }
       }
     }
+    const fallingAbove = FALLING.has(bot.blockAt(cellAbove.offset(0, 1, 0))?.name)   // read BEFORE digging
     for (const pos of [cellAbove, cellHead, cellFeet]) {
       const b = bot.blockAt(pos)
       if (!b || b.name === 'air' || b.name === 'cave_air') continue
@@ -3905,16 +3906,30 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // a side cell, failing to enter it, and digging again next iteration, which
     // carves a widened shaft with ledges and reports success the whole way.
         // A FALLING COLUMN ABOVE THE OPENED CEILING refills the step after the digs.
-    // Let it settle, re-open the three cells once, and refuse if it keeps coming:
-    // stepping into a cell that gravel is about to fill is how a bot gets buried.
-    if (FALLING.has(bot.blockAt(cellAbove.offset(0, 1, 0))?.name)) {
-      await sleep(600, signal)
-      for (const pos of [cellFeet, cellHead, cellAbove]) {   // re-open, bottom up
-        const b = bot.blockAt(pos)
-        if (b && b.boundingBox === 'block') { try { await bot.dig(b) } catch (e) { if (e.aborted) throw e } }
+    // Detected BEFORE the excavation (once the ceiling cell is gone the sand
+    // above it is already an entity, not a block), then a bounded settle that
+    // waits for the falling entities near the step to be gone, re-opens the
+    // three cells top-down, and verifies the passage before the bot moves.
+    // If the column will not settle, the step is refused: stepping into a cell
+    // that gravel is about to fill is how a bot gets buried.
+    if (fallingAbove) {
+      let settled = false
+      for (let round = 0; round < 4 && !settled; round++) {
+        await sleep(600, signal)
+        const fallingNear = Object.values(bot.entities ?? {}).some(e =>
+          (e?.name === 'falling_block' || e?.displayName === 'Falling Block') &&
+          e.position && e.position.distanceTo(cellAbove.offset(0.5, 0.5, 0.5)) < 4)
+        if (fallingNear) continue
+        for (const pos of [cellAbove, cellHead, cellFeet]) {   // re-open top-down
+          const b = bot.blockAt(pos)
+          if (b && b.boundingBox === 'block') { try { await bot.dig(b) } catch (e) { if (e.aborted) throw e } }
+        }
+        await sleep(300, signal)
+        settled = [cellAbove, cellHead, cellFeet].every(pos => bot.blockAt(pos)?.boundingBox !== 'block') &&
+          !Object.values(bot.entities ?? {}).some(e => e?.name === 'falling_block' && e.position &&
+            e.position.distanceTo(cellAbove.offset(0.5, 0.5, 0.5)) < 4)
       }
-      await sleep(600, signal)
-      if ([cellAbove, cellHead, cellFeet].some(pos => bot.blockAt(pos)?.boundingBox === 'block')) {
+      if (!settled) {
         return { status: 'failed', failClass: 'hazard_interrupt',
                  detail: `stopped at y=${Math.round(bot.entity.position.y)}: a falling column keeps refilling the step` }
       }
