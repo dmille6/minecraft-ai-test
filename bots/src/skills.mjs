@@ -473,8 +473,14 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
           // warn line and nothing else, so its success rate was unreadable in
           // telemetry and the canary read for the watchdog fix above had no
           // denominator (Codex review). The dig-approach paid the same lesson.
-          const retryFrom = before.clone(); const retryT0 = Date.now()
-          let retryWhy = ''
+          // Snapshot at RETRY ENTRY, not the leg start: `before` is where the
+          // leg began, and a bot that walked two blocks before the on-foot
+          // planner gave up would mark a retry that never moved as a success
+          // (Codex review, 2026-09-11). The water->land bit is the escape
+          // itself for a floating bot: hive-b-Delta's ledge is 1.5 blocks away.
+          const retryFrom = bot.entity.position.clone(); const retryT0 = Date.now()
+          const retryWet = !!bot.entity.isInWater
+          let retryErr = null
           try {
             await bot.withAscentMovements(async () => {
               // THE HOLE, NOT THE DROP. This retry exists to dig through what
@@ -488,17 +494,25 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
               await withTimeout(bot.pathfinder.goto(goal), 25000, bot, { needsDrop: false })
             })
             check(signal)
-            const moved = bot.entity.position.distanceTo(retryFrom)
-            if (moved >= 2) {   // it worked; carry on
-              logEvent({ kind: 'goto_dig_retry', status: 'success',
-                         detail: `moved ${moved.toFixed(1)} blocks dy=${(bot.entity.position.y - retryFrom.y).toFixed(1)} ` +
-                                 `from ${Math.round(retryFrom.x)},${Math.round(retryFrom.y)},${Math.round(retryFrom.z)} in ${Date.now() - retryT0}ms` })
-              continue
-            }
-            retryWhy = `moved only ${moved.toFixed(1)} blocks`
-          } catch (e) { retryWhy = String(e?.message || e).slice(0, 100) }   // fall through to the honest failure below
+          } catch (e) { retryErr = e }   // judged below, by OUTCOME, not by completion
+          // A retry that left the water and then timed out still escaped; a
+          // retry that completed without moving still failed. The mark says
+          // which (Codex review, 2026-09-11), with unrounded coordinates so a
+          // reader can test where it started without a rounding boundary.
+          const moved = bot.entity.position.distanceTo(retryFrom)
+          const nowWet = !!bot.entity.isInWater
+          const where = `from ${retryFrom.x.toFixed(1)},${retryFrom.y.toFixed(1)},${retryFrom.z.toFixed(1)} in ${Date.now() - retryT0}ms`
+          if (moved >= 2 || (retryWet && !nowWet)) {   // it worked; carry on
+            logEvent({ kind: 'goto_dig_retry', status: 'success',
+                       detail: `moved ${moved.toFixed(1)} blocks dy=${(bot.entity.position.y - retryFrom.y).toFixed(1)} ` +
+                               `wet=${retryWet}->${nowWet}${retryErr ? ` then ${String(retryErr?.message || retryErr).slice(0, 60)}` : ''} ${where}` })
+            if (retryErr && signal?.aborted) throw retryErr
+            continue
+          }
           logEvent({ kind: 'goto_dig_retry', status: 'failed',
-                     detail: `${retryWhy} from ${Math.round(retryFrom.x)},${Math.round(retryFrom.y)},${Math.round(retryFrom.z)} in ${Date.now() - retryT0}ms` })
+                     detail: `${retryErr ? String(retryErr?.message || retryErr).slice(0, 100) : `moved only ${moved.toFixed(1)} blocks`} ` +
+                             `wet=${retryWet}->${nowWet} ${where}` })
+          // fall through to the honest failure below
         }
         // STRANDED ABOVE SEA LEVEL IS A DESCENT PROBLEM, NOT A DIGGING ONE.
         //
