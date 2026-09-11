@@ -3920,12 +3920,13 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
           (e?.name === 'falling_block' || e?.displayName === 'Falling Block') &&
           e.position && e.position.distanceTo(cellAbove.offset(0.5, 0.5, 0.5)) < 4)
         if (fallingNear) continue
-        for (const pos of [cellAbove, cellHead, cellFeet]) {   // re-open top-down
+        const stepCells = [cellAbove, cellHead, cellFeet]
+        for (const pos of stepCells) {   // re-open top-down
           const b = bot.blockAt(pos)
           if (b && b.boundingBox === 'block') { try { await bot.dig(b) } catch (e) { if (e.aborted) throw e } }
         }
         await sleep(300, signal)
-        settled = [cellAbove, cellHead, cellFeet].every(pos => bot.blockAt(pos)?.boundingBox !== 'block') &&
+        settled = stepCells.every(pos => bot.blockAt(pos)?.boundingBox !== 'block') &&
           !Object.values(bot.entities ?? {}).some(e => e?.name === 'falling_block' && e.position &&
             e.position.distanceTo(cellAbove.offset(0.5, 0.5, 0.5)) < 4)
       }

@@ -49,7 +49,7 @@ t('before opening the ceiling cell its exposed faces are checked for liquid, and
   const det = b.indexOf('const fallingAbove = FALLING.has(bot.blockAt(cellAbove.offset(0, 1, 0))?.name)'), dig = b.indexOf('for (const pos of [cellAbove, cellHead, cellFeet])')
   assert.ok(det > 0 && det < dig, 'the falling column is detected BEFORE the excavation (afterwards it is already an entity)')
   assert.match(b, /falling_block/, 'the settle waits for falling entities, not a fixed sleep')
-  assert.match(b, /settled = \[cellAbove, cellHead, cellFeet\]\.every/, 'the passage is verified before the bot moves')
+  assert.match(b, /settled = stepCells\.every/, 'the passage is verified before the bot moves')
   assert.match(b, /a falling column keeps refilling the step/)
 })
 t('MUTANT: leaving the third cell out of the dig is caught', () => {
