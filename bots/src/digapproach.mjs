@@ -349,7 +349,15 @@ export function observeApproachDig (bot, { pollMs = 200 } = {}) {
       if (!b) return
       const pos = b.position
       const k = pos ? `${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}` : b.name
-      if (!seenAt.has(k)) { seenAt.add(k); attempted.push({ name: b.name ?? 'unknown', pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : null }) }
+      // KEEP THE Vec3. blockAt() calls .floored() on what it is given; a plain
+      // {x,y,z} throws inside the re-read below and every walk read dug=none --
+      // which is what the first fleet-wide minutes of 6d1fdba showed, on walks
+      // that had dug four stone and arrived. The test fake accepted a plain
+      // object, so the fixture inherited the bug.
+      if (!seenAt.has(k)) {
+        seenAt.add(k)
+        attempted.push({ name: b.name ?? 'unknown', pos: pos && typeof pos.clone === 'function' ? pos.clone() : null })
+      }
       if (unharvestable || typeof b.canHarvest !== 'function') return
       const item = bot.heldItem
       if (!b.canHarvest(item?.type ?? null)) {

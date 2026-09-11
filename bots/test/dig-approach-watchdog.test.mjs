@@ -20,6 +20,7 @@
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
+import { Vec3 } from 'vec3'
 import { collectManually, withTimeout } from '../src/skills.mjs'
 import { observeApproachDig, approachVerdict, approachDigMs, approachDigCost, isOreLike, planDigApproach, withApproachBound } from '../src/digapproach.mjs'
 import { eyeToBlock } from '../src/digreach.mjs'
@@ -51,17 +52,19 @@ const src = stripComments(readFileSync(new URL('../src/skills.mjs', import.meta.
 function diggingBot ({ holds = null } = {}) {
   const bot = new EventEmitter()
   const seen = { stopped: 0, stopDigging: 0 }
-  const WALL = { x: 3, y: 64, z: 0 }
+  const WALL = new Vec3(3, 64, 0)
   let wall = 'stone'
   Object.assign(bot, {
     heldItem: holds,
     targetDigBlock: null,
-    blockAt: p => ({ name: (p.x === WALL.x && p.y === WALL.y && p.z === WALL.z) ? wall : 'air', position: p }),
+    // Like the real bot.blockAt: it needs a Vec3 (it calls .floored()). The
+    // first fake here accepted a plain {x,y,z} and the fleet read dug=none.
+    blockAt: p => { const q = p.floored(); return { name: q.equals(WALL) ? wall : 'air', position: q } },
     stopDigging: () => { seen.stopDigging++ },
     pathfinder: {
       stop: () => { seen.stopped++ },
       goto: () => new Promise((resolve, reject) => {
-        bot.targetDigBlock = { name: 'stone', position: WALL, canHarvest: type => type === 'pick' }
+        bot.targetDigBlock = { name: 'stone', position: WALL.clone(), canHarvest: type => type === 'pick' }
         const tick = setInterval(() => {
           if (seen.stopped) {
             clearInterval(tick); bot.targetDigBlock = null
@@ -303,7 +306,7 @@ function chainBot () {
       goto: () => new Promise((resolve, reject) => {
         if (seen.borrowed === 0) { seen.gotos.push('travel'); return resolve() }   // never arrives
         seen.gotos.push('gather')
-        bot.targetDigBlock = { name: 'stone', position: { x: 3, y: 64, z: 0 }, canHarvest: () => false }
+        bot.targetDigBlock = { name: 'stone', position: new Vec3(3, 64, 0), canHarvest: () => false }
         const tick = setInterval(() => {
           if (seen.stopped) { clearInterval(tick); bot.targetDigBlock = null; reject(Object.assign(new Error('stopped'), { name: 'PathStopped' })) }
         }, 20)
