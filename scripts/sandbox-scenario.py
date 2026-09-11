@@ -11,13 +11,14 @@ join -> tp it to the recorded position, clear and give its recorded inventory ->
 Pos/OnGround/feet-in-water every 5 s -> verdict {escaped, seconds, final} on stdout.
 Escaped = dry AND on ground AND > 5 blocks from the fixture origin, held for 30 s.
 """
-import socket, struct, subprocess, sys, json, time, math, argparse, datetime
+import socket, struct, subprocess, sys, json, time, math, argparse, datetime, re
 
 ap = argparse.ArgumentParser()
 ap.add_argument('fixture'); ap.add_argument('--bot', required=True)
 ap.add_argument('--minutes', type=float, default=15); ap.add_argument('--no-load', action='store_true')
 ap.add_argument('--server', default='sandbox'); ap.add_argument('--join-wait', type=int, default=180)
 ap.add_argument('--verify', action='store_true', help='re-probe every cell after loading and report mismatches')
+ap.add_argument('--give', default='', help='inventory override for old fixtures: item:count,item:count')
 ap.add_argument('--no-bot', action='store_true', help='load and verify only')
 a = ap.parse_args()
 
@@ -35,12 +36,12 @@ send(3, PW)
 cmd = lambda c: send(2, c)
 
 fx = json.load(open(a.fixture))
-ox, oy, oz = fx['origin']; r = fx.get('radius', 6); dy = fx.get('dy', 3)
+ox, oy, oz = [float(v) for v in fx['origin']]; r = int(fx.get('radius', 6)); dy = int(fx.get('dy', 3))
 name = fx.get('name', a.fixture)
-log = lambda m: print(f"[{datetime.datetime.utcnow().strftime('%H:%M:%S')}] {m}", flush=True)
+log = lambda m: print(f"[{datetime.datetime.now(datetime.timezone.utc).strftime('%H:%M:%S')}] {m}", flush=True)
 
 # 1. forceload the chunk box so setblock and reads never answer "not loaded"
-x0, x1 = (ox - r) >> 4, (ox + r) >> 4; z0, z1 = (oz - r) >> 4, (oz + r) >> 4
+x0, x1 = int(ox - r) >> 4, int(ox + r) >> 4; z0, z1 = int(oz - r) >> 4, int(oz + r) >> 4
 log(f"forceload chunks x{x0}..{x1} z{z0}..{z1}: " + cmd(f'forceload add {x0*16} {z0*16} {x1*16+15} {z1*16+15}')[:80])
 
 # 2. rebuild the trap cell for cell
@@ -72,26 +73,46 @@ log(f"{a.bot} joined")
 
 # 4. put it where the fixture recorded it, holding what it held
 b = fx.get('bot') or {}
-pos = b.get('pos') or [ox + 0.5, oy, oz + 0.5]
-cmd(f'gamemode survival {a.bot}')
-log('tp: ' + cmd(f'tp {a.bot} {pos[0]} {pos[1]} {pos[2]}')[:80])
+import re
+def parse_pos(v):
+    if isinstance(v, dict): return [float(v['x']), float(v['y']), float(v['z'])]
+    if isinstance(v, (list, tuple)) and len(v) == 3: return [float(x) for x in v]
+    m = re.findall(r'(-?\d+\.?\d*)d', str(v or ''))          # an old fixture kept the raw RCON reply
+    return [float(x) for x in m[:3]] if len(m) >= 3 else None
+pos = parse_pos(b.get('pos')) or [ox + 0.5, oy, oz + 0.5]
+time.sleep(4)   # the name shows in `list` a moment before the entity accepts commands
+log('gamemode: ' + cmd(f'gamemode survival {a.bot}')[:80])
+import re
+def where():
+    out = cmd(f'data get entity {a.bot} Pos'); og = cmd(f'data get entity {a.bot} OnGround')
+    xyz = [float(v) for v in re.findall(r'(-?\d+\.?\d*)d', out)]
+    if len(xyz) != 3: return None
+    fx_, fy_, fz_ = [math.floor(v) for v in xyz]
+    wet = 'passed' in cmd(f'execute if block {fx_} {fy_} {fz_} minecraft:water')
+    return dict(pos=xyz, on_ground='1b' in og, wet=wet, dist=math.dist(xyz, [ox, oy, oz]))
+placed = False
+for i in range(6):
+    rep = cmd(f'execute as {a.bot} run tp @s {pos[0]:.2f} {pos[1]:.2f} {pos[2]:.2f}')
+    time.sleep(2); w = where()
+    log(f"tp try {i + 1}: reply={rep[:60]!r} now={['%.1f' % v for v in w['pos']] if w else None}")
+    if w and math.dist(w['pos'], pos) <= 3: placed = True; break
+if not placed:
+    print(json.dumps({'fixture': name, 'bot': a.bot, 'error': 'bot could not be placed at the fixture position; no verdict'})); sys.exit(3)
 cmd(f'clear {a.bot}')
 inv = b.get('inventory') or {}
+if a.give: inv = {kv.split(':')[0]: int(kv.split(':')[1]) for kv in a.give.split(',') if ':' in kv}
+if isinstance(inv, dict) and inv and all(isinstance(v, dict) for v in inv.values()):   # per-slot capture -> totals
+    tot = {}
+    for slot in inv.values():
+        if slot.get('id'): tot[slot['id'].replace('minecraft:', '')] = tot.get(slot['id'].replace('minecraft:', ''), 0) + int(slot.get('count', 1))
+    inv = tot
 for item, count in (inv.items() if isinstance(inv, dict) else []):
     left = int(count)
     while left > 0:
         k = min(64, left); cmd(f'give {a.bot} minecraft:{item} {k}'); left -= k
 log(f"inventory given: {len(inv)} kinds")
 
-# 5. watch
-def where():
-    out = cmd(f'data get entity {a.bot} Pos'); og = cmd(f'data get entity {a.bot} OnGround')
-    import re
-    xyz = [float(v) for v in re.findall(r'(-?\d+\.?\d*)d', out)]
-    if len(xyz) != 3: return None
-    fx_, fy_, fz_ = [math.floor(v) for v in xyz]
-    wet = 'passed' in cmd(f'execute if block {fx_} {fy_} {fz_} minecraft:water')
-    return dict(pos=xyz, on_ground='1b' in og, wet=wet, dist=math.dist(xyz, [ox, oy, oz]))
+# 5. watch (the bot was verified at the fixture position above, so 'far from origin' means it MOVED)
 held = None; escaped = None; t1 = time.time()
 while time.time() - t1 < a.minutes * 60:
     w = where()
