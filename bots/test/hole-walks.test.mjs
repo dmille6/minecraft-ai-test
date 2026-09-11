@@ -57,6 +57,19 @@ t('the goto dig retry logs goto_dig_retry on success (before continue) and on fa
   const succ = b.indexOf("status: 'success'"), cont = b.indexOf('continue', succ)
   assert.ok(succ > 0 && cont > succ, 'the success mark must be logged before the retry continues')
 })
+t('the retry snapshots its OWN start (not the leg start) and records the water->land bit', () => {
+  const b = retryBlock(strip(RAW))
+  assert.match(b, /const retryFrom = bot\.entity\.position\.clone\(\)/, 'retryFrom must be taken at retry entry')
+  assert.ok(!/retryFrom = before/.test(b), 'retryFrom must not alias the leg-start `before`')
+  assert.match(b, /retryWet && !nowWet/, 'leaving the water counts as the retry working')
+  assert.match(b, /wet=\$\{retryWet\}->\$\{nowWet\}/, 'the success mark names the wet transition')
+})
+t('the retry is judged by OUTCOME after the catch, not by completion', () => {
+  const b = retryBlock(strip(RAW))
+  const c = b.indexOf('catch (e) { retryErr = e }'), m = b.indexOf('const moved = bot.entity.position.distanceTo(retryFrom)')
+  assert.ok(c > 0 && m > c, 'moved/wet must be evaluated after the catch so an escape that then threw is still a success')
+  assert.ok(b.indexOf("status: 'success'") > m, 'the success mark comes after the outcome evaluation')
+})
 t('MUTANT: dropping either mark is caught', () => {
   for (const status of ['success', 'failed']) {
     const anchor = `logEvent({ kind: 'goto_dig_retry', status: '${status}',`
