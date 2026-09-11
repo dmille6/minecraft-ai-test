@@ -53,6 +53,8 @@ function req(name, fallback) {
   return v
 }
 
+export const COOLDOWN_CAP_MS = 20000
+
 export const config = {
   code: { version: codeVersion() },
 
@@ -245,7 +247,17 @@ export const config = {
     // Client-side budget, deliberately well under numCtx.
     promptTokenBudget: Number(req('LLM_PROMPT_TOKEN_BUDGET', '3000')),
     // Handoff doc S16: strategic decisions every 30-90s, not per tick.
-    decisionCooldownMs: Number(req('LLM_DECISION_COOLDOWN_MS', '20000')),
+    //
+    // CLAMPED TO 20 s FOR THE COOLDOWN CANARY. The per-bot env files set
+    // 30000 fleet-wide and this default was already 20000; a canary has to be a
+    // code version the manifest and the tripper can see, so the canary branch
+    // clamps rather than editing five env files. Measured 2026-09-11: the fleet
+    // box serves 1.84 decisions/s at p50 1.6 s, p95 3.2 s (about 75% busy at
+    // 30 s); 20 s puts it near its ceiling, 10 s needs the second endpoint.
+    // Owner-queued 2026-09-11. Read as DiD on items/bot-hour; tripwire: fleet
+    // LLM p95 above 5 s, and the admission cooldown-rejection share (315 of
+    // 3364 decisions in 30 min at 30 s -- the number a faster loop inflates).
+    decisionCooldownMs: Math.min(Number(req('LLM_DECISION_COOLDOWN_MS', '20000')), COOLDOWN_CAP_MS),
   },
 
   viewer: {
