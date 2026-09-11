@@ -720,3 +720,21 @@ export function headroomBreach ({
   if (!canBreak(over)) return { ok: false, reason: `cannot clear ${over.name} overhead by hand` }
   return { ok: true, dig: [[0, 2, 0]] }
 }
+
+/**
+ * SNEAK WHEN THE REFERENCE BLOCK WOULD OPEN. placeBlock() right-clicks the
+ * reference block's face; on a chest, table, furnace or door the server opens
+ * it instead of placing, unless the player is sneaking, and mineflayer leaves
+ * sneaking to the caller (generic_place.js: "TODO: sneak"). Every escape
+ * placement that stood on a furnace was a furnace window, not a tread --
+ * placebo-c-Bravo stood on one for 19 hours. Sneak only when it is needed:
+ * sneaking is a control state, and the reflex layer re-asserts its own.
+ */
+export const INTERACTIVE = /^(chest|trapped_chest|ender_chest|barrel|crafting_table|furnace|blast_furnace|smoker|hopper|dispenser|dropper|grindstone|loom|stonecutter|cartography_table|smithing_table|fletching_table|enchanting_table|brewing_stand|beacon|lectern|note_block|jukebox|composter|cake|lever|bell|comparator|repeater|daylight_detector)$|_shulker_box$|_anvil$|^anvil$|_door$|_trapdoor$|_fence_gate$|_bed$|_button$/
+export async function placingAgainst (bot, ref, fn) {
+  const sneak = !!(ref && ref.name && INTERACTIVE.test(ref.name))
+  if (sneak) { try { bot.setControlState('sneak', true) } catch { /* no body: nothing to sneak */ } }
+  try { return await fn() } finally {
+    if (sneak) { try { bot.setControlState('sneak', false) } catch { /* released with the body */ } }
+  }
+}

@@ -373,7 +373,7 @@ await t('MUTANT KILLED: line 2067 back on PLACEABLE — flat grass finds nothing
 
 await t('MUTANT KILLED: drop the drop-check — the bot digs clay for clay_balls', async () => {
   await withMutant(REFLEX_PATH,
-    '  return drops.length > 0 && drops.every(n => PLACEABLE.test(n))',
+    '  return drops.length > 0 && drops.every(n => PLACEABLE_CHEAP.test(n))',
     '  return drops.length > 0',
     async mod => {
       const b = bot({ world: flat('clay') })

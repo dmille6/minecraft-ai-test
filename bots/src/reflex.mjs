@@ -16,7 +16,7 @@ import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
-         bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary } from './scaffold.mjs'
+         bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary, placingAgainst } from './scaffold.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan } from './digbudget.mjs'
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
 import { climbLadder, bestLadderWall, ladderPlan } from './ladder.mjs'
@@ -2929,7 +2929,23 @@ const SOFT_BLOCK = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|s
 // this counted oak_log and oak_planks and no other species, so the pillar rung
 // read 8,422 birch logs as zero placeable blocks. Same hardcoded-oak assumption,
 // third occurrence this week.
-const PLACEABLE = /^(dirt|cobblestone|stone|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$|(_log|_planks|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/
+const PLACEABLE_CHEAP = /^(dirt|cobblestone|stone|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$|(_log|_planks|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/
+// FURNITURE IS A TREAD TOO. See RESCUE_FURNITURE in skills.mjs: placebo-c-Bravo
+// spent 19 hours one block off a bridge holding three chests, a table and
+// glass while every rung here said "nothing in the inventory to pillar with".
+// Counted for the maroon state and placeable by the pillar, AFTER the cheap
+// blocks -- placeableItems() below is the order every placement uses.
+const PLACEABLE_FURNITURE = /^(barrel|crafting_table|furnace|blast_furnace|smoker|glass|bookshelf|stone_bricks|mossy_cobblestone|smooth_stone|bricks)$/
+// ONE LITERAL, because test/scaffold-species.test.mjs reads it out of the
+// source to check it against the exit contract. It is the union of the two
+// lists above and a test asserts that it stays so.
+const PLACEABLE = /^(dirt|cobblestone|stone|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$|(_log|_planks|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$|^(barrel|crafting_table|furnace|blast_furnace|smoker|glass|bookshelf|stone_bricks|mossy_cobblestone|smooth_stone|bricks)$/
+export const PLACEABLE_PARTS = { cheap: PLACEABLE_CHEAP, furniture: PLACEABLE_FURNITURE, all: PLACEABLE }
+/** Every placeable item held, cheap blocks first, furniture last. */
+export function placeableItems (bot) {
+  const items = bot?.inventory?.items?.() ?? []
+  return [...items.filter(it => PLACEABLE_CHEAP.test(it.name)), ...items.filter(it => PLACEABLE_FURNITURE.test(it.name))]
+}
 
 /**
  * ONE REGEX WAS ANSWERING TWO DIFFERENT QUESTIONS.
@@ -2976,14 +2992,17 @@ const PLACEABLE = /^(dirt|cobblestone|stone|sand|gravel|andesite|diorite|granite
  */
 export function scaffoldCandidate (blockName, registry = null) {
   if (!blockName) return false
-  if (PLACEABLE.test(blockName)) return true
+  // CHEAP ONLY. Furniture is a tread to PLACE, never a block to DIG for: glass
+  // drops nothing and a bookshelf drops books, so self-sourcing them wastes the
+  // block and the rescue's time (Codex review).
+  if (PLACEABLE_CHEAP.test(blockName)) return true
   const drops = dropsOf(registry, blockName)
   // EVERY drop, not SOME. A block that yields one placeable item and one
   // useless one is a coin flip, and this is the routine of last resort for a
   // bot that cannot travel. (Against the vendored data the two predicates
   // select the same seven blocks, so this costs nothing today and is the safe
   // side of the ambiguity if a future version splits a loot table.)
-  return drops.length > 0 && drops.every(n => PLACEABLE.test(n))
+  return drops.length > 0 && drops.every(n => PLACEABLE_CHEAP.test(n))
 }
 
 /**
@@ -4426,7 +4445,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
       await sleep(150)
     }
 
-    const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
+    const item = placeableItems(bot)[0]
     if (!item) {
       // OUT OF BLOCKS MID-CLIMB. Do NOT fall through to digging up: that is the
       // path that spends the last pickaxe and finishes the seal. Stop here and
@@ -4444,7 +4463,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
     if (!below) break
     bot.setControlState('jump', true)
     await sleep(300)
-    try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed */ }
+    try { await placingAgainst(bot, below, () => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch { /* mistimed */ }
     bot.setControlState('jump', false)
     await sleep(250)
 
@@ -4539,13 +4558,13 @@ async function digStraightUp(bot, startY, maxSteps = 20) {
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (!above || above.name === 'air') {
       // Ceiling clear -- try to gain the block, otherwise walk toward the gap.
-      const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
+      const item = placeableItems(bot)[0]
       if (item) {
         await bot.equip(item, 'hand').catch(() => {})
         const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
         bot.setControlState('jump', true)
         await sleep(300)
-        try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch {}
+        try { await placingAgainst(bot, below, () => bot.placeBlock(below, new Vec3(0, 1, 0))) } catch {}
         bot.setControlState('jump', false)
         await sleep(200)
       } else {

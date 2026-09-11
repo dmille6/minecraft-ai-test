@@ -29,7 +29,7 @@ import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
-import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
+import { overheadBreakRisk, dryColumnStep, placingAgainst } from './scaffold.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
@@ -2885,8 +2885,8 @@ async function place(ctx, { item, x, y, z }, signal) {
       // shape as deposit hanging on `windowOpen`. Measured: 20 place failures in
       // 200 minutes carrying mineflayer's own `Event blockUpdate:(x,y,z)` text.
       // A miss must cost one candidate, not the attempt.
-      await withTimeout(bot.placeBlock(ref, face), PLACE_ACK_MS, bot,
-                        { what: 'placing', needsDrop: false })
+      await placingAgainst(bot, ref, () => withTimeout(bot.placeBlock(ref, face), PLACE_ACK_MS, bot,
+                        { what: 'placing', needsDrop: false }))
       // READ IT BACK. placeBlock resolves without throwing when nothing was
       // placed -- build() already documents this and checks; place() did not.
       // The contract for `place` is `world_change`, and the runner scores that
@@ -3025,8 +3025,8 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
       // Bounded for the same reason as place(): placeBlock waits on a server
       // blockUpdate that may never arrive, and a build has far more candidates
       // to get through than a single table does.
-      await withTimeout(bot.placeBlock(ref, new Vec3(0, 1, 0)), PLACE_ACK_MS, bot,
-                        { what: 'placing', needsDrop: false })
+      await placingAgainst(bot, ref, () => withTimeout(bot.placeBlock(ref, new Vec3(0, 1, 0)), PLACE_ACK_MS, bot,
+                        { what: 'placing', needsDrop: false }))
     } catch (e) {
       failed++; lastErr = e.message; continue
     }
@@ -5157,8 +5157,31 @@ const FALLING = new Set(['gravel', 'sand', 'red_sand'])
  * most like scaffold is the one that kills.
  */
 export const RESCUE_BLOCK = /^(cobblestone|cobbled_deepslate|dirt|coarse_dirt|rooted_dirt|netherrack|tuff|granite|diorite|andesite|deepslate|stone|sandstone|red_sandstone|.*_planks|.*_log|.*_wood|.*_stem)$/
-export const rescueBlocks = bot => bot.inventory.items()
-  .filter(it => RESCUE_BLOCK.test(it.name) && !FALLING.has(it.name))
+/**
+ * A STRANDED BOT MAY STAND ON ITS FURNITURE.
+ *
+ * placebo-c-Bravo stood 19 hours on the end of an unfinished bridge, one
+ * block off the bridge behind it, holding 3 chests, a crafting table, a
+ * furnace's worth of nothing, glass and sand -- and every escape rung said
+ * "no placeable blocks". Every one of those is a solid, non-falling,
+ * non-decaying block the server will let a player stand on. They are not
+ * scaffold in the pathfinder's sense (a bridge of chests would be a poor
+ * bridge) but they are a TREAD: one block under the feet or beside them,
+ * which is all a rescue ever places. Spent last, after the cheap blocks.
+ * Leaves are excluded: they decay away from a log. Sand and gravel stay
+ * excluded here for the reason above them. CHESTS ARE EXCLUDED: a chest is
+ * 14/16 high, so a bot standing on one is at y+0.875 and every integer-y
+ * support lookup (offset(0,-1,0)) reads the block BELOW the chest. Full
+ * blocks only. Interactive ones (table, furnace, barrel) are fine to stand
+ * on and need a sneak to place against -- see placingAgainst in scaffold.mjs.
+ */
+export const RESCUE_FURNITURE = /^(barrel|crafting_table|furnace|blast_furnace|smoker|glass|bookshelf|stone_bricks|mossy_cobblestone|smooth_stone|bricks)$/
+export const rescueBlocks = bot => {
+  const items = bot.inventory.items()
+  const cheap = items.filter(it => RESCUE_BLOCK.test(it.name) && !FALLING.has(it.name))
+  const furniture = items.filter(it => RESCUE_FURNITURE.test(it.name))
+  return [...cheap, ...furniture]
+}
 
 /**
  * Climb straight up by digging and pillaring, WITHOUT the pathfinder.
@@ -5354,7 +5377,7 @@ export async function shaftAscend(bot, targetY, signal,
     if (!below) return { gained: bot.entity.position.y - startY, stopped: 'no block below' }
     bot.setControlState('jump', true)
     await sleep(320)
-    try { await withTimeout(bot.placeBlock(below, new Vec3(0, 1, 0)), 6_000, bot, { what: 'place', onTimeout: () => {} }) } catch { /* mistimed; retried next step */ }
+    try { await placingAgainst(bot, below, () => withTimeout(bot.placeBlock(below, new Vec3(0, 1, 0)), 6_000, bot, { what: 'place', onTimeout: () => {} })) } catch { /* mistimed; retried next step */ }
     bot.setControlState('jump', false)
     await sleep(250)
 
@@ -5479,12 +5502,14 @@ export async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
       //
       // _placeBlockWithOptions is the only way to pass it (place_block.js:37).
       // It is private, so fall back rather than crash if a bump removes it.
-      const place = bot._placeBlockWithOptions
+      // A THUNK, not a promise: the click is sent the moment placeBlock is
+      // called, so it must be called inside placingAgainst, after the sneak.
+      const place = () => bot._placeBlockWithOptions
         ? bot._placeBlockWithOptions(floor, new Vec3(0, -1, 0),
                                      { swingArm: 'right', forceLook: true })
         : bot.placeBlock(floor, new Vec3(0, -1, 0))
       try {
-        await withTimeout(place, 6_000, bot, { what: 'place', onTimeout: () => {} })
+        await placingAgainst(bot, floor, () => withTimeout(place(), 6_000, bot, { what: 'place', onTimeout: () => {} }))
       } catch { /* verified by readback below, not by the absence of a throw */ }
       await sleep(180)
       const nowUnder = bot.blockAt(target)
