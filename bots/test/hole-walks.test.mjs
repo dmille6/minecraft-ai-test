@@ -40,4 +40,31 @@ t('MUTANTS: putting the default back on ANY of the three walks is caught, one at
   }
 })
 
+// THE RETRY LEAVES A MARK. Before 2026-09-11 the dig retry logged a warn line
+// and nothing else: its success rate was unreadable in telemetry, so the canary
+// for the watchdog fix had no denominator (Codex review). Both outcomes must
+// emit `goto_dig_retry`, and the success mark must precede the `continue`.
+const retryBlock = code => {
+  const i = code.indexOf("retrying this leg with digging allowed")
+  const j = code.indexOf("retrying this leg with a larger drop allowed", i)   // the next retry's own warn line; comments are stripped
+  assert.ok(i > 0 && j > i, 'retry block not found')
+  return code.slice(i, j)
+}
+t('the goto dig retry logs goto_dig_retry on success (before continue) and on failure', () => {
+  const b = retryBlock(strip(RAW))
+  const marks = [...b.matchAll(/logEvent\(\{\s*kind:\s*'goto_dig_retry',\s*status:\s*'(success|failed)'/g)].map(m => m[1])
+  assert.deepEqual(marks.sort(), ['failed', 'success'], `expected one mark per outcome, found ${marks}`)
+  const succ = b.indexOf("status: 'success'"), cont = b.indexOf('continue', succ)
+  assert.ok(succ > 0 && cont > succ, 'the success mark must be logged before the retry continues')
+})
+t('MUTANT: dropping either mark is caught', () => {
+  for (const status of ['success', 'failed']) {
+    const anchor = `logEvent({ kind: 'goto_dig_retry', status: '${status}',`
+    assert.equal(RAW.split(anchor).length - 1, 1, `ANCHOR MISSING or not unique: ${anchor}`)
+    const m = strip(RAW.replace(anchor, `void ({ kind: 'goto_dig_retry_x', status: '${status}',`))
+    const marks = [...retryBlock(m).matchAll(/logEvent\(\{\s*kind:\s*'goto_dig_retry',\s*status:\s*'(success|failed)'/g)]
+    assert.equal(marks.length, 1, `mutant on '${status}' still shows both marks`)
+  }
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
