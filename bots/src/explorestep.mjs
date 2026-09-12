@@ -56,11 +56,17 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
   // must not read as one deep fall). Steeper chains still do: two drops of two
   // within the same jump are refused from the carried height.
   let hi = feet.y, lo = feet.y, checked = 0, airborne = 0
+  // Lava only matters where the body can touch it. Scanning down a column, a
+  // solid block at or below `lo` is a floor under EVERY possible body, so what
+  // lies beneath it is out of reach (Codex, ninth pass: lava under an intact
+  // floor must not refuse the walk). Solids above `lo` are walls, steps or
+  // ceilings the body may be standing under, so they shield nothing.
   const lavaIn = (x, z, top, bot) => {
     for (let y = top; y >= bot; y--) {
       const b = read(x, y, z)
       if (b === undefined) return `cannot read ${x},${y},${z}`
       if (lava(b)) return `lava at ${x},${y},${z}`
+      if (!passable(b) && y <= lo) return null                   // a floor under every possible body
     }
     return null
   }
