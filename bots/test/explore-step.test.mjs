@@ -192,6 +192,9 @@ t('a centred bot on a one-wide bridge over lava walks straight along it (Codex, 
   assert.ok(!edge.ok, 'a body hanging over the lava column was not refused'); assert.match(edge.why, /lava beside at -1,64,1/)
   const over = blindStepIsSafe(world({ ...bridge, ...lavaSides }), { x: 0.5, y: 64, z: 1.05 }, WEST)                            // centre already over it
   assert.ok(!over.ok); assert.match(over.why, /lava at -1,64,1/)
+  // touching the boundary is not overlapping it: a body at z=0.7 spans [0.4, 1.0] and stays on the bridge (Codex, eleventh pass)
+  const touch = blindStepIsSafe(world({ ...bridge, ...lavaSides }), { x: 0.5, y: 64, z: 0.7 }, WEST)
+  assert.ok(touch.ok, touch.why)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
