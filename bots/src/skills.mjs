@@ -36,6 +36,7 @@ import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
+import { blindStepIsSafe } from './explorestep.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -3202,12 +3203,29 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       // A short walk in the new heading proves to the reflex layer that the bot
       // is working, and incidentally makes the next plan start from somewhere
       // different, which is often why the previous one failed.
+      //
+      // ...BUT NOT OFF A LEDGE OR INTO LAVA. This walk never asked the pathfinder,
+      // so nothing priced the ground ahead: 13 of 28 fleet deaths on the night of
+      // 2026-09-11 involved a fall during or right after explore, and board-a-Echo
+      // fell 26 blocks from this exact branch after six path timeouts. The probe
+      // (src/explorestep.mjs) reads four cells along the heading and refuses a
+      // drop deeper than three or lava in the column; a wall simply ends the walk.
+      // On refusal the turn still happens (the next plan starts from a new heading)
+      // and the walk is skipped -- standing still for one leg is not what kills.
       try {
         await bot.look(ang, 0, true)
-        bot.setControlState('forward', true)
-        bot.setControlState('jump', true)
-        await sleep(1200, signal)
-        bot.clearControlStates()
+        const feet = bot.entity.position
+        const step = blindStepIsSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)),
+                                     { x: Math.floor(feet.x), y: Math.floor(feet.y), z: Math.floor(feet.z) }, ang)
+        if (!step.ok) {
+          logEvent({ kind: 'explore_step_refused', status: 'no_effect',
+                     detail: `${step.why}; turned without walking (leg ${legs}, ${String(lastErr).slice(0, 40)})` })
+        } else {
+          bot.setControlState('forward', true)
+          bot.setControlState('jump', true)
+          await sleep(1200, signal)
+          bot.clearControlStates()
+        }
       } catch { bot.clearControlStates() }
       continue
     }
