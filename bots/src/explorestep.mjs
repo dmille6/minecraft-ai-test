@@ -39,7 +39,6 @@ const EDGE = BODY_HALF_WIDTH - 1e-6     // sampled just inside the edge: touchin
 
 export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS, maxDrop = BLIND_STEP_MAX_DROP } = {}) {
   const dx = -Math.sin(yaw), dz = -Math.cos(yaw)
-  const side = { x: -dz, z: dx }                 // perpendicular, for the body's width
   // THE FOOTPRINT, NOT A GUESS AT IT. The line is walked from the bot's exact
   // position and the side samples sit at the body's own edges (+-0.3), so a
   // centred bot on a one-wide bridge over lava is not refused for lava its
@@ -110,12 +109,21 @@ export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS
     }
     if (surface === null) return { ok: false, why: `drop deeper than ${maxDrop} at ${cx},${hi},${cz}`, cells: checked }
     checked++
-    // the body is wider than the line: lava beside the cell, anywhere in the band, refuses
-    for (const sgn of [1, -1]) {
-      const sx = Math.floor(feet.x + dx * i + side.x * sgn * EDGE), sz = Math.floor(feet.z + dz * i + side.z * sgn * EDGE)
-      if (sx === cx && sz === cz) continue
-      const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
-      if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
+    // the body is wider than the line, and its collision box is AXIS-ALIGNED
+    // whatever the heading (Codex, twelfth pass): at each point along the walk
+    // the box [x-0.3, x+0.3] x [z-0.3, z+0.3] can overlap up to four columns,
+    // so every column a corner falls in is checked for lava in the band.
+    const px = feet.x + dx * i, pz = feet.z + dz * i
+    const seen = new Set([`${cx},${cz}`])
+    for (const ex of [-EDGE, EDGE]) {
+      for (const ez of [-EDGE, EDGE]) {
+        const sx = Math.floor(px + ex), sz = Math.floor(pz + ez)
+        const key = `${sx},${sz}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
+        if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
+      }
     }
   }
   return { ok: true, why: `${checked} cell(s) clear`, cells: checked }
