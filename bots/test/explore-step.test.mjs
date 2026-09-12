@@ -115,4 +115,19 @@ t('a low ceiling (solid at feet+2) is NOT a wall: the body walks under it, so a 
   assert.ok(ok.ok, ok.why); assert.equal(ok.cells, BLIND_STEP_BLOCKS)
 })
 
+t('an ascending staircase raises the reference: two steps up are climbed and a ledge beyond them still refuses (Codex, fifth pass)', () => {
+  // steps: surface 64 at cell 1 (x=-1), 65 at cell 2 (x=-2); then a drop with nothing under cells 3-5
+  const cells = { '-1,64,0': 'stone', '-1,63,0': 'stone', '-2,65,0': 'stone', '-2,64,0': 'stone', '-2,63,0': 'stone' }
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok, 'the second step read as a wall and approved the heading unchecked'); assert.match(r.why, /drop deeper than 3 at -3,66,0/); assert.equal(r.cells, 2)
+  // the same staircase with ground at 66 beyond it passes
+  const ok = blindStepIsSafe(world({ ...cells, ...floorRow(65, -6, -3, 0) }), feet, WEST)
+  assert.ok(ok.ok, ok.why); assert.equal(ok.cells, BLIND_STEP_BLOCKS)
+})
+t('a descent never lowers the reference: after climbing two steps, a drop is judged from the top (a landing at 61 = drop 5 refuses)', () => {
+  const cells = { '-1,64,0': 'stone', '-1,63,0': 'stone', '-2,65,0': 'stone', '-2,64,0': 'stone', '-2,63,0': 'stone', ...floorRow(61, -6, -3, 0) }
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok); assert.match(r.why, /drop deeper than 3 at -3,66,0/)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
