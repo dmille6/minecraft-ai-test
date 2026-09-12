@@ -1234,6 +1234,10 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
           onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } } })
       } catch (e) { if (e?.aborted || signal?.aborted) throw e /* else: the pickup may still manage */ }
     }
+    // A RESOLVED await is a seam too (Codex, third pass): withTimeout does not
+    // watch the signal, so a run cancelled during that dig would resume here
+    // and equip and dig against whatever skill now owns the body.
+    check(signal)
   }
 
   const tool = bestTool(bot, block)

@@ -206,6 +206,7 @@ t('a buried target has the cell above it opened (under the same safety test) bef
   assert.match(f.slice(chk, over), /if \(adjacent\) \{\s*$/, 'only for a buried target')
   assert.match(f.slice(over, dig), /safeToBreak\(over\)/, 'the same safety test')
   assert.match(f.slice(over, dig), /needsDrop: false/, 'the opening dig wants the hole, not the drop')
+  assert.match(f.slice(over, dig), /\}\s*check\(signal\)\s*\}/, 'cancellation is re-checked after the opening dig resolves, before the target is touched')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
