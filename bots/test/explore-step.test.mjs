@@ -143,4 +143,17 @@ t('a wall for the climbed body but not for the unclimbed one lets the probe cont
   assert.ok(!r.ok, 'the climbed-body wall ended the probe early'); assert.match(r.why, /drop deeper than 3 at -4,64,0/)
 })
 
+t('a wall must be solid at EVERY possible height: with hi-lo = 3, solid head cells at both ends but a clear gap between lets a body through, so the ledge beyond still refuses (Codex, seventh pass)', () => {
+  // three steps up: cells 1-3 surfaces 64, 65, 66 -> hi = 67, lo = 64; cell 4: solid at 65 (lo+1) and 68 (hi+1), clear at 66 and 67, floor at 64; cell 5: nothing
+  const cells = { '-1,64,0': 'stone', '-2,65,0': 'stone', '-2,64,0': 'stone', '-3,66,0': 'stone', '-3,65,0': 'stone', '-3,64,0': 'stone',
+                  '-4,65,0': 'stone', '-4,68,0': 'stone', '-4,64,0': 'stone', '-4,63,0': 'stone' }
+  for (let x = -3; x <= -1; x++) cells[`${x},63,0`] = 'stone'
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok, 'the endpoint-only wall test ended the probe early'); assert.match(r.why, /drop deeper than 3 at -5,\d+,0/)
+  // and a column solid from lo+1 to hi+1 IS a wall
+  const wall = { ...cells }; for (let y = 65; y <= 68; y++) wall[`-4,${y},0`] = 'stone'
+  const w = blindStepIsSafe(world(wall), feet, WEST)
+  assert.ok(w.ok, w.why); assert.match(w.why, /wall after 3 cell/)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

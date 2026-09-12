@@ -60,12 +60,21 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
     if (bad) return { ok: false, why: bad, cells: checked }
     // walls: a solid head cell stops a body at that height; the walk only ends
     // when both possible bodies are stopped, otherwise the lower one carries on
-    const headHi = read(cx, hi + 1, cz), headLo = read(cx, lo + 1, cz)
-    if (headHi === undefined || headLo === undefined) return { ok: false, why: `cannot read ${cx},${hi + 1},${cz}`, cells: checked }
-    if (!passable(headHi)) {
-      if (!passable(headLo)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
-      hi = lo                                                        // only the lower body can pass
+    // ...and "both heights" means EVERY height between them (Codex, sixth
+    // pass): once hi - lo >= 3 the two endpoint head cells can be solid while
+    // an intermediate body slips through. So the column lo+1..hi+1 must be
+    // solid throughout for the walk to end; otherwise the highest body whose
+    // head cell is clear carries on.
+    let passHi = null, solidAll = true
+    for (let h = hi; h >= lo; h--) {
+      const c = read(cx, h + 1, cz)
+      if (c === undefined) return { ok: false, why: `cannot read ${cx},${h + 1},${cz}`, cells: checked }
+      if (passable(c)) { solidAll = false; if (passHi === null) passHi = h }
     }
+    if (solidAll) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
+    hi = passHi
+    const headLo = read(cx, lo + 1, cz)
+    if (headLo === undefined) return { ok: false, why: `cannot read ${cx},${lo + 1},${cz}`, cells: checked }
     // the landing for the highest possible body: the first solid at or below hi,
     // within maxDrop of it. Solid AT hi is a one-high step (climbable with headroom).
     let surface = null
@@ -79,7 +88,9 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
       const above = read(cx, hi + 2, cz)
       if (above === undefined) return { ok: false, why: `cannot read ${cx},${hi + 2},${cz}`, cells: checked }
       if (!passable(above)) {
-        if (!passable(headLo)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }   // no headroom for either body
+        // a step with no headroom: the body at hi cannot climb it; if no lower
+        // body can pass either (the column below is solid) the walk ends
+        if (hi === lo || !passable(headLo)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
         hi = lo
       } else {
         hi += 1                                                      // the body MAY land on the step
