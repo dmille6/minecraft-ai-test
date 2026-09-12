@@ -4,14 +4,14 @@
 set -euo pipefail
 FX="${1:?fixture}"; ENVF="${2:?env}"; MIN="${3:-15}"; GIVE="${GIVE:-}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"; H=mike@10.0.0.30
 BOT=$(grep '^BOT_NAME=' "$ROOT/$ENVF" | cut -d= -f2); BR_ROOT="${BOT_ROOT:-$ROOT}"; SHA=$(git -C "$BR_ROOT" rev-parse --short HEAD); BR=$(git -C "$BR_ROOT" branch --show-current || echo detached)
-scp -q "$ROOT/$FX" "$ROOT/scripts/sandbox-scenario.py" "$H:/tmp/"
+scp -q "$ROOT/$FX" "$ROOT/sandbox/sandbox-scenario.py" "$H:/tmp/"
 OUT="$ROOT/sandbox/log/scenario-$(date -u +%Y%m%dT%H%M%S).log"; mkdir -p "$ROOT/sandbox/log"
 ssh "$H" "python3 /tmp/sandbox-scenario.py /tmp/$(basename "$FX") --bot $BOT --minutes $MIN --verify ${GIVE:+--give $GIVE} ${AT:+--at $AT}" > "$OUT" 2>&1 &
 LOADER=$!
 BRAINPID=""
 if [[ -n "${SCRIPT:-}" ]]; then   # scripted decisions through the bots' own model interface, loopback only
   pkill -f "sandbox-brain.mjs" 2>/dev/null || true; sleep 1   # a stale brain on the port would answer with the OLD script
-  (SANDBOX_SCRIPT="$SCRIPT" SANDBOX_DELAY_MS="${SCRIPT_DELAY_MS:-30000}" node "$ROOT/bots/scripts/sandbox-brain.mjs" 11499) > "${OUT%.log}-brain.log" 2>&1 &
+  (SANDBOX_SCRIPT="$SCRIPT" SANDBOX_DELAY_MS="${SCRIPT_DELAY_MS:-30000}" node "$ROOT/sandbox/sandbox-brain.mjs" 11499) > "${OUT%.log}-brain.log" 2>&1 &
   BRAINPID=$!
 fi
 sleep 8   # let the loader forceload + setblock before the bot joins
