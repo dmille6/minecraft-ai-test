@@ -30,13 +30,21 @@ const lava = b => !!b && /lava/.test(b.name || '')
 
 /**
  * @param {(x:number,y:number,z:number)=>object|null} blockAt  world read
- * @param {{x:number,y:number,z:number}} feet   the bot's feet cell (floored)
+ * @param {{x:number,y:number,z:number}} pos    the bot's EXACT position (x, z fractional; y is floored here)
  * @param {number} yaw   mineflayer yaw (radians); forward = (-sin yaw, -cos yaw)
  * @returns {{ok:boolean, why:string, cells:number}}
  */
-export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCKS, maxDrop = BLIND_STEP_MAX_DROP } = {}) {
+export const BODY_HALF_WIDTH = 0.3      // the player's collision box is 0.6 wide
+
+export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS, maxDrop = BLIND_STEP_MAX_DROP } = {}) {
   const dx = -Math.sin(yaw), dz = -Math.cos(yaw)
   const side = { x: -dz, z: dx }                 // perpendicular, for the body's width
+  // THE FOOTPRINT, NOT A GUESS AT IT. The line is walked from the bot's exact
+  // position and the side samples sit at the body's own edges (+-0.3), so a
+  // centred bot on a one-wide bridge over lava is not refused for lava its
+  // body never touches (Codex, tenth pass), while a diagonal heading whose
+  // edges cross into the next column still sees what is there.
+  const feet = { x: pos.x, y: Math.floor(pos.y), z: pos.z }
   const read = (x, y, z) => { try { return blockAt(x, y, z) } catch { return undefined } }
   // TWO REFERENCE HEIGHTS, BECAUSE THE BODY'S HEIGHT IS NOT KNOWN. `hi` is the
   // highest the body could be and `lo` the lowest (the start height: never
@@ -71,7 +79,7 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
     return null
   }
   for (let i = 1; i <= blocks; i++) {
-    const cx = Math.floor(feet.x + 0.5 + dx * i), cz = Math.floor(feet.z + 0.5 + dz * i)
+    const cx = Math.floor(feet.x + dx * i), cz = Math.floor(feet.z + dz * i)
     const bad = lavaIn(cx, cz, hi + 2, lo - 1 - maxDrop)
     if (bad) return { ok: false, why: bad, cells: checked }
     // where could the body be in this cell? Either still at `hi` (airborne or
@@ -103,7 +111,7 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
     checked++
     // the body is wider than the line: lava beside the cell, anywhere in the band, refuses
     for (const sgn of [1, -1]) {
-      const sx = Math.floor(feet.x + 0.5 + dx * i + side.x * sgn * 0.7), sz = Math.floor(feet.z + 0.5 + dz * i + side.z * sgn * 0.7)
+      const sx = Math.floor(feet.x + dx * i + side.x * sgn * BODY_HALF_WIDTH), sz = Math.floor(feet.z + dz * i + side.z * sgn * BODY_HALF_WIDTH)
       if (sx === cx && sz === cz) continue
       const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
       if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
@@ -120,11 +128,11 @@ export const BLIND_STEP_HEADINGS = 4    // headings tried before standing still:
  * the last refusal with ok:false when none is safe -- standing still for one leg
  * beats walking off a ledge, and the next leg turns again anyway.
  */
-export function pickBlindHeading (blockAt, feet, ang, turn, { headings = BLIND_STEP_HEADINGS } = {}) {
+export function pickBlindHeading (blockAt, pos, ang, turn, { headings = BLIND_STEP_HEADINGS } = {}) {
   let last = null
   for (let k = 0; k < headings; k++) {
     const a = ang + k * turn
-    const step = blindStepIsSafe(blockAt, feet, a)
+    const step = blindStepIsSafe(blockAt, pos, a)
     if (step.ok) return { ang: a, step, tried: k + 1 }
     last = { ang: a, step, tried: k + 1 }
   }

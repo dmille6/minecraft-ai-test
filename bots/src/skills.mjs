@@ -3216,7 +3216,7 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       try {
         const feet = bot.entity.position
         const pick = pickBlindHeading((x, y, z) => bot.blockAt(new Vec3(x, y, z)),
-                                      { x: Math.floor(feet.x), y: Math.floor(feet.y), z: Math.floor(feet.z) },
+                                      { x: feet.x, y: feet.y, z: feet.z },     // the exact position: the probe walks the body's own footprint
                                       ang, turnSign * (Math.PI / 3))
         if (!pick.step.ok) {
           logEvent({ kind: 'explore_step_refused', status: 'no_effect',
