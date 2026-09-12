@@ -269,6 +269,10 @@ export function nudgeGround (blockAt, from, to) {
   // what changes it (Codex, fifth pass).
   const trigger = b => /pressure_plate$|^tripwire/.test(b.name)
   const solid = b => !!b && b.boundingBox === 'block'
+  // A step DOWN must land on a full cube: a bottom slab one cell lower is a
+  // 1.5-block drop the bot cannot jump back out of (Codex, seventh pass).
+  // `shapes` is the block's collision boxes when the world provides them.
+  const fullCube = b => solid(b) && (!Array.isArray(b.shapes) || (b.shapes.length === 1 && b.shapes[0]?.[4] >= 1 && b.shapes[0]?.[1] <= 0))
   const liquid = b => !!b && (b.name === 'water' || b.name === 'lava')
   for (const [cx, cz] of cols.values()) {
     for (let y = fy - 2; y <= fy + 1; y++) {
@@ -283,7 +287,7 @@ export function nudgeGround (blockAt, from, to) {
     const slip = [under, lower].find(b => NUDGE_SLIPPERY.has(b.name))
     if (slip) return { ok: false, why: `slippery ${slip.name} under ${cx},${fy - 1},${cz}` }
     if (solid(under)) continue
-    if (!liquid(under) && solid(lower)) continue                       // one step down, onto something
+    if (!liquid(under) && fullCube(lower)) continue                    // one step down, onto a full block
     return { ok: false, why: `no floor under ${cx},${fy - 1},${cz}` }
   }
   return { ok: true, columns: cols.size }

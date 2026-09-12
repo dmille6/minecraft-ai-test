@@ -304,6 +304,19 @@ t('nudgeGround: water at the feet or head on the route refuses (a current can ca
   }
   assert.equal(nudgeGround(world({ '301,38,300': 'water' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'water two below a solid floor is not on the walk')
 })
+t('nudgeGround: a step down must land on a full cube -- a bottom slab one cell lower is a 1.5-block drop', () => {
+  const slabWorld = (x, y, z) => {
+    if (`${x},${y},${z}` === '301,39,300') return { name: 'air', boundingBox: 'empty' }
+    if (`${x},${y},${z}` === '301,38,300') return { name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] }
+    return world()(x, y, z)
+  }
+  const r = nudgeGround(slabWorld, feet, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(r.ok, false); assert.match(r.why, /no floor under 301,39,300/)
+  const cubeWorld = (x, y, z) => `${x},${y},${z}` === '301,38,300' ? { name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } : slabWorld(x, y, z)
+  assert.equal(nudgeGround(cubeWorld, feet, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'the same step down onto a full cube')
+  const slabFloor = (x, y, z) => `${x},${y},${z}` === '301,39,300' ? { name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] } : world()(x, y, z)
+  assert.equal(nudgeGround(slabFloor, feet, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'a slab AT floor level is a half-step, re-climbable')
+})
 t('nudgeGround: an unloaded column is a refusal, never a pass', () => {
   const r = nudgeGround(world({ '301,39,300': null }), feet, { x: 302.5, y: 40, z: 300.5 })
   assert.equal(r.ok, false); assert.match(r.why, /unknown block/)
