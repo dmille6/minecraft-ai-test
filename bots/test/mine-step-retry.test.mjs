@@ -61,8 +61,12 @@ test('THE RECOVERY TARGETS ONE POPULATION: the bot that never moved', () => {
   // fixes the second. The re-dig is only right for the FIRST: handing another
   // dig to a bot that moved and landed somewhere wrong is a different bug and
   // spends budget on it.
-  assert.match(CODE, /if \(!arrived && moved < 0\.3\)/,
-    'the desync recovery must be gated on the bot having stayed put')
+  // Since stair-landing (2026-09-12) the gate has a second, equally narrow
+  // population: the bot stood one above the tread in its own column with the
+  // tread still solid (`landing === 'redig'`). Anything looser -- a bare
+  // `if (!arrived)` -- would run the recovery for a bot that walked elsewhere.
+  assert.match(CODE, /if \(!arrived && \(moved < 0\.3 \|\| landing === 'redig'\)\)/,
+    'the desync recovery must be gated on the bot having stayed put, or standing on its own solid tread')
 })
 
 test('the recovery is BOUNDED, and its cost is measured not assumed', () => {
