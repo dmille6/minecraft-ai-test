@@ -1556,7 +1556,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // the dig below are unchanged: the candidate simply stays on the list.
     let buriedPick = null
     if (reachable.length === 0 && WORTH_TUNNELLING.test(viaSource ?? blockName)) {
-      buriedPick = pickBuriedApproach(bot, positions.filter(q => !exposed(q) && safeTarget(q) && !excluded.has(key(q))), {
+      buriedPick = await pickBuriedApproach(bot, positions.filter(q => !exposed(q) && safeTarget(q) && !excluded.has(key(q))), {
         goals, reachGoalFor: adjacentGoal,                  // beside it, not within reach of it (digreach.mjs)
         endsInReachFor: q => node => faceAdjacent(node, q),
       })

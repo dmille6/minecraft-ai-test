@@ -575,11 +575,60 @@ export const BURIED_APPROACH_TRIES = 3
 // collected the ore. A buried candidate is rare and worth a 6-s plan (the walk
 // budget is 15 s, the collect budget 40 s); the exposed path keeps 2 s.
 export const BURIED_APPROACH_TIMEOUT_MS = 6000
-export const BURIED_APPROACH_PUMPS = 12
+// ...AND THE SEARCH MUST NOT BLOCK THE BODY. Each generator pump runs one
+// synchronous compute slice (the pathfinder's tickTimeout, 40 ms here) and
+// 'partial' means that slice expired, not the total budget -- so twelve
+// synchronous pumps would give ~0.5 s of search while freezing physics and
+// every reflex for that long, and three candidates ~1.5 s (Codex, 2026-09-12).
+// The buried planner therefore yields to the event loop between pumps and is
+// bounded by TIME, not by a pump count: up to BURIED_APPROACH_TIMEOUT_MS of
+// wall clock, with the body live in between.
+export const BURIED_APPROACH_PUMPS = 150   // 150 x 40 ms slices = the 6-s ceiling; time is the real bound
 
-export function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, endsInReachFor,
+/**
+ * planDigApproach, but yielding to the event loop between compute slices so the
+ * body stays live while a hard (digging) search runs. Same verdict, same fields.
+ */
+export async function planDigApproachAsync (bot, target, { goals, reachGoalFor, endsInReach,
+                                                          slack = APPROACH_SLACK,
+                                                          timeout = BURIED_APPROACH_TIMEOUT_MS,
+                                                          pumps = BURIED_APPROACH_PUMPS } = {}) {
+  const at = bot?.entity?.position
+  if (!at || !target) return null
+  if (typeof bot?.pathfinder?.getPathFromTo !== 'function') return null
+  const moves = bot.gatherMovements
+  if (!moves || moves.canDig !== true) return null
+  const goal = reachGoalFor?.(goals, target)
+  if (!goal) return null
+  const t0 = Date.now()
+  let result
+  try {
+    const gen = bot.pathfinder.getPathFromTo(moves, at, goal, { timeout, searchRadius: slack, optimizePath: true })
+    result = gen.next()?.value?.result
+    for (let i = 0; i < pumps && result?.status === 'partial' && Date.now() - t0 < timeout; i++) {
+      await new Promise(resolve => setImmediate(resolve))          // the body lives between slices
+      result = gen.next()?.value?.result ?? result
+    }
+  } catch {
+    return null
+  }
+  if (!result) return null
+  const path = Array.isArray(result.path) ? result.path : []
+  const end = path.length ? path[path.length - 1] : { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }
+  const cost = approachDigCost(bot, path)
+  const verdict = approachVerdict({
+    status: result.status,
+    path,
+    endsInReach: endsInReach ? !!endsInReach(end) : false,
+    digMs: cost.ms,                          // the same field the synchronous planner reads
+    destroys: cost.destroys,
+  })
+  return { ...verdict, visitedNodes: result.visitedNodes, ms: Date.now() - t0, status: result.status }
+}
+
+export async function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, endsInReachFor,
                                                      radius = BURIED_APPROACH_RADIUS, dy = BURIED_APPROACH_DY,
-                                                     tries = BURIED_APPROACH_TRIES, plan = planDigApproach,
+                                                     tries = BURIED_APPROACH_TRIES, plan = planDigApproachAsync,
                                                      timeout = BURIED_APPROACH_TIMEOUT_MS, pumps = BURIED_APPROACH_PUMPS } = {}) {
   const at = bot?.entity?.position
   if (!at || !Array.isArray(candidates) || candidates.length === 0) return null
@@ -590,7 +639,7 @@ export function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, ends
   const refused = []
   for (const q of near) {
     let verdict = null
-    try { verdict = plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null, timeout, pumps }) } catch { verdict = null }
+    try { verdict = await plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null, timeout, pumps }) } catch { verdict = null }
     if (verdict?.take) return { target: q, dist: at.distanceTo(q), dig: verdict.dig, digMs: verdict.digMs ?? null, refused }
     // planDigApproach says `why`; the first draft read `reason` and every refusal printed 'no plan'.
     refused.push(`${q.x},${q.y},${q.z}: ${verdict?.why ?? verdict?.reason ?? verdict?.status ?? 'no plan'}`)
