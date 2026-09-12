@@ -35,11 +35,53 @@ t('gather consults the buried approach only for tunnel-worthy blocks with nothin
   assert.ok(i > 0 && e > i, 'the buried approach is consulted before the escalation')
   const guard = c.slice(c.lastIndexOf('if (', i), i)
   assert.match(guard, /reachable\.length === 0 && WORTH_TUNNELLING\.test\(viaSource \?\? blockName\)/)
-  assert.match(c.slice(i, i + 200), /positions\.filter\(q => !exposed\(q\) && safeTarget\(q\)\)/, 'liquid/falling safety still applies to a buried candidate')
+  assert.match(c.slice(i, i + 200), /positions\.filter\(q => !exposed\(q\) && safeTarget\(q\) && !excluded\.has\(key\(q\)\)\)/, 'liquid/falling safety still applies to a buried candidate, and a candidate refused this run is not re-picked')
 })
 t('MUTANT: dropping the safeTarget filter on buried candidates is caught', () => {
-  const anchor = 'positions.filter(q => !exposed(q) && safeTarget(q))'
+  const anchor = 'positions.filter(q => !exposed(q) && safeTarget(q) && !excluded.has(key(q)))'
   assert.equal(RAW.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  assert.ok(!/positions\.filter\(q => !exposed\(q\) && safeTarget\(q\)\)/.test(strip(RAW.replace(anchor, 'positions.filter(q => !exposed(q))'))))
+  assert.ok(!/positions\.filter\(q => !exposed\(q\) && safeTarget\(q\) && !excluded\.has\(key\(q\)\)\)/.test(strip(RAW.replace(anchor, 'positions.filter(q => !exposed(q) && !excluded.has(key(q)))'))))
 })
+
+t('a refusal carries the planner\'s own `why` (the first draft read `reason` and printed "no plan" for everything)', () => {
+  const r = pickBuriedApproach(bot, [V(304, 40, 300)], { plan: () => ({ take: false, why: 'approach would break 9 blocks, over the 6 allowed' }) })
+  assert.equal(r.target, null)
+  assert.equal(r.refused[0], '304,40,300: approach would break 9 blocks, over the 6 allowed')
+})
+t('MUTANT: dropping the excluded filter on buried candidates is caught', () => {
+  const c = strip(RAW)
+  const i = c.indexOf('buriedPick = pickBuriedApproach(')
+  const good = c.slice(i, i + 200)
+  const bad = good.replace(' && !excluded.has(key(q))', '')
+  assert.notEqual(good, bad, 'ANCHOR MISSING')
+  assert.ok(!/positions\.filter\(q => !exposed\(q\) && safeTarget\(q\) && !excluded\.has\(key\(q\)\)\)/.test(bad))
+})
+t('a buried target is collected under a typed dig claim that an exposed target never takes, released on every exit', () => {
+  const c = strip(RAW)
+  const g = c.slice(c.indexOf('async function gather('), c.indexOf('async function gather(') + 60000)
+  assert.match(g, /const buried = !!\(buriedPick\?\.target && key\(nextUp\) === key\(buriedPick\.target\)\)/)
+  assert.match(g, /const digClaim = buried \? \(runner\?\.claimBody\?\.\('dig'\) \?\? null\) : null/, 'only a buried target claims')
+  assert.match(g, /finally \{\s*digClaim\?\.release\?\.\(\)/, 'released in the finally that also cancels the library')
+  assert.match(g, /await collectManually\(bot, target, signal, buried \? \{ claim: digClaim, safeToBreak: safeTarget \} : \{\}\)/, 'the claim and the safety re-check travel together')
+})
+t('collectManually re-asks safeToBreak AFTER the walks and BEFORE bot.dig, and renews the claim per phase', () => {
+  const c = strip(RAW)
+  const s = c.indexOf('export async function collectManually('); const e = c.indexOf('async function pickupNearbyItems(')
+  const f = c.slice(s, e)
+  const walk = f.indexOf('withGatherMovements'), check = f.indexOf('if (safeToBreak && !safeToBreak(p))'), dig = f.indexOf('await withTimeout(bot.dig(block)')
+  assert.ok(walk > 0 && check > walk && dig > check, `order: walk ${walk} < recheck ${check} < dig ${dig}`)
+  assert.match(f.slice(check, dig), /failClass: 'unsafe_target'/)
+  assert.equal((f.match(/claim\?\.renew\?\.\(\)/g) || []).length, 2, 'renewed once before the dig phase and once before the pickup walk')
+})
+t('MUTANT: moving the safeToBreak re-check above the approach walk is caught', () => {
+  const c = strip(RAW)
+  const s = c.indexOf('export async function collectManually('); const e = c.indexOf('async function pickupNearbyItems(')
+  const f = c.slice(s, e)
+  const chk = f.slice(f.indexOf('if (safeToBreak && !safeToBreak(p))'), f.indexOf("failClass: 'unsafe_target' })") + 30)
+  assert.ok(chk.length > 40 && f.split(chk).length === 2, 'ANCHOR MISSING or not unique')
+  const bad = chk + f.replace(chk, '')
+  const walk = bad.indexOf('withGatherMovements'), check = bad.indexOf('if (safeToBreak && !safeToBreak(p))')
+  assert.ok(check < walk, 'the mutant must put the check before the walk')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

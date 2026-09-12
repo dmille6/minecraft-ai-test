@@ -1004,7 +1004,7 @@ const mustCollectManually = name =>
  * or the item lies on the ground and the inventory delta stays zero -- which is
  * indistinguishable from not having mined it.
  */
-export async function collectManually(bot, block, signal) {
+export async function collectManually(bot, block, signal, { claim = null, safeToBreak = null } = {}) {
   const p = block.position
   const wanted = block.name
   // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
@@ -1178,6 +1178,7 @@ export async function collectManually(bot, block, signal) {
   // that had simply been taken by another bot. reachRefusal splits them, and
   // the split is a pure function so it is tested by behaviour rather than by
   // matching this text.
+  claim?.renew?.()                       // the walks are done; the dig phase begins
   const here = bot.blockAt(p)
   if (bot.canDigBlock && !bot.canDigBlock(here)) {
     const { failClass, detail } = reachRefusal({
@@ -1187,6 +1188,16 @@ export async function collectManually(bot, block, signal) {
     throw Object.assign(new Error(detail), { failClass })
   }
   const wasNamed = here?.name
+  // THE APPROACH JUST CHANGED THE WORLD AROUND THIS BLOCK. The candidate was
+  // screened by isSafeToBreak (liquid beside it, a falling block above it)
+  // before the tunnel was cut; ask again now, from the face, because the
+  // answer the bot acts on must be the answer at the moment it acts.
+  if (safeToBreak && !safeToBreak(p)) {
+    throw Object.assign(
+      new Error(`${p.x},${p.y},${p.z} is no longer safe to break from the approach ` +
+                `(liquid beside it or a falling block above it)`),
+      { failClass: 'unsafe_target' })
+  }
 
   const tool = bestTool(bot, block)
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
@@ -1227,6 +1238,7 @@ export async function collectManually(bot, block, signal) {
       { failClass: 'dig_unconfirmed' })
   }
 
+  claim?.renew?.()                       // the block is down; the pickup walk begins
   await pickupNearbyItems(bot, signal)
 }
 
@@ -1255,7 +1267,7 @@ async function pickupNearbyItems(bot, signal, radius = 8) {
 
 async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
   maxDistance = Math.min(Number(maxDistance) || 32, 48)   // callers cannot opt back into the blowup
-  const { bot } = ctx
+  const { bot, runner } = ctx
   const asked = blockName
   const resolved = resolveBlockName(bot, blockName)
   if (!resolved.name) {
@@ -1507,7 +1519,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // the dig below are unchanged: the candidate simply stays on the list.
     let buriedPick = null
     if (reachable.length === 0 && WORTH_TUNNELLING.test(viaSource ?? blockName)) {
-      buriedPick = pickBuriedApproach(bot, positions.filter(q => !exposed(q) && safeTarget(q)), {
+      buriedPick = pickBuriedApproach(bot, positions.filter(q => !exposed(q) && safeTarget(q) && !excluded.has(key(q))), {
         goals, reachGoalFor: reachGoal,
         endsInReachFor: q => node => nodeToBlock(node, q) <= STANCE_REACH,
       })
@@ -1617,6 +1629,18 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     }
     const target = bot.blockAt(nextUp)
     if (!target || target.name !== (viaSource ?? blockName)) { excluded.add(key(nextUp)); continue }
+    // A BURIED TARGET IS COLLECTED UNDER A TYPED 'dig' CLAIM. The approach cuts
+    // a one-wide corridor at the bot's level and the bot stands in it to break
+    // the ore: ceiling, three walls, higher ground nearby -- isEntombed's exact
+    // definition. In the sandbox (2026-09-12 00:51, synthetic-buried-ore-d5)
+    // the approach reached the ore's face and the entombment reflex then fired
+    // eight times in five minutes, interrupted the collect, and pillared the
+    // bot out of its own tunnel; the ore was never taken. Same shape as mine's
+    // 'stair' claim and surface's 'climb': held only around this one collect,
+    // renewed per phase inside collectManually, released on every exit, and
+    // it quiets exactly one reflex branch. An EXPOSED target claims nothing.
+    const buried = !!(buriedPick?.target && key(nextUp) === key(buriedPick.target))
+    const digClaim = buried ? (runner?.claimBody?.('dig') ?? null) : null
 
     try {
       // The budget has to cover PLANNING PLUS DOING. It was 10000ms while
@@ -1630,7 +1654,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // and stays under the 45s stuck reflex so a genuinely wedged bot is still
       // rescued rather than sitting out its whole budget.
       if (mustCollectManually(target.name)) {
-        await collectManually(bot, target, signal)
+        // Buried: revalidate the target's safety right before it is broken (the
+        // approach just changed the world around it), and renew the claim per phase.
+        await collectManually(bot, target, signal, buried ? { claim: digClaim, safeToBreak: safeTarget } : {})
       } else {
         // ABANDONING A PROMISE DOES NOT STOP THE WORK BEHIND IT.
         //
@@ -1709,6 +1735,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       excluded.add(key(target.position))
       log('debug', 'gather: target failed', { at: `${target.position}`, err: e.message })
     } finally {
+      digClaim?.release?.()
       // A CANCELLED SKILL MUST CANCEL THE LIBRARY TOO.
       //
       // The watchdog and the reflex layer both cancel running skills, and that

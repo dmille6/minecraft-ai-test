@@ -574,7 +574,8 @@ export function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, ends
     let verdict = null
     try { verdict = plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null }) } catch { verdict = null }
     if (verdict?.take) return { target: q, dist: at.distanceTo(q), dig: verdict.dig, digMs: verdict.digMs ?? null, refused }
-    refused.push(`${q.x},${q.y},${q.z}: ${verdict?.reason ?? verdict?.status ?? 'no plan'}`)
+    // planDigApproach says `why`; the first draft read `reason` and every refusal printed 'no plan'.
+    refused.push(`${q.x},${q.y},${q.z}: ${verdict?.why ?? verdict?.reason ?? verdict?.status ?? 'no plan'}`)
   }
   return near.length ? { target: null, refused } : null
 }
