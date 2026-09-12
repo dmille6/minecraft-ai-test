@@ -61,10 +61,13 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
     // one-step-up height. Solid at feet+1 AND feet+2 is a wall (the walk stops
     // harmlessly); solid at feet (a one-high step) or lower is walkable if the
     // surface is within the band.
-    const s1 = read(cx, feet.y + 1, cz), s2 = read(cx, feet.y + 2, cz)
-    if (s1 === undefined || s2 === undefined) return { ok: false, why: `cannot read ${cx},${feet.y + 1},${cz}`, cells: checked }
+    // Only a solid HEAD cell (feet+1) is a wall. A solid at feet+2 is a low
+    // ceiling: a 1.8-tall body walks under it, so the walk continues and the
+    // floor, the lava and the cells beyond still have to be checked (Codex,
+    // fourth pass); the jump is simply not taken.
+    const s1 = read(cx, feet.y + 1, cz)
+    if (s1 === undefined) return { ok: false, why: `cannot read ${cx},${feet.y + 1},${cz}`, cells: checked }
     if (!passable(s1)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
-    if (!passable(s2)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }   // low ceiling: the body stops
     let surface = null
     for (let y = feet.y; y >= yBot; y--) {
       const b = read(cx, y, cz)
