@@ -1,14 +1,14 @@
 // A blind walk after a failed explore leg must not walk off a ledge or into lava.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { blindStepIsSafe, pickBlindHeading, BLIND_STEP_BLOCKS, BLIND_STEP_MAX_DROP, BLIND_STEP_HEADINGS, JUMP_CELLS } from '../src/explorestep.mjs'
+import { blindStepIsSafe, pickBlindHeading, BLIND_STEP_BLOCKS, BLIND_STEP_MAX_DROP, BLIND_STEP_HEADINGS, JUMP_CELLS, BODY_HALF_WIDTH } from '../src/explorestep.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 // a world: map of "x,y,z" -> block name; everything else is air
 const world = cells => (x, y, z) => { const n = cells[`${x},${y},${z}`]; return n ? { name: n, boundingBox: n === 'water' ? 'empty' : 'block' } : { name: 'air', boundingBox: 'empty' } }
 const floorRow = (y, x0, x1, z, name = 'stone') => Object.fromEntries(Array.from({ length: x1 - x0 + 1 }, (_, i) => [`${x0 + i},${y},${z}`, name]))
-const feet = { x: 0, y: 64, z: 0 }
+const feet = { x: 0.5, y: 64.0, z: 0.5 }     // centred in cell 0,0
 const WEST = Math.PI / 2      // mineflayer yaw: forward = (-sin yaw, -cos yaw) -> yaw pi/2 walks toward -x
 
 t('flat ground ahead is safe; the probe reads BLIND_STEP_BLOCKS cells', () => {
@@ -80,7 +80,7 @@ t('lava BESIDE the line refuses (the body is 0.6 wide): a diagonal heading passe
   const NW = Math.PI / 4        // forward = (-sin, -cos) = (-0.71, -0.71): toward -x and -z
   const flat = {}; for (let x = -8; x <= 0; x++) for (let z = -8; z <= 0; z++) flat[`${x},63,${z}`] = 'stone'
   assert.ok(blindStepIsSafe(world(flat), feet, NW).ok)
-  const r = blindStepIsSafe(world({ ...flat, '-2,64,-3': 'lava' }), feet, NW)   // beside the diagonal, not on it
+  const r = blindStepIsSafe(world({ ...flat, '-1,64,-2': 'lava' }), feet, NW)   // beside the diagonal at cell 2, where the body's edge crosses
   assert.ok(!r.ok, 'lava one column beside the heading was not seen'); assert.match(r.why, /lava beside/)
 })
 t('pickBlindHeading walks the first safe heading among up to BLIND_STEP_HEADINGS 60-degree turns, else reports the last refusal', () => {
@@ -106,9 +106,9 @@ t('a steep chain within one jump is ONE fall (Codex, third pass): two-block drop
 })
 t('lava beside an airborne body is checked at the START height band, not at an imagined landing', () => {
   // cell 1 drops to a floor at 61 (drop 2, fine); lava beside cell 2 at y=64 (start feet height): still refused
-  const cells = { ...floorRow(61, -6, -1, 0), '-2,64,1': 'lava' }
+  const cells = { ...floorRow(61, -6, -1, 0), '-2,64,0': 'lava' }               // in the walked column itself, at the start height
   const r = blindStepIsSafe(world(cells), feet, WEST)
-  assert.ok(!r.ok); assert.match(r.why, /lava beside at -2,64,1/)
+  assert.ok(!r.ok); assert.match(r.why, /lava at -2,64,0/)
 })
 
 t('a low ceiling (solid at feet+2) is NOT a wall: the body walks under it, so a ledge inside a two-high tunnel still refuses (Codex, fourth pass)', () => {
@@ -181,6 +181,17 @@ t('lava under an intact floor is out of reach and passes; the same lava with a h
   // a wall above the start height shields nothing: lava at feet level behind a one-high step is still seen
   const step = { ...floor, '-1,64,0': 'stone', '-2,64,0': 'lava' }
   assert.ok(!blindStepIsSafe(world(step), feet, WEST).ok)
+})
+
+t('a centred bot on a one-wide bridge over lava walks straight along it (Codex, tenth pass); off-centre by more than the body half-width it does not', () => {
+  const bridge = floorRow(63, -6, 0, 0)
+  const lavaSides = {}; for (let x = -6; x <= 0; x++) for (const z of [-1, 1]) { lavaSides[`${x},63,${z}`] = 'lava'; lavaSides[`${x},64,${z}`] = 'lava' }
+  const ok = blindStepIsSafe(world({ ...bridge, ...lavaSides }), feet, WEST)
+  assert.ok(ok.ok, ok.why); assert.equal(ok.cells, BLIND_STEP_BLOCKS)
+  const edge = blindStepIsSafe(world({ ...bridge, ...lavaSides }), { x: 0.5, y: 64, z: 0.5 + BODY_HALF_WIDTH + 0.1 }, WEST)   // edge at z=1.2: over the lava column
+  assert.ok(!edge.ok, 'a body hanging over the lava column was not refused'); assert.match(edge.why, /lava beside at -1,64,1/)
+  const over = blindStepIsSafe(world({ ...bridge, ...lavaSides }), { x: 0.5, y: 64, z: 1.05 }, WEST)                            // centre already over it
+  assert.ok(!over.ok); assert.match(over.why, /lava at -1,64,1/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
