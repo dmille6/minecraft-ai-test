@@ -275,6 +275,13 @@ t('nudgeGround: lava anywhere in the band refuses -- under the floor, at the fee
   }
   assert.equal(nudgeGround(world({ '301,39,300': 'water' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false, 'water is not a floor to step down onto')
 })
+t('nudgeGround: a magma-block floor is solid by shape and still refused; so is a cactus or fire on the route', () => {
+  const r = nudgeGround(world({ '301,39,300': 'magma_block' }), feet, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(r.ok, false); assert.match(r.why, /magma_block at 301,39,300/)
+  assert.equal(nudgeGround(world({ '302,40,300': 'cactus' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false, 'cactus at the feet')
+  assert.equal(nudgeGround(world({ '301,40,300': 'fire' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false, 'fire on the way')
+  assert.equal(nudgeGround(world({ '301,38,300': 'magma_block' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false, 'magma under the floor (a step down would land on it)')
+})
 t('nudgeGround: an unloaded column is a refusal, never a pass', () => {
   const r = nudgeGround(world({ '301,39,300': null }), feet, { x: 302.5, y: 40, z: 300.5 })
   assert.equal(r.ok, false); assert.match(r.why, /unknown block/)

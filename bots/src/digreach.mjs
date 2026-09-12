@@ -229,11 +229,16 @@ export function adjacentGoal (goals, p) {
  * Every column the bot's 0.6-wide body sweeps on the straight line from its
  * feet to the drop must carry a floor: a solid block directly under the feet
  * level, or one step down (air over solid -- the drop can lie a block lower).
- * No lava anywhere from two below the feet to the head. An unknown block
+ * No lava, magma, fire, cactus or other harmful block anywhere from two below
+ * the feet to the head. An unknown block
  * (unloaded chunk) is a refusal. The probe is pure so it can be tested by
  * behaviour, and it returns the offending column so the refusal names it.
  */
 export const NUDGE_HALF_WIDTH = 0.3
+// Blocks that hurt a bot standing on or in them. A magma block IS a solid floor
+// (Codex, third pass) and would have passed the floor test by shape alone.
+export const NUDGE_HAZARDS = new Set(['lava', 'magma_block', 'fire', 'soul_fire', 'campfire', 'soul_campfire',
+                                      'cactus', 'sweet_berry_bush', 'wither_rose', 'powder_snow', 'pointed_dripstone'])
 export function nudgeGround (blockAt, from, to) {
   if (!from || !to) return { ok: false, why: 'no endpoints' }
   const fy = Math.floor(from.y)
@@ -255,7 +260,7 @@ export function nudgeGround (blockAt, from, to) {
     for (let y = fy - 2; y <= fy + 1; y++) {
       const b = blockAt(cx, y, cz)
       if (!b) return { ok: false, why: `unknown block at ${cx},${y},${cz}` }
-      if (b.name === 'lava') return { ok: false, why: `lava at ${cx},${y},${cz}` }
+      if (NUDGE_HAZARDS.has(b.name)) return { ok: false, why: `${b.name} at ${cx},${y},${cz}` }
     }
     const under = blockAt(cx, fy - 1, cz), lower = blockAt(cx, fy - 2, cz)
     if (solid(under)) continue
