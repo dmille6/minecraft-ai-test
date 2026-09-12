@@ -35,7 +35,7 @@ import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH, faceAdjacent, adjacentGoal } from './digreach.mjs'
-import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS, pickBuriedApproach } from './digapproach.mjs'
+import { planDigApproach, planDigApproachAsync, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS, pickBuriedApproach } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -1089,11 +1089,22 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
     if (!arrived()) {
       // A BURIED target's approach ends BESIDE it, not within reach of it
       // (digreach.mjs, faceAdjacent). An exposed target keeps the reach goal.
-      const plan = planDigApproach(bot, p, {
-        goals,
-        reachGoalFor: adjacent ? adjacentGoal : reachGoal,
-        endsInReach: node => adjacent ? faceAdjacent(node, p) : nodeToBlock(node, p) <= STANCE_REACH,
-      })
+      // THE WALK USES THE SAME SEARCH THAT ADMITTED THE PICK. board-b, 2026-09-12
+      // 18:35-21:35: the buried pick (async, 6 s) admitted 42 approaches of 14-15
+      // blocks, and every one was then re-planned here with the synchronous 2-s
+      // planner, which returned 'partial' and refused -- 36 collects, 0 walked,
+      // "eye is 8.1 blocks from the centre". A buried target plans with the async,
+      // time-bounded, signal-aware planner; an exposed target keeps the 2-s one.
+      const plan = adjacent
+        ? await planDigApproachAsync(bot, p, {
+            goals, reachGoalFor: adjacentGoal, endsInReach: node => faceAdjacent(node, p), signal,
+          })
+        : planDigApproach(bot, p, {
+            goals,
+            reachGoalFor: reachGoal,
+            endsInReach: node => nodeToBlock(node, p) <= STANCE_REACH,
+          })
+      if (adjacent) check(signal)                            // the await above is a seam
       if (plan?.take && bot.withGatherMovements) {
         // EMITTED AFTER THE WALK, WITH THE OUTCOME THE WALK ACTUALLY HAD.
         //

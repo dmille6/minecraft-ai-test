@@ -106,8 +106,9 @@ t('collectManually plans AND walks the buried approach with the adjacent goal, a
   const c = strip(RAW)
   const s = c.indexOf('export async function collectManually('); const e = c.indexOf('async function pickupNearbyItems(')
   const f = c.slice(s, e)
-  assert.match(f, /reachGoalFor: adjacent \? adjacentGoal : reachGoal/, 'the plan uses the adjacent goal')
-  assert.match(f, /endsInReach: node => adjacent \? faceAdjacent\(node, p\) : nodeToBlock\(node, p\) <= STANCE_REACH/, 'the plan ends beside the block')
+  assert.match(f, /const plan = adjacent\s*\? await planDigApproachAsync\(bot, p, \{\s*goals, reachGoalFor: adjacentGoal, endsInReach: node => faceAdjacent\(node, p\), signal,/, 'a buried target plans with the async, signal-aware planner and the adjacent goal')
+  assert.match(f, /: planDigApproach\(bot, p, \{\s*goals,\s*reachGoalFor: reachGoal,\s*endsInReach: node => nodeToBlock\(node, p\) <= STANCE_REACH,/, 'an exposed target keeps the synchronous planner and the reach goal')
+  assert.match(f, /if \(adjacent\) check\(signal\)/, 'the await is a seam: cancellation is re-checked')
   assert.match(f, /const walkGoal = \(adjacent \? adjacentGoal\(goals, p\) : reachGoal\(goals, p\)\) \?\? stance/, 'the walk goes to the same goal the plan priced')
   assert.match(f, /goto\(walkGoal\), APPROACH_WALK_MS/)
   const g = c.slice(c.indexOf('async function gather('))
@@ -207,6 +208,15 @@ t('a buried target has the cell above it opened (under the same safety test) bef
   assert.match(f.slice(over, dig), /safeToBreak\(over\)/, 'the same safety test')
   assert.match(f.slice(over, dig), /needsDrop: false/, 'the opening dig wants the hole, not the drop')
   assert.match(f.slice(over, dig), /\}\s*check\(signal\)\s*\}/, 'cancellation is re-checked after the opening dig resolves, before the target is touched')
+})
+
+t('MUTANT: re-planning a buried target with the synchronous planner is caught (board-b: 0 of 36 collects walked)', () => {
+  const c = strip(RAW)
+  const anchor = 'const plan = adjacent\n        ? await planDigApproachAsync(bot, p, {'
+  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const bad = c.replace(anchor, 'const plan = adjacent\n        ? planDigApproach(bot, p, {')
+  const s = bad.indexOf('export async function collectManually('); const f = bad.slice(s, bad.indexOf('async function pickupNearbyItems('))
+  assert.ok(!/const plan = adjacent\s*\? await planDigApproachAsync\(/.test(f))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
