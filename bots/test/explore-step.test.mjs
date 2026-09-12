@@ -130,4 +130,17 @@ t('a descent never lowers the reference: after climbing two steps, a drop is jud
   assert.ok(!r.ok); assert.match(r.why, /drop deeper than 3 at -3,66,0/)
 })
 
+t('a narrow step cleared by the jump does not raise the floor of the lava band: lava at the start height beyond the step is still seen (Codex, sixth pass)', () => {
+  // step at cell 1; beyond it ground at 64 (feet 65 if landed) but lava at y=64 under cell 3 -- a body that skipped the step is at 64
+  const cells = { ...floorRow(63, -6, 0, 0), '-1,64,0': 'stone', ...floorRow(64, -6, -2, 0), '-3,64,0': 'lava' }
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok); assert.match(r.why, /lava at -3,64,0/)
+})
+t('a wall for the climbed body but not for the unclimbed one lets the probe continue at the lower height', () => {
+  // step at cell 1 (hi -> 65); cell 2 has a solid at 66 (head for hi) but its own surface is 64 (level for lo) with head 65 clear: the lower body walks on; a ledge at cell 4 must still refuse
+  const cells = { '-1,64,0': 'stone', '-1,63,0': 'stone', '-2,66,0': 'stone', '-2,63,0': 'stone', '-3,63,0': 'stone' }
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok, 'the climbed-body wall ended the probe early'); assert.match(r.why, /drop deeper than 3 at -4,64,0/)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
