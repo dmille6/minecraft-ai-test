@@ -217,3 +217,50 @@ export function adjacentGoal (goals, p) {
   if (!C) return null
   return new C(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
 }
+
+/*
+ * THE NUDGE MAY NOT CROSS A HOLE (Codex, 2026-09-12, second pass on the pickup
+ * nudge). A drop 2 blocks away can lie on the far lip of a pit or a lava
+ * pocket; both distance limits are satisfied and the straight walk enters the
+ * hazard before it reaches the stopping radius. The pathfinder's `noPath` had
+ * refused exactly that walk, so a nudge that ignores the ground is strictly
+ * more dangerous than the code it replaced.
+ *
+ * Every column the bot's 0.6-wide body sweeps on the straight line from its
+ * feet to the drop must carry a floor: a solid block directly under the feet
+ * level, or one step down (air over solid -- the drop can lie a block lower).
+ * No lava anywhere from two below the feet to the head. An unknown block
+ * (unloaded chunk) is a refusal. The probe is pure so it can be tested by
+ * behaviour, and it returns the offending column so the refusal names it.
+ */
+export const NUDGE_HALF_WIDTH = 0.3
+export function nudgeGround (blockAt, from, to) {
+  if (!from || !to) return { ok: false, why: 'no endpoints' }
+  const fy = Math.floor(from.y)
+  const flat = Math.hypot(to.x - from.x, to.z - from.z)
+  const steps = Math.max(1, Math.ceil(flat / 0.25))
+  const cols = new Map()
+  for (let i = 0; i <= steps; i++) {
+    const s = i / steps
+    const x = from.x + (to.x - from.x) * s, z = from.z + (to.z - from.z) * s
+    for (const [ox, oz] of [[-NUDGE_HALF_WIDTH, -NUDGE_HALF_WIDTH], [NUDGE_HALF_WIDTH, -NUDGE_HALF_WIDTH],
+                            [-NUDGE_HALF_WIDTH, NUDGE_HALF_WIDTH], [NUDGE_HALF_WIDTH, NUDGE_HALF_WIDTH]]) {
+      const cx = Math.floor(x + ox), cz = Math.floor(z + oz)
+      cols.set(`${cx},${cz}`, [cx, cz])
+    }
+  }
+  const solid = b => !!b && b.boundingBox === 'block'
+  const liquid = b => !!b && (b.name === 'water' || b.name === 'lava')
+  for (const [cx, cz] of cols.values()) {
+    for (let y = fy - 2; y <= fy + 1; y++) {
+      const b = blockAt(cx, y, cz)
+      if (!b) return { ok: false, why: `unknown block at ${cx},${y},${cz}` }
+      if (b.name === 'lava') return { ok: false, why: `lava at ${cx},${y},${cz}` }
+    }
+    const under = blockAt(cx, fy - 1, cz), lower = blockAt(cx, fy - 2, cz)
+    if (solid(under)) continue
+    if (!liquid(under) && solid(lower)) continue                       // one step down, onto something
+    return { ok: false, why: `no floor under ${cx},${fy - 1},${cz}` }
+  }
+  return { ok: true, columns: cols.size }
+}

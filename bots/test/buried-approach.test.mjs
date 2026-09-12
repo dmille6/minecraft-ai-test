@@ -3,7 +3,7 @@ import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { Vec3 } from 'vec3'
 import { pickBuriedApproach, approachVerdict, BURIED_APPROACH_RADIUS, BURIED_APPROACH_DY, BURIED_APPROACH_TIMEOUT_MS, BURIED_APPROACH_PUMPS, APPROACH_TIMEOUT_MS } from '../src/digapproach.mjs'
-import { faceAdjacent, adjacentGoal } from '../src/digreach.mjs'
+import { faceAdjacent, adjacentGoal, nudgeGround } from '../src/digreach.mjs'
 import pathfinder from 'mineflayer-pathfinder'
 const { goals } = pathfinder
 let pass = 0, fail = 0
@@ -244,6 +244,64 @@ t('MUTANT: a nudge that no longer stops at the drop (distance bound removed) is 
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, '')
   assert.ok(!/Math\.hypot\(target\.x - here\.x, target\.z - here\.z\) <= 0\.4\) break/.test(bad))
+})
+
+
+// THE NUDGE MAY NOT CROSS A HOLE. A world is a map of "x,y,z" -> block; anything
+// unlisted is stone below y=40 and air at/above it, so a flat floor is the default.
+const world = (over = {}) => (x, y, z) => {
+  const k = `${x},${y},${z}`
+  if (k in over) return over[k] === null ? null : { name: over[k], boundingBox: (over[k] === 'air' || over[k] === 'water' || over[k] === 'lava') ? 'empty' : 'block' }
+  return y < 40 ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }
+}
+const feet = { x: 300.5, y: 40, z: 300.5 }
+t('nudgeGround: a flat floor to a drop two blocks away is walkable, and every swept column is checked', () => {
+  const r = nudgeGround(world(), feet, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(r.ok, true); assert.ok(r.columns >= 3, `swept ${r.columns} columns`)
+  assert.equal(nudgeGround(world(), feet, { x: 302.5, y: 39, z: 300.5 }).ok, true, 'a drop one block lower on the same floor')
+})
+t('nudgeGround: a one-block pit between the bot and the drop refuses the walk and names the column', () => {
+  const r = nudgeGround(world({ '301,39,300': 'air', '301,38,300': 'air' }), feet, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(r.ok, false); assert.match(r.why, /no floor under 301,39,300/)
+})
+t('nudgeGround: a single step down onto a solid is allowed; a two-deep drop is not', () => {
+  assert.equal(nudgeGround(world({ '301,39,300': 'air' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, true)
+  assert.equal(nudgeGround(world({ '301,39,300': 'air', '301,38,300': 'air' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false)
+})
+t('nudgeGround: lava anywhere in the band refuses -- under the floor, at the feet, or at the head', () => {
+  for (const y of [38, 39, 40, 41]) {
+    const r = nudgeGround(world({ [`301,${y},300`]: 'lava' }), feet, { x: 302.5, y: 40, z: 300.5 })
+    assert.equal(r.ok, false, `lava at y=${y}`); assert.match(r.why, /lava at 301/)
+  }
+  assert.equal(nudgeGround(world({ '301,39,300': 'water' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false, 'water is not a floor to step down onto')
+})
+t('nudgeGround: an unloaded column is a refusal, never a pass', () => {
+  const r = nudgeGround(world({ '301,39,300': null }), feet, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(r.ok, false); assert.match(r.why, /unknown block/)
+})
+t('nudgeGround: the body is 0.6 wide -- a pit beside the centre line, inside the swept box, still refuses', () => {
+  // walking along x at z=300.5; the body covers z in [300.2, 300.8] -> only column z=300 -- so
+  // shift the walk to z=300.85 and the box reaches z=301 as well.
+  const r = nudgeGround(world({ '301,39,301': 'air', '301,38,301': 'air' }), { x: 300.5, y: 40, z: 300.85 }, { x: 302.5, y: 40, z: 300.85 })
+  assert.equal(r.ok, false); assert.match(r.why, /301,39,301/)
+  assert.equal(nudgeGround(world({ '301,39,301': 'air', '301,38,301': 'air' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'the same pit outside the box is not on the route')
+})
+
+t('pickupNearbyItems probes the ground before it moves, and a refusal leaves the drop where the old code left it', () => {
+  const c = strip(RAW)
+  const s = c.indexOf('async function pickupNearbyItems('); const f = c.slice(s, c.indexOf('async function gather('))
+  const gate = f.indexOf('const ground = nudgeGround('), walk = f.indexOf("setControlState('forward', true)")
+  assert.ok(gate > 0 && walk > gate, 'the probe precedes the walk')
+  assert.match(f.slice(gate, walk), /if \(!ground\.ok\) \{[\s\S]{0,300}kind: 'pickup_nudge_refused'[\s\S]{0,200}return\s*\}/, 'a refusal logs and returns -- no walk')
+  assert.match(f.slice(gate), /nudgeGround\(\(x, y, z\) => bot\.blockAt\(new Vec3\(x, y, z\)\), bot\.entity\.position, drop\.position\)/, 'probed from the feet to the drop')
+})
+t('MUTANT: a nudge that walks without probing the ground is caught', () => {
+  const c = strip(RAW)
+  const anchor = 'if (!ground.ok) {'
+  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const bad = c.replace(anchor, 'if (false) {')
+  const s = bad.indexOf('async function pickupNearbyItems('); const f = bad.slice(s, bad.indexOf('async function gather('))
+  assert.ok(!/if \(!ground\.ok\) \{/.test(f))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

@@ -34,7 +34,7 @@ import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
-import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH, faceAdjacent, adjacentGoal } from './digreach.mjs'
+import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH, faceAdjacent, adjacentGoal, nudgeGround } from './digreach.mjs'
 import { planDigApproach, planDigApproachAsync, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS, pickBuriedApproach } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
@@ -1337,6 +1337,17 @@ async function pickupNearbyItems(bot, signal, radius = 8) {
       const dx = drop.position.x - bot.entity.position.x, dz = drop.position.z - bot.entity.position.z
       const flat = Math.hypot(dx, dz), dy = Math.abs(drop.position.y - bot.entity.position.y)
       if (flat <= PICKUP_NUDGE_BLOCKS && dy <= 1.5) {
+        // THE GROUND BETWEEN HERE AND THE DROP IS PROBED FIRST (Codex, second
+        // pass): the pathfinder's noPath may be the truth -- a pit or a lava
+        // pocket between the bot and a drop on the far lip. Every column the
+        // body sweeps must carry a floor and no lava, or the nudge is refused
+        // and the drop is left where the old code left it.
+        const ground = nudgeGround((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, drop.position)
+        if (!ground.ok) {
+          logEvent({ kind: 'pickup_nudge_refused', status: 'failed',
+                     detail: `${ground.why}; drop ${flat.toFixed(1)} away dy=${dy.toFixed(1)}` })
+          return
+        }
         // BOUNDED BY DISTANCE, NOT ONLY BY TIME (Codex, 2026-09-12): a fixed
         // 1.2-s hold could overshoot the drop and walk off whatever lies beyond
         // it. The walk is polled every 50 ms and stops the moment the bot is
