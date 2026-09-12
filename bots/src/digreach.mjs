@@ -230,8 +230,9 @@ export function adjacentGoal (goals, p) {
  * feet to the drop must carry a floor: a solid block directly under the feet
  * level, or one step down (air over solid -- the drop can lie a block lower).
  * No lava, magma, fire, cactus or other harmful block anywhere from two below
- * the feet to the head. An unknown block
- * (unloaded chunk) is a refusal. The probe is pure so it can be tested by
+ * the feet to the head; no ice under it (the stop is a control release, not a
+ * brake). The sweep runs NUDGE_OVERSHOOT past the drop for the same reason. An
+ * unknown block (unloaded chunk) is a refusal. The probe is pure so it can be tested by
  * behaviour, and it returns the offending column so the refusal names it.
  */
 export const NUDGE_HALF_WIDTH = 0.3
@@ -239,15 +240,24 @@ export const NUDGE_HALF_WIDTH = 0.3
 // (Codex, third pass) and would have passed the floor test by shape alone.
 export const NUDGE_HAZARDS = new Set(['lava', 'magma_block', 'fire', 'soul_fire', 'campfire', 'soul_campfire',
                                       'cactus', 'sweet_berry_bush', 'wither_rose', 'powder_snow', 'pointed_dripstone'])
+// Floors a walking bot slides on: the 0.4-block stop is a control release, not
+// a brake, and on ice the body keeps going past the probed line.
+export const NUDGE_SLIPPERY = new Set(['ice', 'packed_ice', 'blue_ice', 'frosted_ice'])
+// The sweep runs this far PAST the drop: releasing the controls at 0.4 from it
+// leaves the body's momentum to carry it a fraction of a block further.
+export const NUDGE_OVERSHOOT = 0.6
 export function nudgeGround (blockAt, from, to) {
   if (!from || !to) return { ok: false, why: 'no endpoints' }
   const fy = Math.floor(from.y)
   const flat = Math.hypot(to.x - from.x, to.z - from.z)
-  const steps = Math.max(1, Math.ceil(flat / 0.25))
+  if (!(flat > 0)) return { ok: true, columns: 0 }                    // standing on it already
+  const ux = (to.x - from.x) / flat, uz = (to.z - from.z) / flat
+  const reach = flat + NUDGE_OVERSHOOT
+  const steps = Math.max(1, Math.ceil(reach / 0.25))
   const cols = new Map()
   for (let i = 0; i <= steps; i++) {
-    const s = i / steps
-    const x = from.x + (to.x - from.x) * s, z = from.z + (to.z - from.z) * s
+    const d = Math.min(reach, i * 0.25)
+    const x = from.x + ux * d, z = from.z + uz * d
     for (const [ox, oz] of [[-NUDGE_HALF_WIDTH, -NUDGE_HALF_WIDTH], [NUDGE_HALF_WIDTH, -NUDGE_HALF_WIDTH],
                             [-NUDGE_HALF_WIDTH, NUDGE_HALF_WIDTH], [NUDGE_HALF_WIDTH, NUDGE_HALF_WIDTH]]) {
       const cx = Math.floor(x + ox), cz = Math.floor(z + oz)
@@ -263,6 +273,8 @@ export function nudgeGround (blockAt, from, to) {
       if (NUDGE_HAZARDS.has(b.name)) return { ok: false, why: `${b.name} at ${cx},${y},${cz}` }
     }
     const under = blockAt(cx, fy - 1, cz), lower = blockAt(cx, fy - 2, cz)
+    const slip = [under, lower].find(b => NUDGE_SLIPPERY.has(b.name))
+    if (slip) return { ok: false, why: `slippery ${slip.name} under ${cx},${fy - 1},${cz}` }
     if (solid(under)) continue
     if (!liquid(under) && solid(lower)) continue                       // one step down, onto something
     return { ok: false, why: `no floor under ${cx},${fy - 1},${cz}` }

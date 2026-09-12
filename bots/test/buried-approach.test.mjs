@@ -282,6 +282,15 @@ t('nudgeGround: a magma-block floor is solid by shape and still refused; so is a
   assert.equal(nudgeGround(world({ '301,40,300': 'fire' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false, 'fire on the way')
   assert.equal(nudgeGround(world({ '301,38,300': 'magma_block' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, false, 'magma under the floor (a step down would land on it)')
 })
+t('nudgeGround: the sweep runs past the drop -- a pit just beyond it refuses, and ice underfoot anywhere refuses', () => {
+  // drop at x=302.5; the body would be released at ~302.1 and slide on; column x=303 is within 0.6 past it
+  const r = nudgeGround(world({ '303,39,300': 'air', '303,38,300': 'air' }), feet, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(r.ok, false); assert.match(r.why, /303,39,300/)
+  assert.equal(nudgeGround(world({ '304,39,300': 'air', '304,38,300': 'air' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'a pit 1.5 past the drop is beyond the overshoot')
+  const ice = nudgeGround(world({ '301,39,300': 'packed_ice' }), feet, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(ice.ok, false); assert.match(ice.why, /slippery packed_ice/)
+  assert.equal(nudgeGround(world(), feet, { x: 300.5, y: 40, z: 300.5 }).ok, true, 'a drop under the feet needs no walk')
+})
 t('nudgeGround: an unloaded column is a refusal, never a pass', () => {
   const r = nudgeGround(world({ '301,39,300': null }), feet, { x: 302.5, y: 40, z: 300.5 })
   assert.equal(r.ok, false); assert.match(r.why, /unknown block/)
