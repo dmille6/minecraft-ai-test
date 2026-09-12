@@ -106,4 +106,13 @@ t('lava beside an airborne body is checked at the START height band, not at an i
   assert.ok(!r.ok); assert.match(r.why, /lava beside at -2,64,1/)
 })
 
+t('a low ceiling (solid at feet+2) is NOT a wall: the body walks under it, so a ledge inside a two-high tunnel still refuses (Codex, fourth pass)', () => {
+  const cells = { ...floorRow(63, -2, 0, 0) }                       // floor under cells 1-2 only, then a drop
+  for (let x = -6; x <= -1; x++) cells[`${x},66,0`] = 'stone'      // ceiling at feet+2 the whole way
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok, 'the ceiling branch approved a heading with a ledge under it'); assert.match(r.why, /drop deeper than 3 at -3,64,0/)
+  const ok = blindStepIsSafe(world({ ...floorRow(63, -6, 0, 0), ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`${-1 - i},66,0`, 'stone'])) }), feet, WEST)
+  assert.ok(ok.ok, ok.why); assert.equal(ok.cells, BLIND_STEP_BLOCKS)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
