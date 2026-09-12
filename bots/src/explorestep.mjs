@@ -38,13 +38,16 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
   const side = { x: -dz, z: dx }                 // perpendicular, for the body's width
   const read = (x, y, z) => { try { return blockAt(x, y, z) } catch { return undefined } }
   // TWO REFERENCE HEIGHTS, BECAUSE THE BODY'S HEIGHT IS NOT KNOWN. `hi` is the
-  // highest the body could be: it rises when a cell offers a one-high step with
-  // headroom (the body MAY land on it). `lo` is the lowest: the start height,
-  // never raised, because a jump can clear a narrow step and land on lower
-  // ground beyond it (Codex, fifth pass), and never lowered, because a jump can
-  // skip a descending landing (second pass). Every check takes the worse case:
-  // drops are measured from `hi`, the lava band spans [lo-1-maxDrop, hi+2], and
-  // a wall only ends the walk when it is a wall from BOTH heights.
+  // highest the body could be and `lo` the lowest (the start height: never
+  // raised, because a jump can clear a narrow step and land lower beyond it;
+  // never lowered, because a jump can skip a descending landing). In each cell
+  // the body could stand at any height h in [lo, hi+1] whose feet and head
+  // cells are both clear (hi+1 is a one-high step taken with the jump). No
+  // such height -> a wall at every possible height, and the walk ends
+  // harmlessly. Otherwise `hi` becomes the highest such height (Codex, passes
+  // four to seven: endpoint tests are not enough; every height is tested).
+  // Drops are measured from `hi` (worst case), the lava band spans
+  // [lo-1-maxDrop, hi+2] including the two cells beside the line.
   let hi = feet.y, lo = feet.y, checked = 0
   const lavaIn = (x, z, top, bot) => {
     for (let y = top; y >= bot; y--) {
@@ -58,44 +61,29 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
     const cx = Math.floor(feet.x + 0.5 + dx * i), cz = Math.floor(feet.z + 0.5 + dz * i)
     const bad = lavaIn(cx, cz, hi + 2, lo - 1 - maxDrop)
     if (bad) return { ok: false, why: bad, cells: checked }
-    // walls: a solid head cell stops a body at that height; the walk only ends
-    // when both possible bodies are stopped, otherwise the lower one carries on
-    // ...and "both heights" means EVERY height between them (Codex, sixth
-    // pass): once hi - lo >= 3 the two endpoint head cells can be solid while
-    // an intermediate body slips through. So the column lo+1..hi+1 must be
-    // solid throughout for the walk to end; otherwise the highest body whose
-    // head cell is clear carries on.
-    let passHi = null, solidAll = true
-    for (let h = hi; h >= lo; h--) {
-      const c = read(cx, h + 1, cz)
-      if (c === undefined) return { ok: false, why: `cannot read ${cx},${h + 1},${cz}`, cells: checked }
-      if (passable(c)) { solidAll = false; if (passHi === null) passHi = h }
-    }
-    if (solidAll) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
-    hi = passHi
-    const headLo = read(cx, lo + 1, cz)
-    if (headLo === undefined) return { ok: false, why: `cannot read ${cx},${lo + 1},${cz}`, cells: checked }
-    // the landing for the highest possible body: the first solid at or below hi,
-    // within maxDrop of it. Solid AT hi is a one-high step (climbable with headroom).
+    // where could the body be in this cell? Either still at `hi` (airborne or
+    // walking on, if that body fits) or STANDING at some h in [lo, hi+1]: feet
+    // and head clear with a solid under the feet (hi+1 is a one-high step). The
+    // new `hi` is the highest of those; none at all is a wall at every height.
+    let top = null
+    const cell = (y) => { const b = read(cx, y, cz); if (b === undefined) throw new Error(`cannot read ${cx},${y},${cz}`); return b }
+    try {
+      if (passable(cell(hi)) && passable(cell(hi + 1))) top = hi
+      for (let h = hi + 1; h >= lo; h--) {
+        if (top !== null && h <= top) break
+        if (passable(cell(h)) && passable(cell(h + 1)) && !passable(cell(h - 1))) { top = h; break }
+      }
+    } catch (e) { return { ok: false, why: e.message, cells: checked } }
+    if (top === null) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
+    hi = top
+    // the landing for the highest possible body: a solid within maxDrop below hi
     let surface = null
-    for (let y = hi; y >= hi - 1 - maxDrop; y--) {
+    for (let y = hi - 1; y >= hi - 1 - maxDrop; y--) {
       const b = read(cx, y, cz)
       if (b === undefined) return { ok: false, why: `cannot read ${cx},${y},${cz}`, cells: checked }
       if (!passable(b)) { surface = y; break }
     }
     if (surface === null) return { ok: false, why: `drop deeper than ${maxDrop} at ${cx},${hi},${cz}`, cells: checked }
-    if (surface === hi) {
-      const above = read(cx, hi + 2, cz)
-      if (above === undefined) return { ok: false, why: `cannot read ${cx},${hi + 2},${cz}`, cells: checked }
-      if (!passable(above)) {
-        // a step with no headroom: the body at hi cannot climb it; if no lower
-        // body can pass either (the column below is solid) the walk ends
-        if (hi === lo || !passable(headLo)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
-        hi = lo
-      } else {
-        hi += 1                                                      // the body MAY land on the step
-      }
-    }
     checked++
     // the body is wider than the line: lava beside the cell, anywhere in the band, refuses
     for (const sgn of [1, -1]) {

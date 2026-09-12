@@ -156,4 +156,14 @@ t('a wall must be solid at EVERY possible height: with hi-lo = 3, solid head cel
   assert.ok(w.ok, w.why); assert.match(w.why, /wall after 3 cell/)
 })
 
+t("Codex's counter-example: lo=64, hi=68 after four steps; a cell solid at 65, 68, 70 and clear at 66, 67, 69 has an open body at 66, so it is NOT a wall and a ledge beyond still refuses (eighth pass)", () => {
+  const cells = {}
+  // four steps up: surfaces 64,65,66,67 at cells 1-4 (x=-1..-4), each with ground below
+  for (let i = 1; i <= 4; i++) for (let y = 63; y <= 63 + i; y++) cells[`${-i},${y},0`] = 'stone'
+  // cell 5 (x=-5): solid at 65, 68, 70; ground at 64 and below; clear 66, 67, 69
+  for (const y of [63, 64, 65, 68, 70]) cells[`-5,${y},0`] = 'stone'
+  const r = blindStepIsSafe(world(cells), feet, WEST, { blocks: 6 })
+  assert.ok(!r.ok, 'the step branch called it a wall'); assert.match(r.why, /drop deeper than 3 at -6,66,0/)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
