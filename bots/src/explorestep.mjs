@@ -22,6 +22,7 @@
 //   - a read that throws refuses: never guess about the ground.
 export const BLIND_STEP_BLOCKS = 5      // 1.2 s of forward+jump covers ~4.3 blocks walking, a little more with the jump arc
 export const BLIND_STEP_MAX_DROP = 3    // the travel profile's own comfort is maxDropDown 6; a blind step gets half
+export const JUMP_CELLS = 3             // a forward jump is airborne for about this many cells
 
 const passable = b => !b || b.name === 'air' || b.boundingBox === 'empty' ||
   b.name === 'water' || b.name === 'cave_air' || b.name === 'void_air'
@@ -48,7 +49,13 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
   // four to seven: endpoint tests are not enough; every height is tested).
   // Drops are measured from `hi` (worst case), the lava band spans
   // [lo-1-maxDrop, hi+2] including the two cells beside the line.
-  let hi = feet.y, lo = feet.y, checked = 0
+  // ...AND AN AIRBORNE BODY LANDS. A forward jump lasts about three cells, so
+  // a `hi` carried without a standing candidate at that height for three cells
+  // in a row must come down to the highest place the body could stand there
+  // (Codex, eighth pass: a gentle staircase of one-block drops is walkable and
+  // must not read as one deep fall). Steeper chains still do: two drops of two
+  // within the same jump are refused from the carried height.
+  let hi = feet.y, lo = feet.y, checked = 0, airborne = 0
   const lavaIn = (x, z, top, bot) => {
     for (let y = top; y >= bot; y--) {
       const b = read(x, y, z)
@@ -65,17 +72,20 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
     // walking on, if that body fits) or STANDING at some h in [lo, hi+1]: feet
     // and head clear with a solid under the feet (hi+1 is a one-high step). The
     // new `hi` is the highest of those; none at all is a wall at every height.
-    let top = null
+    let carried = null, stand = null, lowest = null
     const cell = (y) => { const b = read(cx, y, cz); if (b === undefined) throw new Error(`cannot read ${cx},${y},${cz}`); return b }
     try {
-      if (passable(cell(hi)) && passable(cell(hi + 1))) top = hi
-      for (let h = hi + 1; h >= lo; h--) {
-        if (top !== null && h <= top) break
-        if (passable(cell(h)) && passable(cell(h + 1)) && !passable(cell(h - 1))) { top = h; break }
+      if (passable(cell(hi)) && passable(cell(hi + 1))) carried = hi
+      for (let h = hi + 1; h >= lo - 1 - maxDrop; h--) {
+        if (passable(cell(h)) && passable(cell(h + 1)) && !passable(cell(h - 1))) { if (stand === null) stand = h; lowest = h }
       }
     } catch (e) { return { ok: false, why: e.message, cells: checked } }
-    if (top === null) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
-    hi = top
+    if (carried === null && stand === null) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
+    if (stand !== null && stand >= hi) { hi = stand; airborne = 0 }          // a landing at or above the carried height
+    else if (carried !== null && airborne < JUMP_CELLS) { airborne++ }         // still possibly airborne at hi
+    else if (stand !== null) { hi = stand; airborne = 0 }                      // it has landed by now
+    else return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
+    if (lowest !== null && lowest < lo) lo = lowest
     // the landing for the highest possible body: a solid within maxDrop below hi
     let surface = null
     for (let y = hi - 1; y >= hi - 1 - maxDrop; y--) {
