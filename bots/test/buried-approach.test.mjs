@@ -121,4 +121,22 @@ t('MUTANT: planning beside the block but walking to the reach goal is caught', (
   assert.ok(!/const walkGoal = \(adjacent \? adjacentGoal\(goals, p\) : reachGoal\(goals, p\)\) \?\? stance/.test(bad))
 })
 
+t('every arrival guard in collectManually asks arrived(), which is face adjacency for a buried target and canDigBlock otherwise; the dig phase refuses "in reach but not beside"', () => {
+  const c = strip(RAW)
+  const s = c.indexOf('export async function collectManually('); const e = c.indexOf('async function pickupNearbyItems(')
+  const f = c.slice(s, e)
+  assert.match(f, /const arrived = \(\) => adjacent \? faceAdjacent\(feet\(\), p\) : !!\(bot\.canDigBlock && bot\.canDigBlock\(bot\.blockAt\(p\)\)\)/)
+  assert.equal((f.match(/if \(!arrived\(\)\) \{/g) || []).length, 2, 'the stance walk and the dig-approach are both gated on arrived()')
+  assert.equal((f.match(/if \(!\(bot\.canDigBlock && bot\.canDigBlock\(bot\.blockAt\(p\)\)\)\) \{/g) || []).length, 0, 'a bare canDigBlock gate survived (Codex: a buried ore 3.9 blocks away skips the approach)')
+  assert.match(f, /if \(adjacent && !arrived\(\)\) \{[\s\S]{0,600}failClass: 'not_beside'/, 'the dig phase refuses a buried target it is not beside')
+})
+t('MUTANT: restoring a bare canDigBlock gate on the dig-approach is caught', () => {
+  const c = strip(RAW)
+  const s = c.indexOf('export async function collectManually('); const e = c.indexOf('async function pickupNearbyItems(')
+  const f = c.slice(s, e)
+  const i = f.lastIndexOf('if (!arrived()) {'); assert.ok(i > 0, 'ANCHOR MISSING')
+  const bad = f.slice(0, i) + 'if (!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))) {' + f.slice(i + 'if (!arrived()) {'.length)
+  assert.notEqual((bad.match(/if \(!arrived\(\)\) \{/g) || []).length, 2)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
