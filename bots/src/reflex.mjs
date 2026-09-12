@@ -2559,7 +2559,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // question as `owned = !!pathfinder.goal`, which cost 42 of 45 drowning
       // deaths while idle. A 'climb' claim can quiet this branch and nothing
       // else -- no water path reads it.
-      const climbing = !!runner?.bodyClaimFor?.('climb')
+      // A 'stair' claim (mine's step loop, 2026-09-11) quiets this branch the
+      // same way: a bot inside the three-cell stair it is cutting is sealed in
+      // by design, and pillaring out of it is the descent's undoing.
+      const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && isEntombed(bot) &&
           Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {

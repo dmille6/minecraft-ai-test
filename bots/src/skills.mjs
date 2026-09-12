@@ -3598,7 +3598,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
 // descends to reach ones it cannot. Staircase rather than straight down --
 // digging straight down is how bots fall into lava.
 async function mine(ctx, { y: targetY = 12 }, signal) {
-  const { bot } = ctx
+  const { bot, runner } = ctx
   // Clamped to the bot's own elevation for the same reason admission.mjs
   // bounds the ask there: a flat 120 silently turned a stranded bot's
   // 147-block descent request into a 200-block one.
@@ -3738,7 +3738,18 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // Total ms spent recovering. Pre-registered as a revert condition: if this
   // grows, the recovery is the new budget problem rather than the fix for one.
   let stepRecoverMs = 0
+  // CLAIM THE BODY FOR THE STAIR, TYPED. The entombment reflex reads a bot
+  // standing in the one-wide three-high corridor it has just cut as "walled
+  // in" and starts pillaring OUT -- up, against the descent (12 firings per
+  // bot-hour on the stair canary of 2026-09-11, `mine aborted entombed` in the
+  // sandbox). `surface` quiets that branch with a 'climb' claim around its
+  // hand-rolled pillar; this is the same shape. Held only around the step loop,
+  // renewed per step, released on every exit. It quiets ONE branch: no water
+  // path reads it, and body-claim.test.mjs pins that.
+  const stairClaim = runner?.claimBody?.('stair') ?? null
+  try {
   while (bot.entity.position.y > goalY + 1 && steps < 90) {
+    stairClaim?.renew?.()
     check(signal)
     steps++
 
@@ -4056,6 +4067,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
     await sleep(150, signal)
   }
+  } finally { stairClaim?.release?.() }
   // THE CAP IS NOT AN ARRIVAL. Falling out of the loop on `steps < 90` used to
   // return the same success as reaching the target, which is the defect this
   // skill was already caught doing once: reporting the outcome it would have
