@@ -275,6 +275,9 @@ export function nudgeGround (blockAt, from, to) {
       const b = blockAt(cx, y, cz)
       if (!b) return { ok: false, why: `unknown block at ${cx},${y},${cz}` }
       if (NUDGE_HAZARDS.has(b.name) || trigger(b)) return { ok: false, why: `${b.name} at ${cx},${y},${cz}` }
+      // a wet cell at the feet or head is a current that can carry the body
+      // sideways out of the probed band (Codex, sixth pass): the walk is dry or not at all
+      if (y >= fy && liquid(b)) return { ok: false, why: `${b.name} at ${cx},${y},${cz}` }
     }
     const under = blockAt(cx, fy - 1, cz), lower = blockAt(cx, fy - 2, cz)
     const slip = [under, lower].find(b => NUDGE_SLIPPERY.has(b.name))

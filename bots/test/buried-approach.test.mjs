@@ -297,6 +297,13 @@ t('nudgeGround: a pressure plate or tripwire on the route refuses -- the floor i
     assert.equal(r.ok, false, name); assert.match(r.why, new RegExp(`${name} at 301,40,300`))
   }
 })
+t('nudgeGround: water at the feet or head on the route refuses (a current can carry the body out of the band)', () => {
+  for (const y of [40, 41]) {
+    const r = nudgeGround(world({ [`301,${y},300`]: 'water' }), feet, { x: 302.5, y: 40, z: 300.5 })
+    assert.equal(r.ok, false, `water at y=${y}`); assert.match(r.why, /water at 301/)
+  }
+  assert.equal(nudgeGround(world({ '301,38,300': 'water' }), feet, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'water two below a solid floor is not on the walk')
+})
 t('nudgeGround: an unloaded column is a refusal, never a pass', () => {
   const r = nudgeGround(world({ '301,39,300': null }), feet, { x: 302.5, y: 40, z: 300.5 })
   assert.equal(r.ok, false); assert.match(r.why, /unknown block/)
