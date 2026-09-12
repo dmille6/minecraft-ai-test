@@ -359,7 +359,7 @@ t('the dig-approach walk, and only it, runs with needsDrop:false', () => {
 })
 
 t('the _dig_approach event carries the walk, not just the plan', () => {
-  const at = src.indexOf("kind: 'dig_approach', status: inReach ? 'success' : 'fail'")
+  const at = src.indexOf("kind: 'dig_approach', status: arrived() ? 'success' : 'fail'")
   assert.ok(at > 0, 'the completed-walk event moved; re-read this test')
   const ev = src.slice(at, at + 1200)
   for (const f of ['walk_ms=', 'dig_ms=', 'attempted=', 'dug=', 'unharvestable=', 'held=', 'window=']) {

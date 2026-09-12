@@ -1045,7 +1045,14 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
   // its feet were both being handed to a planner that had nowhere legal to send
   // it. Checking first costs one subtraction.
   let pathSaid = 'not needed — already within reach'
-  if (!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))) {
+  // ARRIVED means two different things. For an exposed block it is the
+  // server's reach test (canDigBlock: diggable, centre within 5.1 of the eye).
+  // For a BURIED block it is standing beside it -- a buried ore 3.9 blocks
+  // away passed canDigBlock, skipped both walks and the dig died behind rock
+  // (sandbox 2026-09-12 01:37, Codex review). Every guard below asks this.
+  const feet = () => { const q = bot.entity?.position; return q ? { x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) } : null }
+  const arrived = () => adjacent ? faceAdjacent(feet(), p) : !!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))
+  if (!arrived()) {
     // KEEP THE PATHFINDER'S VERDICT. The old catch discarded it and the refusal
     // then asserted "goto returned without moving" as a fact it had never
     // checked. goto's error NAMES are the library's own vocabulary -- NoPath,
@@ -1078,10 +1085,9 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
     // Deliberately SECOND. The travel walk is p50 0 ms and handles the case
     // where nothing is in the way; this runs only on the ~18.7% of gather runs
     // that were reporting arrived_out_of_reach.
-    if (!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))) {
-      // A BURIED target's approach ends BESIDE it, not within reach of it:
-      // in reach is a distance, digging needs a visible face (digreach.mjs,
-      // faceAdjacent). An exposed target keeps the reach goal.
+    if (!arrived()) {
+      // A BURIED target's approach ends BESIDE it, not within reach of it
+      // (digreach.mjs, faceAdjacent). An exposed target keeps the reach goal.
       const plan = planDigApproach(bot, p, {
         goals,
         reachGoalFor: adjacent ? adjacentGoal : reachGoal,
@@ -1137,9 +1143,9 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
           walked = watch.stop()
         }
         const inReach = !!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))
-        logEvent({ kind: 'dig_approach', status: inReach ? 'success' : 'fail',
+        logEvent({ kind: 'dig_approach', status: arrived() ? 'success' : 'fail',
                    detail: `${wanted} ${p.x},${p.y},${p.z}: planned ${plan.dig} block(s), ` +
-                           `in_reach=${inReach}${said ? ` (${said})` : ''} ` +
+                           `in_reach=${inReach}${adjacent ? ` beside=${faceAdjacent(feet(), p)}` : ''}${said ? ` (${said})` : ''} ` +
                            `[visited=${plan.visitedNodes ?? 'na'} ms=${plan.ms} ` +
                            `walk_ms=${walked.walkMs} dig_ms=${Math.round(plan.digMs ?? 0)} ` +
                            `attempted=${walked.attempted.length ? walked.attempted.join(',') : 'none'} ` +
@@ -1191,6 +1197,15 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
       dist: eyeToBlock(bot.entity?.position, p),
     })
     throw Object.assign(new Error(detail), { failClass })
+  }
+  if (adjacent && !arrived()) {
+    // In reach but not beside it: the buried approach did not get there, and a
+    // dig from here is the one that died three times in the sandbox.
+    const f = feet()
+    throw Object.assign(
+      new Error(`${here?.name ?? wanted} at ${p.x},${p.y},${p.z} is within reach but not beside me ` +
+                `(feet ${f ? `${f.x},${f.y},${f.z}` : '?'}; ${pathSaid})`),
+      { failClass: 'not_beside' })
   }
   const wasNamed = here?.name
   // THE APPROACH JUST CHANGED THE WORLD AROUND THIS BLOCK. The candidate was

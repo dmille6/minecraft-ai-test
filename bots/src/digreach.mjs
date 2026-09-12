@@ -178,12 +178,16 @@ export function reachRefusal ({ blockName, wanted, target, dist, pathSaid, reach
 }
 
 /**
- * IN REACH IS NOT IN VIEW. `canDigBlock` is a distance; mineflayer's `dig`
- * raycasts to a face first and throws 'Block not in view' when every face is
- * behind other blocks (digging.js). A buried ore is by definition behind other
- * blocks, so an approach that stops 4.3 blocks short "within reach" leaves the
- * bot unable to dig it -- measured in the sandbox 2026-09-12 01:29: approach
- * success, in_reach=true, collect dead in five seconds, ore untouched.
+ * IN REACH IS NOT BESIDE. `canDigBlock` is a distance (block centre within 5.1
+ * of the eye) and says nothing about what is between. A buried ore is by
+ * definition behind other blocks, and an approach that stopped 4.3 blocks
+ * short "within reach" left every dig from there dead: sandbox 2026-09-12,
+ * three runs -- 01:29 collect dead in 5 s, 01:35 `Digging aborted` x3 (the
+ * dig of a block behind rock never completes; the enriched error in
+ * collectManually records held item and timing so the exact killer is named
+ * per case), 01:42 with this goal: collected twice in 40 s. Note mineflayer's
+ * dig does NOT raycast by default (forceLook 'auto'); this is not about
+ * 'Block not in view'.
  *
  * The end test for a BURIED target is therefore face adjacency: the target
  * shares a face with the bot's feet cell or head cell (or sits directly over
