@@ -317,6 +317,15 @@ t('nudgeGround: a step down must land on a full cube -- a bottom slab one cell l
   const slabFloor = (x, y, z) => `${x},${y},${z}` === '301,39,300' ? { name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] } : world()(x, y, z)
   assert.equal(nudgeGround(slabFloor, feet, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'a slab AT floor level is a half-step, re-climbable')
 })
+t('nudgeGround: the descent is measured from the actual feet height -- from atop a bottom slab, a full cube one cell down is 1.5 blocks', () => {
+  const cube = { name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
+  const w = (x, y, z) => `${x},${y},${z}` === '301,39,300' ? { name: 'air', boundingBox: 'empty' } : `${x},${y},${z}` === '301,38,300' ? cube : world()(x, y, z)
+  assert.equal(nudgeGround(w, { x: 300.5, y: 40, z: 300.5 }, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'integer feet: a 1.0 drop')
+  const r = nudgeGround(w, { x: 300.5, y: 40.5, z: 300.5 }, { x: 302.5, y: 40, z: 300.5 })
+  assert.equal(r.ok, false); assert.match(r.why, /1\.5-block drop at 301,39,300/)
+  const slabUnder = (x, y, z) => `${x},${y},${z}` === '301,39,300' ? { name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] } : world()(x, y, z)
+  assert.equal(nudgeGround(slabUnder, { x: 300.5, y: 40.5, z: 300.5 }, { x: 302.5, y: 40, z: 300.5 }).ok, true, 'slab to slab: a 1.0 drop')
+})
 t('nudgeGround: an unloaded column is a refusal, never a pass', () => {
   const r = nudgeGround(world({ '301,39,300': null }), feet, { x: 302.5, y: 40, z: 300.5 })
   assert.equal(r.ok, false); assert.match(r.why, /unknown block/)

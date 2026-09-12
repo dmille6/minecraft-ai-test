@@ -246,6 +246,9 @@ export const NUDGE_SLIPPERY = new Set(['ice', 'packed_ice', 'blue_ice', 'frosted
 // The sweep runs this far PAST the drop: releasing the controls at 0.4 from it
 // leaves the body's momentum to carry it a fraction of a block further.
 export const NUDGE_OVERSHOOT = 0.6
+// The deepest descent the walk may take, feet height to landing surface: one
+// block, which the bot can jump back out of.
+export const NUDGE_MAX_DROP = 1.0
 export function nudgeGround (blockAt, from, to) {
   if (!from || !to) return { ok: false, why: 'no endpoints' }
   const fy = Math.floor(from.y)
@@ -273,6 +276,7 @@ export function nudgeGround (blockAt, from, to) {
   // 1.5-block drop the bot cannot jump back out of (Codex, seventh pass).
   // `shapes` is the block's collision boxes when the world provides them.
   const fullCube = b => solid(b) && (!Array.isArray(b.shapes) || (b.shapes.length === 1 && b.shapes[0]?.[4] >= 1 && b.shapes[0]?.[1] <= 0))
+  const top = b => (Array.isArray(b.shapes) && b.shapes.length) ? Math.max(...b.shapes.map(sh => sh[4])) : 1
   const liquid = b => !!b && (b.name === 'water' || b.name === 'lava')
   for (const [cx, cz] of cols.values()) {
     for (let y = fy - 2; y <= fy + 1; y++) {
@@ -286,9 +290,14 @@ export function nudgeGround (blockAt, from, to) {
     const under = blockAt(cx, fy - 1, cz), lower = blockAt(cx, fy - 2, cz)
     const slip = [under, lower].find(b => NUDGE_SLIPPERY.has(b.name))
     if (slip) return { ok: false, why: `slippery ${slip.name} under ${cx},${fy - 1},${cz}` }
-    if (solid(under)) continue
-    if (!liquid(under) && fullCube(lower)) continue                    // one step down, onto a full block
-    return { ok: false, why: `no floor under ${cx},${fy - 1},${cz}` }
+    // The descent is measured from the ACTUAL feet height to the landing
+    // surface (Codex, eighth pass: feet on a bottom slab are at fy + 0.5, so a
+    // full cube one cell down is a 1.5-block drop). More than one block down
+    // cannot be jumped back out of.
+    const landing = solid(under) ? (fy - 1) + top(under)
+      : (!liquid(under) && fullCube(lower)) ? fy - 1 : null
+    if (landing === null) return { ok: false, why: `no floor under ${cx},${fy - 1},${cz}` }
+    if (from.y - landing > NUDGE_MAX_DROP) return { ok: false, why: `${(from.y - landing).toFixed(1)}-block drop at ${cx},${fy - 1},${cz}` }
   }
   return { ok: true, columns: cols.size }
 }
