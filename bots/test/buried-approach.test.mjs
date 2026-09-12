@@ -172,4 +172,40 @@ await ta('the buried pick hands the planner a larger budget (6 s wall clock, up 
   assert.equal(seen.timeout, 6000); assert.equal(seen.pumps, 150)
 })
 
+t('gather re-checks its abort signal right after awaiting the buried pick, before anything can claim the body (Codex: the await is a seam)', () => {
+  const c = strip(RAW)
+  const g = c.slice(c.indexOf('async function gather('))
+  const a = g.indexOf('buriedPick = await pickBuriedApproach('), chk = g.indexOf('check(signal)', a), claim = g.indexOf("runner?.claimBody?.('dig')")
+  assert.ok(a > 0 && chk > a && chk < claim, `order: await ${a} < check ${chk} < claim ${claim}`)
+  assert.ok(g.slice(a, chk).includes('signal,'), 'the signal is handed to the pick')
+})
+t('MUTANT: dropping the post-await check(signal) is caught', () => {
+  const c = strip(RAW)
+  const g = c.slice(c.indexOf('async function gather('))
+  const a = g.indexOf('buriedPick = await pickBuriedApproach('); const seg = g.slice(a, g.indexOf("runner?.claimBody?.('dig')"))
+  const firstCheck = seg.indexOf('check(signal)'); assert.ok(firstCheck > 0, 'ANCHOR MISSING')
+  const bad = seg.slice(0, firstCheck) + seg.slice(firstCheck + 'check(signal)'.length)
+  // the mutant removes the check that follows the await: no check may remain within the pick's own statement + 400 chars
+  const endOfPick = bad.indexOf('})', 0) + 2
+  assert.ok(!bad.slice(endOfPick, endOfPick + 400).includes('check(signal)'), 'the post-await check survived the mutant')
+  assert.ok(seg.slice(seg.indexOf('})') + 2, seg.indexOf('})') + 402).includes('check(signal)'), 'the real code has the check right after the pick')
+})
+await ta('an aborted signal stops the buried pick before the next candidate is planned', async () => {
+  let planned = 0
+  const ctl = new AbortController()
+  const plan = async () => { planned++; ctl.abort(); return { take: false, why: 'x' } }
+  const r = await pickBuriedApproach(bot, [V(304, 40, 300), V(305, 40, 300), V(306, 40, 300)], { plan, signal: ctl.signal })
+  assert.equal(planned, 1, 'planned more candidates after the abort'); assert.equal(r.target, null)
+})
+t('a buried target has the cell above it opened (under the same safety test) before it is broken, so the drop can be reached', () => {
+  const c = strip(RAW)
+  const s = c.indexOf('export async function collectManually('); const e = c.indexOf('async function pickupNearbyItems(')
+  const f = c.slice(s, e)
+  const chk = f.indexOf('if (safeToBreak && !safeToBreak(p))'), over = f.indexOf('const over = p.offset(0, 1, 0)'), dig = f.indexOf('await withTimeout(bot.dig(block)')
+  assert.ok(chk > 0 && over > chk && dig > over, `order: recheck ${chk} < open-above ${over} < dig ${dig}`)
+  assert.match(f.slice(chk, over), /if \(adjacent\) \{\s*$/, 'only for a buried target')
+  assert.match(f.slice(over, dig), /safeToBreak\(over\)/, 'the same safety test')
+  assert.match(f.slice(over, dig), /needsDrop: false/, 'the opening dig wants the hole, not the drop')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

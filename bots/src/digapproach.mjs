@@ -604,7 +604,8 @@ export const BURIED_APPROACH_PUMPS = 150   // 150 x 40 ms slices = the 6-s ceili
 export async function planDigApproachAsync (bot, target, { goals, reachGoalFor, endsInReach,
                                                           slack = APPROACH_SLACK,
                                                           timeout = BURIED_APPROACH_TIMEOUT_MS,
-                                                          pumps = BURIED_APPROACH_PUMPS } = {}) {
+                                                          pumps = BURIED_APPROACH_PUMPS,
+                                                          signal = null } = {}) {
   const setup = approachSearchSetup(bot, target, { goals, reachGoalFor })
   if (!setup) return null
   const { at, moves, goal } = setup
@@ -615,6 +616,7 @@ export async function planDigApproachAsync (bot, target, { goals, reachGoalFor, 
     result = gen.next()?.value?.result
     for (let i = 0; i < pumps && result?.status === 'partial' && Date.now() - t0 < timeout; i++) {
       await new Promise(resolve => setImmediate(resolve))          // the body lives between slices
+      if (signal?.aborted) return null                             // the run was cancelled while we yielded
       result = gen.next()?.value?.result ?? result
     }
   } catch {
@@ -637,7 +639,8 @@ export async function planDigApproachAsync (bot, target, { goals, reachGoalFor, 
 export async function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, endsInReachFor,
                                                      radius = BURIED_APPROACH_RADIUS, dy = BURIED_APPROACH_DY,
                                                      tries = BURIED_APPROACH_TRIES, plan = planDigApproachAsync,
-                                                     timeout = BURIED_APPROACH_TIMEOUT_MS, pumps = BURIED_APPROACH_PUMPS } = {}) {
+                                                     timeout = BURIED_APPROACH_TIMEOUT_MS, pumps = BURIED_APPROACH_PUMPS,
+                                                     signal = null } = {}) {
   const at = bot?.entity?.position
   if (!at || !Array.isArray(candidates) || candidates.length === 0) return null
   const near = candidates
@@ -647,7 +650,8 @@ export async function pickBuriedApproach (bot, candidates, { goals, reachGoalFor
   const refused = []
   for (const q of near) {
     let verdict = null
-    try { verdict = await plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null, timeout, pumps }) } catch { verdict = null }
+    if (signal?.aborted) break                      // an abandoned search stops here, not after three more plans
+    try { verdict = await plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null, timeout, pumps, signal }) } catch { verdict = null }
     if (verdict?.take) return { target: q, dist: at.distanceTo(q), dig: verdict.dig, digMs: verdict.digMs ?? null, refused }
     // planDigApproach says `why`; the first draft read `reason` and every refusal printed 'no plan'.
     refused.push(`${q.x},${q.y},${q.z}: ${verdict?.why ?? verdict?.reason ?? verdict?.status ?? 'no plan'}`)

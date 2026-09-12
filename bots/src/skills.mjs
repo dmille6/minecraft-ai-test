@@ -1219,6 +1219,22 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
                 `(liquid beside it or a falling block above it)`),
       { failClass: 'unsafe_target' })
   }
+  // THE DROP MUST BE REACHABLE. A buried ore's drop lands in the ore's own
+  // cell, and if the cell above it is still rock that cell is a one-high
+  // pocket the body cannot enter: sandbox 2026-09-12 18:14, the approach stood
+  // beside the ore, the dig broke it, the pickup failed twice ("held +0") and a
+  // later goto with digging walked in and took it. So the cell above a buried
+  // target is opened first, under the same safety test, so the pickup can step
+  // in. One block, never a drop's worth of world.
+  if (adjacent) {
+    const over = p.offset(0, 1, 0), overBlock = bot.blockAt(over)
+    if (overBlock && overBlock.boundingBox === 'block' && (!safeToBreak || safeToBreak(over))) {
+      try {
+        await withTimeout(bot.dig(overBlock), 12_000, bot, { what: 'opening the cell above the target', needsDrop: false,
+          onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } } })
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e /* else: the pickup may still manage */ }
+    }
+  }
 
   const tool = bestTool(bot, block)
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
@@ -1559,7 +1575,14 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       buriedPick = await pickBuriedApproach(bot, positions.filter(q => !exposed(q) && safeTarget(q) && !excluded.has(key(q))), {
         goals, reachGoalFor: adjacentGoal,                  // beside it, not within reach of it (digreach.mjs)
         endsInReachFor: q => node => faceAdjacent(node, q),
+        signal,
       })
+      // THE AWAIT ABOVE IS A SEAM. If a reflex interrupted this run while the
+      // planner was yielding, a replacement skill may already own the body;
+      // resuming here and claiming 'dig' would take THAT skill's claim and
+      // release it later (Codex, 2026-09-12). Cancellation is checked before
+      // anything below can claim.
+      check(signal)
       if (buriedPick?.target) {
         reachable = [buriedPick.target]
         logEvent({ kind: 'gather_buried_approach', status: 'success',
