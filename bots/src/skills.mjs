@@ -35,7 +35,7 @@ import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
-import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
+import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS, pickBuriedApproach } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -1501,6 +1501,27 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       }
     }
 
+    // BURIED, BUT AT THIS LEVEL: ASK THE DIG-APPROACH BEFORE DECLARING IT UNREACHABLE.
+    // Only for things worth a tunnel, only when nothing exposed remains, only
+    // through the planner and guards the dig-approach already has. The walk and
+    // the dig below are unchanged: the candidate simply stays on the list.
+    let buriedPick = null
+    if (reachable.length === 0 && WORTH_TUNNELLING.test(viaSource ?? blockName)) {
+      buriedPick = pickBuriedApproach(bot, positions.filter(q => !exposed(q) && safeTarget(q)), {
+        goals, reachGoalFor: reachGoal,
+        endsInReachFor: q => node => nodeToBlock(node, q) <= STANCE_REACH,
+      })
+      if (buriedPick?.target) {
+        reachable = [buriedPick.target]
+        logEvent({ kind: 'gather_buried_approach', status: 'success',
+                   detail: `${blockName} buried ${buriedPick.dist.toFixed(1)} blocks away at my level; ` +
+                           `the approach plans ${buriedPick.dig} block(s)${buriedPick.digMs != null ? ` (${Math.round(buriedPick.digMs)}ms)` : ''}` +
+                           `${buriedPick.refused.length ? `; refused first: ${buriedPick.refused.join(' | ')}` : ''}` })
+      } else if (buriedPick?.refused?.length) {
+        logEvent({ kind: 'gather_buried_approach', status: 'failed',
+                   detail: `${blockName}: ${buriedPick.refused.length} buried within reach at my level, every approach refused: ${buriedPick.refused.join(' | ')}` })
+      }
+    }
     if (reachable.length === 0) {
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }

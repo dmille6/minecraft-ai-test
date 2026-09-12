@@ -539,3 +539,42 @@ export function floatDigOk (bot, block) {
   }
   return { ok: true, why: '' }
 }
+
+
+/**
+ * WHEN EVERY CANDIDATE IS BURIED AND THE BOT IS ALREADY AT ITS LEVEL, APPROACH IT.
+ *
+ * gather drops a candidate with no exposed face before the dig-approach is
+ * ever consulted, so a bot standing at an ore's depth five blocks from it says
+ * "every candidate is buried -- use mine to dig down" and escalates to a mine
+ * that has nowhere to go (2026-09-12: 47 escalations/hour, targets y=51-63,
+ * iron gathered fell 16 -> 1 per hour the hour the stair started working).
+ *
+ * This asks the SAME planner the dig-approach uses, with the same guards --
+ * priced digs, the ore refusal, dontCreateFlow on the gather movements, a
+ * stance that ends in reach -- for the nearest buried candidates at the bot's
+ * own level, and returns the first the planner admits, or null. Pure over its
+ * inputs; the walk and the dig stay where they were.
+ */
+export const BURIED_APPROACH_RADIUS = 8
+export const BURIED_APPROACH_DY = 2
+export const BURIED_APPROACH_TRIES = 3
+
+export function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, endsInReachFor,
+                                                     radius = BURIED_APPROACH_RADIUS, dy = BURIED_APPROACH_DY,
+                                                     tries = BURIED_APPROACH_TRIES, plan = planDigApproach } = {}) {
+  const at = bot?.entity?.position
+  if (!at || !Array.isArray(candidates) || candidates.length === 0) return null
+  const near = candidates
+    .filter(q => q && Math.abs(q.y - at.y) <= dy && at.distanceTo(q) <= radius)
+    .sort((a, b) => at.distanceTo(a) - at.distanceTo(b))
+    .slice(0, tries)
+  const refused = []
+  for (const q of near) {
+    let verdict = null
+    try { verdict = plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null }) } catch { verdict = null }
+    if (verdict?.take) return { target: q, dist: at.distanceTo(q), dig: verdict.dig, digMs: verdict.digMs ?? null, refused }
+    refused.push(`${q.x},${q.y},${q.z}: ${verdict?.reason ?? verdict?.status ?? 'no plan'}`)
+  }
+  return near.length ? { target: null, refused } : null
+}
