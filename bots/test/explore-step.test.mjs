@@ -26,9 +26,9 @@ t('a step down of exactly maxDrop is allowed; one deeper is not', () => {
   assert.ok(!bad.ok); assert.match(bad.why, /drop deeper/)
 })
 t('lava anywhere in the column ahead refuses, even under a floor-less cell, even at head height', () => {
-  assert.match(blindStepIsSafe(world({ ...floorRow(63, -1, 0, 0), '-2,62,0': 'lava' }), feet, WEST).why, /lava below at -2,62,0/)
-  assert.match(blindStepIsSafe(world({ ...floorRow(63, -4, 0, 0), '-2,64,0': 'lava' }), feet, WEST).why, /lava ahead at -2,64,0/)
-  assert.match(blindStepIsSafe(world({ ...floorRow(63, -4, 0, 0), '-3,65,0': 'lava' }), feet, WEST).why, /lava ahead/)
+  assert.match(blindStepIsSafe(world({ ...floorRow(63, -1, 0, 0), '-2,62,0': 'lava' }), feet, WEST).why, /lava at -2,62,0/)
+  assert.match(blindStepIsSafe(world({ ...floorRow(63, -6, 0, 0), '-2,64,0': 'lava' }), feet, WEST).why, /lava at -2,64,0/)
+  assert.match(blindStepIsSafe(world({ ...floorRow(63, -6, 0, 0), '-3,65,0': 'lava' }), feet, WEST).why, /lava at/)
 })
 t('a TWO-high wall ends the probe as SAFE (walking into a wall is harmless), water is terrain and passes', () => {
   const r = blindStepIsSafe(world({ ...floorRow(63, -6, 0, 0), '-2,64,0': 'stone', '-2,65,0': 'stone' }), feet, WEST)
@@ -68,7 +68,7 @@ t('a ONE-high step is climbed and the probe continues at the new height: lava tw
   // step at cell 1 (-1,64), then ground at y=64 beyond it (feet at 65), lava under cell 3
   const cells = { ...floorRow(63, -6, 0, 0), '-1,64,0': 'stone', ...floorRow(64, -6, -2, 0), '-3,64,0': 'lava' }
   const r = blindStepIsSafe(world(cells), feet, WEST)
-  assert.ok(!r.ok); assert.match(r.why, /lava (below|ahead) at -3,6[45],0/)
+  assert.ok(!r.ok); assert.match(r.why, /lava at -3,64,0/)
   const ok = blindStepIsSafe(world({ ...floorRow(63, -6, 0, 0), '-1,64,0': 'stone', ...floorRow(64, -6, -2, 0) }), feet, WEST)
   assert.ok(ok.ok, ok.why); assert.equal(ok.cells, BLIND_STEP_BLOCKS)
 })
@@ -90,6 +90,20 @@ t('pickBlindHeading walks the first safe heading among up to BLIND_STEP_HEADINGS
   assert.ok(pick.step.ok, pick.step.why); assert.ok(pick.tried >= 2 && pick.tried <= BLIND_STEP_HEADINGS, `tried ${pick.tried}`)
   const none = pickBlindHeading(() => ({ name: 'air', boundingBox: 'empty' }), feet, 0, Math.PI / 3)   // void everywhere
   assert.ok(!none.step.ok); assert.equal(none.tried, BLIND_STEP_HEADINGS); assert.match(none.step.why, /drop deeper/)
+})
+
+t('a chain of small drops is ONE fall: every height is measured from the start, so a staircase down past maxDrop refuses (Codex, third pass)', () => {
+  // ground descends one block per cell: 63, 62, 61, 60, 59 under cells 1..5 -> cell 4 lands at 60 = drop 3 (ok), cell 5 at 59 = drop 4 (refuse)
+  const cells = {}; for (let i = 1; i <= 5; i++) cells[`${-i},${64 - i},0`] = 'stone'
+  for (let i = 1; i <= 5; i++) for (let y = 64 - i + 1; y <= 63; y++) cells[`${-i},${y},0`] = 'air'
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok, 'a descending chain past maxDrop was allowed'); assert.match(r.why, /drop deeper than 3 at -5,64,0/); assert.equal(r.cells, 4)
+})
+t('lava beside an airborne body is checked at the START height band, not at an imagined landing', () => {
+  // cell 1 drops to a floor at 61 (drop 2, fine); lava beside cell 2 at y=64 (start feet height): still refused
+  const cells = { ...floorRow(61, -6, -1, 0), '-2,64,1': 'lava' }
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok); assert.match(r.why, /lava beside at -2,64,1/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
