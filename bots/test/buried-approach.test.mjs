@@ -224,7 +224,9 @@ t('pickupNearbyItems walks straight at an ADJACENT drop when the pathfinder refu
   const s = c.indexOf('async function pickupNearbyItems('); const f = c.slice(s, c.indexOf('async function gather('))
   const cat = f.indexOf('} catch (e) {'), nudge = f.indexOf('if (flat <= PICKUP_NUDGE_BLOCKS && dy <= 1.5)')
   assert.ok(cat > 0 && nudge > cat, 'the nudge lives in the goto failure path')
-  assert.match(f.slice(nudge), /setControlState\('forward', true\)[\s\S]{0,80}await sleep\(PICKUP_NUDGE_MS, signal\)/, 'a bounded forward walk')
+  assert.match(f.slice(nudge), /setControlState\('forward', true\)[\s\S]{0,120}while \(Date\.now\(\) - t0 < PICKUP_NUDGE_MS\)/, 'a time-capped forward walk')
+  assert.match(f.slice(nudge), /Math\.hypot\(target\.x - here\.x, target\.z - here\.z\) <= 0\.4\) break/, 'stops where the drop lay (distance bound)')
+  assert.match(f.slice(nudge), /if \(!bot\.entities\?\.\[id\]\) break/, 'stops when the item is gone')
   assert.match(f.slice(nudge), /finally \{ bot\.clearControlStates\(\) \}/, 'controls are cleared on every exit')
   assert.match(c, /const PICKUP_NUDGE_BLOCKS = 2\.2/); assert.match(c, /const PICKUP_NUDGE_MS = 1_200/)
 })
@@ -234,6 +236,14 @@ t('MUTANT: an unbounded nudge (no distance gate) is caught', () => {
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, 'if (true) {')
   assert.ok(!bad.includes(anchor))
+})
+
+t('MUTANT: a nudge that no longer stops at the drop (distance bound removed) is caught', () => {
+  const c = strip(RAW)
+  const anchor = 'if (Math.hypot(target.x - here.x, target.z - here.z) <= 0.4) break'
+  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const bad = c.replace(anchor, '')
+  assert.ok(!/Math\.hypot\(target\.x - here\.x, target\.z - here\.z\) <= 0\.4\) break/.test(bad))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

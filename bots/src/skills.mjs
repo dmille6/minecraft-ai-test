@@ -1337,10 +1337,22 @@ async function pickupNearbyItems(bot, signal, radius = 8) {
       const dx = drop.position.x - bot.entity.position.x, dz = drop.position.z - bot.entity.position.z
       const flat = Math.hypot(dx, dz), dy = Math.abs(drop.position.y - bot.entity.position.y)
       if (flat <= PICKUP_NUDGE_BLOCKS && dy <= 1.5) {
+        // BOUNDED BY DISTANCE, NOT ONLY BY TIME (Codex, 2026-09-12): a fixed
+        // 1.2-s hold could overshoot the drop and walk off whatever lies beyond
+        // it. The walk is polled every 50 ms and stops the moment the bot is
+        // within 0.4 of where the drop LAY, or the item entity is gone (picked
+        // up), or the time cap is reached -- the ground beyond the drop is
+        // never entered.
+        const target = drop.position.clone(); const id = drop.id; const t0 = Date.now()
         try {
-          await bot.lookAt(drop.position.offset(0, 0.2, 0), true)
+          await bot.lookAt(target.offset(0, 0.2, 0), true)
           bot.setControlState('forward', true)
-          await sleep(PICKUP_NUDGE_MS, signal)
+          while (Date.now() - t0 < PICKUP_NUDGE_MS) {
+            await sleep(50, signal)
+            const here = bot.entity.position
+            if (Math.hypot(target.x - here.x, target.z - here.z) <= 0.4) break          // standing on it
+            if (!bot.entities?.[id]) break                                              // picked up (or despawned)
+          }
         } catch (e2) { if (e2?.aborted || signal?.aborted) { bot.clearControlStates(); throw e2 } }
         finally { bot.clearControlStates() }
         await sleep(250, signal)
