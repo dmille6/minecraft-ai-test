@@ -34,7 +34,7 @@ import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, predictedDigMs } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
-import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
+import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH, faceAdjacent, adjacentGoal } from './digreach.mjs'
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS, pickBuriedApproach } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
@@ -1004,7 +1004,7 @@ const mustCollectManually = name =>
  * or the item lies on the ground and the inventory delta stays zero -- which is
  * indistinguishable from not having mined it.
  */
-export async function collectManually(bot, block, signal, { claim = null, safeToBreak = null } = {}) {
+export async function collectManually(bot, block, signal, { claim = null, safeToBreak = null, adjacent = false } = {}) {
   const p = block.position
   const wanted = block.name
   // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
@@ -1079,10 +1079,13 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
     // where nothing is in the way; this runs only on the ~18.7% of gather runs
     // that were reporting arrived_out_of_reach.
     if (!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))) {
+      // A BURIED target's approach ends BESIDE it, not within reach of it:
+      // in reach is a distance, digging needs a visible face (digreach.mjs,
+      // faceAdjacent). An exposed target keeps the reach goal.
       const plan = planDigApproach(bot, p, {
         goals,
-        reachGoalFor: reachGoal,
-        endsInReach: node => nodeToBlock(node, p) <= STANCE_REACH,
+        reachGoalFor: adjacent ? adjacentGoal : reachGoal,
+        endsInReach: node => adjacent ? faceAdjacent(node, p) : nodeToBlock(node, p) <= STANCE_REACH,
       })
       if (plan?.take && bot.withGatherMovements) {
         // EMITTED AFTER THE WALK, WITH THE OUTCOME THE WALK ACTUALLY HAD.
@@ -1107,10 +1110,12 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
         // first one the held item could not harvest, and cancels nothing. That
         // is what names the block next time instead of the word PathStopped.
         const watch = observeApproachDig(bot)
+        // The walk goes to the goal the plan priced: beside a buried block, within reach of an exposed one.
+        const walkGoal = (adjacent ? adjacentGoal(goals, p) : reachGoal(goals, p)) ?? stance
         let walked
         try {
           await bot.withGatherMovements(() =>
-            withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), APPROACH_WALK_MS, bot, { needsDrop: false }))
+            withTimeout(bot.pathfinder.goto(walkGoal), APPROACH_WALK_MS, bot, { needsDrop: false }))
           pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
         } catch (e) {
           if (e.aborted || signal?.aborted) {
@@ -1210,10 +1215,26 @@ export async function collectManually(bot, block, signal, { claim = null, safeTo
   // Named `dig` so a dig that never finishes is not filed as a pathing failure,
   // and cleaned up with stopDigging() rather than the pathfinder default --
   // clearing a path goal does nothing for a stuck dig.
-  await withTimeout(bot.dig(block), 20_000, bot, {
-    what: 'dig',
-    onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
-  })
+  // SAY WHAT WAS IN HAND WHEN A DIG DIES. 'Digging aborted' names nothing:
+  // the dig watchdog (watchDigging, 1 s poll) stops any dig the HELD item
+  // cannot harvest, the pathfinder stops digs on a reset, and the server
+  // rejects a face it cannot see. Sandbox 2026-09-12 01:35: two buried
+  // collects died 'Digging aborted' ~3 s after the approach with nothing to
+  // say which. The held item and the elapsed time separate them.
+  const digT0 = Date.now(), heldBefore = bot.heldItem?.name ?? 'nothing'
+  try {
+    await withTimeout(bot.dig(block), 20_000, bot, {
+      what: 'dig',
+      onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+    })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    throw Object.assign(
+      new Error(`${String(e?.message ?? e).slice(0, 80)} (dig of ${block?.name ?? '?'} at ${p.x},${p.y},${p.z}: ` +
+                `held ${heldBefore} -> ${bot.heldItem?.name ?? 'nothing'}, tool ${tool?.name ?? 'none'}, ` +
+                `after ${Date.now() - digT0}ms, eye-to-block ${eyeToBlock(bot.entity?.position, p).toFixed(2)})`),
+      { failClass: e?.failClass ?? 'dig_aborted' })
+  }
 
   // THE COMMENT ABOVE USED TO SAY dig() "resolves when the server confirms the
   // break". IT DOES NOT. digging.js contains zero ack handling -- it arms
@@ -1520,8 +1541,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     let buriedPick = null
     if (reachable.length === 0 && WORTH_TUNNELLING.test(viaSource ?? blockName)) {
       buriedPick = pickBuriedApproach(bot, positions.filter(q => !exposed(q) && safeTarget(q) && !excluded.has(key(q))), {
-        goals, reachGoalFor: reachGoal,
-        endsInReachFor: q => node => nodeToBlock(node, q) <= STANCE_REACH,
+        goals, reachGoalFor: adjacentGoal,                  // beside it, not within reach of it (digreach.mjs)
+        endsInReachFor: q => node => faceAdjacent(node, q),
       })
       if (buriedPick?.target) {
         reachable = [buriedPick.target]
@@ -1593,7 +1614,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       return { status: 'failed', failClass: 'unreachable',
                detail: `${blockName} found but every candidate is buried — use mine to dig down` +
                        belowGroundHint(bot) +
-                       (mineSaid ? ` [mine said: ${String(mineSaid).slice(0, 110)}]` : '') }
+                       (mineSaid ? ` [mine said: ${String(mineSaid).slice(0, 110)}]` : '') +
+                       (collectErrors.length ? ` [collect said: ${[...new Set(collectErrors)].slice(0, 2).join(' | ')}]` : '') }
     }
 
     // SKIP WHAT ALREADY REFUSED US, PER RUN.
@@ -1656,7 +1678,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (mustCollectManually(target.name)) {
         // Buried: revalidate the target's safety right before it is broken (the
         // approach just changed the world around it), and renew the claim per phase.
-        await collectManually(bot, target, signal, buried ? { claim: digClaim, safeToBreak: safeTarget } : {})
+        await collectManually(bot, target, signal, buried ? { claim: digClaim, safeToBreak: safeTarget, adjacent: true } : {})
       } else {
         // ABANDONING A PROMISE DOES NOT STOP THE WORK BEHIND IT.
         //
@@ -1725,6 +1747,16 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // class from prose, which is how a collect budget and a real no-path
       // became the same lesson.
       if (collectErrors.length < 8) collectErrors.push(String(e.message ?? e).slice(0, 120))
+      // A BURIED COLLECT THAT FAILS MUST SAY SO IN TELEMETRY. In the sandbox
+      // (2026-09-12 01:29) the approach reached the face, the collect threw
+      // inside five seconds, and the run's only trace was the NEXT iteration's
+      // "every candidate is buried" -- the error itself lived in a debug log.
+      if (buried) {
+        const at = bot.entity?.position
+        logEvent({ kind: 'gather_buried_collect', status: 'failed',
+                   detail: `${blockName} ${key(target.position)} from ${at ? `${at.x.toFixed(1)},${at.y.toFixed(1)},${at.z.toFixed(1)}` : '?'}: ` +
+                           `${String(e.message ?? e).slice(0, 160)}${e.failClass ? ` [${e.failClass}]` : ''}` })
+      }
       // THE SET IS ONLY WORTH HAVING IF SOMETHING PUTS THINGS IN IT.
       //
       // Every failure excludes its target for the rest of this run, not just
@@ -1769,6 +1801,10 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     const MAX_PER_BLOCK = 8
     const raw = heldFromBlock(bot, blockName) - startHeld
     const gained = Math.max(0, Math.min(raw, count * MAX_PER_BLOCK))
+    if (buried) {
+      logEvent({ kind: 'gather_buried_collect', status: gained > collected ? 'success' : 'no_effect',
+                 detail: `${blockName} ${key(target.position)}: the collect returned; held +${gained - collected}` })
+    }
     if (gained === collected) {
       barren++
       // A barren round means this target gave nothing even though nothing threw.

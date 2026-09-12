@@ -352,7 +352,8 @@ await ta('THE CHAIN: gather\'s dig-approach breaks the wall it was refused at an
 
 
 t('the dig-approach walk, and only it, runs with needsDrop:false', () => {
-  const line = /withGatherMovements\(\(\) =>\s*withTimeout\(bot\.pathfinder\.goto\([^)]*\)[^)]*\), APPROACH_WALK_MS, bot, \{ needsDrop: false \}\)/g
+  // The goal expression is incidental (it was `reachGoal(goals, p) ?? stance`, now a hoisted `walkGoal`); the invariant is the walk + the flag.
+  const line = /withGatherMovements\(\(\) =>\s*withTimeout\(bot\.pathfinder\.goto\([^,]*\), APPROACH_WALK_MS, bot, \{ needsDrop: false \}\)/g
   const hits = src.match(line) ?? []
   assert.equal(hits.length, 1, `expected exactly one dig-approach walk with needsDrop:false, found ${hits.length}`)
 })

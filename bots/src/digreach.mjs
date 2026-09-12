@@ -176,3 +176,40 @@ export function reachRefusal ({ blockName, wanted, target, dist, pathSaid, reach
            detail: `arrived_out_of_reach: ${said}eye is ${d} blocks from the centre of ${at}, ` +
                    `over the ${reach} the server allows` }
 }
+
+/**
+ * IN REACH IS NOT IN VIEW. `canDigBlock` is a distance; mineflayer's `dig`
+ * raycasts to a face first and throws 'Block not in view' when every face is
+ * behind other blocks (digging.js). A buried ore is by definition behind other
+ * blocks, so an approach that stops 4.3 blocks short "within reach" leaves the
+ * bot unable to dig it -- measured in the sandbox 2026-09-12 01:29: approach
+ * success, in_reach=true, collect dead in five seconds, ore untouched.
+ *
+ * The end test for a BURIED target is therefore face adjacency: the target
+ * shares a face with the bot's feet cell or head cell (or sits directly over
+ * its head). Standing ON the target is excluded on purpose -- breaking the
+ * block under your own feet is the stance-on-target trap.
+ */
+export function faceAdjacent (node, p) {
+  if (!node || !p) return false
+  const dx = node.x - Math.floor(p.x), dy = node.y - Math.floor(p.y), dz = node.z - Math.floor(p.z)
+  if (dx === 0 && dz === 0 && dy === 1) return false           // standing on it
+  return Math.abs(dx) + Math.abs(dy < 0 ? dy + 1 : dy) + Math.abs(dz) === 1
+}
+
+const ADJ_CACHE = new WeakMap()
+export function adjacentGoalClass (goals) {
+  if (!goals?.GoalGetToBlock) return null
+  const hit = ADJ_CACHE.get(goals)
+  if (hit) return hit
+  class GoalBesideBlock extends goals.GoalGetToBlock {
+    isEnd (node) { return faceAdjacent(node, this) }
+  }
+  ADJ_CACHE.set(goals, GoalBesideBlock)
+  return GoalBesideBlock
+}
+export function adjacentGoal (goals, p) {
+  const C = adjacentGoalClass(goals)
+  if (!C) return null
+  return new C(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
+}
