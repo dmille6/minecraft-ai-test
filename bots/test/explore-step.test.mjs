@@ -171,4 +171,16 @@ t("Codex's counter-example: lo=64, hi=68 after four steps; a cell solid at 65, 6
   assert.ok(!r.ok, 'the step branch called it a wall'); assert.match(r.why, /drop deeper than 3 at -6,66,0/)
 })
 
+t('lava under an intact floor is out of reach and passes; the same lava with a hole in the floor refuses (Codex, ninth pass)', () => {
+  const floor = floorRow(63, -6, 0, 0); const lavaRow = floorRow(62, -6, 0, 0, 'lava')
+  const ok = blindStepIsSafe(world({ ...floor, ...lavaRow }), feet, WEST)
+  assert.ok(ok.ok, ok.why); assert.equal(ok.cells, BLIND_STEP_BLOCKS)
+  const hole = { ...floor, ...lavaRow }; delete hole['-3,63,0']
+  const r = blindStepIsSafe(world(hole), feet, WEST)
+  assert.ok(!r.ok); assert.match(r.why, /lava at -3,62,0/)
+  // a wall above the start height shields nothing: lava at feet level behind a one-high step is still seen
+  const step = { ...floor, '-1,64,0': 'stone', '-2,64,0': 'lava' }
+  assert.ok(!blindStepIsSafe(world(step), feet, WEST).ok)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
