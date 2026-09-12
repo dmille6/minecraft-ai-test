@@ -2562,7 +2562,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // A 'stair' claim (mine's step loop, 2026-09-11) quiets this branch the
       // same way: a bot inside the three-cell stair it is cutting is sealed in
       // by design, and pillaring out of it is the descent's undoing.
-      const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
+      // A 'dig' claim (gather's buried-ore collect, 2026-09-12) is the third: a
+      // bot at the face of the one-wide approach it just cut is sealed in by
+      // design for the seconds it takes to break the ore and pick it up.
+      const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair') || !!runner?.bodyClaimFor?.('dig')
       if (!escaping && !marooned && !climbing && isEntombed(bot) &&
           Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
