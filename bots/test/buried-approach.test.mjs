@@ -219,4 +219,21 @@ t('MUTANT: re-planning a buried target with the synchronous planner is caught (b
   assert.ok(!/const plan = adjacent\s*\? await planDigApproachAsync\(/.test(f))
 })
 
+t('pickupNearbyItems walks straight at an ADJACENT drop when the pathfinder refuses it, bounded, controls always cleared', () => {
+  const c = strip(RAW)
+  const s = c.indexOf('async function pickupNearbyItems('); const f = c.slice(s, c.indexOf('async function gather('))
+  const cat = f.indexOf('} catch (e) {'), nudge = f.indexOf('if (flat <= PICKUP_NUDGE_BLOCKS && dy <= 1.5)')
+  assert.ok(cat > 0 && nudge > cat, 'the nudge lives in the goto failure path')
+  assert.match(f.slice(nudge), /setControlState\('forward', true\)[\s\S]{0,80}await sleep\(PICKUP_NUDGE_MS, signal\)/, 'a bounded forward walk')
+  assert.match(f.slice(nudge), /finally \{ bot\.clearControlStates\(\) \}/, 'controls are cleared on every exit')
+  assert.match(c, /const PICKUP_NUDGE_BLOCKS = 2\.2/); assert.match(c, /const PICKUP_NUDGE_MS = 1_200/)
+})
+t('MUTANT: an unbounded nudge (no distance gate) is caught', () => {
+  const c = strip(RAW)
+  const anchor = 'if (flat <= PICKUP_NUDGE_BLOCKS && dy <= 1.5) {'
+  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const bad = c.replace(anchor, 'if (true) {')
+  assert.ok(!bad.includes(anchor))
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

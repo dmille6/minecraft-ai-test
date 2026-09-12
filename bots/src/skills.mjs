@@ -333,7 +333,9 @@ const STEP_SETTLE_MS = Math.max(50, Math.min(900, Math.floor(config.skills.defau
 const STEP_REDIG_MS = Math.max(60, Math.min(600, Math.floor(config.skills.defaultTimeoutMs / 300)))
 const STEP_IMPULSE_MS = Math.max(30, Math.min(350, Math.floor(config.skills.defaultTimeoutMs / 500)))
 const COLLECT_MS = 40_000
-const DIG_CLAIM_GRACE_MS = 4_000      // the 'dig' claim outlives a buried collect by this much (see gather)
+const DIG_CLAIM_GRACE_MS = 4_000
+const PICKUP_NUDGE_BLOCKS = 2.2         // a drop this close is walked at directly when the pathfinder refuses it
+const PICKUP_NUDGE_MS = 1_200      // the 'dig' claim outlives a buried collect by this much (see gather)
 const BARREN_LIMIT = 3
 
 async function goto(ctx, { x, y, z, range = 1 }, signal) {
@@ -1327,6 +1329,23 @@ async function pickupNearbyItems(bot, signal, radius = 8) {
         new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
+      // A DROP ONE BLOCK AWAY NEEDS NO PATH. Sandbox 2026-09-12 22:03: the bot
+      // stood beside the ore it had just broken, the drop lay in the open cell
+      // next to it, and the pathfinder said noPath after 10 nodes -- so the item
+      // was left on the ground. When the goto refuses an ADJACENT drop, walk
+      // straight at it for a moment; the pickup is the server's, not ours.
+      const dx = drop.position.x - bot.entity.position.x, dz = drop.position.z - bot.entity.position.z
+      const flat = Math.hypot(dx, dz), dy = Math.abs(drop.position.y - bot.entity.position.y)
+      if (flat <= PICKUP_NUDGE_BLOCKS && dy <= 1.5) {
+        try {
+          await bot.lookAt(drop.position.offset(0, 0.2, 0), true)
+          bot.setControlState('forward', true)
+          await sleep(PICKUP_NUDGE_MS, signal)
+        } catch (e2) { if (e2?.aborted || signal?.aborted) { bot.clearControlStates(); throw e2 } }
+        finally { bot.clearControlStates() }
+        await sleep(250, signal)
+        continue                                              // re-check: gone (picked up) or still there (give up next round)
+      }
       return
     }
     await sleep(250, signal)
