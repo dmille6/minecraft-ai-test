@@ -35,7 +35,8 @@ const lava = b => !!b && /lava/.test(b.name || '')
  * @returns {{ok:boolean, why:string, cells:number}}
  */
 export const BODY_HALF_WIDTH = 0.3      // the player's collision box is 0.6 wide
-const EDGE = BODY_HALF_WIDTH - 1e-6     // sampled just inside the edge: touching a column boundary is not overlapping it (Codex, eleventh pass)
+const EDGE = BODY_HALF_WIDTH - 1e-6
+const SWEEPS = 4                          // samples per block along the walk: 0.25-block steps for a 0.6-wide box     // sampled just inside the edge: touching a column boundary is not overlapping it (Codex, eleventh pass)
 
 export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS, maxDrop = BLIND_STEP_MAX_DROP } = {}) {
   const dx = -Math.sin(yaw), dz = -Math.cos(yaw)
@@ -64,6 +65,7 @@ export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS
   // must not read as one deep fall). Steeper chains still do: two drops of two
   // within the same jump are refused from the carried height.
   let hi = feet.y, lo = feet.y, checked = 0, airborne = 0
+  const swept = new Set()                       // columns already checked for lava along the swept path
   // Lava only matters where the body can touch it. Scanning down a column, a
   // solid block at or below `lo` is a floor under EVERY possible body, so what
   // lies beneath it is out of reach (Codex, ninth pass: lava under an intact
@@ -110,19 +112,24 @@ export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS
     if (surface === null) return { ok: false, why: `drop deeper than ${maxDrop} at ${cx},${hi},${cz}`, cells: checked }
     checked++
     // the body is wider than the line, and its collision box is AXIS-ALIGNED
-    // whatever the heading (Codex, twelfth pass): at each point along the walk
-    // the box [x-0.3, x+0.3] x [z-0.3, z+0.3] can overlap up to four columns,
-    // so every column a corner falls in is checked for lava in the band.
-    const px = feet.x + dx * i, pz = feet.z + dz * i
-    const seen = new Set([`${cx},${cz}`])
-    for (const ex of [-EDGE, EDGE]) {
-      for (const ez of [-EDGE, EDGE]) {
-        const sx = Math.floor(px + ex), sz = Math.floor(pz + ez)
-        const key = `${sx},${sz}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
-        if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
+    // whatever the heading (Codex, twelfth pass): the box [x-0.3, x+0.3] x
+    // [z-0.3, z+0.3] can overlap up to four columns at a time. And the walk is
+    // continuous, so the box is SWEPT: sampled every SWEEP blocks along the
+    // segment from the previous cell to this one, every column a corner falls
+    // in is checked for lava in the band (Codex, thirteenth pass: one-block
+    // samples on a diagonal miss a column the box crosses in between).
+    for (let k = 1; k <= SWEEPS; k++) {
+      const px = feet.x + dx * (i - 1 + k / SWEEPS), pz = feet.z + dz * (i - 1 + k / SWEEPS)
+      for (const ex of [-EDGE, EDGE]) {
+        for (const ez of [-EDGE, EDGE]) {
+          const sx = Math.floor(px + ex), sz = Math.floor(pz + ez)
+          const key = `${sx},${sz}`
+          if (swept.has(key)) continue
+          swept.add(key)
+          if (sx === cx && sz === cz) continue                   // the walked column was checked above
+          const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
+          if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
+        }
       }
     }
   }

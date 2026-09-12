@@ -206,4 +206,14 @@ t('the collision box is axis-aligned: on a diagonal heading a corner reaches 0.4
   assert.ok(!r.ok, 'the corner column was not checked'); assert.match(r.why, /lava beside at 0,64,-1/)
 })
 
+t("the box is SWEPT along the walk: Codex's example -- consecutive one-block samples at (1.2,0.6) and (1.91,1.31) both miss column (2,0), which the box crosses between them (thirteenth pass)", () => {
+  // dir (+0.707, +0.707) -> yaw -3pi/4; start so that sample 1 is at (1.2, 0.6)
+  const yaw = -3 * Math.PI / 4
+  const start = { x: 1.2 - Math.SQRT1_2, y: 64, z: 0.6 - Math.SQRT1_2 }
+  const flat = {}; for (let x = -2; x <= 8; x++) for (let z = -2; z <= 8; z++) flat[`${x},63,${z}`] = 'stone'
+  assert.ok(blindStepIsSafe(world(flat), start, yaw).ok)
+  const r = blindStepIsSafe(world({ ...flat, '2,64,0': 'lava' }), start, yaw)
+  assert.ok(!r.ok, 'a column crossed between samples was not checked'); assert.match(r.why, /lava beside at 2,64,0/)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
