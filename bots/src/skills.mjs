@@ -37,6 +37,7 @@ import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH, faceAdjacent, adjacentGoal } from './digreach.mjs'
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS, pickBuriedApproach } from './digapproach.mjs'
 import { blindStepIsSafe } from './explorestep.mjs'
+import { pickBlindHeading } from './explorestep.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import fs from 'node:fs'
@@ -3327,7 +3328,8 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
         bot.pathfinder.goto(new goals.GoalNear(tx, Math.round(from.y), tz, 3)), 8000, bot)
     } catch (e) {
       lastErr = e.message
-      ang += (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 3)   // blocked: turn, do not give up
+      const turnSign = Math.random() < 0.5 ? 1 : -1
+      ang += turnSign * (Math.PI / 3)   // blocked: turn, do not give up
       // MOVE, even on failure. Each failed leg costs up to the pathfinder's
       // think timeout with the bot stationary, so three or four in a row
       // accumulate past the 45s stuck threshold and the reflex cancels the whole
@@ -3347,14 +3349,16 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       // On refusal the turn still happens (the next plan starts from a new heading)
       // and the walk is skipped -- standing still for one leg is not what kills.
       try {
-        await bot.look(ang, 0, true)
         const feet = bot.entity.position
-        const step = blindStepIsSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)),
-                                     { x: Math.floor(feet.x), y: Math.floor(feet.y), z: Math.floor(feet.z) }, ang)
-        if (!step.ok) {
+        const pick = pickBlindHeading((x, y, z) => bot.blockAt(new Vec3(x, y, z)),
+                                      { x: Math.floor(feet.x), y: Math.floor(feet.y), z: Math.floor(feet.z) },
+                                      ang, turnSign * (Math.PI / 3))
+        if (!pick.step.ok) {
           logEvent({ kind: 'explore_step_refused', status: 'no_effect',
-                     detail: `${step.why}; turned without walking (leg ${legs}, ${String(lastErr).slice(0, 40)})` })
+                     detail: `${pick.step.why}; ${pick.tried} heading(s) refused, standing this leg (leg ${legs}, ${String(lastErr).slice(0, 40)})` })
         } else {
+          ang = pick.ang
+          await bot.look(ang, 0, true)
           bot.setControlState('forward', true)
           bot.setControlState('jump', true)
           await sleep(1200, signal)
