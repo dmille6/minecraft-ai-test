@@ -2,7 +2,7 @@
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { Vec3 } from 'vec3'
-import { pickBuriedApproach, BURIED_APPROACH_RADIUS, BURIED_APPROACH_DY } from '../src/digapproach.mjs'
+import { pickBuriedApproach, approachVerdict, BURIED_APPROACH_RADIUS, BURIED_APPROACH_DY, BURIED_APPROACH_TIMEOUT_MS, BURIED_APPROACH_PUMPS, APPROACH_TIMEOUT_MS } from '../src/digapproach.mjs'
 import { faceAdjacent, adjacentGoal } from '../src/digreach.mjs'
 import pathfinder from 'mineflayer-pathfinder'
 const { goals } = pathfinder
@@ -137,6 +137,38 @@ t('MUTANT: restoring a bare canDigBlock gate on the dig-approach is caught', () 
   const i = f.lastIndexOf('if (!arrived()) {'); assert.ok(i > 0, 'ANCHOR MISSING')
   const bad = f.slice(0, i) + 'if (!(bot.canDigBlock && bot.canDigBlock(bot.blockAt(p)))) {' + f.slice(i + 'if (!arrived()) {'.length)
   assert.notEqual((bad.match(/if \(!arrived\(\)\) \{/g) || []).length, 2)
+})
+
+t("a PARTIAL search whose path already ends in reach is a plan (hive-c 2026-09-12: 4 of 5 engagements refused on 'partial'); partial without reach, or any other status, is still refused", () => {
+  const path = [{ x: 1, y: 40, z: 0, toBreak: [] }, { x: 2, y: 40, z: 0, toBreak: [] }]
+  const ok = approachVerdict({ status: 'partial', path, endsInReach: true })
+  assert.ok(ok.take, ok.why)
+  assert.ok(!approachVerdict({ status: 'partial', path, endsInReach: false }).take, 'partial that does not end in reach')
+  assert.ok(!approachVerdict({ status: 'partial', path: [], endsInReach: true }).take, 'partial with no path')
+  assert.match(approachVerdict({ status: 'timeout', path, endsInReach: true }).why, /approach search said timeout/)
+  assert.match(approachVerdict({ status: 'noPath', path, endsInReach: true }).why, /approach search said noPath/)
+  assert.ok(approachVerdict({ status: 'success', path, endsInReach: true }).take)
+})
+t('the dig claim outlives a buried collect by DIG_CLAIM_GRACE_MS, renewed first, before the finally releases it', () => {
+  const c = strip(RAW)
+  const g = c.slice(c.indexOf('async function gather('))
+  const call = g.indexOf('await collectManually(bot, target, signal, buried ?'), grace = g.indexOf('if (digClaim) { digClaim.renew?.(); await sleep(DIG_CLAIM_GRACE_MS, signal) }'), fin = g.indexOf('digClaim?.release?.()')
+  assert.ok(call > 0 && grace > call && fin > grace, `order: collect ${call} < grace ${grace} < release ${fin}`)
+  assert.match(c, /const DIG_CLAIM_GRACE_MS = 4_000/)
+})
+t('MUTANT: dropping the grace is caught', () => {
+  const c = strip(RAW)
+  const anchor = 'if (digClaim) { digClaim.renew?.(); await sleep(DIG_CLAIM_GRACE_MS, signal) }'
+  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const bad = c.replace(anchor, '')
+  assert.ok(!bad.includes('sleep(DIG_CLAIM_GRACE_MS'))
+})
+
+t('the buried pick hands the planner a larger budget (6 s, 12 pumps) than the exposed path keeps (2 s)', () => {
+  assert.equal(BURIED_APPROACH_TIMEOUT_MS, 6000); assert.equal(BURIED_APPROACH_PUMPS, 12); assert.equal(APPROACH_TIMEOUT_MS, 2000)
+  let seen = null
+  pickBuriedApproach(bot, [V(304, 40, 300)], { plan: (b, q, opts) => { seen = opts; return { take: false, why: 'x' } } })
+  assert.equal(seen.timeout, 6000); assert.equal(seen.pumps, 12)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

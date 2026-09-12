@@ -333,6 +333,7 @@ const STEP_SETTLE_MS = Math.max(50, Math.min(900, Math.floor(config.skills.defau
 const STEP_REDIG_MS = Math.max(60, Math.min(600, Math.floor(config.skills.defaultTimeoutMs / 300)))
 const STEP_IMPULSE_MS = Math.max(30, Math.min(350, Math.floor(config.skills.defaultTimeoutMs / 500)))
 const COLLECT_MS = 40_000
+const DIG_CLAIM_GRACE_MS = 4_000      // the 'dig' claim outlives a buried collect by this much (see gather)
 const BARREN_LIMIT = 3
 
 async function goto(ctx, { x, y, z, range = 1 }, signal) {
@@ -1694,6 +1695,13 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         // Buried: revalidate the target's safety right before it is broken (the
         // approach just changed the world around it), and renew the claim per phase.
         await collectManually(bot, target, signal, buried ? { claim: digClaim, safeToBreak: safeTarget, adjacent: true } : {})
+        // THE CLAIM OUTLIVES THE COLLECT BY A MOMENT. On hive-c (2026-09-12 13:41)
+        // the buried collect succeeded, the claim was released as gather moved
+        // on, and the entombment reflex read the fresh corridor as a trap and
+        // pillared the bot 14 blocks back up. A few seconds of grace lets the
+        // next gather scan or the pathfinder walk the bot out of its own tunnel
+        // before the reflex may judge it; the finally below still releases.
+        if (digClaim) { digClaim.renew?.(); await sleep(DIG_CLAIM_GRACE_MS, signal) }
       } else {
         // ABANDONING A PROMISE DOES NOT STOP THE WORK BEHIND IT.
         //

@@ -289,7 +289,14 @@ export function approachDigCount (path) {
  */
 export function approachVerdict ({ status, path, endsInReach, maxDig = MAX_APPROACH_DIG,
                                   digMs = 0, budgetMs = APPROACH_WALK_MS, destroys = [] } = {}) {
-  if (status !== 'success') {
+  // A PARTIAL SEARCH THAT ALREADY ENDS IN REACH IS A PLAN. The pathfinder says
+  // 'partial' when its per-call budget ran out before it could PROVE the path
+  // optimal, not when the path is unusable; the buried-ore canary of 2026-09-12
+  // refused four of five engagements on "approach search said partial" while
+  // the one that completed dug beside the ore and collected it. `endsInReach`
+  // is the test that matters and it is applied to partial paths too. A partial
+  // path that does not end in reach, or any other status, is still refused.
+  if (status !== 'success' && !(status === 'partial' && endsInReach && Array.isArray(path) && path.length)) {
     return { take: false, why: `approach search said ${status ?? 'nothing'}` }
   }
   if (!endsInReach) {
@@ -330,7 +337,8 @@ export function approachVerdict ({ status, path, endsInReach, maxDig = MAX_APPRO
  */
 export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach,
                                                 slack = APPROACH_SLACK,
-                                                timeout = APPROACH_TIMEOUT_MS } = {}) {
+                                                timeout = APPROACH_TIMEOUT_MS,
+                                                pumps = APPROACH_PUMPS } = {}) {
   const at = bot?.entity?.position
   if (!at || !target) return null
   // The guard must name the thing actually used. reachprobe.mjs shipped a guard
@@ -348,7 +356,7 @@ export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach
     const gen = bot.pathfinder.getPathFromTo(moves, at, goal,
       { timeout, searchRadius: slack, optimizePath: true })
     result = gen.next()?.value?.result
-    for (let i = 0; i < APPROACH_PUMPS && result?.status === 'partial'
+    for (let i = 0; i < pumps && result?.status === 'partial'
                     && Date.now() - t0 < timeout; i++) {
       result = gen.next()?.value?.result ?? result
     }
@@ -559,10 +567,20 @@ export function floatDigOk (bot, block) {
 export const BURIED_APPROACH_RADIUS = 8
 export const BURIED_APPROACH_DY = 2
 export const BURIED_APPROACH_TRIES = 3
+// THE BURIED CASE GETS A BIGGER SEARCH. Fleet, 6 h on 2026-09-12: 881 admitted
+// exposed-target approaches planned in p50 10 ms / p99 190 ms, yet 394 were
+// refused "approach search said partial" -- the search stops partial far more
+// often than it completes when digging is involved, and on the buried-ore
+// canary 4 of 5 engagements died that way while the one that completed
+// collected the ore. A buried candidate is rare and worth a 6-s plan (the walk
+// budget is 15 s, the collect budget 40 s); the exposed path keeps 2 s.
+export const BURIED_APPROACH_TIMEOUT_MS = 6000
+export const BURIED_APPROACH_PUMPS = 12
 
 export function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, endsInReachFor,
                                                      radius = BURIED_APPROACH_RADIUS, dy = BURIED_APPROACH_DY,
-                                                     tries = BURIED_APPROACH_TRIES, plan = planDigApproach } = {}) {
+                                                     tries = BURIED_APPROACH_TRIES, plan = planDigApproach,
+                                                     timeout = BURIED_APPROACH_TIMEOUT_MS, pumps = BURIED_APPROACH_PUMPS } = {}) {
   const at = bot?.entity?.position
   if (!at || !Array.isArray(candidates) || candidates.length === 0) return null
   const near = candidates
@@ -572,7 +590,7 @@ export function pickBuriedApproach (bot, candidates, { goals, reachGoalFor, ends
   const refused = []
   for (const q of near) {
     let verdict = null
-    try { verdict = plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null }) } catch { verdict = null }
+    try { verdict = plan(bot, q, { goals, reachGoalFor, endsInReach: endsInReachFor ? endsInReachFor(q) : null, timeout, pumps }) } catch { verdict = null }
     if (verdict?.take) return { target: q, dist: at.distanceTo(q), dig: verdict.dig, digMs: verdict.digMs ?? null, refused }
     // planDigApproach says `why`; the first draft read `reason` and every refusal printed 'no plan'.
     refused.push(`${q.x},${q.y},${q.z}: ${verdict?.why ?? verdict?.reason ?? verdict?.status ?? 'no plan'}`)
