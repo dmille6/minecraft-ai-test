@@ -1,7 +1,7 @@
 // A blind walk after a failed explore leg must not walk off a ledge or into lava.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { blindStepIsSafe, pickBlindHeading, BLIND_STEP_BLOCKS, BLIND_STEP_MAX_DROP, BLIND_STEP_HEADINGS, JUMP_CELLS, BODY_HALF_WIDTH } from '../src/explorestep.mjs'
+import { blindStepIsSafe, pickBlindHeading, sweptColumns, BLIND_STEP_BLOCKS, BLIND_STEP_MAX_DROP, BLIND_STEP_HEADINGS, JUMP_CELLS, BODY_HALF_WIDTH } from '../src/explorestep.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -214,6 +214,21 @@ t("the box is SWEPT along the walk: Codex's example -- consecutive one-block sam
   assert.ok(blindStepIsSafe(world(flat), start, yaw).ok)
   const r = blindStepIsSafe(world({ ...flat, '2,64,0': 'lava' }), start, yaw)
   assert.ok(!r.ok, 'a column crossed between samples was not checked'); assert.match(r.why, /lava beside at 2,64,0/)
+})
+
+t('sweptColumns is exact: a straight axis walk touches one column; a diagonal touches the corner columns; touching a boundary does not count', () => {
+  assert.deepEqual(sweptColumns(0.5, 0.5, 0.5 - 4, 0.5).sort(), ['-1,0', '-2,0', '-3,0', '-4,0', '0,0'].sort())
+  assert.ok(sweptColumns(0.5, 0.5, -0.5, -0.5).includes('0,-1'), 'a diagonal box crosses the corner column')
+  assert.ok(!sweptColumns(0.5, 0.7, -3.5, 0.7).includes('0,1'), 'a body whose edge exactly touches z=1 does not overlap column z=1')
+  assert.ok(sweptColumns(0.5, 0.71, -3.5, 0.71).includes('0,1'), 'and one 0.01 past it does')
+})
+t("a corner clip of arbitrarily short duration is still found (Codex, fourteenth pass): overlap with column (1,0) begins when x > 0.7 and ends when z reaches 1.3", () => {
+  const yaw = -3 * Math.PI / 4                                  // dir (+0.707, +0.707)
+  const start = { x: 0.7 - Math.SQRT1_2, y: 64, z: 1.29 - Math.SQRT1_2 }   // at t=1 the centre is (0.7, 1.29): the clip lasts for t in (1.0, 1.014)
+  const flat = {}; for (let x = -2; x <= 8; x++) for (let z = -2; z <= 8; z++) flat[`${x},63,${z}`] = 'stone'
+  assert.ok(blindStepIsSafe(world(flat), start, yaw).ok)
+  const r = blindStepIsSafe(world({ ...flat, '1,64,0': 'lava' }), start, yaw)
+  assert.ok(!r.ok, 'the brief corner clip was missed'); assert.match(r.why, /lava beside at 1,64,0/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
