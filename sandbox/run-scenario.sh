@@ -10,7 +10,8 @@ ssh "$H" "python3 /tmp/sandbox-scenario.py /tmp/$(basename "$FX") --bot $BOT --m
 LOADER=$!
 BRAINPID=""
 if [[ -n "${SCRIPT:-}" ]]; then   # scripted decisions through the bots' own model interface, loopback only
-  (cd "$ROOT/bots" && SANDBOX_SCRIPT="$SCRIPT" node scripts/sandbox-brain.mjs 11499) > "${OUT%.log}-brain.log" 2>&1 &
+  pkill -f "sandbox-brain.mjs" 2>/dev/null || true; sleep 1   # a stale brain on the port would answer with the OLD script
+  (SANDBOX_SCRIPT="$SCRIPT" SANDBOX_DELAY_MS="${SCRIPT_DELAY_MS:-30000}" node "$ROOT/bots/scripts/sandbox-brain.mjs" 11499) > "${OUT%.log}-brain.log" 2>&1 &
   BRAINPID=$!
 fi
 sleep 8   # let the loader forceload + setblock before the bot joins
