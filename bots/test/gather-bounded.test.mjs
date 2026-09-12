@@ -91,8 +91,12 @@ t('collectManually does not walk when it can already dig the block', () => {
   // The goto is inside the guard, not beside it. `canDigBlock` reaches about
   // four blocks up, so a canopy log or an ore underfoot needed no walk at all
   // -- and asking for one handed A* a goal with an empty acceptance set.
-  assert.match(b, /if \(!\(bot\.canDigBlock && bot\.canDigBlock\(bot\.blockAt\(p\)\)\)\) \{[\s\S]{0,2000}?bot\.pathfinder\.goto/,
-    'the walk must be inside the not-already-in-reach branch')
+  // The guard is now `arrived()` -- canDigBlock for an exposed block, face
+  // adjacency for a buried one (2026-09-12) -- so pin both halves.
+  assert.match(b, /const arrived = \(\) => adjacent \? faceAdjacent\(feet\(\), p\) : !!\(bot\.canDigBlock && bot\.canDigBlock\(bot\.blockAt\(p\)\)\)/,
+    'arrived() is canDigBlock for an exposed block')
+  assert.match(b, /if \(!arrived\(\)\) \{[\s\S]{0,2000}?bot\.pathfinder\.goto/,
+    'the walk must be inside the not-already-arrived branch')
 })
 
 t('the refusal quotes the pathfinder instead of guessing', () => {
