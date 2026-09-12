@@ -35,6 +35,7 @@ const lava = b => !!b && /lava/.test(b.name || '')
  * @returns {{ok:boolean, why:string, cells:number}}
  */
 export const BODY_HALF_WIDTH = 0.3      // the player's collision box is 0.6 wide
+const EDGE = BODY_HALF_WIDTH - 1e-6     // sampled just inside the edge: touching a column boundary is not overlapping it (Codex, eleventh pass)
 
 export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS, maxDrop = BLIND_STEP_MAX_DROP } = {}) {
   const dx = -Math.sin(yaw), dz = -Math.cos(yaw)
@@ -111,7 +112,7 @@ export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS
     checked++
     // the body is wider than the line: lava beside the cell, anywhere in the band, refuses
     for (const sgn of [1, -1]) {
-      const sx = Math.floor(feet.x + dx * i + side.x * sgn * BODY_HALF_WIDTH), sz = Math.floor(feet.z + dz * i + side.z * sgn * BODY_HALF_WIDTH)
+      const sx = Math.floor(feet.x + dx * i + side.x * sgn * EDGE), sz = Math.floor(feet.z + dz * i + side.z * sgn * EDGE)
       if (sx === cx && sz === cz) continue
       const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
       if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
