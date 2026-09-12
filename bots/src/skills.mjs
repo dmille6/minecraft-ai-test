@@ -3994,7 +3994,14 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     let now = bot.entity.position
     let at = now.floored()
     moved = Math.hypot(now.x - before.x, now.z - before.z)
-    let arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
+    const treadSolidNow = () => bot.blockAt(cellFeet)?.boundingBox === 'block'
+    let landing = stepLanding(at, cellFeet, treadSolidNow())
+    let arrived = landing === 'arrived' || landing === 'low'
+    if (landing === 'low') {
+      logEvent({ kind: 'mine_stair_step_low', status: 'success',
+                 detail: `tread at (${cellFeet.x},${cellFeet.y},${cellFeet.z}), landed ${cellFeet.y - at.y} lower in its column ` +
+                         `(the tolerated hollow); the stair continues from y=${at.y}` })
+    }
 
     // A SURGICAL RECOVERY, NOT THE 5-SECOND ONE I ALREADY REVERTED.
     //
@@ -4015,7 +4022,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // control impulse rather than asking the planner for a route to a cell one
     // step away. Total added cost is bounded under a second, against the five
     // that failed.
-    if (!arrived && moved < 0.3) {
+    if (!arrived && (moved < 0.3 || landing === 'redig')) {
       const t0 = Date.now()
       const stillThere = bot.blockAt(cellFeet)
       if (stillThere && stillThere.boundingBox === 'block') {
@@ -4045,7 +4052,13 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       now = bot.entity.position
       at = now.floored()
       moved = Math.hypot(now.x - before.x, now.z - before.z)
-      arrived = at.x === cellFeet.x && at.y === cellFeet.y && at.z === cellFeet.z
+      landing = stepLanding(at, cellFeet, treadSolidNow())
+      arrived = landing === 'arrived' || landing === 'low'
+      if (landing === 'low') {
+        logEvent({ kind: 'mine_stair_step_low', status: 'success',
+                   detail: `tread at (${cellFeet.x},${cellFeet.y},${cellFeet.z}), landed ${cellFeet.y - at.y} lower in its column ` +
+                           `after the re-dig; the stair continues from y=${at.y}` })
+      }
       if (arrived) stepRetries++
       stepRecoverMs += Date.now() - t0
     }
@@ -4872,6 +4885,31 @@ export function isSafeToBreak (bot, p) {
  * and not taken in 90 minutes, all stopped on the lip). Pure, so the test
  * cannot lie about it.
  */
+/**
+ * WHERE THE STEP LEFT THE BOT, classified. `arrived` used to be exact-cell
+ * equality, and the fleet read of 2026-09-12 (388 failed steps in 3 h, 21% of
+ * mine runs) said what that hid: 44% of "cut a step but could not stand in it"
+ * ended 1-3 blocks BELOW the tread in its own column -- mine tolerates a hollow
+ * of up to two under the next tread, the bot drops into it, and the exact test
+ * called the descent a failure; 31% ended one ABOVE it in the same column with
+ * the tread still solid, and the re-dig only ran when the bot had barely moved.
+ * Pure, so the rules cannot be argued with:
+ *   arrived  -- in the tread cell
+ *   low      -- in the tread's column, one or two lower (the tolerated hollow): the
+ *               stair continues from there
+ *   redig    -- in the tread's column one higher and the tread is still solid: dig
+ *               it again and step again, whatever the displacement was
+ *   failed   -- anywhere else
+ */
+export function stepLanding (at, cellFeet, treadSolid) {
+  if (!at || !cellFeet) return 'failed'
+  const sameColumn = at.x === cellFeet.x && at.z === cellFeet.z
+  if (sameColumn && at.y === cellFeet.y) return 'arrived'
+  if (sameColumn && at.y < cellFeet.y && cellFeet.y - at.y <= 2) return 'low'
+  if (sameColumn && at.y === cellFeet.y + 1 && treadSolid) return 'redig'
+  return 'failed'
+}
+
 export function descentStepCells(p0, bear) {
   return {
     feet: p0.offset(bear.x, -1, bear.z),
