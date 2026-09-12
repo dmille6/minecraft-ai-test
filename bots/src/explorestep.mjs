@@ -112,28 +112,48 @@ export function blindStepIsSafe (blockAt, pos, yaw, { blocks = BLIND_STEP_BLOCKS
     if (surface === null) return { ok: false, why: `drop deeper than ${maxDrop} at ${cx},${hi},${cz}`, cells: checked }
     checked++
     // the body is wider than the line, and its collision box is AXIS-ALIGNED
-    // whatever the heading (Codex, twelfth pass): the box [x-0.3, x+0.3] x
-    // [z-0.3, z+0.3] can overlap up to four columns at a time. And the walk is
-    // continuous, so the box is SWEPT: sampled every SWEEP blocks along the
-    // segment from the previous cell to this one, every column a corner falls
-    // in is checked for lava in the band (Codex, thirteenth pass: one-block
-    // samples on a diagonal miss a column the box crosses in between).
-    for (let k = 1; k <= SWEEPS; k++) {
-      const px = feet.x + dx * (i - 1 + k / SWEEPS), pz = feet.z + dz * (i - 1 + k / SWEEPS)
-      for (const ex of [-EDGE, EDGE]) {
-        for (const ez of [-EDGE, EDGE]) {
-          const sx = Math.floor(px + ex), sz = Math.floor(pz + ez)
-          const key = `${sx},${sz}`
-          if (swept.has(key)) continue
-          swept.add(key)
-          if (sx === cx && sz === cz) continue                   // the walked column was checked above
-          const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
-          if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
-        }
-      }
+    // whatever the heading (Codex, twelfth pass); the walk is continuous, so
+    // the box is SWEPT along the segment into this cell. Sampling cannot cover
+    // a sweep (thirteenth and fourteenth passes: a corner can clip a column
+    // for an arbitrarily short stretch), so the columns are computed exactly:
+    // a column is touched iff the segment enters the column's square dilated
+    // by the half-width -- an open rectangle, since touching a boundary is
+    // not overlapping it (eleventh pass).
+    for (const key of sweptColumns(feet.x + dx * (i - 1), feet.z + dz * (i - 1), feet.x + dx * i, feet.z + dz * i)) {
+      if (swept.has(key)) continue
+      swept.add(key)
+      const [sx, sz] = key.split(',').map(Number)
+      if (sx === cx && sz === cz) continue                        // the walked column was checked above
+      const b2 = lavaIn(sx, sz, hi + 2, lo - 1 - maxDrop)
+      if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
     }
   }
   return { ok: true, why: `${checked} cell(s) clear`, cells: checked }
+}
+
+
+/**
+ * The columns an axis-aligned box of half-width EDGE touches while its centre
+ * moves along the segment (x0,z0)->(x1,z1). Exact: a column (cx,cz) is touched
+ * iff the segment intersects the OPEN rectangle (cx-EDGE, cx+1+EDGE) x
+ * (cz-EDGE, cz+1+EDGE) -- Liang-Barsky clipping with strict bounds.
+ */
+export function sweptColumns (x0, z0, x1, z1, half = EDGE) {
+  const out = []
+  const xmin = Math.floor(Math.min(x0, x1) - half), xmax = Math.floor(Math.max(x0, x1) + half)
+  const zmin = Math.floor(Math.min(z0, z1) - half), zmax = Math.floor(Math.max(z0, z1) + half)
+  const ddx = x1 - x0, ddz = z1 - z0
+  for (let cx = xmin; cx <= xmax; cx++) {
+    for (let cz = zmin; cz <= zmax; cz++) {
+      let t0 = 0, t1 = 1, ok = true
+      for (const [p, q] of [[-ddx, x0 - (cx - half)], [ddx, (cx + 1 + half) - x0], [-ddz, z0 - (cz - half)], [ddz, (cz + 1 + half) - z0]]) {
+        if (p === 0) { if (q <= 0) { ok = false; break } }             // parallel and outside (or on the open boundary)
+        else { const r = q / p; if (p < 0) { if (r > t1) { ok = false; break }; if (r > t0) t0 = r } else { if (r < t0) { ok = false; break }; if (r < t1) t1 = r } }
+      }
+      if (ok && t0 < t1) out.push(`${cx},${cz}`)                  // a strictly positive stretch inside the open rectangle
+    }
+  }
+  return out
 }
 
 export const BLIND_STEP_HEADINGS = 4    // headings tried before standing still: the first safe one is walked
