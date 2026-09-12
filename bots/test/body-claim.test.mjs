@@ -173,7 +173,7 @@ t('THERE IS NO UNTYPED READER: "is any skill running?" stays unaskable', () => {
   const reads = reflex.match(/bodyClaim\w*/g) ?? []
   assert.ok(reads.length > 0, 'the reflex no longer consults the claim at all')
   for (const r of reads) {
-    assert.equal(r, 'bodyClaimFor', `reflex.mjs touches ${r}; only bodyClaimFor('climb') is allowed`)
+    assert.equal(r, 'bodyClaimFor', `reflex.mjs touches ${r}; only bodyClaimFor('climb'|'stair') is allowed`)
   }
   assert.match(reflex, /bodyClaimFor\?\.\('climb'\)/, "the reflex must ask for 'climb' specifically")
 })
@@ -186,12 +186,20 @@ t('NO WATER PATH READS IT — checked globally, not in a window', () => {
   // water path reading the claim is worse than no guard.
   const reflex = strip('../src/reflex.mjs')
   const calls = [...reflex.matchAll(/bodyClaimFor\??\.?\(\s*'([a-z_]+)'\s*\)/g)].map(m => m[1])
-  assert.equal(calls.length, 1,
-    `expected exactly one claim read in reflex.mjs, found ${calls.length}: ${calls}`)
-  assert.equal(calls[0], 'climb', `the reflex reads a '${calls[0]}' claim; only 'climb' is allowed`)
+  assert.deepEqual(calls.sort(), ['climb', 'stair'],
+    `expected exactly the two typed reads 'climb' and 'stair' in reflex.mjs, found ${calls.length}: ${calls}`)
+  // both reads sit on ONE line, the entombment branch's guard -- nowhere else
+  const line = reflex.split('\n').find(l => /bodyClaimFor\?\.\('climb'\)/.test(l))
+  assert.ok(line && /bodyClaimFor\?\.\('stair'\)/.test(line), "the 'stair' read must share the entombment guard line with 'climb'")
   // and nothing may read it with a computed argument, which would dodge the above
   assert.ok(!/bodyClaimFor\??\.?\(\s*[^'\s)]/.test(reflex),
     'a claim is read with a non-literal argument, which this guard cannot check')
+})
+
+t("MUTANT: a 'swim' read inserted anywhere in reflex.mjs is still caught by the global guard", () => {
+  const reflex = strip('../src/reflex.mjs') + "\nif (runner?.bodyClaimFor?.('swim')) {}\n"
+  const calls = [...reflex.matchAll(/bodyClaimFor\??\.?\(\s*'([a-z_]+)'\s*\)/g)].map(m => m[1]).sort()
+  assert.notDeepEqual(calls, ['climb', 'stair'], 'the mutant must change the read set')
 })
 
 // --- 3. a refusal is not a failure -----------------------------------------
