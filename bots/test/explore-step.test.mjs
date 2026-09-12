@@ -1,7 +1,7 @@
 // A blind walk after a failed explore leg must not walk off a ledge or into lava.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { blindStepIsSafe, pickBlindHeading, BLIND_STEP_BLOCKS, BLIND_STEP_MAX_DROP, BLIND_STEP_HEADINGS } from '../src/explorestep.mjs'
+import { blindStepIsSafe, pickBlindHeading, BLIND_STEP_BLOCKS, BLIND_STEP_MAX_DROP, BLIND_STEP_HEADINGS, JUMP_CELLS } from '../src/explorestep.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -92,12 +92,17 @@ t('pickBlindHeading walks the first safe heading among up to BLIND_STEP_HEADINGS
   assert.ok(!none.step.ok); assert.equal(none.tried, BLIND_STEP_HEADINGS); assert.match(none.step.why, /drop deeper/)
 })
 
-t('a chain of small drops is ONE fall: every height is measured from the start, so a staircase down past maxDrop refuses (Codex, third pass)', () => {
-  // ground descends one block per cell: 63, 62, 61, 60, 59 under cells 1..5 -> cell 4 lands at 60 = drop 3 (ok), cell 5 at 59 = drop 4 (refuse)
+t('a gentle staircase of one-block drops is WALKABLE (Codex, eighth pass): the carried height comes down once the body must have landed', () => {
+  // ground descends one block per cell: 63, 62, 61, 60, 59 under cells 1..5
   const cells = {}; for (let i = 1; i <= 5; i++) cells[`${-i},${64 - i},0`] = 'stone'
-  for (let i = 1; i <= 5; i++) for (let y = 64 - i + 1; y <= 63; y++) cells[`${-i},${y},0`] = 'air'
   const r = blindStepIsSafe(world(cells), feet, WEST)
-  assert.ok(!r.ok, 'a descending chain past maxDrop was allowed'); assert.match(r.why, /drop deeper than 3 at -5,64,0/); assert.equal(r.cells, 4)
+  assert.ok(r.ok, r.why); assert.equal(r.cells, BLIND_STEP_BLOCKS)
+})
+t('a steep chain within one jump is ONE fall (Codex, third pass): two-block drops in consecutive cells refuse from the carried height', () => {
+  // surfaces 61, 59 under cells 1-2: from a body still airborne at 64, cell 2 is a drop of 5
+  const cells = { '-1,61,0': 'stone', '-2,59,0': 'stone', ...floorRow(59, -6, -3, 0) }
+  const r = blindStepIsSafe(world(cells), feet, WEST)
+  assert.ok(!r.ok, 'a 2+2 chain within a jump was allowed'); assert.match(r.why, /drop deeper than 3 at -2,64,0/)
 })
 t('lava beside an airborne body is checked at the START height band, not at an imagined landing', () => {
   // cell 1 drops to a floor at 61 (drop 2, fine); lava beside cell 2 at y=64 (start feet height): still refused
