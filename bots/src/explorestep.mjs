@@ -37,43 +37,48 @@ export function blindStepIsSafe (blockAt, feet, yaw, { blocks = BLIND_STEP_BLOCK
   const dx = -Math.sin(yaw), dz = -Math.cos(yaw)
   const side = { x: -dz, z: dx }                 // perpendicular, for the body's width
   const read = (x, y, z) => { try { return blockAt(x, y, z) } catch { return undefined } }
-  let y = feet.y, checked = 0
+  // EVERY HEIGHT IS MEASURED FROM WHERE THE BOT STARTS, never from the previous
+  // cell (Codex, third pass): forward+jump can carry the body over a descending
+  // ledge without landing on it, so a chain of individually legal drops is one
+  // fall, and the lava beside an airborne body is at the START height, not at
+  // some imagined landing. The band is [feet-1-maxDrop, feet+2]: the jump arc
+  // above, the deepest tolerated landing below.
+  const yTop = feet.y + 2, yBot = feet.y - 1 - maxDrop
+  let checked = 0
+  const lavaIn = (x, z) => {
+    for (let y = yTop; y >= yBot; y--) {
+      const b = read(x, y, z)
+      if (b === undefined) return `cannot read ${x},${y},${z}`
+      if (lava(b)) return `lava at ${x},${y},${z}`
+    }
+    return null
+  }
   for (let i = 1; i <= blocks; i++) {
     const cx = Math.floor(feet.x + 0.5 + dx * i), cz = Math.floor(feet.z + 0.5 + dz * i)
-    const f = read(cx, y, cz), h = read(cx, y + 1, cz)
-    if (f === undefined || h === undefined) return { ok: false, why: `cannot read ${cx},${y},${cz}`, cells: checked }
-    if (lava(f) || lava(h)) return { ok: false, why: `lava ahead at ${cx},${y},${cz}`, cells: checked }
-    if (!passable(f)) {
-      // solid at the feet: a one-high step is climbed, anything taller is a wall
-      const above = read(cx, y + 2, cz)
-      if (above === undefined) return { ok: false, why: `cannot read ${cx},${y + 2},${cz}`, cells: checked }
-      if (lava(above)) return { ok: false, why: `lava ahead at ${cx},${y + 2},${cz}`, cells: checked }
-      if (!passable(h) || !passable(above)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
-      y += 1; checked++
-    } else if (!passable(h)) {
-      return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }    // low ceiling: the body stops
-    } else {
-      // open cell: the landing must be within maxDrop, with no lava in the column
-      let floor = null
-      for (let d = 1; d <= maxDrop + 1; d++) {
-        const b = read(cx, y - d, cz)
-        if (b === undefined) return { ok: false, why: `cannot read ${cx},${y - d},${cz}`, cells: checked }
-        if (lava(b)) return { ok: false, why: `lava below at ${cx},${y - d},${cz}`, cells: checked }
-        if (!passable(b)) { floor = d; break }
-      }
-      // floor at y-1 is level ground (drop 0); at y-1-maxDrop it is a drop of maxDrop
-      if (floor === null || floor - 1 > maxDrop) return { ok: false, why: `drop deeper than ${maxDrop} at ${cx},${y},${cz}`, cells: checked }
-      y -= (floor - 1); checked++
+    const bad = lavaIn(cx, cz)
+    if (bad) return { ok: false, why: bad, cells: checked }
+    // the standing surface in this column: the highest solid at or below the
+    // one-step-up height. Solid at feet+1 AND feet+2 is a wall (the walk stops
+    // harmlessly); solid at feet (a one-high step) or lower is walkable if the
+    // surface is within the band.
+    const s1 = read(cx, feet.y + 1, cz), s2 = read(cx, feet.y + 2, cz)
+    if (s1 === undefined || s2 === undefined) return { ok: false, why: `cannot read ${cx},${feet.y + 1},${cz}`, cells: checked }
+    if (!passable(s1)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }
+    if (!passable(s2)) return { ok: true, why: `wall after ${checked} cell(s)`, cells: checked }   // low ceiling: the body stops
+    let surface = null
+    for (let y = feet.y; y >= yBot; y--) {
+      const b = read(cx, y, cz)
+      if (b === undefined) return { ok: false, why: `cannot read ${cx},${y},${cz}`, cells: checked }
+      if (!passable(b)) { surface = y; break }
     }
-    // the body is wider than the line: lava beside the cell refuses
-    for (const s of [1, -1]) {
-      const sx = Math.floor(feet.x + 0.5 + dx * i + side.x * s * 0.7), sz = Math.floor(feet.z + 0.5 + dz * i + side.z * s * 0.7)
+    if (surface === null) return { ok: false, why: `drop deeper than ${maxDrop} at ${cx},${feet.y},${cz}`, cells: checked }
+    checked++
+    // the body is wider than the line: lava beside the cell, anywhere in the band, refuses
+    for (const sgn of [1, -1]) {
+      const sx = Math.floor(feet.x + 0.5 + dx * i + side.x * sgn * 0.7), sz = Math.floor(feet.z + 0.5 + dz * i + side.z * sgn * 0.7)
       if (sx === cx && sz === cz) continue
-      for (const dy of [0, 1, -1]) {
-        const b = read(sx, y + dy, sz)
-        if (b === undefined) return { ok: false, why: `cannot read ${sx},${y + dy},${sz}`, cells: checked }
-        if (lava(b)) return { ok: false, why: `lava beside at ${sx},${y + dy},${sz}`, cells: checked }
-      }
+      const b2 = lavaIn(sx, sz)
+      if (b2) return { ok: false, why: b2.replace('lava at', 'lava beside at').replace('cannot read', 'cannot read (beside)'), cells: checked }
     }
   }
   return { ok: true, why: `${checked} cell(s) clear`, cells: checked }
