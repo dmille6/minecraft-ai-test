@@ -291,6 +291,12 @@ t('nudgeGround: the sweep runs past the drop -- a pit just beyond it refuses, an
   assert.equal(ice.ok, false); assert.match(ice.why, /slippery packed_ice/)
   assert.equal(nudgeGround(world(), feet, { x: 300.5, y: 40, z: 300.5 }).ok, true, 'a drop under the feet needs no walk')
 })
+t('nudgeGround: a pressure plate or tripwire on the route refuses -- the floor is read as it is and a step changes it', () => {
+  for (const name of ['stone_pressure_plate', 'oak_pressure_plate', 'tripwire', 'tripwire_hook']) {
+    const r = nudgeGround(world({ '301,40,300': name }), feet, { x: 302.5, y: 40, z: 300.5 })
+    assert.equal(r.ok, false, name); assert.match(r.why, new RegExp(`${name} at 301,40,300`))
+  }
+})
 t('nudgeGround: an unloaded column is a refusal, never a pass', () => {
   const r = nudgeGround(world({ '301,39,300': null }), feet, { x: 302.5, y: 40, z: 300.5 })
   assert.equal(r.ok, false); assert.match(r.why, /unknown block/)

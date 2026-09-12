@@ -264,13 +264,17 @@ export function nudgeGround (blockAt, from, to) {
       cols.set(`${cx},${cz}`, [cx, cz])
     }
   }
+  // A trigger underfoot (desert-temple TNT plates, jungle-temple tripwires) is
+  // refused too: the probe reads the floor as it is, and stepping on a plate is
+  // what changes it (Codex, fifth pass).
+  const trigger = b => /pressure_plate$|^tripwire/.test(b.name)
   const solid = b => !!b && b.boundingBox === 'block'
   const liquid = b => !!b && (b.name === 'water' || b.name === 'lava')
   for (const [cx, cz] of cols.values()) {
     for (let y = fy - 2; y <= fy + 1; y++) {
       const b = blockAt(cx, y, cz)
       if (!b) return { ok: false, why: `unknown block at ${cx},${y},${cz}` }
-      if (NUDGE_HAZARDS.has(b.name)) return { ok: false, why: `${b.name} at ${cx},${y},${cz}` }
+      if (NUDGE_HAZARDS.has(b.name) || trigger(b)) return { ok: false, why: `${b.name} at ${cx},${y},${cz}` }
     }
     const under = blockAt(cx, fy - 1, cz), lower = blockAt(cx, fy - 2, cz)
     const slip = [under, lower].find(b => NUDGE_SLIPPERY.has(b.name))
