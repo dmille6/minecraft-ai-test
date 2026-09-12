@@ -335,20 +335,32 @@ export function approachVerdict ({ status, path, endsInReach, maxDig = MAX_APPRO
  * missing piece is a no-op rather than a throw -- the same contract
  * probeReachable keeps, for the same reason.
  */
-export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach,
-                                                slack = APPROACH_SLACK,
-                                                timeout = APPROACH_TIMEOUT_MS,
-                                                pumps = APPROACH_PUMPS } = {}) {
+/**
+ * What both planners need before they search: the bot's position, the DIG
+ * profile (never the travel profile -- searching on it answers the wrong
+ * question, and dig-approach.test.mjs pins that with a mutant), and the goal.
+ * The guard names getPathFromTo because that is what is used (reachprobe.mjs
+ * once shipped a guard for a goal class it no longer used). One place, so the
+ * mutant's anchor stays unique.
+ */
+function approachSearchSetup (bot, target, { goals, reachGoalFor } = {}) {
   const at = bot?.entity?.position
   if (!at || !target) return null
-  // The guard must name the thing actually used. reachprobe.mjs shipped a guard
-  // for GoalGetToBlock after switching to GoalLookAtBlock, which would have made
-  // the probe silently inert on the fleet.
   if (typeof bot?.pathfinder?.getPathFromTo !== 'function') return null
   const moves = bot.gatherMovements
   if (!moves || moves.canDig !== true) return null      // no dig profile, no approach
   const goal = reachGoalFor?.(goals, target)
   if (!goal) return null
+  return { at, moves, goal }
+}
+
+export function planDigApproach (bot, target, { goals, reachGoalFor, endsInReach,
+                                                slack = APPROACH_SLACK,
+                                                timeout = APPROACH_TIMEOUT_MS,
+                                                pumps = APPROACH_PUMPS } = {}) {
+  const setup = approachSearchSetup(bot, target, { goals, reachGoalFor })
+  if (!setup) return null
+  const { at, moves, goal } = setup
 
   const t0 = Date.now()
   let result
@@ -593,13 +605,9 @@ export async function planDigApproachAsync (bot, target, { goals, reachGoalFor, 
                                                           slack = APPROACH_SLACK,
                                                           timeout = BURIED_APPROACH_TIMEOUT_MS,
                                                           pumps = BURIED_APPROACH_PUMPS } = {}) {
-  const at = bot?.entity?.position
-  if (!at || !target) return null
-  if (typeof bot?.pathfinder?.getPathFromTo !== 'function') return null
-  const moves = bot.gatherMovements
-  if (!moves || moves.canDig !== true) return null
-  const goal = reachGoalFor?.(goals, target)
-  if (!goal) return null
+  const setup = approachSearchSetup(bot, target, { goals, reachGoalFor })
+  if (!setup) return null
+  const { at, moves, goal } = setup
   const t0 = Date.now()
   let result
   try {
