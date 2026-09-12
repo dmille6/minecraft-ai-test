@@ -197,4 +197,13 @@ t('a centred bot on a one-wide bridge over lava walks straight along it (Codex, 
   assert.ok(touch.ok, touch.why)
 })
 
+t('the collision box is axis-aligned: on a diagonal heading a corner reaches 0.42 sideways, so lava in the corner column refuses even though a perpendicular +-0.3 sample would miss it (Codex, twelfth pass)', () => {
+  const NW = Math.PI / 4
+  const flat = {}; for (let x = -8; x <= 0; x++) for (let z = -8; z <= 0; z++) flat[`${x},63,${z}`] = 'stone'
+  // at i=1 the point is (0.5-0.71, 0.5-0.71) = (-0.21, -0.21): the box [-0.51,0.09]x[-0.51,0.09] overlaps columns -1..0 in both axes,
+  // including the corner column (0,-1) and (-1,0); put lava in (0,64,-1) which only a corner reaches
+  const r = blindStepIsSafe(world({ ...flat, '0,64,-1': 'lava' }), feet, NW)
+  assert.ok(!r.ok, 'the corner column was not checked'); assert.match(r.why, /lava beside at 0,64,-1/)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
