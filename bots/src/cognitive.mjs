@@ -138,6 +138,26 @@ export const PREREQ_TTL_MS = 15 * 60_000
 // prompt -- are different ones. Below this the breaker has not broken anything
 // and must not report that it did.
 export const LIVELOCK_MIN_MOVE = 8
+/** After both rungs fail to move the bot, the breaker rests this long; the
+ *  repeat window stays UNCLEARED meanwhile so the identical proposal keeps
+ *  being refused instead of re-run (2026-09-13). */
+export const LIVELOCK_LATCH_MS = 600_000
+
+/**
+ * THE BREAKER'S NEXT MOVE, as a pure decision. The relocation ran on the
+ * travel profile (no digging, no bridging) and cleared the repeat window
+ * whether or not the bot moved -- 2,296 firings, 0% measured success, and a
+ * marooned bot re-proposed the same action four more times every cycle.
+ *
+ *   walk moved   -> done: clear the window, the perception differs now
+ *   walk failed  -> 'dig': the same relocation with the ascent profile, which
+ *                   may dig and bridge with the blocks in hand
+ *   dig failed   -> 'latch': do NOT clear the window; rest LIVELOCK_LATCH_MS
+ */
+export function livelockNext ({ rung, moved, minMove = LIVELOCK_MIN_MOVE }) {
+  if (moved >= minMove) return 'done'
+  return rung === 'walk' ? 'dig' : 'latch'
+}
 
 /**
  * Does a held prerequisite replace the milestone this cycle?
@@ -313,16 +333,33 @@ export class CognitiveLoop {
     // bot where its perception differs so the model stops proposing the same
     // action; reaching the exact square 25-60 blocks out was never the goal.
     const from = { x: p.x, z: p.z }
+    const movedNow = () => { const at = this.bot.entity?.position; return at ? Math.hypot(at.x - from.x, at.z - from.z) : 0 }
+    // RUNG 1: walk. RUNG 2: the same relocation with the ascent profile (dig
+    // and bridge allowed) -- hive-a-Comet stood on a disconnected ledge with
+    // 460 cobblestone while the travel profile said noPath every time.
     await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
-    const at = this.bot.entity?.position
-    const moved = at ? Math.hypot(at.x - from.x, at.z - from.z) : 0
+    let rung = 'walk', moved = movedNow(), next = livelockNext({ rung, moved })
+    if (next === 'dig' && typeof this.bot.withAscentMovements === 'function') {
+      rung = 'dig'
+      await this.bot.withAscentMovements(() =>
+        this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }))
+      moved = movedNow(); next = livelockNext({ rung, moved })
+    }
     logEvent({ kind: 'livelock_escape',
-               status: moved >= LIVELOCK_MIN_MOVE ? 'success' : 'failed',
+               status: next === 'done' ? 'success' : 'failed',
                detail: `fixated on one action; relocating to ${x},${z} -- moved ` +
-                       `${moved.toFixed(0)} of the ${Math.round(dist)} blocks asked for`,
+                       `${moved.toFixed(0)} of the ${Math.round(dist)} blocks asked for (${rung}${next === 'latch' ? '; latched' : ''})`,
                snapshot: snapshot(this.bot) })
-    this.admission.clearRepeatWindow()
-    this.consecutiveRejections = 0
+    if (next === 'done') {
+      this.admission.clearRepeatWindow()
+      this.consecutiveRejections = 0
+    } else {
+      // THE WINDOW STAYS. Clearing it here is what let the same action run
+      // four more times from the same square; the veto is the only thing
+      // that was working. Rest before trying to relocate again.
+      this.livelockLatchedUntil = Date.now() + LIVELOCK_LATCH_MS
+      this.consecutiveRejections = 0
+    }
   }
 
   /**
@@ -772,7 +809,9 @@ export class CognitiveLoop {
       // deterministic action that CHANGES the situation.
       this.consecutiveRejections = (this.consecutiveRejections ?? 0) + 1
       if (rejection?.reason === 'repeat_loop' || this.consecutiveRejections >= 3) {
-        await this.#escape()
+        // LATCHED: both rungs failed recently; the rejection itself is the
+        // remedy until the rest expires (the model must propose something else).
+        if (!(this.livelockLatchedUntil > Date.now())) await this.#escape()
       }
     }
     if (admitted) this.consecutiveRejections = 0
