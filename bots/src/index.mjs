@@ -215,7 +215,10 @@ function connect() {
     // the arbiter's current holder (or the body is free). Installed before the
     // movement profiles so the pathfinder's goto is the wrapped one.
     if (config.reflex.arbiter && runner?.arb) {
-      runner.arb.installActuatorGate(bot, { onRefuse: (name, ctx, holder) => logEvent({ kind: 'arbiter_actuator_refused', status: 'no_effect', detail: `${name} from ${ctx?.owner ?? 'an unrouted caller'} while ${holder?.owner ?? 'nobody'} holds the body`, snapshot: snapshot(bot) }) })
+      // The refusal names its CALL SITE (first frame outside arbiter.mjs and node internals): corpus run 5
+      // (2026-09-13) showed 86 refused control states on one fixture and no way to tell which unrouted path wrote them.
+      const site = () => { const st = (new Error().stack || '').split('\n').slice(1); const f = st.find(l => !/arbiter\.mjs|node:internal|index\.mjs/.test(l)) || st[2] || ''; return f.replace(/^\s*at\s+/, '').replace(/^.*\/bots\//, '').replace(/\?.*$/, '').slice(0, 80) }
+      runner.arb.installActuatorGate(bot, { onRefuse: (name, ctx, holder) => logEvent({ kind: 'arbiter_actuator_refused', status: 'no_effect', detail: `${name} from ${ctx?.owner ?? 'an unrouted caller'} while ${holder?.owner ?? 'nobody'} holds the body | at ${site()}`, snapshot: snapshot(bot) }) })
     }
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
