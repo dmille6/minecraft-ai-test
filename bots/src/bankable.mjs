@@ -117,11 +117,15 @@ export function depositDue ({ bankable, distHome, storageWithin48 = false,
  * chest is short of room. Pure.
  */
 export const DEPOSIT_VALUE = ['diamond', 'iron_ingot', 'raw_iron', 'iron_ore', 'coal', 'oak_log', 'birch_log', 'jungle_log', 'oak_planks', 'stick', 'stone', 'cobbled_deepslate', 'cobblestone']
-export function depositPlan (items = [], item = null, opts = {}) {
-  const { detail } = bankableInventory(items, opts)
+/** Banked whenever carried, wanted or not: ores and rare drops are never ballast. */
+export const DEPOSIT_ALWAYS = ['iron_ore', 'deepslate_iron_ore', 'raw_copper', 'copper_ingot', 'raw_gold', 'gold_ingot', 'redstone', 'lapis_lazuli', 'emerald', 'amethyst_shard']
+export function depositPlan (items = [], item = null, { wants = [], ...opts } = {}) {
+  // the same wants admission judged with, plus the always-banked list (Codex: a bot carrying wanted iron_ore
+  // passed admission and transferred nothing because ore is not a standing target)
+  const { detail } = bankableInventory(items, { ...opts, wants: [...wants, ...DEPOSIT_ALWAYS] })
   const rank = name => { const i = DEPOSIT_VALUE.indexOf(name); return i < 0 ? (TOOL_RE.test(name) ? DEPOSIT_VALUE.length : DEPOSIT_VALUE.length + 1) : i }
   return Object.entries(detail)
-    .filter(([name]) => !item || name === item || name.includes(item))
+    .filter(([name]) => !item || name === item)   // EXACT: a named item never sweeps in its substrings
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => rank(a.name) - rank(b.name))
 }

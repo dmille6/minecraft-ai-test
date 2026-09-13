@@ -40,7 +40,7 @@ function depositBot({ chestVisible, chestVisibleAfterWalk, items }) {
     inventory: { items: () => items },
     assertNav: (who) => navAsserts.push(who),
     findBlock: () => (chestVisible || (atHome && chestVisibleAfterWalk)) ? chestBlock : null,
-    blockAt: () => ({ name: 'grass_block', boundingBox: 'block' }),
+    blockAt: (p) => p && p.y > 79 ? { name: 'air', boundingBox: 'empty' } : { name: 'grass_block', boundingBox: 'block' },   // air on the chest's lid: a chest under a solid block does not open (2026-09-13)
     pathfinder: {
       movements: {},
       setMovements() {}, setGoal() {}, stop() {},

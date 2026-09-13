@@ -1985,7 +1985,32 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   await bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
   check(signal)
 
-  const chest = await bot.openContainer(chestBlock)
+  // A CHEST UNDER A SOLID BLOCK DOES NOT OPEN, and mineflayer only says
+  // "Event windowOpen did not fire within timeout of 20000ms" twenty seconds
+  // later -- 138 times a day on this fleet. Look at the lid first: a solid
+  // full block above the chest is cleared when it is safe to dig (no liquid
+  // beside it), otherwise the deposit names the problem and stops here; sneak
+  // is released (a sneaking bot does not open containers); the open itself
+  // gets 8 s, not 20, with a class the model and the digest can read.
+  const lid = bot.blockAt(chestBlock.position.offset(0, 1, 0))
+  if (lid && chestLidBlocked(lid)) {
+    if (isSafeToBreak(bot, lid.position)) {
+      try { await withTimeout(bot.dig(lid), 10_000, bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
+      catch (e) { return { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it would not break: ${String(e?.message ?? e).slice(0, 60)}` } }
+      check(signal)
+    } else {
+      return { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it is not safe to break — use another chest or place a new one` }
+    }
+  }
+  try { bot.setControlState('sneak', false) } catch {}
+  await bot.lookAt(chestBlock.position.offset(0.5, 0.5, 0.5), true).catch(() => {})
+  let chest
+  try {
+    chest = await withTimeout(bot.openContainer(chestBlock), 8_000, bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
+  } catch (e) {
+    return { status: 'failed', failClass: 'container_open',
+             detail: `could not open the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} (${String(e?.message ?? e).slice(0, 50)}); lid ${lid?.name ?? '?'}, ${Math.round(eyeToBlock(bot.entity.position.offset(0, 1.62, 0), chestBlock.position) * 10) / 10} blocks from the eyes` }
+  }
   let moved = 0
   // NOTHING TO HAND OVER IS NOT A FAILURE, AND CONFLATING THE TWO FAKED A NUMBER.
   //
@@ -2006,7 +2031,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // buckets into chests. One tool of each family, the scaffold reserve and the
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
-    const plan = depositPlan(bot.inventory.items(), item)
+    const plan = depositPlan(bot.inventory.items(), item, { wants: ctx.wants ?? ctx.runner?.wants ?? [] })
     for (const { name, count } of plan) {
       check(signal)
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -2652,6 +2677,18 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 }
 
 // --------------------------------------------------------------- place -----
+/**
+ * Does this block on a chest's lid stop it opening? Minecraft refuses a chest
+ * whose top face is covered by a solid full block; slabs, stairs, water, air,
+ * torches and other non-full shapes leave it usable. Pure, exported for tests.
+ */
+export function chestLidBlocked (above) {
+  if (!above || above.boundingBox !== 'block') return false
+  const shapes = Array.isArray(above.shapes) ? above.shapes : null
+  if (!shapes || !shapes.length) return true                                  // a solid we cannot inspect: assume a full cube
+  return shapes.length === 1 && shapes[0][1] <= 0 && shapes[0][4] >= 1         // exactly one full-height box
+}
+
 /** Blocks that are put down to be USED, not stood on: they need a cell, not headroom. */
 export const STATION_ITEMS = new Set(['crafting_table', 'furnace', 'blast_furnace', 'smoker', 'chest', 'barrel'])
 /**

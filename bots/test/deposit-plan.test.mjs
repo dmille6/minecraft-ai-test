@@ -1,7 +1,7 @@
 // THE DEPOSIT HANDS OVER THE PLAN, NOT THE INVENTORY: tools, scaffold and stations stay; iron goes first.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { depositPlan } from '../src/bankable.mjs'
+import { depositPlan, DEPOSIT_ALWAYS } from '../src/bankable.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -24,16 +24,25 @@ t('the valuable stacks go first, so a short chest keeps the iron', () => {
   const names = depositPlan(inv).map(p => p.name)
   assert.equal(names[0], 'raw_iron'); assert.ok(names.indexOf('oak_log') < names.indexOf('cobblestone'))
 })
-t('a named item restricts the plan to it, still under the reserve rules', () => {
+t('a named item restricts the plan to it EXACTLY, still under the reserve rules', () => {
   assert.deepEqual(depositPlan(inv, 'raw_iron'), [{ name: 'raw_iron', count: 9 }])
   assert.deepEqual(depositPlan(inv, 'iron_pickaxe'), [], 'the only iron pickaxe is not banked even when named')
+  assert.deepEqual(depositPlan(inv, 'stone'), [], 'stone does not sweep in cobblestone')
+})
+t('ores are banked whether or not they are standing targets, and the wants admission judged with are honoured', () => {
+  const ore = [...inv, { name: 'iron_ore', count: 32, type: 10 }, { name: 'redstone', count: 4, type: 11 }, { name: 'apple', count: 3, type: 12 }]
+  const names = depositPlan(ore).map(p => p.name)
+  assert.ok(names.includes('iron_ore') && names.includes('redstone'), 'DEPOSIT_ALWAYS')
+  assert.ok(!names.includes('apple'), 'not wanted, not always -> ballast, stays')
+  assert.ok(depositPlan(ore, null, { wants: ['apple'] }).map(p => p.name).includes('apple'), 'a wanted item is banked')
+  assert.ok(DEPOSIT_ALWAYS.includes('iron_ore'))
 })
 t('the deposit skill hands over the plan (source anchor) and a mutant that deposits the raw inventory is caught', () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 6000)
-  assert.match(f, /const plan = depositPlan\(bot\.inventory\.items\(\), item\)/, 'the loop is driven by the plan')
+  assert.match(f, /const plan = depositPlan\(bot\.inventory\.items\(\), item, \{ wants: /, 'the loop is driven by the plan, with the wants admission judged with')
   assert.ok(!/for \(const it of bot\.inventory\.items\(\)\) \{\s*check\(signal\)\s*if \(item && it\.name !== item\) continue/.test(f), 'the old everything loop is gone')
-  const anchor = 'const plan = depositPlan(bot.inventory.items(), item)'
+  const anchor = 'const plan = depositPlan(bot.inventory.items(), item, { wants: ctx.wants ?? ctx.runner?.wants ?? [] })'
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, "const plan = bot.inventory.items().map(it => ({ name: it.name, count: it.count }))")
   assert.ok(!bad.includes(anchor))

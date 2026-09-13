@@ -154,7 +154,7 @@ export const DEPOSIT_WILDCARDS = new Set(['', 'none', 'null', 'any', 'all', 'eve
 export function depositItemArg (items, item) {
   const name = item == null ? '' : String(item).trim().toLowerCase()
   if (DEPOSIT_WILDCARDS.has(name)) return { item: null, missing: false }
-  const held = (items ?? []).some(it => it?.name === name || (it?.name ?? '').includes(name))
+  const held = (items ?? []).some(it => it?.name === name)   // EXACT: 'stone' must not admit cobblestone (Codex)
   return held ? { item: name, missing: false } : { item: name, missing: true }
 }
 
