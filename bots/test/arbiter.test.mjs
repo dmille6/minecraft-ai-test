@@ -111,6 +111,11 @@ await ta('the gate after Codex passes 1 and 2: a released context never resumes 
   assert.deepEqual(calls, [], 'stale or unrouted stops cannot halt the holder (Codex, pass 2)')
   await arb.within(h, async () => { bot.pathfinder.setGoal({ goal: 1 }); assert.equal(arb.bound, h, 'the holder\'s setGoal(goal) binds the tick'); bot.pathfinder.setGoal(null); assert.equal(arb.bound, null, 'and its setGoal(null) unbinds'); bot.clearControlStates() })
   assert.deepEqual(calls, [['setGoal', { goal: 1 }], ['setGoal', null], ['clear']], 'the holder\'s own stops go through')
+  // the bound tick may start the next leg or stop its own goal WITHOUT changing the binding (corpus run 4)
+  await arb.within(h, () => bot.pathfinder.setGoal({ goal: 2 })); assert.equal(arb.bound, h)
+  bot.pathfinder.setGoal({ goal: 3 }); assert.equal(arb.bound, h, 'a contextless setGoal(goal) from the bound tick keeps the binding')
+  assert.deepEqual(calls.at(-1), ['setGoal', { goal: 3 }], 'and went through')
+  bot.pathfinder.setGoal(null); assert.equal(arb.bound, h, 'a contextless setGoal(null) from the bound tick keeps the binding too')
   assert.equal(bot.pathfinder.setGoal.__arbiterGated, true); assert.equal(bot.stopDigging.__arbiterGated, true); assert.equal(bot.clearControlStates.__arbiterGated, true)
   // the scoped stop: stopping a grant that no longer holds the body releases it without touching the successor's actuators
   calls.length = 0
