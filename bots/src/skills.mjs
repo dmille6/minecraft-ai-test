@@ -2097,11 +2097,25 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // in clusters; a second container within 24 blocks that has not been tried
     // this run is cheaper than eight planks, and it does not need wood the bot
     // may not have. The tried chest is excluded so the retry cannot loop.
+    // Alternates are tried HERE, iteratively, never recursively into recovery
+    // (Codex: a recursive fallback crafted a chest in every frame, and an
+    // unreachable alternate's goto rejection escaped every frame): at most two
+    // more containers (three tried in all), each attempt with recovery off, a
+    // travel failure caught and named, an abort re-thrown; then ONE craft.
     const tried = [...exclude, chestBlock.position]
-    const other = bot.findBlock({ matching: b => isContainer(b) && !tried.some(q => q.x === b.position.x && q.y === b.position.y && q.z === b.position.z), maxDistance: 24 })
-    if (other) {
-      const again = await deposit(ctx, { item }, signal, { noRecovery: tried.length >= 3, preferAt: other.position, exclude: tried })
-      if (again.status === 'success') return { ...again, detail: `${again.detail} (the first chest was full; used another one nearby)` }
+    let alternate = null
+    while (tried.length < 3) {
+      const other = bot.findBlock({ matching: b => isContainer(b) && !tried.some(q => q.x === b.position.x && q.y === b.position.y && q.z === b.position.z), maxDistance: 24 })
+      if (!other) break
+      tried.push(other.position)
+      try {
+        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: other.position, exclude: tried })
+        if (again.status === 'success') return { ...again, detail: `${again.detail} (the first chest was full; used another one nearby)` }
+        alternate = again.detail
+      } catch (e) {
+        if (e?.aborted || signal?.aborted) throw e
+        alternate = `could not reach the chest at ${other.position.x},${other.position.z}: ${String(e?.message ?? e).slice(0, 60)}`
+      }
     }
     const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)
     if (built.status === 'success') {
