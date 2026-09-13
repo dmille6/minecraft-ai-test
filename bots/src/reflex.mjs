@@ -318,6 +318,31 @@ export function drowningRelease () {
  */
 export const CLIMB_CEILING = 125
 
+/**
+ * HOW HIGH IS OUT? The climb used to be a constant: PILLAR_MAX_BLOCKS = 24,
+ * and canFinishClimb refused any bot holding fewer than 25 (26 with the head
+ * cell blocked). board-c-Bravo sat for hours under about fourteen blocks of
+ * stone holding exactly 25, refused forty times: "will not start a 24-block
+ * climb with 25 placeable block(s)". The pocket was never 24 deep.
+ *
+ * Measured from the world: the first y above the head where TWO consecutive
+ * cells are body-passable (an opening the bot can stand in), scanning at most
+ * `cap` cells. Blocks needed = that y minus the feet y. If no opening shows
+ * within the cap the answer is the cap, which keeps today's refusal for the
+ * genuinely deep. Pure so Bravo's column is a test.
+ */
+export function climbNeedAbove (blockAt, feet, { cap = PILLAR_MAX_BLOCKS, passable = bodyPassable } = {}) {
+  const fx = Math.floor(feet.x), fy = Math.floor(feet.y), fz = Math.floor(feet.z)
+  let prevOpen = false
+  for (let y = fy + 2; y <= fy + 2 + cap; y++) {
+    const b = blockAt(fx, y, fz)
+    const open = !!b && passable(b)
+    if (open && prevOpen) return Math.max(1, Math.min(cap, (y - 1) - fy))   // feet in the lower of the two open cells
+    prevOpen = open
+  }
+  return cap
+}
+
 export function maroonState({ upIsOpen, haveBlocks, entombed, canStartPath,
                               cappedNeedsTool = false, y = null,
                               climbCeiling = CLIMB_CEILING,
@@ -2199,7 +2224,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           : !!shaftCapNeedsTool(bot)
         const mstate = (!upIsOpen || entombedNow)
           ? 'none'
-          : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: PILLAR_MAX_BLOCKS, entombed: entombedNow,
+          : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: climbNeedAbove(bmap(bot), bot.entity.position), entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
         if (mstate === 'need_scaffold' &&
@@ -2490,7 +2515,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // exactly the state this branch would have left it in anyway -- same cell,
           // same inventory -- and now both reasons are on the record instead of none.
           let pillarOutcome = null
-          try { pillarOutcome = await pillarOut(bot) }
+          try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position)) }
           catch (e) { log('warn', 'maroon escape failed', { err: e.message }); pillarOutcome = 'threw' }
 
           if (pillarOutcome === 'needs_blocks' || pillarOutcome === 'exhausted') {
@@ -2629,7 +2654,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // to start, and that value was being dropped -- which is why a refusal
           // could not be told apart from an attempt that went nowhere.
           let climbed = null
-          try { climbed = await pillarOut(bot) }
+          try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position)) }
           catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
           noteReflexInventory(bot, invBefore, 'entombed_escape')
           // Verify the postcondition. "I ran the recovery" and "the bot is no
@@ -3280,7 +3305,7 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     health: bot.health,
     blocks: bot.inventory.items().filter(it => PLACEABLE.test(it.name))
       .reduce((n, it) => n + it.count, 0),
-    climbNeed: PILLAR_MAX_BLOCKS + 1,
+    climbNeed: climbNeedAbove(bmap(bot), bot.entity.position) + 1,   // measured, +1 spare (2026-09-13)
     underfootSolid: solid(at(0, -1, 0)),
     underfootDrop: drop,
     floorBelowSolid: solid(at(0, -2, 0)),
@@ -4377,6 +4402,9 @@ export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
   }
   return null
 }
+
+/** blockAt as a plain (x, y, z) function, for the pure probes. */
+const bmap = bot => (x, y, z) => bot.blockAt(new Vec3(x, y, z))
 
 async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
   // ALL OR NOTHING. See canFinishClimb: a climb that runs out partway is how

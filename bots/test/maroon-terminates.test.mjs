@@ -90,7 +90,7 @@ test('DEFECT 1: the maroon branch must read pillarOut’s answer', () => {
 
   assert.doesNotMatch(branch, /try\s*\{\s*await pillarOut\(bot\)\s*\}/,
     'the maroon branch discards pillarOut’s answer again — a refusal reads as a rescue')
-  assert.match(branch, /pillarOutcome\s*=\s*await pillarOut\(bot\)/,
+  assert.match(branch, /pillarOutcome\s*=\s*await pillarOut\(bot[^)]*\)/,   // the climb height is measured now (climbNeedAbove), so the call carries an argument
     'the maroon branch must capture the outcome')
   assert.match(branch, /pillarOutcome === 'needs_blocks'/,
     'and must branch on the refusal, the way the entombed path already does')
