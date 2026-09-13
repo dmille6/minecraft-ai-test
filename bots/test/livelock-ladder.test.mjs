@@ -19,7 +19,7 @@ t('a rung is done only when the shared postcondition holds; walk -> dig -> latch
 })
 t('the escape runs the dig rung under the ascent profile, and only clears the repeat window on `done`', () => {
   const c = strip(RAW); const i = c.indexOf('async #escape()'); const f = c.slice(i, i + 6000)
-  assert.match(f, /withAscentMovements\(\(\) =>\s*this\.runner\.run\('goto'/, 'rung 2 borrows the ascent profile')
+  assert.match(f, /withAscentMovements\(async \(\) => \{[\s\S]{0,900}this\.runner\.run\('goto'/, 'rung 2 borrows the ascent profile')
   assert.match(f, /trigger: 'livelock_escape_dig'/, 'rung 2 is labelled')
   const clear = f.indexOf('this.admission.clearRepeatWindow()'); const done = f.indexOf("if (next === 'done') {")
   const ret = f.indexOf('return', done)
