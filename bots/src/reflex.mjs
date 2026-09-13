@@ -1751,7 +1751,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // Treading water is jump without a direction; swimming is jump WITH
         // one. `float` is the single case where up is the only thing wanted,
         // because the head is already out and the bot is simply staying there.
-        if (!pocketing) {   // the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4)
+        if (!pocketing) withinBody(airGrant, () => {   // the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4); the tick is contextless, so the hold steers under the air grant (gate pass 1, defect 3)   // the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4)
           bot.setControlState('jump', true)
           if (holdState === 'surface_out' && airRoute?.target) {
             // LAVA GUARD 2: the push toward the air target must not sweep the body into lava (3-wide, +3 cells, feet
@@ -1772,7 +1772,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // wall it cannot see.
             bot.setControlState('forward', false)
           }
-        }
+        })
         if (!holdStartedAt) {
           holdStartedAt = Date.now()
           holdMinOxygen = bot.oxygenLevel ?? Infinity
@@ -1920,7 +1920,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const rel = swimming
           ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
           : drowningRelease()
-        rescuing = false; giveBody(runner, airGrant, 'drowning released'); airGrant = null
+        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         lastReleaseAt = Date.now()
         lastReleaseKind = rel.kind
         lastDrownPhase = null
@@ -1941,7 +1941,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // sealed case, and it is a real failure -- logged separately so it can
       // never hide inside the success kind again.
       if (rescuing && rescueExpired()) {
-        rescuing = false; giveBody(runner, airGrant, 'rescue expired'); airGrant = null
+        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         // REMEMBER THAT IT FAILED. Nothing did, which is why the same rescue ran
         // 4,603 times in six hours on six bots at full oxygen and full health.
         const hereNow = bot.entity?.position
@@ -2161,18 +2161,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // radius-10 block sweep, too costly to run while the urgent swim is
           // the right answer anyway.
           const ctl = drowningControls({ losing: true, ashore: false, route, shore: null })
-          // LAVA GUARD 2 covers the rescue's stroke too (the water fixture showed the rescue, not the hold, steering a
-          // submerged bot toward its air route): a stroke whose swept footprint holds lava or unknown is cleared.
-          let fwd = ctl.forward
-          if (fwd && ctl.lookAt) {
-            const at = bot.entity.position; const ddx = ctl.lookAt.x - at.x, ddz = ctl.lookAt.z - at.z
-            const dir = Math.abs(ddx) >= Math.abs(ddz) ? [Math.sign(Math.round(ddx)), 0] : [0, Math.sign(Math.round(ddz))]
-            const hv = holdForwardSafe(bmap(bot), { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }, dir)
-            if (!hv.safe) { fwd = false; if (Date.now() - lastHoldLavaAt > 10_000) { lastHoldLavaAt = Date.now(); logEvent({ kind: 'hold_lava_ahead', status: 'no_effect', detail: `${hv.why} at ${hv.cell?.join(',')}: the rescue stroke is cleared`, snapshot: snapshot(bot) }) } }
-          }
-          if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
-          bot.setControlState('forward', fwd)
-          bot.setControlState('jump', ctl.jump)
+          withinBody(airGrant, () => {   // the rescue's stroke runs under the air grant (the tick itself carries no context); lava guard 2 inside it
+            // LAVA GUARD 2 covers the rescue's stroke too (the water fixture showed the rescue, not the hold, steering a
+            // submerged bot toward its air route): a stroke whose swept footprint holds lava or unknown is cleared.
+            let fwd = ctl.forward
+            if (fwd && ctl.lookAt) {
+              const at = bot.entity.position; const ddx = ctl.lookAt.x - at.x, ddz = ctl.lookAt.z - at.z
+              const dir = Math.abs(ddx) >= Math.abs(ddz) ? [Math.sign(Math.round(ddx)), 0] : [0, Math.sign(Math.round(ddz))]
+              const hv = holdForwardSafe(bmap(bot), { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }, dir)
+              if (!hv.safe) { fwd = false; if (Date.now() - lastHoldLavaAt > 10_000) { lastHoldLavaAt = Date.now(); logEvent({ kind: 'hold_lava_ahead', status: 'no_effect', detail: `${hv.why} at ${hv.cell?.join(',')}: the rescue stroke is cleared`, snapshot: snapshot(bot) }) } }
+            }
+            if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
+            bot.setControlState('forward', fwd)
+            bot.setControlState('jump', ctl.jump)
+          })
           if (ctl.phase !== lastDrownPhase) {
             lastDrownPhase = ctl.phase
             logEvent({ kind: `drowning_${ctl.phase}`, status: 'success',
