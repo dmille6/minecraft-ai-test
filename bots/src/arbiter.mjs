@@ -101,53 +101,80 @@ export class Arbiter {
   within (grant, fn) { return this.#als.run(grant, fn) }
   /** Who is calling, per the async context. */
   caller () { return this.#als.getStore() ?? null }
-  /** Pure decision, exported through `mayAct` for tests: may a call from `ctx` proceed while `holder` holds? */
-  static mayAct (ctx, holder) {
-    if (ctx) return !!holder && ctx === holder && ctx.alive   // a routed caller must BE the live holder (a released or revoked context never resumes, even on a free body -- Codex)
-    return !holder                                            // an unrouted caller: only while the body is free
+  /**
+   * Pure decision, exported through `mayAct` for tests: may a call from `ctx` proceed while `holder` holds?
+   * `bound` is the grant on whose behalf the pathfinder's tick is running (set by the holder's own goto/setGoal):
+   * a contextless call is attributed to it. (Codex, gate pass 2: contextless callers were let through while the
+   * body was held; now they pass only as the bound pathfinder tick of the live holder, or while the body is free.)
+   */
+  static mayAct (ctx, holder, bound = null) {
+    if (ctx) return !!holder && ctx === holder && ctx.alive          // a routed caller must BE the live holder; a released or revoked context never resumes
+    if (!holder) return true                                         // an unrouted caller on a free body (legacy paths, the flag off)
+    return bound === holder && holder.alive                          // an unrouted caller while held: only the holder's own pathfinder tick
   }
   //
-  // WHAT IS GATED AND WHAT IS NOT (Codex, gate pass 1). EventEmitter listeners run in the EMITTER's async context,
-  // so the pathfinder's own physicsTick listener -- which drives setControlState and look for a goto the holder
-  // legitimately started -- would carry no grant and be refused. Control states and look are therefore NOT gated:
-  // they are the pathfinder's and the reflex ticks' low-level hands. The gate sits on the ENTRY POINTS that start
-  // an operation: dig, placeBlock, pathfinder.goto, and pathfinder.setGoal with a goal (setGoal(null) is a stop
-  // and anyone may stop). Stopping is never gated: stopDigging and clearControlStates stay raw, and the arbiter's
-  // own independent stop uses the RAW functions captured here, so a revocation can always halt the body.
+  // WHAT IS GATED (Codex, gate passes 1 and 2). EventEmitter listeners run in the EMITTER's async context, so the
+  // pathfinder's physicsTick -- which drives setControlState, look and clearControlStates for a goto the holder
+  // legitimately started -- carries no grant. Instead of leaving those hands ungated, the gated goto/setGoal BIND
+  // the pathfinder to the calling grant (`#bound`), and a contextless actuator call is admitted only while the
+  // bound grant is the live holder. Revocation, the holder's own setGoal(null) and release all unbind, so a tick
+  // that outlives its grant is refused. Ordinary stops (setGoal(null), stopDigging, clearControlStates, pathfinder
+  // .stop) are gated the same way: stale cleanup cannot halt a successor. The ONLY raw bypass is the arbiter's own
+  // stop, scoped to the grant being revoked or stopped. Refusals: awaited entry points (dig, placeBlock, goto)
+  // reject with StaleGrant; look/lookAt resolve to nothing (mineflayer and the pathfinder fire them without
+  // awaiting, and an unhandled rejection would take the process down); synchronous hands return undefined.
   #raw = null
-  installActuatorGate (bot, { names = ['dig', 'placeBlock'], pathfinder = true, onRefuse = () => {} } = {}) {
+  #bound = null
+  static GATED_ASYNC = ['dig', 'placeBlock']
+  static GATED_LOOK = ['look', 'lookAt']
+  static GATED_SYNC = ['setControlState', 'clearControlStates', 'stopDigging']
+  installActuatorGate (bot, { pathfinder = true, onRefuse = () => {} } = {}) {
     const self = this
-    this.#raw = { dig: bot.dig, placeBlock: bot.placeBlock, setControlState: bot.setControlState, clearControlStates: bot.clearControlStates,
-                  stopDigging: bot.stopDigging, goto: bot.pathfinder?.goto, setGoal: bot.pathfinder?.setGoal }
-    const wrap = (obj, name, { allowWhen = () => false } = {}) => {
+    const pf = pathfinder ? bot.pathfinder : null
+    this.#raw = { setGoal: pf?.setGoal, stopDigging: bot.stopDigging, clearControlStates: bot.clearControlStates }
+    const wrap = (obj, name, refuse, { binds = null } = {}) => {
       const orig = obj?.[name]
       if (typeof orig !== 'function') return
       obj[name] = function (...args) {
-        if (allowWhen(...args)) return orig.apply(this, args)
         const holder = self.#holder && self.#holder.alive ? self.#holder : null
         const ctx = self.caller()
-        if (!Arbiter.mayAct(ctx, holder)) {
+        if (!Arbiter.mayAct(ctx, holder, self.#bound)) {
           onRefuse(name, ctx, holder)
-          const err = new StaleGrant(ctx, `${name} refused: the body is held by ${holder?.owner ?? 'nobody'}${ctx && !ctx.alive ? ' and the caller was revoked' : ''}`)
-          return Promise.reject(err)
+          return refuse(new StaleGrant(ctx, `${name} refused: the body is held by ${holder?.owner ?? 'nobody'}${ctx && !ctx.alive ? ' and the caller was revoked' : ''}`))
         }
+        if (binds) self.#bound = binds(...args) ? (ctx ?? null) : null   // the holder's goto/setGoal(goal) binds the tick; setGoal(null) unbinds
         return orig.apply(this, args)
       }
       obj[name].__arbiterGated = true
     }
-    for (const n of names) wrap(bot, n)
-    if (pathfinder && bot.pathfinder) { wrap(bot.pathfinder, 'goto'); wrap(bot.pathfinder, 'setGoal', { allowWhen: goal => goal == null }) }
-    // the independent stop now bypasses the gate through the raw functions
-    this.#stop = (h, acked) => { const r = this.#raw; try { r.setGoal?.call(bot.pathfinder, null) } catch {} try { if (bot.targetDigBlock) r.stopDigging?.call(bot) } catch {} try { r.clearControlStates?.call(bot) } catch {} }
+    const rejectP = err => Promise.reject(err), resolveP = () => Promise.resolve(), nothing = () => undefined
+    for (const n of Arbiter.GATED_ASYNC) wrap(bot, n, rejectP)
+    for (const n of Arbiter.GATED_LOOK) wrap(bot, n, resolveP)
+    for (const n of Arbiter.GATED_SYNC) wrap(bot, n, nothing)
+    if (pf) {
+      wrap(pf, 'goto', rejectP, { binds: () => true })
+      wrap(pf, 'setGoal', nothing, { binds: goal => goal != null })
+      wrap(pf, 'stop', nothing)
+    }
+    // THE ONLY RAW BYPASS: the arbiter's own stop, run for the grant being revoked (#preempt) or stopped (stop()).
+    this.#stop = () => {
+      const r = this.#raw; this.#bound = null
+      try { r.setGoal?.call(pf, null) } catch {}
+      try { if (bot.targetDigBlock) r.stopDigging?.call(bot) } catch {}
+      try { r.clearControlStates?.call(bot) } catch {}
+    }
     return bot
   }
-  /** The arbiter-only stop for a grant: halts goal, dig and controls through the raw functions, then releases. */
-  stop (grant, why = 'stopped') { if (grant && this.#holder === grant) { try { this.#stop(grant, true) } catch {} } this.release(grant, why) }   // scoped: a stale grant's stop never touches a successor's actuators
+  /** The grant the pathfinder's tick is attributed to, or null (read-only, for tests and the digest). */
+  get bound () { return this.#bound }
+  /** The arbiter-only stop for a grant: raw setGoal(null), stopDigging, clearControlStates, then release. Scoped: a grant that no longer holds the body is only released. */
+  stop (grant, why = 'stopped') { if (grant && this.#holder === grant) { try { this.#stop(grant, true) } catch {} } this.release(grant, why) }
 
   /** Give the body back. Idempotent. */
   release (grant, why = 'done') {
     if (!grant) return
     if (this.#holder === grant) { this.#holder = null }
+    if (this.#bound === grant) { this.#bound = null }
     if (grant.alive) { grant.alive = false; grant.revoked = why; this.#log('arbiter_released', { id: grant.id, owner: grant.owner, why }) }
   }
 

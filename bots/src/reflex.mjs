@@ -1740,15 +1740,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // Treading water is jump without a direction; swimming is jump WITH
         // one. `float` is the single case where up is the only thing wanted,
         // because the head is already out and the bot is simply staying there.
-        bot.setControlState('jump', true)
-        if (holdState === 'surface_out' && airRoute?.target) {
-          bot.setControlState('forward', true)
-          try { bot.lookAt(airRoute.target, true) } catch { /* not connected */ }
-        } else if (holdState !== 'float') {
-          // Rising: up IS the direction. Do not also drive it sideways into a
-          // wall it cannot see.
-          bot.setControlState('forward', false)
-        }
+        withinBody(airGrant, () => {   // the tick is contextless; the hold steers under the air grant when the rescue holds it (gate pass 1, defect 3)
+          bot.setControlState('jump', true)
+          if (holdState === 'surface_out' && airRoute?.target) {
+            bot.setControlState('forward', true)
+            try { bot.lookAt(airRoute.target, true) } catch { /* not connected */ }
+          } else if (holdState !== 'float') {
+            // Rising: up IS the direction. Do not also drive it sideways into a
+            // wall it cannot see.
+            bot.setControlState('forward', false)
+          }
+        })
         if (!holdStartedAt) {
           holdStartedAt = Date.now()
           holdMinOxygen = bot.oxygenLevel ?? Infinity
@@ -1896,7 +1898,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const rel = swimming
           ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
           : drowningRelease()
-        rescuing = false; giveBody(runner, airGrant, 'drowning released'); airGrant = null
+        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         lastReleaseAt = Date.now()
         lastReleaseKind = rel.kind
         lastDrownPhase = null
@@ -1917,7 +1919,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // sealed case, and it is a real failure -- logged separately so it can
       // never hide inside the success kind again.
       if (rescuing && rescueExpired()) {
-        rescuing = false; giveBody(runner, airGrant, 'rescue expired'); airGrant = null
+        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         // REMEMBER THAT IT FAILED. Nothing did, which is why the same rescue ran
         // 4,603 times in six hours on six bots at full oxygen and full health.
         const hereNow = bot.entity?.position
@@ -2136,9 +2138,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // radius-10 block sweep, too costly to run while the urgent swim is
           // the right answer anyway.
           const ctl = drowningControls({ losing: true, ashore: false, route, shore: null })
-          if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
-          bot.setControlState('forward', ctl.forward)
-          bot.setControlState('jump', ctl.jump)
+          withinBody(airGrant, () => {   // the rescue's stroke runs under the air grant (the tick itself carries no context)
+            if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
+            bot.setControlState('forward', ctl.forward)
+            bot.setControlState('jump', ctl.jump)
+          })
           if (ctl.phase !== lastDrownPhase) {
             lastDrownPhase = ctl.phase
             logEvent({ kind: `drowning_${ctl.phase}`, status: 'success',
