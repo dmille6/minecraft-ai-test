@@ -70,3 +70,12 @@ DRAW at deploy (2026-09-13 17:08 UTC, clock checked with date -u): 5080-half 2-h
 2. Guard 6 counts recovery_exhausted rows whose bot is STILL immobile (60-min displacement < 6) 30 min after the row. (-03: 9 rows, 0 immobile after.)
 3. The livelock breaker's trigger (3 consecutive rejected decisions, or repeat_loop) fires on WORKING bots and walks them 30-57 blocks every 5-10 min; before -04 it needs physical fixation too (no displacement >= 8 and no items gained in the window). Design change: two Codex passes first.
 Everything else from v9 stands.
+
+## v10 — REGISTERED 2026-09-13T22:44Z for recovery-ladder-04 (owner 21:50 UTC: "do whatever you think is best"), BEFORE the deploy
+Change: the same bot code as -03 (a242d64's src, digest 3dc1ae) at the recovery-ladder-03 branch head 6d843a1 (docs and read scripts only since 612d1c8) vs 8a2964a.
+Pools: two pools of five drawn at deploy under rule v5 (5080 half, band ±25% widened to ±40% if fewer than two, exposure, 12-h exclusions, not placebo-c). Reads +30/+90/+180/+360.
+KEEP = safe to promote: guards 1–5 and 7 as v8; guard 6 = recovery_exhausted rows whose bot is STILL STUCK (60-min displacement < 6 AND no positive inventory delta) 30 min after the row, <= trapped-at-deploy + 1; readability floors; deposit skill_error share <= control's.
+Deaths: (a) a canary death with a rung that MOVED the body (entombed, marooned, maroon_wall, entombed_ramp_cut, marooned_ramp_cut, livelock_escape, pillar_no_gain, danger_block, stuck, unstick_oscillation) in the 600 s before it reverts at once (5-min poll + every read); refusals and terminal states are reported, never linked; (b) every death reported; (c) survival judged fleet-wide over 72 h after promotion (deaths/bot-h <= 0.05).
+Guards gather/bh and explore/bh are ONE-SIDED (a fall of more than 30% fails; a rise never does) — this is the registered reading from v10 on.
+KEEP -> promote 6d843a1 fleet-wide, fast-forward main, open the 72-h fleet read. Anything else -> teardown, INCONCLUSIVE or REVERT as the lines say. Amendments after this line are prospective only.
+DRAW at deploy (2026-09-13 22:45 UTC): 5080-half 2-h median 66.7; ±25% band held four pools per the script, but the script's 12-h list was missing hive-c (15:27) and placebo-b (17:07) -- both were still excluded by the rule; neither was picked. Valid eligible: hive-a (73.6; livelock 100 / climbs 141; one trapped bot -> preferred) and board-a (70.7; 80 / 96; its 10:24 exclusion lifted 22:24). POOLS = hive-a,board-a.
