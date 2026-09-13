@@ -1,4 +1,4 @@
-# One movement owner — design draft v1 (13 Sep 2026, for review by both engines before code)
+# One movement owner — design v2 (13 Sep 2026; Codex pass 1 folded in; pass 2 is the last before code)
 
 Reliability program step 2. Today the body is driven by skills, five reflexes (air/drowning, entombed, marooned,
 stuck, livelock), the recovery ladder, and the admission gate, coordinated through flags (`escaping`, `marooned`,
@@ -76,3 +76,34 @@ rows are the new telemetry; the digest's trapped-bot list reads `safe_hold` and 
 2. Should RETURN be a state or a WORK request from the skill layer?
 3. Is "exhaustion terminal until displacement" right for the whole machine, or only for the livelock rung?
 4. What must SAFE-HOLD do when holding still is itself lethal (lava rising, air running out)?
+
+## v2 — Codex pass 1, folded in
+
+1. **Hazard preemption is continuous, not an ASSESS-only check.** A hazard monitor (air, lava contact, falling,
+   damage) runs every tick in every state with a priority order (air > lava/fire > fall > damage > everything);
+   a higher-priority hazard preempts the running leg or rung. Preemption is a handshake: the owner cancels the
+   current operation, waits for its cancellation ACKNOWLEDGEMENT (the operation's promise settles and its
+   controls are cleared), and only then hands the actuators to the survival action. Exhaustion never suppresses
+   a hazard preemption (answer to open question 4: SAFE-HOLD preempts into the best available survival action).
+2. **Operation context survives leg boundaries.** A skill's operation (a stair being cut, a swim toward air, an
+   approach tunnel) is a typed context the owner carries across legs — the body claims become this context, not
+   flags. Detectors read it: head submersion does not interrupt a swim already approaching air; entombment
+   geometry inside a stair-in-progress is not a trap. This is the composition rule the old claims got right.
+3. **SAFE-HOLD exits on evidence, not only displacement.** Re-assessment triggers: a displacement by the shared
+   postcondition, an inventory change (delivery, crafting, a pickup), terrain opened nearby (a block change within
+   reach), restored connectivity (a path can start), or a NEW admitted request of a different kind. The marooned
+   branch's alternatives (harvest adjacent, harvest underfoot, stair ramp, controlled descent) stay as rungs;
+   pillar-only would strand the bots those branches help today.
+4. **Episodes bound the machine.** Every ESCAPE episode has an identity, the set of rungs already tried, a
+   cumulative deadline and block budget across re-assessments and re-plans; a rung is not retried unchanged
+   within an episode; RETURN is a WORK request with bounded retries and explicit arrival / hold outcomes
+   (answer to question 2). Exhaustion latches the unchanged failed STRATEGY, not the machine (answer to question 3).
+5. **Postcondition plus hazard-specific predicates.** `escapedFrom` is the relocation evidence; every transition
+   out of ESCAPE also requires the hazard-specific safety predicate: breathable head for air episodes,
+   `!isEntombed` for entombment, a startable path for marooning, supported feet everywhere. Leg completion is
+   judged by the leg's own goal, not by relocation.
+6. **Migration starts with the arbiter, not with a rung.** Step 0: a common actuator arbiter that every existing
+   caller (skills, reflexes, the ladder) must go through, with cancellation and rejection of stale commands; only
+   then are recoveries routed one at a time. Two owners at once is the current bug in a new coat.
+7. **Latency (question 1):** ASSESS between legs is local and bounded (no path search); measured as tail latency
+   fleet-wide in the safety canary; gather legs are 1–5 s and must not lose more than 100 ms each.
