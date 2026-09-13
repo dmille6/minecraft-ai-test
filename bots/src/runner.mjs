@@ -223,7 +223,8 @@ export class Runner {
     let result
     try {
       result = await Promise.race([
-        def.run({ bot: this.bot, runner: this }, args, controller.signal),
+        (this.grant ? this.arb.within(this.grant, () => def.run({ bot: this.bot, runner: this }, args, controller.signal))
+                    : def.run({ bot: this.bot, runner: this }, args, controller.signal)),
         new Promise(resolve => {
           hardStop = setTimeout(() => {
             const elapsed = Date.now() - startedAt

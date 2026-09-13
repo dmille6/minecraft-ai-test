@@ -79,4 +79,14 @@ t('MUTANT: a rung that plans with the full inventory (no reserve subtracted) is 
   assert.ok(!/orig\.call\(m\) - LIVELOCK_BLOCK_RESERVE/.test(bad))
 })
 
+
+t('skills run inside their grant and the routed climbs inside theirs, so the actuator gate knows the caller', () => {
+  const r = strip(rf(new URL('../src/runner.mjs', import.meta.url), 'utf8'))
+  assert.match(r, /this\.arb\.within\(this\.grant, \(\) => def\.run\(/, 'the runner runs a skill within its work grant')
+  const x = strip(rf(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
+  assert.equal((x.match(/await withinBody\((?:maroon|entombed)Grant, \(\) => pillarOut\(/g) || []).length, 2, 'both climbs run within their grant')
+  const i = strip(rf(new URL('../src/index.mjs', import.meta.url), 'utf8'))
+  assert.match(i, /if \(config\.reflex\.arbiter && runner\?\.arb\) \{\s*runner\.arb\.installActuatorGate\(bot/, 'the gate is installed at spawn when the flag is on')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

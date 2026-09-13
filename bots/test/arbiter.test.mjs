@@ -71,4 +71,27 @@ await ta('a forced revocation runs the independent actuator stop without awaitin
   assert.deepEqual(stops, [['hung', false]], 'the stop ran once, for the hung holder, marked unacknowledged')
 })
 
+
+await ta('the actuator gate: the holder may act from inside its async context across awaits; a stranger and an unrouted caller may not while the body is held; anyone may while it is free', async () => {
+  const refused = []; const arb = new Arbiter()
+  const calls = []; const bot = { dig: async b => { calls.push(['dig', b]); return 'dug' }, placeBlock: async () => 'placed', setControlState: (k, v) => calls.push(['ctl', k, v]), pathfinder: { goto: async g => { calls.push(['goto', g]); return 'went' } } }
+  arb.installActuatorGate(bot, { onRefuse: (n, c, h) => refused.push([n, c?.owner ?? null, h?.owner]) })
+  assert.equal(await bot.dig('free'), 'dug', 'a free body: an unrouted call is allowed')
+  const g = await arb.acquire({ owner: 'gather', priority: PRIORITY.work })
+  await assert.rejects(bot.dig('stranger'), StaleGrant, 'held: an unrouted call is refused')
+  bot.setControlState('forward', true); assert.ok(!calls.some(c => c[0] === 'ctl'), 'held: an unrouted control state is dropped silently')
+  const out = await arb.within(g, async () => { await sleep(5); const a = await bot.dig('mine'); await sleep(5); const b = await bot.pathfinder.goto('goal'); return [a, b] })
+  assert.deepEqual(out, ['dug', 'went'], 'the holder acts across awaits inside its context')
+  const h = await arb.acquire({ owner: 'air', priority: PRIORITY.air })   // preempts gather
+  await assert.rejects(arb.within(g, () => bot.dig('late')), StaleGrant, 'the revoked holder cannot act from its own context')
+  assert.equal(await arb.within(h, () => bot.placeBlock()), 'placed')
+  assert.ok(refused.length >= 3 && refused.every(r => r[2] === 'gather' || r[2] === 'air'), `refusals name the holder: ${JSON.stringify(refused)}`)
+  assert.equal(bot.dig.__arbiterGated, true); assert.equal(bot.pathfinder.goto.__arbiterGated, true)
+})
+await ta('mayAct is the whole decision', async () => {
+  const g = { alive: true }
+  assert.equal(Arbiter.mayAct(null, null), true); assert.equal(Arbiter.mayAct(null, g), false)
+  assert.equal(Arbiter.mayAct(g, g), true); assert.equal(Arbiter.mayAct({ alive: true }, g), false); assert.equal(Arbiter.mayAct({ ...g, alive: false }, g), false)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
