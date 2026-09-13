@@ -1993,8 +1993,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // is released (a sneaking bot does not open containers); the open itself
   // gets 8 s, not 20, with a class the model and the digest can read.
   const lid = bot.blockAt(chestBlock.position.offset(0, 1, 0))
-  if (lid && chestLidBlocked(lid)) {
-    if (isSafeToBreak(bot, lid.position)) {
+  const isChest = ['chest', 'trapped_chest'].includes(bot.registry.blocks[chestBlock.type]?.name)   // barrels open under anything
+  if (isChest && lid && chestLidBlocked(lid)) {
+    if (lidSafeToBreak(bot, lid.position)) {
       try { await withTimeout(bot.dig(lid), 10_000, bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
       catch (e) { return { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it would not break: ${String(e?.message ?? e).slice(0, 60)}` } }
       check(signal)
@@ -2031,7 +2032,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // buckets into chests. One tool of each family, the scaffold reserve and the
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
-    const plan = depositPlan(bot.inventory.items(), item, { wants: ctx.wants ?? ctx.runner?.wants ?? [] })
+    const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })   // the wants admission judged with (set by the gate)
     for (const { name, count } of plan) {
       check(signal)
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -2682,6 +2683,22 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
  * whose top face is covered by a solid full block; slabs, stairs, water, air,
  * torches and other non-full shapes leave it usable. Pure, exported for tests.
  */
+/**
+ * FAIL CLOSED: may this lid block be dug? Every neighbour (four sides and above) must be KNOWN, none liquid, and
+ * the block above must not be a falling block. isSafeToBreak fails open when its checker is missing; a chest lid
+ * is dug only on positive evidence (Codex, deposit pass 2).
+ */
+export function lidSafeToBreak (bot, p) {
+  try {
+    const at = (dx, dy, dz) => bot.blockAt?.(p.offset(dx, dy, dz))
+    const around = [at(1, 0, 0), at(-1, 0, 0), at(0, 0, 1), at(0, 0, -1)]; const above = at(0, 1, 0)
+    if (!above || around.some(b => !b)) return false
+    if ([...around, above].some(b => ['water', 'lava', 'flowing_water', 'flowing_lava'].includes(b.name))) return false
+    if (['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'].includes(above.name)) return false
+    return true
+  } catch { return false }
+}
+
 export function chestLidBlocked (above) {
   if (!above || above.boundingBox !== 'block') return false
   const shapes = Array.isArray(above.shapes) ? above.shapes : null

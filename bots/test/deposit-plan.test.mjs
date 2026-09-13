@@ -40,11 +40,18 @@ t('ores are banked whether or not they are standing targets, and the wants admis
 t('the deposit skill hands over the plan (source anchor) and a mutant that deposits the raw inventory is caught', () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 6000)
-  assert.match(f, /const plan = depositPlan\(bot\.inventory\.items\(\), item, \{ wants: /, 'the loop is driven by the plan, with the wants admission judged with')
+  assert.match(f, /const plan = depositPlan\(bot\.inventory\.items\(\), item, \{ wants: bot\.currentWants \?\? \[\] \}\)/, 'the loop is driven by the plan, with the wants admission judged with')
   assert.ok(!/for \(const it of bot\.inventory\.items\(\)\) \{\s*check\(signal\)\s*if \(item && it\.name !== item\) continue/.test(f), 'the old everything loop is gone')
-  const anchor = 'const plan = depositPlan(bot.inventory.items(), item, { wants: ctx.wants ?? ctx.runner?.wants ?? [] })'
+  const anchor = 'const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })'
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, "const plan = bot.inventory.items().map(it => ({ name: it.name, count: it.count }))")
   assert.ok(!bad.includes(anchor))
 })
+
+t('one station and one bucket stay even when they are wanted; the second copy goes', () => {
+  const two = [{ name: 'furnace', count: 2, type: 4 }, { name: 'crafting_table', count: 1, type: 5 }, { name: 'bucket', count: 1, type: 8 }]
+  const plan = depositPlan(two, null, { wants: ['furnace', 'crafting_table', 'bucket'] })
+  assert.deepEqual(plan, [{ name: 'furnace', count: 1 }], 'the spare furnace goes; the only table and bucket stay')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

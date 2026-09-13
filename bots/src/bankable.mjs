@@ -36,6 +36,9 @@ const STANDING_TARGETS = new Set([
 ])
 
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
+/** One of each of these stays in the bot's hands whatever the wants say: the stations and the bucket are how it
+ *  works, and banking the only copy disarms it the way banking the only pickaxe does (Codex, deposit pass 2). */
+export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', 'smoker', 'bucket', 'water_bucket', 'lava_bucket'])
 
 /**
  * What could this bot bank right now, and how much of it is real?
@@ -73,6 +76,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     let avail = n
     const m = TOOL_RE.exec(name)
     if (m) avail -= 1                       // keep one of each tool family
+    if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
     if (STANDING_TARGETS.has(name) && reserveScaffold > 0 &&
         /cobblestone|cobbled_deepslate|stone|dirt/.test(name)) {
       avail -= reserveScaffold              // keep enough to pillar out

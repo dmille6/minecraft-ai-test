@@ -14,7 +14,7 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue } from './bankable.mjs'
+import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
@@ -328,7 +328,11 @@ export class AdmissionControl {
                  detail: `you hold no ${args.item}; deposit what you carry (say deposit with no item) or gather it first` }
       }
       if (args) args.item = arg.item
-      const bank = bankableInventory(items, { wants: wanted ? [wanted].flat() : [] })
+      // THE SAME POLICY AS EXECUTION (Codex, deposit pass 2): the always-banked ores count here too, and the wants
+      // this gate judged with are handed to the skill through the bot (the runner's ctx carries no wants).
+      const wants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
+      bot.currentWants = wants
+      const bank = bankableInventory(items, { wants })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
         bankable: bank.count,
