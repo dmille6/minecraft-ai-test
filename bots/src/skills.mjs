@@ -38,6 +38,7 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
+import { depositPlan } from './bankable.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -1999,11 +2000,23 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // it, which is a real environmental failure worth a different remedy.
   let eligible = 0
   try {
-    for (const it of bot.inventory.items()) {
+    // HAND OVER THE PLAN, NOT THE INVENTORY (depositPlan, bankable.mjs). This loop
+    // handed over every stack in inventory order: measured 2026-09-13 over 24 h,
+    // the fleet deposited 81 pickaxes, 62 furnaces, 59 crafting tables and 17
+    // buckets into chests. One tool of each family, the scaffold reserve and the
+    // stations stay in the bot's hands; the valuable stacks go first so a short
+    // chest keeps the iron.
+    const plan = depositPlan(bot.inventory.items(), item)
+    for (const { name, count } of plan) {
       check(signal)
-      if (item && it.name !== item) continue
-      eligible += it.count ?? 0
-      try { await chest.deposit(it.type, null, it.count); moved += it.count } catch { /* chest full */ }
+      const stacks = bot.inventory.items().filter(it => it.name === name)
+      let left = count
+      for (const it of stacks) {
+        if (left <= 0) break
+        const n = Math.min(left, it.count ?? 0)
+        eligible += n
+        try { await chest.deposit(it.type, null, n); moved += n; left -= n } catch { /* chest full */ }
+      }
     }
   } finally {
     chest.close()

@@ -105,3 +105,23 @@ export function depositDue ({ bankable, distHome, storageWithin48 = false,
   if (bankable < minBankable && occupiedSlots < 30) return false
   return !!storageWithin48 || distHome <= nearHome || !!onDepositMilestone
 }
+
+/**
+ * WHAT TO HAND OVER, IN WHAT ORDER. The deposit loop used to hand over EVERY
+ * stack in inventory order: measured 2026-09-13 over 24 h, the fleet deposited
+ * 81 pickaxes, 62 furnaces, 59 crafting tables and 17 buckets into chests --
+ * "iron produced but not kept" was partly the bots banking their own tools. The
+ * plan is bankableInventory's allowance (one tool of each family kept, 8
+ * scaffold kept, stations and junk never banked), restricted to the named item
+ * when one is named, and ordered so the valuable stacks land first when the
+ * chest is short of room. Pure.
+ */
+export const DEPOSIT_VALUE = ['diamond', 'iron_ingot', 'raw_iron', 'iron_ore', 'coal', 'oak_log', 'birch_log', 'jungle_log', 'oak_planks', 'stick', 'stone', 'cobbled_deepslate', 'cobblestone']
+export function depositPlan (items = [], item = null, opts = {}) {
+  const { detail } = bankableInventory(items, opts)
+  const rank = name => { const i = DEPOSIT_VALUE.indexOf(name); return i < 0 ? (TOOL_RE.test(name) ? DEPOSIT_VALUE.length : DEPOSIT_VALUE.length + 1) : i }
+  return Object.entries(detail)
+    .filter(([name]) => !item || name === item || name.includes(item))
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => rank(a.name) - rank(b.name))
+}

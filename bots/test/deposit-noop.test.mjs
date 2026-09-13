@@ -41,8 +41,8 @@ test('ELIGIBLE BUT NONE MOVED is still a failure, and a DIFFERENT one', () => {
 
 test('the counting happens BEFORE the transfer, or it cannot separate them', () => {
   const i = CODE.indexOf('let eligible = 0')
-  const j = CODE.indexOf('eligible += it.count')
-  const k = CODE.indexOf('chest.deposit(it.type')
+  const j = CODE.indexOf('eligible += n')   // the loop hands over the depositPlan (2026-09-13)
+  const k = CODE.indexOf('chest.deposit(it.type, null, n)')
   assert.ok(i > 0 && j > i, 'eligible must be counted in the loop')
   assert.ok(j < k, 'eligibility must be counted before the deposit attempt on that item')
 })
