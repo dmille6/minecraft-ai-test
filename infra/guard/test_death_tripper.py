@@ -167,6 +167,21 @@ def test_canary_declared_split_is_allowed():
     check("a declared canary split is allowed", ok, why)
 
 
+def test_two_pools_of_five_are_one_declared_canary():
+    # OWNER 2026-09-13 ("B and C"): a canary runs on TWO pools; the manifest names them comma-separated and
+    # membership is exact for both. A third pool on the canary version is still a fault.
+    seen = {"hive-a-Alpha": "bbb+1", "board-c-Echo": "bbb+1", "hive-b-Alpha": "aaa+1", "placebo-d-Comet": "aaa+1"}
+    ok, why = _canary(seen, pool="hive-a,board-c")
+    check("two declared pools on the canary version are allowed", ok, why)
+    seen["placebo-d-Comet"] = "bbb+1"
+    ok, why = _canary(seen, pool="hive-a,board-c")
+    check("a THIRD pool on the canary version trips", not ok and "membership" in why, why)
+    seen = {"hive-a-Alpha": "bbb+1", "board-c-Echo": "aaa+1", "hive-b-Alpha": "aaa+1"}
+    ok, why = _canary(seen, pool="hive-a,board-c")
+    check("a declared pool left on the baseline trips", not ok and "membership" in why, why)
+    check("prefix membership is exact", not tripper.in_canary_pool("hive-ab-Alpha", "hive-a") and tripper.in_canary_pool("board-c-Echo", "hive-a, board-c"))
+
+
 def test_undeclared_split_is_still_a_fault():
     # No canary in the manifest: the original rule, untouched.
     seen = {"hive-a-Alpha": "bbb+1", "hive-b-Alpha": "aaa+1"}

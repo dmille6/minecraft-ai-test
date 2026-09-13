@@ -306,8 +306,10 @@ def main():
         t0 = None
         since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=a.minutes)
     rows = load(a.paths, since, a.pool)
-    canary = sorted(b for b in rows if b.startswith(a.pool + "-"))
-    control = sorted(b for b in rows if not b.startswith(a.pool + "-"))
+    pools = [x.strip() for x in a.pool.split(",") if x.strip()]   # one pool or a comma-separated list (two pools of five, 2026-09-13)
+    in_pool = lambda b: any(b.startswith(x + "-") for x in pools)
+    canary = sorted(b for b in rows if in_pool(b))
+    control = sorted(b for b in rows if not in_pool(b))
     if not canary:
         sys.exit(f"no bots matched pool '{a.pool}' -- nothing to report")
     if not control:

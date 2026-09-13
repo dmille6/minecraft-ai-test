@@ -77,7 +77,8 @@ ok "active: ${LIVE[*]}"
 # TARGET is who gets the new code; LIVE stays the whole fleet, because the
 # verifier has to reason about the bots being LEFT BEHIND as well.
 if [ -n "$POOL" ]; then
-  mapfile -t TARGET < <(printf '%s\n' "${LIVE[@]}" | grep -E "^${POOL}-" || true)
+  # POOL may be a comma-separated list (owner 2026-09-13: canaries run on two pools of five, "B and C")
+  mapfile -t TARGET < <(printf '%s\n' "${LIVE[@]}" | grep -E "^(${POOL//,/|})-" || true)
   [ "${#TARGET[@]}" -gt 0 ] || { bad "pool '$POOL' matches no active bot"; exit 1; }
   [ "${#TARGET[@]}" -lt "${#LIVE[@]}" ] || {
     bad "pool '$POOL' matches EVERY active bot -- that is a fleet deploy, not a canary"; exit 1; }

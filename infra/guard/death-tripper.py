@@ -248,6 +248,12 @@ def ship(trips, stopped, per_bot, falls30, depth, bundle=None):
     except Exception as e:
         print(f"    (could not ship supervisor telemetry: {e})")
 
+def in_canary_pool(bot, canary_pool):
+    """`canary_pool` is one pool name or a comma-separated list of them (two pools of five since 2026-09-13);
+    a bot is in the canary when its pool prefix is any of them. Exact prefix match, never a substring."""
+    return any(bot.startswith(p.strip() + "-") for p in str(canary_pool or "").split(",") if p.strip())
+
+
 def canary_split_ok(seen, declared, canary_version, canary_pool):
     """Is this two-version fleet a DECLARED canary rather than a partial deploy?
 
@@ -317,14 +323,14 @@ def canary_split_ok(seen, declared, canary_version, canary_pool):
     canary_full = {v for v in full if v.split("+")[0] == canary_version}
     wrong = []
     for bot, v in sorted(seen.items()):
-        in_pool = bot.startswith(canary_pool + "-")
+        in_pool = in_canary_pool(bot, canary_pool)
         on_canary = v in canary_full
         if in_pool != on_canary:
             wrong.append(f"{bot}@{v.split('+')[0]}"
                          + (" (in pool, not on canary)" if in_pool else " (on canary, not in pool)"))
     if wrong:
         return False, "canary membership does not match the split: " + ", ".join(wrong[:6])
-    n = sum(1 for b in seen if b.startswith(canary_pool + "-"))
+    n = sum(1 for b in seen if in_canary_pool(b, canary_pool))
     return True, f"declared canary: {n} bot(s) of pool {canary_pool} on {canary_version}"
 
 
@@ -368,7 +374,7 @@ def _classify_versions(seen, man, declared):
         return v[1] if isinstance(v, (tuple, list)) else v
 
     pool_name = man.get("canary_pool") or ""
-    pool = {b for b in seen if pool_name and b.startswith(pool_name + "-")}
+    pool = {b for b in seen if pool_name and in_canary_pool(b, pool_name)}
     counts = {}
     for b, v in seen.items():
         key = (b in pool, ver(v))
