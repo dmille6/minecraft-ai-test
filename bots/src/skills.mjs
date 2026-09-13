@@ -1931,6 +1931,7 @@ async function home(ctx, _args, signal) {
 
 // ------------------------------------------------------------- deposit -----
 async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null } = {}) {
+  if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
   const { bot } = ctx
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
     .includes(bot.registry.blocks[b.type]?.name)

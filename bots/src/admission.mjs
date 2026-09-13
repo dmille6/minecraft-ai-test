@@ -144,6 +144,20 @@ const inWater = (bot) => {
   return !!b && (b.name === 'water' || b.name === 'bubble_column')
 }
 
+/**
+ * Normalise a deposit's item argument against the inventory. Wildcards ('', none,
+ * null, any, all, everything, items) mean "everything bankable" -> item null. A
+ * real name the bot holds passes through; a real name it does NOT hold is
+ * `missing`. Pure, exported for the admission test.
+ */
+export const DEPOSIT_WILDCARDS = new Set(['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'])
+export function depositItemArg (items, item) {
+  const name = item == null ? '' : String(item).trim().toLowerCase()
+  if (DEPOSIT_WILDCARDS.has(name)) return { item: null, missing: false }
+  const held = (items ?? []).some(it => it?.name === name || (it?.name ?? '').includes(name))
+  return held ? { item: name, missing: false } : { item: name, missing: true }
+}
+
 export class AdmissionControl {
   constructor(lessons = null) {
     this.lessons = lessons
@@ -304,6 +318,16 @@ export class AdmissionControl {
 
     if (skill === 'deposit') {
       const items = bot.inventory?.items?.() ?? []
+      // THE NAMED ITEM MUST BE IN HAND (2026-09-13: 842 of 1,748 deposit runs in 24 h
+      // did nothing -- "nothing matching none/null/wheat_seeds to hand over"). A
+      // wildcard word means "everything bankable"; a real name the bot does not
+      // hold is refused here, before a walk to the chest.
+      const arg = depositItemArg(items, args?.item)
+      if (arg.missing) {
+        return { ok: false, reason: 'deposit_item_missing',
+                 detail: `you hold no ${args.item}; deposit what you carry (say deposit with no item) or gather it first` }
+      }
+      if (args) args.item = arg.item
       const bank = bankableInventory(items, { wants: wanted ? [wanted].flat() : [] })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
