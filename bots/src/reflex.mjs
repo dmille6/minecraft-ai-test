@@ -1234,6 +1234,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // the water rescue down is the change that multiplied drownings 7.5x, and the
   // asymmetry has not changed: a wrongly-yielded ramp resumes from the step it
   // stopped on, a wrongly-refused rescue does not get its bot back.
+  // ARBITER GATES for the reflex helpers (flag on): a refused (null) or revoked
+  // grant means "you do not own the body" -- the helper stops at its next step.
+  const ownsBody = (grantOf) => () => !config.reflex.arbiter || !runner?.arb || runner.arb.ok(grantOf())
+  const arbiterYield = (grantOf) => (ownsBody(grantOf)() ? null : 'the arbiter (this reflex does not hold the body)')
   const drowningOwnsBody = () =>
     (config.reflex.arbiter && runner?.arb ? (runner.arb.holder?.priority === PRIORITY.air ? 'the drowning rescue' : null)
                                          : (rescuing && drowningCouldBeReal(waterCellsAround(bot)) ? 'the drowning rescue' : null))
@@ -2320,7 +2324,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // -- so without this it wipes a stroke a drowning bot is depending
             // on. A ramp resumes from the step it stopped on; a drowning bot
             // does not resume.
-            const ramp = await escapeStairUp(bot, { yieldTo: drowningOwnsBody }).catch(e => {
+            const ramp = await escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => maroonGrant) }).catch(e => {
               log('warn', 'reflex: escape ramp failed', { err: e.message })
               return { steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}` }
             })
@@ -2555,7 +2559,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // exactly the state this branch would have left it in anyway -- same cell,
           // same inventory -- and now both reasons are on the record instead of none.
           let pillarOutcome = null
-          try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position)) }
+          try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => maroonGrant) }) }
           catch (e) { log('warn', 'maroon escape failed', { err: e.message }); pillarOutcome = 'threw' }
 
           if (pillarOutcome === 'needs_blocks' || pillarOutcome === 'exhausted') {
@@ -2696,7 +2700,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // could not be told apart from an attempt that went nowhere.
           let climbed = null
           const climbFrom = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z }
-          try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position)) }
+          try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => entombedGrant) }) }
           catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
           noteReflexInventory(bot, invBefore, 'entombed_escape')
           // Verify the postcondition. "I ran the recovery" and "the bot is no
@@ -2778,7 +2782,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               // cell, same inventory, same prerequisite, and the ramp's own
               // reason rides along so "sealed under bedrock" and "no tread to
               // stand on" stay distinguishable.
-              const stair = esc.ramp ? await escapeStairUp(bot, { yieldTo: drowningOwnsBody })
+              const stair = esc.ramp ? await escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant) })
                 .catch(e => {
                   log('warn', 'reflex: entombed escape ramp failed', { err: e.message })
                   return { steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}` }
@@ -2835,6 +2839,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // THE SHARED POSTCONDITION (recovery.mjs): a climb that did not leave
           // this place -- four blocks up and dry, or eight sideways -- while the
           // bot is still walled in is a failed escape, whatever pillarOut returned.
+          else if (climbed === 'preempted') { /* another owner took the body: not a failed escape, not a success */ }
           else if (bot.entity && (!escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) || isEntombed(bot))) escapeFailures++   // success needs BOTH: somewhere else, and not walled in (Codex pass 3)
           else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
         } finally { escaping = false }
@@ -4451,7 +4456,12 @@ export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
 /** blockAt as a plain (x, y, z) function, for the pure probes. */
 const bmap = bot => (x, y, z) => bot.blockAt(new Vec3(x, y, z))
 
-async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
+async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
+  // THE GATE (arbiter, Codex final pass): every actuator step asks whether this
+  // climb still owns the body. A refused or revoked grant ends the climb at the
+  // next step with 'preempted' -- a continuation resuming after an await can
+  // never dig or place under another owner.
+  if (!alive()) return 'preempted'
   // ALL OR NOTHING. See canFinishClimb: a climb that runs out partway is how
   // this fleet manufactures permanent traps.
   {
@@ -4478,6 +4488,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
   let stalled = 0
 
   for (let i = 0; i < maxBlocks; i++) {
+    if (!alive()) return 'preempted'
     const yBefore = bot.entity.position.y
 
     // Headroom first. Breaking stone bare-handed drops nothing, but for escape
@@ -4497,6 +4508,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
       if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
       else if (bot.heldItem) await bot.unequip('hand').catch(() => {})
       try {
+        if (!alive()) return 'preempted'
         if (!hand.refuse) await digBounded(bot, head, Math.max(8000, hand.budgetMs))
       } catch { /* may be unreachable; try anyway */ }
       await sleep(150)
@@ -4515,6 +4527,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
       return 'exhausted'
     }
 
+    if (!alive()) return 'preempted'
     await bot.equip(item, 'hand').catch(() => {})
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
