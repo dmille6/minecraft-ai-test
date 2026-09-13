@@ -1937,7 +1937,10 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
     .includes(bot.registry.blocks[b.type]?.name)
   const skip = new Set(exclude.map(q => `${q.x},${q.y},${q.z}`))
-  const notTried = b => !skip.has(`${b.position.x},${b.position.y},${b.position.z}`)
+  // mineflayer's findBlock asks the matcher about PALETTE blocks first (Block.fromStateId, position null) to decide
+  // whether a section is worth scanning at all; a matcher that reads b.position throws on every call. Found on the
+  // recovery-ladder-01 canary 2026-09-13: 6 of 6 deposits died with "Cannot read properties of null (reading 'x')".
+  const notTried = b => !b.position || !skip.has(`${b.position.x},${b.position.y},${b.position.z}`)
   const findChest = () => bot.findBlock({ matching: b => isContainer(b) && notTried(b), maxDistance: 48 })
   // PREFER THE CHEST WE WERE SENT TO, and this is not a nicety.
   //
@@ -2105,7 +2108,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const tried = [...exclude, chestBlock.position]
     let alternate = null
     while (tried.length < 3) {
-      const other = bot.findBlock({ matching: b => isContainer(b) && !tried.some(q => q.x === b.position.x && q.y === b.position.y && q.z === b.position.z), maxDistance: 24 })
+      const other = bot.findBlock({ matching: b => isContainer(b) && (!b.position || !tried.some(q => q.x === b.position.x && q.y === b.position.y && q.z === b.position.z)), maxDistance: 24 })
       if (!other) break
       tried.push(other.position)
       try {
