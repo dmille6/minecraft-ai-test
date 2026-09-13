@@ -1237,6 +1237,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // ARBITER GATES for the reflex helpers (flag on): a refused (null) or revoked
   // grant means "you do not own the body" -- the helper stops at its next step.
   const ownsBody = (grantOf) => () => !config.reflex.arbiter || !runner?.arb || runner.arb.ok(grantOf())
+  // run a helper inside its grant's async context so the actuator gate knows who is calling (flag on); plain call otherwise
+  const withinBody = (grant, fn) => (config.reflex.arbiter && runner?.arb && grant && !grant.legacy) ? runner.arb.within(grant, fn) : fn()
   const arbiterYield = (grantOf) => (ownsBody(grantOf)() ? null : 'the arbiter (this reflex does not hold the body)')
   const drowningOwnsBody = () =>
     (config.reflex.arbiter && runner?.arb ? (runner.arb.holder?.priority === PRIORITY.air ? 'the drowning rescue' : null)
@@ -2559,7 +2561,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // exactly the state this branch would have left it in anyway -- same cell,
           // same inventory -- and now both reasons are on the record instead of none.
           let pillarOutcome = null
-          try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => maroonGrant) }) }
+          try { pillarOutcome = await withinBody(maroonGrant, () => pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => maroonGrant) })) }
           catch (e) { log('warn', 'maroon escape failed', { err: e.message }); pillarOutcome = 'threw' }
 
           if (pillarOutcome === 'needs_blocks' || pillarOutcome === 'exhausted') {
@@ -2700,7 +2702,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // could not be told apart from an attempt that went nowhere.
           let climbed = null
           const climbFrom = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z }
-          try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => entombedGrant) }) }
+          try { climbed = await withinBody(entombedGrant, () => pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => entombedGrant) })) }
           catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
           noteReflexInventory(bot, invBefore, 'entombed_escape')
           // Verify the postcondition. "I ran the recovery" and "the bot is no

@@ -210,6 +210,13 @@ function connect() {
   }
 
   bot.once('spawn', () => {
+    // THE ACTUATOR GATE (src/arbiter.mjs): with ARBITER=1 every dig, placement,
+    // control state and pathfinder goto is refused unless its async context is
+    // the arbiter's current holder (or the body is free). Installed before the
+    // movement profiles so the pathfinder's goto is the wrapped one.
+    if (config.reflex.arbiter && runner?.arb) {
+      runner.arb.installActuatorGate(bot, { onRefuse: (name, ctx, holder) => logEvent({ kind: 'arbiter_actuator_refused', status: 'no_effect', detail: `${name} from ${ctx?.owner ?? 'an unrouted caller'} while ${holder?.owner ?? 'nobody'} holds the body`, snapshot: snapshot(bot) }) })
+    }
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
     const moves = new Movements(bot)
