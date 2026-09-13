@@ -4485,6 +4485,7 @@ export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
 const bmap = bot => (x, y, z) => bot.blockAt(new Vec3(x, y, z))
 
 async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
+  const placeErrs = { ok: 0, fail: 0, last: null }
   // THE GATE (arbiter, Codex final pass): every actuator step asks whether this
   // climb still owns the body. A refused or revoked grant ends the climb at the
   // next step with 'preempted' -- a continuation resuming after an await can
@@ -4561,7 +4562,8 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
     if (!below) break
     bot.setControlState('jump', true)
     await sleep(300)
-    try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed */ }
+    const tPlace = Date.now()
+    try { await bot.placeBlock(below, new Vec3(0, 1, 0)); placeErrs.ok++ } catch (e) { placeErrs.fail++; placeErrs.last = `${String(e?.message ?? e).slice(0, 80)} after ${Date.now() - tPlace} ms (jump=${bot.controlState?.jump}, y=${bot.entity.position.y.toFixed(2)}, held=${bot.heldItem?.name ?? 'nothing'})` }   // the reason a pillar gains nothing was invisible (corpus run 7)
     bot.setControlState('jump', false)
     await sleep(250)
 
@@ -4599,7 +4601,8 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
 
   const gained = bot.entity.position.y - startY
   if (gained < 1) {
-    log('error', 'reflex: pillar out FAILED, no height gained', { y: Math.round(startY) })
+    log('error', 'reflex: pillar out FAILED, no height gained', { y: Math.round(startY), placed: placeErrs.ok, failed: placeErrs.fail, last: placeErrs.last })
+    logEvent({ kind: 'pillar_no_gain', status: 'failed', detail: `placed ${placeErrs.ok}, failed ${placeErrs.fail}; last: ${placeErrs.last ?? 'none'}`, snapshot: snapshot(bot) })
     return digStraightUp(bot, startY)
   }
   // Ran out of budget with height gained but no route: say so plainly rather
