@@ -277,7 +277,7 @@ t('A REFUSAL ASKS FOR BLOCKS, NOT A PICKAXE, AND BACKS OFF', () => {
 
 t('A REFUSED PILLAR IS NOT SCORED AS A FAILED ESCAPE — but an EXHAUSTED one is', () => {
   const code = strip('../src/reflex.mjs')
-  assert.match(code, /let climbed = null[\s\S]{0,120}climbed = await pillarOut\(bot\)/,
+  assert.match(code, /let climbed = null[\s\S]{0,160}climbed = await pillarOut\(bot[^)]*\)/,   // the climb height is measured now (climbNeedAbove), so the call carries an argument
     "pillarOut's answer is discarded again, so a refusal cannot be told from an attempt")
   // The invariant, not a character window: `escapeFailures++` must sit in the
   // ELSE-IF arm, so it is unreachable when the pillar declined to start.
