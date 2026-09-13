@@ -236,8 +236,9 @@ export class Runner {
                        detail: `${skillName} still running ${Math.round(elapsed / 1000)}s after ` +
                                `abort; runner released the bot`,
                        snapshot: snapshot(this.bot) })
-            try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
-            try { this.bot.clearControlStates() } catch { /* not connected */ }
+            const g = this.grant
+            if (g) { this.arb.stop(g, 'hard stop'); if (this.grant === g) this.grant = null }   // raw stop scoped to THIS run's grant: cannot clear a successor's goal
+            else { try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ } try { this.bot.clearControlStates() } catch { /* not connected */ } }
             this.bodyClaim = null
             resolve(hardStopResult(skillName, elapsed))
           }, config.skills.defaultTimeoutMs + HARD_STOP_GRACE_MS)
