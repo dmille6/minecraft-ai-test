@@ -36,7 +36,7 @@ await t('a scaffold-less climb yields a block shopping list', () => {
 })
 
 await t('an unbreakable-stone stop yields a pickaxe, not blocks', () => {
-  const need = climbPrerequisite('dig failed on stone')
+  const need = climbPrerequisite('dig failed on stone by hand: dig exceeded 15000ms')
   assert.equal(need.count, 1)
   assert.ok(need.items.some(i => i.endsWith('_pickaxe')))
 })
@@ -136,7 +136,7 @@ await t('SOLO02 CASE: a sealed-in escape asks for a pickaxe, not blocks', () => 
 })
 
 await t('holding any pickaxe satisfies it', () => {
-  const fromReflex = { ...climbPrerequisite('dig failed on stone'),
+  const fromReflex = { ...climbPrerequisite('dig failed on stone by hand: dig exceeded 15000ms'),
                        since: Date.now(), fromSkill: 'the escape reflex' }
   assert.equal(applyPrereq(MILESTONE, fromReflex, 1).clear, 'satisfied')
 })

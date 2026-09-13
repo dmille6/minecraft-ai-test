@@ -82,13 +82,13 @@ t('each shaft stop reason maps to an actionable next step', () => {
   assert.match(climbAdvice('no scaffold blocks left'), /gather 8\+ dirt or cobblestone/, 'blocks')
   assert.match(climbAdvice('liquid overhead (water)'), /away from the water/, 'water')
   assert.match(climbAdvice('liquid beside the shaft (water)'), /away from the water/)
-  assert.match(climbAdvice('dig failed on deepslate'), /craft a pickaxe/, 'tool')
+  assert.match(climbAdvice('dig failed on deepslate by hand: dig exceeded 24500ms'), /craft a pickaxe/, 'tool')
   assert.match(climbAdvice('cannot break obsidian'), /craft a pickaxe/)
   assert.match(climbAdvice('no height gained over 4 steps'), /somewhere more open/)
   assert.equal(climbAdvice(null), '', 'no stop, no advice')
   // Every recipe must end by telling the bot to TRY AGAIN -- advice that fixes
   // the blocker but never re-proposes the climb still strands the bot.
-  for (const r of ['no scaffold blocks left', 'liquid overhead (water)', 'dig failed on stone']) {
+  for (const r of ['no scaffold blocks left', 'liquid overhead (water)', 'dig failed on stone by hand: dig exceeded 15000ms']) {
     assert.match(climbAdvice(r), /surface again/, `"${r}" must loop back to the climb`)
   }
 })
