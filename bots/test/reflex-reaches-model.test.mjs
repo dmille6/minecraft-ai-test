@@ -48,6 +48,7 @@ t('EVERY reason ANY layer raises is classified — ranked or suppressed', () => 
   const raised = new Set()
   for (const f of ['reflex.mjs', 'watchdog.mjs', 'cognitive.mjs', 'index.mjs']) {
     for (const m of code(f).matchAll(/\.(?:interrupt|cancel)\('([a-z_]+)'\)/g)) raised.add(m[1])
+    for (const m of code(f).matchAll(/takeBody\(bot, runner, '([a-z_]+)'/g)) raised.add(m[1])   // the arbiter path raises the same reason through the grant's onCancel
     if (/\.interrupt\(air\.kind\)/.test(code(f))) { raised.add('drowning'); raised.add('suffocating') }
   }
   assert.ok(raised.size >= 10, `expected >=10 raised reasons, found ${raised.size}: ${[...raised]}`)

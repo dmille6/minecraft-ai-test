@@ -46,4 +46,29 @@ await ta('the body is free again after release, and mayPreempt is strict', async
   const b = await arb.acquire({ owner: 'b', priority: PRIORITY.idle }); assert.ok(b && b.alive, 'idle may take a free body')
   assert.equal(mayPreempt(PRIORITY.air, PRIORITY.lava), true); assert.equal(mayPreempt(PRIORITY.work, PRIORITY.work), false)
 })
+
+await ta('two concurrent preemptions of one holder rank against each other: escape cannot overwrite air', async () => {
+  const arb = new Arbiter()
+  const work = await arb.acquire({ owner: 'gather', priority: PRIORITY.work, onCancel: () => sleep(50) })
+  const [air, esc] = await Promise.all([
+    arb.acquire({ owner: 'air', priority: PRIORITY.air }),
+    arb.acquire({ owner: 'entombed', priority: PRIORITY.escape }),
+  ])
+  assert.ok(air && air.alive, 'air holds the body'); assert.equal(esc, null, 'escape was refused after re-checking the new holder')
+  assert.equal(arb.holder.owner, 'air'); assert.equal(work.alive, false)
+})
+await ta('a rejected actuator call still surfaces a lost ownership, with the original error as the cause', async () => {
+  const arb = new Arbiter()
+  const g = await arb.acquire({ owner: 'a', priority: PRIORITY.work })
+  const failing = arb.act(g, async () => { await sleep(80); throw new Error('dig aborted') })
+  await sleep(10); await arb.acquire({ owner: 'air', priority: PRIORITY.air })
+  await assert.rejects(failing, e => e instanceof StaleGrant && e.cause?.message === 'dig aborted')
+})
+await ta('a forced revocation runs the independent actuator stop without awaiting the hung holder', async () => {
+  const stops = []; const arb = new Arbiter({ stopActuators: (h, acked) => stops.push([h.owner, acked]) })
+  await arb.acquire({ owner: 'hung', priority: PRIORITY.work, onCancel: () => new Promise(() => {}) })
+  await arb.acquire({ owner: 'air', priority: PRIORITY.air })
+  assert.deepEqual(stops, [['hung', false]], 'the stop ran once, for the hung holder, marked unacknowledged')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

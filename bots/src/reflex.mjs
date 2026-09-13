@@ -33,6 +33,7 @@ import { rideFloorDown } from './skills.mjs'
 export { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS }
 import { Vec3 } from 'vec3'
 import { escapedFrom } from './recovery.mjs'
+import { PRIORITY } from './arbiter.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1004,6 +1005,33 @@ function seizeBody(bot, why) {
   return why
 }
 
+/**
+ * TAKE THE BODY THROUGH THE ARBITER (movement owner step 0). With the flag on,
+ * a reflex acquires at its priority: the running skill is interrupted through
+ * its grant's onCancel and given ACK_MS to acknowledge, then revoked and its
+ * actuators stopped by the arbiter's independent stop. A holder of equal or
+ * higher priority (the air reflex over an escape) keeps the body: the arbiter
+ * logs `arbiter_refused` and this returns null; until the movement owner's
+ * ASSESS exists the arm then proceeds as it does today (no seize), which is
+ * not worse than the current overlap and is visible in the log. With the flag
+ * off it is the old pair, `runner.interrupt` then nothing, and returns a
+ * legacy token so callers are written once.
+ */
+async function takeBody(bot, runner, reason, priority, context = null) {
+  if (config.reflex.arbiter && runner?.arb) {
+    const grant = await runner.arb.acquire({ owner: reason, priority, context: context ?? { kind: reason },
+                                             onCancel: () => { runner.interrupt(reason) } })
+    if (!grant) return null
+    seizeBody(bot, reason)
+    return grant
+  }
+  runner.interrupt(reason)
+  return { id: 0, owner: reason, priority, alive: true, legacy: true }
+}
+function giveBody(runner, grant, why = 'done') {
+  if (grant && !grant.legacy && runner?.arb) runner.arb.release(grant, why)
+}
+
 function makeThrottle(defaultMs = 10_000) {
   const last = new Map()
   return (kind, ms = defaultMs) => {
@@ -1175,6 +1203,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // knew where air was and could not swim there. Seize once, steer every tick,
   // release when it can breathe.
   let rescuing = false
+  let airGrant = null, entombedGrant = null, maroonGrant = null     // arbiter grants held by the reflexes (flag on)
   // WHO OUTRANKS THE ESCAPE RAMP. Passed to `escapeStairUp`, which holds the
   // body for up to a minute and clears the controls at every step boundary --
   // in the same tick loop the drowning branch below steers from. Without this
@@ -1206,7 +1235,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // asymmetry has not changed: a wrongly-yielded ramp resumes from the step it
   // stopped on, a wrongly-refused rescue does not get its bot back.
   const drowningOwnsBody = () =>
-    (rescuing && drowningCouldBeReal(waterCellsAround(bot)) ? 'the drowning rescue' : null)
+    (config.reflex.arbiter && runner?.arb ? (runner.arb.holder?.priority === PRIORITY.air ? 'the drowning rescue' : null)
+                                         : (rescuing && drowningCouldBeReal(waterCellsAround(bot)) ? 'the drowning rescue' : null))
   let seizedAt = 0
   let headOutSince = 0
   // Per-rescue progress, reset at seizure. See RESCUE_CEILING_MS above.
@@ -1860,7 +1890,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const rel = swimming
           ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
           : drowningRelease()
-        rescuing = false
+        rescuing = false; giveBody(runner, airGrant, 'drowning released'); airGrant = null
         lastReleaseAt = Date.now()
         lastReleaseKind = rel.kind
         lastDrownPhase = null
@@ -1881,7 +1911,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // sealed case, and it is a real failure -- logged separately so it can
       // never hide inside the success kind again.
       if (rescuing && rescueExpired()) {
-        rescuing = false
+        rescuing = false; giveBody(runner, airGrant, 'rescue expired'); airGrant = null
         // REMEMBER THAT IT FAILED. Nothing did, which is why the same rescue ran
         // 4,603 times in six hours on six bots at full oxygen and full health.
         const hereNow = bot.entity?.position
@@ -2053,6 +2083,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // event measured compliance with a goal the bot never had.
             lastProgressAt = Date.now()
             bestHomeDist = Infinity
+            if (config.reflex.arbiter && runner?.arb) {
+              // the air reflex outranks everything: the running escape or skill is interrupted,
+              // acknowledged or revoked, and its actuators stopped; the grant is held until the release
+              if (airGrant && !runner.arb.ok(airGrant)) airGrant = null
+              if (!airGrant) airGrant = await runner.arb.acquire({ owner: 'air', priority: PRIORITY.air, context: { kind: 'swim-to-air' }, onCancel: () => {} })
+            }
             seizeBody(bot, 'drowning')
             // WHICH WAY, on every rescue -- not just the hopeless ones. Logging
             // only the sealed case left no way to tell whether "up" or "out" was
@@ -2503,7 +2539,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      detail: `no path can start from y=${Math.round(yBefore)} with an open ` +
                              `column above -- climbing out`,
                      snapshot: snapshot(bot) })
-          runner.interrupt('marooned')
+          maroonGrant = await takeBody(bot, runner, 'marooned', PRIORITY.escape)
           // THE RETURN VALUE WAS THROWN AWAY, AND IT IS THE WHOLE OUTCOME.
           //
           // `pillarOut` answers 'needs_blocks' | 'exhausted' | undefined-on-success.
@@ -2548,7 +2584,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                        snapshot: snapshot(bot) })
           }
           noteReflexInventory(bot, invBefore, 'maroon_escape')
-          marooned = false
+          marooned = false; giveBody(runner, maroonGrant, 'maroon arm ended'); maroonGrant = null
         }
       }
 
@@ -2591,6 +2627,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // A 'stair' claim (mine's step loop, 2026-09-11) quiets this branch the
       // same way: a bot inside the three-cell stair it is cutting is sealed in
       // by design, and pillaring out of it is the descent's undoing.
+      if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && isEntombed(bot) &&
           Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
@@ -2649,7 +2686,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
                      snapshot: snapshot(bot) })
           log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
-          runner.interrupt('entombed')
+          entombedGrant = await takeBody(bot, runner, 'entombed', PRIORITY.escape)
           // Bracket the whole escape, not each helper: pillarOut may hand off to
           // digStraightUp partway through, and what matters is the net cost of
           // getting out of the hole, attributed to the reflex that caused it.

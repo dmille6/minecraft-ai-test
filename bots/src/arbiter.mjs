@@ -36,7 +36,13 @@ export class Arbiter {
   #holder = null            // the current grant, or null
   #log
   #now
-  constructor ({ log = () => {}, now = () => Date.now() } = {}) { this.#log = log; this.#now = now }
+  #stop                     // the INDEPENDENT actuator stop, run at every forced revocation without awaiting the holder
+  #preempting = null        // the preemption in progress, so concurrent askers queue on it instead of racing
+  /**
+   * `stopActuators` is mandatory in production: it must stop pathfinding, digging and control states WITHOUT
+   * touching the holder's promise (Codex, arbiter pass 1: a hung onCancel must not leave the old actuator live).
+   */
+  constructor ({ log = () => {}, now = () => Date.now(), stopActuators = () => {} } = {}) { this.#log = log; this.#now = now; this.#stop = stopActuators }
 
   /** The current holder (read-only view) or null. Detectors read `context` from here. */
   get holder () { return this.#holder ? { ...this.#holder, alive: this.#holder.alive } : null }
@@ -47,10 +53,15 @@ export class Arbiter {
    * must stop the operation's actuators and settle its promise; the arbiter waits ACK_MS for it, then revokes.
    */
   async acquire ({ owner, priority = PRIORITY.work, context = null, onCancel = null }) {
-    const h = this.#holder
-    if (h && h.alive) {
+    // RE-CHECK AFTER EVERY AWAIT (Codex, pass 1): two askers can preempt the same holder concurrently; the
+    // second must see the first's grant and rank against IT, never overwrite it.
+    for (;;) {
+      if (this.#preempting) { await this.#preempting; continue }
+      const h = this.#holder
+      if (!h || !h.alive) break
       if (priority <= h.priority) { this.#log('arbiter_refused', { owner, priority, holder: h.owner, holderPriority: h.priority }); return null }
-      await this.#preempt(h, owner)
+      this.#preempting = this.#preempt(h, owner)
+      try { await this.#preempting } finally { this.#preempting = null }
     }
     const grant = { id: this.#next++, owner, priority, context, since: this.#now(), alive: true, onCancel, revoked: null }
     this.#holder = grant
@@ -61,10 +72,14 @@ export class Arbiter {
   /** Run one actuator call under a grant. Rejects (throws StaleGrant) if the grant no longer holds the body. */
   async act (grant, fn) {
     this.#check(grant, 'before the call')
-    const out = await fn()
-    // A call that returned after revocation has already moved the body; the caller must reconcile (re-read the
-    // world) -- the arbiter says so rather than pretending the call did not happen.
-    if (!grant.alive) throw new StaleGrant(grant, 'revoked while the call was in flight; reconcile the world')
+    let out, err = null
+    try { out = await fn() } catch (e) { err = e }
+    // Ownership is checked on fulfilment AND rejection (Codex, pass 1): an actuator that partly moved the body,
+    // lost ownership, then rejected must surface the revocation, with the original error as the cause.
+    if (!grant.alive || this.#holder !== grant) {
+      const st = new StaleGrant(grant, 'revoked while the call was in flight; reconcile the world'); st.cause = err; throw st
+    }
+    if (err) throw err
     return out
   }
 
@@ -89,6 +104,9 @@ export class Arbiter {
     await Promise.race([ack, new Promise(r => setTimeout(r, ACK_MS))])
     h.alive = false; h.revoked = acked ? `preempted by ${by}` : `preempted by ${by} without acknowledgement (${ACK_MS} ms)`
     if (this.#holder === h) this.#holder = null
+    // THE INDEPENDENT STOP: whether or not the holder acknowledged, the actuators are stopped here, without
+    // awaiting the hung operation, before the body changes hands.
+    try { this.#stop(h, acked) } catch {}
     this.#log('arbiter_revoked', { id: h.id, holder: h.owner, by, acked })
   }
 }

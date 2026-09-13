@@ -84,7 +84,7 @@ test('DEFECT 1: the maroon branch must read pillarOut’s answer', () => {
   // the unstick-oscillation branch verifies the postcondition by measuring how
   // far the bot actually rose. Asserting "no call anywhere discards it" would
   // fail on that third site for the wrong reason.
-  const i = code.indexOf("runner.interrupt('marooned')")
+  const i = code.indexOf("takeBody(bot, runner, 'marooned'")   // the maroon arm takes the body through the arbiter now (2026-09-13)
   assert.ok(i > 0, 'POSITIVE CONTROL: the maroon branch is still there')
   const branch = code.slice(i, i + 1800)
 

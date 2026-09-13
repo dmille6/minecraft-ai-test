@@ -150,6 +150,9 @@ export const config = {
   },
 
   reflex: {
+    // THE ACTUATOR ARBITER (movement owner step 0). Off by default; the recovery
+    // ladder canary and the corpus turn it on with ARBITER=1. See src/arbiter.mjs.
+    arbiter: req('ARBITER', '0') === '1',
     tickMs: Number(req('REFLEX_TICK_MS', '500')),
     eatBelowFood: Number(req('EAT_BELOW_FOOD', '16')),
     fleeBelowHealth: Number(req('FLEE_BELOW_HEALTH', '8')),

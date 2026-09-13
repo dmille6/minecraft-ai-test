@@ -12,9 +12,20 @@ import { logSkill, log, logEvent } from './logger.mjs'
 import { snapshot, perception, biomeAt, inventorySummary } from './state.mjs'
 import { HARD_STOP_GRACE_MS, hardStopResult } from './hard-stop.mjs'
 import { config } from './config.mjs'
+import { Arbiter, PRIORITY } from './arbiter.mjs'
 
 export class Runner {
   constructor(bot) {
+    // ONE DOOR FOR THE BODY (src/arbiter.mjs). The runner holds a 'work' grant
+    // while a skill runs; reflexes take the body by acquiring at a higher
+    // priority, which interrupts the skill through the grant's onCancel and
+    // waits for it to acknowledge; the independent stop clears the actuators
+    // at every forced revocation. Inert unless config.reflex.arbiter.
+    this.arb = new Arbiter({
+      log: (kind, d) => logEvent({ kind, status: kind === 'arbiter_refused' ? 'no_effect' : 'success', detail: JSON.stringify(d).slice(0, 160), snapshot: snapshot(bot) }),
+      stopActuators: () => { try { bot.pathfinder?.setGoal(null) } catch {} try { if (bot.targetDigBlock) bot.stopDigging() } catch {} try { bot.clearControlStates() } catch {} },
+    })
+    this.grant = null
     this.bot = bot
     this.current = null          // { skill, args, controller, startedAt }
     // Bumped on every run so a result from an ABANDONED skill can be told apart
@@ -102,6 +113,7 @@ export class Runner {
       bestY: this.bot?.entity?.position?.y ?? null,
     }
     this.bodyClaim = claim
+    if (this.grant && this.arb.ok(this.grant)) this.grant.context = { kind: what, skill: this.current.skill }   // detectors read the operation context from the holder
     // IDENTITY-GUARDED, both of them. An abandoned skill unwinding late must
     // neither clear nor renew a claim that a newer run has since installed --
     // the first is the exact bug in bot.waterTravel's unguarded `= null`, and
@@ -175,6 +187,14 @@ export class Runner {
     this.watchdog?.noteActivity()
     const controller = new AbortController()
     const startedAt = Date.now()
+    if (config.reflex.arbiter) {
+      // A reflex may be holding the body (an escape in progress): a skill does
+      // not start under it. That is the answer "busy", not a silent overlap.
+      const grant = await this.arb.acquire({ owner: skillName, priority: PRIORITY.work, context: null,
+                                             onCancel: () => { this.interrupt(`preempted by ${this.arb.holder?.owner ?? 'a reflex'}`) } })
+      if (!grant) return { status: 'failed', failClass: 'body_held', detail: `the body is held by ${this.arb.holder?.owner ?? 'a reflex'}; the skill did not start` }
+      this.grant = grant
+    }
     const invBefore = inventorySummary(this.bot)
     const posBefore = this.bot.entity?.position?.clone()
     const hpBefore = this.bot.health
@@ -240,6 +260,7 @@ export class Runner {
       if (hardStop) clearTimeout(hardStop)
       try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
       this.bodyClaim = null
+      if (this.grant) { this.arb.release(this.grant, `skill ended: ${result?.status ?? 'unknown'}`); this.grant = null }
     }
 
     // A LATE RESOLUTION FROM AN ABANDONED SKILL MUST NOT LAND. If the runner
