@@ -1518,7 +1518,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           })
           const routine = ESCAPE_ROUTINES[plan]
           const r = routine
-            ? await routine(bot, { yieldTo: drowningOwnsBody })
+            ? await withinBody(airGrant ?? entombedGrant ?? maroonGrant, () => routine(bot, { yieldTo: drowningOwnsBody }))
                 .catch(e => ({ ok: false, why: String(e?.message ?? e) }))
             : { ok: false, why: `no routine for ${plan}` }
           logEvent({ kind: terminal ? 'last_resort_result' : 'stranded_escape_result',
@@ -2601,7 +2601,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (plan === 'step_off') lastStepOffAt = Date.now()
             const routine = ESCAPE_ROUTINES[plan]
             acted = routine
-              ? await routine(bot, { yieldTo: drowningOwnsBody })
+              ? await withinBody(airGrant ?? entombedGrant ?? maroonGrant, () => routine(bot, { yieldTo: drowningOwnsBody }))
                   .catch(e => ({ ok: false, why: `threw: ${e.message}` }))
               : { ok: false, why: `NO ROUTINE for ${plan} -- the table is not exhaustive` }
           }
