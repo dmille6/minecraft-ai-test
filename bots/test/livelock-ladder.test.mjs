@@ -1,7 +1,9 @@
 // THE LIVELOCK BREAKER HAS TWO RUNGS AND A LATCH, and a failed relocation no longer clears the veto that found it.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { livelockNext, escapedFrom, ladderExhausted, LIVELOCK_MIN_MOVE, LIVELOCK_LATCH_MS, LADDER_MAX_LATCHES } from '../src/cognitive.mjs'
+import { livelockNext, escapedFrom, ladderExhausted, LIVELOCK_MIN_MOVE, LIVELOCK_LATCH_MS, LADDER_MAX_LATCHES, LIVELOCK_BLOCK_RESERVE } from '../src/cognitive.mjs'
+import { escapedFrom as shared } from '../src/recovery.mjs'
+import { readFileSync as rf } from 'node:fs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -38,6 +40,8 @@ t('MUTANT: clearing the window unconditionally again is caught', () => {
 t('the shared postcondition: eight blocks sideways, or four blocks up into DRY air; height gained into water is not an escape', () => {
   const from = { x: 0, y: 55, z: 0 }
   assert.equal(escapedFrom(from, { x: 9, y: 55, z: 0, wet: false }), true)
+  assert.equal(escapedFrom(from, { x: 9, y: 55, z: 0, wet: true }), false, 'eight blocks sideways ending underwater is not an escape')
+  assert.equal(escapedFrom, shared, 'one postcondition, shared through recovery.mjs')
   assert.equal(escapedFrom(from, { x: 3, y: 55, z: 3, wet: false }), false)
   assert.equal(escapedFrom(from, { x: 0, y: 60, z: 0, wet: false }), true, 'a pillar or shaft that gained 5 dry blocks')
   assert.equal(escapedFrom(from, { x: 0, y: 60, z: 0, wet: true }), false, 'the same rise into water (hive-a-Delta reached y=63 swimming)')
@@ -50,10 +54,15 @@ t('three latches inside an hour exhaust the ladder; an old latch does not count'
   assert.equal(ladderExhausted([now - 4_000_000, now - 200, now - 300], now), false, 'the first latch fell out of the window')
   assert.equal(LADDER_MAX_LATCHES, 3)
 })
-t('the escape declares recovery_exhausted exactly when the ladder is exhausted, and rests longer', () => {
+t('the escape declares recovery_exhausted exactly when the ladder is exhausted, terminal until displaced; the dig rung keeps the reserve', () => {
   const c = strip(RAW); const i = c.indexOf('async #escape()'); const f = c.slice(i, i + 5000)
   assert.match(f, /if \(ladderExhausted\(this\.livelockLatches, Date\.now\(\)\)\) \{[\s\S]{0,600}kind: 'recovery_exhausted'/, 'the terminal event')
-  assert.match(f, /this\.livelockLatchedUntil = Date\.now\(\) \+ LADDER_EXHAUSTED_REST_MS/, 'the long rest')
+  assert.match(f, /this\.recoveryExhaustedAt = at[\s\S]{0,80}this\.livelockLatchedUntil = Infinity/, 'exhaustion is terminal until the bot is somewhere else')
+  assert.match(c, /if \(at && escapedFrom\(this\.recoveryExhaustedAt,/, 'the terminal state lifts only on displacement')
+  assert.match(f, /blocksBefore >= LIVELOCK_BLOCK_RESERVE\) \{/, 'the dig rung is gated on the block reserve')
+  assert.ok(LIVELOCK_BLOCK_RESERVE >= 8, 'the reserve is at least the scaffold prerequisite')
+  const r = strip(rf(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
+  assert.match(r, /!escapedFrom\(climbFrom, \{[^}]*\}\) && isEntombed\(bot\)\) escapeFailures\+\+/, 'the entombed arm scores a hollow climb with the same postcondition')
   assert.match(f, /escapedFrom\(from, here\(\)\) \? 'done'/, 'done is the shared postcondition, not raw displacement')
   assert.match(f, /blocks spent \$\{spent\}/, 'the spend is reported')
 })

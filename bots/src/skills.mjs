@@ -5346,14 +5346,15 @@ export async function shaftAscend(bot, targetY, signal,
       // and climbPrerequisite told a bot holding a pickaxe to go and craft one.
       // `shaftDigBudget` is the same split escapeStairUp uses, exported so the
       // Delta case is a test rather than a story.
-      const plan = shaftDigBudget(head, tool, digEnv(bot))
-      if (plan.refuse) {
-        return { gained: p.y - startY, stopped: `cannot break ${head.name} by hand` }
-      }
+      // EQUIP FIRST, THEN PRICE WHAT IS ACTUALLY IN HAND (Codex pass 2): a
+      // swallowed equip failure must not leave a bare hand digging under a
+      // pickaxe's deadline, nor hide a real "needs a pickaxe".
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
-      // WHAT IS ACTUALLY IN HAND, not what was selected: a swallowed equip
-      // failure must not hide a real "needs a pickaxe" (Codex, 2026-09-13).
       const inHand = tool && bot.heldItem?.name === tool.name ? tool : null
+      const plan = shaftDigBudget(head, inHand, digEnv(bot))
+      if (plan.refuse) {
+        return { gained: p.y - startY, stopped: `cannot break ${head.name} ${inHand ? `with ${inHand.name}` : 'by hand'}` }
+      }
       const left = deadline ? deadline - Date.now() : Infinity
       if (left <= 0) return { gained: p.y - startY, stopped: 'climb budget spent before the dig' }
       try {
@@ -5643,7 +5644,9 @@ export function climbAdvice(stopped) {
     return ' — this stone needs a pickaxe: gather wood, craft a pickaxe, then run surface again'
   }
   if (s.includes('dig failed')) {
-    return ' — the dig was cut short with a pickaxe in hand: run surface again from here'
+    // NOT "run surface again": the identical proposal meets the repeat guard.
+    // A different column is a different action.
+    return ' — the dig was cut short twice with a pickaxe in hand: step two or three blocks to another column, then surface'
   }
   if (s.includes('no height gained')) {
     return ' — this spot is blocked overhead: move somewhere more open, then run surface again'

@@ -297,7 +297,7 @@ t('the climb SPENDS the planned budget, and no literal survives beside it', () =
   // outlives its caller is the watchdog defect in another coat).
   assert.equal(call[1].trim(), 'Math.min(plan.budgetMs, left)',
     `the head dig is budgeted with ${call[1].trim()} instead of the planned time`)
-  assert.ok(/shaftDigBudget\(head, tool, digEnv\(bot\)\)/.test(code),
+  assert.ok(/shaftDigBudget\(head, inHand, digEnv\(bot\)\)/.test(code),   // priced with the hand actually equipped
     'the budget is not derived from the block the climb is about to break, priced where the bot is')
   assert.ok(/plan\.refuse/.test(code), 'nothing acts on the refusal, so the cap is inert')
 })

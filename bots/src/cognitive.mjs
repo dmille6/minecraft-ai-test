@@ -24,6 +24,7 @@ import { logLlm, logEvent, log } from './logger.mjs'
 // bots/test/evidence-gate.test.mjs that keeps it that way.
 import { snapshot, perception, biomeAt } from './state.mjs'
 import { config } from './config.mjs'
+import { escapedFrom } from './recovery.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
 
@@ -138,6 +139,7 @@ export const PREREQ_TTL_MS = 15 * 60_000
 // prompt -- are different ones. Below this the breaker has not broken anything
 // and must not report that it did.
 export const LIVELOCK_MIN_MOVE = 8
+export { escapedFrom }
 /** After both rungs fail to move the bot, the breaker rests this long; the
  *  repeat window stays UNCLEARED meanwhile so the identical proposal keeps
  *  being refused instead of re-run (2026-09-13). */
@@ -159,18 +161,9 @@ export function livelockNext ({ rung, moved, minMove = LIVELOCK_MIN_MOVE }) {
   return rung === 'walk' ? 'dig' : 'latch'
 }
 
-/**
- * THE SHARED ESCAPE POSTCONDITION (Codex, 2026-09-13): a relocation counts
- * when the bot is somewhere else -- eight blocks sideways, or four blocks up
- * into dry air (a pillar or a dug shaft that reached open ground). Height
- * gained into water is not an escape.
- */
-export function escapedFrom (before, after, { minMove = LIVELOCK_MIN_MOVE, minRise = 4 } = {}) {
-  if (!before || !after) return false
-  const flat = Math.hypot(after.x - before.x, after.z - before.z)
-  if (flat >= minMove) return true
-  return (after.y - before.y) >= minRise && !after.wet
-}
+/** The dig rung may not spend the bot below this many placeable blocks: the
+ *  entombment reflex's own climb needs them (scaffoldPrereq asks for 8). */
+export const LIVELOCK_BLOCK_RESERVE = 8
 
 /** How many ladders may end in a latch within the window before the breaker
  *  declares the bot beyond its own remedies and rests for a long time. */
@@ -364,7 +357,10 @@ export class CognitiveLoop {
     // 460 cobblestone while the travel profile said noPath every time.
     await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
     let rung = 'walk', moved = movedNow(), next = escapedFrom(from, here()) ? 'done' : livelockNext({ rung, moved })
-    if (next === 'dig' && typeof this.bot.withAscentMovements === 'function') {
+    // THE RESERVE IS ENFORCED BEFORE THE RUNG, not reported after it: a bot
+    // holding fewer blocks than the entombment climb needs does not get to
+    // bridge with them (Codex pass 2).
+    if (next === 'dig' && typeof this.bot.withAscentMovements === 'function' && blocksBefore >= LIVELOCK_BLOCK_RESERVE) {
       rung = 'dig'
       await this.bot.withAscentMovements(() =>
         this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }))
@@ -395,9 +391,13 @@ export class CognitiveLoop {
       logEvent({ kind: 'recovery_exhausted', status: 'failed',
                  detail: `${this.livelockLatches.length} relocation ladders latched in the last hour at ` +
                          `${Math.round(at?.x ?? 0)},${Math.round(at?.y ?? 0)},${Math.round(at?.z ?? 0)}; placeable ${placeable()}, ` +
-                         `held ${this.bot.heldItem?.name ?? 'nothing'}${at?.wet ? ', in water' : ''} -- resting ${LADDER_EXHAUSTED_REST_MS / 60000} min`,
+                         `held ${this.bot.heldItem?.name ?? 'nothing'}${at?.wet ? ', in water' : ''} -- the breaker is off until the bot is somewhere else`,
                  snapshot: snapshot(this.bot) })
-      this.livelockLatchedUntil = Date.now() + LADDER_EXHAUSTED_REST_MS
+      // TERMINAL, NOT A COOLDOWN (Codex pass 2): the breaker stays off until
+      // the bot has left this place by some other means. It is a state a
+      // person reads in the digest, not a timer that restarts the same ladder.
+      this.recoveryExhaustedAt = at
+      this.livelockLatchedUntil = Infinity
       this.livelockLatches = []
     } else {
       this.livelockLatchedUntil = Date.now() + LIVELOCK_LATCH_MS
@@ -853,6 +853,13 @@ export class CognitiveLoop {
       if (rejection?.reason === 'repeat_loop' || this.consecutiveRejections >= 3) {
         // LATCHED: both rungs failed recently; the rejection itself is the
         // remedy until the rest expires (the model must propose something else).
+        if (this.recoveryExhaustedAt) {
+          // the terminal state lifts only when the bot is somewhere else
+          const at = this.bot.entity?.position
+          if (at && escapedFrom(this.recoveryExhaustedAt, { x: at.x, y: at.y, z: at.z, wet: !!this.bot.entity?.isInWater })) {
+            this.recoveryExhaustedAt = null; this.livelockLatchedUntil = 0
+          }
+        }
         if (!(this.livelockLatchedUntil > Date.now())) await this.#escape()
       }
     }

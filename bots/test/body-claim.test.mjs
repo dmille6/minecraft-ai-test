@@ -290,7 +290,7 @@ t('A REFUSED PILLAR IS NOT SCORED AS A FAILED ESCAPE — but an EXHAUSTED one is
   assert.ok(!/escapeFailures\+\+/.test(refusalArm),
     'the refusal arm itself advances the give-up counter')
   const failureArm = code.slice(elseIf, code.indexOf('\n', code.indexOf('escapeFailures++', elseIf)))
-  assert.match(failureArm, /position\.y - yBefore < 1/,
+  assert.match(failureArm, /!escapedFrom\(climbFrom, \{[^}]*\}\) && isEntombed\(bot\)/,   // the shared postcondition (recovery.mjs), 2026-09-13
     'the failure arm no longer tests that the bot actually failed to rise')
   // 'exhausted' means the pillar ran out PARTWAY and left the bot worse off
   // than it started. That is an attempt that failed, not a decline to start,

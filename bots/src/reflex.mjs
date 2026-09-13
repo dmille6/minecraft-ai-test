@@ -32,6 +32,7 @@ import { rideFloorDown } from './skills.mjs'
 // imports FROM skills.mjs -- putting it here would have made an import cycle.
 export { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS }
 import { Vec3 } from 'vec3'
+import { escapedFrom } from './recovery.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -2657,6 +2658,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // to start, and that value was being dropped -- which is why a refusal
           // could not be told apart from an attempt that went nowhere.
           let climbed = null
+          const climbFrom = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z }
           try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position)) }
           catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
           noteReflexInventory(bot, invBefore, 'entombed_escape')
@@ -2793,7 +2795,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               }
             }
           }
-          else if (bot.entity && bot.entity.position.y - yBefore < 1 && isEntombed(bot)) escapeFailures++
+          // THE SHARED POSTCONDITION (recovery.mjs): a climb that did not leave
+          // this place -- four blocks up and dry, or eight sideways -- while the
+          // bot is still walled in is a failed escape, whatever pillarOut returned.
+          else if (bot.entity && !escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) && isEntombed(bot)) escapeFailures++
           else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
         } finally { escaping = false }
         return

@@ -32,7 +32,7 @@ t('a dig that failed WITH a pickaxe in hand asks for no pickaxe; by hand it stil
   assert.equal(climbPrerequisite('dig failed on stone with wooden_pickaxe: dig exceeded 15000ms'), null)
   assert.equal(climbPrerequisite('dig failed on stone by hand: dig exceeded 15000ms')?.items?.[0], 'wooden_pickaxe')
   assert.equal(climbPrerequisite('cannot break obsidian by hand')?.items?.[0], 'wooden_pickaxe')
-  assert.match(climbAdvice('dig failed on stone with wooden_pickaxe: Digging aborted'), /cut short with a pickaxe in hand/)
+  assert.match(climbAdvice('dig failed on stone with wooden_pickaxe: Digging aborted'), /cut short twice with a pickaxe in hand/)
   assert.match(climbAdvice('dig failed on stone by hand: dig exceeded 15000ms'), /needs a pickaxe/)
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
