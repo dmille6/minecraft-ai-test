@@ -16,6 +16,8 @@
 // Pure with respect to mineflayer: the arbiter never touches the bot. Callers wrap their actuator calls in
 // `arb.act(grant, fn)`. Tests drive it without a bot.
 
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 export const PRIORITY = Object.freeze({
   air: 100,        // no air: nothing outranks breathing
   lava: 90,        // in or beside lava / fire
@@ -85,6 +87,48 @@ export class Arbiter {
 
   /** Synchronous check for tight loops (control-state re-assertion per tick). */
   ok (grant) { return !!grant && grant.alive && this.#holder === grant }
+
+  // ---------------------------------------------------------------- the actuator-layer gate --------------------
+  //
+  // GATE EVERY ACTUATOR CALL, INCLUDING THOSE INSIDE HELPERS (Codex, arbiter final pass). Forty-three call sites
+  // drive the body directly; wrapping them one by one is the bug class in another coat. Instead the operation
+  // that holds the body runs inside `within(grant, fn)`, which records the grant in an AsyncLocalStorage context
+  // that survives every await; the wrappers installed by `installActuatorGate(bot)` read that context and refuse
+  // a call whose context is not the current holder. A call with NO context (a path not yet routed) is allowed
+  // only while the body is free -- while someone holds it, an unrouted caller is rejected, which is exactly the
+  // overlap the arbiter exists to stop.
+  #als = new AsyncLocalStorage()
+  within (grant, fn) { return this.#als.run(grant, fn) }
+  /** Who is calling, per the async context. */
+  caller () { return this.#als.getStore() ?? null }
+  /** Pure decision, exported through `mayAct` for tests: may a call from `ctx` proceed while `holder` holds? */
+  static mayAct (ctx, holder) {
+    if (!holder) return true                       // a free body: anyone may move it (unrouted legacy callers)
+    if (!ctx) return false                         // someone holds it and the caller is unrouted: refused
+    return ctx === holder && ctx.alive             // the holder itself, still alive
+  }
+  installActuatorGate (bot, { names = ['dig', 'placeBlock', 'setControlState'], pathfinder = true, onRefuse = () => {} } = {}) {
+    const wrap = (obj, name) => {
+      const orig = obj?.[name]
+      if (typeof orig !== 'function') return
+      const self = this
+      obj[name] = function (...args) {
+        const holder = self.#holder && self.#holder.alive ? self.#holder : null
+        const ctx = self.caller()
+        if (!Arbiter.mayAct(ctx, holder)) {
+          onRefuse(name, ctx, holder)
+          const err = new StaleGrant(ctx, `${name} refused: the body is held by ${holder.owner}`)
+          if (name === 'setControlState') return undefined     // control states are set in tight loops: refuse silently
+          return Promise.reject(err)
+        }
+        return orig.apply(this, args)
+      }
+      obj[name].__arbiterGated = true
+    }
+    for (const n of names) wrap(bot, n)
+    if (pathfinder && bot.pathfinder) wrap(bot.pathfinder, 'goto')
+    return bot
+  }
 
   /** Give the body back. Idempotent. */
   release (grant, why = 'done') {
