@@ -333,12 +333,15 @@ export const CLIMB_CEILING = 125
  */
 export function climbNeedAbove (blockAt, feet, { cap = PILLAR_MAX_BLOCKS, passable = bodyPassable } = {}) {
   const fx = Math.floor(feet.x), fy = Math.floor(feet.y), fz = Math.floor(feet.z)
-  let prevOpen = false
+  // AN OPENING IS AIR WITH SOMEWHERE TO GO (Codex, 2026-09-13): two passable
+  // cells can be water, or the bottom of a shaft with no way sideways; a climb
+  // that ends there spent its blocks to be stranded higher. The cell pair must
+  // be dry, and at least one horizontal neighbour must be passable at both
+  // heights -- a place the bot can step off the pillar.
+  const dry = b => !!b && passable(b) && !['water', 'lava', 'flowing_water'].includes(b.name)
+  const lateral = y => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => dry(blockAt(fx + dx, y, fz + dz)) && dry(blockAt(fx + dx, y + 1, fz + dz)))
   for (let y = fy + 2; y <= fy + 2 + cap; y++) {
-    const b = blockAt(fx, y, fz)
-    const open = !!b && passable(b)
-    if (open && prevOpen) return Math.max(1, Math.min(cap, (y - 1) - fy))   // feet in the lower of the two open cells
-    prevOpen = open
+    if (dry(blockAt(fx, y, fz)) && dry(blockAt(fx, y + 1, fz)) && lateral(y)) return Math.max(1, Math.min(cap, y - fy))   // feet in the lower open cell
   }
   return cap
 }
@@ -4447,8 +4450,8 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS) {
       // single contributor to the 5,951 destroyed pickaxes.
       const tool = bestTool(bot, head)
       const env = digEnv(bot)
-      const hand = digHand({ bareMs: predictedDigMs(head, null, env),
-                             toolMs: predictedDigMs(head, tool, env) })
+      const hand = digHand({ bareMs: predictedDigMs(head, null), toolMs: predictedDigMs(head, tool),
+                             bareActualMs: predictedDigMs(head, null, env), toolActualMs: predictedDigMs(head, tool, env) })
       if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
       else if (bot.heldItem) await bot.unequip('hand').catch(() => {})
       try {

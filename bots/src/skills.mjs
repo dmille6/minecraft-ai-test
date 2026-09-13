@@ -5233,6 +5233,7 @@ export async function shaftAscend(bot, targetY, signal,
 
   const startY = bot.entity.position.y
   let noGain = 0
+  const retried = new Set()   // one bounded retry per head cell after an interrupted tool dig
   // A REFUSAL TO DIG IS NOT A REFUSAL TO CLIMB. See dryColumnStep in
   // scaffold.mjs for the measurement; the cap is here because a bot that keeps
   // finding the next column wet must stop shuffling and report, not wander. It
@@ -5350,6 +5351,9 @@ export async function shaftAscend(bot, targetY, signal,
         return { gained: p.y - startY, stopped: `cannot break ${head.name} by hand` }
       }
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      // WHAT IS ACTUALLY IN HAND, not what was selected: a swallowed equip
+      // failure must not hide a real "needs a pickaxe" (Codex, 2026-09-13).
+      const inHand = tool && bot.heldItem?.name === tool.name ? tool : null
       const left = deadline ? deadline - Date.now() : Infinity
       if (left <= 0) return { gained: p.y - startY, stopped: 'climb budget spent before the dig' }
       try {
@@ -5376,7 +5380,16 @@ export async function shaftAscend(bot, targetY, signal,
         // problem, and the sandbox replay of hive-a-Delta showed exactly that:
         // "Digging aborted" (the air reflex took the body) turned into "craft a
         // pickaxe" for a bot with a wooden pickaxe in its hand.
-        return { gained: p.y - startY, stopped: `dig failed on ${head.name} ${tool ? `with ${tool.name}` : 'by hand'}: ${why}` }
+        //
+        // RETRY HERE, NOT BY ADVICE. "Run surface again" as advice meets the
+        // admission gate's repeat guard; the climb retries the same block once
+        // itself, inside its own deadline, when it was interrupted with a tool
+        // in hand (the reflex that took the body has finished by now).
+        if (inHand && !retried.has(`${head.position?.x},${head.position?.y},${head.position?.z}`)) {
+          retried.add(`${head.position?.x},${head.position?.y},${head.position?.z}`)
+          await sleep(400); continue
+        }
+        return { gained: p.y - startY, stopped: `dig failed on ${head.name} ${inHand ? `with ${inHand.name}` : 'by hand'}: ${why}` }
       }
       if (FALLING.has(head.name)) { await sleep(500); continue }  // column settles, re-check
       await sleep(120)

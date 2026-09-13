@@ -160,6 +160,28 @@ export function livelockNext ({ rung, moved, minMove = LIVELOCK_MIN_MOVE }) {
 }
 
 /**
+ * THE SHARED ESCAPE POSTCONDITION (Codex, 2026-09-13): a relocation counts
+ * when the bot is somewhere else -- eight blocks sideways, or four blocks up
+ * into dry air (a pillar or a dug shaft that reached open ground). Height
+ * gained into water is not an escape.
+ */
+export function escapedFrom (before, after, { minMove = LIVELOCK_MIN_MOVE, minRise = 4 } = {}) {
+  if (!before || !after) return false
+  const flat = Math.hypot(after.x - before.x, after.z - before.z)
+  if (flat >= minMove) return true
+  return (after.y - before.y) >= minRise && !after.wet
+}
+
+/** How many ladders may end in a latch within the window before the breaker
+ *  declares the bot beyond its own remedies and rests for a long time. */
+export const LADDER_MAX_LATCHES = 3
+export const LADDER_WINDOW_MS = 3_600_000
+export const LADDER_EXHAUSTED_REST_MS = 3_600_000
+export function ladderExhausted (latches, now, { max = LADDER_MAX_LATCHES, windowMs = LADDER_WINDOW_MS } = {}) {
+  return latches.filter(t => now - t <= windowMs).length >= max
+}
+
+/**
  * Does a held prerequisite replace the milestone this cycle?
  *
  * Pure, so the decision that governs what the model reads as TASK: can be
@@ -332,33 +354,53 @@ export class CognitiveLoop {
     // Success here is DISPLACEMENT, not arrival. The breaker exists to put the
     // bot where its perception differs so the model stops proposing the same
     // action; reaching the exact square 25-60 blocks out was never the goal.
-    const from = { x: p.x, z: p.z }
-    const movedNow = () => { const at = this.bot.entity?.position; return at ? Math.hypot(at.x - from.x, at.z - from.z) : 0 }
+    const from = { x: p.x, y: p.y, z: p.z }
+    const placeable = () => this.bot.inventory?.items?.().filter(it => /dirt|cobblestone|stone|planks|_log|andesite|diorite|granite|gravel|netherrack/.test(it.name)).reduce((n, it) => n + it.count, 0) ?? 0
+    const blocksBefore = placeable()
+    const here = () => { const at = this.bot.entity?.position; return at ? { x: at.x, y: at.y, z: at.z, wet: !!this.bot.entity?.isInWater } : null }
+    const movedNow = () => { const at = here(); return at ? Math.hypot(at.x - from.x, at.z - from.z) : 0 }
     // RUNG 1: walk. RUNG 2: the same relocation with the ascent profile (dig
     // and bridge allowed) -- hive-a-Comet stood on a disconnected ledge with
     // 460 cobblestone while the travel profile said noPath every time.
     await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
-    let rung = 'walk', moved = movedNow(), next = livelockNext({ rung, moved })
+    let rung = 'walk', moved = movedNow(), next = escapedFrom(from, here()) ? 'done' : livelockNext({ rung, moved })
     if (next === 'dig' && typeof this.bot.withAscentMovements === 'function') {
       rung = 'dig'
       await this.bot.withAscentMovements(() =>
         this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }))
-      moved = movedNow(); next = livelockNext({ rung, moved })
+      moved = movedNow(); next = escapedFrom(from, here()) ? 'done' : livelockNext({ rung, moved })
     }
+    const spent = blocksBefore - placeable()
     logEvent({ kind: 'livelock_escape',
                status: next === 'done' ? 'success' : 'failed',
                detail: `fixated on one action; relocating to ${x},${z} -- moved ` +
-                       `${moved.toFixed(0)} of the ${Math.round(dist)} blocks asked for (${rung}${next === 'latch' ? '; latched' : ''})`,
+                       `${moved.toFixed(0)} of the ${Math.round(dist)} blocks asked for (${rung}${next === 'latch' ? '; latched' : ''}; ` +
+                       `dy ${((here()?.y ?? from.y) - from.y).toFixed(1)}, blocks spent ${spent})`,
                snapshot: snapshot(this.bot) })
     if (next === 'done') {
       this.admission.clearRepeatWindow()
       this.consecutiveRejections = 0
+      return
+    }
+    // THE WINDOW STAYS. Clearing it here is what let the same action run four
+    // more times from the same square; the veto is the only thing that was
+    // working. Rest before trying to relocate again -- and after three latches
+    // in an hour, say so ONCE, plainly, and rest an hour: the bot is beyond
+    // its own remedies and a person needs to see it (recovery_exhausted is the
+    // digest's trapped-bot list).
+    this.consecutiveRejections = 0
+    this.livelockLatches = [...(this.livelockLatches ?? []), Date.now()].filter(t => Date.now() - t <= LADDER_WINDOW_MS)
+    if (ladderExhausted(this.livelockLatches, Date.now())) {
+      const at = here()
+      logEvent({ kind: 'recovery_exhausted', status: 'failed',
+                 detail: `${this.livelockLatches.length} relocation ladders latched in the last hour at ` +
+                         `${Math.round(at?.x ?? 0)},${Math.round(at?.y ?? 0)},${Math.round(at?.z ?? 0)}; placeable ${placeable()}, ` +
+                         `held ${this.bot.heldItem?.name ?? 'nothing'}${at?.wet ? ', in water' : ''} -- resting ${LADDER_EXHAUSTED_REST_MS / 60000} min`,
+                 snapshot: snapshot(this.bot) })
+      this.livelockLatchedUntil = Date.now() + LADDER_EXHAUSTED_REST_MS
+      this.livelockLatches = []
     } else {
-      // THE WINDOW STAYS. Clearing it here is what let the same action run
-      // four more times from the same square; the veto is the only thing
-      // that was working. Rest before trying to relocate again.
       this.livelockLatchedUntil = Date.now() + LIVELOCK_LATCH_MS
-      this.consecutiveRejections = 0
     }
   }
 

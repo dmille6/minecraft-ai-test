@@ -32,6 +32,14 @@ t('a single air pocket in the stone is not an opening; two consecutive passable 
   const shallow = (x, y, z) => y <= 51 ? stone : air
   assert.equal(climbNeedAbove(shallow, feet, { passable }), 4)
 })
+t('an opening must be DRY and have a lateral exit: a water column or a 1-wide shaft is not out', () => {
+  const waterTop = (x, y, z) => y <= 61 ? stone : water
+  assert.equal(climbNeedAbove(waterTop, feet, { cap: 24, passable }), 24, 'two passable water cells are not an opening')
+  const shaft = (x, y, z) => (x === 416 && z === 210 && y >= 50) ? air : stone       // open only in the bot's own column
+  assert.equal(climbNeedAbove(shaft, feet, { cap: 24, passable }), 24, 'a shaft with stone on every side has no exit')
+  const shaftWithLedge = (x, y, z) => (x === 416 && z === 210 && y >= 50) ? air : (y >= 58 && x === 417 && z === 210) ? air : stone
+  assert.equal(climbNeedAbove(shaftWithLedge, feet, { cap: 24, passable }), 10, 'the first height with a dry side cell pair (58,59) is the exit')
+})
 t('no opening within the cap returns the cap, which keeps the deep-column refusal', () => {
   const deep = () => stone
   assert.equal(climbNeedAbove(deep, feet, { cap: 24, passable }), 24)

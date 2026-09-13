@@ -143,10 +143,15 @@ export function predictedDigMs (block, tool = null, env = {}) {
  *
  * @returns {{ hand: 'bare'|'tool'|null, budgetMs: number, refuse: boolean }}
  */
-export function digHand ({ bareMs = null, toolMs = null } = {}) {
-  const bare = planDig(bareMs)
+export function digHand ({ bareMs = null, toolMs = null, bareActualMs = null, toolActualMs = null } = {}) {
+  // REFUSE ON HARDNESS, BUDGET ON REALITY -- the same split as planDigSplit.
+  // pillarOut priced its refusal with the situational prediction, so a bot in
+  // water refused to break stone bare-handed (187 s "unbreakable") that is
+  // 7.5 s on the ground; board-c-Bravo's climb was admitted and then stalled
+  // under a ceiling it was never allowed to touch (2026-09-13).
+  const bare = planDigSplit({ hardnessMs: bareMs, actualMs: bareActualMs })
   if (!bare.refuse) return { hand: 'bare', budgetMs: bare.budgetMs, refuse: false }
-  const tooled = planDig(toolMs)
+  const tooled = planDigSplit({ hardnessMs: toolMs, actualMs: toolActualMs })
   if (!tooled.refuse) return { hand: 'tool', budgetMs: tooled.budgetMs, refuse: false }
   return { hand: null, budgetMs: 0, refuse: true }
 }
