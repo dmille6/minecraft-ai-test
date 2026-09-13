@@ -9,6 +9,7 @@ SERVER="${SERVER:-sandbox}"; case "$SERVER" in sandbox) PORT=25599;; sandbox2) P
 BRAIN_PORT="${BRAIN_PORT:-$((11499 + PORT - 25599))}"
 SUFFIX=""; [[ "$SERVER" != sandbox ]] && SUFFIX="-${SERVER#sandbox}"   # sandbox2 -> "-2": distinct bot name, log and state dirs per server
 TMPENV="$(mktemp "$ROOT/sandbox/.env.XXXXXX")"; sed "s/^MINECRAFT_PORT=.*/MINECRAFT_PORT=$PORT/; s#^OLLAMA_BASE_URL=.*#OLLAMA_BASE_URL=http://127.0.0.1:$BRAIN_PORT#; s#^OLLAMA_BASE_URLS=.*#OLLAMA_BASE_URLS=http://127.0.0.1:$BRAIN_PORT#; s#^BOT_NAME=\(.*\)#BOT_NAME=\1$SUFFIX#; s#^LOG_DIR=\(.*\)#LOG_DIR=\1$SUFFIX#; s#^STATE_DIR=\(.*\)#STATE_DIR=\1$SUFFIX#" "$ROOT/$ENVF" > "$TMPENV"; trap 'rm -f "$TMPENV"' EXIT
+[[ -n "${ENV_EXTRA:-}" ]] && printf "%s\n" "$ENV_EXTRA" | tr ";" "\n" >> "$TMPENV"   # e.g. ENV_EXTRA="ARBITER=1" (semicolon-separated)
 ENVREL="${TMPENV#$ROOT/}"
 BOT="$(grep '^BOT_NAME=' "$ROOT/$ENVF" | cut -d= -f2)${SUFFIX}"; BR_ROOT="${BOT_ROOT:-$ROOT}"; SHA=$(git -C "$BR_ROOT" rev-parse --short HEAD); BR=$(git -C "$BR_ROOT" branch --show-current || echo detached)
 scp -q "$ROOT/$FX" "$ROOT/sandbox/sandbox-scenario.py" "$H:/tmp/"

@@ -11,7 +11,8 @@ score() { (cd "$ROOT" && python3 sandbox/score-run.py "$@"); }
 one() {  # one <server> <root> <arm> <fixture> <env> <script> <minutes> <label>
   local SERVER=$1 ROOTB=$2 ARM=$3 FX=$4 ENV=$5 SCRIPT=$6 MIN=$7 LABEL=$8
   local T0=$(date -u +%FT%TZ); local BOT=$(grep '^BOT_NAME=' "$ROOT/$ENV" | cut -d= -f2); [[ "$SERVER" != sandbox ]] && BOT="$BOT-${SERVER#sandbox}"
-  local V=$(cd "$ROOT" && SERVER=$SERVER BOT_ROOT=$ROOTB SCRIPT="$SCRIPT" sandbox/run-scenario.sh "$FX" "$ENV" "$MIN" 2>&1 | grep -E '^\{"fixture"' | tail -1)
+  local EXTRA=""; [[ "$ARM" == candidate ]] && EXTRA="${CANDIDATE_ENV_EXTRA:-}"; [[ "$ARM" == control ]] && EXTRA="${CONTROL_ENV_EXTRA:-}"
+  local V=$(cd "$ROOT" && SERVER=$SERVER BOT_ROOT=$ROOTB SCRIPT="$SCRIPT" ENV_EXTRA="$EXTRA" sandbox/run-scenario.sh "$FX" "$ENV" "$MIN" 2>&1 | grep -E '^\{"fixture"' | tail -1)
   local T1=$(date -u +%FT%TZ)
   score "$BOT" "$T0" "$T1" "$LABEL" "$ARM" "$ROOTB" "$ROOT/$FX" "${V:-{}}" | tee -a "$OUT.tmp"
 }
