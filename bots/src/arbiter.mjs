@@ -103,22 +103,32 @@ export class Arbiter {
   caller () { return this.#als.getStore() ?? null }
   /** Pure decision, exported through `mayAct` for tests: may a call from `ctx` proceed while `holder` holds? */
   static mayAct (ctx, holder) {
-    if (!holder) return true                       // a free body: anyone may move it (unrouted legacy callers)
-    if (!ctx) return false                         // someone holds it and the caller is unrouted: refused
-    return ctx === holder && ctx.alive             // the holder itself, still alive
+    if (ctx) return !!holder && ctx === holder && ctx.alive   // a routed caller must BE the live holder (a released or revoked context never resumes, even on a free body -- Codex)
+    return !holder                                            // an unrouted caller: only while the body is free
   }
-  installActuatorGate (bot, { names = ['dig', 'placeBlock', 'setControlState'], pathfinder = true, onRefuse = () => {} } = {}) {
-    const wrap = (obj, name) => {
+  //
+  // WHAT IS GATED AND WHAT IS NOT (Codex, gate pass 1). EventEmitter listeners run in the EMITTER's async context,
+  // so the pathfinder's own physicsTick listener -- which drives setControlState and look for a goto the holder
+  // legitimately started -- would carry no grant and be refused. Control states and look are therefore NOT gated:
+  // they are the pathfinder's and the reflex ticks' low-level hands. The gate sits on the ENTRY POINTS that start
+  // an operation: dig, placeBlock, pathfinder.goto, and pathfinder.setGoal with a goal (setGoal(null) is a stop
+  // and anyone may stop). Stopping is never gated: stopDigging and clearControlStates stay raw, and the arbiter's
+  // own independent stop uses the RAW functions captured here, so a revocation can always halt the body.
+  #raw = null
+  installActuatorGate (bot, { names = ['dig', 'placeBlock'], pathfinder = true, onRefuse = () => {} } = {}) {
+    const self = this
+    this.#raw = { dig: bot.dig, placeBlock: bot.placeBlock, setControlState: bot.setControlState, clearControlStates: bot.clearControlStates,
+                  stopDigging: bot.stopDigging, goto: bot.pathfinder?.goto, setGoal: bot.pathfinder?.setGoal }
+    const wrap = (obj, name, { allowWhen = () => false } = {}) => {
       const orig = obj?.[name]
       if (typeof orig !== 'function') return
-      const self = this
       obj[name] = function (...args) {
+        if (allowWhen(...args)) return orig.apply(this, args)
         const holder = self.#holder && self.#holder.alive ? self.#holder : null
         const ctx = self.caller()
         if (!Arbiter.mayAct(ctx, holder)) {
           onRefuse(name, ctx, holder)
-          const err = new StaleGrant(ctx, `${name} refused: the body is held by ${holder.owner}`)
-          if (name === 'setControlState') return undefined     // control states are set in tight loops: refuse silently
+          const err = new StaleGrant(ctx, `${name} refused: the body is held by ${holder?.owner ?? 'nobody'}${ctx && !ctx.alive ? ' and the caller was revoked' : ''}`)
           return Promise.reject(err)
         }
         return orig.apply(this, args)
@@ -126,9 +136,13 @@ export class Arbiter {
       obj[name].__arbiterGated = true
     }
     for (const n of names) wrap(bot, n)
-    if (pathfinder && bot.pathfinder) wrap(bot.pathfinder, 'goto')
+    if (pathfinder && bot.pathfinder) { wrap(bot.pathfinder, 'goto'); wrap(bot.pathfinder, 'setGoal', { allowWhen: goal => goal == null }) }
+    // the independent stop now bypasses the gate through the raw functions
+    this.#stop = (h, acked) => { const r = this.#raw; try { r.setGoal?.call(bot.pathfinder, null) } catch {} try { if (bot.targetDigBlock) r.stopDigging?.call(bot) } catch {} try { r.clearControlStates?.call(bot) } catch {} }
     return bot
   }
+  /** The arbiter-only stop for a grant: halts goal, dig and controls through the raw functions, then releases. */
+  stop (grant, why = 'stopped') { if (grant && this.#holder === grant) { try { this.#stop(grant, true) } catch {} } this.release(grant, why) }   // scoped: a stale grant's stop never touches a successor's actuators
 
   /** Give the body back. Idempotent. */
   release (grant, why = 'done') {

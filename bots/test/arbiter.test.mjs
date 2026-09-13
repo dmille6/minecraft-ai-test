@@ -79,19 +79,45 @@ await ta('the actuator gate: the holder may act from inside its async context ac
   assert.equal(await bot.dig('free'), 'dug', 'a free body: an unrouted call is allowed')
   const g = await arb.acquire({ owner: 'gather', priority: PRIORITY.work })
   await assert.rejects(bot.dig('stranger'), StaleGrant, 'held: an unrouted call is refused')
-  bot.setControlState('forward', true); assert.ok(!calls.some(c => c[0] === 'ctl'), 'held: an unrouted control state is dropped silently')
+  bot.setControlState('forward', true); assert.ok(calls.some(c => c[0] === 'ctl'), 'held: control states are NOT gated (the pathfinder ticks them from the emitter context)')
+  assert.equal(bot.setControlState.__arbiterGated, undefined, 'control states carry no gate')
   const out = await arb.within(g, async () => { await sleep(5); const a = await bot.dig('mine'); await sleep(5); const b = await bot.pathfinder.goto('goal'); return [a, b] })
   assert.deepEqual(out, ['dug', 'went'], 'the holder acts across awaits inside its context')
   const h = await arb.acquire({ owner: 'air', priority: PRIORITY.air })   // preempts gather
   await assert.rejects(arb.within(g, () => bot.dig('late')), StaleGrant, 'the revoked holder cannot act from its own context')
   assert.equal(await arb.within(h, () => bot.placeBlock()), 'placed')
-  assert.ok(refused.length >= 3 && refused.every(r => r[2] === 'gather' || r[2] === 'air'), `refusals name the holder: ${JSON.stringify(refused)}`)
+  assert.ok(refused.length >= 2 && refused.every(r => r[2] === 'gather' || r[2] === 'air'), `refusals name the holder: ${JSON.stringify(refused)}`)
   assert.equal(bot.dig.__arbiterGated, true); assert.equal(bot.pathfinder.goto.__arbiterGated, true)
+})
+await ta('the gate after Codex pass 1: a released context never resumes on a free body; setGoal(null) is always allowed; the arbiter stop is raw and scoped', async () => {
+  const arb = new Arbiter(); const calls = []
+  const bot = { dig: async b => { calls.push(['dig', b]); return 'dug' }, placeBlock: async () => 'placed', setControlState: () => {}, clearControlStates: () => calls.push(['clear']),
+    stopDigging: () => calls.push(['stopDigging']), targetDigBlock: { x: 1 }, pathfinder: { goto: async () => 'went', setGoal: g => calls.push(['setGoal', g]) } }
+  arb.installActuatorGate(bot)
+  const g = await arb.acquire({ owner: 'gather' })
+  arb.release(g, 'done')
+  await assert.rejects(arb.within(g, () => bot.dig('after release')), StaleGrant, 'a released context is refused even though the body is free')
+  await assert.rejects(arb.within(g, () => bot.pathfinder.goto('x')), StaleGrant)
+  assert.equal(await bot.dig('unrouted'), 'dug', 'an unrouted call on the free body is still allowed')
+  const h = await arb.acquire({ owner: 'air', priority: PRIORITY.air })
+  bot.pathfinder.setGoal(null); assert.deepEqual(calls.at(-1), ['setGoal', null], 'setGoal(null) is a stop: anyone may stop')
+  await assert.rejects(Promise.resolve(bot.pathfinder.setGoal({ goal: 1 })), StaleGrant, 'setGoal with a goal is an entry point: gated')
+  assert.equal(bot.pathfinder.setGoal.__arbiterGated, true)
+  // the scoped stop: stopping a grant that no longer holds the body releases it without touching the successor's actuators
+  calls.length = 0
+  arb.stop(g, 'hard stop of a stale grant')
+  assert.deepEqual(calls, [], 'a stale grant\'s stop does not clear the successor\'s goal or controls')
+  assert.equal(arb.holder?.owner, 'air')
+  arb.stop(h, 'hard stop of the holder')
+  assert.deepEqual(calls, [['setGoal', null], ['stopDigging'], ['clear']], 'the holder\'s stop halts goal, dig and controls through the raw functions')
+  assert.equal(arb.holder, null)
 })
 await ta('mayAct is the whole decision', async () => {
   const g = { alive: true }
   assert.equal(Arbiter.mayAct(null, null), true); assert.equal(Arbiter.mayAct(null, g), false)
   assert.equal(Arbiter.mayAct(g, g), true); assert.equal(Arbiter.mayAct({ alive: true }, g), false); assert.equal(Arbiter.mayAct({ ...g, alive: false }, g), false)
+  assert.equal(Arbiter.mayAct({ alive: false }, null), false, 'a revoked context does not resume on a free body')
+  assert.equal(Arbiter.mayAct({ alive: true }, null), false, 'a live-looking context that is not the holder does not act on a free body either')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
