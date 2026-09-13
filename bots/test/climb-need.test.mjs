@@ -49,7 +49,7 @@ t('no opening within the cap returns the cap, which keeps the deep-column refusa
 t('the maroon decision and BOTH pillarOut calls use the measured need', () => {
   const c = strip(RAW)
   assert.match(c, /climbNeed: climbNeedAbove\(bmap\(bot\), bot\.entity\.position\)/, 'maroonState gets the measured need')
-  assert.equal((c.match(/await pillarOut\(bot, climbNeedAbove\(bmap\(bot\), bot\.entity\.position\), \{ alive: ownsBody\(\(\) => (?:maroon|entombed)Grant\) \}\)/g) || []).length, 2, 'the maroon and entombed arms both pass it, gated on their arbiter grant')
+  assert.equal((c.match(/await withinBody\((maroon|entombed)Grant, \(\) => pillarOut\(bot, climbNeedAbove\(bmap\(bot\), bot\.entity\.position\), \{ alive: ownsBody\(\(\) => \1Grant\) \}\)\)/g) || []).length, 2, 'the maroon and entombed arms both pass it, gated on their arbiter grant')
   assert.ok(!/climbNeed: PILLAR_MAX_BLOCKS\b/.test(c), 'the constant no longer reaches maroonState or the lattice')
 })
 t('MUTANT: reverting the maroon arm to the constant is caught', () => {
