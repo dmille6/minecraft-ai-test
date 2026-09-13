@@ -63,3 +63,10 @@ DEATHS — the calibrated rule (scripts/gatecal.py on today's fleet history, 132
   (b) every canary death is reported at every read with its mechanism and the control count; none is excused, none is a trip on its own.
   (c) survival is judged where it can be: fleet-wide, over 72 h after promotion, against the program's committed numbers (deaths/bot-h ≤ 0.05), as the feasibility review specified. A promotion that fails that read is reverted fleet-wide.
 Everything else from v8 stands. Amendments after this line are prospective only.
+DRAW at deploy (2026-09-13 17:08 UTC, clock checked with date -u): 5080-half 2-h median 51.4 items/bh; ±25% held one eligible pool only (hive-b 63.0); widened to ±40% as the rule allows (stated): eligible hive-b (63.0; livelock 99 / climbs 108) and placebo-b (68.4; 53 / 96, one trapped bot; its 04:14 canary exclusion lifted 16:14). hive-a (30.7) missed the band by 0.1. Exactly two eligible -> both drawn, no randomness needed. POOLS = hive-b,placebo-b.
+
+## v10 — DRAFT (prospective; written 2026-09-13 21:25 UTC after -03's revert; applies to -04 only once registered)
+1. Mechanism linkage (v9a) counts only a rung that MOVED the body in the 600 s before the death: entombed, marooned, maroon_wall, entombed_ramp_cut, marooned_ramp_cut, livelock_escape, pillar_no_gain, danger_block, stuck, unstick_oscillation. Refusals and terminal states are reported, never linked. (-03 was reverted on marooned_needs_pickaxe, a refusal, 4 min before a gather-at-height fall.)
+2. Guard 6 counts recovery_exhausted rows whose bot is STILL immobile (60-min displacement < 6) 30 min after the row. (-03: 9 rows, 0 immobile after.)
+3. The livelock breaker's trigger (3 consecutive rejected decisions, or repeat_loop) fires on WORKING bots and walks them 30-57 blocks every 5-10 min; before -04 it needs physical fixation too (no displacement >= 8 and no items gained in the window). Design change: two Codex passes first.
+Everything else from v9 stands.

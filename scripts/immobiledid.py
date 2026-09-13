@@ -1,0 +1,147 @@
+# immobiledid.py [post-min] -- recovery-ladder-01 read. PRIMARY: immobile bot-minutes share (a bot-minute is immobile
+# when the bot's horizontal displacement over the trailing 60 min is < 6 blocks), ratio-DiD canary vs the 75, pre 180.
+# Exposure: livelock_escape rows, entombed+marooned rows, bots immobile >= 30 min. Corroborating: livelock_escape success
+# share. Guards: gather/explore runs per bot-h, climb firings per bot-h, blocks spent. Placebo per control pool.
+# No canary declared: CANARY_DRYRUN=pool:sha:iso. Also prints the per-pool exposure table for the draw when POOLS=1.
+import sys, json, os, re, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
+from collections import defaultdict, Counter
+from lib.telemetry import Events
+man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
+if ovr: CAN, CV, ISO = ovr.split(':', 2); CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else: CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00')); CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}   # one pool or a comma-separated list (two pools of five, 2026-09-13)
+now = dt.datetime.now(dt.timezone.utc); elapsed = (now - CUT).total_seconds() / 60
+PRE = 180; W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180) if elapsed > 0 else 0
+if not CAN: CAN = '__none__'; CUT = now; W = 0
+ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=int(max(elapsed, 0) + PRE) + 80)   # +60 for the trailing window
+by = defaultdict(list)
+for r in ev.rows:
+    b = r['bot'].get('name', '')
+    if not b or b.startswith('isolated') or b.startswith('self-'): continue
+    by[b].append(r)
+K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
+imm = Counter(); mins = Counter(); ll = Counter(); llok = Counter(); climbs = Counter(); gath = Counter(); expl = Counter(); deaths = Counter(); exh = []; spent = []
+pimm = Counter(); pmins = Counter(); pll = Counter(); pclimb = Counter(); pimmbots = defaultdict(set)
+bots = defaultdict(set); pool = {}; posby = {}; invby = {}
+for b, rs in by.items():
+    rs.sort(key=lambda r: r['t']); p = b.rsplit('-', 1)[0]; pool[b] = p
+    pos = [(r['t'], r['bot'].get('pos')) for r in rs if (r['bot'].get('pos') or {}).get('x') is not None]; posby[b] = pos; invby[b] = [(r['t'], sum((r['bot'].get('inventory') or {}).values())) for r in rs if r['bot'].get('inventory') is not None]
+    # minute grid over [CUT-PRE, CUT+W]
+    t0 = CUT - dt.timedelta(minutes=PRE); t1 = CUT + dt.timedelta(minutes=W); i = 0; j = 0; immrun = 0
+    m = t0
+    while m < t1 and pos:
+        while j < len(pos) and pos[j][0] <= m: j += 1
+        cur = pos[j - 1][1] if j > 0 else None
+        back = m - dt.timedelta(minutes=60)
+        while i < len(pos) and pos[i][0] < back: i += 1
+        window = [q for _, q in pos[i:j]]
+        if cur and window:
+            far = max(((q['x'] - cur['x']) ** 2 + (q['z'] - cur['z']) ** 2) ** 0.5 for q in window)
+            era = 'post' if m >= CUT else 'pre'; k = K(b, era); mins[k] += 1; pmins[(p, era)] += 1; bots[k].add(b)
+            if far < 6:
+                imm[k] += 1; pimm[(p, era)] += 1; immrun += 1
+                if immrun >= 30: pimmbots[(p, era)].add(b)
+            else: immrun = 0
+        m += dt.timedelta(minutes=1)
+    for r in rs:
+        d = (r['t'] - CUT).total_seconds() / 60
+        if d < -PRE or d > W: continue
+        era = 'post' if d >= 0 else 'pre'; k = K(b, era); n = str(r['name']); det = r.get('detail') or ''; st = (r['raw'].get('skill') or {}).get('status')
+        if n == '_livelock_escape':
+            ll[k] += 1; pll[(p, era)] += 1; llok[k] += (st == 'success')
+            mm = re.search(r'blocks spent (\d+)', det)
+            if mm and k[0] == 'canary' and era == 'post': spent.append(int(mm.group(1)))
+        if n in ('_entombed', '_marooned'): climbs[k] += 1; pclimb[(p, era)] += 1
+        if n == 'gather': gath[k] += 1
+        if n == 'explore': expl[k] += 1
+        if n == '_death': deaths[k] += 1
+        if n == '_recovery_exhausted' and k[0] == 'canary': exh.append((r['t'].strftime('%H:%M'), b, det[:120], r['t']))
+if os.environ.get('POOLS'):
+    print("per-pool exposure, pre window (draw rule: >= 8 livelock_escape OR >= 20 entombed+marooned, AND >= 1 bot immobile >= 30 min):")
+    for p in sorted({pool[b] for b in pool}):
+        e = pll[(p, 'pre')] >= 8 or pclimb[(p, 'pre')] >= 20; i = len(pimmbots[(p, 'pre')]) >= 1
+        print(f"  {p:12s} livelock {pll[(p, 'pre')]:3d} climbs {pclimb[(p, 'pre')]:3d} immobile>=30m {len(pimmbots[(p, 'pre')])} immobile-share {pimm[(p, 'pre')] / pmins[(p, 'pre')] * 100 if pmins[(p, 'pre')] else float('nan'):4.0f}% {'ELIGIBLE' if e and i else ''}")
+    print("positive control: rows", len(ev.rows), "bots", len(pool)); sys.exit(0)
+print(f"canary_pool={CAN} canary={CV} cutoff={CUT.strftime('%H:%M:%S')} elapsed={elapsed:.0f} min, pre {PRE} / post {W:.0f}; immobile = 60-min displacement < 6 blocks")
+print(f"{'arm/era':14s}{'bots':>5}{'bot-h':>7}{'immob%':>8}{'livelock':>9}{'ok%':>5}{'climbs':>7}{'/bh':>6}{'gather/bh':>10}{'explore/bh':>11}{'deaths':>7}")
+R = {}
+for arm in ('canary', 'control'):
+    for era in ('pre', 'post'):
+        k = (arm, era); h = mins[k] / 60
+        R[k] = dict(imm=imm[k] / mins[k] if mins[k] else float('nan'), ok=llok[k] / ll[k] if ll[k] else float('nan'), cl=climbs[k] / h if h else float('nan'), g=gath[k] / h if h else float('nan'), e=expl[k] / h if h else float('nan'))
+        print(f"{arm + '/' + era:14s}{len(bots[k]):>5}{h:>7.1f}{R[k]['imm'] * 100:>7.1f}%{ll[k]:>9}{R[k]['ok'] * 100:>5.0f}{climbs[k]:>7}{R[k]['cl']:>6.1f}{R[k]['g']:>10.1f}{R[k]['e']:>11.1f}{deaths[k]:>7}")
+def rdid(f):
+    try: return (R[('canary', 'post')][f] / R[('canary', 'pre')][f]) / (R[('control', 'post')][f] / R[('control', 'pre')][f]) - 1
+    except ZeroDivisionError: return float('nan')
+ci, ki = R[('canary', 'pre')]['imm'], R[('canary', 'post')]['imm']; cc, kc = R[('control', 'pre')]['imm'], R[('control', 'post')]['imm']
+print(f"\nPRIMARY immobile share (pp): canary {ci * 100:.1f}% -> {ki * 100:.1f}% ({(ki - ci) * 100:+.1f} pp; KEEP needs <= -10 pp with a pre share >= 15%)   control {cc * 100:.1f}% -> {kc * 100:.1f}% ({(kc - cc) * 100:+.1f} pp; must stay within 3 pp)   [ratio-DiD {rdid('imm'):+.0%}, descriptive]")
+# per-bot: who was immobile >= 30 min at the cutoff, and were they freed (displaced by the postcondition, then not immobile again for 30 min)?
+ladder_rows = lambda rs, t: [(r['t'].strftime('%H:%M'), str(r['name']), (r.get('detail') or '')[:60]) for r in rs if t - dt.timedelta(minutes=10) <= r['t'] <= t and (
+    (str(r['name']) == '_livelock_escape' and '(dig' in (r.get('detail') or '') and (r['raw'].get('skill') or {}).get('status') == 'success') or
+    str(r['name']) in ('_entombed', '_marooned', '_entombed_ramp_cut', '_marooned_ramp_cut') or
+    (str(r['name']) == 'surface' and re.search(r'climbed (\d+)', r.get('detail') or '') and int(re.search(r'climbed (\d+)', r.get('detail') or '').group(1)) >= 4))]
+tally = {'canary': [0, 0], 'control': [0, 0]}   # [trapped at cutoff, freed]
+for b in sorted(pool):
+    arm = 'canary' if pool[b] in CANS else 'control'
+    rs = by[b]; pos = [(r['t'], r['bot'].get('pos')) for r in rs if (r['bot'].get('pos') or {}).get('x') is not None]
+    at = [q for t, q in pos if t <= CUT][-1:] if pos else []
+    if not at: continue
+    back = [q for t, q in pos if CUT - dt.timedelta(minutes=30) <= t <= CUT]
+    far0 = max((((q['x'] - at[0]['x']) ** 2 + (q['z'] - at[0]['z']) ** 2) ** 0.5 for q in back), default=99)
+    if far0 >= 6 or len(back) < 5: continue
+    freed = None
+    for t, q in pos:
+        if t <= CUT: continue
+        if ((q['x'] - at[0]['x']) ** 2 + (q['z'] - at[0]['z']) ** 2) ** 0.5 >= 8 or (q['y'] - at[0]['y'] >= 4):
+            later = [w for u, w in pos if t < u <= t + dt.timedelta(minutes=30)]
+            held = later and max(((w['x'] - q['x']) ** 2 + (w['z'] - q['z']) ** 2) ** 0.5 for w in later) >= 6
+            freed = (t.strftime('%H:%M'), q, 'held' if held else 're-trapped', ladder_rows(rs, t)); break
+    tally[arm][0] += 1; tally[arm][1] += bool(freed and freed[2] == 'held')
+    tag = 'TRAPPED AT DEPLOY' if arm == 'canary' else 'control trapped'
+    print(f"  {tag} {b} at {round(at[0]['x'])},{round(at[0]['y'])},{round(at[0]['z'])}: " + (f"FREED {freed[0]} -> {({k: round(v) for k, v in freed[1].items()})} ({freed[2]}; ladder rows within 10 min: {freed[3] if freed[3] else 'NONE -> spontaneous'})" if freed else 'still immobile'))
+print(f"FREED SHARE: canary {tally['canary'][1]}/{tally['canary'][0]} vs control (spontaneous base rate) {tally['control'][1]}/{tally['control'][0]} -- KEEP needs a canary freed bot WITH a ladder row, and the canary share above the control's")
+print(f"corroborating livelock success share canary {R[('canary', 'pre')]['ok'] * 100:.0f}% -> {R[('canary', 'post')]['ok'] * 100:.0f}% (control {R[('control', 'pre')]['ok'] * 100:.0f}% -> {R[('control', 'post')]['ok'] * 100:.0f}%)")
+for arm in ('canary', 'control'):
+    for era in ('pre', 'post'):
+        k = (arm, era); h = mins[k] / 60; R[k]['llbh'] = ll[k] / h if h else float('nan')
+p90 = sorted(spent)[int(len(spent) * 0.9)] if spent else 0
+# RULE v10 guard 6 (prospective): an exhausted row counts only when the bot is STILL immobile 30 min later (-03: 9 rows, 0 immobile)
+def still_immobile(b, t):
+    # STUCK = no displacement AND no inventory progress in the next 30 min. Displacement alone reads a bot mining or
+    # gathering in place as immobile (-03: 4-5 of the exhausted rows by displacement, all of them working in place).
+    ps = [q for tt, q in posby.get(b, []) if t <= tt <= t + dt.timedelta(minutes=30)]
+    iv = [n for tt, n in invby.get(b, []) if t <= tt <= t + dt.timedelta(minutes=30)]
+    if len(ps) < 2: return True
+    x0, z0 = ps[0]['x'], ps[0]['z']; far = max(((q['x'] - x0) ** 2 + (q['z'] - z0) ** 2) ** 0.5 for q in ps)
+    gained = (max(iv) - iv[0]) if len(iv) >= 2 else 0
+    return far < 6 and gained <= 0
+exh_still = [e for e in exh if still_immobile(e[1], e[3])]
+print(f"GUARDS (v6): gather/bh {rdid('g'):+.0%}  explore/bh {rdid('e'):+.0%} (each within 30%);  climb firings/bh {rdid('cl'):+.0%} (<= +100%);  livelock rows/bh {rdid('llbh'):+.0%} (<= +100%);  blocks spent per ladder p90 {p90} (<= 32) over {len(spent)} ladders;  recovery_exhausted {len(exh_still)} still-immobile-after-30-min of {len(exh)} rows (v10: <= trapped-at-deploy + 1)")
+print(f"READABILITY: canary post livelock rows {ll[('canary', 'post')]} (>= 8) or climb firings {climbs[('canary', 'post')]} (>= 20); bot-h {mins[('canary', 'post')] / 60:.1f} (>= 15)")
+cd = deaths[('canary', 'post')] / (mins[('canary', 'post')] / 60) if mins[('canary', 'post')] else float('nan'); kd = deaths[('control', 'post')] / (mins[('control', 'post')] / 60) if mins[('control', 'post')] else float('nan')
+# RULE v9 (2026-09-13): a MECHANISM-LINKED canary death reverts at once; every death is reported with its mechanism.
+# RULE v10 (prospective, 2026-09-13 21:20 UTC): linkage means a rung that MOVED the body in the 600 s before the death.
+# Refusals (maroon_climb_refused, maroon_dig_refused, marooned_needs_pickaxe, maroon_pillar_declined) and terminal states
+# (maroon_climb_exhausted, recovery_exhausted) move nothing and are reported, not linked. -03 was reverted on a refusal row.
+MECH = set(['entombed', 'marooned', 'maroon_wall', 'entombed_ramp_cut', 'marooned_ramp_cut', 'livelock_escape', 'pillar_no_gain', 'danger_block', 'stuck', 'unstick_oscillation'])
+
+for b, rs in by.items():
+    if b.rsplit('-', 1)[0] not in CANS: continue
+    for r in rs:
+        if str(r['name']) == '_death' and r['t'] >= CUT:
+            prior = [str(q['name']).lstrip('_') for q in rs if r['t'] - dt.timedelta(seconds=600) <= q['t'] < r['t']]
+            linked = sorted(set(prior) & MECH)
+            print(f"  CANARY DEATH {b} {r['t'].strftime('%H:%M:%S')} mechanism-linked={'YES -> REVERT' if linked else 'no'} rows-in-600s={linked or 'none'} :: {(r.get('detail') or '')[:90]}")
+print(f"HARM: canary deaths {deaths[('canary', 'post')]} ({cd:.3f}/bh) vs control {kd:.3f}/bh -> {'REVERT' if deaths[('canary', 'post')] >= 2 and cd > 1.25 * kd else 'PASS (two-death floor)'}")
+print("recovery_exhausted (canary post):", exh if exh else 'none')
+pl = {}
+for p in sorted({pool[b] for b in pool}):
+    if p in CANS: continue
+    try:
+        oth = {era: sum(pimm[(q, era)] for q in {pool[b] for b in pool} if q not in (p, CAN)) / sum(pmins[(q, era)] for q in {pool[b] for b in pool} if q not in (p, CAN)) for era in ('pre', 'post')}
+        own = {era: pimm[(p, era)] / pmins[(p, era)] for era in ('pre', 'post')}
+        pl[p] = (own['post'] / own['pre']) / (oth['post'] / oth['pre']) - 1
+    except ZeroDivisionError: pl[p] = float('nan')
+canv = rdid('imm'); ok = all(canv < v for v in pl.values() if v == v)
+print("PLACEBO (immobile-share ratio-DiD per control pool; KEEP needs the canary LOWER than every one): " + ", ".join(f"{p} {v:+.0%}" for p, v in sorted(pl.items(), key=lambda x: x[1])) + f" -> canary {canv:+.0%} {'PASS' if ok else 'FAIL'}")
+print("positive control: rows", len(ev.rows), "bots", sum(len(v) for v in bots.values()))
