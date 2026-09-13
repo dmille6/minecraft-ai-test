@@ -139,7 +139,7 @@ export class Arbiter {
         const holder = self.#holder && self.#holder.alive ? self.#holder : null
         const ctx = self.caller()
         if (!Arbiter.mayAct(ctx, holder, self.#bound)) {
-          onRefuse(name, ctx, holder)
+          onRefuse(name, ctx, holder, self.#bound)
           return refuse(new StaleGrant(ctx, `${name} refused: the body is held by ${holder?.owner ?? 'nobody'}${ctx && !ctx.alive ? ' and the caller was revoked' : ''}`))
         }
         // ONLY A ROUTED CALL CHANGES THE BINDING (corpus run 4, 2026-09-13: 13,808 refusals in five minutes). The holder's
@@ -177,7 +177,9 @@ export class Arbiter {
   release (grant, why = 'done') {
     if (!grant) return
     if (this.#holder === grant) { this.#holder = null }
-    if (this.#bound === grant) { this.#bound = null }
+    // A path the holder started must not outlive its grant (corpus run 6: the entombed arm's ramp ended, its goal
+    // kept the pathfinder ticking under the NEXT holder, and every tick was refused). Releasing a bound grant stops.
+    if (this.#bound === grant) { try { this.#stop(grant, true) } catch {} this.#bound = null }
     if (grant.alive) { grant.alive = false; grant.revoked = why; this.#log('arbiter_released', { id: grant.id, owner: grant.owner, why }) }
   }
 
