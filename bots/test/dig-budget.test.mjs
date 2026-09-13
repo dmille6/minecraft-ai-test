@@ -290,12 +290,15 @@ t('the climb SPENDS the planned budget, and no literal survives beside it', () =
   const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
-  const call = /withTimeout\(bot\.dig\(head\),\s*([^,]+),/.exec(code)
+  const call = /withTimeout\(bot\.dig\(head\),\s*(.+?),\s*bot,/.exec(code)
   assert.ok(call, 'the climb no longer digs through withTimeout; re-read this test')
-  assert.equal(call[1].trim(), 'plan.budgetMs',
+  // The planned budget, clamped to the climb's own deadline (2026-09-13: the
+  // situational budget can exceed the remaining `surface` time; a dig that
+  // outlives its caller is the watchdog defect in another coat).
+  assert.equal(call[1].trim(), 'Math.min(plan.budgetMs, left)',
     `the head dig is budgeted with ${call[1].trim()} instead of the planned time`)
-  assert.ok(/planDig\(predictedDigMs\(head, tool\)\)/.test(code),
-    'the budget is not derived from the block the climb is about to break')
+  assert.ok(/shaftDigBudget\(head, tool, digEnv\(bot\)\)/.test(code),
+    'the budget is not derived from the block the climb is about to break, priced where the bot is')
   assert.ok(/plan\.refuse/.test(code), 'nothing acts on the refusal, so the cap is inert')
 })
 

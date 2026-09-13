@@ -31,7 +31,7 @@ import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
-import { planDig, predictedDigMs } from './digbudget.mjs'
+import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
 import { probeReachable } from './reachprobe.mjs'
 import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from './digreach.mjs'
@@ -5196,6 +5196,17 @@ export const rescueBlocks = bot => bot.inventory.items()
  * that is not gaining height within a few steps is not a climb, whatever the
  * promises returned.
  */
+/**
+ * The shaft's dig budget: refuse on what the block costs THIS TOOL on the
+ * ground; size the deadline on what it costs where the bot actually is.
+ * Pure. hive-a-Delta: stone with a wooden pickaxe, airborne in water ->
+ * hardness 1.15 s (never refused), actual ~29 s, budget ~45 s, not 15 s.
+ */
+export function shaftDigBudget (head, tool, env) {
+  return planDigSplit({ hardnessMs: predictedDigMs(head, tool),
+                        actualMs: predictedDigMs(head, tool, env) })
+}
+
 export async function shaftAscend(bot, targetY, signal,
                                   { maxSteps = 96, deadline = Infinity, claim = null } = {}) {
   // TAKE THE BODY BEFORE CLIMBING.
@@ -5326,13 +5337,23 @@ export async function shaftAscend(bot, targetY, signal,
       // below y=0 could never break its own ceiling, timed out, and reported
       // `dig failed`, which climbPrerequisite turned into "go and get a
       // pickaxe" from a place with no wood. See digbudget.mjs.
-      const plan = planDig(predictedDigMs(head, tool))
+      //
+      // REFUSE ON HARDNESS, BUDGET ON REALITY (2026-09-13, hive-a-Delta): this
+      // was the last climb dig priced grounded. Delta held a wooden pickaxe in a
+      // flooded pocket under twelve blocks of stone; airborne AND head in water
+      // the swing is 25x slower, so a grounded 15 s budget expired every time
+      // and climbPrerequisite told a bot holding a pickaxe to go and craft one.
+      // `shaftDigBudget` is the same split escapeStairUp uses, exported so the
+      // Delta case is a test rather than a story.
+      const plan = shaftDigBudget(head, tool, digEnv(bot))
       if (plan.refuse) {
         return { gained: p.y - startY, stopped: `cannot break ${head.name} by hand` }
       }
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      const left = deadline ? deadline - Date.now() : Infinity
+      if (left <= 0) return { gained: p.y - startY, stopped: 'climb budget spent before the dig' }
       try {
-        await withTimeout(bot.dig(head), plan.budgetMs, bot, {
+        await withTimeout(bot.dig(head), Math.min(plan.budgetMs, left), bot, {
           what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} },
           // The climb wants the hole. planDig already decided this block is
           // affordable bare-handed; the harvest watchdog must not overrule it.
@@ -5350,7 +5371,12 @@ export async function shaftAscend(bot, targetY, signal,
         // because this line threw it away. A wrong diagnosis costs more than a
         // missing one: the old message asserted a cause it had never checked.
         const why = (e?.message || String(e)).slice(0, 60)
-        return { gained: p.y - startY, stopped: `dig failed on ${head.name}: ${why}` }
+        // SAY WHAT WAS IN HAND. climbPrerequisite asks for a pickaxe on any
+        // "dig failed"; a timeout or an abort while HOLDING one is not a tool
+        // problem, and the sandbox replay of hive-a-Delta showed exactly that:
+        // "Digging aborted" (the air reflex took the body) turned into "craft a
+        // pickaxe" for a bot with a wooden pickaxe in its hand.
+        return { gained: p.y - startY, stopped: `dig failed on ${head.name} ${tool ? `with ${tool.name}` : 'by hand'}: ${why}` }
       }
       if (FALLING.has(head.name)) { await sleep(500); continue }  // column settles, re-check
       await sleep(120)
@@ -5575,7 +5601,12 @@ export function climbPrerequisite(stopped) {
       because: 'the climb stopped for lack of scaffold',
     }
   }
-  if (s.includes('dig failed') || s.includes('cannot break')) {
+  // A PICKAXE IS THE REMEDY ONLY WHEN THE HAND WAS THE PROBLEM. `cannot break`
+  // is the hardness refusal; `dig failed ... by hand` is a bare-handed dig that
+  // did not finish. A dig that failed WITH a pickaxe in hand (timeout, abort,
+  // interrupted by a reflex) gets no prerequisite -- the remedy is to run the
+  // climb again from here, and asking for a tool the bot holds is a loop.
+  if (s.includes('cannot break') || (s.includes('dig failed') && s.includes('by hand'))) {
     return {
       items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
       count: 1,
@@ -5595,8 +5626,11 @@ export function climbAdvice(stopped) {
   if (s.includes('liquid')) {
     return ' — water blocks the shaft here: walk a few blocks away from the water, then run surface again'
   }
-  if (s.includes('dig failed') || s.includes('cannot break')) {
+  if (s.includes('cannot break') || (s.includes('dig failed') && s.includes('by hand'))) {
     return ' — this stone needs a pickaxe: gather wood, craft a pickaxe, then run surface again'
+  }
+  if (s.includes('dig failed')) {
+    return ' — the dig was cut short with a pickaxe in hand: run surface again from here'
   }
   if (s.includes('no height gained')) {
     return ' — this spot is blocked overhead: move somewhere more open, then run surface again'

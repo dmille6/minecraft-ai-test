@@ -206,7 +206,7 @@ t('reflex and skill layers ask for the SAME scaffold', () => {
 })
 
 t('reflex and skill layers ask for the SAME pickaxe', () => {
-  const fromSkill = climbPrerequisite('dig failed on stone')
+  const fromSkill = climbPrerequisite('dig failed on stone by hand: dig exceeded 15000ms')   // a BARE-HANDED failure asks for a pickaxe; one with a pickaxe in hand asks for nothing (2026-09-13)
   const fromReflex = pickaxePrereq('capped shaft')
   assert.deepEqual(fromReflex.items, fromSkill.items)
   assert.equal(fromReflex.count, fromSkill.count)
