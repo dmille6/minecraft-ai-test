@@ -54,4 +54,14 @@ t('one station and one bucket stay even when they are wanted; the second copy go
   assert.deepEqual(plan, [{ name: 'furnace', count: 1 }], 'the spare furnace goes; the only table and bucket stay')
 })
 
+
+t('a full chest sends the bot to another chest within 24 blocks before it crafts a new one, excluding the ones tried', () => {
+  const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 12000)
+  const other = f.indexOf('const other = bot.findBlock({ matching: b => isContainer(b) && !tried.some('), craftAt = f.indexOf("const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)")
+  assert.ok(other > 0 && craftAt > other, 'the second chest is tried before crafting')
+  assert.match(f.slice(other, craftAt), /noRecovery: tried\.length >= 3/, 'the retry is bounded: three chests, then a new one')
+  assert.match(f.slice(other, craftAt), /exclude: tried/, 'the tried chests are excluded from the retry')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

@@ -1931,12 +1931,14 @@ async function home(ctx, _args, signal) {
 }
 
 // ------------------------------------------------------------- deposit -----
-async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null } = {}) {
+async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [] } = {}) {
   if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
   const { bot } = ctx
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
     .includes(bot.registry.blocks[b.type]?.name)
-  const findChest = () => bot.findBlock({ matching: isContainer, maxDistance: 48 })
+  const skip = new Set(exclude.map(q => `${q.x},${q.y},${q.z}`))
+  const notTried = b => !skip.has(`${b.position.x},${b.position.y},${b.position.z}`)
+  const findChest = () => bot.findBlock({ matching: b => isContainer(b) && notTried(b), maxDistance: 48 })
   // PREFER THE CHEST WE WERE SENT TO, and this is not a nicety.
   //
   // The full-chest recovery below builds a NEW chest and calls deposit again.
@@ -2090,6 +2092,17 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // owner's standing rule: adding chests by RCON would be changing the world to
   // fix a bot; teaching bots to build storage is a capability.
   if (!noRecovery) {
+    // ANOTHER CHEST BEFORE A NEW CHEST (2026-09-13: 167 deposits a day ended
+    // "the chest is full; could not make another chest"). Storage usually comes
+    // in clusters; a second container within 24 blocks that has not been tried
+    // this run is cheaper than eight planks, and it does not need wood the bot
+    // may not have. The tried chest is excluded so the retry cannot loop.
+    const tried = [...exclude, chestBlock.position]
+    const other = bot.findBlock({ matching: b => isContainer(b) && !tried.some(q => q.x === b.position.x && q.y === b.position.y && q.z === b.position.z), maxDistance: 24 })
+    if (other) {
+      const again = await deposit(ctx, { item }, signal, { noRecovery: tried.length >= 3, preferAt: other.position, exclude: tried })
+      if (again.status === 'success') return { ...again, detail: `${again.detail} (the first chest was full; used another one nearby)` }
+    }
     const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)
     if (built.status === 'success') {
       const put = await place(ctx, { item: 'chest' }, signal)
