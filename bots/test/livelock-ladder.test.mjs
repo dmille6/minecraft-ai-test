@@ -67,7 +67,7 @@ t('the escape declares recovery_exhausted exactly when the ladder is exhausted, 
   assert.match(f, /next = livelockNext\(\{ rung, escaped: escapedFrom\(from, here\(\)\) \}\)/, 'done is the postcondition and nothing weaker')
   assert.ok(LIVELOCK_BLOCK_RESERVE >= 8, 'the reserve is at least the scaffold prerequisite')
   const r = strip(rf(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
-  assert.match(r, /\(!escapedFrom\(climbFrom, \{[^}]*\}\) \|\| isEntombed\(bot\)\)\) escapeFailures\+\+/, 'the entombed arm needs BOTH displacement and not walled in to count a success')
+  assert.match(r, /\(!escapedFrom\(climbFrom, \{[^}]*\}\) \|\| isEntombed\(bot\)\)\) \{ escapeFailures\+\+/, 'the entombed arm needs BOTH displacement and not walled in to count a success')
   assert.match(f, /blocks spent \$\{spent\}/, 'the spend is reported')
 })
 

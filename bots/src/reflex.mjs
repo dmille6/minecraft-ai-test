@@ -70,6 +70,18 @@ const DANGER_BLOCKS = new Set(['lava', 'fire', 'campfire', 'soul_fire', 'magma_b
 // cost a debugging cycle".
 const ESCAPE_MIN_INTERVAL_MS = 15_000   // > a full escape attempt, so a failure is not retried instantly
 const ESCAPE_GIVE_UP_AFTER = 4          // then hand it to the watchdog, which can relocate/home/reconnect
+const ESCAPE_FAIL_BACKOFF_MS = 30_000   // under the movement owner: a failed, undisplaced attempt is not retried at once
+const ESCAPE_FAIL_BACKOFF_CAP_MS = 5 * 60_000
+/**
+ * How long a FAILED, UNDISPLACED entombed attempt waits before the arm may take the body again (movement-owner
+ * design v3: a rung is not retried unchanged within an episode). Corpus run 6, 2026-09-13: with the arbiter on, the
+ * arm re-took the body every 15 s for 15-30 s at a time and starved every skill; with it off the skills interleaved
+ * and moved the bot. Doubles per consecutive failure from `base`, capped; the counter resets on a success.
+ */
+export function escapeRetryDelay (failures, { base = ESCAPE_FAIL_BACKOFF_MS, cap = ESCAPE_FAIL_BACKOFF_CAP_MS } = {}) {
+  if (!(failures >= 1)) return 0
+  return Math.min(base * 2 ** (failures - 1), cap)
+}
 // How often the marooned check may run a pathfinder search. Long, because a bot
 // that cannot leave will still be unable to leave in a minute, and the check is
 // the expensive kind: a real search rather than a block lookup.
@@ -2855,7 +2867,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // this place -- four blocks up and dry, or eight sideways -- while the
           // bot is still walled in is a failed escape, whatever pillarOut returned.
           else if (climbed === 'preempted') { /* another owner took the body: not a failed escape, not a success */ }
-          else if (bot.entity && (!escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) || isEntombed(bot))) escapeFailures++   // success needs BOTH: somewhere else, and not walled in (Codex pass 3)
+          else if (bot.entity && (!escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) || isEntombed(bot))) { escapeFailures++; if (config.reflex.arbiter) lastEscapeAt = Date.now() + escapeRetryDelay(escapeFailures) }   // success needs BOTH: somewhere else, and not walled in (Codex pass 3); under the owner a failure backs off
           else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
         } finally { escaping = false }
         return
