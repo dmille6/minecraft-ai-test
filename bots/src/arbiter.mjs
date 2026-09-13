@@ -142,7 +142,10 @@ export class Arbiter {
           onRefuse(name, ctx, holder)
           return refuse(new StaleGrant(ctx, `${name} refused: the body is held by ${holder?.owner ?? 'nobody'}${ctx && !ctx.alive ? ' and the caller was revoked' : ''}`))
         }
-        if (binds) self.#bound = binds(...args) ? (ctx ?? null) : null   // the holder's goto/setGoal(goal) binds the tick; setGoal(null) unbinds
+        // ONLY A ROUTED CALL CHANGES THE BINDING (corpus run 4, 2026-09-13: 13,808 refusals in five minutes). The holder's
+        // multi-leg navigation starts the next leg from a goal_reached/path_update LISTENER -- contextless, admitted as the
+        // bound tick -- and the old rule reset the binding to `ctx ?? null` = null, after which every tick was refused.
+        if (binds && ctx) self.#bound = binds(...args) ? ctx : null   // the holder's goto/setGoal(goal) binds the tick; its setGoal(null) unbinds; the tick's own calls leave it
         return orig.apply(this, args)
       }
       obj[name].__arbiterGated = true
