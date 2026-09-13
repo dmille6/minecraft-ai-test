@@ -9,12 +9,12 @@ const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } c
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 const RAW = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8')
 
-t('walk that moved -> done; walk that did not -> dig; dig that did not -> latch', () => {
-  assert.equal(livelockNext({ rung: 'walk', moved: 30 }), 'done')
-  assert.equal(livelockNext({ rung: 'walk', moved: 0 }), 'dig')
-  assert.equal(livelockNext({ rung: 'walk', moved: LIVELOCK_MIN_MOVE - 0.1 }), 'dig')
-  assert.equal(livelockNext({ rung: 'dig', moved: 12 }), 'done')
-  assert.equal(livelockNext({ rung: 'dig', moved: 0 }), 'latch')
+t('a rung is done only when the shared postcondition holds; walk -> dig -> latch otherwise', () => {
+  assert.equal(livelockNext({ rung: 'walk', escaped: true }), 'done')
+  assert.equal(livelockNext({ rung: 'walk', escaped: false }), 'dig')
+  assert.equal(livelockNext({ rung: 'dig', escaped: true }), 'done')
+  assert.equal(livelockNext({ rung: 'dig', escaped: false }), 'latch')
+  assert.equal(livelockNext({ rung: 'walk', moved: 30 }), 'dig', 'raw displacement is not an argument any more: eight blocks underwater was reading as done')
   assert.ok(LIVELOCK_LATCH_MS >= 300_000, 'the rest is minutes, not seconds')
 })
 t('the escape runs the dig rung under the ascent profile, and only clears the repeat window on `done`', () => {
@@ -60,10 +60,12 @@ t('the escape declares recovery_exhausted exactly when the ladder is exhausted, 
   assert.match(f, /this\.recoveryExhaustedAt = at[\s\S]{0,80}this\.livelockLatchedUntil = Infinity/, 'exhaustion is terminal until the bot is somewhere else')
   assert.match(c, /if \(at && escapedFrom\(this\.recoveryExhaustedAt,/, 'the terminal state lifts only on displacement')
   assert.match(f, /blocksBefore >= LIVELOCK_BLOCK_RESERVE\) \{/, 'the dig rung is gated on the block reserve')
+  assert.match(f, /setInterval\(\(\) => \{\s*if \(placeable\(\) <= LIVELOCK_BLOCK_RESERVE\) \{[^}]*setGoal/, 'and the reserve is held throughout the rung by a watcher that ends the walk')
+  assert.match(f, /finally \{ clearInterval\(watch\) \}/, 'the watcher is always cleared')
+  assert.match(f, /next = livelockNext\(\{ rung, escaped: escapedFrom\(from, here\(\)\) \}\)/, 'done is the postcondition and nothing weaker')
   assert.ok(LIVELOCK_BLOCK_RESERVE >= 8, 'the reserve is at least the scaffold prerequisite')
   const r = strip(rf(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
-  assert.match(r, /!escapedFrom\(climbFrom, \{[^}]*\}\) && isEntombed\(bot\)\) escapeFailures\+\+/, 'the entombed arm scores a hollow climb with the same postcondition')
-  assert.match(f, /escapedFrom\(from, here\(\)\) \? 'done'/, 'done is the shared postcondition, not raw displacement')
+  assert.match(r, /\(!escapedFrom\(climbFrom, \{[^}]*\}\) \|\| isEntombed\(bot\)\)\) escapeFailures\+\+/, 'the entombed arm needs BOTH displacement and not walled in to count a success')
   assert.match(f, /blocks spent \$\{spent\}/, 'the spend is reported')
 })
 

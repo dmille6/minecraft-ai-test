@@ -2798,7 +2798,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // THE SHARED POSTCONDITION (recovery.mjs): a climb that did not leave
           // this place -- four blocks up and dry, or eight sideways -- while the
           // bot is still walled in is a failed escape, whatever pillarOut returned.
-          else if (bot.entity && !escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) && isEntombed(bot)) escapeFailures++
+          else if (bot.entity && (!escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) || isEntombed(bot))) escapeFailures++   // success needs BOTH: somewhere else, and not walled in (Codex pass 3)
           else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
         } finally { escaping = false }
         return

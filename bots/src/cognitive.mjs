@@ -156,8 +156,8 @@ export const LIVELOCK_LATCH_MS = 600_000
  *                   may dig and bridge with the blocks in hand
  *   dig failed   -> 'latch': do NOT clear the window; rest LIVELOCK_LATCH_MS
  */
-export function livelockNext ({ rung, moved, minMove = LIVELOCK_MIN_MOVE }) {
-  if (moved >= minMove) return 'done'
+export function livelockNext ({ rung, escaped }) {
+  if (escaped) return 'done'                      // the shared postcondition, nothing weaker (Codex pass 3)
   return rung === 'walk' ? 'dig' : 'latch'
 }
 
@@ -356,15 +356,23 @@ export class CognitiveLoop {
     // and bridge allowed) -- hive-a-Comet stood on a disconnected ledge with
     // 460 cobblestone while the travel profile said noPath every time.
     await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
-    let rung = 'walk', moved = movedNow(), next = escapedFrom(from, here()) ? 'done' : livelockNext({ rung, moved })
+    let rung = 'walk', moved = movedNow(), next = livelockNext({ rung, escaped: escapedFrom(from, here()) })
     // THE RESERVE IS ENFORCED BEFORE THE RUNG, not reported after it: a bot
     // holding fewer blocks than the entombment climb needs does not get to
     // bridge with them (Codex pass 2).
     if (next === 'dig' && typeof this.bot.withAscentMovements === 'function' && blocksBefore >= LIVELOCK_BLOCK_RESERVE) {
       rung = 'dig'
-      await this.bot.withAscentMovements(() =>
-        this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }))
-      moved = movedNow(); next = escapedFrom(from, here()) ? 'done' : livelockNext({ rung, moved })
+      // THE RESERVE HOLDS THROUGHOUT (Codex pass 3): a watcher ends the walk
+      // the moment placeable blocks fall to the reserve, so a bridge can start
+      // with eight and never end with zero.
+      const watch = setInterval(() => {
+        if (placeable() <= LIVELOCK_BLOCK_RESERVE) { try { this.bot.pathfinder?.setGoal?.(null) } catch {} }
+      }, 500)
+      try {
+        await this.bot.withAscentMovements(() =>
+          this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }))
+      } finally { clearInterval(watch) }
+      moved = movedNow(); next = livelockNext({ rung, escaped: escapedFrom(from, here()) })
     }
     const spent = blocksBefore - placeable()
     logEvent({ kind: 'livelock_escape',
