@@ -1022,7 +1022,7 @@ async function takeBody(bot, runner, reason, priority, context = null) {
     const grant = await runner.arb.acquire({ owner: reason, priority, context: context ?? { kind: reason },
                                              onCancel: () => { runner.interrupt(reason) } })
     if (!grant) return null
-    seizeBody(bot, reason)
+    runner.arb.within(grant, () => seizeBody(bot, reason))   // the seize is the new holder's own stop: routed, not refused (site map 2026-09-13)
     return grant
   }
   runner.interrupt(reason)
@@ -1741,6 +1741,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // one. `float` is the single case where up is the only thing wanted,
         // because the head is already out and the bot is simply staying there.
         withinBody(airGrant, () => {   // the tick is contextless; the hold steers under the air grant when the rescue holds it (gate pass 1, defect 3)
+          // The hold is for an UNOWNED floating body. While someone else holds it (a skill's goto, the entombed arm's
+          // pillar), it must not fight them: the gate would refuse it anyway, 84 times in five minutes on one fixture.
+          if (!airGrant && config.reflex.arbiter && runner?.arb?.holder) return
           bot.setControlState('jump', true)
           if (holdState === 'surface_out' && airRoute?.target) {
             bot.setControlState('forward', true)
@@ -1898,7 +1901,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const rel = swimming
           ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
           : drowningRelease()
-        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
+        rescuing = false; try { withinBody(airGrant, () => bot.clearControlStates()) } catch { /* not connected */ }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         lastReleaseAt = Date.now()
         lastReleaseKind = rel.kind
         lastDrownPhase = null
@@ -1919,7 +1922,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // sealed case, and it is a real failure -- logged separately so it can
       // never hide inside the success kind again.
       if (rescuing && rescueExpired()) {
-        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
+        rescuing = false; try { withinBody(airGrant, () => bot.clearControlStates()) } catch { /* not connected */ }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         // REMEMBER THAT IT FAILED. Nothing did, which is why the same rescue ran
         // 4,603 times in six hours on six bots at full oxygen and full health.
         const hereNow = bot.entity?.position
@@ -2190,7 +2193,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
         logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
         runner.interrupt('danger_block')
-        await escape(bot)
+        const dangerGrant = await takeBody(bot, runner, 'danger_block', PRIORITY.lava)   // only the air rescue outranks lava
+        if (dangerGrant) { try { await withinBody(dangerGrant, () => escape(bot)) } finally { giveBody(runner, dangerGrant, 'danger escape ended') } }
         return
       }
 
@@ -2280,6 +2284,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         if (mstate === 'need_scaffold' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
+          // TAKING THE WALL MOVES THE BODY: it digs, ramps and harvests underfoot, so it holds the body like the
+          // maroon arm proper does (corpus run 5: its helpers were refused as unrouted whenever anything held).
+          const wallGrant = await takeBody(bot, runner, 'maroon_wall', PRIORITY.escape)
+          if (wallGrant) try {
           // TAKE THE WALL BEFORE ASKING ANYONE FOR ANYTHING.
           //
           // Handing this to the goal layer first is what measured 0/8 across 453
@@ -2288,7 +2296,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // construction. Its own walls are made of the thing it needs.
           const yNow = Math.round(bot.entity.position.y)
           const invBefore = inventorySummary(bot)
-          const got = await harvestAdjacent(bot).catch(e => {
+          const got = await withinBody(wallGrant, () => harvestAdjacent(bot)).catch(e => {
             log('warn', 'reflex: adjacent harvest failed', { err: e.message })
             return { gained: 0, dug: 0, tried: 0, unsafe: 0 }
           })
@@ -2330,7 +2338,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // -- so without this it wipes a stroke a drowning bot is depending
             // on. A ramp resumes from the step it stopped on; a drowning bot
             // does not resume.
-            const ramp = await escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => maroonGrant) }).catch(e => {
+            const ramp = await withinBody(wallGrant, () => escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => wallGrant) })).catch(e => {
               log('warn', 'reflex: escape ramp failed', { err: e.message })
               return { steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}` }
             })
@@ -2359,7 +2367,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // could not price a fall. `mayHarvestUnderfoot` can.
             let underfoot = null
             if (ramp.steps === 0) {
-              underfoot = await harvestUnderfoot(bot)
+              underfoot = await withinBody(wallGrant, () => harvestUnderfoot(bot))
                 .catch(e => ({ ok: false, why: `threw: ${e.message}` }))
               logEvent({ kind: 'marooned_underfoot',
                          status: underfoot.ok ? 'success' : 'failed',
@@ -2443,6 +2451,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                          snapshot: snapshot(bot) })
             }
           }
+          } finally { giveBody(runner, wallGrant, 'wall branch ended') }
         }
         if (mstate === 'need_pickaxe' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
@@ -2788,7 +2797,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               // cell, same inventory, same prerequisite, and the ramp's own
               // reason rides along so "sealed under bedrock" and "no tread to
               // stand on" stay distinguishable.
-              const stair = esc.ramp ? await escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant) })
+              const stair = esc.ramp ? await withinBody(entombedGrant, () => escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant) }))
                 .catch(e => {
                   log('warn', 'reflex: entombed escape ramp failed', { err: e.message })
                   return { steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}` }
@@ -2873,7 +2882,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         stillSince = Date.now()
         runner.interrupt('stuck')
         try { bot.pathfinder?.stop() } catch { /* pathfinder may be idle */ }
-        await unstick(bot)
+        const stuckGrant = await takeBody(bot, runner, 'stuck', PRIORITY.escape)
+        if (stuckGrant) { try { await withinBody(stuckGrant, () => unstick(bot)) } finally { giveBody(runner, stuckGrant, 'unstick ended') } }
       }
     } catch (e) {
       // A reflex loop that throws EVERY tick is not an error to log, it is an

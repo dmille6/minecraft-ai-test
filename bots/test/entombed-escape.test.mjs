@@ -374,7 +374,7 @@ const REFLEX_CODE = readFileSync(REFLEX_PATH, 'utf8')
 // `const stair =` names the ENTOMBED call site. A bare `escapeStairUp` would
 // also match the maroon one, and an assertion that two call sites can satisfy
 // is an assertion neither of them has to.
-const ENTOMBED_CALL_EXPR = 'const stair = esc.ramp ? await escapeStairUp(bot, {'
+const ENTOMBED_CALL_EXPR = 'const stair = esc.ramp ? await withinBody(entombedGrant, () => escapeStairUp(bot, {'
 
 await t('WIRED: the entombed handler cuts a ramp BEFORE asking for 26 blocks', () => {
   const call = REFLEX_CODE.indexOf(ENTOMBED_CALL_EXPR)
@@ -478,7 +478,7 @@ await t('MUTANT KILLED: unwiring the entombed call is caught, for the right reas
     'the mutant left the entombed call in place, so the WIRED assertion is not what detects it')
   // ...and the maroon call must SURVIVE it, or the assertion above is passing
   // because both call sites vanished together.
-  assert.ok(mutated.includes('const ramp = await escapeStairUp(bot, {'),
+  assert.ok(mutated.includes('const ramp = await withinBody(wallGrant, () => escapeStairUp(bot, {'),
     'the mutant removed the maroon call too; it is not specific to this branch')
 })
 

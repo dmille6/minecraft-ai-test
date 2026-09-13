@@ -260,7 +260,8 @@ export class Runner {
     } finally {
       clearTimeout(watchdog)
       if (hardStop) clearTimeout(hardStop)
-      try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
+      // the skill's own goal is cleared as the holder (the finally runs outside `within`; a contextless stop was refused)
+      try { const g = this.grant; const stop = () => this.bot.pathfinder?.setGoal(null); g ? this.arb.within(g, stop) : stop() } catch { /* not connected */ }
       this.bodyClaim = null
       if (this.grant) { this.arb.release(this.grant, `skill ended: ${result?.status ?? 'unknown'}`); this.grant = null }
     }
