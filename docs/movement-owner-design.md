@@ -1,4 +1,4 @@
-# One movement owner — design v2 (13 Sep 2026; Codex pass 1 folded in; pass 2 is the last before code)
+# One movement owner — design v3 FINAL (13 Sep 2026; two Codex passes folded in; next step is code, arbiter first)
 
 Reliability program step 2. Today the body is driven by skills, five reflexes (air/drowning, entombed, marooned,
 stuck, livelock), the recovery ladder, and the admission gate, coordinated through flags (`escaping`, `marooned`,
@@ -107,3 +107,20 @@ rows are the new telemetry; the digest's trapped-bot list reads `safe_hold` and 
    then are recoveries routed one at a time. Two owners at once is the current bug in a new coat.
 7. **Latency (question 1):** ASSESS between legs is local and bounded (no path search); measured as tail latency
    fleet-wide in the safety canary; gather legs are 1–5 s and must not lose more than 100 ms each.
+
+## v3 — the final pass's three defects, folded in
+
+1. **The cancellation handshake has a deadline.** Preemption waits for the operation's acknowledgement at most
+   500 ms; then the owner REVOKES the old operation's actuator authority (its later actuator calls are rejected as
+   stale by the arbiter), clears controls, and gives the survival action the body without waiting for the old
+   promise to settle. A hung dig or pathfinder promise can never hold a drowning bot.
+2. **Safety predicates gate only SUCCESSFUL recovery exits.** A rung that fails, times out, or is preempted returns
+   to ASSESS with the unresolved hazard recorded on the episode, so the next rung is reachable; the hazard
+   predicates decide whether an episode is CLOSED, never whether ASSESS may run.
+3. **Support requirements are per recovery class.** Air recovery is complete on a breathable head and sustainable
+   flotation (afloat with the head in air, oxygen rising) — no relocation and no solid support required; entombment
+   needs `!isEntombed` and supported feet; marooning needs a startable path; the flooded-pocket rung needs
+   supported feet and a breathable head. `escapedFrom` remains the relocation evidence where the class asks for it.
+
+Review closed at two passes. Build order: the actuator arbiter (step 0), then route the ladder and the climbs,
+each against the corpus.
