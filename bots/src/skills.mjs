@@ -3218,6 +3218,15 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
         const pick = pickBlindHeading((x, y, z) => bot.blockAt(new Vec3(x, y, z)),
                                       { x: feet.x, y: feet.y, z: feet.z },     // the exact position: the probe walks the body's own footprint
                                       ang, turnSign * (Math.PI / 3))
+        // EVERY PROBE IS A ROW, not only the refusals. explore-step-guard-01
+        // (2026-09-13) fired one refusal in three hours on five bots, so its
+        // registered readability bar (>= 10 refusals) could not be met and the
+        // read was INCONCLUSIVE; the denominator the read needs is the number of
+        // blind steps PROBED. `explore_blind_step` carries the verdict either
+        // way; `explore_step_refused` stays as the refusal's own row.
+        logEvent({ kind: 'explore_blind_step', status: pick.step.ok ? 'success' : 'no_effect',
+                   detail: `${pick.step.ok ? 'taken' : 'refused'}: ${pick.step.why ?? 'ground holds'}; heading ${pick.ang?.toFixed?.(2) ?? ang.toFixed(2)} ` +
+                           `after ${pick.tried} tried (leg ${legs}, y=${feet.y.toFixed(1)})` })
         if (!pick.step.ok) {
           logEvent({ kind: 'explore_step_refused', status: 'no_effect',
                      detail: `${pick.step.why}; ${pick.tried} heading(s) refused, standing this leg (leg ${legs}, ${String(lastErr).slice(0, 40)})` })

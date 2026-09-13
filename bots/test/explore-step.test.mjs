@@ -231,4 +231,20 @@ t("a corner clip of arbitrarily short duration is still found (Codex, fourteenth
   assert.ok(!r.ok, 'the brief corner clip was missed'); assert.match(r.why, /lava beside at 1,64,0/)
 })
 
+
+t('every probed blind step is a row (explore_blind_step) BEFORE the refusal branch, carrying taken/refused', () => {
+  const c = strip(RAW); const s = c.indexOf('const pick = pickBlindHeading('); const f = c.slice(s, s + 2500)
+  const row = f.indexOf("kind: 'explore_blind_step'"), branch = f.indexOf('if (!pick.step.ok) {')
+  assert.ok(row > 0 && branch > row, 'the exposure row precedes the refusal branch')
+  assert.match(f.slice(row, branch), /status: pick\.step\.ok \? 'success' : 'no_effect'/, 'status carries the verdict')
+  assert.match(f.slice(row, branch), /\$\{pick\.step\.ok \? 'taken' : 'refused'\}/, 'detail names taken/refused')
+})
+t('MUTANT: dropping the exposure row is caught', () => {
+  const c = strip(RAW); const anchor = "logEvent({ kind: 'explore_blind_step'"
+  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const bad = c.replace(anchor, "void ({ kind: 'explore_blind_step_removed'")
+  const s = bad.indexOf('const pick = pickBlindHeading('); const f = bad.slice(s, s + 2500)
+  assert.ok(f.indexOf("kind: 'explore_blind_step'") < 0)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
