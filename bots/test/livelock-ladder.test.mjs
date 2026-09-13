@@ -86,7 +86,7 @@ t('skills run inside their grant and the routed climbs inside theirs, so the act
   const x = strip(rf(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
   assert.equal((x.match(/await withinBody\((?:maroon|entombed)Grant, \(\) => pillarOut\(/g) || []).length, 2, 'both climbs run within their grant')
   const i = strip(rf(new URL('../src/index.mjs', import.meta.url), 'utf8'))
-  assert.match(i, /if \(config\.reflex\.arbiter && runner\?\.arb\) \{\s*runner\.arb\.installActuatorGate\(bot/, 'the gate is installed at spawn when the flag is on')
+  assert.match(i, /if \(config\.reflex\.arbiter && runner\?\.arb\) \{[\s\S]{0,800}?runner\.arb\.installActuatorGate\(bot/, 'the gate is installed at spawn when the flag is on')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

@@ -678,7 +678,7 @@ const REFLEX_CODE = readFileSync(REFLEX_PATH, 'utf8')
 // question about the wrong thing. `const ramp =` names THIS branch's call and
 // `const stair =` names the entombed one, so each site is asserted where it
 // belongs and neither can stand in for the other.
-const MAROON_CALL_EXPR = 'const ramp = await escapeStairUp(bot, {'
+const MAROON_CALL_EXPR = 'const ramp = await withinBody(wallGrant, () => escapeStairUp(bot, {'   // routed through the maroon_wall grant (2026-09-13)
 
 await t('WIRED: the ramp is tried before the scaffold prerequisite, not after it', () => {
   const call = REFLEX_CODE.indexOf(MAROON_CALL_EXPR)
@@ -690,7 +690,7 @@ await t('WIRED: the ramp is tried before the scaffold prerequisite, not after it
     'cannot travel to solve it')
 })
 
-const RAMP_CALL = '            const ramp = await escapeStairUp(bot, {'
+const RAMP_CALL = '            const ramp = await withinBody(wallGrant, () => escapeStairUp(bot, {'
 
 await t('MUTANT KILLED: unwiring the call is caught, and caught for the right reason', async () => {
   const src = readFileSync(REFLEX_PATH, 'utf8')
