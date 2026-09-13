@@ -108,8 +108,8 @@ test('MUTANT: preferring the tool again must be caught', async () => {
   // The regression this guards is the code that was there until today: reach
   // for `bestTool` first and equip it whenever one exists.
   await withMutant(new URL('../src/digbudget.mjs', import.meta.url),
-    "  const bare = planDig(bareMs)\n  if (!bare.refuse) return { hand: 'bare', budgetMs: bare.budgetMs, refuse: false }",
-    "  const bare = planDig(bareMs)\n  { const t = planDig(toolMs); if (!t.refuse) return { hand: 'tool', budgetMs: t.budgetMs, refuse: false } }",
+    "  const bare = planDigSplit({ hardnessMs: bareMs, actualMs: bareActualMs })\n  if (!bare.refuse) return { hand: 'bare', budgetMs: bare.budgetMs, refuse: false }",
+    "  const bare = planDigSplit({ hardnessMs: bareMs, actualMs: bareActualMs })\n  { const t = planDigSplit({ hardnessMs: toolMs, actualMs: toolActualMs }); if (!t.refuse) return { hand: 'tool', budgetMs: t.budgetMs, refuse: false } }",
     async mut => {
       assert.equal(mut.digHand({ bareMs: 10_000, toolMs: 400 }).hand, 'tool',
         'the mutant must actually change behaviour, or it proves nothing')

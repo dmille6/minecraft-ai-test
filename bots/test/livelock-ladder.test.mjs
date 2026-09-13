@@ -62,11 +62,21 @@ t('the escape declares recovery_exhausted exactly when the ladder is exhausted, 
   assert.match(f, /blocksBefore >= LIVELOCK_BLOCK_RESERVE\) \{/, 'the dig rung is gated on the block reserve')
   assert.match(f, /setInterval\(\(\) => \{\s*if \(placeable\(\) <= LIVELOCK_BLOCK_RESERVE\) \{[^}]*setGoal/, 'and the reserve is held throughout the rung by a watcher that ends the walk')
   assert.match(f, /finally \{ clearInterval\(watch\) \}/, 'the watcher is always cleared')
+  assert.match(f, /m\.countScaffoldingItems = \(\) => Math\.max\(0, orig\.call\(m\) - LIVELOCK_BLOCK_RESERVE\)/, 'the reserve is subtracted BEFORE planning: the pathfinder never plans a placement that spends it')
+  assert.match(f, /finally \{ if \(m && typeof orig === 'function'\) m\.countScaffoldingItems = orig \}/, 'the override is restored')
   assert.match(f, /next = livelockNext\(\{ rung, escaped: escapedFrom\(from, here\(\)\) \}\)/, 'done is the postcondition and nothing weaker')
   assert.ok(LIVELOCK_BLOCK_RESERVE >= 8, 'the reserve is at least the scaffold prerequisite')
   const r = strip(rf(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
   assert.match(r, /\(!escapedFrom\(climbFrom, \{[^}]*\}\) \|\| isEntombed\(bot\)\)\) escapeFailures\+\+/, 'the entombed arm needs BOTH displacement and not walled in to count a success')
   assert.match(f, /blocks spent \$\{spent\}/, 'the spend is reported')
+})
+
+
+t('MUTANT: a rung that plans with the full inventory (no reserve subtracted) is caught', () => {
+  const c = strip(RAW); const anchor = 'm.countScaffoldingItems = () => Math.max(0, orig.call(m) - LIVELOCK_BLOCK_RESERVE)'
+  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const bad = c.replace(anchor, 'm.countScaffoldingItems = () => orig.call(m)')
+  assert.ok(!/orig\.call\(m\) - LIVELOCK_BLOCK_RESERVE/.test(bad))
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

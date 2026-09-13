@@ -369,8 +369,18 @@ export class CognitiveLoop {
         if (placeable() <= LIVELOCK_BLOCK_RESERVE) { try { this.bot.pathfinder?.setGoal?.(null) } catch {} }
       }, 500)
       try {
-        await this.bot.withAscentMovements(() =>
-          this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }))
+        await this.bot.withAscentMovements(async () => {
+          // THE RESERVE IS SUBTRACTED BEFORE PLANNING (Codex pass 4): the
+          // pathfinder bridges with what countScaffoldingItems() reports, so
+          // during this rung it reports the inventory MINUS the reserve and
+          // never plans a placement that would spend it. The watcher above is
+          // only the backstop for a plan already in flight.
+          const m = this.bot.pathfinder?.movements
+          const orig = m?.countScaffoldingItems
+          if (m && typeof orig === 'function') m.countScaffoldingItems = () => Math.max(0, orig.call(m) - LIVELOCK_BLOCK_RESERVE)
+          try { return await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }) }
+          finally { if (m && typeof orig === 'function') m.countScaffoldingItems = orig }
+        })
       } finally { clearInterval(watch) }
       moved = movedNow(); next = livelockNext({ rung, escaped: escapedFrom(from, here()) })
     }
