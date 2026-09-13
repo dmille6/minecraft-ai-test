@@ -1,4 +1,4 @@
-# Flooded-pocket rung — design v2 (13 Sep 2026; Codex pass 1 fixed, pass 2 is the last)
+# Flooded-pocket rung — design v3 FINAL (13 Sep 2026; two Codex passes, both folded in; no further review — build against Bravo's fixture)
 
 Raw `bot.dig` / `bot.placeBlock` only; the pathfinder refuses blocks touching liquid and cannot jump-place in water.
 Fixture: board-c-Bravo (floating at y=48.2 in a 5-deep water pocket, floor y=44, stone y=50 to ~62, 25 blocks, no
@@ -32,3 +32,20 @@ tools, an air cell it breathes from).
    `flooded_pocket_rung` with the reason and blocks spent.
 7. **Budgets.** Wall clock 240 s (from the feasibility estimate, capped); blocks capped at need + 2 (counted from the
    floor); one attempt per 10 min per bot; the whole rung is one ESCAPE episode in the movement owner.
+
+## v3 — the final pass's four defects, folded in
+
+- **Jump release (step 4):** release jump immediately after the placement is confirmed, then await a supported
+  landing (onGround on the new block) with a 1.5 s deadline; holding jump keeps the bot swimming upward.
+- **Oxygen feasibility per operation (steps 1, 5):** every uninterrupted submerged operation (a dig or a
+  placement sequence) plus the swim back to air must fit the available oxygen (`bot.oxygenLevel`, 20 = 15 s).
+  A bare-hand submerged stone dig is 37.5 s and can never fit one breath; the rung REFUSES it with the reason
+  "submerged dig exceeds one breath" rather than starting. Consequence, recorded honestly: **board-c-Bravo
+  (no tool, head submerged under stone) is not recoverable by this rung, nor by any rung without a tool or an
+  air layer under the stone; its remedy is prevention — a wooden pickaxe kept in hand — which is the retention
+  goal, not a rescue.** Delta-class pockets (a pickaxe in hand: 1.15 s × 5 ≈ 6 s per block) are feasible.
+- **Abort order (step 6):** invalidate the step loop and clear controls FIRST, then hand the body to the air reflex
+  and confirm the head is breathable before the episode ends; never end an underwater recovery on an abort alone.
+- **Cancellation inside placement:** a generation counter cannot stop a `placeBlock` whose look already completed;
+  the rung wraps placement so the cancellation check runs immediately before the packet is sent, and after any
+  abort it re-reads the target cell to reconcile a placement that went out anyway.
