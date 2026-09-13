@@ -122,7 +122,11 @@ await ta('the gate after Codex passes 1 and 2: a released context never resumes 
   arb.stop(g, 'hard stop of a stale grant')
   assert.deepEqual(calls, [], 'a stale grant\'s stop does not clear the successor\'s goal or controls')
   assert.equal(arb.holder?.owner, 'air')
-  arb.stop(h, 'hard stop of the holder')
+  // releasing a grant whose goto is still bound stops the pathfinder through the raw functions (corpus run 6)
+  await arb.within(h, () => bot.pathfinder.goto('x')); assert.equal(arb.bound, h); calls.length = 0
+  arb.release(h, 'done'); assert.deepEqual(calls, [['setGoal', null], ['stopDigging'], ['clear']], 'a bound grant\'s release stops its path'); assert.equal(arb.bound, null)
+  const h2 = await arb.acquire({ owner: 'air', priority: PRIORITY.air }); calls.length = 0
+  arb.stop(h2, 'hard stop of the holder')
   assert.deepEqual(calls, [['setGoal', null], ['stopDigging'], ['clear']], 'the holder\'s stop halts goal, dig and controls through the raw functions')
   assert.equal(arb.holder, null)
 })
