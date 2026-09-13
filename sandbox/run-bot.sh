@@ -4,7 +4,7 @@
 set -euo pipefail
 ENVF="${1:?env file}"; ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; source "$ROOT/$ENVF"; set +a
-[[ "${MINECRAFT_HOST:-}" == "10.0.0.30" && "${MINECRAFT_PORT:-}" == "25599" ]] || { echo "refusing: not the sandbox server ($MINECRAFT_HOST:$MINECRAFT_PORT)"; exit 3; }
+[[ "${MINECRAFT_HOST:-}" == "10.0.0.30" && "${MINECRAFT_PORT:-}" =~ ^(25599|25600|25601|25602)$ ]] || { echo "refusing: not a sandbox server ($MINECRAFT_HOST:$MINECRAFT_PORT; sandbox..sandbox4 = 25599..25602)"; exit 3; }
 # the model is either OFF or the loopback scripted brain (scripts/sandbox-brain.mjs); never a real inference box
 if [[ "${LLM_ENABLED:-}" != "false" ]]; then
   for u in ${OLLAMA_BASE_URL:-} ${OLLAMA_BASE_URLS//,/ }; do [[ "$u" == http://127.0.0.1:* ]] || { echo "refusing: model endpoint $u is not loopback"; exit 3; }; done
