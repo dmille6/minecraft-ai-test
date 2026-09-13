@@ -2003,7 +2003,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     }
   }
   try { bot.setControlState('sneak', false) } catch {}
-  await bot.lookAt(chestBlock.position.offset(0.5, 0.5, 0.5), true).catch(() => {})
+  try { await bot.lookAt?.(chestBlock.position.offset(0.5, 0.5, 0.5), true) } catch {}   // face the chest; optional on test doubles
   let chest
   try {
     chest = await withTimeout(bot.openContainer(chestBlock), 8_000, bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
