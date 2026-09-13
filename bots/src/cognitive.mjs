@@ -139,6 +139,33 @@ export const PREREQ_TTL_MS = 15 * 60_000
 // prompt -- are different ones. Below this the breaker has not broken anything
 // and must not report that it did.
 export const LIVELOCK_MIN_MOVE = 8
+/**
+ * PHYSICAL FIXATION (recovery-ladder-03, 2026-09-13; two Codex passes on docs/livelock-fixation.md). The breaker used
+ * to fire on three rejected decisions alone and relocated WORKING bots 30-57 blocks every 5-10 minutes (hive-b-Bravo:
+ * 21 successful gathers in the half hour after an "exhausted" row). Now the decision-loop signal must coincide with
+ * the body being stuck over a fully observed window. Pure; the runner supplies the samples.
+ *
+ * `samples`: [{ t, x, z, items }] newest last, one per decision (items = inventory total); `reconnectAt`: the last
+ * (re)connect time -- samples before it are not comparable and the window must start after it.
+ * Returns { fixated, reason, moved, gained, coverage } so the log can say why.
+ */
+export const FIXATION = Object.freeze({ windowMs: 180_000, minSamples: 4, maxGapMs: 90_000, minSpanMs: 150_000, minMove: LIVELOCK_MIN_MOVE })
+export function livelockFixated (samples, { now, rejections = 0, repeatLoop = false, reconnectAt = 0, cfg = FIXATION } = {}) {
+  const lo = Math.max(now - cfg.windowMs, reconnectAt)
+  const w = (samples || []).filter(s => s && s.t >= lo && s.t <= now).sort((a, b) => a.t - b.t)
+  const span = w.length ? w[w.length - 1].t - w[0].t : 0
+  let maxGap = 0
+  for (let i = 1; i < w.length; i++) maxGap = Math.max(maxGap, w[i].t - w[i - 1].t)
+  const coverage = w.length >= cfg.minSamples && span >= cfg.minSpanMs && maxGap <= cfg.maxGapMs
+  if (!coverage) return { fixated: false, reason: 'insufficient coverage', moved: null, gained: null, coverage: false, n: w.length, span, maxGap }
+  const x0 = w[0].x, z0 = w[0].z
+  const moved = Math.max(...w.map(s => Math.hypot(s.x - x0, s.z - z0)))          // path extent from the oldest sample: a round trip is not 0
+  let gained = 0
+  for (let i = 1; i < w.length; i++) gained += Math.max(0, (w[i].items ?? 0) - (w[i - 1].items ?? 0))   // positive deltas only: consumption never masks a gain
+  const arguing = repeatLoop || rejections >= 3                                   // the decision-loop signal, scoped to the caller's consecutive count
+  const fixated = arguing && moved < cfg.minMove && gained === 0
+  return { fixated, reason: fixated ? 'stuck and arguing' : (!arguing ? 'not arguing' : moved >= cfg.minMove ? 'moved' : 'gained'), moved, gained, coverage: true, n: w.length, span, maxGap }
+}
 export { escapedFrom }
 /** After both rungs fail to move the bot, the breaker rests this long; the
  *  repeat window stays UNCLEARED meanwhile so the identical proposal keeps
@@ -207,6 +234,9 @@ export function applyPrereq(milestone, prereq, have, now = Date.now()) {
 
 export class CognitiveLoop {
   constructor(bot, runner, lessons = null, worldFacts = null) {
+    // PHYSICAL FIXATION samples: one per decision, last five minutes; a new Cognitive is a new connection, so
+    // `startedAt` is the reconnect bound (samples from a previous connection are not comparable).
+    this.fixationSamples = []; this.startedAt = Date.now()
     this.bot = bot
     this.runner = runner
     this.llm = makeClient()
@@ -594,6 +624,7 @@ export class CognitiveLoop {
   }
 
   async #tick(trigger) {
+    { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
 
     // `chainComplete` is not a thing MilestoneController has ever defined -- the
@@ -878,7 +909,11 @@ export class CognitiveLoop {
             this.recoveryExhaustedAt = null; this.livelockLatchedUntil = 0
           }
         }
-        if (!(this.livelockLatchedUntil > Date.now())) await this.#escape()
+        // THE BREAKER FIRES ON PHYSICAL FIXATION, NOT ON ARGUMENT ALONE (docs/livelock-fixation.md, 2026-09-13).
+        const fx = livelockFixated(this.fixationSamples, { now: Date.now(), rejections: this.consecutiveRejections, repeatLoop: rejection?.reason === 'repeat_loop', reconnectAt: this.startedAt })
+        if (!fx.fixated) {
+          logEvent({ kind: 'livelock_not_fixated', status: 'no_effect', detail: `${fx.reason}: moved ${fx.moved ?? '?'} gained ${fx.gained ?? '?'} over ${fx.n} samples / ${Math.round((fx.span ?? 0) / 1000)} s (rejections ${this.consecutiveRejections}${rejection?.reason === 'repeat_loop' ? ', repeat_loop' : ''})`, snapshot: snapshot(this.bot) })
+        } else if (!(this.livelockLatchedUntil > Date.now())) await this.#escape()
       }
     }
     if (admitted) this.consecutiveRejections = 0
