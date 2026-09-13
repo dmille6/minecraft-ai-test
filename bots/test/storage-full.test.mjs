@@ -35,7 +35,7 @@ test('a chest is genuinely craftable from what bots carry', async () => {
 })
 
 test('storage_full builds a chest instead of only naming one', () => {
-  assert.match(CODE, /if \(!noRecovery\) \{[\s\S]{0,400}?craft\(ctx, \{ item: 'chest', count: 1 \}/,
+  assert.match(CODE, /if \(!noRecovery\) \{[\s\S]{0,2400}?craft\(ctx, \{ item: 'chest', count: 1 \}/,   // the alternates loop (other chests within 24 blocks) sits between the guard and the craft since 2026-09-13
     'it must actually craft the chest')
   assert.match(CODE, /place\(ctx, \{ item: 'chest' \}, signal\)/,
     'and put it down')
