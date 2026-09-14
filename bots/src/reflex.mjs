@@ -1746,14 +1746,16 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // Treading water is jump without a direction; swimming is jump WITH
         // one. `float` is the single case where up is the only thing wanted,
         // because the head is already out and the bot is simply staying there.
-        bot.setControlState('jump', true)
-        if (holdState === 'surface_out' && airRoute?.target) {
-          bot.setControlState('forward', true)
-          try { bot.lookAt(airRoute.target, true) } catch { /* not connected */ }
-        } else if (holdState !== 'float') {
-          // Rising: up IS the direction. Do not also drive it sideways into a
-          // wall it cannot see.
-          bot.setControlState('forward', false)
+        if (!pocketing) {   // the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4)
+          bot.setControlState('jump', true)
+          if (holdState === 'surface_out' && airRoute?.target) {
+            bot.setControlState('forward', true)
+            try { bot.lookAt(airRoute.target, true) } catch { /* not connected */ }
+          } else if (holdState !== 'float') {
+            // Rising: up IS the direction. Do not also drive it sideways into a
+            // wall it cannot see.
+            bot.setControlState('forward', false)
+          }
         }
         if (!holdStartedAt) {
           holdStartedAt = Date.now()
@@ -4674,11 +4676,11 @@ export function pocketPlanFor (bot, { blockAt = null } = {}) {
 }
 async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCells, alive = () => true, log: logEv = () => {} } = {}) {
   const gen = { n: 0 }; const my = ++gen.n; const t0 = Date.now(); const before = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: true }
-  let spent = 0; let aborts = 0
+  let spent = 0; let aborts = 0; let sinkNote = 'not started'
   const B = bmap(bot); const fx = Math.floor(before.x), fz = Math.floor(before.z)
   const stopAll = () => { try { bot.stopDigging?.() } catch {} try { bot.clearControlStates() } catch {} }
   const end = (ok, why) => { stopAll(); const p = bot.entity.position; const rose = p.y - before.y
-    logEv({ kind: 'flooded_pocket_rung', status: ok ? 'success' : 'failed', detail: `${why}; rose ${rose.toFixed(1)}, blocks ${spent}, ${Math.round((Date.now() - t0) / 1000)} s, planned ${plan.need}/${plan.blocks} blocks ${Math.round(plan.timeMs / 1000)} s` })
+    logEv({ kind: 'flooded_pocket_rung', status: ok ? 'success' : 'failed', detail: `${why}; rose ${rose.toFixed(1)}, blocks ${spent}, ${Math.round((Date.now() - t0) / 1000)} s, planned ${plan.need}/${plan.blocks} blocks ${Math.round(plan.timeMs / 1000)} s; floor ${floorY} dry ${firstDryY} started y=${before.y.toFixed(1)} now y=${p.y.toFixed(1)} onGround=${bot.entity.onGround} sink=${sinkNote}` })
     return { ok, why, rose, spent } }
   const abortIfNeeded = () => (!alive() ? 'preempted' : (bot.oxygenLevel ?? 20) <= POCKET_OXYGEN_ABORT ? 'air' : Date.now() - t0 > plan.timeMs + 30_000 ? 'budget' : null)
   // 2/3. sink: release jump, wait for the floor (verify the block under the feet is the floor)
@@ -4686,6 +4688,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
   bot.setControlState('jump', false); bot.setControlState('sneak', false)
   const sunkBy = Date.now() + 8_000
   while (Date.now() < sunkBy) { const p = bot.entity.position; if (bot.entity.onGround && Math.floor(p.y) === floorY + 1) break; await sleep(200); const a = abortIfNeeded(); if (a) return end(false, `abort while sinking: ${a}`) }
+  sinkNote = `y=${bot.entity.position.y.toFixed(1)} onGround=${bot.entity.onGround} after ${Math.round((Date.now() - t0) / 1000)} s`
   if (!(bot.entity.onGround && Math.floor(bot.entity.position.y) === floorY + 1)) return end(false, 'did not reach the floor in 8 s')
   // 4/5. pillar: dig the cell two above the feet if solid, then jump-place a block under the feet; verify each step
   const block = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name))
