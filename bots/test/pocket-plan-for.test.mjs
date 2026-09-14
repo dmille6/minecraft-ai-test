@@ -34,6 +34,7 @@ t('WIRED: the sealed verdict only raises the want; the rung runs before the dry 
   const before = src.slice(j - 1500, j)
   assert.match(before, /pocketWanted && Date\.now\(\) - pocketWanted < POCKET_WANT_MS && !escaping && !marooned && !pocketing/, 'waits for a free tick')
   assert.match(before, /takeBody\(bot, runner, 'flooded_pocket', PRIORITY\.escape\)/, 'takes the body at escape priority')
+  assert.match(before, /const within = typeof withinBody === 'function' \? withinBody : \(g, fn\) => fn\(\)/, 'runs inside the grant where the arbiter exists, plainly where it does not')
   assert.match(before, /const \{ plan, floorY, firstDryY, tool, columnCells \} = pocketPlanFor\(bot\)/)
   for (const g of [/!pocketing && !pocketPending && Date\.now\(\) - lastEscapeAt/, /mstate === 'climb' && !pocketing && !pocketPending/, /!pocketing && !pocketPending && mstate === 'need_scaffold'/]) assert.equal((src.match(g) || []).length, 1, `arm waits: ${g}`)
 })

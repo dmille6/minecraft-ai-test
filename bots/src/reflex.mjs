@@ -2196,7 +2196,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             if (pocketGrant) {
               pocketing = true
               try {
-                await withinBody(pocketGrant, () => floodedPocketRung(bot, { plan, floorY, firstDryY, tool, columnCells, alive: ownsBody(() => pocketGrant), log: e => logEvent({ ...e, snapshot: snapshot(bot) }) }))
+                // withinBody/ownsBody exist only on trees with the arbiter (recovery-ladder); the canary base has neither (pocket corpus run 3 threw)
+                const within = typeof withinBody === 'function' ? withinBody : (g, fn) => fn()
+                const owns = typeof ownsBody === 'function' ? ownsBody(() => pocketGrant) : () => true
+                await within(pocketGrant, () => floodedPocketRung(bot, { plan, floorY, firstDryY, tool, columnCells, alive: owns, log: e => logEvent({ ...e, snapshot: snapshot(bot) }) }))
               } catch (e) { logEvent({ kind: 'flooded_pocket_rung', status: 'failed', detail: `threw: ${String(e?.message ?? e).slice(0, 80)}`, snapshot: snapshot(bot) }) }
               finally { pocketing = false; giveBody(runner, pocketGrant, 'flooded pocket rung ended') }
               return
