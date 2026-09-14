@@ -13,7 +13,7 @@ t('guard 1: every path_update with a path runs corridorSafe on the executed node
 t('guard 2: the surface_out push runs holdForwardSafe and clears forward explicitly on refusal', () => {
   const m = rfx.match(/const hv = holdForwardSafe\(bmap\(bot\), \{[^}]*\}, dir\)\s*if \(!hv\.safe\) \{\s*bot\.setControlState\('forward', false\)/g) || []
   assert.equal(m.length, 1)
-  assert.equal((rfx.replace("bot.setControlState('forward', false)\n              if (Date.now() - lastHoldLavaAt", "if (Date.now() - lastHoldLavaAt").match(/if \(!hv\.safe\) \{\s*bot\.setControlState\('forward', false\)/g) || []).length, 0, 'MUTANT: a refusal that merely refrains is caught')
+  assert.equal((rfx.replace(/bot\.setControlState\('forward', false\)\s*if \(Date\.now\(\) - lastHoldLavaAt/, 'if (Date.now() - lastHoldLavaAt').match(/if \(!hv\.safe\) \{\s*bot\.setControlState\('forward', false\)/g) || []).length, 0, 'MUTANT: a refusal that merely refrains is caught')
 })
 t('guard 3: the stand-off runs only for an idle bot (no skill, no arm, 20 s after the last skill), once per 10 s, ends by position feedback and clears forward', () => {
   assert.match(rfx, /if \(!runner\.isBusy\(\) && !escaping && !marooned && !pocketing && Date\.now\(\) - \(runner\.lastEndedAt \?\? 0\) > 20_000 && Date\.now\(\) - lastStandOffAt > 10_000\) \{/)
