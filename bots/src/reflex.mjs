@@ -4753,7 +4753,10 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     const landedBy = Date.now() + 1_500
     while (Date.now() < landedBy && !bot.entity.onGround) await sleep(100)
     const nowY = Math.floor(bot.entity.position.y)
-    if (!placed || B(fx, feetY, fz)?.boundingBox !== 'block' || nowY < feetY + 1) { if (++aborts >= 3) return end(false, `no height gained after 3 placements at y=${feetY}`); step--; continue }
+    if (!placed || B(fx, feetY, fz)?.boundingBox !== 'block' || nowY < feetY + 1) {
+      if (++aborts >= 3) return end(false, `no height gained after 3 placements at y=${feetY} (placed=${placed}, cell ${feetY}=${B(fx, feetY, fz)?.name}, above ${B(fx, feetY + 1, fz)?.name}/${B(fx, feetY + 2, fz)?.name}/${B(fx, feetY + 3, fz)?.name}, y at place ${yAtPlace.toFixed(2)}, now ${bot.entity.position.y.toFixed(2)})`)
+      step--; continue
+    }
     spent++; aborts = 0
   }
   const p = bot.entity.position; const head = B(fx, Math.floor(p.y) + 1, fz); const feet = B(fx, Math.floor(p.y), fz)
