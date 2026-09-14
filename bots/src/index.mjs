@@ -4,6 +4,8 @@
 // intelligence -- recover after death or disconnection, and run four hours
 // without unrecoverable failure. That is what this file is for.
 
+import { Vec3 } from 'vec3'
+import { corridorSafe } from './lavaguard.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
 import pathfinderPkg from 'mineflayer-pathfinder'
@@ -702,6 +704,7 @@ function connect() {
       } catch { /* not connected */ }
     }, 2000)
 
+    let lavaCorridorLoggedAt = 0
     bot.on('path_reset', (reason) => {
       pathResets[reason] = (pathResets[reason] ?? 0) + 1
       logEvent({ kind: 'path_reset', detail: reason, snapshot: snapshot(bot) })
@@ -709,6 +712,19 @@ function connect() {
     bot.on('path_update', (r) => {
       if (!r || !r.status) return
       pathUpdates[r.status] = (pathUpdates[r.status] ?? 0) + 1
+      // LAVA GUARD 1 (docs/lava-prevention.md v3): the EXECUTED route's swept footprint must be known, supported and
+      // lava-free; a failing sample stops the leg before the first step and again on every replan. The pathfinder
+      // already refuses lava as a node; this catches the ledge over a pool that a walkable node sequence crosses.
+      if ((r.status === 'success' || r.status === 'partial') && Array.isArray(r.path) && r.path.length && bot.entity?.position) {
+        const p = bot.entity.position
+        const nodes = [{ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, ...r.path.map(n => ({ x: n.x, y: n.y, z: n.z }))]
+        const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)
+        if (!v.safe) {
+          try { bot.pathfinder.setGoal(null) } catch { /* not connected */ }
+          if (Date.now() - lavaCorridorLoggedAt > 5_000) { lavaCorridorLoggedAt = Date.now(); logEvent({ kind: 'lava_corridor', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')} after ${v.samples} samples; the leg is refused`, snapshot: snapshot(bot) }) }
+          return
+        }
+      }
       // Only the terminal verdicts are worth a document; `success` and
       // `partial` fire constantly during normal walking.
       if (r.status === 'noPath' || r.status === 'timeout') {

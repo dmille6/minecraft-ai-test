@@ -28,6 +28,7 @@ export class Runner {
     this.grant = null
     this.bot = bot
     this.current = null          // { skill, args, controller, startedAt }
+    this.lastEndedAt = 0
     // Bumped on every run so a result from an ABANDONED skill can be told apart
     // from the current one. See the hard-stop race below.
     this.generation = 0
@@ -261,6 +262,7 @@ export class Runner {
       try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
       this.bodyClaim = null
       if (this.grant) { this.arb.release(this.grant, `skill ended: ${result?.status ?? 'unknown'}`); this.grant = null }
+      this.lastEndedAt = Date.now()   // the lava stand-off waits 20 s after any skill before moving an idle bot
     }
 
     // A LATE RESOLUTION FROM AN ABANDONED SKILL MUST NOT LAND. If the runner
