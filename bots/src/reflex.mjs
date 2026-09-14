@@ -33,6 +33,7 @@ import { rideFloorDown } from './skills.mjs'
 export { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS }
 import { Vec3 } from 'vec3'
 import { escapedFrom } from './recovery.mjs'
+import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -1369,6 +1370,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
   let lastEscapeAt = 0
+  let lastPocketRungAt = 0
+  let pocketing = false   // the flooded-pocket rung holds the body; the dry arms wait
   let lastMaroonPrereqAt = 0
   let strandedSince = 0
   // Cleared by the same displacement test as strandedSince -- see the block that
@@ -1964,6 +1967,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                   `(oxygen ${bot.oxygenLevel}, health ${bot.health}) \u2014 sealed, no route up or out`,
           snapshot: snapshot(bot),
         })
+        // THE TOOLED FLOODED-POCKET RUNG: the rescue has given up on a sealed pocket; with a pickaxe in hand the bot
+        // can dig its way up between breaths (design v3). Bare-handed it is refused by name, once per 10 min.
+        if (Date.now() - lastPocketRungAt > POCKET_RUNG_COOLDOWN_MS && !escaping && !marooned && !pocketing) {
+          lastPocketRungAt = Date.now()
+          const { plan, floorY, firstDryY, tool, columnCells } = pocketPlanFor(bot)
+          if (!plan.ok) {
+            logEvent({ kind: 'flooded_pocket_rung', status: 'no_effect', detail: `refused: ${plan.why}`, snapshot: snapshot(bot) })
+          } else {
+            const pocketGrant = await takeBody(bot, runner, 'flooded_pocket', PRIORITY.escape)
+            if (pocketGrant) {
+              pocketing = true
+              try {
+                await withinBody(pocketGrant, () => floodedPocketRung(bot, { plan, floorY, firstDryY, tool, columnCells, alive: ownsBody(() => pocketGrant), log: e => logEvent({ ...e, snapshot: snapshot(bot) }) }))
+              } catch (e) { logEvent({ kind: 'flooded_pocket_rung', status: 'failed', detail: `threw: ${String(e?.message ?? e).slice(0, 80)}`, snapshot: snapshot(bot) }) }
+              finally { pocketing = false; giveBody(runner, pocketGrant, 'flooded pocket rung ended') }
+            }
+          }
+        }
       }
       // Detection is allowed to be noisy; the BODY is not.
       const mayAct = airConsequenceEvidence(bot, air, {
@@ -2293,7 +2314,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: climbNeedAbove(bmap(bot), bot.entity.position), entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
-        if (mstate === 'need_scaffold' &&
+        if (!pocketing && mstate === 'need_scaffold' &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
           // TAKING THE WALL MOVES THE BODY: it digs, ramps and harvests underfoot, so it holds the body like the
@@ -2556,7 +2577,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      snapshot: snapshot(bot) })
         }
 
-        if (mstate === 'climb') {
+        if (mstate === 'climb' && !pocketing) {
 
           marooned = true
           const invBefore = inventorySummary(bot)
@@ -2661,7 +2682,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && isEntombed(bot) &&
-          Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
+          !pocketing && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
           // Repeating an escape that has failed four times is not a strategy.
@@ -4628,6 +4649,82 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
  * This is the same defect that cost the fleet 48 OOM kills today through
  * collectblock's unbounded waits. It was sitting in the rescue the whole time.
  */
+// THE FLOODED-POCKET RUNG (docs/flooded-pocket-rung-design.md v3; pure parts in floodpocket.mjs). Runs when the
+// drowning rescue has given up on a SEALED pocket and the bot holds a pickaxe. Sink to the floor, pillar up on own
+// blocks, dig each ceiling cell between breaths, stop when up, dry, breathing and standing. Raw dig/place only.
+const POCKET_RUNG_COOLDOWN_MS = 600_000
+const POCKET_OXYGEN_ABORT = 6
+export function pocketPlanFor (bot, { blockAt = null } = {}) {
+  const at = bot?.entity?.position; if (!at) return { plan: { ok: false, why: 'no position' }, floorY: null, firstDryY: null, tool: null }
+  const B = blockAt || bmap(bot); const fx = Math.floor(at.x), fz = Math.floor(at.z), feetY = Math.floor(at.y)
+  const solid = b => !!b && b.boundingBox === 'block'
+  const liquid = b => !!b && ['water', 'flowing_water', 'lava', 'flowing_lava', 'bubble_column'].includes(b.name)
+  let floorY = null
+  for (let dy = 1; dy <= 7; dy++) { if (solid(B(fx, feetY - dy, fz))) { floorY = feetY - dy; break } }
+  const tool = (bot.inventory?.items?.() ?? []).find(it => /_pickaxe$/.test(it.name)) ?? null
+  const passable = b => !b || b.boundingBox !== 'block'
+  const need = floorY == null ? null : climbNeedAbove(B, { x: fx, y: floorY + 1, z: fz }, { cap: 24, passable })
+  const firstDryY = (floorY == null || need == null || need >= 24) ? null : floorY + 1 + need
+  const columnCells = []
+  if (floorY != null && firstDryY != null) {
+    for (let y = floorY + 1; y <= firstDryY + 1; y++) {
+      const b = B(fx, y, fz); const isSolid = solid(b)
+      const digMs = isSolid ? (predictedDigMs(b, tool, { inWater: true, notOnGround: false }) ?? Infinity) : 0
+      const inflowRisk = isSolid && [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]].some(([dx, dz]) => { const n = B(fx + dx, y + (dx === 0 && dz === 0 ? 1 : 0), fz + dz); return liquid(n) && !(dx === 0 && dz === 0 && y <= feetY) })
+      columnCells.push({ y, solid: isSolid, digMs, inflowRisk })
+    }
+  }
+  const blocksHeld = (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0)
+  const plan = pocketPlan({ floorY, feetY, firstDryY, columnCells, blocksHeld, toolInHand: !!tool, oxygenLevel: bot.oxygenLevel ?? 0 })
+  return { plan, floorY, firstDryY, tool, columnCells }
+}
+async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCells, alive = () => true, log: logEv = () => {} } = {}) {
+  const gen = { n: 0 }; const my = ++gen.n; const t0 = Date.now(); const before = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: true }
+  let spent = 0; let aborts = 0
+  const B = bmap(bot); const fx = Math.floor(before.x), fz = Math.floor(before.z)
+  const stopAll = () => { try { bot.stopDigging?.() } catch {} try { bot.clearControlStates() } catch {} }
+  const end = (ok, why) => { stopAll(); const p = bot.entity.position; const rose = p.y - before.y
+    logEv({ kind: 'flooded_pocket_rung', status: ok ? 'success' : 'failed', detail: `${why}; rose ${rose.toFixed(1)}, blocks ${spent}, ${Math.round((Date.now() - t0) / 1000)} s, planned ${plan.need}/${plan.blocks} blocks ${Math.round(plan.timeMs / 1000)} s` })
+    return { ok, why, rose, spent } }
+  const abortIfNeeded = () => (!alive() ? 'preempted' : (bot.oxygenLevel ?? 20) <= POCKET_OXYGEN_ABORT ? 'air' : Date.now() - t0 > plan.timeMs + 30_000 ? 'budget' : null)
+  // 2/3. sink: release jump, wait for the floor (verify the block under the feet is the floor)
+  try { await bot.equip(tool, 'hand') } catch {}
+  bot.setControlState('jump', false); bot.setControlState('sneak', false)
+  const sunkBy = Date.now() + 8_000
+  while (Date.now() < sunkBy) { const p = bot.entity.position; if (bot.entity.onGround && Math.floor(p.y) === floorY + 1) break; await sleep(200); const a = abortIfNeeded(); if (a) return end(false, `abort while sinking: ${a}`) }
+  if (!(bot.entity.onGround && Math.floor(bot.entity.position.y) === floorY + 1)) return end(false, 'did not reach the floor in 8 s')
+  // 4/5. pillar: dig the cell two above the feet if solid, then jump-place a block under the feet; verify each step
+  const block = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name))
+  for (let step = 0; step < plan.need; step++) {
+    const a0 = abortIfNeeded(); if (a0) return end(false, `abort at step ${step}: ${a0}`)
+    const feetY = Math.floor(bot.entity.position.y); const ceil = B(fx, feetY + 2, fz)
+    if (ceil && ceil.boundingBox === 'block') {
+      const cell = columnCells.find(c => c.y === feetY + 2)
+      if (cell && (cell.inflowRisk || !oxygenFitsOperation({ oxygenLevel: bot.oxygenLevel ?? 0, opMs: cell.digMs }))) return end(false, `ceiling y=${feetY + 2}: ${cell.inflowRisk ? 'liquid would flow in' : 'not enough air for the dig'}`)
+      try { await bot.equip(tool, 'hand') } catch {}
+      try { await digBounded(bot, ceil, Math.min(30_000, (cell?.digMs ?? 8_000) * 2)) } catch (e) { return end(false, `ceiling dig failed at y=${feetY + 2}: ${String(e?.message ?? e).slice(0, 50)}`) }
+      if (B(fx, feetY + 2, fz)?.boundingBox === 'block') return end(false, `ceiling y=${feetY + 2} did not open`)
+    }
+    const under = B(fx, feetY - 1, fz); if (!under || under.boundingBox !== 'block') return end(false, `no reference block under the feet at y=${feetY - 1}`)
+    const blk = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name)); if (!blk) return end(false, 'out of placeable blocks')
+    try { await bot.equip(blk, 'hand') } catch {}
+    bot.setControlState('jump', true); await sleep(300)
+    const a1 = abortIfNeeded(); if (a1) { bot.setControlState('jump', false); return end(false, `abort before placing: ${a1}`) }
+    let placed = false
+    try { await bot.placeBlock(under, new Vec3(0, 1, 0)); placed = true } catch {}
+    bot.setControlState('jump', false)
+    const landedBy = Date.now() + 1_500
+    while (Date.now() < landedBy && !bot.entity.onGround) await sleep(100)
+    const nowY = Math.floor(bot.entity.position.y)
+    if (!placed || B(fx, feetY, fz)?.boundingBox !== 'block' || nowY < feetY + 1) { if (++aborts >= 3) return end(false, `no height gained after 3 placements at y=${feetY}`); step--; continue }
+    spent++; aborts = 0
+  }
+  const p = bot.entity.position; const head = B(fx, Math.floor(p.y) + 1, fz); const feet = B(fx, Math.floor(p.y), fz)
+  const after = { x: p.x, y: p.y, z: p.z, wet: !!bot.entity.isInWater || ['water', 'flowing_water'].includes(feet?.name) }
+  const done = pocketDone({ before, after, headBreathable: !head || head.name === 'air' || head.name === 'cave_air', feetSupported: !!bot.entity.onGround })
+  return end(done, done ? 'up, dry, breathing and standing' : 'finished the column but not out (not dry, breathing or standing)')
+}
+
 async function digBounded(bot, block, ms = 8000) {
   let t
   try {

@@ -313,7 +313,7 @@ export class CognitiveLoop {
   static TRIGGER_RANK = {
     death: 6,
     stranded_high: 5, entombed: 5,
-    marooned: 4, maroon_wall: 4, stranded: 4,   // maroon_wall: the self-source branch holding the body (2026-09-13)
+    marooned: 4, maroon_wall: 4, flooded_pocket: 4, stranded: 4,   // maroon_wall: the self-source branch; flooded_pocket: the tooled pocket rung (2026-09-14)
     drowning: 3, suffocating: 3, low_health: 3,
     danger_block: 2,
     stuck: 1, stagnation: 1,
