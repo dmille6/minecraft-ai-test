@@ -33,6 +33,7 @@ import { rideFloorDown } from './skills.mjs'
 export { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS }
 import { Vec3 } from 'vec3'
 import { escapedFrom } from './recovery.mjs'
+import { holdForwardSafe, lavaStandOff } from './lavaguard.mjs'
 import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
@@ -1370,6 +1371,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
   let lastEscapeAt = 0
+  let lastStandOffAt = 0; let lastNoRetreatAt = 0; let lastHoldLavaAt = 0   // lava guards 2 and 3 (docs/lava-prevention.md)
   let lastPocketRungAt = 0
   let pocketing = false   // the flooded-pocket rung holds the body; the dry arms wait
   let pocketWanted = 0     // when the rescue last declared the pocket sealed (ms); the rung takes the next free tick
@@ -1763,8 +1765,19 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           if (pocketing) return   // the flooded-pocket rung is sinking or pillaring: the hold must not jump against it (pocket corpus run 4)
           bot.setControlState('jump', true)
           if (holdState === 'surface_out' && airRoute?.target) {
-            bot.setControlState('forward', true)
-            try { bot.lookAt(airRoute.target, true) } catch { /* not connected */ }
+            // LAVA GUARD 2: the push toward the air target must not sweep the body into lava (3-wide, +3 cells, feet
+            // and below, unknown counts as lava). On refusal forward is cleared EXPLICITLY and the hold only floats.
+            const at = bot.entity.position; const T = airRoute.target
+            const ddx = T.x - at.x, ddz = T.z - at.z
+            const dir = Math.abs(ddx) >= Math.abs(ddz) ? [Math.sign(Math.round(ddx)), 0] : [0, Math.sign(Math.round(ddz))]
+            const hv = holdForwardSafe(bmap(bot), { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }, dir)
+            if (!hv.safe) {
+              bot.setControlState('forward', false)
+              if (Date.now() - lastHoldLavaAt > 10_000) { lastHoldLavaAt = Date.now(); logEvent({ kind: 'hold_lava_ahead', status: 'no_effect', detail: `${hv.why} at ${hv.cell?.join(',')}: the hold floats in place`, snapshot: snapshot(bot) }) }
+            } else {
+              bot.setControlState('forward', true)
+              try { bot.lookAt(airRoute.target, true) } catch { /* not connected */ }
+            }
           } else if (holdState !== 'float') {
             // Rising: up IS the direction. Do not also drive it sideways into a
             // wall it cannot see.
@@ -2231,6 +2244,25 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       }
       const pocketPending = pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS   // a declared sealed pocket: the dry arms wait one window for the rung
       // --- standing in something that hurts --------------------------------
+      // LAVA GUARD 3: an IDLE bot beside lava steps one block away onto verified ground (no skill, no claim, no arm,
+      // no skill ended in the last 20 s; once per 10 s; position feedback ends the step inside the destination).
+      if (!runner.isBusy() && !escaping && !marooned && !pocketing && Date.now() - (runner.lastEndedAt ?? 0) > 20_000 && Date.now() - lastStandOffAt > 10_000) {   // idle: no skill (claims are skill-owned, so none can be held)
+        const at = bot.entity.position; const feetCell = { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }
+        const so = lavaStandOff(bmap(bot), feetCell)
+        if (so.move) {
+          lastStandOffAt = Date.now()
+          const [mx, mz] = so.move; const dest = { x: feetCell.x + mx + 0.5, z: feetCell.z + mz + 0.5 }
+          logEvent({ kind: 'lava_adjacent_stand_off', status: 'success', detail: `lava within a block; stepping ${mx},${mz} onto verified ground`, snapshot: snapshot(bot) })
+          try {
+            await bot.lookAt(new Vec3(dest.x, at.y + 1.6, dest.z), true); bot.setControlState('forward', true)
+            const endBy = Date.now() + 1_500
+            while (Date.now() < endBy) { const q = bot.entity.position; if (Math.hypot(q.x - dest.x, q.z - dest.z) < 0.3) break; await sleep(50) }
+          } catch { /* not connected */ } finally { bot.setControlState('forward', false) }
+          return
+        } else if (so.why === 'lava_adjacent_no_retreat' && Date.now() - lastNoRetreatAt > 60_000) {
+          lastNoRetreatAt = Date.now(); logEvent({ kind: 'lava_adjacent_no_retreat', status: 'no_effect', detail: 'lava within a block and no verified retreat cell: holding still', snapshot: snapshot(bot) })
+        }
+      }
       const feet = bot.blockAt(bot.entity.position)
       const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
       if ((DANGER_BLOCKS.has(feet?.name) || DANGER_BLOCKS.has(below?.name)) && throttled('danger', 8000)) {
