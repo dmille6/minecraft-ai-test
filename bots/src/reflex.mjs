@@ -1365,6 +1365,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let lastStandOffAt = 0; let lastNoRetreatAt = 0; let lastHoldLavaAt = 0   // lava guards 2 and 3 (docs/lava-prevention.md)
   let lastPocketRungAt = 0
   let pocketing = false   // the flooded-pocket rung holds the body; the dry arms wait
+  let pocketWanted = 0     // when the rescue last declared the pocket sealed (ms); the rung takes the next free tick
   let lastMaroonPrereqAt = 0
   let strandedSince = 0
   // Cleared by the same displacement test as strandedSince -- see the block that
@@ -1966,24 +1967,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                   `(oxygen ${bot.oxygenLevel}, health ${bot.health}) \u2014 sealed, no route up or out`,
           snapshot: snapshot(bot),
         })
-        // THE TOOLED FLOODED-POCKET RUNG: the rescue has given up on a sealed pocket; with a pickaxe in hand the bot
-        // can dig its way up between breaths (design v3). Bare-handed it is refused by name, once per 10 min.
-        if (Date.now() - lastPocketRungAt > POCKET_RUNG_COOLDOWN_MS && !escaping && !marooned && !pocketing) {
-          lastPocketRungAt = Date.now()
-          const { plan, floorY, firstDryY, tool, columnCells } = pocketPlanFor(bot)
-          if (!plan.ok) {
-            logEvent({ kind: 'flooded_pocket_rung', status: 'no_effect', detail: `refused: ${plan.why}`, snapshot: snapshot(bot) })
-          } else {
-            const pocketGrant = await takeBody(bot, runner, 'flooded_pocket', PRIORITY.escape)
-            if (pocketGrant) {
-              pocketing = true
-              try {
-                await withinBody(pocketGrant, () => floodedPocketRung(bot, { plan, floorY, firstDryY, tool, columnCells, alive: ownsBody(() => pocketGrant), log: e => logEvent({ ...e, snapshot: snapshot(bot) }) }))
-              } catch (e) { logEvent({ kind: 'flooded_pocket_rung', status: 'failed', detail: `threw: ${String(e?.message ?? e).slice(0, 80)}`, snapshot: snapshot(bot) }) }
-              finally { pocketing = false; giveBody(runner, pocketGrant, 'flooded pocket rung ended') }
-            }
-          }
-        }
+        pocketWanted = Date.now()   // the tooled flooded-pocket rung gets the next free tick, before the dry arms (they cannot work underwater)
       }
       // Detection is allowed to be noisy; the BODY is not.
       const mayAct = airConsequenceEvidence(bot, air, {
@@ -2225,6 +2209,29 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // the bot still had 3% of its air, so one incident logged as many.
       if (bot.oxygenLevel != null && bot.oxygenLevel >= airMax * 0.5) lowOxygenLatched = false
 
+      // THE TOOLED FLOODED-POCKET RUNG runs on the first tick after the rescue declared the pocket SEALED, before the
+      // dry arms (pocket corpus run 2, 2026-09-14: the entombed/maroon arms fired every 30-90 s and the rung never got
+      // a turn). Bare-handed it is refused by name; one attempt per 10 min.
+      if (pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS && !escaping && !marooned && !pocketing) {
+        if (Date.now() - lastPocketRungAt > POCKET_RUNG_COOLDOWN_MS) {
+          lastPocketRungAt = Date.now(); pocketWanted = 0
+          const { plan, floorY, firstDryY, tool, columnCells } = pocketPlanFor(bot)
+          if (!plan.ok) {
+            logEvent({ kind: 'flooded_pocket_rung', status: 'no_effect', detail: `refused: ${plan.why}`, snapshot: snapshot(bot) })
+          } else {
+            const pocketGrant = await takeBody(bot, runner, 'flooded_pocket', PRIORITY.escape)
+            if (pocketGrant) {
+              pocketing = true
+              try {
+                await withinBody(pocketGrant, () => floodedPocketRung(bot, { plan, floorY, firstDryY, tool, columnCells, alive: ownsBody(() => pocketGrant), log: e => logEvent({ ...e, snapshot: snapshot(bot) }) }))
+              } catch (e) { logEvent({ kind: 'flooded_pocket_rung', status: 'failed', detail: `threw: ${String(e?.message ?? e).slice(0, 80)}`, snapshot: snapshot(bot) }) }
+              finally { pocketing = false; giveBody(runner, pocketGrant, 'flooded pocket rung ended') }
+              return
+            }
+          }
+        } else pocketWanted = 0
+      }
+      const pocketPending = pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS   // a declared sealed pocket: the dry arms wait one window for the rung
       // --- standing in something that hurts --------------------------------
       // LAVA GUARD 3: an IDLE bot beside lava steps one block away onto verified ground (no skill, no claim, no arm,
       // no skill ended in the last 20 s; once per 10 s; position feedback ends the step inside the destination).
@@ -2351,7 +2358,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: climbNeedAbove(bmap(bot), bot.entity.position), entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
-        if (!pocketing && mstate === 'need_scaffold' && !inDanger &&
+        if (!pocketing && !pocketPending && mstate === 'need_scaffold' && !inDanger &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
           // TAKE THE WALL BEFORE ASKING ANYONE FOR ANYTHING.
@@ -2609,7 +2616,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      snapshot: snapshot(bot) })
         }
 
-        if (mstate === 'climb' && !pocketing && !inDanger) {
+        if (mstate === 'climb' && !pocketing && !pocketPending && !inDanger) {
 
           marooned = true
           const invBefore = inventorySummary(bot)
@@ -2714,7 +2721,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) &&
-          !pocketing && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
+          !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
           // Repeating an escape that has failed four times is not a strategy.
@@ -4671,6 +4678,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
 // drowning rescue has given up on a SEALED pocket and the bot holds a pickaxe. Sink to the floor, pillar up on own
 // blocks, dig each ceiling cell between breaths, stop when up, dry, breathing and standing. Raw dig/place only.
 const POCKET_RUNG_COOLDOWN_MS = 600_000
+const POCKET_WANT_MS = 60_000   // a sealed verdict is acted on within a minute or forgotten
 const POCKET_OXYGEN_ABORT = 6
 export function pocketPlanFor (bot, { blockAt = null } = {}) {
   const at = bot?.entity?.position; if (!at) return { plan: { ok: false, why: 'no position' }, floorY: null, firstDryY: null, tool: null }
