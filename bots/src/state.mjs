@@ -19,6 +19,18 @@ export function countItem(bot, name) {
     .reduce((n, i) => n + i.count, 0)
 }
 
+/** { name: { used, max } } for every tool in the inventory (pickaxes, axes, shovels, swords, hoes). Pure over the items. */
+export function toolWear (bot) {
+  const out = {}
+  for (const it of (bot?.inventory?.items?.() ?? [])) {
+    if (!/_(pickaxe|axe|shovel|sword|hoe)$/.test(it.name)) continue
+    const used = it.durabilityUsed ?? null, max = it.maxDurability ?? null
+    if (used == null && max == null) continue
+    out[it.name] = { used, max }
+  }
+  return out
+}
+
 export function snapshot(bot) {
   const p = bot.entity?.position
   return {
@@ -41,6 +53,9 @@ export function snapshot(bot) {
       // What is actually in hand. A tool that broke and a tool that vanished
       // look identical without this.
       held: bot.heldItem?.name ?? null,
+      // TOOL WEAR, so a vanished pickaxe can be told from a broken one (iron retention plan, ChatGPT pass 1,
+      // 2026-09-14): every tool's uses so far and its maximum. Readers that sum `inventory` are unaffected.
+      tools: toolWear(bot),
     },
     game: {
       tick: bot.time?.age ?? null,
