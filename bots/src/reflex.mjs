@@ -4692,11 +4692,11 @@ export function pocketPlanFor (bot, { blockAt = null } = {}) {
 }
 async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCells, alive = () => true, log: logEv = () => {} } = {}) {
   const gen = { n: 0 }; const my = ++gen.n; const t0 = Date.now(); const before = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: true }
-  let spent = 0; let aborts = 0; let sinkNote = 'not started'
+  let spent = 0; let aborts = 0; let sinkNote = 'not started'; let lastPlaceErr = 'none'
   const B = bmap(bot); const fx = Math.floor(before.x), fz = Math.floor(before.z)
   const stopAll = () => { try { bot.stopDigging?.() } catch {} try { bot.clearControlStates() } catch {} }
   const end = (ok, why) => { stopAll(); const p = bot.entity.position; const rose = p.y - before.y
-    logEv({ kind: 'flooded_pocket_rung', status: ok ? 'success' : 'failed', detail: `${why}; rose ${rose.toFixed(1)}, blocks ${spent}, ${Math.round((Date.now() - t0) / 1000)} s, planned ${plan.need}/${plan.blocks} blocks ${Math.round(plan.timeMs / 1000)} s; floor ${floorY} dry ${firstDryY} started y=${before.y.toFixed(1)} now y=${p.y.toFixed(1)} onGround=${bot.entity.onGround} sink=${sinkNote}` })
+    logEv({ kind: 'flooded_pocket_rung', status: ok ? 'success' : 'failed', detail: `${why}; rose ${rose.toFixed(1)}, blocks ${spent}, ${Math.round((Date.now() - t0) / 1000)} s, planned ${plan.need}/${plan.blocks} blocks ${Math.round(plan.timeMs / 1000)} s; floor ${floorY} dry ${firstDryY} started y=${before.y.toFixed(1)} now y=${p.y.toFixed(1)} onGround=${bot.entity.onGround} sink=${sinkNote} lastPlaceErr=${lastPlaceErr}` })
     return { ok, why, rose, spent } }
   const abortIfNeeded = () => (!alive() ? 'preempted' : (bot.oxygenLevel ?? 20) <= POCKET_OXYGEN_ABORT ? 'air' : Date.now() - t0 > plan.timeMs + 30_000 ? 'budget' : null)
   // 2/3. sink: release jump, wait for the floor (verify the block under the feet is the floor)
@@ -4721,10 +4721,15 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     const under = B(fx, feetY - 1, fz); if (!under || under.boundingBox !== 'block') return end(false, `no reference block under the feet at y=${feetY - 1}`)
     const blk = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name)); if (!blk) return end(false, 'out of placeable blocks')
     try { await bot.equip(blk, 'hand') } catch {}
-    bot.setControlState('jump', true); await sleep(300)
+    // IN WATER THE RISE IS SLOW: wait until the feet are a full block above the reference (the body no longer overlaps
+    // the target cell -- mineflayer's placement rule) instead of a fixed 300 ms (pocket corpus run 5: three placements
+    // at y=48, none gained height). Up to 1.5 s.
+    bot.setControlState('jump', true)
+    const risenBy = Date.now() + 1_500
+    while (Date.now() < risenBy && bot.entity.position.y < feetY + 1.0) await sleep(50)
     const a1 = abortIfNeeded(); if (a1) { bot.setControlState('jump', false); return end(false, `abort before placing: ${a1}`) }
-    let placed = false
-    try { await bot.placeBlock(under, new Vec3(0, 1, 0)); placed = true } catch {}
+    let placed = false; const yAtPlace = bot.entity.position.y
+    try { await bot.placeBlock(under, new Vec3(0, 1, 0)); placed = true } catch (e) { lastPlaceErr = `${String(e?.message ?? e).slice(0, 60)} at y=${yAtPlace.toFixed(2)}` }
     bot.setControlState('jump', false)
     const landedBy = Date.now() + 1_500
     while (Date.now() < landedBy && !bot.entity.onGround) await sleep(100)
