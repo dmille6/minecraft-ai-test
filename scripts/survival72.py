@@ -1,31 +1,50 @@
 #!/usr/bin/env python3
-"""The 72-h fleet survival read (reliability program, committed numbers): deaths per bot-hour fleet-wide over the
-72 h AFTER the promotion vs the 72 h BEFORE it, plus deposit success and iron-pickaxe bot-hours where cheap.
-Runs on 10.0.0.31: python3 survival72.py <promotion ISO time> [hours=72]. Logs rotate: the read reports its coverage."""
-import sys, json, glob, subprocess, datetime as dt, collections
+"""The 72-h fleet read after a promotion, on the program's five committed numbers, SPLIT BY CODE VERSION so a revert or a
+later promotion cannot blur it (ChatGPT, goals review 2026-09-14). Runs on 10.0.0.31:
+    python3 survival72.py <promotion ISO time> [hours=72]
+Numbers (2-week commitments): deaths/bot-h <= 0.05; immobile bot-minutes <= 2%; iron-pickaxe bot-hours >= 8%;
+gather success >= 40%; stock returned >= 20 items/bot-h. Bot-hours are counted from rows present per (bot, minute)."""
+import sys, json, glob, datetime as dt, collections, math
 T0 = dt.datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')); H = int(sys.argv[2]) if len(sys.argv) > 2 else 72
 lo = T0 - dt.timedelta(hours=H); hi = T0 + dt.timedelta(hours=H); now = dt.datetime.now(dt.timezone.utc)
-deaths = collections.Counter(); dep = collections.Counter(); first = None; last = None; picks = collections.Counter(); rows = collections.Counter()
+K = collections.defaultdict(collections.Counter)      # (era, version) -> counters
+minutes = collections.defaultdict(set)                 # (era, version) -> {(bot, minute)}
+pos = collections.defaultdict(list)                    # (era, version, bot) -> [(t, x, z)]
+first = last = None
 for f in glob.glob('/var/log/mcai/*/skill-*.jsonl'):
     for l in open(f, 'rb'):
-        if b'"_death"' not in l and b'"deposit"' not in l and b'_milestone' not in l: continue
         try: r = json.loads(l)
         except Exception: continue
-        b = r.get('bot', {}).get('name', '');
-        if b.startswith('isolated'): continue
+        b = r.get('bot', {}).get('name', '')
+        if not b or b.startswith('isolated'): continue
         ts = dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00'))
         if ts < lo or ts > hi: continue
-        era = 'after' if ts >= T0 else 'before'; rows[era] += 1
+        era = 'after' if ts >= T0 else 'before'; v = (r.get('code') or {}).get('version', '?')[:7]; k = (era, v)
         first = min(first, ts) if first else ts; last = max(last, ts) if last else ts
-        n = (r.get('skill') or {}).get('name'); st = (r.get('skill') or {}).get('status')
-        if n == '_death': deaths[era] += 1
-        if n == 'deposit': dep[(era, st)] += 1
+        minutes[k].add((b, ts.strftime('%m%d%H%M')))
+        sk = r.get('skill') or {}; n = sk.get('name'); st = sk.get('status'); det = sk.get('detail') or ''
+        if n == '_death': K[k]['deaths'] += 1
+        if n == 'gather': K[k]['gather'] += 1; K[k]['gather_ok'] += (st == 'success')
+        if n == 'deposit' and st == 'success':
+            K[k]['deposit_ok'] += 1
+            import re; m = re.findall(r'(\d+)x? [a-z_]+', det); K[k]['items_returned'] += sum(int(x) for x in m) if m else 0
         inv = r.get('bot', {}).get('inventory') or {}
-        picks[(era, 'iron' if 'iron_pickaxe' in inv else 'no-iron')] += 1
-bots = 60
-for era, a, b in (('before', lo, T0), ('after', T0, min(hi, now))):
-    hours = max(0.01, (b - a).total_seconds() / 3600); bh = bots * hours
-    ok = dep[(era, 'success')]; tot = sum(v for (e, s), v in dep.items() if e == era)
-    ip = picks[(era, 'iron')]; ipt = ip + picks[(era, 'no-iron')]
-    print(f"{era:6} {a:%m-%d %H:%M}..{b:%H:%M}Z  bot-h {bh:6.0f}  deaths {deaths[era]:3}  = {deaths[era]/bh:.3f}/bot-h  (target <= 0.05)  deposit {ok}/{tot} = {100*ok/max(1,tot):.0f}%  iron-pick row share {100*ip/max(1,ipt):.1f}%")
-print(f"coverage: rows {dict(rows)}, first row {first}, last row {last}; positive control: deaths counted {sum(deaths.values())}")
+        K[k]['rows'] += 1; K[k]['iron_rows'] += ('iron_pickaxe' in inv)
+        p = r.get('bot', {}).get('pos') or {}
+        if p.get('x') is not None: pos[(era, v, b)].append((ts, p['x'], p['z']))
+# immobility: share of (bot, minute) whose 60-min trailing displacement < 6 blocks, sampled every 10 min
+imm = collections.defaultdict(lambda: [0, 0])
+for (era, v, b), ps in pos.items():
+    ps.sort(); i = 0
+    for j in range(0, len(ps), 10):
+        t, x, z = ps[j]; back = t - dt.timedelta(minutes=60)
+        while i < len(ps) and ps[i][0] < back: i += 1
+        w = ps[i:j + 1]
+        if len(w) < 5: continue
+        far = max(math.hypot(x - q[1], z - q[2]) for q in w); imm[(era, v)][1] += 1; imm[(era, v)][0] += (far < 6)
+print(f"promotion T0 {T0:%Y-%m-%d %H:%M}Z; window +-{H} h; coverage {first} .. {last}")
+print(f"{'era':7}{'code':9}{'bot-h':>7}{'deaths/bh':>11}{'immobile':>10}{'iron-pick':>11}{'gather ok':>11}{'items/bh':>10}{'deposit ok':>12}")
+for k in sorted(K):
+    bh = len(minutes[k]) / 60; c = K[k]; im = imm[k]
+    print(f"{k[0]:7}{k[1]:9}{bh:7.0f}{c['deaths']/max(bh,0.01):11.3f}{(100*im[0]/im[1] if im[1] else float('nan')):9.1f}%{100*c['iron_rows']/max(1,c['rows']):10.1f}%{100*c['gather_ok']/max(1,c['gather']):10.0f}%{c['items_returned']/max(bh,0.01):10.1f}{c['deposit_ok']:12}")
+print("targets (2 wk): deaths <= 0.05/bh, immobile <= 2%, iron-pick >= 8%, gather >= 40%, items >= 20/bh; positive control: deaths counted", sum(c['deaths'] for c in K.values()))
