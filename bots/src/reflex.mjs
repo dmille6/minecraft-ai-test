@@ -4744,8 +4744,10 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     // the target cell -- mineflayer's placement rule) instead of a fixed 300 ms (pocket corpus run 5: three placements
     // at y=48, none gained height). Up to 1.5 s.
     bot.setControlState('jump', true)
-    const risenBy = Date.now() + 1_500
-    while (Date.now() < risenBy && bot.entity.position.y < feetY + 1.0) await sleep(50)
+    // a 0.1-block margin above the cell edge: at exactly +1.00 the server still saw the hitbox in the target cell
+    // (pocket corpus run 7: placed=false at y 49.01, "blockUpdate did not fire"); up to 2.5 s, water rises slowly
+    const risenBy = Date.now() + 2_500
+    while (Date.now() < risenBy && bot.entity.position.y < feetY + 1.1) await sleep(50)
     const a1 = abortIfNeeded(); if (a1) { bot.setControlState('jump', false); return end(false, `abort before placing: ${a1}`) }
     let placed = false; const yAtPlace = bot.entity.position.y
     try { await bot.placeBlock(under, new Vec3(0, 1, 0)); placed = true } catch (e) { lastPlaceErr = `${String(e?.message ?? e).slice(0, 60)} at y=${yAtPlace.toFixed(2)}` }
