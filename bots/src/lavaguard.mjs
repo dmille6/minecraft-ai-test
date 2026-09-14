@@ -1,0 +1,82 @@
+// LAVA PREVENTION, pure parts (docs/lava-prevention.md v3; two Codex passes). Three guards over blocks the bot can
+// already read; nothing here touches the bot. `at(x, y, z)` returns a block ({ name, boundingBox }) or null/undefined
+// for an UNKNOWN (unloaded) cell -- unknown is unsafe everywhere below.
+export const LAVA_LIKE = new Set(['lava', 'flowing_lava', 'fire', 'soul_fire', 'magma_block', 'campfire', 'soul_campfire'])
+const isLava = b => !!b && LAVA_LIKE.has(b.name)
+const solid = b => !!b && b.boundingBox === 'block'
+const passable = b => !!b && b.boundingBox !== 'block' && !isLava(b)
+
+/** One feet-level cell is lava-safe when it is known, has nothing lava-like within 1 block horizontally, and nothing lava-like in the 3 cells below. */
+export function cellLavaSafe (at, x, y, z) {
+  for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) { const b = at(x + dx, y, z + dz); if (b == null || isLava(b)) return { safe: false, why: b == null ? 'unknown' : 'lava beside', cell: [x + dx, y, z + dz] } }
+  for (let dy = 1; dy <= 3; dy++) { const b = at(x, y - dy, z); if (b == null) return { safe: false, why: 'unknown below', cell: [x, y - dy, z] }; if (isLava(b)) return { safe: false, why: 'lava below', cell: [x, y - dy, z] }; if (solid(b)) break }
+  return { safe: true }
+}
+/** Supported: a solid block within 3 below the feet cell with nothing lava-like in between. */
+export function cellSupported (at, x, y, z) {
+  for (let dy = 1; dy <= 3; dy++) { const b = at(x, y - dy, z); if (b == null) return false; if (isLava(b)) return false; if (solid(b)) return true }
+  return false
+}
+/**
+ * Guard 1: the EXECUTED route. `nodes` are the pathfinder's path nodes ({x,y,z}, feet positions) from the bot to the
+ * goal. Every 0.5-block sample along each segment must be known, lava-safe (3x3 around it) and supported; a failing
+ * sample refuses the leg with its coordinates. Cost: ~6 reads per sample.
+ */
+export function corridorSafe (at, nodes, { step = 0.5 } = {}) {
+  if (!nodes || nodes.length < 2) return { safe: true, samples: 0 }
+  let samples = 0
+  for (let i = 1; i < nodes.length; i++) {
+    const a = nodes[i - 1], b = nodes[i]; const len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z); const n = Math.max(1, Math.ceil(len / step))
+    for (let k = 1; k <= n; k++) {
+      const t = k / n; const x = Math.floor(a.x + (b.x - a.x) * t), y = Math.floor(a.y + (b.y - a.y) * t), z = Math.floor(a.z + (b.z - a.z) * t); samples++
+      for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+        const s = cellLavaSafe(at, x + dx, y, z + dz); if (!s.safe) return { safe: false, why: `lava_corridor: ${s.why}`, at: s.cell, samples }
+      }
+      if (!cellSupported(at, x, y, z)) return { safe: false, why: 'lava_corridor: unsupported step', at: [x, y, z], samples }
+    }
+  }
+  return { safe: true, samples }
+}
+/**
+ * Guard 2: the water hold's forward push. `dir` is the unit push direction ([dx, dz] in {-1,0,1}); the swept 3-wide
+ * body through +3 cells along it, at feet level and one below, must be known and free of lava. Returns the first
+ * offending cell. The caller clears `forward` explicitly on refusal.
+ */
+export function holdForwardSafe (at, feet, dir, { reach = 3 } = {}) {
+  const [dx, dz] = dir; if (!dx && !dz) return { safe: true }
+  const lateral = dx ? [[0, -1], [0, 0], [0, 1]] : [[-1, 0], [0, 0], [1, 0]]
+  for (let k = 1; k <= reach; k++) for (const [lx, lz] of lateral) for (const dy of [0, -1]) {
+    const x = feet.x + dx * k + lx, y = feet.y + dy, z = feet.z + dz * k + lz; const b = at(x, y, z)
+    if (b == null) return { safe: false, why: 'unknown ahead', cell: [x, y, z] }
+    if (isLava(b)) return { safe: false, why: 'lava ahead', cell: [x, y, z] }
+  }
+  return { safe: true }
+}
+/**
+ * Guard 3: the stand-off decision for an IDLE bot (the caller guarantees no skill, no claim, no dig/place in 20 s).
+ * Fires only when lava-like lies within 1 block horizontally of the feet or directly under the support; the retreat
+ * cell must be passable (feet and head), supported, lava-safe by guard 1's cell test, and the swept 3-wide footprint
+ * from here to it must be supported and lava-free. Returns the move or null with the reason.
+ */
+export function lavaStandOff (at, feet) {
+  const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => isLava(at(feet.x + dx, feet.y, feet.z + dz)) || isLava(at(feet.x + dx, feet.y - 1, feet.z + dz)))
+  const under = at(feet.x, feet.y - 1, feet.z); const underLava = isLava(under) || isLava(at(feet.x, feet.y - 2, feet.z))
+  if (!near.length && !underLava) return { move: null, why: 'no lava adjacent' }
+  const candidates = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => !near.some(([nx, nz]) => nx === dx && nz === dz))
+  // prefer the cell opposite the nearest lava
+  candidates.sort((p, q) => score(q) - score(p))
+  function score ([dx, dz]) { return near.reduce((s, [nx, nz]) => s + (dx * nx + dz * nz < 0 ? 2 : dx * nx + dz * nz === 0 ? 1 : 0), 0) }
+  for (const [dx, dz] of candidates) {
+    const x = feet.x + dx, y = feet.y, z = feet.z + dz
+    if (!passable(at(x, y, z)) || !passable(at(x, y + 1, z))) continue
+    if (!solid(at(x, y - 1, z))) continue
+    if (!cellLavaSafe(at, x, y, z).safe) continue
+    // the swept 3-wide footprint between here and there
+    const lateral = dx ? [[0, -1], [0, 0], [0, 1]] : [[-1, 0], [0, 0], [1, 0]]
+    // the origin's own centre cell is the hazard being left (magma underfoot counts as lava-like support), so the
+    // sweep checks the origin's LATERAL cells and the whole destination footprint
+    if (!lateral.every(([lx, lz]) => ((lx === 0 && lz === 0) || (cellSupported(at, feet.x + lx, y, feet.z + lz) && !isLava(at(feet.x + lx, y, feet.z + lz)))) && cellSupported(at, x + lx, y, z + lz) && !isLava(at(x + lx, y, z + lz)))) continue
+    return { move: [dx, dz], why: 'retreat' }
+  }
+  return { move: null, why: 'lava_adjacent_no_retreat' }
+}

@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict'
+import { cellLavaSafe, cellSupported, corridorSafe, holdForwardSafe, lavaStandOff } from '../src/lavaguard.mjs'
+let pass = 0, fail = 0
+const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
+const STONE = { name: 'stone', boundingBox: 'block' }, AIR = { name: 'air', boundingBox: 'empty' }, LAVA = { name: 'lava', boundingBox: 'empty' }, WATER = { name: 'water', boundingBox: 'empty' }, MAGMA = { name: 'magma_block', boundingBox: 'block' }
+// a flat stone world at y<=63, air above; overrides by "x,y,z"
+const world = (over = {}) => (x, y, z) => (over[`${x},${y},${z}`] !== undefined ? over[`${x},${y},${z}`] : y <= 63 ? STONE : AIR)
+t('a plain cell is safe and supported; lava beside, below, or unknown is not', () => {
+  assert.equal(cellLavaSafe(world(), 5, 64, 5).safe, true); assert.equal(cellSupported(world(), 5, 64, 5), true)
+  assert.match(cellLavaSafe(world({ '6,64,5': LAVA }), 5, 64, 5).why, /beside/)
+  assert.match(cellLavaSafe(world({ '5,63,5': AIR, '5,62,5': LAVA }), 5, 64, 5).why, /below/)
+  assert.match(cellLavaSafe(world({ '5,64,5': null }), 5, 64, 5).why, /unknown/)
+  assert.equal(cellSupported(world({ '5,63,5': AIR, '5,62,5': AIR, '5,61,5': AIR }), 5, 64, 5), false, 'no floor within 3')
+})
+t('corridor: a leg over a ledge with lava two below fails at the sample, a leg across solid ground passes', () => {
+  const pit = {}; for (let x = 3; x <= 5; x++) { pit[`${x},63,5`] = AIR; pit[`${x},62,5`] = LAVA }
+  const r = corridorSafe(world(pit), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }])
+  assert.equal(r.safe, false); assert.match(r.why, /lava_corridor/); assert.ok(r.at[0] >= 2 && r.at[0] <= 6, `named the cell: ${r.at}`)
+  assert.equal(corridorSafe(world(), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }]).safe, true)
+  assert.equal(corridorSafe(world({ '4,64,5': null }), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }]).safe, false, 'unknown is unsafe')
+  assert.equal(corridorSafe(world(), [{ x: 0.5, y: 64, z: 5.5 }]).safe, true, 'a one-node path is trivially safe')
+})
+t('the water hold: lava within three cells ahead (any of the three lateral cells, feet or below) refuses; behind does not', () => {
+  const feet = { x: 5, y: 64, z: 5 }
+  assert.equal(holdForwardSafe(world(), feet, [1, 0]).safe, true)
+  assert.match(holdForwardSafe(world({ '8,64,6': LAVA }), feet, [1, 0]).why, /lava ahead/)
+  assert.match(holdForwardSafe(world({ '7,63,5': LAVA }), feet, [1, 0]).why, /lava ahead/)
+  assert.match(holdForwardSafe(world({ '7,64,5': null }), feet, [1, 0]).why, /unknown/)
+  assert.equal(holdForwardSafe(world({ '2,64,5': LAVA }), feet, [1, 0]).safe, true, 'lava behind is not ahead')
+  assert.equal(holdForwardSafe(world({ '8,64,5': LAVA }), feet, [0, 0]).safe, true, 'no push, no check')
+})
+t('stand-off: lava east retreats west onto verified ground; no lava means no move; lava all round or a cliff means no move with a reason', () => {
+  const feet = { x: 5, y: 64, z: 5 }
+  assert.deepEqual(lavaStandOff(world({ '6,64,5': LAVA }), feet).move, [-1, 0])
+  assert.equal(lavaStandOff(world(), feet).move, null)
+  const ring = { '6,64,5': LAVA, '4,64,5': LAVA, '5,64,6': LAVA, '5,64,4': LAVA }
+  assert.equal(lavaStandOff(world(ring), feet).why, 'lava_adjacent_no_retreat')
+  const cliff = { '6,64,5': LAVA, '4,63,5': AIR, '4,62,5': AIR, '4,61,5': AIR, '5,64,6': STONE, '5,64,4': STONE }
+  assert.equal(lavaStandOff(world(cliff), feet).move, null, 'west is a cliff, north/south are walls: stay')
+  assert.deepEqual(lavaStandOff(world({ '5,63,5': MAGMA }), feet).move[0] !== undefined, true, 'magma underfoot retreats somewhere')
+})
+console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
