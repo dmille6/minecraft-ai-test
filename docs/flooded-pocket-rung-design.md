@@ -49,3 +49,15 @@ tools, an air cell it breathes from).
 - **Cancellation inside placement:** a generation counter cannot stop a `placeBlock` whose look already completed;
   the rung wraps placement so the cancellation check runs immediately before the packet is sent, and after any
   abort it re-reads the target cell to reconcile a placement that went out anyway.
+
+## Open after the sandbox (2026-09-14 evening, pocket corpus runs 1–8 on Bravo's capture with a pickaxe and 40 blocks)
+Built and wired (floodpocket.mjs, reflex.mjs). What the fixture taught, in order: the rung must take the first free
+tick after the sealed verdict (the dry arms fire every 30–90 s and starved it); the water hold must stand down while
+the rung holds the body (it jumped against the sink); the placement must wait until the feet are 0.1 above the
+target cell's edge (a fixed 300 ms never rises a block in water, and at exactly +1.00 the server ignored the
+packet). With those, the FIRST placement works (48 -> 49) and then the bot stands in one-deep water with air above:
+a jump from water is a swim impulse (+0.18), so the second placement never gets a free cell. **Step 4b, to design
+and build: from shallow water (feet wet, head in air) the rung exits SIDEWAYS — fill a horizontal neighbour's column
+from its floor up to feet level with placements against the block below, then walk onto it — and only then pillars
+dry.** Until 4b exists the rung's real effect is to lift a submerged bot to breathable shallow water, which is the
+survival half; the fixture's outcome line (rise >= 4, dry) stays red. Not a canary candidate yet.
