@@ -53,6 +53,10 @@ const SURVEY_BLOCKS = [
 ]
 
 const DANGER_BLOCKS = new Set(['lava', 'fire', 'campfire', 'soul_fire', 'magma_block'])
+/** Pure: may the recovery arms (entombed, marooned, wall, stuck) run this tick? Not while the feet or the block below is a danger block. */
+export function recoveryArmsMayRun ({ feetName = null, belowName = null } = {}) {
+  return !(DANGER_BLOCKS.has(feetName) || DANGER_BLOCKS.has(belowName))
+}
 
 // Escape pacing. Both of these were USED by the entombment escape in 3073a9f
 // and never DECLARED, along with lastEscapeAt and escapeFailures below.
@@ -2180,12 +2184,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // --- standing in something that hurts --------------------------------
       const feet = bot.blockAt(bot.entity.position)
       const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
-      if ((DANGER_BLOCKS.has(feet?.name) || DANGER_BLOCKS.has(below?.name)) && throttled('danger', 8000)) {
+      // WHILE THE BOT STANDS IN SOMETHING THAT HURTS, NOTHING BELOW THIS LINE MAY RUN. The old form returned only on
+      // the tick that fired the (8-s throttled) escape; on the next tick, still in lava, the tick fell through and the
+      // entombed arm took the body from the escape ("walled in at y=-19" one second after "lava"; hive-b-Delta and
+      // hive-c-Delta died that way within an hour of the 2026-09-14 promotion). Priority is the arbiter's: lava
+      // outranks every recovery rung, so the arms wait until the feet are clear.
+      // v2 (Codex pass 1): the tick keeps running -- air rescue, the low-health latch and stuck detection stay
+      // alive -- but the four MOVEMENT arms (wall, marooned, entombed, unstick) check `inDanger` and stand down.
+      // The escape re-fires every 2.5 s while the danger persists (it clears its controls after 1.5 s).
+      const inDanger = !recoveryArmsMayRun({ feetName: feet?.name, belowName: below?.name })
+      if (inDanger && throttled('danger', 2500)) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
         logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
         runner.interrupt('danger_block')
         await escape(bot)
-        return
+        // no `return` (Codex, final pass): the tick continues to the air rescue, the low-health latch and stuck
+        // detection; the movement arms below are gated on `inDanger` and stand down on their own.
       }
 
       // --- health ----------------------------------------------------------
@@ -2271,7 +2285,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: climbNeedAbove(bmap(bot), bot.entity.position), entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
-        if (mstate === 'need_scaffold' &&
+        if (mstate === 'need_scaffold' && !inDanger &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
           // TAKE THE WALL BEFORE ASKING ANYONE FOR ANYTHING.
@@ -2529,7 +2543,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      snapshot: snapshot(bot) })
         }
 
-        if (mstate === 'climb') {
+        if (mstate === 'climb' && !inDanger) {
 
           marooned = true
           const invBefore = inventorySummary(bot)
@@ -2633,7 +2647,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // by design, and pillaring out of it is the descent's undoing.
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
-      if (!escaping && !marooned && !climbing && isEntombed(bot) &&
+      if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) &&
           Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         if (escapeFailures >= ESCAPE_GIVE_UP_AFTER) {
           // Hand it to the watchdog, which can relocate, go home, or reconnect.
@@ -2861,7 +2875,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       }
       lastPos = p.clone()
 
-      if (runner.isBusy() && !digging && Date.now() - stillSince > config.reflex.stuckSeconds * 1000) {
+      if (runner.isBusy() && !digging && !inDanger && Date.now() - stillSince > config.reflex.stuckSeconds * 1000) {
         log('warn', 'reflex: stuck, cancelling path', { seconds: config.reflex.stuckSeconds })
         logEvent({ kind: 'reflex_stuck', detail: `no movement for ${config.reflex.stuckSeconds}s`, snapshot: snapshot(bot) })
         stillSince = Date.now()
