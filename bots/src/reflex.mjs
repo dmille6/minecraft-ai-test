@@ -2173,8 +2173,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // the right answer anyway.
           const ctl = drowningControls({ losing: true, ashore: false, route, shore: null })
           withinBody(airGrant, () => {   // the rescue's stroke runs under the air grant (the tick itself carries no context)
+            // LAVA GUARD 2 covers the rescue's stroke too (the water fixture showed the rescue, not the hold, steering a
+            // submerged bot toward its air route): a stroke whose swept footprint holds lava or unknown is cleared.
+            let fwd = ctl.forward
+            if (fwd && ctl.lookAt) {
+              const at = bot.entity.position; const ddx = ctl.lookAt.x - at.x, ddz = ctl.lookAt.z - at.z
+              const dir = Math.abs(ddx) >= Math.abs(ddz) ? [Math.sign(Math.round(ddx)), 0] : [0, Math.sign(Math.round(ddz))]
+              const hv = holdForwardSafe(bmap(bot), { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }, dir)
+              if (!hv.safe) { fwd = false; if (Date.now() - lastHoldLavaAt > 10_000) { lastHoldLavaAt = Date.now(); logEvent({ kind: 'hold_lava_ahead', status: 'no_effect', detail: `${hv.why} at ${hv.cell?.join(',')}: the rescue stroke is cleared`, snapshot: snapshot(bot) }) } }
+            }
             if (ctl.lookAt) { try { bot.lookAt(ctl.lookAt, true) } catch { /* not connected */ } }
-            bot.setControlState('forward', ctl.forward)
+            bot.setControlState('forward', fwd)
             bot.setControlState('jump', ctl.jump)
           })
           if (ctl.phase !== lastDrownPhase) {
