@@ -40,7 +40,7 @@ for r in ev.rows:
     k = K(b, 'post' if d >= 0 else 'pre'); bots[k].add(b); rows[k] += 1
     n = r['name']; st = (r['raw'].get('outcome') or {}).get('status') or (r['raw'].get('skill') or {}).get('status')
     if n in ('gather', 'mine'): gs[k][(n, 'ok' if st == 'success' else 'other')] += 1
-    if n in ('tool_broke', 'tool_gone'): broke[k][n] += 1
+    if n in ('_tool_broke', '_tool_gone'): broke[k][n.lstrip('_')] += 1   # logEvent kinds carry the underscore in skill.name
     inv = r['bot'].get('inventory'); tw = r['bot'].get('tools')
     if isinstance(inv, dict):
         prev = last.get(b)

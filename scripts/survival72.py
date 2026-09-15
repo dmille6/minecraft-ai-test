@@ -5,14 +5,24 @@ later promotion cannot blur it (ChatGPT, goals review 2026-09-14). Runs on 10.0.
 Numbers (2-week commitments): deaths/bot-h <= 0.05; immobile bot-minutes <= 2%; iron-pickaxe bot-hours >= 8%;
 gather success >= 40%; stock returned >= 20 items/bot-h. Bot-hours are counted from rows present per (bot, minute)."""
 import sys, json, glob, datetime as dt, collections, math
+
+def log_files(lo):
+    """Live files plus the rotated .gz generations whose rows can fall inside the window (day d rotates into -<d+1>.gz)."""
+    out = list(glob.glob('/var/log/mcai/*/skill-*.jsonl')); d = lo.date(); now = dt.datetime.now(dt.timezone.utc)
+    while d <= now.date():
+        out += glob.glob(f"/var/log/mcai/*/skill-*.jsonl-{(d + dt.timedelta(days=1)).strftime('%Y%m%d')}.gz"); d += dt.timedelta(days=1)
+    return out
+def open_log(f):
+    import gzip; return gzip.open(f, 'rb') if f.endswith('.gz') else open(f, 'rb')
+
 T0 = dt.datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')); H = int(sys.argv[2]) if len(sys.argv) > 2 else 72
 lo = T0 - dt.timedelta(hours=H); hi = T0 + dt.timedelta(hours=H); now = dt.datetime.now(dt.timezone.utc)
 K = collections.defaultdict(collections.Counter)      # (era, version) -> counters
 minutes = collections.defaultdict(set)                 # (era, version) -> {(bot, minute)}
 pos = collections.defaultdict(list)                    # (era, version, bot) -> [(t, x, z)]
 first = last = None
-for f in glob.glob('/var/log/mcai/*/skill-*.jsonl'):
-    for l in open(f, 'rb'):
+for f in log_files(lo):
+    for l in open_log(f):
         try: r = json.loads(l)
         except Exception: continue
         b = r.get('bot', {}).get('name', '')

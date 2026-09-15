@@ -1,6 +1,6 @@
 # lavaread.py [post-min] -- the change's own line for recovery-ladder-08 (lava guards): lava/fire deaths and guard rows,
 # canary pools vs control, pre 180 / post W, counts beside rates. Cutoff from the manifest. Rotation-aware load.
-import sys, json, os, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
+import sys, json, os, re, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from collections import Counter, defaultdict
 from lib.telemetry import Events
 man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
@@ -22,9 +22,9 @@ def load_window(since_minutes):
         d += dt.timedelta(days=1)
     return ev
 ev = load_window(int(elapsed + PRE) + 20)
-GUARDS = ('lava_corridor', 'hold_lava_ahead', 'lava_adjacent_stand_off', 'lava_adjacent_no_retreat')
+GUARDS = ('_lava_corridor', '_hold_lava_ahead', '_lava_adjacent_stand_off', '_lava_adjacent_no_retreat')   # logEvent kinds carry the underscore in skill.name (2026-09-15: the first run of this read counted 0 of 134 rows)
 K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
-deaths = Counter(); lava = Counter(); guard = defaultdict(Counter); bots = defaultdict(set); rows = Counter(); ex = []
+deaths = Counter(); lava = Counter(); guard = defaultdict(Counter); bots = defaultdict(set); rows = Counter(); ex = []; reason = defaultdict(Counter); mine = defaultdict(Counter)
 for r in ev.rows:
     b = r['bot'].get('name', '')
     if not b or b.startswith('isolated'): continue
@@ -36,6 +36,8 @@ for r in ev.rows:
         deaths[k] += 1
         if 'lava' in det or 'fire' in det or 'burn' in det or 'magma' in det: lava[k] += 1; ex.append((k, b, r['t'].strftime('%H:%M:%S'), det[:90]))
     if n in GUARDS: guard[k][n] += 1
+    if n == '_lava_corridor': reason[k][re.sub(r' at .*', '', det.split(':', 1)[-1]).strip()[:24]] += 1
+    if n == 'mine': mine[k]['ok' if (r['raw'].get('outcome') or {}).get('status') == 'success' or (r['raw'].get('skill') or {}).get('status') == 'success' else 'other'] += 1
     if n in GUARDS and k[0] == 'canary' and k[1] == 'post' and len(ex) < 40: ex.append((k, b, r['t'].strftime('%H:%M:%S'), n + ': ' + det[:80]))
 print(f"canary_pool={CAN} code={CV} cutoff={CUT.strftime('%H:%M:%S')} pre {PRE} / post {W:.0f} min -- LAVA GUARDS read (descriptive)")
 print("positive control: rows", sum(rows.values()), "deaths total", sum(deaths.values()))
@@ -43,9 +45,14 @@ for arm in ('canary', 'control'):
     for era in ('pre', 'post'):
         k = (arm, era); nb = len(bots[k]); bh = nb * (PRE if era == 'pre' else W) / 60
         g = guard[k]
-        print(f"  {arm:7} {era:4} bots {nb:2d} bot-h {bh:6.1f}  deaths {deaths[k]:2d} ({deaths[k]/bh if bh else 0:.3f}/bh)  lava/fire {lava[k]:2d} ({lava[k]/bh if bh else 0:.3f}/bh)  guards " + ' '.join(f"{n.split('_',1)[1][:12]}={g[n]}" for n in GUARDS))
+        print(f"  {arm:7} {era:4} bots {nb:2d} bot-h {bh:6.1f}  deaths {deaths[k]:2d} ({deaths[k]/bh if bh else 0:.3f}/bh)  lava/fire {lava[k]:2d} ({lava[k]/bh if bh else 0:.3f}/bh)  guards " + ' '.join(f"{n.lstrip('_').split('_',1)[1][:12]}={g[n]}" for n in GUARDS))
 def rate(k, c): nb = len(bots[k]); bh = nb * (PRE if k[1] == 'pre' else W) / 60; return c[k] / bh if bh else 0.0
 did = (rate(('canary','post'), lava) - rate(('canary','pre'), lava)) - (rate(('control','post'), lava) - rate(('control','pre'), lava))
 print(f"lava/fire deaths DiD: {did:+.3f}/bh (counts above; unmeasurable on 10 bots in 6 h, reported not judged)")
+cp = ('canary', 'post'); h = len(bots[cp]) * W / 60
+print(f"INSTRUMENT (-08b line): lava_corridor refusals on the canary post {sum(reason[cp].values())} = {sum(reason[cp].values())/h if h else 0:.2f}/bot-h by reason {dict(reason[cp])} (KEEP needs < 3/bot-h at +90; -08 ran 18/bot-h)")
+def ms(k): c = mine[k]; t = c['ok'] + c['other']; return (c['ok'] / t if t else float('nan')), t
+mdid = (ms(('canary','post'))[0] - ms(('canary','pre'))[0]) - (ms(('control','post'))[0] - ms(('control','pre'))[0])
+print(f"FRICTION: mine success canary {100*ms(('canary','pre'))[0]:.0f}% -> {100*ms(('canary','post'))[0]:.0f}% ({ms(('canary','post'))[1]} runs) vs control {100*ms(('control','pre'))[0]:.0f}% -> {100*ms(('control','post'))[0]:.0f}%  DiD {100*mdid:+.0f} pp (one-sided guard -30 pp)")
 gp = sum(guard[('canary','post')].values()); print(f"guard rows on the canary post: {gp} ({'exposure PRESENT' if gp else 'NONE -- mechanism INCONCLUSIVE, safety still reads'}); control post (should be 0, old code): {sum(guard[('control','post')].values())}")
 for e in ex[:40]: print('   ', e)
