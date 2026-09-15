@@ -4766,6 +4766,14 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     const c0 = await centerOn(fx, fz, 1_500); if (c0) return `centring in the column: ${c0}`   // the hitbox must not overlap the fill cells (Codex code pass 1)
     if (!clearOf(nx, nz)) return 'the body overlaps the side cell after centring'
     for (const y of ex.fill) { const a = abortIfNeeded(); if (a) return `abort during the fill: ${a}`; const e = await placeOnto(nx, y - 1, nz); if (e) return `fill: ${e}` }
+    for (const y of (ex.digs ?? [])) {   // the notch: headroom dug above a solid side cell (a 1x1 shaft); the head is in air, so the dig is not priced against a breath
+      const a = abortIfNeeded(); if (a) return `abort during the notch: ${a}`
+      const cell = B(nx, y, nz); if (!cell || cell.boundingBox !== 'block') continue
+      try { await bot.equip(tool, 'hand') } catch {}
+      const a4 = abortIfNeeded(); if (a4) return `abort after equipping for the notch: ${a4}`
+      try { await digBounded(bot, cell, 30_000) } catch (e) { return `notch dig failed at ${nx},${y},${nz}: ${String(e?.message ?? e).slice(0, 50)}` }
+      if (B(nx, y, nz)?.boundingBox === 'block') return `notch cell ${nx},${y},${nz} did not open`
+    }
     try { await bot.lookAt(new Vec3(nx + 0.5, feetY + 1.6, nz + 0.5), true) } catch {}
     const a3 = abortIfNeeded(); if (a3) return `abort before the step out: ${a3}`
     bot.setControlState('forward', true); bot.setControlState('jump', true)   // swim up while pushing: the impulse needs upward velocity

@@ -44,9 +44,9 @@ const STONE = { name: 'stone', boundingBox: 'block' }, AIR = { name: 'air', boun
 const pocket = (over = {}) => (x, y, z) => over[`${x},${y},${z}`] !== undefined ? over[`${x},${y},${z}`] : (x === 0 && z === 0 && y >= 45 && y <= 47) ? STONE : y <= 44 ? STONE : y <= 48 ? WATER : AIR
 t('4b: picks the side with the shallowest floor, fills bottom-up to feet level, and names the seal cell', () => {
   const r = sideExit(pocket({ '1,47,0': STONE }), 0, 0, 48)
-  assert.deepEqual(r, { n: [1, 0], fill: [48], seal: [0, 48, 0] }, 'east has a floor one below: one fill')
+  assert.deepEqual(r, { n: [1, 0], fill: [48], digs: [], seal: [0, 48, 0] }, 'east has a floor one below: one fill')
   const r2 = sideExit(pocket({ '-1,46,0': STONE }), 0, 0, 48)
-  assert.deepEqual(r2, { n: [-1, 0], fill: [47, 48], seal: [0, 48, 0] }, 'west: two fills')
+  assert.deepEqual(r2, { n: [-1, 0], fill: [47, 48], digs: [], seal: [0, 48, 0] }, 'west: two fills')
   assert.deepEqual(sideExit(pocket({ '1,47,0': STONE, '-1,46,0': STONE }), 0, 0, 48).n, [1, 0], 'fewest fills wins')
 })
 t('4b: refuses without headroom, with a floor deeper than two, with lava in the column, or unknown cells; and never picks a cell already solid at feet level', () => {
@@ -55,7 +55,13 @@ t('4b: refuses without headroom, with a floor deeper than two, with lava in the 
   assert.match(sideExit(pocket({ '1,47,0': LAVA }), 0, 0, 48).why, /lava/)
   assert.match(sideExit(pocket({ '1,47,0': STONE, '1,48,0': { name: 'torch', boundingBox: 'empty' }, '-1,46,0': STONE, '-1,47,0': { name: 'oak_sign', boundingBox: 'empty' }, '0,47,1': { name: 'tall_seagrass', boundingBox: 'empty' }, '0,46,-1': { name: 'sea_pickle', boundingBox: 'empty' } }), 0, 0, 48).why, /not fillable/, 'a torch or a sign in the fill column is not assumed replaceable; seagrass is water-like and is')
   assert.match(sideExit(pocket({ '1,47,0': null, '-1,47,0': null, '0,47,1': null, '0,47,-1': null }), 0, 0, 48).why, /unknown/)
-  const ledge = sideExit(pocket({ '1,48,0': STONE, '-1,46,0': STONE }), 0, 0, 48); assert.deepEqual(ledge, { n: [1, 0], fill: [], seal: [0, 48, 0] }, 'east is solid at feet level with headroom: a ready ledge, zero fills, beats the two-fill west')
-  assert.match(sideExit(pocket({ '1,48,0': STONE, '1,49,0': STONE, '-1,48,0': STONE, '-1,49,0': STONE, '0,48,1': STONE, '0,49,1': STONE, '0,48,-1': STONE, '0,49,-1': STONE }), 0, 0, 48).why, /no headroom/, 'a 1x1 shaft with walls all the way up has no ledge')
+  const ledge = sideExit(pocket({ '1,48,0': STONE, '-1,46,0': STONE }), 0, 0, 48); assert.deepEqual(ledge, { n: [1, 0], fill: [], digs: [], seal: [0, 48, 0] }, 'east is solid at feet level with headroom: a ready ledge, zero fills, beats the two-fill west')
+  const shaft = {}; for (const [x, z] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2], [1, 1], [1, -1], [-1, 1], [-1, -1]]) for (let y = 45; y <= 52; y++) shaft[`${x},${y},${z}`] = STONE
+  const notch = sideExit(pocket(shaft), 0, 0, 48)
+  assert.deepEqual(notch, { n: [1, 0], fill: [], digs: [49, 50], seal: [0, 48, 0] }, 'a 1x1 shaft with stone walls: the east wall cell at feet level is the ledge and the two cells above it are dug for headroom')
+  assert.match(sideExit(pocket({ ...shaft, '2,49,0': WATER, '-2,50,0': WATER, '1,49,1': LAVA, '1,49,-1': LAVA, '0,49,2': null, '0,49,-2': null, '-1,49,1': WATER, '-1,49,-1': WATER, '0,50,2': WATER, '0,50,-2': WATER }), 0, 0, 48).why, /notch there would open to liquid or unknown/, 'a notch is refused when liquid or unknown lies beyond or beside it')
+  assert.match(sideExit(pocket({ ...shaft, '1,49,0': { name: 'bedrock', boundingBox: 'block' }, '-1,49,0': { name: 'bedrock', boundingBox: 'block' }, '0,49,1': { name: 'bedrock', boundingBox: 'block' }, '0,49,-1': { name: 'bedrock', boundingBox: 'block' } }), 0, 0, 48).why, /no headroom/, 'bedrock walls cannot be notched')
+  const mixed = sideExit(pocket({ ...shaft, '-1,49,0': AIR, '-1,50,0': AIR, '-1,46,0': STONE, '-1,47,0': WATER, '-1,48,0': WATER }), 0, 0, 48)
+  assert.deepEqual(mixed.n, [-1, 0], 'two fills on the west beat a notch on the east (digs spend the pickaxe)'); assert.deepEqual(mixed.digs, [])
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
