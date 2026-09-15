@@ -8,6 +8,7 @@
 // calmly pathfinding into lava because it is "busy gathering" is the failure
 // mode this layer exists to prevent.
 
+import { applyToolPolicy } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -3168,20 +3169,10 @@ export function mayDigForEscape (items = [], block = null) {
   // destroyed escaping, at full health.
   return usable !== 1
 }
-const TOOL_TIER = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']
-const toolTier = name => TOOL_TIER.findIndex(t => name.startsWith(t + '_'))
-
 function bestTool(bot, block) {
-  let best = null, bestTime = Infinity
-  for (const it of bot.inventory.items()) {
-    if (!block.canHarvest?.(it.type)) continue
-    const t = block.digTime?.(it.type, false, false, false) ?? Infinity
-    if (t < bestTime || (t === bestTime && best && toolTier(it.name) > toolTier(best.name))) {
-      bestTime = t
-      best = it
-    }
-  }
-  return best
+  // The cheapest tool that does the job, never the fastest (iron-retention plan v3, 2026-09-15). The escape digs
+  // were the second-largest iron sink after work itself; toolFor() applies the harvest table and the floor.
+  return applyToolPolicy(bot, block)
 }
 
 function shaftCap(bot, maxClearance = 12) {

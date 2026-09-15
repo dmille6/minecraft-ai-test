@@ -25,6 +25,7 @@
 // Every long loop must check `signal.aborted`, because the reflex layer
 // preempts skills and a skill that ignores that will fight it.
 
+import { applyToolPolicy } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -255,36 +256,12 @@ function assertInsideBorder(x, z) {
   }
 }
 
-// Pickaxe/axe/shovel tiers, worst to best. Used only to break digTime ties.
-const TOOL_TIER = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']
-const toolTier = name => TOOL_TIER.findIndex(t => name.startsWith(t + '_'))
-
 function bestTool(bot, block) {
-  // EVERY PICKAXE TIES ON 93 KINDS OF ORE, so the tie-break is not cosmetic.
-  //
-  // iron_ore, gold_ore, diamond_ore, redstone_ore, lapis_ore, emerald_ore, all
-  // the deepslate variants, obsidian, ancient_debris and the metal blocks carry
-  // `material: "incorrect_for_wooden_tool"`, and minecraft-data's table for that
-  // material lists ONLY wooden tools. prismarine-block's digTime looks up
-  // registry.materials[material][heldItemType]; for a stone or iron pickaxe on
-  // iron ore the lookup misses, isBestTool stays false, and the speed multiplier
-  // stays at 1.
-  //
-  // So digTime returns the same number for every pickaxe we own, `t < bestTime`
-  // never fires after the first, and the bot equips whichever tool happens to
-  // come first in the inventory. Bots have been mining deepslate ore with a
-  // stone pickaxe while carrying an iron one -- which is slower, which is more
-  // time against the 180s skill budget, which is a timeout we then record as a
-  // mining failure.
-  let best = null, bestTime = Infinity
-  for (const it of bot.inventory.items()) {
-    if (!block.canHarvest(it.type)) continue
-    const t = block.digTime(it.type, false, false, false)
-    if (t < bestTime || (t === bestTime && best && toolTier(it.name) > toolTier(best.name))) {
-      bestTime = t; best = it
-    }
-  }
-  return best
+  // THE CHEAPEST TOOL THAT DOES THE JOB, not the fastest (iron-retention plan v3, 2026-09-15): 16 iron pickaxes
+  // vanished during work in two days, worn out on dirt, cobble and coal. toolFor() reads the server's harvest
+  // table and the durability floor. (The fastest-tool picker it replaces broke digTime ties by tier because every
+  // pickaxe ties on the 93 `incorrect_for_wooden_tool` ores -- that tie-break is now inside toolFor's cost order.)
+  return applyToolPolicy(bot, block)
 }
 
 // ---------------------------------------------------------------- goto -----
