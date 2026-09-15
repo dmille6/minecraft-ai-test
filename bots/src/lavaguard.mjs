@@ -17,10 +17,29 @@ export function cellSupported (at, x, y, z) {
   for (let dy = 1; dy <= 3; dy++) { const b = at(x, y - dy, z); if (b == null) return false; if (isLava(b)) return false; if (solid(b)) return true }
   return false
 }
+const isWater = b => /water|kelp|seagrass|bubble_column/.test(b?.name || '')
+/**
+ * The drop under a route sample, judged for LAVA ONLY. The first fleet canary (-08, 2026-09-15) refused 124 legs in
+ * 45 min as "unsupported step" against 10 for lava: every swim node (water is not solid) and every drop of more
+ * than three blocks failed cellSupported, and each refusal cleared the goal. Water is terrain and a drop is the
+ * pathfinder's business; this guard's business is lava. So: below the cell, scan up to `reach` cells -- solid or
+ * water ends the scan as safe; lava is unsafe; unknown within 3 is unsafe (cellLavaSafe already says so), unknown
+ * deeper is out of the loaded world and not this guard's call; nothing found within reach is safe too.
+ */
+export function dropLavaSafe (at, x, y, z, { reach = 8 } = {}) {
+  for (let dy = 1; dy <= reach; dy++) {
+    const b = at(x, y - dy, z)
+    if (b == null) return dy <= 3 ? { safe: false, why: 'unknown below', cell: [x, y - dy, z] } : { safe: true }
+    if (isLava(b)) return { safe: false, why: 'lava below', cell: [x, y - dy, z] }
+    if (solid(b) || isWater(b)) return { safe: true }
+  }
+  return { safe: true }
+}
 /**
  * Guard 1: the EXECUTED route. `nodes` are the pathfinder's path nodes ({x,y,z}, feet positions) from the bot to the
- * goal. Every 0.5-block sample along each segment must be known, lava-safe (3x3 around it) and supported; a failing
- * sample refuses the leg with its coordinates. Cost: ~6 reads per sample.
+ * goal. Every 0.5-block sample along each segment must be known, lava-safe (3x3 around it) and free of lava in the
+ * drop below it (dropLavaSafe: water and plain drops are terrain); a failing sample refuses the leg with its
+ * coordinates. Cost: ~6 reads per sample.
  */
 export function corridorSafe (at, nodes, { step = 0.5 } = {}) {
   if (!nodes || nodes.length < 2) return { safe: true, samples: 0 }
@@ -32,7 +51,7 @@ export function corridorSafe (at, nodes, { step = 0.5 } = {}) {
       for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
         const s = cellLavaSafe(at, x + dx, y, z + dz); if (!s.safe) return { safe: false, why: `lava_corridor: ${s.why}`, at: s.cell, samples }
       }
-      if (!cellSupported(at, x, y, z)) return { safe: false, why: 'lava_corridor: unsupported step', at: [x, y, z], samples }
+      const d = dropLavaSafe(at, x, y, z); if (!d.safe) return { safe: false, why: `lava_corridor: ${d.why}`, at: d.cell, samples }
     }
   }
   return { safe: true, samples }

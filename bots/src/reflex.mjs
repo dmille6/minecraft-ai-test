@@ -2206,7 +2206,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // --- standing in something that hurts --------------------------------
       // LAVA GUARD 3: an IDLE bot beside lava steps one block away onto verified ground (no skill, no claim, no arm,
       // no skill ended in the last 20 s; once per 10 s; position feedback ends the step inside the destination).
-      if (!runner.isBusy() && !escaping && !marooned && Date.now() - (runner.lastEndedAt ?? 0) > 20_000 && Date.now() - lastStandOffAt > 10_000) {   // idle: no skill (claims are skill-owned, so none can be held)
+      // Not while in water: on -08 (hive-a-Alpha, 06:01:56) it stepped a bot that was drowning sealed in a pocket
+      // after the rescue had yielded the body -- harmless there, but a submerged bot's move belongs to the air route.
+      const standOffInWater = bot.entity?.isInWater === true || /water/.test(bot.blockAt(bot.entity.position)?.name || '')
+      if (!runner.isBusy() && !escaping && !marooned && !standOffInWater && Date.now() - (runner.lastEndedAt ?? 0) > 20_000 && Date.now() - lastStandOffAt > 10_000) {   // idle: no skill (claims are skill-owned, so none can be held)
         const at = bot.entity.position; const feetCell = { x: Math.floor(at.x), y: Math.floor(at.y), z: Math.floor(at.z) }
         const so = lavaStandOff(bmap(bot), feetCell)
         if (so.move) {

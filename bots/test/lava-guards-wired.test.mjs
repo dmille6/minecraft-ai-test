@@ -15,8 +15,8 @@ t('guard 2: the surface_out push runs holdForwardSafe and clears forward explici
   assert.equal(m.length, 1)
   assert.equal((rfx.replace(/bot\.setControlState\('forward', false\)\s*if \(Date\.now\(\) - lastHoldLavaAt/, 'if (Date.now() - lastHoldLavaAt').match(/if \(!hv\.safe\) \{\s*bot\.setControlState\('forward', false\)/g) || []).length, 0, 'MUTANT: a refusal that merely refrains is caught')
 })
-t('guard 3: the stand-off runs only for an idle bot (no skill, no arm, 20 s after the last skill), once per 10 s, ends by position feedback and clears forward', () => {
-  assert.match(rfx, /if \(!runner\.isBusy\(\) && !escaping && !marooned && (?:!pocketing && )?Date\.now\(\) - \(runner\.lastEndedAt \?\? 0\) > 20_000 && Date\.now\(\) - lastStandOffAt > 10_000\) \{/)
+t('guard 3: the stand-off runs only for an idle bot on dry ground (no skill, no arm, not in water, 20 s after the last skill), once per 10 s, ends by position feedback and clears forward', () => {
+  assert.match(rfx, /if \(!runner\.isBusy\(\) && !escaping && !marooned && (?:!pocketing && )?!standOffInWater && Date\.now\(\) - \(runner\.lastEndedAt \?\? 0\) > 20_000 && Date\.now\(\) - lastStandOffAt > 10_000\) \{/)
   assert.match(rfx, /const so = lavaStandOff\(bmap\(bot\), feetCell\)/)
   assert.match(rfx, /if \(Math\.hypot\(q\.x - dest\.x, q\.z - dest\.z\) < 0\.3\) break/, 'position feedback ends the step inside the destination')
   assert.match(rfx, /finally \{ bot\.setControlState\('forward', false\) \}/, 'forward is cleared whatever happens')

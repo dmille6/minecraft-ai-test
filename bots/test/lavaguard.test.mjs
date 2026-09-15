@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cellLavaSafe, cellSupported, corridorSafe, holdForwardSafe, lavaStandOff } from '../src/lavaguard.mjs'
+import { cellLavaSafe, cellSupported, corridorSafe, holdForwardSafe, lavaStandOff, dropLavaSafe } from '../src/lavaguard.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const STONE = { name: 'stone', boundingBox: 'block' }, AIR = { name: 'air', boundingBox: 'empty' }, LAVA = { name: 'lava', boundingBox: 'empty' }, WATER = { name: 'water', boundingBox: 'empty' }, MAGMA = { name: 'magma_block', boundingBox: 'block' }
@@ -11,6 +11,18 @@ t('a plain cell is safe and supported; lava beside, below, or unknown is not', (
   assert.match(cellLavaSafe(world({ '5,63,5': AIR, '5,62,5': LAVA }), 5, 64, 5).why, /below/)
   assert.match(cellLavaSafe(world({ '5,64,5': null }), 5, 64, 5).why, /unknown/)
   assert.equal(cellSupported(world({ '5,63,5': AIR, '5,62,5': AIR, '5,61,5': AIR }), 5, 64, 5), false, 'no floor within 3')
+})
+t('corridor: water and plain drops are terrain -- a swim leg and a four-block drop pass; lava five below an overhang refuses (the -08 false positive)', () => {
+  const pond = {}; for (let x = 2; x <= 6; x++) for (let dy = 0; dy <= 6; dy++) pond[`${x},${63 - dy},5`] = WATER
+  assert.equal(corridorSafe(world(pond), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }]).safe, true, 'a leg across a pond is not refused')
+  const shaft = {}; for (let dy = 0; dy <= 3; dy++) shaft[`4,${63 - dy},5`] = AIR
+  assert.equal(corridorSafe(world(shaft), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }]).safe, true, 'a four-deep shaft onto stone is a drop, not lava')
+  const deep = {}; for (let dy = 0; dy <= 4; dy++) deep[`4,${63 - dy},5`] = AIR; deep['4,58,5'] = LAVA
+  const r = corridorSafe(world(deep), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }]); assert.equal(r.safe, false); assert.match(r.why, /lava below/); assert.deepEqual(r.at, [4, 58, 5])
+  assert.equal(dropLavaSafe(world({ '4,63,5': null }), 4, 64, 5).safe, false, 'unknown within 3 is still unsafe')
+  const far = {}; for (let dy = 0; dy <= 3; dy++) far[`4,${63 - dy},5`] = AIR; far['4,59,5'] = null
+  assert.equal(dropLavaSafe(world(far), 4, 64, 5).safe, true, 'unknown beyond 3 is out of the loaded world, not lava')
+  assert.equal(corridorSafe(world(), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }]).why, undefined)
 })
 t('corridor: a leg over a ledge with lava two below fails at the sample, a leg across solid ground passes', () => {
   const pit = {}; for (let x = 3; x <= 5; x++) { pit[`${x},63,5`] = AIR; pit[`${x},62,5`] = LAVA }
