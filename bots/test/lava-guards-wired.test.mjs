@@ -34,6 +34,6 @@ t('guard 1b: explore\'s failed-leg fallback walk runs stepLineSafe on its own li
   assert.equal(order(src.replace(REFUSE, '')), false, 'mutant: deleting the refusal is detected')
   assert.equal(order(src.replace(CHECK, '')), false, 'mutant: deleting the check is detected')
   assert.equal(src.includes("bot.setControlState('jump', true)\n        await sleep(1200, signal)"), false, 'the fallback walk is grounded: no jump held (a hop can leave the checked line)')
-  assert.equal(src.split('for (const cand of [ang, ang - 2 * turn])').length - 1, 1, 'the second candidate is the same turn with the opposite sign')
+  assert.equal(src.split('for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2])').length - 1, 1, 'the turn, the other turn, then the two perpendiculars')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

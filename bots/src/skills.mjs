@@ -3308,8 +3308,11 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       // lava-free around and below); a refused step turns the other way (the same turn with the opposite sign) and,
       // if that is refused too, does not move. The walk is GROUNDED: no jump, so the body stays on the checked
       // line (a jump-held hop can carry it over a gap onto lava beyond the sampled seven blocks; Codex).
+      // FOUR HEADINGS BEFORE STAYING PUT. On -08c the two-candidate version refused 3.7 steps per bot-hour, and every
+      // refusal left the bot where the failed plan had started: explores per hour fell a third. The turn, the
+      // other turn, then the two perpendiculars; the first safe line wins.
       let stepOk = false
-      for (const cand of [ang, ang - 2 * turn]) {
+      for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2]) {
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
         if (v.safe) { ang = cand; stepOk = true; break }
         logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) })
