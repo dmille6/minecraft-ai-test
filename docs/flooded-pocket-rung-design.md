@@ -124,3 +124,14 @@ seal-and-return keeps the one validated plan, so v2 keeps it.
    definition; the head is in air so the digs are not priced against a breath), then the same step out, seal and
    return. A notch is refused when liquid or an unknown cell lies beyond or beside the notch cells or above them
    (it must stay dry), and bedrock-like walls cannot be notched. Cost order: ready ledge, then fills, then notch.
+
+### Closed in the sandbox (15 Sep 08:52 UTC, 88d1184)
+The Delta fixture (1x1 flooded shaft, wooden pickaxe, 19 dirt) reads OUT on every run since the inflow fix: the pillar
+goes up submerged (four blocks, 25 s), and at the top the pillar's held jump pressed against the wall plus the
+out-of-liquid impulse throws the bot onto the opening's ledge at y=63, dry and standing; the rung now judges the
+finish before failing on a missing reference block and reports success. Step 4b (fills, ledge, notch) is built,
+reviewed and tested but did not trigger on this fixture: its stable-headroom condition is never met in a shaft
+with water beside the ceiling cells, and the top opening is reached by the pillar alone. It is the remedy for
+pockets whose water surface sits below a stable dry cave, which the fleet's sealed-pocket deaths may or may not
+be; the canary read reports `flooded_pocket_side_exit` rows to say which. Control (mcai-base) on the same fixture:
+rise 0, every run.
