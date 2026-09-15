@@ -798,7 +798,8 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
 async function descendToGround(ctx, signal) {
   const { bot } = ctx
   const FOLIAGE = /(_leaves|_log|vine)$/
-  const under = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+  let under = null
+  try { under = bot.blockAt(bot.entity.position.offset(0, -1, 0)) } catch { return false }   // no readable position: the descent is not NEEDED (a throw here is not a failed descent)
   if (!under || !FOLIAGE.test(under.name)) return false
 
   const ground = bot.findBlocks({
