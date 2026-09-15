@@ -846,14 +846,17 @@ async function descendToGround(ctx, signal) {
   const drop = canopyDrop((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position)
   if (!drop.ok) {
     logEvent({ kind: 'canopy_drop_refused', status: 'no_effect', detail: `stranded on foliage at y=${Math.round(startY)}; not digging down: ${drop.why}`, snapshot: snapshot(bot) })   // its own kind: trapped_in_canopy stays an outcome row computed after the loop (outcome-not-intention)
-    return false
+    return { refused: true, why: drop.why }   // gather stops here: the escape ladder owns a descent this steep (Codex)
   }
   for (let i = 0; i < 12; i++) {
     check(signal)
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
     if (below.name === 'air' || below.boundingBox === 'empty') { await sleep(400, signal); continue }   // falling: not freed until something solid is under the feet
-    if (!FOLIAGE.test(below.name) && below.boundingBox === 'block' && bot.entity.onGround) { freed = true; break }   // standing on solid ground
+    if (!CANOPY_REMOVABLE.test(below.name)) {   // solid support (a log counts): freed once landed; never dug (Codex: the loop dug its own landing block)
+      if (bot.entity.onGround) { freed = true; break }
+      await sleep(200, signal); continue
+    }
     try {
       const tool = bestTool(bot, below)
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
@@ -1268,16 +1271,19 @@ async function pickupNearbyItems(bot, signal, radius = 8) {
  * ok when that fall is at most `maxDrop` (a foliage column that is itself 20 deep is 20 blocks of falling); refuses
  * on unknown cells, liquid (a pond under the tree is a swim, but this loop digs blind), lava, or a longer fall.
  */
-const CANOPY = /(_leaves|_log|vine)$/   // gather's FOLIAGE, at module scope for the pure rule
+/** What the canopy descent may REMOVE: leaves and vines. A log is support (Codex: digging the log under the feet is the fall). */
+export const CANOPY_REMOVABLE = /(_leaves|vine)$/
 export function canopyDrop (at, pos, { maxDrop = 3, reach = 40 } = {}) {
-  const x = Math.floor(pos.x), z = Math.floor(pos.z); let y = Math.floor(pos.y) - 1; let foliage = 0
-  while (foliage < reach) { const b = at(x, y, z); if (!b) return { ok: false, why: 'unknown below' }; if (!CANOPY.test(b.name)) break; foliage++; y-- }
-  let air = 0
-  for (; air <= reach; air++) {
-    const b = at(x, y - air, z); if (!b) return { ok: false, why: 'unknown below the foliage' }
+  const x = Math.floor(pos.x), z = Math.floor(pos.z); const y0 = Math.floor(pos.y) - 1; let fall = 0
+  // Walk down from the feet: every removable block will be dug and every air cell will be fallen through, so both
+  // count as fall (a leaf found below a gap is not ground: the loop would dig it too). The first solid block that
+  // is not removable is the landing; unknown, liquid and lava refuse by name.
+  for (let dy = 0; dy <= reach; dy++) {
+    const b = at(x, y0 - dy, z); if (!b) return { ok: false, why: 'unknown below' }
     if (/lava|magma|fire/.test(b.name)) return { ok: false, why: `${b.name} below the foliage` }
     if (/water/.test(b.name)) return { ok: false, why: 'water below the foliage (a swim, not a dig)' }
-    if (b.boundingBox === 'block') { const fall = foliage + air; return fall <= maxDrop ? { ok: true, fall } : { ok: false, why: `a fall of ${fall} to the first solid block (limit ${maxDrop})`, fall } }
+    if (b.boundingBox === 'block' && !CANOPY_REMOVABLE.test(b.name)) return fall <= maxDrop ? { ok: true, fall } : { ok: false, why: `a fall of ${fall} to the first solid block (limit ${maxDrop})`, fall }
+    fall++
   }
   return { ok: false, why: `no solid block within ${reach} below` }
 }
@@ -1301,8 +1307,11 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   }
   const type = bot.registry.blocksByName[blockName]
 
-  await descendToGround(ctx, signal).catch(() => {})
+  const descent = await descendToGround(ctx, signal).catch(() => false)
   check(signal)
+  if (descent && descent.refused) {   // stranded on a canopy over a fall the descent will not take: no gather from here (its mine would dig the same floor)
+    return { status: 'failed', detail: `stranded on foliage over a ${descent.why}; not digging down — the escape ladder owns this descent`, failClass: 'canopy_refused' }
+  }
 
   // GRADE THE DROP, NOT THE BLOCK. Stone does not drop stone. See drops.mjs:
   // this counter could never rise for stone/coal_ore/iron_ore, so the skill
