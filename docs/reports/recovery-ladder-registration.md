@@ -177,3 +177,14 @@ Replace the two call-count guards with, each one-sided and DiD vs control:
 3. **Immobile share** (already the PRIMARY line): must not rise by more than 3 pp (as today).
 4. **Items gathered per bot-h** (inventory_delta > 0): must not fall more than 30% (the endpoint the program is judged on).
 gather/bh and explore/bh become REPORT lines. Climb firings, livelock rows, ladders p90, exhausted bots, deposit skill_error share, the death gate and v12/v14c linkage are unchanged. immobiledid.py grows the four lines; the registration of every later canary names v15.
+
+## v15b — calibrated (guardcal.py, 200 pseudo-canaries over 3 days, two pools of five vs the rest, pre 180 / post 360, DiD; 21:40Z)
+Calibration (false-trip rate of a harmless pseudo-canary): blocks moved/bh at -30%: 1% (p5 -24%); working share at -30%: 0% (p5 -9%); items gathered/bh (gather/mine/collect rows only) at -30%: 14%, at -50%: 4% (p5 -47%); deposit successes/bh at -30%: 36% (p5 -132%: unusable as a guard); immobile share at +3 pp: 33%, +5 pp: 22%, +8 pp: 12% (p95 +11 pp: one stuck bot on ten is +10 pp).
+Guards (each one-sided, DiD vs control, the false-trip rate in brackets):
+1. blocks moved per bot-h (horizontal displacement between consecutive snapshot rows, capped at 20 per step): not more than 30% below [1%].
+2. working share (bot-minutes carrying a skill row that is not `status` or an underscore event, per bot-h): not more than 20% below [~0%; p5 is -9%].
+3. immobile share: not more than +10 pp AND at least two distinct canary bots newly immobile (the v10 guard-6 shape) [~8% alone; the two-bot floor removes the single-stuck-bot trips].
+4. items gathered per bot-h, source-attributed to gather/mine/collect rows: not more than 50% below [4%]; the endpoint, so a REVERT on it is also a REVERT of the program's own line.
+Report lines (no verdict): deposit successes/bh, gather calls/bh, explore calls/bh, blocks explored/bh.
+Codex pass 1's points: (1) skill-mix sensitivity -- working share is elapsed time, not calls; a pacing bot passes movement but not items; a stationary productive bot passes items and working share; (2) inventory deltas restricted to gathering rows; (3) thresholds now come from the backtest with the per-line false-trip rate stated; the predeclared false-revert budget for a harmless change is under 10% across the four guards jointly (1% + 0% + ~8% + 4%, not independent), and the harm the guards must catch is a change that stops the bots moving or working by a third.
+Unchanged: climb firings, livelock rows, ladders p90, exhausted bots, deposit skill_error share, the death gate, v12/v14c linkage. immobiledid.py implements the four lines; every canary from -10 on names v15b.
