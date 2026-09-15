@@ -27,6 +27,10 @@ t('inflow: water BESIDE a ceiling cell is the pocket case and passes; liquid ABO
   assert.equal(beside.plan.ok, true, `water beside y=50: ${beside.plan.why}`)
   const lava = pocketPlanFor(botWith(inv), { blockAt: over({ '11,50,10': { name: 'lava', boundingBox: 'empty' } }) })
   assert.match(lava.plan.why ?? '', /liquid in/, 'lava beside y=50 refuses')
+  const above = pocketPlanFor(botWith(inv), { blockAt: over({ '10,51,10': { name: 'water', boundingBox: 'empty' } }) })
+  assert.match(above.plan.why ?? '', /liquid in/, 'water directly above the ceiling cell y=50 refuses (it pours onto the bot)')
+  const lavaAbove = pocketPlanFor(botWith(inv), { blockAt: over({ '10,52,10': { name: 'lava', boundingBox: 'empty' } }) })
+  assert.match(lavaAbove.plan.why ?? '', /liquid in/, 'lava above y=51 refuses')
 })
 t('too few blocks is refused by count', () => {
   const r = pocketPlanFor(botWith([{ name: 'wooden_pickaxe', count: 1, type: 1 }, { name: 'cobblestone', count: 3, type: 2 }]), { blockAt: world })

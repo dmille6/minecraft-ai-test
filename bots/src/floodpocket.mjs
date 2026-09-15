@@ -68,8 +68,9 @@ export function pocketDone ({ before, after, headBreathable = false, feetSupport
  *   - headroom: (N, feetY+1) and (N, feetY+2) passable (not solid) and not liquid
  *   - a ledge: (N, feetY) solid already (zero fills), or water/air with a solid block within `maxFill` cells below
  *     (the cells between are air/water-like and are filled bottom-up); nothing lava-like anywhere in that column
- * Returns { n: [dx, dz], fill: [y, ...] (ascending, the last is feetY), seal: [fx, feetY, fz] } or { why }.
- * Prefers the side with the fewest fills; ties in the order east, west, south, north.
+ * Returns { n: [dx, dz], fill: [y, ...] (ascending, the last is feetY), digs: [y, ...] (the notch cells above a solid
+ * side cell, when the side has no headroom), seal: [fx, feetY, fz] } or { why }.
+ * Cost order: a ready ledge, then fills (fewest first), then a notch; ties in the order east, west, south, north.
  */
 export function sideExit (at, fx, fz, feetY, { maxFill = 2 } = {}) {
   const solid = b => !!b && b.boundingBox === 'block'
@@ -77,11 +78,26 @@ export function sideExit (at, fx, fz, feetY, { maxFill = 2 } = {}) {
   const lavaish = b => !!b && /lava|magma|fire/.test(b.name || '')
   const passable = b => !!b && !solid(b) && !liquid(b)
   const fillable = b => !!b && (b.name === 'air' || b.name === 'cave_air' || /water|kelp|seagrass|bubble_column/.test(b.name || ''))   // replaceable by a placed block; anything else (a torch, a sign, a plant) is not assumed to be
+  const diggable = b => solid(b) && !/bedrock|obsidian|barrier|spawner|chest|furnace/.test(b.name || '')
   let best = null; const whys = []
+  const cost = o => o.digs.length ? 10 + o.digs.length : o.fill.length   // ledge 0 < fills 1..2 < notch (digs spend the pickaxe)
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const nx = fx + dx, nz = fz + dz
     const h1 = at(nx, feetY + 1, nz), h2 = at(nx, feetY + 2, nz)
-    if (!passable(h1) || !passable(h2)) { whys.push(`${dx},${dz}: no headroom`); continue }
+    if (!passable(h1) || !passable(h2)) {
+      // THE NOTCH (a 1x1 shaft: the Delta fixture, 2026-09-15 07:51, "no headroom" on all four sides): the side cell at
+      // feet level is already the ledge; dig the two cells above it for headroom. Only stone-like cells, and nothing
+      // liquid beyond them or above them (a dug notch must stay dry and must not open a flow onto the bot).
+      if (solid(at(nx, feetY, nz)) && diggable(h1) && diggable(h2)) {
+        const around = [[nx + dx, nz + dz], [nx + dz, nz + dx], [nx - dz, nz - dx]]   // beyond the notch and its two flanks (never the shaft cell)
+        const wet = [feetY + 1, feetY + 2].some(y => around.some(([ax, az]) => { const b = at(ax, y, az); return b == null || liquid(b) })) || (() => { const b = at(nx, feetY + 3, nz); return b == null || liquid(b) })()
+        if (wet) { whys.push(`${dx},${dz}: a notch there would open to liquid or unknown`); continue }
+        const o = { n: [dx, dz], fill: [], digs: [feetY + 1, feetY + 2], seal: [fx, feetY, fz] }
+        if (!best || cost(o) < cost(best)) best = o
+        continue
+      }
+      whys.push(`${dx},${dz}: no headroom`); continue
+    }
     const fill = []; let ok = false
     for (let y = feetY; y >= feetY - maxFill; y--) {
       const b = at(nx, y, nz)
@@ -91,7 +107,8 @@ export function sideExit (at, fx, fz, feetY, { maxFill = 2 } = {}) {
       fill.unshift(y)
     }
     if (!ok) { if (fill.length > maxFill) whys.push(`${dx},${dz}: floor deeper than ${maxFill}`); else if (fill.length && !solid(at(nx, feetY - maxFill - 1, nz))) whys.push(`${dx},${dz}: no floor within ${maxFill + 1}`); continue }
-    if (!best || fill.length < best.fill.length) best = { n: [dx, dz], fill, seal: [fx, feetY, fz] }
+    const o = { n: [dx, dz], fill, digs: [], seal: [fx, feetY, fz] }
+    if (!best || cost(o) < cost(best)) best = o
   }
   return best ?? { why: `no side to step out on (${whys.join('; ') || 'no cardinal cell known'})` }
 }

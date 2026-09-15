@@ -113,3 +113,14 @@ seal-and-return keeps the one validated plan, so v2 keeps it.
 4. **Height accounting**: a successful 4b leaves the bot dry at feetY+1, i.e. one pillar level gained: it counts as
    one completed step of `need`; every confirmed fill and the seal are charged to `spent`, so the end row's
    "blocks" is the truth and the budget (`need + 4`) is the cap it looks like.
+
+### Step 4b v3 — what the Delta fixture taught (15 Sep 07:51 UTC, two sandbox runs on 485096f)
+1. **The plan's inflow rule was refusing the whole tooled class.** Water beside a ceiling cell at the cell's own level
+   is the flooded pocket's normal case (the dug cell fills to the surface; the next dig is priced submerged already).
+   Only liquid ABOVE the cell (it pours onto the bot) or lava beside it refuses now. One Codex pass: ACCEPTABLE.
+2. **A 1x1 shaft has no side cell with headroom to fill.** The rung reached shallow water at y=58 and `sideExit`
+   refused on all four sides ("no headroom"), which is the correct answer to the wrong question. The notch: the side
+   cell at feet level is already the ledge; dig the two cells above it for headroom (the rung holds the pickaxe by
+   definition; the head is in air so the digs are not priced against a breath), then the same step out, seal and
+   return. A notch is refused when liquid or an unknown cell lies beyond or beside the notch cells or above them
+   (it must stay dry), and bedrock-like walls cannot be notched. Cost order: ready ledge, then fills, then notch.
