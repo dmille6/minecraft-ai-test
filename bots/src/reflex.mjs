@@ -4775,7 +4775,13 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     }
     const under = B(fx, feetY - 1, fz); if (!under || under.boundingBox !== 'block') return end(false, `no reference block under the feet at y=${feetY - 1}`)
     const feetB = B(fx, feetY, fz), headB = B(fx, feetY + 1, fz)
-    if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air')) {   // shallow: verified water at the feet cell above the pillar's top block, a known breathable head cell (Codex code pass 1)
+    // STABLE headroom: the head cell and the cell above it, and every lateral neighbour of both, are known and not
+    // water-like. Delta run 08:28: the loop had just dug y=60, water beside it poured down and refilled the shaft to
+    // 60 while the bot was out on its ledge; it returned over a sealed column with its head under water. When the
+    // headroom is not stable the pillar simply continues submerged (a full swim-jump places fine in deep water) and
+    // the exit is tried again at the next level; at the top of a shaft the dry opening is stable by construction.
+    const stableHeadroom = [feetY + 1, feetY + 2].every(y => { const c = B(fx, y, fz); return !!c && !WATERLIKE.test(c.name || '') && [[1, 0], [-1, 0], [0, 1], [0, -1]].every(([dx, dz]) => { const n = B(fx + dx, y, fz + dz); return !!n && !WATERLIKE.test(n.name || '') }) })
+    if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air') && stableHeadroom) {   // shallow: verified water at the feet cell above the pillar's top block, a known breathable head cell (Codex code pass 1), stable headroom
       sideExited = true
       logEv({ kind: 'flooded_pocket_side_exit', status: 'no_effect', detail: `shallow water at y=${feetY}: stepping out sideways (blocks so far ${spent})` })
       const why = await sideExitStep(feetY)
