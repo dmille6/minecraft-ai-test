@@ -61,6 +61,9 @@ t('4b: refuses without headroom, with a floor deeper than two, with lava in the 
   assert.deepEqual(notch, { n: [1, 0], fill: [], digs: [49, 50], seal: [0, 48, 0] }, 'a 1x1 shaft with stone walls: the east wall cell at feet level is the ledge and the two cells above it are dug for headroom')
   assert.match(sideExit(pocket({ ...shaft, '2,49,0': WATER, '-2,50,0': WATER, '1,49,1': LAVA, '1,49,-1': LAVA, '0,49,2': null, '0,49,-2': null, '-1,49,1': WATER, '-1,49,-1': WATER, '0,50,2': WATER, '0,50,-2': WATER }), 0, 0, 48).why, /notch there would open to liquid or unknown/, 'a notch is refused when liquid or unknown lies beyond or beside it')
   assert.match(sideExit(pocket({ ...shaft, '1,49,0': { name: 'bedrock', boundingBox: 'block' }, '-1,49,0': { name: 'bedrock', boundingBox: 'block' }, '0,49,1': { name: 'bedrock', boundingBox: 'block' }, '0,49,-1': { name: 'bedrock', boundingBox: 'block' } }), 0, 0, 48).why, /no headroom/, 'bedrock walls cannot be notched')
+  const wl = { name: 'stone_stairs', boundingBox: 'block', getProperties: () => ({ waterlogged: true }) }, GRAVEL = { name: 'gravel', boundingBox: 'block' }
+  assert.match(sideExit(pocket({ ...shaft, '1,49,0': wl, '-1,49,0': GRAVEL, '0,49,1': GRAVEL, '0,49,-1': wl }), 0, 0, 48).why, /no headroom/, 'a waterlogged or gravel wall cannot be notched (it is water, or it collapses)')
+  assert.match(sideExit(pocket({ ...shaft, '1,51,0': GRAVEL, '-1,51,0': GRAVEL, '0,51,1': GRAVEL, '0,51,-1': GRAVEL }), 0, 0, 48).why, /would fall into it/, 'gravel above the notch refuses')
   const mixed = sideExit(pocket({ ...shaft, '-1,49,0': AIR, '-1,50,0': AIR, '-1,46,0': STONE, '-1,47,0': WATER, '-1,48,0': WATER }), 0, 0, 48)
   assert.deepEqual(mixed.n, [-1, 0], 'two fills on the west beat a notch on the east (digs spend the pickaxe)'); assert.deepEqual(mixed.digs, [])
 })

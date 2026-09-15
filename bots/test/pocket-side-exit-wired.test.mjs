@@ -20,11 +20,13 @@ t('the step out swims up while pushing, releases both controls in finally, and c
   assert.ok(loop.includes('const a = abortIfNeeded(); if (a) return'), 'abort checked inside the step-out poll')
 })
 t('the seal happens only after settling on the ledge, and the pillar resumes only after centring back over the column', () => {
-  const i0 = rung.indexOf('const c0 = await centerOn(fx, fz, 1_500)'), i1 = rung.indexOf('const c1 = await centerOn(nx, nz, 1_500)'), i2 = rung.indexOf('const e2 = await placeOnto(fx, feetY - 1, fz)'), i3 = rung.indexOf('const c2 = await centerOn(fx, fz, 2_000)')
+  const i0 = rung.indexOf('const c0 = await centerOn(fx, fz, 1_500)'), i1 = rung.indexOf('const c1 = await centerOn(nx, nz, 1_500)'), i2 = rung.indexOf('const e2 = await placeOnto(fx, feetY - 1, fz)'), i3 = rung.indexOf('let c2 = await centerOn(fx, fz, 2_000)')
   assert.ok(i0 > 0 && i0 < i1 && i1 < i2 && i2 < i3, 'centre in the column -> fill -> settle on the ledge -> seal -> return, in that order')
   once(rung, "if (!clearOf(nx, nz)) return", 'rung'); once(rung, "if (!clearOf(fx, fz)) return", 'rung')
   const iN = rung.indexOf('for (const y of (ex.digs ?? []))'); assert.ok(iN > rung.indexOf('for (const y of ex.fill)') && iN < rung.indexOf("bot.setControlState('forward', true); bot.setControlState('jump', true)"), 'the notch is dug after the fills and before the step out')
   once(rung, 'await digBounded(bot, cell, 30_000)', 'rung')
+  once(rung, "is ${c?.name ?? 'unknown'} before the step out", 'rung')
+  once(rung, "const dry = !!sealB && sealB.boundingBox === 'block' && !!feet && !WATERLIKE.test(feet.name || '') && !!h && (h.name === 'air' || h.name === 'cave_air')", 'rung')
   once(rung, 'sideExit(B, fx, fz, feetY)', 'rung')
 })
 t('mutant: deleting the shallow-water trigger is detected', () => {
