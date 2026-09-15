@@ -8,7 +8,8 @@ const src = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'u
 const once = (s, needle, where) => { const n = s.split(needle).length - 1; assert.equal(n, 1, `${where}: expected exactly one "${needle}", found ${n}`) }
 const rung = src.slice(src.indexOf('async function floodedPocketRung'), src.indexOf('async function digBounded'))
 t('the rung runs the side exit once, in shallow water (feet in water, head not water), before a placement, and a failed exit ends the rung', () => {
-  once(rung, "if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air'))", 'rung')
+  once(rung, "if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air') && stableHeadroom)", 'rung')
+  once(rung, "const stableHeadroom = [feetY + 1, feetY + 2].every(y =>", 'rung')
   once(rung, 'const why = await sideExitStep(feetY)', 'rung')
   once(rung, "return end(false, `side exit: ${why}${sub ? ' -- SUBMERGED (or head cell unknown): the air reflex owns the body now' : ''} | trail ${trail.join(' > ')}`)", 'rung')
   assert.ok(rung.indexOf('const why = await sideExitStep(feetY)') < rung.indexOf('await bot.placeBlock(under, new Vec3(0, 1, 0))'), 'the exit is tried before the jump-place')
@@ -30,7 +31,7 @@ t('the seal happens only after settling on the ledge, and the pillar resumes onl
   once(rung, 'sideExit(B, fx, fz, feetY)', 'rung')
 })
 t('mutant: deleting the shallow-water trigger is detected', () => {
-  const m = rung.replace("if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air'))", 'if (false)')
-  assert.throws(() => once(m, "if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air'))", 'mutant'), /found 0/)
+  const m = rung.replace("if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air') && stableHeadroom)", 'if (false)')
+  assert.throws(() => once(m, "if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air') && stableHeadroom)", 'mutant'), /found 0/)
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
