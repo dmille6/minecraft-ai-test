@@ -93,3 +93,23 @@ dry) must turn green on the candidate; the Bravo fixture (no tools) must stay a 
 succeed from beside, on Paper 1.21 (the block-update ack path the rung already verifies)? (2) Is the 0.6-clearance
 check satisfied when the ledge's top is exactly feetY+1 and the bot's feet are at feetY + ~0.4 in water? (3) Should
 the seal (step 4) be skipped and the pillar simply continue in N's column when N's ceiling is also part of the plan?
+
+### Step 4b v2 — Codex pass 1 folded in (07:15 UTC)
+Answers taken: (1) placing into a water cell against the reference's top face from beside works on Paper when no
+entity overlaps the target; the rung keeps its explicit solid-cell verification. (2) The impulse's clearance test is
+`lastY + 0.6 + vel.y` after drag and gravity, so a bot pushing forward with no upward velocity does not pass it; the
+bot must SWIM UP while pushing. (3) Continuing the pillar in N would need a rebased and re-validated column plan; the
+seal-and-return keeps the one validated plan, so v2 keeps it.
+1. **Step out = forward + jump (swim up), not forward alone.** `jump` in water is the swim impulse; with the body
+   pressed against the ledge and rising, the out-of-liquid impulse fires. Jump is released the moment the feet are
+   on ground at (N, feetY+1); the step is verified by position (feet ≥ feetY+0.9, onGround, feet cell not water) and
+   ends after 3 s otherwise.
+2. **Trigger is the shallow state only**: `bot.entity.isInWater` AND the head cell not water AND the feet cell is
+   the water directly above the pillar's top block (feetY-1 solid). A submerged bot (head in water) is not 4b's case
+   (the pillar loop handles it); a dry bot is not either.
+3. **Oxygen and cancellation run through 4b**: `abortIfNeeded()` before every placement and every step; the fills
+   and the seal are each verified; and 4b ends only with the head breathable (a failed exit that lowered the bot
+   returns to the pillar loop, which re-checks oxygen, rather than ending the rung in water).
+4. **Height accounting**: a successful 4b leaves the bot dry at feetY+1, i.e. one pillar level gained: it counts as
+   one completed step of `need`; every confirmed fill and the seal are charged to `spent`, so the end row's
+   "blocks" is the truth and the budget (`need + 4`) is the cap it looks like.
