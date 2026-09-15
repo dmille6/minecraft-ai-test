@@ -33,7 +33,7 @@ import { rideFloorDown } from './skills.mjs'
 export { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS }
 import { Vec3 } from 'vec3'
 import { escapedFrom } from './recovery.mjs'
-import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS } from './floodpocket.mjs'
+import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -4674,6 +4674,7 @@ export function pocketPlanFor (bot, { blockAt = null } = {}) {
   const plan = pocketPlan({ floorY, feetY, firstDryY, columnCells, blocksHeld, toolInHand: !!tool, oxygenLevel: bot.oxygenLevel ?? 0 })
   return { plan, floorY, firstDryY, tool, columnCells }
 }
+const WATERLIKE = /water|kelp|seagrass|bubble_column/   // what a feet cell can be while the bot is in water (kelp, seagrass and bubble columns are water too)
 async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCells, alive = () => true, log: logEv = () => {} } = {}) {
   const gen = { n: 0 }; const my = ++gen.n; const t0 = Date.now(); const before = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: true }
   let spent = 0; let aborts = 0; let sinkNote = 'not started'; let lastPlaceErr = 'none'
@@ -4690,6 +4691,55 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
   while (Date.now() < sunkBy) { const p = bot.entity.position; if (bot.entity.onGround && Math.floor(p.y) === floorY + 1) break; await sleep(200); const a = abortIfNeeded(); if (a) return end(false, `abort while sinking: ${a}`) }
   sinkNote = `y=${bot.entity.position.y.toFixed(1)} onGround=${bot.entity.onGround} after ${Math.round((Date.now() - t0) / 1000)} s`
   if (!(bot.entity.onGround && Math.floor(bot.entity.position.y) === floorY + 1)) return end(false, 'did not reach the floor in 8 s')
+  // 4b. THE SHALLOW-WATER EXIT (docs/flooded-pocket-rung-design.md step 4b v2, two Codex passes). Once the pillar has
+  // the bot standing in the water cell above its own top block with its head in air, a jump from water never lifts
+  // the hitbox out of the target cell (pocket corpus runs 5-8). A bot swimming UP against a one-block ledge is thrown
+  // onto it instead (prismarine-physics outOfLiquidImpulse): fill a side cell to feet level, step out, seal the
+  // column's water cell from beside, step back over the column dry, and the pillar continues in the same plan.
+  // Every poll checks abort; controls are cleared in finally; a failed exit ends the rung (the air reflex keeps the
+  // head in air) rather than resuming the pillar displaced.
+  let sideExited = false
+  const centerOn = async (cx, cz, ms) => {   // walk to a cell's centre and settle; abort is checked on entry, every poll, and through the settle
+    const a0 = abortIfNeeded(); if (a0) return a0
+    try { await bot.lookAt(new Vec3(cx + 0.5, bot.entity.position.y + 1.6, cz + 0.5), true) } catch {}
+    const a1 = abortIfNeeded(); if (a1) return a1   // lookAt is awaited: recheck before enabling movement
+    const endBy = Date.now() + ms; bot.setControlState('forward', true)
+    try { while (Date.now() < endBy) { const q = bot.entity.position; if (Math.hypot(q.x - cx - 0.5, q.z - cz - 0.5) < 0.25) break; const a = abortIfNeeded(); if (a) return a; await sleep(50) } } finally { bot.setControlState('forward', false) }
+    for (let i = 0; i < 6; i++) { const a = abortIfNeeded(); if (a) return a; await sleep(50) }   // settle: momentum dies before any placement (Codex pass 2)
+    const q = bot.entity.position; return Math.hypot(q.x - cx - 0.5, q.z - cz - 0.5) < 0.35 ? null : `off-centre by ${Math.hypot(q.x - cx - 0.5, q.z - cz - 0.5).toFixed(2)}`
+  }
+  const clearOf = (cx, cz) => { const q = bot.entity.position; return Math.abs(q.x - cx - 0.5) >= 0.8 || Math.abs(q.z - cz - 0.5) >= 0.8 }   // the 0.6-wide hitbox is outside cell (cx,cz)
+  const placeOnto = async (rx, ry, rz) => {   // place on the top face of the solid block at (rx,ry,rz); verify the cell above turned solid
+    const ref = B(rx, ry, rz); if (!ref || ref.boundingBox !== 'block') return `no reference block at ${rx},${ry},${rz}`
+    const blk = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name)); if (!blk) return 'out of placeable blocks'
+    try { await bot.equip(blk, 'hand') } catch {}
+    const a = abortIfNeeded(); if (a) return `abort after equipping: ${a}`   // the equip await can outlive a preemption (Codex code pass 2)
+    try { await bot.placeBlock(ref, new Vec3(0, 1, 0)) } catch (e) { return `place failed at ${rx},${ry + 1},${rz}: ${String(e?.message ?? e).slice(0, 50)}` }
+    if (B(rx, ry + 1, rz)?.boundingBox !== 'block') return `cell ${rx},${ry + 1},${rz} did not turn solid`
+    spent++; return null
+  }
+  const sideExitStep = async (feetY) => {
+    const ex = sideExit(B, fx, fz, feetY); if (ex.why) return ex.why
+    const [dx, dz] = ex.n; const nx = fx + dx, nz = fz + dz
+    const c0 = await centerOn(fx, fz, 1_500); if (c0) return `centring in the column: ${c0}`   // the hitbox must not overlap the fill cells (Codex code pass 1)
+    if (!clearOf(nx, nz)) return 'the body overlaps the side cell after centring'
+    for (const y of ex.fill) { const a = abortIfNeeded(); if (a) return `abort during the fill: ${a}`; const e = await placeOnto(nx, y - 1, nz); if (e) return `fill: ${e}` }
+    try { await bot.lookAt(new Vec3(nx + 0.5, feetY + 1.6, nz + 0.5), true) } catch {}
+    const a3 = abortIfNeeded(); if (a3) return `abort before the step out: ${a3}`
+    bot.setControlState('forward', true); bot.setControlState('jump', true)   // swim up while pushing: the impulse needs upward velocity
+    const upBy = Date.now() + 3_000; let out = false
+    try { while (Date.now() < upBy) { const a = abortIfNeeded(); if (a) return `abort during the step out: ${a}`; const q = bot.entity.position; if (q.y >= feetY + 0.9 && bot.entity.onGround && Math.floor(q.x) === nx && Math.floor(q.z) === nz) { out = true; break } await sleep(50) } } finally { bot.setControlState('jump', false); bot.setControlState('forward', false) }
+    if (!out) return `the step out did not land on the ledge in 3 s (y ${bot.entity.position.y.toFixed(2)}, onGround ${bot.entity.onGround})`
+    const c1 = await centerOn(nx, nz, 1_500); if (c1) return `settling on the ledge: ${c1}`
+    if (bot.entity.isInWater || /water/.test(B(nx, feetY + 1, nz)?.name || '')) return 'stood on the ledge but still in water'
+    const a2 = abortIfNeeded(); if (a2) return `abort before the seal: ${a2}`
+    if (!clearOf(fx, fz)) return 'the body overlaps the column cell before the seal'
+    const e2 = await placeOnto(fx, feetY - 1, fz); if (e2) return `seal: ${e2}`
+    const c2 = await centerOn(fx, fz, 2_000); if (c2) return `returning over the column: ${c2}`
+    const q = bot.entity.position; const h = B(fx, Math.floor(q.y) + 1, fz)
+    if (!(bot.entity.onGround && Math.floor(q.y) === feetY + 1 && !bot.entity.isInWater && (!h || h.name === 'air' || h.name === 'cave_air'))) return `back over the column but not dry, standing and breathing (y ${q.y.toFixed(2)}, onGround ${bot.entity.onGround}, inWater ${bot.entity.isInWater})`
+    return null
+  }
   // 4/5. pillar: dig the cell two above the feet if solid, then jump-place a block under the feet; verify each step
   const block = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name))
   for (let step = 0; step < plan.need; step++) {
@@ -4703,6 +4753,15 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
       if (B(fx, feetY + 2, fz)?.boundingBox === 'block') return end(false, `ceiling y=${feetY + 2} did not open`)
     }
     const under = B(fx, feetY - 1, fz); if (!under || under.boundingBox !== 'block') return end(false, `no reference block under the feet at y=${feetY - 1}`)
+    const feetB = B(fx, feetY, fz), headB = B(fx, feetY + 1, fz)
+    if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air')) {   // shallow: verified water at the feet cell above the pillar's top block, a known breathable head cell (Codex code pass 1)
+      sideExited = true
+      logEv({ kind: 'flooded_pocket_side_exit', status: 'no_effect', detail: `shallow water at y=${feetY}: stepping out sideways (blocks so far ${spent})` })
+      const why = await sideExitStep(feetY)
+      if (why) { const hp = bot.entity.position; const hb = B(Math.floor(hp.x), Math.floor(hp.y) + 1, Math.floor(hp.z)); const sub = bot.entity.isInWater && (!hb || WATERLIKE.test(hb.name || '')); return end(false, `side exit: ${why}${sub ? ' -- SUBMERGED (or head cell unknown): the air reflex owns the body now' : ''}`) }
+      logEv({ kind: 'flooded_pocket_side_exit', status: 'success', detail: `out and back over the column dry at y=${feetY + 1}; the pillar continues (blocks so far ${spent})` })
+      continue   // one level gained: the loop's step++ credits it (Codex pass 1, height accounting)
+    }
     const blk = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name)); if (!blk) return end(false, 'out of placeable blocks')
     try { await bot.equip(blk, 'hand') } catch {}
     // IN WATER THE RISE IS SLOW: wait until the feet are a full block above the reference (the body no longer overlaps

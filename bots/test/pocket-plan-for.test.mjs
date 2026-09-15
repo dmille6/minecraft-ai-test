@@ -22,7 +22,7 @@ t('the same pocket bare-handed is refused before anything moves', () => {
 })
 t('too few blocks is refused by count', () => {
   const r = pocketPlanFor(botWith([{ name: 'wooden_pickaxe', count: 1, type: 1 }, { name: 'cobblestone', count: 3, type: 2 }]), { blockAt: world })
-  assert.match(r.plan.why, /need 11 placeable/)
+  assert.match(r.plan.why, /need 13 placeable/)   // need + 4 since step 4b (two side fills, a seal, a spare)
 })
 t('WIRED: the sealed verdict only raises the want; the rung runs before the dry arms on the next free tick, once per cooldown, inside its grant; the arms wait on a pending pocket (source invariant, comments stripped)', () => {
   const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8').split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n')
