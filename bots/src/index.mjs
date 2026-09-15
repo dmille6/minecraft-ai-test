@@ -24,6 +24,8 @@ import { installAirTrace } from './air-trace.mjs'
 import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
+import { travelTool } from './toolfor.mjs'
+import { diffTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
@@ -212,6 +214,31 @@ function connect() {
   }
 
   bot.once('spawn', () => {
+    // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
+    // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
+    // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
+    // loadPlugin time: plugins are injected after login, so bot.pathfinder does not exist yet up there (Codex pass 1).
+    if (bot.pathfinder) bot.pathfinder.bestHarvestTool = block => travelTool(block, bot.inventory?.items?.() ?? [], bot.heldItem)
+    // Tool losses, named: a debounced inventory diff (300 ms, so a hotbar swap settles) logs `tool_broke` (the lost
+    // copy had two or fewer uses left) or `tool_gone` (it did not -- a deposit, a drop, a death; the read reconciles).
+    // Durability is copied as VALUES: prismarine-item's durabilityUsed is a prototype getter that a spread drops.
+    const toolShot = () => (bot.inventory?.items?.() ?? []).map(it => ({ name: it.name, type: it.type, count: it.count, slot: it.slot, durabilityUsed: it.durabilityUsed, maxDurability: it.maxDurability }))
+    let toolItemsBefore = toolShot(), toolDiffTimer = null   // captured at install, so a loss on the first update is seen (Codex pass 2)
+    const onSlot = () => {
+      if (toolDiffTimer) return
+      toolDiffTimer = setTimeout(() => {
+        toolDiffTimer = null
+        const now = toolShot()
+        try {
+          for (const d of diffTools(toolItemsBefore, now)) {
+            logEvent({ kind: d.broke ? 'tool_broke' : 'tool_gone', status: 'no_effect', detail: `${d.name} x${d.lost}; the lost copy had ${d.least === Infinity ? '?' : d.least} of ${d.max ?? '?'} uses left`, snapshot: snapshot(bot) })
+          }
+        } catch {}
+        toolItemsBefore = now
+      }, 300)
+    }
+    bot.inventory?.on?.('updateSlot', onSlot)
+    bot.once('end', () => { clearTimeout(toolDiffTimer); toolDiffTimer = null; bot.inventory?.off?.('updateSlot', onSlot) })
     // THE ACTUATOR GATE (src/arbiter.mjs): with ARBITER=1 every dig, placement,
     // control state and pathfinder goto is refused unless its async context is
     // the arbiter's current holder (or the body is free). Installed before the

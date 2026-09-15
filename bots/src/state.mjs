@@ -19,14 +19,15 @@ export function countItem(bot, name) {
     .reduce((n, i) => n + i.count, 0)
 }
 
-/** { name: { used, max } } for every tool in the inventory (pickaxes, axes, shovels, swords, hoes). Pure over the items. */
+/** { name: [{ slot, used, max }, ...] } for every tool in the inventory (pickaxes, axes, shovels, swords, hoes), one entry
+ *  per copy -- a name-keyed map collapsed duplicates and could not tell which copy broke (Codex, 2026-09-15). Pure. */
 export function toolWear (bot) {
   const out = {}
   for (const it of (bot?.inventory?.items?.() ?? [])) {
     if (!/_(pickaxe|axe|shovel|sword|hoe)$/.test(it.name)) continue
     const used = it.durabilityUsed ?? null, max = it.maxDurability ?? null
     if (used == null && max == null) continue
-    out[it.name] = { used, max }
+    ;(out[it.name] ||= []).push({ slot: it.slot ?? null, used, max })
   }
   return out
 }
