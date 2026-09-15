@@ -103,3 +103,17 @@ export function lavaStandOff (at, feet) {
   }
   return { move: null, why: 'lava_adjacent_no_retreat' }
 }
+
+/**
+ * Guard 1b: a BLIND step -- a straight walk of `dist` blocks along yaw `ang` from `pos` with no path (explore's
+ * failed-leg fallback, 1.2 s of forward+jump). Sampled like a route: the line from the feet to the end point, with
+ * every cell known, lava-free around it and lava-free in the drop below it. board-b-Delta, 2026-09-15 10:26: guard 1
+ * refused the explore leg over a pool ("lava below at 386,70,100"), the refusal failed the goto, and the fallback
+ * walked the bot into that pool one second later. mineflayer yaw: x = -sin(yaw), z = cos(yaw) (bot.look convention).
+ */
+export function stepLineSafe (at, pos, ang, { dist = 5 } = {}) {
+  const dx = -Math.sin(ang), dz = Math.cos(ang)
+  const a = { x: pos.x, y: Math.floor(pos.y), z: pos.z }, b = { x: pos.x + dx * dist, y: Math.floor(pos.y), z: pos.z + dz * dist }
+  const r = corridorSafe(at, [a, b])
+  return r.safe ? { safe: true } : { safe: false, why: r.why.replace('lava_corridor', 'blind_step'), at: r.at }
+}

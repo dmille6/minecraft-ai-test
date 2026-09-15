@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { cellLavaSafe, cellSupported, corridorSafe, holdForwardSafe, lavaStandOff, dropLavaSafe } from '../src/lavaguard.mjs'
+import { cellLavaSafe, cellSupported, corridorSafe, holdForwardSafe, lavaStandOff, dropLavaSafe, stepLineSafe } from '../src/lavaguard.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const STONE = { name: 'stone', boundingBox: 'block' }, AIR = { name: 'air', boundingBox: 'empty' }, LAVA = { name: 'lava', boundingBox: 'empty' }, WATER = { name: 'water', boundingBox: 'empty' }, MAGMA = { name: 'magma_block', boundingBox: 'block' }
@@ -58,5 +58,12 @@ t('stand-off: lava east retreats west onto verified ground; no lava means no mov
   const cliff = { '6,64,5': LAVA, '4,63,5': AIR, '4,62,5': AIR, '4,61,5': AIR, '5,64,6': STONE, '5,64,4': STONE }
   assert.equal(lavaStandOff(world(cliff), feet).move, null, 'west is a cliff, north/south are walls: stay')
   assert.deepEqual(lavaStandOff(world({ '5,63,5': MAGMA }), feet).move[0] !== undefined, true, 'magma underfoot retreats somewhere')
+})
+t('blind step: a five-block line along the heading is judged like a route -- lava two below the ledge east refuses an eastward step (yaw -pi/2) and passes a westward one', () => {
+  const pit = {}; for (let x = 7; x <= 9; x++) { pit[`${x},63,5`] = AIR; pit[`${x},62,5`] = LAVA }
+  const east = stepLineSafe(world(pit), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2)
+  assert.equal(east.safe, false); assert.match(east.why, /blind_step/); assert.ok(east.at[0] >= 6 && east.at[0] <= 9, `named the cell: ${east.at}`)
+  assert.equal(stepLineSafe(world(pit), { x: 5.5, y: 64, z: 5.5 }, Math.PI / 2).safe, true, 'west is plain ground')
+  assert.equal(stepLineSafe(world({ '5,64,8': LAVA }), { x: 5.5, y: 64, z: 5.5 }, 0).safe, false, 'south (yaw 0 = +z): lava at feet level on the line')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

@@ -23,4 +23,15 @@ t('guard 3: the stand-off runs only for an idle bot on dry ground (no skill, no 
   assert.match(run, /this\.lastEndedAt = Date\.now\(\)/, 'the runner records when a skill ended')
   assert.equal((rfx.match(/lavaStandOff\(/g) || []).length, 1, 'one call site')
 })
+t('guard 1b: explore\'s failed-leg fallback walk runs stepLineSafe on its own line before any control state, and a refused step does not walk', () => {
+  const src = strip('../src/skills.mjs')
+  const CHECK = 'const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)'
+  const REFUSE = 'if (!stepOk) { await sleep(300, signal); continue }'
+  const WALK = "bot.setControlState('forward', true)\n        bot.setControlState('jump', true)\n        await sleep(1200, signal)"
+  const order = (t) => { const i0 = t.indexOf(CHECK), i1 = t.indexOf(REFUSE), i2 = t.indexOf(WALK); return i0 > 0 && i1 > i0 && i2 > i1 }
+  assert.equal(src.split(CHECK).length - 1, 1, 'one call site'); assert.equal(src.split(REFUSE).length - 1, 1, 'one refusal')
+  assert.ok(order(src), 'check -> refuse-without-walking -> walk, in that order')
+  assert.equal(order(src.replace(REFUSE, '')), false, 'mutant: deleting the refusal is detected')
+  assert.equal(order(src.replace(CHECK, '')), false, 'mutant: deleting the check is detected')
+})
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

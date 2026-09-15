@@ -25,6 +25,7 @@
 // Every long loop must check `signal.aborted`, because the reflex layer
 // preempts skills and a skill that ignores that will fight it.
 
+import { stepLineSafe } from './lavaguard.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -3300,6 +3301,17 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       // A short walk in the new heading proves to the reflex layer that the bot
       // is working, and incidentally makes the next plan start from somewhere
       // different, which is often why the previous one failed.
+      // ...BUT NEVER BLIND OVER LAVA. The corridor guard refuses a leg by failing the goto, which lands HERE, and this
+      // walk then took the refused line: board-b-Delta 2026-09-15 10:26 died in the pool the guard had named one
+      // second earlier. The step runs the same guard on its own straight line (feet to five blocks along the heading,
+      // lava-free around and below); a refused step turns the other way and, if that is refused too, does not move.
+      let stepOk = false
+      for (const cand of [ang, ang - 2 * (Math.PI / 3) * (Math.random() < 0.5 ? 1 : -1)]) {
+        const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
+        if (v.safe) { ang = cand; stepOk = true; break }
+        logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) })
+      }
+      if (!stepOk) { await sleep(300, signal); continue }
       try {
         await bot.look(ang, 0, true)
         bot.setControlState('forward', true)
