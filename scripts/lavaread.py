@@ -24,7 +24,7 @@ def load_window(since_minutes):
 ev = load_window(int(elapsed + PRE) + 20)
 GUARDS = ('_lava_corridor', '_hold_lava_ahead', '_lava_adjacent_stand_off', '_lava_adjacent_no_retreat')   # logEvent kinds carry the underscore in skill.name (2026-09-15: the first run of this read counted 0 of 134 rows)
 K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
-deaths = Counter(); lava = Counter(); guard = defaultdict(Counter); bots = defaultdict(set); rows = Counter(); ex = []; reason = defaultdict(Counter); mine = defaultdict(Counter)
+deaths = Counter(); lava = Counter(); guard = defaultdict(Counter); bots = defaultdict(set); rows = Counter(); ex = []; reason = defaultdict(Counter); mine = defaultdict(Counter); blind = defaultdict(Counter)
 for r in ev.rows:
     b = r['bot'].get('name', '')
     if not b or b.startswith('isolated'): continue
@@ -37,6 +37,7 @@ for r in ev.rows:
         if 'lava' in det or 'fire' in det or 'burn' in det or 'magma' in det: lava[k] += 1; ex.append((k, b, r['t'].strftime('%H:%M:%S'), det[:90]))
     if n in GUARDS: guard[k][n] += 1
     if n == '_lava_corridor': reason[k][re.sub(r' at .*', '', det.split(':', 1)[-1]).strip()[:24]] += 1
+    if n == '_explore_blind_step_refused': blind[k][re.sub(r' at .*', '', det.split(':', 1)[-1]).strip()[:28]] += 1
     if n == 'mine': mine[k]['ok' if (r['raw'].get('outcome') or {}).get('status') == 'success' or (r['raw'].get('skill') or {}).get('status') == 'success' else 'other'] += 1
     if n in GUARDS and k[0] == 'canary' and k[1] == 'post' and len(ex) < 40: ex.append((k, b, r['t'].strftime('%H:%M:%S'), n + ': ' + det[:80]))
 print(f"canary_pool={CAN} code={CV} cutoff={CUT.strftime('%H:%M:%S')} pre {PRE} / post {W:.0f} min -- LAVA GUARDS read (descriptive)")
@@ -51,6 +52,7 @@ did = (rate(('canary','post'), lava) - rate(('canary','pre'), lava)) - (rate(('c
 print(f"lava/fire deaths DiD: {did:+.3f}/bh (counts above; unmeasurable on 10 bots in 6 h, reported not judged)")
 cp = ('canary', 'post'); h = len(bots[cp]) * W / 60
 print(f"INSTRUMENT (-08b line): lava_corridor refusals on the canary post {sum(reason[cp].values())} = {sum(reason[cp].values())/h if h else 0:.2f}/bot-h by reason {dict(reason[cp])} (KEEP needs < 3/bot-h at +90; -08 ran 18/bot-h)")
+print(f"INSTRUMENT (-08c line): explore blind-step refusals on the canary post {sum(blind[cp].values())} = {sum(blind[cp].values())/h if h else 0:.2f}/bot-h by reason {dict(blind[cp])}; control post (old code, must be 0): {sum(blind[('control','post')].values())}")
 def ms(k): c = mine[k]; t = c['ok'] + c['other']; return (c['ok'] / t if t else float('nan')), t
 mdid = (ms(('canary','post'))[0] - ms(('canary','pre'))[0]) - (ms(('control','post'))[0] - ms(('control','pre'))[0])
 print(f"FRICTION: mine success canary {100*ms(('canary','pre'))[0]:.0f}% -> {100*ms(('canary','post'))[0]:.0f}% ({ms(('canary','post'))[1]} runs) vs control {100*ms(('control','pre'))[0]:.0f}% -> {100*ms(('control','post'))[0]:.0f}%  DiD {100*mdid:+.0f} pp (one-sided guard -30 pp)")
