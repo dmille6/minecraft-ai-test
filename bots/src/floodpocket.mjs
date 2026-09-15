@@ -40,7 +40,7 @@ export function pocketPlan ({ floorY = null, feetY, firstDryY = null, columnCell
   if (!toolInHand) return refuse('no pickaxe in hand: a submerged bare-hand dig exceeds one breath')
   const need = firstDryY - floorY - 1                      // pillar blocks to stand level with the opening's floor
   if (!(need >= 1)) return refuse('nothing to climb')
-  const blocks = need + 2
+  const blocks = need + 4   // + up to two side fills, one seal, one spare (step 4b, 2026-09-15); was + 2
   if (blocksHeld < blocks) return refuse(`need ${blocks} placeable block(s), have ${blocksHeld}`, { need, blocks })
   const digs = columnCells.filter(c => c.solid)
   const inflow = digs.find(c => c.inflowRisk)
@@ -58,4 +58,40 @@ export function pocketDone ({ before, after, headBreathable = false, feetSupport
   if (!before || !after) return false
   const rose = (after.y - before.y) >= minRise
   return rose && !after.wet && !!headBreathable && !!feetSupported
+}
+
+/**
+ * Step 4b: the shallow-water side exit. The pillar has the bot standing in the water cell above its own top block,
+ * head in air; a jump from water cannot lift the hitbox out of the target cell, but a bot swimming up against a
+ * one-block ledge is thrown onto it (prismarine-physics outOfLiquidImpulse). Choose the cardinal side cell N to make
+ * that ledge in: `at(x, y, z)` -> block or null.
+ *   - headroom: (N, feetY+1) and (N, feetY+2) passable (not solid) and not liquid
+ *   - fillable: (N, feetY) is water or air; below it a solid block within `maxFill` cells (the cells between are
+ *     water/air and are filled bottom-up); nothing lava-like anywhere in that column
+ * Returns { n: [dx, dz], fill: [y, ...] (ascending, the last is feetY), seal: [fx, feetY, fz] } or { why }.
+ * Prefers the side with the fewest fills; ties in the order east, west, south, north.
+ */
+export function sideExit (at, fx, fz, feetY, { maxFill = 2 } = {}) {
+  const solid = b => !!b && b.boundingBox === 'block'
+  const liquid = b => !!b && /water|lava|kelp|seagrass|bubble_column/.test(b.name || '')
+  const lavaish = b => !!b && /lava|magma|fire/.test(b.name || '')
+  const passable = b => !!b && !solid(b) && !liquid(b)
+  const fillable = b => !!b && (b.name === 'air' || b.name === 'cave_air' || /water|kelp|seagrass|bubble_column/.test(b.name || ''))   // replaceable by a placed block; anything else (a torch, a sign, a plant) is not assumed to be
+  let best = null; const whys = []
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const nx = fx + dx, nz = fz + dz
+    const h1 = at(nx, feetY + 1, nz), h2 = at(nx, feetY + 2, nz)
+    if (!passable(h1) || !passable(h2)) { whys.push(`${dx},${dz}: no headroom`); continue }
+    const fill = []; let ok = false
+    for (let y = feetY; y >= feetY - maxFill; y--) {
+      const b = at(nx, y, nz)
+      if (b == null || lavaish(b)) { whys.push(`${dx},${dz}: ${b == null ? 'unknown' : b.name} at y=${y}`); break }
+      if (solid(b)) { ok = fill.length > 0; if (!ok) whys.push(`${dx},${dz}: already solid at feet level`); break }
+      if (!fillable(b)) { whys.push(`${dx},${dz}: ${b.name} at y=${y} is not fillable`); break }
+      fill.unshift(y)
+    }
+    if (!ok) { if (fill.length > maxFill) whys.push(`${dx},${dz}: floor deeper than ${maxFill}`); else if (fill.length && !solid(at(nx, feetY - maxFill - 1, nz))) whys.push(`${dx},${dz}: no floor within ${maxFill + 1}`); continue }
+    if (!best || fill.length < best.fill.length) best = { n: [dx, dz], fill, seal: [fx, feetY, fz] }
+  }
+  return best ?? { why: `no side to step out on (${whys.join('; ') || 'no cardinal cell known'})` }
 }
