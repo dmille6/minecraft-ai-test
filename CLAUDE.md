@@ -160,6 +160,10 @@ selected, or reachable, so all three need checking:
   it deterministic rather than advisory.
 - **Composed.** Test the refusal CHAIN, not the single guard. Every trap this
   week passed its own unit tests.
+- **Traced to its fallback.** A refusal fails the call it refuses, and the skill's `catch` then does something
+  with the body. Before a new refusal deploys, name every catch/fallback the refused call lands in and run the
+  same guard on the fallback's own movement, with a wired test for the chain. 2026-09-15: a correct lava
+  refusal failed an explore leg, and explore's fallback walked blind into the pool the refusal had named.
 
 ## Deploys
 
@@ -184,6 +188,14 @@ selected, or reachable, so all three need checking:
   nothing.
 - Rare outcomes (deaths ~0.1/hour/pool) are unmeasurable on 5 bots. Use them as
   tripwires, not proof.
+- **No gate reverts anything until it is calibrated.** OWNER 2026-09-15: every rule that can REVERT a canary carries
+  a backtest on pseudo-canaries (`scripts/gatecal.py` for death rules, `scripts/guardcal.py` for movement and
+  productivity guards) with its false-revert rate and, where a harm can be injected, its detection rate, both in
+  the registration. Without the two numbers the rule is report-only. Three of four reverts on 2026-09-15 were the
+  instrument: a call-count guard (explore calls -70% while gather and deposits doubled), a linkage rule scoped
+  for ladder changes applied to a lava change, and a guard that refused terrain as lava.
+- **A canary may bundle two changes** with disjoint diffs and separate instrument lines (rule v16 in
+  docs/reports/recovery-ladder-registration.md); a REVERT on a shared line reverts both.
 - **The death gate needs TWO canary deaths** (and > 1.25x the control rate) before it
   trips on its own. OWNER DECISION 2026-09-11: at ~0.05 deaths/bot-hour one unrelated
   death lands on a 5-bot pool in 90 min about a third of the time, and it reverted two
