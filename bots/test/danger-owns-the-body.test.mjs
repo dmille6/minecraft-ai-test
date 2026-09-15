@@ -19,7 +19,7 @@ t('WIRED: the four movement arms are gated on inDanger and the tick keeps runnin
   assert.match(src, /const inDanger = !recoveryArmsMayRun\(\{ feetName: feet\?\.name, belowName: below\?\.name \}\)/, 'inDanger is the predicate')
   assert.match(src, /if \(inDanger && throttled\('danger', 2500\)\) \{/, 'the escape re-fires every 2.5 s while the danger persists')
   assert.doesNotMatch(src, /await escape\(bot\)\s*return\s*\}/, 'the firing tick does NOT return: air rescue, the low-health latch and stuck detection keep running (Codex, final pass)')
-  const gates = [/mstate === 'need_scaffold' && !inDanger &&/, /if \(mstate === 'climb' && !inDanger\) \{/, /!climbing && !inDanger && isEntombed\(bot\) &&/, /!digging && !inDanger && Date\.now\(\) - stillSince/]
+  const gates = [/mstate === 'need_scaffold' && !inDanger &&/, /if \(mstate === 'climb' && (?:!pocketing && !pocketPending && )?!inDanger\) \{/, /!climbing && !inDanger && isEntombed\(bot\) &&/, /!digging && !inDanger && Date\.now\(\) - stillSince/]
   for (const g of gates) assert.equal((src.match(g) || []).length, 1, `gate present once: ${g}`)
   // MUTANT: any one gate removed is caught
   for (const g of gates) { const m = src.replace(g, x => x.replace('!inDanger && ', '').replace(' && !inDanger', '')); assert.equal((m.match(g) || []).length, 0, `mutant caught: ${g}`) }
