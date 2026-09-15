@@ -851,7 +851,7 @@ async function descendToGround(ctx, signal) {
                      `${dropped.toFixed(0)} block(s) and ` +
                      `${freed ? 'reached solid ground' : 'did not get free'}`,
              snapshot: snapshot(bot) })
-  return freed
+  return freed ? true : { failed: true, why: 'the canopy descent did not get free' }   // a failed descent is not "unneeded": gather must not dig from here (Codex pass 2)
 }
 
 // -------------------------------------------------------------- gather -----
@@ -1285,10 +1285,10 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   }
   const type = bot.registry.blocksByName[blockName]
 
-  const descent = await descendToGround(ctx, signal).catch(() => false)
+  const descent = await descendToGround(ctx, signal).catch(e => (e?.aborted ? Promise.reject(e) : { failed: true, why: `the canopy descent threw: ${String(e?.message ?? e).slice(0, 40)}` }))
   check(signal)
-  if (descent && descent.refused) {   // stranded on a canopy over a fall the descent will not take: no gather from here (its mine would dig the same floor)
-    return { status: 'failed', detail: `stranded on foliage over a ${descent.why}; not digging down — the escape ladder owns this descent`, failClass: 'canopy_refused' }
+  if (descent && (descent.refused || descent.failed)) {   // stranded on a canopy the descent would not or could not leave: no gather from here (its mine would dig the same floor)
+    return { status: 'failed', detail: `stranded on foliage: ${descent.why}; not digging down — the escape ladder owns this descent`, failClass: descent.refused ? 'canopy_refused' : 'canopy_failed' }
   }
 
   // GRADE THE DROP, NOT THE BLOCK. Stone does not drop stone. See drops.mjs:
