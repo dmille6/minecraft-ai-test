@@ -817,12 +817,21 @@ async function descendToGround(ctx, signal) {
   // only leaves early when it is standing on something that is not foliage.
   const startY = bot.entity.position.y
   let freed = false
+  // MEASURE THE DROP BEFORE DIGGING THE FLOOR AWAY. hive-b-Bravo, 2026-09-15 19:06: stranded on a canopy at y=101,
+  // every marooned arm had refused the 37-block drop, and this loop dug the leaves out from under it, logged
+  // "reached solid ground" (air is not foliage) and the bot fell 37 blocks to its death. canopyDrop() is the pure
+  // rule: the first solid block below the foliage column, and the fall the bot would take to stand on it.
+  const drop = canopyDrop((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position)
+  if (!drop.ok) {
+    logEvent({ kind: 'trapped_in_canopy', status: 'failed', detail: `stranded on foliage at y=${Math.round(startY)}; not digging down: ${drop.why}`, snapshot: snapshot(bot) })
+    return false
+  }
   for (let i = 0; i < 12; i++) {
     check(signal)
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
-    if (!FOLIAGE.test(below.name)) { freed = true; break }   // reached solid ground
-    if (below.name === 'air') { await sleep(400, signal); continue }   // falling
+    if (below.name === 'air' || below.boundingBox === 'empty') { await sleep(400, signal); continue }   // falling: not freed until something solid is under the feet
+    if (!FOLIAGE.test(below.name) && below.boundingBox === 'block' && bot.entity.onGround) { freed = true; break }   // standing on solid ground
     try {
       const tool = bestTool(bot, below)
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
@@ -1230,6 +1239,25 @@ async function pickupNearbyItems(bot, signal, radius = 8) {
     }
     await sleep(250, signal)
   }
+}
+
+/**
+ * The drop under a canopy: from the feet, skip the foliage column, then count the air to the first solid block.
+ * ok when that fall is at most `maxDrop` (a foliage column that is itself 20 deep is 20 blocks of falling); refuses
+ * on unknown cells, liquid (a pond under the tree is a swim, but this loop digs blind), lava, or a longer fall.
+ */
+const CANOPY = /(_leaves|_log|vine)$/   // gather's FOLIAGE, at module scope for the pure rule
+export function canopyDrop (at, pos, { maxDrop = 3, reach = 40 } = {}) {
+  const x = Math.floor(pos.x), z = Math.floor(pos.z); let y = Math.floor(pos.y) - 1; let foliage = 0
+  while (foliage < reach) { const b = at(x, y, z); if (!b) return { ok: false, why: 'unknown below' }; if (!CANOPY.test(b.name)) break; foliage++; y-- }
+  let air = 0
+  for (; air <= reach; air++) {
+    const b = at(x, y - air, z); if (!b) return { ok: false, why: 'unknown below the foliage' }
+    if (/lava|magma|fire/.test(b.name)) return { ok: false, why: `${b.name} below the foliage` }
+    if (/water/.test(b.name)) return { ok: false, why: 'water below the foliage (a swim, not a dig)' }
+    if (b.boundingBox === 'block') { const fall = foliage + air; return fall <= maxDrop ? { ok: true, fall } : { ok: false, why: `a fall of ${fall} to the first solid block (limit ${maxDrop})`, fall } }
+  }
+  return { ok: false, why: `no solid block within ${reach} below` }
 }
 
 async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
