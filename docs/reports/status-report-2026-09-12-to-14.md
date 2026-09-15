@@ -452,3 +452,13 @@ Corpus run 8 (three repeats per fixture, arbiter on versus off) is running; the 
 **The fix is already built.** The blind fallback walk now runs the same guard on its own line before it moves, for lava and for drops deeper than three blocks, which also covers the explore-off-a-ledge falls that were a third of this morning's deaths. It went through two ChatGPT passes and the full suite, and it is the version that deploys next as -08c at the first draw with two eligible pools. Six pools now sit inside their twelve-hour exclusions, so that is most likely 15:20 UTC or later.
 
 **Lesson recorded.** A refusal is an input to whatever the refused skill does next. Twice today a correct guard handed the bot to a fallback that undid it. Every new refusal now gets its fallback traced and guarded before it goes near the fleet.
+
+## Status 21:10 UTC, 15 Sep — four lava canaries, none harmful, none promoted
+
+**The day in one line.** The fleet held at the two-week death target all day (0.048 per bot-hour over eighteen hours, two immobile bots at close), and nothing new reached it, because each lava-guard canary was closed by a different instrument before it could be promoted.
+
+**The four closes.** The first refused terrain as if it were lava. The second's correct refusal fed explore's blind fallback walk into the pool it had named. The third was sunk by a rule written for ladder changes: a bot fell 37 blocks after the fleet's own canopy escape dug the leaves out from under it, in both arms. The fourth was sunk by a guard that counts explore calls: the bots stopped blind-walking and gathered and deposited twice as much instead, and the guard read fewer explore calls as harm. In none of the four did the guards themselves read as harmful: their refusals were real lava, real drops, and no lava death followed a refusal.
+
+**What that cost and what it bought.** Four slots. In return, three real defects are fixed (the terrain refusals, the fallback walk, the canopy dig-down) and two rules are corrected: rung-linked deaths no longer revert a change that does not touch the rungs unless four conditions fail, and the movement guard is being redefined on blocks moved, working time, immobility and items rather than on which skill the planner happened to call. That redefinition is with ChatGPT now and precedes the fifth lava canary.
+
+**Built and sandbox-proven, waiting for slots.** The flooded-pocket rung (out of the Delta shaft on every run), iron retention (stone pick spent, iron untouched), and the canopy descent fix. The pocket rung goes first, at the next two-pool draw.

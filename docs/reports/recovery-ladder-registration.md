@@ -168,3 +168,12 @@ Prior verdicts stand as recorded (-08c's REVERT under v12 is not re-litigated). 
 ## v12 as applied to recovery-ladder-11 = the CANOPY DROP MEASURE (recovery-ladder-canopy 4664df9 = 426058d + canopyDrop; two Codex passes folded; suite 175/175), drafted 19:25Z; a LADDER change (v12 unchanged, v14c not needed)
 Change: gather's canopy dig-down measures the fall under the foliage before digging (first solid block; > 3, unknown, water or lava refuses with `canopy_drop_refused`), treats air under the feet as falling, and reports `trapped_in_canopy` success only standing on solid ground. Found by -08c's second death (hive-b-Bravo fell 37 blocks after the loop dug the leaves out from under it).
 Rules: v11 guards; linkage list M plus trapped_in_canopy; two-death floor + v12 linkage; the change's own lines: fall deaths within 60 s of a trapped_in_canopy or canopy_drop_refused row (must be 0), canopy_drop_refused rows per bot-h (exposure), trapped_in_canopy success share (DiD, report), gather success one-sided -30% (a refused descent leaves the bot on the tree for the ladder).
+
+## v15 — the MOVEMENT guard (drafted 21:05Z 15 Sep; Codex pass pending; applies from the next canary on)
+Why: the v6 guards `gather/bh` and `explore/bh` count SKILL CALLS per bot-hour. -08c breached explore/bh at -34% and -08d at -70% while the same reads showed gather x1.9, deposit runs x1.9 and immobility down: a change that curtails blind walks changes what the planner calls next, and the call count reads that as harm. The guard exists to catch "the change stops the bots moving or working"; it must measure that.
+Replace the two call-count guards with, each one-sided and DiD vs control:
+1. **Blocks moved per bot-h** (sum of horizontal displacement between consecutive snapshot rows, capped at 20 per step to drop teleports/respawns): must not fall more than 30%.
+2. **Working share**: bot-minutes with a skill row (any skill, any status) per bot-h: must not fall more than 30%.
+3. **Immobile share** (already the PRIMARY line): must not rise by more than 3 pp (as today).
+4. **Items gathered per bot-h** (inventory_delta > 0): must not fall more than 30% (the endpoint the program is judged on).
+gather/bh and explore/bh become REPORT lines. Climb firings, livelock rows, ladders p90, exhausted bots, deposit skill_error share, the death gate and v12/v14c linkage are unchanged. immobiledid.py grows the four lines; the registration of every later canary names v15.
