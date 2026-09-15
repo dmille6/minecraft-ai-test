@@ -59,11 +59,14 @@ t('stand-off: lava east retreats west onto verified ground; no lava means no mov
   assert.equal(lavaStandOff(world(cliff), feet).move, null, 'west is a cliff, north/south are walls: stay')
   assert.deepEqual(lavaStandOff(world({ '5,63,5': MAGMA }), feet).move[0] !== undefined, true, 'magma underfoot retreats somewhere')
 })
-t('blind step: a five-block line along the heading is judged like a route -- lava two below the ledge east refuses an eastward step (yaw -pi/2) and passes a westward one', () => {
+t('blind step: the seven-block line along the heading is judged like a route, with prismarine-physics\'s yaw convention (0 = -z north, -pi/2 = +x east, pi/2 = -x west, pi = +z south)', () => {
   const pit = {}; for (let x = 7; x <= 9; x++) { pit[`${x},63,5`] = AIR; pit[`${x},62,5`] = LAVA }
   const east = stepLineSafe(world(pit), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2)
   assert.equal(east.safe, false); assert.match(east.why, /blind_step/); assert.ok(east.at[0] >= 6 && east.at[0] <= 9, `named the cell: ${east.at}`)
   assert.equal(stepLineSafe(world(pit), { x: 5.5, y: 64, z: 5.5 }, Math.PI / 2).safe, true, 'west is plain ground')
-  assert.equal(stepLineSafe(world({ '5,64,8': LAVA }), { x: 5.5, y: 64, z: 5.5 }, 0).safe, false, 'south (yaw 0 = +z): lava at feet level on the line')
+  assert.equal(stepLineSafe(world({ '5,64,2': LAVA }), { x: 5.5, y: 64, z: 5.5 }, 0).safe, false, 'yaw 0 walks north (-z): lava at z=2 is on the line')
+  assert.equal(stepLineSafe(world({ '5,64,2': LAVA }), { x: 5.5, y: 64, z: 5.5 }, Math.PI).safe, true, 'yaw pi walks south (+z): the lava at z=2 is behind')
+  assert.equal(stepLineSafe(world({ '5,64,9': LAVA }), { x: 5.5, y: 64, z: 5.5 }, Math.PI).safe, false, 'south: lava at z=9 is on the line')
+  assert.equal(stepLineSafe(world({ '1,64,5': LAVA }), { x: 5.5, y: 64, z: 5.5 }, Math.PI / 2).safe, false, 'west: lava at x=1 is on the line')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

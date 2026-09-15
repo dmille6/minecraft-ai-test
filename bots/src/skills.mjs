@@ -3291,7 +3291,8 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
         bot.pathfinder.goto(new goals.GoalNear(tx, Math.round(from.y), tz, 3)), 8000, bot)
     } catch (e) {
       lastErr = e.message
-      ang += (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 3)   // blocked: turn, do not give up
+      const turn = (Math.random() < 0.5 ? 1 : -1) * (Math.PI / 3)
+      ang += turn   // blocked: turn, do not give up
       // MOVE, even on failure. Each failed leg costs up to the pathfinder's
       // think timeout with the bot stationary, so three or four in a row
       // accumulate past the 45s stuck threshold and the reflex cancels the whole
@@ -3304,9 +3305,11 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       // ...BUT NEVER BLIND OVER LAVA. The corridor guard refuses a leg by failing the goto, which lands HERE, and this
       // walk then took the refused line: board-b-Delta 2026-09-15 10:26 died in the pool the guard had named one
       // second earlier. The step runs the same guard on its own straight line (feet to five blocks along the heading,
-      // lava-free around and below); a refused step turns the other way and, if that is refused too, does not move.
+      // lava-free around and below); a refused step turns the other way (the same turn with the opposite sign) and,
+      // if that is refused too, does not move. The walk is GROUNDED: no jump, so the body stays on the checked
+      // line (a jump-held hop can carry it over a gap onto lava beyond the sampled seven blocks; Codex).
       let stepOk = false
-      for (const cand of [ang, ang - 2 * (Math.PI / 3) * (Math.random() < 0.5 ? 1 : -1)]) {
+      for (const cand of [ang, ang - 2 * turn]) {
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
         if (v.safe) { ang = cand; stepOk = true; break }
         logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) })
@@ -3315,7 +3318,6 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       try {
         await bot.look(ang, 0, true)
         bot.setControlState('forward', true)
-        bot.setControlState('jump', true)
         await sleep(1200, signal)
         bot.clearControlStates()
       } catch { bot.clearControlStates() }
