@@ -4704,7 +4704,8 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
   // column's water cell from beside, step back over the column dry, and the pillar continues in the same plan.
   // Every poll checks abort; controls are cleared in finally; a failed exit ends the rung (the air reflex keeps the
   // head in air) rather than resuming the pillar displaced.
-  let sideExited = false
+  let sideExited = false; const trail = []   // positions at each 4b milestone, for the end row
+  const mark = (what) => { const q = bot.entity.position; trail.push(`${what}@${q.x.toFixed(2)},${q.y.toFixed(2)},${q.z.toFixed(2)}${bot.entity.onGround ? 'g' : ''}${bot.entity.isInWater ? 'w' : ''}`) }
   const centerOn = async (cx, cz, ms) => {   // walk to a cell's centre and settle; abort is checked on entry, every poll, and through the settle
     const a0 = abortIfNeeded(); if (a0) return a0
     try { await bot.lookAt(new Vec3(cx + 0.5, bot.entity.position.y + 1.6, cz + 0.5), true) } catch {}
@@ -4744,13 +4745,14 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     bot.setControlState('forward', true); bot.setControlState('jump', true)   // swim up while pushing: the impulse needs upward velocity
     const upBy = Date.now() + 3_000; let out = false
     try { while (Date.now() < upBy) { const a = abortIfNeeded(); if (a) return `abort during the step out: ${a}`; const q = bot.entity.position; if (q.y >= feetY + 0.9 && bot.entity.onGround && Math.floor(q.x) === nx && Math.floor(q.z) === nz) { out = true; break } await sleep(50) } } finally { bot.setControlState('jump', false); bot.setControlState('forward', false) }
+    mark('out')
     if (!out) return `the step out did not land on the ledge in 3 s (y ${bot.entity.position.y.toFixed(2)}, onGround ${bot.entity.onGround})`
-    const c1 = await centerOn(nx, nz, 1_500); if (c1) return `settling on the ledge: ${c1}`
+    const c1 = await centerOn(nx, nz, 1_500); mark('ledge'); if (c1) return `settling on the ledge: ${c1}`
     if (bot.entity.isInWater || /water/.test(B(nx, feetY + 1, nz)?.name || '')) return 'stood on the ledge but still in water'
     const a2 = abortIfNeeded(); if (a2) return `abort before the seal: ${a2}`
     if (!clearOf(fx, fz)) return 'the body overlaps the column cell before the seal'
-    const e2 = await placeOnto(fx, feetY - 1, fz); if (e2) return `seal: ${e2}`
-    let c2 = await centerOn(fx, fz, 2_000); if (c2 && !/abort|preempt|air|budget/.test(c2)) c2 = await centerOn(fx, fz, 2_000)   // one retry: the first Delta run stood still on the ledge for 2 s (08:04)
+    const e2 = await placeOnto(fx, feetY - 1, fz); mark('sealed'); if (e2) return `seal: ${e2}`
+    let c2 = await centerOn(fx, fz, 2_000); mark('return1'); if (c2 && !/abort|preempt|air|budget/.test(c2)) { c2 = await centerOn(fx, fz, 2_000); mark('return2') }   // one retry: the first Delta run stood still on the ledge for 2 s (08:04)
     if (c2) return `returning over the column: ${c2}`
     for (let i = 0; i < 6; i++) { const a = abortIfNeeded(); if (a) return `abort after returning: ${a}`; await sleep(50) }   // let physics settle before judging wet/dry
     const q = bot.entity.position; const fy = Math.floor(q.y); const feet = B(fx, fy, fz), h = B(fx, fy + 1, fz), sealB = B(fx, feetY, fz)
@@ -4777,7 +4779,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
       sideExited = true
       logEv({ kind: 'flooded_pocket_side_exit', status: 'no_effect', detail: `shallow water at y=${feetY}: stepping out sideways (blocks so far ${spent})` })
       const why = await sideExitStep(feetY)
-      if (why) { const hp = bot.entity.position; const hb = B(Math.floor(hp.x), Math.floor(hp.y) + 1, Math.floor(hp.z)); const sub = bot.entity.isInWater && (!hb || WATERLIKE.test(hb.name || '')); return end(false, `side exit: ${why}${sub ? ' -- SUBMERGED (or head cell unknown): the air reflex owns the body now' : ''}`) }
+      if (why) { const hp = bot.entity.position; const hb = B(Math.floor(hp.x), Math.floor(hp.y) + 1, Math.floor(hp.z)); const sub = bot.entity.isInWater && (!hb || WATERLIKE.test(hb.name || '')); return end(false, `side exit: ${why}${sub ? ' -- SUBMERGED (or head cell unknown): the air reflex owns the body now' : ''} | trail ${trail.join(' > ')}`) }
       logEv({ kind: 'flooded_pocket_side_exit', status: 'success', detail: `out and back over the column dry at y=${feetY + 1}; the pillar continues (blocks so far ${spent})` })
       continue   // one level gained: the loop's step++ credits it (Codex pass 1, height accounting)
     }
