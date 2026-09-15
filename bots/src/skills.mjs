@@ -845,7 +845,7 @@ async function descendToGround(ctx, signal) {
   // rule: the first solid block below the foliage column, and the fall the bot would take to stand on it.
   const drop = canopyDrop((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position)
   if (!drop.ok) {
-    logEvent({ kind: 'trapped_in_canopy', status: 'failed', detail: `stranded on foliage at y=${Math.round(startY)}; not digging down: ${drop.why}`, snapshot: snapshot(bot) })
+    logEvent({ kind: 'canopy_drop_refused', status: 'no_effect', detail: `stranded on foliage at y=${Math.round(startY)}; not digging down: ${drop.why}`, snapshot: snapshot(bot) })   // its own kind: trapped_in_canopy stays an outcome row computed after the loop (outcome-not-intention)
     return false
   }
   for (let i = 0; i < 12; i++) {
