@@ -34,7 +34,7 @@ for b in rows: bots_by_pool[b.rsplit('-', 1)[0]].append(b)
 def measure(bots, t0, t1):
     """per bot-h over [t0,t1): immobile share, blocks moved, items gathered, deposits ok, working share"""
     H = (t1 - t0).total_seconds() / 3600; nb = len(bots); bh = nb * H
-    imm = 0.0; moved = 0.0; items = 0; deps = 0; work = 0
+    imm = 0.0; moved = 0.0; items = 0; deps = 0; work = 0; immbots = set()
     for b in bots:
         rs = [r for r in rows[b] if t0 <= r[0] < t1]
         last = None; minute_pos = {}; work_min = set()
@@ -49,9 +49,17 @@ def measure(bots, t0, t1):
         mins = sorted(minute_pos); 
         for w0 in range(0, int(H * 60) - 59, 30):
             ps = [minute_pos[m] for m in mins if w0 <= m < w0 + 60]
-            if len(ps) >= 2 and math.hypot(ps[-1][0] - ps[0][0], ps[-1][1] - ps[0][1]) < 6: imm += 0.5
-    return dict(bh=bh, immobile=imm / H / nb if nb and H else 0, moved=moved / bh if bh else 0, items=items / bh if bh else 0, deps=deps / bh if bh else 0, work=work / (60 * bh) if bh else 0)
-random.seed(7); out = collections.defaultdict(list)
+            if len(ps) >= 2 and math.hypot(ps[-1][0] - ps[0][0], ps[-1][1] - ps[0][1]) < 6: imm += 0.5; immbots.add(b)
+    return dict(bh=bh, immobile=imm / H / nb if nb and H else 0, moved=moved / bh if bh else 0, items=items / bh if bh else 0, deps=deps / bh if bh else 0, work=work / (60 * bh) if bh else 0, immbots=immbots)
+random.seed(7); out = collections.defaultdict(list); joint = collections.Counter(); detect = collections.Counter()
+def rel(a, b): return (b - a) / a if a else float('nan')
+def verdicts(cp, cq, kp, kq):
+    d = {k: rel(cp[k], cq[k]) - rel(kp[k], kq[k]) for k in ('moved', 'items', 'work')}
+    ipp = (cq['immobile'] - cp['immobile']) - (kq['immobile'] - kp['immobile']); newly = len(cq['immbots'] - cp['immbots'])
+    b = dict(moved=d['moved'] < -0.30, work=d['work'] < -0.20, items=d['items'] < -0.50, imm=(ipp > 0.10 and newly >= 2))
+    severe = d['moved'] < -0.50 or d['work'] < -0.40 or d['items'] < -0.70 or (ipp > 0.20 and newly >= 3)
+    v15b = any(b.values()); v15c = sum(b.values()) >= 2 or severe
+    return v15b, v15c, b
 for i in range(N):
     cut = start + dt.timedelta(seconds=random.uniform(3 * 3600, DAYS * 86400 - 6 * 3600))
     cans = random.sample([p for p in POOLS if bots_by_pool[p]], 2); ctrl = [p for p in bots_by_pool if p not in cans and not p.startswith('isolated')]
@@ -59,10 +67,19 @@ for i in range(N):
     cp = measure(cb, cut - dt.timedelta(minutes=180), cut); cq = measure(cb, cut, cut + dt.timedelta(minutes=360))
     kp = measure(kb, cut - dt.timedelta(minutes=180), cut); kq = measure(kb, cut, cut + dt.timedelta(minutes=360))
     for k in ('moved', 'items', 'deps', 'work'):
-        def rel(a, b): return (b - a) / a if a else float('nan')
         d = rel(cp[k], cq[k]) - rel(kp[k], kq[k]);
         if not math.isnan(d): out[k].append(d)
     out['immobile_pp'].append((cq['immobile'] - cp['immobile']) - (kq['immobile'] - kp['immobile']))
+    vb, vc, bb = verdicts(cp, cq, kp, kq); joint['v15b_or'] += vb; joint['v15c_2of4'] += vc
+    for k, v in bb.items(): joint['single_' + k] += v
+    # INJECTED HARM: the canary's post window loses a third of movement, working time and items, and two extra bots
+    # go immobile for the whole window (+20 pp of ten bots); does each rule catch it?
+    hq = dict(cq); hq['moved'] *= 0.67; hq['work'] *= 0.67; hq['items'] *= 0.67; hq['immobile'] = min(1.0, cq['immobile'] + 0.20); hq['immbots'] = cq['immbots'] | {'inj1', 'inj2'}
+    hb, hc, _ = verdicts(cp, hq, kp, kq); detect['v15b_or'] += hb; detect['v15c_2of4'] += hc
+    gq = dict(cq); gq['items'] *= 0.67   # a gathering-only loss of a third, movement untouched
+    gb, gc, _ = verdicts(cp, gq, kp, kq); detect['items_only_v15b'] += gb; detect['items_only_v15c'] += gc
+print("JOINT false-revert on harmless pseudo-canaries:", {k: f"{100*v/N:.0f}%" for k, v in sorted(joint.items())})
+print("DETECTION (injected: -33% moved/work/items and +20 pp immobile with 2 new stuck bots; and items-only -33%):", {k: f"{100*v/N:.0f}%" for k, v in sorted(detect.items())})
 print(f"pseudo-canaries {N} over {DAYS} days, two pools of five vs the rest, pre 180 / post 360; positive control: bots {len(rows)}, rows {sum(len(v) for v in rows.values())}")
 for k, v in out.items():
     v = sorted(v); n = len(v); q = lambda f: v[int(f * (n - 1))]
