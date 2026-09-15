@@ -113,9 +113,20 @@ export function lavaStandOff (at, feet) {
  * yaw' = pi - yaw, x += -forward*sin(yaw'), z += forward*cos(yaw')): x = -sin(yaw), z = -cos(yaw); yaw 0 walks -z
  * (north). The first version had +cos and checked the line BEHIND the bot for yaw 0 (Codex).
  */
-export function stepLineSafe (at, pos, ang, { dist = 7 } = {}) {
+export function stepLineSafe (at, pos, ang, { dist = 7, maxDrop = 3 } = {}) {
   const dx = -Math.sin(ang), dz = -Math.cos(ang)
   const a = { x: pos.x, y: Math.floor(pos.y), z: pos.z }, b = { x: pos.x + dx * dist, y: Math.floor(pos.y), z: pos.z + dz * dist }
   const r = corridorSafe(at, [a, b])
-  return r.safe ? { safe: true } : { safe: false, why: r.why.replace('lava_corridor', 'blind_step'), at: r.at }
+  if (!r.safe) return { safe: false, why: r.why.replace('lava_corridor', 'blind_step'), at: r.at }
+  // A BLIND STEP HAS NO PLANNER TO BOUND ITS DROP. The corridor rules leave plain drops to the pathfinder (which never
+  // plans more than four); a blind walk plans nothing, and explore's falls this morning were 33, 40, 44 and 58
+  // blocks. Along the line, every cell must have a floor (solid or water) within `maxDrop` below its feet level.
+  const n = Math.max(1, Math.ceil(dist / 0.5))
+  for (let k = 1; k <= n; k++) {
+    const t = k / n; const x = Math.floor(a.x + (b.x - a.x) * t), z = Math.floor(a.z + (b.z - a.z) * t)
+    let floor = false
+    for (let dy = 0; dy <= maxDrop; dy++) { const c = at(x, a.y - dy, z); if (c == null) break; if (solid(c) || isWater(c)) { floor = true; break } }
+    if (!floor) return { safe: false, why: `blind_step: drop deeper than ${maxDrop} ahead`, at: [x, a.y, z] }
+  }
+  return { safe: true }
 }
