@@ -23,6 +23,12 @@ t('corridor: water and plain drops are terrain -- a swim leg and a four-block dr
   const far = {}; for (let dy = 0; dy <= 3; dy++) far[`4,${63 - dy},5`] = AIR; far['4,59,5'] = null
   assert.equal(dropLavaSafe(world(far), 4, 64, 5).safe, true, 'unknown beyond 3 is out of the loaded world, not lava')
   assert.equal(corridorSafe(world(), [{ x: 0.5, y: 64, z: 5.5 }, { x: 8.5, y: 64, z: 5.5 }]).why, undefined)
+  const column = {}; for (let dy = 0; dy <= 5; dy++) column[`4,${63 - dy},5`] = WATER; column['4,57,5'] = MAGMA
+  const c = dropLavaSafe(world(column), 4, 64, 5); assert.equal(c.safe, false, 'a bubble column over magma is refused: water does not end the scan'); assert.deepEqual(c.cell, [4, 57, 5])
+  const landing = {}; for (let dy = 0; dy <= 3; dy++) landing[`4,${63 - dy},5`] = AIR; landing['5,60,5'] = LAVA
+  const l = dropLavaSafe(world(landing), 4, 64, 5); assert.equal(l.safe, false, 'lava beside the landing cell of a four-block drop is refused'); assert.match(l.why, /beside/)
+  const chasm = {}; for (let dy = 0; dy <= 14; dy++) chasm[`4,${63 - dy},5`] = AIR
+  assert.equal(dropLavaSafe(world(chasm), 4, 64, 5).safe, true, 'no landing within reach: not this guard\'s call')
 })
 t('corridor: a leg over a ledge with lava two below fails at the sample, a leg across solid ground passes', () => {
   const pit = {}; for (let x = 3; x <= 5; x++) { pit[`${x},63,5`] = AIR; pit[`${x},62,5`] = LAVA }

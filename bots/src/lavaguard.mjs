@@ -26,14 +26,16 @@ const isWater = b => /water|kelp|seagrass|bubble_column/.test(b?.name || '')
  * water ends the scan as safe; lava is unsafe; unknown within 3 is unsafe (cellLavaSafe already says so), unknown
  * deeper is out of the loaded world and not this guard's call; nothing found within reach is safe too.
  */
-export function dropLavaSafe (at, x, y, z, { reach = 8 } = {}) {
+export function dropLavaSafe (at, x, y, z, { reach = 12 } = {}) {
   for (let dy = 1; dy <= reach; dy++) {
     const b = at(x, y - dy, z)
     if (b == null) return dy <= 3 ? { safe: false, why: 'unknown below', cell: [x, y - dy, z] } : { safe: true }
     if (isLava(b)) return { safe: false, why: 'lava below', cell: [x, y - dy, z] }
-    if (solid(b) || isWater(b)) return { safe: true }
+    // Water does NOT end the scan: a bubble column over magma pulls the bot down onto it (placebo-b-Echo, 2026-09-14
+    // 21:18, the pre-restart -07 death). Only a solid landing does, and the landing itself must be lava-free beside.
+    if (solid(b)) return dy > 1 ? cellLavaSafe(at, x, y - dy + 1, z) : { safe: true }
   }
-  return { safe: true }
+  return { safe: true }   // no landing within reach: the pathfinder never plans a drop this deep; a chasm is not this guard's call
 }
 /**
  * Guard 1: the EXECUTED route. `nodes` are the pathfinder's path nodes ({x,y,z}, feet positions) from the bot to the
