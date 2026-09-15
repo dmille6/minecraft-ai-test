@@ -10,7 +10,7 @@ const rung = src.slice(src.indexOf('async function floodedPocketRung'), src.inde
 t('the rung runs the side exit once, in shallow water (feet in water, head not water), before a placement, and a failed exit ends the rung', () => {
   once(rung, "if (!sideExited && bot.entity.isInWater && WATERLIKE.test(feetB?.name || '') && !!headB && (headB.name === 'air' || headB.name === 'cave_air'))", 'rung')
   once(rung, 'const why = await sideExitStep(feetY)', 'rung')
-  once(rung, "return end(false, `side exit: ${why}${sub ? ' -- SUBMERGED (or head cell unknown): the air reflex owns the body now' : ''}`)", 'rung')
+  once(rung, "return end(false, `side exit: ${why}${sub ? ' -- SUBMERGED (or head cell unknown): the air reflex owns the body now' : ''} | trail ${trail.join(' > ')}`)", 'rung')
   assert.ok(rung.indexOf('const why = await sideExitStep(feetY)') < rung.indexOf('await bot.placeBlock(under, new Vec3(0, 1, 0))'), 'the exit is tried before the jump-place')
 })
 t('the step out swims up while pushing, releases both controls in finally, and checks abort on every poll', () => {
