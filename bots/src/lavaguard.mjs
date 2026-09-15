@@ -120,13 +120,23 @@ export function stepLineSafe (at, pos, ang, { dist = 7, maxDrop = 3 } = {}) {
   if (!r.safe) return { safe: false, why: r.why.replace('lava_corridor', 'blind_step'), at: r.at }
   // A BLIND STEP HAS NO PLANNER TO BOUND ITS DROP. The corridor rules leave plain drops to the pathfinder (which never
   // plans more than four); a blind walk plans nothing, and explore's falls this morning were 33, 40, 44 and 58
-  // blocks. Along the line, every cell must have a floor (solid or water) within `maxDrop` below its feet level.
-  const n = Math.max(1, Math.ceil(dist / 0.5))
+  // blocks. The feet FOLLOW THE FLOOR along the line (a slope down one block per cell is a walk, not a fall; Codex):
+  // at each cell the landing is the first solid or water cell going down from one above the feet; a solid landing
+  // more than `maxDrop` below the feet refuses; a water landing at any depth is terrain (water takes the fall).
+  const n = Math.max(1, Math.ceil(dist / 0.5)); let feetY = a.y
   for (let k = 1; k <= n; k++) {
     const t = k / n; const x = Math.floor(a.x + (b.x - a.x) * t), z = Math.floor(a.z + (b.z - a.z) * t)
-    let floor = false
-    for (let dy = 0; dy <= maxDrop; dy++) { const c = at(x, a.y - dy, z); if (c == null) break; if (solid(c) || isWater(c)) { floor = true; break } }
-    if (!floor) return { safe: false, why: `blind_step: drop deeper than ${maxDrop} ahead`, at: [x, a.y, z] }
+    let landed = null
+    for (let y = feetY + 1; y >= feetY - 12; y--) {
+      const c = at(x, y, z); if (c == null) break
+      if (isWater(c)) { landed = { water: true }; break }
+      if (solid(c)) { landed = { floorY: y }; break }
+    }
+    if (!landed) return { safe: false, why: `blind_step: no floor within 12 ahead`, at: [x, feetY, z] }
+    if (landed.water) return { safe: true }   // the rest of the line is beyond the water: the walk ends there or swims
+    const fall = feetY - (landed.floorY + 1)
+    if (fall > maxDrop) return { safe: false, why: `blind_step: drop of ${fall} ahead (limit ${maxDrop})`, at: [x, feetY, z] }
+    feetY = landed.floorY + 1
   }
   return { safe: true }
 }

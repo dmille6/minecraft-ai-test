@@ -69,15 +69,19 @@ t('blind step: the seven-block line along the heading is judged like a route, wi
   assert.equal(stepLineSafe(world({ '5,64,9': LAVA }), { x: 5.5, y: 64, z: 5.5 }, Math.PI).safe, false, 'south: lava at z=9 is on the line')
   assert.equal(stepLineSafe(world({ '1,64,5': LAVA }), { x: 5.5, y: 64, z: 5.5 }, Math.PI / 2).safe, false, 'west: lava at x=1 is on the line')
 })
-t('blind step: a drop deeper than three along the line refuses (explore\'s falls were 33-58 blocks); a three-block step down passes, and water below counts as a floor', () => {
-  const cliff = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 6; dy++) cliff[`${x},${63 - dy},5`] = AIR
-  const r = stepLineSafe(world(cliff), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2)
-  assert.equal(r.safe, false); assert.match(r.why, /drop deeper than 3/); assert.ok(r.at[0] >= 8, `named the cliff cell: ${r.at}`)
-  const step = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 1; dy++) step[`${x},${63 - dy},5`] = AIR   // floor at 61: three below the feet
-  assert.equal(stepLineSafe(world(step), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a three-block drop is walkable')
-  const four = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 2; dy++) four[`${x},${63 - dy},5`] = AIR   // floor at 60: four below
-  assert.match(stepLineSafe(world(four), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).why, /drop deeper than 3/, 'four is refused')
-  const pond = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 6; dy++) pond[`${x},${63 - dy},5`] = WATER
-  assert.equal(stepLineSafe(world(pond), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a deep pond is terrain, not a fall')
+t('blind step: the feet follow the floor -- a slope down passes, a three-block drop passes, a four-block drop refuses, a cliff refuses, water at any depth is a landing', () => {
+  const at = (over) => (x, y, z) => (over[`${x},${y},${z}`] !== undefined ? over[`${x},${y},${z}`] : y <= 63 ? STONE : AIR)
+  const slope = {}; for (let x = 6; x <= 12; x++) for (let y = 63; y > 63 - (x - 5); y--) slope[`${x},${y},5`] = AIR   // one block down per cell eastward
+  assert.equal(stepLineSafe(at(slope), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a staircase down is a walk')
+  const drop3 = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 2; dy++) drop3[`${x},${63 - dy},5`] = AIR   // floor at 60: feet 64 -> 61, a fall of 3
+  assert.equal(stepLineSafe(at(drop3), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a three-block fall is allowed')
+  const drop4 = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 3; dy++) drop4[`${x},${63 - dy},5`] = AIR   // floor at 59: a fall of 4
+  const r4 = stepLineSafe(at(drop4), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2); assert.equal(r4.safe, false); assert.match(r4.why, /drop of 4 ahead/)
+  const cliff = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 13; dy++) cliff[`${x},${63 - dy},5`] = AIR
+  const rc = stepLineSafe(at(cliff), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2); assert.equal(rc.safe, false); assert.match(rc.why, /no floor within 12/); assert.ok(rc.at[0] >= 8, `named the cliff cell: ${rc.at}`)
+  const pond = {}; for (let x = 8; x <= 12; x++) { for (let dy = 0; dy <= 5; dy++) pond[`${x},${63 - dy},5`] = AIR; for (let dy = 6; dy <= 8; dy++) pond[`${x},${63 - dy},5`] = WATER }
+  assert.equal(stepLineSafe(at(pond), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a six-block fall into water is a landing')
+  const lavaAfterSlope = { ...slope, '12,57,5': LAVA }
+  assert.equal(stepLineSafe(at(lavaAfterSlope), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, false, 'the corridor rules still apply along the line (lava beside the slope refuses)')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
