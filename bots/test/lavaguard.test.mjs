@@ -27,6 +27,8 @@ t('corridor: water and plain drops are terrain -- a swim leg and a four-block dr
   const c = dropLavaSafe(world(column), 4, 64, 5); assert.equal(c.safe, false, 'a bubble column over magma is refused: water does not end the scan'); assert.deepEqual(c.cell, [4, 57, 5])
   const landing = {}; for (let dy = 0; dy <= 3; dy++) landing[`4,${63 - dy},5`] = AIR; landing['5,60,5'] = LAVA
   const l = dropLavaSafe(world(landing), 4, 64, 5); assert.equal(l.safe, false, 'lava beside the landing cell of a four-block drop is refused'); assert.match(l.why, /beside/)
+  const side = {}; for (let dy = 0; dy <= 3; dy++) side[`4,${63 - dy},5`] = AIR; side['4,61,6'] = LAVA
+  const sd = dropLavaSafe(world(side), 4, 64, 5); assert.equal(sd.safe, false, 'lava beside an intermediate fall cell is refused'); assert.deepEqual(sd.cell, [4, 61, 6])
   const chasm = {}; for (let dy = 0; dy <= 14; dy++) chasm[`4,${63 - dy},5`] = AIR
   assert.equal(dropLavaSafe(world(chasm), 4, 64, 5).safe, true, 'no landing within reach: not this guard\'s call')
 })

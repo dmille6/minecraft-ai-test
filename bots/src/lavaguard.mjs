@@ -31,6 +31,8 @@ export function dropLavaSafe (at, x, y, z, { reach = 12 } = {}) {
     const b = at(x, y - dy, z)
     if (b == null) return dy <= 3 ? { safe: false, why: 'unknown below', cell: [x, y - dy, z] } : { safe: true }
     if (isLava(b)) return { safe: false, why: 'lava below', cell: [x, y - dy, z] }
+    // The falling body is 0.6 wide: lava BESIDE a cell it passes through burns it too (Codex pass 2). Four cardinals per depth.
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const s = at(x + dx, y - dy, z + dz); if (isLava(s)) return { safe: false, why: 'lava beside the drop', cell: [x + dx, y - dy, z + dz] } }
     // Water does NOT end the scan: a bubble column over magma pulls the bot down onto it (placebo-b-Echo, 2026-09-14
     // 21:18, the pre-restart -07 death). Only a solid landing does, and the landing itself must be lava-free beside.
     if (solid(b)) return dy > 1 ? cellLavaSafe(at, x, y - dy + 1, z) : { safe: true }
