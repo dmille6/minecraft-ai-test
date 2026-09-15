@@ -20,6 +20,14 @@ t('the same pocket bare-handed is refused before anything moves', () => {
   const r = pocketPlanFor(botWith([{ name: 'cobblestone', count: 20, type: 2 }]), { blockAt: world })
   assert.equal(r.plan.ok, false); assert.match(r.plan.why, /no pickaxe/)
 })
+t('inflow: water BESIDE a ceiling cell is the pocket case and passes; liquid ABOVE it or lava beside it refuses', () => {
+  const over = (o) => (x, y, z) => (o[`${x},${y},${z}`] !== undefined ? o[`${x},${y},${z}`] : world(x, y, z))
+  const inv = [{ name: 'wooden_pickaxe', count: 1, type: 1 }, { name: 'cobblestone', count: 20, type: 2 }]
+  const beside = pocketPlanFor(botWith(inv), { blockAt: over({ '11,50,10': { name: 'water', boundingBox: 'empty' } }) })
+  assert.equal(beside.plan.ok, true, `water beside y=50: ${beside.plan.why}`)
+  const lava = pocketPlanFor(botWith(inv), { blockAt: over({ '11,50,10': { name: 'lava', boundingBox: 'empty' } }) })
+  assert.match(lava.plan.why ?? '', /liquid in/, 'lava beside y=50 refuses')
+})
 t('too few blocks is refused by count', () => {
   const r = pocketPlanFor(botWith([{ name: 'wooden_pickaxe', count: 1, type: 1 }, { name: 'cobblestone', count: 3, type: 2 }]), { blockAt: world })
   assert.match(r.plan.why, /need 13 placeable/)   // need + 4 since step 4b (two side fills, a seal, a spare)

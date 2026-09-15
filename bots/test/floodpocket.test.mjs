@@ -55,6 +55,7 @@ t('4b: refuses without headroom, with a floor deeper than two, with lava in the 
   assert.match(sideExit(pocket({ '1,47,0': LAVA }), 0, 0, 48).why, /lava/)
   assert.match(sideExit(pocket({ '1,47,0': STONE, '1,48,0': { name: 'torch', boundingBox: 'empty' }, '-1,46,0': STONE, '-1,47,0': { name: 'oak_sign', boundingBox: 'empty' }, '0,47,1': { name: 'tall_seagrass', boundingBox: 'empty' }, '0,46,-1': { name: 'sea_pickle', boundingBox: 'empty' } }), 0, 0, 48).why, /not fillable/, 'a torch or a sign in the fill column is not assumed replaceable; seagrass is water-like and is')
   assert.match(sideExit(pocket({ '1,47,0': null, '-1,47,0': null, '0,47,1': null, '0,47,-1': null }), 0, 0, 48).why, /unknown/)
-  const already = sideExit(pocket({ '1,48,0': STONE, '-1,46,0': STONE }), 0, 0, 48); assert.deepEqual(already.n, [-1, 0], 'east is solid at feet level (a wall): west with two fills')
+  const ledge = sideExit(pocket({ '1,48,0': STONE, '-1,46,0': STONE }), 0, 0, 48); assert.deepEqual(ledge, { n: [1, 0], fill: [], seal: [0, 48, 0] }, 'east is solid at feet level with headroom: a ready ledge, zero fills, beats the two-fill west')
+  assert.match(sideExit(pocket({ '1,48,0': STONE, '1,49,0': STONE, '-1,48,0': STONE, '-1,49,0': STONE, '0,48,1': STONE, '0,49,1': STONE, '0,48,-1': STONE, '0,49,-1': STONE }), 0, 0, 48).why, /no headroom/, 'a 1x1 shaft with walls all the way up has no ledge')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

@@ -66,8 +66,8 @@ export function pocketDone ({ before, after, headBreathable = false, feetSupport
  * one-block ledge is thrown onto it (prismarine-physics outOfLiquidImpulse). Choose the cardinal side cell N to make
  * that ledge in: `at(x, y, z)` -> block or null.
  *   - headroom: (N, feetY+1) and (N, feetY+2) passable (not solid) and not liquid
- *   - fillable: (N, feetY) is water or air; below it a solid block within `maxFill` cells (the cells between are
- *     water/air and are filled bottom-up); nothing lava-like anywhere in that column
+ *   - a ledge: (N, feetY) solid already (zero fills), or water/air with a solid block within `maxFill` cells below
+ *     (the cells between are air/water-like and are filled bottom-up); nothing lava-like anywhere in that column
  * Returns { n: [dx, dz], fill: [y, ...] (ascending, the last is feetY), seal: [fx, feetY, fz] } or { why }.
  * Prefers the side with the fewest fills; ties in the order east, west, south, north.
  */
@@ -86,7 +86,7 @@ export function sideExit (at, fx, fz, feetY, { maxFill = 2 } = {}) {
     for (let y = feetY; y >= feetY - maxFill; y--) {
       const b = at(nx, y, nz)
       if (b == null || lavaish(b)) { whys.push(`${dx},${dz}: ${b == null ? 'unknown' : b.name} at y=${y}`); break }
-      if (solid(b)) { ok = fill.length > 0; if (!ok) whys.push(`${dx},${dz}: already solid at feet level`); break }
+      if (solid(b)) { ok = true; break }   // a solid cell at feet level with headroom above is a READY ledge: zero fills (the Delta shaft's top, 2026-09-15)
       if (!fillable(b)) { whys.push(`${dx},${dz}: ${b.name} at y=${y} is not fillable`); break }
       fill.unshift(y)
     }

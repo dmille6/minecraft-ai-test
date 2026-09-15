@@ -4652,7 +4652,13 @@ export function pocketPlanFor (bot, { blockAt = null } = {}) {
     for (let y = floorY + 1; y <= firstDryY + 1; y++) {
       const b = B(fx, y, fz); const isSolid = solid(b)
       const digMs = isSolid ? (predictedDigMs(b, tool, { inWater: true, notOnGround: false }) ?? Infinity) : 0
-      const inflowRisk = isSolid && [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]].some(([dx, dz]) => { const n = B(fx + dx, y + (dx === 0 && dz === 0 ? 1 : 0), fz + dz); return liquid(n) && !(dx === 0 && dz === 0 && y <= feetY) })
+      // INFLOW: liquid ABOVE the cell pours down the column and onto the bot -- refuse; lava-like beside it flows in
+      // and burns -- refuse; WATER beside it at the cell's own level is the flooded pocket's normal case (the Delta
+      // fixture has water west and north of the shaft at three of its five ceiling cells, 2026-09-15): the dug cell
+      // fills to the surface and the next dig is priced submerged, which the plan already does. The first rule
+      // refused every tooled Delta run before a block was placed.
+      const lavaish = b => !!b && /lava|magma|fire/.test(b.name || '')
+      const inflowRisk = isSolid && ((liquid(B(fx, y + 1, fz)) && y > feetY) || [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => lavaish(B(fx + dx, y, fz + dz))))
       columnCells.push({ y, solid: isSolid, digMs, inflowRisk })
     }
   }
