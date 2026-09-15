@@ -4773,7 +4773,16 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
       try { await digBounded(bot, ceil, Math.min(30_000, (cell?.digMs ?? 8_000) * 2)) } catch (e) { return end(false, `ceiling dig failed at y=${feetY + 2}: ${String(e?.message ?? e).slice(0, 50)}`) }
       if (B(fx, feetY + 2, fz)?.boundingBox === 'block') return end(false, `ceiling y=${feetY + 2} did not open`)
     }
-    const under = B(fx, feetY - 1, fz); if (!under || under.boundingBox !== 'block') return end(false, `no reference block under the feet at y=${feetY - 1}`)
+    const under = B(fx, feetY - 1, fz)
+    if (!under || under.boundingBox !== 'block') {
+      // Not over the column any more. Delta runs 08:35/08:40: the pillar's held jump pressed the bot against the
+      // shaft's top wall and the out-of-liquid impulse threw it onto the opening's ledge, dry at y=63 -- and the rung
+      // then reported failure. Judge the finish first; only a bot that is neither out nor over its column has failed.
+      const q = bot.entity.position; const qx = Math.floor(q.x), qz = Math.floor(q.z); const hq = B(qx, Math.floor(q.y) + 1, qz); const fq = B(qx, Math.floor(q.y), qz)
+      const outNow = pocketDone({ before, after: { x: q.x, y: q.y, z: q.z, wet: !!bot.entity.isInWater || WATERLIKE.test(fq?.name || '') }, headBreathable: !!hq && (hq.name === 'air' || hq.name === 'cave_air'), feetSupported: !!bot.entity.onGround })
+      if (outNow) return end(true, `out early: the impulse carried the bot off the column onto dry ground at ${qx},${Math.floor(q.y)},${qz}`)
+      return end(false, `no reference block under the feet at y=${feetY - 1} and not out (at ${q.x.toFixed(1)},${q.y.toFixed(1)},${q.z.toFixed(1)})`)
+    }
     const feetB = B(fx, feetY, fz), headB = B(fx, feetY + 1, fz)
     // STABLE headroom: the head cell and the cell above it, and every lateral neighbour of both, are known and not
     // water-like. Delta run 08:28: the loop had just dug y=60, water beside it poured down and refilled the shaft to
