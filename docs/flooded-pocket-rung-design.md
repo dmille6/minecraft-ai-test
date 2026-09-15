@@ -49,3 +49,47 @@ tools, an air cell it breathes from).
 - **Cancellation inside placement:** a generation counter cannot stop a `placeBlock` whose look already completed;
   the rung wraps placement so the cancellation check runs immediately before the packet is sent, and after any
   abort it re-reads the target cell to reconcile a placement that went out anyway.
+
+## Step 4b — the shallow-water exit (design v1, 15 Sep 2026 07:20 UTC; for two Codex passes before building)
+
+**The physics that makes it possible.** prismarine-physics (index.js, the liquid branch): when an entity in water is
+collided horizontally and the position 0.6 higher is free, `vel.y = outOfLiquidImpulse` (0.3) — the vanilla "climb out
+of water onto a ledge" rule. A bot in shallow water pushing against a one-block ledge climbs onto it. That is the
+move the jump-and-place cannot make (a jump from water is +0.18 and the hitbox never leaves the target cell).
+
+**Where it applies.** The pillar has raised the bot to shallow water: feet cell water, head cell air (the pocket's
+surface). Every placement from here fails to gain height (pocket corpus runs 5–8). Today's only fleet canary death
+(hive-a-Alpha, 06:02 UTC) was this class: sealed pocket, rescue "no route up or out", four ceilings expired.
+
+**The move, three placements and two steps, in the SAME column plan:**
+1. Choose a side cell N = (fx+dx, feetY, fz+dz) among the four cardinals such that: (N, feetY+1) and (N, feetY+2)
+   are passable (headroom to stand at feetY+1); (N, feetY) is water or air (fillable); a solid block exists at
+   (N, feetY-1) or (N, feetY-2) (at most two fill blocks). Pure: `sideExit(at, fx, fz, feetY)` → `{ n: [dx, dz],
+   fill: [y...], seal: [fx, feetY, fz] }` or `{ why }`. Prefer the side with the fewest fill blocks; refuse when none.
+2. Fill N bottom-up: for each y in `fill`, `placeBlock(at(N, y-1), up)`; verify the cell turned solid. The top fill is
+   (N, feetY): a ledge whose top is one block above the bot's feet.
+3. Step out: look at N, `forward` until the feet are ≥ feetY+0.9 and on ground (the impulse), ≤ 3 s; verify standing
+   dry at (N, feetY+1). If not dry after 3 s: retract (stop) and count an abort (3 aborts end the rung as today).
+4. Seal the bot's own column: from N, `placeBlock(at(fx, feetY-1, fz), up)` into the water cell (fx, feetY, fz);
+   verify solid. (Water is replaceable; the reference is the column's own top block.)
+5. Step back onto (fx, feetY+1, fz): look, `forward` ≤ 2 s; verify on ground, feet not in water. The pillar loop
+   continues from DRY ground in the original column, so `firstDryY` and `columnCells` (the ceiling plan) stay valid.
+
+**Budget.** `pocketPlan` reserves `need + 4` blocks (was +2): up to two fills, one seal, one spare. Time: +3 placements
+(PLACE_MS each) + 5 s of steps, inside the existing wall clock. Oxygen is not consumed (head in air throughout).
+
+**Refusals name a remedy the bot can perform.** No side cell with headroom and a floor within two → the rung ends
+"shallow water, no ledge to step out on" and the air reflex's hold keeps the head in air (the survival half is kept).
+
+**Detection and trigger.** Inside the rung, before each placement: if `bot.entity.isInWater` and the head cell is not
+water → run 4b once (flag `sideExited`); if 4b succeeds the loop continues; if it fails, the rung ends as above.
+
+**Tests.** `sideExit` pure: chooses the cardinal with the shallowest floor; refuses without headroom; refuses a floor
+deeper than two; never picks a cell whose column below contains lava. Wiring: a source test that the rung calls
+`sideExit` before a placement in shallow water, with a mutant. Sandbox: the Delta fixture's outcome line (rise ≥ 4,
+dry) must turn green on the candidate; the Bravo fixture (no tools) must stay a clean refusal.
+
+**Questions for the reviewer.** (1) Does `placeBlock` against the top face of a block whose target cell is water
+succeed from beside, on Paper 1.21 (the block-update ack path the rung already verifies)? (2) Is the 0.6-clearance
+check satisfied when the ledge's top is exactly feetY+1 and the bot's feet are at feetY + ~0.4 in water? (3) Should
+the seal (step 4) be skipped and the pillar simply continue in N's column when N's ceiling is also part of the plan?
