@@ -13,7 +13,24 @@ CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}   # one pool or a c
 now = dt.datetime.now(dt.timezone.utc); elapsed = (now - CUT).total_seconds() / 60
 PRE = 180; W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180) if elapsed > 0 else 0
 if not CAN: CAN = '__none__'; CUT = now; W = 0
-ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=int(max(elapsed, 0) + PRE) + 80)   # +60 for the trailing window
+
+# ROTATION-AWARE LOAD (2026-09-15 00:00 UTC: logrotate copytruncated the live files at midnight and the -07 reads lost
+# their pre-period). The live files plus the rotated .gz generations whose date tag falls inside the window -- one
+# narrow glob per date so the loader's size cap is judged per generation, never over 14 days of history.
+def load_window(since_minutes):
+    import glob as _g, datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc); start = now - _dt.timedelta(minutes=since_minutes)
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=since_minutes)
+    d = start.date()
+    while d <= now.date():
+        tag = (d + _dt.timedelta(days=1)).strftime('%Y%m%d')   # the rows of day d rotate into skill-<bot>.jsonl-<d+1>.gz
+        if _g.glob(f'/var/log/mcai/*/skill-*.jsonl-{tag}.gz'):
+            ev.rows.extend(Events.load(paths=f'/var/log/mcai/*/skill-*.jsonl-{tag}.gz', since_minutes=since_minutes).rows)
+        d += _dt.timedelta(days=1)
+    ev.rows.sort(key=lambda r: r.get('@timestamp', ''))
+    return ev
+
+ev = load_window(int(max(elapsed, 0) + PRE) + 80)   # +60 for the trailing window
 by = defaultdict(list)
 for r in ev.rows:
     b = r['bot'].get('name', '')
@@ -55,7 +72,7 @@ for b, rs in by.items():
         if n == 'gather': gath[k] += 1
         if n == 'explore': expl[k] += 1
         if n == '_death': deaths[k] += 1
-        if n == '_recovery_exhausted' and k[0] == 'canary': exh.append((r['t'].strftime('%H:%M'), b, det[:120], r['t']))
+        if n == '_recovery_exhausted' and k[0] == 'canary' and era == 'post': exh.append((r['t'].strftime('%H:%M'), b, det[:120], r['t']))   # POST only (a pre-cutoff row inflated -06's +90 read)
 if os.environ.get('POOLS'):
     print("per-pool exposure, pre window (draw rule: >= 8 livelock_escape OR >= 20 entombed+marooned, AND >= 1 bot immobile >= 30 min):")
     for p in sorted({pool[b] for b in pool}):
@@ -116,23 +133,52 @@ def still_immobile(b, t):
     gained = (max(iv) - iv[0]) if len(iv) >= 2 else 0
     return far < 6 and gained <= 0
 exh_still = [e for e in exh if still_immobile(e[1], e[3])]
-print(f"GUARDS (v6): gather/bh {rdid('g'):+.0%}  explore/bh {rdid('e'):+.0%} (each within 30%);  climb firings/bh {rdid('cl'):+.0%} (<= +100%);  livelock rows/bh {rdid('llbh'):+.0%} (<= +100%);  blocks spent per ladder p90 {p90} (<= 32) over {len(spent)} ladders;  recovery_exhausted {len(exh_still)} still-immobile-after-30-min of {len(exh)} rows (v10: <= trapped-at-deploy + 1)")
+# ---- v15b MOVEMENT GUARDS (guardcal.py 2026-09-15, 200 pseudo-canaries): blocks moved/bh (-30%: 1% false trips),
+# working share = minutes carrying a skill row that is not status/underscore (-20%: ~0%), immobile share DiD > +10 pp
+# AND >= 2 distinct newly-immobile canary bots, items gathered/bh on gathering rows only (-50%: 4%). The v6 call counts
+# (gather/bh, explore/bh) reverted -08c and -08d while the bots gathered and deposited more: they are REPORT lines now.
+mv = Counter(); wk = Counter(); itg = Counter(); GATHERISH = ('gather', 'mine', 'collect', 'harvest')
+for b in pool:
+    arm = 'canary' if pool[b] in CANS else 'control'; last = {}; wmin = {'pre': set(), 'post': set()}
+    for r in by[b]:
+        d = (r['t'] - CUT).total_seconds() / 60
+        if d < -PRE or d > W: continue
+        era = 'post' if d >= 0 else 'pre'; k = (arm, era); n = str(r['name']); q = r['bot'].get('pos')
+        if q and q.get('x') is not None:
+            if era in last: mv[k] += min(20, ((q['x'] - last[era]['x']) ** 2 + (q['z'] - last[era]['z']) ** 2) ** 0.5)
+            last[era] = q
+        if not n.startswith('_') and n != 'status': wmin[era].add(int(d // 1))
+        if n in GATHERISH: itg[k] += sum(v for v in ((r['raw'].get('skill') or {}).get('inventory_delta') or {}).values() if v > 0)
+    for era in ('pre', 'post'): wk[(arm, era)] += len(wmin[era])
+for k in list(R):
+    h = mins[k] / 60; R[k]['mv'] = mv[k] / h if h else float('nan'); R[k]['wk'] = wk[k] / mins[k] if mins[k] else float('nan'); R[k]['it'] = itg[k] / h if h else float('nan')
+newly = set().union(*(pimmbots[(p, 'post')] - pimmbots[(p, 'pre')] for p in CANS)) if CANS else set()
+imm_pp = ((ki - ci) - (kc - cc)) * 100
+v15 = [('blocks moved/bh', rdid('mv'), -0.30), ('working share', rdid('wk'), -0.20), ('items gathered/bh', rdid('it'), -0.50)]
+breach = [nm for nm, v, lim in v15 if v == v and v < lim] + (['immobile'] if imm_pp > 10 and len(newly) >= 2 else [])
+print(f"GUARDS (v15b): blocks moved/bh {rdid('mv'):+.0%} (>= -30%);  working share {rdid('wk'):+.0%} (>= -20%);  immobile {imm_pp:+.1f} pp DiD with {len(newly)} newly-immobile canary bot(s) (trips at > +10 pp AND >= 2);  items gathered/bh {rdid('it'):+.0%} (>= -50%)  ->  {'BREACH: ' + ', '.join(breach) if breach else 'all within'};  REPORT: gather calls {rdid('g'):+.0%}, explore calls {rdid('e'):+.0%}")
+print(f"GUARDS (v6): gather/bh {rdid('g'):+.0%}  explore/bh {rdid('e'):+.0%} (each within 30%);  climb firings/bh {rdid('cl'):+.0%} (<= +100%);  livelock rows/bh {rdid('llbh'):+.0%} (<= +100%);  blocks spent per ladder p90 {p90} (<= 32) over {len(spent)} ladders;  recovery_exhausted {len({e[1] for e in exh_still})} distinct bots still stuck 30 min after ({len(exh_still)} of {len(exh)} rows) (v10 guard 6: distinct bots <= trapped-at-deploy + 1)")
 print(f"READABILITY: canary post livelock rows {ll[('canary', 'post')]} (>= 8) or climb firings {climbs[('canary', 'post')]} (>= 20); bot-h {mins[('canary', 'post')] / 60:.1f} (>= 15)")
 cd = deaths[('canary', 'post')] / (mins[('canary', 'post')] / 60) if mins[('canary', 'post')] else float('nan'); kd = deaths[('control', 'post')] / (mins[('control', 'post')] / 60) if mins[('control', 'post')] else float('nan')
 # RULE v9 (2026-09-13): a MECHANISM-LINKED canary death reverts at once; every death is reported with its mechanism.
 # RULE v10 (prospective, 2026-09-13 21:20 UTC): linkage means a rung that MOVED the body in the 600 s before the death.
 # Refusals (maroon_climb_refused, maroon_dig_refused, marooned_needs_pickaxe, maroon_pillar_declined) and terminal states
 # (maroon_climb_exhausted, recovery_exhausted) move nothing and are reported, not linked. -03 was reverted on a refusal row.
-MECH = set(['entombed', 'marooned', 'maroon_wall', 'entombed_ramp_cut', 'marooned_ramp_cut', 'livelock_escape', 'pillar_no_gain', 'danger_block', 'stuck', 'unstick_oscillation'])
+MECH = set(['entombed', 'marooned', 'maroon_wall', 'entombed_ramp_cut', 'marooned_ramp_cut', 'livelock_escape', 'pillar_no_gain', 'stuck', 'unstick_oscillation'])   # v12: danger_block is the RESPONSE to lava, never a link
 
 for b, rs in by.items():
     if b.rsplit('-', 1)[0] not in CANS: continue
     for r in rs:
         if str(r['name']) == '_death' and r['t'] >= CUT:
-            prior = [str(q['name']).lstrip('_') for q in rs if r['t'] - dt.timedelta(seconds=600) <= q['t'] < r['t']]
-            linked = sorted(set(prior) & MECH)
-            print(f"  CANARY DEATH {b} {r['t'].strftime('%H:%M:%S')} mechanism-linked={'YES -> REVERT' if linked else 'no'} rows-in-600s={linked or 'none'} :: {(r.get('detail') or '')[:90]}")
-print(f"HARM: canary deaths {deaths[('canary', 'post')]} ({cd:.3f}/bh) vs control {kd:.3f}/bh -> {'REVERT' if deaths[('canary', 'post')] >= 2 and cd > 1.25 * kd else 'PASS (two-death floor)'}")
+            # RULE v11: a rung within 60 s before the death AND no skill row (non-underscore kind) between it and the death.
+            win = [q for q in rs if r['t'] - dt.timedelta(seconds=60) <= q['t'] < r['t']]
+            linked = []
+            for q in win:
+                k = str(q['name'])
+                if k.lstrip('_') in MECH and not any(not str(z['name']).startswith('_') for z in win if q['t'] < z['t'] < r['t']): linked.append(k.lstrip('_'))
+            linked = sorted(set(linked))
+            print(f"  CANARY DEATH {b} {r['t'].strftime('%H:%M:%S')} mechanism-linked={'YES -> REVERT' if linked else 'no'} rung-in-60s-and-no-skill-since={linked or 'none'} :: {(r.get('detail') or '')[:90]}")
+print(f"HARM (v11: deaths are reported; only a rung-linked death reverts): canary deaths {deaths[('canary','post')]} ({deaths[('canary','post')]/max(0.01,mins[('canary','post')]/60):.3f}/bh) vs control {deaths[('control','post')]/max(0.01,mins[('control','post')]/60):.3f}/bh")
 print("recovery_exhausted (canary post):", exh if exh else 'none')
 pl = {}
 for p in sorted({pool[b] for b in pool}):
