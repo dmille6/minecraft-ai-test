@@ -74,11 +74,13 @@ export function pocketDone ({ before, after, headBreathable = false, feetSupport
  */
 export function sideExit (at, fx, fz, feetY, { maxFill = 2 } = {}) {
   const solid = b => !!b && b.boundingBox === 'block'
-  const liquid = b => !!b && /water|lava|kelp|seagrass|bubble_column/.test(b.name || '')
+  const waterlogged = b => { try { const p = typeof b?.getProperties === 'function' ? b.getProperties() : (b?._properties ?? b?.properties); return p?.waterlogged === true || p?.waterlogged === 'true' } catch { return false } }
+  const liquid = b => !!b && (/water|lava|kelp|seagrass|bubble_column/.test(b.name || '') || waterlogged(b))   // a waterlogged block is water too (Codex, notch pass)
   const lavaish = b => !!b && /lava|magma|fire/.test(b.name || '')
   const passable = b => !!b && !solid(b) && !liquid(b)
   const fillable = b => !!b && (b.name === 'air' || b.name === 'cave_air' || /water|kelp|seagrass|bubble_column/.test(b.name || ''))   // replaceable by a placed block; anything else (a torch, a sign, a plant) is not assumed to be
-  const diggable = b => solid(b) && !/bedrock|obsidian|barrier|spawner|chest|furnace/.test(b.name || '')
+  const falling = b => !!b && /sand|gravel|concrete_powder|anvil|dripstone/.test(b.name || '')
+  const diggable = b => solid(b) && !liquid(b) && !falling(b) && !/bedrock|obsidian|barrier|spawner|chest|furnace/.test(b.name || '')   // a notch cut in sand or gravel collapses; a waterlogged wall is water
   let best = null; const whys = []
   const cost = o => o.digs.length ? 10 + o.digs.length : o.fill.length   // ledge 0 < fills 1..2 < notch (digs spend the pickaxe)
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -92,6 +94,7 @@ export function sideExit (at, fx, fz, feetY, { maxFill = 2 } = {}) {
         const around = [[nx + dx, nz + dz], [nx + dz, nz + dx], [nx - dz, nz - dx]]   // beyond the notch and its two flanks (never the shaft cell)
         const wet = [feetY + 1, feetY + 2].some(y => around.some(([ax, az]) => { const b = at(ax, y, az); return b == null || liquid(b) })) || (() => { const b = at(nx, feetY + 3, nz); return b == null || liquid(b) })()
         if (wet) { whys.push(`${dx},${dz}: a notch there would open to liquid or unknown`); continue }
+        if (falling(at(nx, feetY + 3, nz))) { whys.push(`${dx},${dz}: ${at(nx, feetY + 3, nz).name} above the notch would fall into it`); continue }
         const o = { n: [dx, dz], fill: [], digs: [feetY + 1, feetY + 2], seal: [fx, feetY, fz] }
         if (!best || cost(o) < cost(best)) best = o
         continue

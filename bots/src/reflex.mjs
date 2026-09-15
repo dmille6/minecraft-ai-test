@@ -4722,8 +4722,9 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
       try { await bot.equip(tool, 'hand') } catch {}
       const a4 = abortIfNeeded(); if (a4) return `abort after equipping for the notch: ${a4}`
       try { await digBounded(bot, cell, 30_000) } catch (e) { return `notch dig failed at ${nx},${y},${nz}: ${String(e?.message ?? e).slice(0, 50)}` }
-      if (B(nx, y, nz)?.boundingBox === 'block') return `notch cell ${nx},${y},${nz} did not open`
+      const after = B(nx, y, nz); if (!after || after.boundingBox === 'block' || WATERLIKE.test(after.name || '')) return `notch cell ${nx},${y},${nz} is ${after?.name ?? 'unknown'} after the dig, not dry air`
     }
+    if (ex.digs?.length) { for (const y of ex.digs) { const c = B(nx, y, nz); if (!c || c.boundingBox === 'block' || WATERLIKE.test(c.name || '')) return `notch cell ${nx},${y},${nz} is ${c?.name ?? 'unknown'} before the step out` } }   // revalidated together before any movement (Codex)
     try { await bot.lookAt(new Vec3(nx + 0.5, feetY + 1.6, nz + 0.5), true) } catch {}
     const a3 = abortIfNeeded(); if (a3) return `abort before the step out: ${a3}`
     bot.setControlState('forward', true); bot.setControlState('jump', true)   // swim up while pushing: the impulse needs upward velocity
@@ -4735,9 +4736,13 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     const a2 = abortIfNeeded(); if (a2) return `abort before the seal: ${a2}`
     if (!clearOf(fx, fz)) return 'the body overlaps the column cell before the seal'
     const e2 = await placeOnto(fx, feetY - 1, fz); if (e2) return `seal: ${e2}`
-    const c2 = await centerOn(fx, fz, 2_000); if (c2) return `returning over the column: ${c2}`
-    const q = bot.entity.position; const h = B(fx, Math.floor(q.y) + 1, fz)
-    if (!(bot.entity.onGround && Math.floor(q.y) === feetY + 1 && !bot.entity.isInWater && (!h || h.name === 'air' || h.name === 'cave_air'))) return `back over the column but not dry, standing and breathing (y ${q.y.toFixed(2)}, onGround ${bot.entity.onGround}, inWater ${bot.entity.isInWater})`
+    let c2 = await centerOn(fx, fz, 2_000); if (c2 && !/abort|preempt|air|budget/.test(c2)) c2 = await centerOn(fx, fz, 2_000)   // one retry: the first Delta run stood still on the ledge for 2 s (08:04)
+    if (c2) return `returning over the column: ${c2}`
+    for (let i = 0; i < 6; i++) { const a = abortIfNeeded(); if (a) return `abort after returning: ${a}`; await sleep(50) }   // let physics settle before judging wet/dry
+    const q = bot.entity.position; const fy = Math.floor(q.y); const feet = B(fx, fy, fz), h = B(fx, fy + 1, fz), sealB = B(fx, feetY, fz)
+    // dry is judged by the CELLS (the sealed cell below solid, the feet cell not water-like, the head cell air): bot.entity.isInWater lagged a tick on the second Delta run (08:09) with the feet on a dry sealed block
+    const dry = !!sealB && sealB.boundingBox === 'block' && !!feet && !WATERLIKE.test(feet.name || '') && !!h && (h.name === 'air' || h.name === 'cave_air')
+    if (!(bot.entity.onGround && fy === feetY + 1 && dry)) return `back over the column but not dry, standing and breathing (y ${q.y.toFixed(2)}, onGround ${bot.entity.onGround}, inWater ${bot.entity.isInWater}, seal ${sealB?.name ?? '?'}, feet ${feet?.name ?? '?'}, head ${h?.name ?? '?'})`
     return null
   }
   // 4/5. pillar: dig the cell two above the feet if solid, then jump-place a block under the feet; verify each step
