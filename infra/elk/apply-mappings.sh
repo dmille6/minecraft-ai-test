@@ -7,6 +7,9 @@
 # (ADR-0001 D4) -- so rebuilding it must be cheap, and that means the mappings
 # have to live somewhere re-appliable.
 #
+# bot.tools (iron retention, 16 Sep 2026) and llm.args_cleaned were the next two: 349 and 51 of 400 sampled
+# skill/llm documents rejected with strict_dynamic_mapping_exception, found only because the license fix
+# made someone read the filebeat drop counter. Every new snapshot field needs a line here.
 # bot.inventory and bot.held were added to the state snapshot in the harness and
 # NOT here, so every skill document was rejected whole with
 # strict_dynamic_mapping_exception -- and the only symptom was one line in the
@@ -47,6 +50,7 @@ COMMON='"@timestamp":{"type":"date"},"run_id":{"type":"keyword"},"trigger":{"typ
         "health":{"type":"float"},"hunger":{"type":"float"},
         "held":{"type":"keyword"},
         "inventory":{"type":"flattened"},
+        "tools":{"type":"flattened"},
         "pos":{"properties":{"x":{"type":"float"},"y":{"type":"float"},"z":{"type":"float"}}}}},
  "game":{"properties":{"tick":{"type":"long"},"dimension":{"type":"keyword"},
         "day":{"type":"long"},"biome":{"type":"keyword"}}}'
@@ -70,7 +74,7 @@ ok "mcai-skill-* template"
 q -XPUT "http://localhost:9200/_index_template/mcai-llm" -H 'Content-Type: application/json' -d "{
  \"index_patterns\":[\"mcai-llm-*\"],\"data_stream\":{},\"priority\":500,
  \"template\":{\"settings\":{$SETTINGS},\"mappings\":{\"dynamic\":\"strict\",\"properties\":{$COMMON,
-  \"llm\":{\"properties\":{\"model\":{\"type\":\"keyword\"},\"endpoint\":{\"type\":\"keyword\"},
+  \"llm\":{\"properties\":{\"args_cleaned\":{\"type\":\"flattened\"},\"model\":{\"type\":\"keyword\"},\"endpoint\":{\"type\":\"keyword\"},
    \"prompt_tokens\":{\"type\":\"long\"},\"completion_tokens\":{\"type\":\"long\"},
    \"latency_ms\":{\"type\":\"long\"},\"total_duration_ns\":{\"type\":\"long\"},
    \"load_duration_ns\":{\"type\":\"long\"},\"prompt_eval_duration_ns\":{\"type\":\"long\"},
