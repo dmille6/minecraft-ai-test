@@ -1,4 +1,4 @@
-# Where the bots die now, and what to build next — evidence for two-engine review (16 Sep 2026, 21:50 UTC)
+# Where the bots die now, and what to build next — evidence for two-engine review (16 Sep 2026, 20:45 UTC)
 
 Read as the operator's evening pass after the -10+-11 promotion (1d6c97d fleet-wide 18:13Z). Every number below names its
 denominator. Telemetry: full walks of /var/log/mcai (live + rotated .gz), `_death` rows carry cause, position, the running
