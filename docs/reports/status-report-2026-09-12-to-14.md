@@ -462,3 +462,11 @@ Corpus run 8 (three repeats per fixture, arbiter on versus off) is running; the 
 **What that cost and what it bought.** Four slots. In return, three real defects are fixed (the terrain refusals, the fallback walk, the canopy dig-down) and two rules are corrected: rung-linked deaths no longer revert a change that does not touch the rungs unless four conditions fail, and the movement guard is being redefined on blocks moved, working time, immobility and items rather than on which skill the planner happened to call. That redefinition is with ChatGPT now and precedes the fifth lava canary.
 
 **Built and sandbox-proven, waiting for slots.** The flooded-pocket rung (out of the Delta shaft on every run), iron retention (stone pick spent, iron untouched), and the canopy descent fix. The pocket rung goes first, at the next two-pool draw.
+
+## Status 05:40 UTC, 16 Sep — first promotion since Tuesday morning: lava guards and iron retention, together
+
+**Promoted.** The lava guards (fifth attempt) and iron retention went out as one bundle under the new rules at 23:00 UTC and were kept at six hours: two canary deaths, both unrelated to the bundle, at 0.033 per bot-hour against 0.050 on control; every movement guard within band; zero lava deaths on the canary against nine on control; and not one iron pickaxe lost on the canary through ninety-one uses, while control lost eighteen. Stone pickaxe losses halved. The fleet has been on the new code since 05:35 UTC and main tracks it; the old main is kept as main-pre-2026-09-16.
+
+**What changed to make that possible.** The four rules you asked for are in force: gates are calibrated before they may revert, refusals are traced to their fallbacks, the slot order follows the death histogram, and two disjoint changes may share a canary. The redefined movement guards (blocks moved, working time, immobility, gathered items, each with a measured false-revert rate) read this canary the way the old explore-call guard could not.
+
+**Next.** The pocket rung and the canopy descent fix go out as the second bundle at the first draw after the rollout band settles, about 07:15 UTC. The 72-hour program read is Wednesday 09:34 UTC and the seed canary follows it at 10:00.
