@@ -74,7 +74,7 @@ ok "mcai-skill-* template"
 q -XPUT "http://localhost:9200/_index_template/mcai-llm" -H 'Content-Type: application/json' -d "{
  \"index_patterns\":[\"mcai-llm-*\"],\"data_stream\":{},\"priority\":500,
  \"template\":{\"settings\":{$SETTINGS},\"mappings\":{\"dynamic\":\"strict\",\"properties\":{$COMMON,
-  \"llm\":{\"properties\":{\"args_cleaned\":{\"type\":\"flattened\"},\"model\":{\"type\":\"keyword\"},\"endpoint\":{\"type\":\"keyword\"},
+  \"llm\":{\"properties\":{\"args_cleaned\":{\"type\":\"integer\"},\"model\":{\"type\":\"keyword\"},\"endpoint\":{\"type\":\"keyword\"},
    \"prompt_tokens\":{\"type\":\"long\"},\"completion_tokens\":{\"type\":\"long\"},
    \"latency_ms\":{\"type\":\"long\"},\"total_duration_ns\":{\"type\":\"long\"},
    \"load_duration_ns\":{\"type\":\"long\"},\"prompt_eval_duration_ns\":{\"type\":\"long\"},
