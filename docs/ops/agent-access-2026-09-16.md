@@ -11,7 +11,7 @@ chat: the private key stays in ~/.ssh on the mini (or a new key is authorized fo
 | 10.0.0.30:25599–25602 | **sandbox, sandbox2, sandbox3, sandbox4** — the test rig | Minecraft protocol; RCON per `server.properties` | tp/setblock/give are allowed HERE and nowhere else |
 
 The lab key on the mini is `~/.ssh/id_ed25519` (not `id_ed25519_aiservers`, which is instance #1's). Both hosts accept it for
-`mike`. ELK/Kibana (instance #2) is shut down; the telemetry files and the digest are the visibility.
+`mike`. ELK: the fleet ships to Elasticsearch on 10.0.0.186 (indices mcai-skill-agents, mcai-llm-agents, mcai-sys-journal), whose TRIAL LICENSE EXPIRED 2026-09-04 — since 5 Sep the cluster answers 403 "license non-compliant for [security]" to most requests, filebeat drops part of each batch (7,709 error lines in its journal), Kibana (10.0.0.186:5601, lab-only) is unusable, and the mini has no SSH access to that host. Until someone with access restores a basic license (`POST /_license/start_basic?acknowledge=true` as elastic) and creates an `mcai_reader` user, the telemetry FILES on 10.0.0.31 are the complete, authoritative source; 10.0.0.81 (`research-elk`) is a different stack.
 
 ## What the other agent may and may not do (the owner's standing rules)
 - **Use the sandbox servers only** (sandbox2–4 are free; sandbox is used by the operator's corpus runs). Never connect a bot to,
