@@ -470,3 +470,9 @@ Corpus run 8 (three repeats per fixture, arbiter on versus off) is running; the 
 **What changed to make that possible.** The four rules you asked for are in force: gates are calibrated before they may revert, refusals are traced to their fallbacks, the slot order follows the death histogram, and two disjoint changes may share a canary. The redefined movement guards (blocks moved, working time, immobility, gathered items, each with a measured false-revert rate) read this canary the way the old explore-call guard could not.
 
 **Next.** The pocket rung and the canopy descent fix go out as the second bundle at the first draw after the rollout band settles, about 07:15 UTC. The 72-hour program read is Wednesday 09:34 UTC and the seed canary follows it at 10:00.
+
+## Status 2026-09-16 18:20 UTC
+- **Promoted:** the -10+-11 bundle (flooded-pocket rung + step 4b, canopy drop measure) is fleet-wide as 1d6c97d after a KEEP at +540 on its first exposure (9 sealed pockets on the canary, 0 rung-linked deaths, movement guards within). main = 1d6c97d.
+- **Canary loop:** the host-side loop produced the same verdict as the hand reads at all six looks; the next canary runs under it for real.
+- **Carried forward:** the rung refused its one real pocket for lack of blocks (had 5, wanted 8) and the bot rode the drowning handlers for four minutes; a block-floor fix is queued behind the pooling rule.
+- **Sessions:** a desktop scheduled task now starts a fresh operator session every day at 06:08 America/Chicago from STATE.md; this session ends after this entry. Tomorrow's run takes the 72-h status read and the seed canary.
