@@ -67,4 +67,20 @@ t('4b: refuses without headroom, with a floor deeper than two, with lava in the 
   const mixed = sideExit(pocket({ ...shaft, '-1,49,0': AIR, '-1,50,0': AIR, '-1,46,0': STONE, '-1,47,0': WATER, '-1,48,0': WATER }), 0, 0, 48)
   assert.deepEqual(mixed.n, [-1, 0], 'two fills on the west beat a notch on the east (digs spend the pickaxe)'); assert.deepEqual(mixed.digs, [])
 })
+t('a pocket whose column is water all the way up needs no tool: bare hands pillar it, and the plan says toolFree', () => {
+  const water = Array.from({ length: 5 }, (_, i) => ({ y: 45 + i, solid: false, digMs: 0, inflowRisk: false }))
+  const p = pocketPlan({ floorY: 44, feetY: 48, firstDryY: 50, columnCells: water, blocksHeld: 12, toolInHand: false, oxygenLevel: 18 })
+  assert.equal(p.ok, true, p.why); assert.equal(p.digs, 0); assert.equal(p.toolFree, true); assert.equal(p.need, 5); assert.equal(p.timeMs, 5 * 800)
+  const q = pocketPlan({ floorY: 44, feetY: 48, firstDryY: 50, columnCells: water, blocksHeld: 12, toolInHand: true, oxygenLevel: 18 })
+  assert.equal(q.ok, true); assert.equal(q.toolFree, false, 'a held pickaxe is not tool-free')
+})
+t('one solid cell in the column brings the bare-hand refusal back, by name and with the count', () => {
+  const cells = Array.from({ length: 5 }, (_, i) => ({ y: 45 + i, solid: i === 3, digMs: i === 3 ? 37_500 : 0, inflowRisk: false }))
+  const p = pocketPlan({ floorY: 44, feetY: 48, firstDryY: 50, columnCells: cells, blocksHeld: 12, toolInHand: false, oxygenLevel: 18 })
+  assert.equal(p.ok, false); assert.match(p.why, /no pickaxe in hand: 1 submerged bare-hand dig/)
+})
+t('the block floor is judged after the tool, so a bare hand with too few blocks names the blocks', () => {
+  const water = Array.from({ length: 5 }, (_, i) => ({ y: 45 + i, solid: false, digMs: 0, inflowRisk: false }))
+  assert.match(pocketPlan({ floorY: 44, feetY: 48, firstDryY: 50, columnCells: water, blocksHeld: 3, toolInHand: false, oxygenLevel: 18 }).why, /need 9 placeable/)
+})
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

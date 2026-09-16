@@ -2216,13 +2216,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a turn). Bare-handed it is refused by name; one attempt per 10 min.
       if (pocketWanted && Date.now() - pocketWanted < POCKET_WANT_MS && !escaping && !marooned && !pocketing) {
         if (Date.now() - lastPocketRungAt > POCKET_RUNG_COOLDOWN_MS) {
-          lastPocketRungAt = Date.now(); pocketWanted = 0
+          pocketWanted = 0
           const { plan, floorY, firstDryY, tool, columnCells } = pocketPlanFor(bot)
           if (!plan.ok) {
-            logEvent({ kind: 'flooded_pocket_rung', status: 'no_effect', detail: `refused: ${plan.why}`, snapshot: snapshot(bot) })
+            // A REFUSAL SPENDS NOTHING, SO IT MUST NOT SPEND THE SLOT. The cooldown used to be stamped before the plan,
+            // so one refusal silenced the rung for ten minutes while the bot had about a hundred seconds to live
+            // (48 h to 16 Sep: median 103 s from the first rescue row to a drowning; the rescue re-declares the
+            // pocket sealed every 20-45 s). The plan is pure and the geometry changes as the bot sinks and drifts,
+            // so a refused bot is re-planned at every sealed verdict; only a plan that takes the body starts the
+            // ten-minute cooldown. The row is throttled, the re-plan is not.
+            if (throttled('pocket_rung_refused', 60_000)) logEvent({ kind: 'flooded_pocket_rung', status: 'no_effect', detail: `refused: ${plan.why}`, snapshot: snapshot(bot) })
           } else {
             const pocketGrant = await takeBody(bot, runner, 'flooded_pocket', PRIORITY.escape)
             if (pocketGrant) {
+              lastPocketRungAt = Date.now()   // only a granted body spends the ten minutes; a refused plan or a denied grant does not (Codex pass 2)
               pocketing = true
               try {
                 // withinBody/ownsBody exist only on trees with the arbiter (recovery-ladder); the canary base has neither (pocket corpus run 3 threw)
@@ -4762,6 +4769,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
   }
   const sideExitStep = async (feetY) => {
     const ex = sideExit(B, fx, fz, feetY); if (ex.why) return ex.why
+    if (ex.digs?.length && !tool) return `the only side exit is a notch (${ex.digs.length} dig(s)) and there is no pickaxe`   // a tool-free plan never digs (Codex pass 1, 16 Sep)
     const [dx, dz] = ex.n; const nx = fx + dx, nz = fz + dz
     const c0 = await centerOn(fx, fz, 1_500); if (c0) return `centring in the column: ${c0}`   // the hitbox must not overlap the fill cells (Codex code pass 1)
     if (!clearOf(nx, nz)) return 'the body overlaps the side cell after centring'
@@ -4802,6 +4810,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     const a0 = abortIfNeeded(); if (a0) return end(false, `abort at step ${step}: ${a0}`)
     const feetY = Math.floor(bot.entity.position.y); const ceil = B(fx, feetY + 2, fz)
     if (ceil && ceil.boundingBox === 'block') {
+      if (!tool) return end(false, `ceiling y=${feetY + 2} is ${ceil.name} and there is no pickaxe: the tool-free plan had no dig`)   // a bare-hand submerged dig exceeds one breath (pocketPlan)
       const cell = columnCells.find(c => c.y === feetY + 2)
       if (cell && (cell.inflowRisk || !oxygenFitsOperation({ oxygenLevel: bot.oxygenLevel ?? 0, opMs: cell.digMs }))) return end(false, `ceiling y=${feetY + 2}: ${cell.inflowRisk ? 'liquid would flow in' : 'not enough air for the dig'}`)
       try { await bot.equip(tool, 'hand') } catch {}

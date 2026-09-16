@@ -6,6 +6,7 @@
 
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
+import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
 import pathfinderPkg from 'mineflayer-pathfinder'
@@ -404,7 +405,18 @@ function connect() {
     // and drowning damage per bot-hour going up.
     const WATER_ENTRY_COST = 1
     const waterEntryPenalty = (block) => (block?.liquid ? WATER_ENTRY_COST : 0)
-    moves.exclusionAreasStep = [waterEntryPenalty]
+    // DEATH SITES ARE PRICED, NOT ADVISED (deathsites.mjs; docs/reports/deaths-review-2026-09-16.md). The pool's
+    // recorded deaths are read from world facts every 20 s (a file read, never per node) and every destination cell
+    // within 6 blocks and 6 y of one costs 25 -- three chargings per move stay under the 100 that deletes a
+    // neighbour, so the disc is a detour, never a wall. Shared by every profile below (the array reference is
+    // copied) and added again to waterMoves, which replaces the array on purpose.
+    let deathSites = []; let deathSitesReadAt = 0
+    const deathSitePenalty = (block) => {
+      if (Date.now() - deathSitesReadAt > 20_000) { deathSitesReadAt = Date.now(); try { deathSites = worldFacts?.deathSites?.() ?? [] } catch { deathSites = [] } }
+      return deathSiteStepCost(deathSites, block)
+    }
+    bot.deathSitesNow = () => deathSites
+    moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
@@ -575,7 +587,7 @@ function connect() {
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.
-    waterMoves.exclusionAreasStep = []
+    waterMoves.exclusionAreasStep = [deathSitePenalty]   // the water entry price goes; the death price stays (a drowning site is a death site)
     // Surface swimming is real travel -- about 5.6 m/s sprint-swimming against
     // 4.3 walking -- so a wet step is priced slightly ABOVE a land step rather
     // than as a catastrophe. Not 1: crossing still carries drowning risk that
@@ -742,6 +754,7 @@ function connect() {
     }, 2000)
 
     let lavaCorridorLoggedAt = 0
+    let deathSiteCrossLoggedAt = 0
     bot.on('path_reset', (reason) => {
       pathResets[reason] = (pathResets[reason] ?? 0) + 1
       logEvent({ kind: 'path_reset', detail: reason, snapshot: snapshot(bot) })
@@ -761,6 +774,10 @@ function connect() {
           if (Date.now() - lavaCorridorLoggedAt > 5_000) { lavaCorridorLoggedAt = Date.now(); logEvent({ kind: 'lava_corridor', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')} after ${v.samples} samples; the leg is refused`, snapshot: snapshot(bot) }) }
           return
         }
+        // POSITIVE CONTROL for the death-site price: a route the corridor guard accepted that still passes through a disc is logged
+        // (not refused -- the price is a detour, and a bot standing inside a disc has to walk out of it).
+        const crossed = pathCrossesDeathSite(bot.deathSitesNow?.() ?? [], r.path)
+        if (crossed && Date.now() - deathSiteCrossLoggedAt > 5_000) { deathSiteCrossLoggedAt = Date.now(); logEvent({ kind: 'death_site_route_crossed', status: 'no_effect', detail: `${crossed.site.kind} x${crossed.site.deaths ?? 1} at ${crossed.site.x},${crossed.site.y},${crossed.site.z}; the planned route passes ${crossed.node.x},${crossed.node.y},${crossed.node.z} (${r.path.length} nodes)`, snapshot: snapshot(bot) }) }
       }
       // Only the terminal verdicts are worth a document; `success` and
       // `partial` fire constantly during normal walking.
@@ -909,6 +926,14 @@ function connect() {
       .sort((a, b) => b[1] - a[1]).slice(0, 6)
       .map(([k, n]) => `${k} x${n}`).join(', ')
     const cause = freshDeathCause()
+    // THE DEATH BECOMES A SITE the pool's planner prices from now on (deathsites.mjs). Published before the cause and
+    // peak are cleared below; a failure to write is logged and never blocks the death record.
+    if (worldFacts && deathPos) {
+      try {
+        const site = worldFacts.reportDeath(deathClass(cause), deathPos)
+        if (site) logEvent({ kind: 'death_site_recorded', status: 'success', detail: `${site.kind} x${site.deaths} at ${site.x},${site.y},${site.z} (${fell != null && fell > 3 ? `after a ${fell}-block fall; ` : ''}${worldFacts.deathSites().length} sites on file)`, snapshot: snapshot(bot) })
+      } catch (e) { logEvent({ kind: 'death_site_recorded', status: 'failed', detail: String(e?.message ?? e).slice(0, 80), snapshot: snapshot(bot) }) }
+    }
     // Ask the runner, which is the only thing that knows. Reading a variable
     // nothing ever assigned is how every death came to report "no skill
     // running" -- a claim that was not measured, merely printed.

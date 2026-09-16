@@ -37,12 +37,17 @@ export function pocketPlan ({ floorY = null, feetY, firstDryY = null, columnCell
   const refuse = (why, extra = {}) => ({ ok: false, why, need: null, blocks: null, timeMs: null, ...extra })
   if (floorY == null || !(feetY - floorY <= maxFloorBelow)) return refuse('no floor within reach below')
   if (firstDryY == null) return refuse('no dry opening above the column')
-  if (!toolInHand) return refuse('no pickaxe in hand: a submerged bare-hand dig exceeds one breath')
   const need = firstDryY - floorY - 1                      // pillar blocks to stand level with the opening's floor
   if (!(need >= 1)) return refuse('nothing to climb')
+  const digs = columnCells.filter(c => c.solid)
+  // THE TOOL IS NEEDED FOR THE DIGS, NOT FOR THE PILLAR. This refused every bare hand before counting the digs, so a
+  // bot in a pocket whose column is water all the way to the opening -- nothing to dig, only blocks to place -- was
+  // refused by name and left to the drowning handlers (hive-a-Bravo, 19:38-20:24Z 16 Sep, five refusals in a real
+  // sealed pocket). A plan with no dig is tool-free; the rung then must not dig anywhere, notch included (`toolFree`
+  // below is what the rung checks), because a bare-hand submerged dig really does exceed one breath.
+  if (!toolInHand && digs.length) return refuse(`no pickaxe in hand: ${digs.length} submerged bare-hand dig(s) exceed one breath`)
   const blocks = need + 4   // + up to two side fills, one seal, one spare (step 4b, 2026-09-15); was + 2
   if (blocksHeld < blocks) return refuse(`need ${blocks} placeable block(s), have ${blocksHeld}`, { need, blocks })
-  const digs = columnCells.filter(c => c.solid)
   const inflow = digs.find(c => c.inflowRisk)
   if (inflow) return refuse(`cell y=${inflow.y} would let liquid in`, { need, blocks })
   const badDig = digs.find(c => !(c.digMs > 0) || !oxygenFitsOperation({ oxygenLevel: 20, opMs: c.digMs, swimBackMs: 0 }))
@@ -50,7 +55,7 @@ export function pocketPlan ({ floorY = null, feetY, firstDryY = null, columnCell
   const timeMs = digs.reduce((s, c) => s + c.digMs, 0) + need * PLACE_MS
   if (timeMs > wallClockMs) return refuse(`estimated ${Math.round(timeMs / 1000)} s exceeds the ${wallClockMs / 1000}-s budget`, { need, blocks, timeMs })
   if (!oxygenFitsOperation({ oxygenLevel, opMs: 0 })) return refuse('no air to start with', { need, blocks, timeMs })
-  return { ok: true, why: null, need, blocks, timeMs, digs: digs.length }
+  return { ok: true, why: null, need, blocks, timeMs, digs: digs.length, toolFree: !toolInHand }
 }
 
 /** The rung is done only when the bot is somewhere else, up and dry, breathing, and standing (v3 rule 6). */

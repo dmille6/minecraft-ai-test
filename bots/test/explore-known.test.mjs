@@ -60,6 +60,17 @@ test('no store, no position, or no sightings -> null, never a throw', () => {
   assert.equal(knownTarget(throws), null, 'a broken store must not break travel')
 })
 
+test('a sighting within 12 blocks of a recorded death is skipped, the skip is counted, and the next sighting wins', () => {
+  const bot = botAt(0, 0, { iron_ore: [{ x: 100, y: 30, z: 0 }, { x: 300, y: 40, z: 0 }] })
+  bot.worldFacts.deathSites = () => [{ kind: 'death:fire', x: 104, y: 34, z: 3, count: 4, deaths: 2 }]
+  const t = knownTarget(bot)
+  assert.strictEqual(t.x, 300, 'the sighting on the pool is not steered at'); assert.strictEqual(t.skipped, 1)
+  bot.worldFacts.deathSites = () => [{ kind: 'death:fire', x: 104, y: 34, z: 3, count: 4 }, { kind: 'death:drowning', x: 300, y: 40, z: 5, count: 4 }]
+  assert.deepStrictEqual(knownTarget(bot), { skipped: 2 }, 'every sighting on a death: no target, the count says why')
+  bot.worldFacts.deathSites = () => { throw new Error('store broken') }
+  assert.strictEqual(knownTarget(bot).x, 100, 'a broken death store must not break travel')
+})
+
 test('explore still accepts an explicit heading and falls back to it', async () => {
   const fs = await import('node:fs')
   const path = await import('node:path')
@@ -68,7 +79,7 @@ test('explore still accepts an explicit heading and falls back to it', async () 
     path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'skills.mjs'), 'utf8')
   const exec = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   assert.match(exec, /const known = knownTarget\(bot, toward\)/)
-  assert.match(exec, /if \(known\) \{/, 'the known-target branch is conditional')
+  assert.match(exec, /if \(known\?\.kind\) \{/, 'the known-target branch is conditional')
   assert.match(exec, /Number\.isFinite\(Number\(heading\)\)/,
     'the original bearing path survives for bots that have seen nothing')
 })

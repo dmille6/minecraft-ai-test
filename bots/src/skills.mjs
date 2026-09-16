@@ -26,6 +26,7 @@
 // preempts skills and a skill that ignores that will fight it.
 
 import { stepLineSafe } from './lavaguard.mjs'
+import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -3203,6 +3204,12 @@ export function knownTarget (bot, toward = null, radius = 400) {
   if (!wf?.resourcesNear || !at) return null
   const kinds = toward ? [toward]
     : ['iron_ore', 'coal_ore', 'oak_log', 'birch_log', 'diamond_ore', 'stone']
+  // A SIGHTING ON A DEATH SITE IS NOT A TARGET. 43 of 66 lava deaths in 48 h came within a minute of explore steering
+  // at a shared iron-ore sighting (deaths-review-2026-09-16). The route across the pool is the pathfinder's price
+  // (deathsites.mjs); the sighting that sits IN the disc is refused here, and the skip is reported so it can be read.
+  let deaths = []
+  try { deaths = wf.deathSites?.() ?? [] } catch { deaths = [] }
+  let skipped = 0
   for (const kind of kinds) {
     let seen
     try { seen = wf.resourcesNear(kind, at, radius) } catch { continue }
@@ -3211,10 +3218,13 @@ export function knownTarget (bot, toward = null, radius = 400) {
       // not a reason to "explore" -- gather can already see it, and walking to
       // it would burn the decision that should have gathered it.
       const d = Math.hypot(r.x - at.x, r.z - at.z)
-      if (d >= 24) return { kind, x: r.x, y: r.y, z: r.z, dist: d }
+      if (d < 24) continue
+      const site = nearDeathSite(deaths, r.x, r.y ?? at.y, r.z, { radius: DEATH_SITE_TARGET_RADIUS, dy: 8 })
+      if (site) { skipped++; continue }
+      return { kind, x: r.x, y: r.y, z: r.z, dist: d, skipped }
     }
   }
-  return null
+  return skipped ? { skipped } : null
 }
 
 async function explore(ctx, { blocks = 60, heading = null, toward = null }, signal) {
@@ -3240,7 +3250,8 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
   // behaviour for a bot that has genuinely seen nothing: this makes explore
   // better-informed, not conditional on being informed.
   const known = knownTarget(bot, toward)
-  if (known) {
+  if (known?.skipped) logEvent({ kind: 'explore_target_skipped_death_site', status: 'no_effect', detail: `${known.skipped} sighting(s) within ${DEATH_SITE_TARGET_RADIUS} blocks of a recorded death were not steered at${known.kind ? `; heading for ${known.kind} instead` : '; random bearing'}`, snapshot: snapshot(bot) })
+  if (known?.kind) {
     logEvent({
       kind: 'explore_toward_known',
       detail: `heading for ${known.kind} at ${known.x},${known.y},${known.z} ` +
@@ -3329,8 +3340,13 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       let stepOk = false
       for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2]) {
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
-        if (v.safe) { ang = cand; stepOk = true; break }
-        logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) })
+        if (!v.safe) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
+        // ...AND NEVER BLIND INTO A RECORDED DEATH. The pathfinder prices death sites (deathsites.mjs); this walk has
+        // no pathfinder, so it asks the same list. 5 of 5 post-promotion lava deaths on 16 Sep followed a corridor
+        // refusal and then a walk that was not the refused leg.
+        const ds = lineHitsDeathSite(bot.deathSitesNow?.() ?? [], bot.entity.position, cand)
+        if (ds) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `blind_step: ${ds.kind} x${ds.deaths ?? 1} recorded at ${ds.x},${ds.y},${ds.z} on the line: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
+        ang = cand; stepOk = true; break
       }
       if (!stepOk) { await sleep(300, signal); continue }
       try {

@@ -44,6 +44,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.mjs'
 import { log } from './logger.mjs'
+import { DEATH_KIND_PREFIX, isDeathSite } from './deathsites.mjs'
 
 const SCHEMA = 1
 const FILE = 'world-facts.json'
@@ -51,6 +52,7 @@ const MAX_SITES = 120
 const DECAY_MS = 12 * 60 * 60 * 1000   // longer than lessons: terrain outlives inventory
 const MERGE_RADIUS = 8
 const CONFIRM_AT = 2                   // personal hits before a fact is worth publishing
+const DEATH_WEIGHT = 4                 // a death site starts at 4: three 12-h halvings (4 -> 2 -> 1 -> 0) before it is forgotten
 const RESOURCE_MERGE = 24              // sightings within this many blocks are one deposit
 const MAX_RESOURCES = 200
 
@@ -104,13 +106,18 @@ export class WorldFacts {
 
   #prune(d) {
     const now = Date.now()
+    // HALVE ONCE PER DECAY PERIOD, NOT ONCE PER WRITE. `last` is the last HIT, and this file is written every few
+    // seconds (resource sightings), so a site 12 h past its last hit used to halve on every write until it was gone
+    // within a minute -- "decays by half every 12 h" was never what it did (Codex, 16 Sep). `decayedAt` records the
+    // halving; the next one waits another period.
+    const stale = s => now - Math.max(s.last ?? 0, s.decayedAt ?? 0) > DECAY_MS
     for (const s of d.sites) {
-      if (now - (s.last ?? 0) > DECAY_MS) s.count = Math.floor(s.count / 2)
+      if (stale(s)) { s.count = Math.floor(s.count / 2); s.decayedAt = now }
     }
     d.sites = d.sites.filter(s => s.count >= 1).slice(-MAX_SITES)
     // Resources decay too -- a chopped forest is not a forest.
     for (const r of (d.resources ?? [])) {
-      if (now - (r.last ?? 0) > DECAY_MS) r.count = Math.floor(r.count / 2)
+      if (stale(r)) { r.count = Math.floor(r.count / 2); r.decayedAt = now }
     }
     d.resources = (d.resources ?? []).filter(r => r.count >= 1).slice(-MAX_RESOURCES)
     for (const [k, v] of Object.entries(d.unreachable)) {
@@ -246,6 +253,39 @@ export class WorldFacts {
       return Math.hypot(w.x - pos.x, w.z - pos.z) <= radius
     })
     return near.length ? near : null
+  }
+
+  /**
+   * A DEATH IS NOT A READING. reportHazard needs two personal hits before a place becomes a fact, which is right for
+   * a sensor that once wrote 466 phantom drownings; a death message from the server is not a sensor. One death is a
+   * site, weighted DEATH_WEIGHT so it outlives three 12-h decay periods, merged with an earlier death of the same
+   * class within MERGE_RADIUS. Consumed deterministically by the pathfinder and by explore (deathsites.mjs), never
+   * only as a prompt line.
+   */
+  reportDeath(cls, pos, by = config.bot.name) {
+    if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y) || !Number.isFinite(pos.z)) return null
+    const kind = `${DEATH_KIND_PREFIX}${String(cls || 'unknown').slice(0, 24)}`
+    let site = null
+    this.#update(d => {
+      const near = d.sites.find(s =>
+        s.kind === kind &&
+        Math.hypot(s.x - pos.x, s.z - pos.z) < MERGE_RADIUS &&
+        Math.abs(s.y - pos.y) < 8)
+      if (near) {
+        near.count += DEATH_WEIGHT; near.deaths = (near.deaths ?? 1) + 1; near.last = Date.now()
+        if (!near.by.includes(by)) near.by.push(by)
+        site = near
+      } else {
+        site = { kind, x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z), count: DEATH_WEIGHT, deaths: 1, last: Date.now(), by: [by] }
+        d.sites.push(site)
+      }
+    })
+    return site
+  }
+
+  /** Every death site on file (the cache; re-read every 20 s). Cheap enough for the pathfinder's per-node price. */
+  deathSites() {
+    return this.read().sites.filter(isDeathSite)
   }
 
   hazardsNear(pos, radius = 50) {

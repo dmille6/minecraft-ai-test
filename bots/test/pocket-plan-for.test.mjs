@@ -50,4 +50,11 @@ t('WIRED: the sealed verdict only raises the want; the rung runs before the dry 
   assert.match(before, /const \{ plan, floorY, firstDryY, tool, columnCells \} = pocketPlanFor\(bot\)/)
   for (const g of [/!pocketing && !pocketPending && Date\.now\(\) - lastEscapeAt/, /mstate === 'climb' && !pocketing && !pocketPending/, /!pocketing && !pocketPending && mstate === 'need_scaffold'/]) assert.equal((src.match(g) || []).length, 1, `arm waits: ${g}`)
 })
+t('a water column with a dry opening and no solid cell is feasible bare-handed: the plan is tool-free (pillar only)', () => {
+  // column at (10, *, 10): stone floor at 44, water 45..53, air from 54 -- the Bravo case: nothing to dig, blocks to place
+  const wet = (x, y, z) => { if (x !== 10 || z !== 10) return y <= 53 ? STONE : AIR; if (y <= 44) return STONE; if (y <= 53) return WATER; return AIR }
+  const r = pocketPlanFor(botWith([{ name: 'cobblestone', count: 20, type: 2 }]), { blockAt: wet })
+  assert.equal(r.floorY, 44); assert.equal(r.firstDryY, 54); assert.equal(r.tool, null)
+  assert.equal(r.plan.ok, true, r.plan.why); assert.equal(r.plan.digs, 0); assert.equal(r.plan.toolFree, true)
+})
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
