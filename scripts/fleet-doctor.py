@@ -84,9 +84,11 @@ def main():
 
     while True:
         missing, present, faults = [], 0, []
+        checked = 0
         for world in sorted(ARMS):
             if not (ROOT / world / "server.properties").exists():
                 continue
+            checked += 1
             expect = {f"{world}-{n}" for n in NAMES}
             try:
                 actual = in_world(world)
@@ -99,6 +101,15 @@ def main():
                 missing.append((bot, st))
 
         total = len(ARMS) * len(NAMES)
+        # A CHECK THAT ASKED NO SERVER IS NOT A CHECK. Run anywhere but the worlds
+        # host, ROOT/<world>/server.properties exists for no world, every world is
+        # skipped, and this printed "in world 0/80   all present" -- a green line
+        # from an instrument that could not have seen a presence (2026-09-16, run
+        # on the bots host). Say so and fail instead of drawing a healthy fleet.
+        if checked == 0:
+            print(f"  {time.strftime('%H:%M:%S')}  FAULT: no world directory under {ROOT} on this host; "
+                  f"0 of {len(ARMS)} servers were asked. Run this on the worlds host.")
+            sys.exit(2)
         print(f"  {time.strftime('%H:%M:%S')}  in world {present}/{total}"
               + (f"   MISSING {len(missing)}" if missing else "   all present"))
         for f in faults:

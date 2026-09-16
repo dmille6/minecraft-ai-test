@@ -243,8 +243,24 @@ class Events:
                 "rate() needs bots=N (or bots='auto'). It used to default to 40 "
                 "against an 80-bot fleet and reported every rate at 2x.")
         if bots == 'auto':
-            bots = len({r.get('bot') for r in self.rows if r.get('bot')}) or 1
+            bots = len(self.bots()) or 1
         return self.count(name, allow_zero) / (bots * self.span)
+
+    def bots(self):
+        """The distinct bot NAMES in the loaded window.
+
+        `bot` on a normalised row is the log's whole `bot` object (name, pos,
+        inventory...), not a string. `rate(bots='auto')` used to put those dicts
+        in a set and raised `unhashable type: 'dict'` on the fleet host
+        (2026-09-16) -- the blessed helper for a rate could not compute one.
+        """
+        out = set()
+        for r in self.rows:
+            b = r.get('bot')
+            n = b.get('name') if isinstance(b, dict) else b
+            if n:
+                out.add(n)
+        return out
 
     def of(self, name, allow_zero=False):
         """Every row for an event kind, name-canonicalised and zero-guarded.

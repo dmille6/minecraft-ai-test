@@ -15,10 +15,18 @@
 #   WEDGED   deciding, not moving    -> terrain; watchdog will teleport
 
 set -uo pipefail
-SSH="ssh -i $HOME/.ssh/id_ed25519_aiservers -o BatchMode=yes -o ConnectTimeout=8"
-BOTS=${BOT_HOST:-10.0.0.187}
+# THE HOSTS MOVED AND THIS SCRIPT DID NOT. 10.0.0.187/.186 were instance #1's
+# bot and ELK hosts; the fleet has lived on 10.0.0.31 (bots) and 10.0.0.30
+# (sixteen Paper worlds) since Block 2, and from the operator's mini the lab
+# key is ~/.ssh/id_ed25519. Left as it was, every SSH here failed and the
+# script printed a fleet of "?" (2026-09-16). Override with BOT_HOST/MC_HOST.
+KEY=${LAB_KEY:-$HOME/.ssh/id_ed25519}
+[ -f "$KEY" ] || KEY=$HOME/.ssh/id_ed25519_aiservers
+SSH="ssh -i $KEY -o BatchMode=yes -o ConnectTimeout=8"
+BOTS=${BOT_HOST:-10.0.0.31}
 ES=${ES_HOST:-10.0.0.186}
 STALE_SEC=${STALE_SEC:-240}
+HERE=$(cd "$(dirname "$0")" && pwd)
 
 # ASK THE BOTS WHICH SERVER THEY ARE ON. A hardcoded default here spent an
 # entire session reporting "TPS 20.0 - online: nobody" from 10.0.0.185, the
@@ -31,16 +39,23 @@ STALE_SEC=${STALE_SEC:-240}
 MC=${MC_HOST:-$($SSH "mike@$BOTS" \
       'sudo grep -hoP "(?<=^MINECRAFT_HOST=)[^ ]+" /srv/mcbots/harness/env/*.env 2>/dev/null | sort -u | head -1' \
       2>/dev/null)}
-MC=${MC:-10.0.0.188}
+MC=${MC:-10.0.0.30}
 
 printf '\n\033[1;36m== fleet %s\033[0m\n' "$(date -u +%H:%M:%SZ)"
 
 # --- server ------------------------------------------------------------------
-TPS=$($SSH "mike@$MC" 'sudo /srv/minecraft/shared/rcon.py "tps" 2>/dev/null' 2>/dev/null \
-      | sed 's/§[0-9a-fklmnor]//g' | grep -oE '[0-9]+\.[0-9]+' | head -1)
-ONLINE=$($SSH "mike@$MC" 'sudo /srv/minecraft/shared/rcon.py "list" 2>/dev/null' 2>/dev/null \
-      | sed 's/§[0-9a-fklmnor]//g' | grep -oE '[A-Za-z0-9_]+[0-9]{2}' | tr '\n' ' ')
-printf '   server  %s · TPS %s · online: %s\n' "$MC" "${TPS:-?}" "${ONLINE:-nobody}"
+# ASK EVERY WORLD, NOT ONE. Block 2 is sixteen Paper servers on one host, each
+# with its own RCON port and password in /srv/block2/<pool>/server.properties;
+# the shared rcon.py this used to call does not exist there. lib/rcon-list.py
+# runs on the worlds host and prints one line per world plus a TOTAL, and it is
+# the only signal here that the Minecraft server itself vouches for.
+WORLDS=$($SSH "mike@$MC" 'sudo python3 -' < "$HERE/lib/rcon-list.py" 2>/dev/null)
+ONLINE=$(printf '%s\n' "$WORLDS" | awk '/^TOTAL online/ {print $3}')
+NWORLD=$(printf '%s\n' "$WORLDS" | grep -c ' online ')
+LOWTPS=$(printf '%s\n' "$WORLDS" | awk '$2=="online" && $5+0 < 19.5 {printf "%s(%s) ", $1, $5}')
+FAILED=$(printf '%s\n' "$WORLDS" | awk '/RCON FAIL/ {printf "%s ", $1}')
+printf '   server  %s · worlds answering %s · online %s · TPS<19.5: %s · rcon failed: %s\n' \
+       "$MC" "${NWORLD:-0}" "${ONLINE:-?}" "${LOWTPS:-none}" "${FAILED:-none}"
 
 # --- per bot -----------------------------------------------------------------
 printf '\n   %-10s %-8s %-11s %-9s %s\n' BOT STATE "LAST DECISION" MOVED NOTE
