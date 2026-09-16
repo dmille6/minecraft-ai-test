@@ -35,7 +35,6 @@ export { settleForFall, FALL_SETTLE_MS, FALL_POLL_MS }
 import { Vec3 } from 'vec3'
 import { escapedFrom } from './recovery.mjs'
 import { holdForwardSafe, lavaStandOff } from './lavaguard.mjs'
-import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS } from './floodpocket.mjs'
 import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
