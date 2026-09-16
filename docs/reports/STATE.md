@@ -24,6 +24,9 @@ _updated 2026-09-16 15:05 UTC_
 - Nightly 00:07Z: iron-funnel line (`~/digest/ironfunnel.log` on .31); first fleet-scale retention read = 17 Sep.
 - Tier-1 local analyst every 30 min (`~/digest/*.verdict.json` on .31); Monitor bj8yewx4q surfaces flags.
 
+## Daily session rotation (created 16 Sep 17:52 UTC)
+- Desktop scheduled task `mcai-daily-session` (~/.claude/scheduled-tasks/mcai-daily-session/SKILL.md) starts a FRESH session every day at 06:08 America/Chicago (11:08 UTC; 12:08 UTC once CDT ends 1 Nov). It reads this file first, closes any open canary, re-arms the list below, does the queue, and rewrites this file. It fires only while the desktop app is open (a missed run fires at next launch). The previous day's session should be ended once its last verdict is recorded; wake-ups it holds (e.g. 17 Sep 09:34Z/10:00Z) fall to the daily run if it is closed, which runs them ~1.5 h late (the 72-h read takes a fixed window end, so late is fine).
+
 ## Standing constraints (verbatim from the owner)
 - No world changes to fix a bot (sandbox only). Swimming is travel. No 192.168.19x network; no UniFi API on 10.0.0.1; never disable rpcbind; never touch the apt timer. One canary at a time (a bundle counts as one). Teardown is THREE steps. Deploy only via `~/bin/fleet-deploy`. Commit with `git commit -F -` heredocs. Two Codex passes per patch, then a smaller patch. Never share a live canary's inference endpoint/model; ARBITER stays OFF. Lab SSH `mike@10.0.0.31` (bots) / `mike@10.0.0.30` (worlds). Status reports live in docs/reports (files under ~/ do not open for the owner). Use `date -u` for clock labels.
 
