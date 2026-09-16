@@ -410,12 +410,15 @@ function connect() {
     // within 6 blocks and 6 y of one costs 25 -- three chargings per move stay under the 100 that deletes a
     // neighbour, so the disc is a detour, never a wall. Shared by every profile below (the array reference is
     // copied) and added again to waterMoves, which replaces the array on purpose.
-    let deathSites = []; let deathSitesReadAt = 0
-    const deathSitePenalty = (block) => {
-      if (Date.now() - deathSitesReadAt > 20_000) { deathSitesReadAt = Date.now(); try { deathSites = worldFacts?.deathSites?.() ?? [] } catch { deathSites = [] } }
-      return deathSiteStepCost(deathSites, block)
-    }
+    let deathSites = []
+    const refreshDeathSites = () => { try { deathSites = worldFacts?.deathSites?.() ?? [] } catch { deathSites = [] } }
+    // Refreshed on a timer and right after this bot's own death is published (below), never inside the per-node
+    // callback (Codex pass 2: a file read inside an A* step). The callback only scans the cached array.
+    const deathSitesTimer = setInterval(refreshDeathSites, 20_000); deathSitesTimer.unref?.()
+    bot.once('end', () => clearInterval(deathSitesTimer))
+    const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block)
     bot.deathSitesNow = () => deathSites
+    bot.refreshDeathSites = refreshDeathSites
     moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
@@ -931,6 +934,7 @@ function connect() {
     if (worldFacts && deathPos) {
       try {
         const site = worldFacts.reportDeath(deathClass(cause), deathPos)
+        bot.refreshDeathSites?.()
         if (site) logEvent({ kind: 'death_site_recorded', status: 'success', detail: `${site.kind} x${site.deaths} at ${site.x},${site.y},${site.z} (${fell != null && fell > 3 ? `after a ${fell}-block fall; ` : ''}${worldFacts.deathSites().length} sites on file)`, snapshot: snapshot(bot) })
       } catch (e) { logEvent({ kind: 'death_site_recorded', status: 'failed', detail: String(e?.message ?? e).slice(0, 80), snapshot: snapshot(bot) }) }
     }

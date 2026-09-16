@@ -35,11 +35,25 @@ export function nearDeathSite (sites, x, y, z, { radius = DEATH_SITE_RADIUS, dy 
   return best
 }
 
-/** exclusionAreasStep entry: the pathfinder hands a prismarine block; the price is on its position. */
-export function deathSiteStepCost (sites, block, opts = {}) {
+/** exclusionAreasStep entry: the pathfinder hands a prismarine block; the price is on its position. Hot path: no options object, no allocation. */
+export function deathSiteStepCost (sites, block) {
   const p = block?.position
-  if (!p || !sites?.length) return 0
-  return nearDeathSite(sites, p.x, p.y, p.z, opts) ? (opts.cost ?? DEATH_SITE_STEP_COST) : 0
+  if (!p || !sites || !sites.length) return 0
+  for (let i = 0; i < sites.length; i++) {
+    const s = sites[i]
+    if (!isDeathSite(s) || Math.abs(s.y - p.y) > DEATH_SITE_DY) continue
+    const dx = s.x - p.x, dz = s.z - p.z
+    if (dx * dx + dz * dz <= DEATH_SITE_RADIUS * DEATH_SITE_RADIUS) return DEATH_SITE_STEP_COST
+  }
+  return 0
+}
+
+export const DEATH_SITE_DECAY_MS = 12 * 60 * 60 * 1000   // one halving per period; worldfacts.mjs DECAY_MS is the same number
+/** The site's weight after every whole decay period that has elapsed since its last hit or halving (reads never write, so this is applied on consumption too). */
+export function effectiveCount (s, now = Date.now(), decayMs = DEATH_SITE_DECAY_MS) {
+  const since = now - Math.max(s?.last ?? 0, s?.decayedAt ?? 0)
+  const periods = since > 0 ? Math.floor(since / decayMs) : 0
+  return Math.floor((s?.count ?? 0) / 2 ** periods)
 }
 
 /** Does a planned path (an array of {x, y, z} nodes) pass through a disc? The positive control that the price is live. */
@@ -57,6 +71,16 @@ export function pathCrossesDeathSite (sites, nodes, opts = {}) {
 export function lineHitsDeathSite (sites, pos, ang, { dist = 7, ...opts } = {}) {
   if (!sites?.length || !pos || !Number.isFinite(ang)) return null
   const dx = -Math.sin(ang), dz = -Math.cos(ang); const y = Math.floor(pos.y)
-  for (let k = 0; k <= dist; k++) { const s = nearDeathSite(sites, pos.x + dx * k, y, pos.z + dz * k, opts); if (s) return s }
+  // A BOT INSIDE A DISC MUST BE ALLOWED OUT. The first version sampled the start, so every heading "hit" the disc
+  // the bot was standing in and it could never leave (Codex pass 2). Walking OUTWARD through the disc the bot is
+  // already in is allowed; getting closer to that site, or entering any other disc, is refused.
+  const home = nearDeathSite(sites, pos.x, y, pos.z, opts)
+  const homeD = home ? Math.hypot(home.x - pos.x, home.z - pos.z) : Infinity
+  for (let k = 1; k <= dist; k++) {
+    const x = pos.x + dx * k, z = pos.z + dz * k
+    const s = nearDeathSite(sites, x, y, z, opts); if (!s) continue
+    if (s !== home) return s
+    if (Math.hypot(s.x - x, s.z - z) < homeD) return s
+  }
   return null
 }

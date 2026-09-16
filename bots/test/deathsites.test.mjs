@@ -1,6 +1,6 @@
 // deathsites.mjs, pure: the disc, the price, the crossing check, and the arithmetic that keeps the price under the wall.
 import assert from 'node:assert/strict'
-import { nearDeathSite, deathSiteStepCost, pathCrossesDeathSite, lineHitsDeathSite, isDeathSite, DEATH_SITE_STEP_COST, DEATH_SITE_RADIUS, DEATH_SITE_DY } from '../src/deathsites.mjs'
+import { nearDeathSite, deathSiteStepCost, pathCrossesDeathSite, lineHitsDeathSite, effectiveCount, isDeathSite, DEATH_SITE_STEP_COST, DEATH_SITE_RADIUS, DEATH_SITE_DY } from '../src/deathsites.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const sites = [
@@ -41,5 +41,20 @@ t('a blind walk is checked along its own line with the physics heading: yaw 0 wa
   assert.ok(lineHitsDeathSite([{ kind: 'death:fire', x: 92, y: 64, z: 100, count: 4 }], { x: 100, y: 64, z: 100 }, Math.PI / 2), 'west from x=100 reaches x=98')
   assert.equal(lineHitsDeathSite(s, { x: 100, y: 80, z: 100 }, 0), null, '16 blocks above the site is another place')
   assert.equal(lineHitsDeathSite([], { x: 100, y: 64, z: 100 }, 0), null); assert.equal(lineHitsDeathSite(s, null, 0), null)
+})
+t('a bot standing inside a disc may walk OUT of it, not deeper in, and never into another disc', () => {
+  const s = [{ kind: 'death:fire', x: 100, y: 64, z: 100, count: 4 }, { kind: 'death:fire', x: 100, y: 64, z: 80, count: 4 }]
+  const inside = { x: 100, y: 64, z: 104 }   // 4 blocks south of the first site, inside its disc
+  assert.equal(lineHitsDeathSite(s, inside, Math.PI), null, 'walking south (away from the centre) is allowed')
+  assert.ok(lineHitsDeathSite(s, inside, 0), 'walking north (toward the centre, then on into the second disc) is refused')
+  assert.equal(lineHitsDeathSite(s, inside, Math.PI / 2), null, 'west, sideways out of the disc, is allowed')
+})
+t('effectiveCount halves once per whole 12-h period since the last hit or halving', () => {
+  const H = 3600 * 1000; const now = 100 * H
+  assert.equal(effectiveCount({ count: 4, last: now - 1 * H }, now), 4)
+  assert.equal(effectiveCount({ count: 4, last: now - 13 * H }, now), 2)
+  assert.equal(effectiveCount({ count: 4, last: now - 25 * H }, now), 1)
+  assert.equal(effectiveCount({ count: 4, last: now - 37 * H }, now), 0, 'three periods: forgotten')
+  assert.equal(effectiveCount({ count: 4, last: now - 40 * H, decayedAt: now - 5 * H }, now), 4, 'a recorded halving restarts the clock')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

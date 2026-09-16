@@ -44,7 +44,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { config } from './config.mjs'
 import { log } from './logger.mjs'
-import { DEATH_KIND_PREFIX, isDeathSite } from './deathsites.mjs'
+import { DEATH_KIND_PREFIX, isDeathSite, effectiveCount, DEATH_SITE_RADIUS, DEATH_SITE_DY } from './deathsites.mjs'
 
 const SCHEMA = 1
 const FILE = 'world-facts.json'
@@ -110,15 +110,16 @@ export class WorldFacts {
     // seconds (resource sightings), so a site 12 h past its last hit used to halve on every write until it was gone
     // within a minute -- "decays by half every 12 h" was never what it did (Codex, 16 Sep). `decayedAt` records the
     // halving; the next one waits another period.
-    const stale = s => now - Math.max(s.last ?? 0, s.decayedAt ?? 0) > DECAY_MS
-    for (const s of d.sites) {
-      if (stale(s)) { s.count = Math.floor(s.count / 2); s.decayedAt = now }
+    // ...and EVERY elapsed period counts, not just one: after 48 quiet hours a weight of 4 is 0, not 2 (Codex pass 2).
+    // `decayedAt` advances by whole periods so a partial period is not lost.
+    const decay = s => {
+      const ref = Math.max(s.last ?? 0, s.decayedAt ?? 0); const periods = ref > 0 ? Math.floor((now - ref) / DECAY_MS) : 0
+      if (periods > 0) { s.count = Math.floor(s.count / 2 ** periods); s.decayedAt = ref + periods * DECAY_MS }
     }
+    for (const s of d.sites) decay(s)
     d.sites = d.sites.filter(s => s.count >= 1).slice(-MAX_SITES)
     // Resources decay too -- a chopped forest is not a forest.
-    for (const r of (d.resources ?? [])) {
-      if (stale(r)) { r.count = Math.floor(r.count / 2); r.decayedAt = now }
-    }
+    for (const r of (d.resources ?? [])) decay(r)
     d.resources = (d.resources ?? []).filter(r => r.count >= 1).slice(-MAX_RESOURCES)
     for (const [k, v] of Object.entries(d.unreachable)) {
       if (now - (v.last ?? 0) > DECAY_MS * 2) delete d.unreachable[k]
@@ -267,10 +268,12 @@ export class WorldFacts {
     const kind = `${DEATH_KIND_PREFIX}${String(cls || 'unknown').slice(0, 24)}`
     let site = null
     this.#update(d => {
+      // MERGE ONLY WHEN THE KEPT CENTRE STILL PRICES THE NEW DEATH: a death 7 blocks from a site would have merged
+      // into a centre whose 6-block disc does not cover it (Codex pass 2), so the merge radius is half the disc.
       const near = d.sites.find(s =>
         s.kind === kind &&
-        Math.hypot(s.x - pos.x, s.z - pos.z) < MERGE_RADIUS &&
-        Math.abs(s.y - pos.y) < 8)
+        Math.hypot(s.x - pos.x, s.z - pos.z) <= DEATH_SITE_RADIUS / 2 &&
+        Math.abs(s.y - pos.y) <= DEATH_SITE_DY / 2)
       if (near) {
         near.count += DEATH_WEIGHT; near.deaths = (near.deaths ?? 1) + 1; near.last = Date.now()
         if (!near.by.includes(by)) near.by.push(by)
@@ -284,8 +287,8 @@ export class WorldFacts {
   }
 
   /** Every death site on file (the cache; re-read every 20 s). Cheap enough for the pathfinder's per-node price. */
-  deathSites() {
-    return this.read().sites.filter(isDeathSite)
+  deathSites(now = Date.now()) {
+    return this.read().sites.filter(s => isDeathSite(s) && effectiveCount(s, now, DECAY_MS) >= 1)   // reads never prune; the decay is applied on the way out
   }
 
   hazardsNear(pos, radius = 50) {
