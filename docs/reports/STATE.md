@@ -29,3 +29,11 @@ _updated 2026-09-16 15:05 UTC_
 
 ## Worktrees
 mcai-recovery (recovery-ladder), mcai-rl02 (recovery-ladder-03 = docs/scripts branch), mcai-rllava (lava), mcai-rliron (iron), mcai-rl10 (pocket on 426058d), mcai-canopy, mcai-b0809 (promoted), mcai-b1011b (live), mcai-scene (sandbox harness). Scripts: ~/mcai-analysis (reads, drawrec, arm-read, guardcal, queue-order), /tmp on .31 mirrors them.
+
+## Re-arm on a fresh session (monitors are session-local)
+1. Reads: `for M in <minutes>; do (bash ~/mcai-analysis/arm-read.sh $M <LABEL> "<read cmds>" > $S/<label>-read-$M.out 2>&1 &); done` (arm-read reads declared_at from the manifest and ships each output to .31 ~/digest/reads/).
+2. Death poll + reads-landing Monitor: poll `ssh mike@10.0.0.31 'python3 ~/verdict.py <run_id> 0 --poll'` every 5 min (prints POLL_OK/REVERT with linkage + death gate) and grep the read files for the key lines.
+3. Loop pages: Monitor tailing `~/digest/page.jsonl` on .31 (new lines).
+4. Local analyst: Monitor on the latest `~/digest/*.verdict.json` (page=True / gates / REVERT / versions_ok=False only).
+5. Wake-ups: 17 Sep 09:34Z (72-h read), 17 Sep 10:00Z (seed canary) -- re-arm if the session that holds them ended.
+6. Draws: Monitor running `bash ~/mcai-analysis/drawrec.sh` every 20 min, emitting only on DRAW READY (never "not ready").
