@@ -1,12 +1,12 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-16 23:58 UTC_
+_updated 2026-09-16 23:50 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds, all on **1d6c97d** (= 08a3da2 + flooded-pocket rung with step 4b + canopy drop measure; promoted 18:13Z 16 Sep). main = 1d6c97d; previous mains: main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Verified 20:35Z 16 Sep by RCON on all sixteen servers: 80/80 online, TPS 20.0.
 - Deaths: 96 h to 16 Sep 0.054/bot-h (416 on 7,680 bot-h: lava 198, drown 120, fall 96). AFTER the 08a3da2 promotion (05:35Z 16 Sep, 1,216 bot-h): 0.026/bot-h — lava 5, drown 15, fall 11. Before/after on the whole fleet, not a DiD; the 72-h read is the instrument.
 
 ## Live canary
-- **recovery-ladder-13b = the -13a+-13b BUNDLE, b1659c0, under the host loop** (`~/canary-loop.sh recovery-ladder-13b`, started 23:56Z 16 Sep; journal/pages as before; registration v18 = v17 with the linkage/change rows corrected). It draws every 20 min and deploys when two pools qualify (placebo-a,placebo-b are excluded until ~11:20Z 17 Sep by the ledger). Reads +30/+90/+180/+360 (+540/+720 until a sealed verdict on the canary), deadline +780.
+- **recovery-ladder-13b = the -13a+-13b BUNDLE, b1659c0, under the host loop** (`~/canary-loop.sh recovery-ladder-13b`, started 23:45Z 16 Sep; journal/pages as before; registration v18 = v17 with the linkage/change rows corrected). It draws every 20 min and deploys when two pools qualify (placebo-a,placebo-b are excluded until ~11:20Z 17 Sep by the ledger). Reads +30/+90/+180/+360 (+540/+720 until a sealed verdict on the canary), deadline +780.
 - **-13 (same sha) was REVERTED at 23:20Z by the death poll and torn down at 23:24Z -- the instrument, not the change:** `death_site_recorded` (written by the death handler at the death) was registered as a change row, so the one canary death (placebo-a-Delta, drowned at the surface in open water, no rung, no priced route) counted as linked. Ledger says REVERT; the registration doc records the correction. Consequence rows and both-arm guard rows are never linkage rows from now on (v18).
 - -13a pocket-rung remedies (drowning = 15 of the last 31 deaths) and -13b death-site exclusion (lava residue): evidence and reviews in docs/reports/deaths-review-2026-09-16.md; suite 188/188; sandbox smoke clean. Own lines: deathread control_own_rows <= 0 (REVERT), pocketread blocks_p90 <= 12 (WATCH), deathread nopath_per_bh_canary <= 24 (WATCH; canary pre rate 11.9).
 - 22:25Z corrections: the loop's done-check was unscoped (matched the 1011b run's reads and skipped all of -13's) -- fixed in ~/canary-loop.sh; the copied `control_rung_rows` own line removed.
