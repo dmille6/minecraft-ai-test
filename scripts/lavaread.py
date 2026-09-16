@@ -58,3 +58,10 @@ mdid = (ms(('canary','post'))[0] - ms(('canary','pre'))[0]) - (ms(('control','po
 print(f"FRICTION: mine success canary {100*ms(('canary','pre'))[0]:.0f}% -> {100*ms(('canary','post'))[0]:.0f}% ({ms(('canary','post'))[1]} runs) vs control {100*ms(('control','pre'))[0]:.0f}% -> {100*ms(('control','post'))[0]:.0f}%  DiD {100*mdid:+.0f} pp (one-sided guard -30 pp)")
 gp = sum(guard[('canary','post')].values()); print(f"guard rows on the canary post: {gp} ({'exposure PRESENT' if gp else 'NONE -- mechanism INCONCLUSIVE, safety still reads'}); control post (should be 0, old code): {sum(guard[('control','post')].values())}")
 for e in ex[:40]: print('   ', e)
+try:
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
+    cpk = ('canary', 'post'); h = len(bots[cpk]) * W / 60
+    emit('lavaread', W, {'canary_bot_h': h, 'lava_deaths_canary': lava[cpk], 'lava_deaths_control': lava[('control', 'post')], 'control_bot_h': len(bots[('control', 'post')]) * W / 60,
+        'corridor_refusals_per_bh': (sum(reason[cpk].values()) / h if h else 0), 'corridor_by_reason': dict(reason[cpk]), 'blind_refusals_per_bh': (sum(blind[cpk].values()) / h if h else 0), 'blind_by_reason': dict(blind[cpk]),
+        'guard_rows': int(gp), 'control_guard_rows': int(sum(guard[('control', 'post')].values())), 'mine_did_pp': mdid, 'lava_did': did, 'positive_control_rows': sum(rows.values())})
+except Exception as _e: print('VERDICT_JSON failed:', _e)

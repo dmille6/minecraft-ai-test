@@ -49,3 +49,8 @@ for arm in ('canary', 'control'):
 cp = ('canary', 'post')
 print(f"OWN LINE: canary fall deaths within 60 s of a canopy row = {linked[cp]} (must be 0); canopy_drop_refused rows {refused[cp]} (exposure); control post refusals (old code, must be 0): {refused[('control','post')]}")
 for e in ex[:10]: print('   ', e)
+try:
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
+    emit('canopyread', W, {'canary_bot_h': bh(cp), 'falls_linked_canary': linked[cp], 'refusals_canary': refused[cp], 'canopy_rows_canary': dict(canopy[cp]), 'falls_canary': falls[cp], 'falls_control': falls[('control', 'post')],
+        'control_refusals': refused[('control', 'post')], 'positive_control_rows': sum(rows.values())})
+except Exception as _e: print('VERDICT_JSON failed:', _e)

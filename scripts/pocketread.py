@@ -57,3 +57,9 @@ cp = ('canary', 'post'); print(f"EXPOSURE: canary post rung rows {sum(rung[cp].v
 def rr(k): rel = hold[k]['_drowning_breathing']; tot = rel + hold[k]['_drowning_ceiling_no_air']; return (rel / tot) if tot else float('nan')
 print(f"FRICTION: hold release share canary {100*rr(('canary','pre')):.0f}% -> {100*rr(('canary','post')):.0f}% vs control {100*rr(('control','pre')):.0f}% -> {100*rr(('control','post')):.0f}% (one-sided guard -30 pp)")
 for e in ex[:30]: print('   ', e)
+try:
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
+    emit('pocketread', W, {'canary_bot_h': bh(cp), 'sealed_verdicts_canary': sealed[cp], 'rung_rows': dict(rung[cp]), 'side_exit_rows': dict(side[cp]), 'blocks_p90': p90(blocks[cp]),
+        'control_rung_rows': sum(rung[('control', 'post')].values()), 'drownings_canary': drown[cp], 'drownings_control': drown[('control', 'post')], 'drown_did': did,
+        'hold_release_canary_post': rr(cp), 'hold_release_control_post': rr(('control', 'post')), 'positive_control_rows': sum(rows.values())})
+except Exception as _e: print('VERDICT_JSON failed:', _e)

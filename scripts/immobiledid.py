@@ -193,3 +193,14 @@ for p in sorted({pool[b] for b in pool}):
 canv = rdid('imm'); ok = all(canv < v for v in pl.values() if v == v)
 print("PLACEBO (immobile-share ratio-DiD per control pool; KEEP needs the canary LOWER than every one): " + ", ".join(f"{p} {v:+.0%}" for p, v in sorted(pl.items(), key=lambda x: x[1])) + f" -> canary {canv:+.0%} {'PASS' if ok else 'FAIL'}")
 print("positive control: rows", len(ev.rows), "bots", sum(len(v) for v in bots.values()))
+try:
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
+    emit('immobiledid', W, {
+        'readable': bool(mins[('canary', 'post')] / 60 >= 15 and (ll[('canary', 'post')] >= 8 or climbs[('canary', 'post')] >= 20)),
+        'canary_bot_h': mins[('canary', 'post')] / 60, 'control_bot_h': mins[('control', 'post')] / 60,
+        'harm': {'canary_deaths': deaths[('canary', 'post')], 'control_deaths': deaths[('control', 'post')], 'canary_rate': cd, 'control_rate': kd},
+        'v15c': {'moved': rdid('mv'), 'work': rdid('wk'), 'imm_pp': imm_pp / 100, 'newly_immobile': len(newly), 'items': rdid('it'), 'breach': breach, 'severe': severe, 'verdict': verdict},
+        'v11': {'gather': rdid('g'), 'explore': rdid('e'), 'climbs': rdid('cl'), 'livelock': rdid('llbh'), 'ladders_p90': p90, 'exhausted_distinct': len({e[1] for e in exh_still})},
+        'immobile': {'canary_pre': ci, 'canary_post': ki, 'control_pre': cc, 'control_post': kc},
+        'placebo_ok': bool(ok), 'positive_control_rows': len(ev.rows)})
+except Exception as _e: print('VERDICT_JSON failed:', _e)

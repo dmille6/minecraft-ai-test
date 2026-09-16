@@ -64,3 +64,10 @@ for arm in ('canary', 'control'):
         print(f"  {arm:7} {era:4} bots {len(bots[k]):2d} bot-h {h:6.1f}  iron picks lost in work {lost[k]['iron_pickaxe']:2d} ({ir:.3f}/bh)  stone {lost[k]['stone_pickaxe']:2d} wooden {lost[k]['wooden_pickaxe']:2d}  where {dict(where[k].most_common(3))}  gather ok {gok}/{gall}  mine ok {mok}/{mall}" + (f"  iron uses consumed {wear[k]} ({wear[k]/h if h else 0:.1f}/bh)  rows broke/gone {broke[k]['tool_broke']}/{broke[k]['tool_gone']}" if arm == 'canary' else ''))
 did = (rate[('canary','post')] - rate[('canary','pre')]) - (rate[('control','post')] - rate[('control','pre')])
 print(f"iron pickaxes lost in work, DiD: {did:+.3f}/bh (counts above; the fleet holds few iron pickaxes, so this is reported, not judged)")
+try:
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
+    cpk = ('canary', 'post'); h = bh(cpk)
+    emit('toolread', W, {'canary_bot_h': h, 'iron_lost_canary': lost[cpk]['iron_pickaxe'], 'iron_lost_control': lost[('control', 'post')]['iron_pickaxe'], 'iron_lost_did': did,
+        'stone_lost_per_bh_canary': (lost[cpk]['stone_pickaxe'] / h if h else 0), 'stone_lost_per_bh_control': (lost[('control', 'post')]['stone_pickaxe'] / bh(('control', 'post')) if bh(('control', 'post')) else 0),
+        'iron_uses_canary': wear[cpk], 'tool_broke': broke[cpk]['tool_broke'], 'tool_gone': broke[cpk]['tool_gone'], 'positive_control_rows': sum(rows.values())})
+except Exception as _e: print('VERDICT_JSON failed:', _e)
