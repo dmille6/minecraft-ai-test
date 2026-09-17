@@ -1,9 +1,12 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-17 11:45 UTC_
+_updated 2026-09-17 12:12 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds. Baseline **1d6c97d** (= 08a3da2 + flooded-pocket rung with step 4b + canopy drop measure; promoted 18:13Z 16 Sep). main = 1d6c97d; previous mains: main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Verified 11:20Z 17 Sep after the -13b teardown: 80/80 on 1d6c97d, one version live.
 - 72-h program read (wake-up 09:34Z, run 11:10Z), by version, before/after **not** a DiD: **1d6c97d** 955 bot-h — deaths **0.024**/bh, immobile **2.3%**, iron-pick **9.5%**, gather **22%**, items **6.5**/bh. Previous **08a3da2** 751 bot-h — 0.031, 4.6%, 8.3%, 30%, 15.2. Targets: ≤0.05, ≤2%, ≥8%, ≥40%, ≥20. Survival improving and in target on three of five; **gather and items fell (30→22%, 15.2→6.5)** — queued as a read, not a finding (17 h dominated by the night window; pools have moved ±45–77% with no code change).
+
+## Operator of record
+- 17 Sep 12:10Z: the owner delegated the whole queue ("continue work using ChatGPT and Claude without my intervention"). The evening operator session (the one that built -13) holds the fleet until the daily session at 11:08Z 18 Sep; it re-armed the page monitor on ~/digest/page.jsonl, takes the -13c verdict/promotion, starts the seed canary, and builds the movement owner + the falls path log in worktrees from 1d6c97d with two-engine review, sandbox first.
 
 ## Live canary
 - **recovery-ladder-13c = the -13a+-13b BUNDLE, b1659c0, UNMODIFIED**, under the host loop (`~/canary-loop.sh recovery-ladder-13c`, PID started 11:28Z). Drawn at deploy → **board-b,hive-b**; declared_at **2026-09-17T11:30:00.890741Z**. Registration v19 (`~/mcai-analysis/registrations/recovery-ladder-13c.json`).
@@ -26,7 +29,7 @@ _updated 2026-09-17 11:45 UTC_
 
 ## Queue (histogram order)
 1. **-13c verdict** (today). While it is deployed and unread, no new analysis starts.
-2. **Seed canary** (owner, was due 10:00Z today) — two re-seeded worlds vs fourteen, 72-h DiD. Design in docs/reports/plan-2026-09-15-to-19.md §"Seed canary". **Unresolved and NOT decided unilaterally:** a fleet-wide promotion inside its 72 h changes its control arm underneath it, and the queue promotes ~daily. Either freeze promotions for 72 h or accept a coarse read — owner's call.
+2. **Seed canary — DECIDED by the owner 17 Sep 12:10Z ("do it all ... without my intervention"): run it after the -13c verdict, NO promotion freeze.** A fleet-wide promotion hits the two re-seeded worlds and the fourteen controls at the same moment, so the 72-h difference-in-differences is read by promotion epoch (split at each declared_code_version change); seed effects are terrain effects and should be large against that. Draw two pools like a canary (one per inference half, not placebo-c, not isolated), re-seed with random seeds, read the five program numbers at 24/48/72 h by DiD. Design: docs/reports/plan-2026-09-15-to-19.md §"Seed canary". Owner of the step: the session that holds the -13c verdict (this evening's operator session, then the daily session).
 3. **Gather/items drop on 1d6c97d** (30→22%, 15.2→6.5/bh) — read properly by DiD, not before/after.
 4. **FALLS analysis** — path log at every fall (executed path's drop, movement profile); test the `infiniteLiquidDropdownDistance` hypothesis. Explore, 35 blocks median.
 5. **Pocket-rung block floor** — need+4 with 5 held; plan the exit geometry (deaths-review §4(b); both reviews said need+1 cannot fund a side exit).
