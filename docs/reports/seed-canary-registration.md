@@ -23,3 +23,14 @@ owner says otherwise.
 
 ## Pools, seeds, times
 (filled by reseed-pool.sh at execution)
+
+## Registered confound (Codex pass 2 on the runbook, 17 Sep): this is a RESEED-PLUS-RESET intervention
+The two treatment pools do not only get new terrain. Their pool state (world facts, lessons), each bot's state dir, the
+bots' inventories and progress in the old world, the accumulated world changes (shafts, stairs, chests' contents) and the
+world clock are all reset with the world; the town is stamped fresh with new supplies. The fourteen controls keep all of
+that. The 24-h read therefore includes a "fresh start" effect that the seed alone does not cause; the 48- and 72-h reads
+are the ones that speak to terrain. Every read says so in its first line. The archives (.pre-reseed-<ts>) make the old
+state recoverable but are not restored.
+Runbook residuals accepted after two review passes (no third pass, by rule): place-town.py writes its marker after
+warnings and pregen-world.py does not verify chunk generation; both are run supervised, their logs read before the bots
+start, and the runbook refuses a stale or site-less town record.

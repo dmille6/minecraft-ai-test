@@ -13,6 +13,8 @@ POOL="${1:?pool, e.g. board-c}"; shift
 SEED=""; RADIUS=512; GO=0
 while [ $# -gt 0 ]; do case "$1" in --seed) SEED="$2"; shift 2;; --radius) RADIUS="$2"; shift 2;; --go) GO=1; shift;; *) echo "unknown arg $1"; exit 2;; esac; done
 case "$POOL" in placebo-c|isolated-*) echo "refusing: $POOL is never a canary pool (draw rule)"; exit 2;; esac
+[[ "$POOL" =~ ^(hive|board|placebo)-[a-d]$ ]] || { echo "refusing: pool name must be <arm>-<a..d>"; exit 2; }
+[[ "$SEED" =~ ^-?[0-9]{0,19}$ && "$RADIUS" =~ ^[0-9]{2,4}$ ]] || { echo "refusing: seed/radius must be numeric"; exit 2; }
 KEY=~/.ssh/id_ed25519; BH=mike@10.0.0.31; WH=mike@10.0.0.30
 B() { ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 "$BH" "$@"; }
 W() { ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 "$WH" "$@"; }
@@ -26,13 +28,13 @@ echo "== reseed $POOL seed=$SEED radius=$RADIUS ts=$TS go=$GO journal=$J"
 # ---- preconditions (always run)
 MAN=$(B 'python3 -c "import json; d=json.load(open(\"/srv/mcbots/trial-manifest.json\")); print(d.get(\"canary_pool\") or \"\")"')
 case ",$MAN," in *",$POOL,"*) echo "refusing: $POOL is the live code canary ($MAN)"; exit 2;; esac
-if B "sudo tail -30 /var/log/mcai/_canary-decisions.jsonl" | python3 -c "
+if B "sudo cat /var/log/mcai/_canary-decisions.jsonl" | python3 -c "
 import sys,json,datetime as dt; now=dt.datetime.now(dt.timezone.utc); pool='$POOL'
 for l in sys.stdin:
     try: r=json.loads(l)
-    except Exception: continue
+    except Exception: sys.exit(3)
     if pool in [p.strip() for p in str(r.get('canary_pool') or '').split(',')] and (now-dt.datetime.fromisoformat(r['ts'])).total_seconds()<12*3600: sys.exit(1)
-"; then :; else echo "refusing: $POOL had a canary decision in the last 12 h (ledger exclusion)"; exit 2; fi
+"; then :; else rc=$?; [ $rc = 3 ] && echo "refusing: unreadable ledger line" || echo "refusing: $POOL had a canary decision in the last 12 h (ledger exclusion)"; exit 2; fi
 BOTS=$(B "systemctl list-units 'mcbot@$POOL-*' --no-legend --plain | awk '{print \$1}' | sed 's/mcbot@//; s/.service//' | sort"); N=$(echo "$BOTS" | grep -c .)
 [ "$N" = 5 ] || { echo "refusing: expected 5 bots for $POOL, found $N: $BOTS"; exit 2; }
 # the pool's state dir and each bot's STATE_DIR, from the env files, never guessed
@@ -41,7 +43,7 @@ STATEDIRS=$(echo "$ENVINFO" | grep -o 'STATE_DIR=[^ ]*' | cut -d= -f2 | sort -u)
 [ "$(echo "$MPOOL" | wc -l | tr -d " ")" = 1 ] && [ "$MPOOL" = "$POOL" ] || { echo "refusing: MEMORY_POOL of the five bots is '$MPOOL', expected '$POOL'"; exit 2; }
 POOLDIR=$(dirname "$(echo "$STATEDIRS" | head -1)")/_pool-$POOL
 echo "bots: $(echo $BOTS) | scope $SCOPES | state dirs: $(echo $STATEDIRS) | pool dir: $POOLDIR"
-W "test -f /srv/block2/$POOL/server.properties && systemctl is-active block2@$POOL.service" >/dev/null || { echo "refusing: block2@$POOL not active or no server.properties"; exit 2; }
+if ! done_stage world-reseeded; then W "test -f /srv/block2/$POOL/server.properties && systemctl is-active block2@$POOL.service" >/dev/null || { echo "refusing: block2@$POOL not active or no server.properties"; exit 2; }; fi
 W "test -f ~/scripts/place-town.py && test -f ~/scripts/pregen-world.py" || { echo "refusing: ~/scripts/place-town.py or pregen-world.py missing on the worlds host"; exit 2; }
 echo "preconditions ok"
 [ $GO = 1 ] || { echo "PLAN: stop 5 bots -> archive $POOLDIR and $(echo $STATEDIRS | wc -w) state dirs -> stop block2@$POOL -> archive world + TOWN-PLACED.json -> level-seed=$SEED -> start -> wait for the service's own 'Done' and an RCON answer -> place-town.py -> pregen radius $RADIUS -> rewrite HOME_*/BOARD_* in 5 envs -> start bots 12 s apart -> append to docs/reports/seed-canary-registration.md"; exit 0; }
@@ -54,32 +56,39 @@ if ! done_stage bots-stopped; then
   mark bots-stopped
 fi
 if ! done_stage state-archived; then
-  B "set -e; sudo mv $POOLDIR $POOLDIR.pre-reseed-$TS; $(for d in $STATEDIRS; do printf 'sudo mv %s %s.pre-reseed-%s; ' "$d" "$d" "$TS"; done) ls -d $POOLDIR.pre-reseed-$TS $(for d in $STATEDIRS; do printf '%s.pre-reseed-%s ' "$d" "$TS"; done)" || { echo "state archive failed (nothing else touched); inspect and re-run"; exit 1; }
+  # each source/archive pair reconciled on its own, so a re-run after a partial failure never re-moves or nests
+  B "set -e; mv_once() { if [ -e \"\$1\" ] && [ ! -e \"\$2\" ]; then sudo mv \"\$1\" \"\$2\"; elif [ ! -e \"\$1\" ] && [ -e \"\$2\" ]; then :; elif [ -e \"\$1\" ] && [ -e \"\$2\" ]; then echo \"both \$1 and \$2 exist\"; exit 1; else echo \"neither \$1 nor \$2 exists\"; exit 1; fi; }; mv_once $POOLDIR $POOLDIR.pre-reseed-$TS; $(for d in $STATEDIRS; do printf 'mv_once %s %s.pre-reseed-%s; ' "$d" "$d" "$TS"; done) echo archived" || { echo "state archive failed; inspect and re-run (each pair is reconciled individually)"; exit 1; }
   mark state-archived
 fi
 # ---- stage 2: the world
 if ! done_stage world-reseeded; then
-  W "set -e; sudo systemctl stop block2@$POOL.service; sleep 3; [ \"\$(systemctl is-active block2@$POOL.service || true)\" = inactive ]; cd /srv/block2/$POOL; sudo mv world world.pre-reseed-$TS; sudo mv TOWN-PLACED.json TOWN-PLACED.pre-reseed-$TS.json; sudo sed -i 's/^level-seed=.*/level-seed=$SEED/' server.properties; sudo -u minecraft test -r server.properties; sudo grep -q '^level-seed=$SEED\$' server.properties; echo reseeded" || { echo "world stage failed; the archives are world.pre-reseed-$TS and TOWN-PLACED.pre-reseed-$TS.json; do not re-run blindly"; exit 1; }
+  W "set -e; sudo systemctl stop block2@$POOL.service; sleep 3; [ \"\$(systemctl is-active block2@$POOL.service || true)\" = inactive ]; cd /srv/block2/$POOL; mv_once() { if [ -e \"\$1\" ] && [ ! -e \"\$2\" ]; then sudo mv \"\$1\" \"\$2\"; elif [ ! -e \"\$1\" ] && [ -e \"\$2\" ]; then :; else echo \"cannot reconcile \$1 / \$2\"; exit 1; fi; }; mv_once world world.pre-reseed-$TS; mv_once TOWN-PLACED.json TOWN-PLACED.pre-reseed-$TS.json; sudo sed -i 's/^level-seed=.*/level-seed=$SEED/' server.properties; sudo -u minecraft test -r server.properties; sudo grep -q '^level-seed=$SEED\$' server.properties; echo reseeded" || { echo "world stage failed; archives are world.pre-reseed-$TS and TOWN-PLACED.pre-reseed-$TS.json; re-run reconciles"; exit 1; }
   mark world-reseeded
 fi
 if ! done_stage server-up; then
-  W "set -e; sudo systemctl start block2@$POOL.service; T0=\$(date +%s); for i in \$(seq 1 90); do sleep 5; A=\$(systemctl show block2@$POOL.service -p ActiveEnterTimestampMonotonic --value); L=\$(sudo grep -c 'Done (' /srv/block2/$POOL/logs/latest.log 2>/dev/null || echo 0); if [ \"\$L\" -ge 1 ] && sudo grep -q \"level-seed=$SEED\" /srv/block2/$POOL/server.properties && [ \$(( \$(date +%s) - T0 )) -ge 10 ]; then if sudo python3 - <<'PY'
+  W "set -e; sudo systemctl start block2@$POOL.service; T0=\$(date +%s); for i in \$(seq 1 90); do sleep 5; if sudo journalctl -u block2@$POOL.service --since \"-\$(( \$(date +%s) - T0 + 5 )) s\" --no-pager 2>/dev/null | grep -q 'Done ('; then if sudo python3 - <<'PY'
 import socket,struct,sys
 c=dict(l.split('=',1) for l in open('/srv/block2/$POOL/server.properties').read().splitlines() if '=' in l and not l.startswith('#'))
-s=socket.create_connection(('127.0.0.1',int(c['rcon.port'])),timeout=5)
+s=socket.create_connection(('127.0.0.1',int(c['rcon.port'])),timeout=5); s.settimeout(5)
+def rd(n):
+    d=b''
+    while len(d)<n:
+        x=s.recv(n-len(d))
+        if not x: raise SystemExit(2)
+        d+=x
+    return d
 def send(t,body):
-    p=struct.pack('<ii',1,t)+body.encode()+b'\x00\x00'; s.sendall(struct.pack('<i',len(p))+p); ln=struct.unpack('<i',s.recv(4))[0]; d=b''
-    while len(d)<ln: d+=s.recv(ln-len(d))
-    return d[8:-2].decode(errors='replace')
+    p=struct.pack('<ii',1,t)+body.encode()+b'\x00\x00'; s.sendall(struct.pack('<i',len(p))+p); ln=struct.unpack('<i',rd(4))[0]; return rd(ln)[8:-2].decode(errors='replace')
 send(3,c['rcon.password'].strip()); out=send(2,'list'); sys.exit(0 if 'players online' in out else 1)
 PY
-then echo \"server up after \$(( \$(date +%s) - T0 )) s\"; exit 0; fi; fi; done; echo 'server did not come up in 450 s'; exit 1" || exit 1
+then echo \"server up after \$(( \$(date +%s) - T0 )) s (Done from this invocation, RCON answers)\"; exit 0; fi; fi; done; echo 'server did not come up in 450 s'; exit 1" || exit 1
   mark server-up
 fi
 # ---- stage 3: the town, then pregeneration
 if ! done_stage town-placed; then
   W "set -e; cd ~/scripts && sudo python3 place-town.py $POOL" | tee ~/mcai-analysis/reseed-$POOL-town-$TS.txt || { echo "place-town failed; see the log; the marker must not exist before a re-run (place-town refuses a second stamp)"; exit 1; }
-  W "sudo test -f /srv/block2/$POOL/TOWN-PLACED.json && sudo python3 -c \"import json; d=json.load(open('/srv/block2/$POOL/TOWN-PLACED.json')); assert d['arm']=='$POOL'; print('home', *d['home'], 'board', *d['board'], 'border', d.get('border_radius'))\"" | tee -a ~/mcai-analysis/reseed-$POOL-town-$TS.txt
+  W "sudo test -f /srv/block2/$POOL/TOWN-PLACED.json && sudo find /srv/block2/$POOL/TOWN-PLACED.json -newer /srv/block2/$POOL/server.properties | grep -q . && sudo python3 -c \"import json; d=json.load(open('/srv/block2/$POOL/TOWN-PLACED.json')); assert d['arm']=='$POOL' and d['siting']['chosen']; print('home', *d['home'], 'board', *d['board'], 'border', d.get('border_radius'), 'site', *d['siting']['chosen'])\"" | tee -a ~/mcai-analysis/reseed-$POOL-town-$TS.txt || { echo "town record missing, stale, or without a chosen site"; exit 1; }
+  grep -qi "warn\|!!\|failed" ~/mcai-analysis/reseed-$POOL-town-$TS.txt && echo "NOTE: place-town printed warnings; read ~/mcai-analysis/reseed-$POOL-town-$TS.txt before trusting the town" || true
   mark town-placed
 fi
 if ! done_stage pregen; then
@@ -90,14 +99,32 @@ fi
 if ! done_stage envs; then
   REC=$(W "sudo python3 -c \"import json; d=json.load(open('/srv/block2/$POOL/TOWN-PLACED.json')); print(*d['home'], *d['board'], d.get('border_radius') or '')\"")
   read -r HX HY HZ BX BY BZ BR <<<"$REC"; echo "new home $HX $HY $HZ board $BX $BY $BZ border ${BR:-unchanged}"
+  PORT=$(W "sudo grep -oP '(?<=^server-port=)[0-9]+' /srv/block2/$POOL/server.properties")
   for b in $BOTS; do
-    B "set -e; F=/srv/mcbots/harness/env/$b.env; sudo sed -i 's/^HOME_X=.*/HOME_X=$HX/; s/^HOME_Y=.*/HOME_Y=$HY/; s/^HOME_Z=.*/HOME_Z=$HZ/; s/^BOARD_X=.*/BOARD_X=$BX/; s/^BOARD_Y=.*/BOARD_Y=$BY/; s/^BOARD_Z=.*/BOARD_Z=$BZ/' \$F; sudo grep -q '^HOME_X=$HX\$' \$F && sudo grep -q '^HOME_Z=$HZ\$' \$F && sudo grep -q '^BOARD_X=$BX\$' \$F; [ -z '$BR' ] || sudo grep -q '^WORLD_BORDER_RADIUS=$BR\$' \$F || echo \"WARN: WORLD_BORDER_RADIUS differs from the record for $b\"; echo \"$b ok\"" || { echo "env rewrite failed for $b"; exit 1; }
+    B "set -e; F=/srv/mcbots/harness/env/$b.env; for kv in HOME_X=$HX HOME_Y=$HY HOME_Z=$HZ BOARD_X=$BX BOARD_Y=$BY BOARD_Z=$BZ; do k=\${kv%%=*}; if sudo grep -q \"^\$k=\" \$F; then sudo sed -i \"s/^\$k=.*/\$kv/\" \$F; else echo \"\$kv\" | sudo tee -a \$F >/dev/null; fi; sudo grep -q \"^\$kv\$\" \$F; done; sudo grep -q '^MINECRAFT_PORT=$PORT\$' \$F; [ -z '$BR' ] || sudo grep -q '^WORLD_BORDER_RADIUS=$BR\$' \$F; echo '$b ok'" || { echo "env rewrite/verify failed for $b (six coordinates, port $PORT, border ${BR:-n/a})"; exit 1; }
   done
   mark envs "$HX $HY $HZ"
 fi
 if ! done_stage bots-started; then
   for b in $BOTS; do B "sudo systemctl start mcbot@$b.service"; sleep 12; done
-  sleep 20; B "systemctl list-units 'mcbot@$POOL-*' --no-legend --plain | awk '{print \$1, \$4}'"
+  for i in $(seq 1 24); do sleep 10; ON=$(W "sudo python3 -" <<'PY'
+import socket,struct,re
+c=dict(l.split('=',1) for l in open('/srv/block2/'+"$POOL"+'/server.properties').read().splitlines() if '=' in l and not l.startswith('#'))
+s=socket.create_connection(('127.0.0.1',int(c['rcon.port'])),timeout=5); s.settimeout(5)
+def rd(n):
+    d=b''
+    while len(d)<n:
+        x=s.recv(n-len(d))
+        if not x: raise SystemExit(2)
+        d+=x
+    return d
+def send(t,body):
+    p=struct.pack('<ii',1,t)+body.encode()+b'\x00\x00'; s.sendall(struct.pack('<i',len(p))+p); ln=struct.unpack('<i',rd(4))[0]; return rd(ln)[8:-2].decode(errors='replace')
+send(3,c['rcon.password'].strip()); out=re.sub('§.','',send(2,'list')); m=re.search(r'There are (\d+)',out); print(m.group(1) if m else 0)
+PY
+); [ "${ON:-0}" = 5 ] && break; done
+  [ "${ON:-0}" = 5 ] || { echo "only $ON of 5 bots joined $POOL within 4 min; inspect before marking"; exit 1; }
+  B "systemctl list-units 'mcbot@$POOL-*' --no-legend --plain | awk '{print \$1, \$4}'"; echo "5/5 in the world"
   mark bots-started
 fi
 # ---- stage 5: the registration record
