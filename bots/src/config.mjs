@@ -152,7 +152,9 @@ export const config = {
   reflex: {
     // THE ACTUATOR ARBITER (movement owner step 0). Off by default; the recovery
     // ladder canary and the corpus turn it on with ARBITER=1. See src/arbiter.mjs.
-    arbiter: req('ARBITER', '0') === '1',
+    arbiter: req('ARBITER', '0') === '1' || req('OWNER', '0') === '1',   // the owner cannot run without the arbiter
+    // THE MOVEMENT OWNER (step 1): entombed episodes run under one owner; off by default; the corpus and the owner canary turn it on with OWNER=1. See src/owner.mjs.
+    owner: req('OWNER', '0') === '1',
     tickMs: Number(req('REFLEX_TICK_MS', '500')),
     eatBelowFood: Number(req('EAT_BELOW_FOOD', '16')),
     fleeBelowHealth: Number(req('FLEE_BELOW_HEALTH', '8')),
