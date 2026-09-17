@@ -9,13 +9,15 @@ const once = (s, needle, where) => { const n = s.split(needle).length - 1; asser
 t('the last planned path is kept from every accepted path_update, with the active profile, and read at a death after a fall and at fall damage', () => {
   once(idx, "lastPlannedPath = { t: Date.now(), status: r.status, active: true, profile: bot.movementProfile ?? 'walk', goal, nodes: nodes.length,", 'index')
   assert.ok(idx.indexOf("lastPlannedPath = { t: Date.now(), status: r.status, active: true") > idx.indexOf("the leg is refused`, snapshot: snapshot(bot) }) }\n          return\n        }"), 'captured only after the corridor guard accepted the route')
-  once(idx, "if (lastPlannedPath?.active) { lastPlannedPath.active = false; lastPlannedPath.endedBy = `reset:${reason}`", 'index')
+  once(idx, "markPathEnded(lastPlannedPath, `reset:${reason}`)", 'index'); once(idx, "bot.on('goal_reached', () => { markPathEnded(lastPlannedPath, 'goal_reached') })", 'index'); once(idx, "bot.on('path_stop', () => { markPathEnded(lastPlannedPath, 'path_stop') })", 'index')
+  once(idx, "if (descentOnset == null && peakY - y > 2 && !bot.entity?.onGround) descentOnset = { t: Date.now(), pathActive: !!(bot.lastPlannedPath?.()?.active) }", 'index')
+  once(idx, "descentAt: descentOnset?.t ?? null, pathActiveAtDescent: descentOnset ? descentOnset.pathActive : null,", 'index')
   once(idx, "drops: pathDropProfile(nodes, (x, y, z) => bot.blockAt(new Vec3(x, y, z)), { maxDrop: mv?.maxDropDown ?? 4 })", 'index')
   once(idx, "if (fell != null && fell > 3) fallRecord(bot, runner, fell, 'death', { cause: deathClass(cause) })", 'index')
   once(idx, "fallRecord(bot, runner, Math.round(peakY - y), 'damage', { dHealth: Math.round((bot.health - prev) * 10) / 10 })", 'index')
   once(idx, "logEvent({ kind: 'fall_path', status: kind === 'death' ? 'failed' : 'no_effect',", 'index')
   assert.ok(idx.indexOf("fallRecord(bot, runner, fell, 'death'") < idx.indexOf('const lost = inventorySummary(bot)'), 'the record is taken before the inventory summary, while the position is the death position')
-  once(idx, "catch { try { logEvent({ kind: 'fall_path', status: 'failed', detail: detail.slice(0, 290) }) } catch {", 'index')
+  once(idx, "catch { try { logEvent({ kind: 'fall_path', status: 'failed', detail }) } catch {", 'index')
 })
 t('every movement profile names itself and every helper restores the walk profile with the walk movements', () => {
   for (const [h, n] of [['gatherMoves', 'gather'], ['ascendMoves', 'ascend'], ['descendMoves', 'descend'], ['waterMoves', 'water']]) once(idx, `bot.pathfinder.setMovements(${h}); bot.movementProfile = '${n}'`, 'index')

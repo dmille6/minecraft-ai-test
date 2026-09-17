@@ -7,7 +7,7 @@
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
-import { pathDropProfile, describeFallPath } from './fallpath.mjs'
+import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
 import pathfinderPkg from 'mineflayer-pathfinder'
@@ -50,6 +50,7 @@ let lessons = null
 let watchdog = null
 let lastDeathCause = null      // the server's own words, e.g. "fell from a high place"
 let peakY = null               // highest point in the recent past, for fall distance
+let descentOnset = null        // {t, pathActive} when the bot first left its peak by > 2 blocks off the ground; cleared on a new peak
 let stopDeathWatch = null
 let peakTimer = null
 // A death record with no story is a puzzle, not evidence. The old one said
@@ -108,13 +109,16 @@ function fallRecord(bot, runner, fell, kind, { cause = null, dHealth = null } = 
   lastFallRecordAt = Date.now()
   let detail
   try {
-    const last = bot.lastPlannedPath?.() ?? null
-    const ctl = bot.controlState ? Object.entries(bot.controlState).filter(([, v]) => v).map(([k]) => k).join('+') || 'none' : '?'
-    const pos = bot.entity?.position; const feet = pos ? bot.blockAt(pos)?.name : '?'; const head = pos ? bot.blockAt(pos.offset(0, 1, 0))?.name : '?'
-    detail = `${kind}${cause ? ` (${cause})` : ''}: peak-to-here ${fell} blocks${dHealth != null ? `, health ${dHealth}` : ''}${runner?.current?.skill ? ` running ${runner.current.skill}` : ' idle'}; controls ${ctl}; feet ${feet} head ${head}; ${describeFallPath(last)}`
+    const pos = bot.entity?.position
+    detail = composeFallRow({ kind, cause, fell, dHealth, last: bot.lastPlannedPath?.() ?? null,
+      descentAt: descentOnset?.t ?? null, pathActiveAtDescent: descentOnset ? descentOnset.pathActive : null,
+      skill: runner?.current?.skill ?? null,
+      controls: bot.controlState ? Object.entries(bot.controlState).filter(([, v]) => v).map(([k]) => k).join('+') || 'none' : '?',
+      feet: pos ? (bot.blockAt(pos)?.name ?? '?') : '?', head: pos ? (bot.blockAt(pos.offset(0, 1, 0))?.name ?? '?') : '?' })
   } catch (e) { detail = `${kind}: peak-to-here ${fell} blocks; record failed: ${String(e?.message ?? e).slice(0, 60)}` }
-  try { logEvent({ kind: 'fall_path', status: kind === 'death' ? 'failed' : 'no_effect', detail: detail.slice(0, 290), snapshot: snapshot(bot) }) }
-  catch { try { logEvent({ kind: 'fall_path', status: 'failed', detail: detail.slice(0, 290) }) } catch { /* telemetry must never take the bot down */ } }
+  descentOnset = null
+  try { logEvent({ kind: 'fall_path', status: kind === 'death' ? 'failed' : 'no_effect', detail, snapshot: snapshot(bot) }) }
+  catch { try { logEvent({ kind: 'fall_path', status: 'failed', detail }) } catch { /* telemetry must never take the bot down */ } }
 }
 
 // Coarse buckets so deaths are aggregatable, with the verbatim cause kept in
@@ -781,8 +785,10 @@ function connect() {
     let deathSiteCrossLoggedAt = 0
     let lastPlannedPath = null
     bot.lastPlannedPath = () => lastPlannedPath
+    bot.on('goal_reached', () => { markPathEnded(lastPlannedPath, 'goal_reached') })
+    bot.on('path_stop', () => { markPathEnded(lastPlannedPath, 'path_stop') })
     bot.on('path_reset', (reason) => {
-      if (lastPlannedPath?.active) { lastPlannedPath.active = false; lastPlannedPath.endedBy = `reset:${reason}`; lastPlannedPath.endedAt = Date.now() }
+      markPathEnded(lastPlannedPath, `reset:${reason}`)
       pathResets[reason] = (pathResets[reason] ?? 0) + 1
       logEvent({ kind: 'path_reset', detail: reason, snapshot: snapshot(bot) })
     })
@@ -860,10 +866,15 @@ function connect() {
     peakTimer = setInterval(() => {
       const y = bot.entity?.position?.y
       if (y == null) return
-      if (peakY == null || y > peakY) peakY = y
-      // Decay toward current height so an old peak does not inflate a much
-      // later fall.
-      else peakY -= Math.min(0.35, (peakY - y) * 0.06)
+      if (peakY == null || y > peakY) { peakY = y; descentOnset = null }
+      else {
+        // DESCENT ONSET, for the fall record: the first second the bot is more than 2 blocks below its peak and not
+        // on the ground; whether a planned path was ACTIVE at that moment is the association evidence (Codex pass 2).
+        if (descentOnset == null && peakY - y > 2 && !bot.entity?.onGround) descentOnset = { t: Date.now(), pathActive: !!(bot.lastPlannedPath?.()?.active) }
+        // Decay toward current height so an old peak does not inflate a much
+        // later fall.
+        peakY -= Math.min(0.35, (peakY - y) * 0.06)
+      }
     }, 1000)
     attachCommands(bot, runner)
 
@@ -1007,7 +1018,7 @@ function connect() {
       startedAt: Date.now(), snapshot: snapshot(bot), trigger: 'death',
     })
     lastDeathCause = null
-    peakY = null
+    peakY = null; descentOnset = null
     runner.cancel('death')
     cognitive?.notify('death', 'died and respawned')
     // Respawn is automatic; clearing the failure budget avoids a death
