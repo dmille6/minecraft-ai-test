@@ -37,6 +37,7 @@ import { escapedFrom } from './recovery.mjs'
 import { holdForwardSafe, lavaStandOff } from './lavaguard.mjs'
 import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
+import { MovementOwner } from './owner-runtime.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1361,6 +1362,28 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let prevHealth = null
   const airSamples = []
   let escaping = false
+  // THE MOVEMENT OWNER (docs/movement-owner-design.md v3, step 1; docs/movement-owner-step1-plan.md v2). Built here
+  // because the rungs are this module's functions; attached to the runner beside its arbiter. Off unless OWNER=1.
+  // Step 1 routes the ENTOMBED arm only: its body becomes three rungs the owner runs one at a time under an episode.
+  if (config.reflex.owner && runner?.arb) {
+    const ownerRungs = {
+      pillar: async (b, { alive }) => {
+        const r = await pillarOut(b, climbNeedAbove(bmap(b), b.entity.position), { alive })
+        if (r === 'needs_blocks' || r === 'needs_pickaxe') return { outcome: 'refused', why: r }
+        if (r === 'preempted') return { outcome: 'preempted', why: r }
+        if (r === 'exhausted') return { outcome: 'failed', why: r }
+        return { outcome: r === false ? 'failed' : 'ran', why: String(r) }
+      },
+      stair: async (b, { alive }) => {
+        const st = await escapeStairUp(b, { yieldTo: () => (drowningOwnsBody() ? 'the air reflex owns the body' : alive() ? null : 'the owner lost the body') })
+        return st.steps > 0 ? { outcome: 'ran', why: `steps=${st.steps} breached=${st.breached} climbed=${st.climbed.toFixed(1)} stopped=${st.stopped}` } : { outcome: 'failed', why: `no step: ${st.stopped}` }
+      },
+      underfoot: async (b) => { const g = await harvestUnderfoot(b); return g.ok ? { outcome: 'ran', why: g.why ?? 'harvested underfoot' } : { outcome: 'failed', why: g.why ?? 'nothing underfoot' } },
+    }
+    runner.owner = new MovementOwner({ bot, arb: runner.arb, rungs: ownerRungs,
+      log: e => logEvent({ ...e, snapshot: snapshot(bot) }),
+      inventoryBlocks: () => (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0) })
+  }
   // Per-bot, not module-level: two bots entombed at once must not share a
   // cooldown or a failure count.
   let lastEscapeAt = 0
@@ -2793,6 +2816,23 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      detail: `walled in at y=${Math.round(bot.entity.position.y)}`,
                      snapshot: snapshot(bot) })
           log('error', 'reflex: entombed, pillaring out', { y: Math.round(bot.entity.position.y) })
+          if (config.reflex.owner && runner.owner) {
+            // THE OWNER ROUTE (step 1). The arm above is now a detector; every admission guard it had (escaping,
+            // marooned, climbing, inDanger, pocketing, pocketPending, the interval) is still in force, because this
+            // sits inside its gate. The owner runs pillar -> stair -> underfoot one at a time under an episode keyed
+            // to this cell, its own grant at escape priority, its own deadline; the legacy body below is untouched
+            // for the flag-off fleet. `return` lands in the finally that puts `escaping` down.
+            const pos = bot.entity.position
+            const key = `entombed:${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`
+            const here = () => { const q = bot.entity?.position; return q ? { x: q.x, y: q.y, z: q.z, wet: !!bot.entity?.isInWater } : null }
+            const blocks = (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0)
+            const tool = (bot.inventory?.items?.() ?? []).some(it => /_pickaxe$/.test(it.name))
+            const r = await runner.owner.assessAndRun({ cls: 'entombed', key, obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),
+              predicate: () => ({ entombed: isEntombed(bot), supported: !!bot.entity?.onGround }), snapshot: here })
+            if (r.result === 'closed') { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
+            else if (r.result === 'hold' || r.result === 'latched') lastEscapeAt = Date.now() + 60_000   // a minute; evidence re-opens the hold sooner
+            return
+          }
           entombedGrant = await takeBody(bot, runner, 'entombed', PRIORITY.escape)
           // Bracket the whole escape, not each helper: pillarOut may hand off to
           // digStraightUp partway through, and what matters is the net cost of
