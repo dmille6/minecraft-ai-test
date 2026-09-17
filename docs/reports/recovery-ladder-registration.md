@@ -319,3 +319,17 @@ The guard is now wired in, backward-compatibly: `drawrec.sh` takes an optional r
 ```
 
 Every requirement must be met: for a bundle, a half that cannot be exposed makes the whole canary unmeasurable. **The re-run of this bundle must declare `draw_exposure` and must not draw board-b, hive-b, board-c or placebo-d.** This is the third mechanical guard of the day, alongside `changerowcheck.py` and the containment branch, and it is what the exposure interlock (Codex audit 2026-09-11) asked for and nothing had implemented.
+
+### Decision: recovery-ladder-13c (b1659c0) — KEEP at +540, 20:36:59Z 17 Sep; promoted fleet-wide 20:46:52Z
+Deaths 0 on the canary (0.000/bh) against control 0.044/bh. **Exposure 33** sealed pocket verdicts (min 1). Ledger KEEP recorded before the manifest changed; `fleet-deploy b1659c0` fleet-wide. Third deploy of this bundle and its first real read — the two earlier runs were ended by the instrument, and v19 is why this one survived to be read.
+
+**A correction to my own guard, and it is not a small one.** At +360 this canary had **0** sealed verdicts in 60 bot-h. At +540 it had **33** — about 1.1/bot-h across the 30 bot-h in between, from a standing start. Pocket exposure on these pools is violently bursty, not low.
+
+`drawexposure.py` measured board-b and hive-b over the 6 h around the draw, found 0 sealed pockets and 0 deaths in each, and concluded they were the worst available pair and that the canary was "unmeasurable by construction". **The first half of that is a true statement about that window; the conclusion was wrong.** Had the guard been active and wired to the loop, **it would have refused the draw that produced this promotion.** That is a false positive with a concrete cost, on the guard's first real test.
+
+Consequences, prospective:
+- **The `draw_exposure` guard must NOT block a draw until it is calibrated.** v16 requires calibration of anything that can revert; blocking a draw is the same authority, and this guard's observed record is 1 refusal, 1 false positive. It stays a **REPORT** — print the per-pool table, never narrow `elig()` — until a calibration run establishes a lookback and `min` that would not have refused board-b,hive-b on 17 Sep.
+- **The 6-hour lookback is the specific defect.** It is far shorter than the burst period it is trying to predict. Calibration must sweep the window (6 / 12 / 24 h) and the thresholds against the historical draws whose exposure outcome is known (-13b: 23 rows in 15 bot-h on hive-a,board-a; -13c: 0 then 33 on board-b,hive-b; 1011b: 0 until +540 on hive-b,board-b — the same pools, the same late arrival, which should have warned me).
+- The earlier claim in this file that "board-b and hive-b were the only pair of eleven candidates scoring 0 on BOTH requirements" stands as a measurement. The inference drawn from it — that the draw was therefore wrong — does not.
+
+The registered extension is what actually saved this canary: it waited for exposure instead of judging at +360, and the amendment from KEEP_ON_SAFETY to INCONCLUSIVE never had to fire. Both were correct calls; the draw guard was not.
