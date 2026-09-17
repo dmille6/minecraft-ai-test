@@ -30,7 +30,7 @@ _updated 2026-09-17 11:45 UTC_
 3. **Gather/items drop on 1d6c97d** (30→22%, 15.2→6.5/bh) — read properly by DiD, not before/after.
 4. **FALLS analysis** — path log at every fall (executed path's drop, movement profile); test the `infiniteLiquidDropdownDistance` hypothesis. Explore, 35 blocks median.
 5. **Pocket-rung block floor** — need+4 with 5 held; plan the exit geometry (deaths-review §4(b); both reviews said need+1 cannot fund a side exit).
-6. **Ledger note defect** — the loop composes its ledger note by re-running `verdict.py` at the read loop's last M, so -13 and -13b both recorded a generic "VERDICT UNREADABLE (+N)" instead of why they were reverted. Cost two post-hoc reconstructions; make the note say the reason.
+6. **Ledger note defect — FIXED in the repo, NOT YET ON THE HOST.** The loop composed its ledger note by re-running `verdict.py` at the read loop's last M, so -13 and -13b both recorded a generic "VERDICT UNREADABLE (+N)" instead of why they were reverted (two post-hoc reconstructions). `scripts/canary-loop.sh` now keeps the verdict line that actually set FINAL (`FINALV`) and uses it for the note. **Install to `~/canary-loop.sh` on .31 only AFTER the -13c loop exits** — bash re-reads a running script by byte offset, so editing it in place while the loop runs can corrupt execution (the same hazard as the deploy script). Copy: `scp scripts/canary-loop.sh mike@10.0.0.31:~/canary-loop.sh` once `pgrep -f canary-loop` is empty, then `bash -n ~/canary-loop.sh`.
 7. **POOLING rule -12** (iron; docs/reports/pooling-rule-design.md v3; build NOT started — no worktree has it), then iron supply.
 
 ## Standing wake-ups

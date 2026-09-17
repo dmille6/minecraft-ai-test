@@ -41,23 +41,23 @@ DECL=$(mf declared_at); T0=$(python3 -c "import datetime as dt; print(int(dt.dat
 READS=$(python3 -c "import json; r=json.load(open('$REG')); m=r['read_minutes']+ (r.get('extension',{}).get('extra_reads',[]) if r.get('extension',{}).get('until_exposure') else []); print(' '.join(str(x) for x in sorted(m)))")
 SCRIPTS=$(python3 -c "import json; print(' '.join(json.load(open('$REG'))['reads']))"); DEADLINE=$(jf deadline_min); [ -n "$DEADLINE" ] || DEADLINE=780
 # ---- phase READS: at each registered minute run the scripts, then verdict.py; death poll every 5 min in between
-FINAL=""
+FINAL=""; FINALV=""
 for M in $READS; do
   grep -q "\"run\":\"$RUN\".*\"phase\":\"read-$M\"" $J 2>/dev/null && { echo "read +$M already done"; continue; }   # scoped to THIS run: the unscoped grep matched the previous run and skipped every read (16 Sep 22:25Z)
   while [ $(( $(date +%s) - T0 )) -lt $(( M * 60 )) ]; do
     sleep 300
     V=$(python3 $H/verdict.py $RUN 0 --poll 2>/dev/null | tail -1)   # a poll-mode verdict: only the linkage and death-gate checks
-    case "$V" in *REVERT*) journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; break 2;; esac
-    if [ $(( $(date +%s) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; break 2; fi
+    case "$V" in *REVERT*) journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; FINALV="$V"; break 2;; esac
+    if [ $(( $(date +%s) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; FINALV="deadline +$DEADLINE reached without a verdict (containment)"; break 2; fi
   done
   for s in $SCRIPTS; do (cd /opt/minecraft-ai/scripts && timeout 900 python3 /tmp/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1); done
   V=$(python3 $H/verdict.py $RUN $M | tail -1); journal "read-$M" "$V"
-  case "$V" in *REVERT*|*KEEP*|*INCONCLUSIVE*) FINAL=$(echo "$V" | awk '{print $2}'); page verdict "$V"; break;; *UNREADABLE*) page error "$V (HOLD: death poll continues)";; *WATCH*) page flag "$V";; *) echo "$V";; esac
+  case "$V" in *REVERT*|*KEEP*|*INCONCLUSIVE*) FINAL=$(echo "$V" | awk '{print $2}'); FINALV="$V"; page verdict "$V"; break;; *UNREADABLE*) page error "$V (HOLD: death poll continues)";; *WATCH*) page flag "$V";; *) echo "$V";; esac
 done
 [ -n "$FINAL" ] || { journal end "no final verdict"; page error "loop ended without a verdict"; exit 2; }
 # ---- phase ACT
 if [ "$NOACT" = "--no-act" ]; then echo "would act: $FINAL"; exit 0; fi
-NOTE="$RUN: $(python3 $H/verdict.py $RUN $M | tail -1) (canary loop)"; P=$(mf canary_pool)
+NOTE="$RUN: ${FINALV:-$(python3 $H/verdict.py $RUN $M | tail -1)} (canary loop)"; P=$(mf canary_pool)
 case "$FINAL" in
   KEEP)
     [ "$(jf promotion)" = "fleet-wide" ] || { page error "KEEP but the registration does not allow fleet-wide promotion"; exit 2; }
