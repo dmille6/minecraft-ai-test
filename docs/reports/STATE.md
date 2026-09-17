@@ -1,5 +1,5 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-17 12:12 UTC_
+_updated 2026-09-17 12:50 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds. Baseline **1d6c97d** (= 08a3da2 + flooded-pocket rung with step 4b + canopy drop measure; promoted 18:13Z 16 Sep). main = 1d6c97d; previous mains: main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Verified 11:20Z 17 Sep after the -13b teardown: 80/80 on 1d6c97d, one version live.
@@ -26,6 +26,12 @@ _updated 2026-09-17 12:12 UTC_
   2. **At read time**, `license_change_rows()` in `verdict.py`: a row licenses a REVERT only if (a) no CONTROL death in the window carries it and (b) it has been seen on the canary away from a death. Pure function; behavioural test `scripts/test_license_change_rows.py` (5 cases, incl. "a discriminating row still fires"); mutant-killed.
   3. **The single-death rung-linkage override is demoted to a reported WATCH** — it bypassed the owner's two-death gate, was never calibrated, and went 3-for-3 false positive. Real harm still reverts via the death gate, v15c, v11, deposit, and a discriminating change row.
   - Replay proof: the exact -13b poll returns POLL_OK under v19 and REVERT under the old code.
+
+## Build work in flight (17 Sep, evening operator session; two-engine reviewed; nothing deployed)
+- **Falls instrument** — branch `falls-path-log` (worktree ~/Documents/mcai-falls, on 1d6c97d): a `fall_path` row at every fall death and candidate fall injury with what the planner had asked for (max drop, drops beyond the live maxDropDown, plan-time landing cells water/lava/solid/air/unknown, whether a path was active at descent onset). Two Codex passes folded; review closed. Read script ~/mcai-analysis/fallread.py (mirrored to /tmp on .31). Report-only instrument: canary it bundled with the next behaviour change or alone under the v19 rules; no own REVERT line.
+- **Movement owner, step 0 (prerequisite)** — branch `movement-owner-1` (worktree ~/Documents/mcai-owner, on 1d6c97d): the five actuator-gate commits from recovery-ladder reconciled by hand (index.mjs kept the baseline's gate install and call-site helper; reflex.mjs keeps lava guard 2 inside the air-grant wrapper). Plan v2 in docs/movement-owner-step1-plan.md (Codex pass folded: attributed contextless callers, lava as a hazard acquirer, enforced budgets, per-strategy exhaustion, read rule). Next gate: full suite green and a sandbox boot with ARBITER=1 before any owner code.
+- **Seed canary runbook** — scripts/reseed-pool.sh (v3 after two Codex passes; journaled, resumable, dry-run by default; the reseed-plus-reset confound is registered in docs/reports/seed-canary-registration.md). Run supervised after the -13c verdict: `bash scripts/reseed-pool.sh <pool> --go` for two drawn pools.
+- **keepInventory=true on every world** (verified over RCON; deliberate in place-town.py): recorded in the progress evaluation, the brief and memory. Deaths cost time, not items. The owner decides whether it stays.
 
 ## Queue (histogram order)
 1. **-13c verdict** (today). While it is deployed and unread, no new analysis starts.
