@@ -58,6 +58,16 @@ done
 # ---- phase ACT
 if [ "$NOACT" = "--no-act" ]; then echo "would act: $FINAL"; exit 0; fi
 NOTE="$RUN: ${FINALV:-$(python3 $H/verdict.py $RUN $M | tail -1)} (canary loop)"; P=$(mf canary_pool)
+# Containment for any verdict with no act branch. KEEP_ON_SAFETY is the live example: it
+# matches *KEEP* in the read case above, so the loop stops reading and exits -- but it matched
+# NEITHER branch below, so the loop recorded no ledger decision, neither promoted nor tore
+# down, and left a DEPLOYED canary with the loop gone: an open loop found only the next
+# morning. It never fired because 1011b reached exposure at +540. Contain as INCONCLUSIVE,
+# which records and tears down, and is what the exposure interlock asks for on zero exposure.
+case "$FINAL" in
+  KEEP|REVERT|INCONCLUSIVE) ;;
+  *) page error "verdict '$FINAL' has no promotion path; containing as INCONCLUSIVE and tearing down"; journal contained "$FINAL -> INCONCLUSIVE"; FINAL=INCONCLUSIVE ;;
+esac
 case "$FINAL" in
   KEEP)
     [ "$(jf promotion)" = "fleet-wide" ] || { page error "KEEP but the registration does not allow fleet-wide promotion"; exit 2; }

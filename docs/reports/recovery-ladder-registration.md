@@ -268,3 +268,19 @@ Carried to the queue, not fixed here: the ledger note text is still composed by 
 
 ## v19 registration — recovery-ladder-13c = the same bundle, b1659c0, unmodified; registered 11:40Z 17 Sep
 `change_rows` = `death_site_route_crossed`, `explore_target_skipped_death_site`; `linkage_extra` = `death_site_route_crossed`. `flooded_pocket_rung` and `flooded_pocket_side_exit` remain REPORT lines in pocketread and are no longer linkage or change rows. Everything else as v17/v18. Preflight passed (both declared rows silent on the baseline; positive control 181,937 rows / 80 bots / 108 kinds). DRAW at 11:30Z → POOLS = board-b,hive-b. Deployed `b1659c0`, declared_at 2026-09-17T11:30:00.890741Z. Reads +30/+90/+180/+360 (12:00, 13:00, 14:30, 17:30Z), extension to +540/+720 until a sealed verdict, deadline +780 (00:30Z 18 Sep).
+
+### v19 amendment, written BEFORE the read — recovery-ladder-13c `final_on_zero_exposure`: KEEP_ON_SAFETY → INCONCLUSIVE (14:45Z 17 Sep)
+At +180 the canary had **0 sealed pocket verdicts in 30 canary bot-h**. The zero is real, not a query bug: pocketread's own positive control is 133,868 rows / 13 deaths / 36 sealed verdicts, canary *pre* had 2, and control *post* had 20 in 150 bot-h. On board-b,hive-b, reaching exposure by +720 is a live possibility rather than a certainty.
+
+Two rules collided, and the collision had to be settled before the read (the exposure interlock: *"an amendment is written before the read, never in the launch note"*).
+
+- **v13 regression rule → `KEEP_ON_SAFETY`**: promote a change that is safe but unexposed, and read the mechanism fleet-wide after promotion.
+- **Exposure interlock (Codex audit 2026-09-11, owner-adopted) →** *"Zero exposure at the read → INCONCLUSIVE; revert to free the slot or reselect"*, and *"registered gates are not relaxed at launch"*. It was adopted **precisely because** a zero-exposure canary had been promoted on precedent and the audit called that an unvalidated rollout.
+
+The later, audit-driven rule governs. `final_on_zero_exposure` is amended to `INCONCLUSIVE` (backup `recovery-ladder-13c.json.bak` on .31). Effective immediately: `verdict.py` re-reads the registration at every read, so no running process had to be touched.
+
+**A loop bug fell out of the same check, and it is the more serious half.** `KEEP_ON_SAFETY` matches `*KEEP*` in the read case — so the loop breaks out of the read schedule and exits — but it matched **neither** branch of the ACT case (`KEEP)` and `REVERT|INCONCLUSIVE)` are exact patterns). It would therefore have recorded **no ledger decision**, neither promoted nor torn down, and left a deployed canary on ten bots with the loop process gone: an `OpenLoop` discovered the next morning, which is the one failure the whole loop exists to prevent. It has never fired only because 1011b reached exposure at +540.
+
+Fixed in `scripts/canary-loop.sh`: any verdict with no act path is contained as INCONCLUSIVE (paged, journaled, ledger-recorded, three-step teardown). Verified by enumeration — KEEP → promote; REVERT/INCONCLUSIVE/KEEP_ON_SAFETY/any unknown → record + teardown; nothing reaches "do nothing". **Not installed on the host yet:** the -13c loop is running from `~/canary-loop.sh` and bash re-reads a running script by byte offset, so it installs after the loop exits (STATE.md carries the step).
+
+**Standing gap, queued not fixed:** the draw bands pools on activity, not on the exposure the change under test needs, so a pocket-rung canary can be unmeasurable by construction — exposure ran 23 rows in 15 bot-h on hive-a,board-a and 0 in 30 bot-h here. The interlock's pre-deploy eligibility snapshot (≥ 2 currently-eligible bots and enough recent opportunity to reach the registered sample in 90 min) is not wired into `drawrec.sh`. It should be, as the third mechanical guard alongside `changerowcheck.py`.
