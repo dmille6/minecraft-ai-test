@@ -284,3 +284,38 @@ The later, audit-driven rule governs. `final_on_zero_exposure` is amended to `IN
 Fixed in `scripts/canary-loop.sh`: any verdict with no act path is contained as INCONCLUSIVE (paged, journaled, ledger-recorded, three-step teardown). Verified by enumeration — KEEP → promote; REVERT/INCONCLUSIVE/KEEP_ON_SAFETY/any unknown → record + teardown; nothing reaches "do nothing". **Not installed on the host yet:** the -13c loop is running from `~/canary-loop.sh` and bash re-reads a running script by byte offset, so it installs after the loop exits (STATE.md carries the step).
 
 **Standing gap, queued not fixed:** the draw bands pools on activity, not on the exposure the change under test needs, so a pocket-rung canary can be unmeasurable by construction — exposure ran 23 rows in 15 bot-h on hive-a,board-a and 0 in 30 bot-h here. The interlock's pre-deploy eligibility snapshot (≥ 2 currently-eligible bots and enough recent opportunity to reach the registered sample in 90 min) is not wired into `drawrec.sh`. It should be, as the third mechanical guard alongside `changerowcheck.py`.
+
+### The -13c draw picked the two worst pools available, and the draw could not have known (17:45Z 17 Sep)
+At +360 the canary had **60 bot-h, 0 deaths, 0 sealed pockets, 0 rung rows, 0 `death_site_recorded`, 0 `route_crossed`, 0 `target_skipped`**. That is not a null result. **Neither half of the bundle acted even once**, so nothing was measured.
+
+I first suspected the treatment was working — fewer sealings because the death-site pricing steers bots out of drowning terrain. It cannot be. The death-site machinery needs a recorded death to price a route away from, and the canary has had **zero deaths since the cutoff**, so `death_site_recorded` is 0 and the -13b half has never run. And the rung fires *after* a pocket is detected; it does not prevent sealing. The zero is quiet terrain, not effect.
+
+**Root cause: `drawrec.sh` bands pools on activity and then applies one hard-coded exposure filter — "≥ 20 entombed+marooned rows OR ≥ 8 livelock_escape rows in the prior 3 h" — written for recovery-ladder-01 and reused unchanged for every canary since.** It is a good filter for an escape-ladder change and blind to every other mechanism. board-b and hive-b are rich in livelock and climb rows, which is exactly why they were drawn.
+
+`scripts/drawexposure.py` (new) takes the requirement from the run's own registration and counts it per pool. Run over the 6 h around the draw (positive control 180,625 rows / 80 bots / 105 kinds):
+
+| pool | sealed pockets (min 2) | deaths (min 1) | eligible |
+|---|---|---|---|
+| board-a | 7 | 2 | **yes** |
+| **board-b** | **0** | **0** | **no** |
+| board-c | 0 | 0 | no |
+| board-d | 1 | 0 | no |
+| hive-a | 6 | 1 | **yes** |
+| **hive-b** | **0** | **0** | **no** |
+| hive-c | 1 | 2 | no |
+| hive-d | 7 | 2 | **yes** |
+| placebo-a | 1 | 0 | no |
+| placebo-b | 1 | 1 | no |
+| placebo-d | 0 | 0 | no |
+
+**board-b and hive-b are the only pair among eleven candidates scoring zero on both requirements.** The draw selected exactly them. board-a and hive-a — where -13b reached exposure 23 in 15 bot-h — qualify comfortably, which is an independent check that the metric tracks the exposure actually observed.
+
+The guard is now wired in, backward-compatibly: `drawrec.sh` takes an optional run_id and, when that registration declares a `draw_exposure` block, narrows the eligible list to pools that can expose *that* change; with no run_id it behaves exactly as before. `canary-loop.sh` passes `$RUN` (repo copy — installs with the other two loop fixes once the -13c loop exits).
+
+```json
+"draw_exposure": {"hours": 6, "require": [
+  {"name": "sealed pocket", "kind": "drowning_ceiling_no_air", "detail_contains": "sealed", "min": 2},
+  {"name": "death", "kind": "death", "min": 1}]}
+```
+
+Every requirement must be met: for a bundle, a half that cannot be exposed makes the whole canary unmeasurable. **The re-run of this bundle must declare `draw_exposure` and must not draw board-b, hive-b, board-c or placebo-d.** This is the third mechanical guard of the day, alongside `changerowcheck.py` and the containment branch, and it is what the exposure interlock (Codex audit 2026-09-11) asked for and nothing had implemented.
