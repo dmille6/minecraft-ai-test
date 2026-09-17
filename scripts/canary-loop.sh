@@ -12,6 +12,20 @@ page() { printf '{"ts":"%s","run":"%s","level":"%s","msg":%s}\n' "$(date -u +%FT
 lastphase() { grep "\"run\":\"$RUN\"" $J 2>/dev/null | tail -1 | python3 -c "import sys,json; l=sys.stdin.read().strip(); print(json.loads(l)['phase'] if l else 'none')"; }
 SHA=$(jf sha); [ -n "$SHA" ] || { page error "registration $RUN has no sha"; exit 2; }
 PH=$(lastphase); echo "loop $RUN sha $SHA resumes from phase: $PH"
+# ---- v19 preflight, BEFORE the draw: a declared change/linkage row that the BASELINE already
+# emits cannot show the change acted on the bot that died, yet it licenses a REVERT from a
+# single death. Two canaries were lost to exactly that (-13 `death_site_recorded`, a row the
+# death handler writes; -13b `flooded_pocket_rung`, which is fleet-wide on 1d6c97d and which a
+# CONTROL death carried at 00:01:45 while -13b was being reverted for it). Refuse the
+# registration here -- before the draw, before the deploy, before three hours of fleet time.
+if [ "$(mf canary_code_version)" != "$SHA" ]; then
+  if ! sudo python3 $H/mcai-analysis/changerowcheck.py "$RUN" --hours 6 --registrations $H/mcai-analysis/registrations > $H/digest/changerowcheck-$RUN.log 2>&1; then
+    page error "change-row preflight REFUSED $RUN; not drawing or deploying. $(grep -A3 '^REFUSED' $H/digest/changerowcheck-$RUN.log | tail -3 | tr '\n' ' ')"
+    journal preflight-refused "$(tail -5 $H/digest/changerowcheck-$RUN.log | tr '\n' ' ')"
+    exit 2
+  fi
+  journal preflight-ok "$(grep 'positive control' $H/digest/changerowcheck-$RUN.log)"
+fi
 # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
@@ -29,7 +43,7 @@ SCRIPTS=$(python3 -c "import json; print(' '.join(json.load(open('$REG'))['reads
 # ---- phase READS: at each registered minute run the scripts, then verdict.py; death poll every 5 min in between
 FINAL=""
 for M in $READS; do
-  grep -q "\"phase\":\"read-$M\"" $J 2>/dev/null && { echo "read +$M already done"; continue; }
+  grep -q "\"run\":\"$RUN\".*\"phase\":\"read-$M\"" $J 2>/dev/null && { echo "read +$M already done"; continue; }   # scoped to THIS run: the unscoped grep matched the previous run and skipped every read (16 Sep 22:25Z)
   while [ $(( $(date +%s) - T0 )) -lt $(( M * 60 )) ]; do
     sleep 300
     V=$(python3 $H/verdict.py $RUN 0 --poll 2>/dev/null | tail -1)   # a poll-mode verdict: only the linkage and death-gate checks

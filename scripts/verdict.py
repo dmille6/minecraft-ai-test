@@ -4,6 +4,32 @@
 # registration's own lines and exposure, and prints ONE verdict: NOT_YET | KEEP | REVERT | WATCH | INCONCLUSIVE |
 # UNREADABLE | KEEP_ON_SAFETY. Writes ~/digest/reads/<run_id>-verdict-<M>.json. Never edits a rule.
 import sys, json, os, glob, gzip, hashlib, datetime as dt, collections
+
+
+def license_change_rows(changerow, away, ctrl_at_death):
+    """Which change rows in a canary death window may license a REVERT (v19).
+
+    Pure, so it can be tested; the inline version of this could only ever be checked by
+    burning a canary, and three were. A row licenses a REVERT only when it DISCRIMINATES:
+
+      refused if the row appears in a CONTROL death window   -- it is baseline behaviour,
+          not the change acting (recovery-ladder-13b, `flooded_pocket_rung`)
+      refused if the row was never seen AWAY from a death     -- it may be written by the
+          death itself (recovery-ladder-13, `death_site_recorded`)
+
+    Returns (licensed, refused).
+    """
+    licensed, refused = [], []
+    for b, tt, ch, d in changerow:
+        for row in ch:
+            if row in ctrl_at_death:
+                refused.append(f'{row}: control deaths carry it too, so it is baseline behaviour')
+            elif row not in away:
+                refused.append(f'{row}: never seen away from a death, so it may be written by the death')
+            else:
+                licensed.append((b, tt, row, d))
+    return licensed, refused
+
 run_id, M = sys.argv[1], int(sys.argv[2]); DRY = '--dryrun' in sys.argv; POLL = '--poll' in sys.argv
 R = os.path.expanduser('~/digest/reads'); REG = os.path.expanduser(f'~/mcai-analysis/registrations/{run_id}.json')
 if not os.path.exists(REG): REG = f'/tmp/registrations/{run_id}.json'
@@ -38,21 +64,24 @@ if not POLL:
 # 3. rung-linked deaths (the death poll's rule, recomputed here from the pools' logs since declared_at)
 M_LIST = set('entombed marooned maroon_wall entombed_ramp_cut marooned_ramp_cut livelock_escape pillar_no_gain stuck unstick_oscillation'.split()) | set(reg.get('linkage_extra', []))
 C_ROWS = set(reg.get('change_rows', []))
-linked = []; changerow = []; ndeaths = 0
+linked = []; changerow = []; ndeaths = 0; pending_watch = []; by = {}
 if not DRY:
     cut = man['declared_at'][:19]; pools = [p.strip() for p in str(man['canary_pool']).split(',')]
-    by = collections.defaultdict(list)
-    for pool in pools:
-        for f in glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl') + glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl-*.gz'):
-            op = gzip.open if f.endswith('.gz') else open
-            try:
-                with op(f, 'rt', errors='replace') as fh:
-                    for l in fh:
-                        if cut[:10] not in l[:60] and dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d') not in l[:60] and '"_death"' not in l: continue
-                        try: r = json.loads(l)
-                        except Exception: continue
-                        by[r['bot']['name']].append((r['@timestamp'], (r.get('skill') or {}).get('name', ''), ((r.get('skill') or {}).get('detail') or '')[:70]))
-            except Exception: pass
+    def _scan(poollist):
+        d = collections.defaultdict(list)
+        for pool in poollist:
+            for f in glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl') + glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl-*.gz'):
+                op = gzip.open if f.endswith('.gz') else open
+                try:
+                    with op(f, 'rt', errors='replace') as fh:
+                        for l in fh:
+                            if cut[:10] not in l[:60] and dt.datetime.now(dt.timezone.utc).strftime('%Y-%m-%d') not in l[:60] and '"_death"' not in l: continue
+                            try: r = json.loads(l)
+                            except Exception: continue
+                            d[r['bot']['name']].append((r['@timestamp'], (r.get('skill') or {}).get('name', ''), ((r.get('skill') or {}).get('detail') or '')[:70]))
+                except Exception: pass
+        return d
+    by = _scan(pools)
     for b, rs in by.items():
         rs.sort()
         for ts, k, d in rs:
@@ -63,8 +92,46 @@ if not DRY:
                 ch = sorted({q[1].lstrip('_') for q in win if q[1].lstrip('_') in C_ROWS})
                 if lk: linked.append((b, ts[11:19], lk, d))
                 if ch: changerow.append((b, ts[11:19], ch, d))
-if changerow: why.append(f'change row inside a death window: {changerow[0][:3]}'); (out('REVERT', {'deaths': ndeaths}))
-if linked and reg.get('ladder_change', False): why.append(f'rung-linked canary death (ladder change, v12): {linked[0][:3]}'); (out('REVERT', {'deaths': ndeaths}))
+# ---- v19: a change row only licenses a REVERT if it can DISCRIMINATE. Two canaries were
+# lost to rows that could not, and both failures look identical from inside the old test:
+#   -13  `death_site_recorded`  -- written BY the death handler, so every death carried it.
+#   -13b `flooded_pocket_rung`  -- fleet-wide on the baseline, so control emits it too; a
+#        control bot (isolated-a-Echo, 00:01:45, "drowned; idle") carried it into its own
+#        death window while the canary was being reverted for exactly that.
+# So: (a) no CONTROL death in the same window may carry the row, and (b) the row must have
+# been seen on the canary at least once AWAY from a death. (a) is the difference-in-
+# differences this test never had; (b) is what separates a cause from a consequence.
+deathwins = [(b, (dt.datetime.fromisoformat(ts.replace('Z', '+00:00')) - dt.timedelta(seconds=60)).isoformat().replace('+00:00', 'Z'), ts)
+             for b, rs in by.items() for ts, k, _ in rs if k == '_death' and ts > cut]
+away = {k.lstrip('_') for b, rs in by.items() for ts, k, _ in rs
+        if k.lstrip('_') in C_ROWS and not any(bb == b and lo <= ts < hi for bb, lo, hi in deathwins)}
+ctrl_at_death = set(); ctrl_deaths = 0
+if changerow or linked:
+    allp = sorted({os.path.basename(p.rstrip('/')).rsplit('-', 1)[0] for p in glob.glob('/var/log/mcai/*-*/')})
+    for b, rs in _scan([p for p in allp if p not in pools]).items():
+        rs.sort()
+        for ts, k, _ in rs:
+            if k == '_death' and ts > cut:
+                ctrl_deaths += 1
+                lo = (dt.datetime.fromisoformat(ts.replace('Z', '+00:00')) - dt.timedelta(seconds=60)).isoformat().replace('+00:00', 'Z')
+                ctrl_at_death |= {q[1].lstrip('_') for q in rs if lo <= q[0] < ts and q[1].lstrip('_') in C_ROWS}
+licensed, refused = license_change_rows(changerow, away, ctrl_at_death)
+if refused: why.append(f'change rows in a canary death window REFUSED as non-discriminating ({ctrl_deaths} control deaths in the window): ' + '; '.join(sorted(set(refused))))
+if licensed: why.append(f'change row inside a death window, discriminating: {licensed[0][:3]}'); (out('REVERT', {'deaths': ndeaths}))
+# v19: the single-death rung-linkage override bypassed the owner's own calibrated death
+# gate (TWO canary deaths AND > 1.25x control). It has now ended three canaries on one
+# death each -- -08c (`marooned_ramp_cut`, whose ledger note already says "present in both
+# arms; not the change"), -13 and -13b -- and it has never been calibrated, which v16
+# requires of anything that can revert. The base M_LIST rungs are fleet-wide code, so a
+# rung firing before a death is baseline behaviour unless the CONTROL arm says otherwise.
+# Demoted to a reported WATCH. Real harm still reverts: the owner's death gate below, the
+# v15c movement guards, the v11 guards, and a change row that does discriminate.
+if linked and reg.get('ladder_change', False):
+    _shared = ctrl_at_death & set(linked[0][2])
+    why.append(f"rung-linked canary death REPORTED, not reverted (v19: 1 death is below the owner's two-death gate; "
+               f"{'control deaths carry the same rung rows: ' + ','.join(sorted(_shared)) if _shared else 'no control death in the window carries these rows'}; "
+               f"{ctrl_deaths} control deaths in the window): {linked[0][:3]}")
+    pending_watch.append('rung-linked death (reported)')
 if linked: why.append(f'rung-linked death on a non-ladder change (v14c: report unless the four conditions fail; operator reviews): {linked[0][:3]}')
 # 4. the owner's death gate
 h = im['harm']
@@ -76,6 +143,7 @@ if POLL: why.append(f'poll: {ndeaths} canary deaths since declared_at, {len(link
 v = im['v15c']
 if v['verdict'].startswith('REVERT'): why.append('v15c ' + v['verdict']); (out('REVERT'))
 watch = [v['verdict']] if v['verdict'].startswith('WATCH') else []
+watch.extend(pending_watch)
 # 6. v11 guards
 g = im['v11']
 for nm, val, lim in (('climbs', g['climbs'], 1.0), ('livelock', g['livelock'], 1.0)):

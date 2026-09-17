@@ -1,52 +1,55 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-16 23:50 UTC_
+_updated 2026-09-17 11:45 UTC_
 
 ## Fleet
-- 80 bots / 16 Peaceful worlds, all on **1d6c97d** (= 08a3da2 + flooded-pocket rung with step 4b + canopy drop measure; promoted 18:13Z 16 Sep). main = 1d6c97d; previous mains: main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Verified 20:35Z 16 Sep by RCON on all sixteen servers: 80/80 online, TPS 20.0.
-- Deaths: 96 h to 16 Sep 0.054/bot-h (416 on 7,680 bot-h: lava 198, drown 120, fall 96). AFTER the 08a3da2 promotion (05:35Z 16 Sep, 1,216 bot-h): 0.026/bot-h — lava 5, drown 15, fall 11. Before/after on the whole fleet, not a DiD; the 72-h read is the instrument.
+- 80 bots / 16 Peaceful worlds. Baseline **1d6c97d** (= 08a3da2 + flooded-pocket rung with step 4b + canopy drop measure; promoted 18:13Z 16 Sep). main = 1d6c97d; previous mains: main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Verified 11:20Z 17 Sep after the -13b teardown: 80/80 on 1d6c97d, one version live.
+- 72-h program read (wake-up 09:34Z, run 11:10Z), by version, before/after **not** a DiD: **1d6c97d** 955 bot-h — deaths **0.024**/bh, immobile **2.3%**, iron-pick **9.5%**, gather **22%**, items **6.5**/bh. Previous **08a3da2** 751 bot-h — 0.031, 4.6%, 8.3%, 30%, 15.2. Targets: ≤0.05, ≤2%, ≥8%, ≥40%, ≥20. Survival improving and in target on three of five; **gather and items fell (30→22%, 15.2→6.5)** — queued as a read, not a finding (17 h dominated by the night window; pools have moved ±45–77% with no code change).
 
 ## Live canary
-- **recovery-ladder-13b = the -13a+-13b BUNDLE, b1659c0, under the host loop** (`~/canary-loop.sh recovery-ladder-13b`, started 23:45Z 16 Sep; journal/pages as before; registration v18 = v17 with the linkage/change rows corrected). It draws every 20 min and deploys when two pools qualify (placebo-a,placebo-b are excluded until ~11:20Z 17 Sep by the ledger). Reads +30/+90/+180/+360 (+540/+720 until a sealed verdict on the canary), deadline +780.
-- **-13 (same sha) was REVERTED at 23:20Z by the death poll and torn down at 23:24Z -- the instrument, not the change:** `death_site_recorded` (written by the death handler at the death) was registered as a change row, so the one canary death (placebo-a-Delta, drowned at the surface in open water, no rung, no priced route) counted as linked. Ledger says REVERT; the registration doc records the correction. Consequence rows and both-arm guard rows are never linkage rows from now on (v18).
-- -13a pocket-rung remedies (drowning = 15 of the last 31 deaths) and -13b death-site exclusion (lava residue): evidence and reviews in docs/reports/deaths-review-2026-09-16.md; suite 188/188; sandbox smoke clean. Own lines: deathread control_own_rows <= 0 (REVERT), pocketread blocks_p90 <= 12 (WATCH), deathread nopath_per_bh_canary <= 24 (WATCH; canary pre rate 11.9).
-- 22:25Z corrections: the loop's done-check was unscoped (matched the 1011b run's reads and skipped all of -13's) -- fixed in ~/canary-loop.sh; the copied `control_rung_rows` own line removed.
-- What to read first: pocketread rung rows by outcome; deathread death_site_recorded (exposure), death_site_route_crossed (positive control), noPath/bh vs pre. Falls remain an analysis item (explore, 35 blocks median; `infiniteLiquidDropdownDistance` hypothesis).
+- **recovery-ladder-13c = the -13a+-13b BUNDLE, b1659c0, UNMODIFIED**, under the host loop (`~/canary-loop.sh recovery-ladder-13c`, PID started 11:28Z). Drawn at deploy → **board-b,hive-b**; declared_at **2026-09-17T11:30:00.890741Z**. Registration v19 (`~/mcai-analysis/registrations/recovery-ladder-13c.json`).
+- Reads **+30 = 12:00Z, +90 = 13:00Z, +180 = 14:30Z, +360 = 17:30Z**; extension +540 (20:30Z) / +720 (23:30Z) until a sealed verdict on the canary; **deadline +780 = 00:30Z 18 Sep**.
+- `change_rows` = `death_site_route_crossed`, `explore_target_skipped_death_site`; `linkage_extra` = `death_site_route_crossed`. Own lines: deathread `control_own_rows <= 0` (REVERT), pocketread `blocks_p90 <= 12` (WATCH), deathread `nopath_per_bh_canary <= 24` (WATCH).
+- What to read first: pocketread rung rows by outcome (incl. tool-free runs); deathread `death_site_recorded` (exposure) and `death_site_route_crossed` (positive control); noPath/bh vs pre.
 
-## Canary loop (docs/reports/canary-loop-design.md v3)
-- On .31: `~/canary-loop.sh <run_id> [--no-act]`; FIRST REAL RUN is recovery-ladder-13 (the 1011b run was --no-act beside hand reads and skipped the draw phase). The host had no `~/mcai-analysis/drawrec.sh` until 16 Sep 21:05Z (installed: the Mac script with the remote part run locally). Watch the first draw/deploy lines in the journal.
-- Tier-1 local analyst every 30 min (`~/digest/*.verdict.json`); tier-0 digest `~/digest/latest.md`.
-
-## Queue (histogram order, queue-order.py — QUEUE dict updated 16 Sep 20:50Z)
-- next after the -13 verdict: FALLS analysis (path log at every fall: executed path's drop, movement profile; test the liquid-dropdown hypothesis), then the pocket-rung block floor (need+4 with 5 held: plan the exit geometry, docs/reports/deaths-review §4 (b); both reviews said need+1 cannot fund a side exit), then the POOLING rule -12 (iron; docs/reports/pooling-rule-design.md v3; build NOT started — no worktree has it), then iron supply.
-- Seed canary (owner): Wed 17 Sep 10:00Z draw, AFTER the 72-h read; if recovery-ladder-13 is still live at 10:00Z the seed draw waits for its verdict (one canary at a time; the bundle counts as one).
+## THIS IS THE THIRD RUN OF THE SAME BUNDLE — the first two were the INSTRUMENT
+- **-13** (REVERT 23:20Z 16 Sep) fired on `death_site_recorded`, a row the **death handler itself writes**.
+- **-13b** (REVERT 04:13Z 17 Sep, torn down 04:16Z) fired on `flooded_pocket_rung`, which is **fleet-wide baseline code on 1d6c97d**. Measured over -13b's own window: canary 10 bots/17,476 rows, control 70 bots/117,891 rows; rung rows 10 vs 12; deaths 1 vs 4; and a CONTROL death (`isolated-a-Echo` 00:01:45, "drowned; idle") carried the row inside its own 60-s window. **The test applied to control would have reverted control.**
+- Same defect as -08c (`marooned_ramp_cut`: "present in both arms; not the change"). Root cause: `change_rows` was evaluated with **no control comparison and no upstream test**.
 
 ## Rules in force (docs/reports/recovery-ladder-registration.md)
-- v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detection), v16 (calibrate before revert; trace refusals to fallbacks; histogram slot order; bundles of two disjoint changes), v17 (this bundle's own lines), the owner's death gate (two canary deaths and > 1.25x control), draws at deploy (12-h ledger exclusions, ±25% then ±40%, 5080 half, never placebo-c/isolated), `fleet-deploy` refuses a --pool sha that does not descend from declared_code_version.
+- v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detection), v16 (calibrate before revert; trace refusals to fallbacks; histogram slot order; bundles of two disjoint changes), v17/v18 (this bundle's own lines), the owner's death gate (**two** canary deaths and > 1.25× control), draws at deploy (12-h ledger exclusions, ±25% then ±40%, 5080 half, never placebo-c/isolated), `fleet-deploy` refuses a --pool sha not descending from declared_code_version.
+- **v19 (NEW, 11:40Z 17 Sep, prospective)** — a change/linkage row must DISCRIMINATE:
+  1. **Pre-deploy**, `~/mcai-analysis/changerowcheck.py`, wired into `canary-loop.sh` **before the draw**: any declared row the baseline already emits is REFUSED, loop exits, nothing deployed. Refuses to certify a thin read (<40 bots, <20 kinds, 0 rows).
+  2. **At read time**, `license_change_rows()` in `verdict.py`: a row licenses a REVERT only if (a) no CONTROL death in the window carries it and (b) it has been seen on the canary away from a death. Pure function; behavioural test `scripts/test_license_change_rows.py` (5 cases, incl. "a discriminating row still fires"); mutant-killed.
+  3. **The single-death rung-linkage override is demoted to a reported WATCH** — it bypassed the owner's two-death gate, was never calibrated, and went 3-for-3 false positive. Real harm still reverts via the death gate, v15c, v11, deposit, and a discriminating change row.
+  - Replay proof: the exact -13b poll returns POLL_OK under v19 and REVERT under the old code.
+
+## Queue (histogram order)
+1. **-13c verdict** (today). While it is deployed and unread, no new analysis starts.
+2. **Seed canary** (owner, was due 10:00Z today) — two re-seeded worlds vs fourteen, 72-h DiD. Design in docs/reports/plan-2026-09-15-to-19.md §"Seed canary". **Unresolved and NOT decided unilaterally:** a fleet-wide promotion inside its 72 h changes its control arm underneath it, and the queue promotes ~daily. Either freeze promotions for 72 h or accept a coarse read — owner's call.
+3. **Gather/items drop on 1d6c97d** (30→22%, 15.2→6.5/bh) — read properly by DiD, not before/after.
+4. **FALLS analysis** — path log at every fall (executed path's drop, movement profile); test the `infiniteLiquidDropdownDistance` hypothesis. Explore, 35 blocks median.
+5. **Pocket-rung block floor** — need+4 with 5 held; plan the exit geometry (deaths-review §4(b); both reviews said need+1 cannot fund a side exit).
+6. **Ledger note defect** — the loop composes its ledger note by re-running `verdict.py` at the read loop's last M, so -13 and -13b both recorded a generic "VERDICT UNREADABLE (+N)" instead of why they were reverted. Cost two post-hoc reconstructions; make the note say the reason.
+7. **POOLING rule -12** (iron; docs/reports/pooling-rule-design.md v3; build NOT started — no worktree has it), then iron supply.
 
 ## Standing wake-ups
-- 17 Sep 09:34Z: 72-h program STATUS read (`survival72.py 2026-09-14T09:34:09Z` on .31; five numbers by version; no revert unless a rung-linked mechanism). A live canary on 10 bots is on another version: read by version.
-- 17 Sep 10:00Z: seed canary draw (two re-seeded worlds vs fourteen, 72-h DiD) — only if no canary is live.
-- Nightly 00:07Z: iron-funnel line (`~/digest/ironfunnel.log` on .31).
-- Tier-1 local analyst every 30 min; Monitor its pages in a fresh session.
+- Nightly 00:07Z: iron-funnel line (`~/digest/ironfunnel.log` on .31). Last: 108 raw iron / 122 ingots / 18 picks crafted, 31 gone (28 during work, 3 deposit), iron-pick share 10.9%.
+- Tier-1 local analyst every 30 min (`~/digest/*.verdict.json`); tier-0 digest `~/digest/latest.md`.
+- Next 72-h program read: schedule from the next promotion.
 
 ## Daily session rotation
-- Desktop scheduled task `mcai-daily-session` starts a FRESH session at 06:08 America/Chicago (11:08 UTC). It reads this file first, closes any open canary (the loop may have done so: check the ledger `check-open-loop.py` and the journal BEFORE acting), re-arms the list below, does the queue, rewrites this file.
-
-## ELK (fixed 16 Sep 23:45Z)
-- The fleet's Elasticsearch on 10.0.0.186 (VM 109 on pve1) had an expired trial license since 4 Sep (403 on most requests, filebeat dropping part of each batch, Kibana unusable). Basic license started; SSH access from the mini restored (key added via guestfish on pve1; passwordless sudo for mike added); role `mcai_reader` + user `agent2` (read-only on mcai-*) created for the second agent; credentials in the git-ignored `secrets/agent-access.md` in the main checkout. Strict mappings also rejected documents carrying `bot.tools` and `llm.args_cleaned` since 5 Sep; both declared 23:52Z (templates + live data streams, infra/elk/apply-mappings.sh). ES gaps between 5 Sep and 16 Sep 23:52Z; files on .31 are complete. 10.0.0.81 is a different (research) ELK.
-
-## Instruments fixed 16 Sep (docs branch d775841)
-- `scripts/fleet-status.sh` now points at .31/.30 and asks all sixteen servers over RCON (`scripts/lib/rcon-list.py`); `scripts/fleet-doctor.py` exits 2 instead of printing "0/80 all present" when it asked no server; `Events.rate(bots='auto')` no longer crashes on dict bots (`Events.bots()`); `queue-order.py` QUEUE lists the current candidates.
+- Desktop scheduled task `mcai-daily-session` starts a FRESH session at 06:08 America/Chicago (11:08 UTC). It reads this file first, closes any open canary (**check the ledger `check-open-loop.py` and the journal BEFORE acting** — the loop may already have), re-arms the list below, does the queue, rewrites this file.
+- `check-open-loop.py` lives at **`/opt/minecraft-ai/scripts/check-open-loop.py` on .31** and must run there with sudo (it reads `/srv/mcbots/trial-manifest.json` and `/var/log/mcai/_canary-decisions.jsonl`). It is NOT in `~/mcai-analysis`.
 
 ## Standing constraints (verbatim from the owner)
 - No world changes to fix a bot (sandbox only). Swimming is travel. No 192.168.19x network; no UniFi API on 10.0.0.1; never disable rpcbind; never touch the apt timer. One canary at a time (a bundle counts as one). Teardown is THREE steps. Deploy only via `~/bin/fleet-deploy`. Commit with `git commit -F -` heredocs. Two Codex passes per patch, then a smaller patch. Never share a live canary's inference endpoint/model; ARBITER stays OFF. Lab SSH `mike@10.0.0.31` (bots) / `mike@10.0.0.30` (worlds); the lab key on the mini is ~/.ssh/id_ed25519. Status reports live in docs/reports. Use `date -u` for clock labels.
 
 ## Worktrees
-mcai-deathsites (recovery-ladder-13-deathsites, LIVE candidate b1659c0), mcai-b1011b (1d6c97d = main), mcai-rl02 (recovery-ladder-03 = docs/scripts branch), mcai-recovery (recovery-ladder, iron tools; pooling NOT started), mcai-rllava, mcai-rliron, mcai-rl10, mcai-canopy, mcai-scene (sandbox harness). Scripts: ~/mcai-analysis (reads incl. deathread.py, drawrec, arm-read, guardcal, queue-order); /tmp on .31 mirrors the reads; ~/mcai-analysis on .31 holds drawrec.sh + registrations for the loop.
+mcai-deathsites (recovery-ladder-13-deathsites, LIVE candidate b1659c0), mcai-b1011b (1d6c97d = main), mcai-rl02 (recovery-ladder-03 = docs/scripts branch), mcai-recovery (recovery-ladder, iron tools; pooling NOT started), mcai-rllava, mcai-rliron, mcai-rl10, mcai-canopy, mcai-scene (sandbox harness). Scripts: ~/mcai-analysis (reads incl. deathread.py, drawrec, arm-read, guardcal, queue-order); /tmp on .31 mirrors the reads; ~/mcai-analysis on .31 holds drawrec.sh, **changerowcheck.py** and registrations for the loop. Host backups made today: `~/verdict.py.bak-20260917`, `~/canary-loop.sh.bak-20260917`.
 
 ## Re-arm on a fresh session (monitors are session-local)
-1. Loop pages: Monitor tailing `~/digest/page.jsonl` on .31 (new lines) — the loop pages every verdict, deploy, teardown, promotion and error.
-2. Death poll: `ssh mike@10.0.0.31 'python3 ~/verdict.py recovery-ladder-13 0 --poll'` every 5 min while the canary is live.
-3. Local analyst: Monitor on the latest `~/digest/*.verdict.json` (page=True / gates / REVERT / versions_ok=False only).
-4. Wake-ups above (09:34Z read; 10:00Z seed draw if no canary is live).
-5. If the loop is dead (`pgrep -f canary-loop`) with a canary declared in the manifest: read `~/canary-journal.jsonl`, take the reads by hand (`bash ~/mcai-analysis/arm-read.sh <M> recovery-ladder-13 "..."`), record the verdict with `check-open-loop.py --record` under sudo BEFORE touching the manifest, then promote or tear down (THREE steps).
+1. **Loop pages**: Monitor tailing `~/digest/page.jsonl` on .31, filtered to `verdict|error|flag|PROMOTED|REVERT|deployed|torn-down`. The loop pages every verdict, deploy, teardown, promotion and error. **Filter on new lines only** — a naive tail matches yesterday's pages and reads as a fresh alarm (cost a false alarm today).
+2. **Local analyst**: Monitor running `bash ~/analystwatch.sh` on .31 (installed today; emits only page_claude / gates / decisions). `versions_ok=False` is the known build-suffix false-fail (`<sha>+<buildhash>`), not an alarm.
+3. **Death poll**: the loop runs `verdict.py <run> 0 --poll` every 5 min itself and pages on REVERT, so monitor 1 covers it. A separate 5-min poll is only needed if the loop is dead.
+4. If the loop is dead (`pgrep -f canary-loop`) with a canary declared in the manifest: read `~/canary-journal.jsonl`, take the reads by hand (`bash ~/mcai-analysis/arm-read.sh <M> recovery-ladder-13c "..."`), record the verdict with `check-open-loop.py --record` under sudo **BEFORE** touching the manifest, then promote or tear down (THREE steps: `sudo /usr/local/sbin/mcai-canary-tree teardown`; clear `canary_pool` and `canary_code_version`; restart the pool's bots 12 s apart; confirm exactly one version is live).
