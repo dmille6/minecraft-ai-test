@@ -38,7 +38,7 @@ BOTS=$(B "systemctl list-units 'mcbot@$POOL-*' --no-legend --plain | awk '{print
 # the pool's state dir and each bot's STATE_DIR, from the env files, never guessed
 ENVINFO=$(B "for b in $(echo $BOTS); do sudo grep -h '^STATE_DIR=\|^MEMORY_POOL=\|^MEMORY_SCOPE=' /srv/mcbots/harness/env/\$b.env | tr '\n' ' '; echo; done")
 STATEDIRS=$(echo "$ENVINFO" | grep -o 'STATE_DIR=[^ ]*' | cut -d= -f2 | sort -u); MPOOL=$(echo "$ENVINFO" | grep -o 'MEMORY_POOL=[^ ]*' | cut -d= -f2 | sort -u); SCOPES=$(echo "$ENVINFO" | grep -o 'MEMORY_SCOPE=[^ ]*' | cut -d= -f2 | sort -u)
-[ "$(echo "$MPOOL" | wc -l)" = 1 ] && [ "$MPOOL" = "$POOL" ] || { echo "refusing: MEMORY_POOL of the five bots is '$MPOOL', expected '$POOL'"; exit 2; }
+[ "$(echo "$MPOOL" | wc -l | tr -d " ")" = 1 ] && [ "$MPOOL" = "$POOL" ] || { echo "refusing: MEMORY_POOL of the five bots is '$MPOOL', expected '$POOL'"; exit 2; }
 POOLDIR=$(dirname "$(echo "$STATEDIRS" | head -1)")/_pool-$POOL
 echo "bots: $(echo $BOTS) | scope $SCOPES | state dirs: $(echo $STATEDIRS) | pool dir: $POOLDIR"
 W "test -f /srv/block2/$POOL/server.properties && systemctl is-active block2@$POOL.service" >/dev/null || { echo "refusing: block2@$POOL not active or no server.properties"; exit 2; }
