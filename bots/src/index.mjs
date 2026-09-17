@@ -7,6 +7,7 @@
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
+import { pathDropProfile, describeFallPath } from './fallpath.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
 import pathfinderPkg from 'mineflayer-pathfinder'
@@ -93,6 +94,20 @@ function watchForDeathCause(bot) {
 function freshDeathCause() {
   if (!lastDeathCause) return 'unknown'
   return Date.now() - lastDeathCause.at < 5000 ? lastDeathCause.text : 'unknown'
+}
+
+let lastFallRecordAt = 0
+/** The fall record (fallpath.mjs): how far, what was running, and what the planner had just asked for. */
+function fallRecord(bot, runner, fell, kind) {
+  lastFallRecordAt = Date.now()
+  try {
+    const last = bot.lastPlannedPath?.() ?? null
+    const prof = pathDropProfile(last?.nodes ?? [], (x, y, z) => bot.blockAt(new Vec3(x, y, z)))
+    const ctl = bot.controlState ? Object.entries(bot.controlState).filter(([, v]) => v).map(([k]) => k).join('+') || 'none' : '?'
+    logEvent({ kind: 'fall_path', status: kind === 'death' ? 'failed' : 'no_effect',
+               detail: `${kind}: fell ${fell} blocks${runner?.current?.skill ? ` running ${runner.current.skill}` : ' idle'}; controls ${ctl}; ${describeFallPath(last, prof)}`,
+               snapshot: snapshot(bot) })
+  } catch (e) { logEvent({ kind: 'fall_path', status: 'failed', detail: `record failed: ${String(e?.message ?? e).slice(0, 80)}`, snapshot: snapshot(bot) }) }
 }
 
 // Coarse buckets so deaths are aggregatable, with the verbatim cause kept in
@@ -432,8 +447,7 @@ function connect() {
     // lateral swim when a dry way up exists. dontCreateFlow stays the guard
     // against digging into water.
 
-    bot.pathfinder.setMovements(moves)
-
+    bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk'
     // THE DIG-CAPABLE APPROACH, WHICH GATHER LOST BY ACCIDENT.
     //
     // This clone existed only inside `if (bot.collectBlock)`. It had readers --
@@ -474,12 +488,12 @@ function connect() {
     gatherMoves.dontCreateFlow = true
     bot.gatherMovements = gatherMoves
     bot.withGatherMovements = async (fn) => {
-      bot.pathfinder.setMovements(gatherMoves)
+      bot.pathfinder.setMovements(gatherMoves); bot.movementProfile = 'gather'
       // The plan was admitted under a cost cap; the walk's own re-plans were
       // not, because bot.pathfinder.searchRadius is -1. Hold them to the same
       // cap for the duration. See withApproachBound.
       try { return await withApproachBound(bot, fn) }
-      finally { bot.pathfinder.setMovements(moves) }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
     }
     // Grant collectblock the one setting it cannot work without, and none of
     // the others. See the note below for why this is a clone and why injecting
@@ -518,9 +532,9 @@ function connect() {
     // there if I were allowed to dig?" is a different question from digging.
     bot.ascentMovements = ascendMoves
     bot.withAscentMovements = async (fn) => {
-      bot.pathfinder.setMovements(ascendMoves)
+      bot.pathfinder.setMovements(ascendMoves); bot.movementProfile = 'ascend'
       try { return await fn() }
-      finally { bot.pathfinder.setMovements(moves) }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
     }
 
     // GETTING DOWN IS A DIFFERENT PROBLEM FROM GETTING OUT, and neither travel
@@ -559,9 +573,9 @@ function connect() {
     descendMoves.maxDropDown = 8
     bot.descentMovements = descendMoves
     bot.withDescentMovements = async (fn) => {
-      bot.pathfinder.setMovements(descendMoves)
+      bot.pathfinder.setMovements(descendMoves); bot.movementProfile = 'descend'
       try { return await fn() }
-      finally { bot.pathfinder.setMovements(moves) }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
     }
 
     // WATER IS TERRAIN. THE OTHER FOUR PROFILES EXIST TO REFUSE IT.
@@ -605,9 +619,9 @@ function connect() {
     waterMoves.dontCreateFlow = true
     bot.waterMovements = waterMoves
     bot.withWaterMovements = async (fn) => {
-      bot.pathfinder.setMovements(waterMoves)
+      bot.pathfinder.setMovements(waterMoves); bot.movementProfile = 'water'
       try { return await fn() }
-      finally { bot.pathfinder.setMovements(moves) }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
     }
 
     // OUR MOVEMENT CONFIG IS NOT OURS TO KEEP.
@@ -758,6 +772,8 @@ function connect() {
 
     let lavaCorridorLoggedAt = 0
     let deathSiteCrossLoggedAt = 0
+    let lastPlannedPath = null
+    bot.lastPlannedPath = () => lastPlannedPath
     bot.on('path_reset', (reason) => {
       pathResets[reason] = (pathResets[reason] ?? 0) + 1
       logEvent({ kind: 'path_reset', detail: reason, snapshot: snapshot(bot) })
@@ -770,6 +786,11 @@ function connect() {
       // already refuses lava as a node; this catches the ledge over a pool that a walkable node sequence crosses.
       if ((r.status === 'success' || r.status === 'partial') && Array.isArray(r.path) && r.path.length && bot.entity?.position) {
         const p = bot.entity.position
+        // THE LAST PLANNED PATH, KEPT FOR THE FALL RECORD (fallpath.mjs): what the planner asked for, under which
+        // profile, toward which goal. Read at a death or a fall; never acted on.
+        const g = bot.pathfinder?.goal
+        lastPlannedPath = { t: Date.now(), status: r.status, profile: bot.movementProfile ?? 'walk', goal: g && Number.isFinite(g.x) ? `${g.x},${g.y ?? '?'},${g.z}` : (g ? g.constructor?.name : null),
+                            nodes: [{ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, ...r.path.slice(0, 64).map(n => ({ x: n.x, y: n.y, z: n.z }))] }
         const nodes = [{ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }, ...r.path.map(n => ({ x: n.x, y: n.y, z: n.z }))]
         const v = corridorSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), nodes)
         if (!v.safe) {
@@ -902,8 +923,15 @@ function connect() {
   // seconds looks completely different from one that took 900ms, and the
   // trajectory is what distinguishes suffocation from a fall from a mob.
   bot.on('health', () => {
+    const prev = hpTrail.length ? hpTrail[hpTrail.length - 1].hp : null
     hpTrail.push({ t: Date.now(), hp: Math.round((bot.health ?? 0) * 10) / 10 })
     if (hpTrail.length > HP_MAX) hpTrail.shift()
+    // A NON-FATAL FALL IS THE SAME EVIDENCE AS A FATAL ONE, and there are many more of them: health dropped, the
+    // feet are on the ground, and the peak was more than 6 blocks up. One row per landing (10-s throttle).
+    const y = bot.entity?.position?.y
+    if (prev != null && bot.health != null && bot.health < prev - 0.5 && y != null && peakY != null && peakY - y >= 6 && bot.entity?.onGround && Date.now() - lastFallRecordAt > 10_000) {
+      fallRecord(bot, runner, Math.round(peakY - y), 'damage')
+    }
   })
 
   bot.on('death', () => {
@@ -924,6 +952,7 @@ function connect() {
     // died holding the fleet's only stone_pickaxe" are different events, and
     // the second one is the one that explains a stalled milestone chain.
     // Captured BEFORE the respawn clears it.
+    if (fell != null && fell > 3) fallRecord(bot, runner, fell, 'death')
     const lost = inventorySummary(bot)
     const lostSummary = Object.entries(lost)
       .sort((a, b) => b[1] - a[1]).slice(0, 6)
