@@ -98,3 +98,69 @@ The KEEP condition is not met and will not be by +360: it needs a freed canary b
 canary freed share is 0/0 against a control spontaneous base of 4/6. On the registered rules this reads
 **INCONCLUSIVE or REVERT on ineffectiveness, never KEEP** -- the owner is safe and does not work yet. Fixing (1) is
 the single change most likely to move the close rate, and it is a one-line budget change.
+
+---
+
+# REVERTED 16:38:45Z — and the death names a defect the refusal lines never would have
+
+`VERDICT REVERT :: change row inside a death window, discriminating: ('hive-a-Bravo', '16:33:01', 'escape_rung')`.
+Torn down at 16:42:21Z, one version live. **The revert is correct and the linkage is real**, unlike the three earlier
+false reverts this month.
+
+## What killed hive-a-Bravo
+
+The bot was **walled in while submerged**, one block from a drowning site already recorded at `386,59,175`:
+
+```
+16:29:50  _death_site_route_crossed  death:drowning x1 at 386,59,175; the planned route passes 384.5,59,169.5
+16:29:50  _entombed                  walled in at y=59
+16:29:50  _arbiter_preempting        {"holder":"gather","by":"owner:entombed"}     <- the owner takes the body
+16:31:28  escape_rung  rung=pillar outcome=refused  why=body held by air
+16:32:09  escape_rung  rung=pillar outcome=preempted  ms=1151
+16:32:30  escape_rung  rung=pillar outcome=preempted  ms=648
+16:32:51  escape_rung  rung=pillar outcome=preempted  ms=1150
+          death: drowned; idle at the moment of death
+```
+
+`isEntombed` reads "walled in" for a **swimming** bot. So the owner opened an escape episode on a bot in water, took
+the body away from `gather` at PRIORITY.escape, and then spent eighty seconds losing it to the air reflex on every
+rung, one block from where this same bot had drowned before. The air reflex outranks the owner and was doing its job;
+the owner was contending for the body of a drowning bot against the only reflex that could save it.
+
+This is not a one-off: **15 of the canary's 240 rung rows are `refused why=body held by air`.**
+
+It is also a direct breach of the standing owner directive -- water is terrain, and the only water reflex is getting
+air. The escape ladder has no business running on a bot that is swimming.
+
+## The proportions, which correct my earlier sections
+
+| rung row | n | share of 240 |
+|---|---|---|
+| `failed: no height gained` | 20 | 8% |
+| **`refused: body held by air`** | **15** | **6%** |
+| `ran: rose 1.0` | 13 | 5% |
+| `refused: needs_blocks` | 4 | 2% |
+
+The frozen-budget defect I wrote up above is **4 rows in four hours**. I spent the afternoon on the third-order bug.
+The first-order ones are that pillar runs and gains no height, and that the ladder runs in water at all.
+
+## Fixed on the branch, not deployed (`49c4f17`, movement-owner-1)
+
+1. **`nextRung` returns nothing while `obs.wet`**, and the hold is named `wet`. The bot holds, the air reflex has the
+   body uncontested, and the hold ends on evidence when it is ashore.
+2. The affordability test moves out of the rung and into `nextRung` as a **gate that records nothing**, reading the
+   live need and the live block count. A `needs_blocks` refusal no longer latches the rung out of the episode.
+3. **A real spend cap.** `blocksSpent` was accumulated and compared to nothing anywhere; the only bound was the reflex
+   line, so removing that line would have left an episode free to empty a bot's inventory into a chimney.
+
+Adversarial review killed my first draft: it assumed `underfoot` harvests blocks, and `harvestUnderfoot` is a
+bare-handed DESCENT whose postcondition is `fell`, not a pickup. **The entombed ladder contains no rung that acquires
+blocks** -- `harvestAdjacent` exists and is not wired into it. That is the open design item for owner-01c.
+
+## Two things for the operator
+
+- **`no height gained` is now the top failure (20 rows) and is not diagnosed.** The row prints the return value and
+  nothing about the column. Worth an instrument before the next canary rather than a fix.
+- **A death row lists dropped items** (`dropped: leaf_litter x110, cobblestone x39, dirt x35 ...`) on a fleet recorded
+  as `keepInventory=true`. Either the gamerule is not what we believe on every world, or that row means something
+  else. It changes the cost of a death, so it is worth five minutes with RCON.
