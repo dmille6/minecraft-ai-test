@@ -1,5 +1,5 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-18 02:25 UTC_
+_updated 2026-09-18 02:20 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds, all on **b1659c0** (= 1d6c97d + pocket-rung remedies + death-site exclusion; KEEP at +540 20:36Z 17 Sep, promoted fleet-wide 20:46Z by the canary loop). main = b1659c0 (fast-forwarded 01:58Z 18 Sep); previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Digest 01:30Z 18 Sep: one version live, deaths 0.016/bot-h over 1.5 h, one immobile bot.
@@ -11,7 +11,7 @@ _updated 2026-09-18 02:25 UTC_
 2. **Seed canary runs without the owner watching, one pool at a time**: pool one after the 08:37Z exclusion lifts, then verify 5/5 in-world and a clean digest an hour later, then pool two. Stop on any stage that fails to verify; nothing is deleted (archives .pre-reseed-<ts>).
 
 ## Live canary
-- **falls-01 (report-only instrument), fc28885 = b1659c0 + 3, under the host loop** (`~/canary-loop.sh falls-01`, started 02:25Z 18 Sep; registration ~/mcai-analysis/registrations/falls-01.json: no change/linkage rows, own line control_fall_rows <= 0, exposure = one fall_path row on the canary, extension to +540, KEEP_ON_SAFETY on zero exposure). The loop draws (board-b,hive-b excluded until 08:37Z) and deploys on its own; reads +30/+90/+180/+360. The seed canary runs AFTER this verdict so the falls read keeps its control arm.
+- **falls-01 (report-only instrument), fc28885 = b1659c0 + 3, under the host loop** (`~/canary-loop.sh falls-01`, started 02:18Z 18 Sep; registration ~/mcai-analysis/registrations/falls-01.json: no change/linkage rows, own line control_fall_rows <= 0, exposure = one fall_path row on the canary, extension to +540, KEEP_ON_SAFETY on zero exposure). The loop draws (board-b,hive-b excluded until 08:37Z) and deploys on its own; reads +30/+90/+180/+360. The seed canary runs AFTER this verdict so the falls read keeps its control arm.
 - Previous: -13c KEEP; **NONE before this.** -13c read KEEP at +540 (deaths 0 vs control 0.044/bh, 33 sealed-pocket verdicts on the canary, v15c within, own lines clean); the -13 and -13b reverts were the instrument (consequence rows / rows control emits too) and are recorded in the registration doc; v19 now refuses such rows before a draw. The 13c draw-exposure guard (`drawexposure.py`) is REPORT-only until calibrated (its one refusal was a false positive; the registered extension is what carried this canary).
 - Next canary candidates, in order: (1) **seed canary** (world change, two pools; scripts/reseed-pool.sh v3, dry-runs clean; board-b,hive-b excluded until 08:37Z 18 Sep; run one pool, verify 5/5 in-world and the digest, then the second; read 24/48/72 h by pool set and promotion epoch; the reseed-plus-reset confound is registered); (2) **falls-01** (report-only instrument, branch falls-path-log 7f4394f = 1d6c97d + 3, must be REBASED onto b1659c0 before deploy; registration ~/mcai-analysis/registrations/falls-01.json, no change rows, changerowcheck passes); (3) the movement owner after its corpus gate.
 
@@ -21,7 +21,7 @@ _updated 2026-09-18 02:25 UTC_
 - **Seed canary runbook** — scripts/reseed-pool.sh v3 (journaled, resumable, dry-run by default; two Codex passes folded).
 
 ## Queue (histogram order)
-1. Seed canary (above). 2. Rebase + canary falls-01. 3. Fold the owner pass-1 findings, build an entombed fixture, corpus REPEATS=3, pass 2. 4. Gather/items DiD read on b1659c0. 5. Pocket-rung block floor. 6. Pooling rule -12 (not started). 7. ~~Ledger-note fix~~ INSTALLED on .31 02:20Z (FINALV + scoped done-check).
+1. Seed canary (above). 2. Rebase + canary falls-01. 3. Fold the owner pass-1 findings, build an entombed fixture, corpus REPEATS=3, pass 2. 4. Gather/items DiD read on b1659c0. 5. Pocket-rung block floor. 6. Pooling rule -12 (not started). 7. ~~Ledger-note fix~~ INSTALLED on .31 02:15Z (FINALV + scoped done-check).
 
 ## Rules in force (docs/reports/recovery-ladder-registration.md)
 - v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detection), v16 (calibrate before revert; trace refusals to fallbacks; histogram slot order; bundles of two disjoint changes), v17/v18 (this bundle's own lines), the owner's death gate (**two** canary deaths and > 1.25× control), draws at deploy (12-h ledger exclusions, ±25% then ±40%, 5080 half, never placebo-c/isolated), `fleet-deploy` refuses a --pool sha not descending from declared_code_version.
