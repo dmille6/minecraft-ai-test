@@ -131,6 +131,9 @@ fi
 if ! done_stage registered; then
   HOMEREC=$(grep '^envs ' "$J" | tail -1 | cut -d' ' -f3-)
   printf -- '- %s: pool **%s** re-seeded with `level-seed=%s` (archives world.pre-reseed-%s, TOWN-PLACED.pre-reseed-%s.json on .30; %s.pre-reseed-%s and the five STATE_DIRs on .31); new home %s; radius %s pregenerated; bots restarted 12 s apart. Treatment starts at the bots-started stamp in ~/mcai-analysis/reseed-%s.journal.\n' "$(date -u +%FT%TZ)" "$POOL" "$SEED" "$TS" "$TS" "$POOLDIR" "$TS" "$HOMEREC" "$RADIUS" "$POOL" >> ~/Documents/mcai-rl02/docs/reports/seed-canary-registration.md
+  # keep code canaries off this pool for the 72-h read (drawrec.sh reads ~/mcai-analysis/draw-exclude.txt on the host)
+  UNTIL=$(python3 -c "import datetime as d; print((d.datetime.now(d.timezone.utc)+d.timedelta(hours=72)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
+  B "mkdir -p ~/mcai-analysis; printf '%s %s seed-canary-read\n' '$POOL' '$UNTIL' >> ~/mcai-analysis/draw-exclude.txt; tail -2 ~/mcai-analysis/draw-exclude.txt"
   mark registered
 fi
 echo "== done $POOL seed=$SEED (journal $J)"
