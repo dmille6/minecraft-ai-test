@@ -1,5 +1,5 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-18 04:55 UTC_
+_updated 2026-09-18 05:00 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds, all on **b1659c0** (= 1d6c97d + pocket-rung remedies + death-site exclusion; KEEP at +540 20:36Z 17 Sep, promoted fleet-wide 20:46Z by the canary loop). main = b1659c0 (fast-forwarded 01:58Z 18 Sep); previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Digest 01:30Z 18 Sep: one version live, deaths 0.016/bot-h over 1.5 h, one immobile bot.
@@ -21,7 +21,7 @@ _updated 2026-09-18 04:55 UTC_
 - **Seed canary runbook** — scripts/reseed-pool.sh v3 (journaled, resumable, dry-run by default; two Codex passes folded).
 
 ## Queue (histogram order)
-1. Seed canary (above). 2. Rebase + canary falls-01. 3. Fold the owner pass-1 findings, build an entombed fixture, corpus REPEATS=3, pass 2. 4. Gather/items DiD read on b1659c0. 5. Pocket-rung block floor. 6. Pooling rule -12 (not started). 7. ~~Ledger-note fix~~ INSTALLED on .31 02:15Z (FINALV + scoped done-check).
+1. Seed canary (above). 2. Rebase + canary falls-01. 3. Fold the owner pass-1 findings, build an entombed fixture, corpus REPEATS=3, pass 2. 4. ~~Gather/items DiD read on b1659c0~~ READ 05:00Z from the -13c canary's own +540 window (the only DiD available for a fleet-wide promotion): items gathered/bh DiD -8% (guard -50%), gather calls/bh canary 18.2→16.0 vs control 16.2→15.4, blocks moved -17%, working share -5%, deposits 2.3/bh vs 3.4 — mildly negative, within every guard; the 72-h before/after drop (gather 30→22%, items 15.2→6.5) is mostly NOT the bundle: it is the night window and world drift. Keep the fleet-wide items line on the 72-h read as the tripwire, no action. 5. Pocket-rung block floor. 6. Pooling rule -12 (not started). 7. ~~Ledger-note fix~~ INSTALLED on .31 02:15Z (FINALV + scoped done-check).
 
 ## Rules in force (docs/reports/recovery-ladder-registration.md)
 - v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detection), v16 (calibrate before revert; trace refusals to fallbacks; histogram slot order; bundles of two disjoint changes), v17/v18 (this bundle's own lines), the owner's death gate (**two** canary deaths and > 1.25× control), draws at deploy (12-h ledger exclusions, ±25% then ±40%, 5080 half, never placebo-c/isolated), `fleet-deploy` refuses a --pool sha not descending from declared_code_version.
