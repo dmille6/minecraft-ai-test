@@ -119,3 +119,110 @@ loop reads, decides, promotes or tears down on its own.
 - **I did not wire in the `drawexposure` guard.** Still one refusal, one false positive, still
   uncalibrated. Harmless today: owner-01 declares no `draw_exposure`, so the draw fell back to
   the v8 filter.
+
+---
+
+# Second session, 11:34–13:40 UTC
+
+The 06:08 Chicago rotation started a fresh session. STATE.md was 5 minutes old and the host
+agreed with it exactly. No other session was running (the 11:26Z conflict noted in STATE's
+CAUTION had ended at 11:28Z). owner-01 was live under the loop with no open loop to close.
+
+## owner-01 shipped INERT, and every check but one was green
+
+At +90 the loop read `episodes_canary = 0` against a floor of 1. Turning that into an expected
+count is what broke it open: entombment episodes run **1.5/bot-h fleet-wide** (24-h read: 2,885
+episodes over 80 bots; 157 on hive-b, 183 on hive-c), so 10 bots over 90 minutes expect **~22**
+and P(zero) is ~0%. A zero at that rate is a dead code path, not a quiet world.
+
+Ground truth settled it: `/proc/756887/environ` on hive-b-Alpha, **57 vars as the positive
+control**, `RUN_ID=owner-01` present, **`OWNER` and `ARBITER` absent**. `mcai-canary-tree:46`
+hardcoded `printf 'CODE_VERSION=%s\nRUN_ID=%s\n'` and had **no mechanism for a third key**;
+`config.mjs:157` defaults `owner` to 0. So 97 minutes of canary ran the baseline under a new
+sha, while the sha split, the suite (192/192), the preflight `changerowcheck` and the safety
+lines (0 canary deaths vs control 0.027/bh) all stayed green. Left alone,
+`final_on_zero_exposure: INCONCLUSIVE` would have closed the day at 00:25Z learning nothing.
+
+Recorded INCONCLUSIVE 12:59Z, torn down 13:02Z — drop-ins removed (0 remain), manifest cleared,
+10 bots restarted 12 s apart, **one version live on all 80** before anything else.
+
+## Three mechanism fixes, because none of this should depend on someone noticing
+
+1. **`CANARY_ENV`** in `mcai-canary-tree`: whitespace-separated `KEY=VALUE` appended to
+   `canary.env`, refusing `CODE_VERSION=`/`RUN_ID=` and anything not `[A-Z_]*=*`. Seven cases
+   exercised, **all four refusals seen to fire**.
+2. **`fleet-deploy`** passes `CANARY_ENV` **through the `sudo`** that was silently stripping it,
+   and after `VERIFIED` on a `--pool` deploy reads `/proc/<pid>/environ` of a live canary bot,
+   exiting 4 with `FLAG MISSING … THIS CANARY IS INERT`. Both branches proven against the real
+   process, including `OWNER=0` (key present, wrong value) — a key-name match would have passed it.
+3. **`openloop.py`: a decision cannot close a deployment that came after it.** Matching by sha
+   alone meant owner-01's 12:59:51Z verdict pre-satisfied owner-01b's 13:04:27Z deployment, and
+   `check-open-loop.py` said *"clear to start something new"* with a canary live — which would
+   have green-lit a second canary, three versions, a halted fleet. Now ordered against
+   `declared_at`, failing closed (no `ts`, or an unparseable `declared_at`, is OPEN; an absent
+   one falls back so older manifests cannot deadlock). **12 tests, 5 mutants killed**, existing
+   suite green at 33 assertions, verified against the live ledger.
+
+## owner-01b is the real trial
+
+Redeployed 13:04:27Z on **board-b,hive-a** (new run_id, or the loop would have resumed from
+`read-90` and skipped the deploy). `OWNER=1` confirmed in both pools' processes — 58 vars vs 57.
+And the machine emits: **`_escape_rung` canary 1 / control 0 within two minutes**, against zero
+in owner-01's entire 97 minutes. Reads run to a 02:04Z deadline on 19 Sep, so tomorrow's session
+may inherit it.
+
+**Unresolved and flagged for the owner:** the constraints say "ARBITER stays OFF" and
+`config.mjs:155` makes `OWNER=1` imply it. Read as the fleet default rather than a bar on the
+canary built to test it, since owner-01 was registered and deployed this morning as "behind
+OWNER=1 (implies ARBITER=1)". If wrong, teardown is three steps.
+
+## The program numbers, and the two nobody was reading
+
+24 h to 11:40Z: deaths **0.025/bot-h** (clears both the 2-wk ≤0.05 and 6-wk ≤0.03 gates),
+immobility **0/80**, iron-pickaxe share **12.5%** (clears 2-wk ≥8%), gather **20.3%** against a
+2-wk gate of **40%**, deposit **22.4%** on the denominator comparable to the program's 17%
+baseline — improved, not the regression it first looked like — but **11.2%** once the 2,488
+`no_effect` runs count, and half of all deposit runs doing nothing is its own question.
+
+Of those five, only three had a standing read: the 30-min digest carries deaths, immobility and
+the *retired* items/bot-h; `ironfunnel` carries iron. **Gather success and stock returned had no
+standing read anywhere** — which is how gather moved 30% → 20.3% unobserved. `~/programread.py`
+now runs nightly at 00:12Z, splits by `code.version`, prints both deposit denominators, and
+refuses rather than printing zeros when the walk looks broken.
+
+**The misalignment worth the owner's attention:** deaths and immobility clear their *six-week*
+gates in week one, yet three of the top six queue items are death work, while gather — furthest
+from its gate — has none. Either flip `keepInventory` earlier so the death work has a live
+endpoint, or let navigation take the slots. Also: the two-week gate is **27 Sep** and its 72-h
+read window (24–27 Sep) is unregistered and currently has canaries running through it.
+
+## Drowning is one 104-second pipeline (queued at 4)
+
+28 of 48 deaths. `_water_no_air_route` discriminates at **81%** against `_water_float` at
+**0.03%**. The rescue records "no harm" at health 3.16 because `drownFailHealth` resets at every
+ceiling, so `healthDropped` only asks "since the last ceiling". Yields split cleanly: **235 at
+full health, 1.7% fatal** (the designed phantom case, working) vs **23 at health < 5, 100% fatal**,
+over 20 bots in 11 of 12 pools. But that yield is a **marker** — 11 s before death against 73 s
+and 4 ceilings since the first. The defect is that `assessAir` returns only `swim|fallthrough|none`:
+no dig, no place, no bucket, so when routing to air is impossible it re-runs routing to air until
+the bot dies. `_goto_float_dig` proves a floating bot can dig (72 fires, 0 deaths) but lives in
+`goto`. Full read in `drowning-pipeline-2026-09-18.md`. **Validate on ceilings-per-episode, not
+deaths** — 0.014 deaths/bot-h gives a 10-bot 6-h canary 0.84 expected deaths and no power.
+
+Also measured: the fatal fall class falls-01 could not see — **7 fall deaths at 23/31/31/36/40/40/42
+blocks** out of 48, ~0.0036/bot-h. Invisible on 10 bots for 2.4 h; obvious on 80 for 24 h.
+
+## One monitoring gap closed
+
+`page.jsonl` alone is **not a heartbeat**: the loop pages decisions and errors only, so owner-01's
++30 read wrote `NOT_YET` to the journal and nothing to the page file, and a 30-minute watch
+straddling it expired silent — indistinguishable from a dead loop. STATE's re-arm item 1 now
+tails the journal too. The tier-1 analyst has the same blind spot (it counts only
+KEEP/REVERT/INCONCLUSIVE as a read) and flagged a stale 12:30Z stall on that basis; low stakes,
+but it is the third instance of the pattern today.
+
+## What I deliberately did not do
+
+The seed canary (queue 2) stays blocked behind the owner verdict, as registered — re-seeded pools
+would sit in owner-01b's DiD control arm. No second canary. No bot-code change: everything shipped
+today is instrument.
