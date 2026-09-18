@@ -35,7 +35,15 @@ for l in sys.stdin:
     except Exception: sys.exit(3)
     if pool in [p.strip() for p in str(r.get('canary_pool') or '').split(',')] and (now-dt.datetime.fromisoformat(r['ts'])).total_seconds()<12*3600: sys.exit(1)
 "; then :; else rc=$?; [ $rc = 3 ] && echo "refusing: unreadable ledger line" || echo "refusing: $POOL had a canary decision in the last 12 h (ledger exclusion)"; exit 2; fi
-BOTS=$(B "systemctl list-units 'mcbot@$POOL-*' --no-legend --plain | awk '{print \$1}' | sed 's/mcbot@//; s/.service//' | sort"); N=$(echo "$BOTS" | grep -c .)
+# --all, BECAUSE A RESUME FINDS ITS BOTS ALREADY STOPPED. Without it
+# `list-units` omits inactive units, so the second invocation of a journaled,
+# resumable script -- which by design runs with the five bots down -- counts
+# zero and refuses to continue the operation it is halfway through.
+# And `|| true`, because `grep -c` exits 1 on no match and `set -euo pipefail`
+# then kills the script BEFORE the refusal below can say why. Measured
+# 2026-09-18 23:54Z: a resumed reseed of placebo-a died printing nothing at all,
+# with five bots stopped and a world half-migrated.
+BOTS=$(B "systemctl list-units --all 'mcbot@$POOL-*' --no-legend --plain | awk '{print \$1}' | sed 's/mcbot@//; s/.service//' | sort -u"); N=$(echo "$BOTS" | grep -c . || true)
 [ "$N" = 5 ] || { echo "refusing: expected 5 bots for $POOL, found $N: $BOTS"; exit 2; }
 # the pool's state dir and each bot's STATE_DIR, from the env files, never guessed
 ENVINFO=$(B "for b in $(echo $BOTS); do sudo grep -h '^STATE_DIR=\|^MEMORY_POOL=\|^MEMORY_SCOPE=' /srv/mcbots/harness/env/\$b.env | tr '\n' ' '; echo; done")
