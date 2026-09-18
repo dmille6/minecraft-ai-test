@@ -3,7 +3,11 @@
 # gate, v15c movement guards, v11 guards, deposit skill_error, v12/v14c linkage with the death poll's own check) and the
 # registration's own lines and exposure, and prints ONE verdict: NOT_YET | KEEP | REVERT | WATCH | INCONCLUSIVE |
 # UNREADABLE | KEEP_ON_SAFETY. Writes ~/digest/reads/<run_id>-verdict-<M>.json. Never edits a rule.
-import sys, json, os, glob, gzip, hashlib, datetime as dt, collections
+import sys
+sys.path.insert(0, '/home/mike/mcai-analysis')
+import json, os, glob, gzip, hashlib, datetime as dt, collections
+from deathgate import death_gate
+from singledeath import licence_reverts
 
 
 def license_change_rows(changerow, away, ctrl_at_death):
@@ -117,7 +121,17 @@ if changerow or linked:
                 ctrl_at_death |= {q[1].lstrip('_') for q in rs if lo <= q[0] < ts and q[1].lstrip('_') in C_ROWS}
 licensed, refused = license_change_rows(changerow, away, ctrl_at_death)
 if refused: why.append(f'change rows in a canary death window REFUSED as non-discriminating ({ctrl_deaths} control deaths in the window): ' + '; '.join(sorted(set(refused))))
-if licensed: why.append(f'change row inside a death window, discriminating: {licensed[0][:3]}'); (out('REVERT', {'deaths': ndeaths}))
+# v23 (2026-09-19): NO SINGLE CANARY DEATH MAY LICENCE A REVERT BY ANY PATH.
+# This branch reverted owner-01b at +0 on ONE death at 16:38:45Z while the
+# aggregate gate below -- the owner's two-death floor plus v21's lower bound --
+# was at that same moment correctly HOLDING a 10.00x point ratio at a 0.78x
+# lower bound. Two rules about the same question in one file, and the stricter
+# one never ran. The floor now has ONE implementation that every path calls.
+_v23_rev, _v23_why = licence_reverts(licensed, ndeaths)
+if _v23_rev:
+    why.append(f'change row inside a death window, discriminating: {licensed[0][:3]}'); (out('REVERT', {'deaths': ndeaths}))
+elif licensed:
+    why.append(_v23_why); pending_watch.append('licensed change row held below the death floor (v23)')
 # v19: the single-death rung-linkage override bypassed the owner's own calibrated death
 # gate (TWO canary deaths AND > 1.25x control). It has now ended three canaries on one
 # death each -- -08c (`marooned_ramp_cut`, whose ledger note already says "present in both
@@ -136,7 +150,20 @@ if linked: why.append(f'rung-linked death on a non-ladder change (v14c: report u
 # 4. the owner's death gate
 h = im['harm']
 if POLL and ndeaths >= 2 and h.get('control_rate'): h = dict(h, canary_deaths=ndeaths, canary_rate=ndeaths / max(0.1, ((dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))).total_seconds() / 3600) * 10))
-if h['canary_deaths'] >= 2 and h.get('control_rate') is not None and h['canary_rate'] > 1.25 * (h['control_rate'] or 0): why.append(f"death gate: {h['canary_deaths']} canary deaths, {h['canary_rate']:.3f} vs control {h['control_rate']:.3f}/bh"); (out('REVERT'))
+# v21 (2026-09-18, PROSPECTIVE): the owner's TWO-death floor is untouched; the 1.25x test now
+# runs on the one-sided 95% LOWER BOUND of the rate ratio, not the point estimate. The gate is
+# polled every 5 min for up to 9 h -- ~108 looks at an event with a null expectation under one
+# per canary -- so the point ratio clears 1.25x on ordinary Poisson noise. Calibrated by
+# simulation over the measured fleet death process (~/mcai-analysis/calibrate_deathgate.py):
+# false revert 43.7% -> 5.0%, detection at swim_to scale (10x) 100% -> 99.9%, at 3x 95% -> 51%.
+# The 43.7% reproduces the 46% measured on 2026-09-13, which is the positive control for the
+# simulation. It reverted falls-01 -- a REPORT-ONLY instrument -- on 2 idle deaths (one drowning,
+# one unknown, no falls) while all 3 CONTROL deaths in the same window were idle drownings.
+_cbh = (h['canary_deaths'] / h['canary_rate']) if h.get('canary_rate') else 0.0
+_kbh = (h.get('control_deaths', 0) / h['control_rate']) if h.get('control_rate') else (_cbh * 7.0)
+_rev, _why = death_gate(h['canary_deaths'], _cbh, h.get('control_deaths', 0), _kbh)
+if _rev: why.append(_why); (out('REVERT'))
+elif h['canary_deaths'] >= 2: why.append(_why); pending_watch.append('death gate held (v21)')
 why.append(f"deaths {h['canary_deaths']} ({h['canary_rate']:.3f}) vs control {(h['control_rate'] or 0):.3f}/bh")
 if POLL: why.append(f'poll: {ndeaths} canary deaths since declared_at, {len(linked)} rung-linked, {len(changerow)} with a change row'); (out('POLL_OK', {'deaths': ndeaths}))
 # 5. v15c movement guards
