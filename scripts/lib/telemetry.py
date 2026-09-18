@@ -51,7 +51,8 @@ answering. A crash is recoverable. A confident zero gets written into a report.
     ev.rate('_death', bots='auto')     # per bot-hour over the ACTUAL span
     ev.names()                         # what is really in there
 """
-import json, glob, gzip, os, datetime, difflib
+import json
+import sys, glob, gzip, os, datetime, difflib
 
 
 def canon(name):
@@ -83,6 +84,30 @@ def open_log(path):
     return open(path, errors='replace')
 
 
+def predates_window(path, since):
+    """True when `path` provably holds no row at or after `since`.
+
+    A rotated file cannot contain rows newer than its own mtime, so this is the
+    one place that decides whether a file is in scope. Both the size estimate
+    and the walk call it, which is the point: when they used separate copies of
+    this rule the estimate counted files the walk would never open, and the cap
+    refused windows that were in fact tiny.
+
+    mtime, not the `-YYYYMMDD` in the name: it is exact rather than a
+    day-granularity guess, and it is right for the live file too (still being
+    appended, so never skipped). An unreadable mtime is never a skip -- the
+    walk would rather pay for a file than silently drop one.
+    """
+    if since is None:
+        return False
+    try:
+        mt = datetime.datetime.fromtimestamp(os.path.getmtime(path),
+                                             datetime.timezone.utc)
+    except OSError:
+        return False
+    return mt < since
+
+
 MAX_WALK_BYTES = 6 * 2**30   # ~6 GB of raw telemetry; see the guard in load()
 
 
@@ -108,6 +133,14 @@ class Events:
         now = datetime.datetime.now(datetime.timezone.utc)
         if since_minutes is not None:
             since = now - datetime.timedelta(minutes=since_minutes)
+        # A NAIVE BOUND IS A SILENT WINDOW, NOT A LOUD ONE. Compared against an
+        # aware mtime it raises TypeError in the estimate, and inside the walk's
+        # per-row try it would be SWALLOWED -- an empty result that looks like a
+        # finding. Refuse it at the door instead (Codex pass 1).
+        for nm, v in (('since', since), ('until', until)):
+            if isinstance(v, datetime.datetime) and v.tzinfo is None:
+                raise ValueError('%s must be timezone-aware; a naive bound reads as an empty '
+                                 'window rather than an error' % nm)
         # REFUSE A WALK THAT WOULD OOM THE HOST.
         #
         # These files live on the FLEET host. `Events.load()` holds every row in
@@ -121,8 +154,29 @@ class Events:
         # for this data (16 GB -> 634 MB measured, ~26x). Raising the cap is not
         # the fix -- Elasticsearch holds the full archive and is where a wide
         # window belongs.
+        # THE ESTIMATE MUST COVER THE SAME FILES THE WALK WILL READ.
+        #
+        # It used to sum the WHOLE glob, window or not, while the walk below
+        # skipped every file whose mtime predates `since`. The two disagreed,
+        # and the disagreement grew with each rotation: measured 2026-09-18,
+        # 1124 rotated generations totalling 0.44 GB were counted at 25x for an
+        # estimate of 11.4 GB against 1.9 GB actually on disk, so EVERY call
+        # raised -- `since_minutes=30` included. The advice in the message
+        # ("narrow the window") could not work, because narrowing the window did
+        # not change the number. fallread, deathread, canary-report and
+        # verdict.py's evidence objects all died with it, mid-canary-season.
+        #
+        # Both sides now ask `predates_window()`, so they cannot drift apart
+        # again. Skipping only ever drops files that provably hold no row in the
+        # window, so the walk stays FULL for the window asked for -- the
+        # property the full-walk rule is actually about.
+        # ONE glob, frozen, for both the estimate and the walk. They used to
+        # glob independently, so a file could be absent when priced and present
+        # when read -- the estimate authorising a walk it had never seen. The
+        # shared predicate alone does not fix that; a shared LIST does.
+        files = [f for f in sorted(glob.glob(paths)) if not predates_window(f, since)]
         est = 0
-        for f in glob.glob(paths):
+        for f in files:
             try:
                 sz = os.path.getsize(f)
                 est += sz * 25 if f.endswith('.gz') else sz
@@ -136,8 +190,9 @@ class Events:
                 'days -- it is the authoritative archive.'
                 % (est / 2**30, MAX_WALK_BYTES / 2**30))
 
-        rows, newest = [], None
-        for f in sorted(glob.glob(paths)):
+        rows, newest, read_chars = [], None, 0
+        bad_lines, unreadable = 0, []
+        for f in files:
             # A ROTATED FILE CANNOT CONTAIN ROWS NEWER THAN ITS OWN MTIME.
             #
             # Without this the walk decompresses all 14 rotated generations to
@@ -150,42 +205,94 @@ class Events:
             # being appended, so never skipped). Skipping only ever removes files
             # that provably predate the window, so the walk stays FULL for the
             # window asked for -- which is the property that matters.
-            if since is not None:
-                try:
-                    import os as _os, datetime as _dt
-                    mt = _dt.datetime.fromtimestamp(_os.path.getmtime(f), _dt.timezone.utc)
-                    if mt < since:
-                        continue
-                except OSError:
-                    pass
             try:
                 with open_log(f) as fh:
                     for line in fh:
                         try:
+                            # THE BUDGET THE ESTIMATE ONLY GUESSES AT. The 25x
+                            # multiplier prices a compressed file before it is
+                            # opened; this counts what is actually decompressed
+                            # and stops. It bounds appends that landed after the
+                            # estimate, a rotation that is not compressed at all
+                            # (logrotate here uses delaycompress), and any window
+                            # whose real expansion beats the guess (Codex pass 1).
+                            #
+                            # Characters, not bytes: this telemetry is effectively
+                            # ASCII, so the two agree closely, and encoding every
+                            # line to count exactly would cost more than the guard
+                            # is worth. A safety net, not an accountant.
+                            read_chars += len(line)
+                            if read_chars > MAX_WALK_BYTES:
+                                raise WalkTooWide(
+                                    'this walk has already decompressed ~%.1f GB, over the %.1f GB '
+                                    'cap, and stopped at %s. Narrow the window with since_minutes=, '
+                                    'or query Elasticsearch (mcai-skill-agents).'
+                                    % (read_chars / 2**30, MAX_WALK_BYTES / 2**30, f))
                             d = json.loads(line)
-                        except Exception:
-                            continue
-                        sk = d.get('skill') or {}
-                        n = sk.get('name')
-                        if not n:
-                            continue
-                        try:
+                            sk = d.get('skill') or {}
+                            n = sk.get('name')
+                            if not n:
+                                continue
                             t = datetime.datetime.fromisoformat(
                                 d.get('@timestamp', '').replace('Z', '+00:00'))
+                            if newest is None or t > newest:
+                                newest = t
+                            if since and t < since:
+                                continue
+                            if until and t >= until:
+                                continue
+                            if version and (d.get('code') or {}).get('version', '').split('+')[0] != version:
+                                continue
+                            rows.append({'t': t, 'name': n, 'detail': sk.get('detail') or '',
+                                         'bot': (d.get('bot') or {}), 'raw': d})
+                        except WalkTooWide:
+                            raise
                         except Exception:
+                            # ONE BAD LINE IS A BAD LINE, NOT THE END OF THE FILE.
+                            # The file-level handler below used to catch anything
+                            # thrown mid-file -- a JSON array where an object was
+                            # expected, a row with an unparsable timestamp -- and
+                            # `continue` to the NEXT FILE, discarding every
+                            # remaining row in this one. Reproduced by Codex pass
+                            # 2: valid row / [] / valid row returned ONE row. A
+                            # short walk that looks complete is this project's
+                            # most expensive bug, so a line now costs a line.
+                            bad_lines += 1
                             continue
-                        if newest is None or t > newest:
-                            newest = t
-                        if since and t < since:
-                            continue
-                        if until and t >= until:
-                            continue
-                        if version and (d.get('code') or {}).get('version', '').split('+')[0] != version:
-                            continue
-                        rows.append({'t': t, 'name': n, 'detail': sk.get('detail') or '',
-                                     'bot': (d.get('bot') or {}), 'raw': d})
-            except Exception:
+            except WalkTooWide:
+                # THE BUDGET IS NOT A FILE ERROR. This handler exists so one
+                # unreadable generation cannot kill a walk; letting it swallow
+                # the cap would turn 'too much data' into a short, quiet,
+                # plausible-looking result -- the exact shape of finding this
+                # project keeps having to retract.
+                raise
+            except Exception as e:
+                # Could not be opened or decompressed at all. Still not silent:
+                # the walk says what it could not read, so 'complete' is a
+                # claim the caller can check rather than assume.
+                unreadable.append('%s (%s)' % (os.path.basename(f), type(e).__name__))
                 continue
+
+        # WHAT THE WALK COULD NOT READ IS PART OF THE RESULT.
+        if unreadable or bad_lines:
+            sys.stderr.write(
+                'telemetry: walk incomplete -- %d unreadable file(s)%s, %d unparsable line(s)\n'
+                % (len(unreadable), (': ' + ', '.join(unreadable[:4])) if unreadable else '',
+                   bad_lines))
+
+        # ROTATION DURING THE WALK LOOKS EXACTLY LIKE A QUIET SHORT RESULT.
+        # logrotate here uses copytruncate: if it fires between the glob and the
+        # open, the live file is read truncated and the generation carrying the
+        # missing rows never appears in the frozen list. Re-glob and say so
+        # (Codex pass 2). Reported, not raised -- one rotation must not kill an
+        # operator's read, but it must never pass for a complete one.
+        appeared = [f for f in glob.glob(paths)
+                    if f not in set(files) and not predates_window(f, since)]
+        if appeared:
+            sys.stderr.write('telemetry: %d in-window file(s) appeared DURING the walk '
+                             '(rotation?): %s -- re-run the read\n'
+                             % (len(appeared), ', '.join(os.path.basename(x) for x in appeared[:4])))
+
         # A window that starts after the newest event on disk cannot contain
         # anything, and that is a clock bug, not a finding.
         if since and newest and since > newest:
