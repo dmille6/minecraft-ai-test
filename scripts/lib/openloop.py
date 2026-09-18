@@ -20,6 +20,8 @@ false alarm is that somebody looks at a manifest. An unreadable decisions file
 is therefore an OPEN loop, never a closed one.
 """
 
+import datetime as _dt
+
 #: The three ways a canary may be closed. INCONCLUSIVE is a legitimate close and
 #: is frequently the honest one -- two readings inside the 2.36x between-pool
 #: noise band is not a result. What is forbidden is closing nothing at all.
@@ -53,6 +55,25 @@ def canary_sha(manifest):
     return manifest.get('canary_code_version') or manifest.get('canary_sha') or ''
 
 
+def _ts(value):
+    """
+    Parse an ISO-8601 stamp to an aware datetime, or None when it cannot be.
+
+    Both the manifest's `declared_at` and the ledger's `ts` are written by
+    `datetime.isoformat()`, but the manifest's carries a trailing `Z` that
+    `fromisoformat` refused before Python 3.11. Naive stamps are read as UTC:
+    every writer here is UTC, and refusing them would make the guard useless on
+    exactly the hand-written manifest it most needs to judge.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        t = _dt.datetime.fromisoformat(value.strip().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
+
+
 def open_loop(manifest, decisions):
     """
     Return a reason string when a loop is open, or None when nothing is open.
@@ -84,13 +105,43 @@ def open_loop(manifest, decisions):
         return ('canary %s is deployed on %s and the decision ledger could not '
                 'be read — treating that as OPEN' % (sha[:7], ', '.join(pool)))
 
+    # A DECISION CANNOT CLOSE A DEPLOYMENT THAT CAME AFTER IT.
+    #
+    # Measured 2026-09-18. owner-01 (aa44514) shipped inert, was recorded
+    # INCONCLUSIVE at 12:59:51Z and torn down. The identical sha was redeployed
+    # 13:04:27Z as owner-01b, and this guard -- which keys on the sha alone --
+    # answered "no open canary, clear to start something new" while that canary
+    # was live on board-b,hive-a. So the one tripwire under "Done means read on
+    # the fleet" was pre-satisfied by the previous trial's own verdict, and it
+    # would have green-lit a SECOND canary, which is three versions and a halted
+    # fleet. A redeploy of the same sha is routine -- a flag fix, an env fix, a
+    # bad pool draw -- so this is not an exotic case.
+    #
+    # Ordering, not identity, is what makes a decision belong to a deployment.
+    declared = _ts(manifest.get('declared_at'))
+    if manifest.get('declared_at') and declared is None:
+        # Present but unparseable means somebody edited it. Fail closed: that is
+        # precisely when a human should look. An ABSENT declared_at is a manifest
+        # older than this check, and falls back to matching on the sha alone.
+        return ('canary %s is deployed on %s and declared_at (%r) cannot be '
+                'parsed — the ledger cannot be ordered against it, treating as OPEN'
+                % (sha[:7], ', '.join(pool), manifest.get('declared_at')))
+
     for d in decisions:
         if not isinstance(d, dict):
             continue
         if (d.get('canary_sha') or '') != sha:
             continue                     # a decision about some other trial
-        if (d.get('decision') or '').upper() in VERDICTS:
-            return None
+        if (d.get('decision') or '').upper() not in VERDICTS:
+            continue
+        if declared is not None:
+            when = _ts(d.get('ts'))
+            # No timestamp, or one predating this deployment, cannot prove the
+            # decision is ABOUT this deployment. Fail closed, as the module does
+            # everywhere else.
+            if when is None or when < declared:
+                continue
+        return None
 
     return ('canary %s is deployed on %s with no KEEP/REVERT/INCONCLUSIVE '
             'recorded — read it before starting anything new'
