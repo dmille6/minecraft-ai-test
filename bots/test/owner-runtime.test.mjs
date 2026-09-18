@@ -35,12 +35,22 @@ await t('the episode closes only when the postcondition AND the predicate hold; 
   assert.equal(owner.episodeFor('e2'), null, 'closed episodes are dropped')
 })
 await t('a refused rung is skipped next time; when every rung is spent the owner holds with a safe_hold row, and evidence ends the hold', async () => {
-  const { owner, rows } = mk({ rungs: { pillar: async () => ({ outcome: 'refused', why: 'needs_blocks' }), stair: async () => ({ outcome: 'failed', why: 'no ramp' }), underfoot: async () => ({ outcome: 'exhausted' }) } })
+  const { owner, rows } = mk({ rungs: { pillar: async () => ({ outcome: 'refused', why: 'needs_pickaxe' }), stair: async () => ({ outcome: 'failed', why: 'no ramp' }), underfoot: async () => ({ outcome: 'exhausted' }) } })
   const args = { cls: 'entombed', key: 'e3', obs: { blocks: 20, climbNeed: 3, tool: true }, before: B, predicate: () => ({ entombed: true, supported: true }), snapshot: () => B }
   assert.equal((await owner.assessAndRun(args)).rung, 'pillar'); assert.equal((await owner.assessAndRun(args)).rung, 'stair'); assert.equal((await owner.assessAndRun(args)).rung, 'underfoot')
   const h = await owner.assessAndRun(args); assert.equal(h.result, 'hold'); assert.equal(h.why, 'exhausted')
   assert.match(rows.find(x => x.kind === 'safe_hold').detail, /reason=exhausted tried=pillar:refused,stair:failed,underfoot:exhausted until=evidence/)
   assert.equal(owner.evidence({ blockChangedNearby: true }), true); assert.equal(owner.hold, null)
+})
+await t('a needs_blocks refusal is re-admitted while the bot can afford the climb, and latches after the retry budget', async () => {
+  let n = 0
+  const { owner } = mk({ rungs: { pillar: async () => { n++; return { outcome: 'refused', why: 'needs_blocks' } }, stair: async () => ({ outcome: 'failed', why: 'no ramp' }), underfoot: async () => ({ outcome: 'exhausted' }) } })
+  const args = { cls: 'entombed', key: 'e3b', obs: { blocks: 20, climbNeed: 3, tool: true }, before: B, predicate: () => ({ entombed: true, supported: true }), snapshot: () => B }
+  assert.equal((await owner.assessAndRun(args)).rung, 'pillar')
+  assert.equal((await owner.assessAndRun(args)).rung, 'pillar', 'affordable: the gate re-admits it')
+  assert.equal((await owner.assessAndRun(args)).rung, 'pillar')
+  assert.equal((await owner.assessAndRun(args)).rung, 'stair', 'the retry budget is spent: it latches, so the rung cannot spin the deadline away')
+  assert.equal(n, 3)
 })
 await t('an air acquire mid-rung preempts through the arbiter: alive() turns false, the rung reports preempted, and it is retried next time', async () => {
   let aliveDuring = []

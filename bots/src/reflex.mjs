@@ -1367,9 +1367,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Step 1 routes the ENTOMBED arm only: its body becomes three rungs the owner runs one at a time under an episode.
   if (config.reflex.owner && runner?.arb) {
     const ownerRungs = {
-      pillar: async (b, { alive, blocksLeft }) => {
+      pillar: async (b, { alive }) => {
         const need = climbNeedAbove(bmap(b), b.entity.position)
-        if (blocksLeft != null && blocksLeft < need + 2) return { outcome: 'refused', why: `needs_blocks (episode budget ${blocksLeft} < ${need + 2})` }
+        // NO AFFORDABILITY TEST HERE. `nextRung` owns it, from the live need and the live block count, and it is a
+        // GATE that records nothing -- a test here produced a `refused` ROW, and a refused rung is skipped for the
+        // rest of the episode, so one unaffordable second latched the climb out of the ladder (owner-01b, 18 Sep:
+        // 55 of 71 episodes ended in a hold). This rung reports only what happened when it ran.
         const y0 = b.entity.position.y
         const r = await pillarOut(b, need, { alive })
         if (r === 'needs_blocks' || r === 'needs_pickaxe') return { outcome: 'refused', why: r }
@@ -1378,7 +1381,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         // pillarOut hands off to digStraightUp, which returns nothing on completion and null after walking to an
         // opening: judge by what happened, not by the return value (Codex pass 1 §4)
         const rose = (b.entity?.position?.y ?? y0) - y0
-        return rose >= 1 ? { outcome: 'ran', why: `rose ${rose.toFixed(1)} (${String(r)})` } : { outcome: 'failed', why: `no height gained (${String(r)})` }
+        return rose >= 1 ? { outcome: 'ran', why: `rose ${rose.toFixed(1)} (${r ?? 'completed'})` } : { outcome: 'failed', why: `no height gained (need=${need}, ${r ?? 'completed'})` }
       },
       stair: async (b, { alive, deadlineAt }) => {
         const st = await escapeStairUp(b, { budgetMs: Math.max(5_000, Math.min(60_000, (deadlineAt ?? Date.now() + 60_000) - Date.now())),
@@ -2850,7 +2853,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             const here = () => { const q = bot.entity?.position; return q ? { x: q.x, y: q.y, z: q.z, wet: !!bot.entity?.isInWater } : null }
             const blocks = (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0)
             const tool = (bot.inventory?.items?.() ?? []).some(it => /_pickaxe$/.test(it.name))
-            const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),
+            const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos), wet: !!bot.entity?.isInWater }, before: here(),
               predicate: () => ({ entombed: isEntombed(bot), supported: !!bot.entity?.onGround }), snapshot: here })
             if (r.result === 'closed') { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
             else if (r.result === 'hold' || r.result === 'latched') {

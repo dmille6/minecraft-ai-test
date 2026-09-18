@@ -1,6 +1,6 @@
 // owner.mjs, pure: episodes, rung order and skipping, budgets, closing predicates, holds, evidence exits, the strategy latch.
 import assert from 'node:assert/strict'
-import { newEpisode, rungsFor, nextRung, recordRung, closeEpisode, holdReason, safeHoldExit, mayOpen, transition, EPISODE_DEADLINE_MS, LADDER_BLOCK_RESERVE, BLOCK_BUDGET_EXTRA } from '../src/owner.mjs'
+import { newEpisode, rungsFor, nextRung, recordRung, closeEpisode, holdReason, safeHoldExit, mayOpen, transition, EPISODE_DEADLINE_MS, LADDER_BLOCK_RESERVE, BLOCK_BUDGET_EXTRA, BUDGET_OVERRUN } from '../src/owner.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const AT = { x: 100, y: 40, z: 100 }
@@ -15,8 +15,10 @@ t('a new episode has one deadline and a block budget of need + 2, and starts in 
 })
 t('nextRung skips a refused, failed or exhausted rung but retries a preempted one, and refuses pillar/dig without the blocks', () => {
   let e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 3, climbNeed: 5 })
-  assert.equal(nextRung(e, { blocks: 3, tool: true }, 1).rung, 'stair', 'pillar needs 7 blocks, 3 held: skipped to the stair')
-  assert.equal(nextRung(e, { blocks: 9, tool: true }, 1).rung, 'pillar')
+  // The pre-gate is a FLOOR, not the climb test: the rung re-measures the need when it runs and judges it against
+  // what the bot holds. Gating here on the frozen budget refused climbs the bot could afford (owner-01b, 18 Sep).
+  assert.equal(nextRung(e, { blocks: 3, climbNeed: 5, tool: true }, 1).rung, 'stair', 'pillar needs 7, 3 held: skipped to the stair')
+  assert.equal(nextRung(e, { blocks: 9, climbNeed: 5, tool: true }, 1).rung, 'pillar')
   e = recordRung(e, { rung: 'pillar', outcome: 'preempted' }); assert.equal(nextRung(e, { blocks: 9 }, 2).rung, 'pillar'); assert.match(nextRung(e, { blocks: 9 }, 2).reason, /after preemption/)
   e = recordRung(e, { rung: 'pillar', outcome: 'failed', blocksSpent: 4 }); assert.equal(e.blocksSpent, 4)
   assert.equal(nextRung(e, { blocks: 9, tool: true }, 3).rung, 'stair'); assert.equal(nextRung(e, { blocks: 9, tool: false }, 3).rung, 'stair', 'a bare-hand ramp is legal (the legacy arm cuts stone by hand); the rung itself decides')
@@ -66,5 +68,42 @@ t('exhaustion latches the unchanged strategy for an hour, never the machine: a n
 t('transitions are records with a reason, and only between named states', () => {
   const tr = transition('ASSESS', 'ESCAPE', { reason: 'entombed detected', budget: { deadlineMs: 1000 } })
   assert.equal(tr.reason, 'entombed detected'); assert.throws(() => transition('ASSESS', 'FLY', { reason: 'x' }), /bad transition/)
+})
+t('REGRESSION (owner-01b): the gate uses the LIVE climb need, not the budget frozen at assess', () => {
+  // The episode opened when the need was 6, so its budget is 8. The need is now 14 and the bot holds 40.
+  // The old code compared 14+2 against the remaining budget of 8 and refused a climb the bot could easily afford.
+  const e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 40, climbNeed: 6 })
+  assert.equal(e.blockBudget, 8)
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 14 }, 1).rung, 'pillar', 'affordable against the live need')
+  assert.equal(nextRung(e, { blocks: 9, climbNeed: 14 }, 1).rung, 'stair', 'genuinely short: 9 < 16')
+})
+t('the block gate does not latch: a needs_blocks refusal is re-gated from live facts, not skipped for the episode', () => {
+  let e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 4, climbNeed: 12 })
+  e = recordRung(e, { rung: 'pillar', outcome: 'refused', why: 'needs_blocks' })
+  assert.equal(nextRung(e, { blocks: 4, climbNeed: 12 }, 1).rung, 'stair', 'still cannot afford it')
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 12 }, 2).rung, 'pillar', 'the live facts changed')
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 2 }, 2).rung, 'pillar', 'a SHRINKING need re-admits it too')
+})
+t('a refusal that is NOT about blocks stays final however much the bot gathers', () => {
+  let e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 4, climbNeed: 2 })
+  e = recordRung(e, { rung: 'pillar', outcome: 'refused', why: 'needs_pickaxe' })
+  assert.equal(nextRung(e, { blocks: 400, climbNeed: 2 }, 1).rung, 'stair', 'a pickaxe is not dirt')
+})
+t('the block budget is a REAL spend cap: past it pillar is skipped as over_budget, whatever the bot holds', () => {
+  let e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 400, climbNeed: 6 })
+  const cap = Math.max(e.blockBudget, 6 + BLOCK_BUDGET_EXTRA) * BUDGET_OVERRUN
+  e = recordRung(e, { rung: 'pillar', outcome: 'ran', blocksSpent: cap })
+  const skipped = []
+  assert.equal(nextRung(e, { blocks: 400, climbNeed: 6, skipped }, 1)?.rung, 'stair')
+  assert.match(skipped.find(x => x.rung === 'pillar').why, /over_budget/, 'the cap is enforced, which it never was before')
+})
+t('WATER STANDS THE LADDER DOWN: a submerged bot runs no rung and holds with reason=wet, and resumes when ashore', () => {
+  // owner-01b, 18 Sep: hive-a-Bravo drowned at a recorded drowning site while the owner held the body at escape
+  // priority and the air reflex preempted every pillar. The canary was reverted on that death.
+  const e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 40, climbNeed: 3 })
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 3, wet: true }, 1), null, 'no rung while in water')
+  assert.equal(holdReason(e, { blocks: 40, climbNeed: 3, wet: true }, 1), 'wet')
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 3, wet: false }, 1).rung, 'pillar', 'ashore: the ladder runs again')
+  assert.equal(holdReason(e, { blocks: 40, climbNeed: 3 }, 1), 'runnable', 'an absent fact is not wet')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

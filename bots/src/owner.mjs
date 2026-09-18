@@ -14,6 +14,8 @@ export const CLASSES = Object.freeze(['entombed', 'marooned', 'ladder'])
 export const EPISODE_DEADLINE_MS = 180_000
 export const EPISODES_PER_CLASS_PER_HOUR = 3        // per (class, strategy) latch on episodes that ended in a HOLD, never on openings; a NEW class always opens (Codex, plan v2 §6)
 export const BLOCK_BUDGET_EXTRA = 2                   // the entombment climb's need + 2 (design §Budgets)
+export const BLOCK_REFUSAL_RETRIES = 2                // how often a rung may claim needs_blocks against a live gate that says otherwise, before it latches
+export const BUDGET_OVERRUN = 2                       // the episode's spend cap: twice one climb's worth, against the LIVE need. The budget frozen at assess was never enforced anywhere (owner-01b review, 18 Sep): blocksSpent was accumulated and compared to nothing.
 export const LADDER_BLOCK_RESERVE = 4                 // the livelock dig leg's floor (cognitive.mjs reserve)
 const RUNGS = Object.freeze({
   entombed: ['pillar', 'stair', 'underfoot'],            // reflex.mjs: measured pillar-out, then the stair ramp, then harvest underfoot
@@ -49,17 +51,43 @@ export function transition (from, to, { reason, budget = null, postcondition = n
 export function nextRung (episode, obs = {}, now = Date.now()) {
   if (!episode) return null
   if (now >= episode.deadline) return null
+  // WATER IS THE AIR REFLEX'S, NOT THE OWNER'S. Owner directive: water is terrain and the only water reflex is
+  // getting air. `isEntombed` reads "walled in" for a SUBMERGED bot too, so the owner opened escape episodes on
+  // swimming bots and then contended for the body at PRIORITY.escape against the air reflex, which outranks it.
+  //
+  // Measured on owner-01b, 18 Sep: 15 of 240 rung rows were `refused why=body held by air`, and hive-a-Bravo spent
+  // 16:31:28-16:32:51 in a refuse/preempt cycle one block from a recorded drowning site at 386,59,175 before
+  // drowning there. The canary was reverted on that death. Hold instead: the hold ends on evidence when it is ashore.
+  if (obs.wet) return null
   const blocks = obs.blocks | 0
+  // The LIVE climb need, re-measured by the caller each assess; falls back to the frozen budget only when absent.
+  const need = obs.climbNeed == null ? Math.max(0, episode.blockBudget - BLOCK_BUDGET_EXTRA) : obs.climbNeed | 0
   const skipped = []; if (obs.skipped) obs.skipped.length = 0
   const last = {}
-  for (const t of episode.tried) last[t.rung] = t.outcome
+  for (const t of episode.tried) last[t.rung] = t
+  // WANT OF BLOCKS IS A GATE, NOT AN ATTEMPT. It is re-evaluated here from LIVE facts every pass -- `obs.climbNeed` is
+  // re-measured by the caller at each assess -- so it must never latch: a rung the bot cannot afford this second may
+  // be affordable the next, and a rung recorded `refused` is skipped for the rest of the episode.
+  //
+  // Measured on owner-01b, 18 Sep: 71 episodes opened, 9 closed, 55 held. reflex judged the LIVE need against the
+  // budget FROZEN at assess (`episode budget 8 < 16`) on a bot carrying 108 placeable blocks, recorded a `refused`,
+  // and the episode could then only hold. The budget is a SPEND CAP, never an affordability test.
+  const spendCap = Math.max(episode.blockBudget, need + BLOCK_BUDGET_EXTRA) * BUDGET_OVERRUN
+  const affordable = blocks >= need + BLOCK_BUDGET_EXTRA && episode.blocksSpent < spendCap
+  // BOUNDED. A rung that reports `needs_blocks` while the live gate says the bot can afford it disagrees with the
+  // inventory, and an unbounded re-admission would spin on that disagreement for the whole deadline. Two retries,
+  // then it latches like any other refusal.
+  const blockRefusals = r => episode.tried.filter(t => t.rung === r && t.outcome === 'refused' && /^needs_blocks/.test(t.why ?? '')).length
+  const notLatched = (t, r) => t.outcome === 'refused' && /^needs_blocks/.test(t.why ?? '') && blockRefusals(r) <= BLOCK_REFUSAL_RETRIES
   for (const rung of rungsFor(episode.cls)) {
-    const o = last[rung]
-    if (o === 'refused' || o === 'failed' || o === 'exhausted') continue
-    if (rung === 'pillar' && blocks < episode.blockBudget - episode.blocksSpent) { skipped.push({ rung, why: `needs_blocks (${blocks} < ${episode.blockBudget - episode.blocksSpent})` }); continue }
+    const t = last[rung]; const o = t?.outcome
+    // A rung that ran out of blocks mid-climb is re-gated live below, not latched; every other refusal is final.
+    if (t && notLatched(t, rung)) { /* the gate decides, not this record */ }
+    else if (o === 'refused' || o === 'failed' || o === 'exhausted') continue
+    if (rung === 'pillar' && !affordable) { skipped.push({ rung, why: episode.blocksSpent >= spendCap ? `over_budget (spent ${episode.blocksSpent} >= ${spendCap})` : `needs_blocks (holds ${blocks} < ${need + BLOCK_BUDGET_EXTRA})` }); continue }
     if (rung === 'dig' && blocks < LADDER_BLOCK_RESERVE) continue
     if (obs.skipped) obs.skipped.push(...skipped)
-    return { rung, reason: o === 'preempted' ? `retry ${rung} after preemption` : `first ${rung} for ${episode.cls}`,
+    return { rung, reason: o === 'preempted' ? `retry ${rung} after preemption` : o === 'refused' ? `retry ${rung}: affordable again (holds ${blocks}, needs ${need + BLOCK_BUDGET_EXTRA})` : `first ${rung} for ${episode.cls}`,
              budget: { deadlineMs: Math.max(0, episode.deadline - now), blocks: Math.max(0, episode.blockBudget - episode.blocksSpent) } }
   }
   if (obs.skipped) obs.skipped.push(...skipped)
@@ -102,6 +130,7 @@ export function closeEpisode (episode, before, after, pred = {}) {
 export function holdReason (episode, obs = {}, now = Date.now()) {
   if (!episode) return 'no_episode'
   if (now >= episode.deadline) return 'deadline'
+  if (obs.wet) return 'wet'   // named, so the read can separate a stand-down from an exhausted ladder
   const spent = rungsFor(episode.cls).every(r => ['refused', 'failed', 'exhausted'].includes(episode.tried.filter(t => t.rung === r).map(t => t.outcome).pop()))
   if (spent) return 'exhausted'
   return nextRung(episode, obs, now) ? 'runnable' : 'no_rung'
