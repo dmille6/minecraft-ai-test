@@ -1,6 +1,6 @@
-# Concurrent canaries — design and blast radius (19 September 2026, 00:20 UTC)
+# Concurrent canaries — design and blast radius (18 September 2026, 23:42 UTC)
 
-**Owner approved the build 19 Sep.** Claude's review raised it as the only change on the table that moves throughput by a *multiple*: `CLAUDE.md`'s "One canary pool, ever" is justified by *"the tripper matches `canary_pool` literally; two canaries means three versions means a halted fleet"* — an **implementation limit, not a statistical one**. With 80 bots over 16 pools, 2–3 disjoint canaries can run at once.
+**Owner approved the build 18 Sep.** Claude's review raised it as the only change on the table that moves throughput by a *multiple*: `CLAUDE.md`'s "One canary pool, ever" is justified by *"the tripper matches `canary_pool` literally; two canaries means three versions means a halted fleet"* — an **implementation limit, not a statistical one**. With 80 bots over 16 pools, 2–3 disjoint canaries can run at once.
 
 **This design is written before the patch, and the patch is not written tonight.** It touches the mechanism that stops the fleet, across seven files and two classifiers that have already disagreed with each other once on a live fleet. Section 6 says why that wait is the right call.
 
@@ -73,7 +73,7 @@ While exactly one canary is declared, both shapes describe it and every existing
 
 ## 6. Why the patch is not written tonight
 
-It is 00:20 UTC. This change edits the thing that halts the fleet, and its failure mode is **silent**: a tripper that is too permissive does not alarm, it simply stops noticing an undeclared split — the exact fault it exists to catch, and the fault that ran board-d-Bravo on canary code as a control for hours before anyone saw it.
+It is 23:42 UTC. This change edits the thing that halts the fleet, and its failure mode is **silent**: a tripper that is too permissive does not alarm, it simply stops noticing an undeclared split — the exact fault it exists to catch, and the fault that ran board-d-Bravo on canary code as a control for hours before anyone saw it.
 
 Today produced six instruments that could not fail. Writing a seventh at midnight, solo, into halt protection, would be the same mistake with a larger blast radius. The design above is the hard half and it is done; step 1 is separable and inert and is the right first commit of a fresh session.
 

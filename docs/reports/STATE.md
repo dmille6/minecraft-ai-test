@@ -1,5 +1,5 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-19 00:05 UTC_
+_updated 2026-09-18 23:45 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds. **b1659c0 fleet-wide, ONE version live on all 80, no canary.** Verified 16:41:35Z after owner-01b's teardown. main = b1659c0. Previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d).
@@ -61,9 +61,9 @@ Both engines reviewed independently and converged. **Both rejected my headline p
 10. **Add one line to the nightly job: verdicts per canary-day.** Claude: "two canaries, zero results" is the throughput complaint and nothing measures it — the same failure as the two program metrics that had no standing read.
 11. **Pocket-rung block floor** (need+4 with 5 held). **12.** Pooling rule -12 (iron). **13.** Housekeeping: delete `~/mcai-analysis/registrations/exptest.json` on .31.
 
-## OWNER DECISIONS — BOTH TAKEN 2026-09-19 00:05 UTC
-- **ARBITER STAYS ON for owner-01c.** Owner's word, 19 Sep. `OWNER=1` (which implies `ARBITER=1` via `config.mjs:155`) is authorised for the movement-owner canary. The ambiguity with the standing "ARBITER stays OFF" line is resolved: that line is the **fleet default**, not a bar on the canary built to test it. No need to re-ask.
-- **CONCURRENT CANARIES: APPROVED, build it.** Owner's word, 19 Sep. The tripper is to accept a **set** of declared canaries instead of exactly one, so 2-3 **disjoint** canaries can run at once. Design and blast radius below; implementation is the next build.
+## OWNER DECISIONS — BOTH TAKEN 2026-09-18 23:35 UTC
+- **ARBITER STAYS ON for owner-01c.** Owner's word, 18 Sep. `OWNER=1` (which implies `ARBITER=1` via `config.mjs:155`) is authorised for the movement-owner canary. The ambiguity with the standing "ARBITER stays OFF" line is resolved: that line is the **fleet default**, not a bar on the canary built to test it. No need to re-ask.
+- **CONCURRENT CANARIES: APPROVED, build it.** Owner's word, 18 Sep. The tripper is to accept a **set** of declared canaries instead of exactly one, so 2-3 **disjoint** canaries can run at once. Design and blast radius below; implementation is the next build.
 
 ## (superseded) OWNER DECISIONS WANTED
 - **ARBITER.** The constraints say "ARBITER stays OFF"; `config.mjs:155` makes `OWNER=1` imply it. I read that as the fleet default rather than a bar on the canary built to test it, and proceeded today. owner-01c needs your word.
