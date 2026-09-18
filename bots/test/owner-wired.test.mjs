@@ -18,7 +18,7 @@ t('the route sits INSIDE the entombed arm\'s gate and try, before the legacy bod
   once(rfx, gate, 'reflex')
   const arm = rfx.slice(rfx.indexOf(gate), rfx.indexOf('} finally { escaping = false }', rfx.indexOf(gate)))
   once(arm, 'if (config.reflex.owner && runner.owner) {', 'arm')
-  once(arm, "const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos), wet: !!bot.entity?.isInWater }, before: here(),", 'arm')
+  once(arm, "const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos), airOwns: !!drowningOwnsBody(), headUnderwater: !breathable(bot.blockAt(pos.offset(0, 1, 0))) }, before: here(),", 'arm')
   assert.ok(!arm.includes('runner.owner.evidence('), 'the evidence feed is NOT inside the gate (it could never see the bot leave entombment there)')
   const iRoute = arm.indexOf('if (config.reflex.owner && runner.owner) {'), iTake = arm.indexOf("entombedGrant = await takeBody(bot, runner, 'entombed', PRIORITY.escape)"), iTry = arm.indexOf('try {'), iEsc = arm.indexOf('escaping = true')
   assert.ok(iEsc > 0 && iTry > iEsc && iRoute > iTry && iRoute < iTake, `escaping=true@${iEsc} < try@${iTry} < route@${iRoute} < legacy takeBody@${iTake}`)
