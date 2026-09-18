@@ -18,11 +18,21 @@ t('the route sits INSIDE the entombed arm\'s gate and try, before the legacy bod
   once(rfx, gate, 'reflex')
   const arm = rfx.slice(rfx.indexOf(gate), rfx.indexOf('} finally { escaping = false }', rfx.indexOf(gate)))
   once(arm, 'if (config.reflex.owner && runner.owner) {', 'arm')
-  once(arm, "const r = await runner.owner.assessAndRun({ cls: 'entombed', key, obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),", 'arm')
+  once(arm, "const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),", 'arm')
+  assert.ok(!arm.includes('runner.owner.evidence('), 'the evidence feed is NOT inside the gate (it could never see the bot leave entombment there)')
   const iRoute = arm.indexOf('if (config.reflex.owner && runner.owner) {'), iTake = arm.indexOf("entombedGrant = await takeBody(bot, runner, 'entombed', PRIORITY.escape)"), iTry = arm.indexOf('try {'), iEsc = arm.indexOf('escaping = true')
   assert.ok(iEsc > 0 && iTry > iEsc && iRoute > iTry && iRoute < iTake, `escaping=true@${iEsc} < try@${iTry} < route@${iRoute} < legacy takeBody@${iTake}`)
   assert.ok(arm.slice(iRoute, iTake).includes('\n            return\n'), 'the route returns before the legacy body')
   assert.ok(arm.slice(iRoute, iTake).includes("if (r.result === 'closed') { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }"), 'a closed episode clears the legacy counters')
+})
+t('evidence is fed to a held owner OUTSIDE the entombed gate, and lava takes the body at PRIORITY.lava through the arbiter', () => {
+  const gate = "if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) &&"
+  const iEv = rfx.indexOf("if (config.reflex.owner && runner.owner?.hold?.cls === 'entombed' && !escaping) {"), iGate = rfx.indexOf(gate)
+  assert.ok(iEv > 0 && iEv < iGate, `evidence@${iEv} before the gate@${iGate}`)
+  once(rfx, "runner.owner.evidence({ displaced: !!(q && h.pos && escapedFrom(h.pos, { x: q.x, y: q.y, z: q.z, wet: false })), inventoryChanged: blocksNow !== h.blocks || (toolNow && !h.tool), blockChangedNearby: !isEntombed(bot) })", 'reflex')
+  once(rfx, "const lavaGrant = await takeBody(bot, runner, 'lava', PRIORITY.lava)", 'reflex')
+  once(rfx, "if (lavaGrant) { try { await withinBody(lavaGrant, () => escape(bot)) } finally { giveBody(runner, lavaGrant, 'lava escape ended') } }", 'reflex')
+  assert.equal((rfx.match(/withinBody\(airGrant, \(\) => \{ try \{ bot\.clearControlStates\(\) \}/g) || []).length, 2, 'both air-release cleanups run inside the air grant (comments are stripped, so the anchor omits the comment)')
 })
 t('mutant: moving the route AFTER the legacy takeBody is detected', () => {
   const gate = "if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) &&"

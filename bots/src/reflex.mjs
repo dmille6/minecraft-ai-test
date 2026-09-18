@@ -1951,7 +1951,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const rel = swimming
           ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
           : drowningRelease()
-        rescuing = false; if (config.reflex.arbiter) { try { bot.clearControlStates() } catch { /* not connected */ } }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
+        rescuing = false; if (config.reflex.arbiter) { withinBody(airGrant, () => { try { bot.clearControlStates() } catch { /* not connected */ } }) }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         lastReleaseAt = Date.now()
         lastReleaseKind = rel.kind
         lastDrownPhase = null
@@ -1972,7 +1972,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // sealed case, and it is a real failure -- logged separately so it can
       // never hide inside the success kind again.
       if (rescuing && rescueExpired()) {
-        rescuing = false; if (config.reflex.arbiter) { try { bot.clearControlStates() } catch { /* not connected */ } }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
+        rescuing = false; if (config.reflex.arbiter) { withinBody(airGrant, () => { try { bot.clearControlStates() } catch { /* not connected */ } }) }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         // REMEMBER THAT IT FAILED. Nothing did, which is why the same rescue ran
         // 4,603 times in six hours on six bots at full oxygen and full health.
         const hereNow = bot.entity?.position
@@ -2317,7 +2317,14 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
         logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
         runner.interrupt('danger_block')
-        await escape(bot)
+        if (config.reflex.arbiter && runner?.arb) {
+          // LAVA IS A HAZARD ACQUIRER (design v2 §1, owner pass 2 §2): it takes the body at PRIORITY.lava through the
+          // arbiter's handshake, so an owner rung or a skill leg is revoked (its later actuator calls refused), and
+          // the escape's own sprint/forward/jump run inside the grant the gate admits.
+          const lavaGrant = await takeBody(bot, runner, 'lava', PRIORITY.lava)
+          if (lavaGrant) { try { await withinBody(lavaGrant, () => escape(bot)) } finally { giveBody(runner, lavaGrant, 'lava escape ended') } }
+          else await escape(bot)
+        } else await escape(bot)
         // no `return` (Codex, final pass): the tick continues to the air rescue, the low-health latch and stuck
         // detection; the movement arms below are gated on `inDanger` and stand down on their own.
       }
@@ -2766,6 +2773,15 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // same way: a bot inside the three-cell stair it is cutting is sealed in
       // by design, and pillaring out of it is the descent's undoing.
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
+      // EVIDENCE ENDS AN OWNER HOLD (design v2 §3; owner pass 2 §4): fed here, OUTSIDE the entombed gate, so terrain
+      // that opened (no longer entombed), a displacement, a changed block count or a pickaxe arriving all reach the
+      // owner even when the bot is not detected as entombed any more.
+      if (config.reflex.owner && runner.owner?.hold?.cls === 'entombed' && !escaping) {
+        const h = runner.owner.hold; const q = bot.entity?.position
+        const blocksNow = (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0)
+        const toolNow = (bot.inventory?.items?.() ?? []).some(it => /_pickaxe$/.test(it.name))
+        runner.owner.evidence({ displaced: !!(q && h.pos && escapedFrom(h.pos, { x: q.x, y: q.y, z: q.z, wet: false })), inventoryChanged: blocksNow !== h.blocks || (toolNow && !h.tool), blockChangedNearby: !isEntombed(bot) })
+      }
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
       if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) &&
           !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
@@ -2831,31 +2847,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             // to this cell, its own grant at escape priority, its own deadline; the legacy body below is untouched
             // for the flag-off fleet. `return` lands in the finally that puts `escaping` down.
             const pos = bot.entity.position
-            const key = `entombed:${Math.floor(pos.x)},${Math.floor(pos.y)},${Math.floor(pos.z)}`
             const here = () => { const q = bot.entity?.position; return q ? { x: q.x, y: q.y, z: q.z, wet: !!bot.entity?.isInWater } : null }
             const blocks = (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0)
             const tool = (bot.inventory?.items?.() ?? []).some(it => /_pickaxe$/.test(it.name))
-            // EVIDENCE ENDS A HOLD (design v2 §3): displacement, a changed block count, or a pickaxe arriving since
-            // the hold began re-opens the episode on the next tick; the arm's own 15-s interval is the cadence.
-            const h = runner.owner.hold
-            if (h && h.cls === 'entombed') {
-              const hereNow = here()
-              runner.owner.evidence({ displaced: !!(hereNow && h.pos && escapedFrom(h.pos, { ...hereNow, wet: false })), inventoryChanged: blocks !== h.blocks || (tool && !h.tool),
-                                      blockChangedNearby: !isEntombed(bot) })
-            }
-            const r = await runner.owner.assessAndRun({ cls: 'entombed', key, obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),
+            const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),
               predicate: () => ({ entombed: isEntombed(bot), supported: !!bot.entity?.onGround }), snapshot: here })
             if (r.result === 'closed') { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
             else if (r.result === 'hold' || r.result === 'latched') {
               if (runner.owner.hold) runner.owner.hold.tool = tool
-              // THE REFUSAL NAMES A REMEDY THE GOAL LAYER CAN ACT ON, as the legacy arm did (Codex pass 1 §5): the
-              // last refused pillar says what was missing.
+              // THE REFUSAL NAMES A REMEDY THE GOAL LAYER CAN ACT ON, as the legacy arm did (owner pass 1 §5, pass 2 §6):
+              // from the stored reason of the last refused pillar, or from the pillar's SKIP for want of blocks.
               const refused = (r.tried ?? []).filter(t => t.rung === 'pillar' && t.outcome === 'refused').pop()
-              const why = refused ? (String(refused.why ?? '').includes('pickaxe') ? 'needs_pickaxe' : 'needs_blocks') : null
+              const skippedPillar = (r.skipped ?? []).find(x => x.rung === 'pillar')
+              const reason = refused ? String(refused.why ?? '') : skippedPillar ? skippedPillar.why : ''
+              const why = /pickaxe/.test(reason) ? 'needs_pickaxe' : /blocks/.test(reason) ? 'needs_blocks' : null
               if (why) {
                 const want = climbPrereqFor(why)
-                bot.pendingPrereq = { ...want, because: `the owner's pillar rung refused (${why}) at y=${Math.round(pos.y)}; hold=${r.why}` }
-                logEvent({ kind: why === 'needs_pickaxe' ? 'entombed_needs_pickaxe' : 'entombed_needs_blocks', status: 'failed', detail: `owner hold (${r.why}) after pillar refused (${why}); asked the goal layer for ${want.count}x ${want.items[0]}`, snapshot: snapshot(bot) })
+                bot.pendingPrereq = { ...want, because: `the owner's pillar rung ${refused ? 'refused' : 'was skipped'} (${reason.slice(0, 60)}) at y=${Math.round(pos.y)}; hold=${r.why}` }
+                logEvent({ kind: why === 'needs_pickaxe' ? 'entombed_needs_pickaxe' : 'entombed_needs_blocks', status: 'failed', detail: `owner hold (${r.why}): pillar ${refused ? 'refused' : 'skipped'} (${reason.slice(0, 60)}); asked the goal layer for ${want.count}x ${want.items[0]}`, snapshot: snapshot(bot) })
               }
             }
             return

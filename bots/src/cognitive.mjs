@@ -315,7 +315,7 @@ export class CognitiveLoop {
     stranded_high: 5, entombed: 5,
     marooned: 4, flooded_pocket: 4, stranded: 4,   // flooded_pocket: the tooled pocket rung (2026-09-14)
     drowning: 3, suffocating: 3, low_health: 3,
-    danger_block: 2,
+    danger_block: 2, lava: 2,   // lava: the danger escape's own body grant under the arbiter (owner pass 2 §2) -- the same predicament as danger_block
     stuck: 1, stagnation: 1,
   }
 

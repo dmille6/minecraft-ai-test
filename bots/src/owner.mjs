@@ -50,24 +50,27 @@ export function nextRung (episode, obs = {}, now = Date.now()) {
   if (!episode) return null
   if (now >= episode.deadline) return null
   const blocks = obs.blocks | 0
+  const skipped = []; if (obs.skipped) obs.skipped.length = 0
   const last = {}
   for (const t of episode.tried) last[t.rung] = t.outcome
   for (const rung of rungsFor(episode.cls)) {
     const o = last[rung]
     if (o === 'refused' || o === 'failed' || o === 'exhausted') continue
-    if (rung === 'pillar' && blocks < episode.blockBudget - episode.blocksSpent) continue
+    if (rung === 'pillar' && blocks < episode.blockBudget - episode.blocksSpent) { skipped.push({ rung, why: `needs_blocks (${blocks} < ${episode.blockBudget - episode.blocksSpent})` }); continue }
     if (rung === 'dig' && blocks < LADDER_BLOCK_RESERVE) continue
+    if (obs.skipped) obs.skipped.push(...skipped)
     return { rung, reason: o === 'preempted' ? `retry ${rung} after preemption` : `first ${rung} for ${episode.cls}`,
              budget: { deadlineMs: Math.max(0, episode.deadline - now), blocks: Math.max(0, episode.blockBudget - episode.blocksSpent) } }
   }
+  if (obs.skipped) obs.skipped.push(...skipped)
   return null
 }
 
 /** Record a rung's outcome. Immutable: returns the next episode. */
-export function recordRung (episode, { rung, outcome, blocksSpent = 0, ms = 0, hazard = null } = {}) {
+export function recordRung (episode, { rung, outcome, why = null, blocksSpent = 0, ms = 0, hazard = null } = {}) {
   if (!OUTCOMES.includes(outcome)) throw new Error(`bad outcome ${outcome}`)
   return Object.freeze({ ...episode,
-    tried: Object.freeze([...episode.tried, Object.freeze({ rung, outcome, blocksSpent: blocksSpent | 0, ms: ms | 0 })]),
+    tried: Object.freeze([...episode.tried, Object.freeze({ rung, outcome, why: why == null ? null : String(why).slice(0, 80), blocksSpent: blocksSpent | 0, ms: ms | 0 })]),
     blocksSpent: episode.blocksSpent + (blocksSpent | 0),
     hazards: hazard ? Object.freeze([...episode.hazards, hazard]) : episode.hazards,
     state: 'ESCAPE' })
