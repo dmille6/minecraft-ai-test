@@ -43,13 +43,13 @@ export class MovementOwner {
       this.#episodes.set(key, ep)
       this.#row('escape_rung', 'no_effect', `class=${cls} episode=${ep.id} ${JSON.stringify(transition('ASSESS', 'ESCAPE', { reason: 'trap detected', budget: { deadlineMs: ep.deadline - now, blocks: ep.blockBudget } }))}`)
     }
-    const next = nextRung(ep, obs, now)
+    const skipped = []; const next = nextRung(ep, { ...obs, skipped }, now)
     if (!next) {
       const why = holdReason(ep, obs, now)
       if (!this.#hold || this.#hold.key !== key) this.#history.push({ cls, strategy: 'hold', at: now, pos: before })   // a HOLD is what the latch counts, never an opening
       this.#hold = { key, cls, reason: why, since: now, pos: before, blocks: obs.blocks | 0, tried: ep.tried }
       this.#row('safe_hold', 'failed', `class=${cls} episode=${ep.id} reason=${why} tried=${ep.tried.map(t => `${t.rung}:${t.outcome}`).join(',') || 'none'} until=evidence`)
-      return { result: 'hold', why, tried: ep.tried }
+      return { result: 'hold', why, tried: ep.tried, skipped }
     }
     const grant = await this.#arb.acquire({ owner: `owner:${cls}`, priority: PRIORITY.escape, context: { kind: next.rung, episode: ep.id }, onCancel: () => { this.#running?.cancel?.() } })
     if (!grant) { this.#row('escape_rung', 'no_effect', `class=${cls} episode=${ep.id} rung=${next.rung} outcome=refused why=body held by ${this.#arb.holder?.owner ?? 'nobody'}`); return { result: 'refused', why: 'body held' } }
@@ -72,9 +72,11 @@ export class MovementOwner {
     } finally { clearTimeout(deadlineTimer); this.#running = null }
     const revoked = cancelled || !grant.alive
     this.#arb.release(grant, `rung ${next.rung} ended`)
-    const outcome = (!settled || revoked) && (out?.outcome === 'ran' || out?.outcome === 'preempted') ? 'preempted' : (out?.outcome ?? 'failed')
+    // A RUNG WHOSE GRANT WAS REVOKED UNDER IT IS PREEMPTED WHATEVER IT REPORTED -- a dig the gate rejected after the
+    // handover is not a failed rung and must stay eligible (owner pass 2 §5)
+    const outcome = (!settled || revoked) ? 'preempted' : (out?.outcome ?? 'failed')
     const spent = Math.max(0, blocksBefore - this.#inventoryBlocks())
-    ep = recordRung(ep, { rung: next.rung, outcome, blocksSpent: spent, ms: this.#now() - startedAt, hazard: out?.hazard ?? null })
+    ep = recordRung(ep, { rung: next.rung, outcome, why: revoked && !settled ? 'grant revoked before the rung settled' : out?.why, blocksSpent: spent, ms: this.#now() - startedAt, hazard: out?.hazard ?? null })
     this.#episodes.set(key, ep)
     this.#row('escape_rung', outcome === 'ran' ? 'success' : 'failed', `class=${cls} episode=${ep.id} rung=${next.rung} outcome=${outcome} why=${out?.why ?? ''} blocks=${spent} ms=${this.#now() - startedAt} budget=${JSON.stringify(next.budget)}`)
     if (outcome === 'ran') {

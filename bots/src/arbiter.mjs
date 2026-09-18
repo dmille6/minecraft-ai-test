@@ -28,7 +28,9 @@ export const PRIORITY = Object.freeze({
   idle: 0,
 })
 export const ACK_MS = 500
-const TICK = Object.freeze({ tick: true })   // the async-context marker for the pathfinder's own physics tick
+// the async-context marker for the pathfinder's own physics tick, CARRYING THE GRANT it ran for: a continuation that
+// started under an earlier holder's tick keeps that grant and is refused once the body changes hands (owner pass 2 §1)
+const tickFor = grant => Object.freeze({ tick: true, grant })
 
 export class StaleGrant extends Error {
   constructor (grant, why) { super(`stale grant ${grant?.id ?? '?'} (${grant?.owner ?? '?'}): ${why}`); this.name = 'StaleGrant'; this.grant = grant }
@@ -143,9 +145,10 @@ export class Arbiter {
       obj[name] = function (...args) {
         const holder = self.#holder && self.#holder.alive ? self.#holder : null
         const store = self.#als.getStore()
-        const tick = store === TICK
+        const tick = !!(store && store.tick === true)
         const ctx = tick ? null : (store ?? null)
-        if (!Arbiter.mayAct(ctx, holder, self.#bound, tick)) {
+        const boundFor = tick ? store.grant : self.#bound   // a tick acts for the grant it was emitted under, never for whoever holds now
+        if (!Arbiter.mayAct(ctx, holder, boundFor, tick)) {
           onRefuse(name, ctx, holder, self.#bound)
           return refuse(new StaleGrant(ctx, `${name} refused: the body is held by ${holder?.owner ?? 'nobody'}${ctx && !ctx.alive ? ' and the caller was revoked' : ''}`))
         }
@@ -164,7 +167,7 @@ export class Arbiter {
     if (bot && typeof bot.emit === 'function' && !bot.emit.__arbiterGated) {
       const rawEmit = bot.emit
       bot.emit = function (ev, ...args) {
-        if ((ev === 'physicsTick' || ev === 'physicTick') && self.#bound) return self.#als.run(TICK, () => rawEmit.call(this, ev, ...args))
+        if ((ev === 'physicsTick' || ev === 'physicTick') && self.#bound) return self.#als.run(tickFor(self.#bound), () => rawEmit.call(this, ev, ...args))
         return rawEmit.call(this, ev, ...args)
       }
       bot.emit.__arbiterGated = true
