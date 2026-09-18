@@ -44,3 +44,57 @@ Codex's pass-2 finding 2 in the wild — a refusal neither cancels the caller no
 
 Harm check so far: one canary death (13:27:38 board-b-Alpha, "drowned; idle" — the fleet's standing channel), and the
 v15c movement guards did not breach at +90.
+
+---
+
+# CORRECTION at +180 (16:06Z): the refusals are not the story, and they are not harm
+
+Read at +180 changes two things I wrote above, and the operator should act on this section, not the one above it.
+
+**1. The refusal rate is not a static legacy floor. It doubled: 102.4 -> 235.5/bot-h.** My "~93% legacy, 7% owner"
+split at +90 does not hold at +180, because the owner's episodes accumulate and the refusals track them.
+
+**2. But it is not costing work, and nothing else is either.** Every pre-registered harm guard is within its band:
+
+| guard (v15c) | value | band |
+|---|---|---|
+| blocks moved / bot-h | +0% | >= -30% |
+| working share | -4% | >= -20% |
+| immobile DiD | **-0.4 pp** | > +10 pp to breach |
+| items gathered / bot-h | -13% | >= -50% |
+
+Immobility rose on both sides (canary 0.0 -> 2.9 pp, control 1.4 -> 4.8 pp) so the DiD slightly FAVOURS the canary.
+Both canary deaths are `drowned; idle`, `mechanism-linked=no` -- the standing channel, and the v21 death gate correctly
+held (rate ratio 10x but the lower 95% bound 0.78x does not clear 1.25x). **A gate refusing 235 calls per bot-hour at
+0% movement cost is evidence the refused calls were redundant.** That is a result worth keeping from this canary even
+if the owner itself is not kept.
+
+## The real finding: the rung ladder holds instead of escaping
+
+**71 episodes opened, 9 closed, 55 held.** `hold_share` 0.79 against my registered 0.5.
+
+```
+pillar: ran 45  failed 19  refused 17  preempted 23
+stair:  ran  7  failed  5  preempted  2
+```
+
+Three concrete defects, all visible in the rows:
+
+1. **The episode budget refuses its own rung.** `pillar outcome=refused why=needs_blocks (episode budget 8 < 16)`.
+   `newEpisode` sizes the budget at need+2; `pillarOut` asks for 16. The episode cannot perform the rung it selects,
+   which is exactly the dead-end composition CLAUDE.md names -- a refusal whose remedy the bot cannot execute.
+2. **`pillar outcome=failed why=no height gained (undefined)`** 19 times. The `(undefined)` is a formatting hole in the
+   `why` string, so the diagnostic that would explain the failure is missing from the row that reports it.
+3. **Episodes re-open at each new height instead of continuing.** board-b-Bravo: pillar rises 6.0 at `352,66,207`,
+   and a new episode opens at `352,72,207` in the same second, with a fresh 180 s deadline and a fresh budget.
+   Progress made is not carried forward, so a bot in a shaft re-enters ASSESS at every rung.
+
+Entombment rows/bot-h rose 3.50 -> 5.63 on the canary (+61%) against control 2.34 -> 2.63 (+12%), and climb firings
+are +63%. Those are the same phenomenon as (3): the owner opens more episodes, not that bots are more trapped.
+
+## What the verdict should be
+
+The KEEP condition is not met and will not be by +360: it needs a freed canary bot **with a ladder row**, and the
+canary freed share is 0/0 against a control spontaneous base of 4/6. On the registered rules this reads
+**INCONCLUSIVE or REVERT on ineffectiveness, never KEEP** -- the owner is safe and does not work yet. Fixing (1) is
+the single change most likely to move the close rate, and it is a one-line budget change.
