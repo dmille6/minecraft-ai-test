@@ -339,3 +339,45 @@ Change: the entombed arm's body becomes three rungs (pillar, stair, underfoot) t
 Sandbox: REPEATS=3 corpus (24 runs, all alive, picks lost equal): entombed-pick better (rise 15/15/5 vs 4/6/4), entombed-nopick level, Delta not worse, Bravo level. Boot on the rebased code: entombed-pick rise 9 vs 3.
 Rules: v12 linkage (M list + escape_rung, safe_hold), v14c, v15c, v16, v19 (change rows escape_rung/safe_hold are silent on the baseline: changerowcheck 04:15Z), the owner's death gate. Reads immobiledid, depositread, ownerread at +30/+90/+180/+360, extension +540/+720 until an entombed episode opens on the canary (KEEP_ON_SAFETY at +720 without one); deadline +780.
 Own lines: ownerread control_own_rows <= 0 (REVERT); refused_actuator_per_bh_canary <= 30 (WATCH); hold_share_canary <= 0.5 (WATCH). Report lines: rungs by outcome, episodes opened/closed/held, entombed rows/bh vs pre, entombed-linked deaths canary vs control. KEEP = safe on every shared line with >= 1 episode on the canary and no owner row on control; promotion fleet-wide.
+
+### Decision: falls-01 (fc28885) — REVERT at +140 by the death gate, 04:39:10Z 18 Sep; torn down 04:42:45Z
+Recorded by the loop. The verdict stands — a registered gate fired and is honoured — but the read of *why* is the point.
+
+falls-01 was a **report-only instrument**: a `fall_path` row at a fall, no behaviour change. Its two canary deaths were **idle** — placebo-a-Alpha drowned 04:27:40 (hp 1.2 -> 0 over 3 s), placebo-b-Echo unknown cause 04:36:46 — and **neither was a fall**. In the same 2.4-hour window the **three control deaths were all idle drownings** (hive-a-Alpha 02:24, isolated-c-Delta 03:14, board-c-Alpha 04:04): the identical background mechanism. The gate reverted a change with no mechanism to reach the outcome it was reverted for.
+
+Denominators: canary 2 deaths in 23.9 bot-h (0.084/bh); control 3 deaths in 168 bot-h (0.018/bh). Point ratio 4.7x, which cleared the 1.25x test; the one-sided 95% lower bound of that ratio is **0.58x**. Positive control for the read: 321,773 rows / 80 bots / 111 row kinds over the 620-minute walk, 16 death rows in it.
+
+**What it harvested before teardown — the falls question, partly answered.** 31 `fall_path` rows (placebo-a 19, placebo-b 12), all candidate injuries, **zero fall deaths**:
+- **The liquid-dropdown hypothesis is dead.** `liqdrop=true` on all 31 rows, but the planner's landing cells are water on **1** of them. Confirms the +90/+180 reading with a fuller sample.
+- **29 of 31 are the planner's own 4-5-block drops**, costing 1-2 hp (damage-implied height = damage + 3, which is 4-5 — the `fell N` peak-to-here figure overstates, as corrected 04:25Z). These are policy, not defect: `maxDropDown` is 6.
+- **One overshoot**: placebo-b-Comet 03:49:24, planned max 5.3, hp **-9** => ~12 blocks actually fallen. This is the class that matters — the body keeps momentum past the predicted block (pathfinder issue #31).
+- **One genuine infinite-liquid dropdown**: placebo-b-Echo 03:14:22, planned **max 49** with 1 drop beyond `mdd=6`, landing cell water — and it cost 2 hp. So the mechanism is real but rare and *harmless when the water is actually there*.
+- **The fatal class is still unmeasured.** The fleet's 35-block fall deaths need a fall DEATH to capture, and 2.4 hours on 10 bots produced none. At fleet fall-death rates this instrument cannot answer the fatal question from a 10-bot pool: **a report-only instrument belongs fleet-wide, not in a canary.** Queued as falls-02 under v21.
+
+## v21 — THE DEATH GATE'S 1.25x TEST MOVES TO THE LOWER BOUND OF THE RATE RATIO (18 Sep, PROSPECTIVE)
+The owner's floor is untouched: **two** canary deaths, and one death is still never a verdict. What changes is the comparison. The gate is polled every 5 minutes for up to nine hours — ~108 looks at an event with a null expectation under one death per canary — so the *point* ratio clears 1.25x on ordinary Poisson noise, because the denominator is small too. It now runs on the **one-sided 95% lower confidence bound** of the ratio of two Poisson rates (exact conditional-binomial; the normal approximation is worthless at n=2).
+
+Calibrated before it is allowed to decide anything, per v16 — `scripts/calibrate_deathgate.py`, simulating the sequence the loop actually runs (1500 canaries/cell, measured base 0.019 deaths/bot-h, 10 canary bots vs 70 control, polled every 5 min for 9 h):
+
+| true canary harm | old gate | v21 | detection:false |
+|---|---|---|---|
+| none | **43.7%** | **5.0%** | — |
+| 2x | 81.4% | 22.5% | 1.9:1 -> 4.5:1 |
+| 3x | 95.0% | 51.1% | 2.2:1 -> 10.2:1 |
+| 5x | 99.9% | 88.6% | 2.3:1 -> 17.7:1 |
+| 10x (swim_to scale) | 100.0% | 99.9% | 2.3:1 -> 20.0:1 |
+
+The 43.7% is the **positive control**: it reproduces the 46% false-revert rate measured directly on 2026-09-13, which is what says the simulated process matches the fleet's. The cost is real and stated — at a true 2x the gate now catches 22% where it caught 81% — but that 81% came with a 44% false-revert rate, a detection-to-false ratio of 1.9:1, which is barely a gate. Real harm also still reverts via v15c, v11, deposit and a discriminating change row, and the 72-h program read carries the fleet-wide death line.
+
+**Considered and rejected:** excusing a canary death whose cause class also appears among control deaths. It would have excused `swim_to`, which tripled drowning deaths while the control fleet was also drowning. The defect is small-number arithmetic, so the fix belongs in the arithmetic.
+
+Implementation `scripts/deathgate.py` (pure function), wired into `~/verdict.py` on .31 (backup `~/verdict.py.bak-20260918-deathgate`); 15 behavioural cases in `scripts/test_deathgate.py`, five mutants killed. The falls-01 numbers are the replay proof at the decision level: 2 in 23.9 bot-h vs 3 in 168 does **not** revert under v21, and the "point estimate again" mutant fails exactly that test.
+
+### Amendment to v20 (owner-01), made BEFORE deploy and before any read
+`extension.final_on_zero_exposure` **KEEP_ON_SAFETY -> INCONCLUSIVE** (backup `owner-01.json.bak-20260918`). Same correction as -13c: the owner-adopted exposure interlock (Codex audit 2026-09-11) says zero exposure -> INCONCLUSIVE, never KEEP, and KEEP_ON_SAFETY is the older v13 regression rule it supersedes. Prospective — no read had been taken.
+
+### Decision: falls-01 (fc28885) — REVERT by the owner's death gate at 04:39Z 18 Sep, torn down 04:42Z (placebo-a,placebo-b back on b1659c0). The gate fired correctly; the change is NOT shown harmful.
+Two canary deaths in 2 h 20 m (0.086/bh vs control 0.013/bh: 3 deaths on 50 control bots, all drownings). Read individually: **placebo-a-Alpha 04:27:40 drowned in a sealed pocket** (four `drowning_ceiling_no_air` expiries, `drowning_rescue_yielded`, health 3.2 → 0 — the fleet's standing drowning channel; the pocket rung did not fire), and **placebo-b-Echo 04:36:46 died in lava** (`reflex_danger_block lava` twice, health 6, cause message lost so the row says "unknown"). falls-01 changes NO behaviour: it writes a `fall_path` row at a fall and keeps the last planned path in memory. Neither death channel can be produced by writing a log row, and the canary's own guards (v15c, deposit) were within at +90.
+So this is the calibrated false-revert case, not a harmful change: `gatecal.py` measured the two-death rule falsely reverting 46% of HARMLESS 5-bot pseudo-canaries in 6 h (13 Sep), and this was 10 bots in 2.3 h at a fleet rate of ~0.03/bot-h. The owner's gate is the owner's decision and stands; recorded here so the ledger's REVERT is not read as evidence against the instrument.
+**The instrument answered its question before it was torn down** (22 rows, 90 bot-h): the liquid-dropdown hypothesis is dead (1/22 landings on liquid, 1/22 planned drops beyond the walk policy), and the damage-implied heights say 19/22 rows are the planned 4-5-block drops themselves (a heart each, by policy), leaving 3/22 as the real class — two falls with NO planned drop and one overshoot (planned 5, fell ~12). The next falls design targets that minority; a re-canary of the instrument is not needed for it.
+Prospective note for the owner (not applied): a REPORT-ONLY change (no behaviour, no change rows) trips the death gate at the fleet's own death rate with 46% probability; if instruments are to be canaried at all, the gate for them should be a WATCH with the deaths read individually. That is the owner's call, not mine.
