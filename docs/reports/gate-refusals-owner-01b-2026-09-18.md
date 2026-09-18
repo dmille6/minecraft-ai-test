@@ -164,3 +164,44 @@ blocks** -- `harvestAdjacent` exists and is not wired into it. That is the open 
 - **A death row lists dropped items** (`dropped: leaf_litter x110, cobblestone x39, dirt x35 ...`) on a fleet recorded
   as `keepInventory=true`. Either the gamerule is not what we believe on every world, or that row means something
   else. It changes the cost of a death, so it is worth five minutes with RCON.
+
+---
+
+# Two-engine review, and the trap I nearly shipped
+
+Both engines reviewed the fix. Each found something decisive, and each killed a version of it.
+
+**Claude killed draft 1.** It rested on `underfoot` harvesting blocks so a refused climb could be retried after a
+harvest. `harvestUnderfoot` is a bare-handed DESCENT whose postcondition is `fell`, not a pickup. Verified in source.
+The entombed ladder has no rung that acquires blocks at all.
+
+**Codex killed draft 2, and this one matters most.** Gating the ladder on `isInWater` created a NEW dead end of
+exactly the kind this project keeps building: **a bot walled in with one block of water at its feet, head in air, full
+oxygen and a pocket full of blocks.** `isEntombed` says trapped. `assessAir` declines it, because it is not an air
+emergency. And my gate said no rung. That bot had no legal move and no reflex coming. Codex reproduced it on a
+shallow-water fixture at y=140.
+
+The correction: **wetness is not a handoff acknowledgement.** The gate now asks whether the air reflex actually holds
+the body, or whether the head is in a cell only the air reflex can help with. A wet-footed bot with a breathing head
+still climbs out. There is now a regression test named for that dead zone, and a mutant that re-keys the gate on
+wetness kills it.
+
+## Also fixed: the top failure can now be read
+
+`pillarOut` had three exits that all returned `undefined`, so `no height gained` (20 of 240 rows) named none of them.
+It now counts placements and returns a reason. **Both engines independently picked `placed` as the discriminating
+field**: `placed=0` never landed a placement, `placed=6` placed and slid back. Those are different bugs.
+
+## Known limits, carried forward rather than fixed
+
+| limit | why it is not fixed here |
+|---|---|
+| the spend cap is an admission threshold, not a hard limit, and resets on displacement | a cumulative trap-level budget is a design change, not a bug fix |
+| `BLOCK_REFUSAL_RETRIES` bounds one episode, not repeated episodes at one trap | same |
+| `harvestAdjacent` stays unwired | it stops at four blocks, has no `alive` check, and does not protect the last pickaxe; it needs a resource-progress contract |
+
+## State
+
+Branch `movement-owner-1` at `2f3d918`, suite 193/193, **not deployed**. The fleet is on `b1659c0`, 80 of 80 bots
+live across all 16 pools, no canary declared. owner-01c is the operator's call, and the case for it is now: the
+stand-down, the live block gate, a real spend bound, and an instrument that can finally explain the top failure.
