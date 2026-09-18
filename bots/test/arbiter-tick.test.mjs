@@ -27,4 +27,18 @@ await t('a rung running inside within(grant) is admitted by the gate; the same c
   await assert.rejects(() => bot.dig(), /refused/); assert.deepEqual(refused, ['dig'])
   arb.release(g, 'done')
 })
+await t('a continuation started under an old holder\'s tick keeps that grant and is refused once a successor binds its own goal', async () => {
+  const refused = []; const arb = new Arbiter({ log: () => {} }); const bot = mkBot()
+  arb.installActuatorGate(bot, { onRefuse: (name) => refused.push(name) })
+  const g1 = await arb.acquire({ owner: 'owner:entombed', priority: PRIORITY.escape, onCancel: async () => {} })
+  await arb.within(g1, async () => { await bot.pathfinder.goto({ x: 1 }) })
+  let late
+  bot.once('physicsTick', () => { late = new Promise(r => setTimeout(() => { bot.setControlState('forward', true); r() }, 30)) })   // an async descendant of g1's tick
+  bot.emit('physicsTick')
+  const g2 = await arb.acquire({ owner: 'air', priority: PRIORITY.air, onCancel: async () => {} })   // preempts g1
+  await arb.within(g2, async () => { await bot.pathfinder.goto({ x: 2 }) })
+  await late
+  assert.ok(!bot.controls.some(c => c[0] === 'forward'), 'the old tick\'s descendant did not move the body under the successor'); assert.ok(refused.includes('setControlState'))
+  arb.release(g2, 'done')
+})
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
