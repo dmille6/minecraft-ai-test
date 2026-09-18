@@ -97,13 +97,22 @@ t('the block budget is a REAL spend cap: past it pillar is skipped as over_budge
   assert.equal(nextRung(e, { blocks: 400, climbNeed: 6, skipped }, 1)?.rung, 'stair')
   assert.match(skipped.find(x => x.rung === 'pillar').why, /over_budget/, 'the cap is enforced, which it never was before')
 })
-t('WATER STANDS THE LADDER DOWN: a submerged bot runs no rung and holds with reason=wet, and resumes when ashore', () => {
+t('THE LADDER STANDS DOWN FOR THE AIR REFLEX, and only for it', () => {
   // owner-01b, 18 Sep: hive-a-Bravo drowned at a recorded drowning site while the owner held the body at escape
   // priority and the air reflex preempted every pillar. The canary was reverted on that death.
   const e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 40, climbNeed: 3 })
-  assert.equal(nextRung(e, { blocks: 40, climbNeed: 3, wet: true }, 1), null, 'no rung while in water')
-  assert.equal(holdReason(e, { blocks: 40, climbNeed: 3, wet: true }, 1), 'wet')
-  assert.equal(nextRung(e, { blocks: 40, climbNeed: 3, wet: false }, 1).rung, 'pillar', 'ashore: the ladder runs again')
-  assert.equal(holdReason(e, { blocks: 40, climbNeed: 3 }, 1), 'runnable', 'an absent fact is not wet')
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 3, airOwns: true }, 1), null, 'the air reflex holds the body')
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 3, headUnderwater: true }, 1), null, 'only the air reflex can help here')
+  assert.equal(holdReason(e, { blocks: 40, climbNeed: 3, airOwns: true }, 1), 'air')
+  assert.equal(nextRung(e, { blocks: 40, climbNeed: 3, airOwns: false, headUnderwater: false }, 1).rung, 'pillar')
+})
+t('NO DEAD ZONE: wet feet with a breathing head is not the air reflex\'s business, and the bot still climbs out', () => {
+  // The first version of this gate keyed on isInWater. A bot walled in with one block of water at its feet, head in
+  // air and full oxygen, is not an air emergency -- assessAir declines it -- so that gate left it with no rung and
+  // no reflex. Two correct guards meeting where the bot has no legal move is this project's oldest bug class.
+  const e = newEpisode({ cls: 'entombed', at: AT, now: 0, blocks: 40, climbNeed: 3 })
+  const wetFeet = { blocks: 40, climbNeed: 3, wet: true, airOwns: false, headUnderwater: false }
+  assert.equal(nextRung(e, wetFeet, 1).rung, 'pillar', 'standing in water is not drowning')
+  assert.equal(holdReason(e, wetFeet, 1), 'runnable')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

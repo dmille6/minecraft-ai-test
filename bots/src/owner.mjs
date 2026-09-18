@@ -51,14 +51,19 @@ export function transition (from, to, { reason, budget = null, postcondition = n
 export function nextRung (episode, obs = {}, now = Date.now()) {
   if (!episode) return null
   if (now >= episode.deadline) return null
-  // WATER IS THE AIR REFLEX'S, NOT THE OWNER'S. Owner directive: water is terrain and the only water reflex is
+  // STAND DOWN FOR THE AIR REFLEX -- and ONLY for it. Owner directive: water is terrain and the only water reflex is
   // getting air. `isEntombed` reads "walled in" for a SUBMERGED bot too, so the owner opened escape episodes on
-  // swimming bots and then contended for the body at PRIORITY.escape against the air reflex, which outranks it.
+  // swimming bots and contended for the body at PRIORITY.escape against the air reflex, which outranks it. Measured
+  // on owner-01b, 18 Sep: 15 of 240 rung rows were `refused why=body held by air`, and hive-a-Bravo spent
+  // 16:31:28-16:32:51 in a refuse/preempt cycle one block from a recorded drowning site before drowning there.
   //
-  // Measured on owner-01b, 18 Sep: 15 of 240 rung rows were `refused why=body held by air`, and hive-a-Bravo spent
-  // 16:31:28-16:32:51 in a refuse/preempt cycle one block from a recorded drowning site at 386,59,175 before
-  // drowning there. The canary was reverted on that death. Hold instead: the hold ends on evidence when it is ashore.
-  if (obs.wet) return null
+  // THE TEST IS OWNERSHIP, NOT WETNESS. The first version of this gate keyed on `isInWater`, and the second reviewer
+  // found the trap that creates: a bot walled in with ONE BLOCK of water at its feet, head in air, full oxygen and a
+  // pocket full of blocks is not an air emergency -- `assessAir` declines it -- so gating on wetness left that bot
+  // with no rung and no reflex, which is this project's oldest bug class (two correct guards, no legal move).
+  // Wetness is not a handoff acknowledgement. Stand down when the air reflex HOLDS the body, or when the head is
+  // where only the air reflex can help; a wet-footed bot with a breathing head still climbs out.
+  if (obs.airOwns || obs.headUnderwater) return null
   const blocks = obs.blocks | 0
   // The LIVE climb need, re-measured by the caller each assess; falls back to the frozen budget only when absent.
   const need = obs.climbNeed == null ? Math.max(0, episode.blockBudget - BLOCK_BUDGET_EXTRA) : obs.climbNeed | 0
@@ -130,7 +135,7 @@ export function closeEpisode (episode, before, after, pred = {}) {
 export function holdReason (episode, obs = {}, now = Date.now()) {
   if (!episode) return 'no_episode'
   if (now >= episode.deadline) return 'deadline'
-  if (obs.wet) return 'wet'   // named, so the read can separate a stand-down from an exhausted ladder
+  if (obs.airOwns || obs.headUnderwater) return 'air'   // named, so the read separates a stand-down from an exhausted ladder
   const spent = rungsFor(episode.cls).every(r => ['refused', 'failed', 'exhausted'].includes(episode.tried.filter(t => t.rung === r).map(t => t.outcome).pop()))
   if (spent) return 'exhausted'
   return nextRung(episode, obs, now) ? 'runnable' : 'no_rung'

@@ -2853,7 +2853,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             const here = () => { const q = bot.entity?.position; return q ? { x: q.x, y: q.y, z: q.z, wet: !!bot.entity?.isInWater } : null }
             const blocks = (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0)
             const tool = (bot.inventory?.items?.() ?? []).some(it => /_pickaxe$/.test(it.name))
-            const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos), wet: !!bot.entity?.isInWater }, before: here(),
+            const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos), airOwns: !!drowningOwnsBody(), headUnderwater: !breathable(bot.blockAt(pos.offset(0, 1, 0))) }, before: here(),
               predicate: () => ({ entombed: isEntombed(bot), supported: !!bot.entity?.onGround }), snapshot: here })
             if (r.result === 'closed') { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
             else if (r.result === 'hold' || r.result === 'latched') {
@@ -4628,6 +4628,18 @@ export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
 /** blockAt as a plain (x, y, z) function, for the pure probes. */
 const bmap = bot => (x, y, z) => bot.blockAt(new Vec3(x, y, z))
 
+/**
+ * WHY A CLIMB GAINED NOTHING. `pillarOut` had three exits that all returned `undefined`, so the owner's row said
+ * `no height gained` for a bot that never placed a block, a bot that placed six and slid off them, and a bot with no
+ * floor under it. That row is the top failure on the fleet (20 of 240 rung rows on owner-01b) and it discriminated
+ * nothing. Pure so it can be tested; the caller supplies the counters.
+ */
+export function climbFailureReason ({ placed = 0, steps = 0, stalled = 0, noFloorAt = null } = {}) {
+  if (noFloorAt != null) return `no_floor_at_${noFloorAt}`
+  if (stalled >= 3) return `stalled_at_${steps} placed=${placed}`
+  return `no_gain placed=${placed} steps=${steps} stalled=${stalled}`
+}
+
 async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
   // THE GATE (arbiter, Codex final pass): every actuator step asks whether this
   // climb still owns the body. A refused or revoked grant ends the climb at the
@@ -4658,8 +4670,11 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
 
   const startY = bot.entity.position.y
   let stalled = 0
+  let placed = 0      // successful placements, so `no height gained` can say whether it placed nothing or placed and slid back
+  let step = 0        // how far into the climb it got
 
   for (let i = 0; i < maxBlocks; i++) {
+    step = i
     if (!alive()) return 'preempted'
     const yBefore = bot.entity.position.y
 
@@ -4702,17 +4717,20 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
     if (!alive()) return 'preempted'
     await bot.equip(item, 'hand').catch(() => {})
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
-    if (!below) break
+    // NOT A SILENT BREAK. This exit used to fall through to the shared `no height gained`, which is the top
+    // failure on the fleet (20 of 240 rung rows, owner-01b) and named none of the three ways to reach it.
+    if (!below) return climbFailureReason({ noFloorAt: i })
     bot.setControlState('jump', true)
     await sleep(300)
-    try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed */ }
+    try { await bot.placeBlock(below, new Vec3(0, 1, 0)); placed++ } catch { /* mistimed */ }
     bot.setControlState('jump', false)
     await sleep(250)
 
     if (bot.entity.position.y - yBefore < 0.5) {
       if (++stalled >= 3) {
         log('warn', 'reflex: pillaring is not gaining height, digging up instead')
-        return digStraightUp(bot, startY)
+        const up = await digStraightUp(bot, startY)
+        return up ?? climbFailureReason({ placed, steps: i, stalled })
       }
     } else {
       stalled = 0
@@ -4743,8 +4761,11 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
 
   const gained = bot.entity.position.y - startY
   if (gained < 1) {
-    log('error', 'reflex: pillar out FAILED, no height gained', { y: Math.round(startY) })
-    return digStraightUp(bot, startY)
+    log('error', 'reflex: pillar out FAILED, no height gained', { y: Math.round(startY), placed, steps: step + 1, stalled })
+    const up = await digStraightUp(bot, startY)
+    // `placed=0` means the jump-and-place never landed a block; `placed>0` with no height means it placed and
+    // slid off. Those are different bugs and the row could not tell them apart.
+    return up ?? climbFailureReason({ placed, steps: step + 1, stalled })
   }
   // Ran out of budget with height gained but no route: say so plainly rather
   // than reporting the height as though it were the point.
