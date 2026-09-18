@@ -1,10 +1,14 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-18 02:00 UTC_
+_updated 2026-09-18 02:10 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds, all on **b1659c0** (= 1d6c97d + pocket-rung remedies + death-site exclusion; KEEP at +540 20:36Z 17 Sep, promoted fleet-wide 20:46Z by the canary loop). main = b1659c0 (fast-forwarded 01:58Z 18 Sep); previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d). Digest 01:30Z 18 Sep: one version live, deaths 0.016/bot-h over 1.5 h, one immobile bot.
 - 72-h program read (17 Sep 11:10Z, by version, before/after not DiD): 1d6c97d 955 bot-h — deaths 0.024/bh, immobile 2.3%, iron-pick 9.5%, gather 22%, items 6.5/bh; targets ≤0.05, ≤2%, ≥8%, ≥40%, ≥20. Gather/items fell vs 08a3da2 (30→22%, 15.2→6.5); queued as a DiD read.
 - **keepInventory=true and doImmediateRespawn=true on every world** (deliberate, place-town.py): deaths cost time, not items. The owner decides whether it stays.
+
+## Owner decisions 18 Sep 02:10Z ("lets do what you suggest")
+1. **keepInventory stays ON for the seed canary's 72 h, then is turned OFF fleet-wide as its own registered program change** (a world rule, never a canary: half a fleet on different death rules breaks every pooled read). Register it with the five program numbers read by epoch before and after; expect the iron-pickaxe share to drop when it flips, and say so in the first read.
+2. **Seed canary runs without the owner watching, one pool at a time**: pool one after the 08:37Z exclusion lifts, then verify 5/5 in-world and a clean digest an hour later, then pool two. Stop on any stage that fails to verify; nothing is deleted (archives .pre-reseed-<ts>).
 
 ## Live canary
 - **NONE.** -13c read KEEP at +540 (deaths 0 vs control 0.044/bh, 33 sealed-pocket verdicts on the canary, v15c within, own lines clean); the -13 and -13b reverts were the instrument (consequence rows / rows control emits too) and are recorded in the registration doc; v19 now refuses such rows before a draw. The 13c draw-exposure guard (`drawexposure.py`) is REPORT-only until calibrated (its one refusal was a false positive; the registered extension is what carried this canary).
