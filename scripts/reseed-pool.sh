@@ -62,7 +62,7 @@ if ! done_stage state-archived; then
 fi
 # ---- stage 2: the world
 if ! done_stage world-reseeded; then
-  W "set -e; sudo systemctl stop block2@$POOL.service; sleep 3; [ \"\$(systemctl is-active block2@$POOL.service || true)\" = inactive ]; cd /srv/block2/$POOL; mv_once() { if [ -e \"\$1\" ] && [ ! -e \"\$2\" ]; then sudo mv \"\$1\" \"\$2\"; elif [ ! -e \"\$1\" ] && [ -e \"\$2\" ]; then :; else echo \"cannot reconcile \$1 / \$2\"; exit 1; fi; }; mv_once world world.pre-reseed-$TS; mv_once TOWN-PLACED.json TOWN-PLACED.pre-reseed-$TS.json; sudo sed -i 's/^level-seed=.*/level-seed=$SEED/' server.properties; sudo -u minecraft test -r server.properties; sudo grep -q '^level-seed=$SEED\$' server.properties; echo reseeded" || { echo "world stage failed; archives are world.pre-reseed-$TS and TOWN-PLACED.pre-reseed-$TS.json; re-run reconciles"; exit 1; }
+  W "set -e; sudo systemctl stop block2@$POOL.service; sleep 3; case \"\$(systemctl is-active block2@$POOL.service || true)\" in active|activating|reloading) echo \"block2@$POOL still active after stop\"; exit 1;; esac; cd /srv/block2/$POOL; mv_once() { if [ -e \"\$1\" ] && [ ! -e \"\$2\" ]; then sudo mv \"\$1\" \"\$2\"; elif [ ! -e \"\$1\" ] && [ -e \"\$2\" ]; then :; else echo \"cannot reconcile \$1 / \$2\"; exit 1; fi; }; mv_once world world.pre-reseed-$TS; mv_once TOWN-PLACED.json TOWN-PLACED.pre-reseed-$TS.json; sudo sed -i 's/^level-seed=.*/level-seed=$SEED/' server.properties; sudo -u minecraft test -r server.properties; sudo grep -q '^level-seed=$SEED\$' server.properties; echo reseeded" || { echo "world stage failed; archives are world.pre-reseed-$TS and TOWN-PLACED.pre-reseed-$TS.json; re-run reconciles"; exit 1; }
   mark world-reseeded
 fi
 if ! done_stage server-up; then
