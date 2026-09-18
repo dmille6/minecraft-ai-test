@@ -74,6 +74,20 @@ def _ts(value):
     return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
 
 
+def _norm_pool(value):
+    """
+    A pool list as a comparable set, whatever shape it was written in.
+
+    The shell scripts write `"board-b,hive-a"`; the classifier writes a list.
+    Order is not meaningful and whitespace is accidental, so neither may decide
+    whether two deployments are the same one.
+    """
+    if value is None:
+        return frozenset()
+    parts = value.split(',') if isinstance(value, str) else list(value)
+    return frozenset(x.strip() for x in parts if str(x).strip())
+
+
 def open_loop(manifest, decisions):
     """
     Return a reason string when a loop is open, or None when nothing is open.
@@ -132,6 +146,17 @@ def open_loop(manifest, decisions):
             continue
         if (d.get('canary_sha') or '') != sha:
             continue                     # a decision about some other trial
+        # ORDERING IS NOT IDENTITY. Found by the ChatGPT review 2026-09-18, which
+        # exercised this function: after the ordering fix, a LATER decision
+        # carrying the wrong trial still closed the deployment, exactly as the
+        # right one would. Today that was survivable only because owner-01 and
+        # owner-01b drew different pools; a redeploy to the SAME pools would have
+        # been closed by its predecessor's verdict with the ordering check green.
+        # The ledger records `canary_pool`, so identity is available -- use it,
+        # and fail closed when the two disagree.
+        dpool, mpool = d.get('canary_pool'), manifest.get('canary_pool')
+        if dpool and mpool and _norm_pool(dpool) != _norm_pool(mpool):
+            continue                     # same sha, different deployment
         if (d.get('decision') or '').upper() not in VERDICTS:
             continue
         if declared is not None:
