@@ -85,7 +85,36 @@ Today produced six instruments that could not fail. Writing a seventh at midnigh
 
 Commissioned after four resume-path defects were found one at a time on a live world, which is the "surgery by flashlight" pattern this project keeps repeating. The point was to find defect #5 by reading rather than by running.
 
-## Verified FALSE — the one it called "definite"
+## CORRECTION — the one I called false was TRUE, and it fired 90 minutes later
+
+**I was wrong and Codex was right.** At 23:57:49Z the live run crashed with
+`FileNotFoundError: '/srv/block2/$POOL/server.properties'` — exactly the defect
+Codex named, at exactly the lines it named.
+
+My rejection rested on a bad test. I reproduced the `server-up` call site, where
+the heredoc sits INSIDE `W "..."` and the local shell expands `$POOL` before ssh
+sends it, and I generalised that to a construct one line away that is not the
+same: `ON=$(W "sudo python3 -" <<'PY' ... )` feeds the heredoc as separate stdin
+with a QUOTED delimiter, which suppresses every expansion. The author wrote
+`+"$POOL"+`, plainly intending substitution; the quoted delimiter forbade it.
+
+I then cited the success of `server-up` as "the stronger proof" — but that was
+the very call site my test had reproduced, so it confirmed nothing about the
+other one. **A positive control drawn from the wrong population, which is the
+error this project has a rule against, committed while writing up an audit about
+checks that cannot fail.**
+
+Fixed by passing the pool as `argv`, where quoting cannot decide it either way.
+Verified against the live host: `argv[1] = placebo-a`, opens the real file,
+reads `level-seed=8948499624371160708`.
+
+**What it cost:** nothing durable. The crash landed after the five bots were
+started and their envs rewritten, so the reseed was functionally complete; only
+the `bots-started` and `registered` stamps were missing. But it is the third
+time in two days that a confident negative has been wrong, and the first where
+the wrong one was mine about a reviewer.
+
+## (superseded) Verified FALSE — the one it called "definite"
 
 Codex: *"Lines 131–146: definite independent bug. The quoted `<<'PY'` preserves `"$POOL"` literally. Python opens `/srv/block2/$POOL/server.properties`, not the selected pool's file."*
 

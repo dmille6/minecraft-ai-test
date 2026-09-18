@@ -128,9 +128,21 @@ if ! done_stage envs; then
 fi
 if ! done_stage bots-started; then
   for b in $BOTS; do B "sudo systemctl start mcbot@$b.service"; sleep 12; done
-  for i in $(seq 1 24); do sleep 10; ON=$(W "sudo python3 -" <<'PY'
-import socket,struct,re
-c=dict(l.split('=',1) for l in open('/srv/block2/'+"$POOL"+'/server.properties').read().splitlines() if '=' in l and not l.startswith('#'))
+  for i in $(seq 1 24); do sleep 10; # THE POOL COMES IN AS argv, NOT THROUGH THE HEREDOC. `<<'PY'` with a QUOTED
+# delimiter suppresses every expansion, so `+"$POOL"+` -- written that way
+# plainly intending substitution -- reached python as six literal characters and
+# it opened `/srv/block2/$POOL/server.properties`. Measured 2026-09-18 23:57Z:
+# this crashed AFTER the five bots had been started and their envs rewritten,
+# so the reseed was functionally complete and the journal said `envs`, leaving
+# the run unable to mark itself done.
+#
+# The `server-up` stage looks identical and is not: there the heredoc sits
+# INSIDE `W "..."`, whose double quotes let the local shell expand $POOL before
+# ssh sends it. Two constructs one line apart, one safe and one not -- which is
+# why the fix is argv, where quoting cannot decide it either way.
+ON=$(W "sudo python3 - $POOL" <<'PY'
+import socket,struct,re,sys
+c=dict(l.split('=',1) for l in open('/srv/block2/'+sys.argv[1]+'/server.properties').read().splitlines() if '=' in l and not l.startswith('#'))
 s=socket.create_connection(('127.0.0.1',int(c['rcon.port'])),timeout=5); s.settimeout(5)
 def rd(n):
     d=b''
