@@ -420,3 +420,26 @@ The fatal episode, read from the bot's own rows (all times relative to death at 
 ### Verdict handling
 
 The REVERT stands as recorded — gates are honoured and amendments are prospective. The honest verdict on the evidence was **INCONCLUSIVE**: the canary was safe on every guard (all v15c within at +180), its exposure was real (68 episodes), and its three deaths were the fleet's dominant background mechanism, two of them with an identical signature on control. Nothing was learned about the movement owner, for the second time in one day and for a different reason each time.
+
+## Two-week program read — REGISTERED 2026-09-18 23:35 UTC, BEFORE the window opens
+
+The colony reliability program (13 Sep) commits to a **72-hour continuous read at two weeks**. That window is **24 Sep 00:00Z – 27 Sep 00:00Z**. Registering it now, in advance, because a gate read after the fact is not a gate — and because this project's own rule is that amendments are prospective only.
+
+**Committed targets and today's standing (24 h to 18 Sep 11:40Z):**
+
+| measure | 2-wk target | now | on track |
+|---|---|---|---|
+| deaths / bot-h | ≤ 0.05 | 0.025 | **yes**, also clears the 6-wk ≤0.03 |
+| immobile share | ≤ 2% | 0.0% | **yes**, also clears the 6-wk ≤1% |
+| iron-pickaxe bot-hour share | ≥ 8% | 12.5% | **yes** |
+| gather success | ≥ 40% | 20.3% | **NO** |
+| stock returned | ≥ 20 items/bot-h | deposit 22.4% success | unresolved units — see below |
+
+**Predicted outcome, stated in advance so the read cannot be rationalised afterwards: three of five pass, gather fails, stock returned is unresolved.** Gather cannot go 20.3% → 40% in the nine days remaining; no queued change targets it, because navigation is program step 3 and is gated behind a movement owner that has failed to land twice. Recording the prediction now makes the 27 Sep read a test of this forecast rather than a negotiation.
+
+**Reading rules for the window:**
+1. **No promotions inside it.** A promotion mid-window splits the read across code versions and blurs exactly the number the program is judged on. Canaries may run (they are 10 of 80 bots and are read as DiD); a fleet-wide promotion may not. If one is unavoidable, the window restarts.
+2. **Split by `code.version`.** `~/programread.py` already does this and refuses rather than printing zeros when the walk looks broken.
+3. **`keepInventory` stays ON through the window.** Turning it off (queue item 6) changes what a death costs and would confound the deaths line. It is a program change, scheduled after the seed canary's 72 h, and must not land inside this window.
+4. **Stock returned needs its units settled BEFORE 24 Sep.** The program says "≥ 20 items/bot-h (items leaving inventory in a deposit run)"; `programread.py` currently reports deposit *success rate* (22.4% excluding `no_effect`, 11.2% including it), which is a different quantity. Fix the instrument before the window opens or the line is unreadable — the same class of defect as owner-01b's `+nan%` primary endpoint.
+5. The read is the 72-hour aggregate, not the best 24 hours inside it.
