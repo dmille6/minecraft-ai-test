@@ -405,7 +405,8 @@ export class CognitiveLoop {
       // the moment placeable blocks fall to the reserve, so a bridge can start
       // with eight and never end with zero.
       const watch = setInterval(() => {
-        if (placeable() <= LIVELOCK_BLOCK_RESERVE) { try { this.bot.pathfinder?.setGoal?.(null) } catch {} }
+        // the watcher runs from a timer, contextless: the gate attributes only the pathfinder's own tick, so the stop is issued under the goto's grant (owner corpus 18 Sep: 50 refusals from this line)
+        if (placeable() <= LIVELOCK_BLOCK_RESERVE) { try { const g = this.runner?.grant; const stop = () => this.bot.pathfinder?.setGoal?.(null); (g && this.runner?.arb) ? this.runner.arb.within(g, stop) : stop() } catch {} }
       }, 500)
       try {
         await this.bot.withAscentMovements(async () => {
