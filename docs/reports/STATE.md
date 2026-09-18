@@ -44,6 +44,15 @@ v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detect
 - Tier-1 local analyst every 30 min (`~/digest/*.verdict.json`); tier-0 digest `~/digest/latest.md`. `versions_ok=False` is the known build-suffix false-fail (`<sha>+<buildhash>`), not an alarm.
 - Next 72-h program read: schedule from the next promotion.
 
+## CAUTION — a second session was live on this repo today
+At 11:26:28Z, while this session was deploying owner-01, another Claude session committed
+d10507e to this branch (its own falls-01 decision note). It is the previous evening's operator
+session, still alive with a waiter armed for owner-01. Nothing was lost — both accounts of
+falls-01 now sit in the registration doc and agree — and the loop's `flock` means only one
+canary loop can ever run. But the owner's rotation rule is **one session per day**, and two
+sessions holding the same canary is how a decision gets recorded twice or torn down twice.
+**A fresh session should confirm no other session is live before acting on the canary.**
+
 ## Daily session rotation
 - Desktop scheduled task `mcai-daily-session` starts a FRESH session at 06:08 America/Chicago (11:08 UTC). It reads this file first, closes any open canary (**check the ledger and the journal BEFORE acting** — the loop may already have), re-arms the list below, does the queue, rewrites this file.
 - `check-open-loop.py` lives at **`/opt/minecraft-ai/scripts/check-open-loop.py` on .31** and must run there with sudo. It is NOT in `~/mcai-analysis`.
