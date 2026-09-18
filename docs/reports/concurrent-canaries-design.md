@@ -78,3 +78,34 @@ It is 23:42 UTC. This change edits the thing that halts the fleet, and its failu
 Today produced six instruments that could not fail. Writing a seventh at midnight, solo, into halt protection, would be the same mistake with a larger blast radius. The design above is the hard half and it is done; step 1 is separable and inert and is the right first commit of a fresh session.
 
 **Nothing about this blocks tomorrow's queue:** items 1–3 (seed canary, v23 in the verdict path, navigation/gather) need only one canary slot each and can proceed while this is built.
+
+---
+
+# Appendix — Codex audit of `reseed-pool.sh`'s resume path (18 Sep, 23:58 UTC)
+
+Commissioned after four resume-path defects were found one at a time on a live world, which is the "surgery by flashlight" pattern this project keeps repeating. The point was to find defect #5 by reading rather than by running.
+
+## Verified FALSE — the one it called "definite"
+
+Codex: *"Lines 131–146: definite independent bug. The quoted `<<'PY'` preserves `"$POOL"` literally. Python opens `/srv/block2/$POOL/server.properties`, not the selected pool's file."*
+
+**Wrong, and checked two ways.** The heredoc sits inside a **double-quoted** string passed to `W()`, so the LOCAL shell expands `$POOL` before ssh transmits anything; heredoc quoting never gets the chance to apply. Direct test prints `/srv/block2/placebo-a/server.properties`. The empirical proof is stronger still: the `server-up` stage uses the identical `<<'PY'` + RCON pattern and **completed at 23:54:53Z** — it could not have if the path were literal.
+
+Recorded because an unchallenged "definite" from a reviewer is exactly how a wrong finding becomes a rule here.
+
+## Accepted — two real traps, both "a pending stage whose replay cannot advance"
+
+1. **`server-up` (lines 89–107): an already-started server makes every resume time out, with bots down.** If the script aborts after the server starts but before `mark server-up`, the resume's `systemctl start` correctly leaves the running service alone — but `T0` is reset to *this* attempt's clock, and the journal window only reaches back about `T0 - 5 s`. The earlier startup's `Done (` falls outside it, RCON is never attempted, and the stage times out after 450 s. Waiting and re-running does not recover it; only restarting the server by hand does.
+2. **`town-placed` (lines 109–114): a completed placement without its stamp strands all five bots.** Abort after `place-town.py` writes `TOWN-PLACED.json` but before `mark town-placed`, and the resume re-enters placement — which the runbook's own note says "refuses a stale or site-less town record". Replay cannot advance; it needs manual reconciliation.
+
+**Both are the same shape as the four already fixed**, and both leave bots down, which is the only severity that matters here.
+
+## Accepted as correct-as-built
+
+`mv_once` is safe between its two calls: an interruption leaves world archived / town-record not, and the resume skips the completed move and performs the pending one. `state-archived` handles any prefix identically. `seed` is stamped before the first stop, so there is no "bots stopped with no checkpoint to resume from" gap.
+
+## Not fixed tonight, and why
+
+The script was mid-run on placebo-a when this landed. **Editing a running script is how `deploy-fleet.sh` once re-read itself by byte offset** — the reason CLAUDE.md says to run it from a copy outside the repo. The two fixes are queued for before pool two, which is the next time the resume path can be reached.
+
+**Fixes to apply:** derive `server-up`'s log window from the service's own `ActiveEnterTimestamp` rather than this attempt's `T0`, and make `town-placed` check for its marker first and stamp the journal if placement has already completed.
