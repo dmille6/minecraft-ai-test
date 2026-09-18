@@ -1030,7 +1030,7 @@ async function takeBody(bot, runner, reason, priority, context = null) {
     const grant = await runner.arb.acquire({ owner: reason, priority, context: context ?? { kind: reason },
                                              onCancel: () => { runner.interrupt(reason) } })
     if (!grant) return null
-    seizeBody(bot, reason)
+    runner.arb.within(grant, () => seizeBody(bot, reason))   // the seize is the grant's own first act, not a contextless one
     return grant
   }
   runner.interrupt(reason)

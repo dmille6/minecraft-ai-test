@@ -261,7 +261,7 @@ export class Runner {
     } finally {
       clearTimeout(watchdog)
       if (hardStop) clearTimeout(hardStop)
-      try { this.bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
+      try { const stop = () => this.bot.pathfinder?.setGoal(null); this.grant ? this.arb.within(this.grant, stop) : stop() } catch { /* not connected */ }   // under the skill's own grant: the finally runs outside the within() (owner corpus 18 Sep)
       this.bodyClaim = null
       if (this.grant) { this.arb.release(this.grant, `skill ended: ${result?.status ?? 'unknown'}`); this.grant = null }
       this.lastEndedAt = Date.now()   // the lava stand-off waits 20 s after any skill before moving an idle bot
