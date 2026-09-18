@@ -918,12 +918,16 @@ function connect() {
     // shown that; the y-delta does.
     const deathPos = bot.entity?.position
     const fell = deathPos && peakY != null ? Math.round(peakY - deathPos.y) : null
-    // WHAT WAS LOST. A death drops the entire inventory, so it is the single
-    // largest destroyer of accumulated progress in this world -- and until now
-    // the record said only that a death happened. "Miner01 died" and "Miner01
-    // died holding the fleet's only stone_pickaxe" are different events, and
-    // the second one is the one that explains a stalled milestone chain.
-    // Captured BEFORE the respawn clears it.
+    // WHAT IT WAS CARRYING -- not what it lost. Every world in this fleet runs
+    // keepInventory=true with doImmediateRespawn=true (place-town.py sets both;
+    // verified in level.dat on hive-a, board-b and placebo-a, 18 Sep), so a
+    // death costs TIME, never items. This row used to be labelled "dropped:"
+    // above a comment asserting that a death drops the entire inventory, which
+    // is false here and is exactly the kind of instrument this project keeps
+    // getting burned by: it invited every reader to price a death in lost
+    // pickaxes. "Miner01 died" and "Miner01 died holding the fleet's only
+    // stone_pickaxe" are still different events, and the inventory is still
+    // worth recording -- as context, not as a loss. Captured BEFORE respawn.
     const lost = inventorySummary(bot)
     const lostSummary = Object.entries(lost)
       .sort((a, b) => b[1] - a[1]).slice(0, 6)
@@ -953,7 +957,7 @@ function connect() {
                 ? ` | hp ${hpTrail[0].hp}->${hpTrail[hpTrail.length - 1].hp} over ` +
                   `${Math.round((hpTrail[hpTrail.length - 1].t - hpTrail[0].t) / 1000)}s`
                 : '') +
-              (lostSummary ? ` | dropped: ${lostSummary}` : ' | carried nothing'),
+              (lostSummary ? ` | carried: ${lostSummary}` : ' | carried nothing'),
       // camelCase: logSkill destructures `failClass` and maps it to the
       // Elasticsearch field `fail_class` itself. Passing the snake_case name
       // meant logSkill silently ignored it, and 23 death records were written
