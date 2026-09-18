@@ -51,7 +51,20 @@ STATEDIRS=$(echo "$ENVINFO" | grep -o 'STATE_DIR=[^ ]*' | cut -d= -f2 | sort -u)
 [ "$(echo "$MPOOL" | wc -l | tr -d " ")" = 1 ] && [ "$MPOOL" = "$POOL" ] || { echo "refusing: MEMORY_POOL of the five bots is '$MPOOL', expected '$POOL'"; exit 2; }
 POOLDIR=$(dirname "$(echo "$STATEDIRS" | head -1)")/_pool-$POOL
 echo "bots: $(echo $BOTS) | scope $SCOPES | state dirs: $(echo $STATEDIRS) | pool dir: $POOLDIR"
-if ! done_stage world-reseeded; then W "test -f /srv/block2/$POOL/server.properties && systemctl is-active block2@$POOL.service" >/dev/null || { echo "refusing: block2@$POOL not active or no server.properties"; exit 2; }; fi
+# THIS GUARD IS FOR A CLEAN START, AND ONLY A CLEAN START. Requiring the server
+# to be ACTIVE is the right check before tearing a pool apart -- do not reseed a
+# world that is already broken. But the world stage's FIRST act is to stop that
+# server, so on a resume the guard refuses the operation it is halfway through,
+# which is the fourth resume-path defect found tonight. It is not weakened: on a
+# clean start (nothing journaled) it is exactly as before; on a resume it was
+# already satisfied once, and the journal is the proof.
+if ! done_stage world-reseeded; then
+  if done_stage bots-stopped; then
+    W "test -f /srv/block2/$POOL/server.properties && systemctl cat block2@$POOL.service" >/dev/null || { echo "refusing: block2@$POOL has no unit or no server.properties"; exit 2; }
+  else
+    W "test -f /srv/block2/$POOL/server.properties && systemctl is-active block2@$POOL.service" >/dev/null || { echo "refusing: block2@$POOL not active or no server.properties"; exit 2; }
+  fi
+fi
 W "test -f ~/scripts/place-town.py && test -f ~/scripts/pregen-world.py" || { echo "refusing: ~/scripts/place-town.py or pregen-world.py missing on the worlds host"; exit 2; }
 echo "preconditions ok"
 [ $GO = 1 ] || { echo "PLAN: stop 5 bots -> archive $POOLDIR and $(echo $STATEDIRS | wc -w) state dirs -> stop block2@$POOL -> archive world + TOWN-PLACED.json -> level-seed=$SEED -> start -> wait for the service's own 'Done' and an RCON answer -> place-town.py -> pregen radius $RADIUS -> rewrite HOME_*/BOARD_* in 5 envs -> start bots 12 s apart -> append to docs/reports/seed-canary-registration.md"; exit 0; }
