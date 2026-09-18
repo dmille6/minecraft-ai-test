@@ -39,6 +39,17 @@ _updated 2026-09-18 11:30 UTC_
 ## Rules in force (docs/reports/recovery-ladder-registration.md)
 v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detection), v16 (calibrate before revert; trace refusals to fallbacks; histogram slot order; bundles of two disjoint changes), v17/v18, v19 (a change/linkage row must DISCRIMINATE — `changerowcheck.py` pre-deploy, `license_change_rows()` at read time, the single-death rung-linkage override demoted to WATCH), **v21 (the death gate on the lower bound)**, the owner's death gate floor of **two** canary deaths, draws at deploy (12-h ledger exclusions, ±25% then ±40%, 5080 half, never placebo-c/isolated), `fleet-deploy` refuses a `--pool` sha not descending from `declared_code_version`.
 
+## Known false alarm — the analyst pages OpenLoop for the whole life of every canary
+`check-open-loop.py` reports OpenLoop whenever the manifest declares a canary with no decision
+recorded, which is the NORMAL state of a live canary from deploy until verdict. The tier-1
+analyst pages on it every 30 min: four times during -13c (17 Sep 18:30/19:00/19:30/20:30), twice
+during falls-01 (18 Sep 03:30/04:00), and it will do so ~26 times across owner-01's 13 hours.
+**It is not an alarm while the loop is alive and the deadline has not passed.** The
+discriminating test is `pgrep -f canary-loop` plus the deadline: OpenLoop with **no loop
+running**, or past `deadline_min`, is the real thing. Queued (not done today, because editing
+the analyst's rule while it watches a live canary is the wrong moment): give the analyst that
+two-part test so OpenLoop pages only when it means something.
+
 ## Standing wake-ups
 - Nightly 00:07Z: iron-funnel line (`~/digest/ironfunnel.log`). Last: 59 raw iron / 52 ingots / 3 picks crafted, 18 gone (all during work), iron-pick share 12.5%.
 - Tier-1 local analyst every 30 min (`~/digest/*.verdict.json`); tier-0 digest `~/digest/latest.md`. `versions_ok=False` is the known build-suffix false-fail (`<sha>+<buildhash>`), not an alarm.
