@@ -43,7 +43,7 @@ _updated 2026-09-18 12:02 UTC_
 9. **Pooling rule -12** (iron; docs/reports/pooling-rule-design.md v3; build NOT started).
 10. Housekeeping: delete `~/mcai-analysis/registrations/exptest.json` on .31.
 
-**Not in the queue but the bigger program lever, noted 18 Sep:** gather succeeds 20.3% (6,374/31,416 terminal) against a two-week gate of 40%, and 14,544 of 23,544 failures (62%) are `unreachable` / `no_safe_target` / `no_path` — navigation refusing to reach a block it can see. Deposit succeeds 11.2% (558/4,973) against a "fixed in week one" commitment. Neither is a queue item because both are program steps 3 and 4 (own navigation, rules-first worker) that owner-01 opens, not separate canaries.
+**Not in the queue but the bigger program lever, noted 18 Sep:** gather succeeds 20.3% (6,374/31,416 terminal) against a two-week gate of 40%, and 14,544 of 23,544 failures (62%) are `unreachable` / `no_safe_target` / `no_path` — navigation refusing to reach a block it can see. Deposit is **not** the regression it looked like: 22.4% (559/2,497) on the denominator comparable to the program's 17% baseline, i.e. improved — but 11.2% (559/4,985) once the 2,488 `no_effect` runs are counted, and half of all deposit runs doing nothing is its own question. Neither is a queue item because both are program steps 3 and 4 (own navigation, rules-first worker) that owner-01 opens, not separate canaries.
 
 
 ## Rules in force (docs/reports/recovery-ladder-registration.md)
@@ -61,6 +61,8 @@ the analyst's rule while it watches a live canary is the wrong moment): give the
 two-part test so OpenLoop pages only when it means something.
 
 ## Standing wake-ups
+- **Nightly 00:12Z: the five program numbers** (`~/programread.py 24` -> `~/digest/programread.log`, installed 18 Sep; crontab backup `~/crontab.bak-20260918`). Built because only THREE of the five had a standing read: the 30-min digest carries deaths, immobility and the retired items/bot-h; ironfunnel carries the iron share; **gather success and stock returned had no standing read anywhere**, which is how gather moved 30% -> 20.3% unobserved. Prints both deposit denominators on purpose, splits by `code.version` so a promotion cannot blur a window, and REFUSES rather than printing zeros if the walk looks broken. The per-version split is NOT a canary read — no DiD, no exposure cut — and says so in its own output.
+- **Declare the two-week program read window: 72 h continuous, 24-27 Sep**, and keep promotions out of it or the read is blurred by code version. The two-week gate is 27 Sep. Not yet registered — do it before 24 Sep.
 - Nightly 00:07Z: iron-funnel line (`~/digest/ironfunnel.log`). Last: 59 raw iron / 52 ingots / 3 picks crafted, 18 gone (all during work), iron-pick share 12.5%.
 - Tier-1 local analyst every 30 min (`~/digest/*.verdict.json`); tier-0 digest `~/digest/latest.md`. `versions_ok=False` is the known build-suffix false-fail (`<sha>+<buildhash>`), not an alarm.
 - Next 72-h program read: schedule from the next promotion.
