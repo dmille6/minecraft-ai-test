@@ -1,6 +1,7 @@
 // THE ARBITER: one holder, priority preemption with a bounded acknowledgement, stale calls rejected.
 import assert from 'node:assert'
 import { Arbiter, PRIORITY, ACK_MS, StaleGrant, mayPreempt } from '../src/arbiter.mjs'
+const tick = (bot, fn) => { let r; bot._onTick = () => { r = fn() }; bot.emit('physicsTick'); bot._onTick = null; return r }   // what mineflayer-pathfinder's physicsTick listener does: the gate attributes it to the bound grant
 let pass = 0, fail = 0
 const ta = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -74,7 +75,7 @@ await ta('a forced revocation runs the independent actuator stop without awaitin
 
 await ta('the actuator gate: the holder may act from inside its async context across awaits; a stranger and an unrouted caller may not while the body is held; anyone may while it is free', async () => {
   const refused = []; const arb = new Arbiter()
-  const calls = []; const bot = { dig: async b => { calls.push(['dig', b]); return 'dug' }, placeBlock: async () => 'placed', setControlState: (k, v) => calls.push(['ctl', k, v]), look: async () => calls.push(['look']),
+  const calls = []; const bot = { emit (ev) { if (ev === 'physicsTick') this._onTick?.() }, dig: async b => { calls.push(['dig', b]); return 'dug' }, placeBlock: async () => 'placed', setControlState: (k, v) => calls.push(['ctl', k, v]), look: async () => calls.push(['look']),
     pathfinder: { goto: async g => { calls.push(['goto', g]); return 'went' }, setGoal: g => calls.push(['setGoal', g]) } }
   arb.installActuatorGate(bot, { onRefuse: (n, c, h) => refused.push([n, c?.owner ?? null, h?.owner]) })
   assert.equal(await bot.dig('free'), 'dug', 'a free body: an unrouted call is allowed')
@@ -85,8 +86,9 @@ await ta('the actuator gate: the holder may act from inside its async context ac
   const out = await arb.within(g, async () => { await sleep(5); const a = await bot.dig('mine'); await sleep(5); const b = await bot.pathfinder.goto('goal'); return [a, b] })
   assert.deepEqual(out, ['dug', 'went'], 'the holder acts across awaits inside its context')
   assert.equal(arb.bound, g, 'the holder\'s goto bound the pathfinder tick to its grant')
-  bot.setControlState('forward', true); assert.ok(calls.some(c => c[0] === 'ctl'), 'the bound tick (contextless) may drive control states for the holder')
-  await bot.look(1, 2); assert.ok(calls.some(c => c[0] === 'look'), 'and look')
+  tick(bot, () => bot.setControlState('forward', true)); assert.ok(calls.some(c => c[0] === 'ctl'), 'the bound tick (from inside a physicsTick emission) may drive control states for the holder')
+  await tick(bot, () => bot.look(1, 2)); assert.ok(calls.some(c => c[0] === 'look'), 'and look')
+  calls.length = 0; bot.setControlState('forward', true); assert.ok(!calls.some(c => c[0] === 'ctl'), 'a bare contextless call while held and bound is NOT the tick and is refused (owner pass 1 §2)')
   const h = await arb.acquire({ owner: 'air', priority: PRIORITY.air })   // preempts gather
   assert.equal(arb.bound, null, 'revocation unbinds the tick'); assert.deepEqual(calls.at(-1), ['setGoal', null], 'the raw stop cleared the goal')
   calls.length = 0; bot.setControlState('forward', true); assert.deepEqual(calls, [], 'a tick that outlives its grant is refused while the successor holds')
@@ -97,7 +99,7 @@ await ta('the actuator gate: the holder may act from inside its async context ac
 })
 await ta('the gate after Codex passes 1 and 2: a released context never resumes on a free body; every stop is gated; the arbiter stop is the only raw bypass and is scoped', async () => {
   const arb = new Arbiter(); const calls = []
-  const bot = { dig: async b => { calls.push(['dig', b]); return 'dug' }, placeBlock: async () => 'placed', setControlState: () => {}, clearControlStates: () => calls.push(['clear']),
+  const bot = { emit (ev) { if (ev === 'physicsTick') this._onTick?.() }, dig: async b => { calls.push(['dig', b]); return 'dug' }, placeBlock: async () => 'placed', setControlState: () => {}, clearControlStates: () => calls.push(['clear']),
     stopDigging: () => calls.push(['stopDigging']), targetDigBlock: { x: 1 }, pathfinder: { goto: async () => 'went', setGoal: g => calls.push(['setGoal', g]), stop: () => calls.push(['pfstop']) } }
   arb.installActuatorGate(bot)
   const g = await arb.acquire({ owner: 'gather' })
@@ -113,9 +115,9 @@ await ta('the gate after Codex passes 1 and 2: a released context never resumes 
   assert.deepEqual(calls, [['setGoal', { goal: 1 }], ['setGoal', null], ['clear']], 'the holder\'s own stops go through')
   // the bound tick may start the next leg or stop its own goal WITHOUT changing the binding (corpus run 4)
   await arb.within(h, () => bot.pathfinder.setGoal({ goal: 2 })); assert.equal(arb.bound, h)
-  bot.pathfinder.setGoal({ goal: 3 }); assert.equal(arb.bound, h, 'a contextless setGoal(goal) from the bound tick keeps the binding')
+  tick(bot, () => bot.pathfinder.setGoal({ goal: 3 })); assert.equal(arb.bound, h, 'a setGoal(goal) from the bound tick keeps the binding')
   assert.deepEqual(calls.at(-1), ['setGoal', { goal: 3 }], 'and went through')
-  bot.pathfinder.setGoal(null); assert.equal(arb.bound, h, 'a contextless setGoal(null) from the bound tick keeps the binding too')
+  tick(bot, () => bot.pathfinder.setGoal(null)); assert.equal(arb.bound, h, 'a setGoal(null) from the bound tick keeps the binding too')
   assert.equal(bot.pathfinder.setGoal.__arbiterGated, true); assert.equal(bot.stopDigging.__arbiterGated, true); assert.equal(bot.clearControlStates.__arbiterGated, true)
   // the scoped stop: stopping a grant that no longer holds the body releases it without touching the successor's actuators
   calls.length = 0
@@ -136,7 +138,8 @@ await ta('mayAct is the whole decision', async () => {
   assert.equal(Arbiter.mayAct(g, g), true); assert.equal(Arbiter.mayAct({ alive: true }, g), false); assert.equal(Arbiter.mayAct({ ...g, alive: false }, g), false)
   assert.equal(Arbiter.mayAct({ alive: false }, null), false, 'a revoked context does not resume on a free body')
   assert.equal(Arbiter.mayAct({ alive: true }, null), false, 'a live-looking context that is not the holder does not act on a free body either')
-  assert.equal(Arbiter.mayAct(null, g, g), true, 'a contextless call is admitted as the bound pathfinder tick of the live holder')
+  assert.equal(Arbiter.mayAct(null, g, g, true), true, 'the pathfinder tick (attributed by the gate) is admitted as the bound live holder')
+  assert.equal(Arbiter.mayAct(null, g, g, false), false, 'any OTHER contextless call while held is refused, even with the pathfinder bound (owner pass 1 §2)')
   assert.equal(Arbiter.mayAct(null, g, { alive: true }), false, 'but not when the tick is bound to someone else')
   assert.equal(Arbiter.mayAct(null, { alive: false }, { alive: false }), false)
 })
