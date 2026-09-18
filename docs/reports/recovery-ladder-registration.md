@@ -382,7 +382,9 @@ So this is the calibrated false-revert case, not a harmful change: `gatecal.py` 
 **The instrument answered its question before it was torn down** (22 rows, 90 bot-h): the liquid-dropdown hypothesis is dead (1/22 landings on liquid, 1/22 planned drops beyond the walk policy), and the damage-implied heights say 19/22 rows are the planned 4-5-block drops themselves (a heart each, by policy), leaving 3/22 as the real class — two falls with NO planned drop and one overshoot (planned 5, fell ~12). The next falls design targets that minority; a re-canary of the instrument is not needed for it.
 Prospective note for the owner (not applied): a REPORT-ONLY change (no behaviour, no change rows) trips the death gate at the fleet's own death rate with 46% probability; if instruments are to be canaried at all, the gate for them should be a WATCH with the deaths read individually. That is the owner's call, not mine.
 
-## v22 — DRAFT (prospective; written 2026-09-18 16:45 UTC after owner-01b's revert; applies to the next canary once registered)
+## v22 — **WITHDRAWN 2026-09-18 23:50 UTC, NOT REGISTERED.** Both independent reviews rejected it; see `review-reconciliation-2026-09-18.md` and v23 below. Kept for the record because the trace it contains is the evidence for v23.
+
+### (withdrawn draft follows)
 
 **owner-01b was reverted at 16:38:45Z on `('hive-a-Bravo', '16:33:01', 'escape_rung')` — "change row inside a death window, discriminating". The mechanism does not support it, and v10 already forbade it.**
 
@@ -443,3 +445,44 @@ The colony reliability program (13 Sep) commits to a **72-hour continuous read a
 3. **`keepInventory` stays ON through the window.** Turning it off (queue item 6) changes what a death costs and would confound the deaths line. It is a program change, scheduled after the seed canary's 72 h, and must not land inside this window.
 4. **Stock returned needs its units settled BEFORE 24 Sep.** The program says "≥ 20 items/bot-h (items leaving inventory in a deposit run)"; `programread.py` currently reports deposit *success rate* (22.4% excluding `no_effect`, 11.2% including it), which is a different quantity. Fix the instrument before the window opens or the line is unreadable — the same class of defect as owner-01b's `+nan%` primary endpoint.
 5. The read is the 72-hour aggregate, not the best 24 hours inside it.
+
+## v23 — ONE INVARIANT: NO SINGLE CANARY DEATH MAY LICENCE A REVERT BY ANY PATH (prospective, 2026-09-18 23:50 UTC)
+
+Registered after both independent reviews rejected v22. **Stated once, at the level of the rule rather than the path, so a third route cannot be invented.**
+
+### Why v22 was withdrawn
+
+v22 said a change row licences a REVERT only if it MOVED the body, and refusals are never linked. Both engines rejected it independently, and the fatal objection is verifiable in the source: **during an air emergency the drowning rescue seizes and holds the body** (`reflex.mjs` ~1955-1975). owner-01b's own rows show the consequence — every rung `refused (body held by air)` or `preempted blocks=0`. A movement or escape change therefore **cannot structurally emit `outcome=ran` inside a fatal drowning episode**, and drowning is 58% of deaths. v22 would have been vacuous for the majority of deaths: it fails the same reachability test it was drafted beside.
+
+The second objection is independent and also fatal: the licence function receives event **names**; its caller reduces change rows to names and truncates detail. Outcome and episode never reach it. v22 was not implementable as an outcome filter without a data-contract change.
+
+### The invariant
+
+**A single canary death is never sufficient to REVERT, by any path — aggregate gate, change-row linkage, rung linkage, or any future mechanism.** The owner's two-death floor (2026-09-11) already said this for the aggregate death gate; v21 gave that gate an honest test (lower bound of the rate ratio, calibrated 43.7% → 5.0% false revert). The change-row licence path **bypassed both**, reverting owner-01b at +0 on one death before the aggregate gate — which was at that moment correctly HOLDING a 10.00x point ratio at a 0.78x lower bound. That was the last surviving single-death revert route. It is closed.
+
+A single death is **reported and named** in every read, as it always has been. It is not a verdict.
+
+### What replaces it — the refusal class, measured where it has power
+
+Refusal-as-mechanism is real: this project's documented bug class is "two individually-correct guards meeting where the bot had no legal move", and four separate traps have had that shape. v22's error was trying to catch it **at a single death**, where there is no statistical power and no discrimination. It moves to a pre-registered DiD guard on a row kind **both arms emit**:
+
+- **`escape_zero_displacement_share`** — the share of escape episodes ending with **zero measured body displacement**.
+- **`time_to_first_displacement`** — per episode, distribution not mean.
+
+Both are read from **`bot.pos`, never from the rung's self-reported `outcome`**. A change that misreports its own effect is not hypothetical here: owner-01 shipped inert with every self-report green, and the only thing that caught it was the process's own environment. **Do not let the defendant testify.**
+
+`escape_rung` runs ~7/bot-h, so a 10-bot 6-hour canary sees **hundreds** of episodes where deaths give one. This fires symmetrically on exactly "correct guards composing into a dead end", with power, and it does not need a death to do it. Calibrate before it may revert, per v16.
+
+### Gate roles
+
+Every registered gate now declares `role`:
+- **`deciding`** — may REVERT. Must demonstrate power on the drawn pools before deploy.
+- **`tripwire`** — reported, never reverts alone. Rare-event monitors (deaths, lava, falls) are tripwires **by design**: CLAUDE.md already says "use them as tripwires, not proof". Requiring power of them would either block every canary or be waved through.
+
+The read prints, beside each gate's value, whether it **could have fired on the data that actually arrived**. A preflight result is exactly the artefact a redeploy makes stale — that is defect #4's shape, and this is the cheaper half of the answer.
+
+### Not doing: a general `gate-power.py`
+
+Rejected by both reviews. Reachability is not power; it would have caught 1 of today's 6 defects; and a separate script that must agree with `drawrec`/`drawexposure` about the draw **repeats the drift defect it is meant to prevent**. The two useful halves fold into `drawexposure.py` (queue item): a **non-degenerate pre-period** on the primary metric (owner-01b drew pools at 0.0% immobile, so its primary read was a divide-by-zero printing `+nan% FAIL`), and **exposure against the MDE-implied n**.
+
+Prior art to borrow rather than invent: Cloudflare's `pint` (a CI linter for alert rules that cannot fire), Prometheus `unit_testing_rules` (asserting an alert must NOT fire), Kayenta `mustHaveData`, and standing **A/A canaries** to measure the judge's own false-alarm rate — done once by hand here (46%), never made standing.
