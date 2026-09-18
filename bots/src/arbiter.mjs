@@ -28,6 +28,7 @@ export const PRIORITY = Object.freeze({
   idle: 0,
 })
 export const ACK_MS = 500
+const TICK = Object.freeze({ tick: true })   // the async-context marker for the pathfinder's own physics tick
 
 export class StaleGrant extends Error {
   constructor (grant, why) { super(`stale grant ${grant?.id ?? '?'} (${grant?.owner ?? '?'}): ${why}`); this.name = 'StaleGrant'; this.grant = grant }
@@ -107,10 +108,14 @@ export class Arbiter {
    * a contextless call is attributed to it. (Codex, gate pass 2: contextless callers were let through while the
    * body was held; now they pass only as the bound pathfinder tick of the live holder, or while the body is free.)
    */
-  static mayAct (ctx, holder, bound = null) {
+  static mayAct (ctx, holder, bound = null, tick = false) {
     if (ctx) return !!holder && ctx === holder && ctx.alive          // a routed caller must BE the live holder; a released or revoked context never resumes
     if (!holder) return true                                         // an unrouted caller on a free body (legacy paths, the flag off)
-    return bound === holder && holder.alive                          // an unrouted caller while held: only the holder's own pathfinder tick
+    // AN UNROUTED CALLER WHILE HELD IS ADMITTED ONLY WHEN IT IS THE PATHFINDER'S OWN TICK for the bound holder. The
+    // tick is ATTRIBUTED, not assumed: the gate runs the bot's physicsTick emission inside the bound grant's context
+    // (see installActuatorGate), so the pathfinder's calls arrive with `tick` true; unstick, the last-resort branch and
+    // every other contextless mover arrive with it false and are refused (Codex, owner pass 1 §2).
+    return tick && bound === holder && holder.alive
   }
   //
   // WHAT IS GATED (Codex, gate passes 1 and 2). EventEmitter listeners run in the EMITTER's async context, so the
@@ -137,8 +142,10 @@ export class Arbiter {
       if (typeof orig !== 'function') return
       obj[name] = function (...args) {
         const holder = self.#holder && self.#holder.alive ? self.#holder : null
-        const ctx = self.caller()
-        if (!Arbiter.mayAct(ctx, holder, self.#bound)) {
+        const store = self.#als.getStore()
+        const tick = store === TICK
+        const ctx = tick ? null : (store ?? null)
+        if (!Arbiter.mayAct(ctx, holder, self.#bound, tick)) {
           onRefuse(name, ctx, holder, self.#bound)
           return refuse(new StaleGrant(ctx, `${name} refused: the body is held by ${holder?.owner ?? 'nobody'}${ctx && !ctx.alive ? ' and the caller was revoked' : ''}`))
         }
@@ -149,6 +156,18 @@ export class Arbiter {
         return orig.apply(this, args)
       }
       obj[name].__arbiterGated = true
+    }
+    // THE PATHFINDER'S TICK IS MARKED: mineflayer-pathfinder drives its controls from a physicsTick listener, which
+    // runs in the emitter's (empty) async context. The gate runs that emission under the TICK marker so the
+    // pathfinder's calls -- and the goal_reached/path_update listeners it fires synchronously from inside the tick,
+    // which start the holder's next leg -- are attributed to the bound grant. Nothing else is.
+    if (bot && typeof bot.emit === 'function' && !bot.emit.__arbiterGated) {
+      const rawEmit = bot.emit
+      bot.emit = function (ev, ...args) {
+        if ((ev === 'physicsTick' || ev === 'physicTick') && self.#bound) return self.#als.run(TICK, () => rawEmit.call(this, ev, ...args))
+        return rawEmit.call(this, ev, ...args)
+      }
+      bot.emit.__arbiterGated = true
     }
     const rejectP = err => Promise.reject(err), resolveP = () => Promise.resolve(), nothing = () => undefined
     for (const n of Arbiter.GATED_ASYNC) wrap(bot, n, rejectP)

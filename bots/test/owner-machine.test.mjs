@@ -19,7 +19,7 @@ t('nextRung skips a refused, failed or exhausted rung but retries a preempted on
   assert.equal(nextRung(e, { blocks: 9, tool: true }, 1).rung, 'pillar')
   e = recordRung(e, { rung: 'pillar', outcome: 'preempted' }); assert.equal(nextRung(e, { blocks: 9 }, 2).rung, 'pillar'); assert.match(nextRung(e, { blocks: 9 }, 2).reason, /after preemption/)
   e = recordRung(e, { rung: 'pillar', outcome: 'failed', blocksSpent: 4 }); assert.equal(e.blocksSpent, 4)
-  assert.equal(nextRung(e, { blocks: 9, tool: true }, 3).rung, 'stair'); assert.equal(nextRung(e, { blocks: 9, tool: false }, 3).rung, 'underfoot', 'no pickaxe: no stair')
+  assert.equal(nextRung(e, { blocks: 9, tool: true }, 3).rung, 'stair'); assert.equal(nextRung(e, { blocks: 9, tool: false }, 3).rung, 'stair', 'a bare-hand ramp is legal (the legacy arm cuts stone by hand); the rung itself decides')
   e = recordRung(e, { rung: 'stair', outcome: 'refused' }); e = recordRung(e, { rung: 'underfoot', outcome: 'exhausted' })
   assert.equal(nextRung(e, { blocks: 9, tool: true }, 4), null, 'every rung spent')
   const l = newEpisode({ cls: 'ladder', at: AT, now: 0 })
@@ -33,8 +33,9 @@ t('past the deadline nothing runs and the hold reason is deadline; with rungs le
   let x = e; for (const r of rungsFor('marooned')) x = recordRung(x, { rung: r, outcome: 'failed' })
   assert.equal(holdReason(x, { blocks: 20 }, 1), 'exhausted')
   const y = recordRung(recordRung(e, { rung: 'adjacent', outcome: 'refused' }), { rung: 'underfoot', outcome: 'refused' })
-  assert.equal(holdReason(y, { blocks: 0, tool: false }, 1), 'no_rung', 'pillar and stair are untried but unrunnable now (no blocks, no pickaxe): a different hold from exhaustion')
-  assert.equal(holdReason(y, { blocks: 20, tool: true }, 1), 'runnable', 'and they become runnable when the blocks and the pickaxe arrive')
+  const z = recordRung(y, { rung: 'stair', outcome: 'refused' })
+  assert.equal(holdReason(z, { blocks: 0 }, 1), 'no_rung', 'pillar is untried but unrunnable now (no blocks): a different hold from exhaustion')
+  assert.equal(holdReason(z, { blocks: 20 }, 1), 'runnable', 'and it becomes runnable when the blocks arrive')
 })
 t('closeEpisode needs the shared postcondition AND the class predicate; a rise into a still-entombed cell does not close', () => {
   const before = { x: 0, y: 40, z: 0, wet: false }

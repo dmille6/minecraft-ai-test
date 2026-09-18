@@ -1367,16 +1367,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Step 1 routes the ENTOMBED arm only: its body becomes three rungs the owner runs one at a time under an episode.
   if (config.reflex.owner && runner?.arb) {
     const ownerRungs = {
-      pillar: async (b, { alive }) => {
-        const r = await pillarOut(b, climbNeedAbove(bmap(b), b.entity.position), { alive })
+      pillar: async (b, { alive, blocksLeft }) => {
+        const need = climbNeedAbove(bmap(b), b.entity.position)
+        if (blocksLeft != null && blocksLeft < need + 2) return { outcome: 'refused', why: `needs_blocks (episode budget ${blocksLeft} < ${need + 2})` }
+        const y0 = b.entity.position.y
+        const r = await pillarOut(b, need, { alive })
         if (r === 'needs_blocks' || r === 'needs_pickaxe') return { outcome: 'refused', why: r }
         if (r === 'preempted') return { outcome: 'preempted', why: r }
         if (r === 'exhausted') return { outcome: 'failed', why: r }
-        return { outcome: r === false ? 'failed' : 'ran', why: String(r) }
+        // pillarOut hands off to digStraightUp, which returns nothing on completion and null after walking to an
+        // opening: judge by what happened, not by the return value (Codex pass 1 §4)
+        const rose = (b.entity?.position?.y ?? y0) - y0
+        return rose >= 1 ? { outcome: 'ran', why: `rose ${rose.toFixed(1)} (${String(r)})` } : { outcome: 'failed', why: `no height gained (${String(r)})` }
       },
-      stair: async (b, { alive }) => {
-        const st = await escapeStairUp(b, { yieldTo: () => (drowningOwnsBody() ? 'the air reflex owns the body' : alive() ? null : 'the owner lost the body') })
-        return st.steps > 0 ? { outcome: 'ran', why: `steps=${st.steps} breached=${st.breached} climbed=${st.climbed.toFixed(1)} stopped=${st.stopped}` } : { outcome: 'failed', why: `no step: ${st.stopped}` }
+      stair: async (b, { alive, deadlineAt }) => {
+        const st = await escapeStairUp(b, { budgetMs: Math.max(5_000, Math.min(60_000, (deadlineAt ?? Date.now() + 60_000) - Date.now())),
+                                            yieldTo: () => (drowningOwnsBody() ? 'the air reflex owns the body' : alive() ? null : 'the owner lost the body') })
+        if (st.steps > 0) return { outcome: 'ran', why: `steps=${st.steps} breached=${st.breached} climbed=${st.climbed.toFixed(1)} stopped=${st.stopped}` }
+        return alive() ? { outcome: 'failed', why: `no step: ${st.stopped}` } : { outcome: 'preempted', why: `yielded: ${st.stopped}` }
       },
       underfoot: async (b) => { const g = await harvestUnderfoot(b); return g.ok ? { outcome: 'ran', why: g.why ?? 'harvested underfoot' } : { outcome: 'failed', why: g.why ?? 'nothing underfoot' } },
     }
@@ -1943,7 +1951,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const rel = swimming
           ? { kind: 'drowning_yielded_to_swim', status: 'success', escaped: false, landed: false }
           : drowningRelease()
-        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
+        rescuing = false; if (config.reflex.arbiter) { try { bot.clearControlStates() } catch { /* not connected */ } }; giveBody(runner, airGrant, 'drowning released'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         lastReleaseAt = Date.now()
         lastReleaseKind = rel.kind
         lastDrownPhase = null
@@ -1964,7 +1972,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // sealed case, and it is a real failure -- logged separately so it can
       // never hide inside the success kind again.
       if (rescuing && rescueExpired()) {
-        rescuing = false; try { bot.clearControlStates() } catch { /* not connected */ }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
+        rescuing = false; if (config.reflex.arbiter) { try { bot.clearControlStates() } catch { /* not connected */ } }; giveBody(runner, airGrant, 'rescue expired'); airGrant = null   // cleanup runs while the reflex still holds (the gate refuses a stop after release if a successor holds)
         // REMEMBER THAT IT FAILED. Nothing did, which is why the same rescue ran
         // 4,603 times in six hours on six bots at full oxygen and full health.
         const hereNow = bot.entity?.position
@@ -2827,10 +2835,29 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             const here = () => { const q = bot.entity?.position; return q ? { x: q.x, y: q.y, z: q.z, wet: !!bot.entity?.isInWater } : null }
             const blocks = (bot.inventory?.items?.() ?? []).filter(it => PLACEABLE.test(it.name)).reduce((n, it) => n + it.count, 0)
             const tool = (bot.inventory?.items?.() ?? []).some(it => /_pickaxe$/.test(it.name))
+            // EVIDENCE ENDS A HOLD (design v2 §3): displacement, a changed block count, or a pickaxe arriving since
+            // the hold began re-opens the episode on the next tick; the arm's own 15-s interval is the cadence.
+            const h = runner.owner.hold
+            if (h && h.cls === 'entombed') {
+              const hereNow = here()
+              runner.owner.evidence({ displaced: !!(hereNow && h.pos && escapedFrom(h.pos, { ...hereNow, wet: false })), inventoryChanged: blocks !== h.blocks || (tool && !h.tool),
+                                      blockChangedNearby: !isEntombed(bot) })
+            }
             const r = await runner.owner.assessAndRun({ cls: 'entombed', key, obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),
               predicate: () => ({ entombed: isEntombed(bot), supported: !!bot.entity?.onGround }), snapshot: here })
             if (r.result === 'closed') { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
-            else if (r.result === 'hold' || r.result === 'latched') lastEscapeAt = Date.now() + 60_000   // a minute; evidence re-opens the hold sooner
+            else if (r.result === 'hold' || r.result === 'latched') {
+              if (runner.owner.hold) runner.owner.hold.tool = tool
+              // THE REFUSAL NAMES A REMEDY THE GOAL LAYER CAN ACT ON, as the legacy arm did (Codex pass 1 §5): the
+              // last refused pillar says what was missing.
+              const refused = (r.tried ?? []).filter(t => t.rung === 'pillar' && t.outcome === 'refused').pop()
+              const why = refused ? (String(refused.why ?? '').includes('pickaxe') ? 'needs_pickaxe' : 'needs_blocks') : null
+              if (why) {
+                const want = climbPrereqFor(why)
+                bot.pendingPrereq = { ...want, because: `the owner's pillar rung refused (${why}) at y=${Math.round(pos.y)}; hold=${r.why}` }
+                logEvent({ kind: why === 'needs_pickaxe' ? 'entombed_needs_pickaxe' : 'entombed_needs_blocks', status: 'failed', detail: `owner hold (${r.why}) after pillar refused (${why}); asked the goal layer for ${want.count}x ${want.items[0]}`, snapshot: snapshot(bot) })
+              }
+            }
             return
           }
           entombedGrant = await takeBody(bot, runner, 'entombed', PRIORITY.escape)
