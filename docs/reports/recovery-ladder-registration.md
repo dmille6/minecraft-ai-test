@@ -381,3 +381,42 @@ Two canary deaths in 2 h 20 m (0.086/bh vs control 0.013/bh: 3 deaths on 50 cont
 So this is the calibrated false-revert case, not a harmful change: `gatecal.py` measured the two-death rule falsely reverting 46% of HARMLESS 5-bot pseudo-canaries in 6 h (13 Sep), and this was 10 bots in 2.3 h at a fleet rate of ~0.03/bot-h. The owner's gate is the owner's decision and stands; recorded here so the ledger's REVERT is not read as evidence against the instrument.
 **The instrument answered its question before it was torn down** (22 rows, 90 bot-h): the liquid-dropdown hypothesis is dead (1/22 landings on liquid, 1/22 planned drops beyond the walk policy), and the damage-implied heights say 19/22 rows are the planned 4-5-block drops themselves (a heart each, by policy), leaving 3/22 as the real class — two falls with NO planned drop and one overshoot (planned 5, fell ~12). The next falls design targets that minority; a re-canary of the instrument is not needed for it.
 Prospective note for the owner (not applied): a REPORT-ONLY change (no behaviour, no change rows) trips the death gate at the fleet's own death rate with 46% probability; if instruments are to be canaried at all, the gate for them should be a WATCH with the deaths read individually. That is the owner's call, not mine.
+
+## v22 — DRAFT (prospective; written 2026-09-18 16:45 UTC after owner-01b's revert; applies to the next canary once registered)
+
+**owner-01b was reverted at 16:38:45Z on `('hive-a-Bravo', '16:33:01', 'escape_rung')` — "change row inside a death window, discriminating". The mechanism does not support it, and v10 already forbade it.**
+
+The fatal episode, read from the bot's own rows (all times relative to death at 16:33:01):
+
+```
+-93s  _escape_rung   rung=pillar outcome=refused   why=body held by air
+-73s  _drowning_ceiling_no_air  held 20s, never reached air (oxygen 0, health 18) — sealed
+-53s  _drowning_ceiling_no_air  (health 17.67)
+-53s  _drowning_rescue_yielded  "2 ceilings ... no harm (health 17.67, still sealed in)"
+-51s  _escape_rung   rung=pillar outcome=preempted  blocks=0
+-31s  _drowning_ceiling_no_air  (health 10.67)
+-31s  _escape_rung   rung=pillar outcome=preempted  blocks=0
+-11s  _drowning_ceiling_no_air  (health 3.33)
+-11s  _drowning_rescue_yielded  "4 ceilings ... no harm (health 3.33, still sealed in)"
+-10s  _escape_rung   rung=pillar outcome=preempted  blocks=0
+   0  _death         drowned; idle at the moment of death | hp 1->0 over 3s
+```
+
+**Every rung inside the fatal episode was refused or preempted with `blocks=0`.** The owner machine placed nothing and moved nothing; the air reflex held the body at priority 100 throughout. This is the drowning pipeline documented the same morning in `drowning-pipeline-2026-09-18.md`, in textbook form: **four ceilings**, ~93 s from first route to death, and the yield declaring **"no harm" at health 3.33** — inside the 3.17–4.67 band measured across 23 low-health yields, every one of which was fatal.
+
+**Control died the same way four minutes earlier**: board-c-Bravo 16:28:39, *drowned; idle at the moment of death | hp 1.2->0 over 3s*. Same mechanism, no change rows — because control cannot emit them.
+
+### Two defects, both in the licence path
+
+1. **v19's control-death condition is VACUOUS for a change row.** `license_change_rows()` refuses a row that "appears in a CONTROL death window — it is baseline behaviour". A change row never appears on control *at all*, by construction, so this condition can never refuse one. The test reads as discrimination and performs none.
+2. **v10's "moved the body" requirement was bypassed.** v10 already says: *"Mechanism linkage (v9a) counts only a rung that MOVED the body in the 600 s before the death ... Refusals and terminal states are reported, never linked"* — written after -03 was reverted on `marooned_needs_pickaxe`, a refusal. `outcome=refused` and `outcome=preempted blocks=0` are exactly that, and the v19 licence path did not apply the v10 test.
+
+### v22, prospective
+
+- A change row may licence a REVERT **only if it moved the body**: a rung with `outcome=ran` and a non-zero effect. `outcome` in {`refused`, `preempted`, `no_effect`, `failed`} is **reported, never linked** — restating v10 inside the v19 licence path so the two cannot diverge again.
+- The row must be **in the same episode as the death**. owner-01b's one `outcome=ran` rung (16:30:14, *rose 1.0*) was in a different episode (`entombed:383,59,167`) ~9 blocks from the fatal position (386,59,176) and 167 s earlier; a 1-block vertical rise three minutes and nine blocks away is not a mechanism.
+- **Drop the vacuous control-death condition for change rows** and say plainly what it cannot do: a row absent from control by construction carries no discriminating information, so licence must rest on the row's own effect, not on control's silence.
+
+### Verdict handling
+
+The REVERT stands as recorded — gates are honoured and amendments are prospective. The honest verdict on the evidence was **INCONCLUSIVE**: the canary was safe on every guard (all v15c within at +180), its exposure was real (68 episodes), and its three deaths were the fleet's dominant background mechanism, two of them with an identical signature on control. Nothing was learned about the movement owner, for the second time in one day and for a different reason each time.
