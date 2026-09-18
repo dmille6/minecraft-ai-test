@@ -226,3 +226,17 @@ but it is the third instance of the pattern today.
 The seed canary (queue 2) stays blocked behind the owner verdict, as registered — re-seeded pools
 would sit in owner-01b's DiD control arm. No second canary. No bot-code change: everything shipped
 today is instrument.
+
+## Close of the second session, 16:50 UTC
+
+**owner-01b REVERT 16:38:45Z, torn down 16:42:21Z, one version live on all 80 verified 16:41:35Z.** Ledger closed, loop exited, canary slot free.
+
+The revert fired on `('hive-a-Bravo', '16:33:01', 'escape_rung')`. **Every rung inside the fatal episode was `outcome=refused` or `outcome=preempted blocks=0`** — the owner placed nothing and moved nothing, while the air reflex held the body at priority 100. The death is this morning's drowning pipeline in textbook form: four ceilings, ~93 s, and a yield declaring **"no harm" at health 3.33**, inside the 3.17–4.67 band whose 23 members were all fatal. Control board-c-Bravo died identically four minutes earlier, and **all three fleet deaths in the 14:40–16:40 window were drownings-while-idle across both arms**.
+
+v22 drafted prospectively. Two defects: v19's "refused if the row appears in a CONTROL death window" is **vacuous for a change row**, which never appears on control at all; and v10's *"counts only a rung that MOVED the body … refusals and terminal states are reported, never linked"* was not applied in the v19 licence path.
+
+**So the movement owner failed to produce a result twice today, for two different instrument reasons, and was never shown to be unsafe.** Before the revert it held exposure at 68 episodes with every v15c guard within, and the v21 death gate correctly held a 10.00x point ratio at a 0.78x lower bound — its first live test, on the day it was written, against the same failure that falsely reverted falls-01 twelve hours earlier.
+
+**Not started deliberately:** no third attempt tonight (it would likely hit the same trap before v22 is registered), and the seed canary is left for the morning rather than beginning an unsupervised 72-hour world change at 16:50Z.
+
+**The day in one line:** no bot code shipped, five instruments fixed — `Events.load()`, the nightly program read, `CANARY_ENV` + the live-flag assertion, `openloop` ordering, the analyst's stale-run glob — plus one filter of my own making that suppressed a real page, and v21 earning its keep on its first live test.
