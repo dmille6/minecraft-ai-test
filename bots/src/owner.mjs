@@ -12,7 +12,7 @@ import { escapedFrom } from './recovery.mjs'
 export const STATES = Object.freeze(['WORK', 'ASSESS', 'ESCAPE', 'RETURN', 'SAFE_HOLD'])
 export const CLASSES = Object.freeze(['entombed', 'marooned', 'ladder'])
 export const EPISODE_DEADLINE_MS = 180_000
-export const EPISODES_PER_CLASS_PER_HOUR = 3        // per (class, strategy) latch; a NEW class always opens (Codex, plan v2 §6)
+export const EPISODES_PER_CLASS_PER_HOUR = 3        // per (class, strategy) latch on episodes that ended in a HOLD, never on openings; a NEW class always opens (Codex, plan v2 §6)
 export const BLOCK_BUDGET_EXTRA = 2                   // the entombment climb's need + 2 (design §Budgets)
 export const LADDER_BLOCK_RESERVE = 4                 // the livelock dig leg's floor (cognitive.mjs reserve)
 const RUNGS = Object.freeze({
@@ -57,7 +57,6 @@ export function nextRung (episode, obs = {}, now = Date.now()) {
     if (o === 'refused' || o === 'failed' || o === 'exhausted') continue
     if (rung === 'pillar' && blocks < episode.blockBudget - episode.blocksSpent) continue
     if (rung === 'dig' && blocks < LADDER_BLOCK_RESERVE) continue
-    if (rung === 'stair' && obs.tool === false) continue        // a stair ramp needs a pickaxe; the caller says so
     return { rung, reason: o === 'preempted' ? `retry ${rung} after preemption` : `first ${rung} for ${episode.cls}`,
              budget: { deadlineMs: Math.max(0, episode.deadline - now), blocks: Math.max(0, episode.blockBudget - episode.blocksSpent) } }
   }
