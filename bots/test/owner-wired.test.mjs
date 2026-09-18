@@ -10,7 +10,7 @@ const rfx = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'u
 const once = (s, needle, where) => { const n = s.split(needle).length - 1; assert.equal(n, 1, `${where}: expected exactly one "${needle}", found ${n}`) }
 t('the owner is built once in startReflexes from this module\'s rungs, attached beside the arbiter, only when OWNER=1', () => {
   once(rfx, 'if (config.reflex.owner && runner?.arb) {', 'reflex'); once(rfx, 'runner.owner = new MovementOwner({ bot, arb: runner.arb, rungs: ownerRungs,', 'reflex')
-  for (const r of ['pillar: async (b, { alive, blocksLeft }) =>', 'stair: async (b, { alive, deadlineAt }) =>', 'underfoot: async (b) =>']) once(rfx, r, 'reflex')
+  for (const r of ['pillar: async (b, { alive }) =>', 'stair: async (b, { alive, deadlineAt }) =>', 'underfoot: async (b) =>']) once(rfx, r, 'reflex')
   assert.ok(rfx.indexOf('runner.owner = new MovementOwner') > rfx.indexOf('const drowningOwnsBody = () =>'), 'the stair rung yields to the air reflex through drowningOwnsBody, defined above it')
 })
 t('the route sits INSIDE the entombed arm\'s gate and try, before the legacy body takes the body, and returns into the finally that clears escaping', () => {
@@ -18,7 +18,7 @@ t('the route sits INSIDE the entombed arm\'s gate and try, before the legacy bod
   once(rfx, gate, 'reflex')
   const arm = rfx.slice(rfx.indexOf(gate), rfx.indexOf('} finally { escaping = false }', rfx.indexOf(gate)))
   once(arm, 'if (config.reflex.owner && runner.owner) {', 'arm')
-  once(arm, "const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos) }, before: here(),", 'arm')
+  once(arm, "const r = await runner.owner.assessAndRun({ cls: 'entombed', key: 'entombed', obs: { blocks, tool, climbNeed: climbNeedAbove(bmap(bot), pos), wet: !!bot.entity?.isInWater }, before: here(),", 'arm')
   assert.ok(!arm.includes('runner.owner.evidence('), 'the evidence feed is NOT inside the gate (it could never see the bot leave entombment there)')
   const iRoute = arm.indexOf('if (config.reflex.owner && runner.owner) {'), iTake = arm.indexOf("entombedGrant = await takeBody(bot, runner, 'entombed', PRIORITY.escape)"), iTry = arm.indexOf('try {'), iEsc = arm.indexOf('escaping = true')
   assert.ok(iEsc > 0 && iTry > iEsc && iRoute > iTry && iRoute < iTake, `escaping=true@${iEsc} < try@${iTry} < route@${iRoute} < legacy takeBody@${iTake}`)
