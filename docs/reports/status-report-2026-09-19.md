@@ -139,3 +139,84 @@ there by both review engines on the arithmetic that a 10-bot 6-h canary sees ~45
 drowning's ~12. **No canary ran against it today** — the day went to the seed canary's window, which was
 time-critical, and to three instruments that would have misreported the 24-27 Sep read. That is the honest accounting:
 the metric that is failing is still untouched, and it is first in the queue that is not blocked.
+
+---
+
+## Afternoon: v23's acceptance suite, and the bug it found
+
+Queue item 2. v23 itself has been live in the verdict path since `a67a387`; what was missing was the suite. Two
+things came out of building it that matter more than the suite.
+
+### The repo's `verdict.py` could not run at all
+`scripts/singledeath.py` was never committed. `scripts/verdict.py` has therefore carried an unsatisfiable import
+since v23 landed, with `scripts/test_singledeath.py` sitting beside it testing a module that was not there.
+Yesterday's note that "the two `verdict.py` copies are reconciled" was true of the text and false of the thing
+you can run — and it is only true of the text because the file that makes the repo copy executable was absent.
+Committed, and the `sys.path` line now also takes the file's own directory.
+
+### A NaN endpoint still reverted — the owner-01b incident, live in the code
+`verdict.py` treated `None` as a missing endpoint and everything else as a value to compare. **A NaN is
+neither.** Every comparison against NaN is False, so an `own_lines` entry reads "fails <= 0" and an
+`on_fail: REVERT` endpoint **reverts on an arithmetic hole**.
+
+That is exactly owner-01b: its draw took board-b and hive-a at a **0.0% immobile pre-share** — you cannot reduce
+immobility from zero — so the primary ratio-DiD divided by zero and the read printed `+nan% FAIL`. Yesterday
+that was written up as a *draw* problem and queued as item 8 (the non-degenerate pre-period check). **The
+verdict-path half of it was missed and was still there this morning.**
+
+Registered as **v24**, prospective: a registered own-line value that is `None`, NaN, `+inf` or `-inf` yields
+UNREADABLE and names the value. This is a clarification rather than an amendment needing calibration — the
+registered rule already said a missing own-line value is UNREADABLE, and a NaN is missing-ness arriving as a
+float. It is prospective regardless, because no canary was live when it landed.
+
+**It was found by a Codex pass, not by me, and the way it was found is the point:** the pass observed that my
+own case for this incident used `None`, so it tested missing data rather than the incident it named.
+
+### The suite, and what the mutants were for
+Sixteen cases, each a replay of something on record, driving the **real** `verdict.py` through four environment
+overrides production never sets — and passing equally against `~/verdict.py` on .31, which is the copy that
+decides. A positive control runs first: a clean canary must reach KEEP, or a harness that could only say
+UNREADABLE would pass most of the rest.
+
+Eleven mutants, each restoring one rule to the way it behaved when it made a real mistake, each asserting its
+anchor is present and unique, each applied to a **copy**. They earned their keep immediately — **two survived
+the first run, and both were defects in my own cases**:
+
+- `one canary death` was green **with no logs at all**. The linkage rules do not read the evidence objects;
+  `verdict.py` rescans the pools' own logs since `declared_at`. So the case never reached the v23 branch and was
+  really testing "one death and no rung rows keeps". It now writes the shape of 18 Sep 16:33-16:38Z.
+- the registration-sha mutant survived **behind the manifest-binding check one line above it**. Two guards, one
+  case. Split into the redeploy case — evidence that matches the live canary perfectly and describes a different
+  registered build, which only the registration check catches. owner-01 and owner-01b shared a sha, so this is
+  routine, not exotic.
+
+Two Codex passes then folded ten more, most of the same shape — a case green for a reason other than the rule it
+names. The **v19 rung-linkage branch was entirely unexercised** while the suite claimed "no single death reverts
+by ANY path"; the 21x regression case passes a threshold quietly raised to 5; the fixture stated bot-hours twice
+and disagreed with itself; only the stdout token was checked, so a stub printing the right word would have
+passed. A kill now requires the **whole** baseline to pass, the case to **move**, and to land on the predicted
+verdict. The runner refuses to score on a host where `/home/mike/mcai-analysis` exists, because `verdict.py` puts
+that directory ahead of its own on `sys.path` and would silently shadow a mutated helper.
+
+**Pinned and deliberately not fixed:** when control reports no rate, the gate assumes
+`control_bot_h = canary_bot_h * 7` and reverts on 3 deaths against an **assumed** 0. A guess standing where a
+measurement should be — the exact class of defect this project keeps finding — but changing a gate is an
+amendment, and amendments are prospective and calibrated first. Queued. The case pins the current outcome (not
+the multiplier: 3x or 8x would revert too) so the change cannot happen silently.
+
+### And one more instrument reading a dead world
+Syncing v23 to `~/digest/RULE.md` revealed the host copy was **last synced 18 Sep 11:27Z and predated v23** — the
+analyst had been judging against a rule set missing the rule that is live. Syncing it then exposed a second
+defect: `analyst.py` slices `rule[-20000:]` off a document that is now 93 KB, and after the sync that tail
+reached back only as far as **v21**. v12, v14c, v15c, v16, v17, v18, v19 and v20 were simply not in the prompt.
+Nothing reports this, and the window shrinks by itself every time a rule is registered.
+
+Widening it back is not the fix — it was cut to 20 KB on 16 Sep precisely because the full document overflowed
+the context and the analyst judged against a rule frozen on 09-13. So the tail is now a convenience and
+`~/digest/RULES-IN-FORCE.md` is authoritative: one paragraph, synced beside RULE.md, naming every rule in force
+and — which a tail can never express — which registered rules are **withdrawn**. v22 sits in the document and is
+not in force.
+
+**That is five instruments in two days found answering confidently about a world that no longer exists**, and
+the shape has been identical every time: a field, a glob, a file or a window that was true when it was written
+and is not updated when it stops being true.
