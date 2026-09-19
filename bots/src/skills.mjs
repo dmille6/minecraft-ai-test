@@ -4744,10 +4744,63 @@ export function exitAdviceFor (exit) {
  * One definition on purpose. A second copy in prompt.mjs would drift, and the
  * observation would start promising things the skill then refuses.
  */
+/**
+ * LEAVES ARE COVER YOU CAN WALK THROUGH THE SIDE OF.
+ *
+ * `oak_leaves.boundingBox` is `'block'` — checked against the fleet's own
+ * minecraft-data — so a trunk inside its own canopy has six solid neighbours
+ * and this returned false. `gather` then calls it buried and refuses with
+ * "use mine to dig down", for a log at y=68 sitting in a tree.
+ *
+ * Measured 24 h to 2026-09-19 12:25Z: **8,034 buried refusals, 4,785 of them
+ * (59.6%) oak_log**, at a median bot y of 68 with only 22.4% below sea level.
+ * The bots were not underground. The existing gather->mine escalation cannot
+ * help — `WORTH_TUNNELLING` is ores by design, because "buried dirt is not
+ * worth digging for" — so nothing caught this class at all.
+ *
+ * Leaves only, deliberately. A log under stone or dirt is genuinely buried and
+ * must still be tunnelled to; that refusal is correct and stays.
+ *
+ * SCOPE, stated exactly, because the first draft of this comment did not match
+ * the code (Codex pass 1): ONE breakable neighbour is enough. A block with five
+ * stone faces and a single leaf face reads exposed, because that leaf IS a way
+ * in — the pathfinder equips and breaks obstructing blocks on the way to a goal
+ * (mineflayer-pathfinder/index.js:483-492), and every one of the 11 leaf types
+ * in 1.21.11 is hardness 0.2 with no harvest-tool requirement. That is broader
+ * than the motivating case of a trunk inside its canopy, and it is admitted on
+ * purpose; what it is NOT is "the only covering is foliage", which is what this
+ * comment used to claim.
+ *
+ * KNOWN GAP, not fixed here: pickup restores the digging profile before it runs
+ * and never clears cover (skills.mjs:1227-1244), so a log that drops INSIDE
+ * foliage can be broken and still not collected. Mechanism verified, frequency
+ * unknown — which is why the canary counts acquired logs and not refusals
+ * avoided.
+ */
+const BREAKABLE_COVER = /_leaves$/
+/**
+ * LOGS ONLY, and this narrowing is the whole of Codex pass 2's smaller patch.
+ *
+ * The first version let a leaf face expose ANY target. Pass 2 found that one
+ * leaf-adjacent DIRT block makes `reachable.length !== 0` at skills.mjs:1500,
+ * which switches off the alternative-source search that would have found an
+ * accessible `grass_block` -- turning a gather that used to SUCCEED into a
+ * failure. Verified by reading, and a strict regression: dirt and stone lie
+ * exposed on every hillside, so they never needed this.
+ *
+ * Wood is the case that does: 4,785 of 8,034 buried refusals in 24 h were
+ * oak_log, at a median bot y of 68. A trunk in its own canopy is the only
+ * common block whose ONLY cover is foliage.
+ */
+const COVER_EXEMPT_TARGET = /_log$/
+
 export function isExposed (bot, p) {
+  const target = bot.blockAt(p)
+  const mayBreakCover = !!target && COVER_EXEMPT_TARGET.test(target.name || '')
   for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
     const n = bot.blockAt(p.offset(d[0], d[1], d[2]))
     if (!n || n.name === 'air' || n.boundingBox === 'empty') return true
+    if (mayBreakCover && BREAKABLE_COVER.test(n.name)) return true
   }
   return false
 }
