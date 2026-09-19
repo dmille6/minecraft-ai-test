@@ -30,6 +30,7 @@ import { diffTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
+import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
@@ -137,6 +138,13 @@ function connect() {
   // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
   // passing cod owns this bot's breath meter. See oxygen.mjs.
   installOxygenGuard(bot)
+  // A RECORDER, NOT A FIX: names both parties when one dig cancels another.
+  // 5.7% of gather runs end in mineflayer's `Digging aborted`, which its own
+  // dig() raises at its first line when a new request arrives -- so the class
+  // is two concurrent diggers, and WHICH second digger is still inferred.
+  // Throttled to one row a minute per bot: the point is to identify the
+  // requester, and 1,928 rows a day across the fleet is already plenty.
+  installDigCollisionWatch(bot, logEvent, { throttleMs: 60_000 })
 
   bot.loadPlugin(pathfinder)
   // Scoped to the gather skill. It manages its own movements (including
