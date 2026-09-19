@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# reseed-pool.sh <pool> [--seed N] [--radius 512] [--go] -- the SEED CANARY's world change for ONE pool.
+# reseed-pool.sh <pool> [--seed N] [--radius 512] [--new-seed] [--go] -- the SEED CANARY's world change for ONE pool.
+#   --new-seed: the seed has no placeable town. Discard the world this run generated, draw another seed and
+#               resume. See `SOME SEEDS HAVE NO TOWN` below. Guarded four ways; never touches a placed town.
 # (owner 15 Sep 21:30Z; decided 17 Sep 12:10Z: after the -13c verdict, no promotion freeze, read by promotion epoch;
 #  rewritten 17 Sep 13:30Z after a Codex review of the first draft: no nested eval, every stage journaled and
 #  verified, fail-fast, unique archives, HOME_* and BOARD_* rewritten from the town record, readiness from the
@@ -10,8 +12,8 @@
 # Nothing runs without --go. Stages are journaled in ~/mcai-analysis/reseed-<pool>.journal and a re-run resumes.
 set -euo pipefail
 POOL="${1:?pool, e.g. board-c}"; shift
-SEED=""; RADIUS=512; GO=0
-while [ $# -gt 0 ]; do case "$1" in --seed) SEED="$2"; shift 2;; --radius) RADIUS="$2"; shift 2;; --go) GO=1; shift;; *) echo "unknown arg $1"; exit 2;; esac; done
+SEED=""; RADIUS=512; GO=0; NEWSEED=0
+while [ $# -gt 0 ]; do case "$1" in --seed) SEED="$2"; shift 2;; --radius) RADIUS="$2"; shift 2;; --go) GO=1; shift;; --new-seed) NEWSEED=1; shift;; *) echo "unknown arg $1"; exit 2;; esac; done
 case "$POOL" in placebo-c|isolated-*) echo "refusing: $POOL is never a canary pool (draw rule)"; exit 2;; esac
 [[ "$POOL" =~ ^(hive|board|placebo)-[a-d]$ ]] || { echo "refusing: pool name must be <arm>-<a..d>"; exit 2; }
 [[ "$SEED" =~ ^-?[0-9]{0,19}$ && "$RADIUS" =~ ^[0-9]{2,4}$ ]] || { echo "refusing: seed/radius must be numeric"; exit 2; }
@@ -21,6 +23,13 @@ W() { ssh -i "$KEY" -o BatchMode=yes -o ConnectTimeout=10 "$WH" "$@"; }
 J=~/mcai-analysis/reseed-$POOL.journal; mkdir -p ~/mcai-analysis
 done_stage() { grep -q "^$1 " "$J" 2>/dev/null; }
 mark() { printf '%s %s %s\n' "$1" "$(date -u +%FT%TZ)" "${2:-}" >> "$J"; }
+# BEFORE anything writes to the journal. `done_stage seed || mark seed ...` further
+# down CREATES the journal, so a --new-seed refusal placed after it would first
+# manufacture the very journal it then reports as missing, and leave it behind.
+# ...and before the dry-run PLAN, which would otherwise print the plan for a
+# NORMAL run and say nothing about the flag that was actually passed.
+if [ $NEWSEED = 1 ] && [ $GO != 1 ]; then echo "refusing: --new-seed needs --go (it deletes a world)"; exit 2; fi
+if [ $NEWSEED = 1 ] && ! done_stage seed; then echo "refusing --new-seed: nothing journaled for $POOL -- this is a clean start, just run it without the flag"; exit 2; fi
 if done_stage seed; then SEED=$(grep '^seed ' "$J" | tail -1 | awk '{print $3}'); TS=$(grep '^seed ' "$J" | tail -1 | awk '{print $4}'); else [ -n "$SEED" ] || SEED=$(python3 -c "import secrets; print(secrets.randbits(63))"); TS=$(date -u +%Y%m%dT%H%M%SZ); fi
 echo "== reseed $POOL seed=$SEED radius=$RADIUS ts=$TS go=$GO journal=$J"
 [ $GO = 1 ] || { echo "DRY RUN: preconditions only, then the plan. Add --go to act."; }
@@ -69,6 +78,49 @@ W "test -f ~/scripts/place-town.py && test -f ~/scripts/pregen-world.py" || { ec
 echo "preconditions ok"
 [ $GO = 1 ] || { echo "PLAN: stop 5 bots -> archive $POOLDIR and $(echo $STATEDIRS | wc -w) state dirs -> stop block2@$POOL -> archive world + TOWN-PLACED.json -> level-seed=$SEED -> start -> wait for the service's own 'Done' and an RCON answer -> place-town.py -> pregen radius $RADIUS -> rewrite HOME_*/BOARD_* in 5 envs -> start bots 12 s apart -> append to docs/reports/seed-canary-registration.md"; exit 0; }
 done_stage seed || mark seed "$SEED $TS"
+
+# ---- SOME SEEDS HAVE NO TOWN, AND THAT LEFT FIVE BOTS DOWN.
+# Measured 2026-09-19 11:17Z on placebo-b: seed 2308430494737375791 was rejected
+# at EVERY candidate on the spiral -- "platform relief 43 > 3", "centre is
+# water", "24% of columns within 32 are water" -- and place-town.py exited
+# non-zero. The script stopped exactly there, correctly refusing to replay a
+# placement, with the pool's five bots stopped, its state archived and its world
+# reseeded but townless. Recovery was hand work: stop the server, delete the
+# world this run had generated, edit the journal's seed in place (the TIMESTAMP
+# must not change -- the archives are named for it), drop `world-reseeded` and
+# `server-up`, re-run. That is this flag, with the guards the hand work relied
+# on made explicit.
+#
+# It also bounds what the seed canary can claim. The population is not "random
+# seeds"; it is "random seeds on which the standard town sites" -- flat, dry,
+# low relief. That filter removes exactly the mountainous and flooded terrain a
+# terrain experiment would most want to see. Registered in
+# docs/reports/seed-canary-registration.md, prospectively, the day it was found.
+if [ $NEWSEED = 1 ]; then
+  done_stage bots-started && { echo "refusing --new-seed: $POOL is already re-seeded and its bots are running"; exit 2; }
+  W "sudo test -d /srv/block2/$POOL/world.pre-reseed-$TS" || { echo "refusing --new-seed: /srv/block2/$POOL/world.pre-reseed-$TS is not there, so the ORIGINAL world is not archived and the world about to be deleted may be it"; exit 2; }
+  W "sudo test ! -f /srv/block2/$POOL/TOWN-PLACED.json" || { echo "refusing --new-seed: a town IS placed for this seed -- re-run without the flag and let it continue"; exit 2; }
+  OLDSEED=$SEED; SEED=$(python3 -c "import secrets; print(secrets.randbits(63))")
+  echo "== --new-seed: $OLDSEED had no placeable town; drawing $SEED, keeping ts=$TS so the archives keep their names"
+  W "set -e; sudo systemctl stop block2@$POOL.service; sleep 4; case \"\$(systemctl is-active block2@$POOL.service || true)\" in active|activating|reloading) echo \"block2@$POOL still active after stop\"; exit 1;; esac; cd /srv/block2/$POOL; sudo test -d world.pre-reseed-$TS; sudo test ! -f TOWN-PLACED.json; sudo rm -rf world world_nether world_the_end; sudo ls -d world.pre-reseed-$TS; echo 'townless world discarded, archive intact'" || { echo "could not discard the townless world; nothing was changed in the journal"; exit 1; }
+  python3 - "$J" "$SEED" <<'PY'
+import sys
+j, seed = sys.argv[1], sys.argv[2]
+keep = [l for l in open(j) if not l.startswith(('world-reseeded ', 'server-up '))]
+out = []
+for l in keep:
+    if l.startswith('seed '):
+        f = l.split()
+        out.append('seed-rejected %s %s no-placeable-town
+' % (f[1], f[2]))
+        out.append('seed %s %s %s
+' % (f[1], seed, f[3]))     # SAME ts, new seed
+    else:
+        out.append(l)
+open(j, 'w').writelines(out)
+PY
+  grep -c '^seed-rejected ' "$J" | xargs -I{} echo "journal reset; {} seed(s) rejected so far for $POOL"
+fi
 
 # ---- stage 1: bots down, state archived
 if ! done_stage bots-stopped; then
@@ -124,7 +176,7 @@ if ! done_stage town-placed; then
   if W "sudo test -f /srv/block2/$POOL/TOWN-PLACED.json && sudo find /srv/block2/$POOL/TOWN-PLACED.json -newer /srv/block2/$POOL/server.properties | grep -q ." 2>/dev/null; then
     echo "town already placed for this seed (marker newer than server.properties); verifying it rather than replacing it"
   else
-  W "set -e; cd ~/scripts && sudo python3 place-town.py $POOL" | tee ~/mcai-analysis/reseed-$POOL-town-$TS.txt || { echo "place-town failed; see the log; the marker must not exist before a re-run (place-town refuses a second stamp)"; exit 1; }
+  W "set -e; cd ~/scripts && sudo python3 place-town.py $POOL" | tee ~/mcai-analysis/reseed-$POOL-town-$TS.txt || { echo "place-town failed; see ~/mcai-analysis/reseed-$POOL-town-$TS.txt. If every candidate was rejected for relief or water, this seed has no town: re-run as \`reseed-pool.sh $POOL --new-seed --go\`. Do NOT re-run plain -- place-town refuses a second stamp, and the five bots stay down until one of these happens."; exit 1; }
   W "sudo test -f /srv/block2/$POOL/TOWN-PLACED.json && sudo find /srv/block2/$POOL/TOWN-PLACED.json -newer /srv/block2/$POOL/server.properties | grep -q . && sudo python3 -c \"import json; d=json.load(open('/srv/block2/$POOL/TOWN-PLACED.json')); assert d['arm']=='$POOL' and d['siting']['chosen']; print('home', *d['home'], 'board', *d['board'], 'border', d.get('border_radius'), 'site', *d['siting']['chosen'])\"" | tee -a ~/mcai-analysis/reseed-$POOL-town-$TS.txt || { echo "town record missing, stale, or without a chosen site"; exit 1; }
   fi
   grep -qi "warn\|!!\|failed" ~/mcai-analysis/reseed-$POOL-town-$TS.txt 2>/dev/null && echo "NOTE: place-town printed warnings; read ~/mcai-analysis/reseed-$POOL-town-$TS.txt before trusting the town" || true

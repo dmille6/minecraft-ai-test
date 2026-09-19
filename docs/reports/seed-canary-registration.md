@@ -35,3 +35,29 @@ Runbook residuals accepted after two review passes (no third pass, by rule): pla
 warnings and pregen-world.py does not verify chunk generation; both are run supervised, their logs read before the bots
 start, and the runbook refuses a stale or site-less town record.
 - 2026-09-19T00:00:44Z: pool **placebo-a** re-seeded with `level-seed=8948499624371160708` (archives world.pre-reseed-20260918T235209Z, TOWN-PLACED.pre-reseed-20260918T235209Z.json on .30; /var/lib/mcai/_pool-placebo-a.pre-reseed-20260918T235209Z and the five STATE_DIRs on .31); new home 249 75 -144; radius 512 pregenerated; bots restarted 12 s apart. Treatment starts at the bots-started stamp in ~/mcai-analysis/reseed-placebo-a.journal.
+- 2026-09-19T11:25:23Z: pool **placebo-b** re-seeded with `level-seed=7843072457371465157` (archives world.pre-reseed-20260919T111053Z, TOWN-PLACED.pre-reseed-20260919T111053Z.json on .30; /var/lib/mcai/_pool-placebo-b.pre-reseed-20260919T111053Z and the five STATE_DIRs on .31); new home 282 65 -388; radius 512 pregenerated; bots restarted 12 s apart. Treatment starts at the bots-started stamp in ~/mcai-analysis/reseed-placebo-b.journal.
+
+## Amendment, 2026-09-19 11:20 UTC (PROSPECTIVE, before pool two's read opens): the sample is seeds on which the town sites
+
+Pool two's first draw, `level-seed=2308430494737375791`, has **no placeable town**. `place-town.py` walked its
+spiral and rejected every candidate — `platform relief 43 > 3`, `centre is water`, `24% of columns within 32 are
+water`, `water inside the platform at 6,0` — and exited non-zero, leaving placebo-b with its five bots stopped, its
+state archived and a reseeded, townless world. It was recovered by drawing `7843072457371465157` (see the record
+below) and `scripts/reseed-pool.sh` gained a guarded `--new-seed` so the next one is one command, not hand work.
+
+**The confound this creates, stated before the read rather than after it.** The treatment population is not "random
+seeds". It is **random seeds on which the standard town sites** — flat, dry, low-relief ground within the search
+spiral. That filter removes precisely the mountainous and flooded terrain that a terrain experiment would most want
+in its sample, and it removes it *silently*, because a rejected seed leaves no trace in the read. One of the two
+pools drawn today needed a second seed, so the rejection rate is not negligible: 1 of 2 on this evidence, and pool
+one's own log records 47 candidate sites rejected before one was accepted.
+
+Consequences for the claim, all of them narrowing it:
+- **What the 72-h read can support:** "on seeds where a colony can be founded at all, the death mix and trap classes
+  do / do not shift with the terrain." It cannot support anything about worlds where founding fails.
+- **A null result is weaker than it looks.** If the two new seeds behave like the fourteen controls, one available
+  explanation is that the siting filter made all sixteen worlds locally similar where the bots actually stand.
+- **Rejected seeds are data and are now recorded.** `--new-seed` journals a `seed-rejected <ts> <seed>` line, so the
+  rejection rate accumulates instead of vanishing. It is not yet an endpoint; it is a denominator for later.
+- Not changed, deliberately: the siting criteria stay exactly as pool one had them. Relaxing relief or the water
+  fraction between the two pools would put a second variable in a two-pool experiment.
