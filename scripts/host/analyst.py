@@ -10,6 +10,32 @@ _rp = os.path.expanduser('~/digest/RULE.md'); _rt = open(_rp).read() if os.path.
 # canary's run_id; the 49 KB history overflowed the context and the analyst judged a rule frozen on 09-13 (2026-09-16)
 _i = _rt.find('## v14c'); rule = _rt[_i:] if _i >= 0 else _rt[-16000:]
 rule = rule[-20000:]
+# THE WINDOW SHRANK AS THE DOCUMENT GREW, AND NOBODY WOULD HAVE SEEN IT.
+# `rule[-20000:]` is a blind character tail of a registration doc that is now
+# 93 KB. Measured 2026-09-19 right after syncing v23 to the host: the slice
+# reached back only as far as v21, so v12, v14c, v15c, v16, v17, v18, v19 and
+# v20 -- every one of them still in force -- were no longer in the analyst's
+# prompt at all. The window was deliberately shrunk on 2026-09-16 because the
+# full 49 KB overflowed the context and the analyst judged against a rule
+# frozen on 09-13, so widening it back is not the fix.
+#
+# The fix is that the tail is a CONVENIENCE and the summary is AUTHORITATIVE.
+# ~/digest/RULES-IN-FORCE.md is one paragraph, kept beside RULE.md and synced
+# with it, naming every rule in force and -- the part a tail can never express
+# -- which registered rules are WITHDRAWN. v22 is in the document and is not in
+# force; without this the analyst reads it as current.
+_fp = os.path.expanduser('~/digest/RULES-IN-FORCE.md')
+if os.path.exists(_fp):
+    rule = (open(_fp).read().strip()
+            + "\n\n(The paragraph above is AUTHORITATIVE and lists every rule in force, including "
+              "any that are registered but WITHDRAWN. What follows is the tail of the registration "
+              "document: recent rules in full, older ones cut off by length. A rule missing below is "
+              "NOT thereby out of force.)\n\n" + rule)
+else:
+    rule = ("(NO ~/digest/RULES-IN-FORCE.md ON THIS HOST -- the authoritative list of rules in force is "
+            "MISSING, and what follows is only the tail of the registration document. Rules older than "
+            "the cut are absent and any WITHDRAWN rule below still looks current. Say so in `reason` "
+            "rather than judging a verdict against a rule set you cannot see.)\n\n" + rule)
 text = open(digest).read()[:14000]
 import subprocess
 # THE ANALYST WAS READING TWO DEAD RUNS. This globbed `*.out` while
