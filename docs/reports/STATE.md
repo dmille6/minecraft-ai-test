@@ -1,5 +1,5 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-18 23:45 UTC_
+_updated 2026-09-19 00:05 UTC_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds. **b1659c0 fleet-wide, ONE version live on all 80, no canary.** Verified 16:41:35Z after owner-01b's teardown. main = b1659c0. Previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d).
@@ -40,6 +40,13 @@ Reverted on `('hive-a-Bravo', '16:33:01', 'escape_rung')` — "change row inside
 
 ## Instrument fixed today — `Events.load()` was refusing EVERY call
 `scripts/lib/telemetry.py`, commit c79d57b. The OOM guard summed the whole glob before applying the window, so 1124 rotated generations (0.44 GB on disk, counted at 25x) estimated 11.4 GB against 1.9 GB actually there, and `since_minutes=30` raised exactly like a 30-day walk. It broke between 04:39Z and 11:10Z today and took fallread, deathread, canary-report and verdict.py's evidence objects with it — i.e. it would have broken the next canary's reads entirely. Fix: one `predates_window()` shared by the estimate and the walk, one frozen glob for both, a runtime decompressed-byte budget, `WalkTooWide` re-raised instead of swallowed, **one bad line now costs a line rather than the rest of the file** (Codex reproduced valid / `[]` / valid returning ONE row), unreadable files and mid-walk rotation reported rather than silent, naive datetime bounds refused. 16 behavioural cases, six mutants killed. Two Codex passes folded; two of the tests were caught passing for the wrong reason by their own mutants first.
+
+## SEED CANARY — POOL ONE IS LIVE (19 Sep 00:00:44Z)
+- **placebo-a reseeded**, `level-seed=8948499624371160708`, town at **249,-144** (y=74, relief 3, 0% wet within 32; 47 candidate sites rejected), pregen 1024x1024 in 48 s, envs rewritten `HOME 249 75 -144 / BOARD 252 74 -144`, **5/5 confirmed in-world by RCON**. Old world and town record archived as `*.pre-reseed-20260918T235209Z`; bot state archived alongside. Draw-exclusion stamped to **2026-09-22T00:00:44Z**.
+- **Draw (auditable, reproducible from the record):** eligible after the 12-h ledger exclusions (board-b, hive-a, hive-b, hive-c) and the standing bans (isolated-*, placebo-c) were board-a/board-c/placebo-a on the 5080 half and board-d/hive-d/placebo-b/placebo-d on the 3090 half. Lowest SHA-256 of `<pool>+2026-09-18-seed-canary` in each half: **placebo-a** and **placebo-b**.
+- **The 72-h window closes 22 Sep 00:00Z**, clear of the 24-27 Sep program read — which is why Claude's review made this timing load-bearing.
+- **POOL TWO (placebo-b) IS NOT STARTED.** The owner's protocol is pool one, then verify 5/5 in-world **and a clean digest an hour later**, then pool two. 5/5 is confirmed; **the digest check is due after 01:00Z**.
+- **`reseed-pool.sh` took SIX fixes tonight, all committed with evidence.** Four found by running it (a clean SIGTERM leaves the unit `failed` not `inactive`; `list-units` omits stopped units so a resume counts zero bots; `grep -c .` aborts under `set -euo pipefail` before its own diagnostic; an `is-active` precondition that refused the operation it was halfway through). Two found by a Codex audit of the resume path and fixed before pool two (`server-up` dating its log window from this attempt so a resume always times out; `town-placed` replaying a placement that `place-town.py` refuses to stamp twice). **Every one is the same shape: a check written for a clean start, met on a resume.**
 
 ## Queue — REORDERED 23:55Z after the two-engine review (`review-reconciliation-2026-09-18.md`)
 Both engines reviewed independently and converged. **Both rejected my headline proposal.** The order below is theirs, not mine.

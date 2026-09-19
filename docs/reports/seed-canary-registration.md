@@ -34,3 +34,4 @@ state recoverable but are not restored.
 Runbook residuals accepted after two review passes (no third pass, by rule): place-town.py writes its marker after
 warnings and pregen-world.py does not verify chunk generation; both are run supervised, their logs read before the bots
 start, and the runbook refuses a stale or site-less town record.
+- 2026-09-19T00:00:44Z: pool **placebo-a** re-seeded with `level-seed=8948499624371160708` (archives world.pre-reseed-20260918T235209Z, TOWN-PLACED.pre-reseed-20260918T235209Z.json on .30; /var/lib/mcai/_pool-placebo-a.pre-reseed-20260918T235209Z and the five STATE_DIRs on .31); new home 249 75 -144; radius 512 pregenerated; bots restarted 12 s apart. Treatment starts at the bots-started stamp in ~/mcai-analysis/reseed-placebo-a.journal.
