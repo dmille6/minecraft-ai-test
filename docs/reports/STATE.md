@@ -1,5 +1,5 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-19 12:10 UTC_
+_updated 2026-09-19 12:10 UTC (final; session closed here)_
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds. **b1659c0 fleet-wide, ONE version live on all 80 (`b1659c0+ab74e7`), no code canary.** Verified 11:30Z. main = b1659c0. Previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d).
@@ -13,6 +13,7 @@ _updated 2026-09-19 12:10 UTC_
 ## SEED CANARY — BOTH POOLS LIVE, and the read is registered
 - **placebo-a: live 19 Sep 00:00:44Z**, `level-seed=8948499624371160708`, town 249,-144 (y=74). Verified at +11 h before pool two started: 5/5 alive, 24,165 rows, all five ranging x[72,478] z[-279,29], **1 death in 55 bot-h (0.018/bot-h) vs fleet 19 in 880 (0.022)**. Positive control for that walk: 343,216 rows / 80 bots / 110 kinds.
 - **placebo-b: live 19 Sep 11:25:23Z**, `level-seed=7843072457371465157`, town 282,65,-388, 5/5 confirmed in-world by RCON.
+- **Both pools re-checked at 12:05Z**: 5/5 bots each, all five in each pool moved >6 blocks in the last 40 min, 0 deaths. Positive control for that walk: 20,911 rows / 80 bots / 102 kinds.
 - **Windows: pool one closes 22 Sep 00:00Z, pool two 22 Sep 11:25Z.** Both clear of the 24-27 Sep program read. Draw exclusions stamped in `~/mcai-analysis/draw-exclude.txt` on .31.
 - **Reads due at 24/48/72 h from each pool's own start**, DiD by pool set (the two re-seeded vs the fourteen), split at every `declared_code_version` change, never pooled across an epoch. The 24-h read includes a reseed-PLUS-RESET "fresh start" effect (registered confound); the 48- and 72-h reads are the ones that speak to terrain. KEEP/REVERT do not apply — there is no code change. Output is a table plus a captured fixture for every death class first seen on the new seeds.
 - **AMENDMENT 19 Sep (prospective, in `seed-canary-registration.md`): the sample is seeds on which the town SITES.** placebo-b's first seed (`2308430494737375791`) had no placeable town — every candidate rejected for relief or water — so the population is "random seeds where a colony can be founded", i.e. flat, dry, low relief. That filter silently removes the terrain the experiment most wants, and **1 of the 2 seeds drawn today hit it**. A null at 72 h is therefore weaker than it looks. Siting criteria deliberately NOT relaxed. Rejected seeds are now journaled (`seed-rejected` lines).
@@ -29,6 +30,9 @@ _updated 2026-09-19 12:10 UTC_
   - **PINNED, NOT FIXED:** with no control rate the gate assumes `control_bot_h = canary_bot_h * 7` and reverts on 3 deaths against an assumed 0. A guess where a measurement should be. Changing a gate is an amendment — queued; the case pins the outcome so it cannot change silently.
 - **The analyst's rule window had shrunk to three versions.** Syncing v23 to `~/digest/RULE.md` (last synced 18 Sep 11:27Z, so it predated the rule that is live) exposed that `analyst.py` slices `rule[-20000:]` off a 93 KB document: the tail reached back only to v21, and v12-v20 were simply not in the prompt. Widening it is not the fix — it was cut to 20 KB on 16 Sep because the full document overflowed the context. **`~/digest/RULES-IN-FORCE.md` is now authoritative** (one paragraph, synced beside RULE.md, naming every rule in force and which are WITHDRAWN — v22 is in the document and is not in force). When it is absent the analyst is told so rather than judging against a rule set it cannot see. Both branches exercised with the tail asserted present in each.
 - Vendored `nightwatch.sh`, `analyst.py`, `programread.py` into `scripts/host/` — they page the owner and lived nowhere but `/home/mike` with dated `.bak` copies.
+
+## Verified live at 12:03Z after every instrument change today
+The analyst's 12:00Z cycle: `page_claude: False`, `declared: False`, `versions_ok: True`, `fleet_healthy: True`, prompt 6,803 tokens (well inside `num_ctx` 24576), its one anomaly a genuine fleet observation. The 11:30Z digest header reads **NO LIVE CANARY**. `verdict.py` on .31 passes all 16 acceptance cases. The fleet is on one version with the ledger clear.
 
 ## Instrument fixed today — the analyst paged SIX times overnight at a free slot
 Of twelve tier-1 verdicts 05:30-11:00Z, **six carried `page_claude: true`**, every one about owner-01b, torn down the previous afternoon. Cause: **the three-step teardown clears `canary_pool` and `canary_code_version` but not `run_id` or `declared_at`.** Two doors, both shut:
