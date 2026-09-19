@@ -61,3 +61,27 @@ Consequences for the claim, all of them narrowing it:
   rejection rate accumulates instead of vanishing. It is not yet an endpoint; it is a denominator for later.
 - Not changed, deliberately: the siting criteria stay exactly as pool one had them. Relaxing relief or the water
   fraction between the two pools would put a second variable in a two-pool experiment.
+
+## Execution record
+
+### Draw (19 Sep 2026, 00:00 UTC)
+Eligible after the 12-h ledger exclusions (board-b, hive-a, hive-b, hive-c — from owner-01's INCONCLUSIVE at 12:59Z and owner-01b's REVERT at 16:38Z on 18 Sep) and the standing bans (isolated-*, placebo-c): **board-a, board-c, placebo-a** on the 5080 half; **board-d, hive-d, placebo-b, placebo-d** on the 3090 half. Drawn by lowest SHA-256 of `<pool>+2026-09-18-seed-canary` in each half — deterministic and reproducible from this record, because a hand-pick is what the draw rule forbids. **Result: placebo-a (5080), placebo-b (3090).**
+
+### Pool one — placebo-a, reseeded 19 Sep 00:00:44 UTC
+`level-seed=8948499624371160708`. Town at **249,-144** (y=74, platform relief 3, 0% wet within 32, 20% canopy, wood 3/24 columns), chosen after **47 candidate sites rejected** — overwhelmingly "centre is water". Pregen 1024x1024 in 48 s. Envs rewritten to `HOME 249 75 -144 / BOARD 252 74 -144`, border 1950. **5/5 confirmed in-world by RCON.** Archives `world.pre-reseed-20260918T235209Z`, `TOWN-PLACED.pre-reseed-20260918T235209Z.json`, and the five bot state dirs plus `_pool-placebo-a` under the same stamp. Draw-exclusion to 2026-09-22T00:00:44Z.
+
+### PRE-PERIOD BASELINES, 24 h to 19 Sep 03:50 UTC, 120 bot-h per pool
+Recorded **before** pool two is touched, because after the reseed this baseline no longer exists. Positive control: 752,389 rows, 80 bots, 121 distinct kinds.
+
+| pool | gather | craft | deposit | deaths |
+|---|---|---|---|---|
+| **placebo-b (pool two)** | **216/1948 = 11.1%** | 25 | **7/601 = 1.2%** | 2 |
+| placebo-a (pool one, incl. post-reseed) | 654/2257 = 29.0% | 122 | 44/269 | 2 |
+| fleet without placebo-b | **6053/31215 = 19.4%** | — | — | — |
+
+**placebo-b was the worst pool in the fleet before it was touched**, and its deposit rate is the outlier of the whole fleet: 601 attempts, 7 successes. Other pools run 10–20%. Nothing about the seed canary caused that.
+
+**This is now a registered confound in its own right, on top of the reseed-plus-reset effect already recorded above.** A pool that starts at 11.1% against a fleet at 19.4% has room to improve that has nothing to do with terrain, so a post-reseed rise on placebo-b is the WEAKER of the two arms as evidence. **The 48- and 72-h reads must report the two treatment pools separately, never pooled**, and must state each pool's pre-period beside its post. If placebo-b improves and placebo-a does not, that is regression to the mean and not terrain.
+
+### First observation on pool one, 3 h 48 min in — NOT a result
+placebo-a ran **160/408 = 39.2% gather and 50 crafts** against a fleet median near 16% and a next-best craft count of 22, with all five bots at full health and moving 200–454 blocks. This is exactly the "fresh start" effect the confound section predicted: new town, new supplies, empty state dirs, no accumulated shafts, no stale world facts. **Discounted by registration.** One death already (placebo-a-Comet, 01:57Z, drowned while idle) — the new terrain has water too.
