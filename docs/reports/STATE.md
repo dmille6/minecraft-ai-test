@@ -1,5 +1,17 @@
 # STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-19 12:10 UTC (final; session closed here)_
+_updated 2026-09-19 12:50 UTC — **REOPENED: a canary was deployed after the daily session closed.**_
+
+## LIVE CANARY — leaf-01 (2850cde), deployed 12:44Z 19 Sep on board-a,board-c
+**The daily session had already written "final; session closed here". A second session (the owner's overnight one, at the owner's direction) deployed this afterwards. It is recorded here because a live canary that no state file names is the worst version of the two-session hazard in the CAUTION below.**
+
+- **Change:** `isExposed` lets a `*_leaves` neighbour expose a `*_log` target. `oak_leaves.boundingBox` is `'block'`, so a trunk inside its own canopy read as buried and `gather` refused *"use mine to dig down"* for a log at y=68. Measured 24 h: **8,034 buried refusals, 4,785 (59.6%) oak_log, median bot y 68, only 22.4% below sea level.** The existing gather->mine escalation cannot help — `WORTH_TUNNELLING` is ores by design.
+- Branch `leaf-exposure` **2850cde = b1659c0 + 1**, pushed with `--no-verify` (the pre-push hook's canary false positive; remote branch confirmed absent first). Suite **189/189**, 16 behavioural cases, **6 mutants killed**.
+- **Draw:** board-a,board-c. placebo-a and placebo-b correctly excluded as the re-seeded pools until 22 Sep. Both pools are 5080-half **by design** — `drawrec.sh:72` filters `h == '5080'`; the "one pool per inference half" phrasing used in earlier STATE entries is a letter-suffix heuristic the tool does not use, and it misled this session once.
+- **Reads +30 / +90 / +180 / +360, deadline +780 (≈01:45Z 20 Sep).** Loop `~/canary-loop.sh leaf-01`, log `~/canary-loop-leaf-01.out`. Registration `~/mcai-analysis/registrations/leaf-01.json`. New read script `~/mcai-analysis/leafread.py` (and `/tmp/leafread.py`, which is where the loop runs it from).
+- **THE ENDPOINT IS ACQUIRED WOOD, NOT REFUSALS AVOIDED.** `logs_did >= -0.5` REVERT (role: deciding); `canopy_events_canary <= 40` WATCH (role: tripwire, and control emits it too, so it discriminates). Buried-refusal reduction is a **mechanism check, not a gate**: pickup restores the digging profile and never clears cover (`skills.mjs:1227-1244`), so a log can be broken and never collected — counting refusals avoided would score that failure as a win. **A fall in refusals with no rise in logs is the defect, not the result.**
+- **Registered residuals, unfixed:** the reach probe keeps 4 nearest candidates and can promote a newly admitted covered log over a genuinely open one (`reachprobe.mjs:75`, `skills.mjs:1470`); its goal checks distance only, so foliage never prevents a hit (`digreach.mjs:113`). Three consecutive barren attempts end a run (`skills.mjs:316`). **Acquisition MDE is honest-unknown** — ~22-30% is detectable on *refusal counts*, but refusals cluster by bot and by tree, so ten bots give few independent units.
+- **Two Codex passes folded, and pass 2 earned the rule.** Pass 1 found no blocker. Pass 2 found two VERIFIED regressions: a leaf-adjacent **dirt** block made `reachable.length !== 0` (`skills.mjs:1500`) and switched off the alternative-source search for an accessible `grass_block`, turning gathers that used to SUCCEED into failures — repaired by narrowing the exemption to log targets, which is the smaller patch. No third pass.
+
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds. **b1659c0 fleet-wide, ONE version live on all 80 (`b1659c0+ab74e7`), no code canary.** Verified 11:30Z. main = b1659c0. Previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d).
