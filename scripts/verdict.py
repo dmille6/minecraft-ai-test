@@ -3,8 +3,16 @@
 # gate, v15c movement guards, v11 guards, deposit skill_error, v12/v14c linkage with the death poll's own check) and the
 # registration's own lines and exposure, and prints ONE verdict: NOT_YET | KEEP | REVERT | WATCH | INCONCLUSIVE |
 # UNREADABLE | KEEP_ON_SAFETY. Writes ~/digest/reads/<run_id>-verdict-<M>.json. Never edits a rule.
-import sys
+import sys, os as _os
 sys.path.insert(0, '/home/mike/mcai-analysis')
+# ...AND THE DIRECTORY THIS FILE IS IN. The host path above is first and stays
+# authoritative there. Without this line the repo copy of verdict.py cannot even
+# be imported off the host: `singledeath.py` was never committed, so
+# `scripts/verdict.py` has been carrying an unsatisfiable import since v23
+# landed, while `scripts/test_singledeath.py` sat beside it testing a module
+# that was not there. "The two copies are reconciled" was true of the text and
+# false of the thing you can run.
+sys.path.insert(1, _os.path.dirname(_os.path.abspath(__file__)))
 import json, os, glob, gzip, hashlib, datetime as dt, collections
 from deathgate import death_gate
 from singledeath import licence_reverts
@@ -35,9 +43,19 @@ def license_change_rows(changerow, away, ctrl_at_death):
     return licensed, refused
 
 run_id, M = sys.argv[1], int(sys.argv[2]); DRY = '--dryrun' in sys.argv; POLL = '--poll' in sys.argv
-R = os.path.expanduser('~/digest/reads'); REG = os.path.expanduser(f'~/mcai-analysis/registrations/{run_id}.json')
+# THREE PATHS, OVERRIDABLE ONLY BY THE ENVIRONMENT, SO THIS FILE CAN BE REPLAYED.
+# The defaults are exactly what they were; nothing in production passes these.
+# They exist because v23's acceptance suite has to drive THIS file -- the one the
+# loop runs -- against fixtures built from incidents already on record. A suite
+# that tests a copy tests a copy: `scripts/verdict.py` and `~/verdict.py` were
+# found disagreeing about the death rule on 2026-09-18, which is the whole
+# argument for replaying the real thing.
+R   = os.environ.get('VERDICT_READS_DIR') or os.path.expanduser('~/digest/reads')
+LOGROOT = os.environ.get('VERDICT_LOG_ROOT') or '/var/log/mcai'
+_RD = os.environ.get('VERDICT_REG_DIR')   or os.path.expanduser('~/mcai-analysis/registrations')
+REG = os.path.join(_RD, f'{run_id}.json')
 if not os.path.exists(REG): REG = f'/tmp/registrations/{run_id}.json'
-reg = json.load(open(REG)); man = json.load(open('/srv/mcbots/trial-manifest.json'))
+reg = json.load(open(REG)); man = json.load(open(os.environ.get('VERDICT_MANIFEST') or '/srv/mcbots/trial-manifest.json'))
 why = []; verdict = None
 def out(v, extra=None):
     o = {'run_id': run_id, 'window_min': M, 'verdict': v, 'why': why, 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'extra': extra or {}}
@@ -74,7 +92,7 @@ if not DRY:
     def _scan(poollist):
         d = collections.defaultdict(list)
         for pool in poollist:
-            for f in glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl') + glob.glob(f'/var/log/mcai/{pool}-*/skill-*.jsonl-*.gz'):
+            for f in glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl') + glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl-*.gz'):
                 op = gzip.open if f.endswith('.gz') else open
                 try:
                     with op(f, 'rt', errors='replace') as fh:
@@ -111,7 +129,7 @@ away = {k.lstrip('_') for b, rs in by.items() for ts, k, _ in rs
         if k.lstrip('_') in C_ROWS and not any(bb == b and lo <= ts < hi for bb, lo, hi in deathwins)}
 ctrl_at_death = set(); ctrl_deaths = 0
 if changerow or linked:
-    allp = sorted({os.path.basename(p.rstrip('/')).rsplit('-', 1)[0] for p in glob.glob('/var/log/mcai/*-*/')})
+    allp = sorted({os.path.basename(p.rstrip('/')).rsplit('-', 1)[0] for p in glob.glob(f'{LOGROOT}/*-*/')})
     for b, rs in _scan([p for p in allp if p not in pools]).items():
         rs.sort()
         for ts, k, _ in rs:
