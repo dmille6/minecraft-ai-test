@@ -37,61 +37,58 @@
 // that is a behaviour change for a later canary, judged on items and not on the
 // absence of this error.
 
-/** The first stack frame that is neither this file nor node internals. */
-function requester () {
-  const lines = String(new Error().stack || '').split('\n').slice(2)
-  for (const l of lines) {
+/** Stack frames outside this file and node internals, nearest first. */
+function frames (limit = 4) {
+  const out = []
+  for (const l of String(new Error().stack || '').split('\n').slice(2)) {
     if (l.includes('digcollision.mjs') || l.includes('node:internal')) continue
-    // `    at Foo.bar (file:///srv/.../skills.mjs:1195:24)` -> `skills.mjs:1195`
     const m = l.match(/([^/\\)]+\.(?:mjs|js)):(\d+):\d+/)
-    if (m) return `${m[1]}:${m[2]}`
+    if (m) { out.push(`${m[1]}:${m[2]}`); if (out.length >= limit) break }
   }
-  return 'unknown'
+  return out
 }
 
 const where = b => (b?.position ? `${Math.floor(b.position.x)},${Math.floor(b.position.y)},${Math.floor(b.position.z)}` : '?')
 
 /**
- * Wrap `bot.dig` to see who asks, and listen for mineflayer's own abort event.
+ * Record WHO cancelled a dig, by listening rather than wrapping.
  *
- * The wrapper is the only way to name the REQUESTER: the cancellation happens
- * inside `dig()` before any event fires, so by the time `diggingAborted` lands
- * the caller is gone from the stack. It preserves `this`, every argument and
- * the returned promise, and never swallows a rejection -- a recorder that
- * changes an error path is a fix, and this is not one.
+ * V1 WRAPPED `bot.dig` AND SAW NOTHING. Deployed as digwatch-01 at 15:55Z on
+ * 2026-09-19; by 16:06Z the canary had logged THREE gather runs ending
+ * `Digging aborted` and ZERO collision rows. That is the exact condition the
+ * registration named as meaning the instrument is blind, and it is: wrapping
+ * `dig` catches only the cancellation `dig()` performs on its own first line
+ * for a NEW dig request, and almost nothing arrives that way. The fleet's
+ * aborts come from direct `bot.stopDigging()` calls in our own timeout and
+ * abort handlers -- skills.mjs:165, :515, :1204, :2792, :5324, :5520 -- and a
+ * wrapper on `dig` never sees them.
+ *
+ * SO THE "TWO CONCURRENT DIGGERS" READING IS WITHDRAWN. It was inferred from
+ * mineflayer's wording plus digging.js:127, and the instrument built to confirm
+ * it refuted it instead. What actually cancels these digs is still open, and
+ * the candidates are our own handlers, which do not log.
+ *
+ * WHY A LISTENER AND NOT A WRAPPER ON stopDigging. `digging.js` REASSIGNS
+ * `bot.stopDigging` inside `dig()` and sets it to `noop` afterwards, so a
+ * wrapper installed once is replaced by the next dig. But that same function
+ * calls `bot.emit('diggingAborted', block)` SYNCHRONOUSLY, so a listener's own
+ * stack still contains whoever called stopDigging. Listening costs nothing,
+ * cannot alter the dig, and reaches every caller including mineflayer's.
  */
 export function installDigCollisionWatch (bot, logEvent, { throttleMs = 0 } = {}) {
-  const original = bot.dig
-  if (typeof original !== 'function') return () => {}
-  let inflight = null          // { name, at, by }
+  if (typeof bot?.on !== 'function') return () => {}
   let lastLog = 0
-
-  bot.dig = function (block, ...rest) {
-    const by = requester()
-    // Read the incumbent BEFORE calling through: dig()'s first line clears it.
-    const victim = bot.targetDigBlock
-    if (victim && inflight && (Date.now() - lastLog >= throttleMs)) {
-      lastLog = Date.now()
-      try {
-        logEvent({
-          kind: 'dig_collision', status: 'failed',
-          detail: `${inflight.name ?? '?'}@${where(victim)} cancelled after ` +
-                  `${Date.now() - inflight.at}ms by a new dig of ${block?.name ?? '?'}@${where(block)}` +
-                  ` — incumbent asked by ${inflight.by}, requester ${by}`,
-        })
-      } catch { /* a recorder never breaks the thing it records */ }
-    }
-    inflight = { name: block?.name, at: Date.now(), by }
-    return original.call(this, block, ...rest)
+  const onAborted = (block) => {
+    if (Date.now() - lastLog < throttleMs) return
+    lastLog = Date.now()
+    try {
+      logEvent({
+        kind: 'dig_collision', status: 'failed',
+        detail: `dig of ${block?.name ?? '?'}@${where(block)} cancelled — ` +
+                `stopDigging called from ${frames().join(' <- ') || 'unknown'}`,
+      })
+    } catch { /* a recorder never breaks the thing it records */ }
   }
-
-  const onDone = () => { inflight = null }
-  bot.on('diggingCompleted', onDone)
-  bot.on('diggingAborted', onDone)
-
-  return () => {
-    bot.dig = original
-    bot.removeListener('diggingCompleted', onDone)
-    bot.removeListener('diggingAborted', onDone)
-  }
+  bot.on('diggingAborted', onAborted)
+  return () => bot.removeListener('diggingAborted', onAborted)
 }
