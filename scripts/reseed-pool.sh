@@ -87,7 +87,14 @@ if ! done_stage world-reseeded; then
   mark world-reseeded
 fi
 if ! done_stage server-up; then
-  W "set -e; sudo systemctl start block2@$POOL.service; T0=\$(date +%s); for i in \$(seq 1 90); do sleep 5; if sudo journalctl -u block2@$POOL.service --since \"-\$(( \$(date +%s) - T0 + 5 )) s\" --no-pager 2>/dev/null | grep -q 'Done ('; then if sudo python3 - <<'PY'
+  # T0 COMES FROM THE SERVICE, NOT FROM THIS ATTEMPT. If a previous attempt
+# started the server and died before `mark server-up`, `systemctl start` is
+# correctly a no-op -- and a T0 of "now" then gives a journal window that can
+# never reach back to that earlier `Done (`, so every resume times out after
+# 450 s with the bots down and only a manual restart recovers it. Found by the
+# Codex audit of this resume path, 2026-09-18. ActiveEnterTimestamp is when the
+# unit actually came up, whichever attempt did it; the fallback is this attempt.
+W "set -e; sudo systemctl start block2@$POOL.service; T0=\$(date -d \"\$(systemctl show -p ActiveEnterTimestamp --value block2@$POOL.service)\" +%s 2>/dev/null || date +%s); for i in \$(seq 1 90); do sleep 5; if sudo journalctl -u block2@$POOL.service --since \"-\$(( \$(date +%s) - T0 + 5 )) s\" --no-pager 2>/dev/null | grep -q 'Done ('; then if sudo python3 - <<'PY'
 import socket,struct,sys
 c=dict(l.split('=',1) for l in open('/srv/block2/$POOL/server.properties').read().splitlines() if '=' in l and not l.startswith('#'))
 s=socket.create_connection(('127.0.0.1',int(c['rcon.port'])),timeout=5); s.settimeout(5)
@@ -107,9 +114,20 @@ then echo \"server up after \$(( \$(date +%s) - T0 )) s (Done from this invocati
 fi
 # ---- stage 3: the town, then pregeneration
 if ! done_stage town-placed; then
+  # A COMPLETED PLACEMENT WITHOUT ITS STAMP MUST NOT BE REPLAYED. place-town.py
+  # refuses a second stamp, so a crash between writing TOWN-PLACED.json and
+  # `mark town-placed` left the resume unable to advance at all -- five bots
+  # down, manual reconciliation only. Found by the Codex audit, 2026-09-18.
+  # The marker must also be NEWER than server.properties, which the seed
+  # rewrite touched: an older marker is the PREVIOUS world's town and is
+  # exactly what this must not accept.
+  if W "sudo test -f /srv/block2/$POOL/TOWN-PLACED.json && sudo find /srv/block2/$POOL/TOWN-PLACED.json -newer /srv/block2/$POOL/server.properties | grep -q ." 2>/dev/null; then
+    echo "town already placed for this seed (marker newer than server.properties); verifying it rather than replacing it"
+  else
   W "set -e; cd ~/scripts && sudo python3 place-town.py $POOL" | tee ~/mcai-analysis/reseed-$POOL-town-$TS.txt || { echo "place-town failed; see the log; the marker must not exist before a re-run (place-town refuses a second stamp)"; exit 1; }
   W "sudo test -f /srv/block2/$POOL/TOWN-PLACED.json && sudo find /srv/block2/$POOL/TOWN-PLACED.json -newer /srv/block2/$POOL/server.properties | grep -q . && sudo python3 -c \"import json; d=json.load(open('/srv/block2/$POOL/TOWN-PLACED.json')); assert d['arm']=='$POOL' and d['siting']['chosen']; print('home', *d['home'], 'board', *d['board'], 'border', d.get('border_radius'), 'site', *d['siting']['chosen'])\"" | tee -a ~/mcai-analysis/reseed-$POOL-town-$TS.txt || { echo "town record missing, stale, or without a chosen site"; exit 1; }
-  grep -qi "warn\|!!\|failed" ~/mcai-analysis/reseed-$POOL-town-$TS.txt && echo "NOTE: place-town printed warnings; read ~/mcai-analysis/reseed-$POOL-town-$TS.txt before trusting the town" || true
+  fi
+  grep -qi "warn\|!!\|failed" ~/mcai-analysis/reseed-$POOL-town-$TS.txt 2>/dev/null && echo "NOTE: place-town printed warnings; read ~/mcai-analysis/reseed-$POOL-town-$TS.txt before trusting the town" || true
   mark town-placed
 fi
 if ! done_stage pregen; then
