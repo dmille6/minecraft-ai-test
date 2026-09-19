@@ -248,90 +248,6 @@ def ship(trips, stopped, per_bot, falls30, depth, bundle=None):
     except Exception as e:
         print(f"    (could not ship supervisor telemetry: {e})")
 
-def in_canary_pool(bot, canary_pool):
-    """`canary_pool` is one pool name or a comma-separated list of them (two pools of five since 2026-09-13);
-    a bot is in the canary when its pool prefix is any of them. Exact prefix match, never a substring."""
-    return any(bot.startswith(p.strip() + "-") for p in str(canary_pool or "").split(",") if p.strip())
-
-
-def canary_split_ok(seen, declared, canary_version, canary_pool):
-    """Is this two-version fleet a DECLARED canary rather than a partial deploy?
-
-    A CANARY IS A SPLIT FLEET ON PURPOSE, FOR HOURS.
-    ---------------------------------------------------------------------------
-    The rolling-restart exemption above lasts only while the declaration is
-    fresh, because a rolling restart is over in a minute. A canary is the same
-    observation -- two versions running at once -- with the opposite intent and
-    a much longer life: one pool of five bots carries a change while the other
-    thirty-five stay on the baseline, so the change can be measured against a
-    control that is running right now in an identical world.
-
-    That is worth having. Six fleet-wide deploys and two reverts in one day cost
-    roughly 80 bot-hours of degraded fleet; the same mistakes caught on one pool
-    in twenty minutes cost under two. But an undeclared split is still the
-    failure this rule exists for -- half the fleet quietly on old code makes
-    every aggregate a blend -- so the exemption has to be narrow, and it is:
-
-      * the manifest must name the canary pool AND its version, in advance;
-      * exactly two versions may be running, no more;
-      * every bot on the canary version must be IN that pool;
-      * every bot in that pool must be on the canary version.
-
-    The last clause is the one that matters and it is easy to leave out. Without
-    it a canary declaration would excuse any split that happened to include the
-    canary version -- including a failed rollout that stranded four random bots
-    on the new code. Membership has to be exact in both directions, or this is
-    a licence rather than a rule.
-
-    THE DIGEST IS THE DISCRIMINATOR, AND THIS THREW IT AWAY.
-    ---------------------------------------------------------------------------
-    `base` used to strip `+digest` and compare bare shas. deploy-fleet.sh copies
-    the new source over $H/src for EVERY bot and relies on the controls not being
-    restarted, so a control that restarts for its own reasons -- a crash, the
-    watchdog, an operator -- comes back running CANARY CODE under a BASELINE
-    label: `16e7e77+71154f`. Stripping the digest collapses that to `16e7e77`,
-    identical to a real baseline bot, and the check passed.
-
-    deploy-fleet.sh's own comment asserts the opposite: "such a bot reports
-    baseline-sha with the CANARY digest, so it is a third distinct version
-    string, canary_split_ok refuses anything that is not exactly two." The digest
-    exists for exactly this case and the comparison discarded it -- a comment
-    describing behaviour the code never had.
-
-    Observed 2026-08-30: board-d-Bravo running canary code as a control, for
-    hours, while this returned ok. Full strings are compared now.
-
-    `seen` is {bot: version}; versions carry the +digest suffix, the manifest
-    holds bare shas.
-    """
-    if not (canary_version and canary_pool):
-        return False, "no canary declared"
-    full = set(seen.values())
-    if len(full) != 2:
-        return False, (f"{len(full)} distinct builds running, a canary is exactly "
-                       f"two: {sorted(full)}")
-    base = {v.split("+")[0] for v in seen.values()}
-    if len(base) != 2:
-        return False, (f"two builds but {len(base)} sha(s): a control is running "
-                       f"canary code under a baseline label -- {sorted(full)}")
-    if base != {declared, canary_version}:
-        return False, (f"running {sorted(base)} but the canary declares "
-                       f"{sorted({declared, canary_version})}")
-    # Membership is checked on the FULL string too, so a bot carrying the canary
-    # digest under a baseline sha is counted as being on the canary build --
-    # which is what it actually is, and what makes it a membership violation.
-    canary_full = {v for v in full if v.split("+")[0] == canary_version}
-    wrong = []
-    for bot, v in sorted(seen.items()):
-        in_pool = in_canary_pool(bot, canary_pool)
-        on_canary = v in canary_full
-        if in_pool != on_canary:
-            wrong.append(f"{bot}@{v.split('+')[0]}"
-                         + (" (in pool, not on canary)" if in_pool else " (on canary, not in pool)"))
-    if wrong:
-        return False, "canary membership does not match the split: " + ", ".join(wrong[:6])
-    n = sum(1 for b in seen if in_canary_pool(b, canary_pool))
-    return True, f"declared canary: {n} bot(s) of pool {canary_pool} on {canary_version}"
 
 
 def _digest_ledger(observed_canary=None):
@@ -359,6 +275,24 @@ def _digest_ledger(observed_canary=None):
         except Exception:
             pass
     return known
+
+
+def _split_rules():
+    """The split rules live in ONE place, and it is not this file.
+
+    `canary_split_ok` and `in_canary_pool` were defined here while `classify`
+    was imported from the library, so two files held rules about the same
+    question. That is exactly the arrangement the call site below already
+    blames for tripping one state twice, once as ("ALL", ...) that would have
+    stopped eighty bots to correct two. Consolidated 2026-09-19.
+
+    Degrades the way the `classify` import already does rather than raising:
+    a tripper that dies on an import stops nothing at all, and a tripper that
+    cannot read the rules must say so loudly and judge nothing.
+    """
+    sys.path.insert(0, "/opt/minecraft-ai/scripts/lib")
+    from version_split import canary_split_ok, in_canary_pool
+    return canary_split_ok, in_canary_pool
 
 
 def _classify_versions(seen, man, declared):
@@ -487,7 +421,12 @@ def version_check():
         # on the declared version, nothing is converging and this trips.
         converging = fresh_declaration and declared and \
             any(v.split("+")[0] == declared for v in versions)
-        canary_ok, canary_why = canary_split_ok(
+        try:
+            _cso, _icp = _split_rules()
+        except Exception as _e:
+            print(f"    split rules unavailable ({_e}) -- NOT judging this split")
+            _cso = lambda *a, **k: (False, "split rules unavailable")
+        canary_ok, canary_why = _cso(
             {b: v for b, (_, v) in seen.items()}, declared,
             man.get("canary_code_version", ""), man.get("canary_pool", ""))
         if canary_ok:
