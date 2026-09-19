@@ -209,13 +209,32 @@ def fmt(s, label):
 
 # ---------------------------------------------------------------- contamination
 
-def canary_intervals(path="/var/log/mcai/_canary-decisions.jsonl", lead_h=12):
+def canary_intervals(path="/var/log/mcai/_canary-decisions.jsonl", lead_h=12, lag_h=24):
     """(pool, t0, t1) spans where a REAL canary was live, so the null must avoid them.
 
-    The ledger records the DECISION time, not the deploy. Conservatively treat the
-    12 h before each decision as live for that pool -- longer than any canary run
-    this season, so the exclusion errs toward throwing good windows away rather
-    than smuggling a real effect into the null."""
+    THE LAG IS NOT OPTIONAL AND ITS ABSENCE PRODUCED A FINDING.
+
+    The ledger records the DECISION time, not the deploy, so the lead covers the
+    run. The first version had lead_h=12 and NO LAG AT ALL, which is wrong in the
+    direction that matters: teardown is three steps ending in a staggered restart
+    of the pool, and a promotion deploy lands after the decision too. All of that
+    fell inside windows the filter called clean. Measured by bucketing placebo
+    fits on time since that pool's last decision:
+
+        0-6 h after    n= 67   median  -3.3%   sd 0.62
+        6-24 h after   n=213   median -11.2%   sd 0.86     <-- the aftermath
+        24-72 h after  n=115   median  +6.1%   sd 0.69
+        never / >72 h  n=436   median  -3.0%   sd 0.62
+
+    That single artefact reproduces BOTH headline asymmetries of the half study:
+    the -8.6% null median attributed to the 5080 half, and its wider spread. The
+    pools with the narrowest nulls were simply the pools that had been canaried
+    least (board-d 2 prior canaries, placebo-d 0), not the pools on a particular
+    GPU. Any conclusion drawn with lag_h=0 about which pools are better behaved is
+    a conclusion about deploy history.
+
+    24 h costs a lot of windows. Correctness first; if the usable set gets too
+    thin, widen the corpus rather than shorten the lag."""
     out = []
     for line in open(path):
         try:
@@ -226,7 +245,8 @@ def canary_intervals(path="/var/log/mcai/_canary-decisions.jsonl", lead_h=12):
         for p in str(row.get("canary_pool") or "").split(","):
             p = p.strip()
             if p:
-                out.append((p, ts - dt.timedelta(hours=lead_h), ts))
+                out.append((p, ts - dt.timedelta(hours=lead_h),
+                            ts + dt.timedelta(hours=lag_h)))
     return out
 
 
