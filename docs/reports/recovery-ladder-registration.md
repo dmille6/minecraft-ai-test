@@ -486,3 +486,37 @@ The read prints, beside each gate's value, whether it **could have fired on the 
 Rejected by both reviews. Reachability is not power; it would have caught 1 of today's 6 defects; and a separate script that must agree with `drawrec`/`drawexposure` about the draw **repeats the drift defect it is meant to prevent**. The two useful halves fold into `drawexposure.py` (queue item): a **non-degenerate pre-period** on the primary metric (owner-01b drew pools at 0.0% immobile, so its primary read was a divide-by-zero printing `+nan% FAIL`), and **exposure against the MDE-implied n**.
 
 Prior art to borrow rather than invent: Cloudflare's `pint` (a CI linter for alert rules that cannot fire), Prometheus `unit_testing_rules` (asserting an alert must NOT fire), Kayenta `mustHaveData`, and standing **A/A canaries** to measure the judge's own false-alarm rate — done once by hand here (46%), never made standing.
+
+## v24 — an UNDEFINED own-line value is UNREADABLE, not a failure (PROSPECTIVE, 2026-09-19 11:55 UTC)
+
+`verdict.py` treated `None` as a missing endpoint and everything else as a value to compare. A **NaN** is
+neither: every comparison against it is False, so an `own_lines` entry reads "fails <= 0" and an
+`on_fail: REVERT` endpoint **REVERTS on an arithmetic hole**. Infinities are the same class — a ratio over a
+zero denominator is undefined, not extreme.
+
+This is the owner-01b incident, still live in the code until today. Its draw took board-b and hive-a at a
+**0.0% immobile pre-share**; you cannot reduce immobility from zero, so the primary ratio-DiD divided by zero
+and the read printed `+nan% FAIL`. It was written up on 18 Sep as a *draw* problem (queue item 8, the
+non-degenerate pre-period check) and the verdict-path half of it was missed.
+
+**v24: a registered own-line value that is `None`, NaN, `+inf` or `-inf` yields UNREADABLE.** The line names the
+value in its `why`. Nothing else changes: a finite value that fails its comparison still does whatever
+`on_fail` says.
+
+Why this is a clarification rather than an amendment that needs calibrating: the registered rule already says a
+missing own-line value is UNREADABLE, and a NaN **is** missing-ness arriving as a float. The code now matches the
+rule that was registered. It is prospective regardless — no canary was live when it landed, so the first canary
+it can touch is one not yet deployed.
+
+Found by a Codex pass on v23's acceptance suite, which caught that the suite's own case for this incident used
+`None` and therefore tested missing data rather than the incident it named. Pinned by
+`scripts/test_verdict_acceptance.py` (`primary endpoint is nan` / `is inf`) and by a mutant that restores the
+pre-v24 branch and must flip that case to REVERT.
+
+### Also pinned, deliberately NOT changed: the control denominator the death gate invents
+When the control arm reports no rate, `verdict.py` assumes `control_bot_h = canary_bot_h * 7` — the fleet's
+70/10 split. It is a guess standing where a measurement should be, and on 3 canary deaths against an assumed 0
+control deaths it REVERTS. That is exactly the class of defect this project keeps finding ("say the denominator
+before you say the number"), but changing a gate is an amendment and amendments are prospective and calibrated
+first. It is queued. `test_verdict_acceptance.py` pins the current OUTCOME (not the multiplier — 3x or 8x would
+revert here too) so that the change cannot happen silently.

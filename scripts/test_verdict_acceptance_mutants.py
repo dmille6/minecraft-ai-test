@@ -59,12 +59,8 @@ MUTANTS = [
 
     ('a missing endpoint scored as a failure instead of unreadable',
      'verdict.py',
-     """    if val is None:
-        if ln.get('nullable'): continue
-        why.append(f"own line {ln['read']}.{ln['field']} missing"); (out('UNREADABLE'))""",
-     """    if val is None:
-        if ln.get('nullable'): continue
-        why.append(f"own line {ln['read']}.{ln['field']} missing"); (out('REVERT'))""",
+     """why.append(f"own line {ln['read']}.{ln['field']} is {val!r} -- undefined, not a failure"); (out('UNREADABLE'))""",
+     """why.append(f"own line {ln['read']}.{ln['field']} is {val!r} -- undefined, not a failure"); (out('REVERT'))""",
      'primary endpoint missing', 'REVERT',
      "owner-01b's primary ratio-DiD divided by zero and printed `+nan% FAIL`. You "
      "cannot reduce immobility from zero; that is not a change making things worse."),
@@ -81,9 +77,34 @@ MUTANTS = [
      'verdict.py',
      "if v['verdict'].startswith('REVERT'): why.append('v15c ' + v['verdict']); (out('REVERT'))",
      "pass",
-     'v15c movement guard', 'KEEP',
+     'v15c REVERT is forwarded', 'KEEP',
      "The harm signal must survive every loosening of the death gate. This is the guard "
      "that catches a bot held still by its own owner."),
+
+    ('a NaN endpoint scored as a failing one (the pre-2026-09-19 behaviour)',
+     'verdict.py',
+     "    if val is None or (isinstance(val, float) and val != val) or val in (float('inf'), float('-inf')):",
+     "    if val is None:",
+     'primary endpoint is nan', 'REVERT',
+     "owner-01b's ratio-DiD printed `+nan% FAIL`. Every comparison against NaN is False, "
+     "so an `on_fail: REVERT` line reverts on an arithmetic hole. This is the branch that "
+     "was live until today and that the suite's own first draft did not reach."),
+
+    ('the 1.25x threshold quietly raised to 5x',
+     'deathgate.py',
+     'floor=2, threshold=1.25, alpha=0.05',
+     'floor=2, threshold=5.0, alpha=0.05',
+     '3x regression, lower bound 1.40x', 'KEEP',
+     "The 21x case passes a threshold of 5 without noticing. This is the case that pins "
+     "the calibrated number itself."),
+
+    ('v19 undone -- a rung-linked single death reverts again',
+     'verdict.py',
+     "if linked and reg.get('ladder_change', False):",
+     "if linked and reg.get('ladder_change', False): why.append('PRE-v19 rung linkage'); (out('REVERT'))\nif False:",
+     'rung-linked single death', 'REVERT',
+     "The OTHER path to owner-01b's mistake, and a different branch from the change-row "
+     "one. It ended -08c, -13 and -13b on one death each and was never calibrated."),
 
     ('the death gate silenced entirely',
      'verdict.py',
@@ -95,9 +116,17 @@ MUTANTS = [
 ]
 
 
+# verdict.py puts /home/mike/mcai-analysis AHEAD of its own directory on
+# sys.path, so ON THE BOTS HOST a mutated deathgate.py or singledeath.py in the
+# mutant's directory is SHADOWED by the host's real one -- the mutant would be
+# applied, bypassed, and then scored by whatever the host copy does. Checked,
+# not assumed: this runner refuses to score on a host where that directory
+# exists. (Codex, 2026-09-19.)
+HOSTLIB = '/home/mike/mcai-analysis'
+
+
 def run_suite(verdict_path):
-    """Return {case name: verdict}. cwd is the mutant's own directory so its
-    sibling modules (deathgate, singledeath) are the mutated ones."""
+    """Return ({case name: verdict}, whole_suite_passed)."""
     env = dict(os.environ, ACCEPTANCE_VERDICT_PY=verdict_path)
     r = subprocess.run([sys.executable, SUITE], capture_output=True, text=True,
                        env=env, timeout=600)
@@ -106,12 +135,43 @@ def run_suite(verdict_path):
         if line.startswith('CASE\t'):
             _, name, g, _want = line.split('\t')
             got[name] = g
-    return got
+    return got, r.returncode == 0
+
+
+# What the UNMUTATED suite must say for each targeted case. A mutant is only
+# evidence if the baseline was right to begin with.
+WANT_BASE = {
+    'one canary death': 'KEEP',
+    'rung-linked single death': 'KEEP',
+    'two deaths, lower bound 0.58x': 'KEEP',
+    'evidence sha != registration sha': 'UNREADABLE',
+    'evidence 240 min old': 'UNREADABLE',
+    'primary endpoint missing': 'UNREADABLE',
+    'primary endpoint is nan': 'UNREADABLE',
+    'zero exposure': 'INCONCLUSIVE',
+    'v15c REVERT is forwarded': 'REVERT',
+    '9 deaths in 30 bot-h vs 3 in 210': 'REVERT',
+    '3x regression, lower bound 1.40x': 'REVERT',
+}
 
 
 def main():
-    base = run_suite(SRC)
-    print(f"baseline: {len(base)} cases")
+    if os.path.isdir(HOSTLIB):
+        print(f"REFUSING to score: {HOSTLIB} exists, and verdict.py imports from it BEFORE "
+              f"its own directory. A mutated deathgate.py or singledeath.py would be "
+              f"shadowed and the kill would be meaningless. Run this off the bots host.")
+        return 2
+    # THE WHOLE BASELINE MUST PASS, NOT JUST THE TARGETED CASES. Scoring kills
+    # against a suite that is already failing somewhere else means the mutants
+    # are being read against a harness known to be wrong. (Codex pass 2.)
+    base, base_ok = run_suite(SRC)
+    if not base_ok:
+        bad = [k for k, v in base.items() if k in WANT_BASE and v != WANT_BASE[k]]
+        print(f"REFUSING to score: the unmutated acceptance suite does not pass "
+              f"(targeted cases wrong: {bad or 'none -- an untargeted case is failing'}). "
+              f"Fix the suite before reading anything into a mutant.")
+        return 2
+    print(f"baseline: {len(base)} cases, all passing")
     missing = [m[4] for m in MUTANTS if m[4] not in base]
     if missing:
         print("ABORT: these mutants target cases the suite does not run:", missing)
@@ -134,13 +194,24 @@ def main():
         open(target, 'w', encoding='utf-8').write(src.replace(anchor, repl, 1))
         assert open(target, encoding='utf-8').read() != src, "mutant did not change the file"
 
-        got = run_suite(os.path.join(d, 'verdict.py')).get(case)
-        ok = got == want
+        got, _ = run_suite(os.path.join(d, 'verdict.py'))
+        got = got.get(case)
+        # A KILL NEEDS THREE THINGS, NOT ONE. `got == want` alone would score a
+        # kill on a case that ALREADY returned `want` before the mutation, which
+        # is a mutant that changed nothing being counted as proof. So: the
+        # baseline must have been the expected verdict, the mutant must differ
+        # from the baseline, and it must land on the predicted one.
+        want_base = WANT_BASE[case]
+        ok = (base.get(case) == want_base) and (got != base.get(case)) and (got == want)
         killed += ok
         print(f"[{'KILLED' if ok else 'SURVIVED'}] {label}")
-        print(f"          case {case!r}: {base[case]} -> {got} (mutant must give {want})")
+        print(f"          case {case!r}: {base.get(case)} -> {got} "
+              f"(baseline must be {want_base}, mutant must give {want})")
         print(f"          {why}")
-        if not ok and got == base[case]:
+        if base.get(case) != want_base:
+            print("          BASELINE WRONG: the unmutated suite does not pass this case, "
+                  "so nothing here is evidence about the mutation.")
+        elif got == base.get(case):
             print("          The case did not move at all, so it is not testing this rule.")
         print()
 

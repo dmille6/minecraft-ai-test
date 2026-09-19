@@ -53,8 +53,14 @@ run_id, M = sys.argv[1], int(sys.argv[2]); DRY = '--dryrun' in sys.argv; POLL = 
 R   = os.environ.get('VERDICT_READS_DIR') or os.path.expanduser('~/digest/reads')
 LOGROOT = os.environ.get('VERDICT_LOG_ROOT') or '/var/log/mcai'
 _RD = os.environ.get('VERDICT_REG_DIR')   or os.path.expanduser('~/mcai-analysis/registrations')
+if '/' in run_id or run_id in ('.', '..'):
+    sys.exit(f'refusing: run_id {run_id!r} contains a path separator')   # os.path.join would let it escape _RD
 REG = os.path.join(_RD, f'{run_id}.json')
-if not os.path.exists(REG): REG = f'/tmp/registrations/{run_id}.json'
+# The /tmp fallback is for a registration staged by hand on the host. It must
+# NOT apply when a directory was named explicitly, or a replay that means to
+# fail on a missing fixture silently reads a stale one from /tmp instead.
+if not os.path.exists(REG) and not os.environ.get('VERDICT_REG_DIR'):
+    REG = f'/tmp/registrations/{run_id}.json'
 reg = json.load(open(REG)); man = json.load(open(os.environ.get('VERDICT_MANIFEST') or '/srv/mcbots/trial-manifest.json'))
 why = []; verdict = None
 def out(v, extra=None):
@@ -200,9 +206,19 @@ if d.get('skill_error_share_canary') is not None and d.get('skill_error_share_co
 # 8. own lines
 for ln in reg.get('own_lines', []):
     val = ev.get(ln['read'], {}).get(ln['field'])
-    if val is None:
+    # NaN IS NOT A FAILING VALUE, IT IS AN ABSENT ONE -- and this branch only
+    # caught None. owner-01b's primary ratio-DiD divided by zero (the draw took
+    # two pools at a 0.0% immobile pre-share; you cannot reduce immobility from
+    # zero) and printed `+nan% FAIL`. A NaN reaches the comparison below, every
+    # comparison against NaN is False, so the line reads "fails <= 0" and an
+    # `on_fail: REVERT` endpoint REVERTS -- scoring an arithmetic hole as a
+    # change that made things worse. Infinities are the same class: a ratio
+    # against a zero denominator is undefined, not extreme. Found by a Codex
+    # pass on v23's acceptance suite, 2026-09-19, which caught that the suite's
+    # own case used None and so tested missing data rather than the incident.
+    if val is None or (isinstance(val, float) and val != val) or val in (float('inf'), float('-inf')):
         if ln.get('nullable'): continue
-        why.append(f"own line {ln['read']}.{ln['field']} missing"); (out('UNREADABLE'))
+        why.append(f"own line {ln['read']}.{ln['field']} is {val!r} -- undefined, not a failure"); (out('UNREADABLE'))
     ok = {'<=': val <= ln['value'], '>=': val >= ln['value'], '==': val == ln['value']}[ln['op']]
     if not ok:
         why.append(f"own line {ln['read']}.{ln['field']} = {val} fails {ln['op']} {ln['value']}")

@@ -47,7 +47,13 @@ def harm(canary_deaths=0, canary_bh=30.0, control_deaths=1, control_bh=210.0):
 
 
 def immobiledid(readable=True, v15c='OK', v11=None, **hk):
-    return {'readable': readable, 'canary_bot_h': hk.pop('bot_h', 30.0),
+    # ONE DENOMINATOR. An earlier draft set the top-level `canary_bot_h` to a
+    # default of 30 independently of `harm(canary_bh=...)`, so the one-death
+    # case announced 30 bot-hours while its count and rate reconstructed 15.
+    # The producer derives both from the same exposure; a fixture that does not
+    # is not a replay of anything. (Codex, 2026-09-19.)
+    bh = hk.get('canary_bh', 30.0)
+    return {'readable': readable, 'canary_bot_h': bh,
             'harm': harm(**hk), 'v15c': {'verdict': v15c},
             'v11': v11 or {'climbs': 0.0, 'livelock': 0.0, 'ladders_p90': 8}}
 
@@ -100,7 +106,27 @@ class Case:
         if not line:
             return 'NO_OUTPUT', (r.stderr or '')[-400:]
         head = line[-1]
-        return (head.split()[1] if head.startswith('VERDICT ') else 'CRASH'), head
+        if not head.startswith('VERDICT '):
+            return 'CRASH', head
+        # THE EXIT STATUS AND THE ARTIFACT ARE PART OF THE ANSWER. `verdict.py`
+        # exits 0 and writes <run>-verdict-<M>.json; the canary loop reads both.
+        # Checking only the stdout token would let a stub that printed the right
+        # word and exited 1 pass every case below. (Codex, 2026-09-19.)
+        if r.returncode != 0:
+            return f'EXIT{r.returncode}', head
+        # ...AND THE ARTIFACT IS PARSED, NOT MERELY COUNTED. Existence alone
+        # would accept an empty file, a `{}`, or the same object written for
+        # every case -- and the canary loop reads this object, not the stdout
+        # line. It must agree with stdout and be bound to this run and window.
+        ap = os.path.join(self.reads, f'{RUN}-verdict-{M}.json')
+        try:
+            a = json.load(open(ap))
+        except Exception as e:
+            return f'BAD_ARTIFACT({type(e).__name__})', head
+        v = head.split()[1]
+        if a.get('verdict') != v or a.get('run_id') != RUN or a.get('window_min') != M:
+            return 'ARTIFACT_MISMATCH', f"{head} :: artifact {a.get('run_id')}/{a.get('window_min')}={a.get('verdict')}"
+        return v, head
 
 
 RESULTS = []
@@ -192,8 +218,24 @@ def main():
     c.evidence('ownerread', {'primary_did': None})
     got, out = c.run()
     check('primary endpoint missing', got, 'UNREADABLE',
-          'You cannot reduce immobility from zero. A divide-by-zero endpoint must not be '
-          'scored as a change that made things worse.', out)
+          'A registered endpoint with no value is not an endpoint that failed.', out)
+
+    # ...AND THE INCIDENT WAS NaN, NOT None. owner-01b's ratio-DiD printed
+    # `+nan% FAIL`, and until today verdict.py only recognised None: NaN reached
+    # the comparison, every comparison against NaN is False, and an
+    # `on_fail: REVERT` line therefore REVERTED on an arithmetic hole. The
+    # original case here used None and so tested missing data rather than the
+    # incident it named. Found by a Codex pass on this suite.
+    for bad, label in ((float('nan'), 'nan'), (float('inf'), 'inf')):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'],
+                                 'own_lines': [{'read': 'ownerread', 'field': 'primary_did',
+                                                'op': '<=', 'value': 0.0, 'on_fail': 'REVERT'}]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('ownerread', {'primary_did': bad})
+        got, out = c.run()
+        check(f'primary endpoint is {label}', got, 'UNREADABLE',
+              'You cannot reduce immobility from zero. A divide-by-zero endpoint is '
+              'undefined, not a change that made things worse.', out)
 
     # ---- 4. owner-01b, 16:38:45Z, and falls-01 before it.
     # One canary death in a window whose control arm was dying the same way:
@@ -222,6 +264,42 @@ def main():
           "owner-01b was reverted on exactly this. One death is below the owner's two-death "
           'floor, and v23 closes every path around it. It is reported, not decided on.', out)
 
+    # THE OTHER PATH TO THE SAME MISTAKE. v19 demoted the single-death
+    # RUNG-LINKAGE override to a WATCH after it ended -08c, -13 and -13b on one
+    # death each. It is a different branch from the change-row one above -- it
+    # fires on M_LIST rungs with `ladder_change` set -- and the first draft of
+    # this suite left it unexercised, so restoring an automatic revert there
+    # would have kept every case green. (Codex, 2026-09-19.)
+    c = Case(tmp, reg_extra={'ladder_change': True})
+    c.evidence('immobiledid', immobiledid(canary_deaths=1, canary_bh=15.0,
+                                          control_deaths=1, control_bh=150.0))
+    t = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=25)
+    def stamp2(sec):
+        return (t + dt.timedelta(seconds=sec)).isoformat().replace('+00:00', 'Z')
+    c.log('board-b-Comet', [(stamp2(0), '_marooned_ramp_cut', 'ramp cut refused'),
+                            (stamp2(40), '_death', 'drowned; idle at the moment of death')])
+    got, out = c.run()
+    check('rung-linked single death', got, 'KEEP',
+          '-08c was reverted on `marooned_ramp_cut`, a rung whose own ledger note says '
+          '"present in both arms; not the change". The base rungs are fleet-wide code, so '
+          'one firing before a death is baseline behaviour. Reported, not decided on.', out)
+
+    # AND THE DENOMINATOR THE GATE INVENTS WHEN CONTROL HAS NONE. `verdict.py`
+    # falls back to `control_bot_h = canary_bot_h * 7`, which is the fleet's
+    # 70/10 split and is a GUESS, not a measurement. Pinned here as current
+    # behaviour, deliberately NOT changed: a gate change has to be prospective,
+    # and this one is queued rather than slipped in beside a test.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(canary_deaths=3, canary_bh=30.0,
+                                          control_deaths=0, control_bh=0))
+    got, out = c.run()
+    check('control has no measured exposure', got, 'REVERT',
+          'CURRENT BEHAVIOUR, PINNED, NOT ENDORSED: with no control rate the gate assumes '
+          '7x the canary bot-hours and reverts on 3 deaths against an assumed 0. This pins '
+          'the OUTCOME, not the multiplier -- 3x or 8x would revert here too. The '
+          'assumption may be right, but it is not a denominator that was read. Queued as a '
+          'prospective amendment; this case exists so that change cannot happen silently.', out)
+
     # falls-01, 04:39:10Z: TWO deaths, but the rate ratio's lower bound is 0.58x.
     # The change was report-only -- a log row at a fall -- and both its deaths
     # were idle (one drowning, one unknown, zero falls), while all three control
@@ -245,9 +323,11 @@ def main():
     c = Case(tmp)
     c.evidence('immobiledid', immobiledid(v15c='REVERT: blocks moved -41% vs control'))
     got, out = c.run()
-    check('v15c movement guard', got, 'REVERT',
-          'Loosening the death gate must not loosen this. The guard that catches a bot held '
-          'still by its own owner is calibrated and still decides.', out)
+    check('v15c REVERT is forwarded', got, 'REVERT',
+          "This pins that verdict.py FORWARDS an upstream REVERT from the calibrated "
+          "movement guard -- it does not re-derive it, and this case is not evidence that "
+          "-41% is itself detected (immobiledid's own severe threshold is beyond -50%). "
+          "Loosening the death gate must not loosen this path.", out)
 
     c = Case(tmp)
     c.evidence('immobiledid', immobiledid(v11={'climbs': 1.9, 'livelock': 0.1, 'ladders_p90': 8}))
@@ -265,8 +345,22 @@ def main():
                                           control_deaths=3, control_bh=210.0))
     got, out = c.run()
     check('9 deaths in 30 bot-h vs 3 in 210', got, 'REVERT',
-          '0.300 vs 0.014/bot-h. If this does not revert, the death gate has been loosened '
-          'past the thing it exists for.', out)
+          '0.300 vs 0.014/bot-h -- a 21x ratio, lower bound 6.27x. This pins detection of '
+          'gross harm only: a threshold raised from 1.25 to 5 would still pass it.', out)
+
+    # ...so pin the calibration where it actually lives. 3x is the ratio the
+    # gate was calibrated at (51% detection at 95% confidence), and its lower
+    # bound is 1.40x -- just past 1.25x. A threshold quietly raised to 5 passes
+    # the 21x case above and fails here. (Codex, 2026-09-19.)
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
+                                          control_deaths=21, control_bh=210.0))
+    got, out = c.run()
+    check('3x regression, lower bound 1.40x', got, 'REVERT',
+          'A true 3x with enough deaths to prove it must revert. It BOUNDS the threshold '
+          'below 1.40x -- it does not pin 1.25 exactly, and a threshold of 1.0 or 1.39 '
+          'would still pass. What it catches is the 21x case above silently accepting a '
+          'threshold raised to 5.', out)
 
     print(f"\n{'=' * 72}")
     n, k = len(RESULTS), sum(RESULTS)
