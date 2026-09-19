@@ -62,7 +62,16 @@ Consequences for the claim, all of them narrowing it:
 - Not changed, deliberately: the siting criteria stay exactly as pool one had them. Relaxing relief or the water
   fraction between the two pools would put a second variable in a two-pool experiment.
 
-## Execution record
+## Execution record (SECOND, OVERLAPPING ACCOUNT — written by the overnight session, committed LATE at 12:15Z)
+
+**Read the account above first; it is the current one.** This section was written by the 18 Sep overnight
+session and committed at 12:15Z on 19 Sep, by which time the daily session had already reseeded pool two at
+11:25:23Z. Its framing is stale wherever it speaks of pool two as untouched. **The numbers are not stale:**
+the pre-period below was measured at 03:50Z, seven hours before placebo-b was reseeded at 11:10Z, which is
+exactly the window it claims. Kept rather than deleted because that baseline cannot be re-measured, and
+because two sessions overlapping on one document is the hazard STATE's CAUTION names — leaving the evidence
+of it visible is worth more than a tidy file.
+
 
 ### Draw (19 Sep 2026, 00:00 UTC)
 Eligible after the 12-h ledger exclusions (board-b, hive-a, hive-b, hive-c — from owner-01's INCONCLUSIVE at 12:59Z and owner-01b's REVERT at 16:38Z on 18 Sep) and the standing bans (isolated-*, placebo-c): **board-a, board-c, placebo-a** on the 5080 half; **board-d, hive-d, placebo-b, placebo-d** on the 3090 half. Drawn by lowest SHA-256 of `<pool>+2026-09-18-seed-canary` in each half — deterministic and reproducible from this record, because a hand-pick is what the draw rule forbids. **Result: placebo-a (5080), placebo-b (3090).**
@@ -71,7 +80,7 @@ Eligible after the 12-h ledger exclusions (board-b, hive-a, hive-b, hive-c — f
 `level-seed=8948499624371160708`. Town at **249,-144** (y=74, platform relief 3, 0% wet within 32, 20% canopy, wood 3/24 columns), chosen after **47 candidate sites rejected** — overwhelmingly "centre is water". Pregen 1024x1024 in 48 s. Envs rewritten to `HOME 249 75 -144 / BOARD 252 74 -144`, border 1950. **5/5 confirmed in-world by RCON.** Archives `world.pre-reseed-20260918T235209Z`, `TOWN-PLACED.pre-reseed-20260918T235209Z.json`, and the five bot state dirs plus `_pool-placebo-a` under the same stamp. Draw-exclusion to 2026-09-22T00:00:44Z.
 
 ### PRE-PERIOD BASELINES, 24 h to 19 Sep 03:50 UTC, 120 bot-h per pool
-Recorded **before** pool two is touched, because after the reseed this baseline no longer exists. Positive control: 752,389 rows, 80 bots, 121 distinct kinds.
+Measured at 03:50Z, **before** placebo-b was reseeded at 11:10Z, which is what makes it a pre-period. (The sentence originally read 'before pool two is touched'; by the time this was committed it had been.) Positive control: 752,389 rows, 80 bots, 121 distinct kinds.
 
 | pool | gather | craft | deposit | deaths |
 |---|---|---|---|---|
