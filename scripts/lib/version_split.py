@@ -109,6 +109,92 @@ def in_canary_pool(bot, canary_pool):
     return any(bot.startswith(p.strip() + "-") for p in str(canary_pool or "").split(",") if p.strip())
 
 
+#: At most this many concurrent canaries. A cap is the difference between a
+#: feature and a way to declare the whole fleet a canary and switch the version
+#: rule off entirely.
+MAX_CONCURRENT_CANARIES = 3
+
+
+def canary_split_ok_n(seen, declared, canaries):
+    """
+    Generalises the four invariants below to N concurrent canaries.
+
+    `canaries` is a list of `(version, pool)`. With one entry this is exactly
+    the single-canary rule and `canary_split_ok` delegates here, so there is ONE
+    implementation -- two copies of this rule is the defect that was
+    consolidated out of the tripper on 2026-09-19 and it is not being
+    reintroduced one abstraction level up.
+
+    Two invariants exist only in the N case, and both fail closed:
+
+      * POOLS PAIRWISE DISJOINT. A bot in two canary pools has no defined
+        correct version, and each canary is the other's control.
+      * VERSIONS PAIRWISE DISTINCT. Two canaries on one sha cannot be told
+        apart by version, so membership cannot be attributed and neither can a
+        verdict. This is the same defect the openloop ledger hit on 2026-09-18,
+        when owner-01 and owner-01b shared a sha and only differing pools saved
+        the record.
+    """
+    canaries = [(v, p) for v, p in (canaries or []) if v and p]
+    if not canaries:
+        return False, "no canary declared"
+    if len(canaries) > MAX_CONCURRENT_CANARIES:
+        return False, (f"{len(canaries)} canaries declared, the cap is "
+                       f"{MAX_CONCURRENT_CANARIES}")
+    versions = [v for v, _ in canaries]
+    if len(set(versions)) != len(versions):
+        return False, ("two canaries declare the same build "
+                       f"{sorted(versions)} — membership cannot be attributed")
+    members = []
+    for _, pool in canaries:
+        members.append({b for b in seen if in_canary_pool(b, pool)})
+    for i in range(len(members)):
+        for j in range(i + 1, len(members)):
+            both = members[i] & members[j]
+            if both:
+                return False, ("canary pools overlap on "
+                               f"{', '.join(sorted(both)[:4])} — a bot in two pools "
+                               "has no correct version")
+    full = set(seen.values())
+    want = len(canaries) + 1                      # the baseline, plus one per canary
+    if len(full) != want:
+        return False, (f"{len(full)} distinct builds running, {len(canaries)} "
+                       f"canar{'y' if len(canaries) == 1 else 'ies'} is exactly "
+                       f"{want}: {sorted(full)}")
+    # REDUNDANT DEFENCE, AND KNOWN TO BE. This was the 2026-08-30 fix, back when
+    # the count above compared BARE SHAS and a control carrying the canary digest
+    # collapsed into the baseline. That count now compares full `sha+digest`
+    # strings, so every contamination shape makes `len(full)` exceed `want` and
+    # trips one line earlier. A mutant that deletes this check survives the suite
+    # for exactly that reason -- recorded rather than hidden, because a surviving
+    # mutant with no explanation is indistinguishable from a missing test.
+    # Kept: it costs nothing, and it is the line that names the fault precisely
+    # if the comparison above is ever narrowed again.
+    base = {v.split("+")[0] for v in seen.values()}
+    if len(base) != want:
+        return False, (f"{want} builds but {len(base)} sha(s): a control is running "
+                       f"canary code under a baseline label -- {sorted(full)}")
+    if base != {declared, *versions}:
+        return False, (f"running {sorted(base)} but the canaries declare "
+                       f"{sorted({declared, *versions})}")
+    wrong = []
+    for bot, v in sorted(seen.items()):
+        sha = v.split("+")[0]
+        in_any = next((k for k, m in enumerate(members) if bot in m), None)
+        on_any = next((k for k, ver in enumerate(versions) if sha == ver), None)
+        if in_any != on_any:
+            if in_any is not None:
+                wrong.append(f"{bot}@{sha} (in pool {canaries[in_any][1]}, not on its canary)")
+            else:
+                wrong.append(f"{bot}@{sha} (on a canary build, not in its pool)")
+    if wrong:
+        return False, "canary membership does not match the split: " + ", ".join(wrong[:6])
+    n = sum(len(m) for m in members)
+    return True, (f"declared canaries: {n} bot(s) across "
+                  f"{', '.join(p for _, p in canaries)} on "
+                  f"{', '.join(versions)}")
+
+
 def canary_split_ok(seen, declared, canary_version, canary_pool):
     """Is this two-version fleet a DECLARED canary rather than a partial deploy?
 
@@ -159,31 +245,5 @@ def canary_split_ok(seen, declared, canary_version, canary_pool):
     `seen` is {bot: version}; versions carry the +digest suffix, the manifest
     holds bare shas.
     """
-    if not (canary_version and canary_pool):
-        return False, "no canary declared"
-    full = set(seen.values())
-    if len(full) != 2:
-        return False, (f"{len(full)} distinct builds running, a canary is exactly "
-                       f"two: {sorted(full)}")
-    base = {v.split("+")[0] for v in seen.values()}
-    if len(base) != 2:
-        return False, (f"two builds but {len(base)} sha(s): a control is running "
-                       f"canary code under a baseline label -- {sorted(full)}")
-    if base != {declared, canary_version}:
-        return False, (f"running {sorted(base)} but the canary declares "
-                       f"{sorted({declared, canary_version})}")
-    # Membership is checked on the FULL string too, so a bot carrying the canary
-    # digest under a baseline sha is counted as being on the canary build --
-    # which is what it actually is, and what makes it a membership violation.
-    canary_full = {v for v in full if v.split("+")[0] == canary_version}
-    wrong = []
-    for bot, v in sorted(seen.items()):
-        in_pool = in_canary_pool(bot, canary_pool)
-        on_canary = v in canary_full
-        if in_pool != on_canary:
-            wrong.append(f"{bot}@{v.split('+')[0]}"
-                         + (" (in pool, not on canary)" if in_pool else " (on canary, not in pool)"))
-    if wrong:
-        return False, "canary membership does not match the split: " + ", ".join(wrong[:6])
-    n = sum(1 for b in seen if in_canary_pool(b, canary_pool))
-    return True, f"declared canary: {n} bot(s) of pool {canary_pool} on {canary_version}"
+    return canary_split_ok_n(seen, declared, [(canary_version, canary_pool)])
+

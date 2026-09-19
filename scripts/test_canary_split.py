@@ -96,5 +96,69 @@ t("a TWO-pool canary is accepted (the shape used since 2026-09-13)",
 t("...and one of those two pools left behind is still refused",
   canary_split_ok({**two, "hive-c-Alpha": B}, "16e7e77", "2705838", "board-a,hive-c")[0], False)
 
-print(f"\n{sum(T)}/{len(T)} passed")
+# ---------------------------------------------------------------------------
+# N CONCURRENT CANARIES. The single-canary cases above run through the SAME
+# implementation (canary_split_ok delegates), so they are also the regression
+# suite for this generalisation.
+# ---------------------------------------------------------------------------
+from version_split import canary_split_ok_n, MAX_CONCURRENT_CANARIES
+C2 = "3141592+bbbbbb"
+
+def fleet_n(pairs, controls=("placebo-d",)):
+    s = {}
+    for pool, v in pairs:
+        for n in ("Alpha", "Bravo"): s[f"{pool}-{n}"] = v
+    for p in controls:
+        for n in ("Alpha", "Bravo"): s[f"{p}-{n}"] = B
+    return s
+
+TWO = fleet_n([("board-a", C), ("hive-b", C2)])
+ok, why = canary_split_ok_n(TWO, "16e7e77", [(C.split("+")[0], "board-a"),
+                                             (C2.split("+")[0], "hive-b")])
+t("TWO disjoint canaries on distinct builds are accepted", ok, True)
+
+t("three builds with only ONE canary declared is refused",
+  canary_split_ok_n(TWO, "16e7e77", [(C.split("+")[0], "board-a")])[0], False)
+
+# the two invariants that exist only in the N case
+ok, why = canary_split_ok_n(TWO, "16e7e77", [(C.split("+")[0], "board-a"),
+                                             (C2.split("+")[0], "board-a")])
+t("OVERLAPPING pools are refused", ok, False)
+t("...and the reason names the overlap", "overlap" in why, True)
+
+same = fleet_n([("board-a", C), ("hive-b", C)])
+ok, why = canary_split_ok_n(same, "16e7e77", [(C.split("+")[0], "board-a"),
+                                              (C.split("+")[0], "hive-b")])
+t("two canaries on the SAME build are refused", ok, False)
+t("...and the reason says membership cannot be attributed",
+  "cannot be attributed" in why, True)
+
+_over = [(f"sha{i}", f"pool-{i}") for i in range(MAX_CONCURRENT_CANARIES + 1)]
+_ok, _why = canary_split_ok_n(TWO, "16e7e77", _over)
+t(f"more than {MAX_CONCURRENT_CANARIES} canaries is refused by the cap", _ok, False)
+# Assert the REASON. Removing the cap entirely still refused -- the build-count
+# check caught it and reported "3 distinct builds running, 4 canaries is exactly
+# 5". True, useless, and it hid the fact that the cap had gone.
+t("...and it says the CAP refused it, not the build count",
+  "the cap is" in _why, True)
+
+# membership still checked in BOTH directions, per canary
+stray = dict(TWO); stray["placebo-d-Alpha"] = C2
+t("a control on canary two's build is refused",
+  canary_split_ok_n(stray, "16e7e77", [(C.split("+")[0], "board-a"),
+                                       (C2.split("+")[0], "hive-b")])[0], False)
+left = dict(TWO); left["hive-b-Alpha"] = B
+t("a member of canary two left on baseline is refused",
+  canary_split_ok_n(left, "16e7e77", [(C.split("+")[0], "board-a"),
+                                      (C2.split("+")[0], "hive-b")])[0], False)
+
+# the 2026-08-30 digest rule must survive the generalisation
+contam2 = dict(TWO); contam2["placebo-d-Alpha"] = "16e7e77+bbbbbb"
+t("REGRESSION: a control carrying canary two's DIGEST under the baseline sha is refused",
+  canary_split_ok_n(contam2, "16e7e77", [(C.split("+")[0], "board-a"),
+                                         (C2.split("+")[0], "hive-b")])[0], False)
+
+t("an empty canary list is not a canary", canary_split_ok_n(TWO, "16e7e77", [])[0], False)
+
+print(f"\nwith N-canary cases: {sum(T)}/{len(T)} passed")
 sys.exit(0 if all(T) else 1)
