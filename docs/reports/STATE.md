@@ -116,6 +116,11 @@ From `endpoint-noise-floor-2026-09-19.md`; Codex refuted four of five conclusion
 13. ~~Delete exptest.json~~ **DONE 20 Sep.**
 14. **Teach the analyst the two-part OpenLoop test** (`pgrep -f canary-loop` AND the deadline). Today the
     deadline half fired correctly and alone; the slot is free, so editing its rule is safe now.
+    **TRAP, hit on 20 Sep: `pgrep -f canary-loop` SELF-MATCHES.** Any command line containing the string —
+    including the check itself, and any `ssh host '... pgrep -f canary-loop ...'` — is matched by its own
+    pattern, so the naive test returns "loop alive" unconditionally and would suppress exactly the alarm it
+    exists for. Verify against the real thing (`pgrep -af` and inspect, or match on `canary-loop.sh` with the
+    pattern split), and **prove the detector reports DEAD when the loop is dead** before trusting it.
 15. **CLAUDE.md's byte-offset rule is under-scoped** — it names `deploy-fleet.sh`; the hazard is any
     long-running shell script edited in place. Run them from a copy.
 16. **The death gate's invented control denominator**: `control_bot_h = canary_bot_h * 7` when control reports
