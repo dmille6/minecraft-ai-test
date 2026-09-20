@@ -1,122 +1,227 @@
-# STATE — the operator's state file (regenerated at every verdict; a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-19 16:00 UTC — **REOPENED: a canary was deployed after the daily session closed.**_
+# STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
+_updated 2026-09-20 12:20 UTC — **NO LIVE CANARY. The slot is free and the ledger is clear.** cfc1c58 fleet-wide._
 
-## BUILT AND HELD, 19 Sep afternoon — neither deployed, both waiting on leaf-01's slot
-- **Dig-collision recorder** — branch `dig-collision` **1457f3a = b1659c0 + 1** (worktree `mcai-digwatch`). Wraps `bot.dig` to name both parties when one dig cancels another; `logEvent` kind `dig_collision`, throttled 60 s per bot. **12 cases, 8 mutants, suite 189/189.** Behaviour-inert, so it goes **FLEET-WIDE, not a canary** — `falls-02`'s precedent. Evidence in `docs/reports/dig-abort-read-2026-09-19.md`: 5.7% of gather runs end in mineflayer's `Digging aborted`, `digging.js:127` cancels any in-flight dig at the first line of `dig()`, and the second digger is INFERRED (it logs nothing; `mineflayer-pathfinder` breaks obstructions internally). **Rebase onto whatever is baseline when the slot frees.**
-- **Concurrent canaries step 1 — the split rules are consolidated and tested.** `canary_split_ok` and `in_canary_pool` moved from `infra/guard/death-tripper.py` into `scripts/lib/version_split.py`; the tripper imports them through a shim that degrades the way the `classify` import already does. **Inert by intent: same logic, one home.** The gate decides whether a two-version fleet is a declared canary, runs before the tested classifier, can stop systemd units, and **had no test of any kind** — it now has 20, the existing 12 stay green, and 5 mutants die including the 2026-08-30 bare-sha bug and the one-directional membership check. **CORRECTION 15:40Z — it does NOT ride along with the next deploy, and I said it did.** `deploy-fleet.sh:126` installs the tripper from `$REPO/infra/guard/death-tripper.py` **at the deployed sha**, and both the consolidation and the N-canary work are on `recovery-ladder-03` (docs/scripts). The `dig-collision` branch is `b1659c0 + 1` and still carries the OLD inline `canary_split_ok`. Deploying it installs b1659c0's tripper and b1659c0's `scripts/lib/`, so **both halves travel together and neither changes — no breakage, but no delivery either.** To reach the fleet this must be merged or cherry-picked into the branch actually being deployed. Verified rather than assumed: `grep -c 'def canary_split_ok' infra/guard/death-tripper.py` is 1 on `dig-collision` and 0 on `recovery-ladder-03`.
-- Still to do in that workstream, per `docs/reports/concurrent-canaries-design.md` §5: generalise the consolidated classifier to N canaries (+ pools pairwise disjoint, versions pairwise distinct, N capped at 3), per-run canary trees, per-run loop locks with a manifest mutex, then readers.
-
-## leaf-01 — REVERT 15:48:55Z, torn down 15:52:31Z, one version verified 15:51Z
-**Reverted on its registered primary endpoint and nothing else: `logs_did = -0.650` against a `-0.5` gate.**
-- **Zero canary deaths against control 0.033/bh — it was SAFER than the fleet.** It reverted on wood, not on harm.
-- **The mechanism line finished at -1.69: buried refusals fell all the way to the end.** Scored on "refusals avoided" — which is how queue item 3 and both review engines framed the problem — **this would have been promoted fleet-wide as a success while making the fleet gather less.** The endpoint was moved to acquired wood only because Codex pass 1 objected that a log can be broken and never collected; that single objection is the difference between a revert and a bad promotion.
-- **What it established, which is not nothing:** `unreachable` halved (29.0% -> 13.1%) with control flat, so a trunk in its own canopy IS reachable and the diagnosis was right. What is ruled out is admitting it as a PEER of an open target — the freed attempts became `no_safe_target` (+15 pp) and `no_path` (+6.4 pp), never successes, and throughput fell because a leaf-covered log fails LATE where the old refusal was free. Full read: `docs/reports/leaf-01-mechanism-2026-09-19.md`.
-- **Next version is designed and is Codex pass 2's unfixed proposal: admit leaf-covered logs only as FALLBACK, including in the probe.** Do not rebuild it as a peer-ranked filter; that experiment has run.
-
-## LIVE CANARY — digwatch-01 (1457f3a), deployed 15:55:17Z on hive-a,board-b
-The dig-collision recorder. Reads +30/+90/+180/+360, deadline +420. Registration `~/mcai-analysis/registrations/digwatch-01.json`.
-- **Why a canary and not fleet-wide, having earlier said the opposite.** The falls-02 precedent sends behaviour-inert instruments fleet-wide, but that rests on exposure being too rare for 10 bots. It is not: dig aborts run **24.5/bot-day**, so a 10-bot 6 h pool sees **~61**. Exposure does not need the fleet, so the fleet does not take the risk — and this wraps `bot.dig`, which sits in the call path of every dig on every bot. "Behaviour-inert by intent" is the claim that has been wrong repeatedly this week.
-- Draw widened to **±40% (stated)** — the ±25% band had too few pools after leaf-01 (board-a, board-c) and the reseed (placebo-a, placebo-b) exclusions. That is the documented v5 fallback, not an improvisation.
-- **THE HAND-READ IS THE POINT, and the loop cannot do it.** At each stage: (1) do `_dig_collision` rows exist at all — **if ZERO while `Digging aborted` still appears in gather details, the recorder is not seeing the collision and the whole inference is unsupported**; (2) what does the `requester` frame name — this is the entire purpose, and it should read `mineflayer-pathfinder` if the inference is right; (3) gather success and items/bot-h must not move, because a recorder that moves them is not a recorder.
-- First check at 15:58Z: 0 collision rows AND 0 `Digging aborted` on the canary, on 3 minutes of data. Consistent, not yet informative — the negative control is that the two must be zero or non-zero together.
-- If the requester frame reads `unknown` on most rows, the stack walk is too shallow for the pathfinder's async boundary and the recorder needs a different approach, not a wider net.
-
+> **TWO COPIES OF THIS FILE EXIST AND THEY DIVERGED YESTERDAY.** The daily task reads
+> `mcai-rl02/docs/reports/STATE.md` first and falls back to the repo copy; on 20 Sep the **repo copy was the
+> newer one** (20:45Z vs 16:00Z) and the stale one named the wrong canary. Both are written together today.
+> **If the two disagree, take the later `_updated` stamp, not the documented order.**
 
 ## Fleet
-- 80 bots / 16 Peaceful worlds. **b1659c0 fleet-wide, ONE version live on all 80 (`b1659c0+ab74e7`), no code canary.** Verified 11:30Z. main = b1659c0. Previous mains: main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d).
-- 11:30Z digest: one version, 80 bots, 3 deaths in 2 h (0.019/bot-h), 3 immobile, 5 zero-item bots in 2 h.
-- **keepInventory=true and doImmediateRespawn=true on every world** (deliberate, place-town.py): deaths cost time, not items. Owner decision 18 Sep 02:10Z: it stays ON through the seed canary's 72 h, then is turned OFF fleet-wide as its own registered program change (a world rule, never a canary) — and queue item 7 moves it to after 27 Sep.
+- 80 bots / 16 Peaceful worlds. **`cfc1c58` fleet-wide, ONE version on all 80 (`cfc1c58+e1d1b2`)**, verified
+  11:30Z and again after promotion. `main` = cfc1c58. Previous mains: **main-pre-2026-09-20 (b1659c0)**,
+  main-pre-2026-09-17 (1d6c97d), main-pre-2026-09-16b (08a3da2), main-pre-2026-09-16 (426058d).
+- 11:30Z digest: one version, 80 bots, 2 deaths in 2 h (0.012/bot-h), 3 immobile, 7 zero-item bots in 2 h.
+- **keepInventory=true and doImmediateRespawn=true on every world** (deliberate, place-town.py): deaths cost
+  time, not items. Owner 18 Sep: it stays ON through the seed canary's 72 h, then goes OFF fleet-wide as its
+  own registered program change (a world rule, never a canary) — queue item 7 moves it to after 27 Sep.
 
 ## No live code canary — the slot is FREE and the ledger is closed
-`check-open-loop.py` clear at 11:30Z, `canary_pool` null, no `canary-loop` process, journal ends at owner-01b's teardown 18 Sep 16:42:21Z. Nothing was open when this session started and nothing is open now.
-- Last decisions: **owner-01b REVERT** 18 Sep 16:38:45Z (torn down 16:42:21Z; the mechanism did not support it and v10 already forbade it — every rung in the fatal episode was `refused` or `preempted blocks=0`; the honest verdict was INCONCLUSIVE, but gates are honoured and amendments are prospective). **owner-01 INCONCLUSIVE / SHIPPED INERT** 18 Sep 12:59Z. **falls-01 REVERT** 18 Sep 04:39Z.
+`check-open-loop.py` clear at 11:26Z and after the promotion; `canary_pool` empty; no `canary-loop` process.
+Last decisions: **digwatch-02 KEEP / PROMOTED** 20 Sep 11:26Z. **digwatch-01 INCONCLUSIVE** 19 Sep (v1 was
+blind). **leaf-01 REVERT** 19 Sep 15:48:55Z. **owner-01b REVERT** 18 Sep 16:38:45Z.
 
-## SEED CANARY — BOTH POOLS LIVE, and the read is registered
-- **placebo-a: live 19 Sep 00:00:44Z**, `level-seed=8948499624371160708`, town 249,-144 (y=74). Verified at +11 h before pool two started: 5/5 alive, 24,165 rows, all five ranging x[72,478] z[-279,29], **1 death in 55 bot-h (0.018/bot-h) vs fleet 19 in 880 (0.022)**. Positive control for that walk: 343,216 rows / 80 bots / 110 kinds.
-- **placebo-b: live 19 Sep 11:25:23Z**, `level-seed=7843072457371465157`, town 282,65,-388, 5/5 confirmed in-world by RCON.
-- **Both pools re-checked at 12:05Z**: 5/5 bots each, all five in each pool moved >6 blocks in the last 40 min, 0 deaths. Positive control for that walk: 20,911 rows / 80 bots / 102 kinds.
-- **Windows: pool one closes 22 Sep 00:00Z, pool two 22 Sep 11:25Z.** Both clear of the 24-27 Sep program read. Draw exclusions stamped in `~/mcai-analysis/draw-exclude.txt` on .31.
-- **Reads due at 24/48/72 h from each pool's own start**, DiD by pool set (the two re-seeded vs the fourteen), split at every `declared_code_version` change, never pooled across an epoch. The 24-h read includes a reseed-PLUS-RESET "fresh start" effect (registered confound); the 48- and 72-h reads are the ones that speak to terrain. KEEP/REVERT do not apply — there is no code change. Output is a table plus a captured fixture for every death class first seen on the new seeds.
-- **AMENDMENT 19 Sep (prospective, in `seed-canary-registration.md`): the sample is seeds on which the town SITES.** placebo-b's first seed (`2308430494737375791`) had no placeable town — every candidate rejected for relief or water — so the population is "random seeds where a colony can be founded", i.e. flat, dry, low relief. That filter silently removes the terrain the experiment most wants, and **1 of the 2 seeds drawn today hit it**. A null at 72 h is therefore weaker than it looks. Siting criteria deliberately NOT relaxed. Rejected seeds are now journaled (`seed-rejected` lines).
+## digwatch-02 (cfc1c58) — KEEP, PROMOTED FLEET-WIDE, and what it found
+Closed by hand on 20 Sep: **the loop was dead and the canary had run 15 h against a 420-min deadline with no
+read**. Full account in `status-report-2026-09-20.md`; the read itself is the registered +360 window.
+- Death gate HELD (v21): 3 deaths / 60.0 bot-h (0.050/bh) vs 9 / 300.0 (0.030/bh), ratio 1.67x, lower bound
+  0.39x < 1.25x. **Same 1.67x over the full 902 min** (5/150.7 vs 21/1054.7) — the registered window is not
+  flattering it.
+- **Hand-read passed**: 77 canary aborts -> 15 `_dig_collision` rows; control 825 aborts -> **0** rows.
+- **THE FINDING: 15 of 15 collisions had a harvesting pickaxe in the bot's inventory while it held the wrong
+  block.** 13/15 are `skills.mjs:169` `watchDigging` (`!b.canHarvest(heldItem)` -> `stopDigging`); 1 is
+  `reflex.mjs:4601` (the concurrent digger, wrongly retired when v1 came back blind); 1 is `index.mjs:531`.
+  This is the CLAUDE.md refusal-without-a-remedy class: **the remedy was in the pocket and the code aborted
+  instead of equipping.** Accumulator: `~/mcai-analysis/collisions.py`. The recorder is now fleet-wide, so
+  n grows 8x from here. **A fix is a BUILD CANDIDATE and has not been through review.**
 
-## Done today (19 Sep)
-- **Both seed-canary pools deployed** (above). Pool two needed a second seed; `scripts/reseed-pool.sh` gained a guarded `--new-seed` (four refusals each SEEN to fire; the fifth verified at its predicate, because end-to-end means aiming a destructive path at a live pool). The run's timestamp is deliberately never redrawn — every archive is named for it.
-- **`programread.py`'s stock line is now the program's metric** (queue item 9, due before 24 Sep). It reported a deposit success RATE against an **items/bot-h** gate. Now the negative side of `inventory_delta`: **10,421 items net into chests / 1,920 bot-h = 5.43/bot-h against a ≥20 two-week gate**, with the composition beside it (cobblestone 6,077, oak_log 1,297, dirt 837 — 58% cobblestone). Two things a success-only count gets wrong and this does not: **1,153 units (10.8%) moved on rows that ended `failed`/`no_effect`**, and the row's own prose disagreed with the delta on **222 of 397 successes**. The old percentage survives on its own line, relabelled an OUTCOME RATE. **Not claimed:** that stock has fallen — the 12-14 Sep "14.7/bot-h" was derived differently and has not been re-derived.
-- **Throughput has a standing read** (queue item 10): `51 decisions in 14 d = 3.64/day, 35 results = 2.50/day, 16 INCONCLUSIVE`, with the 7-day beside it (`27 = 3.86/day, 20 results`) because a fortnight mean hides a slowdown. **"Two canaries, zero results" is about yesterday, not the fortnight.** What it does expose: **14 REVERTs vs 6 KEEPs in 7 days**, several of them the harness's own instrument. Both refusal branches exercised.
-- **The tier-1 analyst's false stall is fixed, at both doors** (see below).
-- **v23's REPLAY ACCEPTANCE SUITE is built** (queue item 2), and it found a live bug. **16 cases, 11 mutants, all killed**, driving the REAL `verdict.py` through four environment overrides production never sets — it also passes against `~/verdict.py` on .31, which is the copy that decides.
-  - **v24 REGISTERED (prospective): an own-line value that is `None`, NaN or ±inf is UNREADABLE, not a failure.** A NaN fails every comparison, so an `on_fail: REVERT` endpoint **reverted on an arithmetic hole**. That is owner-01b's `+nan%`, written up yesterday as a *draw* problem (queue item 8) with the verdict-path half missed. Not an amendment needing calibration: the registered rule already said a missing own-line value is UNREADABLE, and a NaN is missing-ness arriving as a float. Prospective regardless — no canary was live.
-  - **`scripts/singledeath.py` was never committed**, so the repo's `verdict.py` has carried an unsatisfiable import since v23 landed, with `test_singledeath.py` beside it testing a module that was not there. "The two copies are reconciled" was true of the text and false of the thing you can run. Committed; `sys.path` now also takes the file's own directory.
-  - **Two Codex passes, then stopped.** Most of what they found was a case green for the wrong reason: `one canary death` had no logs at all (the linkage rules rescan the pools' own logs, not the evidence objects), so it never reached v23; the v19 rung-linkage branch was entirely unexercised while the suite claimed "no single death reverts by ANY path"; the registration-sha mutant survived behind the manifest-binding check one line above it; the 21x regression case passes a threshold raised to 5. A kill now requires the WHOLE baseline to pass, the case to MOVE, and to land on the predicted verdict; the artifact is parsed, not counted.
-  - **PINNED, NOT FIXED:** with no control rate the gate assumes `control_bot_h = canary_bot_h * 7` and reverts on 3 deaths against an assumed 0. A guess where a measurement should be. Changing a gate is an amendment — queued; the case pins the outcome so it cannot change silently.
-- **The analyst's rule window had shrunk to three versions.** Syncing v23 to `~/digest/RULE.md` (last synced 18 Sep 11:27Z, so it predated the rule that is live) exposed that `analyst.py` slices `rule[-20000:]` off a 93 KB document: the tail reached back only to v21, and v12-v20 were simply not in the prompt. Widening it is not the fix — it was cut to 20 KB on 16 Sep because the full document overflowed the context. **`~/digest/RULES-IN-FORCE.md` is now authoritative** (one paragraph, synced beside RULE.md, naming every rule in force and which are WITHDRAWN — v22 is in the document and is not in force). When it is absent the analyst is told so rather than judging against a rule set it cannot see. Both branches exercised with the tail asserted present in each.
-- Vendored `nightwatch.sh`, `analyst.py`, `programread.py` into `scripts/host/` — they page the owner and lived nowhere but `/home/mike` with dated `.bak` copies.
+## SEED CANARY — +24 h READ DONE ON BOTH POOLS, and it is the week's biggest number
+Full read `seed-canary-24h-2026-09-20.md`; readers `~/mcai-analysis/seedread.py`, `seedtraj.py`, `seedfails.py`
+(written 20 Sep — the registration had no standing script).
+- **Gather success DiD +29.1 pp (placebo-a) and +30.1 pp (placebo-b)**; the pools read 41.6% and 43.1%
+  against a fleet of 19-22% and a >=40% two-week gate. Two seeds, two pools, agreeing within 1 pp.
+- **The +24 h read cannot attribute this to the seed** (registered reseed-plus-reset confound). But the shape
+  test does not wait: fresh-start decays, terrain is flat. **Neither pool decays over 24-30 h; placebo-b
+  rises** (+10.8 -> +30.0 pp). The short transient is ruled out, a multi-day one is not.
+- **Stock is NOT a finding**: +13.6/+13.1 at 24 h but the trajectories disagree (a decays 23.5->4.5, b rises).
+  **Iron-pickaxe share moves in opposite directions in the two pools — noise.** Deaths are under-powered at
+  five bots in both.
+- **Composition, per bot-hour** (reseeded vs control): SUCCESS 7.55 vs 3.41 (2.2x); **`no_safe_target` 1.19 vs
+  3.85 (-69%)**; `unreachable` 3.15 vs 4.90 (-36%); **`no_path` 3.20 vs 2.71 (+18%)**; **`nothing_found` 1.82
+  vs 0.99 (+84%)**. Attempts comparable (18.0 vs 16.7 terminal/bot-h). The fresh worlds are **not uniformly
+  easier** — and the biggest single gain is a **safety refusal that queue item 3 explicitly excludes from its
+  denominator.** See queue item 3, which this changes.
+- **Remaining reads: placebo-a +48 h 21 Sep 00:00Z, +72 h 22 Sep 00:00Z; placebo-b +48 h 21 Sep 11:25Z,
+  +72 h 22 Sep 11:25Z.** These are the registered discriminators. KEEP/REVERT do not apply (no code change).
+  Both windows close clear of the 24-27 Sep program read.
+- Sample caveat (amendment 19 Sep): the population is **seeds on which the town SITES** — flat, dry, low
+  relief. 1 of the 2 seeds drawn hit the rejection. A later null is weaker than it looks.
 
-## Verified live at 12:03Z after every instrument change today
-The analyst's 12:00Z cycle: `page_claude: False`, `declared: False`, `versions_ok: True`, `fleet_healthy: True`, prompt 6,803 tokens (well inside `num_ctx` 24576), its one anomaly a genuine fleet observation. The 11:30Z digest header reads **NO LIVE CANARY**. `verdict.py` on .31 passes all 16 acceptance cases. The fleet is on one version with the ledger clear.
+## RETRACTIONS still in force — read before using any 19 Sep noise number
+From `endpoint-noise-floor-2026-09-19.md`; Codex refuted four of five conclusions and a positive control.
+- **The planted-effect positive control was an ARITHMETIC IDENTITY** (spread 7e-16 across f). Every
+  "planted +30% -> +30.0% ok" from `sweep/endpoints/candidates/halfdid/halfmix` is arithmetic, not evidence.
+  Replacement `scripts/analysis/realcontrol2.py` must SCATTER (sd 0.303). **Its own v1 reproduced the same
+  tautology.** Twice in one session a control was built from the quantity it was meant to test.
+- **Concurrent canaries are NOT cancelled** — concurrency shrinks the CONTROL set, ~2% worse SD for twice the
+  experiments. Kill that workstream on engineering cost if at all, never on the old argument.
+- **The inference half is NOT cleared as a confounder** (`llm.mjs:430` preserves preference order). Treat it
+  as an UNADJUSTED covariate. The draw no longer holds it constant (`drawrec.sh:72`, changed 19 Sep 19:51Z);
+  the ±band STAYS (it removes a -10% median bias).
+- **"Time is not a design lever" is UNVERIFIED.** **`decisions/bot-hour` is not cooldown-pinned**, but its
+  direction is ambiguous — an operational breakage guard only, never a success criterion.
+- **`items/bot-hour` survives as very dispersed**: null sd 0.70 at one pool, 0.51 at two, 0.41 at four.
+  Dropping ONE bot from a five-bot pool moves the estimate with sd 0.30.
+- **leaf-01 is the counterexample to gating on mechanism and harm alone**: mechanism improved, deaths held,
+  acquired wood collapsed -0.650 against a -0.5 gate. Scored on "refusals avoided" it would have been
+  promoted while making the fleet gather less. Next version, if any: admit leaf-covered logs only as
+  FALLBACK, never as a peer of an open target — that experiment has run.
 
-## Instrument fixed today — the analyst paged SIX times overnight at a free slot
-Of twelve tier-1 verdicts 05:30-11:00Z, **six carried `page_claude: true`**, every one about owner-01b, torn down the previous afternoon. Cause: **the three-step teardown clears `canary_pool` and `canary_code_version` but not `run_id` or `declared_at`.** Two doors, both shut:
-1. **`nightwatch.sh`'s header** printed `run_id=...` and an elapsed clock unconditionally, so it named a dead run with a `+1315 min` that reads as a live deadline, three lines above its own "no open canary". Now LIVE vs history, and the closed case says no deadline is running and no read is due. Both branches exercised; the live branch reproduces the old line exactly.
-2. **`analyst.py`'s read glob.** The 18 Sep fix scoped "latest canary reads" to the manifest's `run_id`; a closed canary keeps its `run_id`, so the same defect returned through the other door and served **owner-01b's nine reads** as current. **`run_id` does not mean a canary is live; `canary_pool` does.** Six branches exercised, positive control first (a live canary with reads really does find them); unreadable manifest fails closed; **behavioural mutant** against the pre-fix copy served 2 reads from the closed run.
-**Verified live on the real path, not only in the harness: the 11:30Z digest header reads "NO LIVE CANARY" and the 11:33Z verdict came back `page_claude: False`, `declared: False`**, with its one anomaly a genuine fleet observation (3 immobile, 5 zero-item bots).
-Backups on .31: `~/nightwatch.sh.bak-20260919`, `~/analyst.py.bak-20260919`, `~/programread.py.bak-20260919`.
-
-## Known false alarm — the analyst pages OpenLoop for the whole life of every canary
-`check-open-loop.py` reports OpenLoop whenever the manifest declares a canary with no decision recorded, which is the NORMAL state of a live canary from deploy until verdict. **It is not an alarm while the loop is alive and the deadline has not passed.** The discriminating test is `pgrep -f canary-loop` plus the deadline: OpenLoop with **no loop running**, or past `deadline_min`, is the real thing. Still queued: give the analyst that two-part test. (Today's six pages were a *different* bug, fixed above.)
-
-## Queue — the 18 Sep two-engine review's order, with today's items struck
-1. ~~Seed canary~~ **DONE 19 Sep, both pools.** Reads due 24/48/72 h per pool; next is placebo-a's +24 h at **20 Sep 00:00Z**.
-2. ~~Implement v23's replay acceptance suite~~ **DONE 19 Sep, 16 cases / 11 mutants.** What remains of this item: **make uncalibrated linkage WATCH-only** (v19 already demoted the rung-linkage override; confirm no other uncalibrated path can revert), and **calibrate or amend the invented 7x control denominator** (pinned today, see above). ~~Original text:~~ v23 itself is LIVE in the verdict path and the two `verdict.py` copies are reconciled (`a67a387`, verified today: both import `singledeath.licence_reverts` and `deathgate.death_gate`). **What is NOT built is the suite.** ChatGPT's bounded version: one engineer-day, then stop adding harness scope. Build it from incidents already on record, each of which must come out right: inert deployment → invalid experiment, close early; wrong-run or stale evidence → unreadable; undefined primary endpoint → unreadable, **not** an efficacy failure; background drowning + irrelevant rung → report, never an automatic linkage revert; a changed refusal blocking an executable rescue → retain a harm signal; an injected known regression → REVERT. Make uncalibrated linkage WATCH-only until it passes. **Costs zero fleet time.** Today's throughput line is the argument for it: 14 REVERTs to 6 KEEPs in a week.
-3. **NAVIGATION / GATHER — the only committed metric that is failing, and still untouched.** **19.0% today against a ≥40% two-week gate** (6,298 of 33,104 terminal). Navigation-class failures run ~7.6/bot-h, so a 10-bot 6-h canary sees **~455 events** against drowning's ~12 — ~38x the exposure, on the metric that actually fails. Denominator: `unreachable` 10,502 + `no_path` 4,848 are reachability failures; `no_safe_target` (8,175) is a *safety* refusal and is NOT one. Upstream has characterised the territory: `mineflayer-pathfinder` does not dig, place, swim or parkour, and issues #222, #273 and PR #380 are the bulk. **Do not require the movement owner as a prerequisite unless that dependency can be demonstrated.**
-4. **owner-01c — the movement owner, third attempt.** Never failed a guard; failed the apparatus twice. Needs v23's suite (item 2) and a draw with **headroom on the primary endpoint** (item 8). **ARBITER is authorised** — owner's word 18 Sep; no need to re-ask.
-5. **DROWNING — demoted, design changed.** Its read-corruption argument evaporates now v23 is live. **Do the one-hour read of the interrupt tax before spending a slot** (memory says the air reflex once aborted 9.8% of every run; nobody has recomputed it). Deaths themselves cost 0.04% of bot-h. **The health floor is "not at full health", NOT "below 5"** (under 5 → 19 yields 100% fatal; 15-19.9 → 27 yields 70.4% fatal; full → 271 yields 0.7%). `floatDigTargets()` returns `[]` without a pathfinder plan, and the drowning rescue has no path, so the remedy is new code. Endpoint: *reached and sustained breathable space within a fixed horizon per eligible episode*; pre-register the MDE. **Do not bundle the floor with the dig.**
-6. **falls-02 — the falls instrument FLEET-WIDE.** Behaviour-inert, no canary slot, runs alongside anything. Denominator: 7 fall deaths at 23/31/31/36/40/40/42 blocks of 48, ~0.0036/bot-h.
-7. **`keepInventory` OFF — after 27 Sep.** A program change that confounds the deaths line; it waits.
-8. **Extend `drawexposure.py` — two checks, NOT a new script.** (a) a **non-degenerate pre-period** on the primary metric (owner-01b drew a 0.0% immobile pre-share and printed `+nan% FAIL`); (b) exposure against the MDE-implied n. REPORT-only until calibrated against draws whose outcome is known (-13b, -13c, 1011b).
-9. ~~Fix `programread.py`'s stock-returned units~~ **DONE 19 Sep.**
-10. ~~Verdicts per canary-day~~ **DONE 19 Sep.**
-11. **Pocket-rung block floor** (need+4 with 5 held). **12.** Pooling rule -12 (iron). **13.** Housekeeping: delete `~/mcai-analysis/registrations/exptest.json` on .31.
-16. **NEW — the death gate's invented control denominator.** `control_bot_h = canary_bot_h * 7` when control reports no rate. Calibrate it or amend the gate to report UNREADABLE instead; prospective, pinned by `test_verdict_acceptance.py`.
-17. **NEW — keep RULE.md and RULES-IN-FORCE.md synced on every rule change.** RULE.md had drifted two days and a whole rule behind. Both are in `scripts/host/`; the sync is two `scp`s and belongs in step D of the daily task.
-14. **NEW — teach the analyst the two-part OpenLoop test** (`pgrep -f canary-loop` plus the deadline), now that no canary is live and editing its rule is safe.
-15. **NEW — CLAUDE.md's byte-offset rule is under-scoped.** It names `deploy-fleet.sh`; the hazard is any long-running shell script edited in place. I hit it today on `reseed-pool.sh` (see "An error I made" in the status report). The mechanical fix is to run these from a copy, like the deploy script.
-
-## OWNER DECISIONS — BOTH TAKEN 2026-09-18 23:35 UTC
-- **ARBITER STAYS ON for owner-01c.** `OWNER=1` (which implies `ARBITER=1` via `config.mjs:155`) is authorised for the movement-owner canary. The standing "ARBITER stays OFF" line is the **fleet default**, not a bar on the canary built to test it. Do not re-ask.
-- **CONCURRENT CANARIES: APPROVED, build it.** The tripper is to accept a **set** of declared canaries instead of exactly one, so 2-3 **disjoint** canaries can run at once. Design in `concurrent-canaries-design.md`; implementation is a build, not yet started.
+## Queue
+1. ~~Seed canary~~ **+24 h DONE 20 Sep, both pools.** Remaining: 48 h and 72 h reads (times above).
+2. **v23 suite — what remains**: make uncalibrated linkage WATCH-only (v19 already demoted rung-linkage;
+   confirm no other uncalibrated path can revert), and **calibrate or amend the invented 7x control
+   denominator** (item 16). The 16-case / 11-mutant suite itself is DONE.
+3. **NAVIGATION / GATHER — the only failing committed metric. REFRAMED 20 Sep, read this before building.**
+   The seed read says the largest single component recovered by a fresh world is **`no_safe_target`
+   (-2.66/bot-h, -69%)**, which this item's own denominator excludes as "a safety refusal, not a reachability
+   failure" — while `no_path` and `nothing_found` got WORSE on fresh terrain. The pathfinder framing
+   (`mineflayer-pathfinder` issues #222/#273/PR #380) may be aimed at the smaller half. **Leading hypothesis:
+   the bots excavate and flood their own surroundings, the safety check correctly refuses targets in it, and
+   that is the collapse.** Exposure is not the constraint: navigation-class failures run ~7.6/bot-h.
+   **Needs the registered dual review before a build is proposed.**
+4. **NEW — the watchDigging equip remedy.** 13/15 recorded dig collisions are `skills.mjs:169` aborting a dig
+   because the held item cannot harvest, with a pickaxe in the inventory. Remedy: equip rather than abort.
+   The recorder is fleet-wide now, so n grows before anything ships. **Dual review first.**
+5. **owner-01c — the movement owner, third attempt.** Never failed a guard; failed the apparatus twice.
+   Needs item 2 and a draw with headroom on the primary endpoint (item 8). **ARBITER is authorised** (owner
+   18 Sep) — do not re-ask.
+6. **DROWNING — demoted.** Do the one-hour read of the interrupt tax before spending a slot (the air reflex
+   once aborted 9.8% of every run; nobody has recomputed it). Deaths cost 0.04% of bot-h. The health floor is
+   **"not at full health", NOT "below 5"**. `floatDigTargets()` returns `[]` without a pathfinder plan, so the
+   remedy is new code. Endpoint: reached and sustained breathable space within a fixed horizon per eligible
+   episode; pre-register the MDE. **Do not bundle the floor with the dig.**
+7. **falls-02 — the falls instrument FLEET-WIDE.** Behaviour-inert, needs no slot. 7 fall deaths at
+   23/31/31/36/40/40/42 blocks of 48, ~0.0036/bot-h. Worktree `mcai-falls` (fc28885), rebase onto cfc1c58.
+8. **`keepInventory` OFF — after 27 Sep.**
+9. **Extend `drawexposure.py` — two checks, NOT a new script.** (a) a non-degenerate pre-period on the
+   primary metric (owner-01b drew 0.0% and printed `+nan% FAIL`); (b) exposure against the MDE-implied n.
+   REPORT-only until calibrated against draws whose outcome is known (-13b, -13c, 1011b).
+10. **Concurrent canaries (owner-approved, build it).** Step 1 done: `canary_split_ok` / `in_canary_pool`
+    consolidated into `scripts/lib/version_split.py` (20 new tests, 5 mutants dead) on `recovery-ladder-03`.
+    **It does NOT ride along with a deploy** — `deploy-fleet.sh:126` installs the tripper at the deployed sha,
+    so it must be merged into the branch actually deployed. Remaining per `concurrent-canaries-design.md` §5:
+    N-canary classifier (pools pairwise disjoint, versions pairwise distinct, N<=3), per-run canary trees,
+    per-run loop locks with a manifest mutex, readers.
+11. Pocket-rung block floor (need+4 with 5 held). **12.** Pooling rule -12 (iron).
+13. ~~Delete exptest.json~~ **DONE 20 Sep.**
+14. **Teach the analyst the two-part OpenLoop test** (`pgrep -f canary-loop` AND the deadline). Today the
+    deadline half fired correctly and alone; the slot is free, so editing its rule is safe now.
+15. **CLAUDE.md's byte-offset rule is under-scoped** — it names `deploy-fleet.sh`; the hazard is any
+    long-running shell script edited in place. Run them from a copy.
+16. **The death gate's invented control denominator**: `control_bot_h = canary_bot_h * 7` when control reports
+    no rate, reverting on 3 deaths against an assumed 0. Calibrate or amend to UNREADABLE; prospective,
+    pinned by `test_verdict_acceptance.py`.
+17. **Keep RULE.md and RULES-IN-FORCE.md synced on every rule change** — two `scp`s, part of step D.
+    Verified current 20 Sep (both md5-match their sources).
+18. **NEW, and it cost 15 fleet-hours — a hand deploy leaves no loop.** `fleet-deploy` does not start
+    `canary-loop.sh`. digwatch-02 was deployed at 20:09:38Z with no loop attached and sat unread until the
+    next session. Either `fleet-deploy --pool` starts the loop, or it refuses to declare a canary without one.
 
 ## Rules in force (docs/reports/recovery-ladder-registration.md)
-**v24 (an own-line value that is None, NaN or ±inf is UNREADABLE, not a failure) — LIVE**, **v23 (no single canary death reverts by ANY path; gates carry `role: deciding|tripwire`) — LIVE in the verdict path**, v22 WITHDRAWN unregistered, v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detection), v16 (calibrate before revert; trace refusals to fallbacks; histogram slot order; bundles of two disjoint changes), v17/v18, v19 (a change/linkage row must DISCRIMINATE — `changerowcheck.py` pre-deploy, `license_change_rows()` at read time), **v21 (the death gate on the LOWER BOUND of the rate ratio)**, the owner's floor of **two** canary deaths, draws at deploy (12-h ledger exclusions, ±25% then ±40%, per inference half, never placebo-c/isolated), `fleet-deploy` refuses a `--pool` sha not descending from `declared_code_version`, `CANARY_ENV` + the `/proc/<pid>/environ` assertion so a flagged canary cannot ship inert.
+**v24** (an own-line value that is None, NaN or ±inf is UNREADABLE, not a failure) — LIVE. **v23** (no single
+canary death reverts by ANY path; gates carry `role: deciding|tripwire`) — LIVE in the verdict path. v22
+WITHDRAWN unregistered. v12 linkage, v14c, v15c movement guards (calibrated 2% false-revert / 97% detection),
+v16 (calibrate before revert; trace refusals to fallbacks; histogram slot order; bundles of two disjoint
+changes), v17/v18, v19 (a change/linkage row must DISCRIMINATE — `changerowcheck.py` pre-deploy,
+`license_change_rows()` at read time), **v21** (the death gate on the LOWER BOUND of the rate ratio), the
+owner's floor of **two** canary deaths, draws at deploy (12-h ledger exclusions, ±25% then ±40%, the inference
+half now an unadjusted covariate, never placebo-c/isolated), `fleet-deploy` refuses a `--pool` sha not
+descending from `declared_code_version`, `CANARY_ENV` + the `/proc/<pid>/environ` assertion so a flagged
+canary cannot ship inert.
 
 ## Standing wake-ups
-- **Before any canary read, check `~/digest/RULE.md` and `~/digest/RULES-IN-FORCE.md` are current** against `docs/reports/recovery-ladder-registration.md` and STATE's rules-in-force paragraph. RULE.md was two days and one live rule stale on 19 Sep.
-- **Run `python3 scripts/test_verdict_acceptance.py` before and after touching the verdict path**, and `test_verdict_acceptance_mutants.py` OFF the bots host (it refuses to score there, because `/home/mike/mcai-analysis` shadows a mutated helper).
-- **Nightly 00:12Z: `~/programread.py 24` -> `~/digest/programread.log`.** Now carries the corrected **stock** line and the **throughput** line. Splits by `code.version`; the per-version split is NOT a canary read and says so.
-- Nightly 00:07Z: iron-funnel line (`~/digest/ironfunnel.log`). Last: 40 raw iron / 45 ingots / 4 picks crafted, 16 gone (all during work), iron-pick share 14.7%.
-- Tier-1 local analyst every 30 min (`~/digest/*.verdict.json`); tier-0 digest `~/digest/latest.md`. `versions_ok=False` is the known build-suffix false-fail (`<sha>+<buildhash>`), not an alarm.
-- **Declare the two-week program read window: 72 h continuous, 24-27 Sep**, and keep promotions out of it. The two-week gate is 27 Sep. **Not yet registered — do it before 24 Sep.** Note the two re-seeded pools are a world-level confound inside it; their 72 h closes 22 Sep, so they are clear, but say so in the registration.
-- **Seed-canary reads: placebo-a +24h 20 Sep 00:00Z, +48h 21 Sep 00:00Z, +72h 22 Sep 00:00Z; placebo-b +24h 20 Sep 11:25Z, +48h 21 Sep 11:25Z, +72h 22 Sep 11:25Z.**
+- **Before any canary read, check `~/digest/RULE.md` and `~/digest/RULES-IN-FORCE.md` are current** against
+  `recovery-ladder-registration.md` and the paragraph above. Both verified current 20 Sep by md5.
+- **Run `python3 scripts/test_verdict_acceptance.py` before and after touching the verdict path**, and
+  `test_verdict_acceptance_mutants.py` OFF the bots host (`/home/mike/mcai-analysis` shadows a mutated helper).
+- **Nightly 00:12Z `~/programread.py 24` -> `~/digest/programread.log`** (stock line and throughput line;
+  splits by `code.version`, and that split is NOT a canary read).
+- Nightly 00:07Z iron-funnel (`~/digest/ironfunnel.log`). Last fleet line: 73 raw iron / 92 ingots / 10 picks
+  crafted, 14 gone, iron-pick share 15.3%.
+- Tier-1 local analyst every 30 min (`~/digest/*.verdict.json`); tier-0 digest `~/digest/latest.md`.
+  `versions_ok=False` is the known build-suffix false-fail (`<sha>+<buildhash>`), not an alarm.
+- **Declare the two-week program read window: 72 h continuous, 24-27 Sep**, and keep promotions out of it.
+  The two-week gate is 27 Sep. **STILL NOT REGISTERED — do it before 24 Sep.** Note in the registration that
+  the two re-seeded pools are a world-level confound whose 72 h closes 22 Sep, so they are clear.
+- **Seed-canary reads: placebo-a +48 h 21 Sep 00:00Z, +72 h 22 Sep 00:00Z; placebo-b +48 h 21 Sep 11:25Z,
+  +72 h 22 Sep 11:25Z.**
+
+## Known false alarm — the analyst pages OpenLoop for the whole life of every canary
+`check-open-loop.py` reports OpenLoop whenever the manifest declares a canary with no decision, which is the
+NORMAL state from deploy to verdict. The discriminating test is `pgrep -f canary-loop` **plus** the deadline:
+OpenLoop with no loop running, or past `deadline_min`, is real. **On 20 Sep it was real** — the deadline half
+fired at 11:00Z and was right. Queue item 14 builds the other half.
 
 ## Daily session rotation
-- Desktop scheduled task `mcai-daily-session` starts a FRESH session at 06:08 America/Chicago (11:08 UTC). It reads this file first, closes any open canary (**check the ledger and the journal BEFORE acting** — the loop may already have), re-arms the list below, does the queue, rewrites this file.
-- `check-open-loop.py` lives at **`/opt/minecraft-ai/scripts/check-open-loop.py` on .31** and must run there with sudo. It is NOT in `~/mcai-analysis`.
-- Only one session was live on the repo today (18 Sep had two; nothing was lost, but the rotation rule is one per day).
+- Desktop task `mcai-daily-session` starts a FRESH session at 06:08 America/Chicago (11:08 UTC). It reads this
+  file first, closes any open canary (**check the ledger AND the journal AND `pgrep -f canary-loop` before
+  acting**), re-arms below, does the queue, rewrites this file to BOTH copies.
+- `check-open-loop.py` lives at **`/opt/minecraft-ai/scripts/check-open-loop.py` on .31** and needs sudo. It
+  is NOT in `~/mcai-analysis`.
+- **`~/mcai-analysis/arm-read.sh` DOES NOT EXIST** despite older re-arm text naming it. The loop takes a read
+  as `cd /opt/minecraft-ai/scripts && python3 /tmp/<read>.py <M>` then `python3 ~/verdict.py <run> <M>`, where
+  the read scripts clamp `W = min(elapsed, M)` — so a missed read can be taken late at its registered minute.
 
 ## Standing constraints (verbatim from the owner)
-- Full autonomy: deploy, canary, promote, tear down without waiting. Wake the owner on every promote or revert and on anything needing a human hand.
-- No world changes to fix a bot (sandbox 10.0.0.30:25599 only; the seed canary is the registered exception — the world IS the treatment). Swimming is travel. No 192.168.19x network; no UniFi API on 10.0.0.1; never disable rpcbind; never touch the apt timer. One code canary at a time (a bundle counts as one) until the concurrent-canary build lands. Teardown is THREE steps. Deploy only via `~/bin/fleet-deploy`. Commit with `git commit -F -` heredocs. Two Codex passes per patch, then a smaller patch. Never share a live canary's inference endpoint/model. Never `git add -A bots` in a worktree with a node_modules symlink. Readers include rotated `.gz` generations. logEvent kinds carry a leading underscore in `skill.name`. Lab SSH `mike@10.0.0.31` (bots) / `mike@10.0.0.30` (worlds); the lab key on the mini is `~/.ssh/id_ed25519`. Status reports live in docs/reports. Use `date -u` for clock labels.
-- **And one the repo should adopt:** run any long-running shell script from a copy outside the tree you may edit. CLAUDE.md says this of `deploy-fleet.sh`; bash re-reads by byte offset for all of them.
+- Full autonomy: deploy, canary, promote, tear down without waiting. Wake the owner on every promote or revert
+  and on anything needing a human hand.
+- No world changes to fix a bot (sandbox 10.0.0.30:25599 only; the seed canary is the registered exception —
+  the world IS the treatment). Swimming is travel. No 192.168.19x network; no UniFi API on 10.0.0.1; never
+  disable rpcbind; never touch the apt timer. One code canary at a time (a bundle counts as one) until the
+  concurrent-canary build lands. Teardown is THREE steps. Deploy only via `~/bin/fleet-deploy`. Commit with
+  `git commit -F -` heredocs. Two Codex passes per patch, then a smaller patch. Never share a live canary's
+  inference endpoint/model; ARBITER stays OFF as the fleet default (authorised for owner-01c only). Never
+  `git add -A bots` in a worktree with a node_modules symlink. Readers include rotated `.gz` generations.
+  logEvent kinds carry a leading underscore in `skill.name`. Lab SSH `mike@10.0.0.31` (bots) /
+  `mike@10.0.0.30` (worlds); the lab key on the mini is `~/.ssh/id_ed25519`. Status reports live in
+  docs/reports. Use `date -u` for clock labels.
+- Independent Claude **and** ChatGPT review, plus a real search of open source, issues and forums, before
+  proposing to build — scoped to design changes, new research claims and deploy-impacting conclusions.
+- **And one the repo should adopt:** run any long-running shell script from a copy outside the tree you may
+  edit. CLAUDE.md says this of `deploy-fleet.sh`; bash re-reads by byte offset for all of them.
 
 ## Worktrees
-mcai-owner (movement-owner-1, aa44514 — reverted twice, rebase for owner-01c), mcai-falls (falls-path-log, fc28885 — reverted, rebase for falls-02), mcai-owner-f (3b9ff25 = falls tip + owner, unused), mcai-deathsites (b1659c0 = main), mcai-rl02 (recovery-ladder-03 = docs/scripts branch), mcai-recovery (iron tools; pooling NOT started), mcai-rllava, mcai-rliron, mcai-rl10, mcai-canopy, mcai-scene (sandbox harness).
-Scripts: `~/mcai-analysis` on this Mac (reads, and the reseed journals). On .31 `~/mcai-analysis` holds drawrec.sh, changerowcheck.py, drawexposure.py, deathgate.py, singledeath.py, registrations, and **`lib/` — the golden analysis library restored after every deploy**. The three nightly/host instruments now also live in the repo at `scripts/host/`.
+`mcai-digwatch` (dig-collision, cfc1c58 = NOW MAIN), mcai-owner (movement-owner-1, aa44514 — reverted twice,
+rebase for owner-01c), mcai-falls (falls-path-log, fc28885 — rebase for falls-02), mcai-owner-f (3b9ff25,
+unused), mcai-deathsites (b1659c0 = old main), **mcai-rl02 (recovery-ladder-03 = docs/scripts branch)**,
+mcai-recovery (iron tools; pooling NOT started), mcai-rllava, mcai-rliron, mcai-rl10, mcai-canopy, mcai-scene
+(sandbox harness).
+Scripts: `~/mcai-analysis` on this Mac (reads, reseed journals). On .31 `~/mcai-analysis` holds drawrec.sh,
+changerowcheck.py, drawexposure.py, deathgate.py, singledeath.py, collisions.py, **seedread.py / seedtraj.py /
+seedfails.py (new 20 Sep)**, registrations, and **`lib/` — the golden analysis library restored after every
+deploy**. The nightly/host instruments are vendored in the repo at `scripts/host/`.
 
 ## Re-arm on a fresh session (monitors are session-local)
-0. **Nothing to re-arm for a code canary today — there is none.** Items 1-4 apply only once one is deployed.
-1. **Loop pages AND journal phases**: Monitor tailing **both** `~/digest/page.jsonl` **and `~/canary-journal.jsonl`** on .31, filtered to `verdict|error|flag|PROMOTED|REVERT|deployed|torn-down|KEEP|INCONCLUSIVE|read-|phase`. **Filter on new lines only** (`tail -n 0 -F`). **`page.jsonl` ALONE IS NOT A HEARTBEAT** — the loop pages decisions and errors only; a routine read writes to the journal and nothing to page.jsonl, so a quiet watch is indistinguishable from a dead loop. The journal is the heartbeat; page.jsonl is the alarm. Treat unexpected silence as a reason to `pgrep -f canary-loop`.
-2. **Local analyst**: Monitor running `bash ~/analystwatch.sh` on .31. **DO NOT FILTER IT ON MESSAGE TEXT** — a filter added 18 Sep to drop expected OpenLoop noise suppressed a verdict carrying `page_claude: True` and `fleet_healthy: False`, because that string appears in the *evidence* field of an unrelated anomaly. ~20 lines over a canary's life is cheaper than one suppressed alarm. Take it unfiltered and triage by hand.
-3. **Death poll**: the loop runs `verdict.py <run> 0 --poll` every 5 min itself and pages on REVERT, so monitor 1 covers it. A separate poll is only needed if the loop is dead.
-4. If the loop is dead (`pgrep -f canary-loop`) with a canary declared: read `~/canary-journal.jsonl`, take the reads by hand (`bash ~/mcai-analysis/arm-read.sh <M> <run> "..."`), record the verdict with `check-open-loop.py --record` under sudo **BEFORE** touching the manifest, then promote or tear down (THREE steps: `sudo /usr/local/sbin/mcai-canary-tree teardown`; clear `canary_pool` and `canary_code_version`; restart the pool's bots 12 s apart; confirm exactly one version is live).
-5. **After any deploy, check the analysis library survived** — `python3 -c "import sys; sys.path.insert(0,'/opt/minecraft-ai/scripts'); from lib.telemetry import Events; print(len(Events.load(since_minutes=30).rows))"` on .31. `fleet-deploy` restores it now, but a deploy by any other path will not.
-6. **The seed canary needs no monitor** — it is a world change with no tripper involvement. Its reads are calendar items (above), and a missed one is recoverable because the telemetry walk is retrospective.
+0. **No code canary is live, so items 1-4 do not apply today.** They apply the moment one is deployed.
+1. **Loop pages AND journal phases**: Monitor tailing **both** `~/digest/page.jsonl` **and
+   `~/canary-journal.jsonl`** on .31, filtered to
+   `verdict|error|flag|PROMOTED|REVERT|deployed|torn-down|KEEP|INCONCLUSIVE|read-|phase`, **new lines only**
+   (`tail -n 0 -F`). **`page.jsonl` ALONE IS NOT A HEARTBEAT** — the loop pages decisions and errors only, so
+   a quiet watch is indistinguishable from a dead loop. The journal is the heartbeat. Treat silence as a
+   reason to `pgrep -f canary-loop`.
+2. **Local analyst**: Monitor running `bash ~/analystwatch.sh` on .31. **DO NOT FILTER IT ON MESSAGE TEXT** —
+   a filter added 18 Sep suppressed a verdict carrying `page_claude: True`. ~20 lines over a canary's life is
+   cheaper than one suppressed alarm. Triage by hand.
+3. **Death poll**: the loop runs `verdict.py <run> 0 --poll` every 5 min and pages on REVERT, so monitor 1
+   covers it — **only if the loop is actually alive.** Verify with `pgrep`, do not assume.
+4. **If the loop is dead with a canary declared** (this happened 20 Sep): read `~/canary-journal.jsonl`, take
+   the reads by hand at their registered minutes (see "Daily session rotation" above for the exact commands),
+   record with `check-open-loop.py --record` under sudo **BEFORE** touching the manifest, then promote
+   (`~/bin/fleet-deploy <sha> <run>-promote "..."`, which itself tears down the drop-ins and rewrites the
+   manifest) or tear down (THREE steps: `sudo /usr/local/sbin/mcai-canary-tree teardown`; clear `canary_pool`
+   and `canary_code_version`; restart the pool's bots 12 s apart; confirm exactly one version is live).
+5. **After any deploy, check the analysis library survived** —
+   `python3 -c "import sys; sys.path.insert(0,'/opt/minecraft-ai/scripts'); from lib.telemetry import Events; print(len(Events.load(since_minutes=30).rows))"`
+   on .31. `fleet-deploy` restores it; a deploy by any other path will not.
+6. **The seed canary needs no monitor** — its reads are calendar items and the telemetry walk is
+   retrospective, so a missed read is recoverable. Use `~/mcai-analysis/seedread.py <pool> <hours>`.
