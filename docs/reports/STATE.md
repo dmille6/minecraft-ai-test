@@ -101,10 +101,21 @@ no pickaxe is the wooden one, and only 5% of starved bots hold its materials whi
   on the host** (`~/mcai-analysis/run-seed-72h.sh`, pid 1009885, verified alive 21 Sep 11:22Z) → outputs
   `~/digest/seed-placebo-{a,b}-72h.txt`. KEEP/REVERT do not apply (no code change). Both close clear of the
   24–27 Sep program window.
-- **Rival the overnight session raised and nobody has ruled out**: a reseed resets bot state, which includes
-  handing bots working tools. Given that 62 of 80 bots fleet-wide hold only dead pickaxe stubs, the re-seeded
-  pools may simply be the bots with live pickaxes. **Check this in the +72 h read** — it is cheap
-  (`equipblind.py` prints the tool state by pool) and it bears directly on the week's biggest number.
+- **The tooling rival is TESTED and it does NOT explain the effect** (21 Sep, `seedtools.py`). The overnight
+  session asked whether the re-seeded pools were simply the bots with live pickaxes. **The exposure half is
+  true** — live-pickaxe share is **5/10 (50.0%) in the re-seeded pools vs 13/70 (18.6%) everywhere else**
+  (five pools sit at 0/5). **But stratifying on tool state removes the rival:**
+
+  | gather success | has a live pickaxe | only dead stubs |
+  |---|---:|---:|
+  | re-seeded | **50.5%** of 457 | **43.4%** of 541 |
+  | all other pools | 18.4% of 1,262 | 20.1% of 6,520 |
+
+  The seed gap is **+32.1 pp among tooled bots and +23.3 pp among starved bots** — it survives inside both
+  strata. **The same table independently re-confirms starvation is downstream**: in the control pools a live
+  pickaxe is worth 18.4% vs 20.1%, i.e. flat. Limitation: each bot is stratified by its *latest* snapshot, so
+  a bot that wore out its last pickaxe mid-window has all its runs counted as starved; that blurs the strata,
+  and it is two pools / ten bots treated. **This narrows the rival; the +72 h reads still decide.**
 - Sample caveat (amendment 19 Sep): the population is **seeds on which the town SITES** — flat, dry, low
   relief. A later null is weaker than it looks.
 
