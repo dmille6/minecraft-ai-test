@@ -87,9 +87,17 @@ function diggingBot ({ holds = null } = {}) {
 await ta('CONTROL: with the watchdog on, a bare-handed dig through stone is stopped at ~1 s', async () => {
   // The defect, reproduced. If this ever passes without stop() being called,
   // the watchdog moved and the fix below is being tested against nothing.
+  //
+  // needsDrop:true IS NOW EXPLICIT HERE, and that is the whole point of the edit.
+  // This control used to get the watchdog from the DEFAULT. On 2026-09-21 the
+  // default became false, which would have quietly stopped this control from
+  // reproducing anything -- and then the "FIX" test below would be comparing two
+  // identical configurations and passing for no reason. A control that no longer
+  // reproduces the defect does not fail loudly; it agrees with the fix. So the
+  // arming is stated at the call site rather than inherited.
   const { bot, seen } = diggingBot()
   const t0 = Date.now()
-  const e = await withTimeout(bot.pathfinder.goto(), 5000, bot).then(() => null, x => x)
+  const e = await withTimeout(bot.pathfinder.goto(), 5000, bot, { needsDrop: true }).then(() => null, x => x)
   assert.ok(e, 'the walk must have been cancelled')
   assert.equal(e.name, 'PathStopped')
   assert.equal(seen.stopped, 1, 'the watchdog calls pathfinder.stop() exactly once')

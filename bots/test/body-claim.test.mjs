@@ -46,11 +46,31 @@ t('THE REGISTRY AGREES: a pickaxeless bot cannot "harvest" stone', () => {
   assert.ok(dirt.canHarvest(null), 'dirt should be harvestable bare-handed')
 })
 
-t('the harvest watchdog is ON by default — gather still wants the drop', () => {
+t('the harvest watchdog is OFF by default, and the two drop sites opt IN', () => {
+  // CONTRACT INVERTED 2026-09-21. This used to assert `needsDrop = true`, on the
+  // reasoning that a dig wanting its item should not waste the clock. That is true
+  // of digs and false of this function: withTimeout wraps far more than digs, and
+  // watchDigging polls the PROCESS-GLOBAL bot.targetDigBlock, so arming it wraps a
+  // 1 Hz killer around whatever dig any subsystem has in flight.
+  //
+  // Brace-matched census at cfc1c58 of the sites the old default armed: 15 total,
+  // of which THIRTEEN were not digging for a drop (11 x pathfinder.goto -- one of
+  // them through a variable at :401 -- and 2 x placeBlock) against 2 that were
+  // (gather's target dig, collectBlock). A first hand count said 16 and blamed
+  // openFurnace and four placeBlock sites; openFurnace and two of those placeBlock
+  // sites already passed needsDrop:false. The brace-matched count is the one to
+  // trust, and this comment records the correction so the number is not re-derived
+  // by eye a third time.
   const code = strip('../src/skills.mjs')
   const m = code.match(/function withTimeout\([^)]*\{([^}]*)\}\s*=\s*\{\}\)/)
   assert.ok(m, 'withTimeout signature moved; re-read this test')
-  assert.match(m[1], /needsDrop\s*=\s*true/, 'the default must stay true')
+  assert.match(m[1], /needsDrop\s*=\s*false/,
+    'the default must be false: it arms a process-global dig killer at 13 sites that are travelling or placing')
+  // and gather must not lose its guard by silence
+  const optIns = (code.match(/needsDrop:\s*true/g) ?? []).length
+  assert.equal(optIns, 2,
+    `expected exactly 2 opt-ins (gather's target dig and collectBlock), found ${optIns} -- ` +
+    'if this is 0 the drop guard was deleted rather than made explicit')
 })
 
 t('THE CLIMB OPTS OUT: it wants the hole, not the cobble', () => {

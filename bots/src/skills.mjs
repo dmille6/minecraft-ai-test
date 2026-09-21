@@ -196,7 +196,7 @@ function watchDigging(bot, onStuck) {
  * ends it, which reflex.mjs already had to learn the hard way.
  */
 export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout = null,
-                                        needsDrop = true } = {}) {
+                                        needsDrop = false } = {}) {
   let t
   // A path that is digging the undiggable will otherwise run out the clock and
   // be recorded as a timeout, which names our budget rather than the cause.
@@ -219,8 +219,61 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
   // frame held opposite beliefs about bare-handed digging, and the older one
   // won at one second. Every escape budget downstream of it was unreachable.
   //
-  // The default stays TRUE. Only a caller that has already priced the dig and
-  // wants the hole may turn it off, and it must say so at the call site.
+  // THE DEFAULT IS NOW FALSE, AND THE TWO SITES THAT WANT THE DROP SAY SO.
+  //
+  // It used to default TRUE, on the reasoning that a dig wanting its item should
+  // not waste the clock. That reasoning was right about digs and wrong about this
+  // function, because `withTimeout` does not only wrap digs -- and `watchDigging`
+  // polls the PROCESS-GLOBAL `bot.targetDigBlock`, so arming it wraps a 1 Hz
+  // killer around whatever dig any subsystem has in flight, not around this call.
+  //
+  // Census of every call site on cfc1c58, brace-matched rather than counted by
+  // eye. Fifteen sites were armed by the old default:
+  //     11 x bot.pathfinder.goto   (798, 1054, 1239, 2345, 3316, 3400, 3594,
+  //                                 4098, 4431, 5914, and 401 through a variable)
+  //      2 x bot.placeBlock        (5555, 5685)
+  //      2 x a dig wanting its drop (1195 gather's target, 1672 collectBlock)
+  // So the old default was wrong at THIRTEEN travel and placement sites and right
+  // at two. Fourteen other sites already passed needsDrop:false and every one of
+  // them was correct -- six digs that want the hole (498 float dig, 2021 the chest
+  // lid, 2906 making room, 4173 the tread re-dig, 5507 the climb, 5716 the floor),
+  // four gotos, two placeBlocks, openContainer and openFurnace.
+  //
+  // A FIRST HAND COUNT SAID SIXTEEN and blamed openFurnace and four placeBlock
+  // sites. openFurnace (3659) and two of those placeBlocks (3003, 3143) already
+  // opted out; the hand count used a three-line window and truncated multi-line
+  // option objects, which also hid that the climb dig at 5507 opts out on its
+  // fourth line. The number above is brace-matched. The correction is recorded
+  // because the overstatement was in the direction that flattered the change.
+  //
+  // The placement sites are the mechanism. `placeBlock` equips the block it is
+  // about to place, so the hand holds dirt or cobblestone; the watchdog then sees
+  // some other subsystem's in-flight dig, asks whether DIRT can harvest stone, and
+  // cancels it. Measured fleet-wide after digwatch-02 went to all 80 bots: 682 of
+  // 1,258 recorded dig collisions are this watchdog (54.2%), 682/682 had a
+  // harvesting pickaxe in the bot's inventory, and the held item was dirt 67.9% of
+  // the time and nothing at all 19.8%.
+  //
+  // This project already fixed this same collision once and KEPT it: the
+  // dig-approach canary f9ddbc4 found 22 of 38 approach walks ending PathStopped
+  // at 1.00 s -- the watchdog's first poll -- on a bot holding a stone pickaxe, and
+  // the fix was needsDrop:false plus a PASSIVE observer. See
+  // bots/test/dig-approach-watchdog.test.mjs. This change makes that the default
+  // instead of a thing each call site has to remember.
+  //
+  // NOT the other candidate fix. "Equip a pickaxe instead of aborting" was
+  // rejected by both review engines: the equip ALREADY EXISTS three lines above
+  // the watched dig at 1191-1192 and returns only harvesting tools, so a collision
+  // there proves the equip failed or was undone; changing the held item mid-dig
+  // resets the server's break progress while mineflayer's local timer resolves
+  // anyway, giving a phantom break; and the recorder's own author wrote "IT MUST
+  // NOT RETRY ... a retry without ownership makes two diggers into three."
+  // Ownership belongs in the arbiter, whose GATED_SYNC already lists stopDigging.
+  //
+  // What turning it off costs: a dig of a block the held item cannot harvest now
+  // runs to its own budget instead of being cancelled at the first 1 s poll. Every
+  // such site already bounds its dig, so the cost is latency, never an unbounded
+  // hang.
   let undiggable = null
   const watch = needsDrop && (bot?.targetDigBlock !== undefined || bot?.pathfinder)
     ? watchDigging(bot, name => { undiggable = name })
@@ -1195,6 +1248,13 @@ export async function collectManually(bot, block, signal) {
   await withTimeout(bot.dig(block), 20_000, bot, {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+    // THE DROP IS THE POINT HERE, so this is one of the two sites that opt in.
+    // gather wants the item; mining stone bare-handed yields nothing and pressing
+    // on wastes the clock. Note the equip at 1191-1192 immediately above: because
+    // bestTool returns only harvesting items, a watchDigging cancel at THIS site
+    // means that equip failed or was undone, which is worth knowing rather than
+    // suppressing.
+    needsDrop: true,
   })
 
   // THE COMMENT ABOVE USED TO SAY dig() "resolves when the server confirms the
@@ -1669,7 +1729,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         // become the leak. If it has not finished in two seconds it is not
         // going to, and the process will be recycled by MemoryMax anyway.
         try {
-          await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot)
+          // The other site that wants the drop: collectBlock exists to acquire the item.
+          await withTimeout(bot.collectBlock.collect(target, { ignoreNoPath: true }), COLLECT_MS, bot,
+                            { needsDrop: true })
         } catch (e) {
           try {
             await Promise.race([
