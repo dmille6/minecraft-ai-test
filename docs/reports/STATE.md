@@ -1,10 +1,116 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-20 12:20 UTC — **NO LIVE CANARY. The slot is free and the ledger is clear.** cfc1c58 fleet-wide._
+_updated 2026-09-21 07:40 UTC — **LIVE CANARY needsdrop-01 (b72781e) on hive-b,hive-c,hive-d,board-c — the first FOUR-POOL / 20-bot draw.** Reads are scheduled DETACHED on the host; the apparatus that let digwatch-02 run 15 h unread is fixed._
 
 > **TWO COPIES OF THIS FILE EXIST AND THEY DIVERGED YESTERDAY.** The daily task reads
 > `mcai-rl02/docs/reports/STATE.md` first and falls back to the repo copy; on 20 Sep the **repo copy was the
 > newer one** (20:45Z vs 16:00Z) and the stale one named the wrong canary. Both are written together today.
 > **If the two disagree, take the later `_updated` stamp, not the documented order.**
+
+
+## OVERNIGHT 21 Sep — what changed while the owner slept
+
+### LIVE CANARY — needsdrop-01 (b72781e), declared 07:24:19Z on hive-b,hive-c,hive-d,board-c
+**The harvest watchdog is now OPT-IN.** `withTimeout`'s `needsDrop` installed `watchDigging`, a 1 Hz
+poller calling `pathfinder.stop()` + `stopDigging()` whenever the HELD item cannot harvest the
+**bot-global** `bot.targetDigBlock`. It defaulted to TRUE.
+
+Brace-matched census at cfc1c58: **15 sites armed, 13 of them not digging for a drop** (11 ×
+`pathfinder.goto`, one through a variable at :401; 2 × `placeBlock` at :5555/:5685) against 2 that
+were (gather's dig :1195, collectBlock :1672, which now opt in explicitly).
+
+**The mechanism**: `placeBlock` equips the block it is about to place, so the hand holds dirt; the
+watchdog then asks whether dirt can harvest stone and cancels somebody else's in-flight dig.
+Fleet-wide since digwatch-02 went to all 80 bots: **682 of 1,258 dig collisions (54.2%) are this
+watchdog, 682/682 with a harvesting pickaxe in the bot's inventory**, held item dirt 67.9%, empty
+19.8%, blocks stone 49.9% + cobblestone 34.0%.
+
+- **PRIMARY (registered before deploy): share of gather runs ending `Digging aborted`**, expect −54%,
+  KEEP at ≤ −25%, readability floor 200 canary gather runs. At deploy the canary pools ran **12.9%**
+  abort share over 1,160 runs/3 h against control 8.4% — exposure measured, not assumed.
+- **NO PRODUCTIVITY GATE.** items/bot-h null sd 0.313 at k=20 (MDE ~85%) and the ceiling for a perfect
+  fix is ~+2.9%, because 83.9% of the affected blocks are stone and cobblestone. items and gather
+  success are REPORTED. **Deaths are the only gate**, two-death floor.
+- **Two Codex passes, both "deploy."** Pass 1 verified no dig becomes unbounded (gather keeps 20 s +
+  cleanup; the disarmed navigation calls retain 25/10/15/6/12/8/20/20/5/12/40 s) and confirmed
+  watchDigging is bot-global. Pass 2's residual: it also cancelled PATHS, so `surface`'s 40 s GoalY
+  walk (:5976) loses an incidental early cancel — conditional, and general navigation is
+  `canDig=false` (index.mjs:274, "deliberate and load-bearing"), which was verified not assumed.
+- **Pass 2 corrected my framing**: I wrote the cost of disarming is "latency, never a hang". Too
+  strong — extra delay while submerged or under attack can kill inside a finite budget. That is
+  exactly why deaths are the gate.
+- **NOT "equip rather than abort"** (the old queue item 4): both engines refused it. The equip already
+  exists three lines above the watched dig at :1191-1192 and returns only harvesting tools, so a
+  collision there proves the equip failed or was undone; changing the held item mid-dig resets the
+  server's break progress while mineflayer's dig resolves on a local timer with no ack; and
+  `digcollision.mjs` says "IT MUST NOT RETRY". Dig ownership belongs in the arbiter — i.e. **inside
+  owner-01c**, whose `GATED_SYNC` already lists `stopDigging`.
+- Suite 190/190 (baseline cfc1c58 is 189/189). **Two existing tests encoded the old contract and were
+  updated deliberately** — `body-claim.test.mjs` asserted "the default must stay true", and
+  `dig-approach-watchdog.test.mjs`'s CONTROL inherited the watchdog from the default, so flipping it
+  would have made that control silently stop reproducing the defect while the FIX test beside it
+  compared two identical configs and passed for nothing.
+- **Reads scheduled DETACHED on the host** (`~/mcai-analysis/run-needsdrop-reads.sh`, pid confirmed
+  with the anchored pgrep): +90 08:54Z, +180 10:24Z, +360 13:24Z, +540 16:24Z, deadline +660 18:24Z.
+  Output accumulates in `~/digest/needsdrop-01-reads.txt`.
+
+### THE DRAW IS NOW FOUR POOLS / 20 BOTS
+Measured null sd of the pool-mean ratio-DiD on items/bot-h, 300 random splits per cell:
+
+| | k=5 | k=10 | k=20 | k=40 |
+|---|---|---|---|---|
+| 3 h | 0.608 | 0.443 | **0.313** | 0.292 |
+| 9 h | 0.411 | 0.318 | 0.222 | 0.196 |
+
+**k=20 at 3 h beats k=5 at 24 h at one eighth the wall clock**; past k=20 the control set shrinks and
+the gain stalls. At k=5 the floor is sd 0.262 — MDE ~51% at ANY window — so a five-bot draw, not a
+short read, is what made the committed endpoint unreadable. The 12 h per-pool exclusion already caps
+the fleet near two canaries per 12 h, so this spends surplus CONTROL pools, not throughput.
+`drawrec.sh` degrades 4 → 3 → 2 and says which. CLAUDE.md's "randomize five bots" was a choice; this
+is the change to it, and the DiD rigor it protects is untouched.
+
+### APPARATUS — the reason 17 of 55 ledger decisions name a failure rather than a result
+- **`fleet-deploy --pool` now REFUSES unless a reader exists**: `canary-loop.sh` alive (anchored, because
+  `pgrep -f canary-loop` self-matches) or `~/MANUAL-READS-UNTIL` holding a future UTC stamp.
+  `READER_OK=1` overrides and must be typed. Tested on four paths; **it fired correctly on its first
+  real use tonight.**
+- **`canarywatch.py`** (cron */10) raises STALE (past `deadline_min` with no decision for that
+  sha+pool) and ORPHANED (declared canary, no reader). 11/11 self-test cases, and **both alarms have
+  been seen to fire** — the dead loop stayed invisible because its monitor never had.
+- **`stuckwatch.py`** (cron :17/:47) pages on bots pinned ≥ 4 h. Live: **4 of 80** — hive-b-Comet (at
+  y=0), hive-d-Delta, isolated-d-Alpha, isolated-d-Echo.
+- `drawrec.sh` band centre is the all-pool median (was the 5080-half median, which judged the -d pools
+  against a centre they do not contribute to).
+
+### SEED CANARY — placebo-a +48 h (was 6 h overdue; taken 06:2xZ)
+**gather success DiD +29.1 pp** (13.0% → 42.7% against control 20.1% → 20.7%), stock +9.7/bot-h,
+immobile −4.5 pp, iron-pick share −18.7 pp. With the **six canary-contaminated control pools dropped**
+(`SEED_CONTROL_EXCLUDE`): **+32.1 pp**, stock +9.8, immobile −9.6 pp — contamination was *diluting* the
+effect, not creating it. Clean controls went 24.2% → 21.8% while their immobility doubled.
+- **NOT yet attributable to the seed.** The reseed-plus-reset confound has not washed out at 48 h —
+  the iron-pick collapse is the inventory wipe still unrecovered. And I could not separate "fresh
+  terrain" from "fresh bot state": my avoid-rule discriminator found **zero** `learned_avoid` rows in
+  either arm, i.e. the instrument could not see the thing it was built to test, so that hypothesis is
+  UNTESTED, not refuted.
+- placebo-b +48 h is **scheduled detached for 11:26Z** → `~/digest/seed-placebo-b-48h.txt`. Both +72 h
+  reads land 22 Sep, clear of the 24–27 Sep program window.
+
+### QUEUE CHANGES from the two-engine review
+- **Queue 4 "equip rather than abort" is DEAD as written.** Its real remedy is a subset of queue 5
+  (arbiter dig ownership). The `needsDrop` half shipped tonight as needsdrop-01.
+- **Queue 10 concurrent canaries — DROP on engineering cost.** It buys ~2% worse SD for twice the
+  experiments; raising k from 5 to 20 bought a 1.9× SD improvement for free tonight. (The *old*
+  argument against it — "concurrency shrinks the canary" — was wrong and stays retracted.)
+- **owner-01c has a pre-flight landmine, found and verified**: `index.mjs:259` calls
+  `runner.arb.installActuatorGate(bot, …)` guarded only by `runner?.arb` existing, but
+  **`installActuatorGate` does not exist in cfc1c58's `arbiter.mjs`** (115 lines; it is only on
+  `movement-owner-1`). With `ARBITER=1` on today's main that is a TypeError mid-spawn, before the
+  movement profiles are set. Attempts one and two died on apparatus; assert the method exists and
+  `bot.dig.__arbiterGated` is true before declaring attempt three.
+- **The composed drowning trap is NOT a program priority.** isolated-d-Alpha sat at exactly one
+  integer position for 4 h, sealed in water, the pocket rung refusing to dig because "cell y=54 would
+  let liquid in" while the bot was already submerged. Vivid, but measured fleet-wide it is **1 bot in
+  80 (~0.9% of items)**, and 15 other bots hit `sealed_in_liquid` and keep moving. Logged as an
+  operations alarm, not a canary.
 
 ## Fleet
 - 80 bots / 16 Peaceful worlds. **`cfc1c58` fleet-wide, ONE version on all 80 (`cfc1c58+e1d1b2`)**, verified
