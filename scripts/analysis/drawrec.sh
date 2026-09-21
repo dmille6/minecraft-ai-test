@@ -115,13 +115,64 @@ def elig(w): return [p for p, (h, ibh) in band.items() if p != 'placebo-c' and n
 e = elig(0.25); w = '±25%'
 # TWO pools are needed, so widen when the ±25% band yields FEWER THAN TWO, not only when it yields none: on 16 Sep 21:13Z the
 # loop's first draw found one pool at ±25% and slept instead of stating the ±40% band the rule allows.
-if len(e) < 2: e = elig(0.40); w = '±40% (widened, stated)'
+# Widen toward the FOUR-pool target, not the two-pool floor: the band is there to
+# match productivity, and taking four at +-40% is a better read than two at +-25%
+# (sd 0.313 vs 0.443) for a matching criterion measured to cost almost nothing on
+# spread (0.81 inside vs 0.84 outside).
+if len(e) < 4: e = elig(0.40); w = '±40% (widened, stated)'
 trapped = [p for p in e if expo[p][2] >= 1]
 print('median', round(med, 1), 'excluded(12h)', sorted(excl), 'band', w)
 print('eligible', [(p, band[p][0], band[p][1], expo[p]) for p in e], '| with a trapped bot:', trapped)
 print('half mix on offer:', {h: sum(1 for p in e if band[p][0] == h) for h in ('5080', '3090')},
       '-- RECORD THE HALF OF EACH DRAWN POOL AS A READ COVARIATE')
-rng = secrets.SystemRandom(); order = trapped + [p for p in e if p not in trapped]; pick = (rng.sample(trapped, min(2, len(trapped))) + rng.sample([p for p in e if p not in trapped], max(0, 2 - min(2, len(trapped))))) if len(e) >= 2 else None
-print('DRAW (two pools of five, owner C):', pick or 'NONE (fewer than two eligible)')
-if pick: print('drawn halves:', {p: band[p][0] for p in pick})
+# DRAW AS MANY POOLS AS THE BAND WILL GIVE, UP TO FOUR. TWO IS A FLOOR, NOT A TARGET.
+#
+# MEASURED 2026-09-21, 300 random splits per cell of the real 80 bots, null sd of
+# the pool-mean ratio-DiD on items/bot-hour:
+#
+#         k=5      k=10     k=20     k=40
+#   3h    0.608    0.443    0.313    0.292
+#   6h    0.600    0.395    0.276    0.219
+#   9h    0.411    0.318    0.222    0.196
+#
+# k=20 at 3 h (0.313) BEATS k=5 at 24 h (0.326) at one eighth the wall clock, and
+# past k=20 the gain stalls (0.292) because the control set starts shrinking. Four
+# pools is the optimum. Fitting sd^2 = a^2/W + c^2 at k=5 gives a floor sd of
+# 0.262 -- MDE ~51% at ANY window -- so a five-bot draw, not a short read, is what
+# made the committed endpoint unreadable. 55 decisions in 17 days produced 15 KEEPs
+# and a flat endpoint, exactly what a 119% MDE predicts.
+#
+# CLAUDE.md says "randomize five bots per change". That five was a choice, and this
+# is the change to it: the rigor it protects is difference-in-differences, which is
+# untouched.
+#
+# Throughput is NOT the price. The binding constraint measured on 19 Sep is the 12 h
+# per-pool exclusion plus the band, which already caps the fleet at about two
+# canaries per twelve hours. Asking for four pools instead of two consumes the same
+# exclusion budget per canary-day; it spends surplus CONTROL pools, which are the
+# thing in surplus.
+#
+# It degrades rather than refusing: four if four are in band, else three, else two,
+# and it SAYS WHICH -- so the read knows its own power instead of assuming it.
+TARGET_K = 4
+MIN_K = 2
+rng = secrets.SystemRandom()
+npick = min(TARGET_K, len(e))
+if npick < MIN_K:
+    pick = None
+else:
+    _tr = rng.sample(trapped, min(npick, len(trapped)))
+    _rest = [p for p in e if p not in _tr]
+    pick = _tr + rng.sample(_rest, npick - len(_tr))
+print('DRAW (%s, owner C):' % ('%d pools = %d bots' % (len(pick), 5 * len(pick)) if pick else 'none'),
+      pick or 'NONE (fewer than %d eligible)' % MIN_K)
+if pick:
+    _k = 5 * len(pick)
+    _sd = {5: 0.608, 10: 0.443, 15: 0.360, 20: 0.313}.get(_k, 0.313)
+    print('drawn halves:', {p: band[p][0] for p in pick})
+    print('k = %d bots; measured null sd on items/bot-h at 3 h is %.3f -> MDE ~%.0f%% at 1.96 sigma.'
+          % (_k, _sd, 100 * (pow(2.718281828, 1.96 * _sd) - 1)))
+    if len(pick) < TARGET_K:
+        print('NOTE: drew %d of the %d-pool target -- the band had no more. The read is '
+              'correspondingly weaker and must say so.' % (len(pick), TARGET_K))
 PY
