@@ -195,3 +195,41 @@ and only 5% of starved bots hold its materials while 23% hold ≥ 2 logs.
    `skill.fail_class`. A per-target success column that is 0.0% everywhere is a blind
    detector, not a result.
 5. The oak/birch gap is a hypothesis with an n=1 within-bot control.
+
+---
+
+## 5. The seed canary's tooling confound — tested, and it does NOT explain the effect
+
+The overnight session raised a rival for the seed canary's +29 to +32 pp: *"a reseed resets bot
+state, which includes handing bots working tools. Nobody has ruled out that the re-seeded pools
+were simply the only bots with live pickaxes."* With 62 of 80 bots fleet-wide holding only dead
+stubs, that rival is worth taking seriously. Script: `seedtools.py`.
+
+**The exposure half of the rival is TRUE.** Live-pickaxe share, denominator = each pool's 5 bots:
+
+- **re-seeded pools 5/10 = 50.0%**
+- every other pool **13/70 = 18.6%**
+
+(placebo-b 3/5 and placebo-a 2/5; five pools — board-c, board-d, hive-b, hive-c, isolated-d — are
+at 0/5.) So the re-seeded pools really are better tooled.
+
+**But stratifying on tool state removes the rival rather than supporting it.**
+Gather success, denominator printed in each cell:
+
+| | has a live pickaxe | only dead stubs |
+|---|---:|---:|
+| **re-seeded** | **50.5%** of 457 | **43.4%** of 541 |
+| all other pools | 18.4% of 1,262 | 20.1% of 6,520 |
+
+The seed gap is **+32.1 pp among tooled bots and +23.3 pp among starved bots.** It survives inside
+both strata, so tooling is not what produces it.
+
+**And the same table independently re-confirms that starvation is downstream**, with a cleaner
+design than the wood-only split: in the control pools, holding a live pickaxe is worth
+**18.4% vs 20.1%** — flat, and if anything slightly negative.
+
+**Limitation, stated rather than buried:** each bot is assigned to a stratum by its *latest* tools
+snapshot, so a bot that wore out its last pickaxe mid-window has all 360 minutes of its runs counted
+as "dead stubs". That blurs the two strata. It is also two pools and ten bots on the treated side.
+This narrows the rival; it does not close the seed canary, whose registered discriminators are the
++72 h reads on 22 Sep.
