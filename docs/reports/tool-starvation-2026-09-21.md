@@ -63,11 +63,48 @@ sitting in a closed loop, and examples are stark: `board-a-Echo` holds **243
 cobblestone and 0 sticks**; `board-b-Bravo` holds **14 sticks and 0 cobblestone**.
 
 **The escape is a WOODEN pickaxe**, which needs 3 planks + 2 sticks and no stone at
-all. The 31 bots with wood and no cobble could each craft one and be mining within
-a minute. Which lands exactly on a known and previously measured defect —
-`learned-avoid-blacklists-the-ladder`: **70 of 80 bots forbidden to craft a wooden
-pickaxe** by accumulated avoid rules. That should be re-measured first; if it still
-holds, it is the binding constraint on the whole gather endpoint.
+all.
+
+### The avoid-rule hypothesis is REFUTED, and the bots are trying
+
+`learned-avoid-blacklists-the-ladder` records 70 of 80 bots once forbidden to craft
+a wooden pickaxe. That is **stale**: a full walk finds **no avoid or veto event kind
+at all**. Positive control for that zero — the only `*refused` kinds present are
+`canopy_drop_refused`, `explore_blind_step_refused`, `maroon_climb_refused`,
+`maroon_dig_refused`. Nothing is blacklisting the craft.
+
+The bots are trying and failing: **875 failed crafts against 150 successes in 6 h**,
+with explicit reasons.
+
+### What the failures actually say, including where I over-read them
+
+My first reading was that the resolver demands a specific material variant —
+`cannot craft stone_pickaxe -- gather cobbled_deepslate ... (you have 0x
+cobbled_deepslate)` on a bot holding 56 andesite, and `crafting_table -- gather
+oak_log` on a bot holding 5 other wood. That is the known
+`wrong-wood-blocks-the-craft-tree` defect and it is real.
+
+**But it is 19%, not the story.** Of 718 craft failures naming a missing material:
+
+| | n | share |
+|---|---:|---:|
+| genuinely lacks the material | 578 | **81%** |
+| holds an equivalent the resolver will not take | 140 | 19% |
+
+So the variant mismatch is worth fixing — 140 wasted attempts in six hours — but it
+is not what is holding the fleet. **81% genuinely have nothing to craft with.**
+
+### The root is wood, not stone
+
+51 of the 65 starved bots hold **no log at all**. Wood is the entry point: logs make
+planks, planks make sticks, planks + sticks make a wooden pickaxe, and a wooden
+pickaxe makes cobblestone possible. **Nothing in that chain needs a pickaxe to
+start.** Oak logs carry no harvest-tool requirement.
+
+So the real question is not why bots cannot craft — it is **why 51 of 65 tool-starved
+bots have failed to acquire a single log**, when that is the one thing they can do
+bare-handed. That is the same endpoint (`gather` on wood) that `leaf-01` was aimed at
+from a different direction, and it is where the next measurement belongs.
 
 **And 6 bots have both inputs right now and are not crafting.** Whatever stops
 those six is not a materials problem and is worth reading on its own.
