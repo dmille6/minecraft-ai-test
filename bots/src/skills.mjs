@@ -1536,6 +1536,41 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         for (const q of exposedOnes) why[breakVetoAt(bot, q) ?? 'unknown']++
         const named = Object.entries(why).filter(([, n]) => n > 0)
           .sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}:${n}`).join(' ')
+        // THE MEASUREMENT, EMITTED SEPARATELY so the model-facing sentence below
+        // is byte-for-byte what it was. `why` is the veto's own vocabulary and is
+        // untouched; this says which liquid sat on which face, without collapsing
+        // a mixed neighbourhood to a winner.
+        try {
+          const faces = {}
+          for (const q of exposedOnes) {
+            const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+            if (typeof m?.getBlock !== 'function') continue
+            const lbl = liquidFacesLabel(liquidFaces({
+              above: m.getBlock(q, 0, 1, 0),
+              sides: [m.getBlock(q, -1, 0, 0), m.getBlock(q, 1, 0, 0),
+                      m.getBlock(q, 0, 0, -1), m.getBlock(q, 0, 0, 1)],
+            }))
+            faces[lbl] = (faces[lbl] ?? 0) + 1
+          }
+          // TRUNCATION WOULD EAT EXACTLY WHAT THIS IS FOR (Codex pass 2).
+          // logger.mjs caps event detail at 300 characters. Sorted by frequency,
+          // a long tail of mixed neighbourhoods pushes the RARE buckets off the
+          // end -- and the rare bucket is lava, the one case nobody may relax.
+          // So: anything naming lava or an unknown fluid is emitted FIRST, the
+          // list is capped explicitly, and the count of buckets is carried so a
+          // reader can tell a short list from a truncated one.
+          const ordered = orderFaceBuckets(faces)
+          const shown = ordered.slice(0, 6)
+          const facesNamed = shown.map(([k, n]) => `${k}:${n}`).join(' ')
+          if (facesNamed) {
+            logEvent({ kind: 'veto_faces', status: 'no_effect',
+                       detail: `${blockName} ${rejectedUnsafe} unsafe candidate(s) [${named}] ` +
+                               `faces ${facesNamed}` +
+                               (ordered.length > shown.length
+                                 ? ` (+${ordered.length - shown.length} more of ${ordered.length})`
+                                 : ` (${ordered.length} kind(s))`) })
+          }
+        } catch { /* a measurement may never cost the skill its turn */ }
         return { status: 'failed', failClass: 'no_safe_target',
                  vetoCause: why,
                  detail: `${blockName} found but all ${rejectedUnsafe} candidates are beside water or ` +
@@ -4316,8 +4351,24 @@ const FLOW_NEIGHBOURS = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]
  * How many liquid faces the stair would expose if it ran `bear` from `from`.
  *
  * A TIE-BREAK, NOT A GUARD. Upstream treats liquid adjacency as a hard refusal
- * to break the block; mineflayer-collectblock then turns that refusal off on
- * every single call (CollectBlock.ts sets `dontCreateFlow = false` before each
+ * to break the block. THE NEXT CLAUSE IS FALSE OF THE DEPLOYED VERSION and is
+ * left visible rather than quietly deleted, because it is the sentence that would
+ * reassure the next reader: `grep -rn dontCreateFlow node_modules/
+ * mineflayer-collectblock/` returns NOTHING in 1.5.0. What it actually does is the
+ * opposite -- `lib/CollectBlock.js:70` re-runs
+ * `bot.pathfinder.movements.safeToBreak(block)` inside `mineBlock` and, on
+ * failure, calls `removeTarget(block); return` SILENTLY: no throw, no log. And
+ * index.mjs hands it OUR gatherMoves, which sets dontCreateFlow = true.
+ *
+ * Scope, twice corrected because both drafts over-claimed (Codex passes 1 and 2):
+ * that sink is GATHER's, reached through collectblock. It does not protect or
+ * constrain `mine`, which digs directly. And "ships inert" is too strong -- what
+ * admitting a liquid-adjacent candidate in GATHER's filter actually buys is a walk
+ * to the tree, the pathfinding for it and the elapsed budget, and then no dig and
+ * no word from collectblock. The bot's behaviour DOES change; what does not change
+ * is that any wood comes of it.
+ * (superseded text: mineflayer-collectblock then turns that refusal off on
+ * every single call -- CollectBlock.ts sets `dontCreateFlow = false` before each
  * collect) because as a veto it stops the bot doing anything. So it is used
  * here only to order cardinals that are otherwise equally dry: at a shoreline,
  * two directions can both run four dry steps while one of them runs along the
@@ -4800,6 +4851,94 @@ export function breakVeto ({ above = null, sides = [], entitiesAbove = 0 } = {})
   if (falls) return 'falling'
   if (blocked) return 'entity'
   return null
+}
+
+/**
+ * WHICH liquid, and on WHICH face. A MEASUREMENT, not a decision.
+ *
+ * `breakVeto` above answers one question -- may this block be broken -- and
+ * collapses every liquid to the token `liquid`. That is the right answer for a
+ * veto and the wrong one for an investigation: 33% of wood gather runs die here,
+ * and nothing downstream can tell a shoreline tree (water beside, flowing, decays
+ * over seven blocks on ground that is solid by generation) from lava, or from
+ * water ABOVE, which is a column that pours down and re-spreads at the bottom --
+ * the case `dontCreateFlow` actually exists for.
+ *
+ * THIS DOES NOT COLLAPSE. It reports the above face and a count per kind across
+ * the four horizontal faces, because a token that picks a winner hides exactly
+ * what the measurement is for: `[water, unknown_fluid]` reported as `side_water`
+ * would fold an unknown fluid into the bucket someone later proposes to relax,
+ * and `above: water, sides: [lava]` reported as `above_water` would hide lava
+ * entirely (Codex pass 1). Mixed neighbourhoods stay mixed here.
+ *
+ * WHAT THIS COSTS, STATED RATHER THAN CLAIMED AWAY. It is not "behaviour-inert":
+ * it adds up to 160 local block reads (5 faces x at most 32 candidates, already
+ * bounded by findBlocks count:32) plus one queued event, on a path that has
+ * already failed. What it does NOT touch is any decision: `breakVeto`, the veto
+ * histogram, `result.detail` and therefore the LAST ACTION sentence the model
+ * reads are byte-identical to baseline. Note also that `logEvent` stamps
+ * `trigger: reflex`, and scripts/reflect.py aggregates by trigger -- so this is
+ * invisible to the MODEL, not to every reader downstream.
+ *
+ * WHY IT IS A SEPARATE FUNCTION AND A SEPARATE EVENT. The first version widened
+ * `breakVeto`'s own token, and that is NOT behaviour-inert however it looks: the
+ * histogram built from it goes into `result.detail`, `cognitive.mjs` copies that
+ * into `lastOutcome` and memory, and `prompt.mjs` renders it to the model as
+ * LAST ACTION. Changing the token changes the text the model reads and therefore
+ * can change what it decides next. It also broke eleven literal assertions in
+ * break-veto.test.mjs, including a real-block integration test. So the veto, its
+ * token, the histogram and the model-facing sentence are all left exactly as they
+ * were, and the breakdown is emitted alongside as its own event.
+ *
+ * An unknown liquid is reported as `liquid`, never guessed as water: guessing
+ * would invent the very distinction this function exists to measure.
+ */
+export function liquidKind (b) {
+  if (!b) return null
+  const n = String(b.name || '')
+  if (n === 'water' || n === 'flowing_water' || n === 'bubble_column') return 'water'
+  if (n === 'lava' || n === 'flowing_lava') return 'lava'
+  // `liquid` is a DECORATION Movements.getBlock writes (movements.js:236-238).
+  return b.liquid ? 'liquid' : null
+}
+
+export function liquidFaces ({ above = null, sides = [] } = {}) {
+  const sideCounts = {}
+  for (const b of sides) {
+    const k = liquidKind(b)
+    if (k) sideCounts[k] = (sideCounts[k] ?? 0) + 1
+  }
+  return { above: liquidKind(above), sides: sideCounts }
+}
+
+/**
+ * Render one candidate's liquid neighbourhood as a stable, greppable token set.
+ * Sorted so the same neighbourhood always reads the same way.
+ */
+/**
+ * Order the emitted buckets so TRUNCATION CANNOT EAT THE RARE ONE.
+ *
+ * logger.mjs caps event detail at 300 characters. Sorted by frequency, a long
+ * tail of mixed neighbourhoods pushes the rare buckets off the end -- and the
+ * rare bucket is lava, the single case nobody may relax (Codex pass 2). So
+ * anything naming lava sorts first, then an unknown fluid, then the rest by
+ * frequency.
+ *
+ * Exported because it must be TESTED, and because the first attempt to test it
+ * re-implemented this ranking inside the test file: the assertion then passed
+ * against a mutated source, which is a test that cannot fail. Extracting the
+ * decision is the repo's own rule for exactly this.
+ */
+export function orderFaceBuckets (faces = {}) {
+  const rank = k => (String(k).includes('lava') ? 0 : String(k).includes('liquid') ? 1 : 2)
+  return Object.entries(faces).sort((a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1])
+}
+
+export function liquidFacesLabel (faces) {
+  const parts = []
+  if (faces?.above) parts.push(`above_${faces.above}`)
+  for (const k of Object.keys(faces?.sides ?? {}).sort()) parts.push(`side_${k}x${faces.sides[k]}`)
+  return parts.join('+') || 'none'
 }
 
 /**
