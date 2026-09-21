@@ -110,10 +110,42 @@ no pickaxe is the wooden one, and only 5% of starved bots hold its materials whi
   not canary builds**. The real canary shas in the window are 2850cde, 1457f3a, b72781e. The
   `SEED_CONTROL_EXCLUDE` list actually used is hardcoded and does match the real canary pools, so no read was
   harmed — but the block reads like evidence and is not.
-- **REMAINING: placebo-a +72 h 22 Sep 00:00Z, placebo-b +72 h 22 Sep 11:25Z.** Both are scheduled **detached
-  on the host** (`~/mcai-analysis/run-seed-72h.sh`, pid 1009885, verified alive 21 Sep 11:22Z) → outputs
+- **⚠ THE "CLEAN CONTROLS" ARM IS ONE POOL (five bots), AND NOTHING PRINTS THAT.** placebo-b's clean arm reads
+  **+38.4 pp** — but its `control/pre` is **125 bot-h, identical to the five-bot treatment**.
+  `seedread.py:90` drops every `isolated*`/`self-*` pool from **both** arms unconditionally (4 pools / 20
+  bots), leaving 10 control pools = 1,250 bot-h; `SEED_CONTROL_EXCLUDE` then drops **nine of the ten**,
+  leaving **placebo-c alone**. The header says what it dropped and never what remains.
+  **This inverts the overnight reading**: that session treated placebo-a's clean `+32.1 pp` as the
+  better-controlled figure, but at this fleet's measured noise floor (null sd **0.608 at k=5** vs 0.313 at
+  k=20) **a single-pool control is the noisiest comparator available.** Neither arm is clean — all-controls
+  (50 bots) carries real canary exposure, clean-controls has n=1 pool. **The sign and size are not in doubt**
+  (+32.8 / +38.4 / placebo-a agreeing); the precision is.
+- **CANDIDATE FIX — the `isolated*` pools, and the reason they are excluded is REAL but is about DRAWING.**
+  `seedread.py:90` drops them from both arms with no comment. The draw ban exists because **there are no
+  `_pool-isolated-*` state dirs on .31** (verified 21 Sep: `_pool-` dirs exist for board-a..d, hive-a..d,
+  placebo-a..d and nothing else), so a canary cannot be deployed to them — **and that is exactly what makes
+  them structurally incapable of contamination.** They are 20 active bots (isolated-a/b each have a stale
+  sixth state dir, `Charlie`, which does not report).
+  **Evidence the `:90` line is a slip, not a policy**: the comment immediately above it counts *"six of
+  FOURTEEN controls"*, which only holds if `isolated` counts (16 pools less the two re-seeded); and
+  `placebo-c`, under the same draw ban, IS admitted three lines down.
+  **NOT YET ACTED ON, and deliberately so** — changing the comparator mid-series makes the +72 h read
+  incomparable to the +48 h ones, and doing it after seeing +38.4 pp is choosing the comparator on the
+  answer. **Register it as a proposal for a future read; do not slip it into tomorrow's.**
+- **REMAINING: placebo-a +72 h 22 Sep 00:00Z, placebo-b +72 h 22 Sep 11:25Z** → outputs
   `~/digest/seed-placebo-{a,b}-72h.txt`. KEEP/REVERT do not apply (no code change). Both close clear of the
   24–27 Sep program window.
+- **⚠ THE +72 h READER WAS BROKEN AND WAS REPLACED TODAY (prospectively, 11:45Z).** v1's `CLEAN` list
+  excluded **placebo-c as well**, i.e. ten of the ten eligible control pools — **verified** by running v1's
+  exact list against the closed +48 h window, which printed `control/pre 0 NO DATA -- refusing to report
+  this cell as zero` and **no DiD block at all**. Both +72 h clean arms would have come back empty, and the
+  +72 h read cannot be retaken. (The script's refusal is v24 working: no wrong number would have been
+  published.) **Fix: drop `placebo-c` from the exclusion so the +72 h clean arm matches the one the +48 h
+  reads used** — comparability preserved, not changed.
+  v1 was **killed, not edited** (byte-offset re-read); v2 is `~/mcai-analysis/run-seed-72h-v2.sh`, running
+  from a copy at `~/.run-seed-72h-live.sh`, **PPID 1, in its wait loop, due in 738 / 1,423 min** — and the
+  new list is **proven** non-empty (control 125 / 245 bot-h). Full amendment in
+  `seed-canary-registration.md`.
 - **The tooling rival is TESTED and it does NOT explain the effect** (21 Sep, `seedtools.py`). The overnight
   session asked whether the re-seeded pools were simply the bots with live pickaxes. **The exposure half is
   true** — live-pickaxe share is **5/10 (50.0%) in the re-seeded pools vs 13/70 (18.6%) everywhere else**
@@ -300,6 +332,14 @@ registrations, and **`lib/` — the golden analysis library restored after every
    neither file.** Treat silence as a reason to run the anchored pgrep.
 2. **Local analyst**: Monitor running `bash ~/analystwatch.sh` on .31. **DO NOT FILTER IT ON MESSAGE TEXT** —
    a filter added 18 Sep suppressed a verdict carrying `page_claude: True`.
+   **⚠ CORRECTED 21 Sep — IT IS AN ALARM, NOT A HEARTBEAT, and the old text here implied otherwise**
+   ("~20 lines over a canary's life", which reads as periodic output). `analystwatch.sh` polls for a new
+   `*.verdict.json` every 300 s and pipes it to `analystflag.py`, **which prints NOTHING when there is
+   nothing to flag** — verified by running it by hand on `20260921T1130.verdict.json`: no output, exit 0.
+   So a 30-minute watch that delivers zero events is indistinguishable from a dead `analystwatch.sh`.
+   **That happened today**: the monitor expired silent while the analyst had in fact produced 11:00 and
+   11:30 verdicts normally. **Confirm the analyst is alive from `ls -t ~/digest/*.verdict.json`, never from
+   the monitor being quiet** — the same defect as `page.jsonl` in item 1.
 3. **Death poll**: the loop runs `verdict.py <run> 0 --poll` every 5 min and pages on REVERT, so monitor 1
    covers it — **only if the loop is actually alive.** Verify with the anchored pgrep, do not assume.
 4. **If the loop is dead with a canary declared**: read the journal, take the reads by hand at their
