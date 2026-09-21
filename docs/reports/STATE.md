@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-21 10:45 UTC — **NO LIVE CANARY. needsdrop-01 REVERTED at +180 and torn down; 80 bots on cfc1c58, one version, ledger clear.** The slot is free and the next change has 682 rows of evidence behind it._
+_updated 2026-09-21 11:00 UTC — **NO LIVE CANARY; 80 bots on cfc1c58, one version, ledger clear.** The night's real finding is NOT the canary: **81% of the fleet cannot mine**, and the root of it is wood gather at 10% success. See `tool-starvation-2026-09-21.md` before picking up anything else._
 
 > **TWO COPIES OF THIS FILE EXIST AND THEY DIVERGED YESTERDAY.** The daily task reads
 > `mcai-rl02/docs/reports/STATE.md` first and falls back to the repo copy; on 20 Sep the **repo copy was the
@@ -52,6 +52,44 @@ watchdog, 682/682 with a harvesting pickaxe in the bot's inventory**, held item 
 - **Reads scheduled DETACHED on the host** (`~/mcai-analysis/run-needsdrop-reads.sh`, pid confirmed
   with the anchored pgrep): +90 08:54Z, +180 10:24Z, +360 13:24Z, +540 16:24Z, deadline +660 18:24Z.
   Output accumulates in `~/digest/needsdrop-01-reads.txt`.
+
+### ►►► THE HEADLINE: 81% OF THE FLEET CANNOT MINE, and wood is the root
+Full account in `tool-starvation-2026-09-21.md`. Found while reading the wreckage of a canary aimed at
+the wrong thing.
+
+- **65 of 80 bots carry only dead pickaxes** — every one worn to **1 durability** of 131. **230 dead
+  pickaxes fleet-wide**, 3.5 per starved bot, up to 8 each. **386 of 392 watchDigging cancels (98.5%)**
+  happened in that state.
+- **Three CORRECT policies compose into "cannot mine"**: `toolFor` reserves tools worn past `HARD_STOP`
+  and returns no item → `applyToolPolicy` deliberately swaps a **non-tool into the hand** to stop the
+  last tool being worn down → `watchDigging` cancels the dig because **dirt cannot harvest stone**. Each
+  was added for a measured reason. The composition is the bug, not any part. The only trace in the logs
+  is `Digging aborted`.
+- **THIS CORRECTS A CLAIM I MADE TWICE.** "682 of 682 cancels had a harvesting pickaxe in the bot's
+  inventory — the remedy was in its pocket" tested only that an item *named* `*pickaxe` EXISTED. It never
+  read durability. The pocket held three stone pickaxes at 1/131. That framing is what aimed
+  `needsdrop-01` at the watchdog instead of the tools.
+- **The avoid-rule blacklist is STALE/REFUTED** — a full walk finds **no avoid or veto event kind at
+  all** (positive control: the only `*refused` kinds present are canopy_drop, explore_blind_step,
+  maroon_climb, maroon_dig). Nothing blocks the craft. Bots are trying: **875 failed crafts vs 150
+  successes in 6 h**.
+- The `wrong_wood` variant mismatch is real but **19%** (140 of 718), not the story; **81% genuinely lack
+  the material.** I led with the mismatch after seeing `gather cobbled_deepslate` on a bot holding 56
+  andesite, and that was over-reading it.
+- **THE ROOT IS WOOD.** Gather runs targeting wood over 6 h: starved bots **10.8%** success (348/3208),
+  healthy bots **9.7%** (58/601) — **the same rate, so starvation is downstream, not causal.** 72% of the
+  failures are `unreachable` (39%) + `no_safe_target` (33%).
+- **The chain**: wood at 10% → no sticks/planks → no wooden pickaxe → no stone → no cobblestone → no
+  stone pickaxe → every pickaxe dead → the three-policy composition silently stops mining.
+- **NEXT CANARY BELONGS AT QUEUE ITEM 3 (navigation/gather)**, which both review engines ranked top
+  independently. Read it on **acquired wood**, never on refusals avoided — `leaf-01` halved `unreachable`
+  and the freed attempts became `no_safe_target` and `no_path`, not successes. The refusals move; the
+  10% does not.
+- **Rival explanation this raises for the seed canary's +29 pp**: a reseed resets bot state, which
+  includes handing bots working tools. Nobody has ruled out that the re-seeded pools were simply the only
+  bots with live pickaxes. Check that before reading the seed effect as terrain.
+- **NOT the fix**: raising `HARD_STOP` or disarming `watchDigging`. Both grind the last pickaxe to dust,
+  which is what the iron-retention work removed on evidence.
 
 ### THE VERDICT, and what it actually found
 **REVERT at +180.** Full account in `needsdrop-01-premise-refuted-2026-09-21.md`.
