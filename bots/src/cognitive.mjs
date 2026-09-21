@@ -228,6 +228,15 @@ export function applyPrereq(milestone, prereq, have, now = Date.now()) {
       // blocks can never be hard-blocked by an avoid rule and counts as
       // progress rather than busywork.
       wants: prereq.items[0],
+      // AND `wantsAny` MOVES WITH IT TOO, or the detour inherits the goal's
+      // family. The spread above copies every field, so a wood rung that accepts
+      // eight log types handed its whole family to a scaffold-dirt detour:
+      // measured by Codex pass 2, the resulting task read wants:'dirt' with all
+      // eight logs still wanted, so gathering birch counted as progress toward
+      // fetching dirt AND earned the milestone-critical exemption on a task that
+      // has nothing to do with wood. The detour's family is its own item list.
+      wantsAny: Array.isArray(prereq.items) && prereq.items.length > 1
+        ? [...prereq.items] : null,
     },
   }
 }
@@ -591,9 +600,19 @@ export class CognitiveLoop {
   }
 
   #wantedItems(milestone) {
+    // A GOAL THAT ACCEPTS ANY LOG MUST NOT CALL BIRCH OFF-TARGET.
+    //
+    // `wants` is a single registry key and stays one: it is indexed directly
+    // below and in workorder.mjs, and an array would make both silently do
+    // nothing. A milestone that accepts a FAMILY carries the family in
+    // `wantsAny`, and this set -- which drives the value classifier and the
+    // milestone_critical admission exemption -- has to include it. Without this,
+    // a bot could satisfy its wood rung with birch while every birch gain was
+    // scored `neutral` and never earned the exemption (Codex pass 1).
     const target = milestone?.wants
     if (!target) return null
-    const want = new Set([target])
+    const family = Array.isArray(milestone?.wantsAny) ? milestone.wantsAny : []
+    const want = new Set([target, ...family.filter(x => typeof x === 'string')])
     try {
       const def = this.bot.registry.itemsByName[target]
       if (def) {

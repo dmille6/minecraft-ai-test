@@ -62,6 +62,16 @@ function countMySightings(worldFacts, minDist) {
 }
 
 
+// MOVED UP FROM ITS ORIGINAL POSITION, and the move is the whole reason this
+// comment exists. The role ladders below are evaluated at MODULE LOAD, and they
+// now reference LOGS; with the declaration still further down the file, importing
+// milestones.mjs threw `Cannot access 'LOGS' before initialization` and every bot
+// would have failed to start. A `const` is hoisted into the temporal dead zone,
+// not initialised, so the error surfaces at import and not at first use.
+// Nothing in the literal depends on anything above it, so the move is safe.
+const LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
+              'dark_oak_log', 'mangrove_log', 'cherry_log']
+
 const M = {
   gather: (block, n, why) => ({
     // `wants` is what the admission gate reads to decide an action may not
@@ -83,6 +93,70 @@ const M = {
     progress: b => `${countItem(b, block)}/${n} ${block}`,
     hint: `gather with block=${block}.`,
   }),
+  /**
+   * ASK FOR WHAT THE SCOREBOARD ACCEPTS.
+   *
+   * `gather` above names ONE block, and three role ladders named `oak_log`
+   * while the counter beside them (`woodUnits`, via `countAny(b, LOGS)`) and
+   * the stockpile hint had already been widened to any log. That file's own
+   * comment records why the counter was widened:
+   *
+   *   "WOOD IS WOOD. This counted `oak_log` alone while the fleet held 2,966
+   *    oak and 4,105 logs of every other kind ... 39 of 80 bots (49%) read as
+   *    short of the 8-log floor while carrying hundreds of birch and spruce.
+   *    THEY WERE THEN SENT TO GATHER MORE OAK SPECIFICALLY."
+   *
+   * The fix was half-applied: the scoreboard and the hint accept any log, the
+   * GOAL still says oak. Measured 2026-09-21 over 12 h and 414,145 rows, with
+   * selection controlled by restricting to runs where that same bot had seen
+   * BOTH species in one affordance scan within the previous 180 s:
+   *
+   *     oak_log    3,302 runs   13.9% success
+   *     birch_log    132 runs   38.6% success
+   *
+   * 2.8x, and the fleet still asked for oak 25:1 when both were visible.
+   *
+   * WHAT THIS DOES AND DOES NOT DO. It changes the COMPLETION PREDICATE: a bot
+   * holding 12 birch now finishes the wood rung instead of being sent for more
+   * oak, which is the defect the counter's own note describes. It does NOT
+   * change the scan order, and an earlier draft claimed it would -- that story
+   * was refuted by executing it (Codex pass 1): `INTERESTING_BLOCKS` already
+   * begins oak/birch/spruce, `scanOrder(wantsAny)` is exactly equal to
+   * `scanOrder(wants)`, and oak occupies at most 8 of a 48-slot budget so it
+   * cannot crowd birch out of second position. The prompt.mjs edit that rested
+   * on that story has been reverted. Why the fleet then asks oak 25:1 when both
+   * are visible is STILL UNEXPLAINED and is the next thing to measure.
+   *
+   * `wants` STAYS A STRING and that is deliberate. It is read as a registry key
+   * by `cognitive.mjs #wantedItems` (`registry.itemsByName[target]`) and by
+   * `workorder.mjs readyFor`, both of which would silently do nothing with an
+   * array -- `itemsByName[['oak_log','birch_log']]` is undefined and the Set
+   * would hold an array object. `bankable.mjs` spreads it, so a bare string
+   * would shred into characters there. The consumers disagree with each other
+   * today, so this adds `wantsAny` rather than changing what `wants` means. The
+   * wider field is read by `MilestoneController.status()` (which forwards it) and
+   * by `cognitive.mjs #wantedItems`, which unions it into the set that drives the
+   * value classifier and the milestone-critical exemption. It is NOT read by
+   * prompt.mjs: that edit was made, refuted and reverted -- see above.
+   */
+  gatherAny: (names, n, why, label, id) => ({
+    // the representative stays first so every string consumer keeps working
+    wants: names[0],
+    // the scan order may see all of them; this is the half that changes behaviour
+    wantsAny: names,
+    // THE ID IS A PERSISTENCE KEY, NOT A LABEL. Attempts, skips and completions
+    // are stored against it, so renaming the rung silently resets its history --
+    // and in a canary that resets it on ONE ARM ONLY, which confounds exactly the
+    // advancement endpoint this change is read on (Codex pass 2). Callers that
+    // are widening an existing rung pass its original id and keep the history;
+    // a genuinely new rung can take the generated one.
+    id: id ?? `gather_any_${label}_${n}`,
+    describe: `Collect ${n} ${label} (any kind). ${why}`,
+    done: b => countAny(b, names) >= n,
+    progress: b => `${countAny(b, names)}/${n} ${label} (any kind)`,
+    hint: `gather with block=${names[0]}, or any other ${label} you can see.`,
+  }),
+
   /**
    * A scout's output is knowledge, not inventory.
    *
@@ -228,7 +302,26 @@ export const MILESTONES_BY_ROLE = {
   // case: if THIS bot struggles, the problem is the skill layer, not the goal.
   gatherer: [
     M.gather('dirt', 16, 'Hand-mineable building material.'),
-    M.gather('oak_log', 12, 'Wood too.'),
+    // THE ONLY RUNG CHANGED, and it is the only one that runs: measured
+    // 2026-09-21, ALL 80 bots carry role `gatherer`, so the scout and miner
+    // ladders above reach nobody and were left exactly as they were.
+    //
+    // AMENDING A DOCUMENTED CONTROL, deliberately and with the reason stated.
+    // tech-ladder.test.mjs asserted this chain verbatim as "the control case",
+    // because "the role chain keeps its diagnostic character; the ladder is in
+    // SUSTAINING". That diagnostic is the SPREAD -- dirt, wood, sand, cobble --
+    // which reveals what a bot can and cannot obtain. It is preserved here
+    // exactly: this rung still asks for wood, in the same position, with the same
+    // count. What is removed is the SPECIES PIN, which the counter beside it
+    // (`woodUnits` -> `countAny(b, LOGS)`) and the stockpile hint had already
+    // dropped. The file's own note on that counter says bots "were then sent to
+    // gather more oak specifically."
+    //
+    // Measured over 12 h / 414,145 rows, with selection controlled by restricting
+    // to runs where the SAME bot had seen both species in one affordance scan
+    // within 180 s: oak 13.9% success over 3,302 runs, birch 38.6% over 132 --
+    // 2.8x, while the fleet asked oak 25:1.
+    M.gatherAny(LOGS, 12, 'Wood too.', 'log', 'gather_oak_log_12'),
     M.gather('sand', 8, 'Found near water.'),
     M.gather('cobblestone', 8, 'Needs a pickaxe; expect this to be hard without one.'),
   ],
@@ -278,8 +371,6 @@ const SKIP_RETRY_MAX_MS  = 6 * 60 * 60 * 1000    // backs off, never past six ho
 //     every other rung relies on.
 //
 // Ordered cheapest-first so a toolless bot is asked for wood before iron.
-const LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
-              'dark_oak_log', 'mangrove_log', 'cherry_log']
 const PLANKS = ['oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
                 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks']
 const COBBLE = ['cobblestone', 'cobbled_deepslate', 'blackstone', 'stone',
@@ -846,6 +937,11 @@ export class MilestoneController {
       // than 2 -- because sticks were the most reliable way to make the number
       // go up. Productive-looking busywork is still not progress.
       wants: m.wants ?? null,
+      // FORWARDED, because status() is what cognitive.mjs actually reads and the
+      // first version of this change dropped it here -- so the widened list never
+      // left the ladder object and the whole thing was inert (Codex pass 1, which
+      // proved it by calling status() and printing statusHasWantsAny:false).
+      wantsAny: m.wantsAny ?? null,
       describe, progress, hint: m.hint,
     }
   }

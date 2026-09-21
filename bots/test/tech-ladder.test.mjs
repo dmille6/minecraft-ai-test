@@ -92,12 +92,33 @@ t('NO RUNG IS A DEADLOCK: every done() returns a boolean on an empty bot', () =>
   }
 })
 
-t('the gatherer chain itself is left alone as the control case', () => {
-  // The role chain keeps its diagnostic character; the ladder is in SUSTAINING.
-  const g = ids(MILESTONES_BY_ROLE.gatherer)
-  assert.deepEqual(g, ['gather_dirt_16', 'gather_oak_log_12', 'gather_sand_8',
-                       'gather_cobblestone_8'],
-    'the gatherer control chain was modified; it should not be')
+t('the gatherer chain keeps its DIAGNOSTIC SPREAD -- the thing the control is for', () => {
+  // AMENDED 2026-09-21. This asserted the four ids verbatim, and the reason given
+  // was that "the role chain keeps its diagnostic character; the ladder is in
+  // SUSTAINING". The diagnostic character is the SPREAD -- one rung each for
+  // dirt, wood, sand and cobblestone -- which reveals what a bot can and cannot
+  // obtain. Pinning the wood rung to OAK was never part of that: the counter
+  // beside it (woodUnits -> countAny(b, LOGS)) and the stockpile hint already
+  // accepted any log, and the file's own note records that bots "were then sent
+  // to gather more oak specifically".
+  //
+  // So the assertion now pins the PURPOSE rather than the spelling: same four
+  // rungs, same order, same counts, and the wood rung must still be a wood rung.
+  // A verbatim id list would have to be edited by anyone changing anything, which
+  // is how it came to be edited rather than examined.
+  const chain = MILESTONES_BY_ROLE.gatherer
+  const g = ids(chain)
+  assert.equal(g.length, 4, `the gatherer chain gained or lost a rung: ${g.join(', ')}`)
+  assert.equal(g[0], 'gather_dirt_16', 'the dirt rung moved or changed')
+  assert.equal(g[2], 'gather_sand_8', 'the sand rung moved or changed')
+  assert.equal(g[3], 'gather_cobblestone_8', 'the cobblestone rung moved or changed')
+  // rung 1 is the wood rung: still wood, still 12, and no longer species-pinned
+  const wood = chain[1]
+  assert.match(wood.id, /^gather_(any_log|oak_log)_12$/,
+    `rung 1 is no longer a 12-count wood rung: ${wood.id}`)
+  assert.ok(wood.done(inv({ birch_log: 12 })),
+    'the wood rung is not satisfied by 12 birch -- it is still pinned to one species')
+  assert.ok(!wood.done(inv({ birch_log: 11 })), 'the wood rung is satisfied one log short')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
