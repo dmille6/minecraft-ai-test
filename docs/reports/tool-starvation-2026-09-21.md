@@ -182,3 +182,72 @@ is a textbook instance of.
 from it. Any future "the bot had a tool" statement must read durability, because
 "owns an item named pickaxe" and "owns a pickaxe the tool policy will use" are
 different claims and I conflated them for two days.
+
+---
+
+# Addendum, same day: the bots spend the wood before they can craft with it
+
+The chain above ends at "wood gather succeeds 10%". That is true and it is not the
+whole story, because the wood they DO get does not stay.
+
+## Wood in, wood out — 6 h, fleet-wide
+
+Acquired **2,005** wood-family items (logs, planks, sticks); spent or lost **1,690**.
+Split by the skill that recorded the loss:
+
+| | starved (66 bots) | healthy (14 bots) |
+|---|---:|---:|
+| wood acquired | 1,461 | 546 |
+| banked by `deposit` | **459 (31%)** | 85 (16%) |
+| consumed by `craft` (legitimate) | 341 | 228 |
+| **lost to explore / gather / surface / goto** | **553 (38%)** | 42 (8%) |
+
+A tool-starved bot loses **38% of the wood it acquires to movement skills**, against
+8% for a bot with working tools. Per bot that is 8.4 items vs 3.0.
+
+## It is the pathfinder placing it, not our code
+
+Only **24** `place` events fired fleet-wide in the same window, against **487
+oak_log + 82 planks** leaving on movement rows. The loser rows read
+`explored 91 blocks ... some legs blocked` and `entombed`. That is
+mineflayer-pathfinder building with the inventory.
+
+`Movements.scafoldingBlocks` seeds with dirt and cobblestone only. **We widen it**
+in `scaffold.mjs`, and `PATHFINDER_SCAFFOLD` explicitly lists `oak_log`,
+`birch_log`, every `*_planks` and the rest. The comment records exactly why, and
+the reasoning is sound:
+
+> WOOD WAS MISSING, and wood is what this fleet actually carries. … 16.2% (13
+> bots) hold WOOD and nothing else the pathfinder will accept, and for those bots
+> A* cannot plan a tower or a bridge at all.
+
+That widening was correct and measured. What it has no notion of is **"this wood is
+my only route to a tool."**
+
+## So there are two loops, not one
+
+1. **The outer loop** (already reported): wood gather at 10% → no wood → no pickaxe →
+   no stone → no cobblestone → no pickaxe.
+2. **The inner loop, new**: a starved bot has no cobblestone *because* it cannot
+   mine, so the only scaffold it carries is wood — and the pathfinder spends that
+   wood to climb and bridge, which is the same wood a wooden pickaxe is made of.
+   **The poorer the bot, the faster it burns the thing that would make it rich.**
+
+A wooden pickaxe costs 3 planks + 2 sticks ≈ **2 logs**. Starved bots acquire 1,461
+wood items in 6 h and hold almost none.
+
+## What this suggests, and what still has to be checked
+
+The candidate remedy is a **reserve**: a bot with no working pickaxe should not
+spend, bank or build with the last ~2 logs' worth of wood, because crafting is a
+remedy it can perform from where it stands. That is the shape CLAUDE.md asks for.
+
+Not yet established, and required before building:
+- **Do not simply remove wood from `PATHFINDER_SCAFFOLD`.** It was added on measured
+  evidence that 13 bots had no other scaffold and A* could not plan at all for them.
+  Removing it re-creates that. The reserve has to be conditional on tool state.
+- **6 bots already hold both inputs and are not crafting.** Whatever stops them is
+  not a materials problem, and a reserve would not help them. That needs its own
+  read — it may be the cheaper half of this.
+- Whether `deposit` banking 31% is a separate defect (`deposit-banks-the-tools`
+  already records deposit handing over whole stacks) or the same one.
