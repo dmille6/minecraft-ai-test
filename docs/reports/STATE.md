@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-21 07:40 UTC — **LIVE CANARY needsdrop-01 (b72781e) on hive-b,hive-c,hive-d,board-c — the first FOUR-POOL / 20-bot draw.** Reads are scheduled DETACHED on the host; the apparatus that let digwatch-02 run 15 h unread is fixed._
+_updated 2026-09-21 10:45 UTC — **NO LIVE CANARY. needsdrop-01 REVERTED at +180 and torn down; 80 bots on cfc1c58, one version, ledger clear.** The slot is free and the next change has 682 rows of evidence behind it._
 
 > **TWO COPIES OF THIS FILE EXIST AND THEY DIVERGED YESTERDAY.** The daily task reads
 > `mcai-rl02/docs/reports/STATE.md` first and falls back to the repo copy; on 20 Sep the **repo copy was the
@@ -9,7 +9,7 @@ _updated 2026-09-21 07:40 UTC — **LIVE CANARY needsdrop-01 (b72781e) on hive-b
 
 ## OVERNIGHT 21 Sep — what changed while the owner slept
 
-### LIVE CANARY — needsdrop-01 (b72781e), declared 07:24:19Z on hive-b,hive-c,hive-d,board-c
+### needsdrop-01 (b72781e) — REVERTED 10:28Z, torn down 10:39Z. ITS PREMISE WAS REFUTED.
 **The harvest watchdog is now OPT-IN.** `withTimeout`'s `needsDrop` installed `watchDigging`, a 1 Hz
 poller calling `pathfinder.stop()` + `stopDigging()` whenever the HELD item cannot harvest the
 **bot-global** `bot.targetDigBlock`. It defaulted to TRUE.
@@ -52,6 +52,41 @@ watchdog, 682/682 with a harvesting pickaxe in the bot's inventory**, held item 
 - **Reads scheduled DETACHED on the host** (`~/mcai-analysis/run-needsdrop-reads.sh`, pid confirmed
   with the anchored pgrep): +90 08:54Z, +180 10:24Z, +360 13:24Z, +540 16:24Z, deadline +660 18:24Z.
   Output accumulates in `~/digest/needsdrop-01-reads.txt`.
+
+### THE VERDICT, and what it actually found
+**REVERT at +180.** Full account in `needsdrop-01-premise-refuted-2026-09-21.md`.
+- **PRIMARY** abort-share ratio-DiD **−13%** (canary 12.5→6.3%, control 7.9→4.6%, 1,066 canary gather
+  runs against a 200 floor) against a registered −54% and a KEEP of ≤−25%.
+- **MECHANISM** ratio-DiD **+8%**: watchDigging cancels/bot-h canary 0.69→0.28 vs control 0.63→0.23,
+  counts 40→16 vs 73→27. **Disarming 13 sites produced no reduction in the cancels they were meant to
+  cause.**
+- **THE TEST THAT SETTLES IT** — for every watchDigging cancel, which skill was running? canary post
+  15/16 gather, control post 27/27, canary pre 38/40, control pre 67/73. **They are all `gather`**, i.e.
+  the two sites that still OPT IN. The 13 disarmed sites were armed and never firing.
+- **Inertness ruled out at source, not from the version string** (owner-01 ran 97 min as the baseline
+  with every check green): canary tree `needsDrop=false` + 2 opt-ins, baseline `needsDrop=true` + 0,
+  70 lines different, exactly the 4 pools on `harness-canary`.
+- **HARM did not gate**: 2 canary deaths in 57.4 bot-h vs 2 control in 172.3 = 3.0x, exact Poisson split
+  **p = 0.262**. All deaths are drownings with an identical signature including the control ones.
+- Teardown verified in all three steps: 0 drop-ins, `canary_pool` cleared, 20 bots restarted staggered,
+  **one version on all 80**, ex-canary bots back on `/srv/mcbots/harness`.
+
+### ►► THE NEXT CHANGE, and it was in the review I under-weighted
+**The bug is the silently-failing equip, not which sites arm the watchdog.** `bestTool` returns only
+harvesting tools or `null`, so a watchDigging cancel at `skills.mjs:1195` **proves the equip three lines
+above at `:1191-1192` failed or was undone** — and that equip is
+`if (tool) await bot.equip(tool,'hand').catch(() => {})`, a swallowed error. 682 of 682 recorded cancels
+had a harvesting pickaxe in the bot's inventory while the hand held dirt 67.9% of the time and nothing
+19.8%. **First step is to stop swallowing it so the failure has a name**, then read why it fails. That is
+a smaller change with the whole population behind it rather than none of it.
+
+### TWO DEFECTS IN MY OWN READ SCRIPT, found by this canary and fixed
+- It printed **"ratio 0.00x"** for 2 canary deaths against 0 control — it divided by a zero control rate
+  and fell back to 0, so the most extreme possible input read as the safest number. Now reports the ratio
+  as unbounded and decides on an exact Poisson split test.
+- It dropped the **isolated pools from both arms**, which erased a real control drowning
+  (isolated-d-Comet 08:29:23Z) and turned "2 vs 1" into "2 vs 0", biasing the gate toward tripping. Harm
+  counts them now; productivity still does not.
 
 ### THE DRAW IS NOW FOUR POOLS / 20 BOTS
 Measured null sd of the pool-mean ratio-DiD on items/bot-h, 300 random splits per cell:
