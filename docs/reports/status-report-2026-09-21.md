@@ -182,3 +182,49 @@ echoes before running the second read**, not its output. So I read the file, fou
 empty, and briefly treated a still-running job as a silent failure. **A wait condition that can be satisfied
 without the result existing is the same defect as a detector that answers uniformly**, and that is three of
 these in one day (the 0.0%-everywhere gather parse, the self-matching `pgrep`, and this).
+
+### The "CLEAN controls" arm is ONE POOL, and nothing says so
+
+`placebo-b +48 h`, clean-controls arm: **gather DiD +38.4 pp** (treatment 10.0% → 45.9%, control
+18.6% → **16.1%**), stock +21.87/bot-h, iron-pick share +32.7 pp, immobile −2.5 pp. Larger than the
+all-controls +32.8 pp, and presented as the better-controlled number.
+
+**It is not.** Read the exposure column: **control/pre 125 bot-h, control/post 245 — identical to the
+five-bot treatment pool.** The control arm is five bots.
+
+The arithmetic, from `seedread.py`:
+- **`:90` drops every `isolated*` and `self-*` pool from BOTH arms, unconditionally** — that is 4 pools /
+  20 bots gone before any exclusion is applied.
+- The remaining universe is board-a/b/c/d, hive-a/b/c/d, placebo-a/b/c/d = 12 pools; placebo-a and
+  placebo-b are treatment, leaving **10 control pools = 1,250 bot-h pre**, which is exactly what the
+  all-controls arm reports.
+- `SEED_CONTROL_EXCLUDE` then drops board-a/b/c/d, hive-a/b/c/d and placebo-d — **nine of the ten** —
+  leaving **placebo-c alone**.
+
+The header prints `CONTROL ARM RESTRICTED: dropping <nine pools>`. **It never prints what is left.**
+
+**Consequence, and it inverts the overnight session's reading.** That session reported placebo-a's clean
+arm as *"+32.1 pp … contamination was diluting the effect, not creating it"* and treated it as the more
+trustworthy figure. By this fleet's own measured noise floor — null sd of the pool-mean ratio-DiD is
+**0.608 at k=5** against 0.313 at k=20 (measured overnight, 300 splits per cell) — **a single-pool control
+is the noisiest comparator available.** The "clean" numbers are *less* reliable than the all-controls ones,
+not more.
+
+Neither arm is clean, and that should be said plainly rather than resolved by preference:
+- **all-controls** (10 pools / 50 bots) genuinely contains canary exposure — `2850cde` leaf-01,
+  `1457f3a` digwatch-01, `b72781e` needsdrop-01 ran on board-\* and hive-\*;
+- **clean-controls** has no canary exposure but n = 1 pool;
+- and the clean arm's own contamination block still flags placebo-c for `b1659c0`/`cfc1c58`, which are
+  fleet-wide mains — so even "clean" is not clean by the script's own (unreliable) test.
+
+**What the +72 h read should do instead:** the four `isolated*` pools are 20 bots that ran **no canary in
+the window** and are currently discarded at `:90` for a draw-eligibility reason that has nothing to do with
+being a control. Admitting them would give a 5-pool / 25-bot uncontaminated control arm — k=25, comfortably
+past the k=20 knee — in place of choosing between 50 contaminated bots and 5 clean ones. **This is the single
+highest-value change to the seed canary's read and it is a one-line condition.** It must be made
+**prospectively, before the +72 h reads open**, and recorded in the registration; making it after seeing
++38.4 pp would be choosing the comparator on the answer.
+
+**The direction of the effect does not depend on any of this** — +32.8 pp against 50 bots and +38.4 pp
+against 5 agree in sign and rough size, and placebo-a agrees with both. What changes is how much of the
+precision is real.

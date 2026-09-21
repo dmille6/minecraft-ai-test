@@ -94,3 +94,68 @@ Measured at 03:50Z, **before** placebo-b was reseeded at 11:10Z, which is what m
 
 ### First observation on pool one, 3 h 48 min in — NOT a result
 placebo-a ran **160/408 = 39.2% gather and 50 crafts** against a fleet median near 16% and a next-best craft count of 22, with all five bots at full health and moving 200–454 blocks. This is exactly the "fresh start" effect the confound section predicted: new town, new supplies, empty state dirs, no accumulated shafts, no stale world facts. **Discounted by registration.** One death already (placebo-a-Comet, 01:57Z, drowned while idle) — the new terrain has water too.
+
+---
+
+## Amendment, 2026-09-21 11:45 UTC — PROSPECTIVE, before either +72 h window opens
+
+**Written at 11:45Z. The +72 h windows open at 2026-09-22 00:00Z (placebo-a) and 11:25Z (placebo-b),
+738 and 1,423 minutes later. Nothing below was chosen after seeing a +72 h number, because none exists.**
+
+### The defect
+`~/mcai-analysis/run-seed-72h.sh` (v1, written 20 Sep) carried
+`CLEAN=board-a,…,hive-d,placebo-c,placebo-d` — **ten pools**, where the +48 h reader's list was the same
+nine **without `placebo-c`**. `seedread.py:90` also removes all four `isolated*` pools from both arms, so
+the eligible control universe is ten pools; excluding ten of ten leaves none.
+
+**Verified, not inferred.** Running v1's exact list against the already-closed +48 h window on placebo-b
+printed:
+
+```
+  control/pre             0   NO DATA -- refusing to report this cell as zero
+  control/post            0   NO DATA -- refusing to report this cell as zero
+```
+
+and **no DiD block at all**. (An earlier attempt to reproduce this against the +72 h window itself was
+correctly refused by the script — *"the +72 h window closes at 2026-09-22 00:00Z, 742 min from now"* — so
+the closed +48 h window was used instead.) The script's refusal is v24 behaving correctly: **no wrong number
+would have been published.** But both +72 h clean-control arms would have come back empty, and the +72 h
+read is the registered discriminator, which cannot be retaken.
+
+### The change, and why it is the conservative one
+`placebo-c` is under the standing ban on being **drawn** as a canary pool, so it has never run one; the
+contamination block lists only `b1659c0` and `cfc1c58` against it, which are fleet-wide mains affecting both
+arms and cancelling in a DiD. It belongs in the clean control arm, and **the +48 h reads on both pools
+already used it as exactly that.** Removing it from the exclusion list makes the +72 h read **comparable to
+the two reads already taken**, rather than changing the comparator between reads.
+
+- v1 is preserved at `~/mcai-analysis/run-seed-72h.sh` and was **killed, not edited** (a running bash script
+  is re-read by byte offset). v2 is `run-seed-72h-v2.sh`, launched from a copy at `~/.run-seed-72h-live.sh`,
+  `setsid nohup`, PPID 1, confirmed in its wait loop and due at the two registered times.
+- **Proof the new list is non-empty**, from the +48 h run that used it: control/pre **125 bot-h**,
+  control/post **245 bot-h** (placebo-c), gather DiD +38.4 pp. A process that exists is not a reader that
+  works; this is the check that it works.
+
+### What is deliberately NOT changed
+`seedread.py:90` drops every `isolated*` pool from **both** arms. Those are 20 active bots that
+**structurally cannot have run a canary** — there are no `_pool-isolated-*` state dirs on .31, which is the
+real reason for the draw ban — so they would make a 25-bot uncontaminated control arm, past the k=20 knee,
+instead of the single five-bot pool the clean arm currently has. The script's own comment counts *"six of
+FOURTEEN controls"*, which only holds if `isolated` counts, and `placebo-c` under the same draw ban is
+admitted — so `:90` looks like a slip.
+
+**It is left alone anyway.** Changing the comparator between the +48 h and +72 h reads would make the
+registered discriminator incomparable to the reads already taken, and doing it *after* seeing the clean arm
+read +38.4 pp would be choosing the comparator on the answer. **Registered here as a proposal for a future
+read, to be decided before any read that would use it.**
+
+### Standing note on how the clean arm has been reported
+The +48 h clean-control arms are **one pool, five bots** — `control/pre 125 bot-h`, identical to the
+treatment. Nothing in the output says so; the header prints what was dropped and never what remains. At this
+fleet's measured noise floor (null sd of the pool-mean ratio-DiD **0.608 at k=5** against 0.313 at k=20),
+**the clean numbers are the noisier ones**, which is the reverse of how they were presented on 20 Sep
+("contamination was diluting the effect, not creating it"). Neither arm is clean: all-controls carries real
+canary exposure on board-\* and hive-\*, clean-controls has n=1 pool. The **sign and rough size are not in
+doubt** — +32.8 pp against 50 bots, +38.4 pp against 5, and placebo-a agreeing with both — but the precision
+is smaller than the decimals suggest, and the +72 h reads should be reported with the control bot-hours
+beside every DiD.
