@@ -1316,6 +1316,10 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   const excluded = new Set()
   const key = q => `${q.x},${q.y},${q.z}`
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
+  // Rounds this RUN whose candidates came only from the cover fallback. Run-scoped
+  // on purpose: `viaCover` resets every round, and the question this answers is
+  // about the whole run's failure class. See `barrenFailClass`.
+  let coverRounds = 0
   // The most recent reachability probe, so the failure can cite what A* said.
   let lastProbe = null
   // Verbatim collectblock failure messages, so a refusal it makes can be read
@@ -1347,6 +1351,10 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       .findBlocks({ matching: type.id, maxDistance, count: 32 })
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
     let viaSource = null
+    // How many foliage-covered logs the fallback below admitted this round, or 0.
+    // Carried so the run's OUTCOME can be reported against it: 'the fallback fired'
+    // and 'the fallback produced a log' are two claims and only the second is the point.
+    let viaCover = 0
     if (positions.length === 0) {
       for (const alt of sourcesOf(bot.registry, blockName)) {
         if (alt === blockName) continue
@@ -1519,6 +1527,39 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       }
     }
 
+    // COVER IS NOT BURIAL -- AND IT IS THE LAST THING TRIED, NOT THE FIRST.
+    //
+    // Same gate as `gather_via_source` directly above, and for the same reason:
+    // this runs only when the exact block yielded no reachable candidate, so it
+    // can only turn a failure into an attempt. leaf-01 (2850cde) put these same
+    // blocks into the main candidate list instead and read **-0.65 DiD on logs
+    // acquired** -- the reach probe promoted a covered log over an open one,
+    // because its goal tests distance and foliage does not stop a hit. See
+    // `foliageCovered`. The admission rule here is byte-for-byte leaf-01's; the
+    // rank is the only thing that changed.
+    //
+    // NOT PROBED, deliberately. The probe is a REORDER, and there is nothing
+    // left to reorder: this list is built at the point where the alternative
+    // was returning `unreachable`.
+    //
+    // `collected === 0` is duplicated here and inside `coverFallback`. The
+    // duplication is the point: the guard here is what a reader of gather sees,
+    // and the one in the function is what the test can ask.
+    if (reachable.length === 0 && collected === 0) {
+      const slate = coverFallback(
+        reachable, positions.filter(q => foliageCovered(bot, q)).filter(safeTarget),
+        { approachable, collected })
+      if (slate) {
+        reachable = slate
+        viaCover = slate.length
+        coverRounds++
+        logEvent({ kind: 'gather_cover_fallback', status: 'success',
+                   detail: `every ${blockName} candidate was buried or unsafe; ` +
+                           `${slate.length} are logs covered by foliage — trying them`,
+                   snapshot: snapshot(bot) })
+      }
+    }
+
     if (reachable.length === 0) {
       if (collected > 0) {
         return { status: 'success', detail: `collected ${collected} ${blockName} (the rest are buried or unsafe)` }
@@ -1642,6 +1683,16 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (collected > 0) {
         return { status: 'success',
                  detail: `collected ${collected} ${blockName} (the rest could not be reached from here)` }
+      }
+      // The admission row above already fired for this round, and this return is
+      // BEFORE the accounting that emits the outcome -- measured by Codex pass 2
+      // as 2 admissions against 1 outcome. Emit it here so the read's
+      // denominator is the outcome row and nothing else. (An abort rethrows
+      // earlier still and is not accounted; an aborted run is not an outcome.)
+      if (viaCover > 0) {
+        logEvent({ kind: 'gather_cover_outcome', status: 'no_effect',
+                   detail: `${blockName} via foliage cover: ${viaCover} candidate(s), ` +
+                           `all ${excluded.size} already refused this run — nothing attempted` })
       }
       return { status: 'failed', failClass: 'unreachable',
                detail: `${blockName}: all ${excluded.size} candidate(s) in range refused — ` +
@@ -1774,6 +1825,23 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     const MAX_PER_BLOCK = 8
     const raw = heldFromBlock(bot, blockName) - startHeld
     const gained = Math.max(0, Math.min(raw, count * MAX_PER_BLOCK))
+    // "THE FALLBACK FIRED" AND "THE FALLBACK PRODUCED A LOG" ARE TWO CLAIMS.
+    //
+    // leaf-01's known gap was exactly this and it was never measured: breaking a
+    // covered log is not acquiring it, because `pickupNearbyItems` walks to the
+    // drop and gives up on seeing the same entity twice, which is what a log
+    // dropping inside a canopy looks like. So the admission row above is not
+    // evidence of anything on its own -- this one is, and it is emitted BEFORE
+    // the barren accounting so it survives the round that ends the run.
+    //
+    // Also the canary's linkage row: `gather_cover_fallback` and this kind exist
+    // only in this build, so a control pool cannot emit either.
+    if (viaCover > 0) {
+      logEvent({ kind: 'gather_cover_outcome',
+                 status: gained > collected ? 'success' : 'no_effect',
+                 detail: `${blockName} via foliage cover: ${viaCover} candidate(s), ` +
+                         `gained ${gained - collected} this round, run total ${gained}/${count}` })
+    }
     if (gained === collected) {
       barren++
       // A barren round means this target gave nothing even though nothing threw.
@@ -1804,10 +1872,14 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
           ? ` [probe: ${lastProbe.status}, slate ${lastProbe.checked}, ` +
             `${lastProbe.hit ? 'A* reached a candidate' : 'A* reached none'}]`
           : ''
-        const [failClass, why] = timedOut >= barren
+        const fc = barrenFailClass(timedOut, barren, coverRounds)
+        const [failClass, why] = fc === 'collect_budget'
           ? ['collect_budget',
              `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`]
-          : ['no_path', `${blockName} found but unreachable after ${barren} attempts${probeNote}${errNote}`]
+          : [fc, `${blockName} found but unreachable after ${barren} attempts${probeNote}${errNote}` +
+                 (coverRounds > 0
+                   ? ` [${coverRounds} round(s) were foliage-covered last resorts, so this is not evidence there is no route]`
+                   : '')]
         return collected > 0
           ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
           : { status: statusFor(failClass), failClass, detail: why }
@@ -4799,6 +4871,140 @@ export function isExposed (bot, p) {
   for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
     const n = bot.blockAt(p.offset(d[0], d[1], d[2]))
     if (!n || n.name === 'air' || n.boundingBox === 'empty') return true
+  }
+  return false
+}
+
+/**
+ * FOLIAGE IS COVER YOU CAN BREAK, AND THAT IS A LAST RESORT, NOT A PREFERENCE.
+ *
+ * `oak_leaves.boundingBox` is `'block'` in the fleet's own minecraft-data, so a
+ * trunk inside its own canopy has six solid neighbours, `isExposed` returns
+ * false, and `gather` refuses "every candidate is buried -- use mine to dig
+ * down" for a log at y=68. Measured 24 h to 2026-09-19 12:25Z: **8,034 buried
+ * refusals, 4,785 of them (59.6%) oak_log**, median bot y 68, only 22.4% below
+ * sea level. The bots were not underground, and the gather->mine escalation
+ * cannot help because `WORTH_TUNNELLING` is ores by design.
+ *
+ * WHY THIS IS A SEPARATE PREDICATE AND NOT A WIDER `isExposed`.
+ *
+ * It WAS a wider `isExposed`. That canary (leaf-01, 2850cde, board-a+board-c,
+ * 19 Sep) read **logs acquired -0.65 DiD** and was reverted by its own gate. It
+ * did not fail to fire -- 209 gather runs of exposure -- it fired and made the
+ * fleet worse, and the mechanism is displacement, not danger:
+ *
+ *   - A leaf-covered log cannot satisfy `approachable` (its leaf neighbours are
+ *     boundingBox 'block', so no cell beside it has clear feet AND head), so it
+ *     lands in the second tier of `reachable`.
+ *   - `probeReachable` then takes the nearest FOUR of that combined list and
+ *     `GoalGetToBlock`'s isEnd is **distance only** -- foliage does not prevent
+ *     a hit. Covered logs at distance 2/3/4/5 fill the slate outright, and the
+ *     one that hits is MOVED TO THE FRONT, ahead of a genuinely open log the
+ *     bot could have walked to.
+ *   - Breaking it is not acquiring it: `pickupNearbyItems` walks to the drop and
+ *     gives up after seeing the same entity twice, and a log dropping inside a
+ *     canopy is exactly that case.
+ *
+ * So the widening spent the bot's gather on the worse target. This version
+ * admits the identical set of blocks -- the rule below is byte-for-byte leaf-01's
+ * -- but only where `gather_via_source` sits: AFTER every open candidate is
+ * exhausted, where the counterfactual is a refusal rather than a better target.
+ * It can turn a failure into an attempt and it cannot turn a success into one.
+ *
+ * SCOPE, stated exactly. ONE leaf face is enough; five stone faces and a single
+ * leaf face reads covered-not-buried, because that leaf IS a way in -- the
+ * pathfinder equips and breaks obstructing blocks en route
+ * (mineflayer-pathfinder/index.js:483-492) and all 11 leaf types in 1.21.11 are
+ * hardness 0.2 with no harvest-tool requirement. Broader than "a trunk in its
+ * canopy", admitted on purpose, and UNCHANGED from leaf-01 so that rank
+ * position is the single variable between the two reads.
+ *
+ * LOGS ONLY. Letting a leaf face admit any target made one leaf-adjacent DIRT
+ * block set `reachable.length !== 0`, which switches off the alternative-source
+ * search that would have found an accessible `grass_block` -- a verified
+ * regression turning a gather that used to succeed into a failure. Dirt and
+ * stone lie exposed on every hillside and never needed this.
+ */
+export const BREAKABLE_COVER = /_leaves$/
+export const COVER_EXEMPT_TARGET = /_log$/
+
+/**
+ * A log that `isExposed` calls buried, whose cover includes foliage.
+ *
+ * Deliberately conjunctive with `!isExposed`: anything with a genuinely open
+ * face is already a normal candidate and must never be routed through the
+ * fallback, or the fallback would start competing with the thing it backs up.
+ */
+/**
+ * WHERE a foliage-covered log may enter the candidate list: nowhere, unless the
+ * list is empty. This is THE single variable between leaf-01 (2850cde, logs
+ * acquired -0.65 DiD, reverted) and this build, so it is a function rather than
+ * an `if` -- `coverFallback([openLog], [coveredLog])` returning null IS the
+ * regression test for that revert, and an `if` inside `gather` could not be
+ * asked the question.
+ *
+ * Re-asserts the emptiness itself rather than trusting the caller's guard. The
+ * caller keeps its own `reachable.length === 0` check only to avoid scanning
+ * `positions` on every healthy gather; correctness lives here.
+ */
+/**
+ * WHICH FAILURE A BARREN GATHER IS -- AND THE ONLY ONE OF THE THREE THAT TEACHES.
+ *
+ * `no_path` is in cognitive.mjs's `EVIDENCE_ABOUT_THE_ACTION`, so it calls
+ * `lessons.recordFailure` and becomes a PERSISTENT avoid rule against
+ * `gather oak_log`. `unreachable` is in none of those sets and teaches nothing.
+ *
+ * Found by Codex pass 2, by executing the loop: with three safe foliage-covered
+ * logs and a collect that returns without items, HEAD refuses once as
+ * `unreachable` and the patched build makes three attempts and returns
+ * `no_path`. So a speculative last resort that came back empty would have
+ * trained the fleet to stop asking for wood at all -- the same mechanism that
+ * once left 70 of 80 bots forbidden to craft a wooden pickaxe.
+ *
+ * This is also the best available explanation of leaf-01's -0.65: it put these
+ * blocks in the MAIN list, so the barren rounds were many and the avoid rules
+ * would ACCUMULATE across the 180-minute window rather than costing one run.
+ * Displacement alone is per-run and does not compound; this does.
+ *
+ * ANY cover attempt in the run downgrades it, not just an all-cover run. The
+ * barren count cannot be attributed per candidate, and this file's standing
+ * mistake is teaching a durable lesson from a failure nobody could classify.
+ * Refusing to teach costs a re-ask; teaching wrongly costs the tech tree.
+ */
+export function barrenFailClass (timedOut, barren, coverRounds = 0) {
+  if (timedOut >= barren) return 'collect_budget'
+  return coverRounds > 0 ? 'unreachable' : 'no_path'
+}
+
+export function coverFallback (primary, covered, { approachable = () => false, collected = 0 } = {}) {
+  if (!Array.isArray(primary) || primary.length !== 0) return null
+  // A PARTIAL SUCCESS IS A SUCCESS, AND THIS MAY NOT GAMBLE IT (Codex pass 1).
+  //
+  // This fallback sits ABOVE `if (collected > 0) return success` in gather, so
+  // without this line a run that had already banked a log would go on to try a
+  // covered one instead of returning. Executed counterexample: the covered
+  // attempt throws, `gained` comes back 0, `collected = gained` overwrites the
+  // banked count, and the run returns FAILED -- a gather that used to succeed
+  // turned into a failure. That is the same shape as the regression leaf-01's
+  // pass 2 fixed for dirt, arriving by a different door.
+  //
+  // With it, the claim this change rests on is true as written: it can turn a
+  // failure into an attempt, and it cannot turn a success into one.
+  if (collected > 0) return null
+  const c = Array.isArray(covered) ? covered : []
+  if (!c.length) return null
+  // Same two-tier order as the main list: a covered log the bot can stand beside
+  // still beats one it cannot.
+  return [...c.filter(approachable), ...c.filter(q => !approachable(q))]
+}
+
+export function foliageCovered (bot, p) {
+  const target = bot.blockAt(p)
+  if (!target || !COVER_EXEMPT_TARGET.test(target.name || '')) return false
+  if (isExposed(bot, p)) return false
+  for (const d of [[0, 1, 0], [0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+    const n = bot.blockAt(p.offset(d[0], d[1], d[2]))
+    if (n && BREAKABLE_COVER.test(n.name || '')) return true
   }
   return false
 }
