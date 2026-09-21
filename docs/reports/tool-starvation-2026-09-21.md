@@ -103,8 +103,55 @@ start.** Oak logs carry no harvest-tool requirement.
 
 So the real question is not why bots cannot craft — it is **why 51 of 65 tool-starved
 bots have failed to acquire a single log**, when that is the one thing they can do
-bare-handed. That is the same endpoint (`gather` on wood) that `leaf-01` was aimed at
-from a different direction, and it is where the next measurement belongs.
+bare-handed.
+
+### And that question has an answer: wood gathering succeeds one time in ten
+
+Measured over 6 h, gather runs targeting wood:
+
+| | runs | success |
+|---|---:|---:|
+| tool-starved bots | 3,208 | **10.8%** |
+| bots with working tools | 601 | **9.7%** |
+
+**The rates are the same.** Tool starvation does not cause the wood failure — wood
+fails identically for bots that have perfectly good pickaxes. (The starved bots make
+5x more attempts, which is the system trying: they need wood and keep going for it.)
+
+Where those attempts die:
+
+| failure class | starved | share |
+|---|---:|---:|
+| `unreachable` | 1,238 | 39% |
+| `no_safe_target` | 1,071 | 33% |
+| `nothing_found` | 286 | 9% |
+| `no_path` | 225 | 7% |
+| `collect_budget` | 40 | 1% |
+
+**72% is `unreachable` + `no_safe_target`** — the bot can see the log and either
+cannot reach it or will not approach it. The same shape holds for the healthy bots.
+
+## The whole chain, in order
+
+1. Wood gather succeeds **~10%** of the time; 72% of the failures are reachability
+   or safety refusals.
+2. No wood → no planks, no sticks → **no wooden pickaxe**.
+3. No pickaxe → cannot mine stone → **no cobblestone** → no stone pickaxe.
+4. Every pickaxe wears to 1 durability and is never replaced: **230 dead pickaxes,
+   81% of the fleet**.
+5. Tool starvation then silently blocks stone mining through the three-policy
+   composition at the top of this report, and the only trace is `Digging aborted`.
+
+**Step 1 is the root and everything below it is downstream.** This is queue item 3
+(navigation/gather), which both review engines independently ranked as the top
+substantive item, and it is where the next canary belongs — not at the watchdog,
+and not at the tool policy.
+
+It is also the honest frame for `leaf-01`, which attacked `unreachable` directly:
+it halved that class (29.0% → 13.1%) and the freed attempts became `no_safe_target`
+(+15 pp) and `no_path` (+6.4 pp) rather than successes. The refusals move around;
+the 10% does not. Any next attempt has to beat that, and has to be read on
+**acquired wood**, not on refusals avoided.
 
 **And 6 bots have both inputs right now and are not crafting.** Whatever stops
 those six is not a materials problem and is worth reading on its own.
