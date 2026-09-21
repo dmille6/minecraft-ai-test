@@ -96,7 +96,20 @@ no pickaxe is the wooden one, and only 5% of starved bots hold its materials whi
   **Still not attributable to the seed**: the reseed-plus-reset confound has not washed out at 48 h, and the
   avoid-rule discriminator found **zero** `learned_avoid` rows in either arm, so that hypothesis is UNTESTED,
   not refuted.
-- **placebo-b +48 h taken today at 11:26Z** → `~/digest/seed-placebo-b-48h.txt`. See the status report.
+- **placebo-b +48 h DONE today 11:26Z** → `~/digest/seed-placebo-b-48h.txt`. **Gather DiD +32.8 pp**
+  (treatment 10.0% → 45.9%, control 18.5% → 21.6%); stock +18.84/bot-h; iron-pick share +30.8 pp; immobile
+  −3.2 pp; deaths −0.010/bot-h **[5 bots cannot resolve a rate this rare — a tripwire, not a result]**.
+  **Agrees with placebo-a within ~3 pp.** Positive control 2,420,762 rows / 80 bots / 127 kinds / 73.5 h.
+- **THE REGISTERED REGRESSION-TO-THE-MEAN DISCRIMINATOR IS SATISFIED.** The registration declared in advance
+  that placebo-b was the worst pool in the fleet (11.1% vs 19.4%) and set the test: *"If placebo-b improves
+  and placebo-a does not, that is regression to the mean and not terrain."* **Both improved.** The pools were
+  drawn **deterministically** (lowest SHA-256 of `<pool>+2026-09-18-seed-canary` per inference half), so
+  "picked because they were doing badly" is not available as a rival.
+- **INSTRUMENT DEFECT — do not use the read's CONTAMINATION block to choose the exclusion set.** It lists the
+  treatment pool itself, and lists `b1659c0` and `cfc1c58` against every pool; those are **fleet-wide mains,
+  not canary builds**. The real canary shas in the window are 2850cde, 1457f3a, b72781e. The
+  `SEED_CONTROL_EXCLUDE` list actually used is hardcoded and does match the real canary pools, so no read was
+  harmed — but the block reads like evidence and is not.
 - **REMAINING: placebo-a +72 h 22 Sep 00:00Z, placebo-b +72 h 22 Sep 11:25Z.** Both are scheduled **detached
   on the host** (`~/mcai-analysis/run-seed-72h.sh`, pid 1009885, verified alive 21 Sep 11:22Z) → outputs
   `~/digest/seed-placebo-{a,b}-72h.txt`. KEEP/REVERT do not apply (no code change). Both close clear of the
