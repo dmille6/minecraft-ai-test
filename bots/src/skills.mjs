@@ -1224,25 +1224,63 @@ export async function collectManually(bot, block, signal) {
 }
 
 /** Walk over anything on the floor within a few blocks. */
-async function pickupNearbyItems(bot, signal, radius = 8) {
-  let last = null
+/**
+ * ONE UNREACHABLE DROP MUST NOT ABANDON THE OTHERS.
+ *
+ * This returned on two conditions that are both about a SINGLE drop -- seeing
+ * the same entity id twice, and a goto that threw -- and in both cases it gave
+ * up the whole sweep. The nearest item is picked first, so one drop the bot
+ * cannot reach sits closest forever and hides every other drop behind it. The
+ * bot walks away from wood it has already broken.
+ *
+ * Measured 24 h to 2026-09-21 19:40Z: gather's own barren-limit message says
+ * "[collect threw nothing -- it returned without gathering]" on **3,054 runs,
+ * 8.8% of all 34,775 gathers, across 77 of 80 bots**. That message means the
+ * collect returned and the inventory did not rise; `digVerified` THROWS
+ * dig_unconfirmed when the server did not break the block (6 occurrences in the
+ * same window), so the block was broken and the item was left on the ground.
+ * That is an upper bound on this defect, not a measurement of it alone.
+ *
+ * NOT the wood fix, and this comment exists so nobody reads it as one: only 447
+ * of those runs (3.1% of the 14,566 log gathers) ask for a log. Wood dies in
+ * the candidate filter -- 37.3% no_safe_target, 32.0% unreachable -- long before
+ * anything is broken.
+ *
+ * The budget is unchanged. What changes is which drop the budget is spent on:
+ * a drop that refuses is SKIPPED, not surrendered to.
+ */
+export async function pickupNearbyItems(bot, signal, radius = 8) {
+  // Ids that refused us this sweep. Per-sweep, deliberately: a drop unreachable
+  // from here may be fine after the next dig moves the bot, and a persistent
+  // blacklist of entity ids would outlive the entities.
+  const refused = new Set()
   for (let i = 0; i < 4; i++) {
     check(signal)
     const drop = bot.nearestEntity?.(e =>
-      e.name === 'item' && bot.entity.position.distanceTo(e.position) < radius)
+      e.name === 'item' && !refused.has(e.id) &&
+      bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
-    // The same drop twice means walking to it is not working; stop rather than
-    // spend the budget orbiting it.
-    if (last && drop.id === last) return
-    last = drop.id
     try {
       await withTimeout(bot.pathfinder.goto(
         new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
-      return
+      // The walk failed. That is a fact about THIS drop, so retire it and let
+      // the next iteration pick the next-nearest -- the old code returned here
+      // and left everything else lying there.
+      refused.add(drop.id)
+      continue
     }
     await sleep(250, signal)
+    // ONE WALK PER DROP PER SWEEP, whatever happened.
+    //
+    // The first draft retired a drop only when the bot ended up >= 2 blocks
+    // away, and the test caught it orbiting: `pathfinder.goto` resolves on
+    // reaching the goal it could COMPUTE, so a drop sitting inside foliage is
+    // one block away, uncollected, and passes a distance check forever. A
+    // collected drop is gone from the world and this costs nothing; an
+    // uncollected one gets the rest of the sweep spent on its neighbours.
+    refused.add(drop.id)
   }
 }
 

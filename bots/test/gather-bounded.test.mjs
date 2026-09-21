@@ -108,9 +108,27 @@ t('pickupNearbyItems is bounded in both attempts and time', () => {
   assert.match(b, /for \(let i = 0; i < \d+; i\+\+\)/, 'a fixed attempt count')
   assert.match(b, /withTimeout\(bot\.pathfinder\.goto/, 'and a timeout per walk')
   // The library's failure was waiting for an event that never arrives. Ours
-  // gives up on the same drop instead.
-  assert.match(b, /drop\.id === last/,
-    'the same drop twice means walking to it is not working -- stop, do not wait')
+  // gives up on the same DROP instead -- and, since 2026-09-21, only on that
+  // drop.
+  //
+  // WHAT CHANGED AND WHY THIS TEST CHANGED WITH IT. `drop.id === last` used to
+  // `return`, ending the whole sweep. pickupNearbyItems always takes the
+  // NEAREST item, so one drop the bot cannot reach sits closest forever and
+  // hides every other drop behind it; the bot walks away from wood it has
+  // already broken. Measured 24 h to 2026-09-21 19:40Z: gather's barren-limit
+  // message says "[collect threw nothing -- it returned without gathering]" on
+  // 3,054 runs, 8.8% of 34,775 gathers, across 77 of 80 bots.
+  //
+  // The BOUND this test exists to protect is untouched and is asserted above:
+  // a fixed attempt count and a timeout per walk. What is no longer asserted is
+  // SURRENDER, which was never the safety property -- a refused drop is now
+  // retired and the remaining budget goes to its neighbours.
+  assert.match(b, /refused\.add\(drop\.id\)/,
+    'a drop that refuses must be retired by id')
+  assert.match(b, /!refused\.has\(e\.id\)/,
+    'and the retired ids must be excluded from the next pick, or it re-picks forever')
+  assert.ok(!/return\s*\n\s*}\s*\n\s*await sleep/.test(b),
+    'a failed walk must not end the sweep')
 })
 
 t('any surviving collectblock call bounds the cancel too', () => {
