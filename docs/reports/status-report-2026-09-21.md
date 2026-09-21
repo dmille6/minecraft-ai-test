@@ -129,3 +129,56 @@ re-seeded pools may simply be the bots with live pickaxes. This bears directly o
    Take it when a session has a spare hour it can watch to completion.
 4. **Confirm the 24–27 Sep program read window is registered before 24 Sep.** A draft exists in the repo tree;
    it was flagged "STILL NOT REGISTERED" yesterday and I did not close that today.
+
+---
+
+## Seed canary — placebo-b +48 h, taken 11:26Z (ALL-controls arm)
+
+Positive control: 2,420,762 rows, 80 bots, 127 distinct kinds, walk spans 73.5 h.
+T0 2026-09-19 11:25:23Z; control = every pool except placebo-a and placebo-b (the other re-seeded
+pool is held out of both arms).
+
+| arm/era | bot-h | deaths | /bot-h | immob% | **gather%** | stock/bh | iron% |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| treatment/pre | 125 | 2 | 0.0160 | 2.4 | **10.0** | 1.40 | 0.0 |
+| treatment/post | 245 | 3 | 0.0122 | 0.0 | **45.9** | 19.62 | 32.7 |
+| control/pre | 1,250 | 29 | 0.0232 | 7.0 | 18.5 | 5.11 | 19.4 |
+| control/post | 2,450 | 71 | 0.0290 | 7.9 | 21.6 | 4.49 | 21.3 |
+
+**DiD: gather success +32.8 pp** (terminal rows 1,885→3,884 vs 20,613→41,324), stock **+18.84/bot-h**,
+iron-pick share **+30.8 pp**, immobile **−3.2 pp**, deaths −0.010/bot-h **[5 bots cannot resolve a rate
+this rare — a tripwire, not a result]**. Death classes on the new seed: drown 1, other 1, fall 1.
+
+**placebo-b agrees with placebo-a within ~3 pp** (+32.8 vs +29.1 all-controls / +32.1 clean). Two seeds,
+two pools, two inference halves.
+
+### The registered regression-to-the-mean discriminator is SATISFIED
+The registration named this prospectively, before either read opened:
+
+> **placebo-b was the worst pool in the fleet before it was touched** … a pool that starts at 11.1% against
+> a fleet at 19.4% has room to improve that has nothing to do with terrain … **If placebo-b improves and
+> placebo-a does not, that is regression to the mean and not terrain.**
+
+**Both improved.** That is the registered test being honoured rather than reinterpreted after the fact, and
+it is the strongest thing the seed canary has going for it. It does not make the effect attributable — the
+reseed-plus-reset confound is separate and only the +72 h reads address it.
+
+The pools were **drawn deterministically** (lowest SHA-256 of `<pool>+2026-09-18-seed-canary` per inference
+half, after the 12-h ledger exclusions and the standing bans), so "the pools were picked because they were
+doing badly" is not available as a rival. placebo-b's low baseline is chance, and it was declared in advance.
+
+### An instrument defect in the contamination list — it flags fleet-wide promotions as canary contamination
+The read's CONTAMINATION block lists **placebo-b itself**, i.e. the treatment pool, among "control pools that
+ran a canary build inside the post window", and lists `b1659c0` and `cfc1c58` against every pool. Those two
+are **fleet-wide mains, not canary builds**. The genuine canary shas in the window are `2850cde` (leaf-01),
+`1457f3a` (digwatch-01) and `b72781e` (needsdrop-01). As written the block cannot discriminate a canary from
+an ordinary promotion, so **it must not be used to choose the exclusion set.** The `SEED_CONTROL_EXCLUDE`
+list actually used is hardcoded and does correspond to the real canary pools, so no read has been harmed —
+but the block reads like evidence and is not.
+
+### And a defect in my own waiting, worth writing down
+I armed the wait for this read on `grep -q "CLEAN controls"` — which matches the **header line the script
+echoes before running the second read**, not its output. So I read the file, found the clean-controls section
+empty, and briefly treated a still-running job as a silent failure. **A wait condition that can be satisfied
+without the result existing is the same defect as a detector that answers uniformly**, and that is three of
+these in one day (the 0.0%-everywhere gather parse, the self-matching `pgrep`, and this).
