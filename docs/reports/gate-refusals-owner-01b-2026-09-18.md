@@ -205,3 +205,37 @@ field**: `placed=0` never landed a placement, `placed=6` placed and slid back. T
 Branch `movement-owner-1` at `2f3d918`, suite 193/193, **not deployed**. The fleet is on `b1659c0`, 80 of 80 bots
 live across all 16 pools, no canary declared. owner-01c is the operator's call, and the case for it is now: the
 stand-down, the live block gate, a real spend bound, and an instrument that can finally explain the top failure.
+
+---
+
+# owner-01c is now a deployable candidate (21 Sep 20:10 UTC)
+
+The fleet baseline moved from `b1659c0` to **`7dd3775`** while this work sat, so the reviewed branch was four commits
+behind and would have shipped as a multi-variable change. Rebuilt on the deployed baseline:
+
+- **Branch `owner-01c`, head `93f5b8f`**, pushed. All 16 arbiter + owner commits replayed onto `7dd3775` with **no
+  conflicts**, suite **196/196** (three more test files than before, from the baseline's own commits).
+- Verified `7dd3775` is an ancestor, so this is a single-variable canary against what the fleet actually runs.
+- 19 files, +934/-44, all behind `OWNER=1` (which implies `ARBITER=1`). The flag-off path stays byte-for-byte, which
+  is the property that makes a bundle this size admissible as one variable.
+
+## One interaction to check before deploying
+
+The baseline now carries the **dig collision recorder** (`cfc1c58`, KEPT 20 Sep), which listens for `diggingAborted`.
+The arbiter gate refuses a dig before it starts, so a dig the gate declines produces **no abort event to record**.
+That is an observability interaction rather than a harm, but it means the recorder's rate is not comparable between
+an `ARBITER=1` canary pool and the control, and anyone reading both at once should expect the canary's collision rate
+to read low for a reason that has nothing to do with collisions.
+
+## What owner-01c should be registered on, given what owner-01b measured
+
+| line | why, and what owner-01b showed |
+|---|---|
+| episodes closed / opened | the endpoint. owner-01b closed **9 of 71** |
+| `hold_share` | 0.79 last time; the ladder held instead of escaping |
+| `pillar: placed=0` share | the new field. separates "never landed a placement" from "placed and slid back" |
+| `air` holds | should be near zero now; 15 rows were `body held by air` |
+| refusals / bot-h, **split by holder** | do NOT re-register the blanket 30/bot-h. It measured 102 then 236, cost 0% movement, and 93% of it was legacy callers |
+
+Do not gate on deaths alone. Both owner-01b deaths before the linked one were the standing idle-drowning channel, and
+the v21 lower-bound rule correctly held on them.
