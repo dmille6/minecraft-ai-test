@@ -235,3 +235,56 @@ at the wrong half too.** What the fleet needs first is bots that go somewhere.
 Not retracted, and worth keeping: 60% of an ordinary oak's wood reads as buried, and
 37.3% of refusals are a mineshaft rule applied to shoreline trees. Both are real
 defects in the 30% that moves, both are already built, and neither is the main event.
+
+---
+
+# THIRD AMENDMENT, 11:45Z: the mobility framing was CIRCULAR. Withdrawn.
+
+"Two thirds of attempts never move" and "two thirds are refused at the candidate
+filter" are the same event wearing two names. A run refused at the filter never
+walks, so its `distance_moved` is 0 by construction. Cross-tabulated:
+
+| worn worlds | refused at filter | got past filter | succeeded |
+|---|---:|---:|---:|
+| did not move | **66.5%** | 2.6% | 0.3% |
+| moved | 9.9% | 11.3% | 9.3% |
+
+**95.7% of the runs that did not move were filter refusals.** Only **3.0%** of all
+runs got past admission and then failed to travel. The previous amendment's headline
+is withdrawn: mobility is not an independent cause, it is the filter restated.
+
+## The non-circular version of the same table
+
+| | FRESH | worn |
+|---|---:|---:|
+| **refused at the candidate filter** | **33.1%** | **76.4%** |
+| of the runs that travelled, succeeded | 62.2% | 30.4% |
+
+Two separate facts, and both survive:
+
+1. **The filter refuses 2.3x more often on worn worlds** — 76.4% against 33.1%, same
+   code, same predicates. That is a property of what is standing within range.
+2. **Among runs that got past it and walked, fresh worlds are still 2x better** —
+   62.2% against 30.4%. That residual is not admission and is not explained.
+
+## And the refusals are not "there are no trees"
+
+`nothing_found` is only 5.5% of log gathers. The trees are **found and then
+rejected** — 76% of the time on worn worlds. Combined with the ground sample, which
+found *more* tree columns near worn-world bots (7.8% vs 4.3%), the picture is that
+worn worlds have plenty of wood in range and almost all of it fails the two local
+tests: leaves-count-as-rock, and a mineshaft liquid rule.
+
+That is a better case for the two queued fixes than anything before it — they act on
+exactly the 76%, and the population they act on is larger on the worlds the fleet
+actually lives in. It is *not* a case that they will close the gap, because the 2x
+residual among travelling runs is untouched by either.
+
+## Standing after three amendments
+
+- 60% of an ordinary oak's wood reads as buried. **Verified, unchanged.**
+- 37.3% of refusals are a liquid rule written for shafts, 0.0% lava. **Verified.**
+- The filter refuses 76.4% on worn worlds and 33.1% on fresh. **Measured today.**
+- Among travelling runs, fresh is 2x better. **Measured, unexplained.**
+- Exhaustion near home, the radius gradient, "fresh worlds have more wood",
+  accumulated avoid rules, and the mobility framing: **all dead.**
