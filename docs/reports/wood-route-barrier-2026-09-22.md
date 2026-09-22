@@ -95,3 +95,60 @@ drop and back out.
 Not proposed yet, and deliberately: the obvious move is to let gather bridge with held
 blocks, and this project has a standing note that a bridge stranded a bot for 19 hours.
 That needs designing against the harness before it needs a canary.
+
+---
+
+# CORRECTION, 12:45Z: the trench result was a scene artifact. The barrier is NOT established.
+
+The route test above concluded that a dry drop deeper than `maxDropDown = 6` is the one
+barrier A\* cannot cross. **That was my scene being wrong, not the game.**
+
+That scene pre-filled terrain only down to y = −6, then dug a trench to y = −8 with a
+floor at −9. Every cell below −6 outside the trench was therefore never set — **void**,
+not diggable ground. A\* cannot tunnel through void, so it had no way around, and the
+scene answered a question about my own fill loop.
+
+Rebuilt with ground down to y = −14 and re-run, four barriers × four movement profiles:
+
+| barrier | as deployed (empty-handed) |
+|---|---|
+| dry trench 8 deep, 2 wide | **reaches** |
+| dry trench 8 deep, 6 wide | **reaches** |
+| dry pit 12 deep, 3 wide | **reaches** |
+| flooded trench | reaches |
+
+`canDig = true` means A\* **digs through or around a pit**. Carrying scaffolding and
+raising `maxDropDown` to 12 change nothing, because nothing needed changing.
+
+**So the pit-as-barrier mechanism is withdrawn.** This is the third scene artifact caught
+in this harness today — after `reachable()` denying digging to both profiles, and the
+`bestHarvestTool` throw that made every scene read `no_path`. The harness is worth having;
+every scene in it needs a positive control, and a scene that answers "no route" needs one
+most of all.
+
+## What survives the correction
+
+- **The ground difference is real and independently measured**: 15.94% of adjacent-column
+  steps on worn worlds are dry drops deeper than 6, against 2.32% on fresh — 6.9x, across
+  4,480 columns with zero unloaded, every worn pool showing it. That is a fact about the
+  worlds.
+- **The route-failure difference is real**: 37.0% vs 21.4% among travelling runs, with
+  77.9% of worn failures reporting "A\* reached none" and 48.3% carrying
+  `pathfinder said: NoPath` from the full search.
+- **What is NOT established is the link between them.** I had a mechanism, tested it, and
+  the test killed it. The label "impassable" on those 625 dry steps is withdrawn — they
+  are steep, and steepness is measured; impassability is not.
+
+## What to test next, and it is cheap
+
+`NoPath` from a search that may dig is a strange verdict: with `canDig = true` and
+`searchRadius: -1`, A\* should nearly always find *something*. Three candidates, in order
+of how cheap they are to separate:
+
+1. **The search is bounded somewhere the report did not look** — `collectManually`'s own
+   `goto` may carry a tighter radius or timeout than the probe's. Read the call site.
+2. **The search space explodes on broken ground** and the result is a timeout reported as
+   NoPath rather than as Timeout. Distinguishable in the library's own return.
+3. **The bots are genuinely enclosed** — sealed in by terrain in a way a single trench
+   scene does not reproduce. Testable by replaying a captured fleet scene rather than a
+   synthetic one, which is what `dig-approach.test.mjs` already does for six of them.
