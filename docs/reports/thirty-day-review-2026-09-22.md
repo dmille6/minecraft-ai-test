@@ -16,13 +16,18 @@ gives a materially different picture:
 
 | measure | 13 Sep | **today** | committed 2-wk (27 Sep) | committed 6-wk (25 Oct) | |
 |---|---|---:|---|---|---|
-| deaths / bot-hour | 0.06–0.10 | **0.026** | ≤ 0.05 | ≤ 0.03 | **MET, 2x clear** |
-| iron-pickaxe share | 3.3% | **16.7%** | ≥ 8% | ≥ 20% | **MET, 2x clear** |
+| deaths / bot-hour | 0.06–0.10 | **0.026** | ≤ 0.05 | ≤ 0.03 | inside, 2x clear |
+| iron-pickaxe share | 3.3% | **16.7%** | ≥ 8% | ≥ 20% | inside, 2x clear |
 | gather success | 30% | **22.5%** | ≥ 40% | ≥ 55% | fail |
 | stock returned / bot-h | 14.7 | **3.80** | ≥ 20 | ≥ 30 | **fail by 5.3x** |
 | immobile bot-minutes | never measured | — | ≤ 2% | ≤ 1% | **unmeasurable** |
 
-Two of five met, two failed, one cannot be scored at all.
+Two of five are inside their number, two fail, one cannot be scored at all.
+
+**"Inside" is not "passed", and the distinction is the program's own.** The committed
+2-week number is a **72-hour read** and the 6-week number a **7-day read**
+(`program-feasibility.md`:73). Everything above is a 24-hour window. Deaths and iron are
+indicative, not certified, and the formal read is on 27 September.
 
 ---
 
@@ -82,10 +87,13 @@ gather success near **35%**, below the ≥40% gate. Fixing both known filter def
 buys roughly **+4.6 pp** — against a cross-arm detection floor of ~14 pp. *That is
 why leaf-01 read as nothing: it was unobservable by construction.*
 
-**Gather success is also arguably mis-specified.** 76.4% of log gathers are
-refused at a candidate filter *before the bot moves*. A cheap refusal and an
-expensive failed attempt both count as "not success", so the metric improves if
-the bot stops refusing and starts failing slowly.
+**Gather success is also arguably mis-specified — but not for the reason I first
+gave.** I wrote that the metric improves if the bot stops refusing and starts failing
+slowly. That is arithmetically wrong: both are failures and successes/attempts does not
+move. What actually changes is THROUGHPUT — a refusal is nearly free and a failed attempt
+costs up to 180 s, so the same success rate can hide a large difference in successes per
+bot-hour. The real specification problem is that 76.4% of log gathers are refused before
+the bot moves, so the metric is dominated by a filter decision rather than by execution.
 
 **Iron-pickaxe share — perverse, and near its own ceiling.** 16.7% looks like 5x
 progress. It is held by **11 of 60 bots**, and those 11 hold one **91% of their
@@ -121,8 +129,10 @@ What survives, all measured today:
 - Two verified causes: `oak_leaves.boundingBox === 'block'`, so **60% of an
   ordinary oak's wood reads as "buried"** (75% on a short trunk); and a mineshaft
   liquid rule refusing shoreline trees — **0.0% lava** across 994 candidates.
-- Among runs that get past and travel, fresh worlds are still **2x** better, and
-  **77.9%** of worn route failures are a genuine "A\* reached none".
+- Among runs that get past admission and travel, fresh worlds are **1.51x** better
+  (65.4% vs 43.4% productive; the worn failure probability is 1.64x), and **77.9%** of
+  worn route failures are a genuine "A\* reached none". An earlier draft said "2x" from
+  a differently-filtered window; 1.51x is the like-for-like figure.
 - Worn worlds carry **6.9x** the density of dry drops deeper than the movement
   profile will step down — but **the link to the route failures is not
   established**, and the mechanism I proposed for it was killed by its own harness
@@ -137,6 +147,9 @@ rejected.
 ## 4. The measured rate of validated change
 
 - 850 commits, **472 in `bots/src`**, 44 reports, 65 branches.
+- **Coverage: 20 of 80 bots — 25% of the fleet — are in `isolated-*` pools and are
+  excluded from every read in this report.** Every rate above is over the 60 measurable
+  bots, and nothing here says what the other 20 are doing.
 - Canary ledger since 16 Sep: **12 runs — 3 KEEP, 5 REVERT, 4 no verdict.** Of the
   three KEEPs, one was an instrument that changed no behaviour and one passed a
   threshold whose confidence interval straddles it.
@@ -194,16 +207,20 @@ ideas — it is that the fleet cannot tell whether a change worked.**
 gather→craft→smelt→mine→deposit worker with the model off the tick — and read it
 as a half-fleet comparison on deposited items per bot-hour.**
 
-The argument is arithmetic. The null spread of the pool-mean estimator is ~1/√k;
-resolving a 3 pp change would need roughly **800 bots**. There are 80. **This fleet
-cannot be made to see small changes at any window length.** So the only rational
+The argument is arithmetic, with its limits stated. Measured placebo nulls on THIS
+estimator: sd 9.0 pp at 2 pools over 180/180, 8.2 pp at 2 pools over 180/540, 10.9 pp at
+4 pools over a 30-minute window. The pool-mean spread falls roughly as 1/√k, so resolving
+a 3 pp change would need on the order of **800 bots**. There are 80. What I have NOT
+measured is a blocked or within-bot design, or windows beyond 9 hours, so "cannot see
+small changes at any window length" is stronger than the evidence — **what is measured is
+that the designs actually in use are blind under roughly 14 pp.** So the only rational
 policy is to attempt large ones — and the instrument demonstrably *does* see large
 effects: the re-seed read +29 to +33 pp and replicated across two pools and two
 timepoints to within 0.5 pp.
 
 Step 4 is the only queued item with a plausibly large effect, and every supporting
 number is measured: 55% of position samples are stationary; decisions/bot-h fell
-59.6 → 47.3; the decision cooldown is two thirds of fleet life; the model picks the
+59.6 → 47.3; the decision cooldown is ~33-42% of cycle time; the model picks the
 most-echoed verb 54.5% of the time against 7.1% by chance; and deposit succeeds
 **10.1%** of the time.
 
@@ -221,3 +238,73 @@ is too small a fleet to develop against, and the next investment is fleet size.*
 Run it after the 27 September window closes. Before then, ship the two built fixes
 and let the program read fail honestly — a clean recorded failure on a
 pre-registered gate is worth more than the last five canaries together.
+
+---
+
+## 7. Where the two engines disagree, and it matters
+
+They agree on the diagnosis and split on the prescription.
+
+**Engine A (above): build the whole worker.** The instrument can only see large
+effects, so attempt only large ones; the worker is the only queued item plausibly
+that size.
+
+**Engine B: that is too big a first bite. Fix and prove ONE restricted
+gather→deposit cycle first.** Its argument, which I find hard to answer:
+
+- A script meets the same rejected trees and the same impossible routes. *"Always
+  has a next action"* does not make terrain irrelevant. The worker's effect is
+  **plausible, not demonstrated**.
+- Adding craft, smelt and mine introduces four dependencies **before proving the
+  terminal operation that monetises every upstream gain**. Deposit succeeds
+  **10.0%**. Everything the fleet gathers flows through it.
+- **It was already prescribed.** `program-feasibility.md` amendment 2, 13
+  September: *"Fix the deposit path in week one. 17% success is the cheapest large
+  gain in the program and every other gain flows through it."* Nine days later it
+  is not done and the rate has fallen from 16.8% to 10.0%.
+- It rejects my falsifier: a failed half-fleet comparison could mean a broken
+  implementation, thin exposure, or a bad design — **not** "80 bots is too few".
+  Half of 60 measurable bots is six pools, and within-bot pairing does not remove
+  shared world drift.
+- And it rejects waiting for 27 September: **no measured argument justifies
+  idling for five days.**
+
+**I think Engine B is right and my draft was wrong.** The deposit path is smaller,
+was already committed, is readable *without* a canary at ~2,900 runs/day (binomial
+se ≈0.6 pp), and is the terminal step that converts every upstream gain into the
+metric that actually failed. The worker follows it, not the other way round.
+
+The deposit fix built today is a first piece of that, and it is honest about its
+own size: it recovers wasted decision time and makes a false refusal true. It banks
+**zero extra items by itself**.
+
+## 8. Dates, computed rather than declined
+
+Saying "no defensible date" for the whole goal is right; saying no dated
+accountability is an abdication. From the measured trajectories:
+
+| | measured rate | projection |
+|---|---|---|
+| gather success | **−0.56 pp/day** | 22.5% → **19.7% on 27 Sep**. Reaching ≥40% needs **+3.5 pp/day**; ≥60% needs +7.5. Neither has ever been observed. |
+| iron-pickaxe share | +1.49 pp/day (snapshot) | ≥20% around **25 Sep** — but capped at **18.3%** until a twelfth bot acquires one, and zero were crafted last night. |
+| deaths | −0.0045/day | already inside both numbers, under conditions the end-state removes |
+| deposited output | −0.23/day | moving **away** from ≥20 |
+| build | **no measured rate exists** | no date can be computed, and none should be quoted |
+
+The draft's "2–4 weeks" for the filter fixes is not supported by the delivery
+evidence and is withdrawn.
+
+## 9. What this review still does not cover
+
+- **Building has no acceptance test.** Peaceful mode does not make construction
+  meaningless; it means nobody has specified what a finished structure is or
+  measured one. The goal includes "build" and nothing in 30 days measures it.
+- **Deposited output is a count, not a value.** It can be inflated by low-value
+  items, and nothing here checks for withdraw-and-redeposit.
+- **25% of the fleet is unmeasured** (the 20 `isolated-*` bots).
+- **World sustainability is unmeasured over time.** The 6.9x dry-drop density is a
+  snapshot with no t=0 baseline, so nothing shows it *grew*. The cheap test is the
+  same census repeated on the two fresh worlds at +2 and +4 weeks.
+- **Why deposit-first went undone for nine days** after being named the cheapest
+  large gain in the program. That is a process answer, not a measurement, and it
+  belongs with the owner.
