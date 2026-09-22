@@ -151,11 +151,31 @@ const inWater = (bot) => {
  * `missing`. Pure, exported for the admission test.
  */
 export const DEPOSIT_WILDCARDS = new Set(['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'])
-export function depositItemArg (items, item) {
+export function depositItemArg (items, item, bankableDetail = null) {
   const name = item == null ? '' : String(item).trim().toLowerCase()
-  if (DEPOSIT_WILDCARDS.has(name)) return { item: null, missing: false }
-  const held = (items ?? []).some(it => it?.name === name)   // EXACT: 'stone' must not admit cobblestone (Codex)
-  return held ? { item: name, missing: false } : { item: name, missing: true }
+  if (DEPOSIT_WILDCARDS.has(name)) return { item: null, missing: false, unbankable: false, held: 0 }
+  const held = (items ?? []).reduce((n, it) => n + (it?.name === name ? (it.count ?? 0) : 0), 0)
+  // EXACT: 'stone' must not admit cobblestone (Codex).
+  if (!held) return { item: name, missing: true, unbankable: false, held: 0 }
+  // HELD BUT NOT WORTH BANKING IS A THIRD ANSWER, AND IT WAS THE COMMON ONE.
+  //
+  // Measured 24 h to 2026-09-22: 1,069 deposit runs returned "nothing matching <item>
+  // to hand over -- nothing to deposit", and in **1,068 of them the bot WAS HOLDING the
+  // item** -- 21 wheat_seeds, and the message denied it. apple 543, wheat_seeds 116,
+  // dirt 99, chest 78, oak_sapling 77, cooked_beef 47.
+  //
+  // The policy behind it is right: bankableInventory counts anything that is neither a
+  // tool nor a standing target as junk, so food and saplings are correctly kept out of
+  // the chest. What was wrong is that the bot walked to a chest, opened it and then
+  // reported a fact about its own inventory that was FALSE -- so the model could not
+  // learn from it and asked again 1,069 times a day.
+  //
+  // `bankableDetail` is bankableInventory().detail: the names that would actually move.
+  // Null means the caller could not compute it, and an unknown must not refuse.
+  if (bankableDetail && !(name in bankableDetail)) {
+    return { item: name, missing: false, unbankable: true, held }
+  }
+  return { item: name, missing: false, unbankable: false, held }
 }
 
 export class AdmissionControl {
@@ -322,10 +342,30 @@ export class AdmissionControl {
       // did nothing -- "nothing matching none/null/wheat_seeds to hand over"). A
       // wildcard word means "everything bankable"; a real name the bot does not
       // hold is refused here, before a walk to the chest.
-      const arg = depositItemArg(items, args?.item)
+      // Compute the bankable set BEFORE judging the argument, so "held but not worth
+      // banking" can be refused here rather than after a walk to a chest. The wants are
+      // recomputed below for the due/priority logic; this one is only for the argument.
+      const argWants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
+      let argBankable = null
+      try { argBankable = bankableInventory(items, { wants: argWants }).detail } catch { argBankable = null }
+      const arg = depositItemArg(items, args?.item, argBankable)
       if (arg.missing) {
         return { ok: false, reason: 'deposit_item_missing',
                  detail: `you hold no ${args.item}; deposit what you carry (say deposit with no item) or gather it first` }
+      }
+      // REFUSE BEFORE THE WALK, AND SAY THE TRUE THING.
+      //
+      // 1,069 runs a day walked to a chest to be told "nothing matching <item>" while
+      // holding 21 of it. The walk is the expensive part and the sentence was false.
+      // A refusal must name a remedy the bot can perform from where it stands, so this
+      // one names the items that WOULD move.
+      if (arg.unbankable) {
+        const would = Object.keys(argBankable || {}).slice(0, 4)
+        return { ok: false, reason: 'deposit_item_unbankable',
+                 detail: `you hold ${arg.held} ${arg.item}, but it is not worth banking — ` +
+                         (would.length
+                           ? `deposit ${would.join(', ')} instead, or say deposit with no item`
+                           : 'you are carrying nothing worth banking right now') }
       }
       if (args) args.item = arg.item
       // THE SAME POLICY AS EXECUTION (Codex, deposit pass 2): the always-banked ores count here too, and the wants

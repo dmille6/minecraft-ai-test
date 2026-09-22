@@ -2244,10 +2244,21 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // "deliberately matches NEITHER branch. It is not a success". The bot did
     // what was asked and there was nothing to do, which is neither an
     // achievement nor a fault, and it should not be counted as either.
+    // SAY WHICH OF THE TWO IT IS. The old sentence claimed the bot held nothing
+    // matching the name, and measured 24 h to 2026-09-22 that was FALSE in 1,068 of
+    // 1,069 cases -- the bot held 21 wheat_seeds and was told there was no such thing.
+    // A refusal the model cannot believe is a refusal it cannot learn from, and it
+    // asked again 1,069 times a day. The gate now refuses this before the walk; this
+    // covers the case where the inventory changed in between, and it tells the truth.
+    const heldNow = item
+      ? (bot.inventory?.items?.() ?? []).reduce((n, it) => n + (it?.name === item ? (it.count ?? 0) : 0), 0)
+      : 0
     return { status: 'no_effect', failClass: null,
-             detail: item
-               ? `nothing matching ${item} to hand over — nothing to deposit`
-               : 'nothing worth banking — nothing to deposit' }
+             detail: !item
+               ? 'nothing worth banking — nothing to deposit'
+               : heldNow > 0
+                 ? `you hold ${heldNow} ${item} but it is not worth banking — nothing to deposit`
+                 : `nothing matching ${item} to hand over — nothing to deposit` }
   }
   // A REFUSAL MUST NAME A REMEDY THE BOT CAN PERFORM FROM WHERE IT STANDS,
   // and this one named one and then did not perform it.
