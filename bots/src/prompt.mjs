@@ -14,7 +14,7 @@ import { fuelTicks, smeltRecipeFor } from './smelting.mjs'
 import { inventorySummary, isNight } from './state.mjs'
 import { CLIMB_CEILING } from './reflex.mjs'
 import { mineTargetHint } from './mining.mjs'
-import { isExposed, isSafeToBreak } from './skills.mjs'
+import { isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { config } from './config.mjs'
@@ -132,7 +132,10 @@ export function actionableBlocks (bot, limit = 8, { wants = null } = {}) {
     let usable = 0, unsafe = 0
     for (const p of checked) {
       if (!isExposed(bot, p)) continue          // buried
-      if (!isSafeToBreak(bot, p)) { unsafe++; continue }
+      // THE SECOND AND LAST call site of the shoreline exemption. gather's filter
+      // carries the other. A capability is not shipped until the OBSERVATION
+      // names it, so this counts as usable exactly what the skill will accept.
+      if (!isSafeToBreak(bot, p) && !shorelineExemptAt(bot, p)) { unsafe++; continue }
       usable++
     }
     stats.push({ block: name, visible: found.length, checked: checked.length,

@@ -1183,6 +1183,26 @@ export async function collectManually(bot, block, signal) {
 
   const tool = bestTool(bot, block)
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
+  // THE ADMISSION WENT STALE, AND THIS IS THE THIRD AND LAST CALL SITE.
+  //
+  // gather admits a candidate at scan time and digs it after a walk and an equip.
+  // Codex pass 2 executed the production path: admitted at y=70, the goto moved the
+  // bot to y=68, and `bot.dig` ran with `standingDry` now null -- the exemption had
+  // certified a position the bot no longer occupied. A reflex can move it too, and
+  // `equip` itself is an await.
+  //
+  // So the permission is re-asked HERE, against where the bot actually is, after
+  // every await that could have moved it. This is the only place the answer is
+  // load-bearing; the filter upstream just decides what to walk toward.
+  //
+  // Only for a block the ORDINARY rule refuses -- an unexempted block is
+  // unaffected, so this cannot make the baseline stricter.
+  if (!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)) {
+    throw Object.assign(
+      new Error(`unsafe_now: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
+                `was admitted from a dry stance and the bot is no longer standing in one`),
+      { failClass: 'no_safe_target' })
+  }
   // BOUND THE DIG. bot.dig() has no timeout of its own. (An earlier version of
   // this comment said it "resolves when the server confirms the break" -- see
   // the correction below the call; it does no such thing, and believing it did
@@ -1468,7 +1488,12 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // a block that can fall (dontMineUnderFallingBlock), both of which our own
     // filters never considered. The Movements we lend collectblock already has
     // both flags set, so this is a test we could always have run and never did.
-    const safeTarget = p => isSafeToBreak(bot, p)
+    // ONE OF EXACTLY TWO CALL SITES for the shoreline exemption. The other is the
+    // observation in prompt.mjs, and they must move together: relax the filter
+    // without relaxing what the model is told and it keeps reading
+    // `exposed_safe=0` and steers away from targets the skill just unlocked.
+    // That is the `model-cannot-see-it` failure, which cost four in one day.
+    const safeTarget = p => isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
     // block has an air face, which is true of every log in a tree canopy -- so
     // findBlocks would return a trunk section five blocks up in the foliage,
@@ -5391,6 +5416,219 @@ export function inventoryLine (items, { focus = [], limit = 6 } = {}) {
 export function placeableInto (b) {
   if (b == null || b.boundingBox !== 'empty') return false
   return b.name !== 'lava'
+}
+
+/**
+ * THE SHORELINE TREE, AND NOTHING ELSE.
+ *
+ * `Movements.safeToBreak` ORs `dontCreateFlow` -- liquid on any of five faces
+ * (movements.js:257-264) -- with `dontMineUnderFallingBlock` (:266-271), and it
+ * produces **37.3% of all log-gather refusals**. The rule exists for a real
+ * hazard: open a wall with water behind it in a shaft and the shaft floods. In
+ * the 14 bot-hours 6d1fdba ran fleet-wide without it, five bots died against
+ * zero in the windows either side.
+ *
+ * But it is being applied to a tree standing next to a pond. `veto_faces`
+ * (8d6f6f7), reading the actual five cells through `Movements.getBlock` over 994
+ * candidates and 191 refusals on 36 bots: **side-water-only 43.1%, liquid above
+ * 28.7%, no liquid at all 28.3%, ANY LAVA 0.0%.**
+ *
+ * THE 0.0% IS NOT WHAT LICENSES THIS. Lava is excluded by the predicate below,
+ * on every face, by name. A statistic about the last 994 candidates is not a
+ * promise about the next one, and an earlier 5-21% lava estimate derived from a
+ * `lava_corridor` proxy turned out to be simply wrong -- in the other direction,
+ * which is luck and not method.
+ *
+ * WHAT MAKES THIS SAFE IS WHERE IT IS NOT. It is a term in `gather`'s candidate
+ * filter and in the observation that must match it. It is NOT a flag on a
+ * Movements object, so:
+ *   - `gatherMoves.dontCreateFlow` stays true (index.mjs), which means the
+ *     DIG-APPROACH TUNNEL -- which breaks walls to reach a stance -- still
+ *     refuses every block touching liquid. That is the guard whose absence cost
+ *     the five deaths.
+ *   - `mine` never sees this. It has its own liquid handling (`stairLiquid`,
+ *     `stairFlowRisk`) and does not use gather's filter.
+ *   - gather's own escalation to `mine` is gated on `WORTH_TUNNELLING`, which is
+ *     ores by design, so no log can hand a relaxed target to the tunnel.
+ * Two call sites, asserted structurally with a mutant. Any implementation that
+ * reaches this by clearing a Movements flag is the wrong implementation.
+ */
+/** Every 1.21 fluid or suffocating fill a raw `bot.blockAt` block can carry. See wetBlock. */
+export const WET_NAME = /^(water|lava|flowing_water|flowing_lava|bubble_column|powder_snow)$/
+
+export const NATURAL_LOG = /^(oak|birch|spruce|jungle|acacia|dark_oak|mangrove|cherry|pale_oak)_log$/
+
+/**
+ * Is there TERRAIN over this block -- i.e. is it in a shaft rather than in a tree?
+ *
+ * The first version of this asked `surfaceYAt` to find the highest solid block in a
+ * 20-block column and refused on any unreadable cell. Two problems, both found by
+ * the offline funnel: the scan ran past the top of the captured scene and refused
+ * on the sky, and "find the surface" was never the question. The question is
+ * whether the thing above the target is TERRAIN, and a trunk's own canopy is not.
+ *
+ * Wood and foliage overhead are fine -- that IS a tree. Stone, dirt, gravel, ore,
+ * anything else solid is overburden and the block is buried, which is a `mine`
+ * problem and must keep refusing.
+ *
+ * IT DOES NOT PROVE THE BLOCK IS ABOVE GROUND, and the claim is weakened rather
+ * than the span increased (Codex pass 1). Four blocks of leaves under a stone
+ * roof passes; so does a trunk beneath an overhang. Raising four to any other
+ * number just moves the counterexample. This is a cheap filter that removes the
+ * common shaft case; what actually keeps the exemption out of mining is that it
+ * admits only natural logs and only from a stance the bot already occupies.
+ *
+ * UNREADABLE IS OVERBURDEN. Four blocks straight up from a block the bot is
+ * looking at is inside the loaded chunk on the fleet, so a null here is a genuine
+ * anomaly and not a chunk edge. Defaulting it to sky would make this predicate
+ * admit more the LESS it can see, which is the shape of every detector this
+ * project has had to retract.
+ */
+export const OVERHEAD_OK = /(_log$|_leaves$|_wood$|^air$|^cave_air$|^vine$|^snow$)/
+export function terrainAbove (bot, p, { span = 4 } = {}) {
+  for (let dy = 1; dy <= span; dy++) {
+    const b = bot.blockAt(p.offset(0, dy, 0))
+    if (!b) return true                                   // unreadable counts against admission
+    if (wetBlock(b)) return true                          // a bubble column or snow overhead is not sky
+    if (b.boundingBox === 'empty') continue
+    if (!OVERHEAD_OK.test(String(b.name || ''))) return true
+  }
+  return false
+}
+
+/**
+ * Gathers the cells and asks the pure predicate. Reads through `Movements.getBlock`
+ * for the five veto faces, exactly as `breakVetoAt` does and for the same reason:
+ * `liquid` and `canFall` are DECORATIONS that getBlock writes, not properties of a
+ * prismarine block. The first version of `breakVetoAt` read `bot.blockAt` and would
+ * have filed 100% of refusals as `unknown` -- a detector that answers uniformly,
+ * shipped as the cure for detectors that answer uniformly.
+ *
+ * Defaults to FALSE on anything it cannot read. This one is a permission, not an
+ * observation, so a missing movements object must refuse rather than admit.
+ */
+export function shorelineExemptAt (bot, p) {
+  try {
+    const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+    if (typeof m?.getBlock !== 'function') return false
+    const target = bot.blockAt(p)
+    if (!target) return false
+    // EVERY OTHER LIBRARY GUARD STILL APPLIES (Codex pass 1).
+    //
+    // `breakVeto` accounts for liquid, falling blocks and entities -- but
+    // `safeToBreak` ALSO checks `canDig`, `blocksCantBreak` and `exclusionBreak`
+    // (movements.js:275), and `|| shorelineExemptAt(...)` was bypassing all three.
+    // Codex executed the `blocksCantBreak` case and got an admission.
+    //
+    // So instead of enumerating them -- which goes stale the next time the library
+    // adds one -- ask the library itself with ONLY the flow rule off, on a receiver
+    // that inherits `m` and shadows the one flag. `m` is not mutated, nothing
+    // escapes, and dontMineUnderFallingBlock still runs inside this call.
+    const probe = Object.create(m)
+    probe.dontCreateFlow = false
+    if (!probe.safeToBreak(target)) return false
+    return shorelineLogExempt({
+      target: { name: target.name, position: { y: Math.floor(p.y) } },
+      above: m.getBlock(p, 0, 1, 0),
+      sides: FLOW_FACES.slice(1).map(([dx, dy, dz]) => m.getBlock(p, dx, dy, dz)),
+      entitiesAbove: m.getNumEntitiesAt?.(p, 0, 1, 0) ?? 0,
+      stance: standingDry(bot, p),
+      buried: terrainAbove(bot, p),
+    })
+  } catch { return false }
+}
+
+/**
+ * IS THE BOT STANDING SOMEWHERE THAT QUALIFIES, RIGHT NOW?
+ *
+ * The first version asked whether a dry stance EXISTED somewhere beside the
+ * target, and that is not a safety property. Codex pass 1 executed production
+ * `collectManually` with the certified stance at (1,70,0) and the bot at
+ * (0.5,68,1.5) -- two blocks BELOW the target -- and `bot.dig` was invoked without
+ * the bot ever moving, because the reach shortcut (skills.mjs, "already in range")
+ * skips the approach entirely. So the exemption certified a cell the bot was never
+ * required to occupy, and the actual dig happened from underneath the block
+ * holding the water back. That is the drowning case, not a corner of it.
+ *
+ * So the question is now about the bot's OWN position, which needs no navigation
+ * to enforce and is re-asked every time the filter runs:
+ *
+ *   - Feet at or above the target's y. Never from below: breaking a block from
+ *     under it puts the bot in the path of everything behind it.
+ *   - Dry feet, dry head, solid dry footing -- by NAME, see WET_NAME.
+ *
+ * It refuses more than the old version, including some genuinely fine shoreline
+ * trees where the bot happens to be standing badly at that moment. That is the
+ * right direction: the next scan re-asks, and a refused tree costs one candidate
+ * while a drowned bot costs the run and the pool's death gate.
+ *
+ * Waterlogging is checked three ways because a raw block exposes it
+ * inconsistently across prismarine versions, and the fixtures cannot represent it
+ * at all (the scene loader strips block states) -- so that arm is covered by unit
+ * cases with hand-built blocks and is stated as untested on captured scenes.
+ */
+export function wetBlock (b) {
+  return !!b && (WET_NAME.test(String(b.name || '')) || b.liquid === true ||
+                 b._properties?.waterlogged === true ||
+                 b.getProperties?.().waterlogged === true)
+}
+
+export function standingDry (bot, p) {
+  const e = bot.entity?.position
+  if (!e || typeof e.offset !== 'function') return null
+  const feetY = Math.floor(e.y), py = Math.floor(p.y)
+  if (feetY < py) return null
+  const feet = bot.blockAt(e), head = bot.blockAt(e.offset(0, 1, 0)), under = bot.blockAt(e.offset(0, -1, 0))
+  if (!feet || !head || !under) return null
+  // CLEARANCE, not just dryness (Codex pass 2, which admitted a bot with STONE in
+  // its head cell). A bot that is not actually standing in those two cells is not
+  // standing where this says it is, and every conclusion below rests on that.
+  const clear = b => b.name === 'air' || b.name === 'cave_air' || b.boundingBox === 'empty'
+  if (!clear(feet) || !clear(head)) return null
+  if (wetBlock(feet) || wetBlock(head)) return null
+  if (under.boundingBox !== 'block' || wetBlock(under)) return null
+  return { x: Math.floor(e.x), y: feetY, z: Math.floor(e.z), dry: true }
+}
+
+/**
+ * Pure, so the decision is tested by behaviour and never by grep. Every one of
+ * the six must hold; each has its own mutant.
+ */
+export function shorelineLogExempt ({ target, above = null, sides = [], entitiesAbove = 0,
+                                      stance = null, buried = null } = {}) {
+  // 1. A NATURAL LOG, by name. Not `/_log$/`: that admits `stripped_oak_log`,
+  //    and a surviving mutant once showed nothing distinguished the two.
+  if (!target || !NATURAL_LOG.test(String(target.name || ''))) return false
+  // 2. The veto reason must be EXACTLY liquid. Never `both`, never `falling`,
+  //    never `entity` -- the falling-block half of the rule is untouched, and
+  //    320 of 958 `no_safe_target` runs were SAND, which is that half.
+  if (breakVeto({ above, sides, entitiesAbove }) !== 'liquid') return false
+  // 3. Nothing liquid ABOVE. This removes only the four horizontal faces of
+  //    dontCreateFlow and keeps [0,1,0]: water overhead is the case that pours
+  //    down and re-spreads, which is what the rule is actually for.
+  if (above && above.liquid) return false
+  // 4. NO LAVA ON ANY FACE, and every liquid face must be water specifically --
+  //    so an unrecognised fluid refuses instead of passing.
+  //
+  //    THESE TWO LINES ARE REDUNDANT ON PURPOSE, and the test says so rather than
+  //    assuming it. Lava is refused three times over: by name here, by the
+  //    water-only line below, and (above the target) by condition 3. A mutant
+  //    removing only the first one does NOT admit lava, which is how the
+  //    redundancy was discovered rather than claimed. Lava is the one face
+  //    nobody may relax, and a guard with two independent reasons to hold is
+  //    worth five characters of duplication.
+  const lava = b => /lava/.test(String(b?.name || ''))
+  if (lava(above) || sides.some(lava)) return false
+  if (sides.some(b => b?.liquid && String(b.name) !== 'water')) return false
+  // 5. NOT UNDER TERRAIN, which makes the exemption structurally impossible in a
+  //    shaft -- doubly so with (1). The caller passes `terrainAbove`'s answer;
+  //    `true` and `null` both refuse, so an unreadable column cannot admit.
+  const y = target?.position?.y
+  if (!Number.isFinite(y)) return false
+  if (buried !== false) return false
+  // 6. A dry stance, at or above the target, away from its wet faces.
+  if (!stance || !stance.dry || !Number.isFinite(stance.y) || stance.y < y) return false
+  return true
 }
 
 export function isSafeToBreak (bot, p) {
