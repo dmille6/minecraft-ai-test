@@ -174,3 +174,64 @@ visited would be changing the world to answer a question about it.
 Until that runs, the honest statement of the headline is: **log gather is 9.3% on
 the fleet's worlds and 38.3% on two fresh ones, on identical code, and the reason is
 not established.**
+
+---
+
+# SECOND AMENDMENT, 11:30Z: it is not a wood problem. Two thirds of the attempts never move.
+
+Four wood explanations have now been tested and all four have failed:
+
+| explanation | how it died |
+|---|---|
+| the fleet stripped the wood near its towns | refuted — its negative control, the fresh worlds, showed a **4x steeper** radius gradient |
+| the radius gradient itself | measures mobility, not ground: a stuck bot's centre is where it is stuck |
+| fresh worlds simply have more wood | **contradicted by the ground sample** — fresh worlds have *fewer* tree columns near their bots (4.3% vs 7.8%) and five times more water |
+| accumulated avoid rules | the gap **survived a fleet-wide store wipe**: 4.0x before, 3.2x after |
+
+## What the ground sample could and could not say
+
+Read-only, 1,120 columns around all 80 bots, zero unloaded, nothing generated or
+placed. Tree and water columns are solid. But **exposed basal logs came back n=1
+across the whole fleet** — a random column through a canopy hits leaves, because the
+trunk is a 1×1 inside a 5×5 crown, so only 12 of 82 tree columns contained a log at
+all. That measurement is too sparse to use and no ratio should be quoted from it.
+
+## The measurement that worked
+
+Stratify every log gather by how far the bot actually moved during the run:
+
+| bot moved | FRESH | worn | worn n |
+|---|---:|---:|---:|
+| **under 1 block** | 4.7% | **0.5%** | **12,686** |
+| 1–8 b | 56.6% | 26.3% | 3,055 |
+| 8–24 b | 70.1% | 33.3% | 1,699 |
+| 24–64 b | 66.0% | 39.2% | 807 |
+
+- **69.5% of worn-world log gathers move less than one block. On fresh worlds, 34.9%.**
+- A run that does not move succeeds **0.5%** of the time.
+- Reweighting worn worlds to fresh worlds' mobility mix: 9.6% → **19.9%**, taking the
+  ratio from 4.4x to **2.1x**.
+
+**Mobility explains about half the split.** The residual 2.1x is real and still open —
+within every stratum fresh worlds are roughly twice as good — but the dominant term
+is that two thirds of wood-gathering attempts are made by a bot that is not going
+anywhere.
+
+## What this means for the queue
+
+The headline number was never a statement about chopping trees. `gather` is asked
+18,258 times a day on worn worlds and 12,686 of those calls come from a bot that then
+moves less than a block. Admission filters — `leaf-02`, `shoreline-log` — act on the
+~30% that *do* travel. Mobility acts on the ~70%.
+
+This is the same finding as the standing `entrapment-dominates` note, arrived at from
+the opposite direction: productivity tracks whether a bot is stuck, not what it knows.
+
+The pre-registered reorder trigger was written for terrain and does not fire on its
+own terms. The conclusion it was protecting fires anyway: **the wood filters are not
+the main lever, and reliability-program step 4 — the deterministic worker — is aimed
+at the wrong half too.** What the fleet needs first is bots that go somewhere.
+
+Not retracted, and worth keeping: 60% of an ordinary oak's wood reads as buried, and
+37.3% of refusals are a mineshaft rule applied to shoreline trees. Both are real
+defects in the 30% that moves, both are already built, and neither is the main event.
