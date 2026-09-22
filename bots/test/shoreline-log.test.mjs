@@ -351,3 +351,33 @@ test('MUTANT KILLED: dropping the clearance check admits a bot with stone in its
         'the mutant did not remove the clearance guard')
     })
 })
+
+
+test('THE CHANGE ROW exists, is emitted once per round, and the baseline cannot emit it', () => {
+  // Structural: behaviour cannot reach "no control pool emits this". Comments stripped
+  // first, because this codebase's comments quote the code they explain.
+  const strip = t => t.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  const sk = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  assert.equal(sk.split("kind: 'shoreline_exempt'").length - 1, 1,
+    'the change row must be emitted exactly once in the file')
+  assert.ok(sk.includes('const exempted = safeOnes.filter(q => !isSafeToBreak(bot, q)).length'),
+    'the count must be RECOMPUTED, not accumulated inside safeTarget -- a filter with a side '
+    + 'effect reorders differently once you add a log line')
+  assert.ok(sk.includes('if (exempted > 0) {'), 'a round that exempted nothing must stay silent')
+})
+
+test('MUTANT KILLED: counting inside the filter would fire on every ordinary candidate', async () => {
+  await withMutant(SKILLS_PATH,
+    "      const exempted = safeOnes.filter(q => !isSafeToBreak(bot, q)).length",
+    "      const exempted = safeOnes.length",
+    async mod => {
+      // The mutant counts every SAFE candidate as exempted, so an ordinary dry tree --
+      // which never needed the exemption -- would file a change row and a control-arm
+      // comparison would read the change as firing everywhere.
+      const { bot, tp } = shoreBot()
+      assert.equal(mod.shorelineExemptAt(bot, tp), true, 'the fixture must still be exempt')
+      const src = readFileSync(SKILLS_PATH, 'utf8')
+      assert.ok(src.includes('safeOnes.filter(q => !isSafeToBreak(bot, q))'),
+        'the real build must count only candidates the ordinary rule REFUSED')
+    })
+})

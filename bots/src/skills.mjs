@@ -1523,6 +1523,26 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // wet" is a distinguishable answer rather than folding into "buried".
     const safeOnes = exposedOnes.filter(safeTarget)
     const rejectedUnsafe = exposedOnes.length - safeOnes.length
+    // THE CHANGE ROW, and a canary without one is unreadable.
+    //
+    // `shorelineExemptAt` is otherwise silent, so nothing in telemetry would say the
+    // exemption had ever fired -- and three canaries here have been reverted on rows a
+    // CONTROL pool emitted too. This kind exists only in this build.
+    //
+    // Counted once per round rather than per candidate: `safeTarget` runs over every
+    // exposed position, and a row per candidate would be thousands per bot-hour. The
+    // count is recomputed rather than accumulated inside the filter, because a filter
+    // with a side effect is a filter that reorders differently when you add a log line.
+    try {
+      const exempted = safeOnes.filter(q => !isSafeToBreak(bot, q)).length
+      if (exempted > 0) {
+        logEvent({ kind: 'shoreline_exempt', status: 'success',
+                   detail: `${blockName}: ${exempted} of ${exposedOnes.length} exposed candidate(s) ` +
+                           `admitted past the liquid rule as shoreline logs ` +
+                           `(${rejectedUnsafe} still refused)`,
+                   snapshot: snapshot(bot) })
+      }
+    } catch { /* a measurement may never cost the skill its turn */ }
     let reachable = [
       ...safeOnes.filter(approachable),
       ...safeOnes.filter(q => !approachable(q)),
