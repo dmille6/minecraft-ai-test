@@ -42,14 +42,36 @@ export function mkWorld (fn) {
   return { getBlock, raycast }
 }
 
-export function mkBot (world, pos) {
-  return {
+export function mkBot (world, pos, { items = [] } = {}) {
+  const bot = {
     registry: mcData,
     game: { minY: -64 },
-    entity: { position: pos.clone() },
+    // `effects` and `inventory` are only reached under canDig=true: Movements.safeOrBreak prices the
+    // dig through `bot.pathfinder.bestHarvestTool` (movements.js:292) and `bot.entity.effects`
+    // (:294). With the travel profile that branch never runs, which is why this stub did without
+    // them until the gather profile arrived -- getNeighbors threw
+    // "Cannot read properties of undefined (reading 'bestHarvestTool')" and `reachable` swallowed it
+    // in its own try/catch, so EVERY scene came back with one node and read as `no_path`.
+    // The positive-control fixture is what caught it; a corpus without one would have published that.
+    entity: { position: pos.clone(), effects: {} },
+    inventory: { items: () => items },
     world,
     blockAt: p => world.getBlock(p),
   }
+  // Empty-handed by default, matching `scafoldingBlocks = []`: dig costs are then an UPPER bound and
+  // reachability a LOWER bound, which is the safe direction for a kill filter.
+  bot.pathfinder = {
+    LOSWhenPlacingBlocks: true,
+    bestHarvestTool: (block) => {
+      let fastest = Number.MAX_VALUE; let best = null
+      for (const tool of items) {
+        const t = block.digTime(tool ? tool.type : null, false, false, false, [], bot.entity.effects)
+        if (t < fastest) { fastest = t; best = tool }
+      }
+      return best
+    },
+  }
+  return bot
 }
 
 export function fleetMovements (bot) {
@@ -63,6 +85,49 @@ export function fleetMovements (bot) {
   m.allowEntityDetection = false
   m.scafoldingBlocks = []     // an empty-handed bot: nothing to tower with
   return m
+}
+
+/**
+ * The GATHER profile, mirroring index.mjs:467-482. `fleetMovements` above is the TRAVEL profile
+ * (canDig=false, no scaffold) and using it to ask "could gather have broken this?" answers no to
+ * everything -- safeToBreak's first line is `if (!this.canDig) return false`.
+ *
+ * `dontCreateFlow = true` is the flag that produces 37.3% of log-gather refusals, and it is the one
+ * this harness exists to reason about. It is set here, not assumed: index.mjs carries a fourteen-line
+ * comment about why, ending in five deaths in the 14 bot-hours 6d1fdba ran without it.
+ *
+ * scafoldingBlocks stays empty. A bot with cobblestone can tower to a target this says is
+ * unreachable, so every reachability answer here is a LOWER bound -- which is the safe direction for
+ * a kill filter and the wrong direction for a threshold, and this rig is only ever the former.
+ */
+export function gatherMovements (bot) {
+  const m = new Movements(bot)
+  m.canDig = true
+  m.allowParkour = false
+  m.allow1by1towers = true
+  m.maxDropDown = 6
+  m.dontCreateFlow = true
+  m.allowEntityDetection = false
+  m.scafoldingBlocks = []
+  return m
+}
+
+/**
+ * A fixture's `cells` map as a reachlab world. `mkWorld` takes (x,y,z) -> block NAME, and the corpus
+ * speaks setblock, so the `[state]` suffix is stripped.
+ *
+ * AN UNRECORDED CELL IS NOT AIR. The captured scenes mark cells that were unloaded at capture time,
+ * and mapping those to air turns every chunk-edge refusal into a pass -- a detector that answers
+ * uniformly, which is this project's most repeated bug. They map to a name mcData does not know, so
+ * `getBlock` returns null, exactly as `bot.blockAt` does off-world.
+ */
+export function sceneWorld (fx) {
+  const cells = fx.cells
+  return mkWorld((x, y, z) => {
+    const raw = cells[`${x},${y},${z}`]
+    if (raw === undefined || raw === '?' || raw === null) return '__unknown__'
+    return String(raw).split('[')[0]
+  })
 }
 
 /** Every node the planner can actually reach from `start`, via the REAL move generator. */
