@@ -140,7 +140,14 @@ export function reachable (m, start, cap = 6000) {
     let nb = []
     try { nb = m.getNeighbors({ x: n.x, y: n.y, z: n.z, remainingBlocks: 0 }) } catch { continue }
     for (const mv of nb) {
-      if (mv.toPlace?.length || mv.toBreak?.length) continue   // canDig=false, no scaffold
+      // THE TRAVEL PROFILE CANNOT DIG AND THE GATHER PROFILE CAN, and this line used to
+      // deny both. It was written for fleetMovements (canDig=false, no scaffold), where a
+      // move carrying toBreak/toPlace is unreachable by definition. Under gatherMovements
+      // it silently deleted every DIGGING route, and a 3-high dry stone wall then read as
+      // "A* reached none" -- a conclusion about the game drawn from the helper's own filter.
+      // Now it follows the profile: a break is allowed exactly when the profile allows one.
+      if (mv.toPlace?.length && !m.scafoldingBlocks?.length) continue
+      if (mv.toBreak?.length && !m.canDig) continue
       const k = `${mv.x},${mv.y},${mv.z}`
       if (seen.has(k)) continue
       seen.set(k, mv)
