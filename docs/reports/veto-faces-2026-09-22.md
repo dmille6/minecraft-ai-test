@@ -251,3 +251,60 @@ Until then, **`wood-shoreline-nosafetarget` must not be cited as evidence either
 **`9b572aa`**, a narrower rebuild on the current baseline (log-only, veto cause exactly `liquid`, no
 liquid above, no lava, no terrain overhead, bot already standing dry at or above the target, re-checked
 immediately before `bot.dig`). **The corpus above does not bound the deployed change.**
+## 7. The defect is systematic, and it has one rule behind it
+
+`shoreline` is not a one-off. Counting the cells in each fixture against the goal its corpus line asks for:
+
+| fixture | goal | cells the veto refuses | legal cells that ALSO satisfy the goal | can it discriminate? |
+|---|---|---:|---:|---|
+| `open` | `gather 4 oak_log` | 0 (positive control) | all | **yes** — and it passes on both arms |
+| `shoreline` | `gather 4 oak_log` | **1** basal log | **4** logs above it | **NO** |
+| `wetstone` | `gather 1 stone` | **2** wet stones | **5,526** dry stones | **NO** |
+| `buried` | `gather 1 oak_log` | **1** enclosed log | **0** | **yes** |
+| `canopy` | `gather 4 oak_log` | 0 (a different rule refuses) | 0 | n/a here |
+
+**The rule: a fixture can only measure a refusal when the refused cell is the ONLY way to satisfy the
+goal.** `buried` is built that way — one log, stone on all six faces, no alternative — and it is the only
+discriminating fixture in the corpus that produced a signal at all. `shoreline` and `wetstone` both leave
+an easy legal path to the goal, so both arms score the same and the veto is never exercised.
+
+This also disposes of the `wetstone` reading. Its line is `stone+0` for both arms; it returned
+**candidate stone+3, control stone+5**. That is not leakage — it is both arms walking to one of 5,526
+dry stones. **`wetstone` cannot currently detect the leakage it exists to detect**, and a change that
+wrongly admitted the two wet stones would pass it silently.
+
+**`buried` did produce one signal and it is not explained.** Candidate `logs+0,1,0,0,0` against control
+`0,0,0,0,0` — one of five candidate runs banked the single fully-enclosed log. I cannot attribute it to
+the change: `isExposed` is false for a cell with stone on all six faces, so `safeTarget` is never reached,
+and `shorelineExemptAt` requires the veto cause to be exactly `liquid`, which a dry stone shell is not.
+n=1, no mechanism, and it did not recur. **Recorded as an open thread, not as a leak** — but `buried` is
+the fixture worth re-running at higher repeats, precisely because it is the one that can see.
+
+### What to change, and it is small
+1. `shoreline`: make the pond-adjacent log the **only** log — a one- or two-log stump beside the water,
+   or water adjacent at every trunk level.
+2. `wetstone`: reduce the dry stone to nothing within gather range, or ask for a block that only the wet
+   cells can supply.
+3. Then re-run. The corpus is worth keeping: its positive control passes on both arms, `buried` works,
+   and the whole run costs minutes.
+
+**None of this bounds the canary that went live at 11:58Z** (`9b572aa`), which is a narrower rebuild on a
+different baseline. It does mean the sandbox gate both review engines asked for **was not actually
+available today**, and that is worth knowing before the next change is asked to pass it.
+### Final table, all 50 runs (25 per arm), complete
+
+| fixture | control | candidate |
+|---|---|---|
+| `open` POSITIVE CONTROL | **logs+12** / 5 | **logs+9** / 5 |
+| `canopy` | logs+0 / 5 | logs+0 / 5 |
+| `shoreline` | **logs+6** / 5 | **logs+8** / 5 |
+| `buried` MUST-REFUSE | **logs+0** / 5 | **logs+1** / 5 |
+| `wetstone` LEAKAGE MUST-REFUSE | **stone+6** / 5 | **stone+6** / 5 |
+
+`wetstone` landing on **exactly stone+6 in both arms** is the cleanest confirmation of §7 in the run:
+the two arms are not being tested on the two wet stones at all, they are each walking to one of the
+5,526 dry ones. Nothing about the liquid rule was exercised.
+
+**The single honest summary of the whole corpus run: the positive control passes, `buried` works, and
+the two fixtures built to test this change cannot test it.** No verdict on `shoreline-log` — for or
+against — may be drawn from it.

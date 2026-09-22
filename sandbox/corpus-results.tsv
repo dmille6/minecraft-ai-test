@@ -1,0 +1,250 @@
+20260913T1333	delta-flooded-shaft-wooden-pick	control	mcai-base	alive	not	rise2	move16	picks_lost0
+20260913T1333	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise0	move397	picks_lost0
+20260913T1333	bravo-flooded-pocket-no-tools	control	mcai-base	alive	not	rise0	move0	picks_lost0
+20260913T1333	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move465	picks_lost0
+20260913T1333	buried-ore-d5	candidate	mcai-recovery	alive	not	rise0	move9	picks_lost0
+20260913T1333	buried-ore-d5	control	mcai-base	alive	not	rise2	move5	picks_lost0
+20260913T1333	buried-ore-d6-detour	control	mcai-base	alive	not	rise0	move1	picks_lost0
+20260913T1333	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise5	move9	picks_lost0
+20260913T1358	delta-flooded-shaft-wooden-pick	control	mcai-base	alive	not	rise0	move0	picks_lost0	samples43
+20260913T1358	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise2	move0	picks_lost0	samples59
+20260913T1358	bravo-flooded-pocket-no-tools	control	mcai-base	alive	not	rise0	move0	picks_lost0	samples50
+20260913T1358	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples97
+20260913T1358	buried-ore-d5	control	mcai-base	alive	not	rise7	move10	picks_lost0	samples55
+20260913T1358	buried-ore-d5	candidate	mcai-recovery	alive	not	rise7	move2	picks_lost0	samples24
+20260913T1358	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise8	move8	picks_lost0	samples42
+20260913T1358	buried-ore-d6-detour	control	mcai-base	alive	not	rise6	move4	picks_lost0	samples28
+20260913T1452	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise1	move0	picks_lost0	samples638
+20260913T1452	delta-flooded-shaft-wooden-pick	control	mcai-recovery	alive	not	rise1	move0	picks_lost0	samples82
+20260913T1452	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples255
+20260913T1452	bravo-flooded-pocket-no-tools	control	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples83
+20260913T1452	buried-ore-d5	control	mcai-recovery	alive	not	rise5	move16	picks_lost0	samples43
+20260913T1452	buried-ore-d5	candidate	mcai-recovery	alive	not	rise6	move8	picks_lost0	samples27
+20260913T1452	buried-ore-d6-detour	control	mcai-recovery	alive	not	rise1	move1	picks_lost0	samples15
+20260913T1452	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise6	move1	picks_lost0	samples47
+20260913T1525	delta-flooded-shaft-wooden-pick	control	mcai-recovery	alive	not	rise4	move0	picks_lost0	samples26
+20260913T1525	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise1	move0	picks_lost0	samples125
+20260913T1525	bravo-flooded-pocket-no-tools	control	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples102
+20260913T1525	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples285
+20260913T1525	buried-ore-d5	candidate	mcai-recovery	alive	not	rise6	move1	picks_lost0	samples72
+20260913T1525	buried-ore-d5	control	mcai-recovery	alive	not	rise13	move2	picks_lost0	samples24
+20260913T1525	buried-ore-d6-detour	control	mcai-recovery	alive	not	rise10	move11	picks_lost0	samples45
+20260913T1525	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise3	move0	picks_lost0	samples22
+20260913T1553	delta-flooded-shaft-wooden-pick	control	mcai-recovery	alive	not	rise4	move0	picks_lost0	samples35
+20260913T1553	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples66
+20260913T1553	bravo-flooded-pocket-no-tools	control	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples81
+20260913T1553	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples158
+20260913T1553	buried-ore-d5	candidate	mcai-recovery	alive	not	rise1	move1	picks_lost0	samples83
+20260913T1553	buried-ore-d5	control	mcai-recovery	alive	not	rise10	move11	picks_lost0	samples35
+20260913T1553	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise3	move0	picks_lost0	samples17
+20260913T1553	buried-ore-d6-detour	control	mcai-recovery	alive	not	rise12	move10	picks_lost0	samples56
+20260913T1617	delta-flooded-shaft-wooden-pick	control	mcai-recovery	alive	not	rise2	move0	picks_lost0	samples66
+20260913T1617	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples71
+20260913T1617	bravo-flooded-pocket-no-tools	control	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples94
+20260913T1617	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples160
+20260913T1617	buried-ore-d5	control	mcai-recovery	alive	not	rise12	move0	picks_lost0	samples27
+20260913T1617	buried-ore-d5	candidate	mcai-recovery	alive	not	rise2	move1	picks_lost0	samples43
+20260913T1617	buried-ore-d6-detour	control	mcai-recovery	alive	not	rise12	move9	picks_lost0	samples39
+20260913T1617	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise2	move0	picks_lost0	samples21
+20260913T1644	delta-flooded-shaft-wooden-pick	control	mcai-recovery	alive	not	rise1	move0	picks_lost0	samples52
+20260913T1644	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples69
+20260913T1644	delta-flooded-shaft-wooden-pick	control	mcai-recovery	alive	not	rise1	move0	picks_lost0	samples52
+20260913T1644	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples66
+20260913T1644	delta-flooded-shaft-wooden-pick	control	mcai-recovery	alive	not	rise1	move0	picks_lost0	samples52
+20260913T1644	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples66
+20260913T1644	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples161
+20260913T1644	bravo-flooded-pocket-no-tools	control	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples88
+20260913T1644	bravo-flooded-pocket-no-tools	control	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples96
+20260913T1644	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples164
+20260913T1644	bravo-flooded-pocket-no-tools	control	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples101
+20260913T1644	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples157
+20260913T1644	buried-ore-d5	control	mcai-recovery	alive	not	rise2	move14	picks_lost0	samples46
+20260913T1644	buried-ore-d5	candidate	mcai-recovery	alive	not	rise10	move4	picks_lost0	samples44
+20260913T1644	buried-ore-d5	candidate	mcai-recovery	alive	not	rise10	move4	picks_lost0	samples47
+20260913T1644	buried-ore-d5	control	mcai-recovery	alive	not	rise12	move14	picks_lost0	samples29
+20260913T1644	buried-ore-d5	candidate	mcai-recovery	alive	not	rise2	move3	picks_lost0	samples53
+20260913T1644	buried-ore-d5	control	mcai-recovery	alive	not	rise11	move16	picks_lost0	samples47
+20260913T1644	buried-ore-d6-detour	control	mcai-recovery	alive	not	rise9	move7	picks_lost0	samples47
+20260913T1644	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise3	move0	picks_lost0	samples18
+20260913T1644	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise12	move5	picks_lost0	samples45
+20260913T1644	buried-ore-d6-detour	control	mcai-recovery	alive	not	rise12	move7	picks_lost0	samples29
+20260913T1644	buried-ore-d6-detour	control	mcai-recovery	alive	not	rise12	move1	picks_lost0	samples17
+20260913T1644	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise12	move5	picks_lost0	samples59
+20260913T2115	delta-flooded-shaft-wooden-pick	control	mcai-rl02	alive	not	rise2	move0	picks_lost0	samples62
+20260913T2115	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise4	move0	picks_lost0	samples61
+20260913T2115	delta-flooded-shaft-wooden-pick	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples53
+20260913T2115	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise4	move0	picks_lost0	samples55
+20260913T2115	delta-flooded-shaft-wooden-pick	control	mcai-rl02	alive	not	rise2	move0	picks_lost0	samples54
+20260913T2115	delta-flooded-shaft-wooden-pick	candidate	mcai-recovery	alive	not	rise4	move0	picks_lost0	samples43
+20260913T2115	bravo-flooded-pocket-no-tools	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples88
+20260913T2115	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples40
+20260913T2115	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples74
+20260913T2115	bravo-flooded-pocket-no-tools	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples95
+20260913T2115	bravo-flooded-pocket-no-tools	candidate	mcai-recovery	alive	not	rise4	move0	picks_lost0	samples68
+20260913T2115	bravo-flooded-pocket-no-tools	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples80
+20260913T2115	buried-ore-d5	control	mcai-rl02	alive	not	rise4	move11	picks_lost0	samples20
+20260913T2115	buried-ore-d5	candidate	mcai-recovery	alive	not	rise2	move0	picks_lost0	samples19
+20260913T2115	buried-ore-d5	candidate	mcai-recovery	alive	not	rise6	move0	picks_lost0	samples24
+20260913T2115	buried-ore-d5	control	mcai-rl02	alive	not	rise4	move4	picks_lost0	samples37
+20260913T2115	buried-ore-d5	control	mcai-rl02	alive	not	rise1	move20	picks_lost0	samples66
+20260913T2115	buried-ore-d5	candidate	mcai-recovery	alive	not	rise6	move0	picks_lost0	samples22
+20260913T2115	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise6	move0	picks_lost0	samples22
+20260913T2115	buried-ore-d6-detour	control	mcai-rl02	alive	not	rise5	move20	picks_lost0	samples29
+20260913T2115	buried-ore-d6-detour	control	mcai-rl02	alive	not	rise2	move27	picks_lost0	samples39
+20260913T2115	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise8	move1	picks_lost0	samples29
+20260913T2115	buried-ore-d6-detour	control	mcai-rl02	alive	not	rise0	move20	picks_lost0	samples36
+20260913T2115	buried-ore-d6-detour	candidate	mcai-recovery	alive	not	rise10	move4	picks_lost0	samples29
+20260914T1053	lava-pocket-entombed	candidate	mcai-rldanger	DIED	not	rise10	move4	picks_lost1	samples6
+20260914T1053	lava-pocket-entombed	control	mcai-rl02	DIED	not	rise0	move20	picks_lost1	samples6
+20260914T1053	lava-pocket-entombed	control	mcai-rl02	DIED	not	rise0	move1	picks_lost0	samples6
+20260914T1053	lava-pocket-entombed	candidate	mcai-rldanger	DIED	not	rise0	move1	picks_lost0	samples6
+20260914T1053	lava-pocket-entombed	control	mcai-rl02	DIED	not	rise0	move0	picks_lost0	samples7
+20260914T1053	lava-pocket-entombed	candidate	mcai-rldanger	DIED	not	rise0	move1	picks_lost0	samples7
+20260914T1720	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples93
+20260914T1720	bravo-pocket-with-pickaxe	candidate	mcai-recovery	alive	not	rise6	move0	picks_lost0	samples103
+20260914T1720	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples22
+20260914T1720	bravo-pocket-with-pickaxe	candidate	mcai-recovery	alive	not	rise0	move0	picks_lost0	samples46
+20260914T1720	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples14
+20260914T1720	bravo-pocket-with-pickaxe	candidate	mcai-recovery	alive	not	rise1	move0	picks_lost0	samples49
+20260914T1733	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples16
+20260914T1733	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise0	move0	picks_lost0	samples40
+20260914T1733	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples48
+20260914T1733	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples69
+20260914T1733	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise0	move0	picks_lost0	samples94
+20260914T1733	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise2	move0	picks_lost0	samples21
+20260914T1749	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples72
+20260914T1749	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise2	move0	picks_lost0	samples44
+20260914T1749	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples90
+20260914T1749	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples32
+20260914T1749	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise0	move0	picks_lost0	samples49
+20260914T1749	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples67
+20260914T1803	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise2	move0	picks_lost0	samples16
+20260914T1803	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples49
+20260914T1803	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples49
+20260914T1803	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples72
+20260914T1803	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples50
+20260914T1803	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples28
+20260914T1818	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples59
+20260914T1818	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples72
+20260914T1818	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples51
+20260914T1818	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples39
+20260914T1827	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise2	move0	picks_lost0	samples53
+20260914T1827	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples72
+20260914T1827	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples39
+20260914T1827	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples50
+20260914T1837	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise2	move0	picks_lost0	samples59
+20260914T1837	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples69
+20260914T1837	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples51
+20260914T1837	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples31
+20260914T1846	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples46
+20260914T1846	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise1	move0	picks_lost0	samples71
+20260914T1846	bravo-pocket-with-pickaxe	candidate	mcai-rlpocket	alive	not	rise1	move0	picks_lost0	samples48
+20260914T1846	bravo-pocket-with-pickaxe	control	mcai-rl02	alive	not	rise0	move0	picks_lost0	samples35
+20260914T2238	ledge-over-lava-goto	candidate	mcai-recovery	alive	not	rise6	move14	picks_lost0	samples235
+20260914T2238	ledge-over-lava-goto	control	mcai-rl06	alive	not	rise6	move13	picks_lost0	samples43
+20260914T2238	ledge-over-lava-goto	candidate	mcai-recovery	alive	not	rise6	move13	picks_lost0	samples54
+20260914T2238	ledge-over-lava-goto	control	mcai-rl06	alive	not	rise5	move12	picks_lost0	samples42
+20260914T2238	lava-edge-water-hold	control	mcai-rl06	DIED	not	rise0	move0	picks_lost0	samples42
+20260914T2238	lava-edge-water-hold	candidate	mcai-recovery	DIED	not	rise0	move0	picks_lost0	samples43
+20260914T2238	lava-edge-water-hold	control	mcai-rl06	DIED	not	rise0	move0	picks_lost0	samples43
+20260914T2238	lava-edge-water-hold	candidate	mcai-recovery	DIED	not	rise0	move0	picks_lost0	samples44
+20260914T2238	lava-adjacent-idle	candidate	mcai-recovery	alive	not	rise0	move3	picks_lost0	samples26
+20260914T2238	lava-adjacent-idle	control	mcai-rl06	alive	not	rise0	move3	picks_lost0	samples25
+20260914T2238	lava-adjacent-idle	control	mcai-rl06	alive	not	rise0	move4	picks_lost0	samples27
+20260914T2238	lava-adjacent-idle	candidate	mcai-recovery	alive	not	rise2	move6	picks_lost0	samples37
+20260915T0331	lava-edge-water-hold	control	mcai-rl07	DIED	not	rise0	move0	picks_lost0	samples46
+20260915T0331	lava-edge-water-hold	candidate	mcai-rllava	DIED	not	rise1	move6	picks_lost0	samples48
+20260915T0331	lava-edge-water-hold	candidate	mcai-rllava	DIED	not	rise0	move0	picks_lost0	samples48
+20260915T0331	lava-edge-water-hold	control	mcai-rl07	DIED	not	rise0	move0	picks_lost0	samples49
+20260916T2109	ledge-over-lava-goto-deathsite	control	mcai-b1011b	alive	not	rise6	move11	picks_lost0	samples109
+20260916T2109	ledge-over-lava-goto-deathsite	candidate	mcai-deathsites	alive	not	rise6	move14	picks_lost0	samples104
+20260917T1245	delta-flooded-shaft-wooden-pick	control	mcai-b1011b	alive	not	rise14	move18	picks_lost0	samples52
+20260917T1245	delta-flooded-shaft-wooden-pick	candidate	mcai-owner	alive	not	rise17	move29	picks_lost0	samples119
+20260917T1311	delta-flooded-shaft-wooden-pick	candidate	mcai-owner	alive	not	rise9	move14	picks_lost0	samples96
+20260917T1311	delta-flooded-shaft-wooden-pick	control	mcai-b1011b	alive	not	rise13	move18	picks_lost0	samples55
+20260917T1311	bravo-flooded-pocket-no-tools	candidate	mcai-owner	alive	not	rise0	move0	picks_lost0	samples343
+20260917T1311	bravo-flooded-pocket-no-tools	control	mcai-b1011b	alive	not	rise0	move0	picks_lost0	samples37
+20260918T0223	entombed-pick	control	mcai-b1011b	alive	not	rise4	move0	picks_lost0	samples36
+20260918T0223	entombed-pick	candidate	mcai-owner	alive	not	rise4	move2	picks_lost0	samples47
+20260918T0223	entombed-nopick	candidate	mcai-owner	alive	not	rise10	move6	picks_lost1	samples123
+20260918T0223	entombed-nopick	control	mcai-b1011b	alive	not	rise10	move13	picks_lost1	samples40
+20260918T0223	delta-flooded-shaft-wooden-pick	candidate	mcai-owner	alive	not	rise10	move36	picks_lost0	samples101
+20260918T0223	delta-flooded-shaft-wooden-pick	control	mcai-b1011b	alive	not	rise13	move18	picks_lost0	samples52
+20260918T0223	bravo-flooded-pocket-no-tools	control	mcai-b1011b	alive	not	rise0	move0	picks_lost0	samples74
+20260918T0223	bravo-flooded-pocket-no-tools	candidate	mcai-owner	alive	not	rise0	move0	picks_lost0	samples226
+20260918T0256	entombed-pick	control	mcai-b1011b	alive	not	rise4	move0	picks_lost0	samples36
+20260918T0256	entombed-pick	candidate	mcai-owner	alive	not	rise15	move27	picks_lost0	samples56
+20260918T0256	entombed-pick	control	mcai-b1011b	alive	not	rise6	move11	picks_lost0	samples43
+20260918T0256	entombed-pick	candidate	mcai-owner	alive	not	rise15	move27	picks_lost0	samples52
+20260918T0256	entombed-pick	control	mcai-b1011b	alive	not	rise4	move11	picks_lost0	samples36
+20260918T0256	entombed-pick	candidate	mcai-owner	alive	not	rise5	move13	picks_lost0	samples60
+20260918T0256	entombed-nopick	control	mcai-b1011b	alive	not	rise4	move0	picks_lost1	samples36
+20260918T0256	entombed-nopick	candidate	mcai-owner	alive	not	rise4	move13	picks_lost1	samples48
+20260918T0256	entombed-nopick	candidate	mcai-owner	alive	not	rise4	move0	picks_lost0	samples50
+20260918T0256	entombed-nopick	control	mcai-b1011b	alive	not	rise4	move0	picks_lost0	samples38
+20260918T0256	entombed-nopick	candidate	mcai-owner	alive	not	rise6	move4	picks_lost0	samples45
+20260918T0256	entombed-nopick	control	mcai-b1011b	alive	not	rise7	move4	picks_lost0	samples39
+20260918T0256	delta-flooded-shaft-wooden-pick	candidate	mcai-owner	alive	not	rise8	move14	picks_lost0	samples91
+20260918T0256	delta-flooded-shaft-wooden-pick	control	mcai-b1011b	alive	not	rise8	move3	picks_lost0	samples52
+20260918T0256	delta-flooded-shaft-wooden-pick	candidate	mcai-owner	alive	not	rise30	move40	picks_lost0	samples93
+20260918T0256	delta-flooded-shaft-wooden-pick	control	mcai-b1011b	alive	not	rise8	move3	picks_lost0	samples50
+20260918T0256	delta-flooded-shaft-wooden-pick	candidate	mcai-owner	alive	not	rise15	move26	picks_lost0	samples93
+20260918T0256	delta-flooded-shaft-wooden-pick	control	mcai-b1011b	alive	not	rise4	move0	picks_lost0	samples36
+20260918T0256	bravo-flooded-pocket-no-tools	control	mcai-b1011b	alive	not	rise0	move0	picks_lost0	samples113
+20260918T0256	bravo-flooded-pocket-no-tools	candidate	mcai-owner	alive	not	rise0	move0	picks_lost0	samples224
+20260918T0256	bravo-flooded-pocket-no-tools	control	mcai-b1011b	alive	not	rise0	move0	picks_lost0	samples98
+20260918T0256	bravo-flooded-pocket-no-tools	candidate	mcai-owner	alive	not	rise0	move0	picks_lost0	samples227
+20260918T0256	bravo-flooded-pocket-no-tools	control	mcai-b1011b	alive	not	rise0	move0	picks_lost0	samples63
+20260918T0256	bravo-flooded-pocket-no-tools	candidate	mcai-owner	alive	not	rise0	move0	picks_lost0	samples223
+20260918T0357	entombed-pick	candidate	mcai-owner	alive	not	rise9	move4	picks_lost0	samples56
+20260918T0357	entombed-pick	control	mcai-b1011b	alive	not	rise3	move0	picks_lost0	samples37
+20260922T1119	wood-open-POSITIVE-CONTROL	candidate	mcai-shore	alive	not	rise7	move24	picks_lost0	samples7	logs+1	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	control	mcai-anylog	alive	not	rise4	move29	picks_lost0	samples19	logs+0	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	candidate	mcai-shore	alive	not	rise9	move21	picks_lost0	samples14	logs+1	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	control	mcai-anylog	alive	not	rise4	move29	picks_lost0	samples21	logs+11	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	candidate	mcai-shore	alive	not	rise9	move35	picks_lost0	samples32	logs+6	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	control	mcai-anylog	alive	not	rise8	move30	picks_lost0	samples28	logs+0	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	candidate	mcai-shore	alive	not	rise7	move35	picks_lost0	samples26	logs+0	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	control	mcai-anylog	alive	not	rise8	move25	picks_lost0	samples22	logs+1	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	control	mcai-anylog	alive	not	rise5	move23	picks_lost0	samples22	logs+0	stone+0
+20260922T1119	wood-open-POSITIVE-CONTROL	candidate	mcai-shore	alive	not	rise7	move26	picks_lost0	samples24	logs+1	stone+0
+20260922T1119	wood-canopy-unreachable	candidate	mcai-shore	alive	not	rise9	move28	picks_lost0	samples5	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	control	mcai-anylog	alive	not	rise9	move23	picks_lost0	samples7	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	control	mcai-anylog	alive	not	rise8	move16	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	candidate	mcai-shore	alive	not	rise11	move21	picks_lost0	samples19	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	control	mcai-anylog	alive	not	rise9	move15	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	candidate	mcai-shore	alive	not	rise10	move22	picks_lost0	samples6	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	control	mcai-anylog	alive	not	rise9	move11	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	candidate	mcai-shore	alive	not	rise10	move27	picks_lost0	samples8	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	control	mcai-anylog	alive	not	rise3	move16	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-canopy-unreachable	candidate	mcai-shore	alive	not	rise10	move22	picks_lost0	samples6	logs+0	stone+0
+20260922T1119	wood-shoreline-nosafetarget	candidate	mcai-shore	alive	not	rise10	move29	picks_lost0	samples27	logs+4	stone+0
+20260922T1119	wood-shoreline-nosafetarget	control	mcai-anylog	alive	not	rise4	move22	picks_lost0	samples20	logs+6	stone+0
+20260922T1119	wood-shoreline-nosafetarget	candidate	mcai-shore	alive	not	rise6	move24	picks_lost0	samples8	logs+0	stone+0
+20260922T1119	wood-shoreline-nosafetarget	control	mcai-anylog	alive	not	rise8	move20	picks_lost0	samples30	logs+0	stone+0
+20260922T1119	wood-shoreline-nosafetarget	candidate	mcai-shore	alive	not	rise2	move15	picks_lost0	samples9	logs+0	stone+0
+20260922T1119	wood-shoreline-nosafetarget	control	mcai-anylog	alive	not	rise7	move24	picks_lost0	samples20	logs+0	stone+0
+20260922T1119	wood-shoreline-nosafetarget	candidate	mcai-shore	alive	not	rise1	move15	picks_lost0	samples13	logs+0	stone+0
+20260922T1119	wood-shoreline-nosafetarget	control	mcai-anylog	alive	not	rise9	move24	picks_lost0	samples11	logs+0	stone+0
+20260922T1119	wood-shoreline-nosafetarget	candidate	mcai-shore	alive	not	rise1	move19	picks_lost0	samples17	logs+4	stone+0
+20260922T1119	wood-shoreline-nosafetarget	control	mcai-anylog	alive	not	rise9	move20	picks_lost0	samples9	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	control	mcai-anylog	alive	not	rise0	move32	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	candidate	mcai-shore	alive	not	rise1	move26	picks_lost0	samples2	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	control	mcai-anylog	alive	not	rise4	move16	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	candidate	mcai-shore	alive	not	rise7	move24	picks_lost0	samples4	logs+1	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	candidate	mcai-shore	alive	not	rise6	move24	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	control	mcai-anylog	alive	not	rise4	move16	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	candidate	mcai-shore	alive	not	rise9	move8	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	control	mcai-anylog	alive	not	rise4	move16	picks_lost0	samples4	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	candidate	mcai-shore	alive	not	rise9	move8	picks_lost0	samples4	logs+0	stone+0
+20260922T1119	wood-buried-MUST-REFUSE	control	mcai-anylog	alive	not	rise3	move17	picks_lost0	samples3	logs+0	stone+0
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	candidate	mcai-shore	alive	not	rise19	move16	picks_lost0	samples77	logs+0	stone+3
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	control	mcai-anylog	alive	not	rise14	move20	picks_lost0	samples30	logs+0	stone+5
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	candidate	mcai-shore	alive	not	rise1	move1	picks_lost0	samples77	logs+0	stone+1
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	control	mcai-anylog	alive	not	rise0	move3	picks_lost0	samples29	logs+0	stone+0
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	control	mcai-anylog	alive	not	rise0	move3	picks_lost0	samples29	logs+0	stone+0
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	candidate	mcai-shore	alive	not	rise0	move3	picks_lost0	samples33	logs+0	stone+1
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	control	mcai-anylog	alive	not	rise1	move2	picks_lost0	samples36	logs+0	stone+0
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	candidate	mcai-shore	alive	not	rise1	move2	picks_lost0	samples49	logs+0	stone+0
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	candidate	mcai-shore	alive	not	rise1	move3	picks_lost0	samples37	logs+0	stone+1
+20260922T1119	wood-wetstone-LEAKAGE-MUST-REFUSE	control	mcai-anylog	alive	not	rise0	move3	picks_lost0	samples29	logs+0	stone+1

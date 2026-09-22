@@ -73,10 +73,15 @@ Verified this morning: `check-open-loop.py` (sudo) says "no open canary"; `canar
 Mechanism is real: the stale `telemetry.py` sizes the **whole corpus regardless of `since_minutes`** —
 1,124 mostly-empty `.gz` generations (0.42 GB raw, assumed 10.62 GB at 25x) + 0.38 GB live = est
 **10.99 GB vs a 6.00 GB cap** — so once rotated history crossed the cap every walk was refused alike.
-- **Trigger was the other session's 11:21Z DEPLOY, not the 04:53Z promotion.** A deploy resets
-  `/opt/minecraft-ai/scripts/lib`, and `~/bin/fleet-deploy` restores the golden lib at line 90 **after**
-  the reset finishes. I read the tree inside that window. **Transient in-flight state, not a durable
-  breakage.** My earlier "promotions don't restore the lib" conclusion is **WITHDRAWN — untested.**
+- **THE DURABLE DEFECT IS ALREADY ON RECORD, and is not mine:** `recovery-ladder-03` 3f2f9c1 (04:52Z
+  today) — *"the telemetry walk-cap fix (c79d57b) is not on the deployed line, so today's promotion put
+  the broken copy back on the host."* **Any deploy OR promotion reinstalls a window-blind telemetry.py.**
+- **What today adds is why it surfaced when it did.** The estimate is a property of the CORPUS, not the
+  query, so a window-blind lib sits harmless until rotated history crosses the cap. It crossed ~11:20Z —
+  which is why the identical query worked at 11:15Z and failed at 11:24Z with no promotion in between.
+  Both the 04:53Z promotion and the 11:21Z deploy had installed the broken copy; **which was in place at
+  11:24Z cannot be separated and does not matter.** `fleet-deploy` restores golden at line 90 after a
+  deploy; **whether the PROMOTE path does was never tested** — treat that as open, not as settled either way.
 - **My mistake, which is the useful half:** I wrote a patch before diffing against the golden copy, and
   `~/mcai-analysis/lib/telemetry.py` **already had the fix**, in a better form (`predates_window(f, since)`
   shared between estimate and walk through ONE frozen glob, plus a second in-walk `read_chars` guard).
@@ -189,6 +194,27 @@ logs on the positive control. Its docstring's "the ONLY thing refusing is the li
 water-adjacent logs (a one- or two-log stump beside the pond, or water at every trunk level). Small fix,
 and the rest of the corpus is sound — the positive control passes on both arms.
 **This ran against `718426d`; the deployed canary is the narrower `9b572aa`. It does not bound it.**
+
+**AND IT IS SYSTEMATIC, with one rule behind it.** Counting cells against each fixture's goal:
+
+| fixture | goal | cells the veto refuses | legal cells that ALSO satisfy the goal | discriminates? |
+|---|---|---:|---:|---|
+| `shoreline` | gather 4 oak_log | **1** basal log | **4** above it | **NO** |
+| `wetstone` | gather 1 stone | **2** wet stones | **5,526** dry stones | **NO** |
+| `buried` | gather 1 oak_log | **1** enclosed log | **0** | **yes** |
+| `open` | gather 4 oak_log | 0 (positive control) | all | yes, passes both arms |
+
+**A fixture can only measure a refusal when the refused cell is the ONLY way to satisfy the goal.**
+`wetstone` returned candidate `stone+3` / control `stone+5` against a `stone+0` line — that is not
+leakage, it is both arms walking to one of 5,526 dry stones. **`wetstone` cannot currently detect the
+leakage it exists for.** Fix: shoreline → make the pond-adjacent log the only log; wetstone → remove the
+dry stone in range. Then re-run; the whole corpus costs minutes and its positive control is sound.
+
+**`buried` produced ONE unexplained signal**: candidate `0,1,0,0,0` vs control `0,0,0,0,0` — one run
+banked the fully-enclosed log. NOT attributable to the change (`isExposed` is false with stone on all six
+faces, so `safeTarget` is never reached, and the exemption needs veto cause exactly `liquid`). n=1, no
+mechanism, did not recur. **An open thread, not a leak** — and `buried` is the fixture worth re-running
+at higher repeats, because it is the one that can see.
 
 ## Queue
 1. **The 24–27 Sep program read.** Registration **IS committed** (`0627ddc`) — the standing wake-up is
