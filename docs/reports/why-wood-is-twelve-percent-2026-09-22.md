@@ -110,3 +110,67 @@ The two queued wood fixes are still worth having, and this measurement says
 most exactly where the fleet actually lives. `leaf-02` is live and targets cause A;
 `shoreline-log` (718426d) targets the `no_safe_target` half. leaf-01 proved they
 must ship together — it halved one refusal and the mass moved to the other.
+
+---
+
+# AMENDMENT, same day 05:20Z: the exhaustion mechanism is REFUTED
+
+The report above named the radius gradient as the test that would separate "the
+fleet did this" from "these worlds were always like this". It has been run, and it
+refutes the mechanism the report proposed.
+
+Measured within bot — each bot's own median position as its centre, its far half of
+log gathers against its near half, so every bot-level difference cancels:
+
+| | bots | median far − near | better further out |
+|---|---:|---:|---:|
+| worn worlds | 49 | **+7.4 pp** | 43 / 49 |
+| RE-SEEDED (the negative control) | 10 | **+29.1 pp** | 10 / 10 |
+
+The prediction, written before the query ran, was that worn worlds would show a
+positive gradient and the re-seeded worlds — uniformly fresh terrain, two days old,
+nothing stripped — would show little or none. **They show four times more.**
+
+A negative control that moves harder than the treatment is not a weak result, it is
+a refutation. If local exhaustion produced the gradient, fresh ground could not
+have a steeper one.
+
+## What the gradient almost certainly is instead
+
+**Mobility selection.** A bot's "centre" is where it spends most of its time, and a
+bot that is stuck spends most of its time in one place generating failures there.
+When it does travel, it also gathers. Distance-from-centre and gather success share
+a common cause — being able to move — and the within-bot design does *not* remove
+it, because the near half is where the immobile runs live. 4 of 80 bots are pinned
+≥4 h at any time, and that is enough to produce this.
+
+So the gradient measures mobility, not terrain, and it cannot carry a causal claim
+about either.
+
+## What still stands, and what is now unexplained
+
+**Stands:** 68.5% of log gathers are refused before the bot takes a step. 60% of the
+wood on a vanilla oak reads as buried, verified against the real predicates. An
+intact 8-oak patch still yields 14 usable targets from a 32-slate, so the leaf bug
+alone cannot produce the refusal rate. And the re-seed split is real and large:
+**38.3% against 9.3% on identical code**, with both filter refusals roughly halving
+and `no_path` rising as the funnel moves forward.
+
+**Unexplained:** *why* the fresh worlds are four times better. The re-seed was a
+reseed-plus-reset — fresh town, fresh supplies, cleared lessons and world-facts,
+world clock reset — and n is two pools on seeds selected for being flat, dry and
+wooded. Terrain is one candidate among several and this report can no longer claim
+it is the leading one.
+
+## The test that is left
+
+Count the thing itself rather than a proxy for it: **sample the ground and count
+exposed basal logs**, near and far, on worn and fresh worlds. That is a property of
+the world, not of the bot's behaviour, so mobility cannot confound it. Read-only
+RCON on chunks that are already loaded, with the unloaded fraction reported as a
+denominator and no chunk generated — because generating terrain the fleet has never
+visited would be changing the world to answer a question about it.
+
+Until that runs, the honest statement of the headline is: **log gather is 9.3% on
+the fleet's worlds and 38.3% on two fresh ones, on identical code, and the reason is
+not established.**
