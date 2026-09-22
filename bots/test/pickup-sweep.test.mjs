@@ -121,7 +121,12 @@ async function withMutant (path, old, neu, fn) {
 
 test('MUTANT KILLED: returning on a failed walk restores the abandoned sweep', async () => {
   await withMutant(SKILLS_PATH,
-    "      refused.add(drop.id)\n      continue\n    }",
+    // Anchor updated when the change row landed between the retire and the continue.
+    // The mutant refused to apply rather than reading as killed, which is what the
+    // uniqueness-and-presence assertion in withMutant is for.
+    "      refused.add(drop.id)\n      logEvent({ kind: 'pickup_skipped', status: 'success',\n" +
+    "                 detail: `drop ${drop.id} refused the walk; retired it and kept sweeping ` +\n" +
+    "                         `(${refused.size} retired, attempt ${i + 1}/4)` })\n      continue\n    }",
     "      return\n    }",
     async mod => {
       const { bot, visited } = botWith(
@@ -153,5 +158,38 @@ test('MUTANT KILLED: dropping the refused filter re-picks the same drop forever'
       const { bot, visited } = botWith([item(1, 1), item(2, 3)], { unreachable: new Set([1]) })
       await mod.pickupNearbyItems(bot, null)
       assert.deepEqual(visited, [1, 1, 1, 1], 'the mutant did not restore the fixation')
+    })
+})
+
+
+test('THE CHANGE ROW is emitted on the branch HEAD cannot reach, and only there', async () => {
+  // A read of this fix needs a denominator, and a row the baseline also emits cannot
+  // show the change acted -- three canaries were reverted on exactly that. HEAD
+  // `return`s where this logs, so the row is unreachable there by construction.
+  const src = readFileSync(SKILLS_PATH, 'utf8')
+    .split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  const body = src.slice(src.indexOf('async function pickupNearbyItems'))
+  const fn = body.slice(0, body.indexOf('\n}'))
+  assert.equal(fn.split("kind: 'pickup_skipped'").length - 1, 1,
+    'the change row must be emitted exactly once, on the retire-and-continue branch')
+  assert.ok(/refused\.add\(drop\.id\)\s*\n\s*logEvent\(\{ kind: 'pickup_skipped'/.test(fn),
+    'the row must sit on the branch that retires a drop, not somewhere a clean sweep reaches')
+  assert.equal(/return[\s\S]{0,40}pickup_skipped/.test(fn), false,
+    'the row must not be on a path that also returns -- that is the HEAD behaviour')
+})
+
+test('MUTANT KILLED: moving the row outside the retire branch makes a clean sweep emit it', async () => {
+  await withMutant(SKILLS_PATH,
+    "      refused.add(drop.id)\n      logEvent({ kind: 'pickup_skipped', status: 'success',",
+    "      refused.add(drop.id)\n      if (false) logEvent({ kind: 'pickup_skipped', status: 'success',",
+    async mod => {
+      // With the emission switched off the function must still WORK -- the row is
+      // instrumentation, and a fix whose behaviour depends on its own telemetry is
+      // a fix that cannot be read.
+      const { bot, visited, alive } = botWith(
+        [item(1, 1), item(2, 3), item(3, 4)], { unreachable: new Set([1]) })
+      await mod.pickupNearbyItems(bot, null)
+      assert.ok(visited.includes(2) && visited.includes(3), 'the sweep depends on its own logging')
+      assert.equal(alive.has(2), false)
     })
 })

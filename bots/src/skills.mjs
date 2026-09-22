@@ -1268,7 +1268,15 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       // The walk failed. That is a fact about THIS drop, so retire it and let
       // the next iteration pick the next-nearest -- the old code returned here
       // and left everything else lying there.
+      //
+      // THE CHANGE ROW. This function logged nothing, so a read of this fix had no
+      // denominator and no row a control pool could not also emit -- three canaries
+      // have been reverted on rows the baseline emitted too. HEAD cannot reach this
+      // line at all: it returns here.
       refused.add(drop.id)
+      logEvent({ kind: 'pickup_skipped', status: 'success',
+                 detail: `drop ${drop.id} refused the walk; retired it and kept sweeping ` +
+                         `(${refused.size} retired, attempt ${i + 1}/4)` })
       continue
     }
     await sleep(250, signal)
