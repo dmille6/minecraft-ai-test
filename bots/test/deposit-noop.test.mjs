@@ -50,6 +50,14 @@ test('the counting happens BEFORE the transfer, or it cannot separate them', () 
 test('and the no-op still says which filter came up empty', () => {
   // "arrived empty" has to stay countable, or the fix just hides the number
   // instead of correcting it.
-  assert.match(CODE, /nothing matching \$\{item\} to hand over/)
-  assert.match(CODE, /nothing worth banking/)
+  //
+  // 2026-09-22: the two sentences moved into `depositNoopDetail`, a pure exported
+  // function, because a message built inline is one no mutant can kill -- a review pass
+  // reverted the whole held-count fix by flipping a ternary and every grep still passed.
+  // The wording is now asserted by BEHAVIOUR in deposit-truth.test.mjs; what is checked
+  // here is that the skill still routes through that function and did not grow a second
+  // copy of the sentence.
+  assert.match(CODE, /detail: depositNoopDetail\(item,/)
+  assert.doesNotMatch(CODE, /detail: item\s*\n?\s*\?/,
+    'the skill must not rebuild the sentence inline alongside the extracted one')
 })

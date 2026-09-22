@@ -2101,6 +2101,24 @@ async function home(ctx, _args, signal) {
 }
 
 // ------------------------------------------------------------- deposit -----
+/**
+ * What a deposit that moved nothing should say. Pure, so the ternary can be killed by a
+ * mutant -- review pass 1 reverted the entire fix by changing `heldNow > 0` to
+ * `heldNow > 1e9` and every test still passed, because they grepped for both branch
+ * strings. That is CLAUDE.md's named failure verbatim.
+ *
+ * Normalises the name itself: the chat path bypasses admission, so `deposit Wheat_Seeds`
+ * reaches here with its original casing and the old comparison missed it.
+ */
+export function depositNoopDetail (item, items = []) {
+  if (!item) return 'nothing worth banking — nothing to deposit'
+  const name = String(item).trim().toLowerCase()
+  const held = (items ?? []).reduce((n, it) => n + (it?.name === name ? (it.count ?? 0) : 0), 0)
+  return held > 0
+    ? `you hold ${held} ${name} but it is not worth banking — nothing to deposit`
+    : `nothing matching ${name} to hand over — nothing to deposit`
+}
+
 async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [] } = {}) {
   if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
   const { bot } = ctx
@@ -2244,21 +2262,20 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // "deliberately matches NEITHER branch. It is not a success". The bot did
     // what was asked and there was nothing to do, which is neither an
     // achievement nor a fault, and it should not be counted as either.
-    // SAY WHICH OF THE TWO IT IS. The old sentence claimed the bot held nothing
-    // matching the name, and measured 24 h to 2026-09-22 that was FALSE in 1,068 of
-    // 1,069 cases -- the bot held 21 wheat_seeds and was told there was no such thing.
-    // A refusal the model cannot believe is a refusal it cannot learn from, and it
-    // asked again 1,069 times a day. The gate now refuses this before the walk; this
-    // covers the case where the inventory changed in between, and it tells the truth.
-    const heldNow = item
-      ? (bot.inventory?.items?.() ?? []).reduce((n, it) => n + (it?.name === item ? (it.count ?? 0) : 0), 0)
-      : 0
+    // SAY WHICH OF THE TWO IT IS, and normalise the name first.
+    //
+    // The old sentence claimed the bot held nothing matching the name, and measured
+    // 24 h to 2026-09-22 that was FALSE in 1,068 of 1,069 cases -- the bot held 21
+    // wheat_seeds and was told there was no such thing. A refusal the model cannot
+    // believe is one it cannot learn from, and it asked again 1,069 times a day.
+    //
+    // The gate now refuses this before the walk. This covers two cases the gate cannot:
+    // an inventory that changed during the walk, and the CHAT path -- commands.mjs calls
+    // runner.run('deposit', ...) directly, bypassing admission entirely, so
+    // `deposit Wheat_Seeds` arrives un-normalised and the old code compared it raw and
+    // fell through to the lie. Found by review pass 1.
     return { status: 'no_effect', failClass: null,
-             detail: !item
-               ? 'nothing worth banking — nothing to deposit'
-               : heldNow > 0
-                 ? `you hold ${heldNow} ${item} but it is not worth banking — nothing to deposit`
-                 : `nothing matching ${item} to hand over — nothing to deposit` }
+             detail: depositNoopDetail(item, bot.inventory?.items?.() ?? []) }
   }
   // A REFUSAL MUST NAME A REMEDY THE BOT CAN PERFORM FROM WHERE IT STANDS,
   // and this one named one and then did not perform it.

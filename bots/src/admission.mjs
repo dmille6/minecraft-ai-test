@@ -151,12 +151,37 @@ const inWater = (bot) => {
  * `missing`. Pure, exported for the admission test.
  */
 export const DEPOSIT_WILDCARDS = new Set(['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'])
+/**
+ * The sentence for a held-but-unbankable refusal.
+ *
+ * Extracted because a message built inline is a message no mutant can kill. Review
+ * pass 1 changed `.slice(0, 4)` to `.slice(0, 0)` -- deleting the remedy from every
+ * refusal -- and every test still passed, because the tests grepped for both branches
+ * of the ternary. That is CLAUDE.md's named failure verbatim: "a hardcoded ternary
+ * whose branches both still appeared in the text".
+ *
+ * `exclude` drops the refused item itself from the suggestion: telling a bot to deposit
+ * the thing it was just refused for would be the same lie in a new place.
+ */
+export function unbankableRefusal (item, held, bankableDetail, { limit = 4 } = {}) {
+  const would = Object.keys(bankableDetail || {}).filter(n => n !== item).slice(0, limit)
+  return `you hold ${held} ${item}, but it is not worth banking — ` +
+         (would.length
+           ? `deposit ${would.join(', ')} instead, or say deposit with no item`
+           : 'say deposit with no item to hand over everything bankable')
+}
+
 export function depositItemArg (items, item, bankableDetail = null) {
   const name = item == null ? '' : String(item).trim().toLowerCase()
   if (DEPOSIT_WILDCARDS.has(name)) return { item: null, missing: false, unbankable: false, held: 0 }
+  // PRESENCE AND COUNT ARE TWO QUESTIONS. The first version derived `missing` from the
+  // summed count, which flips the answer for an inventory entry carrying no `count` --
+  // real mineflayer always sets one, but the scripted doubles and fixtures do not, and
+  // a guard that reads differently under test than in production is worthless. Found by
+  // review pass 1. EXACT: 'stone' must not admit cobblestone (Codex).
+  const present = (items ?? []).some(it => it?.name === name)
+  if (!present) return { item: name, missing: true, unbankable: false, held: 0 }
   const held = (items ?? []).reduce((n, it) => n + (it?.name === name ? (it.count ?? 0) : 0), 0)
-  // EXACT: 'stone' must not admit cobblestone (Codex).
-  if (!held) return { item: name, missing: true, unbankable: false, held: 0 }
   // HELD BUT NOT WORTH BANKING IS A THIRD ANSWER, AND IT WAS THE COMMON ONE.
   //
   // Measured 24 h to 2026-09-22: 1,069 deposit runs returned "nothing matching <item>
@@ -338,40 +363,30 @@ export class AdmissionControl {
 
     if (skill === 'deposit') {
       const items = bot.inventory?.items?.() ?? []
+      // ONE `wants`, COMPUTED ONCE, AND SPREAD RATHER THAN FLATTENED.
+      //
+      // This was `[wanted].flat()` in two places. `#wantedItems` returns a **Set**, and
+      // `Array.prototype.flat` does not spread a Set -- so the deposit gate's bankable
+      // set has never contained a single milestone want, only STANDING_TARGETS and
+      // DEPOSIT_ALWAYS. Harmless while the gate only decided whether to walk; the
+      // refusal added below would have promoted it to a hard REFUSAL of
+      // `deposit <milestone target>`. Two copies of the same broken expression would
+      // also let a later edit fix one and not the other, and the gate would then refuse
+      // what the skill banks. Found by review pass 1.
+      const wants = [...(wanted ?? []), ...DEPOSIT_ALWAYS]
+      bot.currentWants = wants
+      let bankDetail = null
+      try { bankDetail = bankableInventory(items, { wants }).detail } catch { bankDetail = null }
       // THE NAMED ITEM MUST BE IN HAND (2026-09-13: 842 of 1,748 deposit runs in 24 h
       // did nothing -- "nothing matching none/null/wheat_seeds to hand over"). A
       // wildcard word means "everything bankable"; a real name the bot does not
       // hold is refused here, before a walk to the chest.
-      // Compute the bankable set BEFORE judging the argument, so "held but not worth
-      // banking" can be refused here rather than after a walk to a chest. The wants are
-      // recomputed below for the due/priority logic; this one is only for the argument.
-      const argWants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
-      let argBankable = null
-      try { argBankable = bankableInventory(items, { wants: argWants }).detail } catch { argBankable = null }
-      const arg = depositItemArg(items, args?.item, argBankable)
+      const arg = depositItemArg(items, args?.item, bankDetail)
       if (arg.missing) {
         return { ok: false, reason: 'deposit_item_missing',
                  detail: `you hold no ${args.item}; deposit what you carry (say deposit with no item) or gather it first` }
       }
-      // REFUSE BEFORE THE WALK, AND SAY THE TRUE THING.
-      //
-      // 1,069 runs a day walked to a chest to be told "nothing matching <item>" while
-      // holding 21 of it. The walk is the expensive part and the sentence was false.
-      // A refusal must name a remedy the bot can perform from where it stands, so this
-      // one names the items that WOULD move.
-      if (arg.unbankable) {
-        const would = Object.keys(argBankable || {}).slice(0, 4)
-        return { ok: false, reason: 'deposit_item_unbankable',
-                 detail: `you hold ${arg.held} ${arg.item}, but it is not worth banking — ` +
-                         (would.length
-                           ? `deposit ${would.join(', ')} instead, or say deposit with no item`
-                           : 'you are carrying nothing worth banking right now') }
-      }
       if (args) args.item = arg.item
-      // THE SAME POLICY AS EXECUTION (Codex, deposit pass 2): the always-banked ores count here too, and the wants
-      // this gate judged with are handed to the skill through the bot (the runner's ctx carries no wants).
-      const wants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
-      bot.currentWants = wants
       const bank = bankableInventory(items, { wants })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
@@ -387,6 +402,24 @@ export class AdmissionControl {
         return { ok: false, reason: 'deposit_not_worth_it',
                  detail: `${bank.count} bankable items and no storage in reach — ` +
                          `bank it when you are next near the chest, not from out here` }
+      }
+      // HELD BUT NOT WORTH BANKING -- AND THIS RUNS **AFTER** `due`, WHICH IS THE WHOLE
+      // POINT OF WHERE IT SITS.
+      //
+      // 1,069 runs a day walked to a chest to be told "nothing matching <item>" while
+      // holding 21 of it. The walk is the expensive part and the sentence was false.
+      //
+      // Review pass 1 put this ABOVE `due` and executed the consequence: a bot 804
+      // blocks out holding 21 wheat_seeds and 6 oak_log was told "deposit oak_log
+      // instead" -- and depositDue then refuses oak_log too, because 6 < minBankable 12.
+      // A remedy that the next guard rejects is this repo's own named bug class, two
+      // individually-correct guards meeting where the bot has no legal move, and it
+      // REPLACED a true and actionable refusal (`deposit_not_worth_it`) with a false one.
+      // Below `due`, every name printed here is one the gate has already agreed is
+      // worth a trip.
+      if (arg.unbankable) {
+        return { ok: false, reason: 'deposit_item_unbankable',
+                 detail: unbankableRefusal(arg.item, arg.held, bankDetail) }
       }
     }
 

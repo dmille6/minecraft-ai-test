@@ -11,7 +11,8 @@
 // out of the chest. What changes is that the bot says so, and says so BEFORE the walk.
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { depositItemArg, DEPOSIT_WILDCARDS } from '../src/admission.mjs'
+import { depositItemArg, unbankableRefusal, DEPOSIT_WILDCARDS } from '../src/admission.mjs'
+import { depositNoopDetail } from '../src/skills.mjs'
 
 const it_ = (name, count) => ({ name, count })
 const HELD = [it_('wheat_seeds', 21), it_('oak_log', 6), it_('stone_pickaxe', 1)]
@@ -34,6 +35,16 @@ test('a name the bot genuinely does not hold is still missing', () => {
 test('a held AND bankable name passes through untouched', () => {
   const r = depositItemArg(HELD, 'oak_log', BANKABLE)
   assert.deepEqual(r, { item: 'oak_log', missing: false, unbankable: false, held: 6 })
+})
+
+test('PRESENCE AND COUNT ARE TWO QUESTIONS: an entry with no count is still held', () => {
+  // The first version derived `missing` from the summed count, so {name:'apple'} with no
+  // count read as missing. Real mineflayer always sets one; the scripted doubles do not,
+  // and a guard that answers differently under test than in production is worthless.
+  const noCount = [{ name: 'apple' }]
+  assert.equal(depositItemArg(noCount, 'apple', { apple: 1 }).missing, false)
+  assert.equal(depositItemArg([{ name: 'apple', count: 0 }], 'apple', { oak_log: 1 }).unbankable, true,
+    'count 0 is held-but-unbankable, not absent')
 })
 
 test('UNKNOWN MUST NOT REFUSE: a null bankable set cannot make anything unbankable', () => {
@@ -84,26 +95,46 @@ async function withMutant (path, old, neu, fn) {
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 
-test('the gate refuses BEFORE the walk, and names what would move instead', () => {
+test('THE ORDER IS THE FIX: the unbankable refusal sits BELOW the due check', () => {
+  // Structural, because behaviour cannot reach "which guard runs first" without driving
+  // the whole gate. This is the assertion that matters: review pass 1 put the refusal
+  // above `due` and executed the consequence -- a bot 804 blocks out holding 21
+  // wheat_seeds and 6 oak_log was told "deposit oak_log instead", and depositDue then
+  // refused oak_log too because 6 < minBankable 12. A remedy the next guard rejects is
+  // this repo's named bug class, and it REPLACED a true refusal with a false one.
   const a = strip(readFileSync(ADM, 'utf8'))
-  assert.ok(a.includes("reason: 'deposit_item_unbankable'"),
-    'the gate must have its own reason, distinguishable from deposit_item_missing')
-  assert.ok(a.includes('bankableInventory(items, { wants: argWants }).detail'),
-    'the bankable set must be computed at the gate, or the refusal cannot happen before the walk')
-  assert.ok(/deposit \$\{would\.join\(', '\)\} instead/.test(a),
-    'a refusal must name a remedy the bot can perform from where it stands')
-  // The set is computed in a try/catch and an unknown must not refuse.
-  assert.ok(a.includes('catch { argBankable = null }'),
+  const due = a.indexOf("reason: 'deposit_not_worth_it'")
+  const unb = a.indexOf("reason: 'deposit_item_unbankable'")
+  const miss = a.indexOf("reason: 'deposit_item_missing'")
+  assert.ok(due > 0 && unb > 0 && miss > 0, 'all three deposit refusals must exist')
+  assert.ok(unb > due,
+    'the unbankable refusal must come AFTER deposit_not_worth_it, or it prints a remedy the next guard refuses')
+  assert.ok(miss < due, 'holding none of it is still refused before the trip is priced')
+})
+
+test('the gate computes ONE wants, by spreading, and hands the same one to the skill', () => {
+  // `[wanted].flat()` does not spread a Set, and #wantedItems returns a Set -- so the
+  // gate's bankable set never contained a milestone want. Harmless while it only decided
+  // whether to walk; a hard refusal would have promoted it to a bug. Two copies of the
+  // expression would also let a later edit fix one and not the other.
+  const a = strip(readFileSync(ADM, 'utf8'))
+  const block = a.slice(a.indexOf("if (skill === 'deposit') {"), a.indexOf("reason: 'deposit_not_worth_it'"))
+  assert.equal((block.match(/\.\.\.\(wanted \?\? \[\]\), \.\.\.DEPOSIT_ALWAYS/g) || []).length, 1,
+    'wants must be built exactly once, by spreading rather than flattening')
+  assert.equal(/\[wanted\]\.flat\(\)/.test(block), false,
+    'flat() leaves a Set unspread; that is the bug this replaced')
+  assert.ok(block.includes('bot.currentWants = wants'),
+    'the skill must receive the same wants the gate judged with')
+  assert.ok(block.includes('catch { bankDetail = null }'),
     'an uncomputable bankable set must fall back to null, which cannot refuse')
 })
 
-test('the SKILL message states the held count instead of denying it', () => {
-  const s = strip(readFileSync(SK, 'utf8'))
-  assert.ok(s.includes('you hold ${heldNow} ${item} but it is not worth banking'),
-    'the skill must say the true thing when it holds the item')
-  assert.ok(s.includes('nothing matching ${item} to hand over'),
-    'and must keep the genuinely-absent wording for the genuinely-absent case')
-})
+// The structural grep that used to sit here asserted both branches of the skill's
+// ternary appeared in the source. Review pass 1 reverted the entire fix by changing
+// `heldNow > 0` to `heldNow > 1e9` and that grep still passed -- CLAUDE.md's named
+// failure, "a hardcoded ternary whose branches both still appeared in the text". It is
+// replaced by the behavioural test and mutant on `depositNoopDetail` at the end of this
+// file, not repaired.
 
 test('MUTANT KILLED: dropping the bankable check restores the lie', async () => {
   await withMutant(ADM,
@@ -126,5 +157,54 @@ test('MUTANT KILLED: treating a null bankable set as empty refuses everything', 
         'the mutant did not make an unknown set refuse')
       assert.equal(mod.depositItemArg(HELD, 'oak_log', null).unbankable, true,
         'and it would refuse a perfectly bankable log too')
+    })
+})
+
+
+// ------------------------------- the two message decisions, now killable
+
+test('the refusal names OTHER items, never the one it just refused', () => {
+  const m = unbankableRefusal('wheat_seeds', 21, { wheat_seeds: 21, oak_log: 6, raw_iron: 3 })
+  assert.match(m, /you hold 21 wheat_seeds, but it is not worth banking/)
+  assert.match(m, /deposit oak_log, raw_iron instead/)
+  assert.equal(/deposit [^—]*wheat_seeds/.test(m), false,
+    'suggesting the refused item would be the same lie in a new place')
+})
+
+test('with nothing else bankable the refusal still names a move the bot can make', () => {
+  const m = unbankableRefusal('apple', 5, { apple: 5 })
+  assert.match(m, /say deposit with no item/)
+  assert.equal(/deposit apple instead/.test(m), false)
+})
+
+test('MUTANT KILLED: emptying the suggestion list deletes the remedy', async () => {
+  await withMutant(ADM,
+    "export function unbankableRefusal (item, held, bankableDetail, { limit = 4 } = {}) {",
+    "export function unbankableRefusal (item, held, bankableDetail, { limit = 0 } = {}) {",
+    async mod => {
+      const m = mod.unbankableRefusal('wheat_seeds', 21, { oak_log: 6 })
+      assert.equal(/deposit oak_log instead/.test(m), false,
+        'the mutant did not remove the remedy, so the test above proves nothing')
+    })
+})
+
+test('depositNoopDetail states the held count, and normalises the CHAT path', () => {
+  const inv = [it_('wheat_seeds', 21)]
+  assert.match(depositNoopDetail('wheat_seeds', inv), /you hold 21 wheat_seeds but it is not worth banking/)
+  // commands.mjs bypasses admission, so the name arrives with its original casing.
+  assert.match(depositNoopDetail(' Wheat_Seeds ', inv), /you hold 21 wheat_seeds but it is not worth banking/)
+  assert.match(depositNoopDetail('diamond', inv), /nothing matching diamond to hand over/)
+  assert.equal(depositNoopDetail(null, inv), 'nothing worth banking — nothing to deposit')
+})
+
+test('MUTANT KILLED: disabling the held branch restores the original lie', async () => {
+  // This is the mutant that mattered: review pass 1 reverted the whole fix this way and
+  // every test passed, because they grepped for both branches of the ternary.
+  await withMutant(SK,
+    "  return held > 0\n", "  return held > 1e9\n",
+    async mod => {
+      assert.match(mod.depositNoopDetail('wheat_seeds', [it_('wheat_seeds', 21)]),
+        /nothing matching wheat_seeds to hand over/,
+        'the mutant did not restore the lie, so the test above proves nothing')
     })
 })
