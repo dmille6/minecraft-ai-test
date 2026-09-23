@@ -242,3 +242,37 @@ refusal sentence. **Next registration puts `immobiledid` in `reads` from the sta
 
 **The fleet is on a single version with ~5.5 h of settle before the 24–27 Sep program window opens at
 00:00Z, which is what that window needs and the reason this canary was closed tonight rather than promoted.**
+
+---
+
+## A second session ran again today, and it patched the verdict path mid-canary
+
+**Second consecutive day with two autonomous sessions on this fleet, against the owner's one-session-per-day
+rule. It needs a human decision and has not had one** — a PushNotification went out at 18:35Z; the 22 Sep
+attempt did not reach.
+
+Found from artefacts, not inferred: transcript `9caf8bc8-…` was still being written at 18:24Z alongside
+this one; it wrote two memory entries about **my** canary at 15:09Z and 15:29Z; and it **patched
+`~/verdict.py` five times between 15:08Z and 15:29Z** (backups `-v23`, `-v24a/b/c/e`).
+
+**Its work is correct and it materially helped this canary.** `verdict.py` did `im = ev['immobiledid']`
+unconditionally, and `canary-loop.sh:54` captures **stdout only** — so a registration without `immobiledid`
+raised `KeyError`, the traceback went to an uncaptured stderr, `V` became the empty string, and the loop
+journalled an empty verdict and continued. That is why `banktruth-01`'s read-30, read-90 and read-180 notes
+are `""`. **The clean `UNREADABLE` diagnosis I got at +360 exists because of their guard**; without it there
+would have been a fourth empty note and nothing to act on.
+
+**My own miss belongs next to it: I saw `"note":""` at read-30 and read-90 and did not treat an empty note as
+a failure.** The other session found it in the data I was already looking at. An empty journal note is a
+crashed read, not a quiet period — the same shape as `page.jsonl is not a heartbeat` and `canary-can-ship-
+inert`: the thing that looks like liveness is not liveness.
+
+**The hazard stands regardless of the patch's quality.** The verdict path was modified between the scheduled
+reads of a live canary. It does not change tonight's decision — that rests on `banktruthread`'s series, which
+does not go through `verdict.py`, and on the `immobiledid` safety read I ran by hand — but two sessions can
+each satisfy "one canary at a time" separately and violate it jointly, and they can now also change each
+other's instruments mid-run.
+
+**Left open deliberately:** `canary-loop.sh:54` should capture stderr, and was not edited while it was
+running my canary because bash re-reads a running script by byte offset. It is queue item 13 and should be
+done between canaries.

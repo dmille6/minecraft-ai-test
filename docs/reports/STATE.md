@@ -17,6 +17,40 @@ ready for it.**_
 
 ---
 
+## ⚠ A SECOND SESSION RAN AGAIN TODAY, AND IT PATCHED THE VERDICT PATH WHILE MY CANARY WAS LIVE
+
+**This is the second consecutive day with two autonomous sessions on this fleet, and the owner's standing
+rule is one session per day. It needs a human decision and has not had one.** A PushNotification was sent
+at 18:35Z today; the 22 Sep attempt did not reach (Remote Control inactive).
+
+What the other session did, found from its own artefacts and not inferred:
+
+- Transcript `9caf8bc8-…` was still being written at 18:24Z, alongside this one.
+- It wrote two memory entries about **my** canary at 15:09Z and 15:29Z
+  (`verdict-invented-its-denominators`, `empty-verdict-reads-as-a-read`).
+- It **patched `~/verdict.py` five times between 15:08Z and 15:29Z** (backups `-v23`, `-v24a`, `-v24b`,
+  `-v24c`, `-v24e`), adding the `if 'immobiledid' not in ev:` guard at line 109.
+
+**Its work is correct and it materially helped this canary.** `verdict.py` did `im = ev['immobiledid']`
+unconditionally, and `canary-loop.sh:54` captures **stdout only** — so a registration without `immobiledid`
+raised `KeyError`, the traceback went to an uncaptured stderr, and the loop journalled an **empty** verdict
+and carried on. That is why `banktruth-01`'s read-30, read-90 and read-180 journal notes are `""`. **The
+clean `UNREADABLE` I got at +360 exists because of their fix**; without it I would have had a fourth empty
+note and no diagnosis.
+
+**My own miss, plainly: I saw `"note":""` at read-30 and read-90 and did not treat an empty note as a
+failure.** The other session found it from the same data I was looking at. An empty journal note is a
+crashed read, not a quiet period.
+
+**But the verdict path was modified between the reads of a live canary**, which is a real apparatus hazard
+whatever the patch's quality. It does not change tonight's decision — that rests on `banktruthread`'s series,
+which does not go through `verdict.py`, and on the `immobiledid` safety read I ran by hand — and it is
+recorded so the next reader does not have to reconstruct it.
+
+**Still open (theirs, deliberately not done):** `canary-loop.sh:54` should capture stderr. It was not edited
+while it was running my canary, because bash re-reads a running script by byte offset. **Do it now, between
+canaries.**
+
 ## THE SLOT: `banktruth-01` — CLOSED INCONCLUSIVE 18:19Z, TORN DOWN 18:23:13Z, NOT PROMOTED
 
 **sha `9a6aa13`** (branch `deposit-truth-msg`, worktree `mcai-banktruth`), pools placebo-d, hive-c, board-b,
@@ -162,7 +196,9 @@ logs** while stock returned is 0.80 items/bot-h. That is why today's slot went t
     in my own SSH command line killed my own shell.)
 12. **The death gate's invented control denominator** (`control_bot_h = canary_bot_h * 7`). Calibrate or
     amend to UNREADABLE; prospective, pinned by `test_verdict_acceptance.py`.
-13. **`depositread.py:19` reads `sk.get('failClass')`** but the logger writes `fail_class`, so its failure
+13. **`canary-loop.sh:54` captures stdout only**, so a crashed `verdict.py` journals an EMPTY note and the
+    loop continues. The other session fixed the crash today; the capture is still wrong. **Fix it between
+    canaries** — never while one is running. And **`depositread.py:19` reads `sk.get('failClass')`** but the logger writes `fail_class`, so its failure
     buckets are always empty. Found today, not fixed. Pocket-rung block floor. Pooling rule −12 (iron).
 
 ## Rules in force (docs/reports/recovery-ladder-registration.md)
