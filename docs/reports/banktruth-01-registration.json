@@ -1,0 +1,83 @@
+{
+ "run_id": "banktruth-01",
+ "sha": "9a6aa13",
+ "registered_at": "2026-09-23T11:55:00Z",
+ "ladder_change": false,
+ "promotion": "none",
+ "notes": "THE DEPOSIT REFUSAL IS FALSE BY CONSTRUCTION. admission.mjs:326 refuses a named deposit with deposit_item_missing whenever the bot holds none of the item, BEFORE the skill runs, on both the model and work-order paths -- so every named refusal reaching skills.mjs holds the item, and \"nothing matching <item> to hand over\" cannot be true on the fleet path. MEASURED on the deployed 9b572aa, 917,491 rows, 3,226 deposit runs / 54 bots / 24 h, isolated excluded: 2,079 runs end in that refusal, apple alone is 1,494 of the 2,587 named runs, and 1,874 of the refusals (90.1%) are a bot re-proposing an item it has already been refused, one of them deposit apple 151 times in a day. The refusal OUTCOME is correct -- apples and chests are ballast by design, 8 cobblestone is the scaffold reserve -- only its REASON was false. The change derives the sentence from depositPlan itself. Smaller patch per deposit-truth-review-pass-2.md; admission.mjs untouched, no remedy suggested, no count in the string, and not the phrase prompt.mjs:619 owns.",
+ "reads": [
+  "banktruthread"
+ ],
+ "read_minutes": [
+  30,
+  90,
+  180,
+  360
+ ],
+ "change_rows": [],
+ "linkage_extra": [],
+ "exposure": {
+  "read": "banktruthread",
+  "field": "newmsg_rows_canary",
+  "min": 60,
+  "note": "Canary deposit rows whose detail begins 'you are carrying' -- a string the CONTROL BUILD CANNOT EMIT, so it discriminates by construction (v19). This is the inert check and the +30 read is where it bites: two dry runs on the all-baseline fleet returned 0 of these anywhere, including control/post and both pre-periods. ~210 projected from the dry run's 327 canary/post deposit runs at 65% named-no_effect. If it is still 0 at +90 the patch shipped inert and the canary ends there."
+ },
+ "own_lines": [
+  {
+   "read": "banktruthread",
+   "field": "newmsg_rows_leaked",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "UNREADABLE",
+   "role": "deciding",
+   "nullable": true,
+   "note": "The change row must not appear in control/post or in either pre-period. If it does, the arms are not what the manifest says they are and no number in this read means anything. UNREADABLE, never REVERT -- a broken instrument is not evidence of harm."
+  }
+ ],
+ "friction": [],
+ "primary": {
+  "read": "banktruthread",
+  "field": "repeat_rate_did",
+  "gate": -0.885,
+  "role": "reported_deciding_by_operator",
+  "series_required": true,
+  "note": "Repeat refusals PER BOT-HOUR, DiD canary(post-pre)-control(post-pre). PER BOT-HOUR, NOT A SHARE OF RUNS: the share version conditioned on attempts, whose denominator the treatment directly moves (metric-must-not-condition-on-attempts). Bot-hours come from the span of ALL rows per bot, so a bot that stops depositing still counts its hours. TYPED, NEVER PROSE: a refusal is skill.status=='no_effect' with a named skill.args.item, because the change rewrites the sentence and a prose endpoint would read -100% in the canary arm from the wording alone. NULL recalibrated on 300 placebo draws, 4 pools/20 bots, pre 180/post 360, single version, 502,713 rows, 0 skipped: mean +0.006/bot-h, sd 0.507, p05 -0.885. A -0.50 gate fires on 15.3% of NO-CHANGE draws. CEILING -1.446/bot-h (1,874 repeats / 1,296 bot-h), so THE GATE NEEDS 61% OF THE CEILING AND THIS READ CAN ONLY SEE A LARGE EFFECT; a half effect is honestly INCONCLUSIVE. Three placebo dry runs of this endpoint read -0.158, -0.484, -0.025 -- none crosses the gate, where the withdrawn share version crossed it in one of two."
+ },
+ "watch": [
+  {
+   "read": "banktruthread",
+   "field": "deposit_runs_per_bh_canary_post",
+   "note": "REPORTED, NOT DECIDING, NOT CALIBRATED. The named way this makes things worse: the model reads the true sentence, concludes it cannot bank at all, and abandons the skill. A DiD that improves because the canary stopped depositing is the failure mode, not the success. Control comparator in the same read."
+  }
+ ],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE"
+ },
+ "deadline_min": 600,
+ "mechanism_check": {
+  "read": "banktruthread",
+  "field": "newmsg_rows_canary",
+  "note": "Same field as the exposure floor on purpose. This change has exactly one mechanism -- the sentence reaching the model -- so exposure IS the mechanism, and there is no second number that could show it acted while the rows were absent."
+ },
+ "teardown": "MANDATORY TODAY, WHATEVER THE VERDICT. The 24-27 Sep program read window opens at 00:00Z and forbids fleet-wide promotion; leaving 20 of 80 bots on a different build across a 72 h program read is a confound the window's rule 1 tolerates rather than invites. A KEEP is promoted on 27 Sep after the window closes. THREE STEPS plus killing detached readers.",
+ "known_residuals": [
+  "RETRACTED FRAMING: the headline 'the bot held the item in 2,078 of 2,079 runs -- 100.0%' restates admission.mjs:326, which refuses a named deposit with deposit_item_missing BEFORE the skill runs, on both the model and work-order paths. It is not a measurement, and the single dirt exception is a gate/skill race, not a positive control. The conclusion survives and is STRONGER: the sentence is false on every named fleet refusal, by construction.",
+  "The 'carrying no <item>' branch is UNREACHABLE from the fleet and reachable only from chat (commands.mjs:105). Kept because it is correct for that caller. Its silence is not a finding.",
+  "ADVICE PRINTED IS NOT ADVICE TAKEN. A correct remedy was printed 262 times on this fleet and never acted on. The whole change is prose reaching a model, so INCONCLUSIVE is a live and legitimate close and must not be rescued by the mechanism number.",
+  "RECENT EVENTS FREQUENCY BIAS: the model picks the most-echoed verb 54.5% of the time. A truthful sentence does not reduce how often the refusal is echoed back, so the loop may persist for a cause this change cannot touch.",
+  "One DEFINITION evaluated twice: depositPlan runs at skills.mjs:2259 and again inside depositNoopReason. They can diverge only for a non-array wants (a consumed generator); admission always passes an array. Recorded, not patched.",
+  "Nothing parses the old string -- verified independently by two engines over src, scripts, tests, docs and ~/mcai-analysis, each with a positive control on its own grep. And no_effect reaches no rule-minting path: cognitive.mjs:764-806 gate on failed/unknown, runner.mjs:334-347 on success/aborted/unknown.",
+  "The embedded count was REMOVED because sneak.py:16 and wo5.py:24 bucket refusals on Counter(detail[:95]); a quantity in the string splits the largest refusal on the fleet out of every top-N. A test now fails if a digit returns.",
+  "The phrase 'worth banking' was REMOVED because prompt.mjs:619 already writes 'CARRYING: N items worth banking' into the same prompt, computed without wants -- two lines, consistent in meaning and contradictory in words.",
+  "changerowcheck.py evaluates declared ROW KINDS against the baseline; this change row is a detail-string prefix on an existing deposit row, so that script cannot see it. The equivalent test was run by hand: three dry runs against placebo splits of the ALL-BASELINE fleet returned 0 of these rows anywhere.",
+  "FOUR POOLS / 20 BOTS is 25% of the fleet and is the registered k=20 draw; CLAUDE.md still says 'randomize five bots' and the pooling-rule change is the registered amendment to it. shoreline-01 ran four pools on 2026-09-22."
+ ],
+ "operator_note_loop_behaviour": "THE LOOP CANNOT CLOSE A KEEP ON THIS REGISTRATION, BY DESIGN AND ON PURPOSE. canary-loop.sh:73 requires promotion=='fleet-wide' to act on a KEEP; with promotion 'none' it pages an error and exits 2, LEAVING THE CANARY DEPLOYED. That is the correct outcome here -- the 24-27 Sep program window forbids a fleet-wide promotion -- but it means a KEEP is an OPEN LOOP until the operator closes it by hand: record with check-open-loop.py --record under sudo BEFORE touching the manifest, then tear down in THREE steps plus killing the detached readers. REVERT and INCONCLUSIVE tear down on their own at line 79. Whoever reads this next: if the journal's last phase is a KEEP with no teardown, that is this, not a crash.",
+ "timestamp_correction": "Written first as 13:35Z and amended as 15:25Z. Both were WRONG AND IN THE FUTURE: I was estimating elapsed time instead of reading the clock, and only noticed on a date -u at 12:00:42Z. The real sequence is: measurement 11:15-11:40Z, patch and tests 11:40-11:50Z, two reviews and the calibration 11:50-11:58Z, this registration 11:55Z, deploy after 12:00Z. Registration-before-deploy is the whole discipline here, and a future stamp makes a correct order look fabricated. Corrected rather than quietly re-stamped.",
+ "notes_superseded": "THE DEPOSIT REFUSAL WAS FALSE. Measured 2026-09-23 on the deployed 9b572aa, full walk, 917,491 rows, 3,226 deposit runs / 54 bots / 24 h, isolated excluded: 2,079 runs ended `no_effect` with 'nothing matching <item> to hand over' and THE BOT WAS CARRYING THE ITEM IN 2,078 OF THEM (100.0%). The single `dirt` run where it truly held none is the positive control that the check can answer the other way; bot.inventory was present on 3,219 of 3,219 rows. The refusal OUTCOME is correct -- apples and chests are ballast by design, 8 cobblestone is the scaffold reserve -- but its REASON was false, so 1,874 of the 2,079 refusals (90.1%) are a bot re-proposing an item it has already been refused, one of them `deposit apple` 151 times in a day. The change replaces the sentence with one derived from depositPlan itself. It is the SMALLER PATCH prescribed by deposit-truth-review-pass-2.md after both engines refused the larger one; admission.mjs is untouched and no remedy is suggested. Name normalisation was dropped on evidence: 0 of 2,587 named runs used a spelling that was not already lowercase.",
+ "manifest_note_is_stale": "The manifest written at 12:10:07Z carries the SUPERSEDED notes, which called the 2,078-of-2,079 count a measurement and the single dirt run a positive control. Both were retracted at 11:59Z after the independent review; the registration was corrected but fleet-deploy had already copied the old text. Read the notes here, not the manifest."
+}
