@@ -103,9 +103,32 @@ def classify(seen, decl):
 # stay green; the new cases below it are the first this gate has ever had.
 # ---------------------------------------------------------------------------
 
+class Roster(frozenset):
+    """An EXPLICIT set of treated bot names, for a within-world canary.
+
+    WHY A TYPE AND NOT A LIST. One pool is one Minecraft world, so a pool-level canary carries the
+    whole between-world difference. Treating 2 of the 5 bots in every world removes that term --
+    measured 2026-09-23, it takes the items MDE from +146% to +121% at 3h and +92% to +50% at
+    24h/arm. But then the POOL PREFIX CAN NO LONGER TELL a deliberately-baseline neighbour from a
+    bot whose drop-in silently failed, and that distinction is the tripper's job.
+
+    A bare list would be ambiguous with a list of pool names, and in a guard whose job is to halt
+    the fleet the ambiguity IS the bug: a reader must not be able to see a split canary and
+    silently treat it as a whole-pool one. A distinct type makes that a TypeError-shaped mistake
+    rather than a quiet misclassification. `canary_pool` as a string keeps its exact meaning.
+    """
+    __slots__ = ()
+
+
 def in_canary_pool(bot, canary_pool):
     """`canary_pool` is one pool name or a comma-separated list of them (two pools of five since 2026-09-13);
-    a bot is in the canary when its pool prefix is any of them. Exact prefix match, never a substring."""
+    a bot is in the canary when its pool prefix is any of them. Exact prefix match, never a substring.
+
+    A `Roster` instead means EXACT membership: the treated bots were declared by name, so a bot in
+    the same world that is not named is control, not a violation. The prefix branch below is
+    untouched and byte-identical, so every existing declaration behaves exactly as before."""
+    if isinstance(canary_pool, Roster):
+        return bot in canary_pool
     return any(bot.startswith(p.strip() + "-") for p in str(canary_pool or "").split(",") if p.strip())
 
 
@@ -113,6 +136,18 @@ def in_canary_pool(bot, canary_pool):
 #: feature and a way to declare the whole fleet a canary and switch the version
 #: rule off entirely.
 MAX_CONCURRENT_CANARIES = 3
+
+
+def _describe(pool):
+    """How a canary's membership reads in an operator-facing message.
+
+    A pool spec is its own name. A Roster is a frozenset, so joining it raised TypeError the
+    first time this ran -- and str()ing a frozenset would have put `frozenset({...})` in front of
+    whoever is deciding whether a fleet is halted. Name the bots, sorted, so the message is the
+    same every run and can be compared between runs."""
+    if isinstance(pool, Roster):
+        return "roster[" + ",".join(sorted(pool)) + "]"
+    return str(pool)
 
 
 def canary_split_ok_n(seen, declared, canaries):
@@ -184,14 +219,14 @@ def canary_split_ok_n(seen, declared, canaries):
         on_any = next((k for k, ver in enumerate(versions) if sha == ver), None)
         if in_any != on_any:
             if in_any is not None:
-                wrong.append(f"{bot}@{sha} (in pool {canaries[in_any][1]}, not on its canary)")
+                wrong.append(f"{bot}@{sha} (in pool {_describe(canaries[in_any][1])}, not on its canary)")
             else:
                 wrong.append(f"{bot}@{sha} (on a canary build, not in its pool)")
     if wrong:
         return False, "canary membership does not match the split: " + ", ".join(wrong[:6])
     n = sum(len(m) for m in members)
     return True, (f"declared canaries: {n} bot(s) across "
-                  f"{', '.join(p for _, p in canaries)} on "
+                  f"{', '.join(_describe(p) for _, p in canaries)} on "
                   f"{', '.join(versions)}")
 
 
