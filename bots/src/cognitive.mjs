@@ -771,6 +771,20 @@ export class CognitiveLoop {
         const { value, because } = classifyOutcome(
           admitted.skill, r.status, r.delta ?? {}, this.#wantedItems(milestone))
 
+        // AN ACTION THAT GAINED SOMETHING IS NOT A LOOP -- drop its key from the repeat
+        // window. See admission.noteProductive for the measurement: repeat_loop went 4-5% to
+        // 22% of decisions across the 09-14 promotions, and the largest step came from
+        // 2dfe261, which correctly stopped relocating productive bots but left the escape
+        // ladder as the ONLY thing that ever cleared the window. A bot repeating a working
+        // action was then refused from the fifth attempt onward with no way back.
+        //
+        // Gated on a POSITIVE DELTA, not on r.status: `explore` succeeds almost always and
+        // yields nothing, and corr(success, items) here is -0.059, so success would disable
+        // the guard exactly where it earns its keep.
+        if (Object.values(r.delta ?? {}).some(v => v > 0)) {
+          this.admission.noteProductive(admitted.skill, admitted.args)
+        }
+
         // THE DISPROOF CHANNEL MUST BE AT LEAST AS WIDE AS THE ACCRUAL CHANNEL.
         //
         // Failures were recorded unconditionally; successes only when the gain

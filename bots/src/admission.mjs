@@ -184,6 +184,43 @@ export class AdmissionControl {
   clearRepeatWindow() { this.recent = [] }
 
   /**
+   * AN ACTION THAT PUT SOMETHING IN THE INVENTORY IS NOT A LOOP.
+   *
+   * MEASURED 2026-09-23. repeat_loop went from ~4-5% of decisions to 22% in a day, tracking
+   * three fleet-wide promotions on 09-14. The largest single step came from a promotion whose
+   * only bots/src commit was 2dfe261, "the livelock breaker fires on physical fixation, not on
+   * a rejected decision loop alone": 8.5-11.9% -> 19.1-20.9% with the fleet 100% on one sha
+   * either side. That change was right -- the old breaker relocated WORKING bots 30-57 blocks
+   * every 5-10 minutes (2,296 firings, 0% measured success) and each relocation was a blind
+   * walk down the fall channel.
+   *
+   * But it left a hole. `clearRepeatWindow()` has exactly ONE caller, inside the escape
+   * ladder's `done` branch (cognitive.mjs), and a test pins it there. So the ONLY way the
+   * window was ever cleared was a successful relocation -- and 2dfe261 deliberately withholds
+   * relocation from precisely the bots that are moving or gaining. Nothing else clears it.
+   *
+   * Every ADMITTED action's key is pushed regardless of outcome, REPEAT_WINDOW is 4, and the
+   * window holds 8. So a bot that does the same thing successfully four times is refused on
+   * the fifth, and stays refused until four DIFFERENT actions rotate the window -- with no
+   * path back. Traced: attempts 1-4 admitted, 5/6/7 all repeat_loop, the previous four having
+   * succeeded.
+   *
+   * WHY A GAIN AND NOT A SUCCESS. Clearing on `status === 'success'` would disable the guard
+   * where it is most needed: `explore` returns success almost always and produces nothing, and
+   * this project measured corr(success, items) = -0.059 (memory: success-rate-is-the-wrong-kpi).
+   * A positive inventory delta is the endpoint the fleet is actually judged on, so it is the
+   * signal that separates a productive repeat from a fixated one.
+   *
+   * Only THIS key is dropped, not the whole window: a success here says nothing about whether
+   * some other action is looping, and erasing that evidence would trade one blind spot for
+   * another.
+   */
+  noteProductive(skill, args) {
+    const key = AdmissionControl.key(skill, args)
+    this.recent = this.recent.filter(k => k !== key)
+  }
+
+  /**
    * What this action would put in the inventory, or null when we cannot say.
    * Deliberately narrow: only the two skills whose output is named directly in
    * their own args. Guessing what `mine` or `explore` might yield would make
