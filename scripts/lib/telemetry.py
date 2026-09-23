@@ -119,13 +119,49 @@ class ZeroLooksWrong(LookupError):
     """A zero that is probably a query bug rather than a finding."""
 
 
+class WrongVocabulary(LookupError):
+    """A name asked of the wrong field: an event KIND queried as a failure CLASS, or
+    the reverse. This is not a near-miss spelling -- the name exists, in the other
+    vocabulary, and answering 0 would be a confident lie.
+
+    MEASURED 2026-09-23: `dig_unconfirmed` and `arrived_out_of_reach` are live
+    fail_class values (skills.mjs:1238, digreach.mjs:175, written to `fail_class` by
+    logger.mjs:80). `count()` returned 0 for both because this library indexed only
+    `skill.name`, and that 0 was published as "the instruments are dead" and used to
+    overturn a correct finding. ZeroLooksWrong could not fire: the spelling was right
+    and the window was full.
+    """
+
+
+class NotAnInstrument(LookupError):
+    """A name this build either cannot emit, or can emit and never did.
+
+    Either way it is not a zero. `count_class` returning 0 silently is how
+    "the instrument is dead" and "the instrument is live so the zero is data" were
+    BOTH published about the same two names within one hour on 2026-09-23. The
+    honest answer needs the build's own source, which is what lib/vocabulary.py reads.
+    """
+
+
+class VersionsMixed(LookupError):
+    """One window, more than one deployed code version, and no version= filter.
+
+    Deploys mid-window are routine here (three fleet-wide deploys on 2026-09-22
+    alone), and a rate computed across a version boundary belongs to neither build.
+    """
+
+
 class Events:
     def __init__(self, rows, since, until, span):
         self.rows = rows
         self.since, self.until, self.span = since, until, span
         self._by = {}
+        self._byclass = {}
         for r in rows:
             self._by.setdefault(canon(r['name']), []).append(r)
+            fc = r.get('fail_class')
+            if fc:
+                self._byclass.setdefault(str(fc).lower(), []).append(r)
 
     @classmethod
     def load(cls, paths='/var/log/mcai/*/skill-*.jsonl*', since_minutes=None,
@@ -244,6 +280,8 @@ class Events:
                             if version and (d.get('code') or {}).get('version', '').split('+')[0] != version:
                                 continue
                             rows.append({'t': t, 'name': n, 'detail': sk.get('detail') or '',
+                                         'fail_class': sk.get('fail_class') or None,
+                                         'status': sk.get('status') or None,
                                          'bot': (d.get('bot') or {}), 'raw': d})
                         except WalkTooWide:
                             raise
@@ -324,6 +362,12 @@ class Events:
                 f"{name!r} has 0 events, but these exist: " +
                 ", ".join(f"{n} ({len(self._by[n])})" for n in near) +
                 " — almost certainly the name, not the fleet")
+        if canon(name).lstrip('_') in self._byclass or canon(name) in self._byclass:
+            k = canon(name) if canon(name) in self._byclass else canon(name).lstrip('_')
+            raise WrongVocabulary(
+                f"{name!r} has 0 EVENTS but {len(self._byclass[k])} rows carry it as a "
+                f"fail_class — use count_class({name!r}), not count(). Returning 0 here "
+                f"is how 'the instrument is dead' gets published about a live one.")
         if not self.rows:
             raise ZeroLooksWrong(
                 f"{name!r} has 0 events and so does EVERYTHING — the window or the "
@@ -368,6 +412,100 @@ class Events:
             if n:
                 out.add(n)
         return out
+
+    def classes(self):
+        """Every fail_class present in the window, with counts, commonest first.
+
+        There is no equivalent of this for prose. 42 of 65 analysis scripts regex
+        `detail` because this vocabulary had no index; the field was always there.
+        """
+        return sorted(((len(v), k) for k, v in self._byclass.items()), reverse=True)
+
+    def count_class(self, fail_class, allow_zero=False):
+        """Rows whose skill.fail_class is this, zero-guarded like count().
+
+        The guard is the same shape and exists for the same reason: a 0 from a live
+        instrument is this project's most expensive failure.
+        """
+        k = str(fail_class).lower()
+        hits = self._byclass.get(k, [])
+        if hits or allow_zero:
+            return len(hits)
+        if canon(fail_class) in self._by:
+            raise WrongVocabulary(
+                f"{fail_class!r} is 0 as a fail_class but {len(self._by[canon(fail_class)])} "
+                f"rows carry it as an EVENT KIND — use count({fail_class!r}).")
+        near = difflib.get_close_matches(k, list(self._byclass), n=3, cutoff=0.6)
+        near = [n for n in near if self._byclass.get(n)]
+        if near:
+            raise ZeroLooksWrong(
+                f"fail_class {fail_class!r} has 0 rows, but these exist: " +
+                ", ".join(f"{n} ({len(self._byclass[n])})" for n in near) +
+                " — almost certainly the name, not the fleet")
+        if not self._byclass:
+            raise ZeroLooksWrong(
+                f"fail_class {fail_class!r} has 0 rows and so does EVERY fail_class — "
+                f"nothing in this window records one, which is itself suspicious")
+        known = self._can_emit()
+        if known is not None:
+            if k in known:
+                raise NotAnInstrument(
+                    f"fail_class {fail_class!r} has 0 rows, but the DEPLOYED build can "
+                    f"emit it — a live code path that never fired in this window. That is "
+                    f"a finding, not a zero. Pass allow_zero=True and say which you mean.")
+            raise NotAnInstrument(
+                f"fail_class {fail_class!r} has 0 rows and the deployed build CANNOT emit "
+                f"it at all — wrong name, or a name from a different build.")
+        return 0
+
+    def _can_emit(self):
+        """The fail_class vocabulary of the build in this window, or None if unknowable.
+
+        Deliberately fails SOFT to None (never raises, never blocks a read) because an
+        instrument that breaks the analysis it guards gets deleted. When it cannot
+        answer, count_class keeps its old behaviour.
+        """
+        if getattr(self, '_emitcache', 'x') != 'x':
+            return self._emitcache
+        self._emitcache = None
+        try:
+            import os
+            import vocabulary
+            vs = [v for v in self.versions() if v and v != '?']
+            repo = os.environ.get('MCAI_REPO', '/opt/minecraft-ai')
+            if len(vs) == 1:
+                self._emitcache = vocabulary.extract(repo, vs[0])['fail_class']
+        except Exception:
+            self._emitcache = None
+        return self._emitcache
+
+    def of_class(self, fail_class, allow_zero=False):
+        """Every row for a fail_class, guarded. The `of()` of the typed vocabulary."""
+        self.count_class(fail_class, allow_zero)
+        return list(self._byclass.get(str(fail_class).lower(), []))
+
+    def versions(self):
+        """Distinct deployed code versions in the window, with row counts."""
+        out = {}
+        for r in self.rows:
+            v = ((r['raw'].get('code') or {}).get('version') or '?')
+            out[v] = out.get(v, 0) + 1
+        return out
+
+    def assert_one_version(self):
+        """RAISE if the window straddles a deploy and no version= filter was used.
+
+        A rate averaged across a version boundary belongs to neither build. Three
+        fleet-wide deploys landed on 2026-09-22 alone, so this is the common case,
+        not the edge case.
+        """
+        vs = self.versions()
+        if len(vs) > 1:
+            raise VersionsMixed(
+                "this window spans " + str(len(vs)) + " code versions (" +
+                ", ".join(f"{k}:{n}" for k, n in sorted(vs.items(), key=lambda x: -x[1])) +
+                ") — pass version=<sha> to load(), or call versions() and split the read")
+        return next(iter(vs), None)
 
     def of(self, name, allow_zero=False):
         """Every row for an event kind, name-canonicalised and zero-guarded.
