@@ -33,8 +33,14 @@ import argparse, base64, glob, gzip, json, os, re, sys, urllib.request, collecti
 ES = 'http://10.0.0.186:9200'
 STREAM = 'mcai-llm-agents'
 # tag D+1 holds the rows of day D, so these tags cover 09-09..09-15.
-TAGS = ['2026091%d' % d for d in range(0, 7)]
-LO, HI = '2026-09-09T00:00:00', '2026-09-16T00:00:00'
+TAGS = (os.environ.get('BACKFILL_TAGS') or ','.join('2026091%d' % d for d in range(0, 7))).split(',')
+# A CLOSED window, overridable, because a second hole turned up after the first run: ES held
+# only 1,313 documents for 2026-09-16 (all from 23:46 onward, when the live shipper resumed on
+# the rollover day) against 175,940 in the files. The default covers the original 09-09..09-15
+# hole; BACKFILL_LO/HI recover any other, and the closed upper bound is what keeps a re-run from
+# duplicating documents the live shipper has already delivered.
+LO = os.environ.get('BACKFILL_LO') or '2026-09-09T00:00:00'
+HI = os.environ.get('BACKFILL_HI') or '2026-09-16T00:00:00'
 
 
 def creds():
