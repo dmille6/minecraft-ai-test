@@ -248,8 +248,10 @@ refusal sentence. **Next registration puts `immobiledid` in `reads` from the sta
 ## A second session ran again today, and it patched the verdict path mid-canary
 
 **Second consecutive day with two autonomous sessions on this fleet, against the owner's one-session-per-day
-rule. It needs a human decision and has not had one** — a PushNotification went out at 18:35Z; the 22 Sep
-attempt did not reach.
+rule. It needs a human decision and has not had one.** A PushNotification was ATTEMPTED at 18:35Z and
+**did not reach** — "Mobile push not sent (Remote Control inactive)", the same failure as 22 Sep. **So the
+owner has now been un-notified of this twice, and the only channel that has actually carried it is this
+file.** Whoever reads it first should raise it directly.
 
 Found from artefacts, not inferred: transcript `9caf8bc8-…` was still being written at 18:24Z alongside
 this one; it wrote two memory entries about **my** canary at 15:09Z and 15:29Z; and it **patched
