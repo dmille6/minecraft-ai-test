@@ -299,7 +299,16 @@ def _classify_versions(seen, man, declared):
     """Adapter: infer the live digests, then hand the decision to the classifier."""
     sys.path.insert(0, "/opt/minecraft-ai/scripts/lib")
     try:
-        from version_split import classify
+        # in_canary_pool IS USED BELOW AND WAS NOT IMPORTED HERE -- a refactor scar.
+        # _split_rules() (above) imports both canary_split_ok and in_canary_pool and returns
+        # them; this function imported only `classify` and then called in_canary_pool at the
+        # `pool = {...}` line, which raises
+        #     NameError: name 'in_canary_pool' is not defined
+        # every time the version-rule path runs. Reproduced 2026-09-23 by calling
+        # _classify_versions with two versions observed across a split pool. The try/except
+        # above wraps only the IMPORT, and the enclosing try in version_check closes before the
+        # call site, so it propagates rather than degrading to "version rules are BLIND".
+        from version_split import classify, in_canary_pool
     except Exception:
         print("    version_split unavailable -- version rules are BLIND")
         return []
