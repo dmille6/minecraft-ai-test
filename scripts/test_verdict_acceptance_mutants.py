@@ -120,6 +120,28 @@ MUTANTS = [
      "swim_to shipped and tripled drowning deaths. A suite that only ever proves the "
      "harness does NOT revert has tested one direction of one rule."),
 
+    # NEW 2026-09-23. Removing the guard restores the KeyError, which the loop turns into an
+    # empty journal note. The mutant's expected verdict is the empty string, because that is
+    # literally what the canary recorded three times.
+    ('the missing-immobiledid guard removed -- back to a crash that reads as silence',
+     'verdict.py',
+     "    if 'immobiledid' not in ev:",
+     "    if False:",
+     'registration omits immobiledid', 'CRASH',
+     "banktruth-01 journalled three empty verdicts in four and a half hours because a "
+     "KeyError went to a stderr the loop discards."),
+
+    # NEW 2026-09-23. Skipping the friction loop restores the state the format shipped in:
+    # a registered guard that is declared, never evaluated, and indistinguishable from one
+    # that passed.
+    ('the friction section unimplemented again',
+     'verdict.py',
+     "for fr in reg.get('friction', []):",
+     "for fr in []:",
+     'registered friction rule fails', 'KEEP',
+     "recovery-ladder-1011b registered a friction rule that never ran. verdict.py did not "
+     "contain the string 'friction' at all, for the whole life of the format."),
+
     # NEW 2026-09-23. Dropping the UNREADABLE branch sends an undefined-guard read back to
     # KEEP, which is where it went before the fix: the string matched neither the REVERT nor
     # the WATCH prefix and fell through.
@@ -188,6 +210,8 @@ WANT_BASE = {
     # is a broken instrument -- neither a pass nor a revert.
     'control has no measured exposure': 'UNREADABLE',
     'v15c guards all undefined': 'UNREADABLE',
+    'registered friction rule fails': 'REVERT',
+    'registration omits immobiledid': 'UNREADABLE',
 }
 
 

@@ -204,6 +204,47 @@ def main():
           'Three undefined guards used to produce the string "all within" and reach KEEP. '
           'When none of the calibrated decision is available the verdict must say so.', out)
 
+    # ---- 1c. A REGISTERED FRICTION RULE (2026-09-23). The registration format has allowed
+    # a `friction` section since it existed, and verdict.py never contained the string --
+    # so every friction rule ever written silently did not run. recovery-ladder-1011b
+    # registered one (pocketread hold_release canary vs control, pp>= -0.3, on_fail WATCH)
+    # and that canary was read as though a registered guard had passed.
+    #
+    # The deeper problem was invisibility: nothing in a KEEP said which registered sections
+    # it did NOT cover, so an unimplemented section looked exactly like a passing one.
+    print("\n1c. A REGISTERED FRICTION RULE -- a declared guard must actually run")
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'pocketread'],
+                             'friction': [{'read': 'pocketread',
+                                           'field': 'hold_release_canary_post',
+                                           'vs': 'hold_release_control_post',
+                                           'op': 'pp>=', 'value': -0.3,
+                                           'on_fail': 'REVERT'}]})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('pocketread', {'hold_release_canary_post': 0.10,
+                              'hold_release_control_post': 0.80})
+    got, out = c.run()
+    check('registered friction rule fails', got, 'REVERT',
+          'canary 0.10 against control 0.80 is -0.70, far past the registered -0.3 floor. '
+          'Before this the section was simply not read and the canary reached KEEP.', out)
+
+    # ---- 1d. A REGISTRATION WITHOUT immobiledid (2026-09-23). `im = ev['immobiledid']`
+    # raised KeyError, and canary-loop.sh:54 captures stdout only, so the traceback went to
+    # stderr and the loop journalled an EMPTY verdict and carried on.
+    #
+    # FOUND LIVE on banktruth-01, reads: ['banktruthread']. Its journal held
+    # {"phase":"read-30","note":""}, {"phase":"read-90","note":""} and
+    # {"phase":"read-180","note":""} -- three scheduled reads, three empty verdicts, four
+    # and a half hours into a canary due that night. A loop that is alive and journalling
+    # nothing looks exactly like a loop that is working.
+    print("\n1d. A REGISTRATION MISSING immobiledid -- a crash must not read as silence")
+    c = Case(tmp, reg_extra={'reads': ['ownerread']})
+    c.evidence('ownerread', {'episodes_canary': 5})
+    got, out = c.run()
+    check('registration omits immobiledid', got, 'UNREADABLE',
+          'immobiledid carries the death gate, the v15c movement guards and the readability '
+          'test. Without it there is no safety floor -- a registration error, which must be '
+          'said out loud rather than raised as a KeyError into a discarded stderr.', out)
+
     # ---- 2. evidence bound to the wrong run / gone stale.
     # The tier-1 analyst spent two days serving reads from FINISHED trials under
     # the heading "latest canary reads" (16 Sep - 18 Sep), and again on 19 Sep

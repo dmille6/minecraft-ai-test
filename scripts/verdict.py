@@ -86,6 +86,32 @@ for name in reg['reads']:
     ev[name] = o['fields']
 if len(ev) < len(reg['reads']): (out('UNREADABLE'))
 if not POLL:
+    # A REGISTRATION THAT OMITS immobiledid USED TO CRASH HERE, SILENTLY.
+    #
+    # `im = ev['immobiledid']` raised KeyError, and canary-loop.sh:54 captures stdout only
+    # (`V=$(python3 verdict.py $RUN $M | tail -1)`), so the traceback went to stderr and V
+    # became the EMPTY STRING. The loop then journalled `"phase":"read-180","note":""` and
+    # carried on as though it had read something.
+    #
+    # FOUND LIVE 2026-09-23 on banktruth-01, whose registration lists reads:
+    # ['banktruthread'] with no immobiledid. Its journal:
+    #     {"phase":"read-30","note":""}
+    #     {"phase":"read-90","note":""}
+    #     {"phase":"read-180","note":""}
+    # Three scheduled reads, three empty verdicts, four and a half hours into a canary with
+    # a deadline that night. The loop was alive, the journal had entries, and not one of
+    # them was a reading. [[page-jsonl-is-not-a-heartbeat]] is the same shape.
+    #
+    # immobiledid is not an optional read: it carries the death-gate evidence (harm), the
+    # v15c movement guards, the v11 guards and the readability test. A canary registered
+    # without it has no safety floor at all, so this refuses and says why instead of
+    # dying in a way that reads as silence.
+    if 'immobiledid' not in ev:
+        why.append(f"immobiledid evidence is absent (registration reads: "
+                   f"{reg.get('reads')}). It carries the death gate, the v15c movement "
+                   f"guards and the readability test, so there is no safety floor to read "
+                   f"-- this is a registration error, not a result.")
+        (out('UNREADABLE'))
     im = ev['immobiledid']
     # 2. readability
     if not im.get('readable'): why.append(f"not readable yet ({im.get('canary_bot_h', 0):.1f} bot-h)"); (out('NOT_YET'))
@@ -313,6 +339,54 @@ for ln in reg.get('own_lines', []):
         why.append(f"own line {ln['read']}.{ln['field']} = {val} fails {ln['op']} {ln['value']}")
         if ln['on_fail'] == 'REVERT': (out('REVERT'))
         watch.append(f"{ln['field']}")
+# 8b. FRICTION -- a registered comparison between two fields of the same read.
+#
+# This section has been declarable since the registration format existed and verdict.py
+# never contained the string `friction`, so every friction rule ever written silently did
+# not run. recovery-ladder-1011b registered one (pocketread hold_release canary vs control,
+# pp>= -0.3, on_fail WATCH) and it was never evaluated; that canary was read as if a
+# registered guard had passed. banktruth-01's friction is [] so nothing changes for the
+# canary in flight.
+#
+# Undefined values take the SAME path as own_lines: absent is not failing. `pp>=` compares
+# a difference in percentage points, which is what the registrations that use it mean --
+# both fields are shares, and the rule asks that canary not fall more than `value` points
+# below control.
+for fr in reg.get('friction', []):
+    a = ev.get(fr['read'], {}).get(fr['field'])
+    b = ev.get(fr['read'], {}).get(fr['vs'])
+    bad = [n for n, v in ((fr['field'], a), (fr['vs'], b))
+           if v is None or (isinstance(v, float) and (v != v or v in (float('inf'), float('-inf'))))]
+    if bad:
+        if fr.get('nullable'): continue
+        why.append(f"friction {fr['read']}.{'/'.join(bad)} is undefined, not a failure"); (out('UNREADABLE'))
+    d = a - b
+    ok = {'pp>=': d >= fr['value'], '>=': d >= fr['value'], '<=': d <= fr['value']}[fr['op']]
+    if not ok:
+        why.append(f"friction {fr['read']}.{fr['field']} - {fr['vs']} = {d:+.3f} "
+                   f"fails {fr['op']} {fr['value']}")
+        if fr.get('on_fail') == 'REVERT': (out('REVERT'))
+        watch.append(f"friction:{fr['field']}")
+
+# 8c. SAY WHAT THIS GATE DID NOT EVALUATE.
+# A registration may declare sections that verdict.py does not act on -- `primary`, `watch`
+# and `mechanism_check` are read by a human, by design. The failure mode is not that they
+# exist, it is that their absence from the decision was invisible: nothing in a KEEP said
+# which registered sections it did NOT cover, so `friction` going unimplemented for the
+# format's whole life looked exactly like `friction` passing. Naming them on every verdict
+# costs one line and makes that impossible.
+_EVALUATED = {'reads', 'read_minutes', 'exposure', 'own_lines', 'friction', 'change_rows',
+              'linkage_extra', 'ladder_change', 'sha', 'run_id', 'extension'}
+_ADVISORY = {'primary', 'watch', 'mechanism_check', 'notes', 'note', 'registered_at',
+             'promotion', 'deadline_min', 'teardown', 'known_residuals',
+             'operator_note_loop_behaviour', 'timestamp_correction', 'notes_superseded',
+             'manifest_note_is_stale'}
+_unevaluated = sorted(k for k, v in reg.items()
+                      if k not in _EVALUATED and v not in (None, [], {}, ''))
+if _unevaluated:
+    why.append('NOT evaluated by this gate (registered, decided elsewhere or not at all): '
+               + ', '.join(_unevaluated))
+
 # 9. exposure
 ex = reg.get('exposure'); exposed = True
 if ex:
