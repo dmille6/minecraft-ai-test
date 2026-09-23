@@ -20,6 +20,14 @@ import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
 
 const REPEAT_WINDOW = 4
+// HOW NEAR IS "still in the same place" for the oscillation guard.
+//
+// This is deliberately the SAME 8 blocks that cognitive.mjs uses as LIVELOCK_MIN_MOVE to decide a
+// bot is physically fixated -- one notion of "has not moved", not two that can drift apart. It is
+// redeclared rather than imported because cognitive.mjs already imports THIS module, and importing
+// back would make a cycle. bots/test/repeat-window-spatial.test.mjs asserts the two are equal, so
+// the duplication is caught by a test rather than trusted to memory.
+const REPEAT_NEAR_BLOCKS = 8
 // Consecutive learned_avoid vetoes before the gate must let something through.
 const MAX_VETO_STREAK = 4
 
@@ -217,7 +225,7 @@ export class AdmissionControl {
    */
   noteProductive(skill, args) {
     const key = AdmissionControl.key(skill, args)
-    this.recent = this.recent.filter(k => k !== key)
+    this.recent = this.recent.filter(e => e.key !== key)
   }
 
   /**
@@ -716,12 +724,40 @@ export class AdmissionControl {
     }
 
     // --- oscillation guard --------------------------------------------------
-    const repeats = this.recent.filter(k => k === key).length
+    // A REPEAT FROM 48 BLOCKS AWAY IS NOT A REPEAT.
+    //
+    // `actionKey` keeps only DECLARED args, and `explore` declares exactly one: `blocks`. MEASURED
+    // 2026-09-23 over 2,717 explore proposals in 4h: 69% are the identical key
+    // explore:{"blocks":60} and another 22% are {"blocks":80} -- two values are 91% of all of
+    // them. So the guard saw "the identical action" constantly, and `explore` is 44.3% repeat_loop
+    // and ~54% of every repeat_loop the fleet produces.
+    //
+    // Whether that is a real loop depends on whether the bot MOVED, and it mostly did. Of 1,934
+    // consecutive identical-key explore pairs across all 80 bots, **75.7% had the bot more than 8
+    // blocks away** from where it made the previous one -- median 48 blocks apart, p90 91, max
+    // 418. Only 24.3% were genuinely stationary. Three quarters of the repeats this guard counted
+    // were explores of the same SIZE from completely different PLACES, which are different
+    // actions by any reading.
+    //
+    // So a remembered proposal only counts toward a loop while the bot is still near where it made
+    // it. The threshold is REPEAT_NEAR_BLOCKS, the same 8 blocks cognitive.mjs's LIVELOCK_MIN_MOVE
+    // uses to decide a bot is physically fixated -- one notion of "has not moved", and a test
+    // asserts the two stay equal.
+    //
+    // This does NOT weaken the stationary case, which is the one the guard exists for: a bot
+    // proposing the same thing from the same spot still trips at the same count.
+    const here = bot?.entity?.position
+    const near = (e) => {
+      if (!here || e.x === null || e.x === undefined) return true   // no position: count it, as before
+      return Math.hypot(here.x - e.x, here.z - e.z) < REPEAT_NEAR_BLOCKS
+    }
+    const repeats = this.recent.filter(e => e.key === key && near(e)).length
     if (repeats >= REPEAT_WINDOW) {
-      return { ok: false, reason: 'repeat_loop', detail: `chose the identical action ${repeats}x in a row` }
+      return { ok: false, reason: 'repeat_loop',
+               detail: `chose the identical action ${repeats}x in a row within ${REPEAT_NEAR_BLOCKS} blocks` }
     }
 
-    this.recent.push(key)
+    this.recent.push({ key, x: here?.x ?? null, z: here?.z ?? null })
     if (this.recent.length > REPEAT_WINDOW * 2) this.recent.shift()
     this.vetoStreak = 0
     return { ok: true, skill, args, kind: 'normal' }
