@@ -520,3 +520,79 @@ control deaths it REVERTS. That is exactly the class of defect this project keep
 before you say the number"), but changing a gate is an amendment and amendments are prospective and calibrated
 first. It is queued. `test_verdict_acceptance.py` pins the current OUTCOME (not the multiplier — 3x or 8x would
 revert here too) so that the change cannot happen silently.
+
+## `banktruth-01` — REGISTERED 2026-09-23 13:35 UTC, BEFORE the draw and before the deploy
+
+**Change** `b7c2e44` (branch `deposit-truth-msg`, based on the deployed baseline `9b572aa`). The deposit
+skill's `no_effect` refusal told the bot it was carrying none of an item it was carrying. Measured on the
+live build, full walk, 917,491 rows, 3,226 deposit runs / 54 bots / 24 h, isolated pools excluded: **2,079
+runs ended "nothing matching &lt;item&gt; to hand over" and the bot held the item in 2,078 of them — 100.0%.**
+The one `dirt` run where it truly held none is the positive control saying the check can answer the other
+way. The refusal OUTCOME is correct (food and ballast are deliberately unbankable; 8 cobblestone is the
+scaffold reserve); only its reason was false. **1,874 of the 2,079 (90.1%) are a bot re-proposing an item it
+has already been refused**, one of them `deposit apple` 151 times in a day.
+
+**PRIMARY, DECIDING, CALIBRATED — repeat-refusal share of all deposit runs, DiD.**
+A refusal is `skill.status == 'no_effect'` **with a named `skill.args.item`**; a repeat is the same
+`(bot, item)` pair already refused inside the window.
+
+> **TYPED, NEVER PROSE, AND THIS IS THE LOAD-BEARING DESIGN DECISION.** The change rewrites the refusal
+> sentence. An endpoint matching `"nothing matching <item> to hand over"` would read **−100% in the canary
+> arm because of the wording alone** — `consequence-rows-are-not-linkage` with a new face. The first draft
+> of this read did exactly that and was thrown away. Both builds emit the typed form identically.
+> Positive control on the typed definition: it finds 1,572 of 2,409 runs (65.3%) against the prose
+> version's 64.4% over the same span.
+
+**Null, measured before the deploy** — 300 placebo draws, 4 pools / 20 bots, pre 180 / post 360 min,
+single version `9b572aa`, 496,522 rows, zero draws skipped:
+
+| | |
+|---|---|
+| mean | **+2.18 pp** |
+| sd | **11.68 pp** |
+| p01 / p05 / p50 / p95 / p99 | −24.70 / **−15.70** / +2.25 / +20.38 / +26.64 |
+| a gate at −10 pp | fires on **15.0%** of NO-CHANGE draws |
+| a gate at −15 pp | fires on 5.3% |
+| a gate at −20 pp | fires on 3.0% |
+
+**GATE: DiD ≤ −15.7 pp** — the empirical one-sided 5% point, not a round number. A −10 pp gate would have
+been `canary-gate-was-noise` repeated: it fires on 15% of windows in which nothing happened.
+
+**Effect ceiling, stated before the read: E/N = 1,874/3,226 = −58.1 pp.** The gate needs 27% of the ceiling.
+Any read beyond −58.1 pp is an instrument fault, not a result.
+
+**EXPOSURE, must clear before ANY verdict.** The change row (v19): canary rows whose `detail` begins
+`you are carrying`. The control build **cannot** emit that string, so it discriminates by construction.
+**Floor 60**; ~210 projected from the dry run's 327 canary/post deposit runs at 65% named-no_effect.
+Dry run confirms 0 leaks into control/post or either pre-period.
+
+**WATCH — reported, NOT deciding, NOT calibrated.** `deposit runs/bot-h` (the named way this makes things
+worse is the model concluding it cannot bank at all and abandoning the skill — a collapse here is a
+finding, not a gate), deposit success share, net items/bot-h.
+
+**Deaths** — v21/v23 and the owner's two-death floor, via `verdict.py`. Unchanged.
+
+**Read** `banktruthread.py` (`/tmp/banktruthread.py` on .31, copied to `~/mcai-analysis/`), dry-run green
+against a placebo split before deploy: it printed NOT_YET on exposure 0 and a placebo DiD of −8.9 pp, which
+is inside the null band and is the demonstration that −8.9 pp means nothing.
+
+**Reads at +30 / +90 / +180 / +360.** Decision at +360. **This canary will be TORN DOWN, not promoted,
+whatever the verdict** — the 24–27 Sep program window forbids fleet-wide promotion, and leaving 20 of 80
+bots on a different build across a 72 h program read is a confound the registration's rule 1 only tolerates,
+not invites. A KEEP is promoted on 27 Sep after the window closes.
+
+**Prospective objections recorded now, so a good read cannot retire them silently:**
+1. **Advice printed is not advice taken.** This repo has measured a correct remedy printed 262 times and
+   never acted on. The whole change is prose reaching a model; INCONCLUSIVE is a live and legitimate outcome.
+2. **`RECENT EVENTS` frequency bias.** The model picks the most-echoed verb 54.5% of the time. A truthful
+   sentence does not reduce how often the refusal is echoed back, so the loop may persist for a reason this
+   change cannot touch.
+3. **Codex, verified and accepted:** "one computation" is one *definition* evaluated twice. `depositPlan`
+   runs at `skills.mjs:2259` and again inside `depositNoopReason`. They can diverge only for a
+   non-array `wants` (a consumed generator); admission always passes an array, so it is unreachable on the
+   fleet. Recorded rather than patched, because restructuring the plan's scope an hour before a deploy buys
+   nothing measured.
+4. **Codex, verified and accepted:** the 160-char slice is in `prompt.mjs:34`, not the rejection branch;
+   this result takes the 220-char executed branch at `cognitive.mjs:893`. Worst case measured across all
+   1.21.8 item names is 114 chars (136 with the `deposit -> no_effect: ` prefix). **Nothing is truncated**,
+   and the commit message's claim about the 160-char path is corrected here.
