@@ -10,7 +10,12 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
 import es  # noqa: E402
 
-STREAMS = ['mcai-skill-agents', 'mcai-llm-agents', 'mcai-sys-journal', 'mcai-mc-server']
+# The FULL set, discovered by listing the cluster rather than assuming. The first version
+# of this audit hardcoded 'mcai-mc-server' -- a name that does not exist -- and concluded
+# the Paper logs had "never been shipped". The real stream is `mcai-mc-paper`, and two
+# others (gpu-metrics, supervisor-lab) were missed entirely. Enumerate, never assume.
+STREAMS = ['mcai-skill-agents', 'mcai-llm-agents', 'mcai-sys-journal',
+           'mcai-mc-paper', 'mcai-gpu-metrics', 'mcai-supervisor-lab']
 
 print(f"cluster: {es.ES_URL}  as {es.ES_USER}")
 info = es.request('')
