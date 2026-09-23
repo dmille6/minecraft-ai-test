@@ -925,3 +925,110 @@ def attenuation(draws, pre, post, effect, fit=None, stat='mean', mode='uniform',
         raise DegenerateBlock(f'no usable draws out of {degen} degenerate')
     m = st.mean(got)
     return m / true, m, true, len(got), degen
+
+
+# ---------------------------------------------------------------------------------------------
+# The in-window gate: what a READ calls
+# ---------------------------------------------------------------------------------------------
+def same_shape_assignments(bots, treat, pool_of, limit=4000, rng=None):
+    """Every assignment with the SAME SHAPE as the realised one, realised assignment FIRST.
+
+    SHAPE MATTERS, and getting it wrong silently breaks exactness. Under the sharp null the labels
+    are exchangeable only across assignments the DRAW COULD HAVE PRODUCED. Permuting labels freely
+    would mix 2-pool draws with 7-bot-scattered ones and compare the realised estimator against a
+    null it was never drawn from -- which is a different and wrong test, and it would look fine.
+
+    Two shapes exist here, and the shape is inferred from the realised assignment rather than
+    configured, so the two cannot disagree:
+      * WHOLE POOLS: every world is entirely treated or entirely control. Enumerate all ways of
+        choosing that many worlds. With 16 worlds and 2 treated that is C(16,2)=120 exactly.
+      * WITHIN-WORLD: k of each world's bots are treated. The exact count is C(5,2)^16 ~ 10^11, so
+        it is SAMPLED up to `limit`, and the count is returned so a caller can say so.
+
+    `rng` is passed in rather than created, so a p-value is reproducible from its seed. An
+    unseeded null cannot be re-checked afterwards, which this project requires of a draw.
+    """
+    import itertools
+    worlds = {}
+    for b in bots:
+        worlds.setdefault(pool_of(b), []).append(b)
+    for w in worlds:
+        worlds[w].sort()
+    tset = set(treat)
+    per = {w: sum(1 for b in v if b in tset) for w, v in worlds.items()}
+    whole = all(n == 0 or n == len(worlds[w]) for w, n in per.items())
+
+    realised = (sorted(tset), sorted(b for b in bots if b not in tset))
+    out = [realised]
+
+    if whole:
+        treated_worlds = sorted(w for w, n in per.items() if n)
+        allw = sorted(worlds)
+        for combo in itertools.combinations(allw, len(treated_worlds)):
+            if sorted(combo) == treated_worlds:
+                continue
+            t = sorted(b for w in combo for b in worlds[w])
+            out.append((t, sorted(b for b in bots if b not in set(t))))
+    else:
+        r = rng or random.Random(0)
+        ks = {w: per[w] for w in worlds}
+        seen = {tuple(realised[0])}
+        for _ in range(limit * 3):
+            if len(out) >= limit:
+                break
+            t = []
+            for w in sorted(worlds):
+                k = ks[w]
+                if k:
+                    t += r.sample(worlds[w], k)
+            t = sorted(t)
+            key = tuple(t)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append((t, sorted(b for b in bots if b not in set(t))))
+    return out
+
+
+def in_window_p(pre, post, treat, ctrl, pool_of, fit=None, stat='mean', limit=4000, rng=None):
+    """(p, n_assignments, realised_estimate) from THIS window's own randomization distribution.
+
+    THE FIX FOR THE ONE FAILURE THAT MATTERS, and it is a finding about the gate this project
+    already runs rather than about CUPED. MEASURED 2026-09-23 on the exact distribution of all 120
+    two-pool assignments: a threshold fitted on one single-build window and applied to another
+    6.2h later gives a false-positive rate of 13.3% for the PLAIN DiD and 20.8% for CUPED, against
+    a nominal 5%. Reversed, 1.7% and 10.8%. The plain estimator is anti-conservative one direction
+    and over-conservative the other -- not better, differently wrong. Both scale AND tail shape
+    move between windows, so no earlier window can calibrate a later one.
+
+    Replacing the transferred threshold with this measures exactly 5.0% for both estimators.
+
+    `fit` is optional and orthogonal: beta must still come from a DISJOINT window (a coefficient
+    fitted on the contrast it adjusts minimises that contrast's own variance) while the THRESHOLD
+    must come from the read's OWN window. They are different objects and the defect was conflating
+    them; passing fit=None gives the plain DiD, which is exactly beta=1.
+
+    The realised assignment is placed first and its own estimate is included in the comparison,
+    which is what makes the p-value valid rather than optimistic -- and it is why this does not
+    call randomization_p by index, since the degenerate-draw filter would shift it.
+    """
+    draws = same_shape_assignments(sorted(set(pre.rates) & set(post.rates)), treat, pool_of,
+                                   limit=limit, rng=rng)
+    beta = 1.0 if fit is None else fit.beta
+    vals = []
+    for t, c in draws:
+        try:
+            x = contrast(pre, t, c, stat)
+            y = contrast(post, t, c, stat)
+        except DegenerateBlock:
+            continue
+        vals.append(y - beta * x)
+    if not vals:
+        raise DegenerateBlock('no non-degenerate assignment in this window')
+    realised = vals[0]
+    n = len(vals)
+    if n < 20:
+        raise ValueError(f'{n} usable assignments is too few for a randomization p-value; the '
+                         f'smallest attainable p would be 1/{n}')
+    a = abs(realised)
+    return sum(1 for v in vals if abs(v) >= a) / n, n, realised
