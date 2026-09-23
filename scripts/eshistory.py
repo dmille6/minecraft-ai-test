@@ -25,8 +25,14 @@ print(f"total skill documents: {es.count(IDX):,}")
 print("\n=== documents per day, whole archive ===")
 a = es.agg(IDX, {'d': {'date_histogram': {'field': '@timestamp', 'calendar_interval': 'day'}}})
 days = a['d']['buckets']
-print(f"  {len(days)} days with data")
-for b in days:
-    if b['doc_count']:
-        bar = '#' * min(60, b['doc_count'] // 20000)
-        print(f"   {b['key_as_string'][:10]}  {b['doc_count']:8d}  {bar}")
+# A date_histogram returns EMPTY buckets between the first and last. The first version
+# printed len(buckets) as "days with data" and then printed only the non-empty ones, so it
+# could announce 50 days while concealing gaps -- and "we have 50 days" became a headline.
+nonempty = [b for b in days if b['doc_count']]
+gaps = [b['key_as_string'][:10] for b in days if not b['doc_count']]
+print(f"  {len(days)} calendar days spanned, {len(nonempty)} WITH DATA, {len(gaps)} EMPTY")
+if gaps:
+    print(f"  EMPTY DAYS (no documents at all): {', '.join(gaps)}")
+for b in nonempty:
+    bar = '#' * min(60, b['doc_count'] // 20000)
+    print(f"   {b['key_as_string'][:10]}  {b['doc_count']:8d}  {bar}")
