@@ -41,7 +41,7 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
-import { depositPlan } from './bankable.mjs'
+import { depositPlan, depositNoopReason } from './bankable.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -2245,6 +2245,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // no-op that succeeded, eligible>0 with moved=0 is a chest that would not take
   // it, which is a real environmental failure worth a different remedy.
   let eligible = 0
+  // ONE SNAPSHOT, shared with the refusal sentence below: a reason computed from a
+  // second read of the inventory can contradict the plan that was actually run.
+  let planItems = []
   try {
     // HAND OVER THE PLAN, NOT THE INVENTORY (depositPlan, bankable.mjs). This loop
     // handed over every stack in inventory order: measured 2026-09-13 over 24 h,
@@ -2252,7 +2255,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // buckets into chests. One tool of each family, the scaffold reserve and the
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
-    const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })   // the wants admission judged with (set by the gate)
+    planItems = bot.inventory.items()
+    const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [] })   // the wants admission judged with (set by the gate)
     for (const { name, count } of plan) {
       check(signal)
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -2289,10 +2293,18 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // "deliberately matches NEITHER branch. It is not a success". The bot did
     // what was asked and there was nothing to do, which is neither an
     // achievement nor a fault, and it should not be counted as either.
+    // SAY WHICH CASE IT IS. Measured 2026-09-23: of 2,079 runs that ended with
+    // "nothing matching <item> to hand over", the bot was carrying the item in
+    // 2,078 -- the sentence was false 100.0% of the time, and 90.1% of the
+    // refusals are a bot asking again for something it has already been refused.
+    // `depositNoopReason` is defined in terms of `depositPlan`, so this sentence
+    // cannot disagree with the transfer. It falls back to the old wording rather
+    // than inventing one if the plan and the loop ever disagree.
     return { status: 'no_effect', failClass: null,
-             detail: item
-               ? `nothing matching ${item} to hand over — nothing to deposit`
-               : 'nothing worth banking — nothing to deposit' }
+             detail: depositNoopReason(planItems, item, { wants: bot.currentWants ?? [] })
+               ?? (item
+                 ? `nothing matching ${item} to hand over — nothing to deposit`
+                 : 'nothing worth banking — nothing to deposit') }
   }
   // A REFUSAL MUST NAME A REMEDY THE BOT CAN PERFORM FROM WHERE IT STANDS,
   // and this one named one and then did not perform it.
