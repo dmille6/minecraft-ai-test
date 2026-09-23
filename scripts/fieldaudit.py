@@ -324,6 +324,15 @@ class AuditCounter(collections.Counter):
 
 ROW_HITS = collections.Counter()
 ROW_MISSES = collections.Counter()
+ROW_SITES = {}
+
+
+def _split_site(where):
+    try:
+        f, ln = where.rsplit(':', 1)
+        return (f, int(ln))
+    except Exception:
+        return (where, 0)
 
 
 class AuditRow(dict):
@@ -349,8 +358,10 @@ class AuditRow(dict):
             return dict.get(self, key)
         if not LEDGER.enabled:
             return default
+        w = _caller()
         ROW_MISSES[(self._rowkind, key)] += 1
-        prov = LEDGER.record(Prov(self._rowkind, key, self, _caller(), 'get()'))
+        ROW_SITES.setdefault((self._rowkind, key), set()).add(_split_site(w))
+        prov = LEDGER.record(Prov(self._rowkind, key, self, w, 'get()'))
         return _taint(default, prov) if isinstance(default, (int, float)) else default
 
 
@@ -568,7 +579,7 @@ _SPLIT = re.compile(r'[/|:,>+]+')
 DEAD = ('DEAD_WRONG_DIMENSION', 'DEAD_COMPOSITE_KEY', 'DEAD_UNDERSCORE_CONVENTION',
         'DEAD_WRONG_ROW_KEY')
 SUSPECT = ('SUSPECT_SUBSTRING', 'SUSPECT_EMPTY_CONTAINER', 'SUSPECT_NOT_A_NUMBER',
-           'PROSE_LITERAL_NEVER_MATCHES')
+           'PROSE_LITERAL_NEVER_MATCHES', 'MASKED_DEAD_LOOKUP')
 
 
 def _components(keys, key):
@@ -748,6 +759,58 @@ def row_key_literals(path):
     return out
 
 
+def masked_lookups(path):
+    """{(lineno, literal)} for lookups whose deadness a live branch already covers: any
+    `.get(lit)`/`[lit]` that is a NON-FIRST operand of an `or` chain, or that carries a truthy
+    default. Those cannot make a field zero, so they are reported and never raised."""
+    try:
+        tree = ast.parse(open(path).read())
+    except Exception:
+        return set()
+    out = set()
+
+    def lits(node):
+        found = set()
+        for n in ast.walk(node):
+            if isinstance(n, ast.Subscript) and isinstance(n.slice, ast.Constant) \
+                    and isinstance(n.slice.value, str):
+                found.add((n.lineno, n.slice.value))
+            elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                    and n.func.attr == 'get' and n.args \
+                    and isinstance(n.args[0], ast.Constant) \
+                    and isinstance(n.args[0].value, str):
+                found.add((n.lineno, n.args[0].value))
+                if len(n.args) > 1 and isinstance(n.args[1], ast.Constant) \
+                        and n.args[1].value not in (None, 0, '', False):
+                    out.add((n.lineno, n.args[0].value))
+        return found
+
+    def is_live_alternative(node):
+        # `x or ''` has NO live alternative -- that is the pre-fix depositread, and it shipped.
+        # `x or y.get(...)` does. A falsy constant is a default, not a second instrument.
+        if isinstance(node, ast.Constant):
+            return bool(node.value)
+        return not (isinstance(node, (ast.Dict, ast.List, ast.Tuple)) and not
+                    getattr(node, 'elts', getattr(node, 'keys', [1])))
+
+    for n in ast.walk(tree):
+        if isinstance(n, ast.BoolOp) and isinstance(n.op, ast.Or) and len(n.values) > 1:
+            # POSITION DOES NOT MATTER. lavaread.py:41 reads the dead `outcome` FIRST and the
+            # live `skill` second; the expression is covered either way. What matters is
+            # whether ANOTHER operand is a live alternative rather than a falsy default.
+            for i, operand in enumerate(n.values):
+                if any(is_live_alternative(o) for j, o in enumerate(n.values) if j != i):
+                    out |= lits(operand)
+        # A truthy default masks the miss wherever it appears, not only inside an `or`.
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                and n.func.attr == 'get' and len(n.args) > 1 \
+                and isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str) \
+                and isinstance(n.args[1], ast.Constant) \
+                and n.args[1].value not in (None, 0, '', False):
+            out.add((n.lineno, n.args[0].value))
+    return out
+
+
 def variants(name):
     out = {re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower(), name.lower(), name.lstrip('_'),
            '_' + name}
@@ -757,7 +820,7 @@ def variants(name):
     return {v for v in out if v}
 
 
-def wrong_row_keys(path, universe):
+def wrong_row_keys(path, universe, masked=frozenset()):
     """A literal that is absent from EVERY real row while a spelling variant of it is present.
     `failClass` vs `fail_class` is exactly this, and the evidence is row counts.
 
@@ -775,7 +838,9 @@ def wrong_row_keys(path, universe):
             continue
         for v in sorted(variants(lit)):
             if leaf.get(v, 0) > 0:
-                out.append({'verdict': 'DEAD_WRONG_ROW_KEY', 'field': '(row key %r)' % lit,
+                out.append({'verdict': ('MASKED_DEAD_LOOKUP' if (line, lit) in masked
+                                        else 'DEAD_WRONG_ROW_KEY'),
+                            'field': '(row key %r)' % lit,
                             'key': lit, 'where': '%s:%d' % (os.path.basename(path), line),
                             'recv': recv, 'control': [(v, leaf[v])],
                             'control_why': 'the-variant-is-live-as-a-row-key',
@@ -868,7 +933,7 @@ def prose_findings(path, universe):
 
 # ------------------------------------------------------- case (a): row keys, seen at runtime
 
-def row_key_findings(universe):
+def row_key_findings(universe, masked=frozenset(), sites=None):
     """A key read from a row that NO instrumented row carried. Positive control: the keys the
     same rows answered to, with hit counts."""
     out = []
@@ -878,15 +943,24 @@ def row_key_findings(universe):
         ctl = [(k[1], n) for k, n in ROW_HITS.most_common(6) if k[0] == kind][:4]
         if not ctl:
             continue          # no control available on that row kind -- refuse to claim
+        where_lines = sorted((sites or {}).get((kind, key), ()))
+        masked_here = bool(where_lines) and all(
+            (ln, key) in masked for _f, ln in where_lines)
         extra = ''
         if kind == 'row' and universe['leaf'].get(key):
             extra = (' It IS a key on the RAW payload (%d rows), so this is the normalised row '
                      'being asked a raw-payload question.' % universe['leaf'][key])
-        out.append({'verdict': 'DEAD_WRONG_ROW_KEY', 'field': '(%s key %r)' % (kind, key),
-                    'key': key, 'where': 'read %d times' % miss, 'via': '%s.get()' % kind,
+        loc = ', '.join('%s:%d' % (f, ln) for f, ln in where_lines) or 'unknown line'
+        out.append({'verdict': ('MASKED_DEAD_LOOKUP' if masked_here else 'DEAD_WRONG_ROW_KEY'),
+                    'field': '(%s key %r)' % (kind, key),
+                    'key': key, 'where': '%s, read %d times' % (loc, miss),
+                    'via': '%s.get()' % kind,
                     'control': ctl, 'control_why': 'keys-the-same-rows-DID-carry',
-                    'note': ('%r was read %d times from the %s and was present 0 times.%s'
-                             % (key, miss, kind, extra))})
+                    'note': ('%r was read %d times from the %s and was present 0 times.%s%s'
+                             % (key, miss, kind, extra,
+                                ('  A LIVE BRANCH IS TRIED FIRST at %s, so this dead lookup '
+                                 'cannot make a field zero -- reported, not raised.' % loc)
+                                if masked_here else ''))})
     return out
 
 
@@ -1023,6 +1097,8 @@ def audit(paths, window, universe, reg, dryrun=None):
     for p in paths:
         ROW_HITS.clear()
         ROW_MISSES.clear()
+        ROW_SITES.clear()
+        masked = masked_lookups(p)
         t0 = dt.datetime.now()
         r = run_script(p, window, dryrun=dryrun)
         secs = (dt.datetime.now() - t0).total_seconds()
@@ -1031,8 +1107,8 @@ def audit(paths, window, universe, reg, dryrun=None):
                  'misses': r['misses'], 'empty_buckets': r['empty_buckets'],
                  'writes': r['writes'], 'emits': [], 'prose_alive': prose_ok,
                  'seconds': round(secs, 1), 'rss_gb': round(rss_gb(), 2),
-                 'row_key_findings': (row_key_findings(universe) + wrong_row_keys(p, universe)
-                                      + prose)}
+                 'row_key_findings': (row_key_findings(universe, masked, ROW_SITES)
+                                      + wrong_row_keys(p, universe, masked) + prose)}
         for call in r['cap'].calls:
             fields = []
             for fname, fval in call['fields'].items():
@@ -1282,11 +1358,53 @@ SELFTEST_NEEDS = {'skill.status': ('success', 'no_effect', 'failed'),
                   'skill.fail_class': ('skill_error', 'storage_full')}
 
 
+MASK_FIXTURE = """x = sk.get('fail_class') or sk.get('failClass') or ''
+y = sk.get('failClass') or ''
+z = r.get('@timestamp', '')
+w = (r['raw'].get('skill') or {}).get('status') or (r['raw'].get('outcome') or {}).get('status')
+v = sk.get('failClass', 'dflt')
+u = (r['raw'].get('outcome') or {}).get('s') or (r['raw'].get('skill') or {}).get('s')
+"""
+
+
+def selftest_mask():
+    """The masked-fallback rule, in BOTH directions. It must call leafread's second-branch
+    `failClass` masked and the pre-fix depositread's sole-source `failClass` not masked -- if it
+    cannot tell those apart it either hides the bug that shipped or cries wolf about a harmless
+    defensive read."""
+    import tempfile
+    d = tempfile.mkdtemp(prefix='fieldaudit-mask-')
+    f = os.path.join(d, 'm.py')
+    with open(f, 'w') as fh:
+        fh.write(MASK_FIXTURE)
+    got = masked_lookups(f)
+    want = [((1, 'failClass'), True, 'second branch of an or -- masked'),
+            ((2, 'failClass'), False, 'sole source (the bug that shipped) -- NOT masked'),
+            ((3, '@timestamp'), False, 'sole expression -- NOT masked'),
+            ((4, 'outcome'), True, 'second branch of an or -- masked'),
+            ((5, 'failClass'), True, 'truthy default -- masked'),
+            ((6, 'outcome'), True, 'FIRST branch, live alternative second -- masked'),
+            ((6, 'skill'), True, 'second branch, live alternative first -- masked')]
+    ok = True
+    for key, exp, why in want:
+        if ((key in got) != exp):
+            print('SELFTEST FAIL: mask(%s) -> %s, expected %s (%s)'
+                  % (key, key in got, exp, why))
+            ok = False
+        else:
+            print('selftest ok: mask %-26s -> %-5s  %s' % (str(key), key in got, why))
+    try:
+        os.unlink(f)
+    except OSError:
+        pass
+    return ok
+
+
 def selftest(universe, keep=False):
     """Plant known-dead fields and require the audit to raise on each. A check that has never
     been seen to fail is not a check (CLAUDE.md), so this is the check's own mutant."""
     import tempfile
-    ok = True
+    ok = selftest_mask()
     missing = []
     for path, names in SELFTEST_NEEDS.items():
         c = universe['values'].get(path) or {}
