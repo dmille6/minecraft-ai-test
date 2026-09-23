@@ -169,6 +169,17 @@ MUTANTS = [
 ]
 
 
+# THE MUTANT DIRECTORY MUST REPRODUCE verdict.py's IMPORT ENVIRONMENT, lib/ included.
+# It copied only scripts/*.py, and verdict.py imports canary_manifest and version_split from
+# scripts/lib -- so every mutant CRASHED on ModuleNotFoundError rather than producing a verdict,
+# and 14 of 15 scored as SURVIVED for a reason with nothing to do with the mutation. A suite that
+# reports 1/15 because of its own staging is worse than one that reports nothing.
+#
+# Copying lib/ is safe because run_suite launches verdict.py as a SUBPROCESS, so the copied
+# modules' class objects never meet the originals. Doing the same thing IN-PROCESS is a known
+# trap: a copied `Roster` is not the class the test imported, and it scores mutants as killed on
+# the artefact.
+#
 # verdict.py puts /home/mike/mcai-analysis AHEAD of its own directory on
 # sys.path, so ON THE BOTS HOST a mutated deathgate.py or singledeath.py in the
 # mutant's directory is SHADOWED by the host's real one -- the mutant would be
@@ -244,6 +255,9 @@ def main():
         for f in os.listdir(HERE):
             if f.endswith('.py'):
                 shutil.copy(os.path.join(HERE, f), d)          # a COPY, never the source
+        if os.path.isdir(os.path.join(HERE, 'lib')):
+            shutil.copytree(os.path.join(HERE, 'lib'), os.path.join(d, 'lib'),
+                            ignore=shutil.ignore_patterns('__pycache__'))
         target = os.path.join(d, fname)
         src = open(target, encoding='utf-8').read()
         n = src.count(anchor)

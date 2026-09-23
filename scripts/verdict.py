@@ -13,6 +13,12 @@ sys.path.insert(0, '/home/mike/mcai-analysis')
 # that was not there. "The two copies are reconciled" was true of the text and
 # false of the thing you can run.
 sys.path.insert(1, _os.path.dirname(_os.path.abspath(__file__)))
+for _cand in (_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'lib'),
+              '/home/mike/mcai-analysis/lib',
+              '/opt/minecraft-ai/scripts/lib'):
+    if _os.path.isdir(_cand):
+        sys.path.insert(2, _cand)
+        break
 import json, os, glob, gzip, hashlib, datetime as dt, collections
 from deathgate import death_gate
 from singledeath import licence_reverts
@@ -121,10 +127,31 @@ C_ROWS = set(reg.get('change_rows', []))
 linked = []; changerow = []; ndeaths = 0; pending_watch = []; by = {}
 if not DRY:
     cut = man['declared_at'][:19]; pools = [p.strip() for p in str(man['canary_pool']).split(',')]
-    def _scan(poollist):
+    # THE DEATH SCAN GLOBBED BY POOL PREFIX, AND A SPLIT CANARY MATCHES NOTHING.
+    #
+    # `canary_pool` for a within-world canary is the sentinel `split:<run_id>`, and no bot
+    # directory begins with that. VERIFIED on the fleet rather than reasoned about:
+    #     canary_pool='hive-a'            -> 6 log files matched
+    #     canary_pool='split:wwtest-01'   -> 0 log files matched
+    # Zero files means zero rows means ndeaths=0, so the owner's death gate would have reported a
+    # clean canary however many bots died -- a cheap negative in the one place this project can
+    # least afford one. The control scan was the mirror image: `[p for p in allp if p not in
+    # pools]` excluded nothing, so the treated bots were counted as their own control.
+    #
+    # Membership is now resolved PER BOT through canary_manifest.members_of, which hands back a
+    # Roster for a split declaration and the legacy pool string otherwise, and in_canary_pool
+    # accepts both. Scanning by bot rather than by pool is what makes the two cases one code path:
+    # for a legacy canary it selects exactly the same bots the prefix glob did, and for a split one
+    # it selects the declared roster and leaves its world-mates in control, which is the design.
+    from canary_manifest import members_of
+    from version_split import in_canary_pool
+    MEMBERS = members_of(man)
+    ALLBOTS = sorted({os.path.basename(b.rstrip('/')) for b in glob.glob(f'{LOGROOT}/*-*/')})
+    CANARY_BOTS = [b for b in ALLBOTS if in_canary_pool(b, MEMBERS)]
+    def _scan(botlist):
         d = collections.defaultdict(list)
-        for pool in poollist:
-            for f in glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl') + glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl-*'):
+        for bot in botlist:
+            for f in glob.glob(f'{LOGROOT}/{bot}/skill-*.jsonl') + glob.glob(f'{LOGROOT}/{bot}/skill-*.jsonl-*'):
                 op = gzip.open if f.endswith('.gz') else open
                 try:
                     with op(f, 'rt', errors='replace') as fh:
@@ -135,7 +162,7 @@ if not DRY:
                             d[r['bot']['name']].append((r['@timestamp'], (r.get('skill') or {}).get('name', ''), ((r.get('skill') or {}).get('detail') or '')[:70]))
                 except Exception: pass
         return d
-    by = _scan(pools)
+    by = _scan(CANARY_BOTS)
     for b, rs in by.items():
         rs.sort()
         for ts, k, d in rs:
@@ -189,8 +216,12 @@ def _control_scan():
     nothing."""
     global _by_ctrl
     if not _by_ctrl:
-        allp = sorted({os.path.basename(p.rstrip('/')).rsplit('-', 1)[0] for p in glob.glob(f'{LOGROOT}/*-*/')})
-        _by_ctrl = _scan([p for p in allp if p not in pools]) or {'__empty__': []}
+        # CONTROL IS EVERY BOT THAT IS NOT TREATED, which for a split canary deliberately
+        # includes the treated bots' own world-mates -- that is the whole point of the design, and
+        # excluding their worlds (as the old pool-level complement did) would throw away the
+        # matched controls it exists to create.
+        _ctrl_bots = [b for b in ALLBOTS if b not in set(CANARY_BOTS)]
+        _by_ctrl = _scan(_ctrl_bots) or {'__empty__': []}
     return _by_ctrl
 
 
