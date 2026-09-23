@@ -20,8 +20,10 @@ ready for it.**_
 ## ⚠ A SECOND SESSION RAN AGAIN TODAY, AND IT PATCHED THE VERDICT PATH WHILE MY CANARY WAS LIVE
 
 **This is the second consecutive day with two autonomous sessions on this fleet, and the owner's standing
-rule is one session per day. It needs a human decision and has not had one.** A PushNotification was sent
-at 18:35Z today; the 22 Sep attempt did not reach (Remote Control inactive).
+rule is one session per day. It needs a human decision and has not had one.** A PushNotification was
+ATTEMPTED at 18:35Z and **did not reach** — "Mobile push not sent (Remote Control inactive)", the same
+failure as 22 Sep. **The owner has now been un-notified twice; this file is the only channel that has
+carried it.** Raise it directly.
 
 What the other session did, found from its own artefacts and not inferred:
 
