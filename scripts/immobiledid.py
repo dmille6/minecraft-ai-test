@@ -27,7 +27,16 @@ def load_window(since_minutes):
         if _g.glob(f'/var/log/mcai/*/skill-*.jsonl-{tag}.gz'):
             ev.rows.extend(Events.load(paths=f'/var/log/mcai/*/skill-*.jsonl-{tag}.gz', since_minutes=since_minutes).rows)
         d += _dt.timedelta(days=1)
-    ev.rows.sort(key=lambda r: r.get('@timestamp', ''))
+    # A NORMALISED ROW HAS NO '@timestamp'. telemetry.py builds rows as
+    # {'t','name','detail','fail_class','status','bot','raw'}, so this key was absent on
+    # every row and sorted every one of them under '' -- a stable no-op that read as a
+    # sort. Measured by the field audit: read 20,712 times, present 0 times.
+    #
+    # It was harmless, and the reason is worth keeping: the sequence-dependent work is
+    # done per bot after an explicit `rs.sort(key=lambda r: r['t'])`, and everything here
+    # is counters and min/max, which do not care about order. Fixed because a no-op that
+    # looks like a sort is a trap for whoever next writes order-dependent code above it.
+    ev.rows.sort(key=lambda r: r['t'])
     return ev
 
 ev = load_window(int(max(elapsed, 0) + PRE) + 80)   # +60 for the trailing window
