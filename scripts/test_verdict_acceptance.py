@@ -180,6 +180,30 @@ def main():
           'owner-01 ran 97 min inert with every other check green. Zero exposure closes the '
           'experiment as invalid; it must never read as a clean KEEP.', out)
 
+    # ---- 1b. UNDEFINED MOVEMENT GUARDS (2026-09-23). immobiledid builds its breach list
+    # with `if v == v and v < lim`, where `v == v` is the NaN test -- so a guard that could
+    # not be computed was SKIPPED, the breach list came back empty, and the verdict string
+    # was 'all within'. verdict.py matched neither REVERT nor WATCH on an UNREADABLE string
+    # and fell through to KEEP. A guard that cannot be computed cannot fail.
+    #
+    # rdid() divides canary post/pre by control post/pre, and `readable` only checks the
+    # canary POST cell, so a canary declared just after a fleet restart can be readable with
+    # all three guards undefined.
+    #
+    # Calibrated before the change: 37 immobiledid evidence objects on disk, ZERO with an
+    # undefined guard. Reachable by construction, never observed to fire -- fixed because it
+    # is latent, and this case exists so it stays fixed.
+    print("\n1b. UNDEFINED MOVEMENT GUARDS -- not computable is not within limits")
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(
+        v15c='UNREADABLE (v15c: all of blocks moved/bh, working share, items gathered/bh '
+             'are undefined -- a guard that cannot be computed cannot fail, so this is not '
+             '"all within")'))
+    got, out = c.run()
+    check('v15c guards all undefined', got, 'UNREADABLE',
+          'Three undefined guards used to produce the string "all within" and reach KEEP. '
+          'When none of the calibrated decision is available the verdict must say so.', out)
+
     # ---- 2. evidence bound to the wrong run / gone stale.
     # The tier-1 analyst spent two days serving reads from FINISHED trials under
     # the heading "latest canary reads" (16 Sep - 18 Sep), and again on 19 Sep

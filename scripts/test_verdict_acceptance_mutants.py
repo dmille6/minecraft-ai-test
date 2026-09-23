@@ -120,6 +120,17 @@ MUTANTS = [
      "swim_to shipped and tripled drowning deaths. A suite that only ever proves the "
      "harness does NOT revert has tested one direction of one rule."),
 
+    # NEW 2026-09-23. Dropping the UNREADABLE branch sends an undefined-guard read back to
+    # KEEP, which is where it went before the fix: the string matched neither the REVERT nor
+    # the WATCH prefix and fell through.
+    ('the undefined-guard refusal removed -- v15c UNREADABLE falls through to KEEP again',
+     'verdict.py',
+     "if v['verdict'].startswith('UNREADABLE'): why.append('v15c ' + v['verdict']); (out('UNREADABLE'))",
+     "if False: pass",
+     'v15c guards all undefined', 'KEEP',
+     "A guard that cannot be computed cannot fail. 37 evidence objects show this has never "
+     "fired in practice, which is exactly why it needs a test rather than a memory."),
+
     # NEW, v24. Locks the amendment in: putting the invented control denominator back must
     # be caught. Before v24 the gate fell back to control_bot_h = canary_bot_h * 7.0 -- the
     # fleet's old 70/10 split, a guess and not a reading -- and it decided verdicts. With 3
@@ -176,6 +187,7 @@ WANT_BASE = {
     # exposure read rather than assumed, three canary deaths against an UNMEASURABLE control
     # is a broken instrument -- neither a pass nor a revert.
     'control has no measured exposure': 'UNREADABLE',
+    'v15c guards all undefined': 'UNREADABLE',
 }
 
 

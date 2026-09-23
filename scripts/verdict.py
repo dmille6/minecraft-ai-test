@@ -277,6 +277,10 @@ why.append(f"deaths {_cd} ({(_cd / _cbh) if _cbh else 0:.3f}/bh over {_cbh:.1f} 
 if POLL: why.append(f'poll: {ndeaths} canary deaths since declared_at, {len(linked)} rung-linked, {len(changerow)} with a change row'); (out('POLL_OK', {'deaths': ndeaths}))
 # 5. v15c movement guards
 v = im['v15c']
+# An UNREADABLE v15c string previously matched neither the REVERT nor the WATCH prefix and
+# fell through to KEEP. immobiledid emits it when every movement guard is undefined, which is
+# exactly when the calibrated decision does not exist.
+if v['verdict'].startswith('UNREADABLE'): why.append('v15c ' + v['verdict']); (out('UNREADABLE'))
 if v['verdict'].startswith('REVERT'): why.append('v15c ' + v['verdict']); (out('REVERT'))
 watch = [v['verdict']] if v['verdict'].startswith('WATCH') else []
 watch.extend(pending_watch)

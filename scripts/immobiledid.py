@@ -157,7 +157,30 @@ imm_pp = ((ki - ci) - (kc - cc)) * 100
 v15 = [('blocks moved/bh', rdid('mv'), -0.30), ('working share', rdid('wk'), -0.20), ('items gathered/bh', rdid('it'), -0.50)]
 breach = [nm for nm, v, lim in v15 if v == v and v < lim] + (['immobile'] if imm_pp > 10 and len(newly) >= 2 else [])
 severe = [nm for nm, v, lim in zip(['blocks moved/bh', 'working share', 'items gathered/bh'], [rdid('mv'), rdid('wk'), rdid('it')], [-0.50, -0.40, -0.70]) if v == v and v < lim] + (['immobile'] if imm_pp > 20 and len(newly) >= 3 else [])
-verdict = 'REVERT (two or more breaches)' if len(breach) >= 2 else ('REVERT (severe: ' + ', '.join(severe) + ')' if severe else ('WATCH: ' + ', '.join(breach) if breach else 'all within'))
+# UNDEFINED IS NOT WITHIN LIMITS (2026-09-23). The breach tests are written `if v == v and
+# v < lim`, and `v == v` is the NaN check -- so a guard that could not be computed is SKIPPED,
+# an empty breach list becomes the string 'all within', and verdict.py trusts that string. A
+# guard that cannot be computed cannot fail, which is the definition of a false clean.
+#
+# rdid() divides canary post/pre by control post/pre, so any cell with zero exposure makes it
+# NaN -- and `readable` only checks the canary POST cell, so a canary declared right after a
+# fleet restart can be readable with all three guards undefined.
+#
+# CALIBRATED BEFORE CHANGING ANYTHING: 37 immobiledid evidence objects on disk, ZERO with an
+# undefined guard (32 'all within', 5 WATCH, 0 REVERT). So this hole is reachable by
+# construction and has NOT been observed to fire. It is fixed because it is latent, not
+# because it has cost anything yet -- and the distinction is worth keeping in the record.
+#
+# All three undefined -> UNREADABLE, because none of the calibrated decision is available.
+# One or two -> still decided on what IS defined, but named, so it can never read as a clean
+# pass; blocking on a technicality when two calibrated guards are live would stop progress
+# for no gain.
+_undef = [nm for nm, v, lim in v15 if v != v]
+if len(_undef) == len(v15):
+    verdict = ('UNREADABLE (v15c: all of ' + ', '.join(_undef) + ' are undefined -- a guard '
+               'that cannot be computed cannot fail, so this is not "all within")')
+else:
+    verdict = 'REVERT (two or more breaches)' if len(breach) >= 2 else ('REVERT (severe: ' + ', '.join(severe) + ')' if severe else ('WATCH: ' + ', '.join(breach) if breach else ('WATCH: undefined guard(s) ' + ', '.join(_undef) + '; the rest are within limits' if _undef else 'all within')))
 print(f"GUARDS (v15c): blocks moved/bh {rdid('mv'):+.0%} (>= -30%);  working share {rdid('wk'):+.0%} (>= -20%);  immobile {imm_pp:+.1f} pp DiD with {len(newly)} newly-immobile canary bot(s) (> +10 pp AND >= 2);  items gathered/bh {rdid('it'):+.0%} (>= -50%)  ->  {verdict}  [one breach = WATCH; two, or one severe (-50/-40/-70/+20pp&3) = REVERT; a gathering-only loss of a third is judged on the fleet reads, not here];  REPORT: gather calls {rdid('g'):+.0%}, explore calls {rdid('e'):+.0%}")
 print(f"GUARDS (v6): gather/bh {rdid('g'):+.0%}  explore/bh {rdid('e'):+.0%} (each within 30%);  climb firings/bh {rdid('cl'):+.0%} (<= +100%);  livelock rows/bh {rdid('llbh'):+.0%} (<= +100%);  blocks spent per ladder p90 {p90} (<= 32) over {len(spent)} ladders;  recovery_exhausted {len({e[1] for e in exh_still})} distinct bots still stuck 30 min after ({len(exh_still)} of {len(exh)} rows) (v10 guard 6: distinct bots <= trapped-at-deploy + 1)")
 print(f"READABILITY: canary post livelock rows {ll[('canary', 'post')]} (>= 8) or climb firings {climbs[('canary', 'post')]} (>= 20); bot-h {mins[('canary', 'post')] / 60:.1f} (>= 15)")
