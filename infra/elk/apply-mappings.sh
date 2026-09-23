@@ -7,6 +7,27 @@
 # (ADR-0001 D4) -- so rebuilding it must be cheap, and that means the mappings
 # have to live somewhere re-appliable.
 #
+# llm.args_cleaned_fields, 2026-09-23: THE SAME BUG, THIRD TIME, AND IT COST EIGHT DAYS.
+#
+# logger.mjs:222 writes `args_cleaned_fields: (...).map(c => c.field).join(',') || null` -- a
+# STRING when args were scrubbed, null when they were not. It was never declared here, and the
+# llm template is `dynamic: strict`, which rejects the WHOLE DOCUMENT for one unknown field.
+#
+# MEASURED 2026-09-23 from the cluster and git:
+#   09-07 08:24  d121f63 adds the field to the logger
+#   09-07 23:30  the last llm document reaches Elasticsearch
+#   09-16        0e4bd05 declares args_cleaned (but NOT args_cleaned_fields) and shipping
+#                resumes at 23:46 -- because by then the grammar `pattern` fix had made the
+#                value null on every call, and ES ignores null for dynamic mapping
+#   result: EIGHT DAYS, 2026-09-08..15, ZERO llm documents. ~1.4M decisions absent.
+#           mcai-skill-agents had zero empty days throughout, so the fleet was fine.
+# Confirmed absent cluster-wide, not misrouted: no index holds a document with llm.latency_ms
+# in that window, while the same query returns 177,421 for 09-17..18.
+#
+# It is declared now because the field is a LOADED GUN, not because it is currently lossy:
+# today all 130,559 rows carry it as null and nothing is dropped. The moment the grammar
+# regresses and an arg gets scrubbed, the whole stream goes dark again, silently.
+#
 # bot.tools (iron retention, 16 Sep 2026) and llm.args_cleaned were the next two: 349 and 51 of 400 sampled
 # skill/llm documents rejected with strict_dynamic_mapping_exception, found only because the license fix
 # made someone read the filebeat drop counter. Every new snapshot field needs a line here.
@@ -74,7 +95,7 @@ ok "mcai-skill-* template"
 q -XPUT "http://localhost:9200/_index_template/mcai-llm" -H 'Content-Type: application/json' -d "{
  \"index_patterns\":[\"mcai-llm-*\"],\"data_stream\":{},\"priority\":500,
  \"template\":{\"settings\":{$SETTINGS},\"mappings\":{\"dynamic\":\"strict\",\"properties\":{$COMMON,
-  \"llm\":{\"properties\":{\"args_cleaned\":{\"type\":\"integer\"},\"model\":{\"type\":\"keyword\"},\"endpoint\":{\"type\":\"keyword\"},
+  \"llm\":{\"properties\":{\"args_cleaned\":{\"type\":\"integer\"},\"args_cleaned_fields\":{\"type\":\"keyword\"},\"model_mismatch\":{\"type\":\"keyword\"},\"model\":{\"type\":\"keyword\"},\"endpoint\":{\"type\":\"keyword\"},
    \"prompt_tokens\":{\"type\":\"long\"},\"completion_tokens\":{\"type\":\"long\"},
    \"latency_ms\":{\"type\":\"long\"},\"total_duration_ns\":{\"type\":\"long\"},
    \"load_duration_ns\":{\"type\":\"long\"},\"prompt_eval_duration_ns\":{\"type\":\"long\"},
@@ -90,39 +111,48 @@ q -XPUT "http://localhost:9200/_index_template/mcai-llm" -H 'Content-Type: appli
   \"outcome\":{\"properties\":{\"status\":{\"type\":\"keyword\"},\"detail\":{\"type\":\"text\"}}}}}}}" >/dev/null
 ok "mcai-llm-* template"
 
+# DRIFT FOUND 2026-09-23, and this line is the fix. The LIVE mcai-mc template carried
+# "index.default_pipeline":"mcai-paper" and this script did not -- nothing in the repo
+# set it anywhere. So re-running this script, whose entire purpose is that rebuilding
+# ELK is cheap, would have produced a cluster where every Paper document arrives
+# UNPARSED: no mc.event, no mc.player, no mc.world, just `message`. And because these
+# mappings are dynamic:false, nothing would have errored. mcai-mc is the only template
+# with a default_pipeline -- the skill/llm/sys streams ship pre-structured JSONL and
+# need none -- so this drift is scoped to exactly this one line.
 q -XPUT "http://localhost:9200/_index_template/mcai-mc" -H 'Content-Type: application/json' -d "{
  \"index_patterns\":[\"mcai-mc-*\"],\"data_stream\":{},\"priority\":500,
- \"template\":{\"settings\":{$SETTINGS},\"mappings\":{\"dynamic\":\"false\",\"properties\":{
+ \"template\":{\"settings\":{$SETTINGS,\"index.default_pipeline\":\"mcai-paper\"},
+  \"mappings\":{\"dynamic\":\"false\",\"properties\":{
   \"@timestamp\":{\"type\":\"date\"},\"message\":{\"type\":\"text\"},
   \"log\":{\"properties\":{\"level\":{\"type\":\"keyword\"},\"thread\":{\"type\":\"keyword\"}}},
   \"mc\":{\"properties\":{\"event\":{\"type\":\"keyword\"},\"player\":{\"type\":\"keyword\"},
+   \"world\":{\"type\":\"keyword\"},\"time\":{\"type\":\"keyword\"},
    \"x\":{\"type\":\"float\"},\"y\":{\"type\":\"float\"},\"z\":{\"type\":\"float\"},
+   \"dx\":{\"type\":\"float\"},\"dy\":{\"type\":\"float\"},\"dz\":{\"type\":\"float\"},
+   \"death_cause\":{\"type\":\"keyword\"},
+   \"lag_ms\":{\"type\":\"long\"},\"ticks_behind\":{\"type\":\"long\"},
    \"reason\":{\"type\":\"text\"},\"chat\":{\"type\":\"text\"}}},
   \"host\":{\"properties\":{\"name\":{\"type\":\"keyword\"}}}}}}}" >/dev/null
 ok "mcai-mc-* template"
 
 # Paper thread names contain slashes, so the level must be matched greedily
 # from the RIGHT -- dissect splits on the first slash and mangles every record.
-q -XPUT "http://localhost:9200/_ingest/pipeline/mcai-paper" -H 'Content-Type: application/json' -d '{
- "description":"Parse Paper server logs.",
- "processors":[
-  {"grok":{"field":"message","ignore_failure":true,
-    "patterns":["\\[%{TIME:mc.time}\\] \\[%{GREEDYDATA:log.thread}/%{LOGLEVEL:log.level}\\]: %{GREEDYDATA:_msg}"]}},
-  {"set":{"field":"message","copy_from":"_msg","ignore_empty_value":true}},
-  {"remove":{"field":"_msg","ignore_missing":true}},
-  {"drop":{"if":"ctx.log?.thread != null && ctx.log.thread.contains(\"RCON\")"}},
-  {"grok":{"field":"message","ignore_failure":true,
-    "patterns":["%{USERNAME:mc.player}\\[/%{IP}:%{NUMBER}\\] logged in with entity id %{NUMBER} at \\(\\[%{DATA}\\]%{NUMBER:mc.x:float}, %{NUMBER:mc.y:float}, %{NUMBER:mc.z:float}\\)"]}},
-  {"set":{"field":"mc.event","value":"join","if":"ctx.message != null && ctx.message.contains(\"logged in with entity id\")"}},
-  {"grok":{"field":"message","ignore_failure":true,
-    "patterns":["%{USERNAME:mc.player} \\(/%{IP}:%{NUMBER}\\) lost connection: %{GREEDYDATA:mc.reason}",
-                "%{USERNAME:mc.player} lost connection: %{GREEDYDATA:mc.reason}"]}},
-  {"set":{"field":"mc.event","value":"disconnect","if":"ctx.message != null && ctx.message.contains(\"lost connection\")"}},
-  {"grok":{"field":"message","ignore_failure":true,"patterns":["<%{USERNAME:mc.player}> %{GREEDYDATA:mc.chat}"]}},
-  {"set":{"field":"mc.event","value":"chat","if":"ctx.mc?.chat != null"}},
-  {"set":{"field":"mc.event","value":"warn","if":"ctx.log?.level == \"WARN\""}},
-  {"set":{"field":"mc.event","value":"error","if":"ctx.log?.level == \"ERROR\""}},
-  {"set":{"field":"mc.event","value":"other","override":false}}
- ],
- "on_failure":[{"set":{"field":"mc.event","value":"parse_failed"}}]}' >/dev/null
+#
+# The pipeline body lives in pipeline-mcai-paper.json rather than inline here,
+# for two reasons. (1) It contains "Can't keep up!" -- an apostrophe, which the
+# single-quoted `-d '...'` form this script uses for every other pipeline cannot
+# carry. (2) It is now 30 processors and is TESTED: infra/elk/test-paper-pipeline.py
+# replays a real corpus of Paper log lines through it via _ingest/pipeline/_simulate,
+# which only works if the definition is a file both the applier and the test read.
+#
+# Measured 2026-09-23, why the classifiers exist. Across 829,661 archived log lines
+# from 20 worlds (2026-08-21 -> 09-23) the events that were reaching Elasticsearch
+# as an undifferentiated mc.event="warn"/"other" were: moved wrongly 50,260;
+# "was kicked for floating too long" 3,638; deaths 3,193 across 10 distinct causes;
+# moved too quickly 120; "Can't keep up" 102. None of those had a player attached
+# and none had a WORLD attached, so on a 16-world fleet they were unattributable.
+PIPE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+q -XPUT "http://localhost:9200/_ingest/pipeline/mcai-paper" \
+  -H 'Content-Type: application/json' \
+  --data-binary "@${PIPE_DIR}/pipeline-mcai-paper.json" >/dev/null
 ok "mcai-paper ingest pipeline"

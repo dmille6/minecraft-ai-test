@@ -80,6 +80,9 @@ def main():
         "size": 0, "query": {"range": {"@timestamp": {"gte": W}}},
         "aggs": {"n": {"value_count": {"field": "llm.latency_ms"}},
                  "veto": {"filter": {"exists": {"field": "llm.error"}}},
+                 # Per-kind shares for the drift check below. The aggregate alone was quiet
+                 # through repeat_loop rising 11% -> 18% over six days.
+                 "kinds": {"terms": {"field": "llm.error", "size": 12}},
                  # size 10 with a ten-bot fleet sat exactly on the limit: an
                  # eleventh bot would have pushed one out of the bucket list and
                  # been reported as silent. Terms aggs truncate quietly.
@@ -107,11 +110,74 @@ def main():
         f'{decisions} decisions/15m' if decisions
         else 'NO LLM decisions in 15m -- the cognitive loop is not running')
 
+    VETO_DRIFT_Z = float(os.environ.get('VETO_DRIFT_Z', '4'))
     if decisions > 20:
-        pct = round(100 * vetoes / decisions)
-        (alerts if pct >= 45 else oks).append(
-            f'admission gate vetoing {pct}% of proposals -- the fleet is freezing shut'
-            if pct >= 45 else f'veto rate {pct}%')
+        # IT COMPARED THE ROUNDED NUMBER, so the real threshold was 44.5%, not 45%.
+        # `round(100 * vetoes / decisions) >= 45` fires at a true rate of 44.6%. MEASURED
+        # 2026-09-23 over 654 fifteen-minute buckets in 14 days: median 37.9%, p95 42.2%,
+        # p99 43.5%, max 45.8%. The fleet lives just under the rounding boundary, so this
+        # alerted twice in two hours against ten all-clears -- a flap manufactured by the
+        # rounding, not by the fleet. Compare the rate; display the rounded one.
+        rate = vetoes / decisions
+        pct = round(100 * rate)
+        # AND THE MESSAGE OVERCLAIMED. llm.error carries an admission refusal reason OR an
+        # inference error, so this is a mixed fraction and not a clean veto rate; llm.admission
+        # records the admission kind separately. The threshold's own provenance (this file's
+        # docstring) is a freeze whose four-hour average was 58% against a healthy band of
+        # 11-25%. The fleet's median is now 37.9% -- above that whole healthy band -- so a
+        # breach here is not evidence of "freezing shut" and saying so was a guess dressed as
+        # a diagnosis.
+        (alerts if rate >= 0.45 else oks).append(
+            f'mixed llm.error fraction {pct}% of {decisions} decisions/15m exceeds 45% '
+            f'(14-day p99 is 43.5%) -- admission refusals and inference errors are pooled '
+            f'here, so this is a prompt to look, not a diagnosis'
+            if rate >= 0.45 else f'veto rate {pct}% (mixed numerator; 14-day median 37.9%)')
+
+        # PER-KIND DRIFT, because the aggregate hid a real one.
+        #
+        # MEASURED 2026-09-23: repeat_loop went 11% -> 18% of decisions over six days while
+        # cooldown, learned_avoid and bad_args stayed flat, and the TOTAL moved only 36.9% ->
+        # 38.8%. The aggregate check was quiet through a 64% relative rise in one component.
+        #
+        # The threshold is a z-score against each kind's OWN trailing distribution rather than
+        # a typed number, and it was calibrated before being used: over 558 baseline buckets
+        # (14 days excluding the most recent 24h) z > 4 fires on ZERO, while repeat_loop's
+        # recent peak reaches z = 4.2. Every other kind stays at or below 2.4.
+        try:
+            hist = es('/mcai-llm-agents/_search', {
+                "size": 0,
+                "query": {"range": {"@timestamp": {"gte": "now-14d", "lte": "now-24h"}}},
+                "aggs": {"b": {"date_histogram": {"field": "@timestamp",
+                                                 "fixed_interval": "15m",
+                                                 "min_doc_count": 1},
+                               "aggs": {"n": {"value_count": {"field": "llm.latency_ms"}},
+                                        "k": {"terms": {"field": "llm.error", "size": 12}}}}}})
+            per = {}
+            for b in hist['aggregations']['b']['buckets']:
+                n = int(b['n']['value'] or 0)
+                if n < 50:
+                    continue
+                for kb in b['k']['buckets']:
+                    per.setdefault(kb['key'], []).append(100.0 * kb['doc_count'] / n)
+            now_k = {kb['key']: 100.0 * kb['doc_count'] / decisions
+                     for kb in llm['kinds']['buckets']} if 'kinds' in llm else {}
+            if not per:
+                alerts.append('per-kind veto baseline is EMPTY over 14 days -- the drift check '
+                              'is blind, not passing')
+            for k, share in sorted(now_k.items(), key=lambda x: -x[1]):
+                vals = per.get(k)
+                if not vals or len(vals) < 50:
+                    continue
+                m = sum(vals) / len(vals)
+                sd = (sum((v - m) ** 2 for v in vals) / len(vals)) ** 0.5 or 1e-9
+                z = (share - m) / sd
+                if z > VETO_DRIFT_Z:
+                    alerts.append(f'veto kind {k} at {share:.1f}% of decisions is z={z:.1f} '
+                                  f'against its own 14-day baseline ({m:.1f}% +/- {sd:.1f}) '
+                                  f'-- calibrated: z>4 fires on 0 of 558 baseline buckets')
+        except Exception as e:
+            alerts.append(f'per-kind veto drift check unreadable ({type(e).__name__}: {e}) '
+                          f'-- an unreadable check is a failed check, not a pass')
 
     # WHO SHOULD BE DECIDING.
     #
