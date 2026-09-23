@@ -50,6 +50,24 @@ for M in $READS; do
     case "$V" in *REVERT*) journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; FINALV="$V"; break 2;; esac
     if [ $(( $(date +%s) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; FINALV="deadline +$DEADLINE reached without a verdict (containment)"; break 2; fi
   done
+  # THE READ SCRIPTS LIVE IN /tmp AND NOTHING PUTS THEM THERE.
+  # This runs /tmp/$s.py, but no step in this loop copies them in -- they are placed by hand
+  # when a canary is prepared. /usr/lib/tmpfiles.d/tmp.conf carries `D /tmp 1777 root root
+  # 30d`, and the D directive EMPTIES /tmp on boot. The host has been up two weeks so it has
+  # not bitten, but a reboot would leave every registered read missing and the failure would
+  # surface only as "no evidence object", several steps from the cause.
+  #
+  # It deliberately does NOT copy them in from /opt or ~/mcai-analysis. The /tmp copies are
+  # frequently NEWER than the tree ones -- on 2026-09-23 /tmp held fixes that /opt did not --
+  # so auto-copying would silently downgrade the instrument mid-canary, which is worse than
+  # the outage it would paper over. It refuses and names what is missing instead.
+  _miss=""
+  for s in $SCRIPTS; do [ -f "/tmp/$s.py" ] || _miss="$_miss $s"; done
+  if [ -n "$_miss" ]; then
+    page error "registered read script(s) missing from /tmp:$_miss -- nothing copies them in and a reboot empties /tmp. Restore them before this canary can be read."
+    journal "reads-missing" "missing from /tmp:$_miss"
+    exit 4
+  fi
   for s in $SCRIPTS; do (cd /opt/minecraft-ai/scripts && timeout 900 python3 /tmp/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1); done
   # A CRASH USED TO BE INDISTINGUISHABLE FROM A QUIET READ.
   # This captured stdout only, so when verdict.py raised, the traceback went to a stderr
