@@ -1,7 +1,8 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-23 12:35 UTC — **LIVE CANARY `banktruth-01` (9a6aa13) on placebo-d, hive-c, board-b,
-board-c, declared 12:10:07Z. Fleet baseline `9b572aa+72e533`. Ledger 58 decisions.**
-**It MUST be decided and torn down before 24 Sep 00:00Z. Reads at +30/+90/+180/+360 → final 18:10Z.**_
+_updated 2026-09-23 18:30 UTC — **NO LIVE CANARY. The loop is CLOSED.** `banktruth-01` (9a6aa13) was read
+**INCONCLUSIVE** at 18:19Z and torn down at 18:23:13Z; census confirms **ONE version, `9b572aa+72e533`, on
+80 bots**. Ledger **59** decisions. **The 24–27 Sep program read opens at 00:00Z tonight and the fleet is
+ready for it.**_
 
 > **TWO COPIES OF THIS FILE EXIST.** The daily task reads `mcai-rl02/docs/reports/STATE.md` first and falls
 > back to the repo copy. **If they disagree, take the later `_updated` stamp, not the documented order.**
@@ -10,88 +11,78 @@ board-c, declared 12:10:07Z. Fleet baseline `9b572aa+72e533`. Ledger 58 decision
 > **STATE.md IS STRUCTURALLY STALE BY ONE CANARY AND THAT IS NOT A BUG TO FIX BY TRYING HARDER.**
 > Yesterday's file was written 12:01Z; shoreline-01 was read KEEP at 18:04Z and promoted at 18:14Z, and an
 > evening session then did six commits of instrument work. None of it was in the file this session opened.
-> **Read the JOURNAL and the LEDGER before trusting this file's canary section.** That is re-arm rule 4 and
-> it has now earned its keep two days running.
+> **Read the JOURNAL and the LEDGER before trusting this file's canary section.** Re-arm rule 4.
+> This file is written at 18:30Z with the loop already closed, so today it is not stale — but tomorrow's
+> reader should still check, because the property that makes it stale is the rotation, not the author.
 
 ---
 
-## ⚠ LIVE CANARY — `banktruth-01`, MINE, deployed 12:10:07Z
+## THE SLOT: `banktruth-01` — CLOSED INCONCLUSIVE 18:19Z, TORN DOWN 18:23:13Z, NOT PROMOTED
 
-- **sha `9a6aa13`**, pools **placebo-d, hive-c, board-b, board-c** (4 pools / 20 bots, the registered k=20
-  draw, drawn at deploy). Half mix on offer `{5080: 3, 3090: 1}` — **record the half of each drawn pool as
-  a read covariate.** Baseline `9b572aa`; descent verified by `fleet-deploy`.
-- Version census after deploy: **9a6aa13 on exactly 20 bots**, 9b572aa elsewhere.
-- Registration: `docs/reports/recovery-ladder-registration.md` (four sections, `banktruth-01`) and the
-  machine copy `~/mcai-analysis/registrations/banktruth-01.json` = `docs/reports/banktruth-01-registration.json`.
-- Reads **+30 / +90 / +180 / +360 → final 18:10:07Z**. Loop alive: `pgrep -af "canary-loop[.]sh"`.
+**sha `9a6aa13`** (branch `deposit-truth-msg`, worktree `mcai-banktruth`), pools placebo-d, hive-c, board-b,
+board-c, deployed 12:10:07Z on baseline `9b572aa`. Teardown was all THREE steps plus killing the detached
+readers, and the census after it is **one version on 80 bots**.
 
-### THE THREE THINGS THAT WILL BITE WHOEVER READS THIS
+### The finding, which stands
 
-1. **`canary-loop.sh:73` CANNOT CLOSE A KEEP HERE.** It requires `promotion == "fleet-wide"`; this
-   registration says `none`, so on KEEP it pages an error, exits 2, and **leaves the canary deployed**.
-   That is correct — the program window forbids promotion — but it means **a KEEP is an open loop until
-   closed by hand**: `check-open-loop.py --record` under sudo BEFORE touching the manifest, then the THREE
-   teardown steps plus killing detached readers. REVERT and INCONCLUSIVE tear down on their own at line 79.
-   **If the journal's last phase is a KEEP with no teardown, that is this, not a crash.**
-2. **TEARDOWN IS MANDATORY TODAY WHATEVER IT READS.** The 24–27 Sep window opens at 00:00Z. A KEEP is
-   promoted on **27 Sep**, not tonight.
-3. **The manifest's `notes` carry a RETRACTED claim.** `fleet-deploy` copied the registration notes at
-   12:10Z, before I corrected them at 12:12Z. The manifest says "THE BOT WAS CARRYING THE ITEM IN 2,078 OF
-   THEM (100.0%) … is the positive control". **That framing is withdrawn** (see below). Read the notes in
-   the registration JSON, not the manifest.
+The deposit skill told bots they were carrying none of an item they were carrying. On `9b572aa` over 24 h —
+917,491 rows, **3,226 deposit runs / 54 bots**, isolated excluded — **2,079 runs ended in that refusal**;
+`apple` alone is 1,494 of the 2,587 named runs; and **1,874 of the 2,079 (90.1%) are a bot re-proposing an
+item it has already been refused**, one of them 151 times in a day. The refusal OUTCOME is correct —
+`bankable.mjs` is right about food, ballast and the 8-block scaffold reserve. Only the reason was false.
 
-### The change, and the retraction that came with it
-
-The deposit `no_effect` refusal said `nothing matching <item> to hand over` to a bot that was carrying the
-item. Measured on `9b572aa`, 917,491 rows, **3,226 deposit runs / 54 bots / 24 h**, isolated excluded:
-**2,079 runs end in that refusal**; `apple` alone is 1,494 of the 2,587 named runs; and **1,874 of the
-2,079 (90.1%) are a bot re-proposing an item it has already been refused**, one of them 151 times in a day.
-The refusal OUTCOME is correct — `bankable.mjs` is right about food, ballast and the 8-block scaffold
-reserve. Only the reason was false.
-
-**RETRACTED: "the bot held the item in 2,078 of 2,079 runs — 100.0%" is a tautology, not a measurement.**
+**RETRACTED, and do not re-quote it: "the bot held the item in 2,078 of 2,079 runs — 100.0%" is a tautology.**
 `admission.mjs:326` refuses a named deposit with `deposit_item_missing` whenever the bot holds none, BEFORE
-the skill runs, on both the model and work-order paths. Every named refusal reaching the skill holds the
-item **by construction**, and the single `dirt` exception is a gate/skill race, not a positive control.
-**The conclusion is stronger for it** — the sentence is false on *every* named fleet refusal — but do not
-re-quote the 100%. It also makes the new `carrying no <item>` branch **unreachable from the fleet**
-(chat-only, `commands.mjs:105`); its silence is not a finding.
+the skill runs, on both the model and work-order paths. Every named refusal reaching the skill holds the item
+**by construction**; the single `dirt` exception is a gate/skill race, not a positive control. The conclusion
+is *stronger* for the correction — the sentence is false on every named fleet refusal — but the count is not
+evidence. It also makes the new `carrying no <item>` branch **fleet-unreachable** (chat only,
+`commands.mjs:105`); its silence is not a finding.
 
-### The read — and both endpoints that were thrown away
+### The read, and why INCONCLUSIVE is the honest close
 
-**PRIMARY, DECIDING, CALIBRATED: repeat refusals PER BOT-HOUR, DiD.** A refusal is
-`skill.status == 'no_effect'` with a named `skill.args.item`; a repeat is the same `(bot, item)` again.
+| read | n (canary/post runs) | change rows | DiD /bot-h |
+|---|---:|---:|---:|
+| +30 | 39 | 23 | −0.781 |
+| +90 | 94 | 48 | **−1.096** (crossed) |
+| +180 | 185 | 112 | −0.602 |
+| **+360** | **333** | **217** | **−0.398** vs a gate of **−0.885** |
 
-- **Draft 1 counted the prose** `nothing matching <item> to hand over` — a string **this change rewrites**,
-  so it would have read **−100% in the canary arm from the wording alone.**
-- **Draft 2 used a SHARE of deposit runs** — a denominator the treatment moves.
-  `metric-must-not-condition-on-attempts`.
+A **noisy estimator converging as n grows**, settling 0.8 sd inside a null of sd 0.507. The series was
+required at registration precisely so one crossing could not be read as the answer.
 
-| null: 300 placebo draws, 4 pools/20 bots, pre 180/post 360, one version, 502,713 rows | share (withdrawn) | **rate (live)** |
-|---|---|---|
-| mean | +2.18 pp | **+0.006 /bot-h** |
-| sd | 11.68 pp | 0.507 |
-| p05 | −15.70 | **−0.885** |
-| placebo dry runs crossing its own gate | **1 of 2** | **0 of 3** (−0.158, −0.484, −0.025) |
+**What held and must not be inflated into a KEEP:** exposure **217** against a floor of 60 and **zero**
+change-row leaks across all four reads — the sentence is live and true on the fleet, so **the mechanism is
+proven and the effect is not**. Death gate HELD (4 canary / 120 bot-h vs 5 control / 240; ratio 1.60x, lower
+95% bound **0.41x**; three drownings and a fall, none deposit-related). All v15c guards within. The named
+downside — the model reading the true sentence and abandoning deposit — **did not happen**: runs/bot-h
+canary 3.53 → 2.78 against control 2.46 → 2.05, ratio 1.44 → 1.36.
 
-**GATE −0.885 repeats/bot-h**; ceiling **−1.446/bot-h** (1,874 / 1,296 bot-h). **The gate needs 61% of the
-ceiling, so this read can only see a LARGE effect** — a half effect is honestly INCONCLUSIVE.
-**EXPOSURE floor 60** on `newmsg_rows_canary` (detail begins `you are carrying`; the control build cannot
-emit it). **WATCH, not deciding:** `deposit_runs_per_bh_canary_post` — the named way this makes things
-worse is the model concluding it cannot bank at all.
+**`verdict.py` returned KEEP and that was NOT the decision.** It lists `primary` under *"NOT evaluated by
+this gate"* because it was registered as `reported_deciding_by_operator`; its KEEP means only "no revert gate
+tripped and exposure cleared". **Recording that as a KEEP when the change's own registered endpoint failed is
+the rescue the 11:57Z note forbade in advance.** If a future session sees `KEEP` in
+`banktruth-01-verdict-360.json`, this is why the ledger says INCONCLUSIVE.
 
-**Inert check already answered** at +10 min: canary/post 8 new-sentence rows vs 1 old; control/post 0 new
-vs 11 old; both pre-periods 0 new. Live, discriminating, 0 leaks.
+**The change is kept, unpromoted, on `deposit-truth-msg` (9a6aa13).** It is not wrong; it is correct and
+unmeasurable at this size. Shipping it on truthfulness grounds alone is an owner call, not a read.
 
-**Objections registered BEFORE the read, so a good number cannot retire them quietly:** advice printed is
-not advice taken (262 times on this fleet, never acted on); and the `RECENT EVENTS` frequency bias is a
-cause this change cannot touch.
+### THE REGISTRATION DEFECT THIS EXPOSED — fix it in the NEXT registration
 
----
+`reads` was `["banktruthread"]` only, and **`verdict.py` refused the final read as UNREADABLE**:
+`immobiledid` carries the death gate, the v15c movement guards and the readability test, so without it there
+is no safety floor to read at all. It named it a registration error rather than a result, and it was right.
+It was added retrospectively, which is legitimate **only** because every line it adds acts against a KEEP and
+none can produce one; no endpoint or threshold was touched. Its own placebo immobile-share KEEP criterion
+(`canary -54% FAIL`) was **NOT** adopted — that line belongs to canaries that target immobility.
+**PUT `immobiledid` IN `reads` AT REGISTRATION TIME. It is the safety floor for every canary on this fleet.**
 
 ## Fleet
-- **80 bots / 16 Peaceful worlds.** `9b572aa+72e533` baseline, `9a6aa13+4fa233` on the 20 canary bots.
-- Ledger **58** decisions; last shoreline-01 KEEP 22 Sep 18:04Z, promoted 18:14Z. `main` = **9b572aa**,
+- **80 bots / 16 Peaceful worlds. ONE version, `9b572aa+72e533`, verified on all 80 at 18:28Z** after the
+  banktruth-01 teardown. Manifest `declared_at` reset to **18:23:13Z**, which is the start of the
+  single-version run the 72 h program read needs.
+- Ledger **59** decisions; newest **banktruth-01 INCONCLUSIVE** 23 Sep 18:19Z. Before it, shoreline-01 KEEP
+  22 Sep 18:04Z, promoted 18:14Z. `main` = **9b572aa**,
   fast-forwarded; `origin/main-pre-2026-09-22b` = 842e017 kept. Both halves of the owner's rule honoured.
 - 2 h digest: items/bot-h 23.9, decisions/bot-h 40.7, deaths 5 (0.031/bot-h).
 - **4 of 80 pinned ≥ 4 h**: hive-a-Echo, hive-b-Comet (y=0), isolated-d-Alpha, isolated-d-Echo. All four
@@ -140,9 +131,13 @@ logs** while stock returned is 0.80 items/bot-h. That is why today's slot went t
   `/home/mike/monitor`, **NOT** `/opt`, deliberately — `/opt` is reset by every deploy).
 
 ## Queue
-1. **CLOSE `banktruth-01` TODAY.** Final read 18:10Z; decide, record, tear down before 00:00Z. See the
-   three warnings above.
-2. **The 24–27 Sep program read.** Registration committed (`0627ddc`). `programread.py 72` after the window.
+1. **The 24–27 Sep program read opens at 00:00Z tonight.** Registration committed (`0627ddc`); rule 4 is
+   satisfied; the fleet is on one version as of 18:23:13Z. **No fleet-wide promotion until 27 Sep.**
+   Canaries MAY run inside it (rule 1). `programread.py 72` when it closes.
+2. **`banktruth-01` (9a6aa13) is unpromoted and undecided as a SHIP question.** The canary answered "no
+   measurable effect", not "wrong". Whether to ship a refusal that stopped lying on truthfulness grounds
+   alone is an owner call. Do NOT re-canary it at this size — the instrument's floor is −0.885/bot-h against
+   a −1.446 ceiling and it has now been measured, not guessed.
 3. **BANKING is the bottleneck, and the deposit path is where it lives.** Today's canary fixes the refusal's
    *honesty*, not its *rate*. The live outcome mix on 3,226 runs: `no_effect` 64.9%, `storage_full` 11.6%,
    `skill_error` 10.9%, **success 6.2%**, `container_open` 4.9%. After the message, the next real targets
@@ -201,7 +196,12 @@ placebo-c/isolated), `fleet-deploy` refuses a `--pool` sha not descending from `
 
 ## Standing wake-ups
 - **Before any canary read, check `~/digest/RULE.md` and `~/digest/RULES-IN-FORCE.md`** against
-  `recovery-ladder-registration.md`.
+  `recovery-ladder-registration.md`. Verified 23 Sep: `~/digest/RULES-IN-FORCE.md` matches the repo copy by
+  md5 (`c30f1b0b…`). **`RULE.md` is hashed into every read as `registration_sha256`, so do NOT edit it while
+  a canary is live** — fix its stale header only between canaries.
+- **PUT `immobiledid` IN A REGISTRATION'S `reads` LIST.** It is the safety floor for every canary on this
+  fleet — death gate, v15c guards, readability — and `verdict.py` refuses the final read without it.
+  banktruth-01 lost its automated verdict to this today.
 - **Run `python3 scripts/test_verdict_acceptance.py` before and after touching the verdict path**, and
   `test_verdict_acceptance_mutants.py` OFF the bots host.
 - **Nightly 00:12Z `~/programread.py 24` → `~/digest/programread.log`**; nightly 00:07Z iron-funnel.
@@ -272,8 +272,10 @@ mcai-scene (sandbox harness).
 Scripts: `~/mcai-analysis` on this Mac and on .31; on .31 also `lib/` — the golden analysis library.
 
 ## Re-arm on a fresh session (monitors are session-local)
-0. **A CANARY IS LIVE (`banktruth-01`) AND IT IS MINE.** If it is still up when you read this, it is
-   **overdue** — its deadline was 24 Sep 00:00Z. Read the journal, take the final read, record, tear down.
+0. **NO CANARY IS LIVE.** `check-open-loop.py` says "no open canary"; `canary_pool` is empty; the anchored
+   `pgrep -af "canary-loop[.]sh"` returns nothing; the census is one version on 80 bots. **Verify all four
+   yourself before trusting this line** — it is the sentence most likely to be stale.
+   **The program window is open: no fleet-wide promotion until 27 Sep 00:00Z.**
 1. **Loop pages AND journal phases**: Monitor tailing **both** `~/digest/page.jsonl` **and**
    `~/canary-journal.jsonl` on .31, filtered to
    `verdict|error|flag|PROMOTED|REVERT|deployed|torn-down|KEEP|INCONCLUSIVE|read-|recorded`, new lines only
