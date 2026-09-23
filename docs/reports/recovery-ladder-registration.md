@@ -596,3 +596,28 @@ not invites. A KEEP is promoted on 27 Sep after the window closes.
    this result takes the 220-char executed branch at `cognitive.mjs:893`. Worst case measured across all
    1.21.8 item names is 114 chars (136 with the `deposit -> no_effect: ` prefix). **Nothing is truncated**,
    and the commit message's claim about the 160-char path is corrected here.
+
+### `banktruth-01` — prospective note added 2026-09-23 14:30 UTC, before the draw. No gate changed.
+
+The read script was dry-run twice against **placebo** splits of the all-baseline fleet, at cutoffs 05:00Z
+and 06:00Z. They returned **−8.9 pp** and **−16.4 pp**. The second one **crosses the registered gate on a
+fleet where nothing was deployed.**
+
+That is not a surprise and it is not a reason to move the gate: the calibration says a −15 pp gate fires on
+**5.3%** of no-change draws, and one crossing in two draws is an n=2 observation of a 1-in-19 event.
+Re-choosing the threshold now, having seen it crossed, would be choosing the gate on the data — the exact
+move `canary-gate-was-noise` was written about. The gate stays at **−15.7 pp**.
+
+What changes is how the verdict must be READ, and this is registered before any canary data exists:
+
+1. **Report `repeat_did` as a SERIES** at +30 / +90 / +180 / +360, as shoreline-01 was forced to. A single
+   crossing at the final read, with the series bouncing either side of zero, is the 5% event. A series that
+   is negative at every read and converging as n grows is the change.
+2. **The gate alone does not decide a KEEP.** It must be met *with* the exposure floor cleared *and* the
+   `deposit runs/bot-h` WATCH line not collapsed. A DiD that improves because the canary arm stopped
+   depositing altogether is the failure mode this change is most likely to have, not its success.
+3. **INCONCLUSIVE remains the most likely honest close** and needs no rescue.
+
+The cost of a false KEEP here is bounded and stated: **this canary is torn down today whatever it reads**,
+and a KEEP is not promoted until after the 24–27 Sep program window closes. Four days of nothing is the
+whole downside, and it buys a gate that was not moved after seeing its own null.
