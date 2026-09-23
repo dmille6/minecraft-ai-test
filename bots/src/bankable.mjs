@@ -137,26 +137,47 @@ export function depositPlan (items = [], item = null, { wants = [], ...opts } = 
 /**
  * WHY WAS THERE NOTHING TO HAND OVER — the sentence the bot is actually owed.
  *
- * MEASURED 2026-09-23 on the deployed build (9b572aa), 3,226 deposit runs over
- * 54 bots in 24 h, isolated pools excluded:
+ * THE SENTENCE IS FALSE BY CONSTRUCTION, WHICH IS STRONGER THAN A COUNT.
+ * `admission.mjs:326` refuses `deposit <item>` with `deposit_item_missing`
+ * whenever the bot holds none of the named item, BEFORE the skill runs, and both
+ * the model path and the work-order path go through that gate. So every named
+ * refusal that reaches this point is a bot that HAS the item. "nothing matching
+ * <item> to hand over" cannot be true on the fleet path.
  *
- *   2,079 runs ended `no_effect` with "nothing matching <item> to hand over".
- *   In 2,078 of those 2,079 the bot WAS CARRYING THE ITEM -- 100.0%. The single
- *   true negative (one `dirt` run) is the positive control that says this check
- *   can answer "held none" when that is the answer.
+ * My first framing of this cited 2,078 of 2,079 runs where the bot held the item
+ * -- 100.0%. That number is real but it is a restatement of the upstream guard,
+ * not evidence, and the one `dirt` exception is a gate/skill race rather than a
+ * positive control. The claim rests on the guard.
  *
- * So the refusal is right and its REASON is false. `apple` alone is 1,494 of the
- * 2,587 named runs; a bot holding 30 apples is told it holds none, and asks
- * again: 1,874 of the 2,079 refusals (90.1%) are a bot re-proposing an item it
- * has already been refused, one of them 151 times in a day. The model cannot
- * learn a rule it is never told.
+ * WHAT IS MEASURED, on the deployed 9b572aa over 3,226 deposit runs / 54 bots /
+ * 24 h: 2,079 of those runs end in this refusal, `apple` alone is 1,494 of the
+ * 2,587 named runs, and 1,874 of the refusals (90.1%) are a bot re-proposing an
+ * item it has already been refused -- one of them 151 times in a day. The model
+ * cannot learn a rule it is never told.
  *
- * ONE COMPUTATION, NOT TWO. This is defined in terms of `depositPlan`, so the
- * sentence and the transfer cannot disagree -- the previous attempt at this
- * patch computed bankability twice and was refused in review for exactly that
- * (`deposit-truth-review-pass-2.md`). It suggests NO remedy: the remedy
- * machinery produced five of that review's findings, and a rejection message is
- * truncated to 160 characters before the model sees it.
+ * The `carrying no <item>` branch below is therefore UNREACHABLE from the fleet
+ * path and reachable only from chat (`commands.mjs:105`). It is kept because it
+ * is correct for that caller, not because it is expected to fire.
+ *
+ * ONE DEFINITION, EVALUATED TWICE, AND THAT WORDING IS DELIBERATE. This calls
+ * `depositPlan` itself, so the sentence and the transfer cannot disagree for any
+ * input admission can produce. They can differ only for a non-array `wants` (a
+ * consumed generator), which admission never passes. The previous attempt at
+ * this patch computed bankability by two different routes and was refused in
+ * review for it.
+ *
+ * NO COUNT IN THE MESSAGE. An embedded number splits one refusal into one
+ * distinct `detail` string per quantity held, and this project's own refusal
+ * reads bucket on `Counter(detail[:95])` (`sneak.py`, `wo5.py`): the largest
+ * refusal on the fleet would fall out of every top-N the day this shipped.
+ *
+ * NOT THE PHRASE "worth banking". `prompt.mjs:619` puts "CARRYING: N items worth
+ * banking" in the same prompt, computed WITHOUT wants; re-using the phrase here
+ * produces two lines that are semantically consistent and read as a flat
+ * contradiction, with nothing naming the scope.
+ *
+ * It suggests NO remedy: that machinery produced five findings in the review of
+ * the larger patch.
  *
  * Returns null when there IS something to hand over, so the caller keeps its own
  * wording rather than this one asserting something it cannot see.
@@ -167,5 +188,5 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   let held = 0
   for (const it of items) if (it?.name === item) held += (it.count ?? 0)
   if (held <= 0) return `you are carrying no ${item} — nothing to deposit`
-  return `you are carrying ${held} ${item}, and none of it is worth banking — nothing to deposit`
+  return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
 }

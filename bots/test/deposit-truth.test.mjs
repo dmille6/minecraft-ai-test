@@ -44,13 +44,25 @@ await t('POSITIVE CONTROL: the function returns null when there IS something to 
   assert.equal(depositNoopReason(items, 'oak_log'), null)
 })
 
-await t('HOLDING IT BUT UNBANKABLE: says how many, and that it is not worth banking', async () => {
+await t('HOLDING IT BUT UNBANKABLE: names the item, no count, no borrowed phrase', async () => {
   const r = depositNoopReason(inv({ apple: 30, oak_log: 12 }), 'apple')
-  assert.match(r, /carrying 30 apple/, `got: ${r}`)
-  assert.match(r, /none of it is worth banking/, `got: ${r}`)
+  assert.match(r, /carrying apple/, `got: ${r}`)
+  assert.match(r, /not a banking target/, `got: ${r}`)
+  // NO COUNT. An embedded quantity splits one refusal into one distinct detail
+  // string per amount held, and this project's own refusal reads bucket on
+  // Counter(detail[:95]) (sneak.py, wo5.py) -- the biggest refusal on the fleet
+  // would leave every top-N the day this shipped.
+  assert.doesNotMatch(r, /\d/, `a number crept back into the message: ${r}`)
+  // NOT the phrase prompt.mjs:619 already owns ("CARRYING: N items worth
+  // banking", computed WITHOUT wants). The two land in the same prompt and read
+  // as a flat contradiction with nothing naming the scope.
+  assert.doesNotMatch(r, /worth banking/, `collides with prompt.mjs:619: ${r}`)
   assert.doesNotMatch(r, /nothing matching/, 'the false sentence must not survive')
 })
 
+// UNREACHABLE FROM THE FLEET, KEPT FOR CHAT. admission.mjs:326 refuses
+// `deposit <item>` with deposit_item_missing before the skill ever runs, so a
+// bot holding none cannot reach this branch; commands.mjs:105 (chat) can.
 await t('HOLDING NONE: still says so, and does not claim a phantom stack', async () => {
   const r = depositNoopReason(inv({ oak_log: 12 }), 'apple')
   assert.match(r, /carrying no apple/, `got: ${r}`)
@@ -63,7 +75,7 @@ await t('THE TWO CASES ARE DISTINGUISHABLE -- which is the whole point', async (
   assert.notEqual(held, none, 'one string for two states is what shipped, and it taught nothing')
 })
 
-await t('ONE COMPUTATION: the sentence can never contradict the plan', async () => {
+await t('ONE DEFINITION: the sentence cannot contradict the plan for any input admission can produce', async () => {
   // The previous attempt computed bankability twice and was refused in review
   // for it. Sweep every item the fixtures use against both entry points.
   const items = inv({ apple: 30, oak_log: 12, cobblestone: 40, iron_pickaxe: 1, chest: 3, raw_iron: 2 })
@@ -79,11 +91,11 @@ await t('A RESERVED ITEM IS NOT A MISSING ITEM: 8 cobblestone is the scaffold re
   // cobblestone IS a standing target, but 8 are reserved to pillar out. The bot
   // holding exactly 8 was told it had none; it has eight and cannot spare them.
   const r = depositNoopReason(inv({ cobblestone: 8 }), 'cobblestone')
-  assert.match(r, /carrying 8 cobblestone/, `got: ${r}`)
-  assert.match(r, /none of it is worth banking/, `got: ${r}`)
+  assert.match(r, /carrying cobblestone/, `got: ${r}`)
+  assert.match(r, /not a banking target/, `got: ${r}`)
 })
 
-await t('NO REMEDY IS SUGGESTED -- rejection feedback is truncated to 160 chars', async () => {
+await t('NO REMEDY IS SUGGESTED -- that machinery produced five findings in the last review', async () => {
   for (const r of [depositNoopReason(inv({ apple: 30 }), 'apple'),
                    depositNoopReason(inv({ oak_log: 12 }), 'apple'),
                    depositNoopReason(inv({ apple: 30 }), null)]) {
@@ -133,7 +145,7 @@ await t('END TO END: `deposit apple` holding 30 apples gets the TRUE sentence', 
   const r = await run(bot, { item: 'apple' })
   assert.equal(r.status, 'no_effect', JSON.stringify(r))
   assert.equal(deposited.length, 0, 'the refusal itself is correct: apples are not banked')
-  assert.match(r.detail, /carrying 30 apple/, `THE FLEET STRING IS UNCHANGED -- patch is inert: ${r.detail}`)
+  assert.match(r.detail, /carrying apple/, `THE FLEET STRING IS UNCHANGED -- patch is inert: ${r.detail}`)
   assert.doesNotMatch(r.detail, /nothing matching/, `the false sentence still ships: ${r.detail}`)
 })
 
