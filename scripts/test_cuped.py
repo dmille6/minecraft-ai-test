@@ -22,10 +22,12 @@ UNIQUE before substituting, and each is checked to break a NAMED assertion rathe
 test". They are written to a temp directory and imported from there -- never into scripts/lib,
 because `mutants-must-not-write-into-src` records the runner SIGKILLing a test that did.
 """
+import atexit
 import importlib.util
 import math
 import os
 import random
+import shutil
 import statistics as st
 import sys
 import tempfile
@@ -406,6 +408,9 @@ def with_mutant(old, new, label):
         ok.append(False)
         return None
     d = tempfile.mkdtemp(prefix='cuped-mutant-')
+    # Remove it on exit. A mutant copy left behind is litter, and a STALE one is worse: the next
+    # run could import an old mutant and score it as this run's result.
+    atexit.register(shutil.rmtree, d, True)
     p = os.path.join(d, 'cuped_mutant.py')
     with open(p, 'w') as fh:
         fh.write(src.replace(old, new, 1))

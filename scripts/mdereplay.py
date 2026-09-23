@@ -79,6 +79,7 @@ Usage, on the bots host:
 """
 import argparse
 import collections
+import itertools
 import os
 import random
 import statistics as st
@@ -320,7 +321,25 @@ def merge(items, hrs, edges, lo, hi, name):
                  {b: it.get(b, 0) / h for b, h in hh.items() if h > MIN_HOURS})
 
 
-def make_draws(design, bots, seed, per_world, n_pools, n):
+def make_draws(design, bots, seed, per_world, n_pools, n, exhaustive=False):
+    """`n` pseudo-canaries, or -- for the pool design -- ALL of them.
+
+    EXHAUSTIVE MATTERS FOR THE HEADLINE NUMBER. With 16 worlds and a 2-pool canary there are only
+    C(16,2) = 120 possible assignments, so 240 sampled trials produced 108 distinct draws and any
+    false-positive rate read off them is a resample, not a measurement. Enumerating all 120 gives
+    the EXACT randomization distribution: no seed, no Monte Carlo error, and a 5% tail that is
+    exactly 6 order statistics rather than approximately six.
+    """
+    if exhaustive and design == 'pool':
+        worlds = {}
+        for b in bots:
+            worlds.setdefault(pool_of(b), []).append(b)
+        out = []
+        for combo in itertools.combinations(sorted(worlds), n_pools):
+            t = [b for w in combo for b in worlds[w]]
+            ts = set(t)
+            out.append((t, [b for b in bots if b not in ts]))
+        return out
     rng = random.Random(seed)
     return [draw(design, bots, rng, per_world, n_pools) for _ in range(n)]
 
@@ -329,10 +348,123 @@ def split_edges(s, e, n):
     return [s + (e - s) * k / n for k in range(n + 1)]
 
 
+def cuped_filtered(a, ev):
+    """The 3h/6h-per-arm path, for windows LONGER than any single-build interval.
+
+    WHY THIS EXISTS AND WHAT IT COSTS. Measured 2026-09-23: the longest single-build windows on
+    this fleet were 3.43h and 3.40h, because a 20-bot canary occupied 12:10-18:22. A DiD at a 3h
+    ARM needs 6h for the read plus a disjoint 6h to fit beta and its threshold on -- 12h of
+    single-build telemetry, which did not exist that day. So the requested 3h/6h numbers cannot
+    come from a genuinely single-build window, and the honest options are to report nothing or to
+    state the compromise. This is the compromise, stated:
+
+      * rows are restricted to ONE code version, and
+      * every bot that emitted ANY other version during the walk is DROPPED ENTIRELY.
+
+    The second half is the part that matters. Filtering rows alone would leave the canary's 20
+    bots with rows before 12:10 and after 18:22 but none between, so lib/exposure.py would measure
+    a shorter span for them and their items/bot-hour would be inflated -- a denominator moving with
+    the treatment, which is the exact defect exposure.py was written to end. Dropping those bots
+    costs 20 of 80 bots and 4 of 16 worlds and keeps the denominator honest. That trade is
+    reported, not hidden, and the world count is checked against the instrument floor.
+    """
+    import datetime as dtm
+    other = set()
+    seen = collections.Counter()
+    for r in ev.rows:
+        b = (r['bot'] or {}).get('name')
+        v = ((r['raw'].get('code') or {}).get('version') or '?')
+        seen[v] += 1
+        if b and v != a.version_filter:
+            other.add(b)
+    W = a.hours
+    now = dtm.datetime.now(dtm.timezone.utc)
+    edges = [now - dtm.timedelta(hours=W * (4 - k)) for k in range(5)]
+    print(f'=== CUPED battery, VERSION-FILTERED  window={W}h/arm  design={a.design} '
+          f'stat={a.stat} ===\n')
+    print(f'0. POSITIVE CONTROL')
+    print(f'   walked {len(ev.rows):,} rows over {a.walk}h; versions '
+          f'{ {k: v for k, v in sorted(seen.items(), key=lambda x: -x[1])} }')
+    print(f'   keeping ONLY {a.version_filter}, and dropping {len(other)} bots that emitted any '
+          f'other version')
+    print(f'   blocks: ' + ', '.join(f'{edges[k]:%H:%M}-{edges[k+1]:%H:%M}Z' for k in range(4)))
+    rows = [r for r in ev.rows if (r['bot'] or {}).get('name') not in other]
+    print(f'   {len(rows):,} of {len(ev.rows):,} rows survive the bot drop')
+    ev2 = type(ev)(rows, ev.since, ev.until, ev.span) if False else ev
+    items, hrs, used = block_panel(ev, edges, a.version_filter)
+    for k in range(4):
+        for b in list(items[k]):
+            if b in other:
+                del items[k][b]
+        for b in list(hrs[k]):
+            if b in other:
+                del hrs[k][b]
+    blocks = [merge(items, hrs, edges, k, k + 1, f'b{k}') for k in range(4)]
+    common = sorted(set.intersection(*[set(b.rates) for b in blocks]))
+    worlds = {pool_of(b) for b in common}
+    print(f'   {used:,} rows attributed; {len(common)} bots in ALL 4 blocks across '
+          f'{len(worlds)} worlds')
+    for k, b in enumerate(blocks):
+        vals = [b.rates[x] for x in common]
+        print(f'   block {k} {b.start:%m-%d %H:%M}..{b.end:%H:%M}Z  mean {st.mean(vals):6.2f} '
+              f'median {st.median(vals):5.2f} items/bot-h  zeros '
+              f'{sum(1 for v in vals if v == 0):3d}/{len(vals)}')
+    if len(common) < 20 or len(worlds) < 8:
+        raise SystemExit(f'NotAnInstrument: {len(common)} bots / {len(worlds)} worlds after the '
+                         f'drop. Report this rather than reading a power curve off it.')
+    nt = len(make_draws(a.design, common, 1, a.per_world, a.pools, 1)[0][0])
+    nc = len(common) - nt
+    dr_fit = make_draws(a.design, common, 41, a.per_world, a.pools, a.trials)
+    dr_ev = make_draws(a.design, common, 42, a.per_world, a.pools, a.trials)
+    fit = cuped.fit_beta(dr_fit, blocks[0], blocks[1], design=a.design, stat=a.stat,
+                         alpha=a.alpha, n_treat=nt, n_ctrl=nc,
+                         provenance=f'version-filtered {W}h blocks')
+    print(f'\n1. beta fitted on blocks 0-1, applied to the HELD-OUT blocks 2-3')
+    print(f'   {fit.describe()}')
+    fit_ev = cuped.fit_beta(dr_ev, blocks[2], blocks[3], design=a.design, stat=a.stat,
+                            alpha=a.alpha, n_treat=nt, n_ctrl=nc)
+    print(f'   STABILITY: fit beta* {fit.beta:+.3f} (rho {fit.rho:+.3f}) vs held-out window\'s '
+          f'own {fit_ev.beta:+.3f} (rho {fit_ev.rho:+.3f}) -> {abs(fit.beta-fit_ev.beta):.3f} apart')
+    xs, ys, degen = cuped.contrasts_over(dr_ev, blocks[2], blocks[3], a.stat)
+    d_plain = [y - x for x, y in zip(xs, ys)]
+    d_adj = [y - fit.beta * x for x, y in zip(xs, ys)]
+    print(f'\n2. THE NULL, held out ({len(xs)} draws, {degen} degenerate)')
+    for nm, v in (('plain DiD', d_plain), ('CUPED    ', d_adj)):
+        sm = cuped.null_summary(v, a.alpha)
+        print(f'   {nm}  mean {sm["mean"]:+.4f} +-{1.96*sm["se"]:.4f}  sd {sm["sd"]:.4f}  '
+              f'bias {sm["bias_in_sd"]:+.3f}sd  centred={sm["centered"]}  '
+              f'distinct {sm["distinct"]}/{len(v)}')
+    print(f'   FPR at nominal alpha={a.alpha}, threshold from the FIT blocks:')
+    for nm, v, thr in (('plain DiD', d_plain, fit.thr_plain), ('CUPED    ', d_adj, fit.thr_adj)):
+        fp = sum(1 for z in v if abs(z) > abs(thr)) / len(v)
+        print(f'   {nm}  thr |{abs(thr):.4f}| -> FPR {100*fp:5.1f}%  (own 95th pct of |D| '
+              f'{cuped._quantile([abs(z) for z in v], 1-a.alpha):.4f})')
+    s_adj, s_one, _ = cuped.conditional_bias(xs, ys, fit.beta)
+    print(f'\n3. conditional bias slope: {s_adj:+.4f} at beta={fit.beta:.3f}, {s_one:+.4f} at beta=1')
+    sp, sa = st.pstdev(d_plain), st.pstdev(d_adj)
+    M = cuped.mde_from_sd_log
+    print(f'\n4. MDE at a {W}h arm, convention exp(2.8016*sd_log)-1')
+    print(f'   plain DiD  sd_log {sp:.4f}  MDE gain {100*M(sp):+.0f}%   harm '
+          f'{-100*M(sp, direction="harm"):+.0f}%')
+    print(f'   CUPED      sd_log {sa:.4f}  MDE gain {100*M(sa):+.0f}%   harm '
+          f'{-100*M(sa, direction="harm"):+.0f}%   (sd ratio {sa/sp:.3f})')
+    lam, mm, tr, n, _ = cuped.attenuation(dr_ev, blocks[2], blocks[3], a.effect, fit, a.stat)
+    print(f'\n5. attenuation lambda {lam:.4f} ({mm:+.4f} vs {tr:+.4f} log over {n} draws)')
+    allv = [v for b in blocks[2:4] for v in b.rates.values()]
+    cap = sorted(allv)[int(0.90 * len(allv))]
+    lamc, *_ = cuped.attenuation(dr_ev, blocks[2], blocks[3], a.effect,
+                                 cuped.plain_fit(a.design, 'cap'),
+                                 lambda v: st.mean([min(x, cap) for x in v]))
+    print(f'   POSITIVE CONTROL absolute p90 cap {cap:.2f} -> lambda {lamc:.4f}; the instrument '
+          f'{"CAN" if lamc < 0.95 else "CANNOT"} see attenuation')
+
+
 def cuped_battery(a):
     import datetime as dtm
     print(f'=== CUPED battery  design={a.design} stat={a.stat} trials={a.trials} ===\n')
     ev = Events.load(since_minutes=int(a.walk * 60))
+    if a.version_filter:
+        return cuped_filtered(a, ev)
     wins = single_build_windows(ev, min_hours=a.min_window)
 
     print('0. POSITIVE CONTROL -- show the instrument finding a presence before it reports any '
@@ -348,10 +480,16 @@ def cuped_battery(a):
                          f'window that straddles a deploy contains a real treatment effect, so '
                          f'its "null" is not null. Widen --walk or lower --min-window.')
     wins.sort(key=lambda w: w[0])
-    fit_w, ev_w = wins[-2], wins[-1]
+    # --reverse fits on the LATER window and evaluates on the EARLIER one. It answers whether a
+    # failed threshold transfer is DIRECTIONAL (the later window simply happens to be noisier) or
+    # SYMMETRIC (the scale of the noise differs between any two windows, so no earlier window can
+    # calibrate a later one). Symmetric is the far worse finding, and it is about the gate this
+    # project already runs, not only about CUPED.
+    fit_w, ev_w = (wins[-1], wins[-2]) if a.reverse else (wins[-2], wins[-1])
+    gap_h = abs((ev_w[0] - fit_w[1]).total_seconds()) / 3600.0
     print(f'   -> FIT on {fit_w[0]:%H:%M}Z..{fit_w[1]:%H:%M}Z, EVALUATE on '
-          f'{ev_w[0]:%H:%M}Z..{ev_w[1]:%H:%M}Z  (gap '
-          f'{(ev_w[0]-fit_w[1]).total_seconds()/3600:.2f}h, disjoint by construction)')
+          f'{ev_w[0]:%H:%M}Z..{ev_w[1]:%H:%M}Z  (gap {gap_h:.2f}h, disjoint by construction'
+          + (', REVERSED: fitting on the later window' if a.reverse else '') + ')')
 
     nsub = a.sub
     fe = split_edges(fit_w[0], fit_w[1], nsub)
@@ -412,8 +550,11 @@ def cuped_battery(a):
     ev_post = merge(ei, eh, ee, h, nsub, 'eval_post')
     blk_h = (fit_pre.end - fit_pre.start).total_seconds() / 3600.0
     print(f'\n2. beta FITTED on the earlier single-build window, blocks of {blk_h:.2f}h')
-    dr_fit = make_draws(a.design, common, 31, a.per_world, a.pools, a.trials)
-    dr_ev = make_draws(a.design, common, 32, a.per_world, a.pools, a.trials)
+    dr_fit = make_draws(a.design, common, 31, a.per_world, a.pools, a.trials, a.exhaustive)
+    dr_ev = make_draws(a.design, common, 32, a.per_world, a.pools, a.trials, a.exhaustive)
+    if a.exhaustive and a.design == 'pool':
+        print(f'   EXHAUSTIVE: enumerating all {len(dr_ev)} possible {a.pools}-pool assignments, '
+              f'so the null below is the EXACT randomization distribution (no Monte Carlo error)')
     fit = cuped.fit_beta(dr_fit, fit_pre, fit_post, design=a.design, stat=a.stat, alpha=a.alpha,
                          n_treat=nt, n_ctrl=nc,
                          provenance=f'single-build window ending {fit_post.end:%m-%d %H:%M}Z')
@@ -464,6 +605,19 @@ def cuped_battery(a):
     print('   An FPR above nominal means the fit window\'s threshold is too narrow for this '
           'window. That is the\n   stale-beta failure, and it arrives through the THRESHOLD, not '
           'through bias.')
+
+    # ---- 3b. the same estimators, calibrated IN-WINDOW by randomization instead ---------------
+    print('\n3b. THE SAME ESTIMATORS with the threshold taken from the read\'s OWN window by')
+    print('    randomization instead of transferred from the fit window. beta still comes from')
+    print('    the disjoint window -- only the threshold changes. Exact by construction under the')
+    print('    sharp null, whatever the scale and tail happen to be that day.')
+    for nm, v in (('plain DiD', d_plain), ('CUPED    ', d_adj)):
+        ps = [cuped.randomization_p(v, i) for i in range(len(v))]
+        fpr = sum(1 for q in ps if q <= a.alpha) / len(ps)
+        print(f'    {nm}  randomization FPR {100*fpr:5.1f}%  (nominal {100*a.alpha:.0f}%), '
+              f'smallest attainable p = 1/{len(v)} = {1/len(v):.4f}')
+    print('    The resolution cost is real: a 5% tail of '
+          f'{len(d_plain)} assignments is {max(1,int(a.alpha*len(d_plain)))} order statistics.')
 
     # ---- 4. conditional bias ----------------------------------------------------------------
     print('\n4. CONDITIONAL BIAS: regress the estimator on X_pre over null draws. slope = beta* - beta,')
@@ -541,7 +695,7 @@ def cuped_battery(a):
     print('   the tail. Real fixes here are concentrated on the bots that were stuck (entrapment,')
     print('   frozen bots, pillar bots), which delivers the same total items with far more')
     print('   per-draw variance. The concentrated row is the one a read should quote.')
-    for mode in ('uniform', 'lowest'):
+    for mode in ('uniform', 'lowest', 'stuck'):
         thr_p, thr_a = abs(fit.thr_plain), abs(fit.thr_adj)
         row = []
         for eff in (0.25, 0.50, 1.00, 1.50, 2.50):
@@ -583,6 +737,12 @@ def main():
                     help='sub-blocks per single-build window; must be even (pre/post) and >=2')
     ap.add_argument('--effect', type=float, default=0.30,
                     help='injected effect for the attenuation check')
+    ap.add_argument('--reverse', action='store_true',
+                    help='fit on the LATER single-build window and evaluate on the EARLIER one, '
+                         'to test whether a threshold-transfer failure is directional or symmetric')
+    ap.add_argument('--exhaustive', action='store_true',
+                    help='enumerate ALL C(worlds,pools) assignments instead of sampling; makes '
+                         'the null exact for the pool design')
     ap.add_argument('--version-filter', default=None,
                     help='restrict to ONE code version, for a window longer than any '
                          'single-build interval. States the trade explicitly: the bots that ran '
