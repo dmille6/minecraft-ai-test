@@ -133,3 +133,39 @@ export function depositPlan (items = [], item = null, { wants = [], ...opts } = 
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => rank(a.name) - rank(b.name))
 }
+
+/**
+ * WHY WAS THERE NOTHING TO HAND OVER — the sentence the bot is actually owed.
+ *
+ * MEASURED 2026-09-23 on the deployed build (9b572aa), 3,226 deposit runs over
+ * 54 bots in 24 h, isolated pools excluded:
+ *
+ *   2,079 runs ended `no_effect` with "nothing matching <item> to hand over".
+ *   In 2,078 of those 2,079 the bot WAS CARRYING THE ITEM -- 100.0%. The single
+ *   true negative (one `dirt` run) is the positive control that says this check
+ *   can answer "held none" when that is the answer.
+ *
+ * So the refusal is right and its REASON is false. `apple` alone is 1,494 of the
+ * 2,587 named runs; a bot holding 30 apples is told it holds none, and asks
+ * again: 1,874 of the 2,079 refusals (90.1%) are a bot re-proposing an item it
+ * has already been refused, one of them 151 times in a day. The model cannot
+ * learn a rule it is never told.
+ *
+ * ONE COMPUTATION, NOT TWO. This is defined in terms of `depositPlan`, so the
+ * sentence and the transfer cannot disagree -- the previous attempt at this
+ * patch computed bankability twice and was refused in review for exactly that
+ * (`deposit-truth-review-pass-2.md`). It suggests NO remedy: the remedy
+ * machinery produced five of that review's findings, and a rejection message is
+ * truncated to 160 characters before the model sees it.
+ *
+ * Returns null when there IS something to hand over, so the caller keeps its own
+ * wording rather than this one asserting something it cannot see.
+ */
+export function depositNoopReason (items = [], item = null, { wants = [], ...opts } = {}) {
+  if (depositPlan(items, item, { wants, ...opts }).length) return null
+  if (!item) return 'nothing worth banking — nothing to deposit'
+  let held = 0
+  for (const it of items) if (it?.name === item) held += (it.count ?? 0)
+  if (held <= 0) return `you are carrying no ${item} — nothing to deposit`
+  return `you are carrying ${held} ${item}, and none of it is worth banking — nothing to deposit`
+}

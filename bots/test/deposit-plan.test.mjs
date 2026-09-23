@@ -40,11 +40,17 @@ t('ores are banked whether or not they are standing targets, and the wants admis
 t('the deposit skill hands over the plan (source anchor) and a mutant that deposits the raw inventory is caught', () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 6000)
-  assert.match(f, /const plan = depositPlan\(bot\.inventory\.items\(\), item, \{ wants: bot\.currentWants \?\? \[\] \}\)/, 'the loop is driven by the plan, with the wants admission judged with')
+  // THE ANCHOR MOVED 2026-09-23 and the invariant did not. The snapshot is taken
+  // one line earlier (`planItems`) so the refusal sentence and the transfer read
+  // the SAME inventory -- computing bankability twice is what got the previous
+  // deposit patch refused in review. What is pinned here is unchanged: `plan`
+  // comes from depositPlan, and the raw-inventory mutant is still caught.
+  assert.match(f, /planItems = bot\.inventory\.items\(\)/, 'the snapshot the plan and the refusal share')
+  assert.match(f, /const plan = depositPlan\(planItems, item, \{ wants: bot\.currentWants \?\? \[\] \}\)/, 'the loop is driven by the plan, with the wants admission judged with')
   assert.ok(!/for \(const it of bot\.inventory\.items\(\)\) \{\s*check\(signal\)\s*if \(item && it\.name !== item\) continue/.test(f), 'the old everything loop is gone')
-  const anchor = 'const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })'
+  const anchor = 'const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [] })'
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  const bad = c.replace(anchor, "const plan = bot.inventory.items().map(it => ({ name: it.name, count: it.count }))")
+  const bad = c.replace(anchor, "const plan = planItems.map(it => ({ name: it.name, count: it.count }))")
   assert.ok(!bad.includes(anchor))
 })
 
