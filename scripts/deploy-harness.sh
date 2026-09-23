@@ -47,6 +47,14 @@ CODE_VERSION=$(git -C /opt/minecraft-ai rev-parse --short HEAD)
 mkdir -p "$H/env" "$SRV/bots/logs"
 cp -r /opt/minecraft-ai/bots/src "$H/"
 cp /opt/minecraft-ai/bots/package.json "$H/"
+# SHIP THE LOCK. Measured 2026-09-23: harness-canary had NO package-lock.json, because this
+# script never copied one, and `^4.37.1` resolves TODAY to mineflayer 4.39.0 (published
+# 2026-09-06). The baseline harness holds 4.37.1 only because it carries a stale lock from
+# 2026-08-20. So the next canary rebuild would have run 4.39.0 against a 4.37.1 baseline and
+# attributed the protocol difference to the code change -- invisibly, because srcDigest()
+# hashes only bots/src/*.mjs and cannot see the dependency tree.
+cp /opt/minecraft-ai/bots/package-lock.json "$H/" 2>/dev/null || \
+  echo "WARNING: no package-lock.json at the source -- the dependency tree is NOT pinned" >&2
 chown -R mcbot:mcbot "$SRV/bots"
 
 # prismarine-viewer needs node-canvas, which needs native build deps. Without
@@ -54,10 +62,26 @@ chown -R mcbot:mcbot "$SRV/bots"
 export DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1
 apt-get install -y -qq build-essential libcairo2-dev libpango1.0-dev \
   libjpeg-dev libgif-dev librsvg2-dev pkg-config >/dev/null 2>&1 || true
-sudo -u mcbot bash -c "cd '$H' && npm install --no-audit --no-fund" >/dev/null 2>&1
+# `npm ci` installs the lock EXACTLY and fails if the lock and manifest disagree.
+# `npm install` is free to walk a caret range forward, which is how a frozen source tree
+# ends up on a different protocol stack. Fall back loudly rather than blocking a deploy:
+# a harness that will not start is worse than one that is unpinned and says so.
+if [ -f "$H/package-lock.json" ] && sudo -u mcbot bash -c "cd '$H' && npm ci --no-audit --no-fund" >/dev/null 2>&1; then
+  echo "deps: npm ci from the shipped lock"
+else
+  echo "WARNING: npm ci unavailable or failed -- falling back to npm install, deps are UNPINNED" >&2
+  sudo -u mcbot bash -c "cd '$H' && npm install --no-audit --no-fund" >/dev/null 2>&1
+fi
+# Record what ACTUALLY got installed, on BOTH paths. The unpinned path is precisely when
+# this matters, so printing it only on success would hide the case worth seeing.
+sudo -u mcbot bash -c "cd '$H' && node -e '
+const p=[\"mineflayer\",\"mineflayer-pathfinder\",\"prismarine-viewer\",\"minecraft-data\"];
+console.log(\"deps-installed: \"+p.map(x=>{try{return x+\"@\"+require(x+\"/package.json\").version}catch(e){return x+\"@-\"}}).join(\" \"))
+'" 2>/dev/null || true
 # canvas is an OPTIONAL peer of prismarine-viewer, so npm install does not pull
 # it and the viewer dies with a bare "Cannot find module 'canvas'".
-sudo -u mcbot bash -c "cd '$H' && npm install canvas --no-audit --no-fund" >/dev/null 2>&1 || \
+# --no-save: canvas is an optional peer and must NOT rewrite the lock we just installed from.
+sudo -u mcbot bash -c "cd '$H' && npm install canvas --no-save --no-audit --no-fund" >/dev/null 2>&1 || \
   warn "canvas failed to build -- 3D viewer will be unavailable"
 
 # See bootstrap-mcbots.sh: node --check cannot see an undeclared identifier, and
