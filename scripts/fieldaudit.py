@@ -438,7 +438,16 @@ def rss_gb():
         pass
     try:
         import resource
-        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024.0 * 1024.0)
+        raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        # ru_maxrss IS NOT THE SAME UNIT ON EVERY PLATFORM: Linux reports kibibytes,
+        # macOS and the BSDs report BYTES. Dividing by 1024^2 unconditionally overstates
+        # by 1024x off Linux, and this guard then refused every run on a Mac -- "using
+        # 25.2 GB" against a real 15 MB. The /proc branch above keeps the fleet host
+        # right, so the bug only bit the machine where the mutant suites are meant to
+        # run; CLAUDE.md requires them OFF the bots host, which is exactly where the
+        # tool could not start.
+        import sys as _sys
+        return raw / 1e9 if _sys.platform == 'darwin' else raw / (1024.0 * 1024.0)
     except Exception:
         return 0.0
 
