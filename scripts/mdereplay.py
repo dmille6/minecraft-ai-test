@@ -38,6 +38,41 @@ learns something helps its own controls. Within-world assignment will therefore 
 and still estimate the wrong quantity for a banking change. Sensitivity and validity are
 different questions and this file answers one of them.
 
+CORRECTED THE SAME DAY, by a properly calibrated replay on a fixed centre set. Two conclusions
+this file produced were WRONG, and the reasons are worth keeping because they are both traps this
+harness can fall into:
+
+  1. "Within-world assignment does not help." It DOES: +146% -> +121% at 3h and +92% -> +50% at
+     24h. My run compared against a 2-pool draw and used an additive DiD with no attenuation
+     calibration, on a 10-point effect grid with 150 trials -- so a real ~20-45% improvement sat
+     inside one grid step of noise.
+  2. "12h is worse than 6h." It is not; longer is monotone better (3h 0.325 -> 24h 0.233 in log
+     sd). I varied the total data window, which changes the bot set, the exposure and the mean
+     together. The right test holds the CENTRE SET fixed and varies only the window.
+
+Use a fine effect grid, enough trials to separate adjacent steps, and a fixed centre set before
+believing any comparison out of this file.
+
+THE MEASURED PICTURE, 140 hours x 80 bots = 11,200 balanced bot-hour cells:
+  86.7% of items/bot-hour variance is bot x hour -- within a bot, hour to hour. World level is
+  4.0%, bot level 3.4%, world drift 5.2%. So ASSIGNMENT CAN REACH AT MOST ~9% OF THE VARIANCE.
+  The binding constraint is temporal persistence of per-bot output, not assignment and not fleet
+  size. Lag-1 autocorrelation of the residual is +0.31 (variance inflation 2.70), so 8x the data
+  buys a 28% sd cut and halving the MDE costs 12x the wall clock.
+
+  Best honest design (within-world 2-of-5 + CUPED): +90% at 3h, +65% at 6h, +41% at 24h/arm.
+  Today's design: +146% at 3h. The committed deposit endpoint: +1873% at 3h, 80.8% of bot-hours
+  deposit nothing at all.
+
+  Trimming is refuted properly rather than empirically: a capped statistic cannot register a
+  change above the cap, and the measured attenuation at p90 is 0.63 -- a 26% sd cut for a 37%
+  signal loss. The tail carries the signal as well as the variance.
+
+  And a load-bearing belief is corrected: "pools moved -45% to +77% in six hours with no code
+  change" is mostly FIVE-BOT SAMPLING NOISE, not world drift. 75% of a world's hourly variance is
+  sigma^2_e/5. Pool hourly series are mutually uncorrelated (r = +0.04), so pool-level DiD has
+  almost nothing shared to remove -- its value is removing persistent LEVELS.
+
 Usage, on the bots host:
     python3 mdereplay.py --hours 6 --design pool  --trials 400
     python3 mdereplay.py --hours 6 --design world --per-world 2 --trials 400
