@@ -1,7 +1,7 @@
 # pocketread.py [post-min] -- the change's own line for the flooded-pocket canary (-10): drowning deaths per bot-h
 # (DiD, counts), flooded_pocket_rung rows by outcome, side-exit rows, blocks spent per rung (p90), and the water
 # hold's release rate as the friction guard. Cutoff from the manifest. Rotation-aware load. Kinds carry the underscore.
-import sys, json, os, re, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
+import os, sys, json, os, re, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from collections import Counter, defaultdict
 from lib.telemetry import Events
 man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
@@ -25,12 +25,16 @@ def load_window(since_minutes):
 ev = load_window(int(elapsed + PRE) + 20)
 K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
 bots = defaultdict(set); rows = Counter(); deaths = Counter(); drown = Counter(); rung = defaultdict(Counter); side = defaultdict(Counter); blocks = defaultdict(list); hold = defaultdict(Counter); sealed = Counter(); unparsed = Counter(); ex = []
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
+from exposure import Spans
+EXPO = Spans()
+
 for r in ev.rows:
     b = r['bot'].get('name', '')
     if not b or b.startswith('isolated'): continue
     d = (r['t'] - CUT).total_seconds() / 60
     if d < -PRE or d > W: continue
-    k = K(b, 'post' if d >= 0 else 'pre'); bots[k].add(b); rows[k] += 1
+    k = K(b, 'post' if d >= 0 else 'pre'); bots[k].add(b); rows[k] += 1; EXPO.add(k, b, r['t'])
     n = r['name']; det = r['detail'] or ''; st = (r['raw'].get('skill') or {}).get('status') or (r['raw'].get('outcome') or {}).get('status')
     if n == '_death':
         deaths[k] += 1
@@ -43,7 +47,18 @@ for r in ev.rows:
     if n == '_flooded_pocket_side_exit': side[k][st or '?'] += 1
     if n == '_drowning_ceiling_no_air' and 'sealed' in det: sealed[k] += 1
     if n in ('_drowning_breathing', '_water_no_air_route_ended', '_drowning_ceiling_no_air'): hold[k][n] += 1
-def bh(k): return len(bots[k]) * (PRE if k[1] == 'pre' else W) / 60
+# ONE BOT-HOUR DEFINITION (2026-09-23). This was
+#     def bh(k): return len(bots[k]) * (PRE if k[1] == 'pre' else W) / 60
+# -- wall-clock x bot count, which credits a bot that crashed at minute 10 of a 180-minute
+# window with the full three hours. That OVERSTATES exposure and so UNDERSTATES every rate
+# computed from it, which for a harm rate is the dangerous direction.
+#
+# docs/TODO-block2-shakedown.md recorded that four scripts computed exposure four
+# incompatible ways, "none convertible to another, so no two reports have ever been
+# comparable", and prescribed one shared function. lib/exposure.py is that function; this
+# read now uses it, matching depositread, banktruthread, immobiledid, shoreread, leafread
+# and leafbread, which already summed per-bot spans.
+def bh(k): return EXPO.hours(k, allow_zero=True)
 def p90(v): v = sorted(v); return v[int(0.9 * (len(v) - 1))] if v else None
 print(f"canary_pool={CAN} code={CV} cutoff={CUT.strftime('%H:%M:%S')} pre {PRE} / post {W:.0f} min -- FLOODED POCKET read (descriptive)")
 print("positive control: rows", sum(rows.values()), "deaths", sum(deaths.values()), "drownings", sum(drown.values()), "sealed verdicts", sum(sealed.values()))

@@ -2,7 +2,7 @@
 # bot-hour (count drops between consecutive inventory-carrying rows, not at a death/deposit row), canary vs control,
 # pre 180 / post W, DiD; plus canary-only wear (iron uses consumed per bot-h from the per-copy tools snapshot) and
 # tool_broke / tool_gone rows (the control code has neither). Cutoff from the manifest. Rotation-aware load.
-import sys, json, os, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
+import os, sys, json, os, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from collections import Counter, defaultdict
 from lib.telemetry import Events
 man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
@@ -32,12 +32,16 @@ wear = Counter(); wearseen = defaultdict(dict); broke = defaultdict(Counter); gs
 def uses(tw, name):
     v = (tw or {}).get(name); v = v if isinstance(v, list) else ([v] if v else [])
     return sum((x.get('used') or 0) for x in v if x)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
+from exposure import Spans
+EXPO = Spans()
+
 for r in ev.rows:
     b = r['bot'].get('name', '')
     if not b or b.startswith('isolated'): continue
     d = (r['t'] - CUT).total_seconds() / 60
     if d < -PRE or d > W: continue
-    k = K(b, 'post' if d >= 0 else 'pre'); bots[k].add(b); rows[k] += 1
+    k = K(b, 'post' if d >= 0 else 'pre'); bots[k].add(b); rows[k] += 1; EXPO.add(k, b, r['t'])
     n = r['name']; st = (r['raw'].get('outcome') or {}).get('status') or (r['raw'].get('skill') or {}).get('status')
     if n in ('gather', 'mine'): gs[k][(n, 'ok' if st == 'success' else 'other')] += 1
     if n in ('_tool_broke', '_tool_gone'): broke[k][n.lstrip('_')] += 1   # logEvent kinds carry the underscore in skill.name
@@ -53,7 +57,18 @@ for r in ev.rows:
             u = uses(tw, 'iron_pickaxe'); pu = wearseen[k].get(b)
             if pu is not None and u > pu: wear[k] += u - pu
             wearseen[k][b] = u
-def bh(k): return len(bots[k]) * (PRE if k[1] == 'pre' else W) / 60
+# ONE BOT-HOUR DEFINITION (2026-09-23). This was
+#     def bh(k): return len(bots[k]) * (PRE if k[1] == 'pre' else W) / 60
+# -- wall-clock x bot count, which credits a bot that crashed at minute 10 of a 180-minute
+# window with the full three hours. That OVERSTATES exposure and so UNDERSTATES every rate
+# computed from it, which for a harm rate is the dangerous direction.
+#
+# docs/TODO-block2-shakedown.md recorded that four scripts computed exposure four
+# incompatible ways, "none convertible to another, so no two reports have ever been
+# comparable", and prescribed one shared function. lib/exposure.py is that function; this
+# read now uses it, matching depositread, banktruthread, immobiledid, shoreread, leafread
+# and leafbread, which already summed per-bot spans.
+def bh(k): return EXPO.hours(k, allow_zero=True)
 print(f"canary_pool={CAN} code={CV} cutoff={CUT.strftime('%H:%M:%S')} pre {PRE} / post {W:.0f} min -- TOOL RETENTION read (descriptive)")
 print("positive control: rows", sum(rows.values()), "pickaxes lost during work, all arms:", sum(sum(c.values()) for c in lost.values()))
 rate = {}
