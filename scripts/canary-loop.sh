@@ -30,7 +30,7 @@ fi
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
   journal draw "waiting for two pools"
-  while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (two pools of five, owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -); [ -n "$P" ] && break; sleep 1200; done
+  while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -); [ -n "$P" ] && break; sleep 1200; done
   journal drawn "$P :: $(echo "$D" | head -2 | tr '\n' ' ')"
   if [ "$NOACT" = "--no-act" ]; then echo "would deploy $SHA to $P"; exit 0; fi
   $H/bin/fleet-deploy "$SHA" "$RUN" "$(jf notes) pools $P drawn at deploy by the canary loop" --pool "$P" > $H/digest/deploy-$RUN.log 2>&1 || { page error "deploy launch failed"; exit 2; }
@@ -51,13 +51,26 @@ for M in $READS; do
     if [ $(( $(date +%s) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; FINALV="deadline +$DEADLINE reached without a verdict (containment)"; break 2; fi
   done
   for s in $SCRIPTS; do (cd /opt/minecraft-ai/scripts && timeout 900 python3 /tmp/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1); done
-  V=$(python3 $H/verdict.py $RUN $M | tail -1); journal "read-$M" "$V"
+  # A CRASH USED TO BE INDISTINGUISHABLE FROM A QUIET READ.
+  # This captured stdout only, so when verdict.py raised, the traceback went to a stderr
+  # nobody kept and $V became the EMPTY STRING -- which was then journalled as the verdict.
+  # banktruth-01 recorded {"phase":"read-30","note":""}, {"read-90","note":""} and
+  # {"read-180","note":""} on 2026-09-23: three scheduled reads, three empty notes, four and
+  # a half hours into a canary due that night, with the loop alive and journalling the whole
+  # time. verdict.py now refuses instead of raising, but the loop must not be able to swallow
+  # the next one either.
+  V=$(python3 $H/verdict.py $RUN $M 2>$H/digest/verdict-err-$RUN-$M.log | tail -1)
+  [ -z "$V" ] && V="CRASH (no verdict on stdout): $(tail -3 $H/digest/verdict-err-$RUN-$M.log 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
+  journal "read-$M" "$V"
   case "$V" in *REVERT*|*KEEP*|*INCONCLUSIVE*) FINAL=$(echo "$V" | awk '{print $2}'); FINALV="$V"; page verdict "$V"; break;; *UNREADABLE*) page error "$V (HOLD: death poll continues)";; *WATCH*) page flag "$V";; *) echo "$V";; esac
 done
 [ -n "$FINAL" ] || { journal end "no final verdict"; page error "loop ended without a verdict"; exit 2; }
 # ---- phase ACT
 if [ "$NOACT" = "--no-act" ]; then echo "would act: $FINAL"; exit 0; fi
-NOTE="$RUN: ${FINALV:-$(python3 $H/verdict.py $RUN $M | tail -1)} (canary loop)"; P=$(mf canary_pool)
+# Same guard on the closing note: an empty FINALV here would tear down on a blank verdict.
+_FV="${FINALV:-$(python3 $H/verdict.py $RUN $M 2>$H/digest/verdict-err-$RUN-final.log | tail -1)}"
+[ -z "$_FV" ] && _FV="CRASH (no verdict on stdout): $(tail -3 $H/digest/verdict-err-$RUN-final.log 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
+NOTE="$RUN: $_FV (canary loop)"; P=$(mf canary_pool)
 # Containment for any verdict with no act branch. KEEP_ON_SAFETY is the live example: it
 # matches *KEEP* in the read case above, so the loop stops reading and exits -- but it matched
 # NEITHER branch below, so the loop recorded no ledger decision, neither promoted nor tore
