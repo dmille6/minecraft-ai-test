@@ -179,3 +179,66 @@ wood, and it is the strongest evidence the project has produced for where the bo
 Also overnight: RCON reaches all 16 live worlds (the old client hardcoded a different server), and
 **every world holds 20.00 TPS with 0.0% spread**, which kills per-world TPS as the explanation for the
 endpoint's six-hour swings — the leading unexamined cause, closed in one command.
+
+---
+
+## CLOSE — `banktruth-01` read INCONCLUSIVE 18:19Z, torn down 18:23:13Z, not promoted
+
+| read | n (canary/post runs) | change rows | DiD /bot-h |
+|---|---:|---:|---:|
+| +30 | 39 | 23 | −0.781 |
+| +90 | 94 | 48 | **−1.096** (crossed the gate) |
+| +180 | 185 | 112 | −0.602 |
+| **+360** | **333** | **217** | **−0.398** against a gate of **−0.885** |
+
+**The primary did not pass.** The +90 crossing decides nothing, and the series is why: it is a noisy
+estimator converging as n grows 39 → 333, settling **0.8 sd inside a null of sd 0.507**. Requiring the
+series was registered before the draw for exactly this case, and it is the part of today's design that paid.
+
+**What held, and is not being inflated into a KEEP:**
+
+- **Exposure 217** against a floor of 60, with **zero** change-row leaks into control or either pre-period
+  across all four reads. The sentence is live and true on the fleet. **The mechanism is proven; the effect
+  is not.**
+- **Death gate HELD** (v21): 4 canary deaths in 120.0 bot-h vs 5 control in 240.0 — ratio 1.60x, lower 95%
+  bound **0.41x**, nowhere near 1.25x. Three drownings and a fall; none deposit-related.
+- **All v15c guards within**: blocks moved/bh +8%, working share +3%, immobile +0.3 pp DiD with zero newly
+  immobile canary bots, items gathered/bh +25%.
+- **The named downside did not happen.** The way this change could make things worse was the model reading
+  the true sentence and concluding it cannot bank at all. Deposit runs/bot-h went canary 3.53 → 2.78 against
+  control 2.46 → 2.05; the canary/control ratio moved 1.44 → 1.36. No collapse.
+
+**`verdict.py` returned KEEP and that was not the decision.** It says so itself — `primary` appears under
+*"NOT evaluated by this gate"*, because it was registered as decided by the operator. Its KEEP means "no
+revert gate tripped and exposure cleared". Recording that as a KEEP when the change's own registered
+endpoint failed is precisely the rescue the 11:57Z note forbade in advance. **The ledger says INCONCLUSIVE**
+and STATE.md explains the disagreement so nobody has to rediscover it.
+
+Stated plainly: **a truthful refusal is measurably reaching these bots, and whatever it does to the
+re-proposal loop is smaller than −0.885/bot-h, which is all this instrument can see.** Both prospective
+objections stand undisturbed — advice printed is not advice taken, and the `RECENT EVENTS` frequency bias is
+a cause a truthful sentence cannot touch. The change is kept unpromoted on `deposit-truth-msg` (9a6aa13). It
+is not wrong; it is correct and unmeasurable at this size, and shipping it on truthfulness grounds alone is
+an owner call rather than a read.
+
+### A registration defect, found by the apparatus and repaired one-directionally
+
+`reads` was `["banktruthread"]` only, so **`verdict.py` refused the final read as UNREADABLE** —
+`immobiledid` carries the death gate, the v15c movement guards and the readability test, and without it
+there is no safety floor to read at all. It called this a registration error rather than a result, and it
+was right.
+
+`immobiledid` was added **after** the read existed. That is retrospective, and legitimate here for one
+reason only: **every line it adds acts against a KEEP and none can produce one.** No endpoint, threshold or
+exposure floor moved. Not adopted: `immobiledid`'s own placebo immobile-share criterion, which printed
+`canary -54% FAIL` — that line belongs to canaries whose change targets immobility, and this one rewrites a
+refusal sentence. **Next registration puts `immobiledid` in `reads` from the start.**
+
+### Teardown, all three steps and the census
+
+20 drop-ins removed; manifest cleared and `declared_at` reset to **18:23:13Z**; all 20 pool bots restarted
+12 s apart; detached readers killed. **Census at 18:28Z: one version, `9b572aa+72e533`, on 80 bots.**
+`check-open-loop.py`: *no open canary*. Ledger **59** decisions.
+
+**The fleet is on a single version with ~5.5 h of settle before the 24–27 Sep program window opens at
+00:00Z, which is what that window needs and the reason this canary was closed tonight rather than promoted.**
