@@ -30,6 +30,7 @@ def load_window(since_minutes):
 ev = load_window(int(elapsed + PRE) + 20)
 K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
 tools = Counter(); runs = Counter(); cls = defaultdict(Counter); span = defaultdict(lambda: [None, None]); bots = defaultdict(set)
+fcls = defaultdict(Counter)   # fail_class ALONE, so a share can be looked up by class name
 TOOLISH = lambda n: n.endswith('_pickaxe') or n.endswith('_axe') or n.endswith('_sword') or n.endswith('_shovel') or n in ('crafting_table', 'furnace', 'bucket', 'water_bucket', 'blast_furnace', 'smoker')
 for r in ev.rows:
     b = r['bot'].get('name', '')
@@ -39,23 +40,45 @@ for r in ev.rows:
     era = 'post' if d >= 0 else 'pre'; k = K(b, era); bots[k].add(b)
     sp = span[(k, b)]; sp[0] = r['t'] if sp[0] is None or r['t'] < sp[0] else sp[0]; sp[1] = r['t'] if sp[1] is None or r['t'] > sp[1] else sp[1]
     if str(r['name']) != 'deposit': continue
-    sk = r['raw'].get('skill') or {}; st = sk.get('status') or '?'; fc = sk.get('failClass') or ''
-    runs[k] += 1; cls[k][f"{st}{('/' + fc) if fc else ''}"] += 1
+    sk = r['raw'].get('skill') or {}; st = sk.get('status') or '?'; fc = sk.get('fail_class') or ''
+    runs[k] += 1; cls[k][f"{st}{('/' + fc) if fc else ''}"] += 1; fcls[k][fc or '-'] += 1
     if st == 'success':
         for it, v in (sk.get('inventory_delta') or {}).items():
             if v < 0 and TOOLISH(it): tools[k] += -v
+# WRONG-KEY GUARD, added 2026-09-23 after this script spent its whole life reading
+# sk['failClass'] while logger.mjs writes 'fail_class'. MEASURED on 842 real deposit runs:
+# failClass present on 0 rows, fail_class present on 281. Every outcome collapsed into a
+# bare status, and 'skill_error' -- which is a fail_class, never a status -- could not
+# match any key in `cls`, so skill_error_share_canary/_control were zero BY CONSTRUCTION
+# and a canary could be read as clean on a field that cannot ever be non-zero.
+#
+# So: if there are deposit runs but not one carries the key, this is not a finding of
+# "no failures", it is a broken instrument, and it refuses rather than reporting a zero.
+_total_runs = sum(runs.values())
+_classed = sum(n for k in fcls for c, n in fcls[k].items() if c != '-')
+if _total_runs >= 50 and _classed == 0:
+    raise SystemExit(f"NotAnInstrument: {_total_runs} deposit runs and not one carries a "
+                     f"fail_class. The key name is wrong or the logger changed -- refusing "
+                     f"to report zeros as a result.")
+
 def bh(k): return sum((s[1] - s[0]).total_seconds() / 3600 for (kk, b), s in span.items() if kk == k and s[0] and s[1])
 print(f"canary_pool={CAN} cutoff={CUT.strftime('%H:%M:%S')} pre {PRE} / post {W:.0f} min -- DESCRIPTIVE deposit read")
 for arm in ('canary', 'control'):
     for era in ('pre', 'post'):
         k = (arm, era); h = bh(k)
         print(f"{arm}/{era:5s} bots {len(bots[k])} bot-h {h:5.1f} deposit runs {runs[k]:4d} ({runs[k] / h if h else float('nan'):.1f}/bh)  tools+stations banked {tools[k]:3d} ({tools[k] / h * 24 if h else float('nan'):.1f}/bot-day)  outcomes {dict(cls[k].most_common(6))}")
-print("positive control: rows", len(ev.rows), "bots", sum(len(v) for v in bots.values()))
+for arm in ('canary', 'control'):
+    k = (arm, 'post')
+    print(f"{arm}/post fail_class {dict(fcls[k].most_common(8))}")
+print("positive control: rows", len(ev.rows), "bots", sum(len(v) for v in bots.values()), "classed runs", _classed)
 try:
     sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
     def _share(k, c): return (cls[k][c] / runs[k]) if runs[k] else None
+    def _fshare(k, c): return (fcls[k][c] / runs[k]) if runs[k] else None   # by fail_class, not by composite key
     emit('depositread', W, {'runs_canary': runs[('canary', 'post')], 'runs_control': runs[('control', 'post')], 'canary_bot_h': bh(('canary', 'post')),
-        'skill_error_share_canary': _share(('canary', 'post'), 'skill_error'), 'skill_error_share_control': _share(('control', 'post'), 'skill_error'),
+        'skill_error_share_canary': _fshare(('canary', 'post'), 'skill_error'), 'skill_error_share_control': _fshare(('control', 'post'), 'skill_error'),
+        'storage_full_share_canary': _fshare(('canary', 'post'), 'storage_full'), 'storage_full_share_control': _fshare(('control', 'post'), 'storage_full'),
         'success_share_canary': _share(('canary', 'post'), 'success'), 'success_share_control': _share(('control', 'post'), 'success'),
-        'outcomes_canary': dict(cls[('canary', 'post')]), 'positive_control_rows': len(ev.rows)})
+        'outcomes_canary': dict(cls[('canary', 'post')]), 'failclasses_canary': dict(fcls[('canary', 'post')]),
+        'positive_control_rows': len(ev.rows), 'positive_control_classed_runs': _classed})
 except Exception as _e: print('VERDICT_JSON failed:', _e)

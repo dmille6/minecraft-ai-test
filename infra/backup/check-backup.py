@@ -20,11 +20,17 @@ Checks, each of which can only fail loudly:
   6. repo filesystem over --disk-pct                        -> DiskPressure
      (at 95% Elasticsearch applies a read-only block and INGESTION STOPS, so the backup
       mechanism can halt the thing it protects)
+  7. the NAS archive's .last-archive older than --nas-max-age-h -> ArchiveStale
+  8. no frozen tarball on the NAS at all                   -> ArchiveMissing
+  9. newest frozen tarball smaller than --nas-min-gb        -> ArchiveTruncated
+     (the archive is the copy nobody looks at, so an unreachable NAS is an ALARM here and
+      never a silent skip -- a check that cannot see the archive has not passed it)
 
 Exit 0 healthy, 1 alarm, 2 could-not-check (which is also an alarm, not a pass).
 
 Usage (on the ELK host):     sudo python3 check-backup.py
-Usage (on the mirror host):  python3 check-backup.py --mirror-only --mirror /srv/es-archive/186
+Usage (on the mirror host):  python3 check-backup.py --mirror-only --mirror /srv/es-archive/186 \
+                                 --nas mike@10.0.0.5:/volume1/homes/mike/es-archive
 """
 import argparse
 import json
@@ -62,6 +68,12 @@ def main():
     ap.add_argument('--repo-dir', default='/srv/es-backup')
     ap.add_argument('--mirror', default=None)
     ap.add_argument('--mirror-only', action='store_true')
+    ap.add_argument('--nas', default=None,
+                    help='user@host:/path of the frozen archive, e.g. '
+                         'mike@10.0.0.5:/volume1/homes/mike/es-archive')
+    ap.add_argument('--nas-key', default=os.path.expanduser('~/.ssh/id_esbackup'))
+    ap.add_argument('--nas-max-age-h', type=float, default=36.0)
+    ap.add_argument('--nas-min-gb', type=float, default=15.0)
     a = ap.parse_args()
 
     alarms, notes = [], []
@@ -83,6 +95,57 @@ def main():
         notes.append(f'mirror disk {pct:.0f}%')
         if pct > a.disk_pct:
             alarms.append(f'DiskPressure: mirror filesystem {pct:.0f}% (limit {a.disk_pct}%)')
+
+    if a.nas:
+        # One round trip that answers all three questions at once. If ssh fails for ANY
+        # reason the reply is unparseable and this alarms; there is no path here that
+        # returns a comforting zero. Note rsync cannot be used against DSM (setuid rsync
+        # refuses --server without the DSM rsync service), so the archive is tarballs.
+        tgt, _, path = a.nas.partition(':')
+        q = (f"cat '{path}/.last-archive' 2>/dev/null || echo NONE; "
+             f"ls -1 '{path}'/frozen/es-repo-*.tar 2>/dev/null | wc -l; "
+             f"ls -1t '{path}'/frozen/es-repo-*.tar 2>/dev/null | head -1 | "
+             f"xargs -r du -sb 2>/dev/null | cut -f1")
+        try:
+            r = subprocess.run(['ssh', '-i', a.nas_key, '-o', 'BatchMode=yes',
+                                '-o', 'StrictHostKeyChecking=accept-new',
+                                '-o', 'ConnectTimeout=20', tgt, q],
+                               capture_output=True, text=True, timeout=120)
+            lines = [x.strip() for x in r.stdout.strip().splitlines()]
+        except Exception as e:
+            lines, r = [], None
+            alarms.append(f'ArchiveStale: cannot reach the NAS archive ({type(e).__name__}: {e}) '
+                          f'-- an unreadable archive is a failed check, not a pass')
+        if r is not None and len(lines) < 2:
+            alarms.append(f'ArchiveStale: the NAS replied with {len(lines)} lines, expected 3 '
+                          f'(rc={r.returncode}, stderr={r.stderr.strip()[:120]!r})')
+        elif len(lines) >= 2:
+            ts, cnt = lines[0], lines[1]
+            newest_b = int(lines[2]) if len(lines) > 2 and lines[2].isdigit() else 0
+            if ts == 'NONE':
+                alarms.append('ArchiveMissing: no .last-archive on the NAS -- '
+                              'the third copy has never been written')
+            else:
+                try:
+                    age = (time.time() - time.mktime(time.strptime(ts, '%Y-%m-%dT%H:%M:%SZ'))
+                           + time.timezone) / 3600.0
+                    notes.append(f'archive age {age:.1f}h')
+                    if age > a.nas_max_age_h:
+                        alarms.append(f'ArchiveStale: the NAS archive is {age:.1f}h old '
+                                      f'(limit {a.nas_max_age_h}h)')
+                except ValueError:
+                    alarms.append(f'ArchiveStale: unparseable .last-archive {ts!r}')
+            if cnt.isdigit():
+                notes.append(f'{cnt} frozen copies')
+                if int(cnt) == 0:
+                    alarms.append('ArchiveMissing: zero frozen tarballs on the NAS')
+            else:
+                alarms.append(f'ArchiveMissing: could not count frozen tarballs ({cnt!r})')
+            if newest_b and newest_b < a.nas_min_gb * 1e9:
+                alarms.append(f'ArchiveTruncated: the newest frozen tarball is '
+                              f'{newest_b/1e9:.1f}GB, below the {a.nas_min_gb}GB floor')
+            elif newest_b:
+                notes.append(f'newest frozen {newest_b/1e9:.1f}GB')
 
     if not a.mirror_only:
         snaps, err = es(f'/_snapshot/{REPO}/_all?verbose=true')
