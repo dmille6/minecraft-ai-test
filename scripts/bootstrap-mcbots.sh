@@ -275,7 +275,14 @@ $SRV/logs/*.jsonl {
     rotate 14
     maxsize 200M
     compress
-    delaycompress
+    # NO delaycompress (removed 2026-09-23). It keeps the newest rotation UNCOMPRESSED, and
+    # a dozen read scripts glob `skill-*.jsonl-*.gz` for rotated history -- so the most
+    # recent generation would be silently invisible to them, including the deaths that feed
+    # the canary death gate. The live config on the bots host has never had it (verified:
+    # `daily rotate 14 copytruncate compress`, 0 uncompressed rotations against 1,124
+    # compressed), so this line was a trap waiting for the next re-provision to arm, not a
+    # live bug. The blessed loader is fine either way -- telemetry.py's default is
+    # `skill-*.jsonl*` with the trailing star -- but scripts that override paths are not.
     missingok
     notifempty
     copytruncate

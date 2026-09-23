@@ -98,7 +98,7 @@ if not DRY:
     def _scan(poollist):
         d = collections.defaultdict(list)
         for pool in poollist:
-            for f in glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl') + glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl-*.gz'):
+            for f in glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl') + glob.glob(f'{LOGROOT}/{pool}-*/skill-*.jsonl-*'):
                 op = gzip.open if f.endswith('.gz') else open
                 try:
                     with op(f, 'rt', errors='replace') as fh:
