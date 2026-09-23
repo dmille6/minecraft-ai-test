@@ -3,6 +3,7 @@
 import sys, json, os, re, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from collections import Counter, defaultdict
 from lib.telemetry import Events
+from lib.arms import arm_of   # ONE definition of which arm a bot is in; accepts pool names (unchanged) AND bot names, which is what a within-world design needs
 man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
 if ovr: CAN, CV, ISO = ovr.split(':', 2); CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
 else: CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00')); CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
@@ -37,7 +38,7 @@ def load_window(since_minutes):
     return ev
 
 ev = load_window(int(elapsed + PRE) + 20)
-K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
+K = lambda b, era: (arm_of(b, CANS), era)
 tools = Counter(); runs = Counter(); cls = defaultdict(Counter); span = defaultdict(lambda: [None, None]); bots = defaultdict(set)
 fcls = defaultdict(Counter)   # fail_class ALONE, so a share can be looked up by class name
 TOOLISH = lambda n: n.endswith('_pickaxe') or n.endswith('_axe') or n.endswith('_sword') or n.endswith('_shovel') or n in ('crafting_table', 'furnace', 'bucket', 'water_bucket', 'blast_furnace', 'smoker')

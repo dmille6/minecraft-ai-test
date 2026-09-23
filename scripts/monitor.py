@@ -45,9 +45,13 @@ def collect_world():
         out['tps_min'], out['tps_max'] = min(tps), max(tps)
         out['tps_spread_pct'] = round(100.0 * (max(tps) - min(tps)) / max(tps), 2)
         out['c17_pass'] = out['tps_spread_pct'] <= W.C17_LIMIT_PCT
-    msptmax = [max(r['mspt']) for r in out['worlds'] if r.get('mspt')]
-    if msptmax:
-        out['mspt_max_worst'] = max(msptmax)
+    # NOT max(r['mspt']): that list is avg/min/max of three windows, so max() of it was
+    # the FIVE-SECOND max reported as if it were a tail. Use the 1-minute max.
+    m1 = [r['mspt_1m_max'] for r in out['worlds'] if r.get('mspt_1m_max') is not None]
+    if m1:
+        out['mspt_1m_max_worst'] = max(m1)
+        out['mspt_1m_avg_worst'] = max(
+            r.get('mspt_1m_avg', 0) for r in out['worlds'] if r.get('mspt_1m_avg') is not None)
 
     import botstats as B
     tm = tp = deaths = 0
@@ -136,7 +140,7 @@ def main():
         elif a.role == 'world':
             print(f"{rec['at']} world: tps {rec.get('tps_min','?')}-{rec.get('tps_max','?')} "
                   f"spread {rec.get('tps_spread_pct','?')}% C17={'PASS' if rec.get('c17_pass') else 'FAIL'} | "
-                  f"mspt worst {rec.get('mspt_max_worst','?')} | "
+                  f"mspt 1m avg/max worst {rec.get('mspt_1m_avg_worst','?')}/{rec.get('mspt_1m_max_worst','?')} | "
                   f"logs mined {rec.get('logs_mined_total',0)} got {rec.get('logs_got_total',0)} | "
                   f"deaths {rec.get('deaths_total',0)} | bots {rec.get('bots_with_stats',0)}")
         else:

@@ -5,6 +5,7 @@
 import os, sys, json, os, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from collections import Counter, defaultdict
 from lib.telemetry import Events
+from lib.arms import arm_of   # ONE definition of which arm a bot is in; accepts pool names (unchanged) AND bot names, which is what a within-world design needs
 man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
 if ovr: CAN, CV, ISO = ovr.split(':', 2); CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
 else: CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00')); CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
@@ -25,7 +26,7 @@ def load_window(since_minutes):
     ev.rows.sort(key=lambda r: r['t'])
     return ev
 ev = load_window(int(elapsed + PRE) + 20)
-K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
+K = lambda b, era: (arm_of(b, CANS), era)
 PICKS = ('iron_pickaxe', 'stone_pickaxe', 'wooden_pickaxe', 'diamond_pickaxe')
 bots = defaultdict(set); lost = defaultdict(Counter); where = defaultdict(Counter); rows = Counter(); last = {}
 wear = Counter(); wearseen = defaultdict(dict); broke = defaultdict(Counter); gs = defaultdict(Counter)

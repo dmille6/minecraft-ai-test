@@ -23,9 +23,15 @@ import sys
 import uuid as _uuid
 
 ROOT = '/srv/block2'
+# ALL 16 WORLDS. The first version listed 12 and omitted isolated-a..d, then printed its
+# totals as fleet figures -- "the fleet has mined 260,960 logs" was 60 of 80 bots. The
+# positive control said "12 of 12 worlds answered", which cannot detect its own truncation
+# because the denominator IS the truncated list. This project's own rule is to say the
+# denominator before the number; the instrument built to enforce it broke it.
 LIVE = ['board-a', 'board-b', 'board-c', 'board-d',
         'hive-a', 'hive-b', 'hive-c', 'hive-d',
-        'placebo-a', 'placebo-b', 'placebo-c', 'placebo-d']
+        'placebo-a', 'placebo-b', 'placebo-c', 'placebo-d',
+        'isolated-a', 'isolated-b', 'isolated-c', 'isolated-d']
 SUFFIXES = ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')
 
 

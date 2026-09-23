@@ -11,6 +11,7 @@
 import sys, json, os, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from collections import Counter, defaultdict
 from lib.telemetry import Events
+from lib.arms import arm_of   # ONE definition of which arm a bot is in; accepts pool names (unchanged) AND bot names, which is what a within-world design needs
 man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
 if ovr: CAN, CV, ISO = ovr.split(':', 2); CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
 else: CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00')); CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
@@ -33,7 +34,7 @@ def load_window(since_minutes):
     return ev
 
 ev = load_window(int(elapsed + PRE) + 20)
-K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
+K = lambda b, era: (arm_of(b, CANS), era)
 logs = Counter(); buried = Counter(); runs = Counter(); cls = defaultdict(Counter)
 canopy = Counter(); deaths = Counter(); span = defaultdict(lambda: [None, None]); bots = defaultdict(set)
 for r in ev.rows:

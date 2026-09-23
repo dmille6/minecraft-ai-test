@@ -3,6 +3,7 @@
 import sys, json, os, re, datetime as dt; sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from collections import Counter, defaultdict
 from lib.telemetry import Events
+from lib.arms import arm_of   # ONE definition of which arm a bot is in; accepts pool names (unchanged) AND bot names, which is what a within-world design needs
 man = json.load(open('/srv/mcbots/trial-manifest.json')); ovr = os.environ.get('CANARY_DRYRUN')
 if ovr: CAN, CV, ISO = ovr.split(':', 2); CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
 else: CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00')); CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
@@ -23,7 +24,7 @@ def load_window(since_minutes):
     return ev
 ev = load_window(int(elapsed + PRE) + 20)
 GUARDS = ('_lava_corridor', '_hold_lava_ahead', '_lava_adjacent_stand_off', '_lava_adjacent_no_retreat')   # logEvent kinds carry the underscore in skill.name (2026-09-15: the first run of this read counted 0 of 134 rows)
-K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
+K = lambda b, era: (arm_of(b, CANS), era)
 deaths = Counter(); lava = Counter(); guard = defaultdict(Counter); bots = defaultdict(set); rows = Counter(); ex = []; reason = defaultdict(Counter); mine = defaultdict(Counter); blind = defaultdict(Counter)
 for r in ev.rows:
     b = r['bot'].get('name', '')

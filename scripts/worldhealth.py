@@ -23,9 +23,15 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib'))
 import mcrcon  # noqa: E402
 
+# ALL 16 WORLDS. The first version listed 12 and omitted isolated-a..d, then printed its
+# totals as fleet figures -- "the fleet has mined 260,960 logs" was 60 of 80 bots. The
+# positive control said "12 of 12 worlds answered", which cannot detect its own truncation
+# because the denominator IS the truncated list. This project's own rule is to say the
+# denominator before the number; the instrument built to enforce it broke it.
 LIVE = ['board-a', 'board-b', 'board-c', 'board-d',
         'hive-a', 'hive-b', 'hive-c', 'hive-d',
-        'placebo-a', 'placebo-b', 'placebo-c', 'placebo-d']
+        'placebo-a', 'placebo-b', 'placebo-c', 'placebo-d',
+        'isolated-a', 'isolated-b', 'isolated-c', 'isolated-d']
 C17_LIMIT_PCT = 5.0
 
 
@@ -47,7 +53,22 @@ def sample(world):
     try:
         m = strip_colour(mcrcon.on(world, 'mspt'))
         out['mspt_raw'] = m.splitlines()[-1][:70] if m else ''
-        out['mspt'] = nums(m)[:3]
+        # Paper's reply is "avg/min/max from last 5s, 10s, 1m" -- NINE numbers in three
+        # triples, not three windows. The first version took nums(...)[:3] and monitor.py
+        # then called max() of that, so the headline "worst mspt" was the max of
+        # (avg, min, max) of the FIVE-SECOND window: a momentary spike reported as a tail.
+        # That produced a 226ms figure that was then reasoned about. Keep all nine, and
+        # name the one that means something: the 1-minute max.
+        n = nums(m)
+        out['mspt'] = n[:9]
+        if len(n) >= 9:
+            out['mspt_5s'] = {'avg': n[0], 'min': n[1], 'max': n[2]}
+            out['mspt_10s'] = {'avg': n[3], 'min': n[4], 'max': n[5]}
+            out['mspt_1m'] = {'avg': n[6], 'min': n[7], 'max': n[8]}
+            out['mspt_1m_max'] = n[8]
+            out['mspt_1m_avg'] = n[6]
+        elif n:
+            out['mspt_parse_short'] = len(n)
     except Exception as e:
         out['mspt_error'] = str(e)[:60]
     return out
@@ -70,7 +91,8 @@ def main():
             continue
         t = r.get('tps') or []
         t = (t + [float('nan')] * 3)[:3]
-        print(f"{r['world']:11s} {t[0]:7.2f} {t[1]:7.2f} {t[2]:7.2f}   {r.get('mspt_raw','')[:46]}")
+        print(f"{r['world']:11s} {t[0]:7.2f} {t[1]:7.2f} {t[2]:7.2f}   "
+              f"1m avg {r.get('mspt_1m_avg','?')} max {r.get('mspt_1m_max','?')}")
 
     vals = [r['tps'][0] for r in rows if r.get('tps')]
     print(f"\npositive control: {len(vals)} of {len(worlds)} worlds answered")

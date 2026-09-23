@@ -47,6 +47,7 @@ CANARY_DRYRUN=pool,pool:sha:iso for a pre-deploy dry run.
 import sys, json, os, collections, datetime as dt
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
 from lib.telemetry import Events
+from lib.arms import arm_of   # ONE definition of which arm a bot is in; accepts pool names (unchanged) AND bot names, which is what a within-world design needs
 
 man = json.load(open('/srv/mcbots/trial-manifest.json'))
 ovr = os.environ.get('CANARY_DRYRUN')
@@ -81,7 +82,7 @@ def named_item(sk):
     return v if v and v.lower() not in ('', 'none', 'null', 'any', 'all', 'everything',
                                         'items', 'inventory', 'undefined') else None
 
-arm = lambda b: 'canary' if b.rsplit('-', 1)[0] in CANS else 'control'
+arm = lambda b: arm_of(b, CANS)
 buckets = collections.defaultdict(list)
 span = collections.defaultdict(lambda: [None, None])
 botset = collections.defaultdict(set)
