@@ -685,3 +685,64 @@ tests 11:40–11:50Z, the two independent reviews and the null calibration 11:50
 **deploy after 12:00Z**. Registration-before-deploy is the whole discipline of this file, and a stamp in the
 future makes a correct order look fabricated. Corrected in place and recorded here rather than quietly
 re-stamped.
+
+### `banktruth-01` — CLOSED INCONCLUSIVE, 2026-09-23 18:19 UTC. Torn down 18:23:13Z, NOT promoted.
+
+**The registered primary did not pass: repeat-refusal rate DiD −0.398/bot-h against a gate of −0.885.**
+
+| read | n (canary/post runs) | change rows | DiD /bot-h |
+|---|---:|---:|---:|
+| +30 | 39 | 23 | −0.781 |
+| +90 | 94 | 48 | **−1.096** |
+| +180 | 185 | 112 | −0.602 |
+| **+360** | **333** | **217** | **−0.398** |
+
+The series is the reason the +90 crossing decides nothing. It is a **noisy estimator converging as n grows
+39 → 333**, settling at −0.398, which is **0.8 sd inside a null of sd 0.507**. The registration required the
+series precisely so a single crossing could not be read as the answer, and here that requirement did work.
+
+**What DID hold, and must not be inflated into a KEEP:**
+- **Exposure 217** against a floor of 60. **The change row leaked 0 times** into control/post or either
+  pre-period across all four reads. The patch is live, reaching the model at volume, and the sentence the
+  bots now get is true. **The mechanism is proven; the effect is not.**
+- Death gate **HELD** (v21): 4 canary deaths in 120.0 bot-h vs 5 control in 240.0 — ratio 1.60x, lower 95%
+  bound **0.41x**, nowhere near 1.25x. None deposit-related (three drownings, one fall).
+- **v15c guards all within**: blocks moved/bh +8%, working share +3%, immobile +0.3 pp DiD with 0 newly
+  immobile, items gathered/bh +25%.
+- **WATCH did not collapse**: deposit runs/bot-h canary 3.53 → 2.78, control 2.46 → 2.05; the canary/control
+  ratio moved 1.44 → 1.36. The named downside — the model reading the true sentence and abandoning the skill
+  — did not happen.
+
+**`verdict.py` returned KEEP and that is not the decision.** It says so itself: `primary` appears under
+*"NOT evaluated by this gate"*, because it was registered as `reported_deciding_by_operator`. Its KEEP means
+"no revert gate tripped and exposure cleared". Recording that as a KEEP, when the change's own registered
+endpoint failed, is exactly the rescue the 11:57Z note forbade in advance.
+
+**So the honest close is INCONCLUSIVE, which the registration named as the most likely outcome before the
+draw.** Restated plainly: a truthful refusal is measurably reaching these bots, and whatever it does to the
+re-proposal loop is **smaller than −0.885/bot-h**, which is all this instrument can see. The two prospective
+objections stand undisturbed — advice printed is not advice taken, and the `RECENT EVENTS` frequency bias is
+a cause a truthful sentence cannot touch.
+
+**The change is kept on `deposit-truth-msg` (9a6aa13), unpromoted.** It is not wrong — it is correct and
+unmeasurable at this size. Whether to ship it on truthfulness grounds alone is an owner call, not a read.
+
+#### The registration defect this exposed, repaired retrospectively and one-directionally
+
+`reads` was `["banktruthread"]` only. `verdict.py` **refused the +360 read as UNREADABLE** because
+`immobiledid` carries the death gate, the v15c movement guards and the readability test — absent it, there
+is no safety floor to read at all. It named this a registration error rather than a result, and it was right.
+
+`immobiledid` was added **after** the +360 read existed. That is retrospective, and it is legitimate here for
+one reason only: **every line it adds acts against a KEEP and none can produce one.** No endpoint, threshold,
+exposure floor or own-line was touched; the primary gate stayed −0.885. The alternative was closing a canary
+with its safety floor unread.
+
+**What was NOT adopted:** `immobiledid`'s own KEEP criterion — the placebo immobile-share line, which printed
+`canary -54% FAIL`. That line belongs to the recovery-ladder canaries, whose change targets immobility. This
+one rewrites a refusal sentence and cannot move immobility by design, so that line is neither a pass nor a
+fail for it and was not registered as an own-line.
+
+**For the next canary: put `immobiledid` in `reads` at registration time.** It is the safety floor for every
+canary on this fleet, not an optional second read, and `canary-loop.sh` will hold at the final read without
+it — which is the right failure, but it costs the window.
