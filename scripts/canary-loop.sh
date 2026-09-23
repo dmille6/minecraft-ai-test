@@ -42,11 +42,52 @@ READS=$(python3 -c "import json; r=json.load(open('$REG')); m=r['read_minutes']+
 SCRIPTS=$(python3 -c "import json; print(' '.join(json.load(open('$REG'))['reads']))"); DEADLINE=$(jf deadline_min); [ -n "$DEADLINE" ] || DEADLINE=780
 # ---- phase READS: at each registered minute run the scripts, then verdict.py; death poll every 5 min in between
 FINAL=""; FINALV=""
+# TEARDOWN IS THREE STEPS AND HALF OF IT IS SILENTLY WRONG (CLAUDE.md). These are factored so the
+# KEEP-without-promotion path and the REVERT/INCONCLUSIVE path cannot drift apart -- two copies of
+# a teardown is how five bots were left running canary code after a "complete" one.
+_restart_assigned() {
+  # IT ONLY RESTARTED UNITS ALREADY `running`, so a stopped or failed bot was skipped and came
+  # back on CANARY code -- a teardown that looks complete and is not. Every assigned unit is
+  # restarted now, whatever state it is in, and the ones that were not running are named.
+  # Bot names are enumerated from the log directories of the assigned pools rather than from a
+  # hardcoded Alpha/Bravo/Comet/Delta/Echo list, which is wrong the moment a roster is partial.
+  local skipped=""
+  for pool in ${P//,/ }; do
+    for d in /var/log/mcai/$pool-*; do
+      [ -d "$d" ] || continue
+      local b=$(basename "$d")
+      systemctl list-units "mcbot@$b.service" --no-legend | grep -q running || skipped="$skipped $b"
+      sudo systemctl restart "mcbot@$b.service" 2>/dev/null || skipped="$skipped $b(restart-failed)"
+      sleep 12
+    done
+  done
+  [ -n "$skipped" ] && journal teardown-note "units not running before restart (still restarted):$skipped"
+  return 0
+}
+
+_teardown() {
+  sudo /usr/local/sbin/mcai-canary-tree teardown | tail -1
+  sudo python3 -c 'import json; p="/srv/mcbots/trial-manifest.json"; m=json.load(open(p)); m["canary_pool"]=None; m["canary_code_version"]=None; json.dump(m, open(p,"w"), indent=2)'
+  _restart_assigned
+  sleep 90
+  local LIVE=$(for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do f=$(ls -t $d/skill-*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -1 $f | python3 -c 'import sys,json; print(json.loads(sys.stdin.readline())["code"]["version"][:7])' 2>/dev/null; done; done | sort | uniq -c | tr '\n' ' ')
+  journal torn-down "$LIVE"
+  page verdict "$FINAL $RUN; torn down; pools live: $LIVE"
+}
+
 for M in $READS; do
   grep -q "\"run\":\"$RUN\".*\"phase\":\"read-$M\"" $J 2>/dev/null && { echo "read +$M already done"; continue; }   # scoped to THIS run: the unscoped grep matched the previous run and skipped every read (16 Sep 22:25Z)
   while [ $(( $(date +%s) - T0 )) -lt $(( M * 60 )) ]; do
     sleep 300
-    V=$(python3 $H/verdict.py $RUN 0 --poll 2>/dev/null | tail -1)   # a poll-mode verdict: only the linkage and death-gate checks
+    # THE POLL IS THE DEATH GATE, AND ITS STDERR WAS BEING THROWN AWAY (`2>/dev/null`).
+    # A poll that cannot run is a safety check that is down, and it would have been silent here
+    # every five minutes for hours -- the same class of defect as the empty read verdicts on
+    # banktruth-01, at the one site where it matters most.
+    V=$(python3 $H/verdict.py $RUN 0 --poll 2>$H/digest/poll-err-$RUN.log | tail -1)
+    if [ -z "$V" ]; then
+      journal poll-failed "$(tail -3 $H/digest/poll-err-$RUN.log 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
+      page error "DEATH POLL PRODUCED NO VERDICT -- the safety gate is not running: $(tail -2 $H/digest/poll-err-$RUN.log 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+    fi
     case "$V" in *REVERT*) journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; FINALV="$V"; break 2;; esac
     if [ $(( $(date +%s) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; FINALV="deadline +$DEADLINE reached without a verdict (containment)"; break 2; fi
   done
@@ -68,7 +109,19 @@ for M in $READS; do
     journal "reads-missing" "missing from /tmp:$_miss"
     exit 4
   fi
-  for s in $SCRIPTS; do (cd /opt/minecraft-ai/scripts && timeout 900 python3 /tmp/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1); done
+  # A READ'S EXIT STATUS WAS NEVER CHECKED. A crashed or timed-out read wrote its traceback into
+  # the .txt and the loop carried on as though it had read something; the failure then surfaced
+  # several steps later as verdict.py's "no evidence object", which names the symptom and not the
+  # cause. `timeout` returns 124, which is worth distinguishing from a crash.
+  for s in $SCRIPTS; do
+    (cd /opt/minecraft-ai/scripts && timeout 900 python3 /tmp/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1)
+    _rc=$?
+    if [ $_rc -ne 0 ]; then
+      _what=$([ $_rc -eq 124 ] && echo "TIMED OUT after 900s" || echo "exited $_rc")
+      journal read-failed "$s +$M $_what: $(tail -2 $H/digest/reads/$RUN-$s-$M.txt 2>/dev/null | tr '\n' ' ' | cut -c1-260)"
+      page error "read $s +$M $_what -- its evidence is absent or partial, so this read cannot decide"
+    fi
+  done
   # A CRASH USED TO BE INDISTINGUISHABLE FROM A QUIET READ.
   # This captured stdout only, so when verdict.py raised, the traceback went to a stderr
   # nobody kept and $V became the EMPTY STRING -- which was then journalled as the verdict.
@@ -101,15 +154,24 @@ case "$FINAL" in
 esac
 case "$FINAL" in
   KEEP)
-    [ "$(jf promotion)" = "fleet-wide" ] || { page error "KEEP but the registration does not allow fleet-wide promotion"; exit 2; }
+    # KEEP WITHOUT A PROMOTION PATH USED TO `exit 2` AND LEAVE THE CANARY DEPLOYED.
+    # The comment fifteen lines above describes exactly this failure -- "left a DEPLOYED canary
+    # with the loop gone: an open loop found only the next morning" -- and the KEEP branch still
+    # did it. It is not a corner case: a canary inside the 24-27 Sep program window MUST declare
+    # promotion "none", because fleet-wide promotion is forbidden there, so every KEEP in that
+    # window would have stranded its treatment. Record the KEEP, then tear down; the verdict is
+    # preserved and the fleet is returned to baseline.
+    if [ "$(jf promotion)" != "fleet-wide" ]; then
+      page verdict "KEEP $RUN, promotion '$(jf promotion)' -- recording and tearing down rather than promoting"
+      journal keep-unpromoted "promotion=$(jf promotion); recording KEEP then restoring baseline"
+      (cd /opt/minecraft-ai && sudo python3 scripts/check-open-loop.py --record KEEP --note "$NOTE" | tail -1); journal recorded KEEP
+      FINAL=KEEP_TEARDOWN
+    fi
+    if [ "$FINAL" = "KEEP_TEARDOWN" ]; then _teardown; exit 0; fi
     (cd /opt/minecraft-ai && sudo python3 scripts/check-open-loop.py --record KEEP --note "$NOTE" | tail -1); journal recorded KEEP
     $H/bin/fleet-deploy "$SHA" "$RUN-promote" "PROMOTION of $RUN (KEEP by the canary loop)" > $H/digest/deploy-$RUN-promote.log 2>&1; grep -q "VERIFIED" $H/digest/deploy-$RUN-promote.log || { page error "promotion not verified"; exit 2; }
     journal promoted "$SHA fleet-wide"; page verdict "PROMOTED $RUN $SHA fleet-wide (operator: fast-forward main and keep main-pre-<date>)";;
   REVERT|INCONCLUSIVE)
     (cd /opt/minecraft-ai && sudo python3 scripts/check-open-loop.py --record $FINAL --note "$NOTE" | tail -1); journal recorded "$FINAL"
-    sudo /usr/local/sbin/mcai-canary-tree teardown | tail -1
-    sudo python3 -c 'import json; p="/srv/mcbots/trial-manifest.json"; m=json.load(open(p)); m["canary_pool"]=None; m["canary_code_version"]=None; json.dump(m, open(p,"w"), indent=2)'
-    for pool in ${P//,/ }; do for b in Alpha Bravo Comet Delta Echo; do systemctl list-units "mcbot@$pool-$b.service" --no-legend | grep -q running && { sudo systemctl restart "mcbot@$pool-$b.service"; sleep 12; }; done; done
-    sleep 90; LIVE=$(for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do f=$(ls -t $d/skill-*.jsonl | head -1); tail -1 $f | python3 -c 'import sys,json; print(json.loads(sys.stdin.readline())["code"]["version"][:7])' 2>/dev/null; done; done | sort | uniq -c | tr '\n' ' ')
-    journal torn-down "$LIVE"; page verdict "$FINAL $RUN; torn down; pools live: $LIVE";;
+    _teardown;;
 esac
