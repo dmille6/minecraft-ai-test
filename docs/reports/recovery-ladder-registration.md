@@ -621,3 +621,57 @@ What changes is how the verdict must be READ, and this is registered before any 
 The cost of a false KEEP here is bounded and stated: **this canary is torn down today whatever it reads**,
 and a KEEP is not promoted until after the 24–27 Sep program window closes. Four days of nothing is the
 whole downside, and it buys a gate that was not moved after seeing its own null.
+
+### `banktruth-01` — AMENDED 2026-09-23 15:25 UTC, prospectively, before the draw and before any canary data. **sha is now `9a6aa13`.**
+
+An independent adversarial review returned **four blocking findings** on `b7c2e44`. Three were correct at
+source and are fixed in `9a6aa13`; the fourth rebuilds this read and is the reason the gate above is
+**withdrawn and replaced**. No canary data exists yet, so all of this is prospective.
+
+**1. The headline was a tautology, and it was mine.** `admission.mjs:326` refuses `deposit <item>` with
+`deposit_item_missing` whenever the bot holds none of the named item, **before the skill runs**, on both
+the model path and the work-order path. So "the bot was carrying the item in 2,078 of 2,079 runs — 100.0%"
+restates that guard; it is not a measurement, and the single `dirt` exception is a gate/skill race rather
+than the positive control I called it. **The conclusion is unchanged and rests on firmer ground** — the
+sentence is false on *every* named fleet refusal, by construction — but the evidence framing above is
+retracted. `carrying no <item>` is unreachable from the fleet and reachable only from chat.
+
+**2. The embedded count would have broken this project's own refusal reads.** `sneak.py:16` and `wo5.py:24`
+bucket on `Counter(detail[:95])`. A quantity in the string splits one refusal into one row per amount held,
+and the largest refusal on the fleet leaves every top-N. The count is gone; a test fails if a digit returns.
+
+**3. "worth banking" is already owned by `prompt.mjs:619`** ("CARRYING: N items worth banking", computed
+without wants). Two lines in one prompt, consistent in meaning and contradictory in words. Rephrased.
+
+**4. THE ENDPOINT CONDITIONED ON ATTEMPTS — the gate above is WITHDRAWN and replaced.**
+"Repeat refusals as a share of deposit runs" has a denominator the treatment directly moves. That is
+`metric-must-not-condition-on-attempts`, the mistake that had escape rate rising while deaths tripled.
+
+**The endpoint is now repeat refusals PER BOT-HOUR**, DiD, bot-hours taken from the span of *all* rows per
+bot so a bot that stops depositing still counts its hours.
+
+Null recalibrated, 300 placebo draws, 4 pools / 20 bots, pre 180 / post 360, single version `9b572aa`,
+502,713 rows, 0 skipped:
+
+| | |
+|---|---|
+| mean | **+0.006 /bot-h** (the share version was biased at +2.18 pp — the same point, arriving as evidence) |
+| sd | **0.507 /bot-h** |
+| p01 / p05 / p50 / p95 / p99 | −1.200 / **−0.885** / +0.022 / +0.866 / +1.131 |
+| −0.50 /bot-h | fires on 15.3% of NO-CHANGE draws |
+| −0.75 /bot-h | fires on 7.7% |
+
+**GATE: DiD ≤ −0.885 repeats/bot-h.** Effect ceiling in these units: 1,874 repeats / 1,296 bot-h =
+**−1.446/bot-h**, so **the gate needs 61% of the ceiling.** Stated plainly: **this read can only see a
+large effect.** A half effect reads INCONCLUSIVE, and that is the honest answer rather than a failure of
+the instrument or of the change.
+
+**The 14:30Z note about a placebo dry run crossing the gate applies to the withdrawn share endpoint and is
+superseded.** The rate endpoint was dry-run on three placebo cutoffs (05:00Z, 06:00Z, 08:00Z): **−0.158,
+−0.484, −0.025 /bot-h — none of them crosses −0.885.** The series requirement from that note is KEPT: read
+`repeat_rate_did` at +30/+90/+180/+360, require the exposure floor and an uncollapsed `deposit runs/bot-h`
+alongside the gate, and keep INCONCLUSIVE as the likely close.
+
+**Not adopted, and why.** The review also suggested reading bankable-items-deposited/bot-h as a third line.
+It is already in the read as a WATCH (`net/bh`) and is not promoted to a gate, because it has no
+calibration and a gate without one is what `canary-gate-was-noise` is about.
