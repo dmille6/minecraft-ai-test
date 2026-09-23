@@ -24,7 +24,7 @@ def load_window(since_minutes):
     return ev
 ev = load_window(int(elapsed + PRE) + 20)
 K = lambda b, era: (('canary' if b.rsplit('-', 1)[0] in CANS else 'control'), era)
-bots = defaultdict(set); rows = Counter(); deaths = Counter(); drown = Counter(); rung = defaultdict(Counter); side = defaultdict(Counter); blocks = defaultdict(list); hold = defaultdict(Counter); sealed = Counter(); ex = []
+bots = defaultdict(set); rows = Counter(); deaths = Counter(); drown = Counter(); rung = defaultdict(Counter); side = defaultdict(Counter); blocks = defaultdict(list); hold = defaultdict(Counter); sealed = Counter(); unparsed = Counter(); ex = []
 for r in ev.rows:
     b = r['bot'].get('name', '')
     if not b or b.startswith('isolated'): continue
@@ -36,7 +36,9 @@ for r in ev.rows:
         deaths[k] += 1
         if 'drown' in det: drown[k] += 1; ex.append((k, b, r['t'].strftime('%H:%M:%S'), det[:100]))
     if n == '_flooded_pocket_rung':
-        rung[k][st or '?'] += 1; m = re.search(r'blocks (\d+)', det); blocks[k].append(int(m.group(1)) if m else 0)
+        rung[k][st or '?'] += 1; m = re.search(r'blocks (\d+)', det)
+        if m: blocks[k].append(int(m.group(1)))
+        else: unparsed[k] += 1
         if k[0] == 'canary' and k[1] == 'post': ex.append((k, b, r['t'].strftime('%H:%M:%S'), 'rung: ' + det[:120]))
     if n == '_flooded_pocket_side_exit': side[k][st or '?'] += 1
     if n == '_drowning_ceiling_no_air' and 'sealed' in det: sealed[k] += 1
@@ -53,13 +55,13 @@ for arm in ('canary', 'control'):
         print(f"  {arm:7} {era:4} bots {len(bots[k]):2d} bot-h {h:6.1f}  deaths {deaths[k]:2d}  drownings {drown[k]:2d} ({rate[k]:.3f}/bh)  sealed verdicts {sealed[k]:3d}  rung {dict(rung[k]) or '{}'} blocks p90 {p90(blocks[k])}  side-exit {dict(side[k]) or '{}'}  hold releases {rel}/{tot} ({100*rel/tot if tot else 0:.0f}%)")
 did = (rate[('canary','post')] - rate[('canary','pre')]) - (rate[('control','post')] - rate[('control','pre')])
 print(f"drowning deaths DiD: {did:+.3f}/bh (counts above; unmeasurable on 10 bots in 6 h, reported not judged)")
-cp = ('canary', 'post'); print(f"EXPOSURE: canary post rung rows {sum(rung[cp].values())} (KEEP needs >= 1 with a sealed verdict present: {sealed[cp]}); side-exit rows {sum(side[cp].values())}; blocks per rung p90 {p90(blocks[cp])} (<= 12); control post rung rows (old code, must be 0): {sum(rung[('control','post')].values())}")
+cp = ('canary', 'post'); print(f"EXPOSURE: canary post rung rows {sum(rung[cp].values())} (KEEP needs >= 1 with a sealed verdict present: {sealed[cp]}); side-exit rows {sum(side[cp].values())}; blocks per rung p90 {p90(blocks[cp])} (<= 12) over {len(blocks[cp])} measured rungs, {unparsed[cp]} unparsed (EXCLUDED, not scored as 0); control post rung rows (old code, must be 0): {sum(rung[('control','post')].values())}")
 def rr(k): rel = hold[k]['_drowning_breathing']; tot = rel + hold[k]['_drowning_ceiling_no_air']; return (rel / tot) if tot else float('nan')
 print(f"FRICTION: hold release share canary {100*rr(('canary','pre')):.0f}% -> {100*rr(('canary','post')):.0f}% vs control {100*rr(('control','pre')):.0f}% -> {100*rr(('control','post')):.0f}% (one-sided guard -30 pp)")
 for e in ex[:30]: print('   ', e)
 try:
     sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
-    emit('pocketread', W, {'canary_bot_h': bh(cp), 'sealed_verdicts_canary': sealed[cp], 'rung_rows': dict(rung[cp]), 'side_exit_rows': dict(side[cp]), 'blocks_p90': p90(blocks[cp]),
+    emit('pocketread', W, {'canary_bot_h': bh(cp), 'sealed_verdicts_canary': sealed[cp], 'rung_rows': dict(rung[cp]), 'side_exit_rows': dict(side[cp]), 'blocks_p90': (p90(blocks[cp]) if blocks[cp] else None), 'blocks_measured_canary': len(blocks[cp]), 'blocks_unparsed_canary': unparsed[cp],
         'control_rung_rows': sum(rung[('control', 'post')].values()), 'drownings_canary': drown[cp], 'drownings_control': drown[('control', 'post')], 'drown_did': did,
         'hold_release_canary_post': rr(cp), 'hold_release_control_post': rr(('control', 'post')), 'positive_control_rows': sum(rows.values())})
 except Exception as _e: print('VERDICT_JSON failed:', _e)

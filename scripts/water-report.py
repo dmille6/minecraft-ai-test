@@ -18,6 +18,7 @@ events" -- the same shape as the unloaded-chunk probe that answered "not water"
 for the entire map, and the measurement window accidentally set two minutes in
 the future. A detector that cannot say "I do not know" will eventually lie.
 """
+import os
 import json, glob, re, sys, collections, datetime
 
 import gzip as _gzip
@@ -41,21 +42,46 @@ bots = collections.defaultdict(set)
 onland = collections.Counter()
 crossings = collections.defaultdict(list)
 
-for f in glob.glob('/var/log/mcai/*/skill-*.jsonl*'):
+_here = os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else None
+for _cand in ([os.path.join(_here, 'lib')] if _here else []) + ['/opt/minecraft-ai/scripts/lib',
+                                                               os.path.expanduser('~/mcai-analysis/lib')]:
+    if os.path.isdir(_cand):
+        sys.path.insert(0, _cand)
+        break
+from exposure import Spans
+EXPO = Spans()
+
+def _window_files():
+    live = glob.glob('/var/log/mcai/*/skill-*.jsonl')
+    tags = set()
+    d = CUT.date()
+    while d <= NOW.date() + datetime.timedelta(days=1):
+        tags.add(d.strftime('%Y%m%d'))
+        d += datetime.timedelta(days=1)
+    rot = [f for t in sorted(tags)
+           for f in glob.glob(f'/var/log/mcai/*/skill-*.jsonl-{t}')
+           + glob.glob(f'/var/log/mcai/*/skill-*.jsonl-{t}.gz')]
+    return live + rot
+
+
+for f in _window_files():
     try:
         with _openlog(f) as fh:
             for line in fh:
-                if 'drowning' not in line and 'swim' not in line and '_path' not in line:
-                    continue
+                # The substring fast-path was removed: it discarded the very rows that
+                # measure exposure. This is now a full walk, which CLAUDE.md puts at ~4s.
                 try: d = json.loads(line)
                 except Exception: continue
                 sk = d.get('skill') or {}
                 n = sk.get('name', '')
-                if n not in DROWN and n not in SWIM and n not in PATH: continue
                 try: t = datetime.datetime.fromisoformat(d.get('@timestamp', '').replace('Z', '+00:00'))
                 except Exception: continue
                 if t < CUT: continue
                 v = (d.get('code') or {}).get('version', '?').split('+')[0]
+                # EXPOSURE FIRST, from every row in the window, BEFORE the event filter.
+                # Feeding this filtered rows is the defect being fixed.
+                EXPO.add(v, (d.get('bot') or {}).get('name'), t)
+                if n not in DROWN and n not in SWIM and n not in PATH: continue
                 ev[v][n] += 1
                 s = span[v]
                 if s[0] is None or t < s[0]: s[0] = t
@@ -90,11 +116,18 @@ for v in order:
         ("%.1f" % (100 * e / win)) if win else "-",
         c['_drowning_reentry'], c['_swim_started'], onland[v], c['_drowning_yielded_to_swim']))
 
-print("\n  per bot-hour (40 bots)")
+print("\n  per bot-hour (measured exposure: every bot that logged anything, per-bot spans)")
 print("  %-9s %11s %9s %9s %9s" % ("version", "path_reset", "noPath", "strand", "reentry"))
 for v in order:
     c, s = ev[v], span[v]
-    bh = 40 * max(0.01, (s[1] - s[0]).total_seconds() / 3600)
+    # WAS: `bh = 40 * max(0.01, span_of_the_MEASURED_EVENTS)`. Two defects in one line, and
+    # docs/TODO-block2-shakedown.md:110 named both and they were never fixed:
+    #   - 40 is hardcoded against an 80-bot fleet, so every rate printed 2x too high;
+    #   - the span came from the FILTERED water/path events, so a version whose bots had no
+    #     water trouble accrued almost no exposure and its rates were inflated further. The
+    #     denominator moved with the outcome.
+    # Now from lib/exposure.py, fed EVERY row before any event filter.
+    bh = max(0.01, EXPO.hours(v, allow_zero=True))
     print("  %-9s %11.1f %9.1f %9.1f %9.1f" % (
         v, c['_path_reset'] / bh, c['_path_noPath'] / bh,
         c['_drowning_surfaced_stranded'] / bh, c['_drowning_reentry'] / bh))
