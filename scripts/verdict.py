@@ -134,9 +134,42 @@ deathwins = [(b, (dt.datetime.fromisoformat(ts.replace('Z', '+00:00')) - dt.time
 away = {k.lstrip('_') for b, rs in by.items() for ts, k, _ in rs
         if k.lstrip('_') in C_ROWS and not any(bb == b and lo <= ts < hi for bb, lo, hi in deathwins)}
 ctrl_at_death = set(); ctrl_deaths = 0
+_by_ctrl = {}
+
+
+def _exposure(scanned, since):
+    """Measured bot-hours: the summed per-bot observed span, since `since`.
+
+    This is DELIBERATELY the same estimator immobiledid.py uses for canary_bot_h, so the
+    poll and the scheduled read cannot disagree about the denominator of the same window.
+    A bot with fewer than two rows contributes nothing, which understates exposure slightly
+    and therefore OVERstates a death rate -- an error in the conservative direction for a
+    gate that reverts.
+    """
+    tot = 0.0
+    for _b, rs in (scanned or {}).items():
+        ts = [t for t, _k, _d in rs if t >= since]
+        if len(ts) >= 2:
+            a = dt.datetime.fromisoformat(min(ts).replace('Z', '+00:00'))
+            z = dt.datetime.fromisoformat(max(ts).replace('Z', '+00:00'))
+            tot += (z - a).total_seconds() / 3600.0
+    return tot
+
+
+def _control_scan():
+    """Scan the non-canary pools once per run, memoised. ~33s over 12 pools, which is why
+    the death gate only asks for it once the canary is AT the owner's two-death floor --
+    below the floor the gate returns False whatever control says, so paying for it would buy
+    nothing."""
+    global _by_ctrl
+    if not _by_ctrl:
+        allp = sorted({os.path.basename(p.rstrip('/')).rsplit('-', 1)[0] for p in glob.glob(f'{LOGROOT}/*-*/')})
+        _by_ctrl = _scan([p for p in allp if p not in pools]) or {'__empty__': []}
+    return _by_ctrl
+
+
 if changerow or linked:
-    allp = sorted({os.path.basename(p.rstrip('/')).rsplit('-', 1)[0] for p in glob.glob(f'{LOGROOT}/*-*/')})
-    for b, rs in _scan([p for p in allp if p not in pools]).items():
+    for b, rs in _control_scan().items():
         rs.sort()
         for ts, k, _ in rs:
             if k == '_death' and ts > cut:
@@ -173,7 +206,54 @@ if linked and reg.get('ladder_change', False):
 if linked: why.append(f'rung-linked death on a non-ladder change (v14c: report unless the four conditions fail; operator reviews): {linked[0][:3]}')
 # 4. the owner's death gate
 h = im['harm']
-if POLL and ndeaths >= 2 and h.get('control_rate'): h = dict(h, canary_deaths=ndeaths, canary_rate=ndeaths / max(0.1, ((dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))).total_seconds() / 3600) * 10))
+# v24 (2026-09-23): THE DEATH GATE WAS RUNNING ON INVENTED DENOMINATORS while measured ones
+# sat in the same evidence file. Three defects, all confirmed by reading and all live:
+#
+#   1. `and h.get('control_rate')` meant the poll's independently scanned deaths only
+#      reached the gate when the SAVED control rate was truthy. Line 74's no-read default
+#      sets control_rate=None, so for the whole early life of a canary -- before its first
+#      scheduled read -- the death poll was BLIND. Replayed independently: 20 synthetic
+#      canary deaths against a clean control returned POLL_OK. Harm continued precisely
+#      when the control arm was healthy, which is the worst possible time to be blind.
+#
+#   2. canary_rate was ndeaths / (elapsed_h * 10) -- TEN canary bots, hardcoded. MEASURED
+#      2026-09-23 on the live canary (banktruth-01, four pools): 20 canary bots and 56.8
+#      measured bot-h, against the 30.8 the constant implies. The death rate was inflated
+#      1.85x, biasing toward a FALSE REVERT. This is the same defect CLAUDE.md records for
+#      Events.rate(), which "used to default to 40 against an 80-bot fleet"; the fix there
+#      was to remove the default, and that is the fix here.
+#
+#   3. exposure was reconstructed by DIVIDING deaths by the rate -- algebraically fine while
+#      the rate is non-zero, and 0 or invented when it is not. Control exposure fell back to
+#      canary x 7.0. Replayed: 2 canary deaths in 20 bot-h HELD at a 0.58x bound with
+#      control at 40 bot-h, and REVERTED at 2.02x with 140. The invented denominator decides
+#      the verdict.
+#
+# What the same measurement says about the live canary, and why this matters today: canary
+# 1 death / 56.8 bot-h = 0.018/bh, control 5 deaths / 170.7 bot-h = 0.029/bh. The canary arm
+# is SAFER than control. The buggy denominators moved it toward the wrong answer.
+#
+# So: deaths and exposure now come from the same scan over the same window, and when
+# exposure is not measured the gate REFUSES rather than inventing -- death_gate already
+# says "no control exposure to compare against", which is the correct outcome.
+_cd = h['canary_deaths']
+_kd = h.get('control_deaths', 0)
+_cbh = im.get('canary_bot_h') or 0.0          # measured, emitted by immobiledid.py:200
+_kbh = im.get('control_bot_h') or 0.0
+_expo_note = 'exposure from the scheduled read'
+if POLL and not DRY:
+    _cd = ndeaths                              # the scan is the truth during a poll
+    _cbh = _exposure(by, cut)
+    _expo_note = f'exposure measured over {len(by)} canary bots since declared_at'
+    if _cd >= 2:
+        # Only at the floor is control worth 33s of scanning; below it the gate cannot fire.
+        _kd = sum(1 for _b, rs in _control_scan().items() for ts, k, _d in rs
+                  if k == '_death' and ts > cut)
+        _kbh = _exposure(_control_scan(), cut)
+        _expo_note += f'; control over {len(_control_scan())} bots'
+    else:
+        _kbh = 0.0                             # unmeasured, and the gate will say so
+        _kd = 0
 # v21 (2026-09-18, PROSPECTIVE): the owner's TWO-death floor is untouched; the 1.25x test now
 # runs on the one-sided 95% LOWER BOUND of the rate ratio, not the point estimate. The gate is
 # polled every 5 min for up to 9 h -- ~108 looks at an event with a null expectation under one
@@ -183,12 +263,17 @@ if POLL and ndeaths >= 2 and h.get('control_rate'): h = dict(h, canary_deaths=nd
 # The 43.7% reproduces the 46% measured on 2026-09-13, which is the positive control for the
 # simulation. It reverted falls-01 -- a REPORT-ONLY instrument -- on 2 idle deaths (one drowning,
 # one unknown, no falls) while all 3 CONTROL deaths in the same window were idle drownings.
-_cbh = (h['canary_deaths'] / h['canary_rate']) if h.get('canary_rate') else 0.0
-_kbh = (h.get('control_deaths', 0) / h['control_rate']) if h.get('control_rate') else (_cbh * 7.0)
-_rev, _why = death_gate(h['canary_deaths'], _cbh, h.get('control_deaths', 0), _kbh)
-if _rev: why.append(_why); (out('REVERT'))
-elif h['canary_deaths'] >= 2: why.append(_why); pending_watch.append('death gate held (v21)')
-why.append(f"deaths {h['canary_deaths']} ({h['canary_rate']:.3f}) vs control {(h['control_rate'] or 0):.3f}/bh")
+if _cd >= 2 and _kbh <= 0:
+    why.append(f'canary is AT the two-death floor ({_cd} deaths in {_cbh:.1f} measured bot-h) '
+               f'but control exposure is UNMEASURED -- there is nothing to compare against, '
+               f'and "cannot decide" is not KEEP. Removing the invented control denominator '
+               f'(canary x 7.0) must not convert a false REVERT into a false clean.')
+    (out('UNREADABLE'))
+_rev, _why = death_gate(_cd, _cbh, _kd, _kbh)
+if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT'))
+elif _cd >= 2: why.append(_why + f' [{_expo_note}]'); pending_watch.append('death gate held (v21)')
+why.append(f"deaths {_cd} ({(_cd / _cbh) if _cbh else 0:.3f}/bh over {_cbh:.1f} measured bot-h) "
+           f"vs control {_kd} ({(_kd / _kbh) if _kbh else 0:.3f}/bh over {_kbh:.1f})")
 if POLL: why.append(f'poll: {ndeaths} canary deaths since declared_at, {len(linked)} rung-linked, {len(changerow)} with a change row'); (out('POLL_OK', {'deaths': ndeaths}))
 # 5. v15c movement guards
 v = im['v15c']

@@ -35,15 +35,20 @@ def now(delta_min=0):
 
 
 def harm(canary_deaths=0, canary_bh=30.0, control_deaths=1, control_bh=210.0):
-    """`verdict.py` reconstructs bot-hours by dividing counts by rates, so the
-    fixture has to carry rates that divide back to the bot-hours intended.
-    A rate of 0 with deaths > 0 would silently give 0 bot-h and an infinite
-    ratio, which is how a fixture lies."""
+    """Since v24 verdict.py reads MEASURED exposure instead of reconstructing it by
+    dividing counts by rates, so the fixture carries the bot-hours directly -- which is
+    what immobiledid.py:200 actually emits, and always did.
+
+    The rates are still carried, because they are printed and because a fixture that
+    dropped them would stop replaying the producer. They are derived from the same
+    exposure, never set independently: an earlier draft let the two disagree and the
+    one-death case announced 30 bot-hours while its count and rate reconstructed 15."""
     return {'canary_deaths': canary_deaths,
             'canary_rate': (canary_deaths / canary_bh) if canary_bh else 0.0,
             'control_deaths': control_deaths,
             'control_rate': (control_deaths / control_bh) if control_bh else None,
-            'canary_bot_h': canary_bh}
+            'canary_bot_h': canary_bh,
+            'control_bot_h': control_bh}
 
 
 def immobiledid(readable=True, v15c='OK', v11=None, **hk):
@@ -53,7 +58,8 @@ def immobiledid(readable=True, v15c='OK', v11=None, **hk):
     # The producer derives both from the same exposure; a fixture that does not
     # is not a replay of anything. (Codex, 2026-09-19.)
     bh = hk.get('canary_bh', 30.0)
-    return {'readable': readable, 'canary_bot_h': bh,
+    kbh = hk.get('control_bh', 210.0)
+    return {'readable': readable, 'canary_bot_h': bh, 'control_bot_h': kbh,
             'harm': harm(**hk), 'v15c': {'verdict': v15c},
             'v11': v11 or {'climbs': 0.0, 'livelock': 0.0, 'ladders_p90': 8}}
 
@@ -284,21 +290,27 @@ def main():
           '"present in both arms; not the change". The base rungs are fleet-wide code, so '
           'one firing before a death is baseline behaviour. Reported, not decided on.', out)
 
-    # AND THE DENOMINATOR THE GATE INVENTS WHEN CONTROL HAS NONE. `verdict.py`
-    # falls back to `control_bot_h = canary_bot_h * 7`, which is the fleet's
-    # 70/10 split and is a GUESS, not a measurement. Pinned here as current
-    # behaviour, deliberately NOT changed: a gate change has to be prospective,
-    # and this one is queued rather than slipped in beside a test.
+    # THE QUEUED AMENDMENT, NOW MADE (v24, 2026-09-23). This case previously pinned the
+    # invented denominator -- `control_bot_h = canary_bot_h * 7` -- as CURRENT BEHAVIOUR,
+    # NOT ENDORSED, and said the change had to be prospective rather than slipped in beside
+    # a test. It is now prospective and deliberate, and the reason it could not wait is that
+    # the same three lines carried two further defects measured on a LIVE canary: the poll's
+    # scanned deaths never reached the gate unless a saved control rate was truthy, and the
+    # canary rate was computed against TEN hardcoded bots where the canary had twenty.
+    #
+    # The outcome deliberately changes from REVERT to UNREADABLE, not to KEEP. Dropping an
+    # invented denominator must not convert a false REVERT into a false clean, which is the
+    # worse of the two because nobody returns to check it. Control is scanned whenever the
+    # canary reaches the floor, so arriving here with no control exposure means the
+    # instrument failed -- and that is a refusal to decide, not a pass.
     c = Case(tmp)
     c.evidence('immobiledid', immobiledid(canary_deaths=3, canary_bh=30.0,
                                           control_deaths=0, control_bh=0))
     got, out = c.run()
-    check('control has no measured exposure', got, 'REVERT',
-          'CURRENT BEHAVIOUR, PINNED, NOT ENDORSED: with no control rate the gate assumes '
-          '7x the canary bot-hours and reverts on 3 deaths against an assumed 0. This pins '
-          'the OUTCOME, not the multiplier -- 3x or 8x would revert here too. The '
-          'assumption may be right, but it is not a denominator that was read. Queued as a '
-          'prospective amendment; this case exists so that change cannot happen silently.', out)
+    check('control has no measured exposure', got, 'UNREADABLE',
+          'v24: with no MEASURED control exposure the gate refuses instead of assuming 7x '
+          'the canary bot-hours. 3 canary deaths against an unmeasurable control is not a '
+          'KEEP and not a REVERT -- it is a broken instrument, and the verdict says so.', out)
 
     # falls-01, 04:39:10Z: TWO deaths, but the rate ratio's lower bound is 0.58x.
     # The change was report-only -- a log row at a fall -- and both its deaths

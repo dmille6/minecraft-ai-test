@@ -106,13 +106,33 @@ MUTANTS = [
      "The OTHER path to owner-01b's mistake, and a different branch from the change-row "
      "one. It ended -08c, -13 and -13b on one death each and was never calibrated."),
 
+    # ANCHOR REPOINTED 2026-09-23 (v24). The previous anchor was
+    #   "if _rev: why.append(_why); (out('REVERT'))"
+    # and v24 appended the exposure note to that line, so the mutant stopped applying. The
+    # harness did the right thing and SKIPPED it with "ANCHOR MISSING OR NOT UNIQUE ... this
+    # mutant proves nothing and must not be scored" -- which is the only reason the loss was
+    # visible at all. A mutant whose anchor has drifted reads exactly like a passing one.
     ('the death gate silenced entirely',
      'verdict.py',
-     "if _rev: why.append(_why); (out('REVERT'))",
+     "if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT'))",
      "if False: why.append(_why); (out('REVERT'))",
      '9 deaths in 30 bot-h vs 3 in 210', 'KEEP',
      "swim_to shipped and tripled drowning deaths. A suite that only ever proves the "
      "harness does NOT revert has tested one direction of one rule."),
+
+    # NEW, v24. Locks the amendment in: putting the invented control denominator back must
+    # be caught. Before v24 the gate fell back to control_bot_h = canary_bot_h * 7.0 -- the
+    # fleet's old 70/10 split, a guess and not a reading -- and it decided verdicts. With 3
+    # canary deaths and an unmeasurable control the honest answer is UNREADABLE; the mutant
+    # reverts instead, on a denominator nobody measured.
+    ('the invented control denominator restored (canary x 7)',
+     'verdict.py',
+     "_kbh = im.get('control_bot_h') or 0.0",
+     "_kbh = (im.get('control_bot_h') or 0.0) or ((im.get('canary_bot_h') or 0.0) * 7.0)",
+     'control has no measured exposure', 'REVERT',
+     "MEASURED on the live canary 2026-09-23: 20 canary bots and 56.8 measured bot-h "
+     "against the 30.8 the old hardcoded ten implied -- a death rate inflated 1.85x, "
+     "biasing toward a false REVERT. Exposure must be read, never assumed."),
 ]
 
 
@@ -152,6 +172,10 @@ WANT_BASE = {
     'v15c REVERT is forwarded': 'REVERT',
     '9 deaths in 30 bot-h vs 3 in 210': 'REVERT',
     '3x regression, lower bound 1.40x': 'REVERT',
+    # v24: was 'REVERT' while the gate invented control_bot_h = canary_bot_h * 7.0. With
+    # exposure read rather than assumed, three canary deaths against an UNMEASURABLE control
+    # is a broken instrument -- neither a pass nor a revert.
+    'control has no measured exposure': 'UNREADABLE',
 }
 
 
