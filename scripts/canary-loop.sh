@@ -29,11 +29,40 @@ fi
 # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
-  journal draw "waiting for two pools"
-  while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -); [ -n "$P" ] && break; sleep 1200; done
-  journal drawn "$P :: $(echo "$D" | head -2 | tr '\n' ' ')"
-  if [ "$NOACT" = "--no-act" ]; then echo "would deploy $SHA to $P"; exit 0; fi
-  $H/bin/fleet-deploy "$SHA" "$RUN" "$(jf notes) pools $P drawn at deploy by the canary loop" --pool "$P" > $H/digest/deploy-$RUN.log 2>&1 || { page error "deploy launch failed"; exit 2; }
+  # ---- WITHIN-WORLD or WHOLE-POOL. The registration chooses; the default is unchanged.
+  #
+  # One pool is one Minecraft world, so a pool draw carries the whole between-world difference:
+  # 86.7% of items/bot-hour variance is within-bot hour-to-hour, world level 4.0% and world drift
+  # 5.2%, so pool assignment reaches ~9% of the noise. Drawing 2 of the 5 bots in EVERY world takes
+  # the items MDE from +146% to +121% at 3h and +92% to +50% at 24h/arm, and removes the
+  # randomization floor of 1/120 that C(16,2) two-pool assignments impose no matter the sample size.
+  #
+  # A within-world draw does NOT consult drawrec.sh, and that is not an oversight: drawrec picks
+  # which POOLS are free, and here every world is used, each as its own control. The only conflict a
+  # within-world canary can have is another live canary, which the manifest check above already
+  # refuses.
+  ASSIGN=$(jf assignment); PW=$(jf per_world); [ -n "$PW" ] || PW=2
+  DEPLOY_SEL=""
+  if [ "$ASSIGN" = "within-world" ]; then
+    journal draw "within-world, $PW per world"
+    D=$(python3 /opt/minecraft-ai/scripts/draw-within-world.py --per-world "$PW" 2>&1) || {
+      page error "within-world draw REFUSED: $(echo "$D" | tail -2 | tr '\n' ' ')"; journal draw-refused "$D"; exit 2; }
+    P=$(echo "$D" | sed -n 's/^ROSTER //p')
+    SEED=$(echo "$D" | sed -n 's/^SEED //p')
+    [ -n "$P" ] || { page error "the draw printed no ROSTER line"; exit 2; }
+    # THE SEED IS THE RECORD OF THE RANDOMIZATION and it is journalled with the roster. Without it
+    # the assignment cannot be re-derived, and a randomization p-value computed later is a statement
+    # about a draw nobody can reproduce.
+    journal drawn "within-world seed $SEED :: $P"
+    DEPLOY_SEL="--roster"
+  else
+    journal draw "waiting for two pools"
+    while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -); [ -n "$P" ] && break; sleep 1200; done
+    journal drawn "$P :: $(echo "$D" | head -2 | tr '\n' ' ')"
+    DEPLOY_SEL="--pool"
+  fi
+  if [ "$NOACT" = "--no-act" ]; then echo "would deploy $SHA with $DEPLOY_SEL $P"; exit 0; fi
+  $H/bin/fleet-deploy "$SHA" "$RUN" "$(jf notes) ${DEPLOY_SEL#--} $P drawn at deploy by the canary loop${SEED:+ (seed $SEED)}" $DEPLOY_SEL "$P" > $H/digest/deploy-$RUN.log 2>&1 || { page error "deploy launch failed"; exit 2; }
   grep -q "VERIFIED" $H/digest/deploy-$RUN.log || { page error "deploy not verified: $(tail -2 $H/digest/deploy-$RUN.log | tr '\n' ' ')"; exit 2; }
   journal deployed "$P $(mf declared_at)"; page info "canary $RUN $SHA deployed to $P at $(mf declared_at)"
 fi
@@ -66,13 +95,57 @@ _restart_assigned() {
 }
 
 _teardown() {
-  sudo /usr/local/sbin/mcai-canary-tree teardown | tail -1
-  sudo python3 -c 'import json; p="/srv/mcbots/trial-manifest.json"; m=json.load(open(p)); m["canary_pool"]=None; m["canary_code_version"]=None; json.dump(m, open(p,"w"), indent=2)'
-  _restart_assigned
+  # ALL THREE STEPS LIVE IN canary-tree.sh NOW, and it restarts the SAVED ROSTER.
+  #
+  # What was here did step 1 (drop-ins), then step 2 by hand as `canary_pool=None;
+  # canary_code_version=None`, then _restart_assigned. Two things break for a within-world canary:
+  #
+  #   * Setting those two keys to None is no longer clearing the declaration. A split manifest has
+  #     FOUR canary fields, and leaving canary_split and canary_roster behind makes it a roster with
+  #     no build -- which canary_manifest.load() REFUSES, so every reader and the tripper go blind
+  #     immediately after a "successful" teardown. canary_manifest.cleared() removes all four.
+  #   * _restart_assigned enumerates /var/log/mcai/$pool-* from the manifest's canary_pool. A split
+  #     canary declares a SENTINEL there, so that expands to nothing and restarts NOBODY -- the
+  #     silent half-teardown CLAUDE.md records, where five bots kept running canary code from memory
+  #     and only the next deploy noticed. It also reads LOG DIRECTORIES, of which there are 88 for
+  #     80 live bots: the 8 extra are dead Charlie bots.
+  #
+  # canary-tree.sh writes the roster to disk at build time and tears down from it, unioned with the
+  # drop-ins actually present, so it restarts exactly who was treated whether that is five bots of a
+  # pool or two bots in each of sixteen worlds.
+  local TDOUT TDRC
+  TDOUT=$(sudo /usr/local/sbin/mcai-canary-tree teardown 2>&1); TDRC=$?
+  printf '%s\n' "$TDOUT" | tail -12
+  journal teardown-steps "rc=$TDRC $(printf '%s' "$TDOUT" | tr '\n' ' ' | cut -c1-400)"
+  # FALL BACK RATHER THAN ASSUME. If any of the three steps did not report ok, the old enumeration
+  # is still better than nothing for a whole-pool canary -- it is wrong only for a split one, and a
+  # split one is exactly the case where canary-tree's roster cannot be missing.
+  if [ "$TDRC" -ne 0 ] || ! grep -q 'step 3/3 ok' <<<"$TDOUT"; then
+    page error "canary-tree teardown did not report all three steps (rc=$TDRC); falling back to the pool enumeration"
+    journal teardown-fallback "$(printf '%s' "$TDOUT" | tr '\n' ' ' | cut -c1-300)"
+    _restart_assigned
+  fi
+  # THE MARK COMES FROM THE TEARDOWN, not from here: restarts are staggered, so a mark taken before
+  # them would read a not-yet-restarted bot on its pre-teardown line -- still the canary build -- and
+  # report a completed teardown as failed.
+  local MARK; MARK=$(sed -n 's/^RESTART_MARK //p' <<<"$TDOUT" | tail -1)
+  [ -n "$MARK" ] || MARK=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   sleep 90
-  local LIVE=$(for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do f=$(ls -t $d/skill-*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -1 $f | python3 -c 'import sys,json; print(json.loads(sys.stdin.readline())["code"]["version"][:7])' 2>/dev/null; done; done | sort | uniq -c | tr '\n' ' ')
-  journal torn-down "$LIVE"
-  page verdict "$FINAL $RUN; torn down; pools live: $LIVE"
+  # THE ASSERTION IS ONE BUILD, NOT TWO. CLAUDE.md says to "confirm exactly two versions are live"
+  # after a teardown; two is the count while a canary IS declared, and step 2 just cleared it. After
+  # a full teardown the declaration names ONE build and one is what must be live -- which is also
+  # what deploy-fleet.sh requires with no --pool, and what canary_split_ok refuses to call a canary.
+  local VOUT VRC
+  VOUT=$(python3 /opt/minecraft-ai/scripts/deploy-verify.py --teardown --since "$MARK" 2>&1); VRC=$?
+  printf '%s\n' "$VOUT"
+  journal torn-down "rc=$VRC $(printf '%s' "$VOUT" | tr '\n' ' ' | cut -c1-400)"
+  if [ "$VRC" -eq 0 ]; then
+    page verdict "$FINAL $RUN; torn down and VERIFIED on one build"
+  else
+    # NOT a silent pass. An unverified teardown is the state where bots keep running canary code,
+    # and it is the one this loop has actually reached before.
+    page error "$FINAL $RUN; teardown NOT verified: $(printf '%s' "$VOUT" | grep '^   !' | head -2 | tr '\n' ' ')"
+  fi
 }
 
 for M in $READS; do

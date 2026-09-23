@@ -295,6 +295,27 @@ def _split_rules():
     return canary_split_ok, in_canary_pool
 
 
+def _members(man):
+    """The canary membership spec from a manifest: a `Roster` when the declaration is split.
+
+    WHY THIS EXISTS AND WHAT IT PREVENTS. `Roster` has no JSON encoding, so every value this
+    tripper has ever seen in `canary_pool` was a plain string and the exact-membership branch of
+    `in_canary_pool` was unreachable from here. A within-world canary declares a SENTINEL in
+    `canary_pool` (`split:<run_id>`) precisely so that a reader which only knows prefixes resolves
+    it to nobody instead of to five bots of a world -- but for THIS reader, resolving to nobody is
+    not good enough: every treated bot would then read as "canary build outside canary pool" and
+    the tripper would stop the whole canary to correct a fault that does not exist.
+
+    So the tripper is the one reader that must hydrate the roster, and it is the reason the split
+    design was not deployable before today. On an uninterpretable declaration this raises, and both
+    call sites degrade to BLIND -- a guard that cannot read its declaration must judge nothing, the
+    same rule the `classify` import already follows.
+    """
+    sys.path.insert(0, "/opt/minecraft-ai/scripts/lib")
+    from canary_manifest import members_of
+    return members_of(man)
+
+
 def _classify_versions(seen, man, declared):
     """Adapter: infer the live digests, then hand the decision to the classifier."""
     sys.path.insert(0, "/opt/minecraft-ai/scripts/lib")
@@ -316,8 +337,15 @@ def _classify_versions(seen, man, declared):
     def ver(v):
         return v[1] if isinstance(v, (tuple, list)) else v
 
-    pool_name = man.get("canary_pool") or ""
-    pool = {b for b in seen if pool_name and in_canary_pool(b, pool_name)}
+    # HYDRATE, do not prefix-match the raw field. For a legacy declaration `_members` returns the
+    # same string this line used to read, so the resolved set is byte-identical; for a split one it
+    # returns the Roster, without which every treated bot reads as a violation.
+    try:
+        spec = _members(man)
+    except Exception as _e:
+        print(f"    the declaration cannot be interpreted ({_e}) -- version rules are BLIND")
+        return []
+    pool = {b for b in seen if spec and in_canary_pool(b, spec)}
     counts = {}
     for b, v in seen.items():
         key = (b in pool, ver(v))
@@ -435,9 +463,17 @@ def version_check():
         except Exception as _e:
             print(f"    split rules unavailable ({_e}) -- NOT judging this split")
             _cso = lambda *a, **k: (False, "split rules unavailable")
+        # The same hydration as in _classify_versions, and it must be the same or the two rules
+        # disagree about who is in the canary -- which is the defect consolidated out of this file
+        # on 2026-09-19 (two homes for one rule, only one of them tested).
+        try:
+            _spec = _members(man)
+        except Exception as _e:
+            print(f"    the declaration cannot be interpreted ({_e}) -- NOT judging this split")
+            _spec = None
         canary_ok, canary_why = _cso(
             {b: v for b, (_, v) in seen.items()}, declared,
-            man.get("canary_code_version", ""), man.get("canary_pool", ""))
+            man.get("canary_code_version", ""), _spec)
         if canary_ok:
             print(f"    {canary_why} -- split is declared, not judging")
         elif converging:

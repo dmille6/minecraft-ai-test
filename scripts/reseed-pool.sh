@@ -35,14 +35,26 @@ echo "== reseed $POOL seed=$SEED radius=$RADIUS ts=$TS go=$GO journal=$J"
 [ $GO = 1 ] || { echo "DRY RUN: preconditions only, then the plan. Add --go to act."; }
 
 # ---- preconditions (always run)
-MAN=$(B 'python3 -c "import json; d=json.load(open(\"/srv/mcbots/trial-manifest.json\")); print(d.get(\"canary_pool\") or \"\")"')
-case ",$MAN," in *",$POOL,"*) echo "refusing: $POOL is the live code canary ($MAN)"; exit 2;; esac
+# THE WORLDS, NOT THE canary_pool STRING. A within-world canary declares a SENTINEL there, so the
+# comma compare below resolved it to nothing and this guard failed OPEN -- it would have allowed
+# DELETING A WORLD that had treated bots in it, destroying the trial. worlds_touched reads the
+# roster; a split canary touches every world, so it refuses every pool while one is live.
+MAN=$(B 'python3 -c "import json,sys; sys.path.insert(0,\"/opt/minecraft-ai/scripts/lib\"); import canary_manifest as c; print(\",\".join(c.worlds_touched(json.load(open(\"/srv/mcbots/trial-manifest.json\")))))"')
+case ",$MAN," in
+  *",*,"*) echo "refusing: a within-world canary is live and treats bots in EVERY world ($MAN)"; exit 2;;
+  *",$POOL,"*) echo "refusing: $POOL is the live code canary ($MAN)"; exit 2;;
+esac
 if B "sudo cat /var/log/mcai/_canary-decisions.jsonl" | python3 -c "
 import sys,json,datetime as dt; now=dt.datetime.now(dt.timezone.utc); pool='$POOL'
+sys.path.insert(0,'/opt/minecraft-ai/scripts/lib'); import canary_manifest as c
 for l in sys.stdin:
     try: r=json.loads(l)
     except Exception: sys.exit(3)
-    if pool in [p.strip() for p in str(r.get('canary_pool') or '').split(',')] and (now-dt.datetime.fromisoformat(r['ts'])).total_seconds()<12*3600: sys.exit(1)
+    # Same reason as the manifest check above: a ledger row for a within-world canary carries a
+    # sentinel in canary_pool, so splitting it on commas found no world and this exclusion was a
+    # no-op. worlds_touched reads canary_roster, which check-open-loop.py now records beside it.
+    w = c.worlds_touched(r)
+    if (pool in w or c.ALL_WORLDS in w) and (now-dt.datetime.fromisoformat(r['ts'])).total_seconds()<12*3600: sys.exit(1)
 "; then :; else rc=$?; [ $rc = 3 ] && echo "refusing: unreadable ledger line" || echo "refusing: $POOL had a canary decision in the last 12 h (ledger exclusion)"; exit 2; fi
 # --all, BECAUSE A RESUME FINDS ITS BOTS ALREADY STOPPED. Without it
 # `list-units` omits inactive units, so the second invocation of a journaled,

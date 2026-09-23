@@ -65,8 +65,16 @@ def main():
         if not sha:
             print('no canary_sha in %s — nothing to close' % a.manifest, file=sys.stderr)
             return 2
+        # THE ROSTER GOES IN THE LEDGER BESIDE THE POOL. A within-world canary records a SENTINEL
+        # in canary_pool, so a row carrying only that field cannot say which worlds were involved --
+        # and two guards read these rows to answer exactly that (drawrec.sh's 12h pool exclusion and
+        # reseed-pool.sh's refusal to delete a world a canary just used). Without this they would
+        # resolve a split canary to no worlds and fail OPEN. `canary_pool` itself is unchanged, so
+        # every existing consumer of this ledger, including the openloop identity check that
+        # compares it to the manifest, reads exactly what it read before.
         row = {'canary_sha': sha,
                'canary_pool': (manifest or {}).get('canary_pool'),
+               'canary_roster': (manifest or {}).get('canary_roster'),
                'decision': a.record,
                'note': a.note,
                'ts': datetime.datetime.now(datetime.timezone.utc).isoformat()}

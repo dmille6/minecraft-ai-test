@@ -26,11 +26,28 @@ LOG=/tmp/deploy-$SHA-$RUN.log   # per run: a reused per-sha log let a stale "can
 # baseline removed two promoted changes from its ten bots for four minutes (torn down, recorded INCONCLUSIVE). So a
 # --pool sha must be a descendant of the manifest's declared_code_version; BASE_OK=1 overrides for a deliberate
 # reverse canary (rule v13) and is recorded in the notes by whoever sets it.
-if printf '%s ' "$@" | grep -q -- '--pool' && [ -z "${BASE_OK:-}" ]; then
+# --roster IS A CANARY TOO, and the descendant check must cover it. Matching only '--pool' here
+# would let a within-world canary built on the PREVIOUS baseline go out unchecked -- which is the
+# 2026-09-16 failure this block exists for, where a --pool deploy of a branch built on the old
+# baseline removed two promoted changes from ten bots. A within-world canary touches 32 bots.
+if printf '%s ' "$@" | grep -qE -- '--pool|--roster' && [ -z "${BASE_OK:-}" ]; then
   BASE=$(ssh -o ConnectTimeout=15 $HOST 'python3 -c "import json;print(json.load(open(\"/srv/mcbots/trial-manifest.json\")).get(\"declared_code_version\",\"\"))"' 2>/dev/null)
   if [ -n "$BASE" ]; then
-    REPO=$(git -C "$HOME/Documents/code-minecraft-ai" rev-parse --show-toplevel 2>/dev/null)
-    git -C "$REPO" fetch -q origin 2>/dev/null
+    # THE CHECKOUT THIS RESOLVED AGAINST IS THE STALE ONE. It hardcoded
+    # ~/Documents/code-minecraft-ai, and the live checkout is mcai-rl02 -- the two have diverged
+    # (memory: "two checkouts have diverged"). A canary sha that exists only in the live checkout
+    # makes `merge-base --is-ancestor` fail, and this block then REFUSES a perfectly good deploy
+    # with a message about the baseline. Pick whichever checkout actually contains both commits,
+    # and say which one answered so a refusal can be told apart from a missing object.
+    REPO=""
+    for _c in "$HOME/Documents/mcai-rl02" "$HOME/Documents/code-minecraft-ai"; do
+      [ -d "$_c/.git" ] || continue
+      git -C "$_c" fetch -q origin 2>/dev/null
+      if git -C "$_c" cat-file -e "$SHA^{commit}" 2>/dev/null && \
+         git -C "$_c" cat-file -e "$BASE^{commit}" 2>/dev/null; then REPO="$_c"; break; fi
+    done
+    [ -n "$REPO" ] && echo "baseline check: resolving in $REPO"
+    [ -n "$REPO" ] || { echo "REFUSED: neither checkout has both $SHA and $BASE; fetch first"; exit 2; }
     if ! git -C "$REPO" merge-base --is-ancestor "$BASE" "$SHA" 2>/dev/null; then
       echo "REFUSED: canary $SHA is not a descendant of the deployed baseline $BASE (a canary branches from the DEPLOYED baseline; BASE_OK=1 for a deliberate reverse canary)"; exit 2
     fi

@@ -22,7 +22,9 @@ now = dt.datetime.now(dt.timezone.utc)
 # keys let stale times overwrite fresh ones and the draw offered pools that were still excluded). A pool is excluded
 # for 12 h after its last canary DECISION (the ledger's ts; conservative, later than declared_at) and while it is the
 # manifest's live canary.
-import json
+import json, sys as _sys
+_sys.path.insert(0, '/opt/minecraft-ai/scripts/lib')
+import canary_manifest as _cm
 ledger = txt.split('=== LEDGER')[1].split('=== MANIFEST')[0] if '=== LEDGER' in txt else ''
 excl = set()
 for line in ledger.strip().splitlines():
@@ -30,12 +32,14 @@ for line in ledger.strip().splitlines():
     except Exception: continue
     ts = dt.datetime.fromisoformat(row['ts'])
     if (now - ts).total_seconds() < 12 * 3600:
-        for p in str(row.get('canary_pool') or '').split(','):
-            if p.strip(): excl.add(p.strip())
+        # A SPLIT CANARY'S WORLDS ARE NOT IN canary_pool. It holds a sentinel, so the comma split
+        # that used to be here resolved a within-world canary to no worlds at all and this
+        # exclusion failed OPEN -- offering for a fresh canary the very pools one had just used.
+        # worlds_touched reads the roster beside it, and answers ALL_WORLDS when it cannot.
+        for p in _cm.worlds_touched(row): excl.add(p)
 try:
     man = json.loads(txt.split('=== MANIFEST')[1]) if '=== MANIFEST' in txt else {}
-    for p in str(man.get('canary_pool') or '').split(','):
-        if p.strip(): excl.add(p.strip())
+    for p in _cm.worlds_touched(man): excl.add(p)
 except Exception: pass
 # Registration-driven exposure. This MUST be a term inside elig(), not a filter applied to its
 # result: the `len(e) < 2` widening below recomputes e from scratch, and an earlier narrowing was
@@ -56,12 +60,18 @@ if RUN:
         print('draw_exposure:', RUN, 'pools able to expose this change:', ALLOWED)
     else:
         print('draw_exposure: no requirement declared for', RUN, '-- v8 filter only')
-def elig(w): return [p for p, (h, ibh) in band.items() if h == '5080' and p != 'placebo-c' and not p.startswith('isolated') and p not in excl and abs(ibh - med) / med <= w and p in expo and (expo[p][0] >= 8 or expo[p][1] >= 20) and (ALLOWED is None or p in ALLOWED)]
+def elig(w): return [p for p, (h, ibh) in band.items() if h == '5080' and p != 'placebo-c' and not p.startswith('isolated') and p not in excl and _cm.ALL_WORLDS not in excl and abs(ibh - med) / med <= w and p in expo and (expo[p][0] >= 8 or expo[p][1] >= 20) and (ALLOWED is None or p in ALLOWED)]
 e = elig(0.25); w = '±25%'
 # TWO pools are needed, so widen when the ±25% band yields FEWER THAN TWO, not only when it yields none: on 16 Sep 21:13Z the
 # loop's first draw found one pool at ±25% and slept instead of stating the ±40% band the rule allows.
 if len(e) < 2: e = elig(0.40); w = '±40% (widened, stated)'
 trapped = [p for p in e if expo[p][2] >= 1]
+# ALL_WORLDS IS NOT A POOL NAME, so `p not in excl` would have silently ignored it and the
+# exclusion would have been a no-op -- the exact failure mode it was added to prevent. It is
+# tested for by name in elig() above; a within-world canary in the last 12h excludes every pool,
+# which is correct: it treated bots in all sixteen worlds.
+if _cm.ALL_WORLDS in excl:
+    print('EXCLUDED: a within-world canary touched every world in the last 12h')
 print('median', round(med, 1), 'excluded(12h)', sorted(excl), 'band', w)
 print('eligible', [(p, band[p][1], expo[p]) for p in e], '| with a trapped bot:', trapped)
 rng = secrets.SystemRandom(); order = trapped + [p for p in e if p not in trapped]; pick = (rng.sample(trapped, min(2, len(trapped))) + rng.sample([p for p in e if p not in trapped], max(0, 2 - min(2, len(trapped))))) if len(e) >= 2 else None
