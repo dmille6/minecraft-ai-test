@@ -521,7 +521,7 @@ before you say the number"), but changing a gate is an amendment and amendments 
 first. It is queued. `test_verdict_acceptance.py` pins the current OUTCOME (not the multiplier — 3x or 8x would
 revert here too) so that the change cannot happen silently.
 
-## `banktruth-01` — REGISTERED 2026-09-23 13:35 UTC, BEFORE the draw and before the deploy
+## `banktruth-01` — REGISTERED 2026-09-23 11:55 UTC, BEFORE the draw and before the deploy
 
 **Change** `b7c2e44` (branch `deposit-truth-msg`, based on the deployed baseline `9b572aa`). The deposit
 skill's `no_effect` refusal told the bot it was carrying none of an item it was carrying. Measured on the
@@ -597,7 +597,7 @@ not invites. A KEEP is promoted on 27 Sep after the window closes.
    1.21.8 item names is 114 chars (136 with the `deposit -> no_effect: ` prefix). **Nothing is truncated**,
    and the commit message's claim about the 160-char path is corrected here.
 
-### `banktruth-01` — prospective note added 2026-09-23 14:30 UTC, before the draw. No gate changed.
+### `banktruth-01` — prospective note added 2026-09-23 11:57 UTC, before the draw. No gate changed.
 
 The read script was dry-run twice against **placebo** splits of the all-baseline fleet, at cutoffs 05:00Z
 and 06:00Z. They returned **−8.9 pp** and **−16.4 pp**. The second one **crosses the registered gate on a
@@ -622,7 +622,7 @@ The cost of a false KEEP here is bounded and stated: **this canary is torn down 
 and a KEEP is not promoted until after the 24–27 Sep program window closes. Four days of nothing is the
 whole downside, and it buys a gate that was not moved after seeing its own null.
 
-### `banktruth-01` — AMENDED 2026-09-23 15:25 UTC, prospectively, before the draw and before any canary data. **sha is now `9a6aa13`.**
+### `banktruth-01` — AMENDED 2026-09-23 11:59 UTC, prospectively, before the draw and before any canary data. **sha is now `9a6aa13`.**
 
 An independent adversarial review returned **four blocking findings** on `b7c2e44`. Three were correct at
 source and are fixed in `9a6aa13`; the fourth rebuilds this read and is the reason the gate above is
@@ -666,7 +666,7 @@ Null recalibrated, 300 placebo draws, 4 pools / 20 bots, pre 180 / post 360, sin
 large effect.** A half effect reads INCONCLUSIVE, and that is the honest answer rather than a failure of
 the instrument or of the change.
 
-**The 14:30Z note about a placebo dry run crossing the gate applies to the withdrawn share endpoint and is
+**The 11:57Z note about a placebo dry run crossing the gate applies to the withdrawn share endpoint and is
 superseded.** The rate endpoint was dry-run on three placebo cutoffs (05:00Z, 06:00Z, 08:00Z): **−0.158,
 −0.484, −0.025 /bot-h — none of them crosses −0.885.** The series requirement from that note is KEPT: read
 `repeat_rate_did` at +30/+90/+180/+360, require the exposure floor and an uncollapsed `deposit runs/bot-h`
@@ -675,3 +675,13 @@ alongside the gate, and keep INCONCLUSIVE as the likely close.
 **Not adopted, and why.** The review also suggested reading bankable-items-deposited/bot-h as a third line.
 It is already in the read as a WATCH (`net/bh`) and is not promoted to a gate, because it has no
 calibration and a gate without one is what `canary-gate-was-noise` is about.
+
+### `banktruth-01` — timestamp correction, 2026-09-23 12:02 UTC
+
+The three headings above were first written **13:35Z, 14:30Z and 15:25Z**. All three were **in the future**.
+I was estimating elapsed time from the flow of work instead of reading the clock, and only caught it on a
+`date -u` that returned 12:00:42Z. The real order is unchanged and is: measurement 11:15–11:40Z, patch and
+tests 11:40–11:50Z, the two independent reviews and the null calibration 11:50–11:58Z, registration 11:55Z,
+**deploy after 12:00Z**. Registration-before-deploy is the whole discipline of this file, and a stamp in the
+future makes a correct order look fabricated. Corrected in place and recorded here rather than quietly
+re-stamped.
