@@ -468,6 +468,22 @@ def main():
     check('v11 climbs +190%', got, 'REVERT',
           'A change that doubles climb attempts is thrashing, whatever the death count says.', out)
 
+    # ---- 5c. THE CONVERSE. A registration that DOES declare change rows must not carry the
+    # warning -- otherwise the line is decoration rather than a signal, and a reader learns to
+    # ignore it. Same deaths, same rates, only the declaration differs.
+    print("\n5c. change_rows DECLARED -- the linkage warning must be ABSENT")
+    c = Case(tmp, reg_extra={'change_rows': ['escape_rung', 'safe_hold']})
+    c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
+                                          control_deaths=3, control_bh=210.0))
+    got, out = c.run()
+    check('declaring change_rows silences the linkage warning',
+          'LINKAGE UNAVAILABLE' not in out, True,
+          'The warning marks a MISSING instrument. If it fires when the instrument is '
+          'present it is noise, and a noisy warning is an ignored one.', out)
+    check('  and the verdict is unchanged by the declaration', got, 'REVERT',
+          'Declaring rows must not alter a rate-path verdict; it only enables a second '
+          'path.', out)
+
     # ---- 6. AN INJECTED KNOWN REGRESSION.
     # swim_to shipped and TRIPLED drowning deaths. At that scale the gate is
     # calibrated to fire 99.9% of the time, and it must: a suite that only ever
@@ -477,6 +493,19 @@ def main():
     c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
                                           control_deaths=3, control_bh=210.0))
     got, out = c.run()
+    # v27: THE HOLE THAT MADE THE ALARM DEAF, made visible.
+    # The gate has two revert paths: LINKED (>=2 deaths AND a licensed change row) and RATE
+    # (>=2 deaths AND the bound clears 1.25x). The linked path is the sensitive one. Measured
+    # 2026-09-24: only 7 of 15 registrations declare `change_rows`, so for more than half of
+    # canaries the sensitive path was INERT and every death decision fell to the rate -- whose
+    # threshold was then tightened, leaving the gate tripping on 0 of 15 historical death
+    # reverts. "Linkage said no" and "there was nothing for linkage to check" are opposite
+    # states and the old verdict line could not tell them apart.
+    check('  and it says LINKAGE UNAVAILABLE when no change_rows are declared',
+          'LINKAGE UNAVAILABLE' in out, True,
+          'This fixture declares no change_rows, so the licensed-row path cannot run. A '
+          'death verdict that rested on the rate alone must say so.', out)
+
     # v26: this fixture supplies AGGREGATE deaths and hours only -- the randomization units
     # come from the log SCAN, which the harness does not populate with deaths. So the p is
     # NOT SUPPLIED here and the owner's rule stands alone, which is the documented safe

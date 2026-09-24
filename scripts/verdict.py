@@ -372,6 +372,28 @@ if POLL and not DRY:
 # The 43.7% reproduces the 46% measured on 2026-09-13, which is the positive control for the
 # simulation. It reverted falls-01 -- a REPORT-ONLY instrument -- on 2 idle deaths (one drowning,
 # one unknown, no falls) while all 3 CONTROL deaths in the same window were idle drownings.
+# v27 (2026-09-24): SAY WHEN LINKAGE WAS NOT AVAILABLE.
+#
+# The gate has two paths to a revert and always has: the LINKED one (>= 2 canary deaths AND
+# a licensed change row, `licence_reverts` in singledeath.py) and the RATE one (>= 2 deaths
+# AND the lower bound clears 1.25x). The linked path is the sensitive one -- it fires at two
+# deaths without needing the rate to prove anything, which is exactly what a small canary can
+# supply. The rate path is the blunt backstop for gross harm.
+#
+# Measured 2026-09-24: only 7 of 15 registrations declare `change_rows` at all, and the ones
+# that do not include falls-01 and the whole rl-08 family. So for more than half of canaries
+# the sensitive path was INERT, and every death decision fell to the rate -- which then had
+# its threshold tightened on 09-18 to stop the false alarms, leaving the gate tripping on 0
+# of 15 historical death reverts. The deafness is the two facts together, not the bound alone.
+#
+# This does not invent a verdict. It makes the hole visible on the verdict line, because
+# "linkage said no" and "there was nothing for linkage to check" are opposite states and the
+# old output could not tell them apart -- the exact confusion this project keeps paying for.
+if _cd >= 2 and not C_ROWS:
+    why.append('LINKAGE UNAVAILABLE: this registration declares no `change_rows`, so the '
+               'licensed-row path could not run and this death decision rests on the RATE '
+               'alone. A canary that can kill should declare the rows its own change emits; '
+               'without them, an unrelated death and a caused one look identical here.')
 if _cd >= 2 and _kbh <= 0:
     why.append(f'canary is AT the two-death floor ({_cd} deaths in {_cbh:.1f} measured bot-h) '
                f'but control exposure is UNMEASURED -- there is nothing to compare against, '

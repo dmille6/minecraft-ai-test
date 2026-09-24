@@ -81,6 +81,20 @@ MUTANTS = [
      "The harm signal must survive every loosening of the death gate. This is the guard "
      "that catches a bot held still by its own owner."),
 
+    # NEW 2026-09-24 (v27). Measured: only 7 of 15 registrations declare `change_rows`, so
+    # the gate's SENSITIVE path (>=2 deaths AND a licensed row) was inert for more than half
+    # of canaries and every death decision fell to the rate. Deleting this warning restores
+    # the state where a rate-only death verdict is indistinguishable from a linkage-checked
+    # one -- which is how the alarm went deaf without anyone noticing.
+    ('the linkage-unavailable warning removed',
+     'verdict.py',
+     'if _cd >= 2 and not C_ROWS:',
+     'if False:',
+     '  and it says LINKAGE UNAVAILABLE when no change_rows are declared', 'False',
+     "A canary with no declared change rows cannot use the licensed-row path at all. If the "
+     "verdict does not say so, 'linkage said no' and 'nothing was there to check' look the "
+     "same."),
+
     # NEW 2026-09-24 (v25). THE HOLE THAT WOULD HAVE MADE THE FIX WORSE THAN THE BUG.
     # The first draft of v25 demoted a failed typed line to `watch`. But `watch` is only
     # PRINTED: control falls through to out('KEEP') at the end of verdict.py, so that draft
@@ -252,6 +266,9 @@ WANT_BASE = {
     'declared evidence=defect still reverts': 'REVERT',
     'declared support p=0.01 <= 0.05 still reverts': 'REVERT',
     'registration omits immobiledid': 'UNREADABLE',
+    # v27: a boolean case, not a verdict token -- the baseline is that the warning IS present
+    # when no change_rows are declared, and the mutant's job is to make it absent.
+    '  and it says LINKAGE UNAVAILABLE when no change_rows are declared': 'True',
 }
 
 
