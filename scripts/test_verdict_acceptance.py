@@ -514,6 +514,7 @@ def main():
               'op': '<=', 'value': 0.05, 'on_fail': 'REVERT', 'evidence': 'calibrated',
               'calibration': {'tool': 'guardcal.py', 'days': 3, 'draws': 300, 'form': 'did',
                               'at_threshold': 0.05, 'false_trip_rate': 0.02,
+                              'false_trip_rate_ci_upper': 0.043,
                               'nonzero_draws': 210,
                               'over_reads': True, 'measured_at': _fresh}}
         cal = over.pop('calibration_patch', None)
@@ -549,8 +550,9 @@ def main():
             ('missing fields', _ownline(calibration={'tool': 'guardcal.py'}), 'missing'),
             ('threshold mismatch (calibrated 50, registered 30)',
              _ownline(calibration_patch={'at_threshold': 50}), 'different rule'),
-            ('cries wolf too often (false-trip 0.31)',
-             _ownline(calibration_patch={'false_trip_rate': 0.31}), 'cries wolf'),
+            ('cries wolf too often (false-trip 0.31, CI upper 0.36)',
+             _ownline(calibration_patch={'false_trip_rate': 0.31,
+                                         'false_trip_rate_ci_upper': 0.36}), 'cries wolf'),
             ('single read, not the schedule',
              _ownline(calibration_patch={'over_reads': False}), 'SINGLE read'),
             ('stale by 72 h', _ownline(calibration_patch={'measured_at': _stale}), 'not a calibration'),
@@ -569,6 +571,22 @@ def main():
             # because the fleet's no-path rate doubled in four days.
             ('a canary-only LEVEL form', _ownline(calibration_patch={'form': 'level'}),
              'only `did` may revert'),
+            # THE POINT ESTIMATE CANNOT FAIL, SO IT IS NOT A TEST. A registration that sets
+            # its threshold at its own calibration's p95 gets false_trip_rate = 0.0500 BY
+            # CONSTRUCTION -- exactly the ceiling, for any metric -- so `ftr > 0.05` never
+            # fires. Measured 2026-09-24: the p95 threshold realised 0.0500 with a 95% CI of
+            # [0.037, 0.067] (refused), while p97 gave 0.0288 with [0.019, 0.043] (clears).
+            ('no CI upper bound at all',
+             _ownline(calibration_patch={'false_trip_rate_ci_upper': None}), 'BY CONSTRUCTION'),
+            ('the p95 trap: 0.0500 point estimate, CI upper 0.067',
+             _ownline(calibration_patch={'false_trip_rate': 0.05,
+                                         'at_threshold': 0.05,
+                                         'false_trip_rate_ci_upper': 0.067}),
+             'upper bound 0.0670'),
+            ('a CI upper bound BELOW its own point estimate',
+             _ownline(calibration_patch={'false_trip_rate': 0.04,
+                                         'false_trip_rate_ci_upper': 0.01}),
+             'not an upper bound'),
             ('no form declared at all', _ownline(calibration_patch={'form': None}),
              'only `did` may revert'),
             ('  and it names `evidence: defect` as the honest class instead',

@@ -125,13 +125,25 @@ MUTANTS = [
      "bound a treatment-only metric at all. The reason is what someone acts on, so that is "
      "what this mutant tests."),
 
-    ('the false-trip ceiling removed -- a line that cries wolf may stop a canary',
+    ('the CI-bound requirement removed -- the p95 trap reopens',
      'verdict.py',
-     '    if ftr > CAL_MAX_FTR:',
+     '    if ub > CAL_MAX_FTR:',
      '    if False:',
-     'unsound calibration blocks: cries wolf too often (false-trip 0.31)', 'REVERT',
-     "A line trips on 31% of pseudo-canaries with no code change. Letting it revert would "
-     "reproduce leaf-01, whose -0.5 was crossed by 36-49% of its own window's nulls."),
+     'unsound calibration blocks: the p95 trap: 0.0500 point estimate, CI upper 0.067', 'REVERT',
+     "A registration that sets its threshold at its own calibration's p95 gets a false-trip "
+     "rate of 0.0500 BY CONSTRUCTION -- exactly the ceiling, for any metric -- so the point "
+     "estimate can never fail. Measured 2026-09-24: p95 realised 0.0500 with CI [0.037, "
+     "0.067]; p97 gave 0.0288 with [0.019, 0.043]. Only the bound can tell them apart."),
+
+    ('the missing-CI refusal removed -- absence reads as precision',
+     'verdict.py',
+     '    if ub is None:',
+     '    if False:',
+     '  and the reason says why (BY CONSTRUCTION)', 'False',
+     "The VERDICT does not move -- the type check below also rejects None, which is defence "
+     "in depth. What moves is the REASON: without this branch the operator is told the number "
+     "is malformed rather than that a p95-derived point estimate cannot fail by construction. "
+     "The reason is what someone acts on."),
 
     ('the over_reads requirement removed -- a single-read rate passes as a canary rate',
      'verdict.py',
@@ -349,12 +361,15 @@ WANT_BASE = {
     # v28: the calibrated-own-line guards. Baseline for each is INCONCLUSIVE -- the line FAILED
     # but its calibration is unsound, so it must reach neither REVERT nor KEEP.
     'unsound calibration blocks: threshold mismatch (calibrated 50, registered 30)': 'INCONCLUSIVE',
-    'unsound calibration blocks: cries wolf too often (false-trip 0.31)': 'INCONCLUSIVE',
+    'unsound calibration blocks: cries wolf too often (false-trip 0.31, CI upper 0.36)': 'INCONCLUSIVE',
     'unsound calibration blocks: single read, not the schedule': 'INCONCLUSIVE',
     'unsound calibration blocks: stale by 72 h': 'INCONCLUSIVE',
     'two calibrated REVERT lines block': 'INCONCLUSIVE',
     'unsound calibration blocks: degenerate: 4 of 300 draws had a baseline value': 'INCONCLUSIVE',
     'unsound calibration blocks: a canary-only LEVEL form': 'INCONCLUSIVE',
+    'unsound calibration blocks: the p95 trap: 0.0500 point estimate, CI upper 0.067': 'INCONCLUSIVE',
+    'unsound calibration blocks: no CI upper bound at all': 'INCONCLUSIVE',
+    '  and the reason says why (BY CONSTRUCTION)': 'True',
     'unsound calibration blocks: nonzero_draws not reported at all': 'INCONCLUSIVE',
     '  and the reason says why (for free)': 'True',
     'a calibrated DiD own-line REVERTS (0.31 vs <=0.05)': 'REVERT',

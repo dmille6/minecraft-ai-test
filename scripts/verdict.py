@@ -523,6 +523,25 @@ blocked = []
 
 _CAL_RATIONED = False   # set from the registration before section 8 runs
 CAL_MAX_FTR = float(os.environ.get('VERDICT_CAL_MAX_FTR', '0.05'))
+# MEASURED 2026-09-24, no longer a placeholder. 19 read anchors (5 of 24 refused as
+# unresolved: fewer than 6 pools on a single code version), 200 application draws per anchor,
+# 300 calibration draws per cell, statistic = max over the four reads, DiD form. Forward
+# transfer, pooled, with cluster-bootstrap 95% CI:
+#     0 h 5.7% [3.7, 7.7] | 12 h 6.0% [4.1, 7.9] | 24 h 6.1% [4.4, 7.8]
+#    48 h 7.3% [5.3, 9.5] | 72 h 8.0% [5.7, 10.7] | 96 h 5.9% [3.8, 8.5]
+# Criterion: the largest lag such that every lag up to it keeps the pooled rate AND its CI
+# upper bound under 2x nominal. 48 h passes at 9.5%; 72 h is the first to cross, at 10.7%.
+#
+# REGISTERED WITH THE CONSTANT: IT BUYS LESS THAN IT LOOKS LIKE. At ZERO age the worst anchor
+# realises 14.5%, and six independent fresh calibrations there give 12.0-15.5% -- a property
+# of the hours the canary ran in, not of the calibration. Variance: calibration sampling
+# 1.7 pp, era of the calibration 3.3 pp (all an age limit can reach), era of the READ 3.5 pp
+# (it cannot). Tightening 48 -> 24 -> 12 h moves 6.1% -> 6.0% against 5.7% fresh: nothing.
+# The read-window component is what v25's `support: {read, field, max}` already measures.
+# The backward cell deliberately does NOT bind: a calibration is only ever applied forward,
+# and measured over 19 anchors the two directions are indistinguishable. A drift statistic was
+# tested and rejected -- corr(drift, realised false-trip) = -0.097 over 114 cells, no
+# relationship and the wrong sign, and matched on how much it admits it equals an age.
 CAL_MAX_AGE_H = float(os.environ.get('VERDICT_CAL_MAX_AGE_H', '48'))
 
 
@@ -574,9 +593,36 @@ def _calibration_ok(rule, now=None):
     ftr = cal.get('false_trip_rate')
     if not isinstance(ftr, (int, float)) or ftr != ftr:
         return False, 'calibration false_trip_rate is not a number (%r)' % (ftr,)
-    if ftr > CAL_MAX_FTR:
-        return False, ('calibration false_trip_rate %.4f > %.2f -- this line cries wolf too '
-                       'often to stop a canary' % (ftr, CAL_MAX_FTR))
+    # THE POINT ESTIMATE CANNOT FAIL THIS TEST, WHICH MAKES IT NOT A TEST.
+    # Found by the closing measurement, 2026-09-24: a registration naturally sets
+    # `at_threshold` to its calibration's own 95th percentile, and then the false-trip rate
+    # IS 0.0500 by construction -- exactly the ceiling, every time, for any metric. So
+    # `ftr > 0.05` can never fire, and the guard that was supposed to reject a line that
+    # cries wolf would have waved through every line ever calibrated that way.
+    #
+    # So the CONFIDENCE BOUND must clear the ceiling, not the estimate. At 800 draws the p95
+    # threshold's realised rate was 0.0500 with a 95% CI of [0.037, 0.067] -- refused, as it
+    # should be -- while the p97 threshold gave 0.0288 with [0.019, 0.043], which clears.
+    # An absent bound is a REFUSAL, not a pass: a calibration that does not say how precise
+    # it is has not said anything a gate can act on.
+    ub = cal.get('false_trip_rate_ci_upper')
+    if ub is None:
+        return False, ('calibration reports false_trip_rate %.4f with no '
+                       '`false_trip_rate_ci_upper` -- a registration that sets its threshold '
+                       'at its own p95 gets 0.0500 BY CONSTRUCTION, so the point estimate '
+                       'cannot fail this check and is not evidence of precision' % (ftr,))
+    if not isinstance(ub, (int, float)) or ub != ub:
+        return False, 'calibration false_trip_rate_ci_upper is not a number (%r)' % (ub,)
+    if ub < ftr:
+        return False, ('calibration false_trip_rate_ci_upper %.4f is BELOW the point estimate '
+                       '%.4f -- that is not an upper bound' % (ub, ftr))
+    if ub > CAL_MAX_FTR:
+        return False, ('calibration false-trip 95%% upper bound %.4f > %.2f (point estimate '
+                       '%.4f) -- this line cries wolf too often to stop a canary, and the '
+                       'point estimate alone cannot show otherwise' % (ub, CAL_MAX_FTR, ftr))
+    # (no separate point-estimate ceiling: `ub >= ftr` and `ub <= CAL_MAX_FTR` together give
+    #  `ftr <= CAL_MAX_FTR`, so a point-estimate check here would be provably unreachable --
+    #  a guard that can never fire reads as protection and is not.)
     # A ZERO-HEAVY CALIBRATION IS NOT A CALIBRATION (Codex, 2026-09-24). The pseudo-canaries
     # run the OLD code, so a line measuring something only the NEW code can produce scores a
     # 0% false-trip rate FOR FREE -- and that is exactly the class this change was made for.
