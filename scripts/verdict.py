@@ -21,6 +21,7 @@ for _cand in (_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'lib')
         break
 import json, os, glob, gzip, hashlib, datetime as dt, collections
 from deathgate import death_gate
+from arms import pool_of
 from singledeath import licence_reverts
 
 
@@ -377,7 +378,34 @@ if _cd >= 2 and _kbh <= 0:
                f'and "cannot decide" is not KEEP. Removing the invented control denominator '
                f'(canary x 7.0) must not convert a false REVERT into a false clean.')
     (out('UNREADABLE'))
-_rev, _why = death_gate(_cd, _cbh, _kd, _kbh)
+# v26 (OWNER DECISION 2026-09-24): the trip also needs an IN-WINDOW RANDOMIZATION p.
+# The lower bound above is a PARAMETRIC Poisson bound, and deaths are not Poisson across
+# worlds: bots in a world share terrain, a seed and a server, so one hazard puts several
+# deaths in one pool. Measured on the fixtures in test_deathgate.py, five pools carrying
+# three deaths each with the canary holding two of them clears the bound at 1.65x while
+# the ranked p is 0.083 -- the bound cannot see clustering and permuting whole pools can.
+#
+# The unit of randomization is the unit of ASSIGNMENT. A pool-split canary randomizes
+# pools; a within-world canary randomizes BOTS inside their worlds, and using pools there
+# would put treated and control bots in the same unit and destroy the contrast.
+_units = None
+_treat = None
+if _cd >= 2 and _kbh > 0:
+    _within = (man.get('canary_split') == 'within-world')
+    _unit_of = (lambda b: b) if _within else pool_of
+    _dh = collections.defaultdict(lambda: [0, 0.0])
+    for _scan, _isc in ((by, True), (_control_scan(), False)):
+        for _b, _rs in (_scan or {}).items():
+            if _b == '__empty__':
+                continue
+            _u = _unit_of(_b)
+            _dh[_u][0] += sum(1 for ts, k, _d in _rs if k == '_death' and ts > cut)
+            _dh[_u][1] += _exposure({_b: _rs}, cut)
+    _units = {u: tuple(v) for u, v in _dh.items()}
+    _treat = sorted({_unit_of(b) for b in CANARY_BOTS})
+    why.append('randomization units: %d %s, %d treated'
+               % (len(_units), 'bots (within-world split)' if _within else 'pools', len(_treat)))
+_rev, _why = death_gate(_cd, _cbh, _kd, _kbh, units=_units, treat=_treat)
 if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT'))
 elif _cd >= 2: why.append(_why + f' [{_expo_note}]'); pending_watch.append('death gate held (v21)')
 why.append(f"deaths {_cd} ({(_cd / _cbh) if _cbh else 0:.3f}/bh over {_cbh:.1f} measured bot-h) "

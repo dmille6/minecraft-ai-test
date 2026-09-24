@@ -477,6 +477,16 @@ def main():
     c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
                                           control_deaths=3, control_bh=210.0))
     got, out = c.run()
+    # v26: this fixture supplies AGGREGATE deaths and hours only -- the randomization units
+    # come from the log SCAN, which the harness does not populate with deaths. So the p is
+    # NOT SUPPLIED here and the owner's rule stands alone, which is the documented safe
+    # direction. Asserting it out loud, because "the p silently did not run" and "the p ran
+    # and passed" are the two states this project keeps confusing, and a REVERT that never
+    # consulted the p must say so on its own verdict line.
+    check('  the 9-death REVERT states that the p was not supplied',
+          'randomization p NOT SUPPLIED' in out, True,
+          'An aggregate-only fixture cannot compute a randomization p. The gate must name '
+          'that rather than let a missing p read as a passing one.', out)
     check('9 deaths in 30 bot-h vs 3 in 210', got, 'REVERT',
           '0.300 vs 0.014/bot-h -- a 21x ratio, lower bound 6.27x. This pins detection of '
           'gross harm only: a threshold raised from 1.25 to 5 would still pass it.', out)

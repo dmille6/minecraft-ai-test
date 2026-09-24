@@ -71,8 +71,62 @@ def ratio_lower_bound(a, ta, b, tb, alpha=0.05):
     return (p / (1 - p)) * (tb / ta)
 
 
+class TooFewAssignments(ValueError):
+    """The design cannot attain the required p, so the p cannot be a condition."""
+
+
+def randomization_p(units, treat, size=None):
+    """The in-window randomization p of the canary death RATE. Pure. (owner 2026-09-24)
+
+    `units` maps unit -> (deaths, bot_hours) for every unit in the window, treated and
+    control alike -- a unit is a pool, or a bot for a within-world split. `treat` is the
+    treated units. Returns (p, n_assignments).
+
+    p = the share of same-shape assignments whose CANARY DEATH RATE is >= the realised
+    one, the realised assignment included in the enumeration. Total deaths and total
+    exposure are fixed across reassignments, so a higher canary rate is exactly a lower
+    control rate; ranking the canary rate therefore ranks the difference too, without a
+    division by zero when a reassignment happens to put every death on one side.
+
+    WHY A RANKED STATISTIC AND NOT THE GATE'S OWN TRIP CONDITION. The first design counted
+    the share of reassignments for which the gate WOULD FIRE. A Codex pass killed it:
+    a binary condition is not a ranked statistic, so that share does not fall as the
+    observation gets more extreme. With the deaths concentrated in the two treated pools,
+    every assignment containing either of them also fires -- C(16,2)-C(14,2) = 29 of 120 --
+    so the p would sit near 0.24 and could never clear 0.05. The gate would go PERMANENTLY
+    SILENT exactly as harm got worse. A ranked statistic is monotone in the observation by
+    construction, which is the property the whole idea depends on.
+    """
+    import itertools
+    us = sorted(units)
+    k = size if size is not None else len(treat)
+    if k <= 0 or k >= len(us):
+        raise TooFewAssignments('%d treated of %d units leaves no contrast' % (k, len(us)))
+
+    def rate(sel):
+        d = sum(units[u][0] for u in sel)
+        h = sum(units[u][1] for u in sel)
+        return (d / h) if h > 0 else None
+
+    obs = rate(treat)
+    if obs is None:
+        raise TooFewAssignments('the treated units have no measured exposure')
+    ge = n = 0
+    for combo in itertools.combinations(us, k):
+        r = rate(combo)
+        if r is None:
+            continue
+        n += 1
+        if r >= obs - 1e-12:
+            ge += 1
+    if n == 0:
+        raise TooFewAssignments('no assignment of this shape has measured exposure')
+    return ge / n, n
+
+
 def death_gate(canary_deaths, canary_bot_h, control_deaths, control_bot_h,
-               floor=2, threshold=1.25, alpha=0.05):
+               floor=2, threshold=1.25, alpha=0.05, units=None, treat=None,
+               max_p=0.05):
     """(reverts, why). The owner's floor, with the ratio test on the bound.
 
     `reverts` is True only when the canary is BOTH at or above the owner's
@@ -92,8 +146,34 @@ def death_gate(canary_deaths, canary_bot_h, control_deaths, control_bot_h,
     lb = ratio_lower_bound(canary_deaths, canary_bot_h, control_deaths, control_bot_h, alpha)
     point = cr / kr if kr else float('inf')
     if lb > threshold:
-        return True, ('death gate: %s; rate ratio %.2fx, lower %d%% bound %.2fx > %.2fx'
-                      % (base, point, round((1 - alpha) * 100), lb, threshold))
+        head = ('death gate: %s; rate ratio %.2fx, lower %d%% bound %.2fx > %.2fx'
+                % (base, point, round((1 - alpha) * 100), lb, threshold))
+        # OWNER DECISION 2026-09-24: the lower bound is a PARAMETRIC Poisson bound, and
+        # deaths are not Poisson across worlds -- bots in a world share terrain, a seed and
+        # a server, so a single hazard puts several deaths in one pool. Permuting WHOLE
+        # POOLS preserves that clustering, which is exactly what the parametric bound
+        # cannot. So the trip now also needs an in-window randomization p.
+        if units and treat:
+            try:
+                p, n = randomization_p(units, treat)
+            except TooFewAssignments as e:
+                return True, (head + '; randomization p NOT COMPUTED (%s) -- the owner\'s '
+                              'rule stands alone, which is the safe direction for deaths'
+                              % e)
+            if 1.0 / n > max_p:
+                return True, (head + '; randomization p unattainable at this shape (%d '
+                              'assignments, smallest attainable p = %.4f > %.2f) -- the '
+                              'owner\'s rule stands alone. Run >= 2 pools for anything '
+                              'that can kill.' % (n, 1.0 / n, max_p))
+            if p > max_p:
+                return False, ('death gate HELD by the in-window randomization p: %s; '
+                               'randomization p = %.4f (%d same-shape assignments) > %.2f '
+                               '-- this many canary deaths is ordinary for this window '
+                               'under a null reassignment' % (head, p, n, max_p))
+            return True, (head + '; randomization p = %.4f over %d same-shape assignments '
+                          '<= %.2f' % (p, n, max_p))
+        return True, (head + '; randomization p NOT SUPPLIED (no unit-level deaths passed) '
+                      '-- the owner\'s rule stands alone')
     return False, ('death gate HELD (reported, not a verdict): %s; rate ratio %.2fx but lower '
                    '%d%% bound %.2fx does not clear %.2fx -- too few deaths to tell it from noise'
                    % (base, point, round((1 - alpha) * 100), lb, threshold))
