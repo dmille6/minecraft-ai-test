@@ -126,7 +126,7 @@ def randomization_p(units, treat, size=None):
 
 def death_gate(canary_deaths, canary_bot_h, control_deaths, control_bot_h,
                floor=2, threshold=1.25, alpha=0.05, units=None, treat=None,
-               max_p=0.05):
+               max_p=0.05, p_vetoes=False):
     """(reverts, why). The owner's floor, with the ratio test on the bound.
 
     `reverts` is True only when the canary is BOTH at or above the owner's
@@ -165,13 +165,37 @@ def death_gate(canary_deaths, canary_bot_h, control_deaths, control_bot_h,
                               'assignments, smallest attainable p = %.4f > %.2f) -- the '
                               'owner\'s rule stands alone. Run >= 2 pools for anything '
                               'that can kill.' % (n, 1.0 / n, max_p))
+            note = ('; randomization p = %.4f over %d same-shape assignments (ceiling %.2f)'
+                    % (p, n, max_p))
+            # REPORT-ONLY BY DEFAULT. Backtested 2026-09-24 against all 15 reverts where
+            # deaths entered the decision: as an AND-condition the p flips 4 of the 5 trips
+            # of the OLD point-ratio gate, and one of those four is `3810457` (rl-08b) -- a
+            # revert whose harm is causally established and which CLAUDE.md carries as a
+            # standing lesson (a corridor refusal failed the explore leg and the blind
+            # fallback walked into the pool the guard had named one second earlier).
+            #
+            # It fails there for a MECHANICAL reason, not bad luck: both canary deaths were
+            # THE SAME BOT. A pool carrying two deaths is reachable by 29 of the other 120
+            # pool-pairs, so a pool-level null cannot tell "the change killed one bot twice"
+            # from "that pool had a bad bot". Harm concentrated BELOW the unit of
+            # randomization is invisible to a test at that unit -- and concentrated harm is
+            # exactly what a code defect produces. That is a property of the design, not a
+            # tuning problem, so no ceiling fixes it.
+            #
+            # On the gate that is actually LIVE (the lower bound above) the p is inert: it
+            # changes 0 of those 15 decisions, because the bound already holds fire
+            # everywhere the point ratio did not. So as a veto it buys nothing where it
+            # works and costs a correct revert where it bites. It is reported on every death
+            # verdict, and `p_vetoes=True` is required to let it change one.
             if p > max_p:
-                return False, ('death gate HELD by the in-window randomization p: %s; '
-                               'randomization p = %.4f (%d same-shape assignments) > %.2f '
-                               '-- this many canary deaths is ordinary for this window '
-                               'under a null reassignment' % (head, p, n, max_p))
-            return True, (head + '; randomization p = %.4f over %d same-shape assignments '
-                          '<= %.2f' % (p, n, max_p))
+                if not p_vetoes:
+                    return True, (head + note + ' -- REPORT ONLY, above the ceiling but not '
+                                  'vetoing (a pool-level p cannot see harm concentrated in '
+                                  'one bot; rl-08b 3810457 was a correct revert at p=0.2417)')
+                return False, ('death gate HELD by the in-window randomization p: %s%s > %.2f '
+                               '-- this many canary deaths is ordinary for this window under '
+                               'a null reassignment' % (head, note, max_p))
+            return True, head + note + ' <= ceiling'
         return True, (head + '; randomization p NOT SUPPLIED (no unit-level deaths passed) '
                       '-- the owner\'s rule stands alone')
     return False, ('death gate HELD (reported, not a verdict): %s; rate ratio %.2fx but lower '

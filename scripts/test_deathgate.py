@@ -114,7 +114,8 @@ def main():
         kd = sum(u[x][0] for x in u if x not in TREAT)
         lb = ratio_lower_bound(cd, 2 * BH, kd, 14 * BH)
         pv, _n = randomization_p(u, TREAT)
-        rev, why = death_gate(cd, 2 * BH, kd, 14 * BH, units=u, treat=TREAT)
+        rev, why = death_gate(cd, 2 * BH, kd, 14 * BH, units=u, treat=TREAT,
+                              p_vetoes=True)
         check('clustered %d pools x %d deaths: the BOUND would trip (%.2fx > 1.25)'
               % (nheavy, dper, lb), lb > 1.25 and abs(lb - lbmin) < 0.05, 'lb=%.2f' % lb)
         check('  but the ranked p holds it (p=%.4f > 0.05)' % pv, rev is False, why)
@@ -147,8 +148,64 @@ def main():
     u = clustered(3, 3)
     cd = sum(u[t][0] for t in TREAT)
     kd = sum(u[x][0] for x in u if x not in TREAT)
-    rev, why = death_gate(cd, 2 * BH, kd, 14 * BH, units=u, treat=TREAT)
+    rev, why = death_gate(cd, 2 * BH, kd, 14 * BH, units=u, treat=TREAT, p_vetoes=True)
     check('a TIGHT cluster (3 pools) still reverts at p=0.025', rev is True, why)
+
+    # 8h. REPORT-ONLY IS THE DEFAULT, AND THIS IS THE CASE THAT DECIDED IT.
+    #     Backtested against all 15 reverts where deaths entered the decision: as an
+    #     AND-condition the p flips 4 of the 5 trips of the old point-ratio gate, and one is
+    #     `3810457` (rl-08b) -- a correct revert of a causally established lethal
+    #     interaction that CLAUDE.md carries as a standing lesson. Its measured shape:
+    #     2 canary deaths / 24.6 bot-h vs 3 / 171.8, and p = 0.2417.
+    #
+    #     It fails for a MECHANICAL reason: BOTH canary deaths were the SAME BOT. A pool
+    #     holding two deaths is reachable by 29 of the other 120 pool-pairs, so a pool-level
+    #     null cannot separate "the change killed one bot twice" from "that pool had a bad
+    #     bot". Harm concentrated BELOW the unit of randomization is invisible to a test AT
+    #     that unit. No ceiling fixes that, because it is the design and not a tuning knob.
+    rl08b = {q: (0, BH) for q in POOLS}
+    rl08b['p00'] = (2, 12.3)        # board-b: BOTH deaths, one bot
+    rl08b['p01'] = (0, 12.3)
+    for i, q in enumerate([x for x in POOLS if x not in TREAT][:3]):
+        rl08b[q] = (1, BH)
+    pv, _n = randomization_p(rl08b, TREAT)
+    _kd = sum(rl08b[x][0] for x in rl08b if x not in TREAT)
+    _kbh = sum(rl08b[x][1] for x in rl08b if x not in TREAT)
+    check('rl-08b shape: the pool-level p is far above the ceiling', pv > 0.05, 'p=%.4f' % pv)
+    #     AND A SECOND FINDING, WORSE THAN THE FIRST. rl-08b's lower bound is 0.58x, so
+    #     THE LIVE GATE DOES NOT TRIP ON IT AT ALL -- the p is never even consulted. The
+    #     lower-bound amendment, live since 2026-09-18, is by itself declining a revert the
+    #     audit calls correct and whose mechanism CLAUDE.md records. Backtested: the live
+    #     gate trips on 0 of the 15 death-involved reverts, including this one. So the
+    #     bound's false-positive win was bought with real detection, and that is an owner
+    #     question about the BOUND, not about the p.
+    _bound_trips = ratio_lower_bound(2, 24.6, _kd, _kbh) > 1.25
+    check('  the LIVE lower bound does not even trip on rl-08b (0.58x)',
+          _bound_trips is False and death_gate(2, 24.6, _kd, _kbh)[0] is False,
+          'lb=%.2f -- the p is moot here; the BOUND is what drops this revert'
+          % ratio_lower_bound(2, 24.6, _kd, _kbh))
+
+    #     So test report-only where the bound DOES trip: the clustered shape, p = 0.083.
+    u = clustered(5, 3)
+    cd = sum(u[t][0] for t in TREAT)
+    kd = sum(u[x][0] for x in u if x not in TREAT)
+    rev, why = death_gate(cd, 2 * BH, kd, 14 * BH, units=u, treat=TREAT)
+    check('  report-only (the DEFAULT) reverts even at p=0.083', rev is True, why)
+    check('  and says it is report-only, not vetoing', 'REPORT ONLY' in why, why)
+    check('  and names why a pool-level p cannot see concentrated harm',
+          'one bot' in why, why)
+    rev_v, _ = death_gate(cd, 2 * BH, kd, 14 * BH, units=u, treat=TREAT, p_vetoes=True)
+    check('  ...whereas p_vetoes=True holds it', rev_v is False,
+          'the veto is opt-in precisely because it discarded rl-08b-class harm')
+
+    # 8i. The default must not change ANY verdict the gate reaches without units.
+    for cd, cbh, kd, kbh in ((9, 30.0, 3, 210.0), (2, 23.17, 3, 162.23), (1, BH, 0, 15 * BH)):
+        u = {q: (0, BH) for q in POOLS}
+        u['p00'] = (cd, BH)
+        bare = death_gate(cd, cbh, kd, kbh)[0]
+        withp = death_gate(cd, cbh, kd, kbh, units=u, treat=TREAT)[0]
+        check('report-only leaves the verdict unchanged (%d vs %d deaths)' % (cd, kd),
+              bare == withp, 'bare=%s with p=%s' % (bare, withp))
 
     # 8b. THE MONOTONICITY THE WHOLE IDEA DEPENDS ON, and the reason the first design was
     #     thrown away. A Codex pass found that using the gate's BINARY TRIP CONDITION as the
