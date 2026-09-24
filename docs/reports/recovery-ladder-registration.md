@@ -746,3 +746,96 @@ fail for it and was not registered as an own-line.
 **For the next canary: put `immobiledid` in `reads` at registration time.** It is the safety floor for every
 canary on this fleet, not an optional second read, and `canary-loop.sh` will hold at the final read without
 it — which is the right failure, but it costs the window.
+
+---
+
+## v25 – v28c — RETROSPECTIVE REGISTRATION OF EIGHT GATES ALREADY LIVE (written 2026-09-24 11:4xZ)
+
+**These eight rules were implemented in `~/verdict.py` between 21:47Z 23 Sep and 00:48Z 24 Sep and were
+never entered in this file.** The commit messages on `recovery-ladder-03` (1499bf7, a75f169, 981fcf6,
+f07d291, 9cd5c4f, 7a7b5d1, 897f483, 0918950) are excellent and are the source for everything below, but a
+commit message is not a registration: `RULE.md` is hashed into every read as `registration_sha256`, and it
+and `RULES-IN-FORCE.md` were both still the 19 Sep versions naming **v24** as the newest rule while the
+instrument ran **v28c**. The decision path was one whole generation ahead of its own registration.
+
+**THE GAP HAS COST NOTHING, AND THAT IS WHY THIS REGISTRATION IS LEGITIMATE RATHER THAN A RESCUE.**
+The ledger's last decision is `banktruth-01` at **2026-09-23 18:18Z**; the first of these gates landed at
+**21:47Z**, three and a half hours later. **No canary has ever been read by any of v25–v28c.** Registering
+them now therefore makes every one of them **prospective**, which is the only form the standing rule allows.
+Had a canary been decided in between, the honest close would have been to void that decision, not to
+back-date the rule.
+
+### Direction test, applied line by line
+
+The standing test for a retrospective registration (set by `immobiledid` above) is that **every line must act
+against a KEEP and none may produce one.** Seven of the eight pass it outright:
+
+| rule | what it does | direction |
+|---|---|---|
+| **v25** | a deciding `own_lines`/`friction` line with `on_fail: REVERT` no longer reverts on the typed comparison alone; it must declare `evidence: 'defect'` or `support: {read, field, max}` with the randomization p **present** and ≤ max. Neither → the line still FAILS, is reported, and the verdict is **INCONCLUSIVE** (`blocked`, never a fall-through to KEEP) | harder to REVERT **and** harder to KEEP |
+| **v26** | the death gate computes an **in-window randomization p**, ranked on the canary death **RATE** (not count), permuting at the unit of assignment (pools, or bots for a within-world split, read from `canary_split`) | reporting only |
+| **v26b** | that p is **REPORT-ONLY**; `p_vetoes=True` is required before it may change a verdict, because as an AND-condition it discarded rl-08b (3810457), a revert the audit calls correct | restores REVERT power v26 would have removed; **net of v24, no new KEEP path** |
+| **v27** | the verdict **says when linkage was not available** instead of letting an inert sensitive path read as a clean one | reporting only |
+| **v27b** | the linkage window is calibrated to **60 s** (background false-link 5.0% at 60 s vs 20.0% at 600 s; false REVERT per 3 h read 3.0% vs 10.6%), and v25's coincidence test is recalibrated onto the **canary's own** emission rate. The canary arm is **REPORTED, NOT ENFORCED** — enforcing it at 3.0/bot-h would make owner-01b unrevertable | harder to REVERT |
+| **v28b** | a calibration must report `nonzero_draws`; **below 10% it is DEGENERATE and refused**, and the refusal names `evidence: defect` as the honest alternative. Stops a treatment-only metric scoring 0% false-trips for free | harder to REVERT |
+| **v28c** | a deciding calibrated line must be `form: did`. **A canary-only LEVEL may never revert** — measured, `nopath_per_bh_canary <= 24` false-tripped 11.2–19.8% over 09-16..09-20 and 48.8–53.0% over 09-20..09-24 on **identical code**, because the fleet's no-path rate doubled and the threshold did not move | harder to REVERT |
+
+### v28 is the exception, and it is registered PROSPECTIVELY, not retrospectively
+
+**v28 creates a path to REVERT that did not exist under v24: a change's own alarm may stop its own canary.**
+That fails the direction test above, and no amount of quality in the measurement changes that. It is
+registered here **as a prospective rule taking effect from the next canary registered after this entry**, and
+it has never decided anything, so nothing needs voiding.
+
+A deciding own-line may revert only with `evidence: calibrated` and a calibration measured on pseudo-canaries
+(real pools, real windows, no code change, where every trip is false by construction) carrying **all** of:
+
+- `at_threshold` **equal to the registered value** — a calibration of a different threshold is a calibration
+  of a different rule, and this is the check that stops `calibration` becoming a number someone typed;
+- `false_trip_rate` ≤ 0.05;
+- `over_reads: true` — **the read schedule is part of the rule**, because a figure from a single read
+  understates a gate polled ~108 times;
+- `measured_at` within `CAL_MAX_AGE_H`;
+- `tool` and `draws` named, so a missing calibration and a passing one can never look alike;
+- `nonzero_draws` ≥ 10% of draws (v28b);
+- `form: did` (v28c).
+
+Any of these unmet **blocks KEEP (INCONCLUSIVE)** — never REVERT, and never a quiet KEEP, because the line
+did fail. **At most ONE line may carry `evidence: calibrated` with `on_fail: REVERT`**: owner-01b declared
+three own-lines over three reads, and nine independent 5% tests is 1 − 0.95⁹ = **37%**, not 5%. Declaring
+several **blocks** rather than picking one, so dict order cannot choose after the data is seen. Calibrated
+`WATCH` lines stay unlimited; only the deciding line is rationed.
+
+**`CAL_MAX_AGE_H = 48` IS A PLACEHOLDER, NOT A MEASUREMENT** — so labelled in the source, overridable by
+`VERDICT_CAL_MAX_AGE_H`, and it stays a placeholder until the two-period staleness measurement lands. It is
+registered as a guess so that it cannot later be quoted as a calibrated value.
+
+### Two things carried forward as OWNER QUESTIONS, raised by this work and deliberately not acted on
+
+1. **The v21 lower bound is declining reverts the audit calls correct.** Backtested across all 15
+   death-involved reverts, the live lower-bound gate trips on **0 of 15** — rl-08b's own lower bound is
+   0.58x, so the gate never even consults the p. Its false-positive win was bought with real detection.
+   That is a question about the **bound**, not about the p.
+2. **The audit (8019b1d) finds 7 of 23 reverts confirmed false and 5 more suspect.** Roughly a third of this
+   project's REVERT decisions may be wrong, which bears on the ledger's history and not only on future reads.
+
+### Recorded and NOT acted on
+
+The backtest says promoting the 17 existing `WATCH` lines to deciding would add **2 new false reverts and
+correct none**; 7 of the 17 are dead instruments reading 0 or None in every read of every run; and the
+victims would be 9fc3968 (the rework that recovered leaf-01's falsely-reverted capability) and b1659c0
+(falsely reverted twice, kept on the third — it would go 0-for-3 and never ship).
+
+### Suite state at registration
+
+57/57 acceptance, 25/25 acceptance mutants, deathgate 7/7, linkage 25/25, membership 14/14, singledeath 11/11
+— re-run green on the host at 11:2xZ 24 Sep before this entry was written.
+
+### One provenance note, stated because it cannot be verified from here
+
+Commits a75f169 (v26) and 7a7b5d1 (v28) are headed **"OWNER DECISION 2026-09-24"**. No artefact in this
+repo, in `CLAUDE.md`, or in the memory index records an owner decision on that date; owner decisions are
+normally written into `CLAUDE.md` (as the 2026-09-11 two-death floor is). The commits landed 23:00Z and
+00:13Z, which is evening in the owner's timezone and entirely consistent with an owner-driven session, so
+**this is recorded as unverifiable from this session, not as unsanctioned.** v28 is registered prospectively
+above regardless of how that resolves, which is the conservative reading either way.
