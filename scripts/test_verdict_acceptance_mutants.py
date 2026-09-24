@@ -81,6 +81,50 @@ MUTANTS = [
      "The harm signal must survive every loosening of the death gate. This is the guard "
      "that catches a bot held still by its own owner."),
 
+    # NEW 2026-09-24 (v28). A change's own alarm may now stop its canary, which means every
+    # guard on the calibration is load-bearing. Each mutant here opens one specific hole.
+    ('the threshold-equality check removed -- THE RUBBER-STAMP HOLE',
+     'verdict.py',
+     "    if cal.get('at_threshold') != rule.get('value'):",
+     '    if False:',
+     'unsound calibration blocks: threshold mismatch (calibrated 50, registered 30)', 'REVERT',
+     "A calibration measured at threshold 50 says nothing about a line registered at 30. "
+     "Equality is the mechanical check that stops `calibration` becoming a number someone "
+     "typed in; without it any calibration licenses any threshold."),
+
+    ('the false-trip ceiling removed -- a line that cries wolf may stop a canary',
+     'verdict.py',
+     '    if ftr > CAL_MAX_FTR:',
+     '    if False:',
+     'unsound calibration blocks: cries wolf too often (false-trip 0.31)', 'REVERT',
+     "A line trips on 31% of pseudo-canaries with no code change. Letting it revert would "
+     "reproduce leaf-01, whose -0.5 was crossed by 36-49% of its own window's nulls."),
+
+    ('the over_reads requirement removed -- a single-read rate passes as a canary rate',
+     'verdict.py',
+     "    if not cal.get('over_reads'):",
+     '    if False:',
+     'unsound calibration blocks: single read, not the schedule', 'REVERT',
+     "calibrate_deathgate.py exists because the gate is polled ~108 times and any "
+     "false-positive figure from a SINGLE read understates it badly. The read schedule is "
+     "part of the rule."),
+
+    ('the staleness bound removed -- a calibration from any date licenses today',
+     'verdict.py',
+     '    if age > CAL_MAX_AGE_H:',
+     '    if False:',
+     'unsound calibration blocks: stale by 72 h', 'REVERT',
+     "Pools moved -45% to +77% in six hours with no code change, and wood availability moved "
+     "38% -> 9% on identical code. A stale calibration is a calibration of a different fleet."),
+
+    ('the one-deciding-line ration removed -- nine 5% tests become a 37% canary',
+     'verdict.py',
+     '        if _CAL_RATIONED:',
+     '        if False:',
+     'two calibrated REVERT lines block', 'REVERT',
+     "owner-01b declared three own-lines read at +30/+90/+180. Nine independent 5% tests is "
+     "1 - 0.95**9 = 37%. Rationing the deciding line is what keeps a calibrated 5% a canary 5%."),
+
     # NEW 2026-09-24 (v27). Measured: only 7 of 15 registrations declare `change_rows`, so
     # the gate's SENSITIVE path (>=2 deaths AND a licensed row) was inert for more than half
     # of canaries and every death decision fell to the rate. Deleting this warning restores
@@ -269,6 +313,14 @@ WANT_BASE = {
     # v27: a boolean case, not a verdict token -- the baseline is that the warning IS present
     # when no change_rows are declared, and the mutant's job is to make it absent.
     '  and it says LINKAGE UNAVAILABLE when no change_rows are declared': 'True',
+    # v28: the calibrated-own-line guards. Baseline for each is INCONCLUSIVE -- the line FAILED
+    # but its calibration is unsound, so it must reach neither REVERT nor KEEP.
+    'unsound calibration blocks: threshold mismatch (calibrated 50, registered 30)': 'INCONCLUSIVE',
+    'unsound calibration blocks: cries wolf too often (false-trip 0.31)': 'INCONCLUSIVE',
+    'unsound calibration blocks: single read, not the schedule': 'INCONCLUSIVE',
+    'unsound calibration blocks: stale by 72 h': 'INCONCLUSIVE',
+    'two calibrated REVERT lines block': 'INCONCLUSIVE',
+    'a calibrated own-line REVERTS on the owner-01b reading (102.4 vs <=30)': 'REVERT',
 }
 
 

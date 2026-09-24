@@ -521,6 +521,79 @@ if d.get('skill_error_share_canary') is not None and d.get('skill_error_share_co
 blocked = []
 
 
+_CAL_RATIONED = False   # set from the registration before section 8 runs
+CAL_MAX_FTR = float(os.environ.get('VERDICT_CAL_MAX_FTR', '0.05'))
+CAL_MAX_AGE_H = float(os.environ.get('VERDICT_CAL_MAX_AGE_H', '48'))
+
+
+def _calibration_ok(rule, now=None):
+    """(ok, why) -- may this own-line revert on the strength of a recorded calibration? (v28)
+
+    OWNER DECISION 2026-09-24: a change's OWN alarm may stop its canary. The measured
+    argument is owner-01b `aa44514`, whose `refused_actuator_per_bh_canary <= 30` read
+    **102.4 at +90 min** -- two hours before the revert and before two of its three deaths --
+    and whose `hold_share_canary <= 0.5` read 0.794 at +180. Both were registered
+    `on_fail: WATCH`, so the change's own instrument saw the harm first and was gagged.
+    That class needs this: 36% of changes emit no new event kind at all, so the
+    death-linkage path cannot reach them and an own-line is the only instrument left.
+
+    But a typed threshold is not evidence -- that is what v25 established, after leaf-01's
+    `-0.5` was found to be crossed by 36-49% of its own window's null assignments. So a line
+    may revert only with a calibration that has been MEASURED on pseudo-canaries: real pools,
+    real windows, NO code change, where every trip is by definition false.
+
+    Required, and each absence is a REFUSAL rather than a default, because a missing
+    calibration and a passing one must never look alike:
+
+      tool             what measured it (`guardcal.py` draws random two-pool pseudo-canaries)
+      draws            how many; too few cannot bound a 5% rate
+      at_threshold     MUST EQUAL the registered `value`. A calibration of a different
+                       threshold is a calibration of a different rule -- this is the
+                       rubber-stamp hole, and equality is the mechanical check that closes it.
+      false_trip_rate  <= CAL_MAX_FTR (0.05)
+      over_reads       true. THE READ SCHEDULE IS PART OF THE RULE. A rate quoted from a
+                       SINGLE read understates the canary's, exactly as
+                       calibrate_deathgate.py records for the death gate: it is polled ~108
+                       times, and "any false-positive figure quoted from a SINGLE read
+                       understates it badly".
+      measured_at      not older than CAL_MAX_AGE_H. Calibrations go stale here: wood
+                       availability moved 38% -> 9% on identical code, and pools moved -45%
+                       to +77% in six hours with no code change.
+    """
+    cal = rule.get('calibration')
+    if not isinstance(cal, dict):
+        return False, 'declares evidence=calibrated but carries no `calibration` object'
+    miss = [k for k in ('tool', 'draws', 'at_threshold', 'false_trip_rate', 'measured_at')
+            if cal.get(k) is None]
+    if miss:
+        return False, 'calibration is missing ' + ', '.join(miss)
+    if cal.get('at_threshold') != rule.get('value'):
+        return False, ('calibration is for threshold %r but the line is registered at %r -- '
+                       'a calibration of a different threshold is a calibration of a '
+                       'different rule' % (cal.get('at_threshold'), rule.get('value')))
+    ftr = cal.get('false_trip_rate')
+    if not isinstance(ftr, (int, float)) or ftr != ftr:
+        return False, 'calibration false_trip_rate is not a number (%r)' % (ftr,)
+    if ftr > CAL_MAX_FTR:
+        return False, ('calibration false_trip_rate %.4f > %.2f -- this line cries wolf too '
+                       'often to stop a canary' % (ftr, CAL_MAX_FTR))
+    if not cal.get('over_reads'):
+        return False, ('calibration does not claim `over_reads` -- a rate from a SINGLE read '
+                       'understates the canary, which is polled at every registered read')
+    try:
+        mt = dt.datetime.fromisoformat(str(cal['measured_at']).replace('Z', '+00:00'))
+        age = ((now or dt.datetime.now(dt.timezone.utc)) - mt).total_seconds() / 3600.0
+    except Exception as e:
+        return False, 'calibration measured_at is unreadable (%r: %s)' % (cal.get('measured_at'), e)
+    if age > CAL_MAX_AGE_H:
+        return False, ('calibration is %.1f h old (limit %.0f h) -- pools moved -45%% to '
+                       '+77%% in six hours with no code change, so a stale calibration is '
+                       'not a calibration' % (age, CAL_MAX_AGE_H))
+    return True, ('calibration: %s, %s draws, false-trip %.4f <= %.2f at threshold %r, over '
+                  'the read schedule, %.1f h old' % (cal.get('tool'), cal.get('draws'), ftr,
+                                                     CAL_MAX_FTR, cal.get('at_threshold'), age))
+
+
 def _deciding_evidence(rule, kind):
     """Can this failed `on_fail: REVERT` rule license a REVERT? (v25)
 
@@ -528,6 +601,17 @@ def _deciding_evidence(rule, kind):
     """
     if rule.get('evidence') == 'defect':
         return True, f'{kind} declares evidence=defect: the typed comparison decides'
+    if rule.get('evidence') == 'calibrated':
+        # THE RATION IS CHECKED HERE, not only reported. The first draft appended to
+        # `blocked` before the loop and the FIRST failing line still reverted, because
+        # out('REVERT') exits the process before `blocked` is ever read. A guard that runs
+        # after the decision is not a guard.
+        if _CAL_RATIONED:
+            return False, (f'{kind} evidence=calibrated, but this registration declares MORE '
+                           f'THAN ONE calibrated REVERT line -- the reads multiply, so none of '
+                           f'them may decide')
+        _ok, _cw = _calibration_ok(rule)
+        return _ok, f'{kind} evidence=calibrated -- {_cw}'
     sup = rule.get('support')
     if not sup:
         return False, (f'{kind} declares no evidence class (no `evidence: defect`, no '
@@ -542,6 +626,27 @@ def _deciding_evidence(rule, kind):
                        f'the move is inside its own window\'s null spread')
     return True, f"{kind} support {sup['read']}.{sup['field']} = {pv} <= {sup['max']}"
 
+
+# v28: AT MOST ONE CALIBRATED LINE MAY DECIDE. THE READS MULTIPLY.
+#
+# owner-01b declared THREE own-lines and the loop reads them at +30/+90/+180 -- nine chances
+# to revert. Nine independent 5% tests is not a 5% canary; it is 1 - 0.95**9 = 37%. The death
+# gate already encodes this lesson: calibrate_deathgate.py exists because the gate is polled
+# ~108 times and "any false-positive figure quoted from a SINGLE read understates it badly".
+#
+# So the calibrated class is rationed rather than budgeted per line: exactly one line may
+# carry `evidence: calibrated` with `on_fail: REVERT`, and it is the registration's ONE
+# pre-declared deciding alarm. Declaring several is a registration error, not a stricter
+# canary -- and it BLOCKS KEEP rather than picking one, because picking one silently would let
+# the choice be made by dict order after the data was seen.
+_cal_rev = [l for l in (reg.get('own_lines') or []) + (reg.get('friction') or [])
+            if l.get('evidence') == 'calibrated' and l.get('on_fail') == 'REVERT']
+_CAL_RATIONED = len(_cal_rev) > 1
+if _CAL_RATIONED:
+    why.append('MORE THAN ONE calibrated REVERT line declared (%s) -- the reads multiply, so '
+               'nine 5%% tests is a 37%% canary. Declare ONE deciding alarm.'
+               % ', '.join('%s.%s' % (l.get('read'), l.get('field')) for l in _cal_rev))
+    blocked.append('multiple-calibrated-revert-lines')
 
 for ln in reg.get('own_lines', []):
     val = ev.get(ln['read'], {}).get(ln['field'])

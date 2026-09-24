@@ -484,6 +484,102 @@ def main():
           'Declaring rows must not alter a rate-path verdict; it only enables a second '
           'path.', out)
 
+    # ---- 5d. A CHANGE'S OWN ALARM MAY STOP ITS CANARY (owner decision 2026-09-24).
+    #
+    # owner-01b `aa44514` registered `refused_actuator_per_bh_canary <= 30` and it read
+    # **102.4 at +90 min** -- two hours before the 16:38 revert and before two of its three
+    # deaths -- plus `hold_share_canary <= 0.5` reading 0.794 at +180. BOTH were registered
+    # `on_fail: WATCH`, so the change's own instrument saw the harm first and was gagged. And
+    # 36% of changes emit no new event kind at all, so death-linkage cannot reach that class
+    # and an own-line is the only instrument left for it.
+    #
+    # But v25 established that a typed threshold is not evidence. So the line must carry a
+    # calibration MEASURED on pseudo-canaries -- real pools, real windows, no code change,
+    # where every trip is false by construction.
+    import datetime as _dt
+    _fresh = _dt.datetime.now(_dt.timezone.utc).isoformat().replace('+00:00', 'Z')
+    _stale = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=72)).isoformat().replace('+00:00', 'Z')
+
+    def _ownline(**over):
+        ln = {'read': 'ownerread', 'field': 'refused_actuator_per_bh_canary',
+              'op': '<=', 'value': 30, 'on_fail': 'REVERT', 'evidence': 'calibrated',
+              'calibration': {'tool': 'guardcal.py', 'days': 3, 'draws': 300,
+                              'at_threshold': 30, 'false_trip_rate': 0.02,
+                              'over_reads': True, 'measured_at': _fresh}}
+        cal = over.pop('calibration_patch', None)
+        ln.update(over)
+        if cal is not None:
+            ln['calibration'] = dict(ln['calibration'], **cal) if cal else None
+        return ln
+
+    def _run_ownline(ln, value=102.4):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': [ln]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('ownerread', {'refused_actuator_per_bh_canary': value})
+        return c.run()
+
+    print("\n5d. A CALIBRATED OWN-LINE MAY REVERT -- owner-01b's gagged alarm, ungagged")
+    got, out = _run_ownline(_ownline())
+    check('a calibrated own-line REVERTS on the owner-01b reading (102.4 vs <=30)',
+          got, 'REVERT',
+          'This is the whole point: the alarm read 102.4 against a registered 30 two hours '
+          'before the death gate moved, and could not stop anything.', out)
+    check('  and the verdict shows the calibration it relied on',
+          'evidence=calibrated' in out and 'false-trip 0.0200' in out, True,
+          'A revert on a calibration must print the calibration, or it is a typed threshold '
+          'again with extra words.', out)
+
+    # 5e. EVERY WAY A CALIBRATION CAN BE FAKE, STALE OR MISMATCHED -- each must BLOCK, never
+    #     revert and never quietly KEEP. The threshold-equality check is the one that closes
+    #     the rubber-stamp hole: a number measured for a different threshold is a measurement
+    #     of a different rule.
+    print("\n5e. AN UNSOUND CALIBRATION MUST BLOCK -- never REVERT, never KEEP")
+    for label, ln, needle in (
+            ('no calibration object at all', _ownline(calibration_patch={}), 'no `calibration` object'),
+            ('missing fields', _ownline(calibration={'tool': 'guardcal.py'}), 'missing'),
+            ('threshold mismatch (calibrated 50, registered 30)',
+             _ownline(calibration_patch={'at_threshold': 50}), 'different rule'),
+            ('cries wolf too often (false-trip 0.31)',
+             _ownline(calibration_patch={'false_trip_rate': 0.31}), 'cries wolf'),
+            ('single read, not the schedule',
+             _ownline(calibration_patch={'over_reads': False}), 'SINGLE read'),
+            ('stale by 72 h', _ownline(calibration_patch={'measured_at': _stale}), 'not a calibration'),
+            ('measured_at unreadable',
+             _ownline(calibration_patch={'measured_at': 'last tuesday'}), 'unreadable'),
+    ):
+        got, out = _run_ownline(ln)
+        check('unsound calibration blocks: %s' % label, got, 'INCONCLUSIVE',
+              'An unsound calibration must reach neither REVERT nor KEEP. Silently keeping '
+              'would be the worse failure, because the line DID fail.', out)
+        check('  and the reason says why (%s)' % needle, needle in out, True, '', out)
+
+    # 5f. THE READS MULTIPLY. Three lines read at +30/+90/+180 is nine chances; nine
+    #     independent 5% tests is a 37% canary, not a 5% one. The death gate already carries
+    #     this lesson -- calibrate_deathgate.py exists because a single-read figure
+    #     "understates it badly" across ~108 polls. So exactly ONE line may decide.
+    print("\n5f. MORE THAN ONE CALIBRATED REVERT LINE -- a registration error, not a stricter canary")
+    two = [_ownline(), _ownline(field='hold_share_canary', value=0.5,
+                                calibration_patch={'at_threshold': 0.5})]
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': two})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'refused_actuator_per_bh_canary': 102.4, 'hold_share_canary': 0.794})
+    got, out = c.run()
+    check('two calibrated REVERT lines block', got, 'INCONCLUSIVE',
+          'Nine chances at 5% is 37%. Declare one deciding alarm.', out)
+    check('  and the reason names the multiplication', '37%' in out, True, '', out)
+
+    # 5g. A calibrated line registered WATCH must NOT count toward the ration -- rationing the
+    #     deciding line must not stop a canary from carrying as many REPORTING lines as it likes.
+    print("\n5g. A calibrated WATCH line alongside a calibrated REVERT line -- allowed")
+    mixed = [_ownline(), _ownline(field='hold_share_canary', value=0.5, on_fail='WATCH',
+                                  calibration_patch={'at_threshold': 0.5})]
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': mixed})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'refused_actuator_per_bh_canary': 102.4, 'hold_share_canary': 0.794})
+    got, out = c.run()
+    check('one deciding line plus a reporting one still REVERTS', got, 'REVERT',
+          'Only the DECIDING line is rationed. Reporting lines are free and should be.', out)
+
     # ---- 6. AN INJECTED KNOWN REGRESSION.
     # swim_to shipped and TRIPLED drowning deaths. At that scale the gate is
     # calibrated to fire 99.9% of the time, and it must: a suite that only ever
