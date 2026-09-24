@@ -34,6 +34,13 @@ t('guard 1b: explore\'s failed-leg fallback walk runs stepLineSafe on its own li
   assert.equal(order(src.replace(REFUSE, '')), false, 'mutant: deleting the refusal is detected')
   assert.equal(order(src.replace(CHECK, '')), false, 'mutant: deleting the check is detected')
   assert.equal(src.includes("bot.setControlState('jump', true)\n        await sleep(1200, signal)"), false, 'the fallback walk is grounded: no jump held (a hop can leave the checked line)')
-  assert.equal(src.split('for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2])').length - 1, 1, 'the turn, the other turn, then the two perpendiculars')
+  // The candidate ORDER is decision logic, so it is no longer asserted by matching the array
+  // text -- it lives in the pure `stepCandidates` and is tested behaviourally in
+  // blind-step-candidates.test.mjs. What stays here is the STRUCTURAL invariant this file
+  // exists for: the loop consults that function and nothing else builds a heading list.
+  assert.equal(src.split('for (const [cand, candName] of stepCandidates(ang, turn))').length - 1, 1,
+               'the loop takes its headings from the pure stepCandidates, not an inline list')
+  assert.equal(/for \(const cand of \[ang/.test(src), false,
+               'no inline candidate array survives alongside it')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

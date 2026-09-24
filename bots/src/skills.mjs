@@ -3396,6 +3396,24 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
  * has a sighting, in the order below: ore is worth a walk, wood is worth a walk,
  * and stone is almost always underfoot already so it is last.
  */
+/**
+ * The blind step's candidate headings, in the order they are tried. PURE, so the ORDER can be
+ * tested instead of grepped -- the previous version of this decision was pinned by matching
+ * the literal array text, which is the thing this repo's rules forbid, and it broke the moment
+ * the list changed rather than the moment the DECISION changed.
+ *
+ * The heading, a turn, the two perpendiculars, and -- last -- the REVERSE. Measured
+ * 2026-09-24 over 479 bot-hours: 69.7% of blind-step refusal rows sit in a burst of four or
+ * more, meaning every candidate was refused; the loop then sleeps without moving, so the next
+ * pass stands on the same block and refuses identically. The reverse is the one line the bot
+ * has evidence about, because it just walked it. It is LAST so that nothing changes for a bot
+ * with any forward line, and it is checked by the same guard as every other candidate.
+ */
+export function stepCandidates (ang, turn) {
+  return [[ang, 'heading'], [ang - 2 * turn, 'turn'], [ang + Math.PI / 2, 'perp+'],
+          [ang - Math.PI / 2, 'perp-'], [ang + Math.PI, 'reverse']]
+}
+
 export function knownTarget (bot, toward = null, radius = 400) {
   const wf = bot?.worldFacts
   const at = bot?.entity?.position
@@ -3535,8 +3553,27 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       // FOUR HEADINGS BEFORE STAYING PUT. On -08c the two-candidate version refused 3.7 steps per bot-hour, and every
       // refusal left the bot where the failed plan had started: explores per hour fell a third. The turn, the
       // other turn, then the two perpendiculars; the first safe line wins.
+      // ...AND THE WAY IT CAME, LAST. Measured 2026-09-24 over 479 bot-hours: blind-step
+      // refusals run at 10.70/bot-h and **69.7% of the rows sit in a burst of FOUR OR MORE**
+      // -- every candidate refused. When that happens this loop falls through to
+      // `sleep(300)` WITHOUT MOVING, so the next pass stands on the same block, samples the
+      // same terrain and refuses identically; bursts of 5 and 6+ are that repeating, at one
+      // coordinate, for up to 62 s. 26.7% of all refusals are at a coordinate the same bot
+      // had already been refused at five times or more.
+      //
+      // The four candidates are the heading, a turn, and the two perpendiculars. There is no
+      // REVERSE. A bot that walked itself into a pocket has exactly one line it has evidence
+      // about -- the one it just traversed -- and it is the only candidate that is not a
+      // guess. It goes LAST, so nothing changes for a bot that has any forward line, and it
+      // is checked by the SAME guard and the SAME death-site list as the others: `just walked
+      // it` is a reason to try it first among the refusals, not a reason to trust it.
+      //
+      // This does NOT loosen `maxDrop`. The drop bound is 76.7% of the refusal REASONS, but
+      // the refusals are cheap; what is expensive is having no legal move afterwards, which
+      // is the documented trap shape here -- two correct guards meeting where the bot has
+      // nowhere to go.
       let stepOk = false
-      for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2]) {
+      for (const [cand, candName] of stepCandidates(ang, turn)) {
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
         if (!v.safe) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
         // ...AND NEVER BLIND INTO A RECORDED DEATH. The pathfinder prices death sites (deathsites.mjs); this walk has
@@ -3544,6 +3581,11 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
         // refusal and then a walk that was not the refused leg.
         const ds = lineHitsDeathSite(bot.deathSitesNow?.() ?? [], bot.entity.position, cand)
         if (ds) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `blind_step: ${ds.kind} x${ds.deaths ?? 1} recorded at ${ds.x},${ds.y},${ds.z} on the line: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
+        if (candName === 'reverse') {
+          logEvent({ kind: 'explore_blind_step_reverse', status: 'success',
+                     detail: `every forward candidate refused; walking back the line just travelled`,
+                     snapshot: snapshot(bot) })
+        }
         ang = cand; stepOk = true; break
       }
       if (!stepOk) { await sleep(300, signal); continue }
