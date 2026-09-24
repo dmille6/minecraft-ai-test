@@ -26,7 +26,7 @@ from singledeath import licence_reverts
 
 
 def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
-                        window_s=60, p_max=0.05):
+                        window_s=60, p_max=0.05, canary_rate=None):
     """Which change rows in a canary death window may license a REVERT (v25).
 
     Pure, so it can be tested; the inline version of this could only ever be checked by
@@ -82,7 +82,28 @@ def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
                 refused.append(f'{row}: control emits it at {lam:.3f}/bot-h, so a coincidental '
                                f'link in {window_s}s has P={_p:.3f} > {p_max} -- not discriminating')
             else:
-                licensed.append((b, tt, row, d))
+                # v27: THE COINCIDENCE THAT MATTERS IS THE CANARY'S OWN RATE, and the test
+                # above does not measure it. Calibrating only on control means a row the old
+                # code NEVER emits scores P = 0 and licenses freely -- but a chatty new row
+                # lands beside a background death by chance at its OWN rate. Measured
+                # 2026-09-24: `escape_rung` runs at 6.733/bot-h on the canary, which is a
+                # 10.6% chance of falling inside a 60 s window with any death at all, above
+                # the very ceiling this function enforces on control.
+                #
+                # REPORTED, NOT ENFORCED, and the reason is specific: refusing above
+                # 3.0/bot-h would refuse `escape_rung` and make owner-01b `aa44514` -- a
+                # revert the audit calls CORRECT, with 240 canary rows against 0 in 249.5
+                # control bot-h -- unrevertable by this path. It can only become a veto
+                # alongside a REVERT-capable calibrated own-line for the same canary.
+                q = None
+                if canary_rate is not None:
+                    lamc = (canary_rate or {}).get(row)
+                    if lamc:
+                        q = 1.0 - math.exp(-lamc * window_s / 3600.0)
+                licensed.append((b, tt, row, d) if q is None or q <= p_max
+                                else (b, tt, row + ' [canary emits it at %.3f/bot-h: a '
+                                      'coincidental link in %ds has q=%.3f > %.2f -- REPORTED, '
+                                      'not refused]' % (lamc, window_s, q, p_max), d))
     return licensed, refused
 
 run_id, M = sys.argv[1], int(sys.argv[2]); DRY = '--dryrun' in sys.argv; POLL = '--poll' in sys.argv
@@ -285,7 +306,15 @@ if changerow:
         _ctrl_rate = {r: _cnt.get(r, 0) / _cbh_rows for r in C_ROWS}
         why.append('control emission rates for licensing rows over %.1f control bot-h: %s'
                    % (_cbh_rows, ', '.join(f'{r}={_ctrl_rate[r]:.3f}/bh' for r in sorted(C_ROWS)) or '(none registered)'))
-licensed, refused = license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=_ctrl_rate)
+_can_rate = {}
+if changerow:
+    _cbh_can = _exposure(by, cut)
+    if _cbh_can > 0:
+        _cnt_can = collections.Counter(k.lstrip('_') for _b, rs in (by or {}).items()
+                                       for ts, k, _d in rs if ts > cut and k.lstrip('_') in C_ROWS)
+        _can_rate = {r: _cnt_can.get(r, 0) / _cbh_can for r in C_ROWS}
+licensed, refused = license_change_rows(changerow, away, ctrl_at_death,
+                                        ctrl_rate=_ctrl_rate, canary_rate=_can_rate)
 if refused: why.append(f'change rows in a canary death window REFUSED as non-discriminating ({ctrl_deaths} control deaths in the window): ' + '; '.join(sorted(set(refused))))
 # v23 (2026-09-19): NO SINGLE CANARY DEATH MAY LICENCE A REVERT BY ANY PATH.
 # This branch reverted owner-01b at +0 on ONE death at 16:38:45Z while the

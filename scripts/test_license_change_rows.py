@@ -159,5 +159,56 @@ lic600, ref600 = license_change_rows([('b', 't', ['r'], 'd')], away={'r'}, ctrl_
 check('v25: 1.0/bot-h licenses at 60 s', (len(lic60),), (1,))
 check('v25: the same rate is refused at 600 s', (len(lic600), len(ref600)), (0, 1))
 
+# ---------------------------------------------------------------- v27 ------
+# MEASURED 2026-09-24 across all 15 death-involved reverts. Linkage at a 60 s window
+# separates the two REAL harms from the background; the death RATE provably cannot
+# (rl-08b real and falls-01 false both read a 0.58 lower bound).
+#
+#   case                 truth  row             canary rate   control rate   nearest row
+#   aa44514 owner-01b    REAL   escape_rung     6.733/bot-h   0 in 249.5 bh    -9.6 s
+#   3810457 rl-08b       REAL   lava_corridor   0.977/bot-h   0 in 171.8 bh    -5.3 s
+#   fc28885 falls-01     FALSE  fall_path       1.338/bot-h   0 in 162.2 bh  -519.7 s
+#   a242d64 rl-02        FALSE  (no new row ever fired)
+#
+# Background false-link rate: 5.0% at 60 s (1 of 20 background deaths) vs 20.0% at 600 s.
+# False REVERT per 3 h read: 3.0% at 60 s vs 10.6% at 600 s. THE WINDOW IS THE CALIBRATED
+# PARAMETER, and 60 s is the calibrated value. Do not widen it without redoing that count.
+
+# 13. The canary-rate arm: REPORTED, never a refusal. `escape_rung` at 6.733/bot-h has a
+#     10.6% chance of landing in a 60 s window with any death, above this function's own
+#     ceiling -- yet it is the licensing row of a revert the audit calls CORRECT. So the
+#     note goes on the row and the licence still stands.
+lic, ref = license_change_rows(
+    [('hive-a-Bravo', '16:38:46', ['escape_rung'], 'drowned')],
+    away={'escape_rung'}, ctrl_at_death=set(),
+    ctrl_rate={'escape_rung': 0.0}, canary_rate={'escape_rung': 6.733})
+check('v27: escape_rung at 6.733/bot-h is still LICENSED (owner-01b stays revertable)',
+      (len(lic), len(ref)), (1, 0))
+check('  and the row carries the canary-rate note', lambda: 'REPORTED, not refused' in lic[0][2], True)
+check('  and the note gives q = 0.106', lambda: 'q=0.106' in lic[0][2], True)
+
+# 14. A quiet new row gets no note at all: lava_corridor at 0.977/bot-h is q = 0.016.
+lic, ref = license_change_rows(
+    [('placebo-a-Delta', '06:02:00', ['lava_corridor'], 'tried to swim in lava')],
+    away={'lava_corridor'}, ctrl_at_death=set(),
+    ctrl_rate={'lava_corridor': 0.0}, canary_rate={'lava_corridor': 0.977})
+check('v27: rl-08b lava_corridor at 0.977/bot-h licenses cleanly', (len(lic), len(ref)), (1, 0))
+check('  and carries NO note (q = 0.016, inside the ceiling)',
+      lambda: 'REPORTED' not in lic[0][2], True)
+
+# 15. The canary-rate arm must never be the thing that refuses. Even an absurd rate keeps the
+#     licence, because turning this into a veto would have cost owner-01b -- and that decision
+#     is recorded in the function, not left to a reader.
+lic, ref = license_change_rows(
+    [('b', 't', ['r'], 'd')], away={'r'}, ctrl_at_death=set(),
+    ctrl_rate={'r': 0.0}, canary_rate={'r': 999.0})
+check('v27: even a 999/bot-h canary row is licensed, not refused', (len(lic), len(ref)), (1, 0))
+
+# 16. And omitting canary_rate entirely must behave exactly as v25 did.
+lic, ref = license_change_rows(
+    [('b', 't', ['r'], 'd')], away={'r'}, ctrl_at_death=set(), ctrl_rate={'r': 0.0})
+check('v27: no canary_rate supplied -> v25 behaviour, no note',
+      (len(lic), len(ref), 'REPORTED' in lic[0][2]), (1, 0, False))
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 sys.exit(1 if FAILED else 0)
