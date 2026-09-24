@@ -81,14 +81,38 @@ MUTANTS = [
      "The harm signal must survive every loosening of the death gate. This is the guard "
      "that catches a bot held still by its own owner."),
 
+    # NEW 2026-09-24 (v25). THE HOLE THAT WOULD HAVE MADE THE FIX WORSE THAN THE BUG.
+    # The first draft of v25 demoted a failed typed line to `watch`. But `watch` is only
+    # PRINTED: control falls through to out('KEEP') at the end of verdict.py, so that draft
+    # would have KEPT a change whose own deciding line failed -- turning 7 false REVERTs
+    # into an unknown number of false KEEPs. A Codex pass found it before it was written.
+    # Deleting the `blocked` branch restores exactly that behaviour, so this mutant is the
+    # proof that the branch is load-bearing rather than decorative.
+    ('the blocked branch removed -- a failed deciding line falls through to KEEP again',
+     'verdict.py',
+     'if blocked:',
+     'if False:',
+     'registered friction rule fails, with no evidence class', 'KEEP',
+     "A typed threshold that declares no evidence class must reach neither KEEP nor "
+     "REVERT. Without this branch it reaches KEEP, which is the one outcome worse than "
+     "the false reverts v25 exists to stop."),
+
     ('a NaN endpoint scored as a failing one (the pre-2026-09-19 behaviour)',
      'verdict.py',
      "    if val is None or (isinstance(val, float) and val != val) or val in (float('inf'), float('-inf')):",
      "    if val is None:",
-     'primary endpoint is nan', 'REVERT',
+     'primary endpoint is nan', 'INCONCLUSIVE',
      "owner-01b's ratio-DiD printed `+nan% FAIL`. Every comparison against NaN is False, "
      "so an `on_fail: REVERT` line reverts on an arithmetic hole. This is the branch that "
-     "was live until today and that the suite's own first draft did not reach."),
+     "was live until today and that the suite's own first draft did not reach. "
+     "v25 (2026-09-24): with the NaN guard mutated away the verdict is now INCONCLUSIVE "
+     "rather than REVERT, because a typed line that declares no evidence class can no "
+     "longer revert at all. Both guards are still required and this mutant still proves "
+     "the NaN one is load-bearing -- UNREADABLE says the endpoint is undefined, which is "
+     "the true statement; INCONCLUSIVE merely says nothing was established. But it is "
+     "worth recording that v25 is defence in depth against exactly this class: the "
+     "arithmetic hole that reverted owner-01b cannot reach a REVERT through this section "
+     "even with its own dedicated guard removed."),
 
     ('the 1.25x threshold quietly raised to 5x',
      'deathgate.py',
@@ -138,7 +162,7 @@ MUTANTS = [
      'verdict.py',
      "for fr in reg.get('friction', []):",
      "for fr in []:",
-     'registered friction rule fails', 'KEEP',
+     'registered friction rule fails, with no evidence class', 'KEEP',
      "recovery-ladder-1011b registered a friction rule that never ran. verdict.py did not "
      "contain the string 'friction' at all, for the whole life of the format."),
 
@@ -221,7 +245,12 @@ WANT_BASE = {
     # is a broken instrument -- neither a pass nor a revert.
     'control has no measured exposure': 'UNREADABLE',
     'v15c guards all undefined': 'UNREADABLE',
-    'registered friction rule fails': 'REVERT',
+    # v25 (2026-09-24): a typed threshold with no declared evidence class no longer
+    # reverts -- it blocks KEEP. The REVERT branch moved to the 1c-bis cases, which declare
+    # `evidence: defect` / a `support` p, and those are the ones a mutant should break.
+    'registered friction rule fails, with no evidence class': 'INCONCLUSIVE',
+    'declared evidence=defect still reverts': 'REVERT',
+    'declared support p=0.01 <= 0.05 still reverts': 'REVERT',
     'registration omits immobiledid': 'UNREADABLE',
 }
 

@@ -69,5 +69,95 @@ check('a real row still fires alongside a refused one', (len(lic), len(ref)), (1
 check('no death windows -> no verdict either way',
       license_change_rows([], away={'x'}, ctrl_at_death=set()), ([], []))
 
+# ---------------------------------------------------------------- v25 ------
+# The presence test above has almost no power: `ctrl_at_death` only holds rows carried by
+# control deaths INSIDE this window, and at ~0.05 deaths/bot-h that is usually one or two
+# deaths. Audited 2026-09-24 across all 23 reverts, two rows licensed a REVERT while
+# control was emitting them constantly. These cases are those two, with their MEASURED
+# control rates, plus the two rows that did discriminate and must still fire.
+
+# 6. recovery-ladder-04 `6d843a1`: `entombed` licensed the revert. Control emitted it at
+#    6.16/bot-h -- a 64.2% chance of a coincidental link in the audit's 600 s window and
+#    9.8% in this file's 60 s one. Either way it is not evidence.
+lic, ref = license_change_rows(
+    [('hive-a-Bravo', '23:04:00', ['entombed'], 'drowned')],
+    away={'entombed'}, ctrl_at_death=set(), ctrl_rate={'entombed': 6.16})
+check('v25: a row control emits at 6.16/bot-h is refused', (len(lic), len(ref)), (0, 1))
+check('  and the reason gives the rate and the probability',
+      lambda: '6.160/bot-h' in ref[0] and 'P=0.098' in ref[0], True)
+
+# 7. recovery-ladder-03 `612d1c8`: `marooned` at 4.77/bot-h, 54.8% at 600 s.
+lic, ref = license_change_rows(
+    [('placebo-b-Echo', '21:06:00', ['marooned'], 'drowned')],
+    away={'marooned'}, ctrl_at_death=set(), ctrl_rate={'marooned': 4.77})
+check('v25: a row control emits at 4.77/bot-h is refused', (len(lic), len(ref)), (0, 1))
+
+# 8. A REGRESSION TEST, NOT A DISCRIMINATION TEST -- and the difference matters.
+#    `fall_path` was 0 in 115.4 control bot-h (falls-01 fc28885) and `escape_rung` 0 in
+#    178.0 (owner-01b aa44514), so a measured-zero rate must license exactly as before or
+#    this fix has silently narrowed the gate. That is all this case proves.
+#
+#    IT IS NOT EVIDENCE THAT THOSE ROWS DISCRIMINATE. A row INTRODUCED BY THE CHANGE has
+#    lambda = 0 on control BY CONSTRUCTION -- the old code cannot emit a row it does not
+#    contain -- so this formula awards it maximal apparent discrimination no matter how
+#    often harmless treatment-side episodes emit it. That is the documented owner-01b trap
+#    (recovery-ladder-registration.md:413), and a Codex pass raised it against this very
+#    test. Two further limits of the same kind, recorded so they are not mistaken for
+#    solved: the link window ENDS AT A DEATH rather than falling at a random time, so the
+#    quantity that actually matters is P(row in the preceding 60 s | a comparable baseline
+#    death), and a marginal fleet rate can UNDERestimate that; and these rows are emitted
+#    by persistent states (entombed, marooned), which is clustered rather than Poisson --
+#    under a Cox process P(any) = 1 - E[exp(-Lambda)] <= 1 - exp(-E[Lambda]), so the
+#    homogeneous figure is too HIGH for randomly placed windows, which refuses more and
+#    therefore errs toward keeping rather than reverting.
+#
+#    So the rate filter is a REFUSAL, never a licence: it can only move a row from
+#    licensed to refused, never the reverse. That monotonicity is what makes it safe to
+#    land ahead of the conditional estimator, and case 12 below asserts it.
+for row, rate, bh in (('fall_path', 0.0, 115.4), ('escape_rung', 0.0, 178.0)):
+    lic, ref = license_change_rows(
+        [('placebo-a-Delta', '04:39:00', [row], 'fell')],
+        away={row}, ctrl_at_death=set(), ctrl_rate={row: rate})
+    check(f'v25: {row} at 0/bot-h over {bh} control bot-h licenses as it did before',
+          (len(lic), len(ref)), (1, 0))
+
+# 12. THE MONOTONICITY THE COMMENT ABOVE CLAIMS. For every rate, the v25 filter must
+#     license a SUBSET of what the presence-only test licensed. If this ever fails, the
+#     filter has become a licence and the argument for landing it early collapses.
+_mono = []
+for lam in (0.0, 0.01, 0.5, 3.0, 3.08, 6.16, 100.0):
+    base_l, _ = license_change_rows([('b', 't', ['r'], 'd')], away={'r'}, ctrl_at_death=set())
+    new_l, _ = license_change_rows([('b', 't', ['r'], 'd')], away={'r'}, ctrl_at_death=set(),
+                                   ctrl_rate={'r': lam})
+    _mono.append(len(new_l) <= len(base_l))
+check('v25: the rate filter only ever REFUSES, never licenses (7 rates)',
+      all(_mono), True)
+
+# 9. An UNMEASURED row (absent from ctrl_rate) must keep the old behaviour, not be
+#    silently licensed OR silently refused -- a hole in the instrument is not a finding.
+lic, ref = license_change_rows(
+    [('hive-a-Bravo', '04:09:35', ['death_site_route_crossed'], 'drowned')],
+    away={'death_site_route_crossed'}, ctrl_at_death=set(), ctrl_rate={'something_else': 9.0})
+check('v25: an unmeasured row falls through to the presence test', (len(lic), len(ref)), (1, 0))
+
+# 10. THE BOUNDARY IS THE DECISION. At the 60 s window, p_max=0.05 sits at
+#     lambda = -ln(0.95)*60 = 3.0776/bot-h. A rate just under licenses, just over refuses.
+#     A test that never sees the line move is not testing the line.
+import math
+_lam_crit = -math.log(1 - 0.05) * 3600 / 60
+for lam, want, label in ((_lam_crit * 0.98, (1, 0), 'just below'), (_lam_crit * 1.02, (0, 1), 'just above')):
+    lic, ref = license_change_rows(
+        [('b', 't', ['r'], 'd')], away={'r'}, ctrl_at_death=set(), ctrl_rate={'r': lam})
+    check(f'v25: {label} the {_lam_crit:.3f}/bot-h boundary -> {want}', (len(lic), len(ref)), want)
+
+# 11. The window is a parameter, and widening it must refuse MORE, never fewer. The audit
+#     quoted 600 s; this file uses 60 s; a rate safe at 60 s can be unsafe at 600 s.
+lic60, _ = license_change_rows([('b', 't', ['r'], 'd')], away={'r'}, ctrl_at_death=set(),
+                               ctrl_rate={'r': 1.0}, window_s=60)
+lic600, ref600 = license_change_rows([('b', 't', ['r'], 'd')], away={'r'}, ctrl_at_death=set(),
+                                     ctrl_rate={'r': 1.0}, window_s=600)
+check('v25: 1.0/bot-h licenses at 60 s', (len(lic60),), (1,))
+check('v25: the same rate is refused at 600 s', (len(lic600), len(ref600)), (0, 1))
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 sys.exit(1 if FAILED else 0)

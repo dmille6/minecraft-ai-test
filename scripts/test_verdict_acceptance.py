@@ -223,9 +223,65 @@ def main():
     c.evidence('pocketread', {'hold_release_canary_post': 0.10,
                               'hold_release_control_post': 0.80})
     got, out = c.run()
-    check('registered friction rule fails', got, 'REVERT',
+    # v25 (2026-09-24): the rule still RUNS and still FAILS -- that is what this case was
+    # written to prove and it still proves it. What changed is the verdict. A typed
+    # threshold that declares no evidence class no longer reverts, because that section was
+    # the largest single cause of the 7 confirmed-false reverts in the ledger audit; it now
+    # BLOCKS KEEP instead, which is the outcome the old code could not express. The REVERT
+    # branch is case 1c-bis below, so both directions are covered.
+    check('registered friction rule fails, with no evidence class', got, 'INCONCLUSIVE',
           'canary 0.10 against control 0.80 is -0.70, far past the registered -0.3 floor. '
-          'Before this the section was simply not read and the canary reached KEEP.', out)
+          'Before this the section was simply not read and the canary reached KEEP; now it '
+          'reaches neither KEEP nor REVERT.', out)
+    check('  and the reason names the missing evidence class',
+          'declares no evidence class' in out, True,
+          'The verdict has to say WHY it did not revert, or this is indistinguishable '
+          'from the section being unimplemented again.', out)
+
+    # ---- 1c-bis. THE SAME RULE, WITH ITS EVIDENCE DECLARED, MUST STILL REVERT.
+    # Two branches: a reproducible implementation defect (rl-08 14c662d, whose own new
+    # instrument misfired 268 times out of 278 against a structurally empty baseline), and
+    # a statistical harm claim carrying a randomization p inside its registered ceiling.
+    print("\n1c-bis. THE SAME FRICTION RULE WITH A DECLARED EVIDENCE CLASS -- must revert")
+    for extra, label in (({'evidence': 'defect'}, 'evidence=defect'),
+                         ({'support': {'read': 'gatep', 'field': 'hold_p', 'max': 0.05}},
+                          'support p=0.01 <= 0.05')):
+        reads = ['immobiledid', 'pocketread'] + (['gatep'] if 'support' in extra else [])
+        c = Case(tmp, reg_extra={'reads': reads,
+                                 'friction': [dict({'read': 'pocketread',
+                                                    'field': 'hold_release_canary_post',
+                                                    'vs': 'hold_release_control_post',
+                                                    'op': 'pp>=', 'value': -0.3,
+                                                    'on_fail': 'REVERT'}, **extra)]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('pocketread', {'hold_release_canary_post': 0.10,
+                                  'hold_release_control_post': 0.80})
+        if 'support' in extra: c.evidence('gatep', {'hold_p': 0.01})
+        got, out = c.run()
+        check(f'declared {label} still reverts', got, 'REVERT',
+              'The fix must not cost the gate its ability to reject a change that is '
+              'genuinely broken -- that is the failure mode that would make it worse '
+              'than the bug it fixes.', out)
+
+    # ---- 1c-ter. A SUPPORT p ABOVE ITS CEILING, OR MISSING, MUST NOT REVERT.
+    print("\n1c-ter. A SUPPORT p OUTSIDE ITS CEILING -- INCONCLUSIVE, never REVERT")
+    for pv, label in ((0.18, 'p=0.18 (leaf-01\'s measured value)'), (None, 'p absent')):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'pocketread', 'gatep'],
+                                 'friction': [{'read': 'pocketread',
+                                               'field': 'hold_release_canary_post',
+                                               'vs': 'hold_release_control_post',
+                                               'op': 'pp>=', 'value': -0.3,
+                                               'on_fail': 'REVERT',
+                                               'support': {'read': 'gatep', 'field': 'hold_p',
+                                                           'max': 0.05}}]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('pocketread', {'hold_release_canary_post': 0.10,
+                                  'hold_release_control_post': 0.80})
+        c.evidence('gatep', {'hold_p': pv} if pv is not None else {})
+        got, out = c.run()
+        check(f'{label} does not revert', got, 'INCONCLUSIVE',
+              "leaf-01's -0.5 line was crossed by 36-49% of its own window's null "
+              'assignments at a measured p of 0.18. A threshold is not evidence.', out)
 
     # ---- 1d. A REGISTRATION WITHOUT immobiledid (2026-09-23). `im = ev['immobiledid']`
     # raised KeyError, and canary-loop.sh:54 captures stdout only, so the traceback went to

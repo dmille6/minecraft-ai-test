@@ -24,8 +24,9 @@ from deathgate import death_gate
 from singledeath import licence_reverts
 
 
-def license_change_rows(changerow, away, ctrl_at_death):
-    """Which change rows in a canary death window may license a REVERT (v19).
+def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
+                        window_s=60, p_max=0.05):
+    """Which change rows in a canary death window may license a REVERT (v25).
 
     Pure, so it can be tested; the inline version of this could only ever be checked by
     burning a canary, and three were. A row licenses a REVERT only when it DISCRIMINATES:
@@ -34,16 +35,51 @@ def license_change_rows(changerow, away, ctrl_at_death):
           not the change acting (recovery-ladder-13b, `flooded_pocket_rung`)
       refused if the row was never seen AWAY from a death     -- it may be written by the
           death itself (recovery-ladder-13, `death_site_recorded`)
+      refused if CONTROL EMITS IT OFTEN ENOUGH that landing in a 60 s window by chance is
+          not rare (v25, below)
+
+    V25: THE FIRST TEST IS PRESENCE, WHICH HAS ALMOST NO POWER.
+    `ctrl_at_death` holds only the rows carried by control deaths that fall INSIDE this
+    window. Deaths run ~0.05/bot-h, so a window routinely contains one or two control
+    deaths and the set is nearly empty -- and then a row control emits CONSTANTLY still
+    licenses a REVERT. Audited 2026-09-24 over all 23 reverts: `_entombed*` licensed
+    rl-04 `6d843a1` while control emitted it at 6.16/bot-h, and `_marooned*` licensed
+    rl-03 `612d1c8` at 4.77/bot-h. Asking "did a control death happen to carry it" is a
+    test of how many control deaths there were, not of the row.
+
+    So calibrate against the rate instead. If control emits row r at `lambda_r` per
+    bot-hour, the chance of at least one coincidental emission inside a window of
+    `window_s` seconds is
+
+        P = 1 - exp(-lambda_r * window_s / 3600)
+
+    and the row is refused when P > `p_max`. At the audit's 600 s linkage window that is
+    64.2% for 6.16/bot-h and 54.8% for 4.77/bot-h, which is what the audit measured; at
+    this file's 60 s window it is 9.8% and 7.7%, still above a 0.05 ceiling, so both of
+    those reverts fall either way. A row control never emits has P=0 and is unaffected --
+    `_fall_path` was 0 in 115.4 control bot-h and `_escape_rung` 0 in 178.0, so the two
+    reverts that did discriminate still do.
+
+    `ctrl_rate` maps row name (no leading underscore) to control emissions per bot-hour.
+    Omitted or missing keys mean UNMEASURED, not zero: an unmeasured row keeps the old
+    presence-only behaviour rather than being silently licensed, because a gate that
+    reverts must not read a hole in its own instrument as a clean bill of health.
 
     Returns (licensed, refused).
     """
+    import math
     licensed, refused = [], []
     for b, tt, ch, d in changerow:
         for row in ch:
+            lam = (ctrl_rate or {}).get(row)
             if row in ctrl_at_death:
                 refused.append(f'{row}: control deaths carry it too, so it is baseline behaviour')
             elif row not in away:
                 refused.append(f'{row}: never seen away from a death, so it may be written by the death')
+            elif lam is not None and lam > 0 and (1.0 - math.exp(-lam * window_s / 3600.0)) > p_max:
+                _p = 1.0 - math.exp(-lam * window_s / 3600.0)
+                refused.append(f'{row}: control emits it at {lam:.3f}/bot-h, so a coincidental '
+                               f'link in {window_s}s has P={_p:.3f} > {p_max} -- not discriminating')
             else:
                 licensed.append((b, tt, row, d))
     return licensed, refused
@@ -233,7 +269,22 @@ if changerow or linked:
                 ctrl_deaths += 1
                 lo = (dt.datetime.fromisoformat(ts.replace('Z', '+00:00')) - dt.timedelta(seconds=60)).isoformat().replace('+00:00', 'Z')
                 ctrl_at_death |= {q[1].lstrip('_') for q in rs if lo <= q[0] < ts and q[1].lstrip('_') in C_ROWS}
-licensed, refused = license_change_rows(changerow, away, ctrl_at_death)
+# v25: the CONTROL EMISSION RATE for every licensing row, which is what makes the
+# discrimination test a test. Counted over the same scan and the same estimator the death
+# rates use, so the two cannot disagree about the denominator. A row absent from this dict
+# is UNMEASURED and keeps the old presence-only behaviour; a row present with 0.0 is
+# measured-absent and licenses freely.
+_ctrl_rate = {}
+if changerow:
+    _cscan = _control_scan()
+    _cbh_rows = _exposure(_cscan, cut)
+    if _cbh_rows > 0:
+        _cnt = collections.Counter(k.lstrip('_') for _b, rs in _cscan.items()
+                                   for ts, k, _d in rs if ts > cut and k.lstrip('_') in C_ROWS)
+        _ctrl_rate = {r: _cnt.get(r, 0) / _cbh_rows for r in C_ROWS}
+        why.append('control emission rates for licensing rows over %.1f control bot-h: %s'
+                   % (_cbh_rows, ', '.join(f'{r}={_ctrl_rate[r]:.3f}/bh' for r in sorted(C_ROWS)) or '(none registered)'))
+licensed, refused = license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=_ctrl_rate)
 if refused: why.append(f'change rows in a canary death window REFUSED as non-discriminating ({ctrl_deaths} control deaths in the window): ' + '; '.join(sorted(set(refused))))
 # v23 (2026-09-19): NO SINGLE CANARY DEATH MAY LICENCE A REVERT BY ANY PATH.
 # This branch reverted owner-01b at +0 on ONE death at 16:38:45Z while the
@@ -350,6 +401,69 @@ if g['ladders_p90'] is not None and g['ladders_p90'] > 32: why.append(f"ladders 
 d = ev.get('depositread', {})
 if d.get('skill_error_share_canary') is not None and d.get('skill_error_share_control') is not None and d['skill_error_share_canary'] > d['skill_error_share_control']: why.append('deposit skill_error share above control'); (out('REVERT'))
 # 8. own lines
+#
+# V25: A TYPED THRESHOLD IS NOT EVIDENCE, AND FALLING THROUGH TO KEEP IS NOT A FIX.
+# Audited 2026-09-24 over all 23 reverts: 7 were confirmed false and 5 more suspect, and
+# the largest single cause was this section -- an `on_fail: REVERT` line reverting on the
+# typed comparison ALONE. leaf-01's registered `-0.5` is crossed by 36-49% of its own
+# window's null assignments and has no recorded derivation; three reverts sat within
+# 1.13-1.31x of their line, which is what the measured 0.0%-12.8% false-positive swing
+# produces. 11 of 23 canaries were single-pool, where C(12,1)=12 same-shape assignments is
+# below in_window_p's 20-draw minimum, so those could not calibrate a threshold at all.
+#
+# But demoting to `watch` would be WORSE THAN THE BUG: `watch` is only printed, and control
+# falls through to out('KEEP') at the end of this file, so a demoted line would have KEPT
+# the change. A Codex pass found that, and it also found that in_window_p RAISES
+# DegenerateBlock on 14c662d's shape (three all-zero cells, because the statistic takes
+# logs of group rates) -- so "require a p" would not have demoted that correct revert, it
+# would have made its p unavailable and KEPT a change whose own instrument misfired 268
+# times out of 278.
+#
+# So a deciding line must now DECLARE what kind of evidence it rests on, and an
+# undeclared or unsupported one BLOCKS KEEP instead of deciding either way:
+#
+#   evidence: 'defect'          -- reverts on the comparison alone. For a reproducible
+#                                  implementation fault in the change's own new code, where
+#                                  the baseline cell is structurally empty and no noise
+#                                  model applies (rl-08 14c662d: 278 refusals, 268 of them
+#                                  ordinary terrain, against a clean zero in canary-pre and
+#                                  in control in both eras).
+#   support: {read, field, max} -- reverts only if that randomization p is PRESENT and <= max.
+#                                  For a statistical harm claim (leaf-01, rl-08c).
+#   neither                     -- the line still FAILS and is reported, but the verdict is
+#                                  INCONCLUSIVE. Not REVERT, because the threshold is not
+#                                  evidence; not KEEP, because the line did fail.
+#
+# Three problems this does NOT solve, named so they are not mistaken for solved (Codex):
+# a sign check does not rescue rl-08d, whose registered harmful direction was simply the
+# wrong endpoint (explore calls fell significantly while gather ROSE significantly);
+# same_shape_assignments enumerates pool combinations without the historical draws' own
+# eligibility restrictions; and a per-line, per-read 5% is not a whole-canary 5%.
+blocked = []
+
+
+def _deciding_evidence(rule, kind):
+    """Can this failed `on_fail: REVERT` rule license a REVERT? (v25)
+
+    Returns (may_revert, note). Pure apart from `ev`, so the reason is always printed.
+    """
+    if rule.get('evidence') == 'defect':
+        return True, f'{kind} declares evidence=defect: the typed comparison decides'
+    sup = rule.get('support')
+    if not sup:
+        return False, (f'{kind} declares no evidence class (no `evidence: defect`, no '
+                       f'`support: {{read, field, max}}`): a typed threshold is not evidence, '
+                       f'so this blocks KEEP rather than reverting')
+    pv = ev.get(sup['read'], {}).get(sup['field'])
+    if pv is None or (isinstance(pv, float) and pv != pv):
+        return False, (f"{kind} support {sup['read']}.{sup['field']} is {pv!r} -- the "
+                       f'randomization p is unavailable, so harm is not established')
+    if pv > sup['max']:
+        return False, (f"{kind} support {sup['read']}.{sup['field']} = {pv} > {sup['max']}: "
+                       f'the move is inside its own window\'s null spread')
+    return True, f"{kind} support {sup['read']}.{sup['field']} = {pv} <= {sup['max']}"
+
+
 for ln in reg.get('own_lines', []):
     val = ev.get(ln['read'], {}).get(ln['field'])
     # NaN IS NOT A FAILING VALUE, IT IS AN ABSENT ONE -- and this branch only
@@ -368,7 +482,11 @@ for ln in reg.get('own_lines', []):
     ok = {'<=': val <= ln['value'], '>=': val >= ln['value'], '==': val == ln['value']}[ln['op']]
     if not ok:
         why.append(f"own line {ln['read']}.{ln['field']} = {val} fails {ln['op']} {ln['value']}")
-        if ln['on_fail'] == 'REVERT': (out('REVERT'))
+        if ln['on_fail'] == 'REVERT':
+            _may, _note = _deciding_evidence(ln, f"own line {ln['read']}.{ln['field']}")
+            why.append(_note)
+            if _may: (out('REVERT'))
+            blocked.append(f"{ln['read']}.{ln['field']}")
         watch.append(f"{ln['field']}")
 # 8b. FRICTION -- a registered comparison between two fields of the same read.
 #
@@ -396,7 +514,11 @@ for fr in reg.get('friction', []):
     if not ok:
         why.append(f"friction {fr['read']}.{fr['field']} - {fr['vs']} = {d:+.3f} "
                    f"fails {fr['op']} {fr['value']}")
-        if fr.get('on_fail') == 'REVERT': (out('REVERT'))
+        if fr.get('on_fail') == 'REVERT':
+            _may, _note = _deciding_evidence(fr, f"friction {fr['read']}.{fr['field']}")
+            why.append(_note)
+            if _may: (out('REVERT'))
+            blocked.append(f"friction:{fr['read']}.{fr['field']}")
         watch.append(f"friction:{fr['field']}")
 
 # 8c. SAY WHAT THIS GATE DID NOT EVALUATE.
@@ -428,4 +550,8 @@ if M < max(reg['read_minutes']): (out('NOT_YET'))
 if not exposed:
     if reg.get('extension', {}).get('until_exposure') and M < final_M: why.append('zero exposure: the registered extension continues'); (out('NOT_YET'))
     why.append('zero exposure at the final read'); (out(reg.get('extension', {}).get('final_on_zero_exposure', 'INCONCLUSIVE')))
+if blocked:
+    why.append('a deciding line FAILED but its evidence class does not license a REVERT: '
+               + ', '.join(blocked) + ' -- INCONCLUSIVE, not KEEP')
+    (out('INCONCLUSIVE'))
 (out('KEEP'))
