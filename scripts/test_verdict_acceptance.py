@@ -500,11 +500,20 @@ def main():
     _fresh = _dt.datetime.now(_dt.timezone.utc).isoformat().replace('+00:00', 'Z')
     _stale = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=72)).isoformat().replace('+00:00', 'Z')
 
+    # THE VALID EXAMPLE IS A BASELINE-EMITTED DiD LINE, NOT owner-01b's.
+    # The first draft of this fixture used owner-01b's own `refused_actuator_per_bh_canary`
+    # with `nonzero_draws: 210` -- a value that CANNOT EXIST for that field. Measured
+    # 2026-09-24: `arbiter_actuator_refused` is logged only under `config.reflex.arbiter`,
+    # which no env file sets, and it appears 10,870 times in ONE log generation (owner-01b's
+    # own three hours) and 0 times in the other 11,406,760 rows. 0 of 800 pseudo-canary draws
+    # can produce a value for it. A fixture that asserts otherwise is a fixture inheriting the
+    # bug -- the thing this repo has been burned by before -- so the valid case now uses a
+    # quantity the BASELINE emits, and owner-01b's line appears below as a REFUSAL.
     def _ownline(**over):
-        ln = {'read': 'ownerread', 'field': 'refused_actuator_per_bh_canary',
-              'op': '<=', 'value': 30, 'on_fail': 'REVERT', 'evidence': 'calibrated',
-              'calibration': {'tool': 'guardcal.py', 'days': 3, 'draws': 300,
-                              'at_threshold': 30, 'false_trip_rate': 0.02,
+        ln = {'read': 'ownerread', 'field': 'no_path_share_did',
+              'op': '<=', 'value': 0.05, 'on_fail': 'REVERT', 'evidence': 'calibrated',
+              'calibration': {'tool': 'guardcal.py', 'days': 3, 'draws': 300, 'form': 'did',
+                              'at_threshold': 0.05, 'false_trip_rate': 0.02,
                               'nonzero_draws': 210,
                               'over_reads': True, 'measured_at': _fresh}}
         cal = over.pop('calibration_patch', None)
@@ -513,18 +522,18 @@ def main():
             ln['calibration'] = dict(ln['calibration'], **cal) if cal else None
         return ln
 
-    def _run_ownline(ln, value=102.4):
+    def _run_ownline(ln, value=0.31):
         c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': [ln]})
         c.evidence('immobiledid', immobiledid())
-        c.evidence('ownerread', {'refused_actuator_per_bh_canary': value})
+        c.evidence('ownerread', {ln['field']: value})
         return c.run()
 
     print("\n5d. A CALIBRATED OWN-LINE MAY REVERT -- owner-01b's gagged alarm, ungagged")
     got, out = _run_ownline(_ownline())
-    check('a calibrated own-line REVERTS on the owner-01b reading (102.4 vs <=30)',
-          got, 'REVERT',
-          'This is the whole point: the alarm read 102.4 against a registered 30 two hours '
-          'before the death gate moved, and could not stop anything.', out)
+    check('a calibrated DiD own-line REVERTS (0.31 vs <=0.05)', got, 'REVERT',
+          'A change must be able to stop its own canary on an alarm that has been measured '
+          'not to cry wolf -- 36% of changes emit no new event kind, so an own-line is the '
+          'only instrument that class has.', out)
     check('  and the verdict shows the calibration it relied on',
           'evidence=calibrated' in out and 'false-trip 0.0200' in out, True,
           'A revert on a calibration must print the calibration, or it is a typed threshold '
@@ -554,6 +563,14 @@ def main():
              _ownline(calibration_patch={'nonzero_draws': None}), 'for\nfree'.replace('\n', ' ')),
             ('degenerate: 4 of 300 draws had a baseline value',
              _ownline(calibration_patch={'nonzero_draws': 4}), 'DEGENERATE'),
+            # A CANARY-ONLY LEVEL MAY NEVER REVERT. Measured over 800 pseudo-canary draws:
+            # the one registered level line (`nopath_per_bh_canary <= 24`) false-tripped
+            # 11-20% over 09-16..09-20 and 49-53% over 09-20..09-24 on IDENTICAL code,
+            # because the fleet's no-path rate doubled in four days.
+            ('a canary-only LEVEL form', _ownline(calibration_patch={'form': 'level'}),
+             'only `did` may revert'),
+            ('no form declared at all', _ownline(calibration_patch={'form': None}),
+             'only `did` may revert'),
             ('  and it names `evidence: defect` as the honest class instead',
              _ownline(calibration_patch={'nonzero_draws': 4}), 'evidence: defect'),
             ('measured_at unreadable',
@@ -570,11 +587,11 @@ def main():
     #     this lesson -- calibrate_deathgate.py exists because a single-read figure
     #     "understates it badly" across ~108 polls. So exactly ONE line may decide.
     print("\n5f. MORE THAN ONE CALIBRATED REVERT LINE -- a registration error, not a stricter canary")
-    two = [_ownline(), _ownline(field='hold_share_canary', value=0.5,
-                                calibration_patch={'at_threshold': 0.5})]
+    two = [_ownline(), _ownline(field='items_did', value=0.0,
+                                calibration_patch={'at_threshold': 0.0})]
     c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': two})
     c.evidence('immobiledid', immobiledid())
-    c.evidence('ownerread', {'refused_actuator_per_bh_canary': 102.4, 'hold_share_canary': 0.794})
+    c.evidence('ownerread', {'no_path_share_did': 0.31, 'items_did': -0.4})
     got, out = c.run()
     check('two calibrated REVERT lines block', got, 'INCONCLUSIVE',
           'Nine chances at 5% is 37%. Declare one deciding alarm.', out)
@@ -583,11 +600,11 @@ def main():
     # 5g. A calibrated line registered WATCH must NOT count toward the ration -- rationing the
     #     deciding line must not stop a canary from carrying as many REPORTING lines as it likes.
     print("\n5g. A calibrated WATCH line alongside a calibrated REVERT line -- allowed")
-    mixed = [_ownline(), _ownline(field='hold_share_canary', value=0.5, on_fail='WATCH',
-                                  calibration_patch={'at_threshold': 0.5})]
+    mixed = [_ownline(), _ownline(field='items_did', value=0.0, on_fail='WATCH',
+                                  calibration_patch={'at_threshold': 0.0})]
     c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': mixed})
     c.evidence('immobiledid', immobiledid())
-    c.evidence('ownerread', {'refused_actuator_per_bh_canary': 102.4, 'hold_share_canary': 0.794})
+    c.evidence('ownerread', {'no_path_share_did': 0.31, 'items_did': -0.4})
     got, out = c.run()
     check('one deciding line plus a reporting one still REVERTS', got, 'REVERT',
           'Only the DECIDING line is rationed. Reporting lines are free and should be.', out)

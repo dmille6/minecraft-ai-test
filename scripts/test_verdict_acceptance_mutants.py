@@ -92,6 +92,17 @@ MUTANTS = [
      "Equality is the mechanical check that stops `calibration` becoming a number someone "
      "typed in; without it any calibration licenses any threshold."),
 
+    ('the DiD-form requirement removed -- a canary-only LEVEL may revert again',
+     'verdict.py',
+     "    if cal.get('form') != 'did':",
+     '    if False:',
+     'unsound calibration blocks: a canary-only LEVEL form', 'REVERT',
+     "Measured over 800 pseudo-canary draws: the one registered level line "
+     "(nopath_per_bh_canary <= 24) false-tripped 11-20% over 09-16..09-20 and 49-53% over "
+     "09-20..09-24 on IDENTICAL code, because the fleet's no-path rate doubled in four days. "
+     "A level threshold is a bet on stationarity this fleet does not offer; a DiD is "
+     "numerically identical for a change-introduced quantity, so requiring it costs nothing."),
+
     ('the zero-heavy calibration guard removed -- a treatment-only metric passes vacuously',
      'verdict.py',
      '    if nzf < 0.10:',
@@ -343,9 +354,10 @@ WANT_BASE = {
     'unsound calibration blocks: stale by 72 h': 'INCONCLUSIVE',
     'two calibrated REVERT lines block': 'INCONCLUSIVE',
     'unsound calibration blocks: degenerate: 4 of 300 draws had a baseline value': 'INCONCLUSIVE',
+    'unsound calibration blocks: a canary-only LEVEL form': 'INCONCLUSIVE',
     'unsound calibration blocks: nonzero_draws not reported at all': 'INCONCLUSIVE',
     '  and the reason says why (for free)': 'True',
-    'a calibrated own-line REVERTS on the owner-01b reading (102.4 vs <=30)': 'REVERT',
+    'a calibrated DiD own-line REVERTS (0.31 vs <=0.05)': 'REVERT',
 }
 
 

@@ -590,6 +590,25 @@ def _calibration_ok(rule, now=None):
     # "the new code does a dangerous thing N times against a structurally empty baseline",
     # which is rl-08 14c662d's shape and which reverts on the comparison alone. Dressing that
     # up as a statistical calibration claims power it does not have.
+    # A CANARY-ONLY LEVEL MAY NEVER REVERT (measured 2026-09-24, 800 pseudo-canary draws).
+    # A level threshold is a bet that the FLEET does not drift, and this fleet drifts. The one
+    # registered level line that could be reconstructed, `nopath_per_bh_canary <= 24` (rl-13,
+    # -13b, -13c), false-tripped 11.2-19.8% over 09-16..09-20 and 48.8-53.0% over
+    # 09-20..09-24 -- IDENTICAL CODE, the fleet's no-path rate simply doubled in four days and
+    # the threshold never moved. A level threshold also fails a 48 h transfer (up to 21.0%,
+    # 4.2x nominal) where a DiD holds (<= 12.0%, mostly 3-7%).
+    #
+    # And a DiD costs nothing for the case this class exists for: owner-01b's own quantity was
+    # 102.4 canary-post against zero in canary-pre and in control both eras, so its DiD is
+    # +102.4 -- numerically identical to the level. The level form buys nothing and bets on
+    # stationarity the fleet does not have.
+    if cal.get('form') != 'did':
+        return False, ('calibration form is %r, and only `did` may revert. A canary-only '
+                       'LEVEL is a bet that the fleet does not drift: measured, the one '
+                       'registered level line false-tripped 11-20%% one week and 49-53%% the '
+                       'next on IDENTICAL code, because the fleet no-path rate doubled. A DiD '
+                       'is numerically identical for a change-introduced quantity, so nothing '
+                       'is lost by requiring it.' % (cal.get('form'),))
     nz = cal.get('nonzero_draws')
     if nz is None:
         return False, ('calibration does not report `nonzero_draws` -- a line measuring '
