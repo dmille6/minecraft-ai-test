@@ -505,6 +505,7 @@ def main():
               'op': '<=', 'value': 30, 'on_fail': 'REVERT', 'evidence': 'calibrated',
               'calibration': {'tool': 'guardcal.py', 'days': 3, 'draws': 300,
                               'at_threshold': 30, 'false_trip_rate': 0.02,
+                              'nonzero_draws': 210,
                               'over_reads': True, 'measured_at': _fresh}}
         cal = over.pop('calibration_patch', None)
         ln.update(over)
@@ -544,6 +545,17 @@ def main():
             ('single read, not the schedule',
              _ownline(calibration_patch={'over_reads': False}), 'SINGLE read'),
             ('stale by 72 h', _ownline(calibration_patch={'measured_at': _stale}), 'not a calibration'),
+            # A ZERO-HEAVY CALIBRATION IS NOT A CALIBRATION. The pseudo-canaries run the OLD
+            # code, so a line measuring something only the NEW code emits scores 0% for free.
+            # owner-01b's own `refused_actuator_per_bh_canary` counts refusals by a gate the
+            # baseline does not have -- the exact line that motivated this class would have
+            # passed vacuously. Found by a Codex pass before it shipped.
+            ('nonzero_draws not reported at all',
+             _ownline(calibration_patch={'nonzero_draws': None}), 'for\nfree'.replace('\n', ' ')),
+            ('degenerate: 4 of 300 draws had a baseline value',
+             _ownline(calibration_patch={'nonzero_draws': 4}), 'DEGENERATE'),
+            ('  and it names `evidence: defect` as the honest class instead',
+             _ownline(calibration_patch={'nonzero_draws': 4}), 'evidence: defect'),
             ('measured_at unreadable',
              _ownline(calibration_patch={'measured_at': 'last tuesday'}), 'unreadable'),
     ):

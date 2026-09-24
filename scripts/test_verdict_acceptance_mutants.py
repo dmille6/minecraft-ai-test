@@ -92,6 +92,28 @@ MUTANTS = [
      "Equality is the mechanical check that stops `calibration` becoming a number someone "
      "typed in; without it any calibration licenses any threshold."),
 
+    ('the zero-heavy calibration guard removed -- a treatment-only metric passes vacuously',
+     'verdict.py',
+     '    if nzf < 0.10:',
+     '    if False:',
+     'unsound calibration blocks: degenerate: 4 of 300 draws had a baseline value', 'REVERT',
+     "The pseudo-canaries run the OLD code, so a line measuring something only the NEW code "
+     "emits scores a 0% false-trip rate for free. owner-01b's own "
+     "refused_actuator_per_bh_canary counts refusals by a gate the baseline does not have -- "
+     "the very line that motivated this class would have passed vacuously. A Codex pass "
+     "found it before it shipped."),
+
+    ('the nonzero_draws requirement removed -- absence reads as a clean calibration',
+     'verdict.py',
+     '    if nz is None:',
+     '    if False:',
+     '  and the reason says why (for free)', 'False',
+     "The VERDICT does not move here -- the float conversion below also rejects a missing "
+     "field, which is defence in depth. What moves is the REASON: without this branch the "
+     "operator is told the numbers are malformed rather than that the calibration cannot "
+     "bound a treatment-only metric at all. The reason is what someone acts on, so that is "
+     "what this mutant tests."),
+
     ('the false-trip ceiling removed -- a line that cries wolf may stop a canary',
      'verdict.py',
      '    if ftr > CAL_MAX_FTR:',
@@ -320,6 +342,9 @@ WANT_BASE = {
     'unsound calibration blocks: single read, not the schedule': 'INCONCLUSIVE',
     'unsound calibration blocks: stale by 72 h': 'INCONCLUSIVE',
     'two calibrated REVERT lines block': 'INCONCLUSIVE',
+    'unsound calibration blocks: degenerate: 4 of 300 draws had a baseline value': 'INCONCLUSIVE',
+    'unsound calibration blocks: nonzero_draws not reported at all': 'INCONCLUSIVE',
+    '  and the reason says why (for free)': 'True',
     'a calibrated own-line REVERTS on the owner-01b reading (102.4 vs <=30)': 'REVERT',
 }
 

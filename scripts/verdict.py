@@ -577,6 +577,35 @@ def _calibration_ok(rule, now=None):
     if ftr > CAL_MAX_FTR:
         return False, ('calibration false_trip_rate %.4f > %.2f -- this line cries wolf too '
                        'often to stop a canary' % (ftr, CAL_MAX_FTR))
+    # A ZERO-HEAVY CALIBRATION IS NOT A CALIBRATION (Codex, 2026-09-24). The pseudo-canaries
+    # run the OLD code, so a line measuring something only the NEW code can produce scores a
+    # 0% false-trip rate FOR FREE -- and that is exactly the class this change was made for.
+    # owner-01b's `refused_actuator_per_bh_canary` counts refusals by an attributed gate the
+    # baseline does not have, so no pseudo-canary can ever breach it and the ceiling above is
+    # satisfied vacuously. It is the same trap as a treatment-introduced change row having
+    # lambda = 0 on control by construction.
+    #
+    # So the calibration must say how many draws produced a DEFINED, NON-ZERO baseline value.
+    # If the metric does not exist on the baseline, the honest class is `evidence: defect` --
+    # "the new code does a dangerous thing N times against a structurally empty baseline",
+    # which is rl-08 14c662d's shape and which reverts on the comparison alone. Dressing that
+    # up as a statistical calibration claims power it does not have.
+    nz = cal.get('nonzero_draws')
+    if nz is None:
+        return False, ('calibration does not report `nonzero_draws` -- a line measuring '
+                       'something only the NEW code emits gets a 0%% false-trip rate for '
+                       'free, so the ceiling above proves nothing without it')
+    try:
+        nzf = float(nz) / float(cal['draws']) if float(cal['draws']) else 0.0
+    except Exception:
+        return False, 'calibration draws/nonzero_draws are not numbers (%r/%r)' % (cal.get('draws'), nz)
+    if nzf < 0.10:
+        return False, ('calibration is DEGENERATE: only %s of %s pseudo-canary draws produced '
+                       'a defined non-zero baseline value (%.1f%%), so this metric barely '
+                       'exists on the old code and its 0%% false-trip rate is vacuous. A line '
+                       'the baseline cannot produce belongs in `evidence: defect`, which '
+                       'reverts on the comparison against a structurally empty baseline.'
+                       % (nz, cal.get('draws'), 100 * nzf))
     if not cal.get('over_reads'):
         return False, ('calibration does not claim `over_reads` -- a rate from a SINGLE read '
                        'understates the canary, which is polled at every registered read')
