@@ -3396,6 +3396,53 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
  * has a sighting, in the order below: ore is worth a walk, wood is worth a walk,
  * and stone is almost always underfoot already so it is last.
  */
+/**
+ * The heading from `pos` toward the NEWEST breadcrumb at least `minDist` away, or null.
+ * PURE. Returns radians in this codebase's yaw convention.
+ *
+ * THE CONVENTION IS THE TRAP. prismarine-physics applies heading as x = -sin(yaw),
+ * z = -cos(yaw) (see lavaguard.stepLineSafe, whose FIRST version used +cos and therefore
+ * sampled the line BEHIND the bot for yaw 0). So to aim at a delta (dx, dz) the yaw is
+ * atan2(-dx, -dz), not atan2(dz, dx).
+ *
+ * Newest-first, because the nearest-in-time ground is the least likely to have changed. A crumb
+ * closer than `minDist` is skipped: a 1.2 s forward walk covers several blocks, so aiming at
+ * something underfoot moves the bot nowhere and burns the episode.
+ */
+export function retraceHeading (pos, crumbs, minDist = 3) {
+  if (!pos || !Array.isArray(crumbs)) return null
+  for (let i = crumbs.length - 1; i >= 0; i--) {
+    const c = crumbs[i]
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.z)) continue
+    const dx = c.x - pos.x, dz = c.z - pos.z
+    if (Math.hypot(dx, dz) < minDist) continue
+    return Math.atan2(-dx, -dz)
+  }
+  return null
+}
+
+/**
+ * The blind step's candidate headings, in the order they are tried. PURE, so the ORDER is tested
+ * rather than grepped.
+ *
+ * The heading, a turn, the two perpendiculars, and -- last, and only when a trail exists -- the
+ * RETRACE toward a place the bot has actually stood.
+ *
+ * WHAT blindstep-01 GOT WRONG. It appended `ang + Math.PI` and called it "the line just
+ * travelled". `ang` is an exploration bearing that is RANDOM when the target is near
+ * (`Math.random() * Math.PI * 2` below), so its reverse is the opposite of a coin flip, not a
+ * retrace, and nothing recorded where the bot had been. Measured on the canary: the reverse was
+ * reached and refused, every direction `drop of N ahead (limit 3)` with N in {4,5,7,9,10}.
+ * A real trail is now kept in index.mjs (`bot.recentGround()`), and when there is none there is
+ * NO fifth candidate -- an absent trail must not silently become a random heading.
+ */
+export function stepCandidates (ang, turn, retraceAng = null) {
+  const c = [[ang, 'heading'], [ang - 2 * turn, 'turn'],
+             [ang + Math.PI / 2, 'perp+'], [ang - Math.PI / 2, 'perp-']]
+  if (Number.isFinite(retraceAng)) c.push([retraceAng, 'retrace'])
+  return c
+}
+
 export function knownTarget (bot, toward = null, radius = 400) {
   const wf = bot?.worldFacts
   const at = bot?.entity?.position
@@ -3536,7 +3583,11 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
       // refusal left the bot where the failed plan had started: explores per hour fell a third. The turn, the
       // other turn, then the two perpendiculars; the first safe line wins.
       let stepOk = false
-      for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2]) {
+      let candName = null
+      const _crumbs = bot.recentGround?.() ?? []
+      const _retrace = retraceHeading(bot.entity.position, _crumbs)
+      for (const [cand, cn] of stepCandidates(ang, turn, _retrace)) {
+        candName = cn
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
         if (!v.safe) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
         // ...AND NEVER BLIND INTO A RECORDED DEATH. The pathfinder prices death sites (deathsites.mjs); this walk has
@@ -3547,12 +3598,25 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
         ang = cand; stepOk = true; break
       }
       if (!stepOk) { await sleep(300, signal); continue }
+      // MEASURE THE ESCAPE, NOT THE INTENTION. blindstep-01 logged its new candidate BEFORE the
+      // walk, so its exposure floor counted times the candidate was SELECTED -- a floor it could
+      // have met without a single bot going anywhere. The row is now emitted AFTER the walk and
+      // carries the displacement that actually happened.
+      const _before = bot.entity?.position
       try {
         await bot.look(ang, 0, true)
         bot.setControlState('forward', true)
         await sleep(1200, signal)
         bot.clearControlStates()
       } catch { bot.clearControlStates() }
+      if (candName === 'retrace') {
+        const a = bot.entity?.position
+        const moved = (a && _before) ? Math.hypot(a.x - _before.x, a.z - _before.z) : null
+        logEvent({ kind: 'explore_blind_step_retrace',
+                   status: (moved != null && moved >= 1) ? 'success' : 'no_effect',
+                   detail: `retrace toward ground the bot stood on: moved ${moved == null ? '?' : moved.toFixed(2)} blocks (${_crumbs.length} crumbs held)`,
+                   snapshot: snapshot(bot) })
+      }
       continue
     }
     check(signal)

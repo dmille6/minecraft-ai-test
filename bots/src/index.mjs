@@ -50,6 +50,18 @@ let lessons = null
 let watchdog = null
 let lastDeathCause = null      // the server's own words, e.g. "fell from a high place"
 let peakY = null               // highest point in the recent past, for fall distance
+// WHERE THE BOT HAS ACTUALLY BEEN. Grounded, dry positions, newest last, at most one a second
+// and only when 2+ blocks from the last kept one. Bounded to BREADCRUMB_MAX.
+//
+// WHY THIS EXISTS. blindstep-01 added a fifth "reverse" heading to explore's blind fallback and
+// justified it as "the line the bot just walked". That was FALSE: the heading it reverses is an
+// exploration bearing that is literally random when the target is near (`Math.random() * PI * 2`
+// in skills.mjs), and NOTHING in this process recorded where the bot had been. A retrace needs a
+// trail, so this is the trail. It is deliberately coarse -- a bot that has not moved 2 blocks has
+// nowhere to retrace to.
+const BREADCRUMB_MAX = 8
+const BREADCRUMB_MIN_GAP = 2
+let breadcrumbs = []
 let stopDeathWatch = null
 let peakTimer = null
 // A death record with no story is a puzzle, not evidence. The old one said
@@ -836,7 +848,22 @@ function connect() {
       // Decay toward current height so an old peak does not inflate a much
       // later fall.
       else peakY -= Math.min(0.35, (peakY - y) * 0.06)
+      // ...and drop a breadcrumb, but ONLY from somewhere the bot is actually standing and dry.
+      // A position sampled mid-fall or mid-swim is not a place it can walk back to, and offering
+      // one as a retrace target would be the same mistake blindstep-01 made in a new place.
+      try {
+        const p = bot.entity?.position
+        if (p && bot.entity.onGround && !bot.entity.isInWater && !bot.entity.isInLava) {
+          const last = breadcrumbs[breadcrumbs.length - 1]
+          if (!last || Math.hypot(p.x - last.x, p.z - last.z) >= BREADCRUMB_MIN_GAP) {
+            breadcrumbs.push({ x: p.x, y: p.y, z: p.z, t: Date.now() })
+            if (breadcrumbs.length > BREADCRUMB_MAX) breadcrumbs.shift()
+          }
+        }
+      } catch { /* a sampler must never be the thing that throws */ }
     }, 1000)
+    // The trail is READ ONLY through this getter, so a skill cannot mutate it.
+    bot.recentGround = () => breadcrumbs.slice()
     attachCommands(bot, runner)
 
     const s = snapshot(bot)
@@ -971,7 +998,7 @@ function connect() {
       startedAt: Date.now(), snapshot: snapshot(bot), trigger: 'death',
     })
     lastDeathCause = null
-    peakY = null
+    peakY = null; breadcrumbs = []   // a trail across a death is a trail to where it died
     runner.cancel('death')
     cognitive?.notify('death', 'died and respawned')
     // Respawn is automatic; clearing the failure budget avoids a death

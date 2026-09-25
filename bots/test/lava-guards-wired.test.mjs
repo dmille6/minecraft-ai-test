@@ -34,6 +34,22 @@ t('guard 1b: explore\'s failed-leg fallback walk runs stepLineSafe on its own li
   assert.equal(order(src.replace(REFUSE, '')), false, 'mutant: deleting the refusal is detected')
   assert.equal(order(src.replace(CHECK, '')), false, 'mutant: deleting the check is detected')
   assert.equal(src.includes("bot.setControlState('jump', true)\n        await sleep(1200, signal)"), false, 'the fallback walk is grounded: no jump held (a hop can leave the checked line)')
-  assert.equal(src.split('for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2])').length - 1, 1, 'the turn, the other turn, then the two perpendiculars')
+  // The candidate ORDER is decision logic and is no longer asserted by matching an array
+  // literal -- that assertion broke when the LIST changed rather than when the DECISION changed,
+  // which is what this repo's rules forbid. Order and geometry live in the pure `stepCandidates`
+  // and `retraceHeading`, tested behaviourally in blind-step-retrace.test.mjs. What stays HERE is
+  // the structural invariant this file exists for: the loop takes its headings from that function
+  // and nothing else builds a heading list inline.
+  assert.equal(src.split('for (const [cand, cn] of stepCandidates(ang, turn, _retrace))').length - 1, 1,
+               'the loop takes its headings from the pure stepCandidates')
+  assert.equal(/for \(const cand of \[ang/.test(src), false,
+               'no inline candidate array survives alongside it')
+  // And the OUTCOME row must be emitted AFTER the walk, never before it. blindstep-01 logged its
+  // new candidate before setControlState, so its exposure floor counted intentions and could have
+  // been met without a bot moving at all.
+  const RETRACE_LOG = "kind: 'explore_blind_step_retrace'"
+  assert.equal(src.split(RETRACE_LOG).length - 1, 1, 'one retrace outcome row')
+  assert.ok(src.indexOf(WALK) < src.indexOf(RETRACE_LOG),
+            'the retrace outcome is logged AFTER the walk, so it measures displacement not intent')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
