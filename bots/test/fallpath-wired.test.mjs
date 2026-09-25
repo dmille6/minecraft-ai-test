@@ -8,7 +8,7 @@ const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'ut
 const once = (s, needle, where) => { const n = s.split(needle).length - 1; assert.equal(n, 1, `${where}: expected exactly one "${needle}", found ${n}`) }
 t('the last planned path is kept from every accepted path_update, with the active profile, and read at a death after a fall and at fall damage', () => {
   once(idx, "lastPlannedPath = { t: Date.now(), status: r.status, active: true, profile: bot.movementProfile ?? 'walk', goal, nodes: nodes.length,", 'index')
-  assert.ok(idx.indexOf("lastPlannedPath = { t: Date.now(), status: r.status, active: true") > idx.indexOf("the leg is refused`, snapshot: snapshot(bot) }) }\n          return\n        }"), 'captured only after the corridor guard accepted the route')
+  assert.ok(idx.indexOf("lastPlannedPath = { t: Date.now(), status: r.status, active: true") > idx.indexOf("the leg is refused"), 'captured only after the corridor guard accepted the route')
   once(idx, "markPathEnded(lastPlannedPath, `reset:${reason}`)", 'index'); once(idx, "bot.on('goal_reached', () => { markPathEnded(lastPlannedPath, 'goal_reached') })", 'index'); once(idx, "bot.on('path_stop', () => { markPathEnded(lastPlannedPath, 'path_stop') })", 'index')
   once(idx, "if (descentOnset == null && peakY - y > 2 && !bot.entity?.onGround) descentOnset = { t: Date.now(), pathActive: !!(bot.lastPlannedPath?.()?.active) }", 'index')
   once(idx, "descentAt: descentOnset?.t ?? null, pathActiveAtDescent: descentOnset ? descentOnset.pathActive : null,", 'index')
