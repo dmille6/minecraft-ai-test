@@ -185,7 +185,14 @@ else:
     # in v30check.py, not in the loop, so asserting the message here would look for it in the
     # wrong file -- which this assertion did on its first run, and said so.
     code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith('#'))
-    checker = os.environ.get('V30CHECK_PATH', os.path.expanduser('~/v30check.py'))
+    # The host runs ~/v30check.py; a developer machine has only the repo copy. Defaulting to the home
+# path alone made this case fail off-host for an environmental reason, which is how a suite teaches
+# people to ignore a red line. Prefer the env override, then the repo copy beside this test, then
+# the host path.
+_cands = [os.environ.get('V30CHECK_PATH'),
+          os.path.join(os.path.dirname(os.path.abspath(__file__)), 'host', 'v30check.py'),
+          os.path.expanduser('~/v30check.py')]
+checker = next((c for c in _cands if c and os.path.exists(c)), _cands[-1])
     if 'v30check.py' not in code or 'exit 1' not in code:
         print("  [FAIL] loop does not INVOKE the v30 checker and exit non-zero "
               "-- verdict.py alone is too late by construction")
