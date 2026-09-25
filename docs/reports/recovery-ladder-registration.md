@@ -749,7 +749,7 @@ it — which is the right failure, but it costs the window.
 
 ---
 
-## v25 – v28c — RETROSPECTIVE REGISTRATION OF EIGHT GATES ALREADY LIVE (written 2026-09-24 11:4xZ)
+## v25 – v28c — RETROSPECTIVE REGISTRATION OF EIGHT GATES ALREADY LIVE (written 2026-09-24 11:15Z)
 
 **These eight rules were implemented in `~/verdict.py` between 21:47Z 23 Sep and 00:48Z 24 Sep and were
 never entered in this file.** The commit messages on `recovery-ladder-03` (1499bf7, a75f169, 981fcf6,
@@ -829,7 +829,7 @@ victims would be 9fc3968 (the rework that recovered leaf-01's falsely-reverted c
 ### Suite state at registration
 
 57/57 acceptance, 25/25 acceptance mutants, deathgate 7/7, linkage 25/25, membership 14/14, singledeath 11/11
-— re-run green on the host at 11:2xZ 24 Sep before this entry was written.
+— re-run green at 11:10–11:14Z 24 Sep before this entry was written.
 
 ### One provenance note, stated because it cannot be verified from here
 

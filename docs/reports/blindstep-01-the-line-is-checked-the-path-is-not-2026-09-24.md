@@ -73,3 +73,38 @@ Do not simply add a check to the reverse leg -- it has one. Either bound the wal
 verified distance rather than holding forward for a fixed 1200 ms), or verify the **corridor** rather than the line
 before any blind walk at height. And snapshot the position at the end of the blind step first, so the next canary can
 tell those two apart instead of arguing about them.
+
+---
+
+# CORRECTION (25 Sep): the candidate was not the reverse of anything
+
+`blindstep-02`'s own notes record what a Codex pass established after the deploy, and it is a simpler and better
+explanation than my hypothesis above:
+
+> blindstep-01 added a fifth candidate `ang + PI` and called it 'the line the bot just walked'. **THAT WAS FALSE.**
+> `ang` is an exploration bearing that is RANDOM when the target is near (`skills.mjs:3497`), the turn is random too
+> (`:3536`), and `ang` is MUTATED on any successful candidate (`:3590`).
+
+So `ang + PI` is not a retrace. It is the opposite of a bearing that may have been randomised, and that is mutated
+whenever any candidate succeeds. **The "reverse" was effectively a fresh random direction wearing the name of the one
+line the bot had evidence about.** The row it emitted -- `every forward candidate refused; walking back the line just
+travelled` -- was not true of what the code did.
+
+That explains the fall without needing my corridor hypothesis. A bot on a y=101 perch with every measured direction
+refused took an arbitrary bearing that happened to pass the line check, and fell 37 blocks. I was right that the
+guard was applied and wrong about what it was applied to: I checked whether the candidate was *validated* and never
+checked whether it was *the direction it claimed to be*.
+
+My corridor-versus-line point may still be a real weakness -- a line check does not bound a 1200 ms held walk on
+narrow ground -- but it is now an untested side note, not the explanation, and the position snapshot I asked for is
+no longer the instrument this needs.
+
+**The lesson I take from being wrong here:** I read the change's guard and its comment, and the comment asserted the
+candidate's provenance (`just walked it`). I treated that assertion as a fact about the code. This repo's own rule
+covers it exactly -- comments quote the code they explain, so a claim in a comment is the thing to verify, not the
+evidence. The question I skipped was the cheapest one available: *is `ang` what the comment says it is?*
+
+`blindstep-02` (774e68a, board-c + hive-a) replaces the arithmetic with recorded breadcrumbs, and its registration
+adds a linkage line on `retrace_rows_wrong_build <= 0` alongside the usual control-must-be-zero, which also guards
+the ships-inert class. Its exposure counter is defined as rows emitted AFTER the walk, so it counts outcomes rather
+than intentions -- the distinction that made blindstep-01's five firings uninformative.
