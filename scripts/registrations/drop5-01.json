@@ -1,0 +1,89 @@
+{
+ "run_id": "drop5-01",
+ "sha": "efa2853",
+ "registered_at": "2026-09-25T03:24:41Z",
+ "ladder_change": false,
+ "promotion": "none",
+ "notes": "maxDrop 3 -> 5 ON EVERY BLIND-STEP CANDIDATE, plus a cap so the LINE cannot kill. OWNER DECISION 2026-09-25. Measured over 2,028 bot-h / 2,196 boxed episodes (every candidate refused, the bot does not move; 1.05/bot-h fleet-wide): 91.5% of refusals inside them are DROPS, voids 5.8%, genuinely sealed 2.6%. Share of boxed episodes with at least one direction admitted: 64.8% at bound 4, 80.6% at 5, 87.2% at 6 -- the knee is 4-5. And the guard was STRICTER THAN THE PLANNER that strands the bot: index.mjs sets maxDropDown 6 for walk/gather and 8 for descend while this guard's own comment claimed to leave plain drops to a pathfinder that 'never plans more than four' -- false in the deployed config. THE CAP IS PART OF IMPLEMENTING 5 SAFELY, NOT A SECOND EXPERIMENT. `feetY` is reassigned after every cell and the scan runs 14 samples, so the per-step bound never capped the DESCENT along a line: up to 14 x maxDrop. Harmless at 3 for exactly one reason -- fall damage is (blocks - 3) half-hearts, so a 3-block drop costs ZERO and no chain can hurt. At 5 each landing costs 2 and TEN kill a 20 half-heart bot, so a literal 'bound 5' would admit a lethal staircase. Total damage along the line is capped at 4 half-hearts (two 5-block drops, or four 4-block ones). Single variable otherwise: maxDrop has ONE production call site passing no options. WHY THIS IS READABLE WHERE blindstep-01 AND -02 WERE NOT. The change emits no new event kind -- the 36% class linkage cannot reach -- but the refusal ROW ALREADY CARRIES THE BOUND: the baseline writes '(limit 3)' and the canary '(limit 5)'. An existing row that BOTH arms emit discriminates by its own text, which is strictly better than a new kind whose control rate is zero by construction and therefore cannot discriminate at all -- the defect that falsely reverted blindstep-01. And the mechanism is a DISAPPEARANCE with real n: refusals with N in (3,5] are exactly the ones now admitted, measured at 5.5/bot-h on this draw shape, so ~165 events on a 3 h read against blindstep-02's ~40. Branch drop5, efa2853 = 9b572aa + this. npm test 196/196; lavaguard 8/8; 5/5 mutants killed outside src (bound reverted to 3, cap removed, damage never accumulated, cap raised out of reach, damage measured from 0 instead of 3). The first version of the staircase fixture PASSED WHILE TESTING THE OPPOSITE OF ITS NAME -- it left stone above each step so the bot walked up into it -- and is now carved from the surface down.",
+ "reads": [
+  "drop5read",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  30,
+  90,
+  180,
+  360
+ ],
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 2,
+  "require": [
+   {
+    "name": "drop refusals",
+    "kind": "explore_blind_step_refused",
+    "detail_contains": "drop of",
+    "min": 60
+   }
+  ],
+  "note": "TWO HOURS, NOT SIX, AND blindstep-02 IS WHY. Its interlock admitted board-c on a 6 h window and board-c had collapsed from 25.6 refusal-rows/bot-h to 0.56 boxed episodes/bot-h within 24 h; the canary reached +58 min with ZERO exposure and was aborted. EXPOSURE DRIFTS FASTER THAN A 6 h QUALIFYING WINDOW. 60 drop refusals in 2 h is the same bar scaled to a window short enough to still be true at deploy."
+ },
+ "exposure": {
+  "read": "drop5read",
+  "field": "limit5_rows_canary",
+  "min": 60,
+  "note": "Refusal rows in the canary arm whose own text says '(limit 5)'. This proves the change is LIVE and being exercised, and it cannot be met by a bot that merely ran -- only by one that hit a drop bigger than 5. Measured 5.5 drop-4-to-5 refusals/bot-h on this draw shape, so 60 arrives inside the first hour. blindstep-01 counted INTENTIONS and could have met its floor with no bot moving; this counts the guard actually speaking."
+ },
+ "own_lines": [
+  {
+   "read": "drop5read",
+   "field": "limit3_rows_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "role": "linkage",
+   "evidence": "defect",
+   "note": "A canary-arm refusal still saying '(limit 3)' means that bot is running the BASELINE -- the arms are not what the read thinks they are. blindstep-01's first 8 canary-arm rows were exactly this, because the bots had not restarted, and their burst shape would have read as 'the fix is inert' if the pool label had been trusted over the build on the row. evidence=defect: a presence test against a structurally impossible value, not a statistical claim."
+  },
+  {
+   "read": "drop5read",
+   "field": "capped_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "role": "linkage",
+   "evidence": "defect",
+   "note": "The total-fall-damage refusal does not exist in the baseline at all. A control pool emitting one means the deploy leaked."
+  },
+  {
+   "read": "drop5read",
+   "field": "fall_deaths_canary",
+   "op": "<=",
+   "value": 2,
+   "on_fail": "WATCH",
+   "role": "safety",
+   "note": "THE NAMED HARM, and it is the reason the cap exists. Falls are a live death mechanism: during blindstep-01 the CONTROL arm had 3 falls to the canary's 1, so the background is real and this line is a tripwire, not proof. WATCH and not REVERT because it is uncalibrated and v28 forbids an uncalibrated line reverting; the owner's own death gate and the linkage path still apply on top of it."
+  },
+  {
+   "read": "drop5read",
+   "field": "lowhp_per_bh_canary",
+   "op": "<=",
+   "value": 0.25,
+   "on_fail": "WATCH",
+   "role": "safety",
+   "nullable": true,
+   "note": "Fall damage that does not kill still shows here. Measured control baseline 0.070 low-health fires/bot-h, so 0.25 is ~3.5x background -- a tripwire for attrition from chained small drops, which is the failure mode the cap bounds."
+  }
+ ],
+ "friction": [],
+ "primary": {
+  "read": "drop5read",
+  "field": "drop4to5_per_bh_canary",
+  "direction": "lower is better",
+  "comparator": "the canary's own pre-period and the control arm's post-period",
+  "note": "Refusals with N in (3,5] per bot-hour. These are EXACTLY the refusals the change removes, so the canary's rate must collapse toward 0 while control keeps emitting them at ~3.3/bot-h. A disappearance in one arm of a row BOTH arms can emit is the cleanest mechanism read available here. The secondary is boxed_share_did, which should fall; its MDE is roughly +/-14 pp at four pools so INCONCLUSIVE on THAT is expected and is not a failure of the primary."
+ },
+ "deadline_min": 360,
+ "teardown": "three steps: drop-ins, clear canary_pool, AND restart every assigned mcbot@<bot>.service staggered 12 s apart; then confirm exactly ONE version is live"
+}
