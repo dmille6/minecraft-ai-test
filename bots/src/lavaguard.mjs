@@ -113,17 +113,30 @@ export function lavaStandOff (at, feet) {
  * yaw' = pi - yaw, x += -forward*sin(yaw'), z += forward*cos(yaw')): x = -sin(yaw), z = -cos(yaw); yaw 0 walks -z
  * (north). The first version had +cos and checked the line BEHIND the bot for yaw 0 (Codex).
  */
-export function stepLineSafe (at, pos, ang, { dist = 7, maxDrop = 3 } = {}) {
+export function stepLineSafe (at, pos, ang, { dist = 7, maxDrop = 5, maxFallHalfHearts = 4 } = {}) {
   const dx = -Math.sin(ang), dz = -Math.cos(ang)
   const a = { x: pos.x, y: Math.floor(pos.y), z: pos.z }, b = { x: pos.x + dx * dist, y: Math.floor(pos.y), z: pos.z + dz * dist }
   const r = corridorSafe(at, [a, b])
   if (!r.safe) return { safe: false, why: r.why.replace('lava_corridor', 'blind_step'), at: r.at }
+  // OWNER DECISION 2026-09-25: maxDrop 3 -> 5, on every candidate.
+  //
+  // Measured over 2,028 bot-h / 2,196 boxed episodes (a boxed episode is one where EVERY
+  // candidate heading was refused and the bot did not move, at 1.05/bot-h fleet-wide):
+  // 91.5% of the refusals inside them are DROPS, voids are 5.8%, and only 2.6% of boxed bots are
+  // genuinely sealed. The share of boxed episodes with at least one direction admitted runs
+  // 64.8% at a bound of 4, 80.6% at 5, 87.2% at 6. The knee is at 4-5.
+  //
+  // And the guard was stricter than the planner that strands the bot: index.mjs sets the
+  // pathfinder's maxDropDown to 6 for walk/gather and 8 for descend, while its own comment here
+  // claimed to leave plain drops "to the pathfinder (which never plans more than four)" -- false
+  // in the deployed config. A bot routed down a 6-block drop was then forbidden every exit.
+  //
   // A BLIND STEP HAS NO PLANNER TO BOUND ITS DROP. The corridor rules leave plain drops to the pathfinder (which never
   // plans more than four); a blind walk plans nothing, and explore's falls this morning were 33, 40, 44 and 58
   // blocks. The feet FOLLOW THE FLOOR along the line (a slope down one block per cell is a walk, not a fall; Codex):
   // at each cell the landing is the first solid or water cell going down from one above the feet; a solid landing
   // more than `maxDrop` below the feet refuses; a water landing at any depth is terrain (water takes the fall).
-  const n = Math.max(1, Math.ceil(dist / 0.5)); let feetY = a.y
+  const n = Math.max(1, Math.ceil(dist / 0.5)); let feetY = a.y; let dmg = 0
   for (let k = 1; k <= n; k++) {
     const t = k / n; const x = Math.floor(a.x + (b.x - a.x) * t), z = Math.floor(a.z + (b.z - a.z) * t)
     let landed = null
@@ -136,6 +149,22 @@ export function stepLineSafe (at, pos, ang, { dist = 7, maxDrop = 3 } = {}) {
     if (landed.water) return { safe: true }   // the rest of the line is beyond the water: the walk ends there or swims
     const fall = feetY - (landed.floorY + 1)
     if (fall > maxDrop) return { safe: false, why: `blind_step: drop of ${fall} ahead (limit ${maxDrop})`, at: [x, feetY, z] }
+    // ...AND THE LINE AS A WHOLE MUST NOT KILL THE BOT. THE PER-STEP BOUND IS NOT A TOTAL.
+    //
+    // `feetY` is reassigned after every cell and this loop runs ceil(dist/0.5) = 14 samples, so
+    // the per-step bound has never capped the DESCENT along the line: up to 14 x maxDrop.
+    // That was harmless at maxDrop = 3 for one reason only -- Minecraft fall damage is
+    // (blocks - 3) half-hearts, so a 3-block drop does ZERO and no chain of them can hurt.
+    // At 5 each landing costs 2 half-hearts and TEN of them kill a 20 half-heart bot, so the
+    // owner's "bound 5" would otherwise admit a lethal staircase nobody asked for. This cap is
+    // therefore part of implementing that decision safely, not a second experiment, and it is
+    // the only reason the change is not qualitatively different from what it replaces.
+    dmg += Math.max(0, fall - 3)
+    if (dmg > maxFallHalfHearts) {
+      return { safe: false,
+               why: `blind_step: the line descends ${dmg} half-hearts of fall damage ahead (limit ${maxFallHalfHearts})`,
+               at: [x, feetY, z] }
+    }
     feetY = landed.floorY + 1
   }
   return { safe: true }

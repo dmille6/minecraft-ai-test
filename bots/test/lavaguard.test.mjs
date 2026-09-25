@@ -69,14 +69,68 @@ t('blind step: the seven-block line along the heading is judged like a route, wi
   assert.equal(stepLineSafe(world({ '5,64,9': LAVA }), { x: 5.5, y: 64, z: 5.5 }, Math.PI).safe, false, 'south: lava at z=9 is on the line')
   assert.equal(stepLineSafe(world({ '1,64,5': LAVA }), { x: 5.5, y: 64, z: 5.5 }, Math.PI / 2).safe, false, 'west: lava at x=1 is on the line')
 })
-t('blind step: the feet follow the floor -- a slope down passes, a three-block drop passes, a four-block drop refuses, a cliff refuses, water at any depth is a landing', () => {
+t('blind step: the LINE as a whole may not kill the bot -- chained drops are capped by total fall damage', () => {
+  const at = (over) => (x, y, z) => (over[`${x},${y},${z}`] !== undefined ? over[`${x},${y},${z}`] : y <= 63 ? STONE : AIR)
+  // THE PER-STEP BOUND IS NOT A TOTAL. `feetY` is reassigned after every cell and the scan runs
+  // ceil(7/0.5) = 14 samples, so nothing ever capped the DESCENT along a line: up to 14 x maxDrop.
+  // That was harmless at maxDrop 3 for exactly one reason -- Minecraft fall damage is
+  // (blocks - 3) half-hearts, so a 3-block drop costs ZERO and no chain of them can hurt. At 5
+  // each landing costs 2 and TEN kill a 20 half-heart bot, so "bound 5" without a total would
+  // admit a lethal staircase. These cases are that cap.
+  //
+  // A staircase of 4-block drops: each costs 1 half-heart, so the fifth exceeds the cap of 4.
+  // The air must be carved from the SURFACE down to each new floor -- leaving stone above a step
+  // makes the bot walk UP into it and the fixture measures nothing, which is how the first
+  // version of this case passed while testing the opposite of its name.
+  const stair = (drop, xs) => {
+    const o = {}
+    let f = 63 - drop                                  // floor of the first step
+    for (const x of xs) { for (let y = 63; y > f; y--) o[`${x},${y},5`] = AIR; f -= drop }
+    return o
+  }
+  const XS = [6, 7, 8, 9, 10, 11, 12]
+  const rs = stepLineSafe(at(stair(4, XS)), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2)
+  assert.equal(rs.safe, false, `a staircase of 4-block drops must refuse on accumulated damage: ${rs.why}`)
+  assert.match(rs.why, /half-hearts of fall damage/, `refused for the right reason: ${rs.why}`)
+  // ...but a SHORT chain inside the cap still walks: two 4-block drops = 2 half-hearts.
+  const two4 = {}
+  {
+    let f = 59
+    for (const x of [6, 7, 8]) for (let y = 63; y > f; y--) two4[`${x},${y},5`] = AIR
+    f = 55
+    for (const x of [9, 10, 11, 12]) for (let y = 63; y > f; y--) two4[`${x},${y},5`] = AIR
+  }
+  const r2 = stepLineSafe(at(two4), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2)
+  assert.equal(r2.safe, true, `two four-block drops cost 2 half-hearts, inside the cap: ${r2.why}`)
+  // The cap is a parameter and must be REACHABLE, or it is decoration.
+  assert.equal(stepLineSafe(at(two4), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2, { maxFallHalfHearts: 1 }).safe, false,
+               'a tighter cap refuses the same line')
+  // A three-block staircase costs nothing however long it is -- the pre-existing behaviour, and
+  // exactly why this cap was never needed at the old bound.
+  const r3 = stepLineSafe(at(stair(3, XS)), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2)
+  assert.equal(r3.safe, true, `chained THREE-block drops do zero damage and stay legal: ${r3.why}`)
+})
+
+t('blind step: the feet follow the floor -- a slope passes, three and four and five pass at the new bound, six refuses, a cliff refuses, water at any depth is a landing', () => {
   const at = (over) => (x, y, z) => (over[`${x},${y},${z}`] !== undefined ? over[`${x},${y},${z}`] : y <= 63 ? STONE : AIR)
   const slope = {}; for (let x = 6; x <= 12; x++) for (let y = 63; y > 63 - (x - 5); y--) slope[`${x},${y},5`] = AIR   // one block down per cell eastward
   assert.equal(stepLineSafe(at(slope), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a staircase down is a walk')
   const drop3 = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 2; dy++) drop3[`${x},${63 - dy},5`] = AIR   // floor at 60: feet 64 -> 61, a fall of 3
   assert.equal(stepLineSafe(at(drop3), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a three-block fall is allowed')
+  // OWNER DECISION 2026-09-25: the bound is 5, not 3. A four-block drop is now a WALK.
+  // Measured: 91.5% of refusals inside a boxed episode are drops, and the share of boxed
+  // episodes with at least one admitted direction is 64.8% at a bound of 4, 80.6% at 5, 87.2%
+  // at 6. This case used to assert the four-block refusal; that is the behaviour that changed.
   const drop4 = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 3; dy++) drop4[`${x},${63 - dy},5`] = AIR   // floor at 59: a fall of 4
-  const r4 = stepLineSafe(at(drop4), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2); assert.equal(r4.safe, false); assert.match(r4.why, /drop of 4 ahead/)
+  assert.equal(stepLineSafe(at(drop4), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'a four-block fall is now a walk (bound 5)')
+  const drop5 = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 4; dy++) drop5[`${x},${63 - dy},5`] = AIR   // floor at 58: a fall of 5
+  assert.equal(stepLineSafe(at(drop5), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2).safe, true, 'five is the boundary and is allowed')
+  const drop6 = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 5; dy++) drop6[`${x},${63 - dy},5`] = AIR   // floor at 57: a fall of 6
+  const r6 = stepLineSafe(at(drop6), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2)
+  assert.equal(r6.safe, false, 'six is still refused'); assert.match(r6.why, /drop of 6 ahead \(limit 5\)/)
+  // ...AND THE OLD BOUND IS STILL REACHABLE, so the parameter is real and not decoration.
+  assert.equal(stepLineSafe(at(drop4), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2, { maxDrop: 3 }).safe, false,
+               'passing maxDrop 3 restores the old refusal')
   const cliff = {}; for (let x = 8; x <= 12; x++) for (let dy = 0; dy <= 13; dy++) cliff[`${x},${63 - dy},5`] = AIR
   const rc = stepLineSafe(at(cliff), { x: 5.5, y: 64, z: 5.5 }, -Math.PI / 2); assert.equal(rc.safe, false); assert.match(rc.why, /no floor within 12/); assert.ok(rc.at[0] >= 8, `named the cliff cell: ${rc.at}`)
   const pond = {}; for (let x = 8; x <= 12; x++) { for (let dy = 0; dy <= 5; dy++) pond[`${x},${63 - dy},5`] = AIR; for (let dy = 6; dy <= 8; dy++) pond[`${x},${63 - dy},5`] = WATER }
