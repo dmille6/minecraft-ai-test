@@ -656,6 +656,55 @@ def main():
     check('  and the reason names the invariant',
           'deadline_min > max(read_minutes)' in out, True, '', out)
 
+    # ---- 5i. THE LICENCE CLASS IS ENFORCED, NOT MERELY DECLARED (v31).
+    # licencecheck.py refuses a canary naming no discriminating instrument and classifies the one it
+    # names. `rate` -- only the rate of a row BOTH arms emit -- is REPORT-ONLY BY CONSTRUCTION, and
+    # this is where that becomes true rather than advisory. leaf-01 died on exactly that class, on an
+    # uncalibrated line that false-trips 43% of no-change windows.
+    print("\n5i. licence.class=rate -- report-only by construction, on every revert path")
+    _defect = {'read': 'ownerread', 'field': 'x', 'op': '<=', 'value': 0.0,
+               'on_fail': 'REVERT', 'evidence': 'defect'}
+    for lic, want, label in (
+            ({'class': 'kind', 'kind': 'k', 'min_rows': 10}, 'REVERT',
+             'class=kind: a defect line may revert'),
+            ({'class': 'text', 'row': 'r', 'text': 't', 'min_rows': 10}, 'REVERT',
+             'class=text: a defect line may revert'),
+            ({'class': 'rate'}, 'INCONCLUSIVE',
+             'class=rate: the SAME defect line may NOT revert'),
+    ):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': [_defect],
+                                 'licence': lic})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('ownerread', {'x': 1.0})          # fails <= 0.0
+        got, out = c.run()
+        check(label, got, want,
+              'The class decides what the instrument may do. A rate-class canary may revert only on '
+              'the calibrated catastrophe gates, which are not instruments of the change.', out)
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': [_defect],
+                             'licence': {'class': 'rate'}})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'x': 1.0})
+    got, out = c.run()
+    check('  and the reason names licence.class=rate', 'licence.class=rate' in out, True, '', out)
+
+    # 5j. A registration with NO licence is READ, not refused -- that hard stop belongs at launch,
+    #     where it can be fixed before bots are spent. But the verdict must SAY SO, because "no
+    #     licence" and "a licence that permits this" must not print the same.
+    print("\n5j. no licence declared -- named on the verdict, not refused at read time")
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('a registration with no licence still reaches a verdict', got, 'KEEP',
+          'Refusing at read time would make every historical registration and every replay '
+          'fixture unreadable.', out)
+    check('  and the verdict says NO LICENCE DECLARED', 'NO LICENCE DECLARED' in out, True, '', out)
+    c = Case(tmp, reg_extra={'licence': {'class': 'kind', 'kind': 'k', 'min_rows': 10}})
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('  and it is ABSENT when a licence IS declared', 'NO LICENCE DECLARED' not in out, True,
+          'A warning that fires when the thing is present is noise, and a noisy warning is an '
+          'ignored one.', out)
+
     # ---- 6. AN INJECTED KNOWN REGRESSION.
     # swim_to shipped and TRIPLED drowning deaths. At that scale the gate is
     # calibrated to fire 99.9% of the time, and it must: a suite that only ever

@@ -170,6 +170,25 @@ MUTANTS = [
      "owner-01b declared three own-lines read at +30/+90/+180. Nine independent 5% tests is "
      "1 - 0.95**9 = 37%. Rationing the deciding line is what keeps a calibrated 5% a canary 5%."),
 
+    # NEW 2026-09-25 (v31). The escape hatch must be a DOWNGRADE, not a label. Deleting the
+    # enforcement lets a rate-class canary revert on its own uncalibrated instrument, which is
+    # leaf-01 exactly.
+    ('the licence.class=rate downgrade removed -- an uncalibrated instrument may revert again',
+     'verdict.py',
+     '    if _LIC_REPORT_ONLY:',
+     '    if False:',
+     'class=rate: the SAME defect line may NOT revert', 'REVERT',
+     "leaf-01 was reverted by an uncalibrated rate line that false-trips 43% of no-change windows. "
+     "If class=rate does not actually forbid an instrument revert, the class is decoration."),
+
+    ('the no-licence warning removed -- silence and permission print the same again',
+     'verdict.py',
+     'if not _LIC_CLASS:',
+     'if False:',
+     '  and the verdict says NO LICENCE DECLARED', 'False',
+     "9 of 18 registrations declare no instrument at all and changerowcheck passes every one. The "
+     "verdict must distinguish 'no licence' from 'a licence that permits this'."),
+
     # NEW 2026-09-25 (v30). drop5-01 spent six hours of fleet time and closed with no verdict
     # because deadline_min equalled its own final read. Deleting this refusal restores that.
     ('the cannot-conclude refusal removed -- a registration may again outlive its own deadline',
@@ -379,6 +398,8 @@ WANT_BASE = {
     'unsound calibration blocks: degenerate: 4 of 300 draws had a baseline value': 'INCONCLUSIVE',
     'unsound calibration blocks: a canary-only LEVEL form': 'INCONCLUSIVE',
     'deadline_min 180, equal to the final read (180)': 'UNREADABLE',
+    'class=rate: the SAME defect line may NOT revert': 'INCONCLUSIVE',
+    '  and the verdict says NO LICENCE DECLARED': 'True',
     'unsound calibration blocks: the p95 trap: 0.0500 point estimate, CI upper 0.067': 'INCONCLUSIVE',
     'unsound calibration blocks: no CI upper bound at all': 'INCONCLUSIVE',
     '  and the reason says why (BY CONSTRUCTION)': 'True',

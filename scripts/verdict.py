@@ -127,6 +127,27 @@ if not os.path.exists(REG) and not os.environ.get('VERDICT_REG_DIR'):
     REG = f'/tmp/registrations/{run_id}.json'
 reg = json.load(open(REG)); man = json.load(open(os.environ.get('VERDICT_MANIFEST') or '/srv/mcbots/trial-manifest.json'))
 why = []; verdict = None
+# v31 (2026-09-25): THE LICENCE CLASS IS ENFORCED HERE, NOT MERELY DECLARED AT LAUNCH.
+#
+# licencecheck.py refuses a canary that names no discriminating instrument, and classifies the one
+# it names: `kind` (a row the baseline cannot emit), `text` (a substring one arm cannot write --
+# drop5-01's "(limit 3)" vs "(limit 5)"), or `rate` (only the rate of a shared row moves).
+#
+# `rate` is REPORT-ONLY BY CONSTRUCTION and this is where that becomes true. leaf-01 died on
+# exactly that class: an uncalibrated line that false-trips 43% of no-change windows. So a
+# rate-class canary may not revert on ANY instrument -- not an own_line, not a friction rule, not
+# the change-row linkage -- only on the calibrated catastrophe gates (the death gate, v15c, v11),
+# which are calibrated and are not instruments of the change.
+#
+# A registration with NO licence block is NOT refused here. That hard stop belongs at launch, where
+# it can be fixed before bots are spent; refusing at read time would make every historical
+# registration and every replay fixture unreadable. What happens here is that the verdict SAYS SO,
+# for the same reason v27 says LINKAGE UNAVAILABLE: "no licence declared" and "a licence that
+# permits this" are opposite states and must not print the same.
+_LIC = (reg.get('licence') or {}) if isinstance(reg.get('licence'), dict) else {}
+_LIC_CLASS = _LIC.get('class')
+_LIC_REPORT_ONLY = (_LIC_CLASS == 'rate')
+
 # v30: A REGISTRATION WHOSE LAST READ MINUTE IS NOT STRICTLY INSIDE ITS DEADLINE CANNOT BE READ.
 # MEASURED 2026-09-25 on drop5-01: read_minutes [30,90,180,360] AND deadline_min 360. canary-loop.sh:92
 # tests `elapsed > DEADLINE*60` INSIDE the read loop, so the loop arrived at the +360 read at 362 min
@@ -383,6 +404,11 @@ if refused: why.append(f'change rows in a canary death window REFUSED as non-dis
 # lower bound. Two rules about the same question in one file, and the stricter
 # one never ran. The floor now has ONE implementation that every path calls.
 _v23_rev, _v23_why = licence_reverts(licensed, ndeaths)
+if _v23_rev and _LIC_REPORT_ONLY:
+    why.append('a licensed change row would have reverted, but licence.class=rate makes this canary '
+               'REPORT-ONLY by construction -- reported, not a verdict')
+    pending_watch.append('licensed change row held by licence.class=rate')
+    _v23_rev = False
 if _v23_rev:
     why.append(f'change row inside a death window, discriminating: {licensed[0][:3]}'); (out('REVERT', {'deaths': ndeaths}))
 elif licensed:
@@ -478,6 +504,11 @@ if POLL and not DRY:
 # This does not invent a verdict. It makes the hole visible on the verdict line, because
 # "linkage said no" and "there was nothing for linkage to check" are opposite states and the
 # old output could not tell them apart -- the exact confusion this project keeps paying for.
+if not _LIC_CLASS:
+    why.append('NO LICENCE DECLARED: this registration names no discriminating instrument and no '
+               'class, so nothing here establishes that the change acted. licencecheck.py refuses '
+               'that at launch; a registration predating it is READ, not refused, and this line is '
+               'the difference between "no licence" and "a licence that permits this".')
 if _cd >= 2 and not C_ROWS:
     why.append('LINKAGE UNAVAILABLE: this registration declares no `change_rows`, so the '
                'licensed-row path could not run and this death decision rests on the RATE '
@@ -753,6 +784,10 @@ def _deciding_evidence(rule, kind):
 
     Returns (may_revert, note). Pure apart from `ev`, so the reason is always printed.
     """
+    if _LIC_REPORT_ONLY:
+        return False, (f'{kind} cannot revert: licence.class=rate, so this canary is REPORT-ONLY by '
+                       f'construction -- no arm-exclusive kind or text exists, only the rate of a '
+                       f'row both arms emit, and leaf-01 died on exactly that')
     if rule.get('evidence') == 'defect':
         return True, f'{kind} declares evidence=defect: the typed comparison decides'
     if rule.get('evidence') == 'calibrated':
