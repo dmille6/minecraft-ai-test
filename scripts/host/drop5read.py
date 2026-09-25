@@ -60,6 +60,7 @@ arm = lambda b: 'canary' if pool_of(b) in CANS else (None if pool_of(b).startswi
 era = lambda t: 'pre' if t < CUT else ('post' if (t - CUT).total_seconds() / 60 <= W else None)
 
 span = defaultdict(dict); lim = defaultdict(Counter); flip = Counter(); refus = Counter()
+settled_at = {}          # canary bot -> its FIRST row on the canary build
 boxed = defaultdict(lambda: defaultdict(list)); capped = Counter()
 falls = Counter(); lowhp = Counter(); deaths = Counter()
 for r in ev.rows:
@@ -73,13 +74,26 @@ for r in ev.rows:
     s = span[k].setdefault(b, [t, t])
     if t < s[0]: s[0] = t
     if t > s[1]: s[1] = t
+    # WHEN IS AN ARM ACTUALLY THE ARM? `declared_at` is the deploy INSTANT, but the deploy
+    # restarts the assigned bots on a 12 s stagger, so for the first minutes a canary pool
+    # legitimately contains bots still running the BASELINE. blindstep-01's first 8 canary-arm
+    # rows were exactly that. Counting them as contamination would falsely revert on a normal
+    # transient -- so each canary bot's settle point is its FIRST row carrying the canary build,
+    # and the linkage test only looks after it. The transient is REPORTED, never hidden.
+    if a == 'canary' and e == 'post':
+        _v = ((r.get('raw') or {}).get('code') or {}).get('version') or ''
+        if _v.startswith(CV) and b not in settled_at:
+            settled_at[b] = t
     n = r['name']; d = r['detail'] or ''
     if n == REFUSE:
         refus[k] += 1; boxed[k][b].append(t)
         m = DROPRE.search(d)
         if m:
             N, L = int(m.group(1)), int(m.group(2))
+            _settled = (a != 'canary' or e != 'post' or (b in settled_at and t >= settled_at[b]))
             lim[k][L] += 1
+            if a == 'canary' and e == 'post' and L == 3:
+                (lim[('canary', 'settled3')] if _settled else lim[('canary', 'transient3')])['n'] += 1
             if 3 < N <= 5: flip[k] += 1          # exactly the refusals the change removes
         elif 'half-hearts of fall damage' in d:
             capped[k] += 1                        # the new total-damage cap firing
@@ -115,7 +129,11 @@ print(f"WINDOW  cut {CUT.isoformat()}  post {W:.0f} min  canary pools {sorted(CA
 for k in (CPRE, CP, KPRE, CTL):
     print(f"  {k[0]:7s} {k[1]:4s} bots {len(span[k]):2d} bot-h {bh(k):7.1f} refusals {refus[k]:5d} "
           f"limits {dict(lim[k])}  drop4-5 {flip[k]:4d}  capped {capped[k]:3d}  falls {falls[k]}  deaths {deaths[k]}")
-print(f"LIVENESS canary rows saying (limit 5): {lim[CP].get(5,0)}  saying (limit 3): {lim[CP].get(3,0)} (MUST be 0)")
+_t3 = lim[('canary', 'transient3')].get('n', 0); _s3 = lim[('canary', 'settled3')].get('n', 0)
+print(f"LIVENESS canary rows saying (limit 5): {lim[CP].get(5,0)}  saying (limit 3): {lim[CP].get(3,0)} "
+      f"= {_t3} before that bot settled onto the canary build (a normal restart transient) "
+      f"+ {_s3} AFTER (real contamination, MUST be 0)")
+print(f"        settled bots: {len(settled_at)} of {len(span[CP])} canary bots have a canary-build row")
 print(f"MECHANISM drop-4-to-5 refusals/bot-h: canary {per(flip,CP)}  control {per(flip,CTL)} "
       f"(the canary's must collapse toward 0 -- those are the ones now admitted)")
 print(f"OUTCOME boxed-share DiD {did(boxedshare)} (should FALL)")
@@ -126,7 +144,10 @@ print("positive control: rows", len(ev.rows), "refusal rows", sum(refus.values()
 try:
     sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
     emit('drop5read', W, {
-        'limit5_rows_canary': lim[CP].get(5, 0), 'limit3_rows_canary': lim[CP].get(3, 0),
+        'limit5_rows_canary': lim[CP].get(5, 0),
+        'limit3_rows_canary': _s3,                      # AFTER the bot settled: real contamination
+        'limit3_rows_transient': _t3,                   # before it settled: reported, not a fault
+        'settled_bots': len(settled_at),
         'limit5_rows_control': lim[CTL].get(5, 0),
         'drop4to5_per_bh_canary': per(flip, CP), 'drop4to5_per_bh_control': per(flip, CTL),
         'boxed_share_did': did(boxedshare),
