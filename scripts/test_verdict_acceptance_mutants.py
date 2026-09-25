@@ -170,6 +170,17 @@ MUTANTS = [
      "owner-01b declared three own-lines read at +30/+90/+180. Nine independent 5% tests is "
      "1 - 0.95**9 = 37%. Rationing the deciding line is what keeps a calibrated 5% a canary 5%."),
 
+    # NEW 2026-09-25 (v30). drop5-01 spent six hours of fleet time and closed with no verdict
+    # because deadline_min equalled its own final read. Deleting this refusal restores that.
+    ('the cannot-conclude refusal removed -- a registration may again outlive its own deadline',
+     'verdict.py',
+     'if _dl0 is not None and _dl0 <= _final_M0:',
+     'if False:',
+     'deadline_min 180, equal to the final read (180)', 'REVERT',
+     "A canary whose deadline fires instead of its final read produces no verdict however good "
+     "the data is. Six hours of 10 bots, a total mechanism effect and zero harm, closed "
+     "INCONCLUSIVE because two numbers in a registration were equal."),
+
     # NEW 2026-09-24 (v27). Measured: only 7 of 15 registrations declare `change_rows`, so
     # the gate's SENSITIVE path (>=2 deaths AND a licensed row) was inert for more than half
     # of canaries and every death decision fell to the rate. Deleting this warning restores
@@ -367,6 +378,7 @@ WANT_BASE = {
     'two calibrated REVERT lines block': 'INCONCLUSIVE',
     'unsound calibration blocks: degenerate: 4 of 300 draws had a baseline value': 'INCONCLUSIVE',
     'unsound calibration blocks: a canary-only LEVEL form': 'INCONCLUSIVE',
+    'deadline_min 180, equal to the final read (180)': 'UNREADABLE',
     'unsound calibration blocks: the p95 trap: 0.0500 point estimate, CI upper 0.067': 'INCONCLUSIVE',
     'unsound calibration blocks: no CI upper bound at all': 'INCONCLUSIVE',
     '  and the reason says why (BY CONSTRUCTION)': 'True',

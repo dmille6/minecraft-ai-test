@@ -627,6 +627,35 @@ def main():
     check('one deciding line plus a reporting one still REVERTS', got, 'REVERT',
           'Only the DECIDING line is rationed. Reporting lines are free and should be.', out)
 
+    # ---- 5h. A REGISTRATION THAT CANNOT REACH ITS OWN FINAL READ MUST NOT RUN.
+    # drop5-01 declared read_minutes [30,90,180,360] AND deadline_min 360. The loop checks the
+    # deadline before dispatching the read at the same minute, so the deadline fired first and
+    # six hours of fleet time closed INCONCLUSIVE -- "deadline +360 reached without a verdict" --
+    # on data that was strong (targeted refusals 2.34/bot-h in control to exactly 0.0 in the
+    # canary, boxed share -24.3 pp, exposure 101 against a floor of 60, harm zero). Two equal
+    # numbers in a registration cost the whole run.
+    print("\n5h. deadline_min <= the final read -- UNREADABLE at the FIRST read, not a wasted run")
+    # The harness's default read_minutes is [30, 180], so its final read is 180. Pin the cases
+    # against THAT, not against drop5-01's 360 -- a fixture that asserts the wrong denominator is
+    # the defect this whole suite exists to catch.
+    for dl, want, label in ((180, 'UNREADABLE', 'equal to the final read (180)'),
+                            (120, 'UNREADABLE', 'BELOW the final read'),
+                            (240, 'REVERT', 'above it -- the canary runs normally')):
+        c = Case(tmp, reg_extra={'deadline_min': dl})
+        c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
+                                              control_deaths=3, control_bh=210.0))
+        got, out = c.run()
+        check('deadline_min %d, %s' % (dl, label), got, want,
+              'A canary that cannot conclude should not be spending bots, and it should be told '
+              'at the first read rather than discovered at the last. UNREADABLE and not '
+              'INCONCLUSIVE: the registration is malformed, which is a different thing from a '
+              'change that could not be measured.', out)
+    c = Case(tmp, reg_extra={'deadline_min': 180})
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('  and the reason names the invariant',
+          'deadline_min > max(read_minutes)' in out, True, '', out)
+
     # ---- 6. AN INJECTED KNOWN REGRESSION.
     # swim_to shipped and TRIPLED drowning deaths. At that scale the gate is
     # calibrated to fire 99.9% of the time, and it must: a suite that only ever

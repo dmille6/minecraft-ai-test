@@ -839,3 +839,109 @@ normally written into `CLAUDE.md` (as the 2026-09-11 two-death floor is). The co
 00:13Z, which is evening in the owner's timezone and entirely consistent with an owner-driven session, so
 **this is recorded as unverifiable from this session, not as unsanctioned.** v28 is registered prospectively
 above regardless of how that resolves, which is the conservative reading either way.
+
+## v29 — a calibration's false-trip CEILING binds its CONFIDENCE BOUND, and `CAL_MAX_AGE_H` is measured
+
+**Registered 2026-09-25, PROSPECTIVELY, from the next canary registered after this entry.**
+Implemented in `faf7cf7` on 2026-09-24 12:11Z and live in `~/verdict.py` (md5 `891ce5bb…`, identical to
+`scripts/verdict.py`) from that moment. It was in no registration for 23 hours. The code never spells the
+string "v29", which is why a grep for the label reads as "not live" — **the gate is the
+`false_trip_rate_ci_upper` requirement plus the `CAL_MAX_AGE_H` staleness check, not a label.**
+
+### The rule
+1. A calibration offered as `evidence: calibrated` must report **`false_trip_rate_ci_upper`**. It is
+   **REFUSED if absent**, if non-numeric, if **below** its own point estimate, or if it **exceeds
+   `CAL_MAX_FTR`**. The point estimate alone is no longer checked, and deliberately so: `ub >= ftr` and
+   `ub <= CAL_MAX_FTR` already imply `ftr <= CAL_MAX_FTR`, so a point-estimate check there would be
+   provably unreachable, and a guard that can never fire reads as protection while being none.
+2. `CAL_MAX_AGE_H = 48` is **no longer a placeholder.** Measured 2026-09-24 over 19 read anchors (5 of 24
+   refused as unresolved: fewer than 6 pools on one code version), 200 application draws per anchor, 300
+   calibration draws per cell, statistic = max over the four reads, DiD form. Forward transfer, pooled,
+   cluster-bootstrap 95% CI: 0 h 5.7% [3.7,7.7] | 12 h 6.0% [4.1,7.9] | 24 h 6.1% [4.4,7.8] |
+   **48 h 7.3% [5.3,9.5]** | 72 h 8.0% [5.7,**10.7**] | 96 h 5.9% [3.8,8.5]. Criterion: the largest lag
+   where every lag up to it keeps the pooled rate **and its CI upper** under 2x nominal. **48 h passes at
+   9.5%; 72 h is the first to cross.**
+
+### Why it was needed — the guard it replaces could not fail
+A registration naturally sets `at_threshold` to its calibration's own 95th percentile. The realised
+false-trip rate is then **0.0500 by construction, exactly the ceiling, for any metric.** So v28's
+`ftr > 0.05` **could never fire**, and the check meant to reject a line that cries wolf would have waved
+through every line ever calibrated that way. Measured: the p95 threshold realised 0.0500 with CI
+[0.037, 0.067] — refused, correctly — while a p97 threshold gave 0.0288 [0.019, 0.043], which clears.
+
+### Honesty about what the age limit buys — registered WITH the constant
+**It buys less than it looks like.** At **zero** age the worst anchor realises **14.5%**, and six
+independent fresh calibrations there give 12.0–15.5% — a property of the hours the canary ran in, not of
+the calibration. Variance decomposition: calibration sampling 1.7 pp, era of the calibration 3.3 pp (all
+an age limit can reach), **era of the READ 3.5 pp, which it cannot reach.** Tightening 48 → 24 → 12 h
+moves 6.1% → 6.0% against 5.7% fresh: **nothing.** The read-window component is what v25's
+`support: {read, field, max}` already measures. A drift statistic was tested and **rejected** —
+corr(drift, realised false-trip) = **−0.097** over 114 cells: no relationship, the wrong sign, and once
+matched on how much it admits, it equals an age. The backward cell deliberately does not bind, because a
+calibration is only ever applied forward and over 19 anchors the two directions are indistinguishable.
+
+### Direction of registration, and why this is a registration and not a rescue
+**PROSPECTIVE.** v29 can only make `evidence: calibrated` HARDER to satisfy, and a refused calibration
+blocks KEEP as INCONCLUSIVE rather than reverting (v28), so it cannot manufacture a REVERT. It is still
+registered prospectively because it changes what a deciding line must contain.
+
+**IT HAS NEVER DECIDED ANYTHING, and that is measured, not assumed.** Of the **18** registrations on file,
+**zero** carry `evidence: "calibrated"` — positive control: the same grep finds `evidence: "defect"` in
+three of them (blindstep-01, blindstep-02, drop5-01), so it can see a presence. v29 gates only the
+calibrated path, so no canary has ever been read by it, including `drop5-01`, which was live when this
+entry was written.
+
+**This also CLOSES QUEUE ITEM 12** ("measure `CAL_MAX_AGE_H` on two non-overlapping periods and replace the
+48 h placeholder"). The 24 Sep entry registered 48 h explicitly AS A PLACEHOLDER so it could never later be
+quoted as a calibrated value. It is now a measured value, and this entry is what makes that quotable.
+`VERDICT_CAL_MAX_AGE_H` still overrides it.
+
+### The recurrence, recorded
+The 24 Sep entry registered v25–v28c after the same gap. **v29 landed 11:23 h after that entry was
+committed** (`a9e13e1` 2026-09-24 ~11:47Z; `faf7cf7` verdict.py mtime 12:11Z). Writing the rule down is
+not yet part of writing the gate, and one registration pass did not change that. **The mechanical fix is
+the only fix that will hold:** `verdict.py` should refuse to run when a gate is live that
+`RULES-IN-FORCE.md` does not name — the `ZeroLooksWrong` pattern, a raise rather than a reminder.
+
+## v30 — a registration whose LAST READ MINUTE is not strictly inside its DEADLINE is REFUSED
+
+**Registered 2026-09-25, PROSPECTIVELY. Invariant: `deadline_min > max(read_minutes) + READ_GRACE_MIN`,
+with `READ_GRACE_MIN = 30`.**
+
+### What happened, and it cost a result today
+`drop5-01` registered `read_minutes [30, 90, 180, 360]` **and** `deadline_min 360`. `canary-loop.sh:92`
+checks `elapsed > DEADLINE * 60` **inside** the read loop, before the read at that minute can run. The loop
+therefore arrived at the +360 read at **362 min elapsed**, fired containment, recorded **INCONCLUSIVE**, and
+tore down. **There is no `drop5-01-drop5read-360.json` and no `drop5-01-immobiledid-360.json`: the final
+read was never taken.** The last evidence on file is +180, at 08:49Z, against a close at 11:46Z.
+
+**The canary had already met every precondition to be readable** — exposure 101 `(limit 5)` rows against a
+floor of 60, linkage clean, safety clean — and was closed for a scheduling reason with its primary never
+evaluated. **`INCONCLUSIVE` here means "the instrument did not read it", not "the change did not work",**
+and the two are indistinguishable in the ledger without this entry.
+
+### Scope, with the denominator
+**3 of the 18 registrations on file set `deadline_min` equal to `max(read_minutes)`: `blindstep-01`,
+`blindstep-02`, `drop5-01`.** All three were written in the last two days; the other 15 leave 60–420 min of
+margin. Only `drop5-01` reached the collision — `blindstep-01` reverted at +90 and `blindstep-02` was
+operator-aborted at +58 — so **the defect has been latent in the last three registrations and has fired
+once.** It would fire on every future registration written to that pattern, and it fails silently in the
+direction that looks like a legitimate close.
+
+### Why a grace margin and not just `>`
+A read is a **full walk**, which is minutes of work, not an instant: the +180 read was journalled 7 min
+after its minute (08:51Z for 08:44Z) and the +90 read 1.5 min after. `deadline_min == max(read_minutes) + 1`
+would still race the walk. 30 min is ~4x the largest observed read lag and costs nothing, because the
+deadline exists to contain a *hung* loop, not to clip a working one.
+
+### Direction, and why it cannot manufacture a verdict
+**PROSPECTIVE, and it is a REFUSAL TO START, not a gate.** It can only stop a canary from deploying with a
+schedule whose final read is unreachable. It never evaluates evidence, so it cannot produce a KEEP or a
+REVERT, and it cannot change any past decision. `drop5-01`'s recorded INCONCLUSIVE **stands** — this entry
+explains it and does not overturn it, because amendments are prospective only.
+
+### Where it is enforced
+`canary-loop.sh` validates at startup and **refuses to launch**, which is the only place that can prevent
+the loss. `verdict.py` additionally reports the violation on **every** read, so a canary that somehow starts
+in this state says so from +30 rather than at its deadline. A guard only in `verdict.py` would be too late
+by construction, which is the same mistake as a remedy the bot cannot perform from where it is.

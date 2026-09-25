@@ -127,10 +127,70 @@ if not os.path.exists(REG) and not os.environ.get('VERDICT_REG_DIR'):
     REG = f'/tmp/registrations/{run_id}.json'
 reg = json.load(open(REG)); man = json.load(open(os.environ.get('VERDICT_MANIFEST') or '/srv/mcbots/trial-manifest.json'))
 why = []; verdict = None
+# v30: A REGISTRATION WHOSE LAST READ MINUTE IS NOT STRICTLY INSIDE ITS DEADLINE CANNOT BE READ.
+# MEASURED 2026-09-25 on drop5-01: read_minutes [30,90,180,360] AND deadline_min 360. canary-loop.sh:92
+# tests `elapsed > DEADLINE*60` INSIDE the read loop, so the loop arrived at the +360 read at 362 min
+# elapsed, fired containment, and recorded INCONCLUSIVE -- with NO drop5read-360.json and NO
+# immobiledid-360.json on file at all. Exposure was 101 against a floor of 60, linkage clean, safety
+# clean, and the primary was never evaluated. In the ledger that is indistinguishable from an honest
+# close, which is precisely why it needs an instrument and not a habit.
+# 3 of the 18 registrations on file set deadline_min == max(read_minutes) (blindstep-01, blindstep-02,
+# drop5-01), all written in the last two days; the other 15 leave 60-420 min of margin.
+# A read is a FULL WALK, not an instant -- the +180 read landed 7 min after its minute -- so a bare
+# `>` still races the walk, hence the grace.
+# REPORT-ONLY HERE, BY DESIGN: at the deadline it is already too late, so this can only annotate. The
+# refusal that actually prevents the loss lives in canary-loop.sh, which declines to launch. A guard
+# sited where it cannot act is the same defect as a remedy the bot cannot perform from where it is.
+READ_GRACE_MIN = int(os.environ.get('VERDICT_READ_GRACE_MIN', '30'))
+def schedule_violation(reg, grace=None):
+    """None if the read schedule fits inside the deadline, else the reason it cannot be read."""
+    grace = READ_GRACE_MIN if grace is None else grace
+    rm = [int(x) for x in (reg.get('read_minutes') or [])]
+    dl = reg.get('deadline_min')
+    if not rm or dl is None:
+        return None
+    dl, last = int(dl), max(rm)
+    if dl <= last:
+        return ('SCHEDULE UNREADABLE (v30): deadline_min %d <= last read minute %d, so the loop reaches '
+                'that read only after the deadline and fires containment instead of reading it -- this is '
+                'how drop5-01 closed INCONCLUSIVE on 2026-09-25 with its final read never taken. '
+                'Need deadline_min >= %d.' % (dl, last, last + grace))
+    if dl < last + grace:
+        return ('SCHEDULE TIGHT (v30): deadline_min %d is within the %d min read grace of the last read '
+                'minute %d, and a full walk has landed up to 7 min late. Need deadline_min >= %d.'
+                % (dl, grace, last, last + grace))
+    return None
+_sv = schedule_violation(reg)
+if _sv:
+    why.append(_sv)
 def out(v, extra=None):
     o = {'run_id': run_id, 'window_min': M, 'verdict': v, 'why': why, 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'extra': extra or {}}
     os.makedirs(R, exist_ok=True); json.dump(o, open(os.path.join(R, f'{run_id}-verdict-{M}.json'), 'w'), indent=1, default=str)
     print(f"VERDICT {v} (+{M}) :: " + ' | '.join(why)); sys.exit(0)
+# 0. THE REGISTRATION MUST BE ABLE TO CONCLUDE. This runs BEFORE any section that can decide,
+# because out() exits the process -- the first draft of this check sat in section 9 and the death
+# gate in section 4 reverted past it every time.
+#
+# drop5-01 declared `read_minutes: [30,90,180,360]` AND `deadline_min: 360`. canary-loop.sh checks
+# the deadline before dispatching the read at the same minute, so the deadline fired first and the
+# canary closed INCONCLUSIVE -- "deadline +360 reached without a verdict (containment)" -- on data
+# that was strong: the targeted refusals had gone from 2.34/bot-h in control to exactly 0.0 in the
+# canary, the boxed share had fallen 24.3 pp, exposure was 101 against a floor of 60, and harm was
+# zero. Six hours of ten bots produced no verdict because two numbers were equal.
+#
+# UNREADABLE, not INCONCLUSIVE: the registration is malformed, which is a different thing from a
+# change that could not be measured. And it is said at the FIRST read, because a canary that
+# cannot conclude should not be spending bots.
+_final_M0 = max(reg['read_minutes'] + (reg.get('extension', {}).get('extra_reads', [])
+                                       if reg.get('extension', {}).get('until_exposure') else []))
+_dl0 = reg.get('deadline_min')
+if _dl0 is not None and _dl0 <= _final_M0:
+    why.append(f'REGISTRATION CANNOT CONCLUDE: deadline_min {_dl0} <= its own final read '
+               f'{_final_M0}, so the deadline fires instead of that read and the canary closes '
+               f'with no verdict however good the data is. Required: deadline_min > '
+               f'max(read_minutes).')
+    (out('UNREADABLE'))
+
 # 1. evidence, bound
 ev = {}
 if POLL:
