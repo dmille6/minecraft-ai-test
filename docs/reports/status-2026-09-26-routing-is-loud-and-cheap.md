@@ -189,3 +189,70 @@ It also showed why the pool must be drawn by `drawrec.sh` and not by hand: my
 hand-picked dry-run pools put `learned_avoid` at 16.25/bot-h in the treatment arm
 against 4.49 in control, a 3.6× imbalance, because hive pools are heavy
 `learned_avoid` emitters (109–185 per 1k decisions against 3–16 elsewhere).
+
+---
+
+## 8. The deploy resets the very gate state the endpoint measures
+
+Added after the +30 read. **This applies to every canary this project has run on a
+gate-related endpoint, not just this one.**
+
+The loop restarts only the canary pool; control is never restarted. For a veto-rate
+endpoint that is not an activity dip, it is a state reset of the metric:
+
+    admission.mjs:164   this.failedCooldowns = new Map()
+    admission.mjs:165   this.recent = []
+    admission.mjs:22    const REPEAT_WINDOW = 4
+    admission.mjs:701-3 repeats >= REPEAT_WINDOW -> reason 'repeat_loop'
+
+`repeat_loop` **cannot fire** until a bot has chosen four *identical admitted* actions,
+and `cooldown` cannot fire until the map refills. A freshly restarted pool therefore
+emits no repeat_loop vetoes and then an excess of cooldown vetoes, by construction —
+which is exactly the +30 signature.
+
+    read              vetoes_did  repeat_loop  cooldown  learned_avoid
+    +30 raw             -20.06      -11.78      +9.39       -19.16
+    warm (min 30-37)     -3.95      -13.71      +4.35        +8.87
+
+**About 80% of the raw signal was warm-up.** The tell was `learned_avoid` at −19.16 —
+a veto class B2 cannot touch at all, because it never goes near the lessons store. A
+large DiD on an *untargeted* class is the cheapest check that an aggregate is not the
+treatment, and it is now a standing field in this read.
+
+So `vetoes_did_warm` (post-deploy minute 30 onward) is registered as the deciding
+field, amended **before** any deciding read and before any deciding number existed.
+The gate value is unchanged at −5.03 precisely because the null is unchanged: the null
+was measured with both arms undisturbed, so it calibrates the uncontaminated
+estimator, and the warm window makes the measurement match its calibration.
+
+## 9. The gate cannot fail a canary on its effect
+
+`verdict.py:906` — `_ADVISORY = {'primary', 'watch', 'mechanism_check', 'notes', ...}`.
+Positive controls in the same file: `own_lines` 4 hits, `exposure` 25 hits, both
+handled. The gate prints it in every verdict line; falls-02's +180 named `primary`
+among "NOT evaluated by this gate".
+
+So KEEP/REVERT rests on the exposure floor, the linkage presence tests, the death gate
+and calibration. **A canary can earn KEEP with zero measured effect.**
+
+This bears directly on the 23-REVERT / 15-KEEP ledger: the two halves are not
+comparable. REVERTs come from tests that actually ran — a linkage defect, two deaths
+above 1.25× control. KEEPs mean *nothing objected*. A KEEP must never be reported as
+"it worked", and the effect call has to be made explicitly against a measured null and
+stated separately.
+
+## 10. Where vetob2-01 stands at +30 (reported only, not a verdict)
+
+Linkage clean: `_veto_feedback` canary 260 / control 0, 10 of 10 bots settled on the
+canary build, 0 rows over the 240-char cap. Exposure met. Gate returned `NOT_YET`
+(5.0 bot-h). No deaths.
+
+The mechanism signal worth watching: on the warm window `repeat_loop` in the canary was
+**0.00/bot-h against control's 17.17**, while `cooldown` rose. That is the
+`refusals-relocate-not-convert` shape, and at 1.1 warm canary bot-h it is far too small
+a window to mean anything. +180 gives ~25 warm canary bot-h and is the first read with
+power.
+
+Also to check honestly at +180: whether the original exposure floor of 500 would in
+fact have been met (260 rows at +30 extrapolates well past it), in which case my
+amendment down to 150 was unnecessary and I should say so.

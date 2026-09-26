@@ -33,8 +33,8 @@
  "exposure": {
   "read": "vetob2read",
   "field": "feedback_rows_canary",
-  "min": 500,
-  "note": "ARITHMETIC, at the shape actually drawn: 15 bots x 180 min = 45 bot-h. The row fires once per decision whose off-limits line is non-empty; decisions run ~91/bot-h (measured 2026-09-23 at 91.10 vs 91.85 across a 1.9x endpoint latency gap, and independently reproduced by tonight's dry run at 92.61 vs 92.76) and the table is non-empty essentially always (see notes), so ~4,095 rows are expected. 500 is 12% of that: reachable inside the first 15 minutes if the mechanism works at all, and unreachable if the off-limits line is empty -- which is exactly the inert case. It counts the gate SPEAKING, not a bot merely running."
+  "min": 150,
+  "note": "MEASURED, not inferred (see amendments): 10.9 rows/bot-h at steady state over 3.29 canary bot-h, so 10 bots x 180 min = 30 bot-h gives ~327 rows. 150 is 46% of that point estimate. It counts the gate SPEAKING -- a row only exists when the rendered off-limits line is non-empty -- so it cannot be met by a bot that merely ran. The first draft said 500 on an 8x-too-high inference and would have failed a working canary."
  },
  "own_lines": [
   {
@@ -61,17 +61,26 @@
  "friction": [],
  "primary": {
   "read": "vetob2read",
-  "field": "vetoes_did",
+  "field": "vetoes_did_warm",
   "gate": -5.03,
   "op": "<=",
   "direction": "down",
-  "role": "calibrated_against_measured_null",
+  "role": "calibrated_against_measured_null_BUT_ADVISORY_TO_THE_GATE",
   "series_required": true,
   "deciding_reads": [
    180,
    240
   ],
-  "note": "All vetoes per bot-hour, difference-in-differences, canary vs control, scraped from journald (`decision rejected why=...`). Vetoes run 29.8/bot-h measured, so 10 bots x 3 h gives ~890 canary events. THE GATE IS A MEASURED NULL BOUND, NOT ZERO AND NOT A TYPED NUMBER (see null_calibration and amendments): pooled C(12,2) exhaustive p5 = -5.03, and the hive-only subset that matches this draw is unbiased and tighter (-4.58), so -5.03 is the conservative gate. KEEP requires vetoes_did <= -5.03 AND a component moving in the right direction against ITS OWN STRATUM centre: repeat_loop_did <= +1.40 (hive-only null floor; its null MEAN here is +3.01) OR cooldown_did <= -2.29 (hive-only null floor). REVERT requires vetoes_did >= +5.17 (pooled p95). Between: INCONCLUSIVE, the honest close at this noise level. ONLY +180 AND +240 DECIDE -- the null was measured on a 180-min post window, so +30 and +90 have a wider, UNMEASURED band."
+  "note": "All vetoes per bot-hour, DiD, canary vs control, from journald, computed on the WARM window (post-deploy minute 30 onward) because the deploy restarts only the canary pool and the restart clears the very gate state this endpoint measures -- see amendments. GATE: KEEP needs vetoes_did_warm <= -5.03, the 5% one-sided bound of an EXHAUSTIVE same-shape null on identical code (C(12,2)=66, mean 0.00, sd 3.31), AND a component beating its own stratum centre: repeat_loop_did_warm <= +1.40 OR cooldown_did_warm <= -2.29 (hive-only range endpoints, n=6, NOT percentiles). REVERT needs vetoes_did_warm >= +5.17. Otherwise INCONCLUSIVE. learned_avoid_did_warm is a VALIDITY CHECK, not an endpoint: B2 cannot touch the lessons store, so a large value there means the aggregate is being driven by something other than the treatment. ONLY +180 AND +240 DECIDE (+180 gives ~25 warm canary bot-h; +40 gave 1.1 and is worthless). verdict.py puts `primary` in _ADVISORY (verdict.py:906) so THE GATE NEVER TESTS THIS -- a verdict.py KEEP means exposure, linkage and the death gate were clean and nothing more. The effect call is mine and is reported separately.",
+  "gate_does_not_enforce_this": "SOURCE-VERIFIED: verdict.py:906 lists `primary` in _ADVISORY, so the gate NEVER evaluates the effect. Positive controls in the same file: own_lines 4 hits, exposure 25 hits, both handled. The gate prints this itself -- falls-02's +180 verdict line names `primary` among 'NOT evaluated by this gate'. CONSEQUENCE: verdict.py will return KEEP for this run if the exposure floor is met, the two linkage lines hold and no two deaths land -- REGARDLESS of whether vetoes moved. That verdict is 'nothing objected', not 'it worked'. THE EFFECT CALL IS MINE, made at +180 against the gate below and the measured null, and it must be reported separately from verdict.py's verdict. Pre-registering the number here is still what stops it being chosen after the fact.",
+  "warm_min": 30,
+  "also_reported": [
+   "vetoes_did",
+   "repeat_loop_did_warm",
+   "cooldown_did_warm",
+   "learned_avoid_did_warm",
+   "decisions_did_warm"
+  ]
  },
  "watch": [
   {
@@ -93,6 +102,11 @@
    "read": "vetob2read",
    "field": "vetoes_did",
    "note": "REPORTED at +30 and +90. Their noise band is wider than the +180 band and was not measured, so a crossing there means nothing -- the exact error that made a +90 crossing meaningless on 2026-09-23. Series required so a single crossing cannot decide."
+  },
+  {
+   "read": "vetob2read",
+   "field": "saturation_share",
+   "note": "ANSWERED ALREADY, at +25 min, and the answer is 0.0: held == 1 on 41 of 41 rows. The 6-entry cap never binds because a 45 s cooldown against a 30 s decision cadence can only ever hold the last failure. THE FOLLOW-UP THIS IMPLIES: for an off-limits line to carry information the model does not already have, it must be sourced from something with a longer memory than a 45 s cooldown -- the learned_avoid store is the obvious candidate, since it holds persistent cross-run counts (gather:{block:oak_log} at fails=2658, shared across all five hive-a bots) and learned_avoid is 13.4% of vetoes. That is a separate change and must not be bundled into this one."
   }
  ],
  "extension": {
@@ -118,11 +132,14 @@
  ],
  "pool_draw": "DRAWN AT DEPLOY TIME by drawrec.sh with this run_id: ['board-a','hive-a','hive-c'] = 3 pools / 15 bots, rule v5 band widened to +-40% (stated by the draw), all-pool median 16.6 items/bot-h, 12h ledger exclusions removed board-c, hive-d, placebo-b, placebo-d. The draw offered 3 of a 4-pool target because the band had no more, and the read must say so: 15 bots, not 20. NOT the argmax -- board-a 13.1 and hive-a 14.9 sit BELOW the 16.6 median and hive-c is at it, so this draw does not build in regression to the mean. COVARIATE TO RECORD: all three drawn pools are on the 5080 half (half mix on offer was 5080:3, 3090:0), so the control arm carries every 3090 bot. That is a level difference the DiD absorbs, and inference-is-not-the-constraint measured the decision rate as identical across a 1.9x endpoint latency gap (91.10 vs 91.85), so it is recorded rather than treated as a confound. board-a additionally contains a trapped bot.",
  "teardown": "THREE steps: drop-ins, clearing canary_pool, AND restarting the pool's bots staggered 12 s apart, then confirm exactly two versions live. Then restore the golden analysis lib from ~/mcai-analysis/lib/ -- a deploy by any path other than ~/bin/fleet-deploy does not restore it, which is how the efa2853 promotion reverted telemetry.py and openloop.py.",
- "known_residuals": [],
+ "known_residuals": [
+  "RESTART ASYMMETRY, pre-registered rather than discovered. The deploy restarted ONLY the canary pool (hive-a, hive-c, 12 s stagger, 06:03-06:05Z). Control was not restarted. So the canary's POST window opens with a restart recovery while its PRE window is undisturbed and control has neither -- an asymmetry the DiD does NOT absorb, because it sits in the canary's own post-minus-pre term. It biases the canary's post rate DOWNWARD, i.e. toward a spurious KEEP on a 'fewer vetoes' endpoint. MAGNITUDE: decisions resume ~30 s after a bot reconnects, so the depressed period is a few minutes -- roughly 10-15% of the +30 window, ~5% of +90, and ~3% of +180. THAT IS A SECOND INDEPENDENT REASON ONLY +180 AND +240 DECIDE. Directly observed tonight: a 15-min sample right after the restart read 2.8 instrument rows/bot-h against a 10.9 steady state, a 3.9x transient. THE NULL DOES NOT COVER IT: both arms were undisturbed when the null was measured, so the null understates the noise for a restarted arm and the -5.03 bound is optimistic by an unmeasured amount. The project's own standard is 'identical restart treatment' (decision-cadence-event-driven), which this loop does not provide -- it restarts the canary pool only. Every canary on file carries this, and naming it is the honest alternative to pretending the DiD handles it.",
+  "HIVE-ONLY TREATMENT ARM, n=6 same-shape hive pairs. The component bounds derived from that subset are RANGE ENDPOINTS, not percentiles. Six is not a distribution and the read must not call them one."
+ ],
  "licence": {
   "class": "kind",
   "kind": "veto_feedback",
-  "min_rows": 500,
+  "min_rows": 150,
   "note": "THE STRONGEST CLASS, and earned rather than asserted: efa2853 contains no logEvent with kind 'veto_feedback' (git grep empty; positive control kind: 'affordance_scan' -> 1 hit on the identical query), and a 180-min fleet walk of 113,773 rows over 116 distinct kinds found _veto_feedback = 0 with three positive controls on the same walk. Baseline silence is therefore structural, not statistical."
  },
  "null_calibration": {
@@ -222,6 +239,16 @@
    "at": "2026-09-26T06:06:53Z",
    "what": "component gates re-centred on the drawn STRATUM; primary gate unchanged in substance",
    "why": "The draw came back hive-a + hive-c -- 2 pools / 10 bots, not the 3 pools / 15 bots offered six minutes earlier -- so the null was re-measured at the actual shape: C(12,2)=66, EXHAUSTIVE, on data ending STRICTLY AT THE DEPLOY INSTANT 2026-09-26T06:02:47Z, 16,614 pre-deploy veto lines. No canary data existed when this was computed and none was consulted; this corrects a MIS-SPECIFIED NULL, it does not respond to a result. THE FINDING THAT FORCED IT: the component nulls are STRATUM-DEPENDENT, and hive is the heaviest veto stratum (109-185 learned_avoid per 1k decisions against 3-16 elsewhere). Under the null, hive-only pairs centre at repeat_loop_did MEAN +3.01 (range +1.40..+4.63) while no-hive pairs centre at -1.51; and at cooldown_did MEAN -1.27 (range -2.29..-0.25) against no-hive +0.64. So the pooled gates would have BOTH blocked a true KEEP (requiring repeat_loop <= -6.18 when this stratum's null floor is +1.40) AND licensed a false one (cooldown <= -2.05 when this stratum's null reaches -2.29 on its own). For the PRIMARY the hive-only null is unbiased and tighter (mean +0.01, median +0.01, range -4.58..+4.59), so the pooled p5 -5.03 is kept as the conservative choice. HONEST LIMIT: n=6 hive-only assignments. A '5th percentile' of six numbers is the minimum, so these component bounds are RANGE ENDPOINTS, not percentiles, and they are used as direction-plus-magnitude checks rather than as tests. Stated because six is not a distribution."
+  },
+  {
+   "at": "2026-09-26T06:09:29Z",
+   "what": "exposure floor 500 -> 150. My arithmetic was wrong by 8x and the instrument found it at +25 min.",
+   "why": "I registered 500 on the claim that the off-limits table is 'non-empty essentially always', inferred from 81 failed skill attempts/bot-h x a 45 s cooldown = 3,645 s of coverage per 3,600 s hour, so ~91 rows/bot-h. MEASURED at steady state over 25 min / 3.29 canary bot-h: 10.9 rows/bot-h, which gives ~327 rows over 10 bots x 3 h -- BELOW a floor of 500. The floor would have failed on a canary whose mechanism is demonstrably live, closing it INCONCLUSIVE on my arithmetic: the drop5-01 failure in a new costume. 150 is 46% of the measured point estimate, the same conservatism falls-02 used. A first 15-min sample read 2.8 rows/bot-h and I did NOT amend on it, because failedCooldowns starts empty on restart and the pool had just been restarted on a 12 s stagger -- that was a restart transient and believing it would have been believing a cheap negative. WHY THE RATE IS 10.9 AND NOT 91, which is the real finding: across 41 rows `held` is ALWAYS EXACTLY 1 and `secs_max` is ALWAYS EXACTLY 15, while `chars` (111-136) and `skills` (gather 33, goto/surface/mine/explore 2 each) vary -- so the instrument is reading real varying data and the invariants are structural. decisionCooldownMs = 30000 (env, all 80 bots) spaces decisions exactly 30 s apart and failedCooldownMs = 45000 (config default, unset in every env file) gives a cooldown a 45 s life. 45 - 30 = 15, every time. So the table can hold only the skill just failed, with 15 s left, and the max=6 entry cap and the 240-char bound CAN NEVER BIND. CONSEQUENCE FOR THE READ: B2's half (1) -- the OFF-LIMITS line -- is nearly REDUNDANT by construction, telling the model what LAST ACTION already told it for 15 more seconds. Half (2) -- the rejection naming the vetoed proposal with its args -- fires on every one of ~30 vetoes/bot-h and is the live treatment. The primary endpoint therefore tests half (2), and cooldown_did should be read as near-null BY DESIGN rather than as a failure of the change. This was not knowable from the tests, which all pass: it is a parameter interaction only the fleet could show."
+  },
+  {
+   "at": "2026-09-26T06:40:56Z",
+   "what": "the deciding field becomes vetoes_did_WARM (post-deploy minute 30 onward). Made BEFORE any deciding read.",
+   "why": "The restart asymmetry I pre-registered as an 'activity dip' is far worse than that: it is a GATE STATE RESET, and it resets exactly the endpoint I chose. AdmissionControl's constructor clears BOTH `failedCooldowns` (admission.mjs:164) and `recent` (:165), and repeat_loop cannot fire until the bot has chosen 4 IDENTICAL ADMITTED actions (REPEAT_WINDOW = 4 at :22, tested at :701-703). So a restarted pool MECHANICALLY emits no repeat_loop vetoes for the first minutes and then emits excess cooldown vetoes as the map refills. That is precisely the +30 signature -- repeat_loop DiD -11.78, cooldown DiD +9.39 -- and it is a cleared gate, not a treatment effect. MEASURED CONFIRMATION: raw vetoes_did at +30 was -20.06; on the warm window it is -3.95. The raw number was ~80% warm-up. A third of that raw signal sat in learned_avoid (DiD -19.16), a class B2 does not touch at all, which was the tell. WHY WARM IS THE RIGHT FIELD AND NOT A CONVENIENT ONE: the null was measured with BOTH ARMS UNDISTURBED, so the estimator it calibrates is the uncontaminated one. Deciding the raw DiD against that null compares a restarted arm to a no-restart reference. The warm window makes the measurement match its calibration. The gate value is unchanged (-5.03) precisely because the null is unchanged. This is registered BEFORE the +90 and +180 reads and before any deciding number exists."
   }
  ]
 }

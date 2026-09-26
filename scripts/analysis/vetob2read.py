@@ -57,8 +57,20 @@ ev = load_window(int(PRE + W + 10))
 pool_of = lambda b: b.rsplit('-', 1)[0]
 arm = lambda b: 'canary' if pool_of(b) in CANS else (None if pool_of(b).startswith('isolated') else 'control')
 era = lambda t: 'pre' if t < CUT else ('post' if (t - CUT).total_seconds() / 60 <= W else None)
+# THE WARM ERA, and it is not a refinement -- it is what the null actually calibrates.
+# The deploy restarts ONLY the canary pool, and AdmissionControl's constructor clears BOTH
+# `failedCooldowns` (admission.mjs:164) and `recent` (:165). `repeat_loop` cannot fire until
+# the bot has chosen 4 IDENTICAL admitted actions (REPEAT_WINDOW = 4, :22, :701-703), so a
+# restart MECHANICALLY suppresses repeat_loop and then refills cooldown as the map warms.
+# That is exactly the +30 signature (repeat_loop DiD -11.78, cooldown DiD +9.39) and it is a
+# cleared gate, not a treatment effect. The null was measured with BOTH arms undisturbed, so
+# the estimator it calibrates is the uncontaminated one: WARM is the field to decide on.
+WARM_MIN = 30
+era_w = lambda t: ('pre' if t < CUT else
+                   ('post' if WARM_MIN <= (t - CUT).total_seconds() / 60 <= W else None))
 
 span = defaultdict(dict); feed = Counter(); held = []; chars = []; capped_n = 0
+spanw = defaultdict(dict); decisionsw = Counter()
 settled_at = {}; decisions = Counter(); kinds = Counter(); allbots = set()
 FEEDRE = re.compile(r'held=(\d+) chars=(\d+)')
 for r in ev.rows:
@@ -71,6 +83,11 @@ for r in ev.rows:
     if e is None: continue
     k = (a, e)
     s = span[k].get(b); span[k][b] = (t if s is None else min(s[0], t), t if s is None else max(s[1], t))
+    ew = era_w(t)
+    if ew is not None:
+        kw = (a, ew)
+        sw = spanw[kw].get(b); spanw[kw][b] = (t if sw is None else min(sw[0], t), t if sw is None else max(sw[1], t))
+        if r['name'] == '_affordance_scan': decisionsw[kw] += 1
     # THE SETTLE POINT, not the pool label. Teardown/deploy restarts the assigned bots on a
     # 12 s stagger, so for the first minutes a canary pool legitimately contains bots still
     # running the BASELINE -- blindstep-01's first 8 canary-arm rows were exactly that.
@@ -124,6 +141,7 @@ UNITS = [u for u in UNITS if u.startswith('mcbot@') and u.endswith('.service')]
 botof = lambda u: u[len('mcbot@'):-len('.service')]
 REASON = re.compile(r'why=([a-z_]+)')
 vet = defaultdict(Counter); vtot = Counter()
+vetw = defaultdict(Counter); vtotw = Counter()
 for u in UNITS:
     b = botof(u); a = arm(b)
     if a is None or b not in span[CP] and b not in span[CTL] and b not in span[CPRE] and b not in span[KPRE]:
@@ -139,8 +157,12 @@ for u in UNITS:
         if e is None: continue
         k = (a, e)
         m = REASON.search(line)
-        vet[k][m.group(1) if m else '(unparsed)'] += 1
+        reason_ = m.group(1) if m else '(unparsed)'
+        vet[k][reason_] += 1
         vtot[k] += 1
+        ew = era_w(t)
+        if ew is not None:
+            vetw[(a, ew)][reason_] += 1; vtotw[(a, ew)] += 1
 print(f"JOURNALD scanned {len(UNITS)} units; veto lines post: canary {vtot[CP]} control {vtot[CTL]}; "
       f"pre: canary {vtot[CPRE]} control {vtot[KPRE]}")
 if vtot[CP] == 0:
@@ -156,10 +178,50 @@ print()
 print("  admitted decisions / bot-h         canary %s  control %s   DiD %s"
       % (fmt(per(decisions, CP)), fmt(per(decisions, CTL)), fmt(did(lambda k: per(decisions, k)))))
 print()
-print("READ RULE (pre-registered): KEEP if all-vetoes/bot-h DiD is negative AND repeat_loop+cooldown")
-print("  DiD is negative AND admitted decisions DiD is not negative. REVERT if all-vetoes DiD is")
-print("  positive beyond noise. INCONCLUSIVE otherwise. Liveness is a gate, not a result: control")
-print(f"  {FEED} > 0 or canary == 0 means the arms are not what this read thinks they are.")
+bhw = lambda k: sum((v[1] - v[0]).total_seconds() / 3600.0 for v in spanw[k].values() if v[1] > v[0])
+perw = lambda c, k: (c[k] / bhw(k)) if bhw(k) else None
+
+
+def didw(f):
+    v = [f(x) for x in (CP, CPRE, CTL, KPRE)]
+    return None if any(x is None for x in v) else (v[0] - v[1]) - (v[2] - v[3])
+
+
+print()
+print("  ==== WARM WINDOW (post-deploy minute %d onward): THE DECIDING NUMBERS ====" % WARM_MIN)
+print("     the canary pool was RESTARTED and control was not; AdmissionControl clears failedCooldowns")
+print("     AND `recent` on construction, and repeat_loop needs 4 identical admitted actions to fire,")
+print("     so the first minutes suppress repeat_loop and refill cooldown MECHANICALLY. The null was")
+print("     measured with both arms undisturbed, so it calibrates THIS estimator, not the raw one.")
+print("     bot-h  canary post %.1f  control post %.1f  canary pre %.1f  control pre %.1f"
+      % (bhw(CP), bhw(CTL), bhw(CPRE), bhw(KPRE)))
+if bhw(CP) <= 0:
+    print("     WARM WINDOW EMPTY -- not yet %d min past the deploy. No deciding number exists." % WARM_MIN)
+else:
+    print("  WARM all vetoes / bot-h   canary %s  control %s   DiD %s   (gate: KEEP <= -5.03, REVERT >= +5.17)"
+          % (fmt(perw(vtotw, CP)), fmt(perw(vtotw, CTL)), fmt(didw(lambda k: perw(vtotw, k)))))
+    for reason in ('repeat_loop', 'cooldown', 'learned_avoid'):
+        f = lambda k, _r=reason: (vetw[k][_r] / bhw(k)) if bhw(k) else None
+        print("       %-16s canary %s  control %s   DiD %s"
+              % (reason, fmt(f(CP)), fmt(f(CTL)), fmt(didw(f))))
+    print("  WARM admitted decisions / bot-h  canary %s  control %s   DiD %s"
+          % (fmt(perw(decisionsw, CP)), fmt(perw(decisionsw, CTL)), fmt(didw(lambda k: perw(decisionsw, k)))))
+print()
+print("READ RULE (pre-registered, AMENDED against a MEASURED null -- see the registration):")
+print("  THE GATE IS NOT ZERO. Exhaustive same-shape null on IDENTICAL code, C(12,2)=66, pre-deploy data:")
+print("    all vetoes  mean 0.00  sd 3.31  p5 -5.03  p95 +5.17   -> KEEP needs vetoes_did <= -5.03")
+print("    hive-only subset (n=6, the drawn stratum): repeat_loop null MEAN +3.01, cooldown null MEAN -1.27")
+print("  KEEP needs vetoes_did <= -5.03 AND a component beating ITS OWN STRATUM centre:")
+print("    repeat_loop_did <= +1.40 OR cooldown_did <= -2.29  (hive-only RANGE ENDPOINTS, n=6, not percentiles)")
+print("  REVERT needs vetoes_did >= +5.17. Otherwise INCONCLUSIVE, which is the honest close at this noise.")
+print("  ONLY +180 AND +240 DECIDE. The null was measured on a 180-min post window, and the canary pool was")
+print("  RESTARTED while control was not -- that transient is ~10-15% of a +30 window and ~3% of +180.")
+print("  verdict.py puts `primary` in _ADVISORY (verdict.py:906), so THE GATE NEVER TESTS THE EFFECT: a")
+print("  verdict.py KEEP means exposure, linkage and the death gate were clean, nothing more. The effect")
+print("  call is the analyst's and must be reported separately.")
+print("  WATCH learned_avoid: B2 does not touch it, so a large learned_avoid DiD is evidence the aggregate")
+print("  is being driven by something other than the treatment (restart, or hive store churn).")
+print(f"  Liveness is a gate, not a result: control {FEED} > 0 or canary == 0 means the arms are wrong.")
 
 try:
     sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp'); from readjson import emit
@@ -188,5 +250,11 @@ try:
         # reader-failure guards: a zero here is an instrument fault, not a finding
         'journald_units_scanned': len(UNITS),
         'veto_lines_canary_post': vtot[CP], 'veto_lines_control_post': vtot[CTL],
+        'vetoes_did_warm': didw(lambda k: perw(vtotw, k)),
+        'repeat_loop_did_warm': didw(lambda k: (vetw[k]['repeat_loop'] / bhw(k)) if bhw(k) else None),
+        'cooldown_did_warm': didw(lambda k: (vetw[k]['cooldown'] / bhw(k)) if bhw(k) else None),
+        'learned_avoid_did_warm': didw(lambda k: (vetw[k]['learned_avoid'] / bhw(k)) if bhw(k) else None),
+        'decisions_did_warm': didw(lambda k: perw(decisionsw, k)),
+        'warm_canary_bot_h': bhw(CP), 'warm_min': WARM_MIN,
         'canary_bot_h': bh(CP), 'positive_control_rows': len(ev.rows)})
 except Exception as _e: print('VERDICT_JSON failed:', _e)
