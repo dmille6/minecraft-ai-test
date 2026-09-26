@@ -475,3 +475,77 @@ instances, 6.2% of iron failures — real, but not the main event.
 chased before. The cheap discriminator between "cannot get down" and "gets down and still
 fails" is: how much bot-time is spent below y=32 at all, and do the bots that DO get deep
 succeed on iron? Measure that before proposing anything.
+
+---
+
+## 15. The second engine's pass added three things and corrected my line numbers
+
+Both engines independently reached DO NOT BUILD and agreed on the refutations in §12.
+The independent Claude pass added three findings I had missed.
+
+**An arithmetic proof that kills the proposal at the root.** Stored `fails` drift per key:
+
+    d(fails)/dt = a·(1-p) - a·p - 3/hr = a·(1-2p) - 3/hr
+
++1 per failed attempt, -1 per success (`lessons.mjs:640`), -3/hr wall clock
+(`FORGET_MS = 20 min`). Sustaining `effective >= 4` needs `a·(1-2p) > 3`. **For p > 0.5
+the drift is negative before wall clock is even applied.** So `gather dirt count=1`
+(p=.654) and `goto {355,73,147}` (p=.661) — the two keys my memo led with — are
+*arithmetically incapable* of sustaining a throttle. **The sustained-throttle population
+and the wrongly-throttled population are disjoint by construction.** The only keys that
+can hold a throttle are the low-p ones the gate is right about.
+
+**`fails > wins` would have removed the gate, not given it a denominator.** `fails` is
+forgiven at 3/hr, halved every 6 h and capped at 40; **`worked` is never decayed or
+pruned at all** (`#prune` at `lessons.mjs:361-391` touches `avoid` and `sites`, never
+`worked`). So the comparison pits a 20-minute counter against an all-time one, and on my
+own table it switches the gate off everywhere — including `gather iron_ore` (32 vs 526
+wins, p=0.003) and `craft stone_pickaxe` (91 vs 5,090), the two keys I conceded it gets
+right.
+
+**And my "5x slower recovery" was out by ~40x.** Clearing has two channels and only one
+is throttled: `gather dirt count=1` clears at 0.56+3 = 3.56/hr unthrottled versus
+0.11+3 = 3.11/hr throttled — **13% slower, not 5×**. Time-to-clear is floored at
+`fails/3` hours ≈ 80 min for a fails=4 rule, throttled or not. Hypothesis rejected.
+
+**Correction to my citations.** My `admission.mjs` line numbers were from the
+`mcai-vetob2` worktree, **+19 from `main`/`efa2853`**, which is what the fleet runs:
+`priorFails` is `:517` not `:536`; `if (priorFails >= 4)` is `:631` not `:650`; the 1-in-5
+valve is `:660-677` not `:675-689`. The `lessons.mjs` citations are correct against main —
+that file is byte-identical across all three checkouts. Reading a worktree and citing it
+as the fleet is the `two-checkouts-have-diverged` trap.
+
+### The one genuinely new defect: the prompt's win channel is monopolised
+
+    lessons.mjs:869  Object.values(this.data.worked)
+                       .filter(e => e.wins >= 3).sort((a,b) => b.wins - a.wins).slice(0, 2)
+    lessons.mjs:870  `${e.skill}(${JSON.stringify(e.args)}) has worked ${e.wins}x — a reliable choice`
+
+Consumed at `cognitive.mjs:673`. **Two slots, chosen globally by LIFETIME wins**, against
+an avoid side that filters `fails >= 2` and gets more lines. And `worked` is never pruned,
+so the two all-time leaders hold both slots forever — currently
+`goto {x:355,y:73,z:147}` at **79,364** wins and `gather dirt count=1` at **19,231**.
+Every other winning key is invisible to the model, permanently.
+
+Worse, a `goto` win means *moved*, not *arrived*: `goto: { expects: ['position'] }`
+(`skills.mjs:5690`) and `if (expects.includes('position') && (delta.distance ?? 0) >= 2)`
+(`skills.mjs:5820`). Measured yield for that key: **0.01 items per success.**
+
+**So the model is told, on every decision, that a goto producing 0.01 items per success is
+"a reliable choice" — and the advice can never be displaced.** Wins are the only place in
+this system where a success has a vote at all (the gate never sees them, §9), and that vote
+is monopolised by the least-evidenced key on the fleet.
+
+That is the next candidate change, and it is two variables that must be separated: scoping
+and recency in the win channel, and tightening the `position` contract so a goto win
+requires arrival. A prompt-content change is exactly what vetob2-01 measured, so the
+warm-window instrument, the exhaustive same-shape nulls and the direct repeat-share measure
+already exist for it.
+
+Both engines' first recommendation was the same and is smaller than either: **put `since`
+and the effective (decayed) fail count on the `learned_avoid` rejection row**
+(`entryFor` at `lessons.mjs:536-549`, `logger.mjs:262-264` currently exports four `cited_*`
+fields and no fifth). Until the telemetry reports the number the gate actually reads instead
+of the stored residue, every claim about avoid magnitudes in this project — including the
+ones neither engine could refute — is measured with an instrument that cannot see the
+decision it describes.
