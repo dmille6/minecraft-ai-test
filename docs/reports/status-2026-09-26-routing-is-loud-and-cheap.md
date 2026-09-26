@@ -549,3 +549,48 @@ fields and no fifth). Until the telemetry reports the number the gate actually r
 of the stored residue, every claim about avoid magnitudes in this project — including the
 ones neither engine could refute — is measured with an instrument that cannot see the
 decision it describes.
+
+---
+
+## 16. Both engines told me to build an instrument. It already existed, and it refutes their proof.
+
+Their shared first recommendation was to export the gate's effective (decayed) fail count,
+because "every claim about avoid magnitudes is measured with an instrument that cannot see
+the decision it describes". I went to build it and found it already shipped:
+
+    admission.mjs main:517  const priorFails = this.lessons?.failCount(skill, args) ?? 0
+    admission.mjs main:673  detail: `${skill} with these args has failed ${priorFails}x across runs ...`
+    lessons.mjs             failCount() returns #effective(e), NOT e.fails
+
+The rejection **detail** already carries the EFFECTIVE count, and `cited=` carries the
+STORED one. Both reach journald on every `learned_avoid` veto.
+
+**Measured, 40 units × 6 h: 8,702 veto lines, 2,410 `learned_avoid`, 867 with both numbers
+legible:**
+
+    effective != stored in 784 of 867 (90.4%)  -- forgiveness is visibly applied
+    stored MINUS effective:  median 28 | p75 879 | max 1464 | mean 337.5
+    EFFECTIVE fails at the moment of the veto -- the number the gate acted on:
+      min 4 | p25 10 | MEDIAN 45 | p75 1776 | p95 1932 | max 3927
+      exactly 4 (at the threshold):  7.6%
+      >= 20: 64.4%     >= 100: 38.3%
+
+**This empirically refutes the arithmetic proof in §15.** The drift argument
+(`d(fails)/dt = a·(1-2p) - 3/hr`, so `p > 0.5` cannot sustain a throttle) predicted that
+`goto {355,73,147}` at p=0.661 could not hold a rule. It logged **207 `learned_avoid` vetoes
+in 6 h across 40 bots**, with effective counts in the thousands. The argument was elegant
+and wrong, and the data to check it was on disk the whole time.
+
+**Caveat that bounds all of the above:** only 867 of 2,410 `learned_avoid` lines (36%) carry
+both numbers — journald truncates the rest mid-`raw={`. That selects on line length and so
+on args length. Treat the distribution as indicative of the big, frequently-vetoed keys, not
+of all vetoes.
+
+**The ratio-gate proposal stays dead, but on the other objection.** `worked` is never decayed
+or pruned, so `fails > wins` would switch the gate off on every key with a few lifetime wins,
+including the low-p keys it is right about. That objection is untouched by this measurement.
+
+**The standing lesson.** Before accepting "we cannot measure this, let us build an
+instrument" — from a reviewer or from myself — grep the log. A `detail` string is telemetry.
+That is the third time in two days the answer was already on disk: `skill.distance_moved`
+(§4), the `_path_failure_shapes` classes (§2), and now the effective fail count.
