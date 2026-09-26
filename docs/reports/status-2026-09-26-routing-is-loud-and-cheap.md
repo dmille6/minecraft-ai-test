@@ -337,3 +337,73 @@ bots, accumulated across runs. It is 13.4% of vetoes fleet-wide and the dominant
 in hive. That is the next canary. Re-running B2 on non-hive pools with a bigger pool is
 the cheaper second option, and the nulls, the warm-window instrument and the
 direct repeat-share measure all now exist for it.
+
+---
+
+## 12. I proposed a change to the avoid gate and it was refuted four ways. Not built.
+
+vetob2-01 pointed at `learned_avoid` as the wall that absorbed B2's gains, so I built a
+case against it: `admission.mjs:650` gates on `priorFails >= 4`, the gate contains no
+reference to wins (grep for `winCount|\.worked|wins` in `admission.mjs` returns nothing;
+positive control, same file, `failCount`/`priorFails` five hits), and keys with 19,231
+and 79,364 stored wins were held as avoid rules. Proposed: gate on `fails > wins`.
+
+**Four refutations. Three came from the second engine, one from my own measurement.**
+
+**1. The gate is not blind to successes.** A success does `fails--`
+(`lessons.mjs:640`) and that reaches the gate directly:
+`recordSuccess → avoid.fails-- → failCount → priorFails`. It cannot see the *cumulative
+win count*; it sees successes perfectly well. My framing was too strong.
+
+**2. The gate reads AGE-ADJUSTED debt, not raw `fails`.**
+
+    lessons.mjs:31  FORGET_MS = 20 * 60 * 1000   // one failure forgiven per 20 idle minutes
+    #effective(e) = max(0, fails - floor((now - since) / FORGET_MS))
+
+`failCount()` applies it, and its comment records exactly why: without decay "the fleet's
+veto rate climbed 23% → 72% across sixteen hours". **So my measurement grouped bots by
+raw on-disk `fails >= 4`, which is not the gate's condition.** The 2–6× success gap I
+found between "throttled" and "not throttled" is measured on the wrong variable — and is
+near-tautological regardless: it says bots with a failure history on a key succeed less
+on that key. It does not show the gate discriminates correctly at decision time.
+
+**3. `unknown` outcomes do not persist a failure.** `admission.noteFailure`
+(`admission.mjs:174-176`) sets only a 45 s cooldown. The lessons store is written in the
+separate `failed` branch. My "unknown inflates the numerator at 4.12%" claim conflated
+`admission.noteFailure` with `lessons.recordFailure`.
+
+**4. `MAX_AVOID` is enforced on load.** `lessons.mjs:351` calls prune, which does
+`slice(0, MAX_AVOID)` (`:384-390`). Stores above 40 arise between saves and via peer
+merges, not from a missing load cap.
+
+Also corrected: "every 5th proposal executes" is false — ordinary probation falls through
+to `repeat_loop`, which can still reject. And stored `wins` merge with `max` rather than
+summed deltas (`lessons.mjs:316-320`), so they undercount in a shared store.
+
+**The avoid gate is a decaying counter with success decrements and wall-clock
+forgiveness.** It is much better designed than my memo claimed. **Not built.**
+
+Two arithmetic corrections I owe my own numbers from that pass: I reported `max_fails`
+(up to 4,037) as if representative — it is one pathological store and the median is 1–4.
+And I said `craft stone_pickaxe` was attempted 0.00/bot-h; that was a join miss on the
+args shape (the store key carries no `count`, the telemetry args may), and the real figure
+is 1,852 attempts/24 h. The `n/a` in that row's success column was the tell I should have
+read.
+
+### What the craft data does say
+
+    item             attempts  att/bot-h  success%  dominant failure
+    stone_pickaxe       1852     0.965       3.8%   missing_ingredients 1660 (90%)
+    stick                500     0.260      32.2%   missing_ingredients  321 (64%)
+    wooden_pickaxe       493     0.257      12.4%   missing_ingredients  398 (81%)
+    crafting_table       394     0.205      17.3%   missing_ingredients  308 (78%)
+    bucket               359     0.187       0.0%   missing_ingredients  352 (98%)
+    iron_pickaxe          39     0.020       0.0%   missing_ingredients   39 (100%)
+
+The fleet proposes the ladder constantly and lacks the materials. Not a veto problem and
+not a proposal problem. **But priced honestly it is small:** ~3,500 craft attempts/24 h
+fail on missing ingredients against ~180,000 decisions/24 h — about **2% of decisions** —
+and craft is 0.18 min/bot-h of skill time. A real inefficiency, and a minor one.
+
+The large numbers are unchanged from §1–3: gather yields 13.41 items/bot-h at 19.2%
+success on 7.0% of bot-time, and **81.6% of bot-time is outside any skill.**
