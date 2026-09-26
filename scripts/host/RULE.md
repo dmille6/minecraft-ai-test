@@ -1,4 +1,639 @@
+# NO LIVE CANARY as of 2026-09-24 11:16Z. The fleet is on ONE version (9b572aa+72e533, 80 bots) and the 24-27 Sep program read window is OPEN: canaries MAY run inside it (10-20 of 80, read as DiD); fleet-wide promotions MAY NOT. This header named recovery-ladder-01 as live and had been stale since 2026-09-13; analyst.py reads only from "## v14c" onward so the staleness was cosmetic, and it is corrected here in the between-canaries window where editing this file is safe.
 
+## PRE-REGISTERED v8 FROZEN 13:00 UTC 09-13 — recovery-ladder-01 (885d2dd on 8a2964a): a SAFETY canary; the mechanism is proven in the sandbox (Codex passes 1–14: passes 1–13 each fixed the rule; pass 14's path is recorded as an accepted residual below)
+**Why v6 changed shape (Codex passes 3–4 + the dry run):** trapped bots are ~3 of 80, and today 2 of 3 trapped
+CONTROL bots freed themselves with `_marooned` rows in the 10 minutes before (the old code's climb keeps
+firing), so on the fleet neither a pp primary nor a "ladder row within 10 min" link can tell the policy from
+spontaneous recovery. The fleet cannot read causation at n≈3. The honest split: **mechanism from the sandbox,
+harm and non-regression from the fleet.**
+- **Mechanism evidence (required before deploy, recorded here):** control-vs-candidate replays of the captured
+  traps on identical fixtures. Delta (`hive-a-delta-no-pick-shaft-r8`): control = pickaxe-prerequisite loop,
+  no rise (and drowned in the flooded replay); candidate = rose y=55 → 63 alive. Bravo: control refused 24-vs-25;
+  candidate admitted the climb but cannot pillar while floating → NOT fixed, out of scope, named. Any new trap
+  captured before deploy is replayed both ways and added.
+- **Pool draw:** rule v5 band; exposure = the pool has ≥ 20 `entombed`+`marooned` rows or ≥ 8 `livelock_escape`
+  rows in the prior 3 h (every pool qualifies today; the mechanism touches those paths), clean ≥ 90-min
+  pre-window; a pool with a trapped bot is preferred but not required (the trapped-bot read is descriptive).
+- **KEEP means "safe to promote", read at +360 (HOLD at +180 if any guard is undefined):** (1) the standing
+  death gate not tripped — at every read, canary deaths (count) ≥ 2 AND canary deaths/bot-h > 1.25× control's
+  over [cutoff, read] → REVERT; (2) harvest: items/bot-h ratio-DiD ≥ −57% (0.43×), evaluated from +90 with
+  ≥ 7.5 canary bot-h and ≥ 20 control items; (3) gather runs/bot-h and explore runs/bot-h within 30% relative
+  of the control's own change; (4) `entombed`+`marooned` firings/bot-h not up > 2× relative; (5)
+  `livelock_escape` rows/bot-h not up > 2× relative (the latch must not thrash) and blocks spent per ladder
+  p90 ≤ 32; (6) no `recovery_exhausted` row on a bot that is not immobile AT that row — the window IS the episode: from the earliest of the three `livelock_escape … latched` rows that produced the exhaustion (the breaker's own record of the sequence, ≥ 20 min before the row by construction) to the exhaustion row, EVERY position sample lies within 6 horizontal blocks AND within 4 vertical blocks of the bot's position at the row (a bot climbing or descending a shaft is moving, Codex pass 12) — a bounded region over exactly the unresolved episode, never an earlier one and never pre-trap travel, AND the span must be covered at both boundaries and throughout: no gap > 120 s from the episode start to the first sample, between consecutive samples, or from the last sample to the row (the bots log rows far more often); a larger gap makes guard 6 UNDEFINED for that row → HOLD, INCONCLUSIVE at +360, never clean (Codex passes 8–13; /tmp/immobiledid.py computes the maximum distance and the largest gap over that span).
+  Also, from the breaker's OWN complete records over the episode: every `livelock_escape` row of the bot in the
+  span must report moved < 8 (the three latched rows do so by construction) and no `livelock_escape` success row
+  may fall in the span. ACCEPTED RESIDUAL, recorded: movement that happens entirely between two samples ≤ 120 s
+  apart and returns to the region, with the breaker's own displacement measurements all < 8, reads as immobile;
+  no sampling closes that, and the harm it could hide — the breaker thrashing on a mobile bot — is bounded
+  independently by guard 5 (livelock rows/bot-h ≤ 2× relative) and by guard 3 (gather/explore runs held).
+  Stopping rule for this guard: only a named path that guards 3 and 5 also miss reopens it; exhaustion on a trapped bot is the intended terminal state however many traps the world produces, on a mobile bot it is the breaker thrashing → any such row = guard tripped; (7) the split
+  verified at +30 and readability = ≥ 15 canary bot-h with all 5 bots reporting.
+- **Descriptive, printed at every read, never a gate:** immobile share pre → post (pp) canary vs control; every
+  bot immobile ≥ 30 min at the cutoff on BOTH arms, freed or not, with the ladder rows preceding a freeing;
+  `recovery_exhausted` names and positions.
+- **After promotion:** the trapped-bot list from the digest (`recovery_exhausted` + immobile ≥ 30 min) is the
+  fleet-wide read over days, descriptive; new trap captures feed the sandbox, which is where the next rung
+  (flooded-pocket pillar) is proven.
+- **Precedence:** harm → REVERT; a guard undefined/insufficient → HOLD then INCONCLUSIVE; KEEP only with all
+  seven clean at +360. Reads +30 / +90 / +180 / +360 with `/tmp/immobiledid.py <M>` + canary-report.
+- **Accepted residual, closing the review (pass 14):** Codex's last path is a bot that makes between-sample
+  excursions and returns three times exactly inside the breaker's own goto measurements, so that
+  `recovery_exhausted` fires on a bot that is really mobile, and "its useful recovery is disabled". Recorded and
+  not fixed: (a) no sampling closes a between-sample excursion, and three such excursions timed to the breaker's
+  measurements have no fleet-plausible mechanism; (b) the consequence claimed is not a loss — `recovery_exhausted`
+  switches off only the breaker's relocation gotos for that bot, never its skills, and a bot that is genuinely
+  mobile does not need a relocation goto. The registration is frozen here; the review had moved from named
+  fleet mechanisms to constructed sequences, which is this project's stopping rule for a review loop.
+
+
+## Amendment (prospective) — recovery-ladder-02, written 2026-09-13 15:33 UTC before any -02 read
+- -01 (3eb1bec, placebo-a, declared 14:33:29Z) was REVERTED by hand at +42 min: the rebuilt deposit's chest matcher read b.position on mineflayer palette blocks (position null); 6/6 canary deposits threw. Not a registered gate; recorded in the ledger as REVERT with the reason.
+- -02 = a242d64 (3eb1bec + that one fix, suite 172/172) on hive-c (drawn at deploy 15:27 UTC: 5080 half, 66.8 items/bh vs median 56.2 at ±25%, exposure 82 livelock / 117 climb rows, no trapped bot; placebo-a, board-a, board-b, placebo-b excluded within 12 h). declared_at 2026-09-13T15:27:52.542029Z. Reads +30/+90/+180/+360 (15:58 / 16:58 / 18:28 / 21:28 UTC).
+- Rules unchanged (v8: safety canary, KEEP = safe to promote, guards 1–7, readability floors, two-death floor, placebo screen), plus one added gate: the canary's deposit skill_error share (runs failing with a JS error) must not exceed the control's; above it is a REVERT regardless of the other reads.
+
+## v9 — registered 2026-09-13 17:10 UTC for recovery-ladder-03 (owner: "B and C"), BEFORE the deploy
+Change: a242d64's bot code (3eb1bec + the deposit palette-block fix), sha 9dfe2ee (= a242d64 + two-pool tooling, src digest unchanged) vs 8a2964a.
+Pools: TWO pools of five, drawn at deploy from the 5080 half under rule v5 (band ±25% of the half's 2-h median, exposure, not a canary in 12 h, not placebo-c).
+Reads: +30/+90/+180/+360; KEEP = safe to promote on the non-death guards 1–7 (v8) with readability floors; the deposit skill_error share must not exceed the control's.
+DEATHS — the calibrated rule (scripts/gatecal.py on today's fleet history, 132 five-bot and 726 ten-bot pseudo-canaries, no change deployed):
+  measured false-trip rates inside 6 h: current two-death rule 54% (5-bot) / 53% (10-bot); exact-binomial v3 41% / 77%; pool DiD at +360 vs its own 6-h pre-period 38% / 38%; fleet-level backstop (2-h fleet rate > 2x the pre-deploy 6-h rate) 45% of deploy times.
+  Therefore NO death-RATE test can auto-revert inside the 6-h window: every one of them reverts a harmless change more often than not. Registered:
+  (a) a MECHANISM-LINKED canary death reverts at once: the dead bot has a row of the change's mechanism in the 600 s before its _death row. M = {entombed, marooned, maroon_wall, entombed_ramp_cut, maroon_climb_refused, maroon_climb_exhausted, maroon_pillar_declined, maroon_dig_refused, marooned_needs_pickaxe, livelock_escape, pillar_no_gain, recovery_exhausted, danger_block, stuck}. Checked continuously (5-min poll) and at every read.
+  (b) every canary death is reported at every read with its mechanism and the control count; none is excused, none is a trip on its own.
+  (c) survival is judged where it can be: fleet-wide, over 72 h after promotion, against the program's committed numbers (deaths/bot-h ≤ 0.05), as the feasibility review specified. A promotion that fails that read is reverted fleet-wide.
+Everything else from v8 stands. Amendments after this line are prospective only.
+DRAW at deploy (2026-09-13 17:08 UTC, clock checked with date -u): 5080-half 2-h median 51.4 items/bh; ±25% held one eligible pool only (hive-b 63.0); widened to ±40% as the rule allows (stated): eligible hive-b (63.0; livelock 99 / climbs 108) and placebo-b (68.4; 53 / 96, one trapped bot; its 04:14 canary exclusion lifted 16:14). hive-a (30.7) missed the band by 0.1. Exactly two eligible -> both drawn, no randomness needed. POOLS = hive-b,placebo-b.
+
+## v10 — DRAFT (prospective; written 2026-09-13 21:25 UTC after -03's revert; applies to -04 only once registered)
+1. Mechanism linkage (v9a) counts only a rung that MOVED the body in the 600 s before the death: entombed, marooned, maroon_wall, entombed_ramp_cut, marooned_ramp_cut, livelock_escape, pillar_no_gain, danger_block, stuck, unstick_oscillation. Refusals and terminal states are reported, never linked. (-03 was reverted on marooned_needs_pickaxe, a refusal, 4 min before a gather-at-height fall.)
+2. Guard 6 counts recovery_exhausted rows whose bot is STILL immobile (60-min displacement < 6) 30 min after the row. (-03: 9 rows, 0 immobile after.)
+3. The livelock breaker's trigger (3 consecutive rejected decisions, or repeat_loop) fires on WORKING bots and walks them 30-57 blocks every 5-10 min; before -04 it needs physical fixation too (no displacement >= 8 and no items gained in the window). Design change: two Codex passes first.
+Everything else from v9 stands.
+
+## v10 — REGISTERED 2026-09-13T22:44Z for recovery-ladder-04 (owner 21:50 UTC: "do whatever you think is best"), BEFORE the deploy
+Change: the same bot code as -03 (a242d64's src, digest 3dc1ae) at the recovery-ladder-03 branch head 6d843a1 (docs and read scripts only since 612d1c8) vs 8a2964a.
+Pools: two pools of five drawn at deploy under rule v5 (5080 half, band ±25% widened to ±40% if fewer than two, exposure, 12-h exclusions, not placebo-c). Reads +30/+90/+180/+360.
+KEEP = safe to promote: guards 1–5 and 7 as v8; guard 6 = recovery_exhausted rows whose bot is STILL STUCK (60-min displacement < 6 AND no positive inventory delta) 30 min after the row, <= trapped-at-deploy + 1; readability floors; deposit skill_error share <= control's.
+Deaths: (a) a canary death with a rung that MOVED the body (entombed, marooned, maroon_wall, entombed_ramp_cut, marooned_ramp_cut, livelock_escape, pillar_no_gain, danger_block, stuck, unstick_oscillation) in the 600 s before it reverts at once (5-min poll + every read); refusals and terminal states are reported, never linked; (b) every death reported; (c) survival judged fleet-wide over 72 h after promotion (deaths/bot-h <= 0.05).
+Guards gather/bh and explore/bh are ONE-SIDED (a fall of more than 30% fails; a rise never does) — this is the registered reading from v10 on.
+KEEP -> promote 6d843a1 fleet-wide, fast-forward main, open the 72-h fleet read. Anything else -> teardown, INCONCLUSIVE or REVERT as the lines say. Amendments after this line are prospective only.
+DRAW at deploy (2026-09-13 22:45 UTC): 5080-half 2-h median 66.7; ±25% band held four pools per the script, but the script's 12-h list was missing hive-c (15:27) and placebo-b (17:07) -- both were still excluded by the rule; neither was picked. Valid eligible: hive-a (73.6; livelock 100 / climbs 141; one trapped bot -> preferred) and board-a (70.7; 80 / 96; its 10:24 exclusion lifted 22:24). POOLS = hive-a,board-a.
+
+## v11 — REGISTERED 2026-09-13T23:05Z for recovery-ladder-05 (prospective; the owner delegated at 21:50 UTC)
+-04 was reverted at +17 min by v10(a): the linked row was an entombed arm that had ENDED ten minutes and ~100 blocks of walking, gathering and exploring before the bot walked into lava during gather. In all four canary deaths today the nearest rung row was 4-10 min before the death and the bot had left the rung's place. The 600-s window links a rung that merely fired, not one that acted.
+v11(a): a canary death is mechanism-linked when a MOVING rung row (the v10 list) is within 60 s before the death AND no skill row (a non-underscore kind) lies between them -- i.e. the bot died inside or straight out of the rung, not later in its own work. Everything else from v10 stands (guards, one-sided gather/explore, guard 6 = still-stuck rows, deposit gate, two pools, 72-h fleet survival read after promotion).
+Next draw: the 12-h exclusions lift hive-c 03:27, placebo-a 02:33, board-b 01:41, hive-b/placebo-b 05:07, hive-a/board-a 10:45 UTC; deploy at the first draw with two eligible pools.
+DRAW at deploy (2026-09-14 03:32 UTC): 5080-half 2-h median 60.7. The draw script's 12-h exclusion computation is unreliable (it printed only hive-b); exclusions applied BY HAND: hive-a, board-a (22:45 -> 10:45), hive-b, placebo-b (17:07 -> 05:07); lifted: hive-c 03:27, placebo-a 02:33, board-b 01:41. ±25% (45.5-75.9) leaves board-c (54.0; livelock 63 / climbs 161; one trapped bot) alone -> widened to ±40% (36.4-85.0) as the rule allows: adds placebo-a (82.9; 86 / 175). board-b (33.3) misses the band; hive-c (97.6) and placebo-b (134.6) are above it. POOLS = board-c,placebo-a.
+
+## v12 — REGISTERED 2026-09-14T10:47Z for recovery-ladder-06 (the danger guard, 01a4155 on top of the promoted 6d843a1), BEFORE the deploy
+Change: while the feet or the support block is a danger block, the four movement arms (wall, marooned, entombed, unstick) stand down and the escape re-fires every 2.5 s; the tick keeps running. Two Codex passes; suite 173/173; no corpus fixture reproduces lava (stated).
+Pools: two pools of five drawn at deploy (ledger-based exclusions). Reads +30/+90/+180/+360. Everything from v11 stands EXCEPT the linkage list for THIS canary: `danger_block` is NOT a linking row (the escape fires in response to every lava contact, so linking it would count every lava death against the guard). M for -06 = {entombed, marooned, maroon_wall, entombed_ramp_cut, marooned_ramp_cut, livelock_escape, pillar_no_gain, stuck, unstick_oscillation}.
+The change's own line (descriptive, both arms): lava/fire deaths with a movement-arm row (entombed/marooned/maroon_wall/livelock_escape) in the 60 s before, per bot-hour. KEEP = safe to promote on the v11 guards; the line above must not be worse on the canary.
+
+## Backstop for the 6d843a1 promotion — FROZEN 2026-09-14 10:58 UTC (self-imposed, stated before the read)
+Window 09:34:09–12:34:09 UTC; denominator 60 non-isolated bots x 3 h = 180 bot-h; deaths = `_death` rows in the window on non-isolated bots (isolated pools excluded as in every read). Threshold: >= 22 deaths (0.12/bot-h, 2x yesterday's 0.06) -> fleet-wide revert to 8a2964a via fleet-deploy. Below it the promotion stands and the 72-h read continues, reported by code version.
+
+## v12 as applied to recovery-ladder-06 = the BREAKER FIXATION GATE (2dfe261 = 6d843a1 + 94f8981), registered 2026-09-14T12:42Z before the deploy
+Change (reordered 11:05 UTC after the lava reproduction: the danger guard is hygiene, blind relocation walks are the lava lever): the livelock breaker fires only on physical fixation (arguing AND path extent < 8 AND no positive inventory delta over a fully observed 180-s window); otherwise a `livelock_not_fixated` row. Two Codex passes; suite green; corpus run 9 (3 repeats) rise better on all four fixtures.
+Pools drawn at deploy (ledger exclusions): median 61.6, ±25%; eligible board-a, hive-a, hive-c, board-b; with a trapped bot: hive-c, board-b -> POOLS = hive-c,board-b.
+Rules: v11 guards; linkage list M (danger_block excluded); the change's own lines (descriptive, both arms): livelock_escape rows per bot-h (expected DOWN), livelock_not_fixated rows (canary only), blind-walk deaths (fall/lava within 60 s of a livelock_escape) per bot-h. KEEP = safe to promote on the guards, and livelock_escape/bh not UP.
+
+## Clarification written at +92 min of -06 (2026-09-14T14:15Z), BEFORE its verdict read
+Guard 6 (v10 text: "recovery_exhausted rows whose bot is still stuck 30 min after, <= trapped-at-deploy + 1") compares a ROW count to a BOT count; the only coherent reading, and the intent, is DISTINCT BOTS still stuck, since one trapped bot re-latches every hour by construction. The read script now prints both; the verdict uses distinct bots. Also fixed: the script counted pre-cutoff exhausted rows (a bug), and its HARM label still printed the retired two-death verdict; it now prints v11's (deaths reported; only a linked death reverts).
+
+## v12 as applied to recovery-ladder-07 = the DANGER GUARD (426058d = 2dfe261 + the guard, two Codex passes, suite 174/174), registered 2026-09-14T21:18Z before the deploy
+Change: while the feet or the support block is a danger block the four movement arms stand down and the escape re-fires every 2.5 s; the tick keeps running. Sandbox: the lava-pocket fixture reproduces the takeover (control: entombed 0.5 s after lava) but not the outcome (a bot inside a lava source dies either way); hygiene, expected small on deaths.
+Pools drawn at deploy (ledger exclusions board-b, board-c, hive-c, placebo-a): median 63.5, ±25%; eligible board-a (62.5, trapped bot) and placebo-b (78.9, trapped bot) -> POOLS = placebo-b,board-a.
+Rules: v11 guards; linkage list M without danger_block (the escape is the response to lava); the change's own lines (descriptive): lava/fire deaths with a movement-arm row in the 60 s before, per bot-h (expected DOWN); reflex_danger_block rows per bot-h. KEEP = safe to promote on the guards.
+
+## v13 — the 72-h fleet read, resolved jointly by Claude and ChatGPT under the owner's delegation (2026-09-14T22:24Z)
+1. Missed slots: the rule stands (both agree). Two pools from the shared-endpoint half, ±40% at most, 12-h exclusions; idle canary hours are cheaper than an inference confound.
+2. EXCEPTION, recorded as such and not called prospective (ChatGPT): v9c's "revert the fleet if the 72-h deaths/bot-h exceeds 0.05" was a program commitment written into a per-promotion gate; post-promotion outcomes are already partly known, so it cannot honestly be re-registered for THIS promotion. The owner delegated the call; the joint decision: the Thursday 17 Sep 09:34 UTC read is a PROGRAM STATUS read (all five numbers, by code version, counts beside rates, pre-72 h vs post-72 h), not a revert gate for 6d843a1/2dfe261. The 0.05 target is judged on 27 Sep on the whole program, as the feasibility review wrote it.
+3. PROSPECTIVE fleet-regression rule for every promotion from the next one on (well-formed per metric): compared with the 72 h before the promotion on the same fleet, denominators bot-hours / bot-minutes:
+   - deaths per bot-hour: GATE; revert if up by more than 25% AND the excess is at least 8 deaths;
+   - immobile bot-minute share: GATE; revert if up by more than 25% relative AND the excess is at least 300 bot-minutes;
+   - items returned per bot-hour, gather success, iron-pickaxe bot-hour share: REPORT ONLY (they are program targets, not safety).
+   A fleet-read revert removes the whole promoted stack; to isolate one change, a contemporaneous reverse canary (two pools returned to the previous main) is the instrument, offered, not required.
+
+## v12 as applied to recovery-ladder-08 = the LAVA GUARDS (14c662d = 426058d + lavaguard.mjs wired: corridor check on path_update, swept hold + rescue-stroke check, idle stand-off; design v3, two Codex passes; suite 176/176), registered 2026-09-15T05:23Z, in the same command and seconds before the deploy launch (declared_at 05:23:20Z)
+Change: prevention only. (1) a relocation leg whose planned corridor crosses or overhangs lava is refused before it starts (`lava_corridor`, goal cleared); (2) the drowning hold and the rescue stroke refuse a forward stroke whose swept 3-wide, +3-cell corridor contains lava (`hold_lava_ahead`); (3) an idle bot standing beside lava steps away along a verified dry retreat (`lava_adjacent_stand_off`) or records that none exists (`lava_adjacent_no_retreat`). Sandbox: guard 1 fired on a real relocation over the pool, guard 3 fired twice; the water fixture is non-discriminating (both arms drown in 10 s), so guard 2 has no outcome proof; no regressions on the corpus.
+Pools drawn at deploy (ledger exclusions board-a, board-b, hive-c, placebo-b): median 55.4, ±25%; eligible board-c (42.4), placebo-a (49.8, trapped bot), hive-a (55.4, trapped bot) -> POOLS = placebo-a,hive-a.
+Rules: v11 guards; linkage list M without danger_block; the two-death floor and the v12 linkage decide REVERT. The change's own lines (descriptive, DiD vs the 70 controls): lava/fire deaths per bot-h (expected DOWN, unmeasurable on 10 bots in 6 h, reported with counts); guard rows per bot-h (lava_corridor, hold_lava_ahead, lava_adjacent_stand_off, lava_adjacent_no_retreat) as the exposure proof; explore and gather one-sided guards watch for the refusal costing travel. KEEP = safe to promote on the guards with the guard rows present (an absent guard row across 10 bots x 6 h is INCONCLUSIVE on mechanism, still KEEP on safety).
+
+## -08 decision (to be recorded at the +90 read, ~06:53 UTC): the canary's own read found a DEFECT in guard 1
+134 `lava_corridor` refusals on the 10 canary bots in the first 45 min (18/bot-h): 124 "unsupported step" (swim nodes and drops > 3, both terrain) vs 10 "lava below"; every refusal clears the pathfinder goal (243 path_reset within 5 s; 3 mine stair steps failed right after). Not a harm gate (guards within at +30; one canary death, hive-a-Alpha 06:02 drowned sealed in a water pocket, unlinked). The promotion candidate is therefore NOT 14c662d: the decision is REVERT-BY-DEFECT recorded in the ledger, with the safety read noted, and the fixed guard (-08b) takes its own two-pool canary. Rule v12 unchanged; this is the "the change's own line not worse" clause applied to the guard's own instrument.
+
+## v12 as applied to recovery-ladder-08b = the LAVA GUARDS, fixed (3810457 = 426058d + lavaguard v2: dropLavaSafe reach 12, lava-only, water does not end the scan, landing checked beside, footprint beside every fall cell; guard 3 not in water; two Codex passes on the fix; suite 176/176), registration written 06:30Z, pools drawn at deploy
+Change: as -08, with guard 1 refusing a route sample only when lava is found in the drop below it or beside the fall. Expected refusal rate on the fleet: an order of magnitude below -08's 18/bot-h; the read reports `lava_corridor` rows per bot-h by reason as the change's own instrument line, and mine success canary vs control (DiD) as the friction line.
+Rules: v11 guards; linkage list M without danger_block; the two-death floor and v12 linkage decide REVERT; the change's own lines: lava/fire deaths per bot-h (counts), guard rows per bot-h (exposure), refusals per bot-h (must be < 3/bot-h at +90 or the guard is still misfiring -> REVERT-BY-DEFECT again), mine success DiD (one-sided -30%). KEEP = safe to promote on the guards with refusals < 3/bot-h.
+
+## v12 as applied to recovery-ladder-09 = TOOL TIERING + DURABILITY FLOOR (recovery-ladder-iron 4bf76a5 = 426058d + 485ba61; plan v3, two Codex passes on the plan and two on the patch; suite 178/178; sandbox: the Delta climb-out dug with the stone pick, iron wear 0), registration drafted 06:35Z, pools drawn at deploy, deployed after -08b's verdict (one canary at a time)
+Change: every dig-tool picker (skills, reflex, the pathfinder's travel digs) equips the cheapest tool that can harvest the block within 2x the fastest dig time; <=10 uses reserved for blocks that need the tier; <=1 use never swung; a held tool is swapped out for a block (never a blind unequip); tool losses logged as tool_broke / tool_gone; tools snapshot per copy.
+Rules: v11 guards; linkage list M; two-death floor + v12 linkage decide REVERT. The change's own lines (toolread.py): iron pickaxes lost during work per bot-h (DiD, counts), iron uses consumed per bot-h on the canary (descriptive), tool_broke/tool_gone rows; FRICTION guards: gather success and mine success one-sided DiD >= -30 pp (the cheaper tool is slower). KEEP = safe on the guards with no friction breach; retention itself (iron-pickaxe bot-hours) is reported, not judged.
+Slot at 07:00Z MISSED under the v13 missed-slot rule: after -08's teardown the ledger excludes board-a, hive-a, placebo-a, placebo-b (12 h); on the 5080 half only hive-b (-15%) sits inside ±40% (board-c -72%, board-b +129%, hive-c +116%, placebo-c never). No deploy; the draw is re-run hourly (monitor) and -08b goes out at the first draw with two eligible pools. Exclusions lapse: board-a/placebo-b ~15:20Z, placebo-a/hive-a ~18:55Z.
+
+## v12 as applied to recovery-ladder-10 = the TOOLED FLOODED-POCKET RUNG with step 4b (recovery-ladder-10 4bfe2f2 = 426058d + the pocket commits; sandbox-closed as recovery-ladder-pocket 88d1184; design v3 + step 4b v1-v3 with four Codex passes on the design and code; suite 176/176; sandbox: Delta out on every run since the inflow fix, control 0), registration drafted 09:00Z; pools drawn at deploy; after -08b and -09 (one canary at a time). NOTE: the pocket branch base is ~2dfe261 + pocket commits; before its canary it must be rebased onto the fleet base (426058d or its successor) and re-suited.
+Change: for a bot sealed in a water pocket with a pickaxe in hand: sink to the floor, pillar up between breaths digging the ceiling cells (lateral water at a cell's level no longer refuses; liquid above or lava beside does), and at a stable dry headroom step out sideways (ready ledge / fills / notch), seal the column and continue. The rung ends success when the bot is up, dry, breathing and standing, wherever it stands.
+Rules: v11 guards; linkage list M PLUS flooded_pocket_rung and flooded_pocket_side_exit (a death within 60 s of either is rung-linked); two-death floor; the change's own lines: drowning deaths per bot-h (DiD, counts), flooded_pocket_rung rows by outcome and side-exit rows (exposure), blocks spent per rung p90 <= 12; guard: the water-hold's release rate not worse (one-sided -30%). KEEP = safe on the guards with rung rows present.
+-08b DRAW at 10:01Z (ledger exclusions board-a, hive-a, placebo-a, placebo-b): median 51.1, ±25%; eligible board-b (51.1) and hive-c (52.0), no trapped bot in either -> POOLS = board-b,hive-c. Deployed 3810457, declared_at 2026-09-15T10:01:27Z.
+
+## v12 as applied to recovery-ladder-08c = the LAVA GUARDS v2 + guard 1b (recovery-ladder-lava dca6525 = 3810457 + the fallback-walk guard for lava AND drops over three; two one-pass Codex reviews on the two small patches; suite 176/176), drafted 10:45Z, updated 11:45Z; deployed after -08b's verdict
+Change over -08b: explore's failed-leg fallback walk (the path a corridor refusal lands on) is judged like a route before it moves (seven blocks along the heading, prismarine's yaw convention; lava rules, and the feet follow the floor with a fall over three refused, water landing at any depth), turns the other way when refused, stays put when both are refused (`explore_blind_step_refused` row by reason), and no longer holds jump. Its own line adds explore-fall deaths per bot-h (counts) beside the lava line.
+Rules: as -08b. The change's own lines add: explore_blind_step_refused rows per bot-h (exposure) and lava deaths within 10 s of a corridor refusal (the -08b mechanism; must be 0).
+-08b DECISION 12:28Z: REVERT BY MECHANISM at +145 min (25 canary bot-h). Two canary deaths (the floor): board-b-Delta 10:26 = the change's own interaction (corridor refusal -> explore's blind fallback walk into the named pool); board-b-Delta 12:24 = drowned sealed in a water pocket after mine (the -10 class, no guard row). The guards read clean (refusals 0.93/bot-h at +90, all real; v11 guards within; mine +4 pp; deposits unchanged). Ledger REVERT recorded; teardown three steps; pools back on 426058d. -08c (dca6525) takes the next two-pool draw.
+-08c DRAW at 13:33Z (ledger exclusions board-a, board-b, hive-a, hive-c, placebo-a, placebo-b): median 58.3, ±25%; eligible board-c (50.5, trapped bot) and hive-b (62.7, trapped bot) -> POOLS = board-c,hive-b. Deployed dca6525, declared_at 2026-09-15T13:34:13Z.
+
+## v12 as applied to recovery-ladder-08d = -08c + the fallback walk tries four headings before staying put (recovery-ladder-lava 2d5c83e; one Codex pass), drafted 17:00Z; deployed only if -08c REVERTS on the explore guard at 19:34
+Change over -08c: a refused blind step tries the turn, the other turn, then the two perpendiculars; the first safe line is walked. Same guards, same instrument lines; the explore guard stays as registered (rows per bot-h, one-sided -30%) so the fix is judged by the instrument that failed -08c, and blocks explored per bot-h is added as a REPORT line.
+-08c DECISION 19:08Z: REVERT BY RULE (v12) at +333 min (55 canary bot-h). Deaths: hive-b-Comet 18:10 drowned sealed in a pocket (unlinked); hive-b-Bravo 19:06:57 fell 37 blocks, rung-linked (marooned_ramp_cut 37 s before) -- the mechanism is the BASE ladder's trapped_in_canopy arm digging down through a canopy at y=101 and logging "dug down 20 block(s) and reached solid ground" at y=80.7 while the bot was still falling; present in both arms, not the change. The change's own lines through +180: corridor refusals 0.40/bot-h all real; blind-step refusals 3.7/bot-h (drops 4-10, lava); 0 lava deaths; 0 deaths within 10 s of a refusal; mine -14 pp; explore guard BREACHED (-34% rows / -38% blocks: a refused fallback leaves the bot in place) -> -08d (four headings). Ledger REVERT recorded; teardown three steps; pools back on 426058d.
+
+## v14 — prospective amendment for NON-LADDER changes (drafted 19:15Z 15 Sep, applies from -08d on; Codex pass pending)
+The v12 linkage list M exists to catch a change's interaction with the recovery rungs. For a change that does not touch the rungs, a death within 60 s of a rung is the base ladder's own mechanism in both arms, and reverting the change on it reads the control's defect as the canary's. From -08d on, for a non-ladder change: a rung-linked canary death REVERTS only when a row of the change (for the lava guards: lava_corridor, explore_blind_step_refused, hold_lava_ahead, lava_adjacent_*) lies inside the same 60-s window, or when rung-linked deaths per bot-h on the canary exceed the control's by more than 2x with at least two such deaths; otherwise it is REPORTED as a ladder finding with its anatomy, and the two-death floor still applies to the harm line (canary deaths/bot-h > 1.25x control with >= 2 deaths reverts). Ladder changes keep v12 unchanged.
+LADDER DEFECT to fix (found by -08c's second death): trapped_in_canopy digs down from a canopy without measuring the drop below the foliage and reports success by its own dig count; hive-b-Bravo fell 37 blocks after it. The marooned arms had all refused the same drop correctly ("unmeasured-block drop is not survivable"). The canopy arm must use the same drop measurement and refuse above 3 (or descend by placing, not digging).
+
+## v14b — Codex pass 1 folded in (19:35Z)
+1. **A change row in the window is not the only way a change causes a rung death.** A non-ladder change can raise rung activation or change its entry conditions. So the rung line carries its own DiD: rung rows (list M) per bot-h, canary vs control, pre vs post. A rung-linked canary death REVERTS when EITHER a change row lies inside its 60-s window, OR rung activation on the canary rose by more than 50% relative to the control's change (DiD), OR the rung-linked estimand below trips. Otherwise it is REPORTED as a ladder finding with its anatomy, and attribution is recorded as UNRESOLVED, never "the base ladder's".
+2. **The estimand, exactly.** Rung-linked deaths per canary bot-h over the post window vs rung-linked deaths per control bot-h over the same post window (no pre-period: rung-linked deaths are too rare for a DiD on ten bots). Trip when the canary count is at least 2 AND canary rate >= 2 x control rate, with the control rate computed as (control count + 0.5) / control bot-h so a zero-control window is defined (0.5 deaths in 150 control bot-h = 0.0033/bh; two canary deaths in 60 bot-h = 0.033/bh trips).
+3. **The harm backstop is the death gate the owner set on 2026-09-11 (CLAUDE.md, "The death gate needs TWO canary deaths and > 1.25x the control rate"), not a new rule and not v12's retired two-death verdict.** v12's HARM line ("deaths are reported; only a rung-linked death reverts") stays for linkage; the death gate is the outcome backstop independent of logging. Both are stated on every read.
+Prior verdicts stand as recorded (-08c's REVERT under v12 is not re-litigated). v14b applies from the next non-ladder canary on. Ladder changes keep v12.
+
+## v14c — Codex pass 2 folded in (19:40Z); review closed at two passes; ADOPTED for non-ladder canaries from -08d on
+1. **Activation, exactly.** An activation EPISODE is one (bot, rung kind in M, 60-s bucket). Rate = episodes per bot-h. DiD = (canary post − canary pre) − (control post − control pre), with a zero canary pre-rate replaced by 0.5 episodes / pre bot-h. The activation trigger fires when the DiD exceeds +50% of the control's post rate AND the canary post count is at least 8 episodes.
+2. **Rung mix.** Per rung kind in M: canary post episodes per bot-h vs control post; the mix trigger fires when any single kind has a canary rate ≥ 2× the control's with at least 4 canary episodes (a change that shifts activation toward one dangerous rung without raising the total).
+3. **The default is v12's revert, and a rung-linked death is REPORTED instead of reverting only when ALL of these hold:** (a) no change row inside its 60-s window; (b) the activation trigger (1) is not firing; (c) the rung mix trigger (2) is not firing; (d) the same rung kind appears within 60 s of at least one CONTROL death in the prior 24 h (the mechanism is demonstrably the base code's). Otherwise the death reverts under v12. The rung-linked estimand of v14b (canary ≥ 2 rung-linked deaths and rate ≥ 2× the control's with the +0.5 rule) reverts regardless of (a)–(d).
+4. Harm backstop: the owner's 2026-09-11 death gate (two canary deaths and > 1.25× the control rate), stated on every read. Prior verdicts stand.
+-08d DRAW at 19:20Z: median 59.5 excluded(12h) ['board-b', 'board-c', 'hive-b', 'hive-c'] band ±25% eligible [('placebo-a', 46.2, (42, 53, 0)), ('placebo-b', 59.5, (31, 60, 1)), ('board-a', 63.9, (31, 108, 1))] | with a trapped bot: ['placebo-b', 'board-a']  -> POOLS = board-a,placebo-b. Deployed 2d5c83e under v12 + v14c, declared_at 2026-09-15T19:20:58Z.
+
+## v12 as applied to recovery-ladder-11 = the CANOPY DROP MEASURE (recovery-ladder-canopy 4664df9 = 426058d + canopyDrop; two Codex passes folded; suite 175/175), drafted 19:25Z; a LADDER change (v12 unchanged, v14c not needed)
+Change: gather's canopy dig-down measures the fall under the foliage before digging (first solid block; > 3, unknown, water or lava refuses with `canopy_drop_refused`), treats air under the feet as falling, and reports `trapped_in_canopy` success only standing on solid ground. Found by -08c's second death (hive-b-Bravo fell 37 blocks after the loop dug the leaves out from under it).
+Rules: v11 guards; linkage list M plus trapped_in_canopy; two-death floor + v12 linkage; the change's own lines: fall deaths within 60 s of a trapped_in_canopy or canopy_drop_refused row (must be 0), canopy_drop_refused rows per bot-h (exposure), trapped_in_canopy success share (DiD, report), gather success one-sided -30% (a refused descent leaves the bot on the tree for the ladder).
+
+## v15 — the MOVEMENT guard (drafted 21:05Z 15 Sep; Codex pass pending; applies from the next canary on)
+Why: the v6 guards `gather/bh` and `explore/bh` count SKILL CALLS per bot-hour. -08c breached explore/bh at -34% and -08d at -70% while the same reads showed gather x1.9, deposit runs x1.9 and immobility down: a change that curtails blind walks changes what the planner calls next, and the call count reads that as harm. The guard exists to catch "the change stops the bots moving or working"; it must measure that.
+Replace the two call-count guards with, each one-sided and DiD vs control:
+1. **Blocks moved per bot-h** (sum of horizontal displacement between consecutive snapshot rows, capped at 20 per step to drop teleports/respawns): must not fall more than 30%.
+2. **Working share**: bot-minutes with a skill row (any skill, any status) per bot-h: must not fall more than 30%.
+3. **Immobile share** (already the PRIMARY line): must not rise by more than 3 pp (as today).
+4. **Items gathered per bot-h** (inventory_delta > 0): must not fall more than 30% (the endpoint the program is judged on).
+gather/bh and explore/bh become REPORT lines. Climb firings, livelock rows, ladders p90, exhausted bots, deposit skill_error share, the death gate and v12/v14c linkage are unchanged. immobiledid.py grows the four lines; the registration of every later canary names v15.
+
+## v15b — calibrated (guardcal.py, 200 pseudo-canaries over 3 days, two pools of five vs the rest, pre 180 / post 360, DiD; ~20:50Z)
+Calibration (false-trip rate of a harmless pseudo-canary): blocks moved/bh at -30%: 1% (p5 -24%); working share at -30%: 0% (p5 -9%); items gathered/bh (gather/mine/collect rows only) at -30%: 14%, at -50%: 4% (p5 -47%); deposit successes/bh at -30%: 36% (p5 -132%: unusable as a guard); immobile share at +3 pp: 33%, +5 pp: 22%, +8 pp: 12% (p95 +11 pp: one stuck bot on ten is +10 pp).
+Guards (each one-sided, DiD vs control, the false-trip rate in brackets):
+1. blocks moved per bot-h (horizontal displacement between consecutive snapshot rows, capped at 20 per step): not more than 30% below [1%].
+2. working share (bot-minutes carrying a skill row that is not `status` or an underscore event, per bot-h): not more than 20% below [~0%; p5 is -9%].
+3. immobile share: not more than +10 pp AND at least two distinct canary bots newly immobile (the v10 guard-6 shape) [~8% alone; the two-bot floor removes the single-stuck-bot trips].
+4. items gathered per bot-h, source-attributed to gather/mine/collect rows: not more than 50% below [4%]; the endpoint, so a REVERT on it is also a REVERT of the program's own line.
+Report lines (no verdict): deposit successes/bh, gather calls/bh, explore calls/bh, blocks explored/bh.
+Codex pass 1's points: (1) skill-mix sensitivity -- working share is elapsed time, not calls; a pacing bot passes movement but not items; a stationary productive bot passes items and working share; (2) inventory deltas restricted to gathering rows; (3) thresholds now come from the backtest with the per-line false-trip rate stated; the predeclared false-revert budget for a harmless change is under 10% across the four guards jointly (1% + 0% + ~8% + 4%, not independent), and the harm the guards must catch is a change that stops the bots moving or working by a third.
+Unchanged: climb firings, livelock rows, ladders p90, exhausted bots, deposit skill_error share, the death gate, v12/v14c linkage. immobiledid.py implements the four lines; every canary from -10 on names v15b.
+VALIDATION of v15b on the -08d window (board-a,placebo-b, 19:20:58Z, +90): blocks moved/bh -1%, working share +12%, immobile -2.6 pp with 0 newly-immobile canary bots, items gathered/bh +0% -> all within; the v6 call counts on the same window: gather calls +92%, explore calls -70%. The movement guards read -08d as harmless; the call count reverted it.
+
+## v12 + v14c + v15b as applied to recovery-ladder-08e = the same code as -08d (recovery-ladder-lava 2d5c83e), re-read under the calibrated movement guards; drafted 21:55Z; deployed after -10 (one canary at a time)
+Change: none over -08d. Rules: v11 guards with the v15b movement guards in place of the v6 call counts; v12 linkage and the death gate; v14c for rung-linked deaths; the change's own lines as -08c/-08d (refusals by reason, deaths within 10 s of a refusal = 0, lava and explore-fall deaths by count). KEEP = safe on all of them; the promotion is the fifth attempt of a change that has never read as harmful.
+
+## v15c — Codex pass 2 folded in; ADOPTED 21:12Z 15 Sep (clock label corrected from date -u) (review closed at two passes; guardcal.py v2, 200 pseudo-canaries)
+Joint backtest of the exact verdicts on harmless pseudo-canaries: v15b (any one of four) false-reverts 9%; v15c (two of four, or one severe) 2%. Detection of an injected broad harm (-33% moved, working time and items, +20 pp immobile with two newly stuck bots): v15b 100%, v15c 97%. Detection of a gathering-only loss of a third with movement untouched: v15b 25%, v15c 6% -- NOT detectable in six hours on ten bots (items p5 is -47% on harmless draws); that harm is caught by the program's 72-h and 7-day fleet reads (v13), and every canary read says so.
+Rule: the four v15b lines stand. ONE breach = WATCH (reported on the read, no verdict). REVERT when two or more breach, or when one is severe: blocks moved/bh below -50%, working share below -40%, items gathered/bh below -70%, or immobile DiD above +20 pp with three or more newly-immobile canary bots. Movement loss alone never reverts (Codex: a shift to stationary productive work). The v6 call counts are report lines. Declared budget: 2% false-revert on a harmless change; 97% detection of a one-third broad harm; a one-third gathering-only harm is out of the six-hour instrument's reach and is judged on the fleet reads.
+
+## v16 — three standing rules and the bundle rule (OWNER 2026-09-15 ~21:10Z: "implement everything you suggested"; registered 21:20Z)
+1. **No gate reverts anything until it is calibrated.** Every guard, gate or linkage rule that can produce a REVERT must have a backtest on pseudo-canaries (gatecal.py for death rules, guardcal.py for movement/productivity rules) with its false-revert rate and, where a harm can be injected, its detection rate stated in the registration. A rule change without those two numbers is REPORT-ONLY until it has them. (Today: three of four reverts were the instrument.)
+2. **Every new refusal is traced to its fallback before it deploys.** For each new refusal, name every catch/fallback the refused call lands in (grep the skill for the catch after the call), run the same guard on the fallback's own movement, and carry a wired test for that chain. (Today: a correct corridor refusal fed explore's blind walk into the named pool.)
+3. **The slot order follows the death histogram.** Before each draw, `queue-order.py` prints the last 12 h of fleet deaths by class and each queued canary's coverage; the candidate covering the most deaths goes first unless a registered reason says otherwise.
+4. **BUNDLING.** One canary may carry at most TWO changes when: (a) neither touches the other's code paths or rungs (disjoint diffs, no shared skill), (b) each has its own instrument line (its own event rows and read script), (c) the shared safety lines (death gate, v12/v14c linkage, v15c movement guards, deposit skill_error) are read once for the bundle, and (d) a REVERT on a shared line reverts BOTH, after which each re-canaries alone in histogram order; a KEEP promotes both. Attribution on shared outcomes is accepted as bundle-level; the owner chose throughput on changes with separate lines.
+
+## v12 + v14c + v15c + v16 as applied to recovery-ladder-1009 = the BUNDLE of -10 (flooded-pocket rung + step 4b, recovery-ladder-10 4bfe2f2) and -09 (tool tiering + durability floor + tool-loss rows, 485ba61), branch recovery-ladder-1009 40cae9a = 426058d + both (cherry-pick auto-merged; suite pending), registered 21:20Z; pools drawn at deploy
+Disjointness: the pocket rung lives in reflex.mjs (rung wiring, sink/pillar/side exit) and floodpocket.mjs; the iron patch lives in toolfor.mjs, toolwatch.mjs, the three bestTool wrappers (skills/reflex), the pathfinder override (index.mjs) and state.mjs tools; the one shared file is reflex.mjs, where the iron patch only changes bestTool's body (git auto-merged, no conflict) and the rung digs through `digBounded` with the plan's tool, which toolFor does not choose. Own lines: pocketread.py (drownings DiD, rung rows by outcome, side exits, blocks p90, hold release share) and toolread.py (iron pickaxes lost in work DiD, uses consumed, tool_broke/tool_gone rows). Shared: immobiledid (v15c guards, v12 linkage list M + flooded_pocket_rung + flooded_pocket_side_exit), depositread (skill_error share), the death gate. KEEP = safe on every shared line with rung rows present (a sealed verdict exists on the canary) and tool rows present; REVERT on any shared line reverts both, and the pocket rung re-canaries alone first (it covers 10 of 40 deaths; iron covers none).
+
+## The bundle order, from queue-order.py at 21:20Z (last 12 h, 30 deaths on 60 bots): lava guards cover 15, pocket rung 10, canopy 4, iron 0
+The pocket rung and the lava guards may NOT share a canary (both touch the drowning hold: the rung gates its jump, guard 2 gates its stroke), so the legal bundles are:
+- **-08e+-09 = recovery-ladder-0809 08a3da2** = 426058d + lava guards v2 with the guarded four-heading fallback (2d5c83e) + tool tiering / durability floor / tool-loss rows (485ba61). Disjoint: the lava patch is lavaguard.mjs, the path_update handler, the hold/stand-off in reflex, explore's fallback in skills; the iron patch is toolfor/toolwatch, the bestTool bodies, the pathfinder override, state.tools; one import line merged by hand. FIRST, at the next draw. Reads: immobiledid (v15c) + depositread + lavaread + toolread. Own lines as -08c/-08d (refusals by reason, deaths within 10 s of a refusal = 0, lava/fall deaths by count) and as -09 (iron picks lost in work DiD, uses consumed, tool_broke/tool_gone).
+- **-10+-11 = recovery-ladder-1011 da2fd22 (suite 178/178)** = 426058d + the pocket rung with step 4b (17 commits) + the canopy drop measure (5 commits). Disjoint: reflex rung wiring / floodpocket vs gather's descent in skills. SECOND. Reads: immobiledid (v15c, linkage M + flooded_pocket_rung + flooded_pocket_side_exit + trapped_in_canopy) + depositread + pocketread + canopyread. The -10+-09 bundle (recovery-ladder-1009) is withdrawn.
+Both under v12 + v14c + v15c + v16; a REVERT on a shared line reverts the pair and each re-canaries alone in histogram order.
+-08e+-09 DRAW at 23:00Z -> POOLS = hive-a,placebo-a. Deployed recovery-ladder-0809 08a3da2 under v12 + v14c + v15c + v16, declared_at 2026-09-15T23:00:20.534109Z.
+-08e+-09 DECISION 05:35Z 16 Sep: KEEP at +360 (60 canary bot-h). Deaths 0.033 vs control 0.050/bh (both canary deaths unlinked: a gather-leg fall, a sealed-pocket drowning); death gate not tripped; v15c guards all within (moved +1%, working -3%, immobile -6.8 pp, items -35%); own lines: corridor refusals 0.53/bh all lava, blind-step 3.75/bh (drops and lava), 0 lava deaths vs 9 on control, 0 deaths within 10 s of a refusal; iron picks lost 0 vs 18 on control, 91 iron uses on the canary, stone picks lost 0.30 vs 0.70/bh, tool_broke 5 / tool_gone 12 rows. PROMOTED fleet-wide: 08a3da2 verified on all 80; main = 08a3da2; old main = main-pre-2026-09-16 (426058d). Next: -10+-11 (recovery-ladder-1011 da2fd22) at the first draw after the post-rollout band (~07:15Z).
+-10+-11 DRAW at 08:20Z -> POOLS = hive-c,board-c. Deployed recovery-ladder-1011 da2fd22 under v12 + v14c + v15c + v16, declared_at 2026-09-16T08:20:18.782516Z.
+-10+-11 CORRECTION 08:22Z 16 Sep: the 08:20 deploy of da2fd22 (built on 426058d) was torn down at +4 min and recorded INCONCLUSIVE: the fleet had been promoted to 08a3da2 at 05:35Z, so the canary removed the lava guards and iron retention from its ten bots (a canary branches from the DEPLOYED baseline). fleet-deploy now refuses a --pool sha that is not a descendant of the manifest's declared_code_version (BASE_OK=1 for a deliberate reverse canary). REBUILT as recovery-ladder-1011b = 08a3da2 + the 17 pocket commits + the 5 canopy commits + the widened danger-gate anchor; the one shared region (the drowning hold) merged as the pocket gate around guard 2's body; 1d6c97d, suite 184/184. Same rules and reads; pools drawn at the next draw (hive-c, board-c excluded 12 h by the INCONCLUSIVE record).
+-10+-11 DRAW at 08:58Z -> POOLS = hive-b,board-b. Deployed recovery-ladder-1011b 1d6c97d under v12 + v14c + v15c + v16, declared_at 2026-09-16T08:58:37.883316Z.
+-10+-11 EXTENSION registered 12:05Z 16 Sep, BEFORE the +360 read: the pocket rung's exposure is a sealed verdict on a canary bot (0.3/bot-h fleet-wide) and the canary has had none in 30 bot-h. If at +360 (14:58Z) the shared lines are within and canary post sealed verdicts are still 0, the verdict is deferred: the canary runs to +720 with reads at +540 (17:58Z) and +720 (20:58Z); the verdict is taken at the first read with >= 1 sealed verdict on the canary (KEEP needs the rung rows present and the drowning line not worse), or at +720 as KEEP-ON-SAFETY (mechanism unread on the canary, read on the fleet after promotion under the v13 regression rule) if exposure never comes. A shared-line breach at any read reverts as usual. The canopy half's exposure line (canopy_drop_refused, trapped_in_canopy rows) is read the same way.
+
+### Decision: recovery-ladder-1011b (1d6c97d) -- KEEP at +540, 2026-09-16 18:02 UTC; promoted fleet-wide 18:13 UTC
+Exposure arrived at +540 (pocketread sealed_verdicts_canary 9, min 1; the extension rule's first-read-with-exposure clause). Gates: death gate not tripped (1 canary death, hive-b-Comet 09:50Z fell 39 blocks during explore, no rung within 60 s; 0.011 vs 0.018/bh control); v15c blocks moved +17%, working share -4%, immobile -6.5 pp DiD with 0 newly-immobile, items +10% (all within); own lines: canopy-linked falls 0, control rung rows 0, blocks per rung p90 0; deposit and canopy reads clean; v6 report guards within. Host canary-loop `verdict.py` reached KEEP at +540 independently, matching the hand read at every look. Ledger KEEP recorded with sudo before the manifest changed; `fleet-deploy 1d6c97d` fleet-wide VERIFIED; main fast-forwarded (old main = main-pre-2026-09-16b).
+Report line (not a gate): the rung's only fire was a refusal for lack of blocks (need 8, had 5) in a real sealed pocket; the bot survived on the drowning handlers until a restart. Carried to the queue as a remedy defect under the "refusal must name an executable remedy" rule.
+
+## v17 — recovery-ladder-13 = the BUNDLE of -13a (pocket-rung remedies) and -13b (death-site exclusion), branch recovery-ladder-13-deathsites b1659c0 = 1d6c97d + two commits; registered 21:05Z 16 Sep, pools drawn at deploy by the canary loop (docs/reports/deaths-review-2026-09-16.md; Codex pass 1, independent Claude review, Codex pass 2 folded)
+Evidence: 96 h to 16 Sep, 416 deaths on 7,680 bot-h; after the 08a3da2 promotion (1,216 bot-h) the residue is drowning 15, fall 11, lava 5. Drownings: 47/50 idle, median 103 s from the first rescue row to death, the rung refused once per 10 min. Lava: 101/198 repeat a same-class death within 8 blocks in the same pool; 43/66 follow explore steering at a shared sighting.
+-13a (LADDER change; floodpocket.mjs pocketPlan + the rung block in reflex.mjs): a water column is planned bare-handed (`toolFree`); the rung never digs without a pickaxe (ceiling dig ends by name, notch exit refused); the ten-minute cooldown is stamped only when the body is granted, so a refused plan is re-planned at every sealed verdict; the refusal row is throttled to one a minute. The reduced-margin block plan is NOT in this canary (need+1 cannot fund a side exit).
+-13b (NOT a ladder change; deathsites.mjs, worldfacts.mjs reportDeath/deathSites/#prune, index.mjs death handler + exclusionAreasStep + path_update, skills.mjs knownTarget + fallback walk): a death is published to the pool's world facts (per-bot for isolated) weighted 4 with once-per-period halving (three periods before it is forgotten); every land and water profile prices a destination within 6 blocks and 6 y of a death site at 16 per cell (six chargings per diagonal stay under the 100 that deletes a neighbour); explore skips a sighting within 12 blocks of a death and refuses a fallback walk that enters a disc or goes deeper into the one it is in (outward walks allowed). Accepted residuals, read not hidden: drop-down landings are unpriced; a dig move inside a disc may exceed 100; the first death at each site in each pool is not prevented.
+Disjointness: -13a touches floodpocket.mjs and the rung block/side-exit in reflex.mjs; -13b touches deathsites.mjs, worldfacts.mjs, index.mjs, skills.mjs (knownTarget, explore fallback loop). No shared file.
+Rules: v12 linkage (M list + flooded_pocket_rung, flooded_pocket_side_exit, death_site_route_crossed, explore_blind_step_refused), v14c, v15c movement guards (calibrated 2% false-revert / 97% detection), v16 (bundle rule 4), the owner's death gate (two canary deaths and > 1.25x control). Reads: immobiledid, depositread, pocketread, deathread at +30/+90/+180/+360, extension to +540/+720 until a sealed verdict on the canary (KEEP_ON_SAFETY at +720 without one); deadline +780.
+Own lines: deathread control_own_rows <= 0 (REVERT: old code emits no death_site rows); pocketread blocks_p90 <= 12 (WATCH); deathread nopath_per_bh_canary <= 24 (WATCH: the price must not make the graph unreachable; 24 = twice the canary pre rate of 11.9/bh read at +30 -- the first value, 6, sat below the baseline and was corrected 22:35Z). Report lines (never gates): rung rows by outcome incl. tool-free runs; repeat-site deaths per bot-h DiD with counts; death_site_recorded / route_crossed / target_skipped on the canary; blind-step refusals naming a death site; explore_toward_known per bot-h; noPath per bot-h vs pre and control. Friction: hold release share (WATCH at -30 pp).
+KEEP = safe on every shared line with rung rows present on the canary (a sealed verdict exists) and no death_site row on control; CORRECTION 22:30Z 16 Sep: the 'control_rung_rows <= 0' line was copied from 1011b, where control lacked the rung -- the rung is fleet-wide now, so it was removed before the +30 read (it would have falsely REVERTED); a REVERT on a shared line reverts both, and -13a re-canaries alone first (drowning covers 15 of the last 31 deaths; the death-site half covers the lava residue).
+Sandbox: no captured fixture exercises a tool-free water column or a recorded death site; the mechanism read for both halves is the canary's own rows (rung outcomes; death_site_route_crossed = 0 on the canary with death_site_recorded >= 1 as the positive control). Stated, not hidden.
+Missed-slot rule (plan 15-19 Sep): the 20:55Z draw found one eligible pool at ±25%; the canary loop holds the registration and draws every 20 min; if it deploys before the 17 Sep 10:00Z seed-canary draw, the seed draw waits for this canary's verdict (one canary at a time).
+
+### Decision: recovery-ladder-13 (b1659c0) -- REVERT by the death poll at 23:20Z 16 Sep, torn down 23:24Z (pools placebo-a,placebo-b back on 1d6c97d, ledger REVERT recorded). THE INSTRUMENT, not the change.
+The poll's rule "a change row inside the 60-s death window reverts" fired on `death_site_recorded` -- the row the death handler itself writes at the death (placebo-a-Delta 23:20:15, drowned at the surface in open water at 329,61,216, air reflex `to_air`, no rung, no priced route involved; the fifth death at that site in 48 h). A consequence row was registered as a change row, so any canary death at all would have reverted. One death in 17 canary bot-h (0.06/bh vs control 0.053/bh) is a report line under the owner's two-death floor. Reads before it: +30 NOT_YET (5 bot-h), +90 NOT_YET (0 deaths, no sealed verdict yet, v15c within). Lesson for v18: a change row must be one that shows the change ACTED on the bot (a rung ran, a side exit, a priced route still crossed); rows the death path writes, and guard rows that fire on both arms (`explore_blind_step_refused`, 68 on the canary in 50 min), are never linkage or change rows. The ledger row's note text says UNREADABLE(+180): the loop composes the note by re-running verdict.py at the read loop's last M; cosmetic, noted for the loop.
+
+## v18 — recovery-ladder-13b = the same bundle, b1659c0, re-registered 23:45Z 16 Sep with linkage_extra = flooded_pocket_rung, flooded_pocket_side_exit, death_site_route_crossed and change_rows = those plus explore_target_skipped_death_site; everything else as v17 (corrected). Pools drawn at deploy by the loop; placebo-a,placebo-b excluded 12 h by the ledger.
+
+### Decision: recovery-ladder-13b (b1659c0) — REVERT by the death poll at 04:13Z 17 Sep, torn down 04:16Z (pools hive-a,board-a back on 1d6c97d; ledger REVERT recorded; 80/80 on 1d6c97d, one version live). THE INSTRUMENT AGAIN, one row further along.
+The poll fired on `flooded_pocket_rung` inside hive-a-Bravo's 60-s window (04:09:35, "drowned; idle at the moment of death"). But the rung is **fleet-wide code on the 1d6c97d baseline** — this registration's own correction note says so in as many words ("the rung is fleet-wide on 1d6c97d now, so control emits rung rows"), which is why the `control_rung_rows <= 0` own line had been removed the evening before. It was left in `change_rows` and `linkage_extra` regardless.
+
+Positive control, measured over -13b's own window (23:46:01Z–04:13:13Z), denominators first: canary 10 bots / 17,476 rows, control 70 bots / 117,891 rows.
+
+| | canary (hive-a,board-a) | control (14 pools) |
+|---|---|---|
+| deaths | 1 | 4 |
+| `flooded_pocket_rung` rows | 10 | 12 |
+| deaths with a change row in the 60-s window | **1/1** | **1/4** |
+
+The control death that carries it is `isolated-a-Echo` at 00:01:45 — same mechanism, "drowned; idle at the moment of death". **The test, applied to the control arm, would have reverted control.** That is the definition of an instrument that cannot discriminate, and it is the third canary ended this way: -08c's own ledger note already said of `marooned_ramp_cut` that the mechanism was "present in both arms; not the change".
+
+One death in 44 canary bot-h is 0.022/bh against control 0.013/bh — below the owner's two-death floor, and on n=1 the interval is meaningless. The change was never read. Reads before it: +30 NOT_YET, +90 NOT_YET (0 deaths, exposure 23), +180 NOT_YET (0 deaths, exposure 24).
+
+## v19 — a change or linkage row must DISCRIMINATE (registered 11:40Z 17 Sep, prospective; applies from recovery-ladder-13c)
+The defect behind -08c, -13 and -13b is one thing: **`change_rows` was evaluated with no control comparison and no upstream test.** Any declared row within 60 s of a canary death reverted, whether or not a bot on the old code would have emitted the same row at the same moment. That is cross-sectional reasoning inside a rule book that requires difference-in-differences everywhere else, and a negative claim ("this row shows the change acted") with no positive control.
+
+Three guards replace the bare rule. Two are mechanical, so they do not depend on anyone remembering v19:
+
+1. **Pre-deploy — `scripts/changerowcheck.py`, wired into `canary-loop.sh` before the draw.** While the fleet is all on the baseline, every pool is a control. Any declared `change_rows`/`linkage_extra` entry the baseline already emits is REFUSED and the loop exits without drawing or deploying. It reports its own denominators first and refuses to pass anything if the read itself looks thin (< 40 bots, < 20 row kinds, 0 rows) — a silent instrument must not read as a clean bill of health. Proven against the -13b registration: `flooded_pocket_rung` 24, `flooded_pocket_side_exit` 9 in 6 h on 80 bots → REFUSED.
+2. **At read time — `license_change_rows()` in `verdict.py`.** A change row licenses a REVERT only if (a) **no control death in the same window carries it** (the DiD the test never had) and (b) **it has been seen on the canary at least once away from any death** (which separates a cause from a consequence, and is what catches `death_site_recorded`, invisible to guard 1 because the baseline is correctly silent on new code). The decision is a **pure function**, tested behaviourally in `scripts/test_license_change_rows.py` — five cases including "a discriminating row still fires" — and killed by a mutant that disables the control check (anchor asserted present and unique, applied to a copy, never to `~/verdict.py`).
+3. **The single-death rung-linkage override is demoted to a reported WATCH.** It bypassed the owner's own calibrated death gate (TWO canary deaths **and** > 1.25× control), it has never been calibrated — which v16 requires of anything that can revert — and its live record is 3 reverts, 3 false positives. The base M-list rungs are fleet-wide code, so a rung before a death is baseline behaviour unless the control arm says otherwise. It now pages and watches instead of reverting. **Real harm still reverts**: the owner's death gate, the v15c movement guards, the v11 guards, the deposit line, and a change row that does discriminate.
+
+Replay proof: the exact -13b poll that reverted at 04:13Z returns `POLL_OK` under v19, naming both refusals and its control denominator (23 control deaths in the window); the old instrument on the same data returns `REVERT`.
+
+Carried to the queue, not fixed here: the ledger note text is still composed by re-running `verdict.py` at the read loop's last M, so both -13 and -13b recorded the generic "VERDICT UNREADABLE (+N)" instead of the reason they were reverted. The durable record should say why. (Noted at v17 as cosmetic; it has now cost two post-hoc reconstructions, so it is a real defect.)
+
+## v19 registration — recovery-ladder-13c = the same bundle, b1659c0, unmodified; registered 11:40Z 17 Sep
+`change_rows` = `death_site_route_crossed`, `explore_target_skipped_death_site`; `linkage_extra` = `death_site_route_crossed`. `flooded_pocket_rung` and `flooded_pocket_side_exit` remain REPORT lines in pocketread and are no longer linkage or change rows. Everything else as v17/v18. Preflight passed (both declared rows silent on the baseline; positive control 181,937 rows / 80 bots / 108 kinds). DRAW at 11:30Z → POOLS = board-b,hive-b. Deployed `b1659c0`, declared_at 2026-09-17T11:30:00.890741Z. Reads +30/+90/+180/+360 (12:00, 13:00, 14:30, 17:30Z), extension to +540/+720 until a sealed verdict, deadline +780 (00:30Z 18 Sep).
+
+### v19 amendment, written BEFORE the read — recovery-ladder-13c `final_on_zero_exposure`: KEEP_ON_SAFETY → INCONCLUSIVE (14:45Z 17 Sep)
+At +180 the canary had **0 sealed pocket verdicts in 30 canary bot-h**. The zero is real, not a query bug: pocketread's own positive control is 133,868 rows / 13 deaths / 36 sealed verdicts, canary *pre* had 2, and control *post* had 20 in 150 bot-h. On board-b,hive-b, reaching exposure by +720 is a live possibility rather than a certainty.
+
+Two rules collided, and the collision had to be settled before the read (the exposure interlock: *"an amendment is written before the read, never in the launch note"*).
+
+- **v13 regression rule → `KEEP_ON_SAFETY`**: promote a change that is safe but unexposed, and read the mechanism fleet-wide after promotion.
+- **Exposure interlock (Codex audit 2026-09-11, owner-adopted) →** *"Zero exposure at the read → INCONCLUSIVE; revert to free the slot or reselect"*, and *"registered gates are not relaxed at launch"*. It was adopted **precisely because** a zero-exposure canary had been promoted on precedent and the audit called that an unvalidated rollout.
+
+The later, audit-driven rule governs. `final_on_zero_exposure` is amended to `INCONCLUSIVE` (backup `recovery-ladder-13c.json.bak` on .31). Effective immediately: `verdict.py` re-reads the registration at every read, so no running process had to be touched.
+
+**A loop bug fell out of the same check, and it is the more serious half.** `KEEP_ON_SAFETY` matches `*KEEP*` in the read case — so the loop breaks out of the read schedule and exits — but it matched **neither** branch of the ACT case (`KEEP)` and `REVERT|INCONCLUSIVE)` are exact patterns). It would therefore have recorded **no ledger decision**, neither promoted nor torn down, and left a deployed canary on ten bots with the loop process gone: an `OpenLoop` discovered the next morning, which is the one failure the whole loop exists to prevent. It has never fired only because 1011b reached exposure at +540.
+
+Fixed in `scripts/canary-loop.sh`: any verdict with no act path is contained as INCONCLUSIVE (paged, journaled, ledger-recorded, three-step teardown). Verified by enumeration — KEEP → promote; REVERT/INCONCLUSIVE/KEEP_ON_SAFETY/any unknown → record + teardown; nothing reaches "do nothing". **Not installed on the host yet:** the -13c loop is running from `~/canary-loop.sh` and bash re-reads a running script by byte offset, so it installs after the loop exits (STATE.md carries the step).
+
+**Standing gap, queued not fixed:** the draw bands pools on activity, not on the exposure the change under test needs, so a pocket-rung canary can be unmeasurable by construction — exposure ran 23 rows in 15 bot-h on hive-a,board-a and 0 in 30 bot-h here. The interlock's pre-deploy eligibility snapshot (≥ 2 currently-eligible bots and enough recent opportunity to reach the registered sample in 90 min) is not wired into `drawrec.sh`. It should be, as the third mechanical guard alongside `changerowcheck.py`.
+
+### The -13c draw picked the two worst pools available, and the draw could not have known (17:45Z 17 Sep)
+At +360 the canary had **60 bot-h, 0 deaths, 0 sealed pockets, 0 rung rows, 0 `death_site_recorded`, 0 `route_crossed`, 0 `target_skipped`**. That is not a null result. **Neither half of the bundle acted even once**, so nothing was measured.
+
+I first suspected the treatment was working — fewer sealings because the death-site pricing steers bots out of drowning terrain. It cannot be. The death-site machinery needs a recorded death to price a route away from, and the canary has had **zero deaths since the cutoff**, so `death_site_recorded` is 0 and the -13b half has never run. And the rung fires *after* a pocket is detected; it does not prevent sealing. The zero is quiet terrain, not effect.
+
+**Root cause: `drawrec.sh` bands pools on activity and then applies one hard-coded exposure filter — "≥ 20 entombed+marooned rows OR ≥ 8 livelock_escape rows in the prior 3 h" — written for recovery-ladder-01 and reused unchanged for every canary since.** It is a good filter for an escape-ladder change and blind to every other mechanism. board-b and hive-b are rich in livelock and climb rows, which is exactly why they were drawn.
+
+`scripts/drawexposure.py` (new) takes the requirement from the run's own registration and counts it per pool. Run over the 6 h around the draw (positive control 180,625 rows / 80 bots / 105 kinds):
+
+| pool | sealed pockets (min 2) | deaths (min 1) | eligible |
+|---|---|---|---|
+| board-a | 7 | 2 | **yes** |
+| **board-b** | **0** | **0** | **no** |
+| board-c | 0 | 0 | no |
+| board-d | 1 | 0 | no |
+| hive-a | 6 | 1 | **yes** |
+| **hive-b** | **0** | **0** | **no** |
+| hive-c | 1 | 2 | no |
+| hive-d | 7 | 2 | **yes** |
+| placebo-a | 1 | 0 | no |
+| placebo-b | 1 | 1 | no |
+| placebo-d | 0 | 0 | no |
+
+**board-b and hive-b are the only pair among eleven candidates scoring zero on both requirements.** The draw selected exactly them. board-a and hive-a — where -13b reached exposure 23 in 15 bot-h — qualify comfortably, which is an independent check that the metric tracks the exposure actually observed.
+
+The guard is now wired in, backward-compatibly: `drawrec.sh` takes an optional run_id and, when that registration declares a `draw_exposure` block, narrows the eligible list to pools that can expose *that* change; with no run_id it behaves exactly as before. `canary-loop.sh` passes `$RUN` (repo copy — installs with the other two loop fixes once the -13c loop exits).
+
+```json
+"draw_exposure": {"hours": 6, "require": [
+  {"name": "sealed pocket", "kind": "drowning_ceiling_no_air", "detail_contains": "sealed", "min": 2},
+  {"name": "death", "kind": "death", "min": 1}]}
+```
+
+Every requirement must be met: for a bundle, a half that cannot be exposed makes the whole canary unmeasurable. **The re-run of this bundle must declare `draw_exposure` and must not draw board-b, hive-b, board-c or placebo-d.** This is the third mechanical guard of the day, alongside `changerowcheck.py` and the containment branch, and it is what the exposure interlock (Codex audit 2026-09-11) asked for and nothing had implemented.
+
+### Decision: recovery-ladder-13c (b1659c0) — KEEP at +540, 20:36:59Z 17 Sep; promoted fleet-wide 20:46:52Z
+Deaths 0 on the canary (0.000/bh) against control 0.044/bh. **Exposure 33** sealed pocket verdicts (min 1). Ledger KEEP recorded before the manifest changed; `fleet-deploy b1659c0` fleet-wide. Third deploy of this bundle and its first real read — the two earlier runs were ended by the instrument, and v19 is why this one survived to be read.
+
+**A correction to my own guard, and it is not a small one.** At +360 this canary had **0** sealed verdicts in 60 bot-h. At +540 it had **33** — about 1.1/bot-h across the 30 bot-h in between, from a standing start. Pocket exposure on these pools is violently bursty, not low.
+
+`drawexposure.py` measured board-b and hive-b over the 6 h around the draw, found 0 sealed pockets and 0 deaths in each, and concluded they were the worst available pair and that the canary was "unmeasurable by construction". **The first half of that is a true statement about that window; the conclusion was wrong.** Had the guard been active and wired to the loop, **it would have refused the draw that produced this promotion.** That is a false positive with a concrete cost, on the guard's first real test.
+
+Consequences, prospective:
+- **The `draw_exposure` guard must NOT block a draw until it is calibrated.** v16 requires calibration of anything that can revert; blocking a draw is the same authority, and this guard's observed record is 1 refusal, 1 false positive. It stays a **REPORT** — print the per-pool table, never narrow `elig()` — until a calibration run establishes a lookback and `min` that would not have refused board-b,hive-b on 17 Sep.
+- **The 6-hour lookback is the specific defect.** It is far shorter than the burst period it is trying to predict. Calibration must sweep the window (6 / 12 / 24 h) and the thresholds against the historical draws whose exposure outcome is known (-13b: 23 rows in 15 bot-h on hive-a,board-a; -13c: 0 then 33 on board-b,hive-b; 1011b: 0 until +540 on hive-b,board-b — the same pools, the same late arrival, which should have warned me).
+- The earlier claim in this file that "board-b and hive-b were the only pair of eleven candidates scoring 0 on BOTH requirements" stands as a measurement. The inference drawn from it — that the draw was therefore wrong — does not.
+
+The registered extension is what actually saved this canary: it waited for exposure instead of judging at +360, and the amendment from KEEP_ON_SAFETY to INCONCLUSIVE never had to fire. Both were correct calls; the draw guard was not.
+
+## v20 — owner-01 / owner-01f = MOVEMENT OWNER step 1 behind OWNER=1 (implies ARBITER=1); registered 04:30Z 18 Sep; launched by a waiter the moment falls-01 records its verdict, on the registration whose sha descends from the baseline of that moment (owner-01 aa44514 on b1659c0; owner-01f 3b9ff25 on fc28885, the falls tip); pools drawn at deploy (re-seeded pools excluded via ~/mcai-analysis/draw-exclude.txt)
+Change: the entombed arm's body becomes three rungs (pillar, stair, underfoot) that ONE owner runs one at a time under an episode (deadline 180 s, block budget need+2, stored refusal reasons, holds that end on evidence); the actuator gate attributes the pathfinder's tick per grant; lava acquires the body at PRIORITY.lava through the arbiter. Flag-off code is behaviourally the fleet's. Design docs/movement-owner-design.md v3; plan + build log docs/movement-owner-step1-plan.md; two Codex passes folded, review closed.
+Sandbox: REPEATS=3 corpus (24 runs, all alive, picks lost equal): entombed-pick better (rise 15/15/5 vs 4/6/4), entombed-nopick level, Delta not worse, Bravo level. Boot on the rebased code: entombed-pick rise 9 vs 3.
+Rules: v12 linkage (M list + escape_rung, safe_hold), v14c, v15c, v16, v19 (change rows escape_rung/safe_hold are silent on the baseline: changerowcheck 04:15Z), the owner's death gate. Reads immobiledid, depositread, ownerread at +30/+90/+180/+360, extension +540/+720 until an entombed episode opens on the canary (KEEP_ON_SAFETY at +720 without one); deadline +780.
+Own lines: ownerread control_own_rows <= 0 (REVERT); refused_actuator_per_bh_canary <= 30 (WATCH); hold_share_canary <= 0.5 (WATCH). Report lines: rungs by outcome, episodes opened/closed/held, entombed rows/bh vs pre, entombed-linked deaths canary vs control. KEEP = safe on every shared line with >= 1 episode on the canary and no owner row on control; promotion fleet-wide.
+
+### Decision: falls-01 (fc28885) — REVERT at +140 by the death gate, 04:39:10Z 18 Sep; torn down 04:42:45Z
+Recorded by the loop. The verdict stands — a registered gate fired and is honoured — but the read of *why* is the point.
+
+falls-01 was a **report-only instrument**: a `fall_path` row at a fall, no behaviour change. Its two canary deaths were **idle** — placebo-a-Alpha drowned 04:27:40 (hp 1.2 -> 0 over 3 s), placebo-b-Echo unknown cause 04:36:46 — and **neither was a fall**. In the same 2.4-hour window the **three control deaths were all idle drownings** (hive-a-Alpha 02:24, isolated-c-Delta 03:14, board-c-Alpha 04:04): the identical background mechanism. The gate reverted a change with no mechanism to reach the outcome it was reverted for.
+
+Denominators: canary 2 deaths in 23.9 bot-h (0.084/bh); control 3 deaths in 168 bot-h (0.018/bh). Point ratio 4.7x, which cleared the 1.25x test; the one-sided 95% lower bound of that ratio is **0.58x**. Positive control for the read: 321,773 rows / 80 bots / 111 row kinds over the 620-minute walk, 16 death rows in it.
+
+**What it harvested before teardown — the falls question, partly answered.** 31 `fall_path` rows (placebo-a 19, placebo-b 12), all candidate injuries, **zero fall deaths**:
+- **The liquid-dropdown hypothesis is dead.** `liqdrop=true` on all 31 rows, but the planner's landing cells are water on **1** of them. Confirms the +90/+180 reading with a fuller sample.
+- **29 of 31 are the planner's own 4-5-block drops**, costing 1-2 hp (damage-implied height = damage + 3, which is 4-5 — the `fell N` peak-to-here figure overstates, as corrected 04:25Z). These are policy, not defect: `maxDropDown` is 6.
+- **One overshoot**: placebo-b-Comet 03:49:24, planned max 5.3, hp **-9** => ~12 blocks actually fallen. This is the class that matters — the body keeps momentum past the predicted block (pathfinder issue #31).
+- **One genuine infinite-liquid dropdown**: placebo-b-Echo 03:14:22, planned **max 49** with 1 drop beyond `mdd=6`, landing cell water — and it cost 2 hp. So the mechanism is real but rare and *harmless when the water is actually there*.
+- **The fatal class is still unmeasured.** The fleet's 35-block fall deaths need a fall DEATH to capture, and 2.4 hours on 10 bots produced none. At fleet fall-death rates this instrument cannot answer the fatal question from a 10-bot pool: **a report-only instrument belongs fleet-wide, not in a canary.** Queued as falls-02 under v21.
+
+## v21 — THE DEATH GATE'S 1.25x TEST MOVES TO THE LOWER BOUND OF THE RATE RATIO (18 Sep, PROSPECTIVE)
+The owner's floor is untouched: **two** canary deaths, and one death is still never a verdict. What changes is the comparison. The gate is polled every 5 minutes for up to nine hours — ~108 looks at an event with a null expectation under one death per canary — so the *point* ratio clears 1.25x on ordinary Poisson noise, because the denominator is small too. It now runs on the **one-sided 95% lower confidence bound** of the ratio of two Poisson rates (exact conditional-binomial; the normal approximation is worthless at n=2).
+
+Calibrated before it is allowed to decide anything, per v16 — `scripts/calibrate_deathgate.py`, simulating the sequence the loop actually runs (1500 canaries/cell, measured base 0.019 deaths/bot-h, 10 canary bots vs 70 control, polled every 5 min for 9 h):
+
+| true canary harm | old gate | v21 | detection:false |
+|---|---|---|---|
+| none | **43.7%** | **5.0%** | — |
+| 2x | 81.4% | 22.5% | 1.9:1 -> 4.5:1 |
+| 3x | 95.0% | 51.1% | 2.2:1 -> 10.2:1 |
+| 5x | 99.9% | 88.6% | 2.3:1 -> 17.7:1 |
+| 10x (swim_to scale) | 100.0% | 99.9% | 2.3:1 -> 20.0:1 |
+
+The 43.7% is the **positive control**: it reproduces the 46% false-revert rate measured directly on 2026-09-13, which is what says the simulated process matches the fleet's. The cost is real and stated — at a true 2x the gate now catches 22% where it caught 81% — but that 81% came with a 44% false-revert rate, a detection-to-false ratio of 1.9:1, which is barely a gate. Real harm also still reverts via v15c, v11, deposit and a discriminating change row, and the 72-h program read carries the fleet-wide death line.
+
+**Considered and rejected:** excusing a canary death whose cause class also appears among control deaths. It would have excused `swim_to`, which tripled drowning deaths while the control fleet was also drowning. The defect is small-number arithmetic, so the fix belongs in the arithmetic.
+
+Implementation `scripts/deathgate.py` (pure function), wired into `~/verdict.py` on .31 (backup `~/verdict.py.bak-20260918-deathgate`); 15 behavioural cases in `scripts/test_deathgate.py`, five mutants killed. The falls-01 numbers are the replay proof at the decision level: 2 in 23.9 bot-h vs 3 in 168 does **not** revert under v21, and the "point estimate again" mutant fails exactly that test.
+
+### Amendment to v20 (owner-01), made BEFORE deploy and before any read
+`extension.final_on_zero_exposure` **KEEP_ON_SAFETY -> INCONCLUSIVE** (backup `owner-01.json.bak-20260918`). Same correction as -13c: the owner-adopted exposure interlock (Codex audit 2026-09-11) says zero exposure -> INCONCLUSIVE, never KEEP, and KEEP_ON_SAFETY is the older v13 regression rule it supersedes. Prospective — no read had been taken.
+
+### Decision: falls-01 (fc28885) — REVERT by the owner's death gate at 04:39Z 18 Sep, torn down 04:42Z (placebo-a,placebo-b back on b1659c0). The gate fired correctly; the change is NOT shown harmful.
+Two canary deaths in 2 h 20 m (0.086/bh vs control 0.013/bh: 3 deaths on 50 control bots, all drownings). Read individually: **placebo-a-Alpha 04:27:40 drowned in a sealed pocket** (four `drowning_ceiling_no_air` expiries, `drowning_rescue_yielded`, health 3.2 → 0 — the fleet's standing drowning channel; the pocket rung did not fire), and **placebo-b-Echo 04:36:46 died in lava** (`reflex_danger_block lava` twice, health 6, cause message lost so the row says "unknown"). falls-01 changes NO behaviour: it writes a `fall_path` row at a fall and keeps the last planned path in memory. Neither death channel can be produced by writing a log row, and the canary's own guards (v15c, deposit) were within at +90.
+So this is the calibrated false-revert case, not a harmful change: `gatecal.py` measured the two-death rule falsely reverting 46% of HARMLESS 5-bot pseudo-canaries in 6 h (13 Sep), and this was 10 bots in 2.3 h at a fleet rate of ~0.03/bot-h. The owner's gate is the owner's decision and stands; recorded here so the ledger's REVERT is not read as evidence against the instrument.
+**The instrument answered its question before it was torn down** (22 rows, 90 bot-h): the liquid-dropdown hypothesis is dead (1/22 landings on liquid, 1/22 planned drops beyond the walk policy), and the damage-implied heights say 19/22 rows are the planned 4-5-block drops themselves (a heart each, by policy), leaving 3/22 as the real class — two falls with NO planned drop and one overshoot (planned 5, fell ~12). The next falls design targets that minority; a re-canary of the instrument is not needed for it.
+Prospective note for the owner (not applied): a REPORT-ONLY change (no behaviour, no change rows) trips the death gate at the fleet's own death rate with 46% probability; if instruments are to be canaried at all, the gate for them should be a WATCH with the deaths read individually. That is the owner's call, not mine.
+
+## v22 — **WITHDRAWN 2026-09-18 23:50 UTC, NOT REGISTERED.** Both independent reviews rejected it; see `review-reconciliation-2026-09-18.md` and v23 below. Kept for the record because the trace it contains is the evidence for v23.
+
+### (withdrawn draft follows)
+
+**owner-01b was reverted at 16:38:45Z on `('hive-a-Bravo', '16:33:01', 'escape_rung')` — "change row inside a death window, discriminating". The mechanism does not support it, and v10 already forbade it.**
+
+The fatal episode, read from the bot's own rows (all times relative to death at 16:33:01):
+
+```
+-93s  _escape_rung   rung=pillar outcome=refused   why=body held by air
+-73s  _drowning_ceiling_no_air  held 20s, never reached air (oxygen 0, health 18) — sealed
+-53s  _drowning_ceiling_no_air  (health 17.67)
+-53s  _drowning_rescue_yielded  "2 ceilings ... no harm (health 17.67, still sealed in)"
+-51s  _escape_rung   rung=pillar outcome=preempted  blocks=0
+-31s  _drowning_ceiling_no_air  (health 10.67)
+-31s  _escape_rung   rung=pillar outcome=preempted  blocks=0
+-11s  _drowning_ceiling_no_air  (health 3.33)
+-11s  _drowning_rescue_yielded  "4 ceilings ... no harm (health 3.33, still sealed in)"
+-10s  _escape_rung   rung=pillar outcome=preempted  blocks=0
+   0  _death         drowned; idle at the moment of death | hp 1->0 over 3s
+```
+
+**Every rung inside the fatal episode was refused or preempted with `blocks=0`.** The owner machine placed nothing and moved nothing; the air reflex held the body at priority 100 throughout. This is the drowning pipeline documented the same morning in `drowning-pipeline-2026-09-18.md`, in textbook form: **four ceilings**, ~93 s from first route to death, and the yield declaring **"no harm" at health 3.33** — inside the 3.17–4.67 band measured across 23 low-health yields, every one of which was fatal.
+
+**Control died the same way four minutes earlier**: board-c-Bravo 16:28:39, *drowned; idle at the moment of death | hp 1.2->0 over 3s*. Same mechanism, no change rows — because control cannot emit them.
+
+### Two defects, both in the licence path
+
+1. **v19's control-death condition is VACUOUS for a change row.** `license_change_rows()` refuses a row that "appears in a CONTROL death window — it is baseline behaviour". A change row never appears on control *at all*, by construction, so this condition can never refuse one. The test reads as discrimination and performs none.
+2. **v10's "moved the body" requirement was bypassed.** v10 already says: *"Mechanism linkage (v9a) counts only a rung that MOVED the body in the 600 s before the death ... Refusals and terminal states are reported, never linked"* — written after -03 was reverted on `marooned_needs_pickaxe`, a refusal. `outcome=refused` and `outcome=preempted blocks=0` are exactly that, and the v19 licence path did not apply the v10 test.
+
+### v22, prospective
+
+- A change row may licence a REVERT **only if it moved the body**: a rung with `outcome=ran` and a non-zero effect. `outcome` in {`refused`, `preempted`, `no_effect`, `failed`} is **reported, never linked** — restating v10 inside the v19 licence path so the two cannot diverge again.
+- The row must be **in the same episode as the death**. owner-01b's one `outcome=ran` rung (16:30:14, *rose 1.0*) was in a different episode (`entombed:383,59,167`) ~9 blocks from the fatal position (386,59,176) and 167 s earlier; a 1-block vertical rise three minutes and nine blocks away is not a mechanism.
+- **Drop the vacuous control-death condition for change rows** and say plainly what it cannot do: a row absent from control by construction carries no discriminating information, so licence must rest on the row's own effect, not on control's silence.
+
+### Verdict handling
+
+The REVERT stands as recorded — gates are honoured and amendments are prospective. The honest verdict on the evidence was **INCONCLUSIVE**: the canary was safe on every guard (all v15c within at +180), its exposure was real (68 episodes), and its three deaths were the fleet's dominant background mechanism, two of them with an identical signature on control. Nothing was learned about the movement owner, for the second time in one day and for a different reason each time.
+
+## Two-week program read — REGISTERED 2026-09-18 23:35 UTC, BEFORE the window opens
+
+The colony reliability program (13 Sep) commits to a **72-hour continuous read at two weeks**. That window is **24 Sep 00:00Z – 27 Sep 00:00Z**. Registering it now, in advance, because a gate read after the fact is not a gate — and because this project's own rule is that amendments are prospective only.
+
+**Committed targets and today's standing (24 h to 18 Sep 11:40Z):**
+
+| measure | 2-wk target | now | on track |
+|---|---|---|---|
+| deaths / bot-h | ≤ 0.05 | 0.025 | **yes**, also clears the 6-wk ≤0.03 |
+| immobile share | ≤ 2% | 0.0% | **yes**, also clears the 6-wk ≤1% |
+| iron-pickaxe bot-hour share | ≥ 8% | 12.5% | **yes** |
+| gather success | ≥ 40% | 20.3% | **NO** |
+| stock returned | ≥ 20 items/bot-h | deposit 22.4% success | unresolved units — see below |
+
+**Predicted outcome, stated in advance so the read cannot be rationalised afterwards: three of five pass, gather fails, stock returned is unresolved.** Gather cannot go 20.3% → 40% in the nine days remaining; no queued change targets it, because navigation is program step 3 and is gated behind a movement owner that has failed to land twice. Recording the prediction now makes the 27 Sep read a test of this forecast rather than a negotiation.
+
+**Reading rules for the window:**
+1. **No promotions inside it.** A promotion mid-window splits the read across code versions and blurs exactly the number the program is judged on. Canaries may run (they are 10 of 80 bots and are read as DiD); a fleet-wide promotion may not. If one is unavoidable, the window restarts.
+2. **Split by `code.version`.** `~/programread.py` already does this and refuses rather than printing zeros when the walk looks broken.
+3. **`keepInventory` stays ON through the window.** Turning it off (queue item 6) changes what a death costs and would confound the deaths line. It is a program change, scheduled after the seed canary's 72 h, and must not land inside this window.
+4. **Stock returned needs its units settled BEFORE 24 Sep.** The program says "≥ 20 items/bot-h (items leaving inventory in a deposit run)"; `programread.py` currently reports deposit *success rate* (22.4% excluding `no_effect`, 11.2% including it), which is a different quantity. Fix the instrument before the window opens or the line is unreadable — the same class of defect as owner-01b's `+nan%` primary endpoint.
+5. The read is the 72-hour aggregate, not the best 24 hours inside it.
+
+## v23 — ONE INVARIANT: NO SINGLE CANARY DEATH MAY LICENCE A REVERT BY ANY PATH (prospective, 2026-09-18 23:50 UTC)
+
+Registered after both independent reviews rejected v22. **Stated once, at the level of the rule rather than the path, so a third route cannot be invented.**
+
+### Why v22 was withdrawn
+
+v22 said a change row licences a REVERT only if it MOVED the body, and refusals are never linked. Both engines rejected it independently, and the fatal objection is verifiable in the source: **during an air emergency the drowning rescue seizes and holds the body** (`reflex.mjs` ~1955-1975). owner-01b's own rows show the consequence — every rung `refused (body held by air)` or `preempted blocks=0`. A movement or escape change therefore **cannot structurally emit `outcome=ran` inside a fatal drowning episode**, and drowning is 58% of deaths. v22 would have been vacuous for the majority of deaths: it fails the same reachability test it was drafted beside.
+
+The second objection is independent and also fatal: the licence function receives event **names**; its caller reduces change rows to names and truncates detail. Outcome and episode never reach it. v22 was not implementable as an outcome filter without a data-contract change.
+
+### The invariant
+
+**A single canary death is never sufficient to REVERT, by any path — aggregate gate, change-row linkage, rung linkage, or any future mechanism.** The owner's two-death floor (2026-09-11) already said this for the aggregate death gate; v21 gave that gate an honest test (lower bound of the rate ratio, calibrated 43.7% → 5.0% false revert). The change-row licence path **bypassed both**, reverting owner-01b at +0 on one death before the aggregate gate — which was at that moment correctly HOLDING a 10.00x point ratio at a 0.78x lower bound. That was the last surviving single-death revert route. It is closed.
+
+A single death is **reported and named** in every read, as it always has been. It is not a verdict.
+
+### What replaces it — the refusal class, measured where it has power
+
+Refusal-as-mechanism is real: this project's documented bug class is "two individually-correct guards meeting where the bot had no legal move", and four separate traps have had that shape. v22's error was trying to catch it **at a single death**, where there is no statistical power and no discrimination. It moves to a pre-registered DiD guard on a row kind **both arms emit**:
+
+- **`escape_zero_displacement_share`** — the share of escape episodes ending with **zero measured body displacement**.
+- **`time_to_first_displacement`** — per episode, distribution not mean.
+
+Both are read from **`bot.pos`, never from the rung's self-reported `outcome`**. A change that misreports its own effect is not hypothetical here: owner-01 shipped inert with every self-report green, and the only thing that caught it was the process's own environment. **Do not let the defendant testify.**
+
+`escape_rung` runs ~7/bot-h, so a 10-bot 6-hour canary sees **hundreds** of episodes where deaths give one. This fires symmetrically on exactly "correct guards composing into a dead end", with power, and it does not need a death to do it. Calibrate before it may revert, per v16.
+
+### Gate roles
+
+Every registered gate now declares `role`:
+- **`deciding`** — may REVERT. Must demonstrate power on the drawn pools before deploy.
+- **`tripwire`** — reported, never reverts alone. Rare-event monitors (deaths, lava, falls) are tripwires **by design**: CLAUDE.md already says "use them as tripwires, not proof". Requiring power of them would either block every canary or be waved through.
+
+The read prints, beside each gate's value, whether it **could have fired on the data that actually arrived**. A preflight result is exactly the artefact a redeploy makes stale — that is defect #4's shape, and this is the cheaper half of the answer.
+
+### Not doing: a general `gate-power.py`
+
+Rejected by both reviews. Reachability is not power; it would have caught 1 of today's 6 defects; and a separate script that must agree with `drawrec`/`drawexposure` about the draw **repeats the drift defect it is meant to prevent**. The two useful halves fold into `drawexposure.py` (queue item): a **non-degenerate pre-period** on the primary metric (owner-01b drew pools at 0.0% immobile, so its primary read was a divide-by-zero printing `+nan% FAIL`), and **exposure against the MDE-implied n**.
+
+Prior art to borrow rather than invent: Cloudflare's `pint` (a CI linter for alert rules that cannot fire), Prometheus `unit_testing_rules` (asserting an alert must NOT fire), Kayenta `mustHaveData`, and standing **A/A canaries** to measure the judge's own false-alarm rate — done once by hand here (46%), never made standing.
+
+## v24 — an UNDEFINED own-line value is UNREADABLE, not a failure (PROSPECTIVE, 2026-09-19 11:55 UTC)
+
+`verdict.py` treated `None` as a missing endpoint and everything else as a value to compare. A **NaN** is
+neither: every comparison against it is False, so an `own_lines` entry reads "fails <= 0" and an
+`on_fail: REVERT` endpoint **REVERTS on an arithmetic hole**. Infinities are the same class — a ratio over a
+zero denominator is undefined, not extreme.
+
+This is the owner-01b incident, still live in the code until today. Its draw took board-b and hive-a at a
+**0.0% immobile pre-share**; you cannot reduce immobility from zero, so the primary ratio-DiD divided by zero
+and the read printed `+nan% FAIL`. It was written up on 18 Sep as a *draw* problem (queue item 8, the
+non-degenerate pre-period check) and the verdict-path half of it was missed.
+
+**v24: a registered own-line value that is `None`, NaN, `+inf` or `-inf` yields UNREADABLE.** The line names the
+value in its `why`. Nothing else changes: a finite value that fails its comparison still does whatever
+`on_fail` says.
+
+Why this is a clarification rather than an amendment that needs calibrating: the registered rule already says a
+missing own-line value is UNREADABLE, and a NaN **is** missing-ness arriving as a float. The code now matches the
+rule that was registered. It is prospective regardless — no canary was live when it landed, so the first canary
+it can touch is one not yet deployed.
+
+Found by a Codex pass on v23's acceptance suite, which caught that the suite's own case for this incident used
+`None` and therefore tested missing data rather than the incident it named. Pinned by
+`scripts/test_verdict_acceptance.py` (`primary endpoint is nan` / `is inf`) and by a mutant that restores the
+pre-v24 branch and must flip that case to REVERT.
+
+### Also pinned, deliberately NOT changed: the control denominator the death gate invents
+When the control arm reports no rate, `verdict.py` assumes `control_bot_h = canary_bot_h * 7` — the fleet's
+70/10 split. It is a guess standing where a measurement should be, and on 3 canary deaths against an assumed 0
+control deaths it REVERTS. That is exactly the class of defect this project keeps finding ("say the denominator
+before you say the number"), but changing a gate is an amendment and amendments are prospective and calibrated
+first. It is queued. `test_verdict_acceptance.py` pins the current OUTCOME (not the multiplier — 3x or 8x would
+revert here too) so that the change cannot happen silently.
+
+
+---
+
+## v25 – v28c — RETROSPECTIVE REGISTRATION OF EIGHT GATES ALREADY LIVE (written 2026-09-24 11:4xZ)
+
+**These eight rules were implemented in `~/verdict.py` between 21:47Z 23 Sep and 00:48Z 24 Sep and were
+never entered in this file.** The commit messages on `recovery-ladder-03` (1499bf7, a75f169, 981fcf6,
+f07d291, 9cd5c4f, 7a7b5d1, 897f483, 0918950) are excellent and are the source for everything below, but a
+commit message is not a registration: `RULE.md` is hashed into every read as `registration_sha256`, and it
+and `RULES-IN-FORCE.md` were both still the 19 Sep versions naming **v24** as the newest rule while the
+instrument ran **v28c**. The decision path was one whole generation ahead of its own registration.
+
+**THE GAP HAS COST NOTHING, AND THAT IS WHY THIS REGISTRATION IS LEGITIMATE RATHER THAN A RESCUE.**
+The ledger's last decision is `banktruth-01` at **2026-09-23 18:18Z**; the first of these gates landed at
+**21:47Z**, three and a half hours later. **No canary has ever been read by any of v25–v28c.** Registering
+them now therefore makes every one of them **prospective**, which is the only form the standing rule allows.
+Had a canary been decided in between, the honest close would have been to void that decision, not to
+back-date the rule.
+
+### Direction test, applied line by line
+
+The standing test for a retrospective registration (set by `immobiledid` above) is that **every line must act
+against a KEEP and none may produce one.** Seven of the eight pass it outright:
+
+| rule | what it does | direction |
+|---|---|---|
+| **v25** | a deciding `own_lines`/`friction` line with `on_fail: REVERT` no longer reverts on the typed comparison alone; it must declare `evidence: 'defect'` or `support: {read, field, max}` with the randomization p **present** and ≤ max. Neither → the line still FAILS, is reported, and the verdict is **INCONCLUSIVE** (`blocked`, never a fall-through to KEEP) | harder to REVERT **and** harder to KEEP |
+| **v26** | the death gate computes an **in-window randomization p**, ranked on the canary death **RATE** (not count), permuting at the unit of assignment (pools, or bots for a within-world split, read from `canary_split`) | reporting only |
+| **v26b** | that p is **REPORT-ONLY**; `p_vetoes=True` is required before it may change a verdict, because as an AND-condition it discarded rl-08b (3810457), a revert the audit calls correct | restores REVERT power v26 would have removed; **net of v24, no new KEEP path** |
+| **v27** | the verdict **says when linkage was not available** instead of letting an inert sensitive path read as a clean one | reporting only |
+| **v27b** | the linkage window is calibrated to **60 s** (background false-link 5.0% at 60 s vs 20.0% at 600 s; false REVERT per 3 h read 3.0% vs 10.6%), and v25's coincidence test is recalibrated onto the **canary's own** emission rate. The canary arm is **REPORTED, NOT ENFORCED** — enforcing it at 3.0/bot-h would make owner-01b unrevertable | harder to REVERT |
+| **v28b** | a calibration must report `nonzero_draws`; **below 10% it is DEGENERATE and refused**, and the refusal names `evidence: defect` as the honest alternative. Stops a treatment-only metric scoring 0% false-trips for free | harder to REVERT |
+| **v28c** | a deciding calibrated line must be `form: did`. **A canary-only LEVEL may never revert** — measured, `nopath_per_bh_canary <= 24` false-tripped 11.2–19.8% over 09-16..09-20 and 48.8–53.0% over 09-20..09-24 on **identical code**, because the fleet's no-path rate doubled and the threshold did not move | harder to REVERT |
+
+### v28 is the exception, and it is registered PROSPECTIVELY, not retrospectively
+
+**v28 creates a path to REVERT that did not exist under v24: a change's own alarm may stop its own canary.**
+That fails the direction test above, and no amount of quality in the measurement changes that. It is
+registered here **as a prospective rule taking effect from the next canary registered after this entry**, and
+it has never decided anything, so nothing needs voiding.
+
+A deciding own-line may revert only with `evidence: calibrated` and a calibration measured on pseudo-canaries
+(real pools, real windows, no code change, where every trip is false by construction) carrying **all** of:
+
+- `at_threshold` **equal to the registered value** — a calibration of a different threshold is a calibration
+  of a different rule, and this is the check that stops `calibration` becoming a number someone typed;
+- `false_trip_rate` ≤ 0.05;
+- `over_reads: true` — **the read schedule is part of the rule**, because a figure from a single read
+  understates a gate polled ~108 times;
+- `measured_at` within `CAL_MAX_AGE_H`;
+- `tool` and `draws` named, so a missing calibration and a passing one can never look alike;
+- `nonzero_draws` ≥ 10% of draws (v28b);
+- `form: did` (v28c).
+
+Any of these unmet **blocks KEEP (INCONCLUSIVE)** — never REVERT, and never a quiet KEEP, because the line
+did fail. **At most ONE line may carry `evidence: calibrated` with `on_fail: REVERT`**: owner-01b declared
+three own-lines over three reads, and nine independent 5% tests is 1 − 0.95⁹ = **37%**, not 5%. Declaring
+several **blocks** rather than picking one, so dict order cannot choose after the data is seen. Calibrated
+`WATCH` lines stay unlimited; only the deciding line is rationed.
+
+**`CAL_MAX_AGE_H = 48` IS A PLACEHOLDER, NOT A MEASUREMENT** — so labelled in the source, overridable by
+`VERDICT_CAL_MAX_AGE_H`, and it stays a placeholder until the two-period staleness measurement lands. It is
+registered as a guess so that it cannot later be quoted as a calibrated value.
+
+### Two things carried forward as OWNER QUESTIONS, raised by this work and deliberately not acted on
+
+1. **The v21 lower bound is declining reverts the audit calls correct.** Backtested across all 15
+   death-involved reverts, the live lower-bound gate trips on **0 of 15** — rl-08b's own lower bound is
+   0.58x, so the gate never even consults the p. Its false-positive win was bought with real detection.
+   That is a question about the **bound**, not about the p.
+2. **The audit (8019b1d) finds 7 of 23 reverts confirmed false and 5 more suspect.** Roughly a third of this
+   project's REVERT decisions may be wrong, which bears on the ledger's history and not only on future reads.
+
+### Recorded and NOT acted on
+
+The backtest says promoting the 17 existing `WATCH` lines to deciding would add **2 new false reverts and
+correct none**; 7 of the 17 are dead instruments reading 0 or None in every read of every run; and the
+victims would be 9fc3968 (the rework that recovered leaf-01's falsely-reverted capability) and b1659c0
+(falsely reverted twice, kept on the third — it would go 0-for-3 and never ship).
+
+### Suite state at registration
+
+57/57 acceptance, 25/25 acceptance mutants, deathgate 7/7, linkage 25/25, membership 14/14, singledeath 11/11
+— re-run green on the host at 11:2xZ 24 Sep before this entry was written.
+
+### One provenance note, stated because it cannot be verified from here
+
+Commits a75f169 (v26) and 7a7b5d1 (v28) are headed **"OWNER DECISION 2026-09-24"**. No artefact in this
+repo, in `CLAUDE.md`, or in the memory index records an owner decision on that date; owner decisions are
+normally written into `CLAUDE.md` (as the 2026-09-11 two-death floor is). The commits landed 23:00Z and
+00:13Z, which is evening in the owner's timezone and entirely consistent with an owner-driven session, so
+**this is recorded as unverifiable from this session, not as unsanctioned.** v28 is registered prospectively
+above regardless of how that resolves, which is the conservative reading either way.
+
+## v29 — a calibration's false-trip CEILING binds its CONFIDENCE BOUND, and CAL_MAX_AGE_H is measured
+PROSPECTIVE from 2026-09-25. **RECONSTRUCTED 2026-09-26** — the 25 Sep append to this file was lost when
+this session overwrote it (see the note at the end); the AUTHORITATIVE text is the v29 section of
+`docs/reports/recovery-ladder-registration.md`, and `RULES-IN-FORCE.md` carries the one-paragraph form.
+A calibration offered as `evidence: calibrated` must report `false_trip_rate_ci_upper`, and it is the
+CONFIDENCE BOUND, not the point estimate, that must clear `CAL_MAX_FTR`. Absent, non-numeric, or below its
+own point estimate is a REFUSAL. A registration naturally sets `at_threshold` at its calibration's own p95,
+which makes the realised false-trip rate 0.0500 BY CONSTRUCTION, so v28's `ftr > 0.05` could never fire.
+`CAL_MAX_AGE_H = 48` is MEASURED, not a placeholder. Measured over 18 registrations, **ZERO have ever
+carried `evidence: calibrated`, so v29 has never decided a canary.**
+
+## v30 — a registration whose LAST READ MINUTE is not strictly inside its DEADLINE is REFUSED AT LAUNCH
+PROSPECTIVE from 2026-09-25. **RECONSTRUCTED 2026-09-26**, same note as v29.
+`deadline_min` must exceed `max(read_minutes)` + a 30 min read grace. `drop5-01` registered
+read_minutes [30,90,180,360] AND deadline_min 360; `canary-loop.sh` tests the deadline INSIDE the read loop,
+so it reached the +360 read at 362 min, fired containment and recorded INCONCLUSIVE **with the final read
+never taken** — while exposure 101/60, linkage and safety were all clean. Enforced in `canary-loop.sh` via
+`~/v30check.py`, which is the only place the loss is preventable; `verdict.py` reports it on every read.
+3 of 18 registrations on file carried the pattern, all written within two days.
 ## v31 — a canary must NAME its instrument, and the CLASS decides what it may do
 PROSPECTIVE from 2026-09-26. `licencecheck.py` refuses a canary that names no discriminating
 instrument. `kind` = a row the baseline cannot emit; `text` = a substring one arm logically cannot

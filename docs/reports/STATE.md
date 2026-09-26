@@ -167,6 +167,11 @@ queue item 1, so it is an upper bound and **not comparable**. The **count** is t
     `since_minutes=`" when the estimate is window-independent). The golden `predates_window()` is the fix.
 15. **`deploy-fleet.sh` run directly as `/root/d.sh` SKIPS `fleet-deploy`'s golden-lib restore**, and
     CLAUDE.md points at that route while this file says `fleet-deploy` only. Reconcile.
+16. **`~/digest/RULE.md` has NO tracked source of truth and is 103 KB of hand-maintained duplicate.** It is
+    0.58-similar to the registration document and carries 139 lines found nowhere else, so it cannot be
+    regenerated — and today it was destroyed by one careless `cat >>`. It is now tracked at
+    `scripts/host/RULE.md`. **Either make the analyst read the registration document directly, or make
+    RULE.md generated from it with its unique sections moved in.** Until then: `.bak` before every edit.
 
 ## Rules in force (docs/reports/recovery-ladder-registration.md — current through **v32**)
 **v32** (THE LIVE GATE CODE MUST BE THE REGISTERED GATE CODE: one column-0 `GATE DIGEST verdict-bundle md5`
@@ -189,8 +194,26 @@ assertion, and `fleet-deploy --pool` refuses without a reader.
   **IDENTICAL on 10.0.0.31 and in the repo, all four files.** Read it with `python3 ~/verdict.py
   --gate-digest`; check it with `python3 ~/mcai-analysis/gatedigest.py`.
 - **`~/digest/RULES-IN-FORCE.md` is AUTHORITATIVE**, rewritten and synced today: md5 **`96b7be11`** on both
-  host and `scripts/host/RULES-IN-FORCE.md`. **`~/digest/RULE.md` md5 `9981bb3d`** (was `a38827a9`), v31/v32
-  appended — and **RULE.md is now TRACKED at `scripts/host/RULE.md`**, which it was not before.
+  host and `scripts/host/RULES-IN-FORCE.md`. **It was correct throughout today and is the half the analyst
+  treats as authoritative.**
+- **`~/digest/RULE.md` md5 `746c65e4`** (was `a38827a9`), and **RULE.md is now TRACKED at
+  `scripts/host/RULE.md`**, which it was not before — that is what caused the incident below.
+  **I DESTROYED `~/digest/RULE.md` AND RESTORED IT. Read this before touching either rule file.**
+  `cat >> scripts/host/RULE.md` created a NEW 1,847-byte repo file (RULE.md was untracked, so there was
+  nothing to append to), and the scp then overwrote the host's real 103 KB file with that fragment.
+  **`## v14c` was gone, so `analyst.py`'s slice fell back to the whole 1.8 KB file and the analyst read
+  v31/v32 as the entire rule tail.** The tell was `prompt_tokens` **8034 → 3631** on the 12:30 run — a
+  DROP after I had made both rule files longer, which is the wrong direction and is why it was caught.
+  **Blast radius: ONE analyst run (12:30Z), which still returned `fleet_healthy=True`, `versions_ok=True`
+  with no canary live, so no decision rested on it.** Restored 12:27Z from
+  `~/digest/RULE.md.bak-20260925T1225Z` (md5 `395d8988`, the pre-25-Sep file) plus re-appended v29–v32.
+  **v29 and v30 are RECONSTRUCTED and say so in the text** — the 25 Sep append's exact wording is
+  unrecoverable; the authoritative text is the registration document, and `RULES-IN-FORCE.md` carries the
+  one-paragraph form. Broken file kept at `~/digest/RULE.md.BROKEN-20260926T1225Z`.
+  **Two lessons. (1) The previous session took a timestamped `.bak` before editing this file and I did not
+  — that backup is the only reason this was recoverable. Take one.** (2) RULE.md is NOT a slice of the
+  registration document: similarity is 0.58 and it carries 139 lines of its own (a `PRE-REGISTERED v8`
+  section, v6 shape notes), so it cannot be regenerated from the registration doc. Queue item 17.
 - **`~/verdict.py` and `scripts/verdict.py` are byte-identical: md5 `b3179121`.** v32 now enforces this by
   construction, so it is no longer a thing to remember.
 
