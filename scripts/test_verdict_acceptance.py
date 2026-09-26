@@ -102,12 +102,17 @@ class Case:
                                     'skill': {'name': kind, 'detail': detail}}) + '\n')
         return self
 
-    def run(self, M=180, poll=False):
+    def run(self, M=180, poll=False, env_extra=None):
         env = dict(os.environ, VERDICT_READS_DIR=self.reads, VERDICT_LOG_ROOT=self.logs,
-                   VERDICT_REG_DIR=self.regs, VERDICT_MANIFEST=self.manp)
+                   VERDICT_REG_DIR=self.regs, VERDICT_MANIFEST=self.manp, **(env_extra or {}))
         cmd = [sys.executable, VERDICT, RUN, str(M)] + (['--poll'] if poll else [])
         r = subprocess.run(cmd, capture_output=True, text=True, env=env,
                            cwd=HERE, timeout=120)
+        # THE RAW STDOUT, KEPT. Everything below works on the LAST line, which is single by
+        # construction -- so an assertion about "the output is one line" phrased against it can
+        # never fail. The first draft of the newline case was phrased that way and its mutant
+        # survived: the check was vacuous, not the rule it was testing.
+        self.raw_out = r.stdout or ''
         line = (r.stdout or r.stderr).strip().splitlines()
         if not line:
             return 'NO_OUTPUT', (r.stderr or '')[-400:]
@@ -754,6 +759,108 @@ def main():
           'below 1.40x -- it does not pin 1.25 exactly, and a threshold of 1.0 or 1.39 '
           'would still pass. What it catches is the 21x case above silently accepting a '
           'threshold raised to 5.', out)
+
+    # ---- v32, 2026-09-26. THE GATE MUST SAY WHETHER IT IS THE REGISTERED GATE.
+    # Three days running a generation shipped live in the decision path and in no registration:
+    # v25-v28c (registered retrospectively), v29 (faf7cf7, 23 h after that registration was written
+    # for exactly this reason), v31 (b01b1e7, four hours after v29/v30 were registered). v31 was
+    # found today only by comparing md5s -- live `e9a81408` against the `6dda048d` the state file
+    # recorded -- because the v29 gate never spelled its own name and a label grep read as "not
+    # live". These cases pin the ANNOTATION, which is report-only; the launch refusal is
+    # gatedigest.py and has its own suite. The file under test is VERDICT, not scripts/verdict.py,
+    # so this still works when the mutant runner points the suite at a copy.
+    print("\n12. THE GATE'S OWN PROVENANCE (v32) -- an unregistered gate must not read as a registered one")
+    # The digest is the BUNDLE the gate reports for itself, not md5(verdict.py) -- deathgate.py and
+    # singledeath.py carry decisions too, and the mutant runner mutates deathgate.py. Asking the
+    # file under test keeps this correct when the runner points the suite at a COPY.
+    live_md5 = subprocess.run([sys.executable, VERDICT, '--gate-digest'], capture_output=True,
+                              text=True, timeout=120).stdout.strip().splitlines()[0].strip()
+    rules_dir = tempfile.mkdtemp(dir=tmp)
+    seq = [0]
+
+    def rules(text):
+        seq[0] += 1
+        p = os.path.join(rules_dir, 'rules-%d.md' % seq[0])
+        open(p, 'w').write(text)
+        return {'VERDICT_RULES': p}
+
+    # POSITIVE CONTROL FIRST: the matching digest must be SILENT. Without this, every case below is
+    # satisfied by a check that fires unconditionally -- a detector that answers uniformly, which is
+    # the failure this project has shipped six of.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules(f'# rules\nGATE DIGEST verdict-bundle md5 {live_md5}\n'))
+    check('  POSITIVE CONTROL: a MATCHING gate digest is silent',
+          'GATE CODE IS NOT THE REGISTERED GATE' in out or 'GATE NOT REGISTERED' in out, False,
+          'If the check fires on the digest it was given, it is not comparing anything and the '
+          'cases below prove nothing.', out)
+    check('  ...and a matching digest still reaches a verdict', got, 'KEEP',
+          'The interlock must not be able to cost a read.', out)
+
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules('# rules\nGATE DIGEST verdict-bundle md5 '
+                                     '00000000000000000000000000000000\n'))
+    check('  a MISMATCHING digest is named on the verdict line',
+          'GATE CODE IS NOT THE REGISTERED GATE' in out, True,
+          'This is the v31 state, mechanised: a gate generation in the decision path and in no '
+          'registration. Found by hand on three consecutive days; it must be found by the read.', out)
+    check('gate-digest mismatch is REPORT-ONLY and does not change the verdict', got, 'KEEP',
+          'A clean canary reaches KEEP with or without the annotation. An interlock that could '
+          'revert on its own drift would be a new false-revert route, and 7 of 23 reverts on file '
+          'are already confirmed false.', out)
+    # THE ADVISORY MUST NOT SPELL A VERDICT TOKEN. canary-loop.sh's death-poll arm matched
+    # `case "$V" in *REVERT*)` on the WHOLE line, so an advisory carrying that word was a false
+    # revert waiting for a reachable caller -- and this advisory IS reachable under --poll.
+    check('  the advisory carries no verdict token (the loop matched the line, not the field)',
+          any(t in out.split('::', 1)[-1] for t in ('REVERT', 'INCONCLUSIVE', 'UNREADABLE')), False,
+          'The loop arm is now hardened to read the field, but an advisory that spells a token is a '
+          'latent false verdict in any consumer that greps the line.', out)
+
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules('# rules with no digest line at all\nv30 ...\n'))
+    check('  a rules file with NO digest line says so, rather than passing',
+          'GATE NOT REGISTERED' in out, True,
+          'changerowcheck.py passing its own null case is what licencecheck.py was written to fix '
+          '(9 of 18 registrations declared nothing, all nine passed). A provenance check that is '
+          'silent when the record is absent repeats that defect in the place meant to catch it.', out)
+
+    # AN INDENTED EXAMPLE IS NOT THE RECORD. The format is quoted inside the registration document
+    # and inside three docstrings; if a quoted example parsed, the guard would validate itself.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules('# rules\n    GATE DIGEST verdict-bundle md5 %s\n' % live_md5))
+    check('  an INDENTED example is not the authoritative record',
+          'GATE NOT REGISTERED' in out, True,
+          'This exact line appears indented in the registration document and in gatedigest.py\'s '
+          'docstring. A parser that accepted it would let the guard be satisfied by its own '
+          'documentation.', out)
+
+    # A REASON MAY NOT CARRY A NEWLINE, because the loop reads `tail -1` then `awk '{print $2}'`.
+    # A reason whose text continues onto another line either hands the loop whatever followed the
+    # break -- `x REVERT` becomes the last line and reverts the canary -- or hides a real REVERT
+    # above it. The v32 advisory interpolates a PATH, which is how this became reachable; the fix is
+    # in out(), so it covers all 42 reason sites rather than that one.
+    evil_dir = os.path.join(rules_dir, 'nl')
+    os.makedirs(evil_dir, exist_ok=True)
+    # A REAL file whose NAME carries the newline, and NO digest line inside it, so the note that
+    # fires is "GATE NOT REGISTERED" -- which interpolates the basename. The missing-file branch
+    # cannot be used here: it is deliberately silent under a fixture harness, and a case routed
+    # through it is silent for that reason rather than because the sanitiser worked.
+    evil_path = os.path.join(evil_dir, 'rules\nx REVERT forged.md')
+    open(evil_path, 'w').write('# no digest line here\n')
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra={'VERDICT_RULES': evil_path})
+    check('a newline inside a reason cannot forge a verdict line', got, 'KEEP',
+          'canary-loop.sh takes the LAST line of stdout and awks field 2 out of it, with no check '
+          'that the line is a verdict at all. If a reason can add a line, the reason can choose the '
+          'verdict.', out)
+    check('  ...and the whole verdict is ONE line',
+          c.raw_out.strip().count(chr(10)) == 0 and c.raw_out.startswith('VERDICT '), True,
+          'One line is the contract canary-loop.sh has always assumed and nothing enforced.',
+          repr(c.raw_out[:300]))
 
     print(f"\n{'=' * 72}")
     n, k = len(RESULTS), sum(RESULTS)

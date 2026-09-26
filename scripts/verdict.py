@@ -106,6 +106,49 @@ def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
                                       'not refused]' % (lamc, window_s, q, p_max), d))
     return licensed, refused
 
+def _gate_bundle():
+    """(digest, parts) over EVERY file that can change a decision -- not just this one.
+
+    v32's first draft hashed `verdict.py` alone, and a Codex pass killed it in one line: the
+    decisions live partly in the modules imported above. `deathgate.py` holds the v21 lower-bound
+    test -- the acceptance suite's own mutant runner MUTATES THAT FILE to flip a case from KEEP to
+    REVERT -- and `singledeath.py` holds v23's two-death floor. Either could be rewritten with
+    `verdict.py` untouched, and a verdict.py-only digest would have called that registered.
+
+    The bundle is resolved through the IMPORTS THAT ACTUALLY RAN, via sys.modules, rather than by
+    guessing paths. `arms.py` is on none of the paths this file's own docstring lists (it resolves
+    out of the deploy tree), so a hand-written path list would have silently recorded it MISSING and
+    the check would have passed anyway. Asking the interpreter where it loaded each module from
+    cannot drift from what was executed.
+    """
+    parts = [('verdict.py', _os.path.abspath(__file__))]
+    for _n in ('deathgate', 'singledeath', 'arms'):
+        parts.append((_n + '.py', getattr(sys.modules.get(_n), '__file__', None)))
+    got = []
+    for name, path in parts:
+        if path and _os.path.exists(path):
+            got.append((name, hashlib.md5(open(path, 'rb').read()).hexdigest()))
+        else:
+            # NAMED, NOT SKIPPED. A module that cannot be located must change the digest, or
+            # deleting a decision module would read as "no change to the gate".
+            got.append((name, 'UNRESOLVED'))
+    got.sort()
+    inner = ' '.join('%s=%s' % p for p in got)
+    return hashlib.md5(inner.encode()).hexdigest(), got
+
+
+if sys.argv[1:] == ['--gate-digest']:
+    # EXACT ARGV, not `'--gate-digest' in sys.argv`. A review pass showed the membership form made
+    # `verdict.py --gate-digest 0 --poll` and `verdict.py <run> --gate-digest` both print a digest and
+    # exit 0 without reading a registration -- and because the parts lines are non-empty, that would
+    # also slip past the loop's empty-output alarm on the death poll.
+    # Printed by the gate itself so `gatedigest.py` never has to re-derive the import resolution.
+    _d, _p = _gate_bundle()
+    print(_d)
+    for _n, _h in _p:
+        print('  %-16s %s' % (_n, _h))
+    sys.exit(0)
+
 run_id, M = sys.argv[1], int(sys.argv[2]); DRY = '--dryrun' in sys.argv; POLL = '--poll' in sys.argv
 # THREE PATHS, OVERRIDABLE ONLY BY THE ENVIRONMENT, SO THIS FILE CAN BE REPLAYED.
 # The defaults are exactly what they were; nothing in production passes these.
@@ -148,6 +191,103 @@ _LIC = (reg.get('licence') or {}) if isinstance(reg.get('licence'), dict) else {
 _LIC_CLASS = _LIC.get('class')
 _LIC_REPORT_ONLY = (_LIC_CLASS == 'rate')
 
+# v32 (2026-09-26): THIS FILE SAYS WHETHER IT IS THE FILE THE RULES REGISTER.
+#
+# THREE DAYS RUNNING a gate generation shipped live in the decision path and in no registration:
+# v25-v28c (registered retrospectively in a9e13e1), v29 (faf7cf7, 23 h after that registration was
+# written for exactly this reason), and v31 (b01b1e7, four hours after v29/v30 were registered).
+# v31 was found today by comparing md5s -- `e9a81408` live against the `6dda048d` the state file
+# recorded -- because THE V29 GATE NEVER SPELLED ITS OWN NAME and a label grep reads as "not live".
+#
+# The hard stop is at LAUNCH (`gatedigest.py`, wired into canary-loop.sh beside v30check), where a
+# mismatch is fixable before any fleet time is spent. Here it is REPORT-ONLY and cannot change a
+# verdict: refusing a read would make every historical registration and every replay fixture
+# unreadable, which is v31's own argument about a missing licence. What this earns is that "the gate
+# reading this canary is the registered gate" and "nobody has checked" no longer print the same --
+# the v27 LINKAGE UNAVAILABLE argument, applied to the gate code itself.
+#
+# A MISSING rules file is SILENT, by design: off-host tests, the repo copy and replay fixtures have
+# no ~/digest, and a checker that cried on every fixture would be turned off within a day. The
+# refusal for an absent record lives in gatedigest.py, where the file is known to be present.
+_MAX_RULES_BYTES = 4 << 20
+
+
+def _read_rules_bounded(path):
+    """Bounded, REGULAR FILE ONLY, and it REFUSES an oversized document rather than truncating it.
+
+    Two review findings in one function. First: the draft called open() on whatever the path named,
+    and a FIFO with no writer blocks inside open() forever -- `except Exception` rescues nothing, and
+    the death poll has no timeout, so the loop would never even reach its own deadline check. Second:
+    reading the first 4 MiB and treating it as the whole document would let a MATCHING record before
+    the boundary and a DIFFERENT one after it pass the conflict refusal, which is the exact hole the
+    conflict refusal exists to close. `utf-8-sig` because a BOM before the first record would
+    otherwise defeat the column-0 anchor.
+    """
+    if not os.path.isfile(path):
+        raise RuntimeError('%s is not a regular file' % path)
+    with open(path, 'rb') as fh:
+        raw = fh.read(_MAX_RULES_BYTES + 1)
+    if len(raw) > _MAX_RULES_BYTES:
+        raise RuntimeError('%s exceeds %d bytes; refusing to read a truncated rules document'
+                           % (path, _MAX_RULES_BYTES))
+    return raw.decode('utf-8-sig', errors='replace')
+
+
+_GATE_NOTE = None
+try:
+    _rules_path = os.environ.get('VERDICT_RULES') or os.path.expanduser('~/digest/RULES-IN-FORCE.md')
+    _live_bundle, _live_parts = _gate_bundle()
+    # SILENT ONLY UNDER A FIXTURE HARNESS, AND THAT IS NOW A TEST rather than a hope. The first
+    # draft was silent whenever the rules file was ABSENT, and a Codex pass named the hole: deleting
+    # ~/digest/RULES-IN-FORCE.md would make the interlock vanish and every read print as if checked.
+    # Production passes none of the VERDICT_* overrides (this file's own docstring says so), so their
+    # presence is the discriminator between a replay and a fleet read.
+    _is_fixture = bool(os.environ.get('VERDICT_REG_DIR') or os.environ.get('VERDICT_READS_DIR'))
+    if not os.path.isfile(_rules_path):
+        if not _is_fixture:
+            _GATE_NOTE = ('GATE RECORD ABSENT: %s does not exist, so this read had NOTHING to check '
+                          'its own gate code against (live bundle %s). Reported, never a verdict.'
+                          % (_rules_path, _live_bundle))
+    else:
+        import re as _re
+        # ANCHORED AT COLUMN 0, deliberately: this format is quoted inside the registration document
+        # and inside docstrings, and an indented example must not read as the authoritative record.
+        # The trailing boundary is what stops the first 32 digits of a 33-digit string matching.
+        _rec = [m.group(1).lower() for m in _re.finditer(
+            r'(?m)^GATE DIGEST verdict-bundle md5 ([0-9a-fA-F]{32})(?![0-9a-fA-F])',
+            _read_rules_bounded(_rules_path))]
+        if not _rec:
+            _GATE_NOTE = ('GATE NOT REGISTERED: %s records no `GATE DIGEST verdict-bundle md5` line, '
+                          'so nothing here establishes that this gate is the registered gate (live '
+                          'bundle %s). Three gate generations shipped unregistered in three days.'
+                          % (os.path.basename(_rules_path), _live_bundle))
+        elif len(set(_rec)) > 1:
+            _GATE_NOTE = ('GATE DIGEST AMBIGUOUS: %s records %d different bundle digests; leave '
+                          'exactly one.' % (os.path.basename(_rules_path), len(set(_rec))))
+        elif _live_bundle != _rec[0]:
+            _GATE_NOTE = ('GATE CODE IS NOT THE REGISTERED GATE CODE: live bundle %s vs registered '
+                          '%s. This read was taken by an UNREGISTERED gate generation. Parts: %s. '
+                          'Reported, never a verdict -- the launch refusal is gatedigest.py.'
+                          % (_live_bundle, _rec[0],
+                             ' '.join('%s=%s' % (n, h[:8]) for n, h in _live_parts)))
+except Exception as _e:  # an interlock that can break a read is worse than the drift it watches
+    _GATE_NOTE = 'GATE DIGEST CHECK FAILED TO RUN (%s: %s) -- reported, never a verdict' % (type(_e).__name__, _e)
+# APPENDED HERE, NOT WHERE THE OTHER ADVISORIES ARE. `out()` calls sys.exit, so a note added further
+# down the file is absent from every verdict decided before it -- the death gate in section 4 exits
+# past section 9, which is the bug the v30 check was moved to section 0 to escape. A gate-code
+# interlock that is silent on exactly the reads that reverted something would be worse than none.
+#
+# AND IT CARRIES NO VERDICT TOKEN. canary-loop.sh's death-poll arm matches `case "$V" in *REVERT*)`
+# on the WHOLE line and sets FINAL=REVERT from the substring, with no field extraction -- so any
+# advisory containing that word would be a false revert. Measured on this file: 8 of 42 why.append
+# sites carry the literal "REVERT", six of them on the same statement as out('REVERT'); the other two
+# (v28's "MORE THAN ONE calibrated REVERT line", v25's "does not license a REVERT") sit past the
+# poll's exit at out('POLL_OK'), so the route is LATENT, not live. This note is reachable under
+# --poll, which is why it says "never a verdict" without ever spelling the tokens, and why the loop's
+# poll arm was hardened to read the field instead of the line.
+if _GATE_NOTE:
+    why.append(_GATE_NOTE)
+
 # v30: A REGISTRATION WHOSE LAST READ MINUTE IS NOT STRICTLY INSIDE ITS DEADLINE CANNOT BE READ.
 # MEASURED 2026-09-25 on drop5-01: read_minutes [30,90,180,360] AND deadline_min 360. canary-loop.sh:92
 # tests `elapsed > DEADLINE*60` INSIDE the read loop, so the loop arrived at the +360 read at 362 min
@@ -187,7 +327,14 @@ if _sv:
 def out(v, extra=None):
     o = {'run_id': run_id, 'window_min': M, 'verdict': v, 'why': why, 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'extra': extra or {}}
     os.makedirs(R, exist_ok=True); json.dump(o, open(os.path.join(R, f'{run_id}-verdict-{M}.json'), 'w'), indent=1, default=str)
-    print(f"VERDICT {v} (+{M}) :: " + ' | '.join(why)); sys.exit(0)
+    # ONE LINE, ALWAYS. canary-loop.sh takes `tail -1` of this output and then `awk '{print $2}'`,
+    # so a newline anywhere in a reason splits the verdict off the end and the loop reads whatever
+    # followed it -- a reason containing "x REVERT" after a newline becomes the last line and reverts
+    # the canary, and an ordinary continuation HIDES a real REVERT. Found by a review pass on the v32
+    # advisory, which interpolates a path; fixed here instead of there, because all 42 reason sites
+    # have the same exposure and the next one will not remember. The JSON artifact keeps the raw text.
+    _flat = [str(w).replace('\r', ' ').replace('\n', ' ') for w in why]
+    print(f"VERDICT {v} (+{M}) :: " + ' | '.join(_flat)); sys.exit(0)
 # 0. THE REGISTRATION MUST BE ABLE TO CONCLUDE. This runs BEFORE any section that can decide,
 # because out() exits the process -- the first draft of this check sat in section 9 and the death
 # gate in section 4 reverted past it every time.

@@ -945,3 +945,166 @@ explains it and does not overturn it, because amendments are prospective only.
 the loss. `verdict.py` additionally reports the violation on **every** read, so a canary that somehow starts
 in this state says so from +30 rather than at its deadline. A guard only in `verdict.py` would be too late
 by construction, which is the same mistake as a remedy the bot cannot perform from where it is.
+
+---
+
+## v31 — A CANARY MUST NAME THE INSTRUMENT THAT WILL READ IT, AND THE CLASS DECIDES WHAT IT MAY DO
+**PROSPECTIVE from 2026-09-26 11:5xZ. Registered a day late, and that lateness is the subject of v32.**
+
+The rule was implemented in `b01b1e7` (2026-09-25 15:21Z) and has been live in `~/verdict.py` since. It is
+registered here, prospectively, on 2026-09-26. **It decided nothing in the interval** — see "What it did in
+the 20 hours it was unregistered" below, which is measured rather than asserted.
+
+`licencecheck.py` refuses a canary that names no discriminating instrument, and classifies the one it names:
+
+| class | what it is | what it may do |
+|---|---|---|
+| `kind` | a row kind the baseline **cannot** emit; the baseline window must be verified SILENT | may licence a REVERT together with linkage |
+| `text` | a substring of an EXISTING row's detail that one arm logically cannot write — `drop5-01`'s `(limit 3)` vs `(limit 5)`, both interpolated by `stepLineSafe` into its own `why` | may licence a REVERT together with linkage |
+| `rate` | no arm-exclusive kind or text exists; only the RATE of a shared row moves | **REPORT-ONLY BY CONSTRUCTION** — may not revert on an own_line, a friction rule, or the change-row linkage; only the calibrated catastrophe gates (death gate, v15c, v11) may |
+
+**The escape hatch is a DOWNGRADE, not an exemption**, and `verdict.py` is where that became true rather
+than advisory: `_LIC_REPORT_ONLY` blocks `_deciding_evidence` and the v23 licence path.
+
+### Why it exists, with the denominator
+`changerowcheck.py` **passes its own null case**: a registration declaring no `change_rows` and no
+`linkage_extra` prints "nothing to check" and exits 0. **Measured: 9 of 18 registrations on file declared
+nothing, and all nine passed.** Two canaries died of that — `blindstep-01` reverted on a row whose control
+rate is zero BY CONSTRUCTION (verified false: falls were 3 in control to the canary's 1), and `leaf-01`
+reverted on an uncalibrated rate line that false-trips 43% of no-change windows.
+
+### Coverage, and the honest ceiling
+Over the 23 reverted shas: `kind` 16 (70%), `text` +1 (74%), `rate` 3 (13%), and 3 (13%) observable only as
+a continuous measurement — the cooldown constants, never interpolated into any row. **~74% is the ceiling
+for an instrument revert; the remaining quarter is told so rather than pretended.**
+
+### THE REFUSAL WAS NOT WIRED, AND THAT IS TODAY'S FINDING
+`licencecheck.py`'s own docstring says it refuses "before the draw and before three hours of fleet time".
+**`canary-loop.sh` never invoked it.** Measured 2026-09-26, with the positive control in the same grep: the
+loop called `changerowcheck.py` (line 22) and `v30check.py` (line 52) and nothing else, so the absence was
+real and not a broken search. **2 of 20 registrations on file declare a `licence` at all** — which is what an
+unwired refusal looks like from outside.
+
+That is the defect class this project opens its rules with: **a remedy that is printed but not reachable.**
+One refusal printed its correct remedy 262 times and the model never acted on it. A checker whose refusal is
+never called is the same shape, and worse, because its docstring reads as protection.
+
+**Wired 2026-09-26** into `canary-loop.sh`'s preflight, inside the same `canary_code_version != SHA` guard as
+`changerowcheck.py`, paging `error`, journalling `refused-v31` and exiting 2. Asserted by
+`scripts/test_launch_guards.py`, which checks the invocation is in *executable* text (comments stripped),
+that its status is tested, that the loop exits 2, and — end to end — that a registration naming no licence is
+actually refused.
+
+### What it did in the 20 hours it was unregistered
+**Nothing.** `falls-02` and `vetob2-01` both ran under it overnight and both declared a `licence`; neither
+verdict names a licence downgrade, and `licence` appears in both reads' "NOT evaluated by this gate" list.
+Positive control that the check for this could see something: the same lists name `mechanism_check`,
+`null_calibration` and `draw_exposure`, which are also declared-and-not-evaluated.
+
+### Direction
+It can only **stop a canary from starting** (v31's launch half) or **withhold a REVERT** (the `rate`
+downgrade). It cannot manufacture a KEEP or a REVERT, and it changes no past decision.
+
+---
+
+## v32 — THE LIVE GATE CODE MUST BE THE REGISTERED GATE CODE, AND THE GATE SAYS SO ITSELF
+**PROSPECTIVE from 2026-09-26.** Implemented in `scripts/host/gatedigest.py` (launch refusal) and
+`verdict.py` (report-only annotation on every read).
+
+### The incident this closes is three days long
+| generation | live at | registered | how it was found |
+|---|---|---|---|
+| v25–v28c | 2026-09-23/24 | retrospectively, `a9e13e1` | by hand |
+| v29 | `faf7cf7`, 2026-09-24 12:11Z — **~23 h after `a9e13e1` was written for exactly this reason** | retrospectively, `3a1fd0d` | by hand; **the code never spells "v29"**, so a label grep read as "not live" |
+| v31 | `b01b1e7`, 2026-09-25 15:21Z — **4 h after v29/v30 were registered** | above, 2026-09-26 | by hand, comparing `~/verdict.py` md5 `e9a81408` against the `6dda048d` STATE.md recorded |
+
+The standing wake-up already said the right thing — *"A GATE CAN BE LIVE WITHOUT SPELLING ITS OWN NAME: do
+not grep for `vNN`; diff `~/verdict.py` against the last registered md5"* — **and it was followed on none of
+the three days, because it asks a person to remember a comparison.** `ZeroLooksWrong` is the model this repo
+already trusts: it does not ask you to remember, it raises. This is that, for the gate.
+
+### THE RECORD
+Exactly one line, at column 0, in `~/digest/RULES-IN-FORCE.md` (and its repo copy):
+
+    GATE DIGEST verdict-bundle md5 <32 hex>
+
+**Anchored at column 0 deliberately**, because that format is quoted in this document and in three
+docstrings — including four lines above this one — and an indented example must not read as the
+authoritative record. A guard satisfied by its own documentation is the source-grep-matched-the-comment
+failure in a new place. **Registered value, 2026-09-26: `863a7259…` (below, in full).**
+
+### IT IS A BUNDLE, NOT `verdict.py`, AND A REVIEW PASS FORCED THAT
+The first draft hashed `verdict.py` alone and a Codex pass killed it in one line: **the decisions live partly
+in the modules it imports.** `deathgate.py` holds the v21 lower-bound test — *the acceptance mutant runner
+MUTATES THAT FILE to flip a case from KEEP to REVERT* — and `singledeath.py` holds v23's two-death floor.
+Either could be rewritten with `verdict.py` untouched, and the draft would have called that registered.
+
+So the digest is computed **by the gate itself** (`verdict.py --gate-digest`) over the files its **own imports
+resolved to**, via `sys.modules`. `gatedigest.py` never re-derives that resolution: `arms.py` is on none of
+the paths `verdict.py`'s docstring lists, and a hand-written path list would have silently recorded it MISSING
+and passed anyway. **An UNRESOLVED part is not certifiable** — `gatedigest.py` refuses rather than freezing a
+digest that no longer tracks that module. What the bundle guarantees is that **an edit to a decision module's
+source changes the digest**; it is not a proof of executed bytes, since `__file__` names a path and a cached
+`.pyc` can run beside it.
+
+### Where the hard stop lives, and what each half does NOT cover
+- **Launch** (`gatedigest.py`, wired into `canary-loop.sh` beside `v30check.py`): refuses before the draw and
+  before any fleet time. **It runs only inside the `canary_code_version != SHA` guard** — so on a fresh
+  launch and on a resume at a different sha, and **not** on a resume at the same sha, and never again at the
+  second or third read.
+- **Read** (`verdict.py`): annotates on **every** read, **report-only**, appended before any section can
+  decide, because `out()` calls `sys.exit` and a note added further down is absent from exactly the reads
+  that reverted something.
+
+**Neither half is sufficient and both are wired**, which is the honest description. A missing rules file is
+silent **only under a fixture harness** (`VERDICT_REG_DIR` / `VERDICT_READS_DIR` set; production sets
+neither) — the first draft was silent whenever the file was absent, and a review pass named the hole:
+deleting `~/digest/RULES-IN-FORCE.md` would have made the interlock vanish while every read printed as
+checked.
+
+### NO RECORD IS A REFUSAL, NOT A PASS
+A digest checker that exits 0 when the record is absent would repeat `changerowcheck.py`'s null-case defect
+in the one place written to catch it. Two **different** records also refuse — two copies of `verdict.py` were
+found disagreeing about the death rule on 2026-09-18, and this is that failure one level up. Two **identical**
+records are not a conflict.
+
+### Direction, and why it cannot manufacture a verdict
+The launch half can only refuse to start. The read half **only appends a reason**, and
+`scripts/test_verdict_acceptance.py` pins that: a mismatching digest leaves a clean canary at KEEP. An
+interlock that could revert on its own drift would be a new false-revert route, and 7 of 23 reverts on file
+are already confirmed false.
+
+### A LATENT FALSE-REVERT ROUTE FOUND WHILE BUILDING THIS, AND CLOSED
+`canary-loop.sh`'s **death-poll** arm matched `case "$V" in *REVERT*)` on the **whole verdict line** and set
+`FINAL=REVERT` from the substring — while the scheduled-read arm below it has always taken
+`awk '{print $2}'`. Two rules about the same question, and the loose one ran on the poll.
+
+**Measured on `verdict.py`: 8 of 42 `why.append` sites carry the literal "REVERT".** Six are on the same
+statement as `out('REVERT')` (harmless). The other two — v28's *"MORE THAN ONE calibrated REVERT line
+declared"* and v25's *"does not license a REVERT"* — print it **while the verdict is INCONCLUSIVE**, and both
+sit past the poll's `out('POLL_OK')` exit. **So the route was LATENT, not live.** The v32 advisory *is*
+reachable under `--poll`, which is what made a latent route worth closing instead of documenting. The poll
+arm now reads the field.
+
+**And the general fix is in `out()`, not in the advisory:** every rendered reason is flattened to one line.
+The loop reads `tail -1` then `awk '{print $2}'` **with no check that the line is a verdict at all**, so a
+reason carrying a newline could either forge the line the loop reads or hide a real REVERT above it. That is
+now the one-line contract the loop always assumed and nothing enforced, and it covers all 42 reason sites
+rather than the one that exposed it.
+
+### Tests
+`scripts/test_launch_guards.py` — the comparison (positive control first: a matching digest is **silent**),
+the null case, a missing rules file, a missing gate file, two records, an UPPERCASE record, and **a rewritten
+`deathgate.py` with `verdict.py` unchanged is REFUSED and the refusal names which file moved**; 3/3 mutants,
+each shown to fail for its intended reason. Plus the wiring for v31 and v32 in executable text, with the two
+already-wired checkers as the positive control, and the poll arm reading the field.
+`scripts/test_verdict_acceptance.py` — **83/83** (7 new: the silent match, the named mismatch, report-only,
+no-advisory-token, the absent record, the indented example, and the newline forgery).
+`scripts/test_verdict_acceptance_mutants.py` — **33/33** (4 new).
+
+**Two review notes worth keeping, because both mutants were nearly scored wrong.** The null-case mutant
+asserts the *diagnosis*, not the exit code: removing the branch still refuses (via `IndexError`), so the
+branch buys the remedy, not the refusal. And the one-line mutant asserts *one line*, not a flipped verdict,
+because this suite's harness rejects a non-`VERDICT` last line as CRASH while the loop does not — a case
+phrased as "the verdict is still KEEP" measures the harness's strictness, survived, and would have scored the
+fix as decorative.

@@ -25,6 +25,32 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
     exit 2
   fi
   journal preflight-ok "$(grep 'positive control' $H/digest/changerowcheck-$RUN.log)"
+  # ---- v31 preflight: A CANARY MUST NAME THE INSTRUMENT THAT WILL READ IT, AND ITS CLASS.
+  # licencecheck.py was written on 2026-09-25 and its own docstring says it "refuses at launch" --
+  # and it was never wired to anything, so that refusal did not exist. Found 2026-09-26: the loop
+  # invoked changerowcheck.py and v30check.py and NOT this (positive control: the same grep finds
+  # both of those), and 2 of 20 registrations on file declare a `licence` at all. `changerowcheck.py`
+  # PASSES ITS OWN NULL CASE -- 9 of 18 registrations declared no change_rows and all nine passed --
+  # which is the hole this closes, and it is exactly the defect class CLAUDE.md names: a remedy that
+  # is printed but not reachable. verdict.py can only SAY "no licence declared" (v31); this is the
+  # only place it is preventable, before the draw and before three hours of fleet time.
+  if ! sudo python3 $H/mcai-analysis/licencecheck.py "$RUN" --hours 6 --registrations $H/mcai-analysis/registrations > $H/digest/licencecheck-$RUN.log 2>&1; then
+    page error "licence preflight REFUSED $RUN; not drawing or deploying. $(grep -A3 '^REFUSED' $H/digest/licencecheck-$RUN.log | tail -3 | tr '\n' ' ')"
+    journal refused-v31 "$(tail -5 $H/digest/licencecheck-$RUN.log | tr '\n' ' ')"
+    exit 2
+  fi
+  journal licence-ok "$(tail -2 $H/digest/licencecheck-$RUN.log | tr '\n' ' ')"
+  # ---- v32 preflight: THE LIVE GATE CODE MUST BE THE REGISTERED GATE CODE.
+  # Three days running a gate generation shipped live and in no registration (v25-v28c, v29, v31).
+  # The standing wake-up said to diff verdict.py against the last registered md5 and was followed on
+  # none of the three days, because it asks a person to remember a comparison. No sudo: gatedigest.py
+  # reads $HOME paths and sudo would resolve them to root's.
+  if ! python3 $H/mcai-analysis/gatedigest.py --verdict $H/verdict.py --rules $H/digest/RULES-IN-FORCE.md > $H/digest/gatedigest-$RUN.log 2>&1; then
+    page error "gate-digest preflight REFUSED $RUN; the live gate is not the registered gate. $(tail -4 $H/digest/gatedigest-$RUN.log | tr '\n' ' ')"
+    journal refused-v32 "$(tail -6 $H/digest/gatedigest-$RUN.log | tr '\n' ' ')"
+    exit 2
+  fi
+  journal gatedigest-ok "$(tail -1 $H/digest/gatedigest-$RUN.log)"
 fi
 # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
@@ -102,7 +128,17 @@ for M in $READS; do
       journal poll-failed "$(tail -3 $H/digest/poll-err-$RUN.log 2>/dev/null | tr '\n' ' ' | cut -c1-300)"
       page error "DEATH POLL PRODUCED NO VERDICT -- the safety gate is not running: $(tail -2 $H/digest/poll-err-$RUN.log 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
     fi
-    case "$V" in *REVERT*) journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; FINALV="$V"; break 2;; esac
+    # READ THE FIELD, NOT THE LINE. This arm used `case "$V" in *REVERT*)` and set FINAL=REVERT from
+    # a SUBSTRING of the whole verdict line -- while the scheduled-read arm below has always taken
+    # `awk '{print $2}'`. Two rules about the same question, and the loose one ran on the death poll.
+    # MEASURED 2026-09-26: 8 of 42 why.append sites in verdict.py carry the literal "REVERT"; six are
+    # on the same statement as out('REVERT'), and the other two (v28's "MORE THAN ONE calibrated
+    # REVERT line declared", v25's "does not license a REVERT") print it while the verdict is
+    # INCONCLUSIVE. Both sit past the poll's out('POLL_OK') exit, so this was LATENT rather than live
+    # -- and the v32 advisory added today IS reachable under --poll, which is what made a latent
+    # false-revert route worth closing instead of documenting. 7 of 23 reverts on file are already
+    # confirmed false; this is the one class of them that needed no calibration to remove.
+    case "$(echo "$V" | awk '{print $2}')" in REVERT) journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; FINALV="$V"; break 2;; esac
     if [ $(( $(date +%s) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; FINALV="deadline +$DEADLINE reached without a verdict (containment)"; break 2; fi
   done
   # THE READ SCRIPTS LIVE IN /tmp AND NOTHING PUTS THEM THERE.

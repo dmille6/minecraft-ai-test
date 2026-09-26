@@ -181,6 +181,51 @@ MUTANTS = [
      "leaf-01 was reverted by an uncalibrated rate line that false-trips 43% of no-change windows. "
      "If class=rate does not actually forbid an instrument revert, the class is decoration."),
 
+    # NEW 2026-09-26 (v32). THREE CONSECUTIVE DAYS a gate generation shipped live and in no
+    # registration, and each time it was found only by a person remembering to compare md5s.
+    ('the v32 gate-digest annotation removed -- an unregistered gate reads exactly like a registered one',
+     'verdict.py',
+     'if _GATE_NOTE:\n    why.append(_GATE_NOTE)',
+     'if False:\n    why.append(_GATE_NOTE)',
+     '  a MISMATCHING digest is named on the verdict line', 'False',
+     "v31 was live in the decision path for 20 h and in no registration, and the only tell was "
+     "`e9a81408` against the `6dda048d` the state file recorded. Without this line the read is "
+     "silent about the gate that took it, which is the state that produced three days of this."),
+
+    # The record format is quoted in the registration document and in three docstrings. Dropping the
+    # column-0 anchor lets a QUOTED EXAMPLE satisfy the guard -- the guard validated by its own
+    # documentation, which is the source-grep-matched-the-comment failure in a new place.
+    ('the v32 record anchor loosened -- an indented example counts as the authoritative record',
+     'verdict.py',
+     "r'(?m)^GATE DIGEST verdict-bundle md5 ([0-9a-fA-F]{32})(?![0-9a-fA-F])',",
+     "r'GATE DIGEST verdict-bundle md5 ([0-9a-fA-F]{32})',",
+     '  an INDENTED example is not the authoritative record', 'False',
+     "This codebase's comments quote the code they explain, which is why CLAUDE.md says to strip "
+     "comments before a source assertion. The same hazard applies to a checker that reads a "
+     "document: its own example must not parse as the record."),
+
+    # THIS MUTANT ASSERTS ONE LINE, NOT A FLIPPED VERDICT, AND THAT DISTINCTION IS THE FINDING.
+    ('the one-line verdict contract removed -- a reason may forge the line the loop reads',
+     'verdict.py',
+     "    _flat = [str(w).replace('\\r', ' ').replace('\\n', ' ') for w in why]",
+     "    _flat = why",
+     '  ...and the whole verdict is ONE line', 'False',
+     "A reason that can add a line can choose the verdict: canary-loop.sh reads the LAST line and "
+     "awks field 2 out of it, with no check that the line is a verdict at all. It is asserted as ONE "
+     "LINE rather than as a flipped verdict because THIS SUITE's harness rejects a non-VERDICT last "
+     "line as CRASH while the loop does not -- so a case phrased as 'the verdict is still KEEP' "
+     "measures the harness's strictness, not the loop's exposure. The first draft of this mutant was "
+     "phrased that way, survived, and would have scored the replace() as decorative."),
+
+    ('the v32 null-case DIAGNOSIS removed -- an absent record becomes an IndexError, not a remedy',
+     'verdict.py',
+     '        if not _rec:',
+     '        if False:',
+     '  a rules file with NO digest line says so, rather than passing', 'False',
+     "changerowcheck.py exits 0 on its own null case and 9 of 18 registrations passed it while "
+     "declaring nothing. A provenance check that is silent when the record is absent repeats that "
+     "defect in the one place written to catch it."),
+
     ('the no-licence warning removed -- silence and permission print the same again',
      'verdict.py',
      'if not _LIC_CLASS:',
@@ -388,6 +433,13 @@ WANT_BASE = {
     # v27: a boolean case, not a verdict token -- the baseline is that the warning IS present
     # when no change_rows are declared, and the mutant's job is to make it absent.
     '  and it says LINKAGE UNAVAILABLE when no change_rows are declared': 'True',
+    # v32 (2026-09-26): boolean cases again -- the baseline is that the gate NAMES a digest
+    # mismatch and NAMES an absent record, and each mutant's job is to make one of them silent.
+    '  a MISMATCHING digest is named on the verdict line': 'True',
+    '  a rules file with NO digest line says so, rather than passing': 'True',
+    '  an INDENTED example is not the authoritative record': 'True',
+    'a newline inside a reason cannot forge a verdict line': 'KEEP',
+    '  ...and the whole verdict is ONE line': 'True',
     # v28: the calibrated-own-line guards. Baseline for each is INCONCLUSIVE -- the line FAILED
     # but its calibration is unsound, so it must reach neither REVERT nor KEEP.
     'unsound calibration blocks: threshold mismatch (calibrated 50, registered 30)': 'INCONCLUSIVE',
