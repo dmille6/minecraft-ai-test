@@ -101,9 +101,29 @@ verdict, because this suite's harness rejects a non-`VERDICT` last line as CRASH
 not, so the obvious phrasing measured the harness and survived. And a third draft of that case was
 **vacuous** — it checked the already-split last line for a newline it could never contain.
 
-**One self-inflicted loss, recorded because it will recur.** `open(p,'w').write(x)` with a non-string
-`x` truncates the file before it raises; `test_verdict_acceptance_mutants.py` was zeroed that way and
-restored from HEAD. Write to a temp file and `os.replace`.
+**Two self-inflicted losses, both recorded because both will recur.** `open(p,'w').write(x)` with a
+non-string `x` truncates the file before it raises; `test_verdict_acceptance_mutants.py` was zeroed that
+way and restored from HEAD.
+
+And the worse one: **I destroyed `~/digest/RULE.md` and restored it.** `cat >> scripts/host/RULE.md`
+created a *new* 1,847-byte repo file — RULE.md had never been tracked, so there was nothing to append
+to — and the scp then replaced the host's real 103 KB file with that fragment. `## v14c` went with it, so
+`analyst.py`'s slice fell back to the whole tiny file and handed the model v31/v32 as the entire rule tail.
+
+The tell was **`prompt_tokens` 8034 → 3631** after I had made both rule files *longer*. The wrong direction
+is the whole signal: the obvious check — "does the analyst still run?" — passed (`fleet_healthy` and
+`versions_ok` both True) and would have missed it completely.
+
+**Blast radius, with the denominator: one analyst run (12:30Z), with no canary live, which still answered
+correctly. No decision rested on it.** `RULES-IN-FORCE.md` — the half `analyst.py` calls authoritative, and
+the only half that names WITHDRAWN rules — was correct throughout. Restored at 12:27Z from the previous
+session's timestamped backup plus v29–v32 re-appended; **v29 and v30 are reconstructed and say so in their
+own text**, because the 25 Sep append's wording is unrecoverable. Host and repo now agree at `746c65e4`.
+
+Two things follow. **The previous session took a `.bak` before editing that file and I did not — that
+backup is the only reason this was recoverable.** And RULE.md cannot be regenerated from the registration
+document: 0.58 line similarity, with 139 lines existing nowhere else. A 103 KB hand-maintained duplicate
+with no tracked source is the real defect, and it is now queue item 16.
 
 ## Suites
 
