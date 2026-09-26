@@ -137,7 +137,16 @@ await t('END TO END POSITIVE CONTROL: a bankable item still transfers', async ()
   const { bot, deposited } = depositBot(inv({ oak_log: 12 }))
   const r = await run(bot, { item: 'oak_log' })
   assert.equal(r.status, 'success', JSON.stringify(r))
-  assert.deepEqual(deposited, [12])
+  // 4, not 12, since 2026-09-26: the scaffold reserve now covers WOOD as well as the stone
+  // family, and this is a wood-only fixture. scaffold.mjs's PATHFINDER_SCAFFOLD contains
+  // every plank and log -- what mineflayer bridges and towers with -- and its own comment
+  // records that "16.2% (13 bots) hold WOOD and nothing else the pathfinder will accept".
+  // 817 of 819 deposit skill_error rows in 24 h are pathfinder prose, so a deposit that
+  // SUCCEEDS was stripping what the next one needed to walk. 8 logs stay, the surplus 4
+  // transfers -- which is exactly what the sibling case above already asserts for
+  // cobblestone ("A RESERVED ITEM IS NOT A MISSING ITEM"). The transfer still happens,
+  // which is all this positive control exists to prove.
+  assert.deepEqual(deposited, [4])
 })
 
 await t('END TO END: `deposit apple` holding 30 apples gets the TRUE sentence', async () => {
