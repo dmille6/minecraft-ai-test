@@ -12,7 +12,7 @@
 import { SKILLS, classifyOutcome, SKILL_CONTRACTS } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
-import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
+import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory, offLimitsLine } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
 import { orderFor, readyFor } from './workorder.mjs'
@@ -662,10 +662,17 @@ export class CognitiveLoop {
 
     const milestone = this.#activeTask()
     const sentinel = makeSentinel()
+    // MEASURE WHAT THE MODEL SAW, NOT WHAT THE GATE HELD. offLimitsLine caps the
+    // rendered line at OFF_LIMITS_LINE_MAX, so `held` and what reached the prompt
+    // can differ; `chars` is taken from the rendered string for that reason. The
+    // same defect in reverse sank blindstep-01, whose exposure floor counted
+    // INTENTIONS and could have been met with no bot moving.
+    const offLimits = this.admission.offLimits()
+    const offLimitsShown = offLimitsLine(offLimits)
     const { user, tokens, dropped, affordance } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory,
       lastOutcome: this.lastOutcome, trigger, sentinel,
-      offLimits: this.admission.offLimits(),
+      offLimits,
       // Own experience first, then what peers reported. Peer lines carry the
       // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
       // weigh first-hand knowledge against hearsay, and so a bad fact can be
@@ -675,6 +682,21 @@ export class CognitiveLoop {
         ...(this.worldFacts?.promptLines(this.bot.entity?.position) ?? []),
       ],
     })
+
+    // THE CANARY'S ONLY NEW ROW. The baseline cannot emit it -- this kind does not
+    // exist on efa2853 -- so control silence is structural, not statistical, which
+    // is what makes this change readable at all. A new EVENT and never a new field:
+    // the decision index is dynamic:strict and one unmapped key rejects the WHOLE
+    // document, which cost eight days and ~1.4M absent decisions once already.
+    if (offLimitsShown) {
+      logEvent({
+        kind: 'veto_feedback',
+        status: 'success',
+        detail: `held=${offLimits.length} chars=${offLimitsShown.length} ` +
+                `secs_max=${offLimits[0]?.secondsLeft ?? 0} ` +
+                `skills=${[...new Set(offLimits.map(e => e.skill))].sort().join('+')}`,
+      })
+    }
 
     const snap = snapshot(this.bot)
     if (snap.game) snap.game.biome = biomeAt(this.bot)

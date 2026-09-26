@@ -67,13 +67,56 @@ t('the prompt carries the OFF-LIMITS line when the gate has refusals, and not ot
 const COG = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8')
 t('the loop passes the gate\'s refusals to the prompt and names the vetoed proposal, args included', () => {
   const c = strip(COG)
-  assert.match(c, /offLimits: this\.admission\.offLimits\(\)/, 'buildUserPrompt must receive the live off-limits table')
+  assert.match(c, /const offLimits = this\.admission\.offLimits\(\)/, 'the loop must read the live off-limits table')
+  assert.match(c, /^\s*offLimits,$/m, 'and hand it to buildUserPrompt')
   assert.match(c, /this\.lastOutcome = `rejected \$\{what\}: \$\{String\(why \?\? ''\)\.slice\(0, 96\)\}`/, 'the rejection names what was vetoed and keeps the reason')
   assert.match(c, /: 'proposal'\)\.slice\(0, 60\)/, 'the proposal is clipped so the reason survives')
 })
 t('MUTANT: dropping the wiring is caught', () => {
-  const anchor = 'offLimits: this.admission.offLimits(),'
+  const anchor = '      offLimits,\n'
   assert.equal(COG.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  assert.ok(!/offLimits: this\.admission\.offLimits\(\)/.test(strip(COG.replace(anchor, ''))))
+  assert.ok(!/^\s*offLimits,$/m.test(strip(COG.replace(anchor, ''))), 'the wiring assertion must fail without the wiring')
+})
+
+// ---- THE READABILITY INSTRUMENT -------------------------------------------
+// This canary emits ONE new row so its arms can be told apart. `_veto_feedback`
+// does not exist on efa2853, so control silence is structural. Behaviour cannot
+// reach the emission (CognitiveLoop needs a live bot, an LLM and an admission
+// gate), so these are source assertions -- and each one is proven to fail against
+// a mutant, per CLAUDE.md: a source test never seen to fail is not a test.
+t('the instrument measures the RENDERED line, not the table the gate holds', () => {
+  const c = strip(COG)
+  assert.match(c, /const offLimitsShown = offLimitsLine\(offLimits\)/, 'the rendered line must be computed')
+  assert.match(c, /kind: 'veto_feedback'/, 'the new kind must be emitted')
+  assert.match(c, /chars=\$\{offLimitsShown\.length\}/, 'chars must come from the RENDERED line, never from offLimits.length')
+  assert.match(c, /held=\$\{offLimits\.length\}/, 'held reports what the gate holds, separately')
+  assert.ok(/offLimitsLine/.test(strip(COG).split('\n').find(l => /from '\.\/prompt\.mjs'/.test(l)) ?? ''),
+    'offLimitsLine must be imported from prompt.mjs')
+})
+t('the instrument is silent when nothing is off-limits (an idle bot emits no row)', () => {
+  const c = strip(COG)
+  assert.match(c, /if \(offLimitsShown\) \{\s*\n\s*logEvent\(\{\s*\n\s*kind: 'veto_feedback'/,
+    'the emission must be guarded by the rendered line being non-empty')
+  // offLimitsLine returning '' for an empty table is what makes that guard correct,
+  // and it is asserted behaviourally above.
+  assert.equal(offLimitsLine([]), '', 'the guard relies on this')
+})
+t('MUTANT: removing the silence guard is caught', () => {
+  const anchor = '    if (offLimitsShown) {'
+  assert.equal(COG.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const mutant = strip(COG.replace(anchor, '    if (true) {'))
+  assert.ok(!/if \(offLimitsShown\) \{\s*\n\s*logEvent\(\{\s*\n\s*kind: 'veto_feedback'/.test(mutant),
+    'an unguarded emission must fail the silence assertion')
+})
+t('MUTANT: measuring held instead of the rendered line is caught', () => {
+  const anchor = 'chars=${offLimitsShown.length}'
+  assert.equal(COG.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
+  const mutant = strip(COG.replace(anchor, 'chars=${offLimits.length}'))
+  assert.ok(!/chars=\$\{offLimitsShown\.length\}/.test(mutant),
+    'swapping the rendered length for the table length must fail')
+})
+t('MUTANT: deleting the emission entirely is caught', () => {
+  assert.ok(/kind: 'veto_feedback'/.test(strip(COG)), 'present to begin with')
+  assert.ok(!/kind: 'veto_feedback'/.test(strip(COG.replace("        kind: 'veto_feedback',\n", ''))))
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
