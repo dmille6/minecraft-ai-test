@@ -256,3 +256,84 @@ power.
 Also to check honestly at +180: whether the original exposure floor of 500 would in
 fact have been met (260 rows at +30 extrapolates well past it), in which case my
 amendment down to 150 was unnecessary and I should say so.
+
+---
+
+## 11. vetob2-01 CLOSED — gate KEEP, effect INCONCLUSIVE, mechanism CONFIRMED
+
+Ran 3 h on `hive-a`+`hive-c`, 10 bots, **24.96 warm canary bot-hours**. Torn down
+clean: 80 bots, exactly one version `efa2853+c7b045`, open-loop guard clear.
+
+**`verdict.py` returned KEEP** on exposure (1,198 ≥ 150), linkage (0 control rows,
+10/10 settled, 0 over-cap) and deaths (0 vs control 2). It never tested the effect —
+see §9. **That KEEP is "nothing objected", not "it worked."**
+
+**My effect call is INCONCLUSIVE.** The registered primary `vetoes_did_warm` is
+**−3.50** against a gate of **−5.03**, the 5% one-sided bound of an exhaustive
+same-shape null (C(12,2)=66, mean 0.00, sd 3.31).
+
+**The mechanism is confirmed, on two measures, one of which never touches the gate:**
+
+    repeat_loop vetoes/bot-h      canary  5.97  control 18.13   DiD  -8.71
+      past the pooled p5 (-7.03), far outside the hive-only null range (+1.40..+4.63)
+
+    repeat share of consecutive
+    ADMITTED decisions            canary 0.083  control 0.100   DiD  -0.043
+      past the pooled p5 (-0.0415), below every hive-only draw (min -0.0247),
+      and stable: -0.042 at W=95, -0.043 at W=180
+
+The repeat share comes from admitted decisions in the JSONL, with the gate nowhere in
+the path. **The model does repeat itself less.** That was B2's claim and it holds.
+
+**Why it does not reach the endpoint — refusals relocate.** Warm DiDs:
+
+    repeat_loop  -8.71
+    cooldown     +1.46
+    learned_avoid +3.41
+    -----------------
+    all vetoes   -3.50     (~56% of the gain absorbed)
+
+Confirms `refusals-relocate-not-convert` with a measured null instead of an assertion.
+And diversity did **not** rise significantly (+3.06 distinct (skill,args) keys/bot-h,
+inside the pooled band): the model repeats less **without ranging wider**. That is a
+narrower claim than "it explores more" and the only one the data supports.
+
+No throughput gain: decisions +1.70/bot-h on ~94 = **+1.8%** against a ~17% MDE.
+
+**The draw landed on the worst available stratum for this endpoint.** `hive-a`+`hive-c`
+run `learned_avoid` at 30.70/bot-h against control's 5.59. Hive pools are 109–185
+learned_avoid per 1k decisions against 3–16 elsewhere, so the aggregate in hive is
+dominated by a veto class B2 cannot touch. On non-hive pools the same −8.71
+`repeat_loop` reduction would be a far larger share of total vetoes.
+
+**Power.** sd 3.31 gives an MDE of ≈ −5.45 (1.645σ), roughly 11–15% of the veto rate.
+A true effect of −3.50 sits below it. **The effect may be real and this design cannot
+see it.** 10 bots × 3 h is under-powered; that is a design limit, not a result.
+
+### A correction I owe my own record
+
+I amended the exposure floor from 500 down to 150 at +25 min, on a measured 10.9
+rows/bot-h. **Final exposure was 1,198 — 500 would have been met comfortably, and the
+amendment was unnecessary.** The 10.9 came from a live-files-only walk that missed
+rotated rows; the reader's rotation-aware, deduped count is the correct one. I was
+right to distrust the 2.8 restart transient and wrong to trust the 10.9 that replaced
+it — the same lesson twice in one night, and the fix both times is the rotation-aware
+reader, not a second opinion from the same broken query.
+
+### One benign teardown alarm, named so nobody chases it
+
+Teardown reported `hive-a-Charlie: units not running before restart (still restarted) …
+(restart-failed)`. `hive-a-Charlie` is **disabled and absent from `bot-manifest.json`**
+— a stale unit with a leftover log directory. Teardown enumerates bot names from log
+directories (deliberately, so a partial roster is not missed), which also picks up dead
+units. hive-a's real roster is Alpha/Bravo/Comet/Delta/Echo, all five present, fleet
+intact at 80.
+
+### What this makes next
+
+The wall is `learned_avoid`, not the prompt. It holds `gather:{block:oak_log}` at
+`fails=2658` — the fleet's most common gather target — shared across all five hive-a
+bots, accumulated across runs. It is 13.4% of vetoes fleet-wide and the dominant class
+in hive. That is the next canary. Re-running B2 on non-hive pools with a bigger pool is
+the cheaper second option, and the nulls, the warm-window instrument and the
+direct repeat-share measure all now exist for it.

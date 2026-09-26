@@ -231,6 +231,66 @@
     "vetoes_did_mean": -0.0,
     "repeat_loop_did_mean": -1.51,
     "cooldown_did_mean": 0.64
+   },
+   "learned_avoid_did": {
+    "mean": 0.0,
+    "sd": 3.11,
+    "median": 0.71,
+    "p5": -6.61,
+    "p95": 3.66,
+    "min": -8.15,
+    "max": 4.9,
+    "n": 66,
+    "hive_only_n6": {
+     "mean": -1.12,
+     "median": -1.12,
+     "min": -7.14,
+     "max": 4.9
+    }
+   },
+   "bad_args_did": {
+    "mean": -0.0,
+    "sd": 2.13,
+    "p5": -4.77,
+    "p95": 1.89,
+    "min": -5.49,
+    "max": 2.73,
+    "n": 66,
+    "hive_only_n6": {
+     "mean": 0.69,
+     "min": 0.53,
+     "max": 0.85
+    }
+   },
+   "distinct_keys_per_bh_did": {
+    "mean": 0.0016,
+    "sd": 2.2043,
+    "p5": -3.5842,
+    "median": -0.2549,
+    "p95": 4.2171,
+    "min": -4.4185,
+    "max": 5.6061,
+    "n": 66,
+    "hive_only_n6": {
+     "mean": 0.7869,
+     "min": -0.7682,
+     "max": 2.2938
+    }
+   },
+   "repeat_share_did": {
+    "mean": 0.0006,
+    "sd": 0.0228,
+    "p5": -0.0415,
+    "median": 0.0036,
+    "p95": 0.0373,
+    "min": -0.0519,
+    "max": 0.0435,
+    "n": 66,
+    "hive_only_n6": {
+     "mean": -0.004,
+     "min": -0.0247,
+     "max": 0.0193
+    }
    }
   }
  },
@@ -249,6 +309,16 @@
    "at": "2026-09-26T06:40:56Z",
    "what": "the deciding field becomes vetoes_did_WARM (post-deploy minute 30 onward). Made BEFORE any deciding read.",
    "why": "The restart asymmetry I pre-registered as an 'activity dip' is far worse than that: it is a GATE STATE RESET, and it resets exactly the endpoint I chose. AdmissionControl's constructor clears BOTH `failedCooldowns` (admission.mjs:164) and `recent` (:165), and repeat_loop cannot fire until the bot has chosen 4 IDENTICAL ADMITTED actions (REPEAT_WINDOW = 4 at :22, tested at :701-703). So a restarted pool MECHANICALLY emits no repeat_loop vetoes for the first minutes and then emits excess cooldown vetoes as the map refills. That is precisely the +30 signature -- repeat_loop DiD -11.78, cooldown DiD +9.39 -- and it is a cleared gate, not a treatment effect. MEASURED CONFIRMATION: raw vetoes_did at +30 was -20.06; on the warm window it is -3.95. The raw number was ~80% warm-up. A third of that raw signal sat in learned_avoid (DiD -19.16), a class B2 does not touch at all, which was the tell. WHY WARM IS THE RIGHT FIELD AND NOT A CONVENIENT ONE: the null was measured with BOTH ARMS UNDISTURBED, so the estimator it calibrates is the uncontaminated one. Deciding the raw DiD against that null compares a restarted arm to a no-restart reference. The warm window makes the measurement match its calibration. The gate value is unchanged (-5.03) precisely because the null is unchanged. This is registered BEFORE the +90 and +180 reads and before any deciding number exists."
+  },
+  {
+   "at": "2026-09-26T07:38:54Z",
+   "what": "learned_avoid and bad_args nulls added, so the validity check can actually be judged. No gate changed.",
+   "why": "At +90 the warm learned_avoid DiD was +6.26 and I had NO null for it -- I had registered it as a validity check and could not evaluate my own check. Measured now, same method, same pre-deploy window, C(12,2)=66 exhaustive: mean 0.00, sd 3.11, p95 +3.66, and the MAXIMUM over all 66 assignments is +4.90. So +6.26 is ABOVE EVERY same-shape null draw. THAT IS NOT A VALIDITY FAILURE, ON THE EVIDENCE -- it is the mechanism. B2 cannot touch the lessons store, but it CAN change what the model proposes, and it plainly does: warm repeat_loop DiD -12.17 (canary 4.73 vs control 20.32, a 4.3x reduction, far below the entire hive-only null range +1.40..+4.63). The model stops re-proposing the identical action, proposes different ones instead, and those hit a DIFFERENT wall -- learned_avoid +6.26 and cooldown +1.61 -- leaving all-vetoes at -2.01, inside the noise band. That is `refusals-relocate-not-convert`, measured with a null instead of asserted. CONSEQUENCE FOR THE VERDICT: the target moves hugely and the aggregate does not, so the primary is heading for INCONCLUSIVE while the mechanism is CONFIRMED. Those are different claims and both go in the record."
+  },
+  {
+   "at": "2026-09-26T07:45:36Z",
+   "what": "a DIRECT behavioural measure of the mechanism added and calibrated: the share of consecutive admitted decisions that repeat, plus distinct (skill,args) keys per bot-hour. No registered gate changed.",
+   "why": "Everything above rests on VETO RATES -- rates of the gate refusing. B2's actual claim is about the MODEL: that being told which proposal was vetoed, args included, stops it re-proposing the same thing. That is measurable directly from admitted decisions in the JSONL, without the journald layer and without the gate in the path, so it is an independent test of the same claim. Nulls measured by the identical method on pre-deploy data, C(12,2)=66 exhaustive (289,459 rows, 11,416 pre / 11,541 post admitted decisions, 80 bots both eras). MEASURED at W=95 (warm, ~10.6 canary bot-h): repeat share canary 0.081 vs control 0.095, DiD -0.042 against a pooled p5 of -0.0415 and BELOW the minimum of all six hive-only assignments (-0.0247). Marginal, in the predicted direction, and independent of the veto-rate path. Distinct keys/bot-h DiD +1.226 sits inside both bands, so DIVERSITY is not measurably up -- the model repeats less without ranging wider, which is a narrower claim than 'it explores more' and the only one the data supports."
   }
  ]
 }
