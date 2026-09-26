@@ -436,3 +436,42 @@ Two things the table shows that no aggregate does.
 **`stick` is still the reward-shape artefact.** 537 sticks against a fleet that needs two
 per pickaxe and made 122 pickaxes of all kinds. It has been flagged before and is
 unchanged.
+
+---
+
+## 14. The iron wall is depth
+
+`gather iron_ore`: **2,401 attempts in 24 h (1.25/bot-h), 9 successes (0.37%)**. Nine ore
+a day across eighty bots; an iron pickaxe needs three ingots, so the fleet produces about
+one pickaxe's worth of material per day. That is why `iron_pickaxe` is 0 made from 39
+attempts and only 4 ingots were smelted.
+
+    y-band of the bot when the attempt failed     count   share
+      y  64.. 79                                  1289   53.9%
+      y  48.. 63                                   737   30.8%
+      y  32.. 47                                   269   11.2%
+      y  16.. 31 and below                          87    3.6%
+
+**84.7% of iron attempts are made at y >= 48.** In 1.21 iron generates y=-24..56 (peak
+~16) plus a mountain band at y=80+, so y 64–79 — where over half the attempts happen — is
+close to a generation gap. The fleet hunts a deep resource from the surface, finds the odd
+exposed vein and cannot reach it. (Honest caveat: the y recorded is the BOT's position and
+`findBlock` searches a radius, so the ore itself sits somewhat lower than the bot.)
+
+Failure classes: `unreachable` 69.2%, `no_safe_target` 17.6%, `no_path` 7.7%. The refusal
+texts name the mechanism:
+
+     464  all N candidate(s) in range refused -- could not stand within reach of any of them
+     339  all candidates are beside water or under falling blocks -- digging them would flood or bury
+     150  every candidate is buried -- use mine to dig down [mine said: will not dig down within 2 blocks of home]
+
+**That last line is the composed-refusal trap CLAUDE.md names.** `gather` prints an
+unconditional remedy; `mine`'s willingness is conditional — `skills.mjs:3979` refuses when
+`dHome <= 12 && goalY < y-1`, because a hole at the respawn point is maximally dangerous.
+Both guards are individually correct; together, a bot near home has no legal move. 150
+instances, 6.2% of iron failures — real, but not the main event.
+
+**Next measurement, not a proposal.** The dominant factor is depth, and depth has been
+chased before. The cheap discriminator between "cannot get down" and "gets down and still
+fails" is: how much bot-time is spent below y=32 at all, and do the bots that DO get deep
+succeed on iron? Measure that before proposing anything.

@@ -154,6 +154,13 @@ change 3.5 days in. The pre-promotion nightly series stands on its own and is ab
     today. The same trap bit a `d.sh efa2853` check.
 12. ~~Measure `CAL_MAX_AGE_H`~~ **CLOSED by v29.**
 13. **17 existing WATCH lines: leave them.** Promoting them adds 2 false reverts and corrects none.
+15. **`MEMORY.md` is 235 lines against a ~200 line load limit, so the tail is SILENTLY NEVER READ.**
+    Today's entry was inserted at line 2 rather than appended, deliberately, for that reason. Run the
+    `consolidate-memory` pass: the index needs shrinking, not more lines.
+16. **`deploy-fleet.sh` run directly as `/root/d.sh` SKIPS `fleet-deploy`'s golden-lib restore.**
+    CLAUDE.md says run the deploy script from a copy outside the repo; STATE.md says deploy only via
+    `~/bin/fleet-deploy`. **Those conflict, and taking the CLAUDE.md route is what broke the library
+    today.** Reconcile: either `deploy-fleet.sh` restores the lib itself, or reads move off the tree.
 14. **The `WalkTooWide` message names a remedy that cannot be performed** — "narrow the window with
     `since_minutes=`" when the estimate is window-independent. Fix the message, or make the estimate call
     `predates_window()` (the golden copy already does; `/opt`'s reverted copy did not).
