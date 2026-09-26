@@ -1,10 +1,13 @@
 // THE DEPOSIT HANDS OVER THE PLAN, NOT THE INVENTORY: tools, scaffold and stations stay; iron goes first.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { depositPlan, DEPOSIT_ALWAYS } from '../src/bankable.mjs'
+import { depositPlan, DEPOSIT_ALWAYS, scaffoldKeep, isScaffoldItem, RESERVE_RECIPE } from '../src/bankable.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+const BANKSRC = readFileSync(new URL('../src/bankable.mjs', import.meta.url), 'utf8')
+const { PATHFINDER_SCAFFOLD } = await import('../src/scaffold.mjs')
+const SCAFFOLD = new Set(PATHFINDER_SCAFFOLD)
 const inv = [
   { name: 'cobblestone', count: 40, type: 1 }, { name: 'stone_pickaxe', count: 1, type: 2 }, { name: 'iron_pickaxe', count: 1, type: 3 },
   { name: 'furnace', count: 2, type: 4 }, { name: 'crafting_table', count: 1, type: 5 }, { name: 'raw_iron', count: 9, type: 6 },
@@ -65,4 +68,70 @@ t('a full chest sends the bot to another chest within 24 blocks before it crafts
   assert.equal((f.slice(other, craftAt).match(/await craft\(/g) || []).length, 0, 'no craft inside the alternate loop')
 })
 
+
+// ---------------------------------------------------------------------------
+// A DEPOSIT MUST NOT STRIP THE PATHFINDER OR THE PICKAXE (added 2026-09-26)
+//
+// STANDING_TARGETS banks oak_log, birch_log, jungle_log, oak_planks and stick, and the old
+// reserve tested only /cobblestone|cobbled_deepslate|stone|dirt/. Those logs and planks are
+// PATHFINDER_SCAFFOLD -- what mineflayer bridges and towers with -- and scaffold.mjs records
+// that 16.2% of bots hold wood and nothing else A* will accept. 817 of 819 deposit
+// skill_error rows in 24 h are pathfinder prose, so a deposit that SUCCEEDS strips what the
+// next one needs to walk. And milestones gates the stone_pickaxe rung on
+// `stick >= 2 || planks >= 2`; 874 sticks went into chests in 24 h and 0 came out.
+t('the reserve is a TOTAL, spent on the cheapest scaffold -- not 8 of every family', () => {
+  const k = scaffoldKeep({ cobblestone: 40, oak_log: 12, oak_planks: 6 }, 8)
+  assert.equal(Object.values(k).reduce((a, b) => a + b, 0), 8, 'a total of 8, not 24')
+  assert.equal(k.cobblestone, 8, 'spent on the cheapest scaffold present')
+  assert.ok(!k.oak_log, 'so the logs stay bankable and deposit still does its job')
+})
+
+t('a WOOD-ONLY bot keeps wood -- the 16.2% case A* cannot bridge without', () => {
+  assert.equal(scaffoldKeep({ oak_log: 12 }, 8).oak_log, 8)
+  assert.equal(scaffoldKeep({ oak_planks: 20 }, 8).oak_planks, 8)
+  assert.equal(scaffoldKeep({ oak_log: 3 }, 8).oak_log, 3, 'never more than it holds')
+})
+
+t('the ORIGINAL stone-family reserve survives -- cobblestone is not in the scaffold set', () => {
+  assert.ok(!SCAFFOLD.has('cobblestone'),
+    'if this becomes true the union in isScaffoldItem stops being load-bearing')
+  assert.ok(isScaffoldItem('cobblestone'), 'and the regex arm is what covers it')
+  assert.equal(scaffoldKeep({ cobblestone: 40 }, 8).cobblestone, 8)
+  assert.equal(scaffoldKeep({ stone: 40 }, 8).stone, 8)
+  assert.equal(scaffoldKeep({ cobbled_deepslate: 40 }, 8).cobbled_deepslate, 8)
+})
+
+t('stick is a RECIPE reserve: small, separate, and not part of the scaffold budget', () => {
+  assert.equal(RESERVE_RECIPE, 2, 'a stone pickaxe costs two sticks')
+  const k = scaffoldKeep({ cobblestone: 40, stick: 9 }, 8)
+  assert.equal(k.stick, 2, 'do not hoard eight sticks; they are not scaffold')
+  assert.equal(k.cobblestone, 8, 'and the scaffold budget is untouched by it')
+  assert.equal(scaffoldKeep({ stick: 1 }, 8).stick, 1, 'never more than held')
+})
+
+t('nothing else is reserved, and dirt was always unreachable', () => {
+  for (const n of ['coal', 'raw_iron', 'iron_ingot', 'diamond', 'cooked_beef']) {
+    assert.ok(!isScaffoldItem(n), n + ' is not scaffold')
+  }
+  assert.ok(!isScaffoldItem('dirt'), 'dirt is not in STANDING_TARGETS, so the old branch was dead')
+  assert.equal(Object.keys(scaffoldKeep({ cobblestone: 40 }, 0)).length, 0, 'reserveScaffold=0 disables it')
+})
+
+t('MUTANT: making the reserve per-item again is caught', () => {
+  const anchor = '      const take = Math.min(budget, counts[name] ?? 0)\n'
+  assert.ok(BANKSRC.includes(anchor), 'ANCHOR MISSING')
+  assert.equal(BANKSRC.split(anchor).length - 1, 1, 'ANCHOR NOT UNIQUE')
+  const mutant = BANKSRC.replace(anchor, '      const take = Math.min(reserveScaffold, counts[name] ?? 0)\n')
+  assert.ok(!mutant.includes('Math.min(budget, counts[name]'),
+    'the mutant must drop the shared budget, which is what makes it a TOTAL')
+})
+
+t('MUTANT: dropping the regex arm un-reserves cobblestone', () => {
+  const anchor = "  return SCAFFOLD_SET.has(name) || /^(cobblestone|cobbled_deepslate|stone)$/.test(name)"
+  assert.ok(BANKSRC.includes(anchor), 'ANCHOR MISSING')
+  assert.equal(BANKSRC.split(anchor).length - 1, 1, 'ANCHOR NOT UNIQUE')
+  const mutant = BANKSRC.replace(anchor, '  return SCAFFOLD_SET.has(name)')
+  assert.ok(!mutant.includes('cobbled_deepslate|stone)$/.test(name)'),
+    'and cobblestone would then be unreserved -- the regression this union prevents')
+})
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

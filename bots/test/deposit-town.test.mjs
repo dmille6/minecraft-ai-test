@@ -65,16 +65,23 @@ await t('far from any chest, deposit walks home and then deposits', async () => 
   const r = await run(bot)
   assert.equal(walkedHome(), true, `should travel home first; got ${JSON.stringify(r)}`)
   assert.equal(r.status, 'success', r.detail)
-  assert.deepEqual(deposited, [12])
+  // 4, not 12: since 2026-09-26 a deposit leaves a scaffold reserve behind, and this is a
+  // WOOD-ONLY fixture -- the case scaffold.mjs names ("16.2% (13 bots) hold WOOD and
+  // nothing else the pathfinder will accept"). 8 logs stay so A* can still bridge; the
+  // surplus 4 is banked. Asserted here rather than dodged with a non-scaffold fixture, so
+  // a future change to the reserve fails this test and says why.
+  assert.deepEqual(deposited, [4])
 })
 
 await t('chest already nearby: no walk-home, straight deposit', async () => {
   const { bot, deposited, walkedHome } =
-    depositBot({ chestVisible: true, chestVisibleAfterWalk: true, items: [{ type: 5, name: 'oak_log', count: 3 }] })
+    depositBot({ chestVisible: true, chestVisibleAfterWalk: true, items: [{ type: 5, name: 'oak_log', count: 12 }] })
   const r = await run(bot)
   assert.equal(walkedHome(), false, 'no goto-home when a chest is in range')
   assert.equal(r.status, 'success', r.detail)
-  assert.deepEqual(deposited, [3])
+  // 12 logs in the fixture, not 3: three logs are ALL reserve now, so there would be
+  // nothing to bank and this test's subject is the absence of a walk, not the plan.
+  assert.deepEqual(deposited, [4])
 })
 
 await t('no chest even at home: fails with nothing_found, not a lie', async () => {

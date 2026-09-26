@@ -1,3 +1,4 @@
+import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -35,6 +36,68 @@ const STANDING_TARGETS = new Set([
   'cobbled_deepslate', 'stone', 'coal', 'raw_iron', 'iron_ingot', 'diamond',
 ])
 
+/**
+ * IS THIS A BLOCK THE PATHFINDER CAN BUILD WITH? Pure.
+ *
+ * `scaffold.mjs`'s PATHFINDER_SCAFFOLD is what `index.mjs` pushes into mineflayer's
+ * `scafoldingBlocks`, so it is the authoritative answer — plus the stone family, which the
+ * original reserve tested by regex. THE UNION IS LOAD-BEARING: `cobblestone` is NOT in
+ * PATHFINDER_SCAFFOLD (only `mossy_cobblestone` is), so using set membership alone would
+ * have silently removed the reserve this code was written for.
+ */
+const SCAFFOLD_SET = new Set(PATHFINDER_SCAFFOLD)
+export function isScaffoldItem (name) {
+  return SCAFFOLD_SET.has(name) || /^(cobblestone|cobbled_deepslate|stone)$/.test(name)
+}
+
+/** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
+export const RESERVE_RECIPE = 2
+
+/**
+ * WHAT A DEPOSIT MUST LEAVE BEHIND, AS A TOTAL — not per item. Pure.
+ *
+ * The old reserve tested `/cobblestone|cobbled_deepslate|stone|dirt/`: the stone family and
+ * nothing else, while STANDING_TARGETS banks `oak_log`, `birch_log`, `jungle_log`,
+ * `oak_planks` and `stick` with no reserve at all. Two consequences, both measured:
+ *
+ *   THE PATHFINDER'S OWN BRIDGING BLOCKS. `scaffold.mjs` records that "16.2% (13 bots) hold
+ *   WOOD and nothing else the pathfinder will accept, and for those bots A* cannot plan a
+ *   tower or a bridge at all." And 817 of 819 deposit `skill_error` rows in 24 h are
+ *   mineflayer-pathfinder prose. So a deposit that SUCCEEDS strips the blocks the next one
+ *   needs in order to walk anywhere.
+ *
+ *   THE PICKAXE. 874 sticks went into chests in 24 h and 0 came back out.
+ *
+ * A TOTAL, BECAUSE THE INTENT WAS ALWAYS A TOTAL — the original comment reads "keep enough
+ * to pillar out". Reserving 8 of EACH family would hoard ~24 blocks to pillar once, and
+ * inventories already sit at 28 of 36 slots occupied (median, measured at deposit time), so
+ * over-reserving re-creates the slot pressure deposit exists to relieve. Cheapest families
+ * are spent first so the reserve is filled with the least valuable scaffold available.
+ *
+ * `dirt` is dropped: it was UNREACHABLE, being absent from STANDING_TARGETS while the branch
+ * was gated on membership first.
+ */
+export function scaffoldKeep (counts = {}, reserveScaffold = 8) {
+  const keep = {}
+  if (reserveScaffold > 0) {
+    let budget = reserveScaffold
+    // DEPOSIT_VALUE is ordered MOST valuable first, so a higher index is cheaper and an
+    // absent item is cheapest of all. Spend the reserve on the cheapest scaffold available,
+    // so the budget never holds back iron when cobblestone would pillar just as well.
+    const rank = n => { const i = DEPOSIT_VALUE.indexOf(n); return i < 0 ? Number.MAX_SAFE_INTEGER : i }
+    const cheapestFirst = Object.keys(counts)
+      .filter(isScaffoldItem)
+      .sort((a, b) => rank(b) - rank(a) || a.localeCompare(b))
+    for (const name of cheapestFirst) {
+      if (budget <= 0) break
+      const take = Math.min(budget, counts[name] ?? 0)
+      if (take > 0) { keep[name] = take; budget -= take }
+    }
+  }
+  if (counts.stick) keep.stick = Math.max(keep.stick ?? 0, Math.min(RESERVE_RECIPE, counts.stick))
+  return keep
+}
+
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 /** One of each of these stays in the bot's hands whatever the wants say: the stations and the bucket are how it
  *  works, and banking the only copy disarms it the way banking the only pickaxe does (Codex, deposit pass 2). */
@@ -69,6 +132,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     if (m && !keptTool.has(m[1])) keptTool.add(m[1])
   }
 
+  const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
   const detail = {}
   let bankable = 0, junk = 0
   for (const [name, n] of Object.entries(counts)) {
@@ -77,10 +141,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     const m = TOOL_RE.exec(name)
     if (m) avail -= 1                       // keep one of each tool family
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
-    if (STANDING_TARGETS.has(name) && reserveScaffold > 0 &&
-        /cobblestone|cobbled_deepslate|stone|dirt/.test(name)) {
-      avail -= reserveScaffold              // keep enough to pillar out
-    }
+    avail -= (scaffoldReserve[name] ?? 0)
     if (avail <= 0) continue
     // A SPARE TOOL IS REAL OUTPUT. Tools are never in the standing-target list
     // (that list is materials), and without this a second pickaxe -- which costs

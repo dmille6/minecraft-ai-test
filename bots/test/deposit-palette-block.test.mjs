@@ -36,7 +36,12 @@ await t('the chest matcher survives the palette block (position null) and then a
   const r = await run()
   assert.doesNotMatch(String(r.detail), /reading 'x'|Cannot read properties/, `the matcher threw: ${JSON.stringify(r)}`)
   assert.deepEqual(matcherCalls, ['palette', 'real'], 'the palette block must pass the matcher so the real scan runs')
-  assert.equal(r.status, 'success', r.detail); assert.deepEqual(deposited, [12])
+  // 4, not 12: since 2026-09-26 a deposit leaves a scaffold reserve behind, and this is a
+  // WOOD-ONLY fixture -- the case scaffold.mjs names ("16.2% (13 bots) hold WOOD and
+  // nothing else the pathfinder will accept"). 8 logs stay so A* can still bridge; the
+  // surplus 4 is banked. Asserted here rather than dodged with a non-scaffold fixture, so
+  // a future change to the reserve fails this test and says why.
+  assert.equal(r.status, 'success', r.detail); assert.deepEqual(deposited, [4])
 })
 await t('with an exclusion list the palette block still passes and the excluded real chest is skipped', async () => {
   const { matcherCalls, run } = bot({ items: [{ type: 5, name: 'oak_log', count: 2 }] })
