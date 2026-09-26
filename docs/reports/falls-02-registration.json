@@ -1,0 +1,101 @@
+{
+  "run_id": "falls-02",
+  "sha": "<merge of fc28885 onto efa2853, branched from the DEPLOYED BASELINE efa2853>",
+  "registered_at": "<set at declare time, read from date -u, never typed>",
+  "ladder_change": false,
+  "promotion": "none",
+  "notes": "RESTORE OF THE FALL-PATH RECORDER. falls-01 (fc28885) was REVERTED 2026-09-18 on 2 canary deaths; the revert was false -- both bots were IDLE (a 145 s sealed-pocket drowning by a bot that had drowned the same way in the PRE window on the baseline, and a marooned bot with lava beside it at health 6) and neither was a fall. The stack is observability-only: verified 2026-09-25 against the CURRENT fleet build efa2853, 11 sink classes counted over the whole src tree with delta 0 (setGoal 11/11, setMovements 10/10, pathfinder.stop 5/5, setControlState 52/52, addEvent 12/12, cognitive.notify 2/2, cancel 5/5, timeout 45/45, bot actions 86/86), 4/4 mutants killed outside src plus a positive control, npm test 198/198.",
+  "reads": [
+    "fallread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    60,
+    180
+  ],
+  "change_rows": [
+    {
+      "read": "fallread",
+      "field": "fall_path_rows_canary",
+      "op": ">",
+      "value": 0,
+      "role": "deciding",
+      "note": "THE STRONGEST CHANGE ROW AVAILABLE: a NEW event kind. The control build has no fallpath.mjs, so _fall_path is unemittable on control. This cannot be a row control emits too -- the defect that falsely reverted three canaries (change-row-must-discriminate)."
+    }
+  ],
+  "linkage_extra": [],
+  "exposure": {
+    "read": "fallread",
+    "field": "fall_path_rows_canary",
+    "min": 8,
+    "distinct_bots_min": 3,
+    "note": "ARITHMETIC. 5 bots x 180 min = 15 bot-h. The instrument's own measured yield on 17-18 Sep was 1.338 rows/bot-h -> 20.1 rows expected, so a floor of 8 is 40% of the point estimate and comfortably reachable. A row-stream reconstruction on the CURRENT build (2026-09-25, 480 bot-h, 80 bots) puts a LOWER BOUND of 0.069 triggers/bot-h -> 1.0 rows, because the real trigger fires on the bot's `health` event stream and `onGround`, neither of which is logged; the reconstruction can only see health at telemetry-row times (median gap 2.0 s vs the 1 s peak sampler). The floor is therefore set against the instrument's own measurement, not the proxy, and the 19x spread between them is why final_on_zero_exposure is INCONCLUSIVE and not a verdict."
+  },
+  "own_lines": [
+    {
+      "read": "fallread",
+      "field": "fall_path_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "UNREADABLE",
+      "role": "deciding",
+      "nullable": false,
+      "note": "The change row must not appear on control. A non-zero here means pool contamination or a failed teardown of an earlier canary, not an effect."
+    }
+  ],
+  "friction": [],
+  "primary": {
+    "read": "fallread",
+    "field": "path_assoc_resolved_share_canary",
+    "gate": 0.5,
+    "role": "reported_only_not_calibrated",
+    "series_required": true,
+    "note": "THERE IS NO PRODUCTIVITY PRIMARY, BECAUSE THE CHANGE CANNOT MOVE PRODUCTIVITY. The only question a fall-path recorder can answer about itself is whether its rows are READABLE: the share of _fall_path rows whose descent association resolves to ACTIVE or none rather than `unknown`. REPORT-ONLY: no backtest exists for this line, and CLAUDE.md forbids a rule reverting anything before gatecal/guardcal give it a false-revert rate."
+  },
+  "watch": [
+    {
+      "read": "fallread",
+      "field": "fall_path_bytes_per_day_est",
+      "note": "REPORTED, NOT DECIDING. Re-measured 2026-09-25: 1,611 B per long-detail row (measured mean of _death rows, n=8; the fall row's detail is budgeted at 290 chars by ROW_BUDGET and the logger truncates at 300), 903.3 MB/day raw uncompressed at 80 bots (measured, yesterday's rotated generation, 80 files). At the 17-Sep rate: 1.338 x 80 x 24 = 2,569 rows/day x 1,611 B = 4.14 MB/day = 0.46% of raw. The original claim of 0.58% was against an implied 714 MB/day; raw has grown 26%, so the share is now LOWER and the claim is conservative."
+    },
+    {
+      "read": "fallread",
+      "field": "fall_path_rows_per_bh_canary",
+      "note": "REPORTED. The bound-5 interaction: blind-step per-step drop refusals fell 4.589 -> 2.556/bot-h across the 11:57Z promotion (fleet-wide before/after, DESCRIPTIVE ONLY -- CLAUDE.md: pools moved -45% to +77% in six hours with no code change). Up to ~2.03/bot-h of blind steps are now admitted that were previously refused. A single admitted 4- or 5-block drop CANNOT trip the damage row (it needs peak-to-here >= 6), so the worst case is 1.338 + 2.03 = 3.37/bot-h = 10.4 MB/day = 1.15% of raw. Still ~1%."
+    }
+  ],
+  "extension": {
+    "until_exposure": true,
+    "extra_reads": [
+      300
+    ],
+    "final_on_zero_exposure": "INCONCLUSIVE"
+  },
+  "deadline_min": 360,
+  "mechanism_check": {
+    "read": "fallread",
+    "field": "fall_path_rows_canary",
+    "note": "Same field as the exposure floor, on purpose: this change has exactly one mechanism -- a row reaching the log. If the rows are absent the change did nothing, and no other line can rescue it. Guards against the canary-can-ship-inert failure (owner-01 ran 97 min as the baseline)."
+  },
+  "safety": [
+    {
+      "rule": "death_gate",
+      "floor": "TWO canary deaths AND > 1.25x the control rate",
+      "role": "deciding",
+      "note": "THE ONLY DECIDING SAFETY RULE, and the one that got this wrong last time. falls-01 was reverted on 2 deaths -- which met the letter of the two-death floor -- while neither death was a fall and one bot had drowned identically in the PRE window on the baseline. gatecal measured the two-death rule falsely reverting 46% of harmless canaries. A death on an OBSERVABILITY-ONLY change is a coincidence by construction: name it, do not let it revert. Every death must be read for mechanism before it counts."
+    }
+  ],
+  "pool_draw": "AT DEPLOY TIME, not from history: 5 bots drawn at random from the stratum of bots with non-zero descent activity in the preceding 180 min, control = the rest. The pool must CONTAIN the population the fix targets (a fall recorder in a pool that never falls shows nothing), but NOT the argmax -- picking the highest-baseline pool builds in reversion.",
+  "teardown": "THREE steps: drop-ins, clearing canary_pool, AND restarting the pool's bots staggered 12 s apart, then confirm exactly two versions live. Also restore the golden analysis lib from ~/mcai-analysis/lib/ afterwards -- a deploy by any path other than ~/bin/fleet-deploy does not restore it, which is how the efa2853 promotion reverted telemetry.py, openloop.py and version_split.py at 11:57Z today.",
+  "known_residuals": [
+    "npm run lint:movement FAILS on the merged tree and MUST be fixed before this is declared. test/fallpath-wired.test.mjs trips the movement-writer ratchet. It is a FALSE POSITIVE -- the file contains no steering call, only string anchors quoting index.mjs -- caused by a BACKTICK INSIDE A DOUBLE-QUOTED STRING on its line 11, which desynchronises the ratchet's string stripper so a later template's setMovements text survives. Fix the test's quoting, do not add the file to BASELINE.",
+    "The log-volume RATE input is unresolved, not measured: the trigger depends on the health event stream and onGround, neither of which is logged, so it cannot be re-measured without deploying the instrument. Only the denominators were re-measured.",
+    "The new maxFallHalfHearts cap from efa2853 has NEVER FIRED: 0 of 2,158 blind-step refusals in 480 bot-h name it (positive control: 1,619 of 2,158 details contain 'limit', and the per-step refusal text is found). It therefore cannot double-count anything with composeFallRow, which never reads a refusal string in any case."
+  ],
+  "licence": {
+    "class": "kind",
+    "kind": "_fall_path",
+    "min_rows": 8,
+    "note": "THE STRONGEST CLASS AVAILABLE, and it is earned rather than asserted: the baseline build efa2853 has no bots/src/fallpath.mjs and no logEvent call with kind 'fall_path', so _fall_path is UNEMITTABLE on control. Verified on the fleet 2026-09-25 over a 180-min full walk, 114,467 deduped rows / 80 bots: _fall_path count 0, with a positive control on the same query -- _death 5, _explore_blind_step_refused 840, _path_reset 19,477 -- so the zero is the absence of the code and not a broken query. class=kind may licence a REVERT together with linkage; note that this change is observability-only, so no defect line is proposed and the only deciding rule remains the calibrated two-death gate."
+  }
+}
