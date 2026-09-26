@@ -220,6 +220,12 @@ assertion, and `fleet-deploy --pool` refuses without a reader.
 - **PUT `immobiledid` IN A REGISTRATION'S `reads` LIST** — `verdict.py` refuses the final read without it.
 - **`deadline_min` ≥ `max(read_minutes)` + 30.** v30 refuses at launch.
 - **A REGISTRATION NEEDS A `licence` WITH A CLASS.** v31 now refuses at launch; 18 of 20 on file have none.
+- **`licencecheck.py`'s BASELINE WINDOW IS 6 h AND INCLUDES A JUST-FINISHED CANARY'S OWN ROWS.** Verified
+  12:24Z by running the loop's exact v31 command line for `vetob2-01`: **REFUSED — "the baseline EMITS
+  `veto_feedback` (1,055 rows in 6 h)"**, which is the torn-down canary's own exposure, not the baseline's.
+  So **a re-run of a canary torn down in the last 6 h is refused for a reason about the WINDOW, not the
+  licence.** Wait out the window, or widen `--hours` past the run and subtract it. Same family as
+  `blindstep-02`: exposure drifts faster than a 6 h qualifying window.
 - **Run before and after touching the verdict path:** `scripts/test_verdict_acceptance.py` (**83/83**),
   `test_verdict_acceptance_mutants.py` **OFF** the bots host (**33/33**),
   `scripts/test_launch_guards.py` (new — v31/v32 wiring + 3/3 mutants), and
