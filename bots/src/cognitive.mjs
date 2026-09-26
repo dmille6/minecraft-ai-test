@@ -9,13 +9,13 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
-import { orderFor, readyFor } from './workorder.mjs'
+import { orderFor, readyFor, plantingOrder, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
 // wrote and hands back a taxonomy label, which is a guess wearing a
@@ -698,7 +698,40 @@ export class CognitiveLoop {
     // learned_avoid), the outcome still feeds `milestones.noteAttempt`, so a
     // work order that keeps failing still counts toward the give-up. Bypassing
     // that would let a bot loop forever on an impossible rung by a new door.
-    const order = orderFor(readyFor(this.bot, milestone))
+    // PLANTING, ONLY WHEN THERE IS NO RUNG TO ADVANCE. A craft or smelt the
+    // milestone is waiting on always wins; this fills an otherwise-LLM decision.
+    //
+    // Measured 2026-09-26: the fleet gathers 3,605 logs a day, picks up 485
+    // saplings a day and plants ZERO -- no sapling has ever appeared in a place
+    // attempt. Items/bot-h fell 55.73 -> 14.82 in fourteen days while gather
+    // ATTEMPTS stayed flat, and the two pools given FRESH WORLDS on 19 Sep jumped
+    // log-gather 4.9% -> 57.6% on identical code, then fell back 67% in six days.
+    // The worlds are being consumed and nothing puts anything back.
+    //
+    // The cooldown is charged when the order is ISSUED, not when it succeeds, so a
+    // spot that cannot be planted costs one decision every ten minutes rather than
+    // every decision.
+    let order = orderFor(readyFor(this.bot, milestone))
+    if (!order) {
+      const sap = {}
+      try {
+        for (const it of this.bot.inventory?.items?.() ?? []) {
+          if (it?.name?.endsWith('_sapling')) sap[it.name] = (sap[it.name] ?? 0) + (it.count ?? 0)
+        }
+      } catch { /* an inventory read must never break the decision loop */ }
+      // THE COOLDOWN MUST GATE THE SCAN, NOT JUST THE ORDER. Review caught this:
+      // plantableSpotNear is a 5x5x3 = 75-call blockAt sweep, and evaluating it in
+      // plantingOrder's argument list ran it on EVERY decision for EVERY bot holding
+      // a sapling -- which is 100% of them, measured. ~7,300 sweeps an hour
+      // fleet-wide, over 95% of them discarded by a cooldown checked afterwards, on
+      // the hot path readyFor is documented to keep thin.
+      const sinceLast = Date.now() - (this.lastPlantedAt ?? 0)
+      if (Object.keys(sap).length && sinceLast >= PLANT_COOLDOWN_MS) {
+        order = plantingOrder({ saplings: sap, spot: plantableSpotNear(this.bot),
+                                now: Date.now(), lastPlantedAt: this.lastPlantedAt ?? 0 })
+        if (order) this.lastPlantedAt = Date.now()
+      }
+    }
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.

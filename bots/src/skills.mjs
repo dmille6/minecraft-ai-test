@@ -2975,6 +2975,96 @@ export function roomVeto (bot, p) {
   return null
 }
 
+/**
+ * DID THE PLACEMENT LAND? Compare the cell before and after, not its SHAPE.
+ *
+ * The old test was `put.boundingBox === 'empty'` -> not placed. That asks whether
+ * the new block is SOLID, which is a different question, and one that every
+ * non-solid placeable in the game answers "no" to: saplings, torches, every
+ * plant, rails, pressure plates. minecraft-data 3.112.0 for 1.21.11 --
+ * oak_sapling, birch_sapling and torch are all boundingBox 'empty'; dirt,
+ * crafting_table and ladder are 'block'.
+ *
+ * Measured on the fleet over 24 h, and this is the positive control: every item
+ * with boundingBox 'block' succeeds sometimes -- dirt 22/26, ladder 17/23,
+ * crafting_table 13/16 -- and every item with boundingBox 'empty' succeeds
+ * NEVER: torch 0/16. The fleet holds 485 saplings a day and cannot be credited
+ * with planting one.
+ *
+ * `before !== after` is deliberately stricter than "not air": the target cell is
+ * offset off a reference FACE and may legally start as short_grass or snow, and
+ * the old `name !== 'air'` test would have scored those as placed without the
+ * block ever changing.
+ */
+/**
+ * DOES THIS ITEM NEED SOIL UNDER IT? `solid()` is not `soil`: place()'s candidate
+ * scan accepts any solid top face, so a sapling offered a stone or cobblestone top
+ * is proposed, sent, and rejected by the SERVER -- six candidates burned and the
+ * skill fails for a reason nothing in our code names.
+ *
+ * Kept to the case that is actually blocked. Crops and other soil-bound placeables
+ * are not in the fleet's vocabulary and adding them speculatively would widen a
+ * predicate nothing exercises.
+ */
+/**
+ * CAN A SAPLING LIVE IN THIS CELL? Pure; the caller supplies the three block names
+ * it read. It lives here and not in workorder.mjs because workorder imports THIS
+ * file, and the reverse import would be a cycle.
+ *
+ * `cell` must be genuinely REPLACEABLE, not merely non-solid: a sapling placed into
+ * another sapling's cell is not a second tree.
+ */
+const PLANT_REPLACEABLE = new Set(['air', 'short_grass', 'tall_grass', 'fern', 'dead_bush', 'snow'])
+export function isPlantable ({ soil = null, cell = null, above = null } = {}) {
+  if (!PLANTABLE_SOIL.has(soil)) return false
+  if (!PLANT_REPLACEABLE.has(cell)) return false
+  // Room to grow. NOT the full sapling->tree requirement, which needs many cells and
+  // a light level this cannot see. It is the minimum that makes the PLACEMENT sane,
+  // and a sapling that never grows still cost only one decision.
+  if (above !== 'air') return false
+  return true
+}
+
+/**
+ * THE NEAREST CELL A SAPLING COULD LIVE IN. Impure by necessity -- it reads the
+ * world -- but every decision it makes is isPlantable(), which is tested directly.
+ *
+ * Skips the cell the bot occupies: planting under your own feet is the one spot
+ * guaranteed to be blocked by the bot itself.
+ */
+export function plantableSpotNear (bot, radius = 2) {
+  const p = bot?.entity?.position
+  if (!p) return null
+  for (const dy of [0, -1, 1]) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      for (let dz = -radius; dz <= radius; dz++) {
+        if (dx === 0 && dz === 0) continue
+        const soil = bot.blockAt(p.offset(dx, dy - 1, dz))
+        const cell = bot.blockAt(p.offset(dx, dy, dz))
+        const above = bot.blockAt(p.offset(dx, dy + 1, dz))
+        if (!soil || !cell || !above) continue
+        if (!isPlantable({ soil: soil.name, cell: cell.name, above: above.name })) continue
+        return { x: cell.position.x, y: cell.position.y, z: cell.position.z }
+      }
+    }
+  }
+  return null
+}
+
+export const PLANTABLE_SOIL = new Set(
+  ['dirt', 'grass_block', 'coarse_dirt', 'podzol', 'rooted_dirt', 'moss_block', 'mud'])
+export function needsSoil (item) { return typeof item === 'string' && item.endsWith('_sapling') }
+export function soilOk (item, under) {
+  if (!needsSoil(item)) return true
+  return !!under && PLANTABLE_SOIL.has(under)
+}
+
+export function placementLanded({ before, after }) {
+  if (!after || after === 'air') return false
+  if (before && before === after) return false
+  return true
+}
+
 async function place(ctx, { item, x, y, z }, signal) {
   const { bot } = ctx
   const held = bot.inventory.items().find(i => i.name === item)
@@ -3072,6 +3162,20 @@ async function place(ctx, { item, x, y, z }, signal) {
       }
     }
   }
+  // A SAPLING CANNOT GO ON STONE. The scan above accepts any SOLID top face, which
+  // is right for a crafting table and wrong for anything that needs soil: the
+  // server rejects it and six candidates are spent on placements that could never
+  // land. Filtered here rather than inside the scan so the scan keeps one job.
+  if (needsSoil(item)) {
+    const before = candidates.length
+    candidates = candidates.filter(c => soilOk(item, c.ref?.name))
+    if (before && !candidates.length) {
+      logEvent({ kind: 'place_no_soil', status: 'no_effect',
+                 detail: `${item} needs soil and none of ${before} candidate face(s) offered any`,
+                 snapshot: snapshot(bot) })
+    }
+  }
+
   // MAKE ROOM FOR A STATION. A crafting table is not scaffold: nobody stands
   // on it, so it does not need a free cell above, only a cell. In a one-wide
   // mine tunnel every neighbouring cell is rock, and the first fleet-wide hour
@@ -3198,6 +3302,10 @@ async function place(ctx, { item, x, y, z }, signal) {
       // shape as deposit hanging on `windowOpen`. Measured: 20 place failures in
       // 200 minutes carrying mineflayer's own `Event blockUpdate:(x,y,z)` text.
       // A miss must cost one candidate, not the attempt.
+      // Read the cell BEFORE the attempt: "it changed" is only answerable with
+      // both ends, and a cell that legally starts as short_grass would otherwise
+      // read as already-placed.
+      const cellBefore = bot.blockAt(ref.position.offset(face.x, face.y, face.z))?.name ?? null
       await withTimeout(bot.placeBlock(ref, face), PLACE_ACK_MS, bot,
                         { what: 'placing', needsDrop: false })
       // READ IT BACK. placeBlock resolves without throwing when nothing was
@@ -3209,7 +3317,7 @@ async function place(ctx, { item, x, y, z }, signal) {
       // A success nobody can falsify is not evidence.
       const at = ref.position.offset(face.x, face.y, face.z)
       const put = bot.blockAt(at)
-      if (!put || put.name === 'air' || put.boundingBox === 'empty') {
+      if (!placementLanded({ before: cellBefore, after: put?.name })) {
         failures.push(`placeBlock returned but ${at} is still ${put?.name ?? 'unknown'}`)
         continue
       }

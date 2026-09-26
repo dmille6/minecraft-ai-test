@@ -108,6 +108,51 @@ export function orderFor ({ id = null, wants = null, craftReady = false,
   return null
 }
 
+// PLANTING. The fleet gathers 3,605 logs a day, picks up 485 saplings a day, and
+// plants ZERO -- no sapling has ever appeared in a place attempt. Measured
+// 2026-09-26: items/bot-hour fell 55.73 -> 14.82 over fourteen days while gather
+// ATTEMPTS stayed flat at ~18/bot-h and items per SUCCESSFUL gather fell 9.43 ->
+// 4.23. That is a resource base being consumed, not a policy getting worse, and
+// log gather -- the most depletable thing the fleet touches -- fell hardest, 24.3%
+// -> 9.1%. The controlled comparison already on file: 38.3% on fresh worlds vs
+// 9.3% on worn, identical code.
+//
+// Every bot is already carrying the answer. Inventories sampled over 480 bot-h:
+// 100% of rows held at least one sapling, all 80 bots, median PEAK 100 and one bot
+// at 330.
+
+// A reserve, so planting can never consume the last sapling a recipe might want.
+// Free at these stock levels; it exists so this obligation cannot starve anything.
+export const PLANT_RESERVE = 8
+
+// AT MOST ONE PLANT PER TEN MINUTES PER BOT. A deterministic obligation spends a
+// DECISION, and decisions are the scarce resource -- 91/bot-h measured. Six plants
+// an hour is ~6% of them, which bounds the worst case if this is wrong. It is a
+// cap, not a target.
+export const PLANT_COOLDOWN_MS = 10 * 60 * 1000
+
+
+/**
+ * SHOULD THE BOT PLANT, AND WHAT? Pure. `spot` is a plantable cell the caller
+ * already validated with isPlantable(); this decides only whether to spend a
+ * decision on it and which species to spend.
+ *
+ * Returns the same shape as orderFor(), so the caller treats both identically.
+ */
+export function plantingOrder ({ saplings = {}, spot = null, now = 0, lastPlantedAt = 0 } = {}) {
+  if (!spot) return null
+  if (now - (lastPlantedAt || 0) < PLANT_COOLDOWN_MS) return null
+  const best = Object.entries(saplings)
+    .filter(([k, v]) => k.endsWith('_sapling') && Number.isFinite(v) && v > PLANT_RESERVE)
+    .sort((a, b) => b[1] - a[1])[0]
+  if (!best) return null
+  return {
+    skill: 'place',
+    args: { item: best[0], x: spot.x, y: spot.y, z: spot.z },
+    why: `holding ${best[1]} ${best[0]} on plantable ground; the fleet takes 3,605 logs a day and plants none`,
+  }
+}
+
 /**
  * Ask the SKILLS' OWN predicates whether the active rung is performable now.
  *
