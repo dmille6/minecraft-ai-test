@@ -1,193 +1,201 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-25 12:35 UTC — **NO LIVE CANARY.** Fleet on **`efa2853+c7b045`, ONE version, 80 bots**,
-censused over the 3 min to 12:19Z. Ledger **63** decisions. `drop5-01` closed **INCONCLUSIVE** at 11:46Z on
-an apparatus defect and was torn down; **`efa2853` was then PROMOTED FLEET-WIDE at 11:57Z by a concurrent
-session, which ENDS THE 24–27 SEP PROGRAM WINDOW as originally scoped.** Today's work: registering a gate
-generation that was live and unregistered **for the second day running**, and turning the defect that cost
-today's result into a **raise**._
+_updated 2026-09-26 12:20 UTC — **NO LIVE CANARY.** Fleet on **`efa2853+c7b045`, ONE version, 80 bots**
+(881,375 rows / 80 bots over the 24 h to 12:11Z). Ledger **65**. Two canaries closed overnight by the host
+loop, both **KEEP, both unpromoted**, both torn down. Today's work: **the third consecutive unregistered gate
+generation, registered — and turned into a mechanism so there cannot be a fourth.** `licencecheck.py`'s
+launch refusal **did not exist** (never wired); it does now._
 
 > **TWO COPIES OF THIS FILE EXIST.** The daily task reads `mcai-rl02/docs/reports/STATE.md` first and falls
 > back to the repo copy. **If they disagree, take the later `_updated` stamp, not the documented order.**
 
-> **THIS FILE IS STRUCTURALLY STALE BY WHATEVER HAPPENS AFTER IT IS WRITTEN.** Yesterday's copy said "NO
-> LIVE CANARY" and a canary was deployed overnight at 05:44Z. **Read the JOURNAL, the LEDGER and the
-> MANIFEST before trusting the canary section**, and check host file mtimes before trusting the apparatus
-> section. Re-arm rules 4 and 6.
+> **THIS FILE IS STRUCTURALLY STALE BY WHATEVER HAPPENS AFTER IT IS WRITTEN.** Yesterday's copy said "NO LIVE
+> CANARY" and **two** canaries then ran overnight (`falls-02` 00:25Z, `vetob2-01` 06:02Z), neither of them in
+> it. **Read the JOURNAL, the LEDGER and the MANIFEST before trusting the canary section.** Re-arm rules 0
+> and 4.
+
+> **AND IT IS NOW STALE ABOUT THE GATE BY CONSTRUCTION — THAT IS FIXED.** Three days running this file
+> recorded a `verdict.py` md5 that was no longer live. **Do not compare md5s by hand any more:**
+> `python3 ~/mcai-analysis/gatedigest.py` answers it, and a canary cannot launch while it disagrees.
 
 ---
 
-## ⚠ THE OWNER HAS NOW BEEN UN-NOTIFIED **FOUR** DAYS RUNNING. THIS FILE IS THE ONLY CHANNEL.
-
-PushNotification attempted 11:57Z — "Mobile push not sent (Remote Control inactive)", the same failure as
-22, 23 and 24 Sep. **Everything under OWNER CALLS has never reached the owner by any channel but this file.**
+## ⚠ THE OWNER HAS NOW BEEN UN-NOTIFIED **FIVE** DAYS RUNNING. THIS FILE IS THE ONLY CHANNEL.
+PushNotification attempted again today — same "Remote Control inactive" failure as 22–25 Sep. Everything
+under OWNER CALLS has reached the owner by no channel but this file.
 
 ## OWNER CALLS WAITING
-
-0. **NEW AND THE MOST URGENT: a FLEET-WIDE PROMOTION happened inside your own measurement window.** At
-   11:53:22Z a ledger entry recorded `KEEP efa2853 FLEET-WIDE (80 bots)` citing **"EXPLICIT OWNER DECISION
-   2026-09-25: 'promote bound-5'"**, and at 11:56Z `/root/d.sh efa2853 drop5-promote` deployed it to all 80
-   bots. **This session did not make that decision and cannot verify it.** It was written by a CONCURRENT
-   session (see "Two sessions ran today"). Recorded as **unverifiable from here, NOT as unsanctioned** —
-   the same treatment yesterday's file gave the two "OWNER DECISION 2026-09-24" commits, and this is now a
-   pattern worth settling. **If you did authorise it, nothing needs undoing.** If you did not, `efa2853` is
-   on the whole fleet and `main` should be reconciled. Either way: **Rule 1 of the 24–27 Sep window said
-   fleet-wide promotions may not happen inside it and that the window restarts if one does.** The window as
-   originally scoped is over; say whether it restarts from 25 Sep or is abandoned.
-1. **The v21 death-gate lower bound is declining reverts the audit calls CORRECT** — trips on 0 of 15
+0. **THREE KEPT CANARIES SIT UNPROMOTED, AND NOTHING SAYS WHETHER THAT IS THE INTENT.** `falls-02`
+   (`37a68c3`, KEEP 03:31Z today), `vetob2-01` (`efabf13`, KEEP 09:08Z today), `banktruth-01` (`9a6aa13`).
+   All three registered `promotion: none`, so the loop recorded KEEP and restored the baseline — **correct
+   behaviour, not a bug.** But the fleet now carries none of three changes that passed their gates, and
+   `main` tracks the fleet. **Say whether `promotion: none` means "measure then decide" (and decide these
+   three) or "never promote".** This is the single largest thing blocking the endpoint from moving.
+1. **The 24–27 Sep program window.** Ended early by the 25 Sep 11:57Z fleet-wide promotion of `efa2853`.
+   Rule 1 said the window restarts if that happens. **Restart from 25 Sep, or abandon?** (unchanged)
+2. **The v21 death-gate lower bound** is declining reverts the audit calls CORRECT — trips on 0 of 15
    death-involved reverts. A question about the **bound**, not the p. (unchanged)
-2. **The audit (`8019b1d`) finds 7 of 23 reverts CONFIRMED FALSE and 5 more suspect.** (unchanged)
-3. **`banktruth-01` (9a6aa13) — ship or drop?** Correct and unmeasurable at this size. **Do NOT re-canary
-   at this size.** (unchanged)
-4. **Two commits headed "OWNER DECISION 2026-09-24"** with no artefact recording one. (unchanged — and see
-   call 0, which is the third instance in two days.)
+3. **The audit (`8019b1d`) finds 7 of 23 reverts CONFIRMED FALSE and 5 more suspect.** (unchanged)
+4. **Commits headed "OWNER DECISION"** with no artefact recording one — three instances over 24–25 Sep,
+   recorded as unverifiable from the operator seat, **not** as unsanctioned. Worth settling. (unchanged)
 
-## TWO SESSIONS RAN TODAY, IN THE SAME WORKTREE, AND THAT IS NOW AN OPERATIONAL FACT
+---
 
-A concurrent Claude session was active throughout (commits `4b7a652`, `50656f1`; the promotion at 11:56Z;
-uncommitted edits to `verdict.py` and both acceptance suites that appeared mid-session). **It reached the
-same diagnosis of today's defect independently**, which is corroboration, not duplication — and it added
-one thing this session's hand-read did not: the v14c "rung-linked death" flag fired on `_entombed`, **a row
-the baseline emits too**, so the linkage was false.
+## WHAT HAPPENED OVERNIGHT (the host loop, unattended — read it, do not re-derive it)
+| run | sha | pools | verdict | at | note |
+|---|---|---|---|---|---|
+| `falls-02` | `37a68c3` | hive-d, placebo-d, board-c, placebo-b (4 pools / 20 bots) | **KEEP** | 03:31Z | exposure 106 fall rows (min 8); deaths 1 canary / 2 control, both 0.017/bh. **One death is named, not a verdict** (owner's two-death floor). Torn down 03:37Z. |
+| `vetob2-01` | `efabf13` | hive-c, hive-a (**degraded TWO-pool draw, 10 bots**) | **KEEP** | 09:08Z | exposure 1,198 `veto_feedback` rows (min 150); deaths 0 canary / 2 control. Torn down 09:12Z. |
 
-Nothing was lost, but two facts should be planned around:
-- **`git status` in `mcai-rl02` may show modifications you did not make.** Check `git log` and the diff
-  before committing; commit files you own, and say so when a shared file carries both sessions' work.
-- **Guards can be written twice.** `verdict.py` now carries TWO schedule guards (see v30 below). They are
-  complementary and both tested, and consolidating them is a queue item, not an emergency.
+Both closed through `check-open-loop.py --record` before the manifest was cleared, both `promotion: none`.
+**The gate KEEP does not test the effect** — `primary` is in `_ADVISORY`, so KEEP means "nothing objected".
+`vetob2-01`'s effect read INCONCLUSIVE by hand (63% of the primary is a channel B2 cannot touch, and ~80% of
+the raw veto DiD was the deploy clearing the gate's own state). Both reports are committed under
+`docs/reports/`.
+
+**Verified independently this morning, all four checks:** `check-open-loop.py` says "no open canary — clear
+to start something new"; `canary_pool` and `canary_code_version` are `null`; the anchored
+`pgrep -af "^bash /home/mike/canary-loop\.sh"` finds nothing; census 881,375 rows / 80 bots / ONE version.
+
+---
 
 ## TODAY'S FINDINGS
 
-### 1. `drop5-01` closed INCONCLUSIVE because it could not reach its own final read
-Registered `read_minutes [30,90,180,360]` **and** `deadline_min 360`. `canary-loop.sh` tests
-`elapsed > DEADLINE*60` **inside** the read loop, so it arrived at the +360 read at **362 min elapsed**,
-fired containment at 11:46:29Z, recorded INCONCLUSIVE and tore down. **There is no `drop5read-360.json` and
-no `immobiledid-360.json` — the final read was never taken.** Exposure was 101 `(limit 5)` rows against a
-floor of 60, linkage clean, safety clean, **primary never evaluated.**
+### 1. A THIRD CONSECUTIVE GATE GENERATION WAS LIVE AND UNREGISTERED — and it is now mechanically impossible
+`~/verdict.py` md5 `e9a81408` against the `6dda048d` this file recorded as registered. `b01b1e7` added the
+v31 licence-class gate at **2026-09-25 15:21Z — four hours after v29/v30 were registered for exactly this
+reason.** The pattern: v25–v28c (retrospective), v29 (`faf7cf7`, 23 h after its own lesson was written),
+v31. Each found only by a human remembering to compare md5s.
 
-**Denominator: 3 of 18 registrations on file set `deadline_min == max(read_minutes)` — `blindstep-01`,
-`blindstep-02`, `drop5-01` — all three written in the last two days.** The other 15 leave 60–420 min.
+**It decided nothing in the 20 h it was unregistered** (positive control included): `falls-02` and
+`vetob2-01` both ran under it, both declared a `licence`, and `licence` sits in both reads' NOT-evaluated
+list beside `mechanism_check` and `null_calibration`. **Registered prospectively today as v31.**
 
-**What the data said at +180** (from the concurrent session's read, consistent with this session's):
-targeted drop-4-to-5 refusals **2.34/bot-h in control → exactly 0.0 in the canary**, boxed share **−24.3 pp
-DiD**, immobility DiD −3.3 pp, items **+27%**, **zero fall deaths, zero low-health fires**, canary deaths 0
-vs control 2 over 150 bot-h. **This is recorded as a HAND READ. The ledger's INCONCLUSIVE stands** —
-amendments are prospective only, and a verdict is not retrofitted because the numbers look good.
+**v32 is the mechanism.** `RULES-IN-FORCE.md` now carries exactly one column-0 line
+`GATE DIGEST verdict-bundle md5 …`; `gatedigest.py` **refuses a launch** when the live bundle disagrees, and
+`verdict.py` annotates a mismatch / an absent record / two records on **every read, report-only**. Verified
+live on .31: exit 0 against the real gate, **exit 2 with a named remedy on a wrong record and on no record.**
 
-### 2. The one canary death was NOT the change — reviewed by hand under v14c
-`hive-d-Comet`, 08:47:24Z. `_death` at 496,14,265 with **`fail_class: fire` — "tried to swim in lava; idle
-at the moment of death"**. Not a fall, not a drop, no blind-step row anywhere in the chain; `_lava_corridor`
-had refused that leg three times and the bot died idle two blocks away. The poll independently confirms **0
-deaths with a change row**. One death against the owner's **two-death floor**: reported and named, not a
-verdict.
+### 2. `licencecheck.py`'s LAUNCH REFUSAL DID NOT EXIST
+Its docstring says it refuses "before the draw and before three hours of fleet time". **`canary-loop.sh`
+never invoked it.** Positive control in the same grep: the loop called `changerowcheck.py` (line 22) and
+`v30check.py` (line 52). **2 of 20 registrations on file declare a `licence` at all.** That is the defect
+class CLAUDE.md opens with — a remedy printed and not reachable, like the 262 printed-and-ignored remedies.
+**Wired today**, and `scripts/test_launch_guards.py` asserts the wiring in *executable* text.
 
-### 3. v29 WAS LIVE IN THE DECISION PATH AND IN NO REGISTRATION — the second day running
-`faf7cf7` ("gate v29") added 52 lines to `verdict.py` at **2026-09-24 12:11Z**, ~23 h after `a9e13e1`
-registered v25–v28c for exactly this reason. Host `~/verdict.py` and `scripts/verdict.py` were
-byte-identical (`891ce5bb`), so it was **live on the fleet**. **The code never spells "v29"** — the gate is
-the `false_trip_rate_ci_upper` requirement plus the `CAL_MAX_AGE_H` check — **so a label grep reads as "not
-live", and that is how it hid.**
-**It has never decided anything, MEASURED: of 18 registrations, ZERO carry `evidence: calibrated`**
-(positive control: the same grep finds `evidence: defect` in three). Registered **prospectively** today.
-**It closes queue item 12**: `CAL_MAX_AGE_H = 48` is now measured, not a placeholder.
+### 3. A LATENT FALSE-REVERT ROUTE IN THE LOOP, FOUND AND CLOSED
+The **death-poll** arm matched `case "$V" in *REVERT*)` on the **whole verdict line** and set `FINAL=REVERT`
+from the substring, while the scheduled-read arm has always taken `awk '{print $2}'`. **Measured: 8 of 42
+`why.append` sites in `verdict.py` carry the literal "REVERT"**; six are on the same statement as
+`out('REVERT')`, and v28's *"MORE THAN ONE calibrated REVERT line"* and v25's *"does not license a REVERT"*
+print it while the verdict is INCONCLUSIVE — **both past the poll's `out('POLL_OK')` exit, so the route was
+LATENT, not live.** The v32 advisory *is* reachable under `--poll`, which is why it was closed rather than
+documented. The poll arm now reads the field, and **`out()` flattens every reason to one line** — the loop
+takes `tail -1` then `awk '{print $2}'` with no check that the line is a verdict at all.
 
-### 4. THE PROMOTION SILENTLY REVERTED THE ANALYSIS LIBRARY — re-arm rule 5 caught it
-`/opt` is reset by every deploy. The 11:57Z promotion overwrote **three** files in
-`/opt/minecraft-ai/scripts/lib/`, all stamped 11:57:04Z: **`telemetry.py` (27,459B → 13,249B),
-`openloop.py` (8,237B → 4,349B), `version_split.py` (14,338B → 3,595B)** — a two-day regression that also
-backs `check-open-loop.py` and the census.
-**Symptom: every telemetry walk began failing at any window size** with `WalkTooWide` "~10.7 GB … narrow
-the window with `since_minutes=`" — **advice that cannot work**, because the estimate globs all 1,208 files
-(1,124 `.gz` at 25x = 10.30 GB) and is **window-independent**. The golden copy's `predates_window()` is the
-fix, and its docstring names this exact bug.
-**RESTORED from `~/mcai-analysis/lib/` at 12:15Z; verified by md5 and by a 30-min walk returning 19,049
-rows / 80 bots.** Backups at `*.pre-restore-20260925T1215Z`. **Queue item 8 is no longer optional.**
+### 4. QUEUE ITEM 2 IS NOT A BANKING BUCKET — and it makes item 1 BIGGER
+`skill_error` is **819 of 4,160 deposit rows (19.7%) in 24 h on 65 of 80 bots**, and it is **entirely
+pathfinding**: `No path to the goal!` 420 (51.3%), `Took to long to decide path to goal!` 205 (25.0%),
+`The goal was changed before it could be completed!` 192 (23.4%), PathStopped 2. Nothing in it is deposit
+logic. The third group is the interrupt tax, not navigation.
+
+**Then the important part.** Every one of those buckets is full of bots **already carrying a chest**:
+
+| bucket | n | holding a chest | median chest |
+|---|---|---|---|
+| `no_path` | 419 | **269 (64.2%)** | 5 |
+| `path_timeout` | 205 | **179 (87.3%)** | 3 |
+| `goal_changed` | 193 | **176 (91.2%)** | 4 |
+| `storage_full` | 328 | **283 (86.3%)** | 4 |
+
+**907 deposit failures in 24 h where the bot held a chest it could have placed**, against the **283** that
+`storage_full` alone accounts for — **a 3.2x larger addressable population than queue item 1 scopes.** The
+remedy is the same one in all four and it is executable from where the bot stands, which is the test
+CLAUDE.md sets. *Denominator: 4,160 deposit rows / 80 bots / 24 h to 12:11Z on `efa2853+c7b045`.*
+**DO NOT quote a new items/bot-h ceiling from this read.** The "median bankable carried ~300" figure it also
+produced uses a LOOSER definition of bankable (all inventory but chest/crafting_table/torch) than the 55 in
+queue item 1, so it is an upper bound and **not comparable**. The **count** is the robust finding.
 
 ## Fleet
-- **80 bots / 16 Peaceful worlds. ONE version `efa2853+c7b045`**, 2,032 rows / 80 bots over the 3 min to
-  12:19Z. Manifest `run_id drop5-promote`, `declared_code_version efa2853`, `declared_at 11:57:04Z`,
-  `canary_pool` empty.
-- Ledger **63**: `…INCONCLUSIVE efa2853 board-b,hive-d 11:46:29Z`, then `KEEP efa2853 FLEET-WIDE 11:53:22Z`.
-- **4 systemd units are `failed`, and it is BENIGN: `board-b-Charlie`, `hive-a-Charlie`, `hive-b-Charlie`,
-  `placebo-a-Charlie` have NO env file and were never started today** ("Failed to load environment files").
-  There are **84 unit instances for 80 bots**; these 4 are leftovers the teardown's restart-everything loop
-  wakes and fails. Not promotion fallout. Worth deleting so they stop looking like an alarm.
-- Nightly program read (00:12Z, fleet line, pre-promotion): deaths 0.0188 **pass**, iron share 15.1%
-  **pass**, immobile 3/80 = 3.8% **FAIL**, gather 19.4% **FAIL**, stock 2.34 **FAIL**. **Two of five.**
+- **80 bots / 16 Peaceful worlds. ONE version `efa2853+c7b045`.** Manifest `run_id vetob2-01`,
+  `declared_code_version efa2853`, `declared_at 2026-09-26T06:02:47Z`, `canary_pool` and
+  `canary_code_version` **null**.
+- **The analysis library SURVIVED today's two deploys** — `/opt/minecraft-ai/scripts/lib/` is byte-identical
+  to `~/mcai-analysis/lib/` on all four files (telemetry 27,459B, openloop 8,237B, version_split 14,338B,
+  vocabulary 7,007B). **That is because the overnight deploys went through `~/bin/fleet-deploy`, which
+  restores it; 25 Sep's `/root/d.sh` route did not.** Queue item 16 stands.
+- Nightly 00:12Z program read (pre-dating today's two decisions, so it says ledger 63): **stock 2 items net
+  = 0.01/bot-h against a 2wk gate of ≥20** — a tiny window, do not read a trend into it; gather fails
+  unreachable 56 / no_safe_target 44 / no_path 39. Throughput 14 d: 41 decisions = 2.93/day, of which 29
+  results (KEEP 11, REVERT 18); last 7 d 1.57/day, 1.00 results/day.
+- Iron funnel 24 h / 1,438 bot-h: raw iron **3 (0.00/bot-h)**, 2 ingots, 0 pickaxes crafted, iron-pickaxe
+  bot-hour share 15.0%. The wall is depth — 0.37% of 2,401 attempts, 84.7% tried at y≥48.
+- **FIVE `*-Charlie` units are `failed` and it is BENIGN and now WORSE BY ONE:** `board-b`, `hive-a`,
+  `hive-b`, `placebo-a`, **`placebo-b`** (was four yesterday). No env file, never started; 84 unit instances
+  for 80 bots. Teardown's restart-everything loop wakes them. **Delete them** (queue 4).
 - **keepInventory=true / doImmediateRespawn=true on every world.**
 
-## THE 24–27 SEP PROGRAM READ — **ENDED EARLY BY THE 11:57Z FLEET-WIDE PROMOTION.** See owner call 0.
-Rule 1 said a fleet-wide promotion may not happen inside the window and that the window restarts if one
-does. **Do not report a 24–27 aggregate as if it were clean**: it spans two code versions with a fleet-wide
-change 3.5 days in. The pre-promotion nightly series stands on its own and is above.
-- **DO NOT RE-QUOTE "stock 0.80 items/bot-h"** — a per-version nominal line, not the program endpoint. The
-  fleet line is the endpoint; nightly series **6.00 → 5.88 → 3.95 → 2.95 → 2.96 → 2.34**.
-- **Stock has more than halved over six nightly reads with no code change.** Consistent with ±77% six-hour
-  world drift; **not a regression, and no fix may be credited with reversing it.**
-
 ## Queue
-1. **`storage_full` / place-a-chest — the largest lever found, posed and measured, NOT BUILT.** 94 of 859
-   deposit runs (10.9%) fail `storage_full`; **85 of 94 (90.4%) are holding a chest, median 3**; bankable
-   items carried median 55. Conservative ceiling **+10.77 items/bot-h against current stock ~2.5**, ~4x.
-   Needs sandbox proof, two Codex passes, **dual Claude+ChatGPT review**, `immobiledid` in `reads`, and
-   **`deadline_min` ≥ last read + 30 (v30 will now refuse it otherwise)**. Read on **acquired stock**,
-   never on refusals avoided. Make the remedy **deterministic, not advisory** — 262 printed-and-ignored
-   remedies are the precedent.
-2. **`skill_error` 141/859 = 16.4%** — the second banking bucket, uncharacterised. **Cheap next read, and
-   it feeds item 1's design.** Not started today.
-3. **Consolidate the TWO schedule guards in `verdict.py`.** Mine (`schedule_violation`, pure, report-only,
-   with the 30-min grace) and the concurrent session's (`REGISTRATION CANNOT CONCLUDE`, returns UNREADABLE
-   at the first read). Both live, both tested, one invariant. Keep the pure function as the single decision
-   and have the UNREADABLE path call it. **Note the loop is deliberately the strictest of the three.**
-4. **Delete the 4 orphan `*-Charlie` unit instances** (no env file, 84 units for 80 bots).
-5. **`banktruth-01` (9a6aa13) unpromoted** — owner call 3.
-6. **falls-02 — was HELD until after 27 Sep**; that gate is now moot since the window ended early.
-   Worktree `mcai-falls` (fc28885); restoration queued, merge proven clean (198/198).
-7. **NAVIGATION / GATHER.** `unreachable` is the largest gather-fail bucket (**8,911** in the 24 h read vs
-   no_safe_target 7,963, no_path 7,658) with no `veto_faces`-grade instrument on it.
-8. **Land the analysis library on the bots line so deployed shas carry it.** **PROMOTED FROM "nice to have"
-   BY TODAY'S FINDING 4** — every deploy silently reverts three instrument files.
-9. **`keepInventory` OFF** — a registered program change, never a canary. Re-time it with owner call 0.
+1. **`storage_full` / place-a-chest — the largest lever, and TODAY'S FINDING 4 WIDENS IT 3.2x.** Scope it to
+   **all four chest-holding deposit-failure buckets**, not just `storage_full`: 907 events/24 h. Needs
+   sandbox proof, two Codex passes, **dual Claude+ChatGPT review**, `immobiledid` in `reads`,
+   `deadline_min ≥ last read + 30` (v30 refuses otherwise), **a `licence` with a class (v31 now refuses
+   without one)**, and the **`GATE DIGEST` line updated in the same commit if the gate is touched (v32)**.
+   Read on **acquired stock**, never on refusals avoided. Make the remedy **deterministic, not advisory**.
+2. ~~Characterise `skill_error`~~ **CLOSED by finding 4. It is pathfinding + the interrupt tax, and it
+   belongs to items 1 and 7, not to banking.**
+3. **`container_open` 446 of 4,160 (10.7%) is UNCHARACTERISED** and is the one named deposit bucket nobody
+   has read. Cheap. Replaces the closed item 2.
+4. **Delete the 5 orphan `*-Charlie` unit instances.**
+5. **Consolidate the TWO schedule guards in `verdict.py`** (mine `schedule_violation`, pure/report-only with
+   the 30-min grace; the other returns UNREADABLE at the first read). Both live, both tested, one invariant.
+6. **`scripts/canary-loop.sh` (md5 `c3227ceb`) IS A STALE SECOND COPY** of `scripts/host/canary-loop.sh`
+   (`0a01b3c1`, byte-identical to the host). `scripts/test_loop_teardown.sh` and the registration document
+   reference the stale one. **Two copies of the loop is the 2026-09-18 two-copies-of-`verdict.py` failure
+   waiting to repeat.** Delete or symlink it.
+7. **NAVIGATION / GATHER.** `unreachable` is the largest gather-fail bucket (**8,911** in a 24 h read vs
+   no_safe_target 7,963, no_path 7,658) with no `veto_faces`-grade instrument. **Finding 4 adds 624
+   deposit-side pathfinder failures to the same account.**
+8. **Land the analysis library on the bots line so deployed shas carry it.**
+9. **`keepInventory` OFF** — a registered program change, never a canary. Re-time with owner call 1.
 10. **Extend `drawexposure.py`** — non-degenerate pre-period. REPORT-only until calibrated.
-11. **Teach the analyst the two-part OpenLoop test.** **The `pgrep` trap is WORSE than recorded:
-    `pgrep -af "canary-loop[.]sh"` STILL SELF-MATCHES**, because the literal string sits in the checking
-    command's own line. **Use the anchored `pgrep -af "^bash /home/mike/canary-loop\.sh"`** — verified
-    today. The same trap bit a `d.sh efa2853` check.
-12. ~~Measure `CAL_MAX_AGE_H`~~ **CLOSED by v29.**
-13. **17 existing WATCH lines: leave them.** Promoting them adds 2 false reverts and corrects none.
-15. **`MEMORY.md` is 235 lines against a ~200 line load limit, so the tail is SILENTLY NEVER READ.**
-    Today's entry was inserted at line 2 rather than appended, deliberately, for that reason. Run the
-    `consolidate-memory` pass: the index needs shrinking, not more lines.
-16. **`deploy-fleet.sh` run directly as `/root/d.sh` SKIPS `fleet-deploy`'s golden-lib restore.**
-    CLAUDE.md says run the deploy script from a copy outside the repo; STATE.md says deploy only via
-    `~/bin/fleet-deploy`. **Those conflict, and taking the CLAUDE.md route is what broke the library
-    today.** Reconcile: either `deploy-fleet.sh` restores the lib itself, or reads move off the tree.
-14. **The `WalkTooWide` message names a remedy that cannot be performed** — "narrow the window with
-    `since_minutes=`" when the estimate is window-independent. Fix the message, or make the estimate call
-    `predates_window()` (the golden copy already does; `/opt`'s reverted copy did not).
+11. **Teach the analyst the two-part OpenLoop test.** Use the **anchored**
+    `pgrep -af "^bash /home/mike/canary-loop\.sh"`; **the bracketed form `canary-loop[.]sh` SELF-MATCHES.**
+12. **17 existing WATCH lines: leave them.** Promoting them adds 2 false reverts and corrects none.
+13. **`MEMORY.md` is 249 lines against a ~200 line load limit, so the tail is SILENTLY NEVER READ** — it now
+    truncates at line 201. Run the `consolidate-memory` pass: the index needs **shrinking**, not more lines.
+14. **The `WalkTooWide` message names a remedy that cannot be performed** ("narrow the window with
+    `since_minutes=`" when the estimate is window-independent). The golden `predates_window()` is the fix.
+15. **`deploy-fleet.sh` run directly as `/root/d.sh` SKIPS `fleet-deploy`'s golden-lib restore**, and
+    CLAUDE.md points at that route while this file says `fleet-deploy` only. Reconcile.
 
-## Rules in force (docs/reports/recovery-ladder-registration.md — current through **v30**)
-**v30** (a registration whose last read minute is not strictly inside its deadline is **REFUSED AT LAUNCH**:
-`deadline_min > max(read_minutes) + 30`; enforced in `canary-loop.sh` via `~/v30check.py`, reported by
-`verdict.py` on every read, and made UNREADABLE at the first read by the second guard) — **PROSPECTIVE from
-2026-09-25**, **v29** (a calibration must report `false_trip_rate_ci_upper`, and the **bound** not the point
-estimate must clear `CAL_MAX_FTR`; `CAL_MAX_AGE_H = 48` now MEASURED) — **PROSPECTIVE from 2026-09-25**,
-**v28c**, **v28b**, **v28** (PROSPECTIVE from `a9e13e1`), **v27b** (linkage window 60 s), v27, **v26b**,
+## Rules in force (docs/reports/recovery-ladder-registration.md — current through **v32**)
+**v32** (THE LIVE GATE CODE MUST BE THE REGISTERED GATE CODE: one column-0 `GATE DIGEST verdict-bundle md5`
+line in `RULES-IN-FORCE.md`; `gatedigest.py` refuses a launch on a mismatch, an absent record, two different
+records, or an UNRESOLVED part; `verdict.py` annotates on every read, report-only. A **bundle** —
+`verdict.py` + `deathgate.py` + `singledeath.py` + `arms.py`, resolved via `sys.modules` — because the
+mutant runner flips a verdict by editing `deathgate.py` alone) — **PROSPECTIVE from 2026-09-26**,
+**v31** (a canary must NAME its instrument and its CLASS: `kind` / `text` / `rate`, and `rate` is
+REPORT-ONLY BY CONSTRUCTION; `licencecheck.py` refuses at launch — **wired 2026-09-26**) —
+**PROSPECTIVE from 2026-09-26**, **v30**, **v29**, **v28c**, **v28b**, **v28**, **v27b**, v27, **v26b**,
 v26, **v25**, **v24**, **v23**, v22 WITHDRAWN unregistered, v12 linkage, v14c, v15c, v16, v17/v18, v19,
-**v21** (owner call 1), the owner's floor of **two** canary deaths, draws at deploy, `fleet-deploy` refuses
+**v21** (owner call 2), the owner's floor of **two** canary deaths, draws at deploy, `fleet-deploy` refuses
 a `--pool` sha not descending from `declared_code_version`, `CANARY_ENV` + the `/proc/<pid>/environ`
 assertion, and `fleet-deploy --pool` refuses without a reader.
-- **THE DRAW IS FOUR POOLS / 20 BOTS**; `drawrec.sh` degrades 4 → 3 → 2 and says which. **`drop5-01` ran on
-  a degraded TWO-pool draw (10 bots)** — record the draw shape with every read.
-  **CLAUDE.md still says "randomize five bots"; the registered change supersedes it.**
-- **`~/digest/RULES-IN-FORCE.md` is AUTHORITATIVE, rewritten and synced today: md5 `eb03a7f8` on BOTH host
-  and `scripts/host/RULES-IN-FORCE.md`.** `~/digest/RULE.md` md5 **`a38827a9`** (was `395d8988`), header
-  corrected and v29/v30 appended. `analyst.py` reads RULES-IN-FORCE.md plus RULE.md from `## v14c` onward.
-- **`~/verdict.py` and `scripts/verdict.py` are byte-identical: md5 `6dda048d`.** Keep it that way — the two
-  copies were found disagreeing about the death rule on 2026-09-18.
+- **THE DRAW IS FOUR POOLS / 20 BOTS**; `drawrec.sh` degrades 4 → 3 → 2 and says which. **`vetob2-01` ran on
+  a degraded TWO-pool draw (10 bots)** — record the draw shape with every read. **CLAUDE.md still says
+  "randomize five bots"; the registered change supersedes it.**
+- **THE REGISTERED GATE, 2026-09-26: bundle md5 `863a725917e4c32ac9b37a2fff37c5fc`** —
+  `arms.py 9d563283`, `deathgate.py 450d32bf`, `singledeath.py 08bd12cd`, `verdict.py b3179121`.
+  **IDENTICAL on 10.0.0.31 and in the repo, all four files.** Read it with `python3 ~/verdict.py
+  --gate-digest`; check it with `python3 ~/mcai-analysis/gatedigest.py`.
+- **`~/digest/RULES-IN-FORCE.md` is AUTHORITATIVE**, rewritten and synced today: md5 **`96b7be11`** on both
+  host and `scripts/host/RULES-IN-FORCE.md`. **`~/digest/RULE.md` md5 `9981bb3d`** (was `a38827a9`), v31/v32
+  appended — and **RULE.md is now TRACKED at `scripts/host/RULE.md`**, which it was not before.
+- **`~/verdict.py` and `scripts/verdict.py` are byte-identical: md5 `b3179121`.** v32 now enforces this by
+  construction, so it is no longer a thing to remember.
 
 ## RETRACTIONS still in force
-- **`drop5-01`'s INCONCLUSIVE is an INSTRUMENT close, not a finding about the change.** The change is
-  unrefuted; its +180 numbers are a hand read and were never a gate verdict.
+- **`drop5-01`'s INCONCLUSIVE is an INSTRUMENT close, not a finding about the change.**
 - **"stock 0.80 items/bot-h" was a per-version nominal line, not the program endpoint.**
 - **`banktruth-01`'s "2,078 of 2,079 = 100.0%" is a tautology** (`admission.mjs:326`).
 - **The planted-effect positive control was an ARITHMETIC IDENTITY** (spread 7e-16 across f).
@@ -197,85 +205,101 @@ assertion, and `fleet-deploy --pool` refuses without a reader.
 - **The exhaustion mechanism for the wood gap is REFUTED by its own negative control.**
 - **The sealed-cell retrieval-loss hypothesis is REFUTED at fleet scale** (−5.7% server ledger gap).
 - **`owner-01b`'s own lines are UNRECONSTRUCTABLE** — false-trip rate **0/0, not 0%**.
+- **`vetob2-01`'s KEEP is a GATE keep, not an effect.** `primary` is `_ADVISORY`; the effect is INCONCLUSIVE.
+- **NEW: the deposit "median bankable carried ~300" is an UPPER BOUND on a looser definition** than queue
+  item 1's 55, and the two must not be compared.
 
 ## Standing wake-ups
+- **THE GATE DIGEST IS NOW THE ANSWER TO "IS THIS THE REGISTERED GATE".** Do not grep for `vNN` — the v29
+  gate never spelled its own name, and three generations hid that way. Run `gatedigest.py`.
+  **If you change `verdict.py`, `deathgate.py`, `singledeath.py` or `arms.py`, update the `GATE DIGEST` line
+  and register the generation IN THE SAME COMMIT**, or the next canary cannot launch.
 - **Before any canary read, check `~/digest/RULE.md` and `~/digest/RULES-IN-FORCE.md`** against
-  `recovery-ladder-registration.md`. **Verified and RESYNCED 25 Sep 12:30Z** (md5s above). RULE.md is hashed
-  into every read, so **do NOT edit it while a canary is live** — between canaries is the safe window.
-- **A GATE CAN BE LIVE WITHOUT SPELLING ITS OWN NAME.** Two days running, a gate generation shipped
-  unregistered. **Do not grep for "vNN" to decide what is live** — diff `~/verdict.py` against the last
-  registered md5, and read what changed. This is queue-worthy as a hash interlock: `verdict.py` should
-  refuse to run when its gate region's digest is not the one `RULES-IN-FORCE.md` records.
+  `recovery-ladder-registration.md`. **Resynced 26 Sep 12:15Z** (md5s above). RULE.md is hashed into every
+  read, so **do NOT edit it while a canary is live** — between canaries is the safe window.
 - **PUT `immobiledid` IN A REGISTRATION'S `reads` LIST** — `verdict.py` refuses the final read without it.
-- **`deadline_min` ≥ `max(read_minutes)` + 30.** v30 now refuses at launch; do not rely on remembering it.
-- **Run `python3 scripts/test_verdict_acceptance.py` before and after touching the verdict path** (now
-  **67/67**), `test_verdict_acceptance_mutants.py` **OFF** the bots host (**26/26**), and
-  `scripts/test_schedule_invariant.py` (16 cases + 5 mutants; set `CANARY_LOOP_PATH` on the host).
+- **`deadline_min` ≥ `max(read_minutes)` + 30.** v30 refuses at launch.
+- **A REGISTRATION NEEDS A `licence` WITH A CLASS.** v31 now refuses at launch; 18 of 20 on file have none.
+- **Run before and after touching the verdict path:** `scripts/test_verdict_acceptance.py` (**83/83**),
+  `test_verdict_acceptance_mutants.py` **OFF** the bots host (**33/33**),
+  `scripts/test_launch_guards.py` (new — v31/v32 wiring + 3/3 mutants), and
+  `scripts/test_schedule_invariant.py` (set `CANARY_LOOP_PATH` on the host).
 - **Nightly 00:12Z `~/programread.py 24`**; nightly 00:07Z iron-funnel.
-- Tier-1 analyst every 30 min — **alive, newest `20260925T1200`**. `versions_ok=False` is the known
-  build-suffix false-fail.
+- Tier-1 analyst every 30 min — **alive, newest `20260926T1100`**, `fleet_healthy=True`, `versions_ok=True`.
 - `canarywatch.py` cron */10; `stuckwatch.py` cron :17/:47; `monitor.py` */10 on BOTH hosts.
 
 ## Known false alarm — the analyst pages OpenLoop for the whole life of every canary
 Normal from deploy to verdict. The discriminating test is the **anchored**
-`pgrep -af "^bash /home/mike/canary-loop\.sh"` **plus** the deadline. **The bracketed form in older notes
-self-matches — see queue item 11.**
+`pgrep -af "^bash /home/mike/canary-loop\.sh"` **plus** the deadline.
 
 ## Apparatus notes
 - **`check-open-loop.py` is at `/opt/minecraft-ai/scripts/`, NOT `~/mcai-analysis/`.** Ledger:
   `/var/log/mcai/_canary-decisions.jsonl` (`MCAI_DECISIONS` overrides).
-- **Registrations live in `~/mcai-analysis/registrations/<run_id>.json`**, with a `/tmp/registrations/`
-  fallback only when `VERDICT_REG_DIR` is unset.
+- **Registrations live in `~/mcai-analysis/registrations/<run_id>.json`** (20 on file), with a
+  `/tmp/registrations/` fallback only when `VERDICT_REG_DIR` is unset.
+- **The preflight checkers live in `~/mcai-analysis/`:** `changerowcheck.py`, **`licencecheck.py` (moved
+  there today from `~/`)**, **`gatedigest.py` (new)**. `v30check.py` is at `~/v30check.py`.
 - **`fleet-deploy` finds the reader with `pgrep -f '^bash /home/mike/canary-loop.sh'`.** Launch the loop as
   `setsid bash /home/mike/canary-loop.sh <run_id> </dev/null > ~/canary-loop-<run_id>.out 2>&1 & disown`.
   Do not route around it with `READER_OK=1`.
 - **AFTER EVERY DEPLOY OR PROMOTION, diff `/opt/minecraft-ai/scripts/lib/` against `~/mcai-analysis/lib/`
-  AND CHECK WHICH WAY THE DIFFERENCE RUNS.** On 23 Sep `/opt` was ahead; **today `/opt` was two days
-  BEHIND on three files.** Restore with `sudo cp` + `rm -rf __pycache__`, then prove it with a 30-min walk.
-- **`Events.count_class` exists on the Events class, not in `lib/vocabulary.py`** — older re-arm text
-  asserts it in the wrong place and reads as a failure.
+  AND CHECK WHICH WAY THE DIFFERENCE RUNS.** It survived today; on 25 Sep `/opt` was two days BEHIND on
+  three files, and on 23 Sep it was AHEAD.
+- **`Events.count_class` exists on the Events class, not in `lib/vocabulary.py`.**
 - **Use `date -u`. Do not estimate elapsed time from the flow of the work.**
-- **`/root/d.sh` is the deploy copy** (`sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh`) —
-  the script `git reset`s the tree it lives in, so it must run from outside the repo.
+- **`/root/d.sh` is the deploy copy** — the script `git reset`s the tree it lives in, so it must run from
+  outside the repo. **But prefer `~/bin/fleet-deploy`, which also restores the analysis library.**
+- **NEVER `open(p,'w').write(x)` when `x` might not be a string** — it truncates before it raises.
+  `test_verdict_acceptance_mutants.py` was zeroed that way today and restored from HEAD. Write to a temp
+  file and `os.replace`.
 
 ## Telemetry row shape and walk discipline
 - Rows are FLATTENED to `{bot, detail, name, raw, t}`. `r['bot']` is a **dict** (`.get('name')`), kind is
   `r['name']` (leading underscore for `logEvent` kinds), everything else under `r['raw']` —
   `raw.bot.tools` (the only place durability lives), `raw.bot.inventory`, `raw.bot.pos`,
   `raw.code.version`, `raw.skill.{status, fail_class, detail, args, duration_ms, inventory_delta}`.
-  **A gather or deposit outcome is `skill.status` / `skill.fail_class`, NEVER a substring of `skill.detail`.**
-- **Full walks only**; `grep -a`; readers must include rotated `.gz` generations.
-- **A wide walk takes ~29 GB of the host's 46 GB — run wide walks ONE AT A TIME**, and never alongside a
-  live canary read.
+  **A gather or deposit outcome is `skill.status` / `skill.fail_class`, NEVER a substring of `skill.detail`**
+  — but for `skill_error` the SUB-CAUSE is only in `detail` (finding 4), and it is pathfinder prose.
+- **Full walks only**; `grep -a`; readers must include rotated `.gz` generations. A 24 h walk is ~881k rows.
+- **A wide walk takes ~29 GB of the host's 46 GB — run wide walks ONE AT A TIME**, never alongside a live
+  canary read.
 
 ## Worktrees
-mcai-banktruth (`deposit-truth-msg` 9a6aa13 — kept, unpromoted, undecided), mcai-deposit (`deposit-truth`
-73acd47 — refused by both engines), mcai-shore (9b572aa), mcai-pickup (842e017), mcai-leafb (9fc3968),
-mcai-anylog (7dd3775), mcai-digwatch (cfc1c58), mcai-falls (fc28885), mcai-owner (owner-01c 93f5b8f),
-mcai-deathsites (b1659c0), **mcai-rl02 (`recovery-ladder-03` = docs/scripts branch)**, mcai-scene.
+mcai-banktruth (`deposit-truth-msg` 9a6aa13 — KEPT, unpromoted), mcai-deposit (`deposit-truth` 73acd47 —
+refused by both engines), mcai-shore (9b572aa), mcai-pickup (842e017), mcai-leafb (9fc3968), mcai-anylog
+(7dd3775), mcai-digwatch (cfc1c58), mcai-falls (fc28885 — **falls-02 `37a68c3` KEPT, unpromoted**),
+mcai-owner (owner-01c 93f5b8f), mcai-deathsites (b1659c0), **mcai-rl02 (`recovery-ladder-03` = docs/scripts
+branch)**, mcai-scene. Branch `veto-b2-01` = `efabf13` (**vetob2-01 KEPT, unpromoted**).
 **The main repo checkout is on branch `veto-feedback`**, which does **NOT** contain the live sha —
 **read live source with `git show efa2853:bots/src/<file>`, never the working tree.**
+**Uncommitted in `mcai-rl02` and NOT mine:** `bots/scripts/check-movement-writers.mjs` (modified),
+`bots/test/movement-ratchet.test.mjs`, `scripts/botview.sh` (untracked). Left alone deliberately.
 
 ## Re-arm on a fresh session (monitors are session-local)
-0. **VERIFY THE CANARY STATE YOURSELF — yesterday's file was wrong about it.** Four checks:
-   `check-open-loop.py`; `canary_pool` in the manifest; the **anchored** pgrep; and a census. As of 12:35Z
+0. **VERIFY THE CANARY STATE YOURSELF — this file was wrong about it two days running.** Four checks:
+   `check-open-loop.py`; `canary_pool` in the manifest; the **anchored** pgrep; and a census. As of 12:20Z
    all four say **no canary, one version, 80 bots**.
-1. **Loop pages AND journal phases**: Monitor tailing **both** `~/digest/page.jsonl` **and**
+1. **RUN `python3 ~/mcai-analysis/gatedigest.py` FIRST.** It is one command and it answers the question that
+   cost three days. Exit 0 = the live gate is the registered gate.
+2. **Loop pages AND journal phases**: Monitor tailing **both** `~/digest/page.jsonl` **and**
    `~/canary-journal.jsonl` on .31, filtered to
-   `verdict|error|flag|PROMOTED|REVERT|deployed|torn-down|KEEP|INCONCLUSIVE|read-|recorded|CRASH`,
-   `tail -n 0 -F`. **Neither file is complete; `page.jsonl` ALONE IS NOT A HEARTBEAT.** Monitors here
-   expire at 30 min — re-arm, or check by hand. **A Monitor that expired with 0 events today did so while
-   the loop was working normally**, so silence is a prompt to run the anchored pgrep, not evidence.
-2. **Local analyst**: Monitor running `bash ~/analystwatch.sh` on .31. **DO NOT FILTER ON MESSAGE TEXT.**
+   `verdict|error|flag|PROMOTED|REVERT|deployed|torn-down|KEEP|INCONCLUSIVE|read-|recorded|CRASH|refused`,
+   `tail -n 0 -F`. **Neither file is complete; `page.jsonl` ALONE IS NOT A HEARTBEAT.** Monitors expire at
+   30 min — re-arm, or check by hand. **An expiry with 0 events means nothing on its own** (it happened
+   twice today with the loop idle and healthy), so silence is a prompt to run the anchored pgrep.
+3. **Local analyst**: Monitor running `bash ~/analystwatch.sh` on .31. **DO NOT FILTER ON MESSAGE TEXT.**
    **IT IS AN ALARM, NOT A HEARTBEAT.** Confirm it is alive from `ls -t ~/digest/*.verdict.json`.
-3. **Death poll**: the loop runs `verdict.py <run> 0 --poll` every 5 min — **only if the loop is alive.**
-4. **If the loop is dead with a canary declared**: read the journal, take the reads by hand at their
+4. **Death poll**: the loop runs `verdict.py <run> 0 --poll` every 5 min — **only if the loop is alive.**
+5. **If the loop is dead with a canary declared**: read the journal, take the reads by hand at their
    registered minutes, record with `check-open-loop.py --record` under sudo **BEFORE** touching the
    manifest, then tear down (THREE steps + kill detached readers + clear `~/MANUAL-READS-UNTIL`).
-5. **AFTER ANY DEPLOY OR PROMOTION, CHECK THE ANALYSIS LIBRARY SURVIVED** — it did not today:
+6. **AFTER ANY DEPLOY OR PROMOTION, CHECK THE ANALYSIS LIBRARY SURVIVED:**
    `cd /opt/minecraft-ai && sudo python3 -c "import sys; sys.path.insert(0,'/opt/minecraft-ai/scripts'); from lib.telemetry import Events; print(len(Events.load(since_minutes=30).rows))"`
    Expect ~18–19k rows / 80 bots. Then diff `lib/` against `~/mcai-analysis/lib/` **both ways**.
-6. **CHECK HOST FILE MTIMES BEFORE TRUSTING THIS FILE'S APPARATUS SECTION.**
-7. **RE-CENSUS THE LIVE VERSION BEFORE PUBLISHING ANY NUMBER**, and stamp every measurement with its sha.
-8. **CHECK WHETHER ANOTHER SESSION IS RUNNING** before editing shared files: `git log --oneline -5` and
+7. **CHECK HOST FILE MTIMES BEFORE TRUSTING THIS FILE'S APPARATUS SECTION.**
+8. **RE-CENSUS THE LIVE VERSION BEFORE PUBLISHING ANY NUMBER**, and stamp every measurement with its sha.
+9. **CHECK WHETHER ANOTHER SESSION IS RUNNING** before editing shared files: `git log --oneline -5` and
    `git status` in `mcai-rl02`, and `sudo tail /var/log/auth.log` on .31 for commands you did not issue.
+   **Today: none — the only entries were this session's.** But a session ran 06:00–09:50Z before this one
+   and committed seven times without rewriting this file, which is how the overnight canaries went unrecorded
+   here until now.
