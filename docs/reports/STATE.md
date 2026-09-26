@@ -254,7 +254,17 @@ assertion, and `fleet-deploy --pool` refuses without a reader.
   `scripts/test_launch_guards.py` (new — v31/v32 wiring + 3/3 mutants), and
   `scripts/test_schedule_invariant.py` (set `CANARY_LOOP_PATH` on the host).
 - **Nightly 00:12Z `~/programread.py 24`**; nightly 00:07Z iron-funnel.
-- Tier-1 analyst every 30 min — **alive, newest `20260926T1100`**, `fleet_healthy=True`, `versions_ok=True`.
+- Tier-1 analyst every 30 min — **alive; the 13:00Z run confirms the RULE.md restore: `prompt_tokens` 8668
+  (broken 3631, pre-incident 8034), `fleet_healthy=True`, `versions_ok=True`.**
+- **WHAT THE ANALYST ACTUALLY READS, because the token count looks too small and it is not.**
+  `analyst.py:12` does `rule = rule[-20000:]` — a **blind 20,000-character tail** of the `## v14c`-onward
+  slice — and *then* prepends `RULES-IN-FORCE.md` in full. So the prompt is 7,139 (authoritative paragraph)
+  + 20,000 (tail of RULE.md) + the system block + 1,241 (digest) ≈ **8.7K tokens, which matches 8668
+  exactly. Nothing is being silently cut by `num_ctx` (24,576).**
+  **Two consequences.** (1) **Rules older than the last ~20 KB of RULE.md are ALREADY outside the window** —
+  v14c through roughly v27 — and that is by design: `RULES-IN-FORCE.md` exists to cover it, which is why
+  `analyst.py` calls that half AUTHORITATIVE and puts it first. (2) **Append new rules to the END of
+  RULE.md**, or they fall outside the tail and the analyst never sees them.
 - `canarywatch.py` cron */10; `stuckwatch.py` cron :17/:47; `monitor.py` */10 on BOTH hosts.
 
 ## Known false alarm — the analyst pages OpenLoop for the whole life of every canary
