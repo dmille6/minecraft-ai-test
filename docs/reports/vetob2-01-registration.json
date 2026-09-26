@@ -1,0 +1,227 @@
+{
+ "run_id": "vetob2-01",
+ "sha": "efabf13",
+ "registered_at": "2026-09-26T05:44:56Z",
+ "ladder_change": false,
+ "promotion": "none",
+ "notes": "B2 VETO FEEDBACK: the model is told what the gate will refuse, and which proposal was vetoed. BUILT 2026-09-11 AND NEVER DEPLOYED -- 15 days. It is the agreed next step after three cooldown canaries (38bebdd/placebo-b, bb1af53/isolated-a, bb1af53/board-a) all read REVERT and established that the WAIT is not the bottleneck: a shorter cooldown bought +41% model calls that became vetoed re-proposals of just-failed actions (board-a: vetoed re-proposals 13.9 -> 35.6/bot-h, executed decisions control-adjusted -2%). The prompt said `rejected: cooldown (gather with these args failed recently)` -- not WHICH args, not what else is off-limits -- and the 7B re-proposed it. TWO HALVES, AIMED AT THE TWO BIGGEST VETO CLASSES. Measured 2026-09-26 over 12 sampled bots / 18 bot-h / 536 veto lines: repeat_loop 275 (51.3%), cooldown 124 (23.1%), learned_avoid 72 (13.4%), deposit_not_worth_it 37, bad_args 16. (1) prompt.mjs gains offLimitsLine() -- the unexpired failed-cooldown entries, longest first, capped at 6 entries and 240 chars, EMPTY when nothing is off-limits so an idle bot's prompt does not grow: that attacks `cooldown`. (2) cognitive.mjs's lastOutcome names the vetoed proposal with its args (`rejected gather block=oak_log: cooldown (...)`) where it said `rejected: cooldown`: that attacks `repeat_loop`, which IS the re-proposal loop. 74.4% of vetoes between them. EXPOSURE IS NOT THE RISK HERE, unlike blindstep-02 (aborted at +58 min with zero exposure after board-c collapsed from 25.6 refusal-rows/bot-h to 0.56 boxed episodes/bot-h in 24 h). The gate writes a 45 s cooldown on every skill failure (FAILED_COOLDOWN_MS unset in all 80 env files, so config.mjs's 45000 applies) and the fleet fails ~81 skill attempts/bot-h, so 81 x 45 s = 3,645 s of coverage per 3,600 s hour: the table is non-empty essentially always. That is an INFERENCE from a measured quantity, which is why the floor below is 9% of the point estimate rather than 40%. WHY THERE IS AN INSTRUMENT IN THIS DIFF. There is NO veto event kind in the skill JSONL -- the rejection is log('warn','decision rejected') and reaches journald only. Verified: 116 distinct kinds over a 180-min fleet walk and the only veto-ish one is _veto_faces, which is gather target safety. So the primary endpoint is scraped from journald, and a single new row (`veto_feedback`) proves the change is LIVE AND EXERCISED rather than merely deployed. It measures the RENDERED line, not the table the gate holds, because offLimitsLine caps at 240 chars -- logging offLimits.length would be logging an intention, the defect that let blindstep-01 meet its exposure floor with no bot moving. A new EVENT and never a new field: the decision index is dynamic:strict and one unmapped key rejects the WHOLE document, which cost 8 days and ~1.4M absent decisions once already. THE INSTRUMENT IS PART OF MAKING B2 READABLE, NOT A SECOND EXPERIMENT -- it cannot change behaviour. Branch veto-b2-01 = efa2853 + cherry-pick 7d4f416 65c9090 + the instrument. Both cherry-picks auto-merged with no conflict. Diffing the original veto-feedback branch would have REVERTED 15 days of cognitive.mjs work: that branch is BEHIND main on that file (-187 lines), which is why this is a cherry-pick onto the deployed baseline and not a merge.",
+ "reads": [
+  "vetob2read",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  30,
+  90,
+  180
+ ],
+ "change_rows": [
+  "veto_feedback"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "failed skill attempts (what writes a cooldown entry)",
+    "kind": "gather",
+    "status": "failed",
+    "min": 40
+   }
+  ],
+  "note": "The population this change targets is bots that GET VETOED, and the gate's cooldown map is written by skill FAILURES. Those are universal -- 26,054 failed skill rows in a 4 h fleet-wide window -- so exposure is not a binding constraint and this requirement is a tripwire against a pool that has gone quiet, not a filter. Stated explicitly rather than omitted: a draw_exposure block written for a different mechanism is blind to this one."
+ },
+ "exposure": {
+  "read": "vetob2read",
+  "field": "feedback_rows_canary",
+  "min": 500,
+  "note": "ARITHMETIC, at the shape actually drawn: 15 bots x 180 min = 45 bot-h. The row fires once per decision whose off-limits line is non-empty; decisions run ~91/bot-h (measured 2026-09-23 at 91.10 vs 91.85 across a 1.9x endpoint latency gap, and independently reproduced by tonight's dry run at 92.61 vs 92.76) and the table is non-empty essentially always (see notes), so ~4,095 rows are expected. 500 is 12% of that: reachable inside the first 15 minutes if the mechanism works at all, and unreachable if the off-limits line is empty -- which is exactly the inert case. It counts the gate SPEAKING, not a bot merely running."
+ },
+ "own_lines": [
+  {
+   "read": "vetob2read",
+   "field": "feedback_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "role": "linkage",
+   "evidence": "defect",
+   "note": "_veto_feedback is UNEMITTABLE on efa2853: git grep for veto_feedback in efa2853 -- bots/src returns nothing, with a positive control on the identical query (kind: 'affordance_scan' -> 1 hit). Verified on the fleet over a 180-min walk, 113,773 rows / 80 bots / 116 distinct kinds: _veto_feedback = 0, positive controls on the SAME walk _affordance_scan 21,956, _veto_faces 1,104, _livelock_escape 567. A control-arm row means the arms are not what this read thinks they are. evidence=defect: a presence test against a structurally impossible value, not a statistical claim."
+  },
+  {
+   "read": "vetob2read",
+   "field": "over_cap_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "role": "linkage",
+   "evidence": "defect",
+   "note": "OFF_LIMITS_LINE_MAX = 240 is the bound that keeps this change from growing the prompt with the failure count. chars is measured on the RENDERED line, so a row over 240 means the cap is not holding in the field and the prompt is unbounded. Structurally impossible if the code is what the tests say it is; a defect if it happens."
+  }
+ ],
+ "friction": [],
+ "primary": {
+  "read": "vetob2read",
+  "field": "vetoes_did",
+  "gate": -5.03,
+  "op": "<=",
+  "direction": "down",
+  "role": "calibrated_against_measured_null",
+  "series_required": true,
+  "deciding_reads": [
+   180,
+   240
+  ],
+  "note": "All vetoes per bot-hour, difference-in-differences, canary vs control, scraped from journald (`decision rejected why=...`). Vetoes run 29.8/bot-h measured, so 10 bots x 3 h gives ~890 canary events. THE GATE IS A MEASURED NULL BOUND, NOT ZERO AND NOT A TYPED NUMBER (see null_calibration and amendments): pooled C(12,2) exhaustive p5 = -5.03, and the hive-only subset that matches this draw is unbiased and tighter (-4.58), so -5.03 is the conservative gate. KEEP requires vetoes_did <= -5.03 AND a component moving in the right direction against ITS OWN STRATUM centre: repeat_loop_did <= +1.40 (hive-only null floor; its null MEAN here is +3.01) OR cooldown_did <= -2.29 (hive-only null floor). REVERT requires vetoes_did >= +5.17 (pooled p95). Between: INCONCLUSIVE, the honest close at this noise level. ONLY +180 AND +240 DECIDE -- the null was measured on a 180-min post window, so +30 and +90 have a wider, UNMEASURED band."
+ },
+ "watch": [
+  {
+   "read": "vetob2read",
+   "field": "saturation_share",
+   "note": "REPORTED, NOT DECIDING. The share of decisions holding the full 6 entries. If that is high the cap is binding and the model is being shown a truncated view of what is off-limits -- a design question this canary is the only way to answer, and the reason `held` and `chars` are logged separately."
+  },
+  {
+   "read": "vetob2read",
+   "field": "decisions_did",
+   "note": "REPORTED. decisions/bot-h is the only endpoint with a tight MDE (~17%). B2 should not move it -- it changes prompt CONTENT, not cadence -- so a large move either way is a signal that something other than the intended mechanism is acting, most likely prompt length."
+  },
+  {
+   "read": "vetob2read",
+   "field": "feedback_rows_canary",
+   "note": "VOLUME, for the promotion decision and not for this verdict. ~1 row per decision means ~175k rows/day fleet-wide at 80 bots, roughly 44 MB/day raw against ~903 MB/day total -- about 5%. Acceptable for a 3 h canary; if this is promoted the emission should first be narrowed to fire on CHANGE of the entry set rather than every decision."
+  },
+  {
+   "read": "vetob2read",
+   "field": "vetoes_did",
+   "note": "REPORTED at +30 and +90. Their noise band is wider than the +180 band and was not measured, so a crossing there means nothing -- the exact error that made a +90 crossing meaningless on 2026-09-23. Series required so a single crossing cannot decide."
+  }
+ ],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   240
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE"
+ },
+ "deadline_min": 360,
+ "mechanism_check": {
+  "read": "vetob2read",
+  "field": "feedback_rows_canary",
+  "note": "Same field as the exposure floor, deliberately: this change has one mechanism -- the model being shown the off-limits line. No row, no mechanism, and no other line can rescue it. Guards the canary-can-ship-inert failure (owner-01 ran 97 min as the baseline)."
+ },
+ "safety": [
+  {
+   "rule": "death_gate",
+   "floor": "TWO canary deaths AND > 1.25x the control rate",
+   "role": "deciding",
+   "note": "OWNER DECISION 2026-09-11, and gatecal measured it at 4.8% false-trip against a nominal 5% with 100% detection at 10x. This change cannot plausibly kill a bot -- it adds text to a prompt and emits a log row -- so a trip here would almost certainly be an unrelated death, which is exactly the case the two-death floor and the 1.25x ratio exist to absorb. One death is named in the read and is not a verdict."
+  }
+ ],
+ "pool_draw": "DRAWN AT DEPLOY TIME by drawrec.sh with this run_id: ['board-a','hive-a','hive-c'] = 3 pools / 15 bots, rule v5 band widened to +-40% (stated by the draw), all-pool median 16.6 items/bot-h, 12h ledger exclusions removed board-c, hive-d, placebo-b, placebo-d. The draw offered 3 of a 4-pool target because the band had no more, and the read must say so: 15 bots, not 20. NOT the argmax -- board-a 13.1 and hive-a 14.9 sit BELOW the 16.6 median and hive-c is at it, so this draw does not build in regression to the mean. COVARIATE TO RECORD: all three drawn pools are on the 5080 half (half mix on offer was 5080:3, 3090:0), so the control arm carries every 3090 bot. That is a level difference the DiD absorbs, and inference-is-not-the-constraint measured the decision rate as identical across a 1.9x endpoint latency gap (91.10 vs 91.85), so it is recorded rather than treated as a confound. board-a additionally contains a trapped bot.",
+ "teardown": "THREE steps: drop-ins, clearing canary_pool, AND restarting the pool's bots staggered 12 s apart, then confirm exactly two versions live. Then restore the golden analysis lib from ~/mcai-analysis/lib/ -- a deploy by any path other than ~/bin/fleet-deploy does not restore it, which is how the efa2853 promotion reverted telemetry.py and openloop.py.",
+ "known_residuals": [],
+ "licence": {
+  "class": "kind",
+  "kind": "veto_feedback",
+  "min_rows": 500,
+  "note": "THE STRONGEST CLASS, and earned rather than asserted: efa2853 contains no logEvent with kind 'veto_feedback' (git grep empty; positive control kind: 'affordance_scan' -> 1 hit on the identical query), and a 180-min fleet walk of 113,773 rows over 116 distinct kinds found _veto_feedback = 0 with three positive controls on the same walk. Baseline silence is therefore structural, not statistical."
+ },
+ "null_calibration": {
+  "measured_at": "2026-09-26T06:00Z",
+  "method": "Both arms on IDENTICAL code (the live single-version fleet, efa2853+c7b045). journald scraped once over 6 h (16,663 veto lines, 85 units, 231,654 JSONL rows / 80 bots), then EVERY same-shape assignment enumerated: C(12,3)=220 exhaustively -- 3 pools of 5 from the 12 eligible pools, which is the shape drawrec ACTUALLY offered for this run (it drew 3 of a 4-pool target; the band had no more). Pre/post split at the midpoint, so the null matches the +180 read exactly (180 min pre, 180 min post). A 4-pool null over 400 of C(12,4)=495 gives p5 -5.03 / sd 3.09, essentially identical, so the band is robust to the pool count -- but the 3-pool numbers below are the ones that match this draw and are the ones that decide.",
+  "vetoes_did": {
+   "mean": 0.0,
+   "sd": 2.89,
+   "median": -0.02,
+   "p5": -4.96,
+   "p95": 4.93,
+   "min": -8.05,
+   "max": 6.5,
+   "n": 220,
+   "exhaustive": true
+  },
+  "repeat_loop_did": {
+   "mean": 0.0,
+   "sd": 3.36,
+   "median": 0.37,
+   "p5": -6.18,
+   "p95": 4.74,
+   "n": 220
+  },
+  "cooldown_did": {
+   "mean": 0.0,
+   "sd": 1.35,
+   "median": 0.0,
+   "p5": -2.05,
+   "p95": 2.31,
+   "n": 220
+  },
+  "note": "THIS IS WHY THE GATE IS NOT ZERO. The first draft said `KEEP if the DiD is negative`. A dry run with both arms on identical code returned vetoes_did = -5.27 and decisions_did = -5.44, which that rule would have KEPT -- the canary-gate-was-noise defect (leaf-01's typed -0.5 line tripping on nothing). The estimator is UNBIASED (mean 0.00, median -0.02 across all 220 assignments), so the problem is spread, not bias: sd 2.89 against a base rate of ~38 vetoes/bot-h. That -5.27 dry run sat at roughly the 5th percentile of its own null -- indistinguishable from nothing. POWER: the B2 design memo pre-registered >= 30% down control-adjusted, which at 29.8-38 vetoes/bot-h is a DiD of -9 to -11.4 -- 1.8x to 2.3x the 5% bound and beyond the MINIMUM of all 220 null assignments (-8.05). The registered target is detectable; a -5 result is not.",
+  "drawn_shape": {
+   "pools": [
+    "hive-a",
+    "hive-c"
+   ],
+   "bots": 10,
+   "assignments": "C(12,2)=66 exhaustive",
+   "window_ends": "2026-09-26T06:02:47Z (the deploy instant)",
+   "pre_deploy_veto_lines": 16614,
+   "vetoes_did": {
+    "mean": 0.0,
+    "sd": 3.31,
+    "median": 0.36,
+    "p5": -5.03,
+    "p95": 5.17,
+    "min": -7.64,
+    "max": 6.47
+   },
+   "repeat_loop_did": {
+    "mean": 0.0,
+    "sd": 3.82,
+    "p5": -7.03,
+    "p95": 4.91,
+    "min": -10.68,
+    "max": 6.19
+   },
+   "cooldown_did": {
+    "mean": -0.0,
+    "sd": 1.41,
+    "p5": -2.21,
+    "p95": 2.54,
+    "min": -2.34,
+    "max": 3.15
+   },
+   "hive_only_subset_n6": {
+    "vetoes_did": {
+     "mean": 0.01,
+     "median": 0.01,
+     "min": -4.58,
+     "max": 4.59
+    },
+    "repeat_loop_did": {
+     "mean": 3.01,
+     "median": 3.01,
+     "min": 1.4,
+     "max": 4.63
+    },
+    "cooldown_did": {
+     "mean": -1.27,
+     "median": -1.27,
+     "min": -2.29,
+     "max": -0.25
+    }
+   },
+   "no_hive_subset_n28": {
+    "vetoes_did_mean": -0.0,
+    "repeat_loop_did_mean": -1.51,
+    "cooldown_did_mean": 0.64
+   }
+  }
+ },
+ "amendments": [
+  {
+   "at": "2026-09-26T06:06:53Z",
+   "what": "component gates re-centred on the drawn STRATUM; primary gate unchanged in substance",
+   "why": "The draw came back hive-a + hive-c -- 2 pools / 10 bots, not the 3 pools / 15 bots offered six minutes earlier -- so the null was re-measured at the actual shape: C(12,2)=66, EXHAUSTIVE, on data ending STRICTLY AT THE DEPLOY INSTANT 2026-09-26T06:02:47Z, 16,614 pre-deploy veto lines. No canary data existed when this was computed and none was consulted; this corrects a MIS-SPECIFIED NULL, it does not respond to a result. THE FINDING THAT FORCED IT: the component nulls are STRATUM-DEPENDENT, and hive is the heaviest veto stratum (109-185 learned_avoid per 1k decisions against 3-16 elsewhere). Under the null, hive-only pairs centre at repeat_loop_did MEAN +3.01 (range +1.40..+4.63) while no-hive pairs centre at -1.51; and at cooldown_did MEAN -1.27 (range -2.29..-0.25) against no-hive +0.64. So the pooled gates would have BOTH blocked a true KEEP (requiring repeat_loop <= -6.18 when this stratum's null floor is +1.40) AND licensed a false one (cooldown <= -2.05 when this stratum's null reaches -2.29 on its own). For the PRIMARY the hive-only null is unbiased and tighter (mean +0.01, median +0.01, range -4.58..+4.59), so the pooled p5 -5.03 is kept as the conservative choice. HONEST LIMIT: n=6 hive-only assignments. A '5th percentile' of six numbers is the minimum, so these component bounds are RANGE ENDPOINTS, not percentiles, and they are used as direction-plus-magnitude checks rather than as tests. Stated because six is not a distribution."
+  }
+ ]
+}
