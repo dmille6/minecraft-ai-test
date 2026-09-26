@@ -407,3 +407,32 @@ and craft is 0.18 min/bot-h of skill time. A real inefficiency, and a minor one.
 
 The large numbers are unchanged from §1–3: gather yields 13.41 items/bot-h at 19.2%
 success on 7.0% of bot-time, and **81.6% of bot-time is outside any skill.**
+
+---
+
+## 13. Fleet status, 24 h to 2026-09-26 10:00Z
+
+80 bots, one version `efa2853+c7b045`, no canary, open-loop guard clear.
+
+    FLEET TOTALS (crafted/smelted, measured inventory deltas on SUCCESSFUL events)
+      stick 537 | oak_planks 503 | crafting_table 74 | stone_pickaxe 69
+      wooden_pickaxe 53 | furnace 32 | torch 28 | stone_axe 5 | wooden_axe 2
+      iron_pickaxe 0
+      also: oak_log 117, birch_planks 98, glass 66, cobblestone 66, bamboo 52,
+            ladder 21, brick 17, charcoal 7, iron_ingot 4, copper_ingot 4
+
+    travel 1,582,274 blocks | gathered items 23,041 | deaths 41
+    per bot-hour: travel 824 blocks | gathered items 12.00 | deaths 0.021
+                  craft outputs 0.94
+    bots with any crafted/smelted output: 66 of 80
+
+Two things the table shows that no aggregate does.
+
+**The ceiling has moved to iron.** 69 stone pickaxes were made in 24 h, so the old
+"0/80 past stone" narrative is dead (memory already flags it stale). But
+`iron_pickaxe` is **0 made from 39 attempts, every one `missing_ingredients`**, and only
+**4 iron ingots** were smelted all day. The wall is iron ore → ingot, not stone.
+
+**`stick` is still the reward-shape artefact.** 537 sticks against a fleet that needs two
+per pickaxe and made 122 pickaxes of all kinds. It has been flagged before and is
+unchanged.
