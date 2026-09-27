@@ -152,10 +152,8 @@ out = []
 for l in keep:
     if l.startswith('seed '):
         f = l.split()
-        out.append('seed-rejected %s %s no-placeable-town
-' % (f[1], f[2]))
-        out.append('seed %s %s %s
-' % (f[1], seed, f[3]))     # SAME ts, new seed
+        out.append('seed-rejected %s %s no-placeable-town\n' % (f[1], f[2]))
+        out.append('seed %s %s %s\n' % (f[1], seed, f[3]))     # SAME ts, new seed
     else:
         out.append(l)
 open(j, 'w').writelines(out)
