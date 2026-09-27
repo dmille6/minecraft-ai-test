@@ -42,7 +42,7 @@ BASE_RCON = 25670
 # `template` (no server.properties at all), and it is readable without root, so
 # import does not require privilege.
 def _discover_worlds():
-    found, ports = {}, {}
+    found, ports, townless_port = {}, {}, []
     for d in sorted(ROOT.glob('*/')):
         if not (d / 'TOWN-PLACED.json').exists():
             continue
@@ -52,17 +52,30 @@ def _discover_worlds():
                 if line.startswith('rcon.port='):
                     port = int(line.split('=', 1)[1].strip())
         except OSError:
-            # server.properties is root-only. An unprivileged import still gets
-            # the full world LIST; it just cannot supply the port fallback, and
-            # every caller reads the port from the file itself under sudo anyway.
-            pass
+            pass                      # root-only; handled below, not swallowed
         if port is None:
+            townless_port.append(d.name)
             continue
         if port in ports:
             raise SystemExit(f"two worlds claim RCON port {port}: "
                              f"{ports[port]} and {d.name} -- refusing to guess")
         ports[port] = d.name
         found[d.name] = port - BASE_RCON
+    # PARTIAL DISCOVERY IS THE DANGEROUS CASE, and the first version of this
+    # silently dropped it: fifteen worlds would have become the denominator of
+    # `for world in sorted(ARMS)` with no warning at all, which is this project's
+    # confident-zero in the shape of a loop. Two situations must be told apart.
+    #   NONE readable  -> an unprivileged import. The caller gets the world LIST,
+    #                     reads the port from the file itself under sudo, and is
+    #                     warned by the fallback below.
+    #   SOME readable  -> something is genuinely wrong with a world that has a
+    #                     town. Refuse; do not operate on a subset of the fleet.
+    if found and townless_port:
+        raise SystemExit(
+            "PARTIAL DISCOVERY -- %d world(s) have a TOWN-PLACED.json but no readable "
+            "rcon.port while %d do: %s. Refusing rather than operating on a subset of "
+            "the fleet. Run under sudo, or fix those worlds' server.properties."
+            % (len(townless_port), len(found), ', '.join(townless_port)))
     return found
 
 ARMS = _discover_worlds()

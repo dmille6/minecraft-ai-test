@@ -173,9 +173,23 @@ the filesystem** now — a fleet world is a directory holding `TOWN-PLACED.json`
 separates the 16 from `sandbox`…`sandbox4` (ports 25699–25702, no town) and `template` (no
 `server.properties`). The value is still "the offset that yields the port", so all six importers keep their
 meaning, and the fallback that was **wrong for eight of sixteen worlds** is right by construction.
-`scripts/host/test_world_map.py` — 9 behaviour checks on fixtures shaped like the real `/srv/block2`, 3
-mutants (drop the town filter, restore the alphabetical index, drop the duplicate-port guard), each
-asserting its anchor present and unique. **All killed.**
+`scripts/host/test_world_map.py` — **15 behaviour checks** on fixtures shaped like the real `/srv/block2`
+and **4 mutants** (drop the town filter, restore the alphabetical index, drop the duplicate-port guard,
+drop the partial-discovery guard), each asserting its anchor present and unique. **All killed.**
+
+**PARTIAL DISCOVERY NOW REFUSES, and the review was right that it had to.** The first version silently
+dropped a world with a town but no readable port, so **fifteen worlds could have become the denominator of
+`for world in sorted(ARMS)` with no warning** — this project's confident-zero in the shape of a loop. The
+two cases are now told apart: **none** readable is the unprivileged import (warn, fall back, say the c/d
+ports are wrong), **some** readable is a genuine fault (refuse, name the world). Verified live: 16 under
+sudo with `board-a` at 25672, and the fallback warning under `mike`.
+
+**And two of my own tests were not testing what they said.** Case 2 asserted a townless-port world is
+"excluded", which is exactly the dangerous behaviour — it now asserts the refusal. Case 4 claimed to test
+the module-level fallback and could not reach it, because the module runs `_discover_worlds()` at IMPORT
+against the real `ROOT`, before the test replaces it; the warnings I saw came from the real fleet, not the
+fixture. It now imports a copy whose `ROOT` is already the empty fixture, and asserts both the 8-world
+fallback and the word WRONG on stderr.
 
 **Consequence: `fleet-doctor.py` computes `total = len(ARMS) * len(NAMES)`, so it has been checking 40 bots
 on 8 worlds against an 80-bot fleet.** It now sees 16. Separately it **produced no output in 100 s under

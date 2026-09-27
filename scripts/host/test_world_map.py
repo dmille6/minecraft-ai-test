@@ -49,11 +49,18 @@ with tempfile.TemporaryDirectory() as t:
     check("sandboxes excluded", [w for w in got if 'sandbox' in w], [])
     check("template excluded", 'template' in got, False)
 
-print("2. a town with no readable port is excluded, not admitted at offset 0")
+print("2. a town with no readable port is REFUSED, not silently excluded and not")
+print("   admitted at offset 0. The first version of this test asserted 'excluded',")
+print("   which is the behaviour the review called the dangerous one: fifteen worlds")
+print("   silently becoming the denominator of `for world in sorted(ARMS)`.")
 with tempfile.TemporaryDirectory() as t:
     world(t, 'hive-a', 25670); world(t, 'hive-b', None)   # town, no server.properties
-    got = load(t)._discover_worlds()
-    check("only the world with a port", sorted(got), ['hive-a'])
+    try:
+        got = load(t)._discover_worlds()
+        check("raised instead of returning a subset", False, True)
+    except SystemExit as e:
+        check("named the world it could not read", 'hive-b' in str(e), True)
+        check("did not admit hive-a alone", 'PARTIAL DISCOVERY' in str(e), True)
 
 print("3. two worlds claiming one port REFUSE rather than silently drop one")
 with tempfile.TemporaryDirectory() as t:
@@ -65,10 +72,44 @@ with tempfile.TemporaryDirectory() as t:
         check("refused and named both worlds",
               ('hive-a' in str(e) and 'board-a' in str(e)), True)
 
-print("4. an empty ROOT degrades to the stale map AND says the ports are wrong")
+print("4. an empty ROOT discovers nothing")
 with tempfile.TemporaryDirectory() as t:
     got = load(t)._discover_worlds()
     check("discovers nothing", got, {})
+
+print("4b. PARTIAL discovery REFUSES -- a town with no readable port beside towns that have one")
+with tempfile.TemporaryDirectory() as t:
+    world(t, 'hive-a', 25670); world(t, 'hive-b', 25671); world(t, 'board-a', None)
+    m = load(t)
+    try:
+        m._discover_worlds(); check("raised on partial discovery", False, True)
+    except SystemExit as e:
+        check("refused and named the bad world", 'board-a' in str(e), True)
+        check("said PARTIAL DISCOVERY", 'PARTIAL DISCOVERY' in str(e), True)
+
+print("4c. but NO port readable anywhere is the unprivileged case, not partial")
+with tempfile.TemporaryDirectory() as t:
+    world(t, 'hive-a', None); world(t, 'hive-b', None)
+    check("returns empty rather than raising", load(t)._discover_worlds(), {})
+
+print("4d. THE MODULE-LEVEL FALLBACK, which case 4 never reached: the module runs")
+print("    _discover_worlds() at IMPORT, against the real ROOT, before load() can")
+print("    replace it -- so the fallback must be tested by importing with a ROOT")
+print("    that is already empty. Done by copying the source with ROOT rewritten.")
+with tempfile.TemporaryDirectory() as t:
+    src0 = Path(SRC).read_text()
+    anchor = 'ROOT = Path("/srv/block2")'
+    assert anchor in src0 and src0.count(anchor) == 1, "ANCHOR ROOT"
+    mp = Path(tempfile.mkdtemp()) / 'pt.py'
+    mp.write_text(src0.replace(anchor, f'ROOT = Path("{t}")', 1))
+    import io, contextlib
+    err = io.StringIO()
+    spec = importlib.util.spec_from_file_location('fb', str(mp))
+    mm = importlib.util.module_from_spec(spec)
+    with contextlib.redirect_stderr(err):
+        spec.loader.exec_module(mm)
+    check("ARMS falls back to the stale eight", len(mm.ARMS), 8)
+    check("and says the c/d ports are WRONG", 'WRONG' in err.getvalue(), True)
 
 print("\nMUTANTS -- each must be DETECTED by the checks above, or those checks prove nothing")
 src = Path(SRC).read_text()
@@ -81,6 +122,8 @@ MUTANTS = [
      "found[d.name] = len(found)"),
     ("drop the duplicate-port guard",
      "if port in ports:", "if False and port in ports:"),
+    ("drop the partial-discovery guard (fifteen worlds become the denominator)",
+     "if found and townless_port:", "if False and townless_port:"),
 ]
 for label, old, new in MUTANTS:
     assert old in src, f"ANCHOR MISSING for mutant: {label}"
@@ -92,7 +135,15 @@ for label, old, new in MUTANTS:
     # Each mutant is shown the fixture that its own check exists for, and "killed"
     # means the mutated function gave a DIFFERENT answer from the real one.
     with tempfile.TemporaryDirectory() as t:
-        if 'duplicate-port' in label:
+        if 'partial-discovery' in label:
+            world(t, 'hive-a', 25670); world(t, 'board-a', None)
+            mm.ROOT = Path(t)
+            try:
+                g = mm._discover_worlds()
+                killed = True             # it should have refused, and returned a subset
+            except SystemExit:
+                killed = False            # the guard still fires
+        elif 'duplicate-port' in label:
             world(t, 'hive-a', 25670); world(t, 'board-a', 25670)
             mm.ROOT = Path(t)
             try:
