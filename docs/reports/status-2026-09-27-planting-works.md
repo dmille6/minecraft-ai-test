@@ -168,3 +168,35 @@ minutes by listing every field name before believing an absence. And both positi
 read initially failed for their own reasons — one probed a chunk the server had unloaded, the other probed
 a spot 350 blocks from any town — and were fixed. A control that fails for its own reasons is worse than no
 control, because the next person reads it as evidence about the instrument.
+
+---
+
+## 7. A second session was working alongside this one, and you have been talking to it
+
+Partway through writing this I found `docs/reports/reseed-and-variance-memo-2026-09-27.md` in the same
+working copy, written at 12:13Z — one minute before I saved my own state file. It is another session's, it
+says you have asked for fresh worlds three times, and it is preparing its own go/no-go on the reseed. I
+committed its file by accident before I noticed, and nothing else of its work has been touched.
+
+**Neither of us has reseeded anything.** Whoever acts first needs to confirm the other has not.
+
+Two things it found that are better than mine, and are now in the state file:
+
+- **A per-world growth table with an 8.1x spread** — `placebo-b` at 67.7% against `board-d` at 8.3%, same
+  code, same maturity cut. Neither the arms nor the seeds explain it. Its leading hypothesis is that random
+  tick updates only happen near a bot, and `simulation-distance` is 96 blocks, so a sapling the fleet walks
+  away from may simply never be ticked. **That is a better question than anything on my own list**, and if
+  it is right it changes where bots should plant rather than whether they should.
+- **It corrected me on the town-placement tool.** I said its world map goes stale; in fact the repository
+  has had all sixteen worlds since 24 August and only the copy on the world machine was old. That is a
+  month-old deployment gap, which is a different and duller problem than the one I described, and my fix
+  was the wrong shape for it. Corrected, and the two versions turn out to be genuinely different programs
+  rather than copies — reconciling them is now a queued job with a named missing dependency.
+
+I corrected it on one thing in return: the reseeding tool it also reports as missing does exist, on the
+documentation branch.
+
+This is worth your attention beyond today: **two sessions independently measured the same deploy, reached
+compatible numbers, and each caught a false claim the other had published.** That is the review discipline
+working. It is also two agents writing to one working copy without either knowing, which is how one of them
+loses work. If you intend to keep running them in parallel, they need separate worktrees.
