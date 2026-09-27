@@ -913,6 +913,49 @@ function resolveBlockName(bot, name) {
   return { name: null, via: null }
 }
 
+/**
+ * CAN THE SOURCE OF THIS INGREDIENT EXIST WHERE THE BOT IS STANDING? Pure, exported, testable.
+ *
+ * Lower is better. This is the tiebreak the recipe chooser was missing, and the reason it is
+ * needed is measured: for `stone_pickaxe`, minecraft-data 1.21.8 returns the variants in registry
+ * order `cobbled_deepslate, blackstone, cobblestone`, `better()` is strict on every clause, so a
+ * tie keeps index 0 -- and the fleet is advised to fetch `cobbled_deepslate` 1,415 times a day
+ * having obtained ZERO of it, ever, against `cobblestone` at 7.3% of 2,723 attempts.
+ *
+ * AND IT IS NOT AN ALPHABETICAL BUG, which is what I first reported and what an independent review
+ * refuted by mutant: sorting the FINAL blocker list (`rootGap`) changes only the word order of one
+ * sentence, because every member of that list is printed. Alphabetically `blackstone` would win
+ * anyway, and the fleet sees `cobbled_deepslate` -- index 0. The choice is made HERE.
+ *
+ * Three tiers, and every one is a fact about Minecraft rather than about this fleet's history:
+ *   2  DIMENSION-IMPOSSIBLE -- blackstone and basalt exist only in the Nether. All 16 worlds are
+ *      overworld, so advice naming them can never be acted on from anywhere.
+ *   1  DEPTH-IMPOSSIBLE     -- deepslate and its variants exist only below y=0, which the file
+ *      already knows (`depthVariant`: "Below y=0 an ore only exists as its deepslate variant").
+ *      A surface bot cannot go and get cobbled_deepslate without first digging past y=0.
+ *   0  reachable from here.
+ *
+ * Deliberately NOT ranked by the fleet's own success rates: those live in the lessons store, which
+ * is SHARED WITHIN HIVE POOLS, so a history-based ordering would differ by arm and make every
+ * downstream change carry an interaction term -- the exact cost the arms were retired over.
+ */
+export const NETHER_ONLY = new Set(['blackstone', 'basalt', 'blackstone_slab', 'polished_blackstone',
+  'netherrack', 'soul_sand', 'soul_soil', 'nether_bricks', 'gilded_blackstone'])
+
+export function sourceReachCost (name, y = 64, dimension = 'overworld') {
+  const n = String(name || '').replace(/^\d+x\s+/, '')
+  if (NETHER_ONLY.has(n)) return dimension === 'the_nether' ? 0 : 2
+  if (/(^|_)deepslate(_|$)/.test(n) || n === 'cobbled_deepslate') return y < 0 ? 0 : 1
+  return 0
+}
+
+/** The worst (highest) reach cost in a gap, because a gap is only as good as its hardest member. */
+export function gapReachCost (gap = [], y = 64, dimension = 'overworld') {
+  let worst = 0
+  for (const g of gap) worst = Math.max(worst, sourceReachCost(g, y, dimension))
+  return worst
+}
+
 /** Below y=0 an ore only exists as its deepslate variant. */
 function depthVariant(bot, name, y) {
   if (y >= 0 || name.startsWith('deepslate_')) return null
@@ -2656,10 +2699,18 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         // nothing is pointed at a material it can go and find.
         const DEFAULT_WOOD = 'oak'
         const canonical = g => g.filter(x => stem(x) === DEFAULT_WOOD).length
+        // REACHABILITY, ahead of the wood preference and behind affinity. A gap naming a block
+        // that cannot exist where the bot stands is worse than one naming a block that can,
+        // whatever else is equal -- and every clause below it still decides ties as before.
+        const by = bot?.entity?.position?.y
+        const reach = g => gapReachCost(g, Number.isFinite(by) ? by : 64,
+                                        bot?.game?.dimension ?? 'overworld')
         const better = (g, b) =>
           g.length < b.length ||
           (g.length === b.length && affinity(g) > affinity(b)) ||
-          (g.length === b.length && affinity(g) === affinity(b) && canonical(g) > canonical(b))
+          (g.length === b.length && affinity(g) === affinity(b) && reach(g) < reach(b)) ||
+          (g.length === b.length && affinity(g) === affinity(b) && reach(g) === reach(b) &&
+            canonical(g) > canonical(b))
         if (!best || better(gap, best)) best = gap
         if (best.length === 0) break
       }
@@ -2768,7 +2819,22 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     //
     // Naming the deepest unresolved requirement turns a dead end into an
     // instruction: gather oak_log.
-    const rootGap = blockedBy.length ? [...new Set(blockedBy)].sort() : missing
+    // DEDUPE BY ITEM, NOT BY STRING. `new Set(blockedBy)` compares the whole entry, counts and all,
+    // so one blocker seen twice with different quantities survives twice: MEASURED, `craft
+    // wooden_pickaxe` holding 4 oak_log yields the gap `2x oak_planks+3x oak_planks`. That is one
+    // gap printed as two, and worse, the gap string is the lessons key -- lessons.mjs treats a
+    // changed gap as progress and zeroes the failure streak, so a key that moves with the missing
+    // QUANTITY can never accumulate. Keep the largest requirement per item.
+    const byItem = new Map()
+    for (const b of blockedBy) {
+      const m = /^(\d+)x\s+(.+)$/.exec(b)
+      const [n, item] = m ? [Number(m[1]), m[2]] : [1, b]
+      const prev = byItem.get(item)
+      if (!prev || n > prev.n) byItem.set(item, { n, text: b })
+    }
+    const rootGap = blockedBy.length
+      ? [...byItem.values()].map(v => v.text).sort()
+      : missing
     const gatherFirst = rootGap.filter(g => {
       const n = /^\d+x\s+(\S+)$/.exec(g)?.[1] ?? g
       const d = bot.registry.itemsByName[n]
