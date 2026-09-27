@@ -3027,13 +3027,58 @@ export function roomVeto (bot, p) {
  * another sapling's cell is not a second tree.
  */
 const PLANT_REPLACEABLE = new Set(['air', 'short_grass', 'tall_grass', 'fern', 'dead_bush', 'snow'])
-export function isPlantable ({ soil = null, cell = null, above = null } = {}) {
+// HOW MUCH AIR A SAPLING NEEDS ABOVE IT TO EVER BECOME A TREE. MEASURED, not typed,
+// on the sandbox rig (rcon 25699, "test rig, not a fleet world") at randomTickSpeed
+// 2000 with a floating grass platform at y=100 under open sky, three saplings per
+// cell, a stone ceiling at a controlled offset:
+//
+//     ceiling at   none   +2    +3    +4    +5    +6    +7    +8
+//     oak           3/3   0/3   0/3   0/3   0/3   3/3   3/3   3/3
+//     birch         3/3   0/3   0/3   0/3   0/3   0/3   3/3   3/3
+//
+// A ceiling at +6 leaves FIVE air blocks above the sapling, so oak needs 5 and birch
+// needs 6. The cliff is total: nothing grew one block short, everything grew at or
+// above. Positive control: the unceilinged column grew 6/6, so a failure below the
+// threshold is the ceiling and not the instrument.
+//
+// AND THE ROOM IS PURELY VERTICAL. A separate run put saplings at the bottom of
+// hollow stone tubes of inner width 1, 3 and 5 with twelve air blocks above, and
+// verified by reading the blocks back that every column really was clear: 2/2 grew in
+// EVERY width including 1x1, against a control that also grew 2/2. So a clear column
+// is sufficient and canopy width is not required. (The first attempt at that run had
+// a `fill` silently hit the 32,768-block cap and leave terrain over the control; the
+// script's own guard reported "INSTRUMENT BROKEN" rather than letting 1x1's success
+// be read as a result.)
+//
+// jungle is NOT measured -- 15 of the fleet's 10,125 held saplings -- so it takes the
+// conservative default rather than a guess that wastes them.
+export const SAPLING_CLEARANCE = { oak_sapling: 5, birch_sapling: 6 }
+export const SAPLING_CLEARANCE_DEFAULT = 7
+
+export function saplingClearance (item) {
+  return SAPLING_CLEARANCE[item] ?? SAPLING_CLEARANCE_DEFAULT
+}
+
+/**
+ * CAN A SAPLING LIVE **AND GROW** HERE?
+ *
+ * `column` is the block names directly above the target cell, lowest first. It is
+ * required for a sapling, because the version of this function that checked ONE block
+ * above would have planted into any 1-to-5-block gap -- and the measurement above says
+ * nothing in such a gap ever becomes a tree.
+ *
+ * That is not a cosmetic waste. isPlantable REJECTS a cell that already holds a
+ * sapling, so a sapling placed where it cannot grow occupies that spot permanently.
+ * The comment this replaced argued "a sapling that never grows still cost only one
+ * decision"; it costs the sapling and the ground under it, for good, and the whole
+ * point of the obligation is trees rather than placements.
+ */
+export function isPlantable ({ soil = null, cell = null, column = null, item = 'oak_sapling' } = {}) {
   if (!PLANTABLE_SOIL.has(soil)) return false
   if (!PLANT_REPLACEABLE.has(cell)) return false
-  // Room to grow. NOT the full sapling->tree requirement, which needs many cells and
-  // a light level this cannot see. It is the minimum that makes the PLACEMENT sane,
-  // and a sapling that never grows still cost only one decision.
-  if (above !== 'air') return false
+  const need = saplingClearance(item)
+  if (!Array.isArray(column) || column.length < need) return false
+  for (let i = 0; i < need; i++) if (column[i] !== 'air') return false
   return true
 }
 
@@ -3044,18 +3089,29 @@ export function isPlantable ({ soil = null, cell = null, above = null } = {}) {
  * Skips the cell the bot occupies: planting under your own feet is the one spot
  * guaranteed to be blocked by the bot itself.
  */
-export function plantableSpotNear (bot, radius = 2) {
+export function plantableSpotNear (bot, radius = 2, item = 'oak_sapling') {
   const p = bot?.entity?.position
   if (!p) return null
+  const need = saplingClearance(item)
   for (const dy of [0, -1, 1]) {
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dz = -radius; dz <= radius; dz++) {
         if (dx === 0 && dz === 0) continue
         const soil = bot.blockAt(p.offset(dx, dy - 1, dz))
         const cell = bot.blockAt(p.offset(dx, dy, dz))
-        const above = bot.blockAt(p.offset(dx, dy + 1, dz))
-        if (!soil || !cell || !above) continue
-        if (!isPlantable({ soil: soil.name, cell: cell.name, above: above.name })) continue
+        if (!soil || !cell) continue
+        // SOIL AND CELL FIRST, so the column read is only paid for a candidate that
+        // has already survived the two cheap tests. The sweep is 75 cells; reading a
+        // 5-to-7 block column for every one of them would be up to 525 blockAt calls
+        // on the decision path, and almost all of it discarded.
+        if (!PLANTABLE_SOIL.has(soil.name) || !PLANT_REPLACEABLE.has(cell.name)) continue
+        const column = []
+        for (let i = 1; i <= need; i++) {
+          const b = bot.blockAt(p.offset(dx, dy + i, dz))
+          if (!b) break
+          column.push(b.name)
+        }
+        if (!isPlantable({ soil: soil.name, cell: cell.name, column, item })) continue
         return { x: cell.position.x, y: cell.position.y, z: cell.position.z }
       }
     }

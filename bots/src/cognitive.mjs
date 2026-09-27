@@ -15,7 +15,7 @@ import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
-import { orderFor, readyFor, plantingOrder, PLANT_COOLDOWN_MS } from './workorder.mjs'
+import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
 // wrote and hands back a taxonomy label, which is a guess wearing a
@@ -726,10 +726,33 @@ export class CognitiveLoop {
       // fleet-wide, over 95% of them discarded by a cooldown checked afterwards, on
       // the hot path readyFor is documented to keep thin.
       const sinceLast = Date.now() - (this.lastPlantedAt ?? 0)
-      if (Object.keys(sap).length && sinceLast >= PLANT_COOLDOWN_MS) {
-        order = plantingOrder({ saplings: sap, spot: plantableSpotNear(this.bot),
-                                now: Date.now(), lastPlantedAt: this.lastPlantedAt ?? 0 })
-        if (order) this.lastPlantedAt = Date.now()
+      if (plantingEnabled(process.env) && Object.keys(sap).length && sinceLast >= PLANT_COOLDOWN_MS) {
+        const best = Object.entries(sap).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'oak_sapling'
+        const spot = plantableSpotNear(this.bot, 2, best)
+        // THE COOLDOWN IS CHARGED FOR THE SCAN, NOT FOR THE ORDER, and the previous
+        // version of this line was the whole bug it was written to fix. It read
+        // `if (order) this.lastPlantedAt = ...`, so a bot that found NO spot left the
+        // clock untouched and swept again on its very next decision -- for ever, since
+        // a bot with no soil nearby never gets an order. Both review engines caught it
+        // independently. The sweep is 72 candidate cells and now reads a 5-to-7 block
+        // column for each survivor, so at 41 decisions/bot-hour x 80 bots that is
+        // millions of blockAt calls an hour to answer a question whose answer has not
+        // changed. Charging on the SCAN makes the worst case 6 sweeps/bot-hour, which
+        // is what the cap was always supposed to mean.
+        this.lastPlantedAt = Date.now()
+        order = plantingOrder({ saplings: sap, spot,
+                                now: Date.now(), lastPlantedAt: 0 })
+        // THE SWEEP'S OWN RESULT. Without it "no trees appeared" has causes that cannot
+        // be told apart: the arm is off, the cooldown never expired, there is no
+        // plantable ground in reach, or the ground was fine and the tree never grew.
+        // THE COORDINATE IS THE INSTRUMENT -- three hours later an RCON read of that
+        // exact block says `oak_sapling` (never grew) or something else (it did), and
+        // that is the only number that answers whether planting works. A new EVENT and
+        // never a new field: the ELK templates are dynamic:strict and an unknown field
+        // drops the whole document.
+        logEvent({ kind: 'plant_spot',
+                   detail: `${spot ? 'found' : 'none'} at=${spot ? `${spot.x},${spot.y},${spot.z}` : '-'} item=${best} sap=${Object.values(sap).reduce((a, b) => a + b, 0)} kinds=${Object.keys(sap).length} ordered=${order ? 1 : 0}`,
+                   snapshot: snap })
       }
     }
     if (order) {

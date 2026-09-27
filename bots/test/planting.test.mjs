@@ -7,22 +7,55 @@
 // identical code and fell back 67% in six days: a fresh world buys about a week.
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { isPlantable, plantableSpotNear, soilOk, needsSoil } from '../src/skills.mjs'
+import { isPlantable, plantableSpotNear, soilOk, needsSoil, saplingClearance, SAPLING_CLEARANCE_DEFAULT } from '../src/skills.mjs'
 import { plantingOrder, PLANT_RESERVE, PLANT_COOLDOWN_MS } from '../src/workorder.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
-t('isPlantable needs soil under, a replaceable cell, and room above', () => {
-  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', above: 'air' }), true)
-  assert.equal(isPlantable({ soil: 'dirt', cell: 'short_grass', above: 'air' }), true, 'grass is replaceable')
-  assert.equal(isPlantable({ soil: 'podzol', cell: 'air', above: 'air' }), true)
-  assert.equal(isPlantable({ soil: 'stone', cell: 'air', above: 'air' }), false, 'stone is not soil')
-  assert.equal(isPlantable({ soil: 'grass_block', cell: 'oak_sapling', above: 'air' }), false,
+// THE `above` ARGUMENT IS GONE AND THESE ASSERTIONS CHANGED WITH IT. The reason is
+// measured, not stylistic: on the sandbox rig a sapling with a ceiling at +2..+5 grew
+// 0/3 every time and one at +6 grew 3/3 (birch needed +7), against an unceilinged
+// control that grew 6/6. A single air block above was never the requirement -- oak
+// needs FIVE and birch SIX -- so a predicate that asked for one admitted every
+// dirt-floored tunnel and roofed excavation on the fleet as if it were open meadow.
+// isPlantable now takes the COLUMN above the cell, and `item`, because the two species
+// differ.
+const AIR = n => Array(n).fill('air')
+
+t('isPlantable needs soil, a replaceable cell, and the MEASURED clearance above', () => {
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: AIR(5) }), true, 'oak needs 5')
+  assert.equal(isPlantable({ soil: 'dirt', cell: 'short_grass', column: AIR(5) }), true, 'grass is replaceable')
+  assert.equal(isPlantable({ soil: 'podzol', cell: 'air', column: AIR(9) }), true, 'more than enough is fine')
+  assert.equal(isPlantable({ soil: 'stone', cell: 'air', column: AIR(9) }), false, 'stone is not soil')
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'oak_sapling', column: AIR(9) }), false,
     'a sapling already there is not a second tree')
-  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', above: 'stone' }), false, 'no room above')
-  assert.equal(isPlantable({ soil: 'water', cell: 'air', above: 'air' }), false)
+  assert.equal(isPlantable({ soil: 'water', cell: 'air', column: AIR(9) }), false)
   assert.equal(isPlantable({}), false)
+
+  // the cliff, at the measured height and one short of it
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: AIR(4) }), false,
+    'four air blocks is one short for oak and NOTHING grew one short')
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: ['air'] }), false,
+    'ONE air block above is the old predicate, and it admitted tunnels')
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: [...AIR(3), 'stone', 'air'] }), false,
+    'a solid block anywhere inside the needed column blocks growth')
+
+  // species differ, and the default is conservative for the untested one
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: AIR(5), item: 'birch_sapling' }), false,
+    'birch grew 0/3 at a ceiling of +6, so five air blocks is not enough')
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: AIR(6), item: 'birch_sapling' }), true)
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: AIR(6), item: 'jungle_sapling' }), false,
+    'jungle is unmeasured (15 of 10,125 held) so it takes the conservative default, not a guess')
+  assert.equal(isPlantable({ soil: 'grass_block', cell: 'air', column: AIR(7), item: 'jungle_sapling' }), true)
+})
+
+t('saplingClearance carries the measured numbers and a conservative default', () => {
+  assert.equal(saplingClearance('oak_sapling'), 5)
+  assert.equal(saplingClearance('birch_sapling'), 6)
+  assert.equal(saplingClearance('jungle_sapling'), SAPLING_CLEARANCE_DEFAULT)
+  assert.ok(saplingClearance('cherry_sapling') >= 6,
+    'an unknown species must not get a laxer rule than the strictest measured one')
 })
 
 t('plantingOrder respects the reserve, the cooldown, and picks the species held most', () => {
@@ -83,26 +116,40 @@ t('the loop offers a planting order ONLY when there is no rung to advance', () =
   const c = strip(COG)
   assert.match(c, /let order = orderFor\(readyFor\(this\.bot, milestone\)\)/, 'the rung order comes first')
   assert.match(c, /if \(!order\) \{/, 'and planting is only reached when there is none')
-  assert.match(c, /order = plantingOrder\(\{ saplings: sap, spot: plantableSpotNear\(this\.bot\)/)
-  assert.match(c, /if \(order\) this\.lastPlantedAt = Date\.now\(\)/,
-    'the cooldown is charged on ISSUE, so a bad spot costs one decision per 10 min')
+  assert.match(c, /order = plantingOrder\(\{ saplings: sap, spot,/)
+  // THIS ASSERTION WAS INVERTED AND IT LOCKED IN THE DEFECT. It used to demand
+  // `if (order) this.lastPlantedAt = Date.now()` and call that "charged on ISSUE".
+  // It is charged on issue only when there IS an issue; a bot that finds no spot
+  // never advances the clock and therefore re-runs the 72-cell sweep on every
+  // decision, for ever. Both review engines found it independently. The clock is
+  // now advanced for the SCAN, which is the only version of the rule that bounds
+  // the cost at the 6/bot-hour the cap claims.
+  assert.match(c, /\n\s*this\.lastPlantedAt = Date\.now\(\)\n/,
+    'the clock must be advanced unconditionally, not inside `if (order)`')
+  assert.doesNotMatch(c, /if \(order\) this\.lastPlantedAt = Date\.now\(\)/,
+    'charging the clock only on a successful order is the re-sweep bug')
 })
 t('MUTANT: letting planting pre-empt a craft rung is caught', () => {
   const anchor = 'let order = orderFor(readyFor(this.bot, milestone))'
   assert.equal(COG.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   assert.ok(!/let order = orderFor\(readyFor\(this\.bot, milestone\)\)/.test(strip(COG.replace(anchor, 'let order = null'))))
 })
-t('MUTANT: charging the cooldown on success instead of issue is caught', () => {
-  const anchor = 'if (order) this.lastPlantedAt = Date.now()'
+t('MUTANT: charging the cooldown only when an order was produced is caught', () => {
+  const anchor = '        this.lastPlantedAt = Date.now()\n'
   assert.equal(COG.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  assert.ok(!/if \(order\) this\.lastPlantedAt = Date\.now\(\)/.test(strip(COG.replace(anchor, ''))))
+  // The mutant is the shape this code had before review: the clock inside `if (order)`.
+  const mutant = strip(COG.replace(anchor, '        if (order) this.lastPlantedAt = Date.now()\n'))
+  assert.match(mutant, /if \(order\) this\.lastPlantedAt = Date\.now\(\)/,
+    'the mutant did not apply, so this test proves nothing')
+  assert.doesNotMatch(mutant, /\n\s{8}this\.lastPlantedAt = Date\.now\(\)\n/,
+    'the unconditional charge must be GONE in the mutant, or the assertion above cannot fail')
 })
 
 // Appended after review: the cooldown must gate the 75-call world scan, not just the order.
 t('MUTANT: running the world scan before the cooldown check is caught', () => {
-  const anchor = 'if (Object.keys(sap).length && sinceLast >= PLANT_COOLDOWN_MS) {'
+  const anchor = 'if (plantingEnabled(process.env) && Object.keys(sap).length && sinceLast >= PLANT_COOLDOWN_MS) {'
   assert.equal(COG.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  const mutant = strip(COG.replace(anchor, 'if (Object.keys(sap).length) {'))
+  const mutant = strip(COG.replace(anchor, 'if (plantingEnabled(process.env) && Object.keys(sap).length) {'))
   assert.ok(!/sinceLast >= PLANT_COOLDOWN_MS/.test(mutant),
     'dropping the cooldown from the guard must fail this assertion')
   assert.match(strip(COG), /const sinceLast = Date\.now\(\) - \(this\.lastPlantedAt \?\? 0\)/)

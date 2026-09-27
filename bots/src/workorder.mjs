@@ -133,6 +133,29 @@ export const PLANT_COOLDOWN_MS = 10 * 60 * 1000
 
 
 /**
+ * IS THE PLANTING OBLIGATION ON FOR THIS BOT? Pure, so the split can be tested
+ * without a fleet.
+ *
+ * DEFAULT ON, and the choice of default is the load-bearing part. This exists so
+ * half the worlds can plant and half can be the control over the seven days a
+ * tree needs, and the arm is carried in the ENV rather than in a second code
+ * version -- the death tripper matches `canary_pool` literally and two live
+ * versions halts eighty bots.
+ *
+ * Defaulting OFF would mean a failed env write silently ships an inert feature,
+ * which is the failure mode this project has hit five times in one day. With the
+ * default ON, a failed env write degrades to "every world plants" -- which is
+ * exactly what the owner asked for, so the worst case is the stated intent minus
+ * the measurement, not a dead feature that reads as a refuted one.
+ */
+export function plantingEnabled (env = {}) {
+  const v = env.PLANT_ENABLED
+  if (v === undefined || v === null || v === '') return true
+  return !/^(0|false|no|off)$/i.test(String(v).trim())
+}
+
+
+/**
  * SHOULD THE BOT PLANT, AND WHAT? Pure. `spot` is a plantable cell the caller
  * already validated with isPlantable(); this decides only whether to spend a
  * decision on it and which species to spend.
