@@ -51,6 +51,32 @@ export function isScaffoldItem (name) {
 }
 
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
+import { remaining } from './toolfor.mjs'
+
+/**
+ * WHICH COPIES OF A TOOL GO IN THE CHEST, AND WHICH ONE STAYS. Pure and exported.
+ *
+ * MEASURED, and this is the whole reason it exists: held pickaxes sit at a MEDIAN 1.7%
+ * durability (237 of 295 at <=10%) while BANKED ones sit at a median 48.1%, with 484 above 75%
+ * and 112 never used at all. A durability-blind split cannot produce a 28x asymmetry by chance --
+ * something was systematically keeping the worn copy.
+ *
+ * It was the absence of a choice. `bankableInventory` does `avail -= 1` per tool NAME and nothing
+ * anywhere reads durability, so which copy survives is decided by mineflayer: `transfer` finds
+ * source stacks with `findItemRange`, which scans ASCENDING from `inventoryStart`
+ * (prismarine-windows Window.js:308), and the hotbar is the LAST range in a container window. So
+ * the main-inventory copies are banked and the hotbar copy is kept, whatever its wear.
+ *
+ * `remaining` is toolfor.mjs's own, deliberately: `toolFor()` is what decides whether the kept
+ * copy can dig anything, and a second implementation here would be the ninth time a producer and
+ * a consumer disagreed about the same predicate. It treats unknown durability as Infinity -- full,
+ * never spent -- which is the direction toolfor.mjs already chose.
+ */
+export function toolBankOrder (copies = []) {
+  const sorted = copies.slice().sort((a, b) => remaining(a) - remaining(b) || (a.slot ?? 0) - (b.slot ?? 0))
+  return { bank: sorted.slice(0, -1), keep: sorted.at(-1) ?? null }
+}
+
 export const RESERVE_RECIPE = 2
 
 /**
