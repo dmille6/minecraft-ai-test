@@ -7,6 +7,17 @@ _updated 2026-09-27 12:00 UTC — **NO LIVE CANARY.** Fleet on **`268c074+b4d009
 DUPLICATE OF IT — corrected below in FINDING 5.** `scripts/reseed-pool.sh` exists, is better than what I
 wrote, and had one real bug, now fixed. Reseed held until the 18:22Z read._
 
+> # ⚠ TWO SESSIONS WERE LIVE IN THIS WORKTREE TODAY, AND THE OTHER ONE IS TALKING TO THE OWNER.
+> At **12:13:34Z** a second session wrote `docs/reports/reseed-and-variance-memo-2026-09-27.md` into this
+> worktree — **one minute before I wrote this file** — and I committed it by accident in `0cfa38c` before
+> noticing. It says *"Owner has asked for fresh worlds twice and is asking again"* and *"the owner has asked
+> three times"*, so **the owner has been interacting with it today and may already have answered things this
+> file lists as waiting on him.** `ps` shows a resumed remote-control SDK session (pid 1519).
+> **READ THAT MEMO BEFORE ACTING ON THIS FILE.** Its per-world growth table is real and is not in here:
+> an **8.1x spread**, `placebo-b` 67.7% against `board-d` 8.3%, same code, same maturity cut. It also
+> corrected me on `place-town.py` (below) and I have corrected it on `reseed-pool.sh`.
+> **NEITHER SESSION HAS RESEEDED ANYTHING. Whoever goes first must check the other has not.**
+>
 > **TWO COPIES OF THIS FILE EXIST.** The daily task reads `mcai-rl02/docs/reports/STATE.md` first and falls
 > back to the repo copy. **If they disagree, take the later `_updated` stamp, not the documented order.**
 
@@ -165,11 +176,26 @@ double quotes silently eats backticked identifiers".
 canary DRAW rule (`^(hive|board|placebo)-[a-d]$` plus an explicit `placebo-c` refusal), so it covers
 **11 of 16 worlds**. That refusal is about drawing canary pools, not about reseeding. Queue item 2.
 
-### 6. `place-town.py`'s WORLD MAP HELD EIGHT WORLDS AGAINST SIXTEEN, for the second time
-`ARMS` was a hand-kept list of eight and derived each RCON port from the list index, and **its own comment
-confessed it had already been wrong the same way once** ("still the pre-amendment four when the build moved
-to two pools per arm"). Wrong twice for one reason is the signal to remove the reason: it is **derived from
-the filesystem** now — a fleet world is a directory holding `TOWN-PLACED.json`, which is exactly what
+### 6. THE HOST's `place-town.py` HELD EIGHT WORLDS — and the REPO has had sixteen since 24 August
+**I HAD THE DRIFT BACKWARDS AND THE OTHER SESSION CAUGHT IT.** `scripts/place-town.py` in this repo lists
+all sixteen worlds and has since `853d118`, 2026-08-24. **The stale copy was the one on 10.0.0.30**, which
+is the Aug-20 file. So this was never "a map that goes stale"; it was **a month-old deployment gap**, and
+the fix I reached for first was the wrong shape.
+
+**AND THE TWO ARE NOT COPIES — the repo holds a NEWER IMPLEMENTATION that was never deployed.** It does
+`from probe import Survey, classify_execute_if, UnknownWorldState`, and `probe.py` is **not on .30 at all**.
+I scp'd the repo file to the host, **broke it with `ModuleNotFoundError: No module named 'probe'`**, and
+restored it inside two minutes from the timestamped `.bak` I had taken first — which is the only reason
+this is a paragraph and not an incident. **Reconciling the two implementations is a real job with a real
+dependency and it is queue item 6, not an end-of-session tidy.**
+
+**What the host actually runs now:** the Aug-20 implementation with the world map **derived from the
+filesystem** and both guards, verified `16 worlds; board-a 25672`. `scripts/host/place-town.py` is the
+tracked mirror of that — the same role `scripts/host/RULE.md` and `scripts/host/canary-loop.sh` already
+have — **not** a third implementation. `scripts/place-town.py` is untouched.
+
+Why derive it rather than hand-list sixteen: the hand list is wrong again at thirty-two worlds, and its
+index→port mapping is a guess that currently happens to hold. Derived — a fleet world is a directory holding `TOWN-PLACED.json`, which is exactly what
 separates the 16 from `sandbox`…`sandbox4` (ports 25699–25702, no town) and `template` (no
 `server.properties`). The value is still "the offset that yields the port", so all six importers keep their
 meaning, and the fallback that was **wrong for eight of sixteen worlds** is right by construction.
@@ -291,8 +317,13 @@ cohort is a file rather than a query.
    if it starts, the whole channel closes at once. Widening the key to include the coordinate is the fix.
 5. **`fleet-doctor.py` produced NO OUTPUT in 100 s under sudo**, and it is named in memory as a
    ground-truth online check. An instrument that cannot finish is not one. Now 16 worlds, so slower.
-6. **Land the analysis library on the bots line so deployed shas carry it.** (was item 8)
-7. **Delete the 5 orphan `*-Charlie` unit instances.**
+6. **RECONCILE THE TWO `place-town.py` IMPLEMENTATIONS.** The repo's is newer and better (a derived pad,
+   tri-state probes that can answer "I don't know") and **has never been deployed**; the host runs the
+   Aug-20 one. The blocker is `probe.py`, which exists at `/opt/minecraft-ai/scripts/lib/probe.py` on
+   **.31** and nowhere on **.30**. Both engines want this settled before a reseed runs through it. Do NOT
+   scp the repo file to .30 without `probe.py` — I did, and it raised `ModuleNotFoundError` on import.
+7. **Land the analysis library on the bots line so deployed shas carry it.**
+8. **Delete the 5 orphan `*-Charlie` unit instances.**
 8. **`container_open` 446 of 4,160 deposit rows (10.7%) is UNCHARACTERISED** — the one named deposit bucket
    nobody has read. Cheap.
 9. **`storage_full` / place-a-chest — 907 chest-holding deposit failures in 24 h** across all four buckets,

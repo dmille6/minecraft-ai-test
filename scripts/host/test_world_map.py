@@ -9,7 +9,7 @@ finds. Every case is then MUTATED to prove the test can fail.
 import importlib.util, os, sys, tempfile
 from pathlib import Path
 
-SRC = '/home/mike/scripts/place-town.py'
+SRC = os.environ.get('PLACE_TOWN', '/home/mike/scripts/place-town.py')
 
 def load(root):
     spec = importlib.util.spec_from_file_location('pt_' + os.path.basename(root), SRC)
