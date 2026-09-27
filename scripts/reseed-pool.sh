@@ -46,7 +46,28 @@ case ",$MAN," in
 esac
 if B "sudo cat /var/log/mcai/_canary-decisions.jsonl" | python3 -c "
 import sys,json,datetime as dt; now=dt.datetime.now(dt.timezone.utc); pool='$POOL'
-sys.path.insert(0,'/opt/minecraft-ai/scripts/lib'); import canary_manifest as c
+# THIS HALF RUNS LOCALLY. The B ... call on the left of the pipe is remote; the python
+# on the right is not. So the path this inserted was a path on the BOTS HOST that does
+# not exist on the operator's machine: the import raised ModuleNotFoundError, exit 1,
+# which this caller mapped to 'had a canary decision in the last 12 h'. A MISSING
+# DEPENDENCY WAS REPORTING ITSELF AS A LEDGER EXCLUSION, so the script refused every
+# pool for a reason that was not true. It failed CLOSED, which is why nothing was
+# lost -- but it has been broken since the canary_manifest guard landed on 23 Sep,
+# which is AFTER the only two reseeds this script has ever performed, so the guard has
+# never once run. Found 2026-09-27 by running the dry run instead of reading it.
+#
+# NO BACKTICKS ANYWHERE IN THIS PYTHON BODY, INCLUDING COMMENTS: it sits inside a
+# DOUBLE-QUOTED shell string, so a backtick is command substitution. One in the first
+# draft of this very comment made the dry run print 'cat: ...: No such file or
+# directory'. Same family as CLAUDE.md's rule about git commit -m and backticks.
+import os
+sys.path.insert(0, os.path.join(os.environ.get('RESEED_REPO', '.'), 'scripts', 'lib'))
+try:
+    import canary_manifest as c
+except ModuleNotFoundError as e:
+    sys.stderr.write('canary_manifest is not importable (%s) -- this is NOT a ledger '
+                     'exclusion. Run from the repo root or set RESEED_REPO.\n' % e)
+    sys.exit(4)
 for l in sys.stdin:
     try: r=json.loads(l)
     except Exception: sys.exit(3)
@@ -55,7 +76,15 @@ for l in sys.stdin:
     # no-op. worlds_touched reads canary_roster, which check-open-loop.py now records beside it.
     w = c.worlds_touched(r)
     if (pool in w or c.ALL_WORLDS in w) and (now-dt.datetime.fromisoformat(r['ts'])).total_seconds()<12*3600: sys.exit(1)
-"; then :; else rc=$?; [ $rc = 3 ] && echo "refusing: unreadable ledger line" || echo "refusing: $POOL had a canary decision in the last 12 h (ledger exclusion)"; exit 2; fi
+"; then :; else rc=$?
+  case $rc in
+    1) echo "refusing: $POOL had a canary decision in the last 12 h (ledger exclusion)";;
+    3) echo "refusing: unreadable ledger line";;
+    # 4 is the new one, and it exists because exit 1 used to swallow it.
+    4) echo "refusing: the ledger guard could not run -- see stderr. NOT a ledger exclusion";;
+    *) echo "refusing: the ledger guard exited $rc, which this caller does not recognise";;
+  esac
+  exit 2; fi
 # --all, BECAUSE A RESUME FINDS ITS BOTS ALREADY STOPPED. Without it
 # `list-units` omits inactive units, so the second invocation of a journaled,
 # resumable script -- which by design runs with the five bots down -- counts
