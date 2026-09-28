@@ -3862,6 +3862,9 @@ async function withdraw(ctx, { item = null, count = 16 }, signal) {
     // A TIMED-OUT OPEN ENDS THE SWEEP. mineflayer's openBlock waits for ANY windowOpen, so a late
     // window from this chest could be handed to the next chest's open (Codex review). Stop here.
     if (r.failClass === 'container_open') break
+    // AN UNVERIFIED TRANSFER ENDS IT TOO: the item may have moved, and a sweep that goes on to take
+    // another copy could take two. Report it and let the next decision look at the inventory.
+    if (r.failClass === 'transfer_rejected') return r
     // THE OTHER HALF OF A DOUBLE CHEST IS THE SAME INVENTORY, at a different coordinate: mark it
     // tried, or one double chest spends two of the three attempts.
     if (r.double) {
@@ -3935,16 +3938,20 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
         return { status: 'failed', failClass: 'inventory_full',
                  detail: `the inventory is full (0 empty slots) — deposit or drop something, then withdraw ${name}` }
       }
-      await bot.moveSlotItem(best.slot, dest)
+      // Captured BEFORE the move: prismarine-windows moves the Item OBJECT and rewrites its `.slot`,
+      // so after the clicks `best.slot` is the destination. Found on the sandbox 2026-09-28: the
+      // check read the arrived pickaxe as "still in the source" and failed a transfer that worked.
+      const from = best.slot, used = best.durabilityUsed, left = remaining(best)
+      await bot.moveSlotItem(from, dest)
       // VERIFIED, NOT ASSUMED. Clicks update the window optimistically and a rejected click is only
       // corrected by the server a few ticks later (Codex review), so wait, then read both slots.
       await bot.waitForTicks?.(4)
-      const landed = chest.slots?.[dest]
-      if (!landed || landed.name !== name || chest.slots?.[best.slot]?.name === name && chest.slots[best.slot].durabilityUsed === best.durabilityUsed) {
+      const landed = chest.slots?.[dest], source = chest.slots?.[from]
+      const same = it => it && it.name === name && it.durabilityUsed === used
+      if (!same(landed) || same(source)) {
         return { status: 'failed', failClass: 'transfer_rejected',
-                 detail: `moved ${name} from chest slot ${best.slot} to inventory slot ${dest} and the window does not show it arrived` }
+                 detail: `moved ${name} from chest slot ${from} to inventory slot ${dest} and the window does not show it arrived` }
       }
-      const left = remaining(best)
       return { status: 'success',
                detail: `withdrew 1x ${name} with ${Number.isFinite(left) ? left : '?'} uses left (the fullest of ${copies.length} in the chest at ${cp.x},${cp.z})` }
     }

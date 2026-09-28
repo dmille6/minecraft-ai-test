@@ -95,7 +95,9 @@ function withdrawBot({ containers, nearby = false, freeSlots = 5, held = [] }) {
       log.moved.push([from, to])
       const w = bot.currentWindow
       if (w.reject) return
-      w.slots[to] = { ...w.slots[from], slot: to }; w.slots[from] = null
+      // THE SAME OBJECT MOVES, AND ITS .slot IS REWRITTEN -- prismarine-windows' updateSlot does exactly this.
+      // A fake that copied the item hid a real-server bug: the verification read best.slot AFTER the move.
+      const it = w.slots[from]; w.slots[from] = null; it.slot = to; w.slots[to] = it
     },
     setControlState() {}, lookAt: async () => {},
     on: () => {}, off: () => {}, once: () => {}, removeListener: () => {},
@@ -239,11 +241,15 @@ await t('5d. a double chest is one inventory: its other half is not spent as a s
   assert.deepEqual(log.opened, ['30,0', '40,0', '41,0'])
 })
 
-await t('5e. a move the server rejects is a failure, not a success', async () => {
-  const { bot } = withdrawBot({ nearby: true, containers: [{ at: [30, 79, 0], items: [pick(100, 2)], reject: true }] })
+await t('5e. a move the server rejects is a failure, not a success -- and it ENDS the sweep', async () => {
+  const { bot, log } = withdrawBot({ nearby: true, containers: [
+    { at: [30, 79, 0], items: [pick(100, 2)], reject: true },
+    { at: [31, 79, 0], items: [pick(100, 0)] },   // taking this too could leave the bot with two
+  ] })
   const r = await run(bot, { item: 'stone_pickaxe' })
   assert.equal(r.status, 'failed', r.detail)
   assert.equal(r.failClass, 'transfer_rejected')
+  assert.deepEqual(log.opened, ['30,0'], 'the sweep went on after a transfer it could not verify')
 })
 
 // --- the seam -----------------------------------------------------------------------------------
