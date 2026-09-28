@@ -219,6 +219,25 @@ is owed before this deploys):
     (:977) and count toward the milestone skip (:1002) — read both as harm.
   - Read: ~50 refusal rows expected on a 20-bot canary / 26 h, 0 in control; gate = 0 rows refusing a copy
     <= 25% or a bot short on pickaxe uses; harm = mine 'pickaxe' refusals, livelock escapes, skips (DiD).
+- **CODEX REVIEW of both designs, 23:00Z (second engine, back online) — amendments to build from:**
+  BANK FIX: split TRANSFER eligibility from the DEMAND count (prompt.mjs:602, admission.mjs:335,
+  milestones.mjs:729) — bankableInventory mixes them. depositDue's >=30-slot trigger still yields
+  full -> deposit -> capped -> repeat: add a capacity-exhausted state with an executable remedy and
+  milestone handling (4 spare tools also keep deposit_surplus open). DROP the "3 stacks -> any chest" sink
+  (it refills the valuable chests and re-triggers expansion); a sink may bank only EXCESS over a
+  depth-dependent reserve (exit-contract.mjs:145-162), never the 8-scaffold default. deposit returns after
+  ANY transfer (skills.mjs:2274) before the alternate-container recovery (2335-2357): A must check what
+  valuable is still unbanked after a partial success, and a capped attempt must reach the alternate
+  search. No-container-under-target on EVERY placement candidate path (3195-3228). FLOOR tools: only
+  SURPLUS copies count as bulk.
+  CRAFT LIMITS: admission allows count up to 64 and execution treats count as REPETITIONS
+  (admission.mjs:421-423, skills.mjs:2918) — limit the admitted batch / projected holdings, and fix the
+  count-vs-repetition bug FIRST. Station remedy is per type (craft places tables :2723, smelt places
+  furnaces :3946); do not reuse STATION_ITEMS (includes chest/barrel). Pickaxe rule must REUSE
+  exit-contract's accounting (it discounts every copy by one swing, :79-86) and compute the requirement
+  independently — the contract checks health/scaffold before pickaxe, so `reason !== 'pickaxe'` proves
+  nothing; include depths below -55. Canary must measure completed crafts, holdings, descent/mining,
+  escapes and skips — refusal rows only show the gate ran; "any copy <= 25%" is the wrong failure test.
 
 
 ## QUEUE (after toolkeeper-01 closes)

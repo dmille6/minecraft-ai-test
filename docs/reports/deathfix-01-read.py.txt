@@ -83,6 +83,7 @@ print('rows walked %d  bots %d  pools %d  |  canary %s  sha %s  cutoff %s  windo
       % (len(rows), len(bots_seen), len(pools_seen), CAN, CV, CUT.strftime('%H:%MZ'), W))
 
 deaths, fall, unknown = Counter(), Counter(), Counter()
+fall_offbuild = 0
 for r in rows:
     if r.get('name') != '_death' or not (CUT <= r['t'] < END):
         continue
@@ -90,17 +91,28 @@ for r in rows:
     d = r.get('detail') or ''
     deaths[arm] += 1
     if TEXT in d:
-        fall[arm] += 1
+        # VERSION-BOUND (Codex review): a canary fall row counts as liveness only if the CANARY build
+        # wrote it; a canary-pool row from any other build is counted separately and never as liveness.
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if arm == 'canary' and CV and not ver.startswith(CV):
+            fall_offbuild += 1
+        else:
+            fall[arm] += 1
     if d.startswith('unknown; idle'):
         unknown[arm] += 1
 
-# THE JOURNAL, per unit, for exactly the window. Bot names come from the log directories, not a list.
-crash, journal_fail, units = Counter(), 0, Counter()
+# THE JOURNAL, per unit, for exactly the window. Units come from SYSTEMD, not the log directories:
+# stale directories (88 of them for 80 bots) could misattribute a crash, and a unit that is absent
+# must be COUNTED, not skipped (Codex review).
+crash, journal_fail, units, journal_empty = Counter(), 0, Counter(), Counter()
 since = CUT.strftime('%Y-%m-%d %H:%M:%S'); until = END.strftime('%Y-%m-%d %H:%M:%S')
-for d in sorted(glob.glob('/var/log/mcai/*-*-*')):
-    bot = os.path.basename(d)
-    if bot.startswith('_') or not os.path.isdir(d):
-        continue
+_lu = subprocess.run(['systemctl', 'list-units', '--type=service', '--all', '--no-legend', '--plain', 'mcbot@*'],
+                     capture_output=True, text=True, timeout=60)
+live = sorted({l.split()[0][len('mcbot@'):-len('.service')] for l in _lu.stdout.splitlines()
+               if l.split() and l.split()[0].startswith('mcbot@') and l.split()[0].endswith('.service')})
+per_pool = Counter(pool_of(b) for b in live)
+units_missing = sum(max(0, 5 - per_pool.get(p, 0)) for p in CANS)   # every pool fields five bots
+for bot in live:
     arm = 'canary' if pool_of(bot) in CANS else 'control'
     units[arm] += 1
     try:
@@ -111,6 +123,10 @@ for d in sorted(glob.glob('/var/log/mcai/*-*-*')):
             journal_fail += 1
             continue
         crash[arm] += out.stdout.count(CRASH)
+        # A SUCCESSFUL EMPTY QUERY IS NOT A CLEAN ONE: a running bot logs every few minutes, so no
+        # lines at all means the query saw nothing, not that nothing happened.
+        if not out.stdout.strip():
+            journal_empty[arm] += 1
     except Exception:
         journal_fail += 1
 
@@ -122,6 +138,9 @@ print('%-40s %10d %10d' % ('  ... "%s" (LIVENESS: control must be 0)' % TEXT, fa
 print('%-40s %10d %10d' % ('  ... "unknown; idle" (the re-count)', unknown['canary'], unknown['control']))
 print('%-40s %10d %10d' % ('journal ReferenceError crashes', crash['canary'], crash['control']))
 print('%-40s %10d' % ('journalctl calls that FAILED', journal_fail))
+print('%-40s %10d %10d' % ('units whose journal was EMPTY', journal_empty['canary'], journal_empty['control']))
+print('%-40s %10d' % ('canary units MISSING (5 per pool)', units_missing))
+print('%-40s %10d' % ('canary-pool fall rows from another build', fall_offbuild))
 print('-' * 78)
 print('CORRECTNESS  canary crashes %d (must be 0)  |  positive control: control crashes %d (must be >= 1)'
       % (crash['canary'], crash['control']))
@@ -136,6 +155,8 @@ try:
         'fall_deaths_canary': fall['canary'], 'fall_deaths_control': fall['control'],
         'crash_canary': crash['canary'], 'crash_control': crash['control'],
         'journal_failures': journal_fail,
+        'journal_empty_canary': journal_empty['canary'], 'journal_empty_control': journal_empty['control'],
+        'units_missing_canary': units_missing, 'fall_offbuild_canary': fall_offbuild,
         'units_canary': units['canary'], 'units_control': units['control'],
         'deaths_canary': deaths['canary'], 'deaths_control': deaths['control'],
         'unknown_idle_canary': unknown['canary'], 'unknown_idle_control': unknown['control'],
