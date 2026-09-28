@@ -1,6 +1,6 @@
 {
   "run_id": "toolkeeper-01",
-  "sha": "904cedb",
+  "sha": "4320136",
   "registered_at": "2026-09-28T03:17:37Z",
   "ladder_change": false,
   "promotion": "none",
@@ -49,7 +49,7 @@
       "op": "<=",
       "value": 0,
       "on_fail": "REVERT",
-      "note": "_deposit_tool_keep cannot exist on the baseline. A control row means the arms are wrong and nothing else in this read means anything."
+      "note": "_deposit_tool_keep cannot exist on the baseline. A control row means the arms are wrong and nothing else in this read means anything. NO evidence class (Codex pass 2): a shortfall or an arm mix-up is not a defect in the change, so this BLOCKS KEEP rather than reverting."
     },
     {
       "read": "toolkeepread",
@@ -57,7 +57,8 @@
       "op": "<=",
       "value": 0,
       "on_fail": "REVERT",
-      "note": "CORRECTNESS, and it is deterministic: every keep row names the kept copy's uses and every banked copy's. One row where a fuller copy was banked than kept means the change is WRONG, whatever the endpoint says. ~10 events settle it, so this is readable at +360 long before the effect."
+      "note": "CORRECTNESS, and it is deterministic: every keep row names the kept copy's uses and every banked copy's. One row where a fuller copy was banked than kept means the change is WRONG, whatever the endpoint says. ~10 events settle it, so this is readable at +360 long before the effect.",
+      "evidence": "defect"
     },
     {
       "read": "toolkeepread",
@@ -65,7 +66,23 @@
       "op": ">=",
       "value": 12,
       "on_fail": "REVERT",
-      "note": "Zero keep rows means the branch shipped inert. Five changes shipped inert on this project in one day and each was caught only by asking whether the branch had run."
+      "note": "Zero keep rows means the branch shipped inert. Five changes shipped inert on this project in one day and each was caught only by asking whether the branch had run. NO evidence class (Codex pass 2): a shortfall or an arm mix-up is not a defect in the change, so this BLOCKS KEEP rather than reverting."
+    },
+    {
+      "read": "toolkeepread",
+      "field": "keep_unparsed",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "NO evidence class, DELIBERATELY: under verdict.py v25 a failed REVERT line with no evidence class BLOCKS KEEP and does not revert. A keep row the correctness parse cannot read means bad_keeps did not run on it -- an instrument failure, not a defect in the change -- so it must stop a KEEP, not cause a REVERT."
+    },
+    {
+      "read": "toolkeepread",
+      "field": "deposit_success_control",
+      "op": ">=",
+      "value": 20,
+      "on_fail": "REVERT",
+      "note": "CONTROL EXPOSURE, which the read's rule required of EACH arm and nothing enforced (Codex pass 2). No evidence class: too little control data BLOCKS KEEP, it never reverts."
     }
   ],
   "primary": {
@@ -90,5 +107,27 @@
   },
   "teardown": {
     "note": "THREE STEPS, because two is not enough: drop-ins, clear canary_pool, AND restart the pool's bots staggered 12 s apart. Measured 2026-09-04: after a complete two-step teardown all five bots were still reporting the canary build and the fleet sat on three versions, which halts the tripper. Then confirm exactly ONE version is live."
-  }
+  },
+  "amendments": [
+    {
+      "at": "2026-09-28T11:40Z",
+      "before_launch": true,
+      "what": "PRE-LAUNCH REVIEW FIXES, no data seen. (1) The three own_lines declared no evidence class, so under verdict.py v25 (_deciding_evidence) a failed line would only BLOCK KEEP -- bad_keeps > 0 could never revert. All three are deterministic comparisons the baseline cannot produce, so they now declare evidence=defect, the class blindstep-01/02 and drop5-01 already use. (2) The correctness parse matched \\d+ only; remaining() prints unknown durability as Infinity, so such a row was SKIPPED and read as correct. The parse now reads Infinity, COUNTS unparsed rows (new line keep_unparsed, blocks KEEP), and runs a positive-control self-test on known-bad rows before reading the fleet. (3) bad_keeps excluded the 15-min burn-in; correctness now covers every canary row from the cutoff. Liveness floor checked against data: hive-a+board-c made 83 deposit attempts holding 2+ copies of a tool in the 6 h to 11:20Z (fleet 664 of 1,141), so keep_rows_canary >= 12 at +360 is reachable."
+    },
+    {
+      "at": "2026-09-28T11:35Z",
+      "before_launch": true,
+      "what": "SHA 904cedb -> e71e6a1, AND THE POOL STORY CORRECTED. (1) Both pre-launch reviews (Claude, Codex) found independently that 904cedb ranked copies in bot.inventory numbering (9-44) and clicked them in the open chest window (player range 27-62), with the keep row logging the intent. PROVEN ON THE SANDBOX (10.0.0.30:25599, a real Paper server, bot holding stone_pickaxe at 1/29/129 uses): 904cedb logged keep=slot38 bank=slot37,slot39 and 'deposited 74 items', and ZERO pickaxes reached the chest -- all three still held. e71e6a1 logged keep=slot56/129uses bank=slot55/1uses,slot57/31uses and the chest held exactly the damage-130 and damage-100 copies. Same stage, same inventory, positive control first. (2) THE DRAW: the notes below describe a sha256 draw of hive-a+board-c among ten eligible pools. NOTHING ENFORCES THAT -- canary-loop.sh draws with drawrec.sh (random, up to four pools, draw_exposure narrows, draw-exclude.txt holds the four reseeded worlds out until 2026-09-30 ~13:00Z, after this canary's deadline). The loop's draw is the draw; the eligibility rule in the notes is superseded, and the durability null quoted in primary was measured for ONE 5-bot pool, so at 10-20 bots it OVERSTATES the noise. primary stays advisory either way."
+    },
+    {
+      "at": "2026-09-28T11:55Z",
+      "before_launch": true,
+      "what": "Codex pass 2 (final): truncated keep rows are UNPARSED, never certified; keep_rows_canary and keep_rows_control drop evidence=defect (shortfall or arm mix-up blocks KEEP, never reverts); deposit_success_control >= 20 added as a blocking line; dedupe now covers the live load. bad_keeps is the ONLY line that can revert on its own."
+    },
+    {
+      "at": "2026-09-28T12:05Z",
+      "before_launch": true,
+      "what": "SHA e71e6a1 -> 4320136 (branch tool-keeper-2). fleet-deploy REFUSED e71e6a1 at 11:48:49Z as not a descendant of the deployed 80b3bbd: branch tool-keeper was built on 8f1cedb, the pre-merge copy of the pin commit. bots/src trees are IDENTICAL (8f1cedb:bots/src == 80b3bbd:bots/src == 42259ce; 4320136:bots/src == e71e6a1:bots/src == b56df1c), so 4320136 is the tested, sandbox-proven code re-parented onto the fleet sha by cherry-pick. The 11:48 draw (placebo-a,placebo-b,board-d,board-c) never deployed and is void; the loop redraws."
+    }
+  ]
 }

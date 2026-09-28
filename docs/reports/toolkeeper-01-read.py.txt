@@ -72,8 +72,14 @@ def load(since_minutes):
     read of the live files alone once returned a confident zero for an 8-hour-old event."""
     import glob as _g
     ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=since_minutes)
-    rows = list(ev.rows)
-    seen = {id(r) for r in rows}
+    rows = []
+    # CONTENT KEY, not id(): rows from separate Events.load calls are separate objects, so an id()
+    # set never matched and overlapping generations were counted twice (both reviews, 2026-09-28).
+    key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+    seen = set()
+    for r in ev.rows:                  # the live load is deduped too, not only the archives
+        if key(r) not in seen:
+            rows.append(r); seen.add(key(r))
     start = now - dt.timedelta(minutes=since_minutes)
     for d in {(start + dt.timedelta(days=k)).date() for k in range(0, (now - start).days + 2)}:
         for g in _g.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % (d + dt.timedelta(days=1)).strftime('%Y%m%d')):
@@ -82,8 +88,8 @@ def load(since_minutes):
             except TypeError:
                 e2 = Events.load(paths=g, since_minutes=since_minutes)
             for r in e2.rows:
-                if id(r) not in seen:
-                    rows.append(r); seen.add(id(r))
+                if key(r) not in seen:
+                    rows.append(r); seen.add(key(r))
     return rows
 
 
@@ -100,6 +106,48 @@ best = defaultdict(dict)          # (arm, phase) -> {bot: best uses seen}
 dep = defaultdict(Counter)        # arm -> Counter(status)
 bots_seen = defaultdict(set)
 bad_keeps = []
+keep_unparsed = []
+
+
+# CORRECTNESS PARSE, pulled out so it can be tested against a known-bad row before it is trusted.
+# `remaining()` (toolfor.mjs) returns Infinity for unknown durability and JS prints it as
+# `Infinity`; the first draft matched \d+ only, so such a row was SKIPPED and read as correct --
+# a gate that silently did not run. Any row whose keep or bank cannot be parsed is now COUNTED
+# (keep_unparsed) and blocks KEEP, instead of passing.
+_U = r'(\d+|Infinity)'
+
+
+def _uses(x):
+    return float('inf') if x == 'Infinity' else int(x)
+
+
+def keep_verdict(d):
+    km = re.search(r'keep=slot(-?\d+)/' + _U + 'uses', d)
+    bm = re.findall(r'(?:bank=|,)slot(-?\d+|undefined)/' + _U + 'uses', d)
+    cm = re.search(r'copies=(\d+)', d)
+    if not km or not bm or not cm:
+        return 'unparsed'
+    # COMPLETE, not partial: every banked copy must parse, or one unreadable entry (say `NaNuses`)
+    # is silently dropped and the row judged on the rest. The only allowed shortfall is logger.mjs's
+    # 300-char slice, which can cut the LAST entry.
+    # A row cut by logger.mjs's 300-char slice can hide the fuller banked copy, so truncation is
+    # UNPARSED, never certified (Codex pass 2 reproduced a 21-copy row reading `ok` when cut).
+    if len(bm) != int(cm.group(1)) - 1:
+        return 'unparsed'
+    return 'bad' if max(_uses(u) for _, u in bm) > _uses(km.group(2)) else 'ok'
+
+
+# POSITIVE CONTROL for the parse, run before any fleet row is read: the instrument must be seen to
+# flag a known-bad row, including the Infinity case the first draft was blind to.
+for _d, _want in (('stone_pickaxe copies=2 keep=slot12/1uses bank=slot44/129uses', 'bad'),
+                  ('stone_pickaxe copies=3 keep=slot44/129uses bank=slot12/1uses,slot13/71uses', 'ok'),
+                  ('stone_pickaxe copies=2 keep=slot1/5uses bank=slot2/Infinityuses', 'bad'),
+                  ('stone_pickaxe copies=2 keep=slot2/Infinityuses bank=slot1/129uses', 'ok'),
+                  ('stone_pickaxe copies=2 keep=slotundefined/undefineduses bank=', 'unparsed'),
+                  ('stone_pickaxe copies=3 keep=slot44/129uses bank=slot12/1uses,slot13/NaNuses', 'unparsed'),
+                  (('netherite_pickaxe copies=21 keep=slot9/1uses bank=' + ','.join('slot%d/%duses' % (10 + i, 1)
+                    for i in range(19)) + ',slot40/2000uses')[:300], 'unparsed')):
+    assert keep_verdict(_d) == _want, 'PARSE SELF-TEST FAILED on %r: got %s' % (_d, keep_verdict(_d))
 anchor = defaultdict(dict)        # PLACEBO ANCHORS: not durability-selected
 for r in rows:
     t = r['t']; bot = (r.get('bot') or {}).get('name') or ''
@@ -107,21 +155,21 @@ for r in rows:
     if not p:
         continue
     arm = 'canary' if p in CANS else 'control'
+    n = r.get('name'); d = r.get('detail') or ''
+    # CORRECTNESS covers EVERY canary row from the cutoff, burn-in included: a wrong keep in the
+    # first 15 minutes is still a wrong keep. keep=slotN/Xuses bank=slotM/Yuses,...
+    if n == KEEP and arm == 'canary' and CUT <= t < post1:
+        kv = keep_verdict(d)
+        if kv == 'bad':
+            bad_keeps.append(d[:110])
+        elif kv == 'unparsed':
+            keep_unparsed.append(d[:110])
     phase = 'post' if post0 <= t < post1 else ('pre' if pre0 <= t < pre1 else None)
     if phase is None:
         continue
     bots_seen[(arm, phase)].add(bot)
-    n = r.get('name'); d = r.get('detail') or ''
     if n == KEEP:
         keep[(arm, phase)] += 1
-        # CORRECTNESS: keep=slotN/Xuses bank=slotM/Yuses,...
-        km = re.search(r'keep=slot(-?\d+)/(\d+)uses', d)
-        bm = re.findall(r'bank=slot(-?\d+)/(\d+)uses|,slot(-?\d+)/(\d+)uses', d)
-        if km:
-            kept = int(km.group(2))
-            banked = [int(x) for tup in bm for x in tup[1::2] if x]
-            if banked and max(banked) > kept:
-                bad_keeps.append(d[:110])
     if n == RESCUE:
         rescue[(arm, phase)] += 1
         if r.get('status') != 'success':
@@ -218,8 +266,16 @@ print('  CORRECTNESS  keep rows that kept a NON-fullest copy: %d %s'
       % (len(bad_keeps), ('<- REVERT' if bad_keeps else 'ok')))
 for b in bad_keeps[:3]:
     print('      ', b)
+print('  PARSE        keep rows the correctness parse could NOT read: %d %s'
+      % (len(keep_unparsed), ('<- blocks KEEP' if keep_unparsed else 'ok (self-test passed)')))
+for b in keep_unparsed[:3]:
+    print('      ', b)
 
 try:
+    # A DRY RUN MUST NOT EMIT: emit() files the read under the MANIFEST's run_id, so a dry run
+    # wrote pin-20260927-toolkeepread-{180,360}.json into the live reads dir twice.
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
     sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
     from readjson import emit
     emit('toolkeepread', W, {
@@ -231,6 +287,7 @@ try:
         'rescue_failed_canary': rescue_fail[('canary', 'post')],
         # CORRECTNESS -- a deterministic invariant, not a rate
         'bad_keeps': len(bad_keeps),
+        'keep_unparsed': len(keep_unparsed),
         # PRIMARY (a STOCK, in USES)
         'best_uses_canary_post': med(best[('canary', 'post')]),
         'best_uses_canary_pre': med(best[('canary', 'pre')]),
