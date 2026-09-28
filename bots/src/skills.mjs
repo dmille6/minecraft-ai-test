@@ -27,7 +27,7 @@
 
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy } from './toolfor.mjs'
+import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -258,12 +258,13 @@ function assertInsideBorder(x, z) {
   }
 }
 
-function bestTool(bot, block) {
+function bestTool(bot, block, opts = {}) {
   // THE CHEAPEST TOOL THAT DOES THE JOB, not the fastest (iron-retention plan v3, 2026-09-15): 16 iron pickaxes
   // vanished during work in two days, worn out on dirt, cobble and coal. toolFor() reads the server's harvest
   // table and the durability floor. (The fastest-tool picker it replaces broke digTime ties by tier because every
   // pickaxe ties on the 93 `incorrect_for_wooden_tool` ores -- that tie-break is now inside toolFor's cost order.)
-  return applyToolPolicy(bot, block)
+  // `opts.lastSwing`: a HARVEST dig may spend a tool's final use when nothing else can harvest (see toolFor).
+  return applyToolPolicy(bot, block, opts)
 }
 
 // ---------------------------------------------------------------- goto -----
@@ -1181,8 +1182,13 @@ export async function collectManually(bot, block, signal) {
   }
   const wasNamed = here?.name
 
-  const tool = bestTool(bot, block)
+  const tool = bestTool(bot, block, { lastSwing: true })
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
+  // The last swing is its own event so it can be counted, and read against what it yielded.
+  if (tool && remaining(tool) <= HARD_STOP) {
+    logEvent({ kind: 'last_swing', status: 'success',
+               detail: `${tool.name} at ${remaining(tool)} use(s) on ${block.name} at ${block.position.x},${block.position.y},${block.position.z}` })
+  }
   // THE ADMISSION WENT STALE, AND THIS IS THE THIRD AND LAST CALL SITE.
   //
   // gather admits a candidate at scan time and digs it after a walk and an equip.
