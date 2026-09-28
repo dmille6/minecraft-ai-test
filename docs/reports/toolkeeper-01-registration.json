@@ -12,7 +12,8 @@
     "note": "A NEW EVENT KIND EXISTS ONLY ON THIS BUILD, so a control pool cannot emit it and the linkage is structural rather than argued. It is emitted once per deposit where a bot held MORE THAN ONE copy of a tool, and its detail names the kept copy's remaining uses and every banked copy's -- which is what makes correctness a deterministic invariant instead of a rate. min_rows 12 is deliberately low because this is a GATE on the branch having run, not an effect measurement: at ~2.25 deposit attempts/bot-h and 10 bots, 12 rows is under an hour of exposure, so failing it means the change shipped inert -- which has happened five times in one day on this project."
   },
   "reads": [
-    "toolkeepread"
+    "toolkeepread",
+    "immobiledid"
   ],
   "read_minutes": [
     360,
@@ -20,10 +21,10 @@
   ],
   "deadline_min": 1680,
   "change_rows": [
-    "_deposit_tool_keep"
+    "deposit_tool_keep"
   ],
   "linkage_extra": [
-    "_deposit_cursor_rescue"
+    "deposit_cursor_rescue"
   ],
   "draw_exposure": {
     "hours": 3,
@@ -128,6 +129,90 @@
       "at": "2026-09-28T12:05Z",
       "before_launch": true,
       "what": "SHA e71e6a1 -> 4320136 (branch tool-keeper-2). fleet-deploy REFUSED e71e6a1 at 11:48:49Z as not a descendant of the deployed 80b3bbd: branch tool-keeper was built on 8f1cedb, the pre-merge copy of the pin commit. bots/src trees are IDENTICAL (8f1cedb:bots/src == 80b3bbd:bots/src == 42259ce; 4320136:bots/src == e71e6a1:bots/src == b56df1c), so 4320136 is the tested, sandbox-proven code re-parented onto the fleet sha by cherry-pick. The 11:48 draw (placebo-a,placebo-b,board-d,board-c) never deployed and is void; the loop redraws."
+    },
+    {
+      "at": "2026-09-28T12:05:49Z",
+      "by": "operator (daily session), BEFORE the first read at +360",
+      "what": "three INSTRUMENT fixes; no change to the treatment, the pools, any threshold, or any gate direction",
+      "why": [
+        "reads lacked `immobiledid`. verdict.py:401 refuses without it -- it carries the death gate, the v15c movement guards and the readability test -- so every read would have returned UNREADABLE and the canary would have had NO SAFETY FLOOR for 28 h while unable to reach any verdict. Found by the Codex pre-launch review; confirmed at verdict.py:397-404.",
+        "change_rows and linkage_extra carried a leading underscore. verdict.py:411-412 store them verbatim and :458-459 compare against lstrip('_') names, so neither set could ever match and the single-death linkage path was silently inert (verdict.py:659 warns only when change_rows is EMPTY). Every other registration on file uses the bare kind. licence.kind keeps its underscore because licencecheck.py strips it.",
+        "the loop runs reads from /tmp, and /tmp/toolkeepread.py was the PRE-FIX read (md5 c74099ae), whose keep parse dropped Infinity/NaN rows silently. The fixed read -- self-testing parse, and the keep_unparsed field this registration's own_lines already gate on -- existed only at ~/mcai-analysis. Copied into /tmp."
+      ],
+      "before": {
+        "reads": [
+          "toolkeepread"
+        ],
+        "change_rows": [
+          "_deposit_tool_keep"
+        ],
+        "linkage_extra": [
+          "_deposit_cursor_rescue"
+        ]
+      }
+    },
+    {
+      "at": "2026-09-28T12:15:13Z",
+      "by": "operator, BEFORE the first read at +360",
+      "what": "REPORT-ONLY outcome check added to toolkeepread; no gate, threshold, pool, or treatment change",
+      "why": [
+        "bad_keeps checks the keep row, which is logged BEFORE the transfer (skills.mjs: logEvent precedes the moveSlotItem loop), so it certifies the plan, not the result. Both pre-launch reviews (Claude and Codex) named this gap; 904cedb on the sandbox logged a correct keep and banked zero pickaxes.",
+        "new fields survivor_checked / survivor_survived / survivor_lost / survivor_incomparable / survivor_unmatched / copies_after. Instrument: the same bot's deposit skill row whose [start, start+duration_ms+5s] contains the keep event; runner.mjs stamps @timestamp at the skill START and snapshots raw.bot.tools at the END, so that row carries the tools after the chest closed.",
+        "NOT GATED because it has never been seen on fleet data (0 keep events at staging, 11 min in). unmatched is counted and printed, never read as a pass. Pure function survivor_verdict has an embedded self-test incl. the 904cedb signature; an inverted-comparison mutant is killed by it."
+      ],
+      "before": {
+        "reads": [
+          "toolkeepread",
+          "immobiledid"
+        ],
+        "own_lines": [
+          {
+            "read": "toolkeepread",
+            "field": "keep_rows_control",
+            "op": "<=",
+            "value": 0,
+            "on_fail": "REVERT",
+            "note": "_deposit_tool_keep cannot exist on the baseline. A control row means the arms are wrong and nothing else in this read means anything. NO evidence class (Codex pass 2): a shortfall or an arm mix-up is not a defect in the change, so this BLOCKS KEEP rather than reverting."
+          },
+          {
+            "read": "toolkeepread",
+            "field": "bad_keeps",
+            "op": "<=",
+            "value": 0,
+            "on_fail": "REVERT",
+            "note": "CORRECTNESS, and it is deterministic: every keep row names the kept copy's uses and every banked copy's. One row where a fuller copy was banked than kept means the change is WRONG, whatever the endpoint says. ~10 events settle it, so this is readable at +360 long before the effect.",
+            "evidence": "defect"
+          },
+          {
+            "read": "toolkeepread",
+            "field": "keep_rows_canary",
+            "op": ">=",
+            "value": 12,
+            "on_fail": "REVERT",
+            "note": "Zero keep rows means the branch shipped inert. Five changes shipped inert on this project in one day and each was caught only by asking whether the branch had run. NO evidence class (Codex pass 2): a shortfall or an arm mix-up is not a defect in the change, so this BLOCKS KEEP rather than reverting."
+          },
+          {
+            "read": "toolkeepread",
+            "field": "keep_unparsed",
+            "op": "<=",
+            "value": 0,
+            "on_fail": "REVERT",
+            "note": "NO evidence class, DELIBERATELY: under verdict.py v25 a failed REVERT line with no evidence class BLOCKS KEEP and does not revert. A keep row the correctness parse cannot read means bad_keeps did not run on it -- an instrument failure, not a defect in the change -- so it must stop a KEEP, not cause a REVERT."
+          },
+          {
+            "read": "toolkeepread",
+            "field": "deposit_success_control",
+            "op": ">=",
+            "value": 20,
+            "on_fail": "REVERT",
+            "note": "CONTROL EXPOSURE, which the read's rule required of EACH arm and nothing enforced (Codex pass 2). No evidence class: too little control data BLOCKS KEEP, it never reverts."
+          }
+        ],
+        "read_minutes": [
+          360,
+          1560
+        ]
+      }
     }
   ]
 }

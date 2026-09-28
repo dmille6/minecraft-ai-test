@@ -148,6 +148,47 @@ for _d, _want in (('stone_pickaxe copies=2 keep=slot12/1uses bank=slot44/129uses
                   (('netherite_pickaxe copies=21 keep=slot9/1uses bank=' + ','.join('slot%d/%duses' % (10 + i, 1)
                     for i in range(19)) + ',slot40/2000uses')[:300], 'unparsed')):
     assert keep_verdict(_d) == _want, 'PARSE SELF-TEST FAILED on %r: got %s' % (_d, keep_verdict(_d))
+
+
+# OUTCOME, NOT PLAN (amendment 6). `bad_keeps` reads the keep row, which is logged BEFORE the transfer
+# (skills.mjs: the logEvent precedes the moveSlotItem loop), so it certifies the INTENTION. Both
+# pre-launch reviews said so, and 904cedb proved why it matters: on the sandbox it logged
+# "keep=slot38 bank=slot37,slot39" and banked ZERO pickaxes. This checks what actually stayed.
+#
+# The deposit skill's own row is the instrument: runner.mjs stamps it with the skill's START
+# (`'@timestamp': startedAt`) but takes its snapshot at the END, after deposit's finally closed the
+# chest -- so the deposit whose [start, start+duration] contains the keep event carries the bot's
+# tools AFTER the transfer. A bot at a chest is not mining, so its kept copy cannot legitimately lose
+# uses in between. REPORTED, not gated: it is a new instrument added before the first read and it
+# has not yet been seen on fleet data.
+def survivor_verdict(tool, kept_uses, after_tools):
+    """'survived' | 'LOST' | 'incomparable'. after_tools is the deposit row's raw.bot.tools."""
+    if kept_uses is None or kept_uses == float('inf'):
+        return 'incomparable'
+    entries = (after_tools or {}).get(tool)
+    if not isinstance(entries, list) or not entries:
+        return 'LOST'                        # the tool name is gone from the inventory entirely
+    held = [e['max'] - e['used'] for e in entries
+            if isinstance(e, dict) and e.get('used') is not None and e.get('max')]
+    if not held:
+        return 'incomparable'
+    return 'survived' if max(held) >= kept_uses else 'LOST'
+
+
+for _args, _want in (
+        (('stone_pickaxe', 129, {'stone_pickaxe': [{'slot': 36, 'used': 2, 'max': 131}]}), 'survived'),
+        # the 904cedb signature: the worn copy stayed and the good one left
+        (('stone_pickaxe', 129, {'stone_pickaxe': [{'slot': 36, 'used': 130, 'max': 131}]}), 'LOST'),
+        (('stone_pickaxe', 129, {}), 'LOST'),
+        (('stone_pickaxe', float('inf'), {'stone_pickaxe': [{'used': 1, 'max': 131}]}), 'incomparable'),
+        (('stone_pickaxe', 129, {'stone_pickaxe': [{'used': None, 'max': None}]}), 'incomparable')):
+    assert survivor_verdict(*_args) == _want, 'SURVIVOR SELF-TEST FAILED on %r: got %s' % (_args, survivor_verdict(*_args))
+
+survivor = Counter()                 # survived / LOST / incomparable / unmatched
+survivor_lost = []
+copies_after = Counter()
+_keep_events = []                    # (bot, t, tool, kept_uses)
+_deposit_spans = defaultdict(list)   # bot -> [(start, end, tools)]
 anchor = defaultdict(dict)        # PLACEBO ANCHORS: not durability-selected
 for r in rows:
     t = r['t']; bot = (r.get('bot') or {}).get('name') or ''
@@ -158,6 +199,14 @@ for r in rows:
     n = r.get('name'); d = r.get('detail') or ''
     # CORRECTNESS covers EVERY canary row from the cutoff, burn-in included: a wrong keep in the
     # first 15 minutes is still a wrong keep. keep=slotN/Xuses bank=slotM/Yuses,...
+    if n == KEEP and arm == 'canary' and CUT <= t < post1:
+        _km = re.search(r'^(\S+) copies=\d+ keep=slot-?\d+/' + _U + 'uses', d)
+        if _km:
+            _keep_events.append((bot, t, _km.group(1), _uses(_km.group(2))))
+    if n == 'deposit' and arm == 'canary' and CUT <= t < post1:
+        _dur = (((r.get('raw') or {}).get('skill') or {}).get('duration_ms') or 0) / 1000.0
+        _deposit_spans[bot].append((t, t + dt.timedelta(seconds=_dur + 5),
+                                    ((r.get('raw') or {}).get('bot') or {}).get('tools') or {}))
     if n == KEEP and arm == 'canary' and CUT <= t < post1:
         kv = keep_verdict(d)
         if kv == 'bad':
@@ -200,6 +249,19 @@ for r in rows:
             for k in ('crafting_table', 'cobblestone'):
                 if inv.get(k):
                     anchor[(arm, phase, k)][bot] = inv[k]
+
+
+for _bot, _t, _tool, _k in _keep_events:
+    _hit = [sp for sp in _deposit_spans.get(_bot, []) if sp[0] <= _t <= sp[1]]
+    if not _hit:
+        survivor['unmatched'] += 1          # visible, never read as a pass
+        continue
+    _v = survivor_verdict(_tool, _k, _hit[-1][2])
+    survivor[_v] += 1
+    # copies still held after the deposit: 1 means the bank moves happened; >1 means they did not
+    copies_after[len((_hit[-1][2] or {}).get(_tool) or [])] += 1
+    if _v == 'LOST':
+        survivor_lost.append('%s %s kept %s uses' % (_bot, _tool, _k))
 
 
 def med(d):
@@ -268,6 +330,11 @@ for b in bad_keeps[:3]:
     print('      ', b)
 print('  PARSE        keep rows the correctness parse could NOT read: %d %s'
       % (len(keep_unparsed), ('<- blocks KEEP' if keep_unparsed else 'ok (self-test passed)')))
+print('  OUTCOME  keep events %d: survived %d | LOST %d | incomparable %d | unmatched %d   (REPORTED, amendment 6)'
+      % (len(_keep_events), survivor['survived'], survivor['LOST'], survivor['incomparable'], survivor['unmatched']))
+print('      copies held after the deposit:', dict(sorted(copies_after.items())))
+for _l in survivor_lost[:3]:
+    print('      LOST:', _l)
 for b in keep_unparsed[:3]:
     print('      ', b)
 
@@ -288,6 +355,12 @@ try:
         # CORRECTNESS -- a deterministic invariant, not a rate
         'bad_keeps': len(bad_keeps),
         'keep_unparsed': len(keep_unparsed),
+        'survivor_checked': len(_keep_events),
+        'survivor_survived': survivor['survived'],
+        'survivor_lost': survivor['LOST'],
+        'survivor_incomparable': survivor['incomparable'],
+        'survivor_unmatched': survivor['unmatched'],
+        'copies_after': {str(k): v for k, v in sorted(copies_after.items())},
         # PRIMARY (a STOCK, in USES)
         'best_uses_canary_post': med(best[('canary', 'post')]),
         'best_uses_canary_pre': med(best[('canary', 'pre')]),
