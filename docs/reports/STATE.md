@@ -187,14 +187,39 @@ is owed before this deploys):
   chest crafts twice and throws. Separate fix.
 - Order: toolkeeper-01 verdict -> fall-death-tdz -> withdraw-home -> bank fix, built on whatever is then
   deployed (it edits the same deposit loop as tool-keeper-2).
-- OWNER ASKED (20:45Z) for a SLIDING SCALE of chest limits: tiers (valuable uncapped / useful 2 stacks,
-  banked under 75% full / bulk 1 stack, under 50% / junk and <=10% tools never), and only valuable items
-  may trigger a new chest. Proposed to replace B; not yet reviewed.
-- OWNER ASKED about CRAFT LIMITS. Measured 21 h, 80 bots: 762 craft successes; crafted while ALREADY
-  holding a usable one — crafting_table 71/166, stone_pickaxe 60/208 (another copy >25% left),
-  wooden_pickaxe 26/141, furnace 5/51; ~all `llm:idle`. Proposal: an admission rule — stations only when
-  carrying none (remedy: place the carried one), tools only when no same-kind copy of that tier or better
-  has >25% left; ingredients (sticks, planks) unlimited. Separate change from the bank fix; not reviewed.
+- **FINAL DESIGNS after the Claude review (owner: Claude-only for these two), 21:30Z. Build each on the
+  sha deployed at its turn.** The review REJECTED both as first specified; the fixes are below.
+  BANK FIX:
+  - A: place a CARRIED chest/trapped_chest (NOT a barrel: a barrel on a town chest's lid blocks it and the
+    next deposit digs it off, spilling it), never on top of a container; craft one only if none carried.
+    Only a VALUABLE item (metal/gem list + DEPOSIT_ALWAYS, no tools) may trigger A.
+  - B tiers judged per ITEM against the live window (re-read before each item): useful (logs/planks/
+    sticks) <= 128 each while < 75% occupied; bulk (cobble family, dirt, gravel, andesite/diorite/granite/
+    tuff) <= 64 while < 50%. Before returning "capped", try the other chests within 24 blocks.
+  - THE LOOP (probe: 128 cobble + 40 logs = bankable 104, deposit due): remove bulk/useful from the
+    bankable count used by the prompt's CARRYING line (prompt.mjs:602), deposit admission
+    (admission.mjs:337) and the deposit_surplus milestone (milestones.mjs:729), or bots loop
+    deposit -> no_effect. depositDue's 30-slot trigger stays.
+  - A SINK: above 3 stacks of bulk carried, bank it into any chest with room regardless of tier.
+  - Tools: keep tool-keeper-2's behaviour; tools <= toolfor's absolute FLOOR (10 uses, not 10%) bank as bulk.
+  - withdraw with no item named skips bulk. MEASURE before building: occupied slots and bulk slots per bot.
+  - Read: a post-close per-deposit row from the WINDOW's before/after counts (not the plan); bulk & useful
+    banked per bot-h DiD; RCON slot-by-slot read of the canary town's chests at start and end; harm adds
+    full-inventory bots, deposit repeat loops, deposit_surplus skips, raw_iron per iron_ore mined.
+    A fires ~1-5 times per canary, so A must pass the SANDBOX first.
+  CRAFT LIMITS (admission.mjs craft block ~:414, LLM proposals only — work orders pass the same check()
+  and need a source flag; craft()'s internal recursion and deposit's chest craft bypass the gate):
+  - stations: refuse when one is carried; remedy "craft what you need — craft places the table you carry".
+  - axe/shovel/hoe/sword: refuse when a same-kind copy of that tier or better is > 25%.
+  - PICKAXES: refuse only when same-tier-or-better pickaxe uses total >= 150 (the y=-55 exit contract) and
+    canContinueDescent at y-1 is not short on pickaxe. A flat 25% rule is a DEAD END (probe: y=-50, 70 uses
+    left vs 144 needed -> exit contract refuses mine for 'pickaxe', its remedy is craft, the rule refuses
+    the craft) and caps depth, which is where the iron is.
+  - refusals never reach learned_avoid (cognitive.mjs:812-860) but three in a row trip the livelock escape
+    (:977) and count toward the milestone skip (:1002) — read both as harm.
+  - Read: ~50 refusal rows expected on a 20-bot canary / 26 h, 0 in control; gate = 0 rows refusing a copy
+    <= 25% or a bot short on pickaxe uses; harm = mine 'pickaxe' refusals, livelock escapes, skips (DiD).
+
 
 ## QUEUE (after toolkeeper-01 closes)
 - **OWNER 21:00Z: QUEUED — bank fix with TIERED chest limits, then CRAFT LIMITS; Claude-only review for
