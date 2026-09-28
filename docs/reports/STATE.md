@@ -20,6 +20,11 @@ does the reads, the verdict, the record and the teardown itself._
 > 3. **The loop runs reads from `/tmp`, and `/tmp/toolkeepread.py` was the PRE-FIX read** (md5 `c74099ae`,
 >    the Infinity-dropping parse both reviews flagged). The fixed read existed only in `~/mcai-analysis`.
 >    `/tmp` now holds `45b41e0e`, identical to the committed copy.
+> 4. *(12:15Z, amendment 6, REPORT-ONLY)* `bad_keeps` checks the keep row, which is logged BEFORE the
+>    transfer — the plan, not the result. The read now also checks the OUTCOME: the deposit skill row that
+>    spans the keep event is snapshotted after the chest closes, so `survivor_lost` says whether the kept
+>    copy is still in the inventory and `copies_after` whether the banks happened. Not gated (never seen on
+>    fleet data); `unmatched` is printed, never read as a pass. All three copies are now md5 `1504158a`.
 > The loop was stopped (whole process group — a `sleep` child holds the flock) and restarted; it resumed
 > from phase `deployed` with the manifest, pools and `declared_at` unchanged. Backups:
 > `registrations/toolkeeper-01.json.bak-20260928T120549Z`, `/tmp/toolkeepread.py.bak-20260928T120549Z`.
@@ -37,7 +42,7 @@ does the reads, the verdict, the record and the teardown itself._
 | read +360 | **2026-09-28 18:02Z** — correctness + liveness (`keep_rows_canary >= 12`, `bad_keeps == 0`) |
 | read +1560 | **2026-09-29 14:02Z** — the verdict (exposure: 20 deposit successes in EACH arm) |
 | deadline | 2026-09-29 16:02Z (1680 min) |
-| registration | `~/mcai-analysis/registrations/toolkeeper-01.json` = `docs/reports/toolkeeper-01-registration.json` (4 amendments, all before launch, no data seen) |
+| registration | `~/mcai-analysis/registrations/toolkeeper-01.json` = `docs/reports/toolkeeper-01-registration.json` (6 amendments: 1-4 before launch; 5 = the instrument fixes above; 6 = the report-only outcome check. No gate moved after data) |
 | read | `~/mcai-analysis/toolkeepread.py` = `docs/reports/toolkeeper-01-read.py.txt` |
 | promotion | `none` — a KEEP is recorded and torn down, not promoted |
 
