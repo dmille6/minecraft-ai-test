@@ -240,6 +240,24 @@ is owed before this deploys):
   escapes and skips — refusal rows only show the gate ran; "any copy <= 25%" is the wrong failure test.
 
 
+## TWO-ENGINE DATA CHECK, 2026-09-28 ~00:05Z (owner: "use both engines to analyze data, don't make assumptions")
+Both engines re-derived the numbers from a 21h55m export (7,996 craft/deposit rows, 80 bots; NOT 24 h, and 340
+rows are from older 268c074). Agreed and CONFIRMED: full-chest failures 125, 105 holding a chest (the recovery
+at skills.mjs:2350 always crafts); redundant crafts tables 73/169, stone_pickaxe 70-72/221, wooden 27-30/142,
+furnace 5/50, ~97% llm:idle; craft-count fix `ef9c549` (branch craft-count) correct, no caller passes
+repetitions, nothing parses "crafted Nx".
+**CORRECTIONS to my claims:** (1) ef9c549's commit says fleet impact ~0 — WRONG: the bug bites inside the
+recursive resolver, 49 failures on 28 bots in ~22 h (one log, a sub-craft asks for 3-4 repetitions, makes 4
+planks, throws); ~25 of them would succeed with the fix. It rides with the bank fix. (2) wood at full-chest
+failures: counting BEFORE the deposit (inventory - inventory_delta), 54/125 had >=2 logs, not ~5 — inventories
+at 34-36 of 36 slots are the likelier constraint (the resolver drops the sub-craft reason, skills.mjs:2743).
+**NEW, both engines:** placing a chest already fails 64x/22 h on 20 bots ("placing exceeded Nms") — bank fix A
+needs a sandbox pass against that; the model sends craft's quantity as `blocks` (3,434 of 3,801 rows), which
+craft() ignores; 993 of 1,895 no-effect deposits are about apples. **BIGGER LEVER:** 1,604 stone_pickaxe
+failures on 69 bots told "gather cobbled_deepslate first" (alphabetical rootGap, skills.mjs ~2759), 1,602 at
+y >= 0 holding zero stone — ~10x the craft-limit target. Both engines are now analysing the whole
+stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) before anything is built.
+
 ## QUEUE (after toolkeeper-01 closes)
 - **NEXT CANARY IS STAGED: `deathfix-01`** (sha `1d107ed`, promotion **fleet-wide** — owner abandoned the 24-27 Sep
   window and approved fleet-wide promotion, 22:10Z). Registration
