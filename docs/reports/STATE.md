@@ -1,159 +1,119 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-27 14:10Z — **NO LIVE CANARY.** Fleet on **`268c074+b4d009`, ONE version, 80 bots.**
-`main` fast-forwarded to `268c074` (13 commits of drift closed; main tracks the fleet).
-**THE PLANTING OBLIGATION IS LIVE AND READ: 1,033 of 1,034 sapling placements succeeded and
-72.1% of placed saplings became trees.** **FOUR WORLDS RESEEDED** on owner approval
-(`hive-c`, `board-b`, `hive-d`, `placebo-d`); the other twelve kept as simultaneous controls._
+_updated 2026-09-28 12:06Z — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
+versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
+does the reads, the verdict, the record and the teardown itself._
 
-> **TWO COPIES OF THIS FILE EXIST.** The daily task reads `mcai-rl02/docs/reports/STATE.md` first and
-> falls back to the repo copy. **If they disagree, take the later `_updated` stamp.**
+> **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it
+> stays there. If the two copies disagree, take the later `_updated` stamp.
 
 ---
 
-## WHAT IS LIVE RIGHT NOW (2026-09-27 14:10Z)
+## THE LIVE CANARY — toolkeeper-01
 
 | | |
 |---|---|
-| fleet sha | `268c074+b4d009`, ONE version, 80 bots, all `mcbot@*` active |
-| manifest | `run_id plant-20260927`, `declared_code_version 268c074`, `canary_pool` empty |
-| `main` | `268c074` — matches the fleet |
-| fresh worlds | `hive-c` 4394143238757369828 town -68,68,-68 · `board-b` 6443945553241215903 town -249,65,144 · `hive-d` 4534598234323719516 town 68,65,68 · `placebo-d` 2021899648305791853 town 177,75,73 |
-| controls | the other 12, untouched, still seed `1239381899` town 355,73,147 (14 of 16 shared it before today) |
+| sha | `4320136` on branch `tool-keeper-2` = `80b3bbd` + 2 commits (the keeper + today's slot fix) |
+| pools | placebo-a, placebo-b, board-d, board-c — drawn by `drawrec.sh` at deploy (4 pools = 20 bots) |
+| declared | 2026-09-28T12:02:07Z |
+| read +360 | **2026-09-28 18:02Z** — correctness + liveness (`keep_rows_canary >= 12`, `bad_keeps == 0`) |
+| read +1560 | **2026-09-29 14:02Z** — the verdict (exposure: 20 deposit successes in EACH arm) |
+| deadline | 2026-09-29 16:02Z (1680 min) |
+| registration | `~/mcai-analysis/registrations/toolkeeper-01.json` = `docs/reports/toolkeeper-01-registration.json` (4 amendments, all before launch, no data seen) |
+| read | `~/mcai-analysis/toolkeepread.py` = `docs/reports/toolkeeper-01-read.py.txt` |
+| promotion | `none` — a KEEP is recorded and torn down, not promoted |
 
-### THE PLANTING RESULT — the first time this project has put wood back into a world
-Deployed 06:22Z. Read block-by-block by RCON in all 16 worlds over 763 saplings older than 90 min:
+**What can decide it.** `bad_keeps > 0` is the ONLY line that reverts on its own (`evidence: defect`).
+`keep_rows_canary < 12`, `keep_rows_control > 0`, `keep_unparsed > 0` and `deposit_success_control < 20`
+BLOCK KEEP and never revert. Harm is unchanged: two-death floor and gather_ratio < 0.43. `primary`
+(share of bots above toolfor's 10-use floor, diff-DiD) is advisory, and its quoted null was measured
+for ONE 5-bot pool, so at 20 bots it overstates the noise.
 
-    GREW into a log     289  37.9%      still a sapling  121  15.9%
-    gone                297  38.9%      chunk NOT LOADED  41   5.4%     other 83
+**If you are the next session and the loop has died:** `pgrep -f '^bash /home/mike/canary-loop.sh'`.
+If absent and no decision is recorded, restart it with
+`setsid nohup bash ~/canary-loop.sh toolkeeper-01 >> ~/digest/canary-loop-toolkeeper-01.log 2>&1 < /dev/null &`
+— it resumes from the journal and skips the deploy because the manifest already names the sha.
 
-- **`grew / (grew + still_sapling)` = 282/391 = 72.1%** — the rate that harvesting cannot distort,
-  because a harvested tree leaves neither.
-- **"Gone" is mostly HARVEST.** Leaf evidence with both controls: sites with a standing trunk carry
-  leaves **98.2%** of the time (the method's ceiling, so it is not blind); sites known NOT to have
-  grown carry them **22.0%** (natural-forest background); gone sites **51.8%**. Scaling between the
-  two controls, **~39% of the gone saplings had grown into trees before they vanished.**
-- Placement: 2,687 `plant_spot` scans on 80 of 80 bots, 43.8% found a spot, **1,033 of 1,034
-  sapling placements succeeded (99.9%)**. The `learned_avoid` key-collapse hazard did NOT bite —
-  1,150 orders produced 1,034 attempts.
-- **The clearance rule is holding:** 104 of 113 standing saplings have the room their species needs.
-  Of the 9 short, **7 were grown over by a NEIGHBOUR'S canopy after planting** (oak_leaves or
-  oak_log directly above) — not a predicate defect, and no pre-placement check can prevent it. The
-  other 2 are one dirt and one oak_planks: a bot built over them.
+## WHAT TODAY FOUND BEFORE LAUNCH — the canary as built last night would have lied
 
-### THE 8x PER-WORLD SPREAD WAS MOSTLY A MEASUREMENT ARTEFACT
-`grew%` counts **trunks standing at one instant** — a stock, not a flow — so a world that grows
-trees and chops them down fast reads as a failure. On the harvest-immune metric the spread falls
-from **8.1x to 4.3x** (hive-b 96.0% down to board-d 22.2%), close to this fleet's own documented
-2.36x between-pool band. **REFUTED as causes, each with a measurement:**
+Last night's `904cedb` was "built, tested, pushed". Both independent reviews (Claude, Codex) said
+DO NOT LAUNCH, for the same reason, and the sandbox proved it:
 
-| candidate | verdict |
+- **The keeper moved the wrong slots.** It ranked copies from `bot.inventory.items()` (slots 9–44) and
+  handed those numbers to `bot.moveSlotItem`, which clicks the OPEN CHEST window (player range 27–62).
+  **Sandbox, real Paper server, same stage, positive control first:** `904cedb` logged
+  `keep=slot38 bank=slot37,slot39`, reported `deposited 74 items`, and **zero pickaxes reached the
+  chest.** The fix (`toolCopiesInWindow`: read `chest.items()`, window-numbered and live) banked
+  exactly the damage-130 and damage-100 copies and kept the 129-use one.
+- **The only test of the call was a source-grep that asserted the bug was present.** Replaced with a
+  behaviour test on a real prismarine-windows chest window plus a positive control.
+- **The correctness gate could not revert.** Under verdict.py v25 an own_line with no `evidence` class
+  only blocks KEEP. All three lines lacked one, so a wrong keep could never have reverted it.
+- **The parse was blind** to `Infinity` uses, to a partially-parsed bank list, and to 300-char
+  truncation (Codex reproduced a truncated wrong row reading `ok`). Now all are `unparsed` and block
+  KEEP, with a self-test of known-bad rows that runs before any fleet row is read.
+- **The dedupe did nothing** (`id()` across separate loads). Now a content key over every row.
+- **The registration's pool story was fiction:** it described a sha256 draw of hive-a + board-c;
+  nothing enforces that — the loop draws with `drawrec.sh`.
+- **The branch was not descended from the fleet sha** (built on `8f1cedb`, the pre-merge pin), so
+  `fleet-deploy` refused it. Cherry-picked onto `80b3bbd`; bots/src trees verified identical.
+- **Dry runs of the read wrote into the live reads dir** under the manifest's run_id. Two files moved to
+  `~/digest/reads-dryrun/`; the read no longer emits under `CANARY_DRYRUN`.
+
+## FOUND IN PASSING — a fleet bug, queued not fixed
+**`index.mjs` death handler: `cause` is read at line ~1002 and declared at ~1007** (TDZ). Any death
+after a fall of >3 blocks throws `Cannot access 'cause' before initialization` BEFORE the death record,
+lost-inventory summary and death site are written. Live since `8f1e037f` (2026-09-17). Reproduced on the
+sandbox; on the fleet 1 hit in 7 days across 4 bots sampled (hive-b-Bravo). Rare, but it drops death
+records, which the death gate counts. **Next canary slot.** A task chip was filed with the full brief.
+
+## FLEET
+| | |
 |---|---|
-| headroom / tunnels | 92% have their clearance; the 8% short were grown over afterwards |
-| daylight / clock phase | arithmetic: a Minecraft day is 20 real min, so all 16 worlds cycled ~19x in the window |
-| bot proximity (ticking) | corr(grew%, exposure) = **-0.192**; the WORST world has the 3rd HIGHEST exposure |
-| forceload extent | corr = **-0.176**; only 15.4% of plantings sit inside a forceloaded chunk |
-| world terrain | 14 of 16 shared one seed and town, and `board-d` is one of them |
+| baseline | `80b3bbd+8b910b`, 60 bots |
+| canary | `4320136`, 20 bots (above) |
+| `main` | `1261b89` (+ today's docs commit); bots/src identical to the baseline |
+| fresh worlds | `hive-c` `board-b` `hive-d` `placebo-d` — reseeded 2026-09-27; `draw-exclude.txt` holds them out of draws until 2026-09-30 ~13:00-14:05Z |
+| analyst | 11:00Z verdict: fleet healthy, versions ok, one control death (board-b-Delta drowned, idle) |
+| iron funnel (24 h) | raw iron 41, ingots 51, iron pickaxes crafted 2 — unchanged story |
 
-### FRESH vs CONTROL, first read — HOURS OLD, DO NOT BANK IT
-    FRESH    n=4 worlds   median 95.7 items/bot-h   (range 53.5 - 135.4)
-    CONTROL  n=12 worlds  median 31.9 items/bot-h   (range  5.8 -  76.1)
-    ratio of medians 3.0x
-The 19 Sep fresh pools went 63.4 -> 20.8 items/bot-h in six days. Exposures here are 0.03-1.15 h
-and unequal. **Re-read at +24 h and +7 d against the same twelve controls.**
+## LOOP STATE
+- `check-open-loop.py` (at `/opt/minecraft-ai/scripts/check-open-loop.py`, run with sudo) said
+  "no open canary" at 11:15Z. It will name toolkeeper-01 as open until the loop records a decision.
+- **While toolkeeper-01 is unread, no new analysis starts** (CLAUDE.md). Build work for the NEXT slot
+  (the TDZ fix) is fine; deploying it is not.
 
----
+## RE-ARM ON A FRESH SESSION
+1. `date -u`; read this file; `grep toolkeeper-01 ~/canary-journal.jsonl` on 10.0.0.31.
+2. Confirm the loop is alive (above). If a decision is recorded, confirm teardown (exactly ONE version
+   live) and write it up; wake the owner on any REVERT.
+3. Monitor, emit-on-change only:
+   `ssh mike@10.0.0.31 'tail -n0 -F ~/canary-journal.jsonl ~/digest/page.jsonl' | grep --line-buffered -E 'toolkeeper|error|REVERT|KEEP|UNREADABLE'`
+4. After 18:02Z: read `~/digest/reads/toolkeeper-01-toolkeepread-360.json` — keep_rows_canary, bad_keeps,
+   keep_unparsed. After 2026-09-29 14:02Z: the verdict.
 
-## THREE DEFECTS FOUND TODAY BY RUNNING THE THING, all live for weeks
+## OWNER CALLS WAITING (unchanged from 09-27)
+1. The 24–27 Sep program window: restart from 25 Sep, or abandon?
+2. The v21 death-gate lower bound — trips on 0 of 15 death-involved reverts.
+3. The audit (`8019b1d`): 7 of 23 reverts CONFIRMED FALSE, 5 more suspect.
+4. Commits headed "OWNER DECISION" with no recorded artefact — three over 24–25 Sep.
+5. `vetob2-01` (`efabf13`) KEPT and unpromoted; recommend re-drawing it off the hive pools.
 
-1. **`isPlantable` asked for ONE air block above a sapling. Oak needs 5, birch 6.** Measured on the
-   sandbox rig (rcon 25699) under open sky at randomTickSpeed 2000: with a stone ceiling at +2..+5
-   oak grew **0/3** every time and at +6 **3/3**; birch 0/3 at +6 and 3/3 at +7; the unceilinged
-   control grew **6/6**. A second run proved the room is purely VERTICAL — 1x1, 3x3 and 5x5 stone
-   tubes with 12 air above all grew 2/2, every column verified by read-back. The old predicate
-   would have planted into every dirt-floored tunnel on the fleet, and a sapling that cannot grow
-   occupies that ground for good, because `isPlantable` rejects a cell already holding one.
-2. **The planting cooldown was never charged unless a spot was found.** `if (order)
-   this.lastPlantedAt = ...` leaves the clock untouched when the sweep returns null, and a bot
-   standing on stone never gets an order — so it re-ran a 72-cell sweep on EVERY decision, for
-   ever. Both review engines found it independently. It is the same bug the block's own comment
-   claimed to have fixed one review earlier, moved one line down.
-3. **`reseed-pool.sh --new-seed` had NEVER worked.** Two literal newlines where `\n` was meant made
-   its journal rewrite an unterminated string literal, so it raised SyntaxError every time, the
-   journal kept the old seed, and four "retries" re-ran the SAME rejected seed — four identical
-   banners in the log. Fixed (`fa3ca7c` in mcai-rl02), verified against a COPY of the real journal
-   before going live. **Seed rejection is far commoner than the runbook's "1 in 2": nine seeds were
-   rejected for four pools today (board-b 2 draws, hive-d 4, placebo-d 4).**
-
-### AND ONE CAUSED AN OUTAGE — place-town.py cannot see a world mid-reseed
-`_discover_worlds()` recognises a fleet world by the presence of `TOWN-PLACED.json`, which is
-exactly the file `reseed-pool.sh` archives away before asking it to stamp a new town. argparse
-rejected `hive-c` by `choices`, and **hive-c was left regenerated, townless, with its five bots
-down for about 20 minutes.** Patched on the host to accept an archived
-`TOWN-PLACED.pre-reseed-*.json`; verified it then discovers all 16 with ports matching every live
-`TOWN-PLACED.json`, and still excludes `sandbox*` and `template`. **This would have hit all 16
-worlds identically — the argument for having started with one.**
-
-## OPEN: PLACE-TOWN.PY HAS DIVERGED AND NEITHER COPY IS BETTER
-`~/scripts/place-town.py` on 10.0.0.30 (29,545 b) and `mcai-rl02/scripts/place-town.py` (31,421 b)
-differ on **different axes**, so copying either way loses something:
-- the **HOST** has derived world discovery (`_discover_worlds()`, all 16 read from disk, no
-  hand-kept list) **plus today's mid-reseed patch**. It is what placed four towns today.
-- the **REPO** has the `probe.py` import and `classify_execute_if`, which handle the
-  "That position is not loaded" reply properly — the trap `lib/telemetry.py` documents.
-
-**This needs a real merge, not a copy.** Backup on the host:
-`place-town.py.bak-20260927T125559Z`. Until merged, **run the HOST copy**; it is the one that works.
-
-## MY OWN ERRORS TODAY, recorded because two of them repeated
-- **I said `scripts/reseed-pool.sh` does not exist. It does**, in `mcai-rl02` on branch
-  `recovery-ladder-03`. There is already a commit titled *"reseed-pool.sh exists, I said it did
-  not, and I built a duplicate of it"*. **The scripts live on a different branch from the code**,
-  so a `find` in the code checkout will keep answering wrongly.
-- **I twice misreported `place-town.py`'s world list as 8.** That list is a LOUD FALLBACK used only
-  when discovery finds nothing; under sudo it discovers 16. On the strength of that misreading I
-  was about to overwrite the newer host copy with the older repo one.
-- **My RCON probes bucketed unloaded chunks as "unidentifiable"** — the exact trap
-  `lib/telemetry.py:28-31` documents, which already cost this project an entire ocean survey.
-  41 of 763 saplings sit in unloaded chunks and therefore cannot grow: a MEASUREMENT of ticking
-  deprivation, not instrument noise.
-- **I wrote "NO HARM" of the `859af48` promotion.** Correct wording, per review: *no aggregate harm
-  signal detected in this window.* 6 vs 7 deaths cannot establish safety.
-- Cleared 5 orphan `*-Charlie` units (a standing queue item): all `failed`, all already
-  `disabled`, **no env file at all**, and **zero telemetry rows in 24 h** against a positive
-  control of 9,651 rows from `board-b-Alpha` in the same pool. `reset-failed` only; nothing
-  deleted, nothing disabled that was not already disabled.
-
----
-
-## OWNER CALLS WAITING
-0. **RESOLVED 2026-09-27:** owner approved **4 fresh worlds, not 16**, after being shown that reseeding
-   all sixteen makes every measurement for a week a fleet-wide before/after — the one thing
-   CLAUDE.md forbids by name. Four are done; twelve are controls.
-1. **The 24–27 Sep program window.** Ended early by the 25 Sep fleet-wide promotion of `efa2853`.
-   Rule 1 said the window restarts if that happens. **Restart from 25 Sep, or abandon?**
-2. **The v21 death-gate lower bound** — trips on 0 of 15 death-involved reverts. A question about
-   the **bound**, not the p.
-3. **The audit (`8019b1d`) finds 7 of 23 reverts CONFIRMED FALSE and 5 more suspect.**
-4. **Commits headed "OWNER DECISION"** with no artefact recording one — three over 24–25 Sep.
-5. **`vetob2-01` (`efabf13`) is still KEPT and unpromoted.** The gate KEEP was "nothing objected";
-   my own effect read was INCONCLUSIVE. I recommend re-drawing it off the hive pools.
-
-## QUEUE
-- **Re-read the planting cohort at +24 h and +7 d** against the twelve controls. The open question
-  is not whether saplings grow — answered, 72.1% — but whether the trees change the DEPLETION
-  CURVE. The 19 Sep evidence says a fresh world ALONE buys about a week.
-- **`gather` logs what it collected but not WHERE** (`collected 2 oak_log`), so a harvest cannot be
-  matched to a specific planted tree. The leaf test worked around it once. One new EVENT carrying a
-  coordinate would close it — never a new field, the ELK templates are `dynamic:strict`.
-- **Merge the two `place-town.py` copies** (above).
-- `PLANT_RESERVE = 8` is **per species**, so birch (575 across 80 bots) and jungle (15) are excluded
-  and planting is oak-only. Oak is 94% of holdings, so fine now and wrong long-term.
-- **`place` declares only `args: ['item']`**, so every sapling planting collapses onto one
-  `learned_avoid` key — the key-collapse the code's own comment at `skills.mjs:6931` documents for
-  `explore`. It did not bite today (90% of orders reached the skill) because success keeps
-  `priorFails` at 0. Measured, not fixed.
-- **`skills.mjs:2759` `.sort()` is alphabetical**, so 1,415 bots/day are told to gather
-  `cobbled_deepslate` (0 ever obtained) over `cobblestone` (7.3% of 2,723). UNBUILT.
+## QUEUE (after toolkeeper-01 closes)
+- **TDZ death-handler fix** (above) — the next canary.
+- Re-read the planting cohort against the twelve controls: does planting change the DEPLETION CURVE?
+- `gather` logs what it collected but not WHERE — one new EVENT with a coordinate (ELK is `dynamic:strict`).
+- Merge the two `place-town.py` copies (host has discovery + mid-reseed patch; repo has `probe.py`
+  handling). Until merged, run the HOST copy.
+- `PLANT_RESERVE = 8` is per species → oak-only planting.
+- `place` declares only `args: ['item']` → one `learned_avoid` key for all saplings. Measured, not fixed.
+- `skills.mjs` `.sort()` alphabetical → 1,415/day told to gather `cobbled_deepslate`. UNBUILT.
 - `container_open` 446/4,160 uncharacterised; consolidate the two schedule guards in `verdict.py`.
+- **Uncommitted in this worktree, not mine, left alone:** `bots/scripts/check-movement-writers.mjs`
+  (modified), `bots/test/movement-ratchet.test.mjs` and four `external-*`/`instrumentation-audit`
+  reports (untracked). Someone should decide whether they land.
 
----
+## WORKTREES touched today
+- `tool-keeper-2` (the live canary) — `$SCRATCH/wt-tk2` of session 223836c1; also on origin.
+- `tool-keeper` (904cedb → e71e6a1, superseded, not descended from the fleet) — on origin; do not deploy.
+- `wt-old` (detached 904cedb, sandbox control only) — disposable.

@@ -1,0 +1,133 @@
+{
+  "run_id": "toolkeeper-01",
+  "sha": "4320136",
+  "registered_at": "2026-09-28T03:17:37Z",
+  "ladder_change": false,
+  "promotion": "none",
+  "notes": "THE FLEET BANKS ITS GOOD TOOLS AND KEEPS THE WORN ONES, AND NOBODY CHOSE THAT. Measured 2026-09-27: held pickaxes at a MEDIAN 1.7% durability (237 of 295 at <=10%, one bot carrying twelve, one real record showing used:130/max:131 four times) against BANKED pickaxes at a median 48.1% -- 676 of 1,382 above 50%, 484 above 75%, and 112 with no damage tag at all, i.e. crafted and banked without ever being used. Control from a DIFFERENT instrument: axes, which the prompt does not re-advertise, sit at a median 7.6% held, so worn-out tools are a fleet-wide condition and not a pickaxe artefact. A durability-blind split cannot produce a 28x asymmetry by chance. SOURCE CAUSE: bankableInventory does `avail -= 1` per tool NAME and nothing in the chain reads durability, so WHICH copy survived was decided by mineflayer -- transfer picks source stacks with findItemRange, which scans ASCENDING from inventoryStart, and in a container window the hotbar is the LAST range, so main-inventory copies were banked and the hotbar copy kept whatever its wear. THE CHANGE: toolBankOrder (pure, exported, reusing toolfor.mjs's own `remaining` so a producer and a consumer cannot disagree about one predicate for the ninth time) banks tool copies by EXACT SLOT worst-first and keeps the fullest; materials keep the type-based path untouched. AND A SECOND DEFECT IN THE SAME LOOP: deposit was DROPPING STACKS ON THE GROUND. mineflayer lifts the source stack onto the cursor with clickWindow(sourceItem.slot,0,0) (inventory.js:301) and only puts it back on the count===0 path (:288); `destination full` throws from clickDest (:323) AFTER the lift; deposit's `catch { }` swallowed it and `finally { chest.close() }` closed the window with an item on the cursor, which vanilla drops into the world. Floor on the opportunity: 108 storage_full refusals across 33 bots in 6h, and storage_full requires moved===0 so the partial-fill case reaching that line is strictly larger. returnCursor puts it back into a slot chosen by firstEmptySlotRange so the destination is GUARANTEED empty -- mineflayer's own put-back net (inventory.js:665) reads bot.inventory.selectedItem while the cursor lives on bot.currentWindow, so it is inert while a container is open. Verified fixed in neither 4.38.0 nor 4.39.0: the lift, the throw and the single restore path are byte-identical at all three tags, so the workaround is unconditional. WHY THE GATE IS CORRECTNESS AND NOT THE EFFECT, and this is a measured decision rather than a preference: every candidate durability endpoint was null-tested on IDENTICAL CODE over 12 same-shape draws (one pool as pseudo-canary against the other eleven, both 180-min windows, the four reseeded worlds excluded). median best-pickaxe uses: null -24..+130, and a dry run of the first draft of this read produced a DiD of 59.0 with no code change. share of bots above toolfor's 10-use FLOOR: null -0.418..+0.455, median +0.018. mean uses: -31.5..+49.2. total uses: -633..+107 with median -413, i.e. it measures fleet-wide drift rather than treatment. At 5 bots per pool NONE of them can resolve this change, so gating on one would be a coin flip dressed as a measurement -- and this project has already reverted two working canaries on noise. So the gate is what IS resolvable: the change ran, it ran correctly, and it harmed nothing. The effect is reported with its null printed beside it. TWO POOLS, 10 BOTS, because the null above is what 5 bots buy. Drawn deterministically by sha256 of '<pool>+2026-09-27+toolkeeper' among the TEN ELIGIBLE pools, where eligibility was fixed BEFORE the draw: a pool needs >=3 of its 5 bots holding 2+ pickaxes whose best copy is at or below the fleet median. hive-a has 5 of 5 targets, board-c has 3. The four reseeded worlds are excluded absolutely -- fresh median 98.4 items/bot-h against control 33.8, so a pool straddling that boundary measures the reseed. Branch tool-keeper = 268c074 + the pin/containment commit + ONE commit. Suite 204/204, three mutants killed including the two that reproduce the live defect.",
+  "licence": {
+    "class": "kind",
+    "kind": "_deposit_tool_keep",
+    "min_rows": 12,
+    "note": "A NEW EVENT KIND EXISTS ONLY ON THIS BUILD, so a control pool cannot emit it and the linkage is structural rather than argued. It is emitted once per deposit where a bot held MORE THAN ONE copy of a tool, and its detail names the kept copy's remaining uses and every banked copy's -- which is what makes correctness a deterministic invariant instead of a rate. min_rows 12 is deliberately low because this is a GATE on the branch having run, not an effect measurement: at ~2.25 deposit attempts/bot-h and 10 bots, 12 rows is under an hour of exposure, so failing it means the change shipped inert -- which has happened five times in one day on this project."
+  },
+  "reads": [
+    "toolkeepread"
+  ],
+  "read_minutes": [
+    360,
+    1560
+  ],
+  "deadline_min": 1680,
+  "change_rows": [
+    "_deposit_tool_keep"
+  ],
+  "linkage_extra": [
+    "_deposit_cursor_rescue"
+  ],
+  "draw_exposure": {
+    "hours": 3,
+    "require": [
+      {
+        "name": "deposit attempts (what the keeper acts inside)",
+        "kind": "deposit",
+        "min": 12
+      }
+    ],
+    "note": "The population this change targets is bots that DEPOSIT while holding more than one copy of a tool. Deposit attempts are the denominator; 12 over 3 h on 10 bots is a tripwire against a pool that has gone quiet, not a filter. Stated explicitly because a draw_exposure block written for a different mechanism is blind to this one."
+  },
+  "exposure": {
+    "read": "toolkeepread",
+    "field": "deposit_success_canary",
+    "min": 20,
+    "note": "MEASURED, not inferred: deposit SUCCEEDS at 0.151/bot-h fleet-wide (269 successes / 74 bots / 24 h), so 10 bots make 1.51/hour and 20 successes needs ~13 h. The 1560-minute read is 26 h, which gives ~39 per arm with margin. A 3-HOUR READ WOULD YIELD ~4 PER ARM AND IS GUARANTEED INCONCLUSIVE -- reading it early and recording a verdict is worse than not deploying, which is why read_minutes starts at 360 for correctness only and the verdict waits for 1560."
+  },
+  "own_lines": [
+    {
+      "read": "toolkeepread",
+      "field": "keep_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "_deposit_tool_keep cannot exist on the baseline. A control row means the arms are wrong and nothing else in this read means anything. NO evidence class (Codex pass 2): a shortfall or an arm mix-up is not a defect in the change, so this BLOCKS KEEP rather than reverting."
+    },
+    {
+      "read": "toolkeepread",
+      "field": "bad_keeps",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "CORRECTNESS, and it is deterministic: every keep row names the kept copy's uses and every banked copy's. One row where a fuller copy was banked than kept means the change is WRONG, whatever the endpoint says. ~10 events settle it, so this is readable at +360 long before the effect.",
+      "evidence": "defect"
+    },
+    {
+      "read": "toolkeepread",
+      "field": "keep_rows_canary",
+      "op": ">=",
+      "value": 12,
+      "on_fail": "REVERT",
+      "note": "Zero keep rows means the branch shipped inert. Five changes shipped inert on this project in one day and each was caught only by asking whether the branch had run. NO evidence class (Codex pass 2): a shortfall or an arm mix-up is not a defect in the change, so this BLOCKS KEEP rather than reverting."
+    },
+    {
+      "read": "toolkeepread",
+      "field": "keep_unparsed",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "NO evidence class, DELIBERATELY: under verdict.py v25 a failed REVERT line with no evidence class BLOCKS KEEP and does not revert. A keep row the correctness parse cannot read means bad_keeps did not run on it -- an instrument failure, not a defect in the change -- so it must stop a KEEP, not cause a REVERT."
+    },
+    {
+      "read": "toolkeepread",
+      "field": "deposit_success_control",
+      "op": ">=",
+      "value": 20,
+      "on_fail": "REVERT",
+      "note": "CONTROL EXPOSURE, which the read's rule required of EACH arm and nothing enforced (Codex pass 2). No evidence class: too little control data BLOCKS KEEP, it never reverts."
+    }
+  ],
+  "primary": {
+    "read": "toolkeepread",
+    "field": "share_floor_did",
+    "note": "REPORTED, NOT GATED, and the registration says so before it runs. Share of the arm's bots whose best pickaxe is above toolfor.mjs's 10-use FLOOR, as a DIFFERENCE-in-differences (a ratio on a bounded statistic is unbounded, which is how the first draft produced 59.0). MEASURED NULL on identical code, 12 same-shape draws: -0.418 .. +0.455, median +0.018. So an effect inside +-0.46 is not distinguishable from nothing at this fleet size, and verdict.py puts `primary` in _ADVISORY anyway -- a verdict.py KEEP means exposure, linkage and the death gate were clean and NOTHING MORE."
+  },
+  "anchors": [
+    {
+      "read": "toolkeepread",
+      "field": "anchor_crafting_table_did",
+      "note": "PLACEBO. crafting_table copies held go through the SAME deposit call and the same KEEP_ONE reserve and are NOT durability-selected. If this moves as much as the pickaxes, the effect is drift or the canary restart."
+    },
+    {
+      "read": "toolkeepread",
+      "field": "anchor_cobblestone_did",
+      "note": "PLACEBO, specifically for the RESTART: cobblestone held exercises the scaffold reserve, untouched by the keeper. Only the canary pool restarts, and ~80% of one raw DiD on this fleet was once warm-up."
+    }
+  ],
+  "harm": {
+    "note": "Unchanged and not renegotiated here: the two-death floor (OWNER 2026-09-11 -- one death is named in the read and is NOT a verdict), and gather_ratio < 0.43 of control as the catastrophe gate. Neither can rule out losses smaller than ~2x and saying otherwise is the false confidence canary-report.py produced once already."
+  },
+  "teardown": {
+    "note": "THREE STEPS, because two is not enough: drop-ins, clear canary_pool, AND restart the pool's bots staggered 12 s apart. Measured 2026-09-04: after a complete two-step teardown all five bots were still reporting the canary build and the fleet sat on three versions, which halts the tripper. Then confirm exactly ONE version is live."
+  },
+  "amendments": [
+    {
+      "at": "2026-09-28T11:40Z",
+      "before_launch": true,
+      "what": "PRE-LAUNCH REVIEW FIXES, no data seen. (1) The three own_lines declared no evidence class, so under verdict.py v25 (_deciding_evidence) a failed line would only BLOCK KEEP -- bad_keeps > 0 could never revert. All three are deterministic comparisons the baseline cannot produce, so they now declare evidence=defect, the class blindstep-01/02 and drop5-01 already use. (2) The correctness parse matched \\d+ only; remaining() prints unknown durability as Infinity, so such a row was SKIPPED and read as correct. The parse now reads Infinity, COUNTS unparsed rows (new line keep_unparsed, blocks KEEP), and runs a positive-control self-test on known-bad rows before reading the fleet. (3) bad_keeps excluded the 15-min burn-in; correctness now covers every canary row from the cutoff. Liveness floor checked against data: hive-a+board-c made 83 deposit attempts holding 2+ copies of a tool in the 6 h to 11:20Z (fleet 664 of 1,141), so keep_rows_canary >= 12 at +360 is reachable."
+    },
+    {
+      "at": "2026-09-28T11:35Z",
+      "before_launch": true,
+      "what": "SHA 904cedb -> e71e6a1, AND THE POOL STORY CORRECTED. (1) Both pre-launch reviews (Claude, Codex) found independently that 904cedb ranked copies in bot.inventory numbering (9-44) and clicked them in the open chest window (player range 27-62), with the keep row logging the intent. PROVEN ON THE SANDBOX (10.0.0.30:25599, a real Paper server, bot holding stone_pickaxe at 1/29/129 uses): 904cedb logged keep=slot38 bank=slot37,slot39 and 'deposited 74 items', and ZERO pickaxes reached the chest -- all three still held. e71e6a1 logged keep=slot56/129uses bank=slot55/1uses,slot57/31uses and the chest held exactly the damage-130 and damage-100 copies. Same stage, same inventory, positive control first. (2) THE DRAW: the notes below describe a sha256 draw of hive-a+board-c among ten eligible pools. NOTHING ENFORCES THAT -- canary-loop.sh draws with drawrec.sh (random, up to four pools, draw_exposure narrows, draw-exclude.txt holds the four reseeded worlds out until 2026-09-30 ~13:00Z, after this canary's deadline). The loop's draw is the draw; the eligibility rule in the notes is superseded, and the durability null quoted in primary was measured for ONE 5-bot pool, so at 10-20 bots it OVERSTATES the noise. primary stays advisory either way."
+    },
+    {
+      "at": "2026-09-28T11:55Z",
+      "before_launch": true,
+      "what": "Codex pass 2 (final): truncated keep rows are UNPARSED, never certified; keep_rows_canary and keep_rows_control drop evidence=defect (shortfall or arm mix-up blocks KEEP, never reverts); deposit_success_control >= 20 added as a blocking line; dedupe now covers the live load. bad_keeps is the ONLY line that can revert on its own."
+    },
+    {
+      "at": "2026-09-28T12:05Z",
+      "before_launch": true,
+      "what": "SHA e71e6a1 -> 4320136 (branch tool-keeper-2). fleet-deploy REFUSED e71e6a1 at 11:48:49Z as not a descendant of the deployed 80b3bbd: branch tool-keeper was built on 8f1cedb, the pre-merge copy of the pin commit. bots/src trees are IDENTICAL (8f1cedb:bots/src == 80b3bbd:bots/src == 42259ce; 4320136:bots/src == e71e6a1:bots/src == b56df1c), so 4320136 is the tested, sandbox-proven code re-parented onto the fleet sha by cherry-pick. The 11:48 draw (placebo-a,placebo-b,board-d,board-c) never deployed and is void; the loop redraws."
+    }
+  ]
+}
