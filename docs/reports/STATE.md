@@ -259,6 +259,13 @@ y >= 0 holding zero stone — ~10x the craft-limit target. Both engines are now 
 stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) before anything is built.
 
 ## QUEUE (after toolkeeper-01 closes)
+- **2nd IN LINE (after deathfix-01): `last-swing` (`c63c847`, from 80b3bbd) — THE BIGGEST LEVER FOUND.** Both
+  engines, independently, ~22 h of data: 92% of 3,393 failed stone/cobble gathers had every pickaxe at 1 use;
+  61 of 80 bots in that trap (67.6% of bot-time); toolFor's HARD_STOP sent a bare hand at stone. Gather may now
+  spend a last use when nothing else can harvest (collectManually only; travel and exit contract unchanged).
+  SANDBOX PASSED: control "Digging aborted" + deepslate advice; candidate 3x `_last_swing`, "collected 3
+  cobblestone", "crafted 1x stone_pickaxe". 204/204, 3 mutants. Implementation review by both engines running.
+  The deepslate advice (skills.mjs:2663 recipe tie, not the sort) is cosmetic per both engines.
 - **NEXT CANARY IS STAGED: `deathfix-01`** (sha `1d107ed`, promotion **fleet-wide** — owner abandoned the 24-27 Sep
   window and approved fleet-wide promotion, 22:10Z). Registration
   `~/mcai-analysis/registrations/deathfix-01.json` = `docs/reports/deathfix-01-registration.json`; read
