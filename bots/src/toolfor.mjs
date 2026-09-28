@@ -13,6 +13,8 @@ export const TOOL_RE = /_(pickaxe|axe|shovel|hoe)$/
 export const FLOOR = 10
 /** Uses left at or below which a tool is never swung: it breaks on this dig or the next (durability lags a tick). */
 export const HARD_STOP = 1
+/** Blocks whose drop is a stone-tool material (cobblestone / cobbled_deepslate / blackstone): the only ones a last swing may break. */
+export const LAST_SWING_BLOCKS = new Set(['stone', 'cobblestone', 'deepslate', 'cobbled_deepslate', 'blackstone'])
 /** A candidate slower than this multiple of the fastest eligible tool is "slow"; a cheaper tool within it wins. */
 export const SLACK = 2.0
 
@@ -60,7 +62,9 @@ export function toolFor (block, items = [], { lastSwing = false } = {}) {
     // stack taken before damage -- proved on the sandbox before this shipped), so three spent pickaxes are
     // three cobblestone, which with two sticks is a fresh 131-use pickaxe. Travel digs and the exit
     // contract (usableTools) keep HARD_STOP: this changes only what a harvest dig may hold.
-    if (lastSwing) {
+    // STONE FAMILY ONLY (both implementation reviews): the last use exists to buy the material for a new
+    // stone pickaxe. On coal_ore or anything else it would spend the way out and buy nothing that rebuilds it.
+    if (lastSwing && LAST_SWING_BLOCKS.has(block?.name)) {
       const last = tools.filter(it => canHarvest(block, it.type) && remaining(it) >= 1)
         .sort((a, b) => (tier(a.name) - tier(b.name)) || (remaining(a) - remaining(b)))
       if (last.length) return { item: last[0], hand: false, reason: 'last_swing' }

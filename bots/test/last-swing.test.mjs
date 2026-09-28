@@ -61,4 +61,51 @@ t('SCOPE (source, comments stripped): only collectManually opts in, and it logs 
   assert.match(body, /kind: 'last_swing'/)
 })
 
+t('STONE FAMILY ONLY: a last use is never spent on a block that cannot rebuild a pickaxe', () => {
+  const inv = [item('stone_pickaxe', 1), item('stone_pickaxe', 1)]
+  for (const name of ['stone', 'cobblestone', 'deepslate', 'cobbled_deepslate', 'blackstone']) {
+    assert.equal(toolFor(block(name, [1, 2, 3]), inv, { lastSwing: true }).reason, 'last_swing', name)
+  }
+  for (const name of ['coal_ore', 'iron_ore', 'andesite']) {
+    assert.equal(toolFor(block(name, [1, 2, 3]), inv, { lastSwing: true }).reason, 'none', `${name} must not take the last use`)
+  }
+})
+
+// BEHAVIOUR, through the real collectManually: a last swing whose equip did not take must not dig bare-handed.
+process.env.LOG_DIR = '/tmp/mcbot-test-logs-lastswing'; process.env.BOT_NAME = 'TestBot'
+const { collectManually } = await import('../src/skills.mjs')
+const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c), distanceTo: o => Math.hypot(x - o.x, y - o.y, z - o.z) })
+function fakeBot ({ equipTakes }) {
+  const pick = { ...item('stone_pickaxe', 1), slot: 36 }
+  const stone = { ...STONE, position: V(1, 64, 0), type: 1, boundingBox: 'block' }
+  const bot = {
+    heldItem: null, dug: 0,
+    entity: { position: V(0, 64, 0), onGround: true, velocity: V(0, 0, 0) },
+    inventory: { items: () => [pick], emptySlotCount: () => 5 },
+    canDigBlock: () => true,
+    blockAt: pp => (pp.x === 1 && pp.y === 64 && pp.z === 0 ? stone : { name: 'stone', boundingBox: 'block', position: pp }),
+    equip: async it => { if (equipTakes) bot.heldItem = it },
+    dig: async () => { bot.dug++ },
+    nearestEntity: () => null, pathfinder: { goto: async () => {}, setGoal () {}, stop () {} },
+  }
+  return { bot, stone }
+}
+const outcome = async ({ equipTakes }) => {
+  const { bot, stone } = fakeBot({ equipTakes })
+  try { await collectManually(bot, stone, { aborted: false }); return { bot, fc: null } }
+  catch (e) { return { bot, fc: e.failClass ?? String(e.message).slice(0, 40) } }
+}
+{
+  const bad = await outcome({ equipTakes: false })
+  t('an equip that did not take is equip_failed, and nothing is dug', () => {
+    assert.equal(bad.fc, 'equip_failed')
+    assert.equal(bad.bot.dug, 0)
+  })
+  const good = await outcome({ equipTakes: true })
+  t('control: when the pickaxe IS in hand, the dig runs (no equip_failed)', () => {
+    assert.notEqual(good.fc, 'equip_failed')
+    assert.equal(good.bot.dug, 1, `dug ${good.bot.dug}, failed: ${good.fc}`)
+  })
+}
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
