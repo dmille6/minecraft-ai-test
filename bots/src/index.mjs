@@ -1000,8 +1000,11 @@ function connect() {
     // the second one is the one that explains a stalled milestone chain.
     // Captured BEFORE the respawn clears it.
     // `cause` is declared BEFORE its first read. It used to be declared five lines below this one, so every
-    // death after a >3-block fall threw a ReferenceError out of mineflayer's packet handler and killed the
-    // process -- no _death row, no death site (18 crashes in 36 h, 09-27/28). test/no-tdz.test.mjs.
+    // death more than 3 blocks below the recent peak -- a fall, or a drowning or lava death after a descent --
+    // threw a ReferenceError out of mineflayer's packet handler and killed the process before this record,
+    // the death site or the respawn. The restarted bot rejoined dead and logged the death again as
+    // "unknown; idle", so the COUNT survived and the cause, fall distance and site did not (17 of 17 crashes
+    // matched, 09-27/28). test/no-tdz.test.mjs.
     const cause = freshDeathCause()
     if (fell != null && fell > 3) fallRecord(bot, runner, fell, 'death', { cause: deathClass(cause) })
     const lost = inventorySummary(bot)
@@ -1043,6 +1046,9 @@ function connect() {
     })
     lastDeathCause = null
     peakY = null; descentOnset = null
+    // The trail is a ring that outlives the body: without this a quick second death reports an hp trajectory
+    // spanning two lives. The crash above used to hide it by restarting the process.
+    hpTrail.length = 0
     runner.cancel('death')
     cognitive?.notify('death', 'died and respawned')
     // Respawn is automatic; clearing the failure budget avoids a death

@@ -2,14 +2,18 @@
  * No `let`/`const` is read in its own scope before its declaration.
  *
  * Such a read is not a style problem: it is a ReferenceError the first time the line runs. In the death
- * handler it read `cause` five lines above `const cause = freshDeathCause()`, so every death after a fall of
- * more than 3 blocks threw out of mineflayer's packet handler and killed the process. Measured 2026-09-28:
- * 18 crashes across 15 bots in the 36 hours after 8f1e037 reached the fleet (859af48, 09-27), and the
- * `_death` row the death gate counts was never written -- fall deaths went from 6-45 recorded per day to 0.
- * No test saw it because `npm run lint` is not part of `npm test`, and the line only runs on a fall death.
+ * handler it read `cause` five lines above `const cause = freshDeathCause()`, so every death more than 3 blocks
+ * below the recent peak threw out of mineflayer's packet handler and killed the process. Measured 2026-09-28:
+ * 17 crashes across 15 bots in the 36 hours after 8f1e037 reached the fleet (859af48, 09-27). The restarted
+ * bot rejoined dead and logged the death a second time as "unknown; idle", so the death COUNT survived and
+ * its cause, fall distance and death site were lost -- `after falling` went from 6-45 rows a day to 0.
+ * No test saw it because `npm run lint` is not part of `npm test`, and the line only runs on such a death.
  *
- * `variables: false` restricts the rule to reads in the SAME scope as the declaration -- the ones that are
- * certain to throw. A closure that reads a later `const` when called later is legal and is not flagged.
+ * WHAT THIS DOES AND DOES NOT PROVE. `variables: false` flags a read that comes before the declaration in
+ * the SAME FUNCTION (nested blocks, switch cases and static class fields included); a closure that reads a
+ * later `const` is not flagged, because it is legal when it runs later. It is a regression guard for this
+ * class, NOT a proof of no TDZ: both reviews (2026-09-28) showed it misses an immediately-invoked arrow, a
+ * synchronous callback, an instance class field and a default parameter, all of which do throw.
  */
 import assert from 'node:assert'
 import { readdirSync, readFileSync } from 'node:fs'
