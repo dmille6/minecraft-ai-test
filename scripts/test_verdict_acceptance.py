@@ -1,0 +1,872 @@
+#!/usr/bin/env python3
+"""
+test_verdict_acceptance.py -- v23's REPLAY ACCEPTANCE SUITE.
+
+Every case below is an incident that already happened on this fleet. Each one
+states what the harness DID, what it SHOULD have done, and drives the real
+`scripts/verdict.py` -- the file the canary loop runs, not a copy -- against
+fixtures reconstructed from the ledger and the registration document.
+
+WHY THE REAL FILE. `scripts/verdict.py` and `~/verdict.py` were found
+disagreeing about the death rule on 2026-09-18, one carrying the point-ratio
+test and the other the lower bound. A suite that exercises a copy proves
+nothing about the copy that decides. `verdict.py` takes three environment
+overrides for exactly this, and nothing in production sets them.
+
+WHAT A PASS MEANS, AND WHAT IT DOES NOT. These cases pin the VERDICT, not the
+prose. They are regression tests against six specific ways this harness has
+already been wrong. They are not a proof that it is right in general, and a
+green suite is not licence to let an uncalibrated rule revert anything.
+
+Run: python3 scripts/test_verdict_acceptance.py
+"""
+import json, os, subprocess, sys, tempfile, datetime as dt
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+# The file under test is overridable so the mutant runner can point this suite
+# at a COPY. Mutants never write into the source: one that did, on this project,
+# survived a SIGKILL on disk and was read as the real thing.
+VERDICT = os.environ.get('ACCEPTANCE_VERDICT_PY') or os.path.join(HERE, 'verdict.py')
+SHA, POOLS, RUN = 'abc1234', 'board-b,hive-a', 'acceptance-01'
+
+
+def now(delta_min=0):
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=delta_min)).isoformat()
+
+
+def harm(canary_deaths=0, canary_bh=30.0, control_deaths=1, control_bh=210.0):
+    """Since v24 verdict.py reads MEASURED exposure instead of reconstructing it by
+    dividing counts by rates, so the fixture carries the bot-hours directly -- which is
+    what immobiledid.py:200 actually emits, and always did.
+
+    The rates are still carried, because they are printed and because a fixture that
+    dropped them would stop replaying the producer. They are derived from the same
+    exposure, never set independently: an earlier draft let the two disagree and the
+    one-death case announced 30 bot-hours while its count and rate reconstructed 15."""
+    return {'canary_deaths': canary_deaths,
+            'canary_rate': (canary_deaths / canary_bh) if canary_bh else 0.0,
+            'control_deaths': control_deaths,
+            'control_rate': (control_deaths / control_bh) if control_bh else None,
+            'canary_bot_h': canary_bh,
+            'control_bot_h': control_bh}
+
+
+def immobiledid(readable=True, v15c='OK', v11=None, **hk):
+    # ONE DENOMINATOR. An earlier draft set the top-level `canary_bot_h` to a
+    # default of 30 independently of `harm(canary_bh=...)`, so the one-death
+    # case announced 30 bot-hours while its count and rate reconstructed 15.
+    # The producer derives both from the same exposure; a fixture that does not
+    # is not a replay of anything. (Codex, 2026-09-19.)
+    bh = hk.get('canary_bh', 30.0)
+    kbh = hk.get('control_bh', 210.0)
+    return {'readable': readable, 'canary_bot_h': bh, 'control_bot_h': kbh,
+            'harm': harm(**hk), 'v15c': {'verdict': v15c},
+            'v11': v11 or {'climbs': 0.0, 'livelock': 0.0, 'ladders_p90': 8}}
+
+
+class Case:
+    """One incident, as a temporary world: a manifest, a registration and a set
+    of evidence objects. Nothing touches the real host."""
+
+    def __init__(self, tmp, reg_extra=None, manifest_extra=None):
+        self.d = tempfile.mkdtemp(dir=tmp)
+        self.reads = os.path.join(self.d, 'reads'); os.makedirs(self.reads)
+        self.logs = os.path.join(self.d, 'logs'); os.makedirs(self.logs)
+        self.regs = os.path.join(self.d, 'regs'); os.makedirs(self.regs)
+        self.man = dict({'run_id': RUN, 'canary_pool': POOLS, 'canary_code_version': SHA,
+                         'declared_code_version': 'base000',
+                         'declared_at': now(-200)}, **(manifest_extra or {}))
+        self.manp = os.path.join(self.d, 'manifest.json')
+        json.dump(self.man, open(self.manp, 'w'))
+        self.reg = dict({'sha': SHA, 'reads': ['immobiledid'], 'read_minutes': [30, 180],
+                         'own_lines': [], 'change_rows': [], 'exposure': None}, **(reg_extra or {}))
+        json.dump(self.reg, open(os.path.join(self.regs, f'{RUN}.json'), 'w'))
+
+    def evidence(self, name, fields, M=180, **override):
+        o = dict({'sha': SHA, 'pools': POOLS, 'run_id': RUN,
+                  'declared_at': self.man['declared_at'], 'window_min': M,
+                  'emitted_at': now(-2), 'fields': fields}, **override)
+        json.dump(o, open(os.path.join(self.reads, f'{RUN}-{name}-{M}.json'), 'w'))
+        return self
+
+    def log(self, bot, rows):
+        """Write a bot's skill log. THE LINKAGE RULES DO NOT READ THE EVIDENCE
+        OBJECTS -- verdict.py rescans the pools' own logs since declared_at, so
+        a case about a change row or a rung-linked death is not testing anything
+        unless those logs exist. The first draft of this suite got a green
+        `one canary death` case with no logs at all, and its mutant survived."""
+        d = os.path.join(self.logs, bot); os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'skill-1.jsonl'), 'a') as f:
+            for ts, kind, detail in rows:
+                f.write(json.dumps({'@timestamp': ts, 'bot': {'name': bot},
+                                    'skill': {'name': kind, 'detail': detail}}) + '\n')
+        return self
+
+    def run(self, M=180, poll=False, env_extra=None):
+        env = dict(os.environ, VERDICT_READS_DIR=self.reads, VERDICT_LOG_ROOT=self.logs,
+                   VERDICT_REG_DIR=self.regs, VERDICT_MANIFEST=self.manp, **(env_extra or {}))
+        cmd = [sys.executable, VERDICT, RUN, str(M)] + (['--poll'] if poll else [])
+        r = subprocess.run(cmd, capture_output=True, text=True, env=env,
+                           cwd=HERE, timeout=120)
+        # THE RAW STDOUT, KEPT. Everything below works on the LAST line, which is single by
+        # construction -- so an assertion about "the output is one line" phrased against it can
+        # never fail. The first draft of the newline case was phrased that way and its mutant
+        # survived: the check was vacuous, not the rule it was testing.
+        self.raw_out = r.stdout or ''
+        line = (r.stdout or r.stderr).strip().splitlines()
+        if not line:
+            return 'NO_OUTPUT', (r.stderr or '')[-400:]
+        head = line[-1]
+        if not head.startswith('VERDICT '):
+            return 'CRASH', head
+        # THE EXIT STATUS AND THE ARTIFACT ARE PART OF THE ANSWER. `verdict.py`
+        # exits 0 and writes <run>-verdict-<M>.json; the canary loop reads both.
+        # Checking only the stdout token would let a stub that printed the right
+        # word and exited 1 pass every case below. (Codex, 2026-09-19.)
+        if r.returncode != 0:
+            return f'EXIT{r.returncode}', head
+        # ...AND THE ARTIFACT IS PARSED, NOT MERELY COUNTED. Existence alone
+        # would accept an empty file, a `{}`, or the same object written for
+        # every case -- and the canary loop reads this object, not the stdout
+        # line. It must agree with stdout and be bound to this run and window.
+        ap = os.path.join(self.reads, f'{RUN}-verdict-{M}.json')
+        try:
+            a = json.load(open(ap))
+        except Exception as e:
+            return f'BAD_ARTIFACT({type(e).__name__})', head
+        v = head.split()[1]
+        if a.get('verdict') != v or a.get('run_id') != RUN or a.get('window_min') != M:
+            return 'ARTIFACT_MISMATCH', f"{head} :: artifact {a.get('run_id')}/{a.get('window_min')}={a.get('verdict')}"
+        return v, head
+
+
+RESULTS = []
+
+
+def check(name, got, want, note, detail=''):
+    ok = got == want
+    RESULTS.append(ok)
+    print(f"CASE\t{name}\t{got}\t{want}")          # machine-readable, for the mutant runner
+    print(f"  [{'PASS' if ok else 'FAIL'}] {name}: got {got}, want {want}")
+    print(f"         {note}")
+    if not ok:
+        print(f"         OUTPUT: {detail}")
+
+
+def main():
+    tmp = tempfile.mkdtemp(prefix='verdict-acceptance-')
+    print(f"replaying into {tmp}\n")
+
+    # ---- POSITIVE CONTROL, FIRST. A clean canary must reach KEEP. Without it
+    # every "did not revert" below could be a harness that cannot reach any
+    # verdict at all, which is precisely the failure this suite exists to catch.
+    print("0. POSITIVE CONTROL -- a clean canary reaches a verdict")
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('clean canary', got, 'KEEP',
+          'If this is not KEEP, nothing below means anything: every other case '
+          'asserts a verdict, and a harness that always says UNREADABLE would pass most of them.',
+          out)
+
+    # ---- 1. owner-01, 2026-09-18 12:59Z. SHIPPED INERT.
+    # OWNER=1 never reached the process; 97 minutes ran the baseline under a new
+    # sha with every other signal green (sha split confirmed, suite 192/192,
+    # preflight passed, 0 canary deaths). The only tell was exposure = 0 against
+    # an expectation of ~22 episodes. An inert build must not be able to reach
+    # KEEP -- a KEEP here would promote a change that never ran.
+    print("\n1. INERT DEPLOYMENT (owner-01) -- an invalid experiment, not an efficacy result")
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'],
+                             'exposure': {'read': 'ownerread', 'field': 'episodes_canary', 'min': 1}})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'episodes_canary': 0})
+    got, out = c.run()
+    check('zero exposure', got, 'INCONCLUSIVE',
+          'owner-01 ran 97 min inert with every other check green. Zero exposure closes the '
+          'experiment as invalid; it must never read as a clean KEEP.', out)
+
+    # ---- 1b. UNDEFINED MOVEMENT GUARDS (2026-09-23). immobiledid builds its breach list
+    # with `if v == v and v < lim`, where `v == v` is the NaN test -- so a guard that could
+    # not be computed was SKIPPED, the breach list came back empty, and the verdict string
+    # was 'all within'. verdict.py matched neither REVERT nor WATCH on an UNREADABLE string
+    # and fell through to KEEP. A guard that cannot be computed cannot fail.
+    #
+    # rdid() divides canary post/pre by control post/pre, and `readable` only checks the
+    # canary POST cell, so a canary declared just after a fleet restart can be readable with
+    # all three guards undefined.
+    #
+    # Calibrated before the change: 37 immobiledid evidence objects on disk, ZERO with an
+    # undefined guard. Reachable by construction, never observed to fire -- fixed because it
+    # is latent, and this case exists so it stays fixed.
+    print("\n1b. UNDEFINED MOVEMENT GUARDS -- not computable is not within limits")
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(
+        v15c='UNREADABLE (v15c: all of blocks moved/bh, working share, items gathered/bh '
+             'are undefined -- a guard that cannot be computed cannot fail, so this is not '
+             '"all within")'))
+    got, out = c.run()
+    check('v15c guards all undefined', got, 'UNREADABLE',
+          'Three undefined guards used to produce the string "all within" and reach KEEP. '
+          'When none of the calibrated decision is available the verdict must say so.', out)
+
+    # ---- 1c. A REGISTERED FRICTION RULE (2026-09-23). The registration format has allowed
+    # a `friction` section since it existed, and verdict.py never contained the string --
+    # so every friction rule ever written silently did not run. recovery-ladder-1011b
+    # registered one (pocketread hold_release canary vs control, pp>= -0.3, on_fail WATCH)
+    # and that canary was read as though a registered guard had passed.
+    #
+    # The deeper problem was invisibility: nothing in a KEEP said which registered sections
+    # it did NOT cover, so an unimplemented section looked exactly like a passing one.
+    print("\n1c. A REGISTERED FRICTION RULE -- a declared guard must actually run")
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'pocketread'],
+                             'friction': [{'read': 'pocketread',
+                                           'field': 'hold_release_canary_post',
+                                           'vs': 'hold_release_control_post',
+                                           'op': 'pp>=', 'value': -0.3,
+                                           'on_fail': 'REVERT'}]})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('pocketread', {'hold_release_canary_post': 0.10,
+                              'hold_release_control_post': 0.80})
+    got, out = c.run()
+    # v25 (2026-09-24): the rule still RUNS and still FAILS -- that is what this case was
+    # written to prove and it still proves it. What changed is the verdict. A typed
+    # threshold that declares no evidence class no longer reverts, because that section was
+    # the largest single cause of the 7 confirmed-false reverts in the ledger audit; it now
+    # BLOCKS KEEP instead, which is the outcome the old code could not express. The REVERT
+    # branch is case 1c-bis below, so both directions are covered.
+    check('registered friction rule fails, with no evidence class', got, 'INCONCLUSIVE',
+          'canary 0.10 against control 0.80 is -0.70, far past the registered -0.3 floor. '
+          'Before this the section was simply not read and the canary reached KEEP; now it '
+          'reaches neither KEEP nor REVERT.', out)
+    check('  and the reason names the missing evidence class',
+          'declares no evidence class' in out, True,
+          'The verdict has to say WHY it did not revert, or this is indistinguishable '
+          'from the section being unimplemented again.', out)
+
+    # ---- 1c-bis. THE SAME RULE, WITH ITS EVIDENCE DECLARED, MUST STILL REVERT.
+    # Two branches: a reproducible implementation defect (rl-08 14c662d, whose own new
+    # instrument misfired 268 times out of 278 against a structurally empty baseline), and
+    # a statistical harm claim carrying a randomization p inside its registered ceiling.
+    print("\n1c-bis. THE SAME FRICTION RULE WITH A DECLARED EVIDENCE CLASS -- must revert")
+    for extra, label in (({'evidence': 'defect'}, 'evidence=defect'),
+                         ({'support': {'read': 'gatep', 'field': 'hold_p', 'max': 0.05}},
+                          'support p=0.01 <= 0.05')):
+        reads = ['immobiledid', 'pocketread'] + (['gatep'] if 'support' in extra else [])
+        c = Case(tmp, reg_extra={'reads': reads,
+                                 'friction': [dict({'read': 'pocketread',
+                                                    'field': 'hold_release_canary_post',
+                                                    'vs': 'hold_release_control_post',
+                                                    'op': 'pp>=', 'value': -0.3,
+                                                    'on_fail': 'REVERT'}, **extra)]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('pocketread', {'hold_release_canary_post': 0.10,
+                                  'hold_release_control_post': 0.80})
+        if 'support' in extra: c.evidence('gatep', {'hold_p': 0.01})
+        got, out = c.run()
+        check(f'declared {label} still reverts', got, 'REVERT',
+              'The fix must not cost the gate its ability to reject a change that is '
+              'genuinely broken -- that is the failure mode that would make it worse '
+              'than the bug it fixes.', out)
+
+    # ---- 1c-ter. A SUPPORT p ABOVE ITS CEILING, OR MISSING, MUST NOT REVERT.
+    print("\n1c-ter. A SUPPORT p OUTSIDE ITS CEILING -- INCONCLUSIVE, never REVERT")
+    for pv, label in ((0.18, 'p=0.18 (leaf-01\'s measured value)'), (None, 'p absent')):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'pocketread', 'gatep'],
+                                 'friction': [{'read': 'pocketread',
+                                               'field': 'hold_release_canary_post',
+                                               'vs': 'hold_release_control_post',
+                                               'op': 'pp>=', 'value': -0.3,
+                                               'on_fail': 'REVERT',
+                                               'support': {'read': 'gatep', 'field': 'hold_p',
+                                                           'max': 0.05}}]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('pocketread', {'hold_release_canary_post': 0.10,
+                                  'hold_release_control_post': 0.80})
+        c.evidence('gatep', {'hold_p': pv} if pv is not None else {})
+        got, out = c.run()
+        check(f'{label} does not revert', got, 'INCONCLUSIVE',
+              "leaf-01's -0.5 line was crossed by 36-49% of its own window's null "
+              'assignments at a measured p of 0.18. A threshold is not evidence.', out)
+
+    # ---- 1d. A REGISTRATION WITHOUT immobiledid (2026-09-23). `im = ev['immobiledid']`
+    # raised KeyError, and canary-loop.sh:54 captures stdout only, so the traceback went to
+    # stderr and the loop journalled an EMPTY verdict and carried on.
+    #
+    # FOUND LIVE on banktruth-01, reads: ['banktruthread']. Its journal held
+    # {"phase":"read-30","note":""}, {"phase":"read-90","note":""} and
+    # {"phase":"read-180","note":""} -- three scheduled reads, three empty verdicts, four
+    # and a half hours into a canary due that night. A loop that is alive and journalling
+    # nothing looks exactly like a loop that is working.
+    print("\n1d. A REGISTRATION MISSING immobiledid -- a crash must not read as silence")
+    c = Case(tmp, reg_extra={'reads': ['ownerread']})
+    c.evidence('ownerread', {'episodes_canary': 5})
+    got, out = c.run()
+    check('registration omits immobiledid', got, 'UNREADABLE',
+          'immobiledid carries the death gate, the v15c movement guards and the readability '
+          'test. Without it there is no safety floor -- a registration error, which must be '
+          'said out loud rather than raised as a KeyError into a discarded stderr.', out)
+
+    # ---- 2. evidence bound to the wrong run / gone stale.
+    # The tier-1 analyst spent two days serving reads from FINISHED trials under
+    # the heading "latest canary reads" (16 Sep - 18 Sep), and again on 19 Sep
+    # through the manifest's stale run_id. verdict.py's own binding check is the
+    # thing that must never make that mistake.
+    print("\n2. WRONG-RUN AND STALE EVIDENCE -- unreadable, never a verdict on someone else's data")
+    # Two separate checks guard this, and they must be separated or a mutant on
+    # either survives behind the other. (a) the manifest binding: evidence that
+    # does not match the LIVE canary.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(), sha='deadbee')
+    got, out = c.run()
+    check('evidence not bound to the live canary', got, 'UNREADABLE',
+          'Evidence whose sha does not match the manifest is not evidence about this canary.', out)
+
+    # (b) the REGISTRATION binding: evidence that matches the live canary
+    # perfectly but was produced against a different registered build. This is
+    # the redeploy case -- owner-01 and owner-01b shared a sha, and a canary is
+    # redeployed routinely after a flag fix, an env fix or a bad draw.
+    c = Case(tmp, reg_extra={'sha': 'otherbuild'})
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('evidence sha != registration sha', got, 'UNREADABLE',
+          'The evidence is bound to the live canary and still describes a different '
+          'registered build. Only the registration check catches this one.', out)
+
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(), emitted_at=now(-240))   # four hours old
+    got, out = c.run()
+    check('evidence 240 min old', got, 'UNREADABLE',
+          'A read taken four hours ago describes a window that has since closed.', out)
+
+    # ---- 3. owner-01b, 2026-09-18. The primary endpoint was UNDEFINED.
+    # The draw took board-b and hive-a at a 0.0% immobile pre-share, so the
+    # primary ratio-DiD divided by zero and printed `+nan% FAIL`. A metric that
+    # cannot be computed is not a metric that failed.
+    print("\n3. UNDEFINED PRIMARY ENDPOINT (owner-01b's +nan%) -- unreadable, NOT an efficacy failure")
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'],
+                             'own_lines': [{'read': 'ownerread', 'field': 'primary_did',
+                                            'op': '<=', 'value': 0.0, 'on_fail': 'REVERT'}]})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'primary_did': None})
+    got, out = c.run()
+    check('primary endpoint missing', got, 'UNREADABLE',
+          'A registered endpoint with no value is not an endpoint that failed.', out)
+
+    # ...AND THE INCIDENT WAS NaN, NOT None. owner-01b's ratio-DiD printed
+    # `+nan% FAIL`, and until today verdict.py only recognised None: NaN reached
+    # the comparison, every comparison against NaN is False, and an
+    # `on_fail: REVERT` line therefore REVERTED on an arithmetic hole. The
+    # original case here used None and so tested missing data rather than the
+    # incident it named. Found by a Codex pass on this suite.
+    for bad, label in ((float('nan'), 'nan'), (float('inf'), 'inf')):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'],
+                                 'own_lines': [{'read': 'ownerread', 'field': 'primary_did',
+                                                'op': '<=', 'value': 0.0, 'on_fail': 'REVERT'}]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('ownerread', {'primary_did': bad})
+        got, out = c.run()
+        check(f'primary endpoint is {label}', got, 'UNREADABLE',
+              'You cannot reduce immobility from zero. A divide-by-zero endpoint is '
+              'undefined, not a change that made things worse.', out)
+
+    # ---- 4. owner-01b, 16:38:45Z, and falls-01 before it.
+    # One canary death in a window whose control arm was dying the same way:
+    # board-c-Bravo drowned identically four minutes earlier, and all three
+    # fleet deaths that window were drownings-while-idle across both arms. Every
+    # rung inside the fatal episode was `refused` or `preempted blocks=0` -- the
+    # change placed nothing and moved nothing. v23: no single death reverts by
+    # any path.
+    print("\n4. BACKGROUND DROWNING + AN IRRELEVANT RUNG (owner-01b) -- report, never an automatic revert")
+    c = Case(tmp, reg_extra={'change_rows': ['escape_rung']})
+    c.evidence('immobiledid', immobiledid(canary_deaths=1, canary_bh=15.0,
+                                          control_deaths=1, control_bh=150.0))
+    # The actual shape of 18 Sep 16:33-16:38Z, reconstructed: the change's own row
+    # fires on the canary both AWAY from the death and inside the fatal window, no
+    # control death carries it, and the bot drowns. That combination is what v19
+    # LICENSES and what v23 must then refuse, because it is one death.
+    t = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=30)
+    def stamp(sec):
+        return (t + dt.timedelta(seconds=sec)).isoformat().replace('+00:00', 'Z')
+    c.log('board-b-Bravo', [(stamp(0), '_escape_rung', 'rung refused: body held by air'),
+                            (stamp(120), 'gather', 'ok'),
+                            (stamp(300), '_escape_rung', 'rung refused: body held by air'),
+                            (stamp(340), '_death', 'drowned; idle at the moment of death')])
+    got, out = c.run()
+    check('one canary death', got, 'KEEP',
+          "owner-01b was reverted on exactly this. One death is below the owner's two-death "
+          'floor, and v23 closes every path around it. It is reported, not decided on.', out)
+
+    # THE OTHER PATH TO THE SAME MISTAKE. v19 demoted the single-death
+    # RUNG-LINKAGE override to a WATCH after it ended -08c, -13 and -13b on one
+    # death each. It is a different branch from the change-row one above -- it
+    # fires on M_LIST rungs with `ladder_change` set -- and the first draft of
+    # this suite left it unexercised, so restoring an automatic revert there
+    # would have kept every case green. (Codex, 2026-09-19.)
+    c = Case(tmp, reg_extra={'ladder_change': True})
+    c.evidence('immobiledid', immobiledid(canary_deaths=1, canary_bh=15.0,
+                                          control_deaths=1, control_bh=150.0))
+    t = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=25)
+    def stamp2(sec):
+        return (t + dt.timedelta(seconds=sec)).isoformat().replace('+00:00', 'Z')
+    c.log('board-b-Comet', [(stamp2(0), '_marooned_ramp_cut', 'ramp cut refused'),
+                            (stamp2(40), '_death', 'drowned; idle at the moment of death')])
+    got, out = c.run()
+    check('rung-linked single death', got, 'KEEP',
+          '-08c was reverted on `marooned_ramp_cut`, a rung whose own ledger note says '
+          '"present in both arms; not the change". The base rungs are fleet-wide code, so '
+          'one firing before a death is baseline behaviour. Reported, not decided on.', out)
+
+    # THE QUEUED AMENDMENT, NOW MADE (v24, 2026-09-23). This case previously pinned the
+    # invented denominator -- `control_bot_h = canary_bot_h * 7` -- as CURRENT BEHAVIOUR,
+    # NOT ENDORSED, and said the change had to be prospective rather than slipped in beside
+    # a test. It is now prospective and deliberate, and the reason it could not wait is that
+    # the same three lines carried two further defects measured on a LIVE canary: the poll's
+    # scanned deaths never reached the gate unless a saved control rate was truthy, and the
+    # canary rate was computed against TEN hardcoded bots where the canary had twenty.
+    #
+    # The outcome deliberately changes from REVERT to UNREADABLE, not to KEEP. Dropping an
+    # invented denominator must not convert a false REVERT into a false clean, which is the
+    # worse of the two because nobody returns to check it. Control is scanned whenever the
+    # canary reaches the floor, so arriving here with no control exposure means the
+    # instrument failed -- and that is a refusal to decide, not a pass.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(canary_deaths=3, canary_bh=30.0,
+                                          control_deaths=0, control_bh=0))
+    got, out = c.run()
+    check('control has no measured exposure', got, 'UNREADABLE',
+          'v24: with no MEASURED control exposure the gate refuses instead of assuming 7x '
+          'the canary bot-hours. 3 canary deaths against an unmeasurable control is not a '
+          'KEEP and not a REVERT -- it is a broken instrument, and the verdict says so.', out)
+
+    # falls-01, 04:39:10Z: TWO deaths, but the rate ratio's lower bound is 0.58x.
+    # The change was report-only -- a log row at a fall -- and both its deaths
+    # were idle (one drowning, one unknown, zero falls), while all three control
+    # deaths in the same window were idle drownings.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(canary_deaths=2, canary_bh=23.9,
+                                          control_deaths=3, control_bh=168.0))
+    got, out = c.run()
+    check('two deaths, lower bound 0.58x', got, 'KEEP',
+          'falls-01 was reverted here on a 4.7x point ratio. v21 puts the 1.25x test on the '
+          'lower bound: 0.58x does not clear it, and the change could not cause a fall death '
+          'because it only wrote a log row.', out)
+
+    # ---- 5. THE HARM SIGNAL MUST SURVIVE ALL OF THAT.
+    # owner-01b's real defect, found in the read rather than by the gate: the
+    # owner took a drowning bot's body at escape priority and held it until the
+    # bot died. A refusal that blocks an executable rescue is harm, and the
+    # movement guards must still revert on it. Calibrated: 2% false revert,
+    # 97% detection.
+    print("\n5. A CHANGED REFUSAL BLOCKING AN EXECUTABLE RESCUE -- the harm signal is retained")
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(v15c='REVERT: blocks moved -41% vs control'))
+    got, out = c.run()
+    check('v15c REVERT is forwarded', got, 'REVERT',
+          "This pins that verdict.py FORWARDS an upstream REVERT from the calibrated "
+          "movement guard -- it does not re-derive it, and this case is not evidence that "
+          "-41% is itself detected (immobiledid's own severe threshold is beyond -50%). "
+          "Loosening the death gate must not loosen this path.", out)
+
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(v11={'climbs': 1.9, 'livelock': 0.1, 'ladders_p90': 8}))
+    got, out = c.run()
+    check('v11 climbs +190%', got, 'REVERT',
+          'A change that doubles climb attempts is thrashing, whatever the death count says.', out)
+
+    # ---- 5c. THE CONVERSE. A registration that DOES declare change rows must not carry the
+    # warning -- otherwise the line is decoration rather than a signal, and a reader learns to
+    # ignore it. Same deaths, same rates, only the declaration differs.
+    print("\n5c. change_rows DECLARED -- the linkage warning must be ABSENT")
+    c = Case(tmp, reg_extra={'change_rows': ['escape_rung', 'safe_hold']})
+    c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
+                                          control_deaths=3, control_bh=210.0))
+    got, out = c.run()
+    check('declaring change_rows silences the linkage warning',
+          'LINKAGE UNAVAILABLE' not in out, True,
+          'The warning marks a MISSING instrument. If it fires when the instrument is '
+          'present it is noise, and a noisy warning is an ignored one.', out)
+    check('  and the verdict is unchanged by the declaration', got, 'REVERT',
+          'Declaring rows must not alter a rate-path verdict; it only enables a second '
+          'path.', out)
+
+    # ---- 5d. A CHANGE'S OWN ALARM MAY STOP ITS CANARY (owner decision 2026-09-24).
+    #
+    # owner-01b `aa44514` registered `refused_actuator_per_bh_canary <= 30` and it read
+    # **102.4 at +90 min** -- two hours before the 16:38 revert and before two of its three
+    # deaths -- plus `hold_share_canary <= 0.5` reading 0.794 at +180. BOTH were registered
+    # `on_fail: WATCH`, so the change's own instrument saw the harm first and was gagged. And
+    # 36% of changes emit no new event kind at all, so death-linkage cannot reach that class
+    # and an own-line is the only instrument left for it.
+    #
+    # But v25 established that a typed threshold is not evidence. So the line must carry a
+    # calibration MEASURED on pseudo-canaries -- real pools, real windows, no code change,
+    # where every trip is false by construction.
+    import datetime as _dt
+    _fresh = _dt.datetime.now(_dt.timezone.utc).isoformat().replace('+00:00', 'Z')
+    _stale = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=72)).isoformat().replace('+00:00', 'Z')
+
+    # THE VALID EXAMPLE IS A BASELINE-EMITTED DiD LINE, NOT owner-01b's.
+    # The first draft of this fixture used owner-01b's own `refused_actuator_per_bh_canary`
+    # with `nonzero_draws: 210` -- a value that CANNOT EXIST for that field. Measured
+    # 2026-09-24: `arbiter_actuator_refused` is logged only under `config.reflex.arbiter`,
+    # which no env file sets, and it appears 10,870 times in ONE log generation (owner-01b's
+    # own three hours) and 0 times in the other 11,406,760 rows. 0 of 800 pseudo-canary draws
+    # can produce a value for it. A fixture that asserts otherwise is a fixture inheriting the
+    # bug -- the thing this repo has been burned by before -- so the valid case now uses a
+    # quantity the BASELINE emits, and owner-01b's line appears below as a REFUSAL.
+    def _ownline(**over):
+        ln = {'read': 'ownerread', 'field': 'no_path_share_did',
+              'op': '<=', 'value': 0.05, 'on_fail': 'REVERT', 'evidence': 'calibrated',
+              'calibration': {'tool': 'guardcal.py', 'days': 3, 'draws': 300, 'form': 'did',
+                              'at_threshold': 0.05, 'false_trip_rate': 0.02,
+                              'false_trip_rate_ci_upper': 0.043,
+                              'nonzero_draws': 210,
+                              'over_reads': True, 'measured_at': _fresh}}
+        cal = over.pop('calibration_patch', None)
+        ln.update(over)
+        if cal is not None:
+            ln['calibration'] = dict(ln['calibration'], **cal) if cal else None
+        return ln
+
+    def _run_ownline(ln, value=0.31):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': [ln]})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('ownerread', {ln['field']: value})
+        return c.run()
+
+    print("\n5d. A CALIBRATED OWN-LINE MAY REVERT -- owner-01b's gagged alarm, ungagged")
+    got, out = _run_ownline(_ownline())
+    check('a calibrated DiD own-line REVERTS (0.31 vs <=0.05)', got, 'REVERT',
+          'A change must be able to stop its own canary on an alarm that has been measured '
+          'not to cry wolf -- 36% of changes emit no new event kind, so an own-line is the '
+          'only instrument that class has.', out)
+    check('  and the verdict shows the calibration it relied on',
+          'evidence=calibrated' in out and 'false-trip 0.0200' in out, True,
+          'A revert on a calibration must print the calibration, or it is a typed threshold '
+          'again with extra words.', out)
+
+    # 5e. EVERY WAY A CALIBRATION CAN BE FAKE, STALE OR MISMATCHED -- each must BLOCK, never
+    #     revert and never quietly KEEP. The threshold-equality check is the one that closes
+    #     the rubber-stamp hole: a number measured for a different threshold is a measurement
+    #     of a different rule.
+    print("\n5e. AN UNSOUND CALIBRATION MUST BLOCK -- never REVERT, never KEEP")
+    for label, ln, needle in (
+            ('no calibration object at all', _ownline(calibration_patch={}), 'no `calibration` object'),
+            ('missing fields', _ownline(calibration={'tool': 'guardcal.py'}), 'missing'),
+            ('threshold mismatch (calibrated 50, registered 30)',
+             _ownline(calibration_patch={'at_threshold': 50}), 'different rule'),
+            ('cries wolf too often (false-trip 0.31, CI upper 0.36)',
+             _ownline(calibration_patch={'false_trip_rate': 0.31,
+                                         'false_trip_rate_ci_upper': 0.36}), 'cries wolf'),
+            ('single read, not the schedule',
+             _ownline(calibration_patch={'over_reads': False}), 'SINGLE read'),
+            ('stale by 72 h', _ownline(calibration_patch={'measured_at': _stale}), 'not a calibration'),
+            # A ZERO-HEAVY CALIBRATION IS NOT A CALIBRATION. The pseudo-canaries run the OLD
+            # code, so a line measuring something only the NEW code emits scores 0% for free.
+            # owner-01b's own `refused_actuator_per_bh_canary` counts refusals by a gate the
+            # baseline does not have -- the exact line that motivated this class would have
+            # passed vacuously. Found by a Codex pass before it shipped.
+            ('nonzero_draws not reported at all',
+             _ownline(calibration_patch={'nonzero_draws': None}), 'for\nfree'.replace('\n', ' ')),
+            ('degenerate: 4 of 300 draws had a baseline value',
+             _ownline(calibration_patch={'nonzero_draws': 4}), 'DEGENERATE'),
+            # A CANARY-ONLY LEVEL MAY NEVER REVERT. Measured over 800 pseudo-canary draws:
+            # the one registered level line (`nopath_per_bh_canary <= 24`) false-tripped
+            # 11-20% over 09-16..09-20 and 49-53% over 09-20..09-24 on IDENTICAL code,
+            # because the fleet's no-path rate doubled in four days.
+            ('a canary-only LEVEL form', _ownline(calibration_patch={'form': 'level'}),
+             'only `did` may revert'),
+            # THE POINT ESTIMATE CANNOT FAIL, SO IT IS NOT A TEST. A registration that sets
+            # its threshold at its own calibration's p95 gets false_trip_rate = 0.0500 BY
+            # CONSTRUCTION -- exactly the ceiling, for any metric -- so `ftr > 0.05` never
+            # fires. Measured 2026-09-24: the p95 threshold realised 0.0500 with a 95% CI of
+            # [0.037, 0.067] (refused), while p97 gave 0.0288 with [0.019, 0.043] (clears).
+            ('no CI upper bound at all',
+             _ownline(calibration_patch={'false_trip_rate_ci_upper': None}), 'BY CONSTRUCTION'),
+            ('the p95 trap: 0.0500 point estimate, CI upper 0.067',
+             _ownline(calibration_patch={'false_trip_rate': 0.05,
+                                         'at_threshold': 0.05,
+                                         'false_trip_rate_ci_upper': 0.067}),
+             'upper bound 0.0670'),
+            ('a CI upper bound BELOW its own point estimate',
+             _ownline(calibration_patch={'false_trip_rate': 0.04,
+                                         'false_trip_rate_ci_upper': 0.01}),
+             'not an upper bound'),
+            ('no form declared at all', _ownline(calibration_patch={'form': None}),
+             'only `did` may revert'),
+            ('  and it names `evidence: defect` as the honest class instead',
+             _ownline(calibration_patch={'nonzero_draws': 4}), 'evidence: defect'),
+            ('measured_at unreadable',
+             _ownline(calibration_patch={'measured_at': 'last tuesday'}), 'unreadable'),
+    ):
+        got, out = _run_ownline(ln)
+        check('unsound calibration blocks: %s' % label, got, 'INCONCLUSIVE',
+              'An unsound calibration must reach neither REVERT nor KEEP. Silently keeping '
+              'would be the worse failure, because the line DID fail.', out)
+        check('  and the reason says why (%s)' % needle, needle in out, True, '', out)
+
+    # 5f. THE READS MULTIPLY. Three lines read at +30/+90/+180 is nine chances; nine
+    #     independent 5% tests is a 37% canary, not a 5% one. The death gate already carries
+    #     this lesson -- calibrate_deathgate.py exists because a single-read figure
+    #     "understates it badly" across ~108 polls. So exactly ONE line may decide.
+    print("\n5f. MORE THAN ONE CALIBRATED REVERT LINE -- a registration error, not a stricter canary")
+    two = [_ownline(), _ownline(field='items_did', value=0.0,
+                                calibration_patch={'at_threshold': 0.0})]
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': two})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'no_path_share_did': 0.31, 'items_did': -0.4})
+    got, out = c.run()
+    check('two calibrated REVERT lines block', got, 'INCONCLUSIVE',
+          'Nine chances at 5% is 37%. Declare one deciding alarm.', out)
+    check('  and the reason names the multiplication', '37%' in out, True, '', out)
+
+    # 5g. A calibrated line registered WATCH must NOT count toward the ration -- rationing the
+    #     deciding line must not stop a canary from carrying as many REPORTING lines as it likes.
+    print("\n5g. A calibrated WATCH line alongside a calibrated REVERT line -- allowed")
+    mixed = [_ownline(), _ownline(field='items_did', value=0.0, on_fail='WATCH',
+                                  calibration_patch={'at_threshold': 0.0})]
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': mixed})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'no_path_share_did': 0.31, 'items_did': -0.4})
+    got, out = c.run()
+    check('one deciding line plus a reporting one still REVERTS', got, 'REVERT',
+          'Only the DECIDING line is rationed. Reporting lines are free and should be.', out)
+
+    # ---- 5h. A REGISTRATION THAT CANNOT REACH ITS OWN FINAL READ MUST NOT RUN.
+    # drop5-01 declared read_minutes [30,90,180,360] AND deadline_min 360. The loop checks the
+    # deadline before dispatching the read at the same minute, so the deadline fired first and
+    # six hours of fleet time closed INCONCLUSIVE -- "deadline +360 reached without a verdict" --
+    # on data that was strong (targeted refusals 2.34/bot-h in control to exactly 0.0 in the
+    # canary, boxed share -24.3 pp, exposure 101 against a floor of 60, harm zero). Two equal
+    # numbers in a registration cost the whole run.
+    print("\n5h. deadline_min <= the final read -- UNREADABLE at the FIRST read, not a wasted run")
+    # The harness's default read_minutes is [30, 180], so its final read is 180. Pin the cases
+    # against THAT, not against drop5-01's 360 -- a fixture that asserts the wrong denominator is
+    # the defect this whole suite exists to catch.
+    for dl, want, label in ((180, 'UNREADABLE', 'equal to the final read (180)'),
+                            (120, 'UNREADABLE', 'BELOW the final read'),
+                            (240, 'REVERT', 'above it -- the canary runs normally')):
+        c = Case(tmp, reg_extra={'deadline_min': dl})
+        c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
+                                              control_deaths=3, control_bh=210.0))
+        got, out = c.run()
+        check('deadline_min %d, %s' % (dl, label), got, want,
+              'A canary that cannot conclude should not be spending bots, and it should be told '
+              'at the first read rather than discovered at the last. UNREADABLE and not '
+              'INCONCLUSIVE: the registration is malformed, which is a different thing from a '
+              'change that could not be measured.', out)
+    c = Case(tmp, reg_extra={'deadline_min': 180})
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('  and the reason names the invariant',
+          'deadline_min > max(read_minutes)' in out, True, '', out)
+
+    # ---- 5i. THE LICENCE CLASS IS ENFORCED, NOT MERELY DECLARED (v31).
+    # licencecheck.py refuses a canary naming no discriminating instrument and classifies the one it
+    # names. `rate` -- only the rate of a row BOTH arms emit -- is REPORT-ONLY BY CONSTRUCTION, and
+    # this is where that becomes true rather than advisory. leaf-01 died on exactly that class, on an
+    # uncalibrated line that false-trips 43% of no-change windows.
+    print("\n5i. licence.class=rate -- report-only by construction, on every revert path")
+    _defect = {'read': 'ownerread', 'field': 'x', 'op': '<=', 'value': 0.0,
+               'on_fail': 'REVERT', 'evidence': 'defect'}
+    for lic, want, label in (
+            ({'class': 'kind', 'kind': 'k', 'min_rows': 10}, 'REVERT',
+             'class=kind: a defect line may revert'),
+            ({'class': 'text', 'row': 'r', 'text': 't', 'min_rows': 10}, 'REVERT',
+             'class=text: a defect line may revert'),
+            ({'class': 'rate'}, 'INCONCLUSIVE',
+             'class=rate: the SAME defect line may NOT revert'),
+    ):
+        c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': [_defect],
+                                 'licence': lic})
+        c.evidence('immobiledid', immobiledid())
+        c.evidence('ownerread', {'x': 1.0})          # fails <= 0.0
+        got, out = c.run()
+        check(label, got, want,
+              'The class decides what the instrument may do. A rate-class canary may revert only on '
+              'the calibrated catastrophe gates, which are not instruments of the change.', out)
+    c = Case(tmp, reg_extra={'reads': ['immobiledid', 'ownerread'], 'own_lines': [_defect],
+                             'licence': {'class': 'rate'}})
+    c.evidence('immobiledid', immobiledid())
+    c.evidence('ownerread', {'x': 1.0})
+    got, out = c.run()
+    check('  and the reason names licence.class=rate', 'licence.class=rate' in out, True, '', out)
+
+    # 5j. A registration with NO licence is READ, not refused -- that hard stop belongs at launch,
+    #     where it can be fixed before bots are spent. But the verdict must SAY SO, because "no
+    #     licence" and "a licence that permits this" must not print the same.
+    print("\n5j. no licence declared -- named on the verdict, not refused at read time")
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('a registration with no licence still reaches a verdict', got, 'KEEP',
+          'Refusing at read time would make every historical registration and every replay '
+          'fixture unreadable.', out)
+    check('  and the verdict says NO LICENCE DECLARED', 'NO LICENCE DECLARED' in out, True, '', out)
+    c = Case(tmp, reg_extra={'licence': {'class': 'kind', 'kind': 'k', 'min_rows': 10}})
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run()
+    check('  and it is ABSENT when a licence IS declared', 'NO LICENCE DECLARED' not in out, True,
+          'A warning that fires when the thing is present is noise, and a noisy warning is an '
+          'ignored one.', out)
+
+    # ---- 6. AN INJECTED KNOWN REGRESSION.
+    # swim_to shipped and TRIPLED drowning deaths. At that scale the gate is
+    # calibrated to fire 99.9% of the time, and it must: a suite that only ever
+    # proves the harness does not revert has tested one direction of one rule.
+    print("\n6. AN INJECTED KNOWN REGRESSION (swim_to scale) -- REVERT")
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
+                                          control_deaths=3, control_bh=210.0))
+    got, out = c.run()
+    # v27: THE HOLE THAT MADE THE ALARM DEAF, made visible.
+    # The gate has two revert paths: LINKED (>=2 deaths AND a licensed change row) and RATE
+    # (>=2 deaths AND the bound clears 1.25x). The linked path is the sensitive one. Measured
+    # 2026-09-24: only 7 of 15 registrations declare `change_rows`, so for more than half of
+    # canaries the sensitive path was INERT and every death decision fell to the rate -- whose
+    # threshold was then tightened, leaving the gate tripping on 0 of 15 historical death
+    # reverts. "Linkage said no" and "there was nothing for linkage to check" are opposite
+    # states and the old verdict line could not tell them apart.
+    check('  and it says LINKAGE UNAVAILABLE when no change_rows are declared',
+          'LINKAGE UNAVAILABLE' in out, True,
+          'This fixture declares no change_rows, so the licensed-row path cannot run. A '
+          'death verdict that rested on the rate alone must say so.', out)
+
+    # v26: this fixture supplies AGGREGATE deaths and hours only -- the randomization units
+    # come from the log SCAN, which the harness does not populate with deaths. So the p is
+    # NOT SUPPLIED here and the owner's rule stands alone, which is the documented safe
+    # direction. Asserting it out loud, because "the p silently did not run" and "the p ran
+    # and passed" are the two states this project keeps confusing, and a REVERT that never
+    # consulted the p must say so on its own verdict line.
+    check('  the 9-death REVERT states that the p was not supplied',
+          'randomization p NOT SUPPLIED' in out, True,
+          'An aggregate-only fixture cannot compute a randomization p. The gate must name '
+          'that rather than let a missing p read as a passing one.', out)
+    check('9 deaths in 30 bot-h vs 3 in 210', got, 'REVERT',
+          '0.300 vs 0.014/bot-h -- a 21x ratio, lower bound 6.27x. This pins detection of '
+          'gross harm only: a threshold raised from 1.25 to 5 would still pass it.', out)
+
+    # ...so pin the calibration where it actually lives. 3x is the ratio the
+    # gate was calibrated at (51% detection at 95% confidence), and its lower
+    # bound is 1.40x -- just past 1.25x. A threshold quietly raised to 5 passes
+    # the 21x case above and fails here. (Codex, 2026-09-19.)
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid(canary_deaths=9, canary_bh=30.0,
+                                          control_deaths=21, control_bh=210.0))
+    got, out = c.run()
+    check('3x regression, lower bound 1.40x', got, 'REVERT',
+          'A true 3x with enough deaths to prove it must revert. It BOUNDS the threshold '
+          'below 1.40x -- it does not pin 1.25 exactly, and a threshold of 1.0 or 1.39 '
+          'would still pass. What it catches is the 21x case above silently accepting a '
+          'threshold raised to 5.', out)
+
+    # ---- v32, 2026-09-26. THE GATE MUST SAY WHETHER IT IS THE REGISTERED GATE.
+    # Three days running a generation shipped live in the decision path and in no registration:
+    # v25-v28c (registered retrospectively), v29 (faf7cf7, 23 h after that registration was written
+    # for exactly this reason), v31 (b01b1e7, four hours after v29/v30 were registered). v31 was
+    # found today only by comparing md5s -- live `e9a81408` against the `6dda048d` the state file
+    # recorded -- because the v29 gate never spelled its own name and a label grep read as "not
+    # live". These cases pin the ANNOTATION, which is report-only; the launch refusal is
+    # gatedigest.py and has its own suite. The file under test is VERDICT, not scripts/verdict.py,
+    # so this still works when the mutant runner points the suite at a copy.
+    print("\n12. THE GATE'S OWN PROVENANCE (v32) -- an unregistered gate must not read as a registered one")
+    # The digest is the BUNDLE the gate reports for itself, not md5(verdict.py) -- deathgate.py and
+    # singledeath.py carry decisions too, and the mutant runner mutates deathgate.py. Asking the
+    # file under test keeps this correct when the runner points the suite at a COPY.
+    live_md5 = subprocess.run([sys.executable, VERDICT, '--gate-digest'], capture_output=True,
+                              text=True, timeout=120).stdout.strip().splitlines()[0].strip()
+    rules_dir = tempfile.mkdtemp(dir=tmp)
+    seq = [0]
+
+    def rules(text):
+        seq[0] += 1
+        p = os.path.join(rules_dir, 'rules-%d.md' % seq[0])
+        open(p, 'w').write(text)
+        return {'VERDICT_RULES': p}
+
+    # POSITIVE CONTROL FIRST: the matching digest must be SILENT. Without this, every case below is
+    # satisfied by a check that fires unconditionally -- a detector that answers uniformly, which is
+    # the failure this project has shipped six of.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules(f'# rules\nGATE DIGEST verdict-bundle md5 {live_md5}\n'))
+    check('  POSITIVE CONTROL: a MATCHING gate digest is silent',
+          'GATE CODE IS NOT THE REGISTERED GATE' in out or 'GATE NOT REGISTERED' in out, False,
+          'If the check fires on the digest it was given, it is not comparing anything and the '
+          'cases below prove nothing.', out)
+    check('  ...and a matching digest still reaches a verdict', got, 'KEEP',
+          'The interlock must not be able to cost a read.', out)
+
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules('# rules\nGATE DIGEST verdict-bundle md5 '
+                                     '00000000000000000000000000000000\n'))
+    check('  a MISMATCHING digest is named on the verdict line',
+          'GATE CODE IS NOT THE REGISTERED GATE' in out, True,
+          'This is the v31 state, mechanised: a gate generation in the decision path and in no '
+          'registration. Found by hand on three consecutive days; it must be found by the read.', out)
+    check('gate-digest mismatch is REPORT-ONLY and does not change the verdict', got, 'KEEP',
+          'A clean canary reaches KEEP with or without the annotation. An interlock that could '
+          'revert on its own drift would be a new false-revert route, and 7 of 23 reverts on file '
+          'are already confirmed false.', out)
+    # THE ADVISORY MUST NOT SPELL A VERDICT TOKEN. canary-loop.sh's death-poll arm matched
+    # `case "$V" in *REVERT*)` on the WHOLE line, so an advisory carrying that word was a false
+    # revert waiting for a reachable caller -- and this advisory IS reachable under --poll.
+    check('  the advisory carries no verdict token (the loop matched the line, not the field)',
+          any(t in out.split('::', 1)[-1] for t in ('REVERT', 'INCONCLUSIVE', 'UNREADABLE')), False,
+          'The loop arm is now hardened to read the field, but an advisory that spells a token is a '
+          'latent false verdict in any consumer that greps the line.', out)
+
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules('# rules with no digest line at all\nv30 ...\n'))
+    check('  a rules file with NO digest line says so, rather than passing',
+          'GATE NOT REGISTERED' in out, True,
+          'changerowcheck.py passing its own null case is what licencecheck.py was written to fix '
+          '(9 of 18 registrations declared nothing, all nine passed). A provenance check that is '
+          'silent when the record is absent repeats that defect in the place meant to catch it.', out)
+
+    # AN INDENTED EXAMPLE IS NOT THE RECORD. The format is quoted inside the registration document
+    # and inside three docstrings; if a quoted example parsed, the guard would validate itself.
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra=rules('# rules\n    GATE DIGEST verdict-bundle md5 %s\n' % live_md5))
+    check('  an INDENTED example is not the authoritative record',
+          'GATE NOT REGISTERED' in out, True,
+          'This exact line appears indented in the registration document and in gatedigest.py\'s '
+          'docstring. A parser that accepted it would let the guard be satisfied by its own '
+          'documentation.', out)
+
+    # A REASON MAY NOT CARRY A NEWLINE, because the loop reads `tail -1` then `awk '{print $2}'`.
+    # A reason whose text continues onto another line either hands the loop whatever followed the
+    # break -- `x REVERT` becomes the last line and reverts the canary -- or hides a real REVERT
+    # above it. The v32 advisory interpolates a PATH, which is how this became reachable; the fix is
+    # in out(), so it covers all 42 reason sites rather than that one.
+    evil_dir = os.path.join(rules_dir, 'nl')
+    os.makedirs(evil_dir, exist_ok=True)
+    # A REAL file whose NAME carries the newline, and NO digest line inside it, so the note that
+    # fires is "GATE NOT REGISTERED" -- which interpolates the basename. The missing-file branch
+    # cannot be used here: it is deliberately silent under a fixture harness, and a case routed
+    # through it is silent for that reason rather than because the sanitiser worked.
+    evil_path = os.path.join(evil_dir, 'rules\nx REVERT forged.md')
+    open(evil_path, 'w').write('# no digest line here\n')
+    c = Case(tmp)
+    c.evidence('immobiledid', immobiledid())
+    got, out = c.run(env_extra={'VERDICT_RULES': evil_path})
+    check('a newline inside a reason cannot forge a verdict line', got, 'KEEP',
+          'canary-loop.sh takes the LAST line of stdout and awks field 2 out of it, with no check '
+          'that the line is a verdict at all. If a reason can add a line, the reason can choose the '
+          'verdict.', out)
+    check('  ...and the whole verdict is ONE line',
+          c.raw_out.strip().count(chr(10)) == 0 and c.raw_out.startswith('VERDICT '), True,
+          'One line is the contract canary-loop.sh has always assumed and nothing enforced.',
+          repr(c.raw_out[:300]))
+
+    print(f"\n{'=' * 72}")
+    n, k = len(RESULTS), sum(RESULTS)
+    print(f"{k}/{n} acceptance cases pass")
+    return 0 if k == n else 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

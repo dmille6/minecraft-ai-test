@@ -1,0 +1,2 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/synthetic-ledge-over-lava.json	sandbox/sandbox-bot-scripted-ore.env	goto 306 40 300	3	ledge-over-lava-goto-deathsite

@@ -1,0 +1,2 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/synthetic-lava-edge-water.json	sandbox/sandbox-bot-scripted-ore.env	status	2	lava-edge-water-hold

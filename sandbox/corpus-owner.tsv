@@ -1,0 +1,5 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/synthetic-entombed.json	sandbox/sandbox-bot-scripted-tomb.env	status	4	entombed-pick
+sandbox/fixtures/synthetic-entombed-nopick.json	sandbox/sandbox-bot-scripted-tomb.env	status	4	entombed-nopick
+sandbox/fixtures/captured/hive-a-delta-no-pick-shaft-r8.json	sandbox/sandbox-bot-scripted-delta.env	surface	5	delta-flooded-shaft-wooden-pick
+sandbox/fixtures/captured/board-c-bravo-sealed-no-wood-r8.json	sandbox/sandbox-bot-scripted-bravo.env	surface	5	bravo-flooded-pocket-no-tools

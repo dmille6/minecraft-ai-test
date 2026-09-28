@@ -1,0 +1,140 @@
+# Concurrent canaries — design and blast radius (18 September 2026, 23:42 UTC)
+
+**Owner approved the build 18 Sep.** Claude's review raised it as the only change on the table that moves throughput by a *multiple*: `CLAUDE.md`'s "One canary pool, ever" is justified by *"the tripper matches `canary_pool` literally; two canaries means three versions means a halted fleet"* — an **implementation limit, not a statistical one**. With 80 bots over 16 pools, 2–3 disjoint canaries can run at once.
+
+**This design is written before the patch, and the patch is not written tonight.** It touches the mechanism that stops the fleet, across seven files and two classifiers that have already disagreed with each other once on a live fleet. Section 6 says why that wait is the right call.
+
+## 1. What the tripper guarantees today
+
+`canary_split_ok(seen, declared, canary_version, canary_pool)` in `/usr/local/bin/mcai-tripper` (repo: `infra/guard/death-tripper.py`), four invariants, every one earned from a live incident:
+
+1. the manifest names the canary pool **and** its version, in advance;
+2. **exactly two** distinct builds are running, no more;
+3. every bot on the canary version is **in** the pool;
+4. every bot in the pool is **on** the canary version.
+
+Membership is exact **in both directions** — the comment says the fourth clause "is the one that matters and it is easy to leave out", because without it any split containing the canary version is excused, including a failed rollout that stranded four random bots on new code.
+
+**The digest is never stripped.** `base` once compared bare shas, so a control that restarted onto canary source reported `16e7e77+71154f` and collapsed to a clean baseline sha. Observed 2026-08-30: board-d-Bravo ran canary code as a control for hours while this returned ok. Full strings are compared now, and that must survive the generalisation unchanged.
+
+## 2. The generalisation
+
+The manifest gains a list. Each entry is one canary: `{run_id, code_version, pool}`. The invariants become:
+
+1. every declared canary names its pool **and** version in advance;
+2. **exactly 1 + N** distinct builds are running — baseline plus one per declared canary — no more;
+3. every bot on canary *i*'s version is in pool *i*;
+4. every bot in pool *i* is on canary *i*'s version;
+5. **NEW — pools are pairwise disjoint.** A bot in two pools has no defined correct version, and its control arm is another canary's treatment.
+6. **NEW — canary versions are pairwise distinct.** Two canaries on the same sha are indistinguishable by version, so membership cannot be attributed and neither can a verdict. This is the same defect the `openloop` identity fix closed today, one layer down: owner-01 and owner-01b shared a sha and only differing pools saved the ledger.
+
+Invariants 5 and 6 are the price of the feature, and both must **fail closed**: an undeclared overlap or a shared sha is a halt, not a warning. N is capped (**3**) so a mistake cannot declare the whole fleet a canary and switch the rule off entirely.
+
+## 3. Blast radius — 7 files, 39 references, and two structural blockers
+
+| file | refs | what assumes one canary |
+|---|---:|---|
+| `mcai-tripper` | 15 | `canary_split_ok` + `_classify_versions`; the "exactly two" rule |
+| `openloop.py` | 11 | one `canary_sha` / one `canary_pool` per manifest |
+| `canary-loop.sh` | 5 | **`flock` — one loop may ever run**; one `$RUN`, one read schedule |
+| `mcai-canary-tree` | 2 | **one tree at `/srv/mcbots/harness-canary`**, one `canary.env` |
+| `verdict.py` | 2 | reads the manifest's scalar pool |
+| `drawrec.sh` | 2 | draws against one declared canary; exclusions assume one |
+| `deploy-fleet.sh` | 2 | declares the split; the verifier expects two digests |
+
+**Two structural blockers, not mere refactors:**
+
+- **One canary tree.** `mcai-canary-tree` stages `$C=/srv/mcbots/harness-canary` and points the drop-ins at it. Two canaries on different shas need **per-run trees** (`harness-canary-<run_id>`) and per-run `canary.env`. The teardown path, the `CANARY_ENV` work done today, and the `node_modules` symlink all follow the tree.
+- **One loop.** `canary-loop.sh` takes a `flock`, deliberately: it is what guarantees a single decision-maker. Concurrency needs either N loops with **per-run** locks (and a shared lock only around manifest mutation, which is the actual race) or one supervisor running N schedules. **Per-run locks with a manifest mutex is the smaller change** and keeps each run's journal independent.
+
+There is also a **second classifier**: `scripts/lib/version_split.py` (`classify`, with `ALL_UNDECLARED`, `CANARY_OUTSIDE_POOL`, `POOL_NOT_CANARY`, `CONTAMINATION`) is the tested one, while `canary_split_ok` lives inline in the tripper. The tripper's own comments record that duplicating a rule across both **made the same state trip twice, once correctly and once as `("ALL", ...)` which would have stopped eighty bots to correct two.** Generalising one and not the other repeats exactly that. **Consolidate first, generalise second** — that ordering is not optional.
+
+## 4. Migration, so nothing breaks at once
+
+The manifest keeps the scalar keys **and** gains the list; readers prefer the list and fall back:
+
+```
+canaries: [ {run_id, code_version, pool}, ... ]     # new, authoritative when present
+canary_pool: "board-b,hive-a"                        # kept: the single-canary case, mirrored
+canary_code_version: "aa44514"                       # kept: ditto
+```
+
+While exactly one canary is declared, both shapes describe it and every existing reader keeps working unchanged. The scalars are written **only** when `len(canaries) == 1`, and are **cleared when N > 1** so a stale reader sees "no canary" rather than a plausible wrong one — failing closed, the convention `openloop.py` already documents. Retire the scalars only once every reader in §3 reads the list.
+
+## 5. Order of work (est. 1.5–2 days, matching Claude's estimate)
+
+1. **Consolidate the two classifiers** into `scripts/lib/version_split.py`; the tripper calls it. No behaviour change; the existing 12 cases must stay green. *(This is the risky half and it is separable — do it alone, prove it inert, ship it alone.)*
+2. Generalise the consolidated classifier to N canaries + invariants 5 and 6, pure, with tests and mutants including **every** existing regression case re-expressed for N=1.
+3. Per-run canary trees and per-run `canary.env`; teardown per run.
+4. Per-run loop locks, manifest mutex.
+5. `openloop`, `verdict`, `drawrec` read the list; draws must additionally refuse a pool already claimed by a live canary.
+6. Two Codex passes on the applied diff, then a smaller patch, no third pass.
+7. **Prove it inert first:** deploy with `canaries` holding exactly ONE entry and confirm the fleet behaves exactly as today — same tripper verdicts, same reads — before any second canary is declared.
+
+## 6. Why the patch is not written tonight
+
+It is 23:42 UTC. This change edits the thing that halts the fleet, and its failure mode is **silent**: a tripper that is too permissive does not alarm, it simply stops noticing an undeclared split — the exact fault it exists to catch, and the fault that ran board-d-Bravo on canary code as a control for hours before anyone saw it.
+
+Today produced six instruments that could not fail. Writing a seventh at midnight, solo, into halt protection, would be the same mistake with a larger blast radius. The design above is the hard half and it is done; step 1 is separable and inert and is the right first commit of a fresh session.
+
+**Nothing about this blocks tomorrow's queue:** items 1–3 (seed canary, v23 in the verdict path, navigation/gather) need only one canary slot each and can proceed while this is built.
+
+---
+
+# Appendix — Codex audit of `reseed-pool.sh`'s resume path (18 Sep, 23:58 UTC)
+
+Commissioned after four resume-path defects were found one at a time on a live world, which is the "surgery by flashlight" pattern this project keeps repeating. The point was to find defect #5 by reading rather than by running.
+
+## CORRECTION — the one I called false was TRUE, and it fired 90 minutes later
+
+**I was wrong and Codex was right.** At 23:57:49Z the live run crashed with
+`FileNotFoundError: '/srv/block2/$POOL/server.properties'` — exactly the defect
+Codex named, at exactly the lines it named.
+
+My rejection rested on a bad test. I reproduced the `server-up` call site, where
+the heredoc sits INSIDE `W "..."` and the local shell expands `$POOL` before ssh
+sends it, and I generalised that to a construct one line away that is not the
+same: `ON=$(W "sudo python3 -" <<'PY' ... )` feeds the heredoc as separate stdin
+with a QUOTED delimiter, which suppresses every expansion. The author wrote
+`+"$POOL"+`, plainly intending substitution; the quoted delimiter forbade it.
+
+I then cited the success of `server-up` as "the stronger proof" — but that was
+the very call site my test had reproduced, so it confirmed nothing about the
+other one. **A positive control drawn from the wrong population, which is the
+error this project has a rule against, committed while writing up an audit about
+checks that cannot fail.**
+
+Fixed by passing the pool as `argv`, where quoting cannot decide it either way.
+Verified against the live host: `argv[1] = placebo-a`, opens the real file,
+reads `level-seed=8948499624371160708`.
+
+**What it cost:** nothing durable. The crash landed after the five bots were
+started and their envs rewritten, so the reseed was functionally complete; only
+the `bots-started` and `registered` stamps were missing. But it is the third
+time in two days that a confident negative has been wrong, and the first where
+the wrong one was mine about a reviewer.
+
+## (superseded) Verified FALSE — the one it called "definite"
+
+Codex: *"Lines 131–146: definite independent bug. The quoted `<<'PY'` preserves `"$POOL"` literally. Python opens `/srv/block2/$POOL/server.properties`, not the selected pool's file."*
+
+**Wrong, and checked two ways.** The heredoc sits inside a **double-quoted** string passed to `W()`, so the LOCAL shell expands `$POOL` before ssh transmits anything; heredoc quoting never gets the chance to apply. Direct test prints `/srv/block2/placebo-a/server.properties`. The empirical proof is stronger still: the `server-up` stage uses the identical `<<'PY'` + RCON pattern and **completed at 23:54:53Z** — it could not have if the path were literal.
+
+Recorded because an unchallenged "definite" from a reviewer is exactly how a wrong finding becomes a rule here.
+
+## Accepted — two real traps, both "a pending stage whose replay cannot advance"
+
+1. **`server-up` (lines 89–107): an already-started server makes every resume time out, with bots down.** If the script aborts after the server starts but before `mark server-up`, the resume's `systemctl start` correctly leaves the running service alone — but `T0` is reset to *this* attempt's clock, and the journal window only reaches back about `T0 - 5 s`. The earlier startup's `Done (` falls outside it, RCON is never attempted, and the stage times out after 450 s. Waiting and re-running does not recover it; only restarting the server by hand does.
+2. **`town-placed` (lines 109–114): a completed placement without its stamp strands all five bots.** Abort after `place-town.py` writes `TOWN-PLACED.json` but before `mark town-placed`, and the resume re-enters placement — which the runbook's own note says "refuses a stale or site-less town record". Replay cannot advance; it needs manual reconciliation.
+
+**Both are the same shape as the four already fixed**, and both leave bots down, which is the only severity that matters here.
+
+## Accepted as correct-as-built
+
+`mv_once` is safe between its two calls: an interruption leaves world archived / town-record not, and the resume skips the completed move and performs the pending one. `state-archived` handles any prefix identically. `seed` is stamped before the first stop, so there is no "bots stopped with no checkpoint to resume from" gap.
+
+## Not fixed tonight, and why
+
+The script was mid-run on placebo-a when this landed. **Editing a running script is how `deploy-fleet.sh` once re-read itself by byte offset** — the reason CLAUDE.md says to run it from a copy outside the repo. The two fixes are queued for before pool two, which is the next time the resume path can be reached.
+
+**Fixes to apply:** derive `server-up`'s log window from the service's own `ActiveEnterTimestamp` rather than this attempt's `T0`, and make `town-placed` check for its marker first and stamp the journal if placement has already completed.

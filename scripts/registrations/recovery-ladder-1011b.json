@@ -1,0 +1,16 @@
+{
+  "run_id": "recovery-ladder-1011b", "sha": "1d6c97d", "registered_at": "2026-09-16T08:50:00Z",
+  "ladder_change": true, "promotion": "fleet-wide",
+  "reads": ["immobiledid", "depositread", "pocketread", "canopyread"], "read_minutes": [30, 90, 180, 360],
+  "linkage_extra": ["flooded_pocket_rung", "flooded_pocket_side_exit", "trapped_in_canopy"],
+  "change_rows": ["flooded_pocket_rung", "flooded_pocket_side_exit", "trapped_in_canopy", "canopy_drop_refused"],
+  "exposure": {"read": "pocketread", "field": "sealed_verdicts_canary", "min": 1, "note": "a sealed verdict on a canary bot; 0.3/bot-h fleet-wide"},
+  "own_lines": [
+    {"read": "canopyread", "field": "falls_linked_canary", "op": "<=", "value": 0, "on_fail": "REVERT", "note": "fall deaths within 60 s of a canopy row"},
+    {"read": "pocketread", "field": "blocks_p90", "op": "<=", "value": 12, "on_fail": "WATCH", "nullable": true},
+    {"read": "pocketread", "field": "control_rung_rows", "op": "<=", "value": 0, "on_fail": "REVERT", "note": "old code must emit none"}
+  ],
+  "friction": [{"read": "pocketread", "field": "hold_release_canary_post", "vs": "hold_release_control_post", "op": "pp>=", "value": -0.30, "on_fail": "WATCH", "nullable": true}],
+  "extension": {"until_exposure": true, "extra_reads": [540, 720], "final_on_zero_exposure": "KEEP_ON_SAFETY"},
+  "deadline_min": 780
+}

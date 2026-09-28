@@ -1,0 +1,126 @@
+#!/bin/bash
+# fleet-deploy (HOST copy, on .31) -- same contract as the Mac wrapper: <sha> <run_id> "<notes>" [--pool P,Q]; refuses a
+# --pool sha that does not descend from the manifest's declared_code_version (BASE_OK=1 overrides); runs the deploy
+# script from a copy outside the repo; refuses to report success unless the verifier prints the success line.
+set -u
+SHA=${1:?usage: fleet-deploy <sha> <run_id> "<notes>" [--pool P]}; RUN=${2:?run_id}; NOTES=${3:?notes}; shift 3
+LOG=/tmp/deploy-$SHA-$RUN.log; MAN=/srv/mcbots/trial-manifest.json
+sudo git -C /opt/minecraft-ai fetch -q --all 2>/dev/null
+# A CANARY WITH NO READER IS NOT A CANARY, IT IS AN UNMONITORED DEPLOY.
+#
+# 2026-09-20: digwatch-02 was declared on two pools and ran FIFTEEN HOURS against a
+# 420-minute deadline with nobody reading it, because the loop that reads canaries
+# had died and no step between "declare" and "walk away" checked. The deploy itself
+# was perfect -- split verified, flags live, exposure measured. It just went unread,
+# which by this project's own rule means it never happened.
+#
+# So --pool now requires a reader to exist BEFORE the fleet is touched, and there
+# are exactly two acceptable answers:
+#   * canary-loop.sh is running (anchored on the process form -- `pgrep -f
+#     canary-loop` SELF-MATCHES, which is how this stayed invisible for four
+#     separate kills on 19 Sep), or
+#   * ~/MANUAL-READS-UNTIL holds a FUTURE UTC timestamp, the named and
+#     time-bounded acknowledgement that a human or agent is doing the reads.
+# canarywatch.py (cron, */10) enforces the same pair afterwards and will not let a
+# stale sentinel silence a missed deadline.
+#
+# READER_OK=1 overrides, for a deliberate unmonitored deploy. It must be typed, so
+# it cannot happen by forgetting.
+if printf '%s ' "$@" | grep -q -- '--pool' && [ -z "${READER_OK:-}" ]; then
+  _loop=$(pgrep -f '^bash /home/mike/canary-loop.sh' | head -1 || true)
+  _sent=~/MANUAL-READS-UNTIL
+  _ok=""
+  if [ -n "$_loop" ]; then
+    _ok="canary-loop.sh alive (pid $_loop)"
+  elif [ -r "$_sent" ] && python3 - "$_sent" <<'PYCHK'
+import sys, datetime as dt
+try:
+    u = dt.datetime.fromisoformat(open(sys.argv[1]).read().strip().replace('Z', '+00:00'))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if u > dt.datetime.now(dt.timezone.utc) else 1)
+PYCHK
+  then
+    _ok="manual reads acknowledged until $(cat "$_sent")"
+  fi
+  if [ -z "$_ok" ]; then
+    echo "REFUSED: --pool declares a canary and NOTHING WOULD READ IT."
+    echo "  no canary-loop.sh process, and ~/MANUAL-READS-UNTIL is missing or expired."
+    echo "  Start the loop, or write a future UTC stamp to ~/MANUAL-READS-UNTIL, e.g.:"
+    echo "    date -u -d '+8 hours' +%Y-%m-%dT%H:%M:%SZ > ~/MANUAL-READS-UNTIL"
+    echo "  READER_OK=1 to deploy unmonitored on purpose."
+    exit 2
+  fi
+  echo "reader check: $_ok"
+fi
+if printf '%s ' "$@" | grep -q -- '--pool' && [ -z "${BASE_OK:-}" ]; then
+  BASE=$(python3 -c "import json;print(json.load(open('$MAN')).get('declared_code_version',''))")
+  [ -n "$BASE" ] || { echo "baseline check: no declared_code_version; refusing"; exit 2; }
+  sudo git -C /opt/minecraft-ai merge-base --is-ancestor "$BASE" "$SHA" 2>/dev/null || { echo "REFUSED: $SHA is not a descendant of the deployed baseline $BASE (BASE_OK=1 for a deliberate reverse canary)"; exit 2; }
+  echo "baseline check: $SHA descends from $BASE"
+fi
+# THE ANALYSIS LIBRARY IS NOT THE DEPLOY TREE'S TO OWN.
+# /opt/minecraft-ai is a deploy artefact: this script checks out the deployed sha and
+# deploy-fleet.sh git-resets the same tree. But every read script does
+# sys.path.insert(0, '/opt/minecraft-ai/scripts'), so the analysis library they import
+# silently becomes whatever version the last canary happened to carry. Measured
+# 2026-09-18: deploying owner-01 (aa44514) reverted a telemetry fix installed 40 minutes
+# earlier and would have broken that canary's own +30 read. ~/mcai-analysis/lib holds the
+# golden copy; it is restored AFTER the deploy has finished resetting the tree, never
+# before, because deploy-fleet.sh resets it from the background.
+restore_analysis_lib() {
+  for f in "$HOME"/mcai-analysis/lib/*.py; do
+    [ -e "$f" ] || continue
+    sudo cp "$f" "/opt/minecraft-ai/scripts/lib/$(basename "$f")" 2>/dev/null \
+      && echo "analysis lib restored: $(basename "$f")"
+  done
+}
+
+sudo git -C /opt/minecraft-ai checkout -q --detach "$SHA" || { echo "checkout of $SHA failed"; exit 2; }
+sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh
+# CANARY_ENV MUST SURVIVE THE sudo. sudo builds a fresh environment, so a flag
+# exported here vanishes before deploy-fleet.sh reaches canary-tree, and the
+# canary ships inert with every other check green. Measured 2026-09-18: owner-01
+# ran 97 minutes with OWNER unset (see mcai-canary-tree).
+nohup sudo CANARY_ENV="${CANARY_ENV:-}" /root/d.sh "$SHA" "$RUN" "$NOTES" "$@" > "$LOG" 2>&1 &
+echo "deploy launched; polling $LOG"
+for i in $(seq 1 120); do
+  sleep 10
+  if grep -q "canary split confirmed\|all live bots on $SHA" "$LOG" 2>/dev/null; then
+    restore_analysis_lib
+    if printf '%s ' "$@" | grep -q -- '--pool'; then
+      echo "VERIFIED: canary $SHA is split from the baseline"
+      # THE FLAG MUST BE LIVE IN THE PROCESS, NOT JUST IN A FILE. A canary whose
+      # behaviour is gated on an env flag is the baseline under a new sha if the
+      # flag is missing, and every other signal -- sha split, suite, preflight,
+      # safety lines -- stays green while it is. The only thing that settles it
+      # is the running process's own environment. Measured 2026-09-18: owner-01
+      # declared "behind OWNER=1", split cleanly, and ran 97 minutes with no
+      # OWNER in /proc/<pid>/environ. Its exposure counter read 0 where ~22 were
+      # expected, which the zero-exposure rule would have closed as INCONCLUSIVE.
+      if [ -n "${CANARY_ENV:-}" ]; then
+        b=$(sed 's/.*--pool //; s/ .*//; s/,.*//' <<<"$* ")
+        unit=$(systemctl list-units "mcbot@${b}-*" --state=running --no-legend 2>/dev/null | head -1 | awk '{print $1}')
+        pid=$(systemctl show -p MainPID --value "$unit" 2>/dev/null)
+        envdump=$(sudo cat /proc/"$pid"/environ 2>/dev/null | tr '\0' '\n')
+        # POSITIVE CONTROL FIRST: an unreadable dump is not evidence of absence.
+        if [ "$(wc -l <<<"$envdump")" -lt 5 ]; then
+          echo "FLAG CHECK INCONCLUSIVE: could not read the env of $unit (pid $pid) -- check by hand before trusting this canary"
+        else
+          for kv in $CANARY_ENV; do
+            if grep -qxF "$kv" <<<"$envdump"; then
+              echo "FLAG LIVE: $kv confirmed in $unit"
+            else
+              echo "FLAG MISSING: $kv is NOT in the live env of $unit -- THIS CANARY IS INERT"; exit 4
+            fi
+          done
+        fi
+      fi
+    else
+      echo "VERIFIED: fleet is on $SHA"
+    fi
+    exit 0
+  fi
+  if grep -q "MIXED CODE\|FAILED\|refusing\|halt" "$LOG" 2>/dev/null; then restore_analysis_lib; echo "FAILED: $(grep -m1 'MIXED CODE\|FAILED\|refusing\|halt' "$LOG")"; exit 1; fi
+done
+restore_analysis_lib; echo "timed out waiting for the verifier; last lines:"; tail -5 "$LOG"; exit 1

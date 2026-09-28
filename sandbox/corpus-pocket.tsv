@@ -1,0 +1,2 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/captured/board-c-bravo-sealed-no-wood-r8.json	sandbox/sandbox-bot-scripted-bravo.env	status	4	bravo-pocket-with-pickaxe

@@ -1,0 +1,268 @@
+[04:59:48] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[04:59:58] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[05:03:15] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[05:03:59] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[05:08:10] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[05:08:19] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[05:39:14] [Server thread/WARN]: board-a-Echo moved wrongly!
+[06:20:11] [Server thread/WARN]: board-a-Comet moved wrongly!
+[06:20:29] [Server thread/WARN]: board-a-Comet moved wrongly!
+[06:21:04] [Server thread/WARN]: board-a-Comet moved wrongly!
+[07:04:59] [Server thread/WARN]: board-a-Echo moved wrongly!
+[07:05:00] [Server thread/WARN]: board-a-Echo moved wrongly!
+[07:08:08] [Server thread/WARN]: board-a-Delta moved wrongly!
+[07:08:08] [Server thread/WARN]: board-a-Delta moved wrongly!
+[07:08:08] [Server thread/WARN]: board-a-Delta moved wrongly!
+[07:08:09] [Server thread/WARN]: board-a-Delta moved wrongly!
+[09:08:36] [Server thread/WARN]: board-a-Echo moved wrongly!
+[09:09:44] [Server thread/WARN]: board-a-Echo moved wrongly!
+[09:11:02] [Server thread/WARN]: board-a-Echo moved wrongly!
+[09:13:50] [Server thread/WARN]: board-a-Delta moved wrongly!
+[09:15:16] [Server thread/WARN]: board-a-Echo moved wrongly!
+[09:15:36] [Server thread/WARN]: board-a-Echo moved wrongly!
+[09:50:54] [Server thread/WARN]: board-a-Echo moved wrongly!
+[09:51:36] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:18:26] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:43:34] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[10:43:34] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[10:43:35] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[10:43:35] [Server thread/WARN]: board-a-Alpha moved wrongly!
+[10:46:50] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:53:33] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:54:03] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:55:03] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:55:33] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:56:03] [Server thread/WARN]: board-a-Echo moved wrongly!
+[10:56:46] [Server thread/WARN]: board-a-Echo moved wrongly!
+[14:45:43] [Server thread/WARN]: board-a-Comet moved wrongly!
+[14:58:18] [Server thread/WARN]: board-a-Comet moved wrongly!
+[14:58:29] [Server thread/WARN]: board-a-Comet moved wrongly!
+[14:58:39] [Server thread/WARN]: board-a-Comet moved wrongly!
+[01:50:55] [Server thread/WARN]: board-b-Delta moved too quickly! -8.101410029681631,0.0,-6.934551004342239
+[01:50:56] [Server thread/WARN]: board-b-Echo moved too quickly! 9.910052740350011,-0.9044388157604502,1.0598580347155178
+[01:51:00] [Server thread/WARN]: board-b-Bravo moved too quickly! -0.9208739654251303,-5.0,-8.802551908942633
+[00:38:03] [Server thread/WARN]: board-b-Delta moved too quickly! 10.032844041302269,0.0,1.5006612316445285
+[06:43:51] [Server thread/WARN]: board-b-Comet moved too quickly! 6.588737743058573,-30.0,0.0016215295997881185
+[19:21:12] [Server thread/WARN]: board-b-Comet moved too quickly! 6.634160867630726,-38.0,3.3454718277425854E-4
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.1403260266797588,-11.156267472548116,7.260944641984679E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[17:52:51] [Server thread/WARN]: board-d-Bravo moved too quickly! -0.08432517125106642,-10.182497810846158,4.571705886746713E-6
+[00:31:29] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[00:31:51] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[02:57:48] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[02:58:12] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:01:56] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:02:19] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:02:41] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:03:05] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:03:33] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:03:59] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:04:23] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:04:49] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:05:12] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:05:36] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:06:02] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:07:38] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:08:00] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:08:28] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:08:54] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[03:09:20] [Server thread/WARN]: board-a-Bravo was kicked for floating too long!
+[23:10:31] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 6592ms or 131 ticks behind
+[23:12:03] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 10445ms or 208 ticks behind
+[14:20:31] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 2942ms or 58 ticks behind
+[01:50:53] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 2503ms or 50 ticks behind
+[23:10:39] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 6896ms or 137 ticks behind
+[23:12:14] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 10836ms or 216 ticks behind
+[14:21:23] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 3613ms or 72 ticks behind
+[01:50:55] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 5199ms or 103 ticks behind
+[02:13:15] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 9419ms or 188 ticks behind
+[02:13:37] [Server thread/WARN]: Can't keep up! Is the server overloaded? Running 10628ms or 212 ticks behind
+[06:12:06] [Server thread/INFO]: board-a-Comet drowned
+[07:25:16] [Server thread/INFO]: board-a-Delta drowned
+[09:11:09] [Server thread/INFO]: board-a-Alpha drowned
+[17:35:18] [Server thread/INFO]: board-a-Echo drowned
+[19:18:52] [Server thread/INFO]: board-a-Echo drowned
+[19:40:57] [Server thread/INFO]: board-a-Bravo drowned
+[23:03:50] [Server thread/INFO]: board-a-Echo drowned
+[00:28:57] [Server thread/INFO]: board-a-Echo drowned
+[01:59:11] [Server thread/INFO]: board-a-Bravo drowned
+[02:09:27] [Server thread/INFO]: board-a-Echo drowned
+[07:16:19] [Server thread/INFO]: board-a-Comet drowned
+[10:36:35] [Server thread/INFO]: board-a-Echo drowned
+[14:32:29] [Server thread/INFO]: board-a-Bravo drowned
+[14:40:06] [Server thread/INFO]: board-a-Echo drowned
+[18:41:24] [Server thread/INFO]: board-a-Delta drowned
+[03:11:55] [Server thread/INFO]: board-a-Alpha tried to swim in lava
+[16:38:05] [Server thread/INFO]: board-a-Alpha tried to swim in lava
+[04:46:57] [Server thread/INFO]: board-a-Alpha tried to swim in lava
+[18:30:33] [Server thread/INFO]: board-a-Alpha tried to swim in lava
+[23:10:40] [Server thread/INFO]: board-a-Comet tried to swim in lava
+[00:41:06] [Server thread/INFO]: board-a-Bravo tried to swim in lava
+[08:44:54] [Server thread/INFO]: board-a-Bravo tried to swim in lava
+[20:29:03] [Server thread/INFO]: board-a-Bravo tried to swim in lava
+[23:08:29] [Server thread/INFO]: board-a-Bravo tried to swim in lava
+[09:21:45] [Server thread/INFO]: board-a-Delta tried to swim in lava
+[03:28:07] [Server thread/INFO]: board-a-Alpha fell from a high place
+[08:36:19] [Server thread/INFO]: board-a-Bravo fell from a high place
+[01:42:18] [Server thread/INFO]: board-a-Comet fell from a high place
+[17:03:26] [Server thread/INFO]: board-a-Comet fell from a high place
+[03:16:24] [Server thread/INFO]: board-a-Bravo fell from a high place
+[11:03:49] [Server thread/INFO]: board-a-Alpha fell from a high place
+[00:35:37] [Server thread/INFO]: board-a-Bravo fell from a high place
+[07:59:16] [Server thread/INFO]: board-a-Alpha fell from a high place
+[09:46:51] [Server thread/INFO]: board-a-Delta fell from a high place
+[06:33:19] [Server thread/INFO]: board-a-Alpha fell from a high place
+[16:38:42] [Server thread/INFO]: board-a-Alpha was impaled on a stalagmite
+[20:04:39] [Server thread/INFO]: board-b-Delta was impaled on a stalagmite
+[21:53:41] [Server thread/INFO]: board-b-Alpha was impaled on a stalagmite
+[01:15:24] [Server thread/INFO]: board-c-Comet was impaled on a stalagmite
+[06:25:11] [Server thread/INFO]: board-c-Alpha was impaled on a stalagmite
+[08:33:16] [Server thread/INFO]: board-a-Delta discovered the floor was lava
+[23:41:21] [Server thread/INFO]: board-a-Alpha discovered the floor was lava
+[23:28:24] [Server thread/INFO]: board-a-Bravo discovered the floor was lava
+[21:11:42] [Server thread/INFO]: board-a-Comet discovered the floor was lava
+[22:09:28] [Server thread/INFO]: board-a-Comet discovered the floor was lava
+[04:20:02] [Server thread/INFO]: Villager Villager['Villager'/260117, uuid='9a3d41d4-25e8-4dfa-8036-9f7725f1fc45', l='ServerLevel[world]', x=1232.15, y=64.00, z=680.78, cpos=[77, 42], tl=2377, v=true] died, message: 'Villager suffocated in a wall'
+[02:25:47] [Server thread/INFO]: board-c-Bravo suffocated in a wall
+[14:16:21] [Server thread/INFO]: board-d-Bravo suffocated in a wall
+[22:33:42] [Server thread/INFO]: hive-a-Bravo suffocated in a wall
+[06:48:25] [Server thread/INFO]: hive-a-Delta suffocated in a wall
+[07:56:06] [Server thread/INFO]: board-a-Comet fell off some vines
+[18:42:20] [Server thread/INFO]: placebo-c-Bravo fell off some vines
+[20:05:44] [Server thread/INFO]: isolated-d-Echo was pricked to death
+[05:46:00] [Server thread/INFO]: board-d-Delta was skewered by a falling stalactite
+[01:53:07] [Server thread/INFO]: hive-a-Alpha was kicked due to keepalive timeout!
+[01:54:54] [Server thread/INFO]: hive-a-Bravo was kicked due to keepalive timeout!
+[01:54:54] [Server thread/INFO]: hive-a-Delta was kicked due to keepalive timeout!
+[01:55:51] [Server thread/INFO]: hive-a-Alpha was kicked due to keepalive timeout!
+[01:57:25] [Server thread/INFO]: hive-a-Bravo was kicked due to keepalive timeout!
+[02:04:07] [Async Chat Thread - #1/INFO]: [Not Secure] <board-a-Alpha> board-a-Alpha online (gatherer) — say "board-a-Alpha help"
+[02:04:07] [Async Chat Thread - #0/INFO]: [Not Secure] <board-a-Alpha> autonomous mode: qwen2.5:7b-instruct
+[02:04:19] [Async Chat Thread - #2/INFO]: [Not Secure] <board-a-Bravo> board-a-Bravo online (gatherer) — say "board-a-Bravo help"
+[02:04:19] [Async Chat Thread - #1/INFO]: [Not Secure] <board-a-Bravo> autonomous mode: qwen2.5:7b-instruct
+[02:04:31] [Async Chat Thread - #1/INFO]: [Not Secure] <board-a-Comet> board-a-Comet online (gatherer) — say "board-a-Comet help"
+[02:04:31] [Async Chat Thread - #1/INFO]: [Not Secure] <board-a-Comet> autonomous mode: qwen2.5:7b-instruct
+[02:04:43] [Async Chat Thread - #1/INFO]: [Not Secure] <board-a-Delta> board-a-Delta online (gatherer) — say "board-a-Delta help"
+[02:04:43] [Async Chat Thread - #1/INFO]: [Not Secure] <board-a-Delta> autonomous mode: qwen2.5:7b-instruct
+[02:04:55] [Async Chat Thread - #1/INFO]: [Not Secure] <board-a-Echo> board-a-Echo online (gatherer) — say "board-a-Echo help"
+[02:04:55] [Async Chat Thread - #2/INFO]: [Not Secure] <board-a-Echo> autonomous mode: qwen2.5:7b-instruct
+[02:13:57] [Async Chat Thread - #3/INFO]: [Not Secure] <board-a-Echo> milestone done — now: gather_oak_log_12
+[02:17:31] [Async Chat Thread - #5/INFO]: [Not Secure] <board-a-Bravo> milestone done — now: gather_sand_8
+[02:18:12] [Async Chat Thread - #5/INFO]: [Not Secure] <board-a-Echo> milestone done — now: gather_sand_8
+[02:18:56] [Async Chat Thread - #5/INFO]: [Not Secure] <board-a-Alpha> [fleet] board-a unreachable gather_dirt_16 359 71 139
+[02:22:10] [Async Chat Thread - #7/INFO]: [Not Secure] <board-a-Echo> milestone done — now: gather_cobblestone_8
+[02:25:03] [Async Chat Thread - #9/INFO]: [Not Secure] <board-a-Alpha> milestone done — now: gather_sand_8
+[02:25:38] [Async Chat Thread - #9/INFO]: [Not Secure] <board-a-Comet> milestone done — now: gather_sand_8
+[02:27:05] [Async Chat Thread - #11/INFO]: [Not Secure] <board-a-Alpha> [fleet] board-a hazard entombed 402 71 62 x2
+[02:27:23] [Async Chat Thread - #11/INFO]: [Not Secure] <board-a-Echo> [fleet] board-a hazard drowning 568 62 210 x2
+[02:32:34] [Async Chat Thread - #13/INFO]: [Not Secure] <board-a-Bravo> milestone done — now: gather_cobblestone_8
+[02:34:45] [Async Chat Thread - #15/INFO]: [Not Secure] <board-a-Alpha> milestone done — now: gather_cobblestone_8
+[02:39:23] [Async Chat Thread - #17/INFO]: [Not Secure] <board-a-Comet> [fleet] board-a hazard drowning 516 61 179 x2
+[02:50:31] [Async Chat Thread - #19/INFO]: [Not Secure] <board-a-Bravo> [fleet] board-a hazard entombed 917 60 157 x2
+[02:52:30] [Async Chat Thread - #21/INFO]: [Not Secure] <board-a-Comet> milestone done — now: gather_cobblestone_8
+[03:04:05] [Async Chat Thread - #23/INFO]: [Not Secure] <board-a-Comet> [fleet] board-a hazard drowning 957 57 217 x2
+[03:08:26] [Async Chat Thread - #25/INFO]: [Not Secure] <board-a-Delta> milestone done — now: gather_cobblestone_8
+[03:11:10] [Async Chat Thread - #27/INFO]: [Not Secure] <board-a-Echo> [fleet] board-a hazard drowning 1240 60 228 x2
+[03:13:44] [Async Chat Thread - #29/INFO]: [Not Secure] <board-a-Alpha> [fleet] board-a hazard drowning 666 62 30 x2
+[03:17:47] [Async Chat Thread - #31/INFO]: [Not Secure] <board-a-Bravo> [fleet] board-a hazard drowning 925 54 166 x2
+[03:22:41] [Async Chat Thread - #33/INFO]: [Not Secure] <board-a-Comet> milestone done — now: stockpile_wood#16
+[02:04:07] [Server thread/INFO]: board-a-Alpha[/10.0.0.31:41178] logged in with entity id 149 at ([world]362.5, 70.0, 142.5)
+[02:04:19] [Server thread/INFO]: board-a-Bravo[/10.0.0.31:40494] logged in with entity id 180 at ([world]359.5, 72.0, 152.5)
+[02:04:31] [Server thread/INFO]: board-a-Comet[/10.0.0.31:49590] logged in with entity id 212 at ([world]345.5, 69.0, 137.5)
+[02:04:43] [Server thread/INFO]: board-a-Delta[/10.0.0.31:55072] logged in with entity id 224 at ([world]349.5, 72.0, 152.5)
+[02:04:55] [Server thread/INFO]: board-a-Echo[/10.0.0.31:51114] logged in with entity id 238 at ([world]360.5, 72.0, 151.5)
+[04:06:53] [Server thread/INFO]: board-a-Alpha[/10.0.0.31:40684] logged in with entity id 20108 at ([world]1349.543493802559, 62.495200877005914, 203.5)
+[04:44:40] [Server thread/INFO]: board-a-Echo[/10.0.0.31:48152] logged in with entity id 27775 at ([world]445.6662155075095, 67.08441379691861, -5.333783654676428)
+[05:14:49] [Server thread/INFO]: board-a-Echo[/10.0.0.31:43948] logged in with entity id 33688 at ([world]446.5, 62.0, -4.496819313114251)
+[07:12:57] [Server thread/INFO]: board-a-Bravo[/10.0.0.31:41244] logged in with entity id 57609 at ([world]1837.5, 74.050374912611, 550.447321877233)
+[08:56:10] [Server thread/INFO]: board-a-Comet[/10.0.0.31:54394] logged in with entity id 75951 at ([world]886.4057854030202, 26.252203340253722, 112.33245373955224)
+[09:13:37] [Server thread/INFO]: board-a-Delta[/10.0.0.31:49814] logged in with entity id 78714 at ([world]520.4964626054856, 50.0, 295.5)
+[09:58:42] [Server thread/INFO]: board-a-Comet[/10.0.0.31:45182] logged in with entity id 86044 at ([world]773.5004461671547, 65.19366615334314, 117.5)
+[10:31:51] [Server thread/INFO]: board-a-Echo[/10.0.0.31:48942] logged in with entity id 91401 at ([world]332.5, 67.0, 56.5)
+[11:20:20] [Server thread/INFO]: board-a-Bravo[/10.0.0.31:32996] logged in with entity id 99780 at ([world]1435.5, 60.024424088213685, 959.5)
+[11:30:28] [Server thread/INFO]: board-a-Bravo[/10.0.0.31:38376] logged in with entity id 101949 at ([world]1436.314978509967, 62.0, 959.5003516624979)
+[04:06:41] [Server thread/INFO]: board-a-Alpha lost connection: Disconnected
+[04:44:28] [Server thread/INFO]: board-a-Echo lost connection: Disconnected
+[05:14:40] [Server thread/INFO]: board-a-Echo lost connection: Disconnected
+[07:12:44] [Server thread/INFO]: board-a-Bravo lost connection: Disconnected
+[08:55:59] [Server thread/INFO]: board-a-Comet lost connection: Disconnected
+[09:13:25] [Server thread/INFO]: board-a-Delta lost connection: Disconnected
+[09:58:28] [Server thread/INFO]: board-a-Comet lost connection: Disconnected
+[10:31:38] [Server thread/INFO]: board-a-Echo lost connection: Disconnected
+[11:20:11] [Server thread/INFO]: board-a-Bravo lost connection: Disconnected
+[11:30:20] [Server thread/INFO]: board-a-Bravo lost connection: Disconnected
+[12:44:39] [Server thread/INFO]: board-a-Comet lost connection: Disconnected
+[13:10:47] [Server thread/INFO]: board-a-Bravo lost connection: Disconnected
+[13:19:05] [Server thread/INFO]: board-a-Echo lost connection: Disconnected
+[14:09:48] [Server thread/INFO]: board-a-Alpha lost connection: Disconnected
+[14:09:54] [Server thread/INFO]: board-a-Bravo lost connection: Disconnected
+[02:04:07] [Server thread/INFO]: board-a-Alpha joined the game
+[02:04:19] [Server thread/INFO]: board-a-Bravo joined the game
+[02:04:31] [Server thread/INFO]: board-a-Comet joined the game
+[02:04:43] [Server thread/INFO]: board-a-Delta joined the game
+[02:04:55] [Server thread/INFO]: board-a-Echo joined the game
+[04:06:53] [Server thread/INFO]: board-a-Alpha joined the game
+[04:44:40] [Server thread/INFO]: board-a-Echo joined the game
+[05:14:49] [Server thread/INFO]: board-a-Echo joined the game
+[07:12:57] [Server thread/INFO]: board-a-Bravo joined the game
+[08:56:10] [Server thread/INFO]: board-a-Comet joined the game
+[09:13:37] [Server thread/INFO]: board-a-Delta joined the game
+[09:58:42] [Server thread/INFO]: board-a-Comet joined the game
+[04:06:41] [Server thread/INFO]: board-a-Alpha left the game
+[04:44:28] [Server thread/INFO]: board-a-Echo left the game
+[05:14:40] [Server thread/INFO]: board-a-Echo left the game
+[07:12:44] [Server thread/INFO]: board-a-Bravo left the game
+[08:55:59] [Server thread/INFO]: board-a-Comet left the game
+[09:13:25] [Server thread/INFO]: board-a-Delta left the game
+[09:58:28] [Server thread/INFO]: board-a-Comet left the game
+[10:31:38] [Server thread/INFO]: board-a-Echo left the game
+[11:20:11] [Server thread/INFO]: board-a-Bravo left the game
+[11:30:20] [Server thread/INFO]: board-a-Bravo left the game
+[12:44:39] [Server thread/INFO]: board-a-Comet left the game
+[13:10:47] [Server thread/INFO]: board-a-Bravo left the game
+[12:33:30] [Server thread/INFO]: Thread RCON Listener started
+[12:33:30] [Server thread/INFO]: RCON running on 0.0.0.0:25672
+[12:34:46] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[12:34:46] [RCON Client /127.0.0.1 #2/INFO]: Thread RCON Client /127.0.0.1 shutting down
+[12:34:56] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[12:34:56] [RCON Client /127.0.0.1 #3/INFO]: Thread RCON Client /127.0.0.1 shutting down
+[12:40:02] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[12:40:02] [RCON Client /127.0.0.1 #4/INFO]: Thread RCON Client /127.0.0.1 shutting down
+[12:45:40] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[12:45:40] [RCON Client /127.0.0.1 #5/INFO]: Thread RCON Client /127.0.0.1 shutting down
+[12:50:42] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[12:50:42] [RCON Client /127.0.0.1 #6/INFO]: Thread RCON Client /127.0.0.1 shutting down
+[12:56:02] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[12:56:02] [RCON Client /127.0.0.1 #7/INFO]: Thread RCON Client /127.0.0.1 shutting down
+[13:01:12] [RCON Listener #1/INFO]: Thread RCON Client /127.0.0.1 started
+[12:33:06] [ServerMain/INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-1-24.04.2-Ubuntu; Ubuntu null) on Linux 6.8.0-138-generic (amd64)
+[12:33:06] [ServerMain/INFO]: [bootstrap] Loading Paper 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) for Minecraft 1.21.8
+[20:52:17] [ServerMain/INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-1-24.04.2-Ubuntu; Ubuntu null) on Linux 6.8.0-138-generic (amd64)
+[20:52:17] [ServerMain/INFO]: [bootstrap] Loading Paper 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) for Minecraft 1.21.8
+[00:19:13] [ServerMain/INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-1-24.04.2-Ubuntu; Ubuntu null) on Linux 6.8.0-138-generic (amd64)
+[00:19:13] [ServerMain/INFO]: [bootstrap] Loading Paper 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) for Minecraft 1.21.8
+[14:16:44] [ServerMain/INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-1-24.04.2-Ubuntu; Ubuntu null) on Linux 6.8.0-138-generic (amd64)
+[14:16:44] [ServerMain/INFO]: [bootstrap] Loading Paper 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) for Minecraft 1.21.8
+[13:15:34] [ServerMain/INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.11+10-1-24.04.2-Ubuntu; Ubuntu null) on Linux 6.8.0-138-generic (amd64)
+[13:15:34] [ServerMain/INFO]: [bootstrap] Loading Paper 1.21.8-60-main@29c8822 (2025-09-06T21:49:13Z) for Minecraft 1.21.8
+[12:33:24] [Server thread/INFO]: Preparing spawn area: 2%
+[12:33:25] [Server thread/INFO]: Preparing spawn area: 2%
+[12:33:25] [Server thread/INFO]: Preparing spawn area: 2%
+[12:33:26] [Server thread/INFO]: Preparing spawn area: 2%
+[12:33:26] [Server thread/INFO]: Preparing spawn area: 14%
+[12:33:27] [Server thread/INFO]: Preparing spawn area: 18%
+[02:04:07] [Server thread/WARN]: [ca.spottedleaf.moonrise.patches.chunk_system.level.entity.EntityLookup] Entity uuid already exists: be44cb24-8890-48f6-bb61-ef40a800a14e, mapped to Salmon['Salmon'/46, uuid='be44cb24-8890-48f6-bb61-ef40a800a14e', l='ServerLevel[world]', x=527.30, y=61.26, z=150.67, cpos=[32, 9], tl=0, v=true], can't add Salmon['Salmon'/55, uuid='be44cb24-8890-48f6-bb61-ef40a800a14e', l='ServerLevel[world]', x=531.12, y=60.06, z=157.27, cpos=[33, 9], tl=0, v=false]
+[02:04:09] [Server thread/WARN]: [ca.spottedleaf.moonrise.patches.chunk_system.level.entity.EntityLookup] Entity uuid already exists: fbb96150-59a0-460e-b9b2-6334e45a9dd6, mapped to Bat['Bat'/146, uuid='fbb96150-59a0-460e-b9b2-6334e45a9dd6', l='ServerLevel[world]', x=402.66, y=22.94, z=50.58, cpos=[25, 3], tl=0, v=true], can't add Bat['Bat'/157, uuid='fbb96150-59a0-460e-b9b2-6334e45a9dd6', l='ServerLevel[world]', x=400.25, y=18.00, z=39.75, cpos=[25, 2], tl=0, v=false]
+[02:04:10] [Server thread/WARN]: [ca.spottedleaf.moonrise.patches.chunk_system.level.entity.EntityLookup] Entity uuid already exists: 647a2bd8-4be5-4435-9076-970d01cfd6ab, mapped to Bat['Bat'/145, uuid='647a2bd8-4be5-4435-9076-970d01cfd6ab', l='ServerLevel[world]', x=607.62, y=46.45, z=182.65, cpos=[37, 11], tl=0, v=true], can't add Bat['Bat'/165, uuid='647a2bd8-4be5-4435-9076-970d01cfd6ab', l='ServerLevel[world]', x=614.03, y=41.96, z=184.88, cpos=[38, 11], tl=0, v=false]
+[02:04:20] [Server thread/WARN]: [ca.spottedleaf.moonrise.patches.chunk_system.level.entity.EntityLookup] Entity uuid already exists: 1cd44e62-39b5-4706-aee7-a365bdb79c81, mapped to Bat['Bat'/250, uuid='1cd44e62-39b5-4706-aee7-a365bdb79c81', l='ServerLevel[world]', x=1855.49, y=-16.36, z=512.59, cpos=[115, 32], tl=0, v=true], can't add Bat['Bat'/252, uuid='1cd44e62-39b5-4706-aee7-a365bdb79c81', l='ServerLevel[world]', x=1860.20, y=-17.19, z=510.20, cpos=[116, 31], tl=0, v=false]
+[02:05:48] [Server thread/WARN]: [ca.spottedleaf.moonrise.patches.chunk_system.level.entity.EntityLookup] Entity uuid already exists: 7e48e4c6-a320-4a09-9d2b-b02bdea50671, mapped to Armadillo['Armadillo'/687, uuid='7e48e4c6-a320-4a09-9d2b-b02bdea50671', l='ServerLevel[world]', x=1388.80, y=69.00, z=151.54, cpos=[86, 9], tl=0, v=true], can't add Armadillo['Armadillo'/714, uuid='7e48e4c6-a320-4a09-9d2b-b02bdea50671', l='ServerLevel[world]', x=1393.05, y=68.00, z=152.46, cpos=[87, 9], tl=0, v=false]
+[12:33:15] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[20:52:26] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[00:19:23] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[14:16:52] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!

@@ -1,0 +1,10 @@
+# fixture	env	script	minutes	label
+# The two refusals that account for 69.3% of log gathers, plus three controls.
+# `open` and `buried`/`wetstone` are not optional: without them a table of zeros is
+# indistinguishable from a rig that cannot chop wood, and a table of successes is
+# indistinguishable from a change that took the blocks it must never take.
+sandbox/fixtures/synthetic-tree-open.json	sandbox/sandbox-bot-scripted-ore.env	gather 4 oak_log	4	wood-open-POSITIVE-CONTROL
+sandbox/fixtures/synthetic-tree-canopy.json	sandbox/sandbox-bot-scripted-ore.env	gather 4 oak_log	4	wood-canopy-unreachable
+sandbox/fixtures/synthetic-tree-shoreline.json	sandbox/sandbox-bot-scripted-ore.env	gather 4 oak_log	4	wood-shoreline-nosafetarget
+sandbox/fixtures/synthetic-tree-buried.json	sandbox/sandbox-bot-scripted-ore.env	gather 1 oak_log	3	wood-buried-MUST-REFUSE
+sandbox/fixtures/synthetic-tree-wetstone.json	sandbox/sandbox-bot-scripted-ore.env	gather 1 stone	3	wood-wetstone-LEAKAGE-MUST-REFUSE

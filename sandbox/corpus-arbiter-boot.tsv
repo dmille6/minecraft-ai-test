@@ -1,0 +1,2 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/captured/hive-a-delta-no-pick-shaft-r8.json	sandbox/sandbox-bot-scripted-delta.env	surface	5	delta-flooded-shaft-wooden-pick

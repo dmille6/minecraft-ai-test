@@ -1,0 +1,251 @@
+{
+ "description": "Parse Paper server logs.",
+ "processors": [
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "\\[%{TIME:mc.time}\\] \\[%{GREEDYDATA:log.thread}/%{LOGLEVEL:log.level}\\]: %{GREEDYDATA:_msg}"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "message",
+    "copy_from": "_msg",
+    "ignore_empty_value": true
+   }
+  },
+  {
+   "remove": {
+    "field": "_msg",
+    "ignore_missing": true
+   }
+  },
+  {
+   "drop": {
+    "if": "ctx.log?.thread != null && ctx.log.thread.contains(\"RCON\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "log.file.path",
+    "ignore_failure": true,
+    "ignore_missing": true,
+    "patterns": [
+     "/srv/block2/%{DATA:mc.world}/logs/"
+    ]
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "%{USERNAME:mc.player}\\[/%{IP}:%{NUMBER}\\] logged in with entity id %{NUMBER} at \\(\\[%{DATA}\\]%{NUMBER:mc.x:float}, %{NUMBER:mc.y:float}, %{NUMBER:mc.z:float}\\)"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "join",
+    "if": "ctx.message != null && ctx.message.contains(\"logged in with entity id\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "%{USERNAME:mc.player} \\(/%{IP}:%{NUMBER}\\) lost connection: %{GREEDYDATA:mc.reason}",
+     "%{USERNAME:mc.player} lost connection: %{GREEDYDATA:mc.reason}"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "disconnect",
+    "if": "ctx.message != null && ctx.message.contains(\"lost connection\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "<%{USERNAME:mc.player}> %{GREEDYDATA:mc.chat}"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "chat",
+    "if": "ctx.mc?.chat != null"
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "warn",
+    "if": "ctx.log?.level == \"WARN\""
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "error",
+    "if": "ctx.log?.level == \"ERROR\""
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "^%{USERNAME:mc.player} moved wrongly!$"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "moved_wrongly",
+    "if": "ctx.message != null && ctx.message.endsWith(\"moved wrongly!\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "^%{USERNAME:mc.player} moved too quickly! %{SCINUM:mc.dx:float},%{SCINUM:mc.dy:float},%{SCINUM:mc.dz:float}$"
+    ],
+    "pattern_definitions": {
+     "SCINUM": "[-+]?[0-9]*\\.?[0-9]+(?:[eE][-+]?[0-9]+)?"
+    }
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "moved_too_quickly",
+    "if": "ctx.message != null && ctx.message.contains(\"moved too quickly!\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "^%{USERNAME:mc.player} was kicked for floating too long!$"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "floating_kick",
+    "if": "ctx.message != null && ctx.message.endsWith(\"was kicked for floating too long!\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "^%{USERNAME:mc.player} was kicked due to keepalive timeout!$"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "keepalive_kick",
+    "if": "ctx.message != null && ctx.message.endsWith(\"was kicked due to keepalive timeout!\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "Can't keep up! Is the server overloaded\\? Running %{NUMBER:mc.lag_ms:long}ms or %{NUMBER:mc.ticks_behind:long} ticks behind"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "lag",
+    "if": "ctx.message != null && ctx.message.startsWith(\"Can't keep up!\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "^%{USERNAME:mc.player} (?<mc.death_cause>drowned|tried to swim in lava|fell from a high place|was impaled on a stalagmite|discovered the floor was lava|suffocated in a wall|fell off some vines|was skewered by a falling stalactite|was pricked to death|burned to death|went up in flames|was burnt to a crisp whilst fighting %{DATA}|starved to death|was struck by lightning|withered away|froze to death|blew up|was blown up by %{DATA}|was slain by %{DATA}|was shot by %{DATA}|was killed by %{DATA}|was squashed by a falling anvil|was squashed by a falling block|experienced kinetic energy|hit the ground too hard|fell out of the world|was doomed to fall|was squished too much|died|died from dehydration)$"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "death",
+    "if": "ctx.mc?.death_cause != null"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "^%{USERNAME:mc.player} joined the game$"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "joined",
+    "if": "ctx.message != null && ctx.message.endsWith(\" joined the game\")"
+   }
+  },
+  {
+   "grok": {
+    "field": "message",
+    "ignore_failure": true,
+    "patterns": [
+     "^%{USERNAME:mc.player} left the game$"
+    ]
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "left",
+    "if": "ctx.message != null && ctx.message.endsWith(\" left the game\")"
+   }
+  },
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "other",
+    "override": false
+   }
+  }
+ ],
+ "on_failure": [
+  {
+   "set": {
+    "field": "mc.event",
+    "value": "parse_failed"
+   }
+  }
+ ]
+}
