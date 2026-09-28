@@ -83,12 +83,28 @@ DO NOT LAUNCH, for the same reason, and the sandbox proved it:
 - **Dry runs of the read wrote into the live reads dir** under the manifest's run_id. Two files moved to
   `~/digest/reads-dryrun/`; the read no longer emits under `CANARY_DRYRUN`.
 
-## FOUND IN PASSING — a fleet bug, queued not fixed
-**`index.mjs` death handler: `cause` is read at line ~1002 and declared at ~1007** (TDZ). Any death
-after a fall of >3 blocks throws `Cannot access 'cause' before initialization` BEFORE the death record,
-lost-inventory summary and death site are written. Live since `8f1e037f` (2026-09-17). Reproduced on the
-sandbox; on the fleet 1 hit in 7 days across 4 bots sampled (hive-b-Bravo). Rare, but it drops death
-records, which the death gate counts. **Next canary slot.** A task chip was filed with the full brief.
+## FOUND IN PASSING — the death-handler crash: BUILT, reviewed, waiting for the canary slot
+**`index.mjs` read `cause` five lines above `const cause = freshDeathCause()`** (TDZ, from `8f1e037`, 09-17).
+Corrected by a full measurement at 12:40Z — the earlier "1 hit in 7 days" was a 4-bot sample:
+- **It crashes the process.** Journal: `ReferenceError ... index.mjs:1002:94`, exit 1, systemd restart.
+  **17 crashes across 15 bots in 36 h** (placebo-a-Echo at 12:17Z is on the live canary).
+- **Live on the fleet since 09-27, not 09-17:** 8f1e037 first shipped in `859af48`. `after falling` death
+  rows: 6-45/day on every build through `efa2853`, **0 of 60** on 859af48 and later.
+- Trigger: any death **more than 3 blocks below the recent peak** — a fall, or drowning/lava after a descent.
+- **The death gate was NOT blind.** 17 of 17 crashes are followed ~11 s later by a `_death` row
+  "unknown; idle at the moment of death" — the restarted bot rejoins dead and dies again on a path that does
+  not throw. The COUNT survived; cause, fall distance and death site did not. So toolkeeper-01's harm gate
+  is intact, and a canary of the fix does not change the death count, only its label.
+- **What DID go blind: `infra/guard/death-tripper.py`** (fall-class only). When the fix ships it will see
+  fall deaths again after two days of seeing none. Expect it to be noisy; do not read that as the fix
+  causing falls — compare against the 6-45/day baseline above.
+
+**Fix: branch `fall-death-tdz` = `80b3bbd` + `7311029` + `1d107ed`.** Declaration moved above the read;
+`hpTrail` cleared after the death record (a ring that spanned lives, which the restart hid).
+`test/no-tdz.test.mjs` runs ESLint `no-use-before-define` over `src/`, found exactly this site, failed
+before the fix; it is a regression guard, not a TDZ proof (both reviews listed what it misses). 204/204.
+Reviewed by Claude and Codex: both CONFIRM the fix; they disagreed on the gate (Codex: blind; Claude:
+re-counted as unknown) and the host settled it for Claude, 17 of 17. Not deployed: one canary at a time.
 
 ## FLEET
 | | |
@@ -123,7 +139,7 @@ records, which the death gate counts. **Next canary slot.** A task chip was file
 5. `vetob2-01` (`efabf13`) KEPT and unpromoted; recommend re-drawing it off the hive pools.
 
 ## QUEUE (after toolkeeper-01 closes)
-- **TDZ death-handler fix** (above) — the next canary.
+- **TDZ death-handler fix** — BUILT on `fall-death-tdz` (`1d107ed`), reviewed; the next canary. Watch death-tripper.
 - Re-read the planting cohort against the twelve controls: does planting change the DEPLETION CURVE?
 - `gather` logs what it collected but not WHERE — one new EVENT with a coordinate (ELK is `dynamic:strict`).
 - Merge the two `place-town.py` copies (host has discovery + mid-reseed patch; repo has `probe.py`
