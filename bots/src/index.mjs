@@ -999,12 +999,15 @@ function connect() {
     // died holding the fleet's only stone_pickaxe" are different events, and
     // the second one is the one that explains a stalled milestone chain.
     // Captured BEFORE the respawn clears it.
+    // `cause` is declared BEFORE its first read. It used to be declared five lines below this one, so every
+    // death after a >3-block fall threw a ReferenceError out of mineflayer's packet handler and killed the
+    // process -- no _death row, no death site (18 crashes in 36 h, 09-27/28). test/no-tdz.test.mjs.
+    const cause = freshDeathCause()
     if (fell != null && fell > 3) fallRecord(bot, runner, fell, 'death', { cause: deathClass(cause) })
     const lost = inventorySummary(bot)
     const lostSummary = Object.entries(lost)
       .sort((a, b) => b[1] - a[1]).slice(0, 6)
       .map(([k, n]) => `${k} x${n}`).join(', ')
-    const cause = freshDeathCause()
     // THE DEATH BECOMES A SITE the pool's planner prices from now on (deathsites.mjs). Published before the cause and
     // peak are cleared below; a failure to write is logged and never blocks the death record.
     if (worldFacts && deathPos) {
