@@ -1,68 +1,79 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-27 14:10Z — **NO LIVE CANARY.** Fleet on **`268c074+b4d009`, ONE version, 80 bots.**
-`main` fast-forwarded to `268c074` (13 commits of drift closed; main tracks the fleet).
-**THE PLANTING OBLIGATION IS LIVE AND READ: 1,033 of 1,034 sapling placements succeeded and
-72.1% of placed saplings became trees.** **FOUR WORLDS RESEEDED** on owner approval
-(`hive-c`, `board-b`, `hive-d`, `placebo-d`); the other twelve kept as simultaneous controls._
+_updated 2026-09-28 03:07Z — **NO LIVE CANARY. Fleet on `80b3bbd+8b910b`, ONE version, 80 bots.** `main` is
+`9b339fd` and its `bots/src` is BYTE-IDENTICAL to the deployed sha. Nothing is at risk unattended._
 
-> **TWO COPIES OF THIS FILE EXIST.** The daily task reads `mcai-rl02/docs/reports/STATE.md` first and
-> falls back to the repo copy. **If they disagree, take the later `_updated` stamp.**
+> **THIS FILE NOW EXISTS ON `main`.** For weeks it did not, and an external reviewer reading the
+> fleet's own sha was blind to a whole day of measurements as a result. `bots/test/nothing-important-is-orphaned.test.mjs`
+> asserts it stays there, along with the replay harness and the checkers. If that test fails,
+> something has been orphaned again.
 
 ---
 
-## WHAT IS LIVE RIGHT NOW (2026-09-27 14:10Z)
+## THE ONE THING WAITING, AND IT IS DELIBERATE
 
+**The tool-keeper canary is built, tested, pushed, and NOT LAUNCHED.** Branch `tool-keeper`, one
+commit above the deployed sha. It needs a registration and a read script, and the read is **26
+hours** because deposits succeed only **0.151/bot-h** — a 3-hour read yields ~2 events per arm and is
+guaranteed INCONCLUSIVE, which would burn the single canary slot.
+
+    pool      hive-a   (drawn by sha256 of "<pool>+2026-09-27+toolkeeper" among TEN ELIGIBLE pools)
+    eligible  a pool needs >=3 bots holding 2+ pickaxes whose best copy is at or below the fleet
+              median. hive-a has 5 of 5. Eligibility was fixed BEFORE the draw.
+    never     the four reseeded worlds -- fresh median 98.4 items/bot-h against control 33.8
+    gates     REVERT on gather_ratio < 0.43 of control, or death_ratio > 1.25 with >=2 canary deaths,
+              or any deposit where the surviving copy was not the max-remaining copy.
+              KEEP needs DiD on median best-held-pickaxe uses >= 3x control, both placebo anchors
+              within +-25%, and >=20 deposit successes per arm.
+    anchors   crafting_table/furnace copies held (same code path, NOT durability-selected) and
+              cobblestone held (the scaffold reserve, untouched). A source-verified causal chain died
+              today at 3.7% against a 3.2% anchor; the anchor is what caught it.
+
+**Launch it in the morning, not at 03:00** — a 26-hour read started now lands at 05:00.
+
+## FLEET, at 2026-09-28 03:07Z
 | | |
 |---|---|
-| fleet sha | `268c074+b4d009`, ONE version, 80 bots, all `mcbot@*` active |
-| manifest | `run_id plant-20260927`, `declared_code_version 268c074`, `canary_pool` empty |
-| `main` | `268c074` — matches the fleet |
-| fresh worlds | `hive-c` 4394143238757369828 town -68,68,-68 · `board-b` 6443945553241215903 town -249,65,144 · `hive-d` 4534598234323719516 town 68,65,68 · `placebo-d` 2021899648305791853 town 177,75,73 |
-| controls | the other 12, untouched, still seed `1239381899` town 355,73,147 (14 of 16 shared it before today) |
+| sha | `80b3bbd+8b910b`, ONE version, 80 bots, all `mcbot@*` active |
+| manifest | `run_id pin-20260927`, `canary_pool` empty |
+| `main` | `9b339fd`, `bots/src` identical to the deployed sha |
+| fresh worlds | `hive-c` `board-b` `hive-d` `placebo-d` — reseeded 2026-09-27 ~13:00-14:00Z |
+| controls | the other 12, still seed `1239381899`, town 355,73,147 |
 
-### THE PLANTING RESULT — the first time this project has put wood back into a world
-Deployed 06:22Z. Read block-by-block by RCON in all 16 worlds over 763 saplings older than 90 min:
+    FRESH(4) vs CONTROL(12), 3 h to 03:07Z      items/bot-h  98.4 vs 33.8  = 2.91x
+                                             decisions    44.4 vs 41.0  = 1.08x
+                                             deaths       0.05 vs 0.00  (3 deaths / 180 bot-h)
 
-    GREW into a log     289  37.9%      still a sapling  121  15.9%
-    gone                297  38.9%      chunk NOT LOADED  41   5.4%     other 83
+**2.91x is thirteen hours in and unchanged from the 3.0x first read. DO NOT BANK IT** — the 19 Sep
+pools fell 63.4 -> 20.8 items/bot-h in six days.
 
-- **`grew / (grew + still_sapling)` = 282/391 = 72.1%** — the rate that harvesting cannot distort,
-  because a harvested tree leaves neither.
-- **"Gone" is mostly HARVEST.** Leaf evidence with both controls: sites with a standing trunk carry
-  leaves **98.2%** of the time (the method's ceiling, so it is not blind); sites known NOT to have
-  grown carry them **22.0%** (natural-forest background); gone sites **51.8%**. Scaling between the
-  two controls, **~39% of the gone saplings had grown into trees before they vanished.**
-- Placement: 2,687 `plant_spot` scans on 80 of 80 bots, 43.8% found a spot, **1,033 of 1,034
-  sapling placements succeeded (99.9%)**. The `learned_avoid` key-collapse hazard did NOT bite —
-  1,150 orders produced 1,034 attempts.
-- **The clearance rule is holding:** 104 of 113 standing saplings have the room their species needs.
-  Of the 9 short, **7 were grown over by a NEIGHBOUR'S canopy after planting** (oak_leaves or
-  oak_log directly above) — not a predicate defect, and no pre-placement check can prevent it. The
-  other 2 are one dirt and one oak_planks: a bot built over them.
+## PLANTING: the loop closed, and it is nearly self-sustaining
+    24 h:  3,263 saplings PLANTED   2,488 ACQUIRED   net -775   stock 6,224 (~8 days runway)
+           9,474 plant_spot scans, 44.4% found a spot
 
-### THE 8x PER-WORLD SPREAD WAS MOSTLY A MEASUREMENT ARTEFACT
-`grew%` counts **trunks standing at one instant** — a stock, not a flow — so a world that grows
-trees and chops them down fast reads as a failure. On the harvest-immune metric the spread falls
-from **8.1x to 4.3x** (hive-b 96.0% down to board-d 22.2%), close to this fleet's own documented
-2.36x between-pool band. **REFUTED as causes, each with a measurement:**
+**Re-reading the first cohort a day later shows the whole cycle:**
 
-| candidate | verdict |
-|---|---|
-| headroom / tunnels | 92% have their clearance; the 8% short were grown over afterwards |
-| daylight / clock phase | arithmetic: a Minecraft day is 20 real min, so all 16 worlds cycled ~19x in the window |
-| bot proximity (ticking) | corr(grew%, exposure) = **-0.192**; the WORST world has the 3rd HIGHEST exposure |
-| forceload extent | corr = **-0.176**; only 15.4% of plantings sit inside a forceloaded chunk |
-| world terrain | 14 of 16 shared one seed and town, and `board-d` is one of them |
+    at +7h    grew 289   still sapling 121   gone 297
+    at +21h   grew  86   still sapling  18   gone 421
+    harvest-immune grew/(grew+sapling): 72.1% -> 82.7%
 
-### FRESH vs CONTROL, first read — HOURS OLD, DO NOT BANK IT
-    FRESH    n=4 worlds   median 95.7 items/bot-h   (range 53.5 - 135.4)
-    CONTROL  n=12 worlds  median 31.9 items/bot-h   (range  5.8 -  76.1)
-    ratio of medians 3.0x
-The 19 Sep fresh pools went 63.4 -> 20.8 items/bot-h in six days. Exposures here are 0.03-1.15 h
-and unequal. **Re-read at +24 h and +7 d against the same twelve controls.**
+**The trees grew and then were chopped down.** That is the loop working, not a regression.
+
+**CORRECTION carried forward: sapling acquisition is 2,488/day, not the 485/day I quoted all day.**
+The 485 came from a report I cited instead of measuring. It changes the conclusion: planting is
+draining stock slowly, not collapsing, and harvesting planted trees should raise acquisition further.
+
+## SHIPPED 2026-09-28 (all fleet-wide, all read or runtime-no-op)
+1. **Planting + the measured clearance** (`268c074`) — oak needs 5 air blocks above, birch 6,
+   measured on the sandbox rig with an unceilinged control at 6/6. 1,033 of 1,034 placements.
+2. **Dependency pin + ARBITER containment** (`80b3bbd`) — the fleet was unpinned and safe only
+   because of a lockfile left in the runtime dir on 2026-08-20 that the deploy never copied. The
+   deploy now copies it AND refuses on drift; PINNED/DRIFT/NOPIN all exercised. `ARBITER=1` crashed
+   every bot (a cherry-picked caller whose callee was in the source branch's base) and now REFUSES
+   loudly, because the arbiter is half-wired and a grant would confer no ownership.
+3. **Four worlds reseeded**, twelve kept as simultaneous controls.
+4. **241 paths consolidated onto main** + a wired anti-orphan test.
 
 ---
-
 ## THREE DEFECTS FOUND TODAY BY RUNNING THE THING, all live for weeks
 
 1. **`isPlantable` asked for ONE air block above a sapling. Oak needs 5, birch 6.** Measured on the
