@@ -152,7 +152,25 @@ export const config = {
   reflex: {
     // THE ACTUATOR ARBITER (movement owner step 0). Off by default; the recovery
     // ladder canary and the corpus turn it on with ARBITER=1. See src/arbiter.mjs.
-    arbiter: req('ARBITER', '0') === '1',
+    // ARBITER=1 REFUSES TO START, deliberately, and this is a containment rather than a feature.
+    //
+    // The flag used to crash: index.mjs called runner.arb.installActuatorGate(), arbiter.mjs on
+    // this branch does not define it, and the bot died at startup with TypeError. The call is gone.
+    //
+    // But the flag must not silently "work" now, because the arbiter is HALF wired: runner.mjs
+    // acquires a grant per skill and reflex.mjs acquires for reflexes, while NOTHING gates
+    // bot.dig, bot.placeBlock, setControlState or pathfinder.setGoal. A grant would be taken,
+    // released, logged -- and confer no ownership whatever. An obvious crash is safer than
+    // ownership that does not own, so this refuses loudly and names where the real gate lives.
+    arbiter: (() => {
+      if (req('ARBITER', '0') !== '1') return false
+      throw new Error(
+        'ARBITER=1 is not supported on this build: the actuator gate (installActuatorGate) is not ' +
+        'implemented here, so grants would be acquired and released while every actuator call ' +
+        'ignored them. The implementation lives on the movement-owner branches and needs its ' +
+        'async-context routing merged with it -- enabled without that it produced 13,808 refusals ' +
+        'in five minutes. Merge it as a canary, or leave ARBITER unset.')
+    })(),
     tickMs: Number(req('REFLEX_TICK_MS', '500')),
     eatBelowFood: Number(req('EAT_BELOW_FOOD', '16')),
     fleeBelowHealth: Number(req('FLEE_BELOW_HEALTH', '8')),
