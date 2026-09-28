@@ -2170,10 +2170,16 @@ async function openChestChecked (bot, chestBlock, signal) {
   }
   try { bot.setControlState('sneak', false) } catch {}
   try { await bot.lookAt?.(cp.offset(0.5, 0.5, 0.5), true) } catch {}   // face the chest; optional on test doubles
+  // A WINDOW THAT ARRIVES AFTER THE TIMEOUT HAS NO OWNER. withTimeout abandons the promise, but
+  // mineflayer keeps waiting and opens the window anyway; nothing would ever close it (Codex review).
+  let abandoned = false
+  const opening = bot.openContainer(chestBlock)
+  opening.then?.(w => { if (abandoned) { try { w.close() } catch {} } }, () => {})
   try {
-    const chest = await withTimeout(bot.openContainer(chestBlock), 8_000, bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
+    const chest = await withTimeout(opening, 8_000, bot, { what: 'open the chest', onTimeout: () => { abandoned = true }, needsDrop: false })
     return { chest }
   } catch (e) {
+    abandoned = true
     if (e?.aborted || signal?.aborted) throw e
     return { fail: { status: 'failed', failClass: 'container_open',
              detail: `could not open the chest at ${cp.x},${cp.y},${cp.z} (${String(e?.message ?? e).slice(0, 50)}); lid ${lid?.name ?? '?'}, ${Math.round(eyeToBlock(bot.entity.position.offset(0, 1.62, 0), cp) * 10) / 10} blocks from the eyes` } }
@@ -3812,9 +3818,11 @@ async function withdraw(ctx, { item = null, count = 16 }, signal) {
     matching: b => isContainer(b) && (!b.position || !tried.some(q => same(q, b.position))), maxDistance })
 
   // A FULL INVENTORY IS KNOWN BEFORE THE WALK, and the remedy is one this bot can perform from where
-  // it stands. mineflayer's chest.withdraw refuses with no empty slot anyway; saying so up front saves
-  // a trip across the map to learn it.
-  if ((bot.inventory?.emptySlotCount?.() ?? 1) === 0) {
+  // it stands. "Full" means no empty slot AND no partial stack of the named item to top up: mineflayer
+  // fills a compatible non-full stack before it looks for an empty slot (Codex review), so 36 occupied
+  // slots with 20 sticks among them can still take 4 sticks.
+  const roomInStack = item != null && (bot.inventory?.items?.() ?? []).some(i => i.name === item && i.count < (i.stackSize ?? 64))
+  if ((bot.inventory?.emptySlotCount?.() ?? 1) === 0 && !roomInStack) {
     return { status: 'failed', failClass: 'inventory_full',
              detail: 'the inventory is full (0 empty slots) — deposit or drop something, then withdraw' }
   }
@@ -3851,6 +3859,18 @@ async function withdraw(ctx, { item = null, count = 16 }, signal) {
     }
     if (r.short) held.push(r.holds)
     else lastFailure = r
+    // A TIMED-OUT OPEN ENDS THE SWEEP. mineflayer's openBlock waits for ANY windowOpen, so a late
+    // window from this chest could be handed to the next chest's open (Codex review). Stop here.
+    if (r.failClass === 'container_open') break
+    // THE OTHER HALF OF A DOUBLE CHEST IS THE SAME INVENTORY, at a different coordinate: mark it
+    // tried, or one double chest spends two of the three attempts.
+    if (r.double) {
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const q = chestBlock.position.offset(dx, 0, dz)
+        const nb = bot.blockAt(q)
+        if (nb && ['chest', 'trapped_chest'].includes(nb.name)) tried.push(q)
+      }
+    }
     check(signal)
     chestBlock = findChest(WITHDRAW_ALT_RADIUS)
   }
@@ -3878,7 +3898,10 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
     await withTimeout(bot.pathfinder.goto(new goals.GoalNear(cp.x, cp.y, cp.z, 2)), 20000, bot)
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
-    return { status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${cp.x},${cp.z}` }
+    // NOT no_path. After homing, every withdraw reaches for the same town chests, and no_path votes
+    // against the verb with no position in the key: four of these would forbid withdraw everywhere
+    // because one chest here is walled in (Claude review). It is a fact about this chest.
+    return { status: 'failed', failClass: 'chest_unreachable', detail: `could not reach the chest at ${cp.x},${cp.z}` }
   }
   check(signal)
 
@@ -3886,6 +3909,13 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
   if (opened.fail) return opened.fail
   const chest = opened.chest
   try {
+    check(signal)   // an open that completed after an abort must not go on to move anything
+    // THE WINDOW MUST BE THIS CHEST'S. openBlock resolves with whatever windowOpen fires next, so a
+    // late window from an earlier chest could arrive here instead (both reviews).
+    if (bot.currentWindow && bot.currentWindow !== chest) {
+      return { status: 'failed', failClass: 'container_open', detail: `the window that opened is not the chest at ${cp.x},${cp.z}` }
+    }
+    const double = (chest.inventoryStart ?? 27) >= 54
     const items = chest.containerItems()
     const summary = items.length
       ? items.slice().sort((a, b) => b.count - a.count).slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ')
@@ -3893,7 +3923,7 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
     // No item named -> the most plentiful, as before. A bot that needs something specific says so.
     const name = item ?? items.slice().sort((a, b) => b.count - a.count)[0]?.name ?? null
     const copies = name ? items.filter(i => i.name === name) : []
-    if (!copies.length) return { short: true, holds: `${cp.x},${cp.z}: ${summary}` }
+    if (!copies.length) return { short: true, double, holds: `${cp.x},${cp.z}: ${summary}` }
 
     // A DURABLE ITEM IS TAKEN ONE COPY AT A TIME, AND THE FULLEST ONE. Moved by window slot: both
     // `best.slot` (containerItems) and the destination (the window's own player range) are numbered
@@ -3906,6 +3936,14 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
                  detail: `the inventory is full (0 empty slots) — deposit or drop something, then withdraw ${name}` }
       }
       await bot.moveSlotItem(best.slot, dest)
+      // VERIFIED, NOT ASSUMED. Clicks update the window optimistically and a rejected click is only
+      // corrected by the server a few ticks later (Codex review), so wait, then read both slots.
+      await bot.waitForTicks?.(4)
+      const landed = chest.slots?.[dest]
+      if (!landed || landed.name !== name || chest.slots?.[best.slot]?.name === name && chest.slots[best.slot].durabilityUsed === best.durabilityUsed) {
+        return { status: 'failed', failClass: 'transfer_rejected',
+                 detail: `moved ${name} from chest slot ${best.slot} to inventory slot ${dest} and the window does not show it arrived` }
+      }
       const left = remaining(best)
       return { status: 'success',
                detail: `withdrew 1x ${name} with ${Number.isFinite(left) ? left : '?'} uses left (the fullest of ${copies.length} in the chest at ${cp.x},${cp.z})` }
@@ -3916,12 +3954,18 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
       check(signal)
       const n = Math.min(it.count, want - took)
       if (n <= 0) break
-      await chest.withdraw(it.type, null, n)
+      try { await chest.withdraw(it.type, null, n) }
+      catch (e) {
+        if (e?.aborted || signal?.aborted) throw e
+        // What already moved is real: report it, rather than failing a withdraw whose bag gained items.
+        if (took > 0) return { status: 'success', detail: `withdrew ${took}x ${name} from the chest at ${cp.x},${cp.z}, then stopped: ${String(e?.message ?? e).slice(0, 50)}` }
+        throw e
+      }
       took += n
     }
     return took > 0
       ? { status: 'success', detail: `withdrew ${took}x ${name} from the chest at ${cp.x},${cp.z}` }
-      : { short: true, holds: `${cp.x},${cp.z}: ${summary}` }
+      : { short: true, double, holds: `${cp.x},${cp.z}: ${summary}` }
   } finally {
     try { chest.close() } catch { /* already closed */ }
   }
