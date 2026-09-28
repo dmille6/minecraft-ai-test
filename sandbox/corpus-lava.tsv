@@ -1,0 +1,4 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/synthetic-ledge-over-lava.json	sandbox/sandbox-bot-scripted-ore.env	goto 306 40 300	3	ledge-over-lava-goto
+sandbox/fixtures/synthetic-lava-edge-water.json	sandbox/sandbox-bot-scripted-ore.env	status	3	lava-edge-water-hold
+sandbox/fixtures/synthetic-lava-adjacent-idle.json	sandbox/sandbox-bot-scripted-ore.env	status	3	lava-adjacent-idle

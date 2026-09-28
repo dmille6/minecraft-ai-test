@@ -1,0 +1,5 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/captured/hive-a-delta-no-pick-shaft-r8.json	sandbox/sandbox-bot-scripted-delta.env	surface	5	delta-flooded-shaft-wooden-pick
+sandbox/fixtures/captured/board-c-bravo-sealed-no-wood-r8.json	sandbox/sandbox-bot-scripted-bravo.env	surface	5	bravo-flooded-pocket-no-tools
+sandbox/fixtures/synthetic-buried-ore-d5.json	sandbox/sandbox-bot-scripted-ore.env	gather 1 iron_ore	4	buried-ore-d5
+sandbox/fixtures/synthetic-buried-ore-d6-detour.json	sandbox/sandbox-bot-scripted-ore.env	gather 1 iron_ore	4	buried-ore-d6-detour

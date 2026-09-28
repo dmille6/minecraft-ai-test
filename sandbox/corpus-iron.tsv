@@ -1,0 +1,3 @@
+# fixture	env	script	minutes	label
+sandbox/fixtures/synthetic-buried-ore-d5.json	sandbox/sandbox-bot-scripted-ore.env	gather 1 iron_ore	4	ore-d5-iron-carried
+sandbox/fixtures/synthetic-buried-ore-d6-detour.json	sandbox/sandbox-bot-scripted-ore.env	gather 1 iron_ore	4	ore-d6-iron-carried
