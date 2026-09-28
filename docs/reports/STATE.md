@@ -34,6 +34,18 @@ does the reads, the verdict, the record and the teardown itself._
 
 ## THE LIVE CANARY — toolkeeper-01
 
+> **READ THIS BEFORE THE +360 READ (found 13:15Z by the new outcome check, amendment 6).** The keeper is
+> CORRECT and mostly INERT. At +69 min: 59 canary keep rows, 0 bad keeps, 59 of 59 kept copies survived —
+> but only **2 of 59** actually banked anything; the other 57 still held the same 2-6 copies afterwards.
+> Checked with a second instrument (the bot's NEXT skill row, not the deposit's own snapshot): same answer.
+> **Why: the chests are full.** Of the 62 deposits carrying a keep event, 51 ended "the chest is full; could
+> not make another chest", 9 used a second chest and banked no tool, 2 banked one. Tools rank LAST in the
+> deposit order, so logs/sticks/cobble take the last free slots and the tool loop exits at `dest == null`
+> — silently: that branch logs nothing, and the keep row is written before it (and again per chest tried).
+> So: liveness and correctness will pass; the effect will read near-null **because storage is saturated,
+> not because keeping is wrong.** Do not record "keeper doesn't work". The upstream problem is the bank:
+> write-only (124,894 in, 48/day out) and now full, which is what `withdraw-home` starts to address.
+
 | | |
 |---|---|
 | sha | `4320136` on branch `tool-keeper-2` = `80b3bbd` + 2 commits (the keeper + today's slot fix) |
