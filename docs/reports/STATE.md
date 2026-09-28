@@ -140,6 +140,12 @@ re-counted as unknown) and the host settled it for Claude, 17 of 17. Not deploye
 
 ## QUEUE (after toolkeeper-01 closes)
 - **TDZ death-handler fix** — BUILT on `fall-death-tdz` (`1d107ed`), reviewed; the next canary. Watch death-tripper.
+- **withdraw walk-home** — BUILT on `withdraw-home` (`3da782a`, from `80b3bbd`), implementation review by both
+  engines IN PROGRESS. Homing + a bounded open (deposit's lid check now one shared helper) + three containers +
+  the fullest tool by window slot + `container_short` (no vote) + `#output` for milestone_critical. 204/204, six
+  mutants killed. **Denominator: ~0.45 withdraws/bot-day (18 in 12 h over 80 bots, 16 failed, 13 `nothing_found`)**,
+  so a 20-bot canary sees ~10 in 26 h: readable for "does the skill work", not for the endpoint. The lever
+  after it is getting the model to ASK: `craft` failed `missing_ingredients` 1,292 times in the same 12 h.
 - Re-read the planting cohort against the twelve controls: does planting change the DEPLETION CURVE?
 - `gather` logs what it collected but not WHERE — one new EVENT with a coordinate (ELK is `dynamic:strict`).
 - Merge the two `place-town.py` copies (host has discovery + mid-reseed patch; repo has `probe.py`
