@@ -27,7 +27,7 @@
 
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy } from './toolfor.mjs'
+import { applyToolPolicy, remaining } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -41,7 +41,7 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
-import { depositPlan, depositNoopReason } from './bankable.mjs'
+import { depositPlan, depositNoopReason, bestBankCopy } from './bankable.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -2145,6 +2145,41 @@ async function home(ctx, _args, signal) {
                    detail: `could not start toward home from ${Math.round(endDist)}b out` }
 }
 
+// ------------------------------------------------------- openChestChecked -----
+//
+// ONE implementation of "look at the lid, then open under a bound", used by deposit and withdraw.
+// It was deposit's inline code (2026-09-13: 138 lid-blocked opens a day at 20 s each); withdraw
+// needed the same rule once it started walking to the same town chests, and a second copy is the
+// kind of mirrored logic this repo has watched drift. Returns `{ chest }` or `{ fail }` -- the fail
+// is a finished skill result with its own class.
+async function openChestChecked (bot, chestBlock, signal) {
+  const cp = chestBlock.position
+  const lid = bot.blockAt(cp.offset(0, 1, 0))
+  const isChest = ['chest', 'trapped_chest'].includes(bot.registry.blocks[chestBlock.type]?.name)   // barrels open under anything
+  if (isChest && lid && chestLidBlocked(lid)) {
+    if (lidSafeToBreak(bot, lid.position)) {
+      try { await withTimeout(bot.dig(lid), 10_000, bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
+      catch (e) {
+        if (e?.aborted || signal?.aborted) throw e
+        return { fail: { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${cp.x},${cp.y},${cp.z} has ${lid.name} on its lid and it would not break: ${String(e?.message ?? e).slice(0, 60)}` } }
+      }
+      check(signal)
+    } else {
+      return { fail: { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${cp.x},${cp.y},${cp.z} has ${lid.name} on its lid and it is not safe to break — use another chest or place a new one` } }
+    }
+  }
+  try { bot.setControlState('sneak', false) } catch {}
+  try { await bot.lookAt?.(cp.offset(0.5, 0.5, 0.5), true) } catch {}   // face the chest; optional on test doubles
+  try {
+    const chest = await withTimeout(bot.openContainer(chestBlock), 8_000, bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
+    return { chest }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    return { fail: { status: 'failed', failClass: 'container_open',
+             detail: `could not open the chest at ${cp.x},${cp.y},${cp.z} (${String(e?.message ?? e).slice(0, 50)}); lid ${lid?.name ?? '?'}, ${Math.round(eyeToBlock(bot.entity.position.offset(0, 1.62, 0), cp) * 10) / 10} blocks from the eyes` } }
+  }
+}
+
 // ------------------------------------------------------------- deposit -----
 async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [] } = {}) {
   if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
@@ -2212,26 +2247,10 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // beside it), otherwise the deposit names the problem and stops here; sneak
   // is released (a sneaking bot does not open containers); the open itself
   // gets 8 s, not 20, with a class the model and the digest can read.
-  const lid = bot.blockAt(chestBlock.position.offset(0, 1, 0))
-  const isChest = ['chest', 'trapped_chest'].includes(bot.registry.blocks[chestBlock.type]?.name)   // barrels open under anything
-  if (isChest && lid && chestLidBlocked(lid)) {
-    if (lidSafeToBreak(bot, lid.position)) {
-      try { await withTimeout(bot.dig(lid), 10_000, bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
-      catch (e) { return { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it would not break: ${String(e?.message ?? e).slice(0, 60)}` } }
-      check(signal)
-    } else {
-      return { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it is not safe to break — use another chest or place a new one` }
-    }
-  }
-  try { bot.setControlState('sneak', false) } catch {}
-  try { await bot.lookAt?.(chestBlock.position.offset(0.5, 0.5, 0.5), true) } catch {}   // face the chest; optional on test doubles
-  let chest
-  try {
-    chest = await withTimeout(bot.openContainer(chestBlock), 8_000, bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
-  } catch (e) {
-    return { status: 'failed', failClass: 'container_open',
-             detail: `could not open the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} (${String(e?.message ?? e).slice(0, 50)}); lid ${lid?.name ?? '?'}, ${Math.round(eyeToBlock(bot.entity.position.offset(0, 1.62, 0), chestBlock.position) * 10) / 10} blocks from the eyes` }
-  }
+  // (The lid check and the bounded open live in openChestChecked, shared with withdraw.)
+  const opened = await openChestChecked(bot, chestBlock, signal)
+  if (opened.fail) return opened.fail
+  const chest = opened.chest
   let moved = 0
   // NOTHING TO HAND OVER IS NOT A FAILURE, AND CONFLATING THE TWO FAKED A NUMBER.
   //
@@ -3761,56 +3780,148 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
 //
 // Same shape as the rest of tonight's bugs: something could be added but never
 // removed, a guard could trip with no way back. A colony needs both directions.
-async function withdraw(ctx, { item = null, count = 16 }, signal) {
-  const { bot } = ctx
-  const chestBlock = bot.findBlock({
-    matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name),
-    maxDistance: 48,
-  })
-  if (!chestBlock) return { status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks' }
+//
+// WHAT IT LACKED, 2026-09-28. Measured: 124,894 items banked in all, and 48 taken out a day. Four
+// defects, fixed together because each alone makes the others worse (both reviews):
+//   1. No walk home. deposit walks to the town chest when none is in sight; withdraw returned
+//      `nothing_found` from wherever it stood, so from any mine the bank did not exist.
+//   2. An unbounded open. `openContainer` sat OUTSIDE the try with no timeout: a chest with a
+//      block on its lid waits 20 s for a window that never opens (138 a day at the town chests
+//      deposit already measured), and an abort leaked the window. Homing sends every withdraw to
+//      exactly those chests, so without the bound (1) turns a free failure into a 20 s one.
+//   3. One container. The nearest chest rarely holds the named item; three are tried, as deposit
+//      tries three, iteratively and never recursively.
+//   4. Landfill. `chest.withdraw` takes the first copy by slot, and the bank is where worn tools
+//      go. A tool is taken as the single fullest copy (bestBankCopy), by window slot.
+// Plus the seam that would have killed it: "this chest does not have it" is `container_short`,
+// NOT `nothing_found`. After homing every attempt happens at one coordinate, so the place amnesty
+// for nothing_found (lessons.mjs EVIDENCE_ONLY_IF_HERE) never fires and four misses would become a
+// permanent learned_avoid. container_short is in no evidence set, so it is logged and has no vote.
+const WITHDRAW_CONTAINERS = 3
+const WITHDRAW_ALT_RADIUS = 24
 
-  check(signal)
+async function withdraw(ctx, { item = null, count = 16 }, signal) {
+  if (item != null && ['', 'none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word means "most plentiful", not an item named none
+  const { bot } = ctx
+  const want = Math.max(1, Number(count) || 16)
+  const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
+  const tried = []
+  const same = (q, p) => q.x === p.x && q.y === p.y && q.z === p.z
+  // Palette blocks arrive with position null (see deposit's notTried): never read b.position unguarded.
+  const findChest = (maxDistance) => bot.findBlock({
+    matching: b => isContainer(b) && (!b.position || !tried.some(q => same(q, b.position))), maxDistance })
+
+  // A FULL INVENTORY IS KNOWN BEFORE THE WALK, and the remedy is one this bot can perform from where
+  // it stands. mineflayer's chest.withdraw refuses with no empty slot anyway; saying so up front saves
+  // a trip across the map to learn it.
+  if ((bot.inventory?.emptySlotCount?.() ?? 1) === 0) {
+    return { status: 'failed', failClass: 'inventory_full',
+             detail: 'the inventory is full (0 empty slots) — deposit or drop something, then withdraw' }
+  }
+
+  let chestBlock = findChest(48)
+  if (!chestBlock) {
+    // deposit's shape exactly: walk home through the rescue path, then RESCAN before judging the
+    // walk -- a walk that fell short can still have arrived within sight of the chest.
+    const walked = await home(ctx, {}, signal)
+    check(signal)
+    chestBlock = findChest(48)
+    if (!chestBlock && walked.status === 'failed') {
+      return { ...walked, detail: `no chest nearby; walking home to the town chest failed: ${walked.detail}` }
+    }
+  }
+  if (!chestBlock) {
+    return { status: 'failed', failClass: 'nothing_found',
+             detail: 'no chest or barrel within 48 blocks, even at home' }
+  }
+
+  const held = []          // what each tried container holds, for the final detail
+  let lastFailure = null   // the last container that could not be reached or opened
+  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
+    tried.push(chestBlock.position)
+    let r
+    try {
+      r = await withdrawFrom(ctx, chestBlock, item, want, signal)
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      r = { status: 'failed', failClass: 'skill_error', detail: `withdraw failed at ${chestBlock.position.x},${chestBlock.position.z}: ${String(e?.message ?? e).slice(0, 60)}` }
+    }
+    if (r.status === 'success' || r.failClass === 'inventory_full') {
+      return n === 0 ? r : { ...r, detail: `${r.detail} (container ${n + 1} of ${tried.length} tried)` }
+    }
+    if (r.short) held.push(r.holds)
+    else lastFailure = r
+    check(signal)
+    chestBlock = findChest(WITHDRAW_ALT_RADIUS)
+  }
+
+  if (held.length) {
+    // Deliberately no "no ... within" in this sentence: state.mjs's prose classifier reads that pair
+    // as nothing_found, and the historical reclassification must not re-mint the class this avoids.
+    const what = item ?? 'anything'
+    return { status: 'failed', failClass: 'container_short',
+             detail: `${what} is not in the ${held.length} container(s) tried here — they hold ${held.join('; ').slice(0, 160)}` +
+                     (lastFailure ? ` (another could not be used: ${lastFailure.detail.slice(0, 60)})` : '') }
+  }
+  return lastFailure ?? { status: 'failed', failClass: 'other', detail: 'withdraw tried no container' }
+}
+
+/**
+ * One container: reach it, check the lid, open it bounded, take the item. Returns the skill's own
+ * result shape, or `{ short: true, holds }` when the container simply does not have it -- the caller
+ * decides whether to try another.
+ */
+async function withdrawFrom(ctx, chestBlock, item, want, signal) {
+  const { bot } = ctx
+  const cp = chestBlock.position
   try {
-    await withTimeout(bot.pathfinder.goto(
-      new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2)), 20000, bot)
-  } catch {
-    return { status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${chestBlock.position.x},${chestBlock.position.z}` }
+    await withTimeout(bot.pathfinder.goto(new goals.GoalNear(cp.x, cp.y, cp.z, 2)), 20000, bot)
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    return { status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${cp.x},${cp.z}` }
   }
   check(signal)
 
-  const chest = await bot.openContainer(chestBlock)
+  const opened = await openChestChecked(bot, chestBlock, signal)
+  if (opened.fail) return opened.fail
+  const chest = opened.chest
   try {
     const items = chest.containerItems()
-    if (!items.length) {
-      return { status: 'no_effect', detail: 'the chest is empty' }
-    }
-    // No item named -> take whatever is most plentiful. A bot that knows it
-    // needs something specific should say so; one that just needs materials
-    // should not have to guess what is in there.
-    const want = item
-      ? items.filter(i => i.name === item)
-      : [items.slice().sort((a, b) => b.count - a.count)[0]]
-    if (!want.length) {
-      return {
-        status: 'failed', failClass: 'nothing_found',
-        detail: `no ${item} in the chest — it holds ${items.slice(0, 4).map(i => `${i.count}x ${i.name}`).join(', ')}`,
+    const summary = items.length
+      ? items.slice().sort((a, b) => b.count - a.count).slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ')
+      : 'nothing'
+    // No item named -> the most plentiful, as before. A bot that needs something specific says so.
+    const name = item ?? items.slice().sort((a, b) => b.count - a.count)[0]?.name ?? null
+    const copies = name ? items.filter(i => i.name === name) : []
+    if (!copies.length) return { short: true, holds: `${cp.x},${cp.z}: ${summary}` }
+
+    // A DURABLE ITEM IS TAKEN ONE COPY AT A TIME, AND THE FULLEST ONE. Moved by window slot: both
+    // `best.slot` (containerItems) and the destination (the window's own player range) are numbered
+    // by this window, which is what moveSlotItem clicks in.
+    if (copies.some(c => c.maxDurability)) {
+      const best = bestBankCopy(copies)
+      const dest = chest.firstEmptySlotRange(chest.inventoryStart, chest.inventoryEnd)
+      if (dest == null) {
+        return { status: 'failed', failClass: 'inventory_full',
+                 detail: `the inventory is full (0 empty slots) — deposit or drop something, then withdraw ${name}` }
       }
+      await bot.moveSlotItem(best.slot, dest)
+      const left = remaining(best)
+      return { status: 'success',
+               detail: `withdrew 1x ${name} with ${Number.isFinite(left) ? left : '?'} uses left (the fullest of ${copies.length} in the chest at ${cp.x},${cp.z})` }
     }
+
     let took = 0
-    for (const it of want) {
+    for (const it of copies) {
       check(signal)
-      const n = Math.min(it.count, Math.max(1, Number(count) || 16) - took)
+      const n = Math.min(it.count, want - took)
       if (n <= 0) break
       await chest.withdraw(it.type, null, n)
       took += n
-      if (took >= (Number(count) || 16)) break
     }
     return took > 0
-      ? { status: 'success', detail: `withdrew ${took}x ${want[0].name} from the chest` }
-      : { status: 'no_effect', detail: 'nothing withdrawn' }
-  } catch (e) {
-    return { status: 'failed', failClass: 'other',
-             detail: `withdraw failed: ${e.message.slice(0, 70)}` }
+      ? { status: 'success', detail: `withdrew ${took}x ${name} from the chest at ${cp.x},${cp.z}` }
+      : { short: true, holds: `${cp.x},${cp.z}: ${summary}` }
   } finally {
     try { chest.close() } catch { /* already closed */ }
   }
@@ -5885,7 +5996,8 @@ export const SKILL_CONTRACTS = {
   // 60s covered "chest in sight"; the walk-home fallback makes deposit a
   // travel skill, and home's own budget (120s) plus the transfer must fit.
   deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
-  withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
+  // Same walk-home fallback as deposit, so the same travel budget.
+  withdraw: { expects: ['inventory_gain'],        maxMs: 240_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },

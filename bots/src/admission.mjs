@@ -207,6 +207,12 @@ export class AdmissionControl {
     // args -- which is exactly why the default was wrong rather than merely
     // incomplete.
     if (skill === 'smelt') return smeltRecipeFor(args?.item)?.output ?? null
+    // WITHDRAW NAMES ITS OUTPUT, and without this line it can never be exempt. Homing sends every
+    // withdraw to the same town chest, so four ordinary failures there would learned_avoid
+    // `withdraw stone_pickaxe` for good -- the one verb that can hand a bot a working pickaxe
+    // without a recipe, a table or a mine. `withdraw` with no item takes whatever is most
+    // plentiful, which names nothing, so it stays null and earns no exemption.
+    if (skill === 'withdraw') return args?.item ?? null
     return null
   }
 

@@ -14,14 +14,28 @@ t('a full cube on the lid blocks it; air, water, a slab, a torch and a stair do 
   assert.equal(chestLidBlocked({ name: 'oak_stairs', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]] }), false)
   assert.equal(chestLidBlocked(null), false)
 })
-t('the deposit looks at the lid, releases sneak, and opens the chest under an 8-second budget with a named class', () => {
+// The rule lives in ONE helper since 2026-09-28, shared by deposit and withdraw, so the order is asserted
+// there once and the WIRING is asserted per skill: a skill that opens a chest any other way is caught.
+t('openChestChecked looks at the lid, releases sneak, and opens the chest under an 8-second budget with a named class', () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 9000)
-  const lid = f.indexOf('if (isChest && lid && chestLidBlocked(lid)) {'), open = f.indexOf('chest = await withTimeout(bot.openContainer(chestBlock), 8_000')
+  const s = c.indexOf('async function openChestChecked ('); assert.ok(s > 0, 'openChestChecked is gone')
+  const f = c.slice(s, c.indexOf('\n}\n', s))
+  const lid = f.indexOf('if (isChest && lid && chestLidBlocked(lid)) {'), open = f.indexOf('const chest = await withTimeout(bot.openContainer(chestBlock), 8_000')
   assert.ok(lid > 0 && open > lid, 'the lid is checked before the open')
   assert.match(f.slice(lid, open), /setControlState\('sneak', false\)/, 'sneak is released before opening')
   assert.match(f.slice(open, open + 600), /failClass: 'container_open'/, 'a failed open is classified')
   assert.match(f.slice(lid, open), /failClass: 'container_blocked'/, 'a blocked lid is classified')
+})
+t('deposit and withdraw open chests ONLY through openChestChecked', () => {
+  const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const body = name => { const s = c.indexOf(`async function ${name}(`); assert.ok(s > 0, `${name} is gone`); return c.slice(s, c.indexOf('\nasync function ', s + 10)) }
+  for (const name of ['deposit', 'withdrawFrom']) {
+    const f = body(name)
+    assert.match(f, /await openChestChecked\(bot, chestBlock, signal\)/, `${name} does not open through the checked helper`)
+    assert.ok(!/bot\.openContainer\(/.test(f), `${name} calls bot.openContainer directly, bypassing the lid check and the bound`)
+  }
+  // exactly one direct openContainer on a chest in the file: the helper's
+  assert.equal((c.match(/bot\.openContainer\(/g) ?? []).length, 1, 'a second direct openContainer appeared')
 })
 t('the lid is dug only on positive evidence: unknown neighbours, liquid beside it, or a falling block above refuse', () => {
   const V = (x, y, z) => ({ x, y, z, offset: (dx, dy, dz) => V(x + dx, y + dy, z + dz) })

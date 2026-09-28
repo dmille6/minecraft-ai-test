@@ -1,4 +1,5 @@
 import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
+import { remaining } from './toolfor.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -51,6 +52,24 @@ export function isScaffoldItem (name) {
 }
 
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
+/**
+ * WHICH COPY A WITHDRAW TAKES. Pure. The fullest, and on a tie the lowest slot.
+ *
+ * `chest.withdraw(type, null, n)` scans the chest's slots in ascending order (prismarine-windows
+ * findItemRange), so it is exactly as durability-blind as deposit was: it hands back whatever copy
+ * sits first. The banks hold the fleet's landfill -- 480 of 1,382 banked pickaxes were at <= 10% --
+ * so an unranked withdraw of `stone_pickaxe` mostly returns a pickaxe with a handful of uses left.
+ *
+ * `remaining` is toolfor.mjs's own: the measure the bot will later equip by is the one it withdraws
+ * by. An item with no durability is Infinity, so for those the tie-break alone decides.
+ * The copies must come from the chest WINDOW (`containerItems()`), whose `slot` is window
+ * numbering -- the numbering `moveSlotItem` clicks in. See toolCopiesInWindow on tool-keeper-2 for
+ * what reading `bot.inventory` numbering there cost.
+ */
+export function bestBankCopy (copies = []) {
+  return copies.slice().sort((a, b) => remaining(b) - remaining(a) || (a.slot ?? 0) - (b.slot ?? 0))[0] ?? null
+}
+
 export const RESERVE_RECIPE = 2
 
 /**
