@@ -2525,6 +2525,22 @@ const MAX_CRAFT_DEPTH = 3
 /** Per-candidate ceiling on bot.placeBlock's wait for the server's blockUpdate. */
 const PLACE_ACK_MS = 3_000
 
+/**
+ * HOW MANY TIMES TO RUN A RECIPE to end up with `count` items. Pure.
+ *
+ * `count` means ITEMS everywhere in this skill: the resolver asks for "3x oak_planks", the model
+ * asks for "craft 4 stick", and mineflayer's own recipesFor(id, meta, minResultCount) checks
+ * ingredients for ceil(count / result.count) crafts. But bot.craft(recipe, count) takes a number of
+ * REPETITIONS (mineflayer craft.js: `for (let i = 0; i < count; i++) craftOnce(...)`). So "craft 4
+ * oak_planks" with one log passed the ingredient check and then tried four crafts, making 4 planks
+ * and throwing "missing ingredient" on the second -- a failure for a request that had succeeded.
+ * A chest from logs needed 8 logs instead of 2 (both reviews, 2026-09-28).
+ */
+export function craftRepetitions (recipe, count) {
+  const per = Math.max(1, Number(recipe?.result?.count) || 1)
+  return Math.max(1, Math.ceil((Number(count) || 1) / per))
+}
+
 async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   const { bot } = ctx
   const def = bot.registry.itemsByName[item]
@@ -2915,9 +2931,11 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   }
 
   try {
-    await bot.craft(recipe, count, table ?? undefined)
+    const reps = craftRepetitions(recipe, count)
+    await bot.craft(recipe, reps, table ?? undefined)
+    const made = reps * Math.max(1, Number(recipe?.result?.count) || 1)
     return { status: 'success',
-             detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
+             detail: `crafted ${made}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   } catch (e) {
     // Name the real problem. "Event windowOpen did not fire" is mineflayer's
     // wording for "the server refused to open the container", which in practice
