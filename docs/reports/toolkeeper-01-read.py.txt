@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+# toolkeepread.py [post-min] -- the tool-keeper canary's read. Cutoff from the manifest.
+# CANARY_DRYRUN=pool:sha:iso for dry runs.
+#
+# WHAT THIS CANARY CHANGES, and why the endpoint is a STOCK.
+#
+# MEASURED before the change: held pickaxes sat at a MEDIAN 1.7% durability (237 of 295 at <=10%,
+# one bot carrying twelve) while BANKED pickaxes sat at a median 48.1% -- 676 of 1,382 above 50%,
+# 484 above 75%, 112 never used at all. A durability-blind split cannot produce a 28x asymmetry by
+# chance. The cause was the absence of a decision: `bankableInventory` does `avail -= 1` per tool
+# NAME and nothing read durability, so WHICH copy survived was decided by mineflayer -- `transfer`
+# finds source stacks with `findItemRange`, which scans ASCENDING from inventoryStart, and in a
+# container window the hotbar is the LAST range. So main-inventory copies were banked and the
+# hotbar copy kept, whatever its wear.
+#
+# The change banks tool copies by EXACT SLOT, worst first, keeping the fullest -- and recovers a
+# stack left on the cursor when a chest fills mid-transfer, which was silently dropping items on
+# the ground at the town chest.
+#
+# THE PRIMARY ENDPOINT IS THE MEDIAN BEST-HELD PICKAXE, IN USES. Two deliberate choices:
+#   * USES, not percent. toolfor.mjs's FLOOR is 10 USES and its HARD_STOP is 1 use; a percentage
+#     would disagree with the consumer that actually decides whether a tool can dig.
+#   * a STOCK, not a flow, and it is labelled as one here because counting a stock as a flow is
+#     how an 8.1x growth "spread" turned out to be 4.3x earlier in this project's week.
+# It is NOT items/bot-h: that endpoint has a measured MDE of +146% at this design with 86.7% of its
+# variance within-bot hour-to-hour, so it cannot resolve anything this change plausibly does.
+#
+# LIVENESS IS A GATE, NOT A RESULT. `_deposit_tool_keep` is emitted only by this build, so a
+# control pool CANNOT emit it -- control > 0 means the arms are wrong, and canary == 0 means the
+# change shipped inert, which has happened five times in one day on this project.
+#
+# CORRECTNESS IS A SEPARATE GATE FROM EFFECT. Every keep row names the kept copy's remaining uses
+# and every banked copy's. If any row kept a copy that was not the fullest, the change is WRONG and
+# that is a REVERT regardless of the endpoint -- a deterministic invariant needs ~10 events, not a
+# rate, so it is readable long before the endpoint.
+import sys, os, json, re
+import datetime as dt
+from collections import defaultdict, Counter
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+PRE = 180
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+KEEP = '_deposit_tool_keep'
+RESCUE = '_deposit_cursor_rescue'
+
+# BURN-IN: only the canary pool restarts, which clears in-memory state. Drop the first 15 minutes
+# so the warm-up is not read as the effect -- ~80% of one raw DiD on this fleet was warm-up once.
+BURN = 15
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def load(since_minutes):
+    """Rotation-aware and deduped: day D's rows live in -{D+1}.gz and generations overlap, so a
+    read of the live files alone once returned a confident zero for an 8-hour-old event."""
+    import glob as _g
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=since_minutes)
+    rows = list(ev.rows)
+    seen = {id(r) for r in rows}
+    start = now - dt.timedelta(minutes=since_minutes)
+    for d in {(start + dt.timedelta(days=k)).date() for k in range(0, (now - start).days + 2)}:
+        for g in _g.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % (d + dt.timedelta(days=1)).strftime('%Y%m%d')):
+            try:
+                e2 = Events.load(paths=g, since_minutes=since_minutes, allow_zero=True)
+            except TypeError:
+                e2 = Events.load(paths=g, since_minutes=since_minutes)
+            for r in e2.rows:
+                if id(r) not in seen:
+                    rows.append(r); seen.add(id(r))
+    return rows
+
+
+rows = load(int(PRE + elapsed + 60))
+print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min (burn-in %d)'
+      % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, BURN))
+
+post0 = CUT + dt.timedelta(minutes=BURN)
+post1 = CUT + dt.timedelta(minutes=W)
+pre0, pre1 = CUT - dt.timedelta(minutes=PRE), CUT
+
+keep = Counter(); rescue = Counter(); rescue_fail = Counter()
+best = defaultdict(dict)          # (arm, phase) -> {bot: best uses seen}
+dep = defaultdict(Counter)        # arm -> Counter(status)
+bots_seen = defaultdict(set)
+bad_keeps = []
+anchor = defaultdict(dict)        # PLACEBO ANCHORS: not durability-selected
+for r in rows:
+    t = r['t']; bot = (r.get('bot') or {}).get('name') or ''
+    p = pool_of(bot)
+    if not p:
+        continue
+    arm = 'canary' if p in CANS else 'control'
+    phase = 'post' if post0 <= t < post1 else ('pre' if pre0 <= t < pre1 else None)
+    if phase is None:
+        continue
+    bots_seen[(arm, phase)].add(bot)
+    n = r.get('name'); d = r.get('detail') or ''
+    if n == KEEP:
+        keep[(arm, phase)] += 1
+        # CORRECTNESS: keep=slotN/Xuses bank=slotM/Yuses,...
+        km = re.search(r'keep=slot(-?\d+)/(\d+)uses', d)
+        bm = re.findall(r'bank=slot(-?\d+)/(\d+)uses|,slot(-?\d+)/(\d+)uses', d)
+        if km:
+            kept = int(km.group(2))
+            banked = [int(x) for tup in bm for x in tup[1::2] if x]
+            if banked and max(banked) > kept:
+                bad_keeps.append(d[:110])
+    if n == RESCUE:
+        rescue[(arm, phase)] += 1
+        if r.get('status') != 'success':
+            rescue_fail[(arm, phase)] += 1
+    if n == 'deposit':
+        dep[(arm, phase)][r.get('status') or '?'] += 1
+    tools = ((r.get('raw') or {}).get('bot') or {}).get('tools') or {}
+    if isinstance(tools, dict):
+        b = None
+        for name, entries in tools.items():
+            if 'pickaxe' not in name or not isinstance(entries, list):
+                continue
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                u, m = e.get('used'), e.get('max')
+                if u is None or not m:
+                    continue
+                left = m - u
+                if b is None or left > b:
+                    b = left
+        if b is not None:
+            best[(arm, phase)][bot] = max(best[(arm, phase)].get(bot, -1), b)
+        # ANCHORS: same deposit call, same KEEP_ONE reserve, NOT durability-selected. If these move
+        # as much as the pickaxes, the "effect" is drift or the restart, not the keeper.
+        inv = ((r.get('raw') or {}).get('bot') or {}).get('inventory') or {}
+        if isinstance(inv, dict):
+            for k in ('crafting_table', 'cobblestone'):
+                if inv.get(k):
+                    anchor[(arm, phase, k)][bot] = inv[k]
+
+
+def med(d):
+    v = sorted(d.values())
+    return v[len(v) // 2] if v else None
+
+
+# toolfor.mjs:13 -- FLOOR is 10 USES, and it is the consumer that decides whether a tool can dig.
+FLOOR = 10
+
+
+def share_floor(d):
+    """Share of the arm's bots whose BEST pickaxe is above the floor. MEASURED NULL on identical
+    code over 12 same-shape draws: -0.418 .. +0.455, median +0.018. The median-in-uses this replaced
+    had a null of -24 .. +130 and produced a DiD of 59.0 on a dry run with no code change."""
+    return (sum(1 for v in d.values() if v > FLOOR) / len(d)) if d else None
+
+
+def did(f):
+    """DIFFERENCE-in-differences, not a ratio. A ratio on a statistic that can be 0 is unbounded,
+    which is exactly how the first draft of this read produced 59.0 on identical code."""
+    a, b, c, e = f('canary', 'post'), f('canary', 'pre'), f('control', 'post'), f('control', 'pre')
+    if None in (a, b, c, e):
+        return None
+    return round((a - b) - (c - e), 4)
+
+
+print()
+print('%-34s %10s %10s %10s %10s' % ('', 'can pre', 'can post', 'ctl pre', 'ctl post'))
+print('-' * 78)
+print('%-34s %10s %10s %10s %10s' % ('bots seen',
+      len(bots_seen[('canary', 'pre')]), len(bots_seen[('canary', 'post')]),
+      len(bots_seen[('control', 'pre')]), len(bots_seen[('control', 'post')])))
+print('%-34s %10d %10d %10d %10d' % ('_deposit_tool_keep rows',
+      keep[('canary', 'pre')], keep[('canary', 'post')],
+      keep[('control', 'pre')], keep[('control', 'post')]))
+print('%-34s %10d %10d %10d %10d' % ('_deposit_cursor_rescue rows',
+      rescue[('canary', 'pre')], rescue[('canary', 'post')],
+      rescue[('control', 'pre')], rescue[('control', 'post')]))
+print('%-34s %10s %10s %10s %10s' % ('MEDIAN best pickaxe (uses)',
+      med(best[('canary', 'pre')]), med(best[('canary', 'post')]),
+      med(best[('control', 'pre')]), med(best[('control', 'post')])))
+print('%-34s %10d %10d %10d %10d' % ('deposit successes',
+      dep[('canary', 'pre')]['success'], dep[('canary', 'post')]['success'],
+      dep[('control', 'pre')]['success'], dep[('control', 'post')]['success']))
+for k in ('crafting_table', 'cobblestone'):
+    print('%-34s %10s %10s %10s %10s' % ('ANCHOR median ' + k,
+          med(anchor[('canary', 'pre', k)]), med(anchor[('canary', 'post', k)]),
+          med(anchor[('control', 'pre', k)]), med(anchor[('control', 'post', k)])))
+print('-' * 78)
+
+share_did = did(lambda a, p: share_floor(best[(a, p)]))
+uses_did = did(lambda a, p: med(best[(a, p)]))
+anch_did = {k: did(lambda a, p, _k=k: med(anchor[(a, p, _k)])) for k in ('crafting_table', 'cobblestone')}
+print()
+print('  GATE     keep rows canary %d / control %d   |   bad keeps %d'
+      % (keep[('canary', 'post')], keep[('control', 'post')], len(bad_keeps)))
+print('  EFFECT   share of bots above the 10-use FLOOR, diff-DiD : %s' % share_did)
+print('           MEASURED NULL on identical code, 12 same-shape draws: -0.418 .. +0.455 (median +0.018)')
+print('           => AT 5 BOTS THIS CANNOT RESOLVE THE EFFECT. Reported, NOT gated.')
+print('  diag     median best-pickaxe uses, diff-DiD : %s  (null -24 .. +130 -- do not read it)' % uses_did)
+print('  ANCHORS  %s' % anch_did)
+print('  CORRECTNESS  keep rows that kept a NON-fullest copy: %d %s'
+      % (len(bad_keeps), ('<- REVERT' if bad_keeps else 'ok')))
+for b in bad_keeps[:3]:
+    print('      ', b)
+
+try:
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('toolkeepread', W, {
+        # LIVENESS -- structurally impossible on the baseline
+        'keep_rows_canary': keep[('canary', 'post')],
+        'keep_rows_control': keep[('control', 'post')],
+        'rescue_rows_canary': rescue[('canary', 'post')],
+        'rescue_rows_control': rescue[('control', 'post')],
+        'rescue_failed_canary': rescue_fail[('canary', 'post')],
+        # CORRECTNESS -- a deterministic invariant, not a rate
+        'bad_keeps': len(bad_keeps),
+        # PRIMARY (a STOCK, in USES)
+        'best_uses_canary_post': med(best[('canary', 'post')]),
+        'best_uses_canary_pre': med(best[('canary', 'pre')]),
+        'best_uses_control_post': med(best[('control', 'post')]),
+        'best_uses_control_pre': med(best[('control', 'pre')]),
+        'best_uses_did': uses_did,
+        'share_floor_did': share_did,
+        'share_floor_canary_post': share_floor(best[('canary', 'post')]),
+        'share_floor_control_post': share_floor(best[('control', 'post')]),
+        # PLACEBO ANCHORS
+        'anchor_crafting_table_did': anch_did['crafting_table'],
+        'anchor_cobblestone_did': anch_did['cobblestone'],
+        # exposure denominator
+        'deposit_success_canary': dep[('canary', 'post')]['success'],
+        'deposit_success_control': dep[('control', 'post')]['success'],
+        'bots_canary_post': len(bots_seen[('canary', 'post')]),
+        'bots_control_post': len(bots_seen[('control', 'post')]),
+    })
+except Exception as e:
+    print('emit failed:', e)
+
+print()
+print('READ RULE (pre-registered):')
+print('  LIVENESS IS A GATE: keep_rows_control > 0 means the arms are wrong; keep_rows_canary == 0')
+print('    means the change shipped inert. Either is UNREADABLE, not a result.')
+print('  CORRECTNESS IS A GATE: bad_keeps > 0 is a REVERT whatever the endpoint says. It is a')
+print('    deterministic invariant, so ~10 events settle it -- readable long before the effect.')
+print('  EXPOSURE: >= 20 deposit successes in EACH arm. At a measured 0.151 successes/bot-h a 5-bot')
+print('    pool makes 0.76/hour, so this needs ~26 h. A 3-hour read yields ~2 per arm and is')
+print('    guaranteed INCONCLUSIVE -- reading it early and recording a verdict is worse than')
+print('    not deploying.')
+print('  THE GATE IS CORRECTNESS AND LIVENESS, NOT THE EFFECT, and that is a measured decision:')
+print('    every durability endpoint was null-tested on identical code over 12 same-shape draws.')
+print('      median uses     null -24 .. +130   (a dry run gave 59.0 with NO code change)')
+print('      share > floor   null -0.418 .. +0.455, median +0.018')
+print('      mean uses       null -31.5 .. +49.2')
+print('      total uses      null -633 .. +107, median -413  (fleet-wide drift, not treatment)')
+print('    At 5 bots per pool none of them can resolve this change, so gating on one would be a')
+print('    coin flip dressed as a measurement. The effect is REPORTED with its null beside it.')
+print('    KEEP therefore needs: keep_rows_canary > 0, keep_rows_control == 0, bad_keeps == 0,')
+print('    >= 20 deposit successes per arm, and the harm gates clean. That is a real claim -- the')
+print('    code does on the fleet what it does in the tests -- and it is the claim that cannot be')
+print('    made any other way. items/bot-h is NOT an endpoint here (MDE +146%).')
+print('  HARM is unchanged: two-death floor, and gather_ratio < 0.43 of control.')
+print('  verdict.py puts `primary` in _ADVISORY, so a verdict.py KEEP means exposure, linkage and')
+print('    the death gate were clean and NOTHING MORE. The effect call is the analyst\'s.')
