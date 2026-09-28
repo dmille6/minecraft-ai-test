@@ -168,6 +168,26 @@ re-count mechanism reproduced.
 4. Commits headed "OWNER DECISION" with no recorded artefact — three over 24–25 Sep.
 5. `vetob2-01` (`efabf13`) KEPT and unpromoted; recommend re-drawing it off the hive pools.
 
+## BANK SATURATION — OWNER DECISION 2026-09-28 20:30Z, design settled, not built
+Owner: one admin clear of the full town chests is allowed (a bug caused it), never as a recurring
+practice; code must stop the refill; bots may build as many chests as they need.
+Two code causes, measured: (1) `cobblestone`/`cobbled_deepslate`/`stone` are STANDING_TARGETS, banked
+without limit (42% of the bank); (2) the full-chest recovery always CRAFTS a chest — 70 of 79 full-chest
+failures (12 h) were HOLDING one, only 5 had the logs to craft.
+Design after the Claude review (Codex hit its usage limit — resets 2026-10-03 15:17; the second review
+is owed before this deploys):
+- A: full chest + a non-bulk item left to bank -> place a CARRIED chest/trapped_chest/barrel and retry;
+  craft only if none carried; if only bulk remains, `no_effect` "bulk capped", build nothing.
+- B: cobble family out of STANDING_TARGETS; banked only while the open container holds < 64 of it.
+- C (toss excess) DROPPED: the exit contract needs ~148 scaffold at y=-55, pickupNearbyItems re-collects
+  drops within 8 blocks, and a shared chest would recycle them. A pickup-skip is a later, separate idea.
+- D: the one clear runs after A+B are KEPT — bulk only, slot-by-slot RCON read before and after, shown
+  to the owner first.
+- Found in passing: `craft` passes `count` to bot.craft as REPETITIONS; a bot with 2-7 logs crafting a
+  chest crafts twice and throws. Separate fix.
+- Order: toolkeeper-01 verdict -> fall-death-tdz -> withdraw-home -> bank fix, built on whatever is then
+  deployed (it edits the same deposit loop as tool-keeper-2).
+
 ## QUEUE (after toolkeeper-01 closes)
 - **TDZ death-handler fix** — BUILT on `fall-death-tdz` (`1d107ed`), reviewed; the next canary. Watch death-tripper.
 - **withdraw walk-home** — BUILT, REVIEWED, SANDBOX-PASSED on `withdraw-home` (`353d89e`, from `80b3bbd`).
