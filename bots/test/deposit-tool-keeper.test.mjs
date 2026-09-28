@@ -99,10 +99,13 @@ await ta('returnCursor never throws into the deposit loop', async () => {
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 const SRC = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
 
-t('deposit banks tools by EXACT SLOT, not by type', () => {
-  assert.ok(/toolBankOrder\(stacks\)/.test(SRC), 'the keeper is not consulted in deposit')
+t('deposit banks tools by EXACT SLOT, not by type, ranked from the CHEST WINDOW', () => {
+  assert.ok(/const copies = TOOL_RE\.test\(name\) \? toolCopiesInWindow\(chest, name\) : \[\]/.test(SRC),
+    'tool copies must come from the open chest window, whose slot numbers moveSlotItem clicks')
+  assert.ok(/toolBankOrder\(copies\)/.test(SRC), 'the keeper is not consulted in deposit')
+  assert.ok(!/toolBankOrder\(stacks\)/.test(SRC), 'ranking bot.inventory slots is the pre-launch defect')
   assert.ok(/bot\.moveSlotItem\(copy\.slot, dest\)/.test(SRC), 'tools must move by slot, or the keeper is decorative')
-  const i = SRC.indexOf('toolBankOrder(stacks)')
+  const i = SRC.indexOf('toolBankOrder(copies)')
   const j = SRC.indexOf('chest.deposit(it.type', i)
   assert.ok(j > i, 'the type-based path must remain for materials, after the tool branch')
 })
@@ -157,6 +160,54 @@ await ta('MUTANT KILLED: without a destination check the cursor is clicked into 
       await m.returnCursor(bot, fakeWindow({ name: 'dirt' }, null))
       assert.equal(called, null, 'the mutant should click null — if it did not, the guard is untested')
     })
+})
+
+// ---- THE SLOT-NUMBERING DEFECT, on a REAL prismarine-windows chest window ----
+// Found by both pre-launch reviews 2026-09-28: the first build ranked bot.inventory slots (9-44) and
+// passed them to moveSlotItem, which clicks the OPEN window (27-62 for the player in a 27-slot chest).
+// A fake window cannot catch that -- it has whatever numbering the fake gives it -- so this builds
+// the real one, fills it the way the server does, and plays moveSlotItem's two clicks on it.
+const { createRequire } = await import('node:module')
+const req = createRequire(import.meta.url)
+const PW = req('prismarine-windows')('1.21.11')
+const PI = req('prismarine-item')('1.21.11')
+const { toolCopiesInWindow } = await import('../src/bankable.mjs')
+const reg = req('prismarine-registry')('1.21.11')
+function realChest () {
+  const w = PW.createWindow(1, 'minecraft:generic_9x3', 'Chest')
+  const put = (slot, name, used = 0) => {
+    const it = new PI(reg.itemsByName[name].id, 1)
+    if (it.maxDurability) it.durabilityUsed = used
+    w.updateSlot(slot, it)
+  }
+  put(12, 'cobblestone')                 // the CHEST's own contents, at window slot 12
+  put(30, 'stone_pickaxe', 130)          // player inventory slot 12  -> worn, 1 use left
+  put(40, 'oak_log')                     // player inventory slot 22  -> an unrelated item
+  put(54, 'stone_pickaxe', 2)            // player hotbar slot 36     -> the good one, 129 uses
+  return w
+}
+// moveSlotItem = two left clicks on the OPEN window (mineflayer inventory.js:658): lift, then drop.
+const click2 = (w, src, dest) => { const it = w.slots[src]; w.updateSlot(src, null); w.updateSlot(dest, it) }
+
+t('copies are read from the window, in WINDOW numbering, and the worn one is banked', () => {
+  const w = realChest()
+  const copies = toolCopiesInWindow(w, 'stone_pickaxe')
+  assert.deepEqual(copies.map(c => c.slot).sort((a, b) => a - b), [30, 54], 'player-range copies, window-numbered')
+  const { bank, keep } = toolBankOrder(copies)
+  assert.equal(keep.slot, 54); assert.deepEqual(bank.map(b => b.slot), [30])
+  for (const c of bank) click2(w, c.slot, w.firstEmptyContainerSlot())
+  const held = w.items().filter(i => i.name === 'stone_pickaxe')
+  assert.equal(held.length, 1); assert.equal(held[0].maxDurability - held[0].durabilityUsed, 129, 'the fullest copy stayed')
+  assert.equal(w.slots[12].name, 'cobblestone', 'the chest contents were not touched')
+  assert.equal(w.items().filter(i => i.name === 'oak_log').length, 1, 'no other item of the bot was banked')
+})
+
+t('POSITIVE CONTROL: bot.inventory numbering on the open window hits the wrong items -- the defect', () => {
+  const w = realChest()
+  // what the first build did: the worn copy is bot.inventory slot 12, the log is bot.inventory slot 40-18=22
+  assert.equal(w.slots[12].name, 'cobblestone', 'inventory slot 12 is a CHEST slot in the open window')
+  click2(w, 12, w.firstEmptyContainerSlot())
+  assert.equal(w.items().filter(i => i.name === 'stone_pickaxe').length, 2, 'no pickaxe was banked, yet moved += 1')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

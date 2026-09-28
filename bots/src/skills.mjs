@@ -41,7 +41,7 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
-import { depositPlan, depositNoopReason, toolBankOrder } from './bankable.mjs'
+import { depositPlan, depositNoopReason, toolBankOrder, toolCopiesInWindow } from './bankable.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -2298,10 +2298,15 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       // inventoryStart, so the hotbar copy is kept whatever its wear -- which is how the fleet
       // arrived at a held median of 1.7% durability against a banked median of 48.1%. For tools,
       // bank the worn copies by EXACT SLOT and keep the fullest.
-      if (TOOL_RE.test(name) && stacks.length > 1) {
-        const { bank, keep } = toolBankOrder(stacks)
+      // Ranked from the CHEST WINDOW, in its slot numbering: see toolCopiesInWindow.
+      // A tool never falls through to the type-based path below: with one live copy that path
+      // would bank the bot's last one, which the reserve exists to prevent.
+      const copies = TOOL_RE.test(name) ? toolCopiesInWindow(chest, name) : []
+      if (TOOL_RE.test(name) && copies.length <= 1) continue
+      if (copies.length > 1) {
+        const { bank, keep } = toolBankOrder(copies)
         logEvent({ kind: 'deposit_tool_keep',
-                   detail: `${name} copies=${stacks.length} keep=slot${keep?.slot}/${remaining(keep)}uses ` +
+                   detail: `${name} copies=${copies.length} keep=slot${keep?.slot}/${remaining(keep)}uses ` +
                            `bank=${bank.map(b => `slot${b.slot}/${remaining(b)}uses`).join(',')}`,
                    snapshot: snapshot(bot) })
         for (const copy of bank) {

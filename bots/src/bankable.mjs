@@ -77,6 +77,26 @@ export function toolBankOrder (copies = []) {
   return { bank: sorted.slice(0, -1), keep: sorted.at(-1) ?? null }
 }
 
+/**
+ * THE COPIES TO RANK, READ FROM THE OPEN CHEST WINDOW -- never from `bot.inventory`. Pure.
+ *
+ * `bot.moveSlotItem` clicks `bot.currentWindow || bot.inventory` (mineflayer inventory.js:552), so
+ * while the chest is open every slot number it is given is a CHEST-WINDOW slot. `bot.inventory`
+ * numbers the same items 9-44; a 27-slot chest numbers them 27-62. The first build ranked copies
+ * from `bot.inventory.items()` and passed those numbers straight through, so slots 9-26 clicked the
+ * chest's own contents and 27-44 banked whatever OTHER item of the bot's sat there -- with the log
+ * row recording the intended move, so the correctness gate read 0 by construction. Found by both
+ * pre-launch reviews, 2026-09-28, before it reached the fleet.
+ *
+ * It is also the only LIVE view: while a window is open mineflayer applies `set_slot` to the window
+ * alone (inventory.js:729) and copies it back into `bot.inventory` on close (:417), so
+ * `bot.inventory` is stale after the first move. `Window.items()` is the player range in window
+ * numbering (prismarine-windows Window.js:414, and `updateSlot` stamps `item.slot`, :287).
+ */
+export function toolCopiesInWindow (window, name) {
+  return (window?.items?.() ?? []).filter(it => it && it.name === name)
+}
+
 export const RESERVE_RECIPE = 2
 
 /**
