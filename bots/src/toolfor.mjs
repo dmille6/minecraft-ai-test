@@ -45,11 +45,28 @@ const canHarvest = (block, typeId) => {
   const harvest = block?.harvestTools
   return !harvest || (typeId != null && !!harvest[typeId])
 }
-export function toolFor (block, items = []) {
+export function toolFor (block, items = [], { lastSwing = false } = {}) {
   const handOk = canHarvest(block, null)
   const tools = (Array.isArray(items) ? items : []).filter(it => it?.name && TOOL_RE.test(it.name))
   const eligible = tools.filter(it => canHarvest(block, it.type) && remaining(it) > HARD_STOP)
-  if (!eligible.length) return handOk ? { item: null, hand: true, reason: 'hand' } : { item: null, hand: false, reason: 'none' }
+  if (!eligible.length) {
+    if (handOk) return { item: null, hand: true, reason: 'hand' }
+    // THE LAST SWING, for a HARVEST dig only (the caller opts in). Measured 2026-09-28 by both engines over
+    // ~22 h: 92% of 3,393 failed stone/cobblestone gathers happened while every pickaxe the bot held had
+    // exactly 1 use left, and 61 of 80 bots were in that state at their last row. HARD_STOP kept those
+    // copies out of the hand, so gather dug stone BARE-HANDED, watchDigging aborted it ("Digging aborted"),
+    // no cobblestone was ever obtained, and no stone_pickaxe could be crafted: a replenishment trap. A copy
+    // with one use still breaks one block and the drop survives (vanilla computes drops from a COPY of the
+    // stack taken before damage -- proved on the sandbox before this shipped), so three spent pickaxes are
+    // three cobblestone, which with two sticks is a fresh 131-use pickaxe. Travel digs and the exit
+    // contract (usableTools) keep HARD_STOP: this changes only what a harvest dig may hold.
+    if (lastSwing) {
+      const last = tools.filter(it => canHarvest(block, it.type) && remaining(it) >= 1)
+        .sort((a, b) => (tier(a.name) - tier(b.name)) || (remaining(a) - remaining(b)))
+      if (last.length) return { item: last[0], hand: false, reason: 'last_swing' }
+    }
+    return { item: null, hand: false, reason: 'none' }
+  }
   const timed = eligible.map(it => ({ it, t: digTime(block, it.type), r: remaining(it), tier: tier(it.name) }))
   const fastest = Math.min(...timed.map(x => x.t), handOk ? digTime(block, null) : Infinity)
   const cap = fastest > 0 && Number.isFinite(fastest) ? fastest * SLACK : Infinity
@@ -73,9 +90,9 @@ const cheapestOpen = items => (Array.isArray(items) ? items : []).filter(it => i
  * whole bug (Codex pass 1). The unequip is fire-and-forget: it is a window click, and the socket delivers it before
  * the dig-start packet that follows, so the server sees an empty hand at dig time.
  */
-export function applyToolPolicy (bot, block) {
+export function applyToolPolicy (bot, block, opts = {}) {
   const items = bot?.inventory?.items?.() ?? []
-  const d = toolFor(block, items)
+  const d = toolFor(block, items, opts)
   if (!d.item && isTool(bot?.heldItem)) {
     // NEVER bot.unequip('hand') blindly: mineflayer's unequip tosses the stack when the inventory is full (Codex
     // pass 2). A non-tool item swapped INTO the hand is the safe form; unequip only with a free slot to receive it.
