@@ -34,6 +34,19 @@ does the reads, the verdict, the record and the teardown itself._
 
 ## THE LIVE CANARY — toolkeeper-01
 
+> **+360 READ, 18:04Z — verdict.py NOT_YET (correct: the verdict is at +1560, 2026-09-29 14:02Z).**
+> - LIVENESS pass: 138 canary keep rows (gate >= 12), 0 in control. CORRECTNESS pass: 0 bad keeps, 0 unparsed.
+> - EXPOSURE: 46 canary / 85 control deposit successes (gate >= 20 each) — already met.
+> - HARM clean: 1 canary death (placebo-a-Echo 12:17, "unknown; idle" — the TDZ crash re-count, not linked)
+>   vs control 4; 0.008 vs 0.017/bh. Immobile +1.4 pp canary vs +0.6 pp control; all v15c guards within.
+> - OUTCOME (reported): 138 of 138 kept copies survived; only **20 of 138** ended at one copy — banking still
+>   mostly blocked by full chests. 140 `_deposit_cursor_rescue` rows, **140 returned, 0 lost**, every one
+>   "destination full" (logs 59, sticks 44, planks 16, cobble 16, iron_ingot 2). The control build has no
+>   rescue: the same full-chest failure there leaves the lifted stack on the cursor at close.
+> - Median best pickaxe uses: canary 1 -> 59, control 2 -> 4. **Not a result** — the pre-registered null
+>   for this metric spans -24..+130 and a dry run with no code change gave 59.0.
+> - Nothing to decide until +1560. Expected there: KEEP on correctness/liveness/harm, effect INERT-by-storage.
+
 > **READ THIS BEFORE THE +360 READ (found 13:15Z by the new outcome check, amendment 6).** The keeper is
 > CORRECT and mostly INERT. At +69 min: 59 canary keep rows, 0 bad keeps, 59 of 59 kept copies survived —
 > but only **2 of 59** actually banked anything; the other 57 still held the same 2-6 copies afterwards.
