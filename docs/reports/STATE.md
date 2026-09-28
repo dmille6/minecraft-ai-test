@@ -197,6 +197,9 @@ is owed before this deploys):
   has >25% left; ingredients (sticks, planks) unlimited. Separate change from the bank fix; not reviewed.
 
 ## QUEUE (after toolkeeper-01 closes)
+- **OWNER 21:00Z: QUEUED — bank fix with TIERED chest limits, then CRAFT LIMITS; Claude-only review for
+  these two** (Codex out until 10-03; not a general waiver). Order: fall-death-tdz -> withdraw-home ->
+  bank fix (A: place carried chest; B: tiers) -> craft limits. The one chest clear after the bank fix KEEPs.
 - **TDZ death-handler fix** — BUILT on `fall-death-tdz` (`1d107ed`), reviewed; the next canary. Watch death-tripper.
 - **withdraw walk-home** — BUILT, REVIEWED, SANDBOX-PASSED on `withdraw-home` (`353d89e`, from `80b3bbd`).
   Both engines' implementation reviews found real defects (unverified success, late windows, double chests,
