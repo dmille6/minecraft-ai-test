@@ -117,6 +117,11 @@ Corrected by a full measurement at 12:40Z — the earlier "1 hit in 7 days" was 
 before the fix; it is a regression guard, not a TDZ proof (both reviews listed what it misses). 204/204.
 Reviewed by Claude and Codex: both CONFIRM the fix; they disagreed on the gate (Codex: blind; Claude:
 re-counted as unknown) and the host settled it for Claude, 17 of 17. Not deployed: one canary at a time.
+**Sandbox-passed 13:52Z** (Paper 1.21.11, a 17-block drop onto glass, same arena both runs): control `80b3bbd`
+throws `ReferenceError: Cannot access 'cause' before initialization`, no `_death` row; candidate `1d107ed`
+writes "fell from a high place after falling 17 blocks … hp 20->0 over 13s". The candidate also logged an
+"unknown; idle" death on connect — it rejoined still dead from the control run, which is the fleet's
+re-count mechanism reproduced.
 
 ## FLEET
 | | |
