@@ -7,6 +7,24 @@ does the reads, the verdict, the record and the teardown itself._
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it
 > stays there. If the two copies disagree, take the later `_updated` stamp.
 
+
+> **CORRECTION 2026-09-28 12:09Z, by a second operator session — read before trusting the canary section below.**
+> Three INSTRUMENT defects in `toolkeeper-01` survived the pre-launch reviews and the 12:02Z launch. All
+> fixed before the first read (+360 at 18:02Z); recorded as amendment 5 in the registration itself.
+> 1. **`immobiledid` was not in `reads`.** `verdict.py:401` refuses without it — it carries the DEATH GATE,
+>    the v15c movement guards and the readability test. So from 12:02Z to 12:10Z the canary had **no safety
+>    floor**, and every read would have returned UNREADABLE: the 28-hour run could never have reached a
+>    verdict. "Harm gates are unchanged" in the launch report was not true of this registration.
+> 2. **`change_rows`/`linkage_extra` had a leading underscore.** `verdict.py:411-412` store them verbatim and
+>    `:458-459` compare `lstrip('_')` names, so the single-death linkage path could never match. Now bare.
+> 3. **The loop runs reads from `/tmp`, and `/tmp/toolkeepread.py` was the PRE-FIX read** (md5 `c74099ae`,
+>    the Infinity-dropping parse both reviews flagged). The fixed read existed only in `~/mcai-analysis`.
+>    `/tmp` now holds `45b41e0e`, identical to the committed copy.
+> The loop was stopped (whole process group — a `sleep` child holds the flock) and restarted; it resumed
+> from phase `deployed` with the manifest, pools and `declared_at` unchanged. Backups:
+> `registrations/toolkeeper-01.json.bak-20260928T120549Z`, `/tmp/toolkeepread.py.bak-20260928T120549Z`.
+> **If you restart this loop or re-stage its reads, stage from `~/mcai-analysis`, not from memory.**
+
 ---
 
 ## THE LIVE CANARY — toolkeeper-01

@@ -84,6 +84,14 @@ t('no untracked files are accumulating in the directories that carry evidence or
     `untracked and one \`git clean\` from gone:\n        ${untracked.join('\n        ')}`)
 })
 
+t('nothing under bots/node_modules is tracked -- not a directory, and not a symlink either', () => {
+  // 9b339fd committed a SYMLINK at bots/node_modules (-> an absolute path on one machine) because
+  // .gitignore's `node_modules/` matches directories only. Checking out main then made the link
+  // point at itself and every test run failed with ERR_MODULE_NOT_FOUND.
+  const tracked = git('ls-files', '--', 'bots/node_modules').split('\n').filter(Boolean)
+  assert.deepEqual(tracked, [], `tracked under bots/node_modules: ${tracked.join(', ')}`)
+})
+
 // ---- prove the check can fail, for the intended reason ----
 t('MUTANT KILLED: a required path going missing is caught', () => {
   const victim = join(ROOT, 'scripts/ops/arbiterpreflight.py')

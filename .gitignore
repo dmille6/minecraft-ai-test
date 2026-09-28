@@ -53,6 +53,10 @@ venv/
 
 # harness runtime
 bots/node_modules/
+# WITHOUT the trailing slash too: `node_modules/` matches DIRECTORIES only, and a symlink named
+# node_modules is a file. 9b339fd committed exactly that symlink (-> an absolute path), and checking
+# out main then created bots/node_modules pointing at ITSELF, which broke every test run.
+bots/node_modules
 bots/.env
 bots/logs/
 
