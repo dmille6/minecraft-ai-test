@@ -187,6 +187,14 @@ is owed before this deploys):
   chest crafts twice and throws. Separate fix.
 - Order: toolkeeper-01 verdict -> fall-death-tdz -> withdraw-home -> bank fix, built on whatever is then
   deployed (it edits the same deposit loop as tool-keeper-2).
+- OWNER ASKED (20:45Z) for a SLIDING SCALE of chest limits: tiers (valuable uncapped / useful 2 stacks,
+  banked under 75% full / bulk 1 stack, under 50% / junk and <=10% tools never), and only valuable items
+  may trigger a new chest. Proposed to replace B; not yet reviewed.
+- OWNER ASKED about CRAFT LIMITS. Measured 21 h, 80 bots: 762 craft successes; crafted while ALREADY
+  holding a usable one — crafting_table 71/166, stone_pickaxe 60/208 (another copy >25% left),
+  wooden_pickaxe 26/141, furnace 5/51; ~all `llm:idle`. Proposal: an admission rule — stations only when
+  carrying none (remedy: place the carried one), tools only when no same-kind copy of that tier or better
+  has >25% left; ingredients (sticks, planks) unlimited. Separate change from the bank fix; not reviewed.
 
 ## QUEUE (after toolkeeper-01 closes)
 - **TDZ death-handler fix** — BUILT on `fall-death-tdz` (`1d107ed`), reviewed; the next canary. Watch death-tripper.
