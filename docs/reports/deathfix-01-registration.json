@@ -1,0 +1,56 @@
+{
+ "run_id": "deathfix-01",
+ "sha": "1d107ed",
+ "registered_at": "2026-09-28T22:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "EVERY DEATH MORE THAN 3 BLOCKS BELOW THE RECENT PEAK CRASHED THE BOT. index.mjs read `cause` in `fallRecord(..., { cause: deathClass(cause) })` five lines above `const cause = freshDeathCause()` (8f1e037, live since 859af48 on 09-27). The temporal-dead-zone ReferenceError threw out of mineflayer's health.js packet handler and killed the process (journal: index.mjs:1002:94, exit 1): 17 crashes on 15 bots in 36 h. The restarted bot rejoins dead and logs the death again as 'unknown; idle', so the death COUNT survived (17 of 17 crashes matched to such a row ~11 s later) and the cause, fall distance and death site did not: `after falling` rows went from 6-45 a day on every build through efa2853 to 0 of 60 on 859af48 and later. The fall-class death-tripper went blind. THE CHANGE: the declaration moves above the read; hpTrail is cleared after the death record (a ring that spanned lives, which the restart hid). test/no-tdz.test.mjs runs ESLint no-use-before-define over src/, found exactly this site and failed before the fix. Reviewed by Claude and Codex (both confirmed the fix; they disagreed on the gate and the host settled it 17/17). SANDBOX 2026-09-28 13:52Z, same arena, 17-block drop: control 80b3bbd threw the ReferenceError and wrote no _death row; candidate wrote 'fell from a high place after falling 17 blocks'. WHY THE GATE IS CORRECTNESS: the fix is deterministic; the fleet question is only whether it ran and harmed nothing. EXPECT the death-tripper to see fall deaths again; compare to the 6-45/day baseline, not to zero.",
+ "licence": {
+  "class": "text",
+  "row": "_death",
+  "text": "after falling",
+  "min_rows": 1,
+  "note": "The baseline cannot write this text: it throws before the _death row on exactly the deaths that carry it (0 of 60 deaths on 859af48+). ~0.006 crash-class deaths per bot-hour, so ~3 expected on 20 canary bots in 26 h; min_rows 1 because this gates that the branch RAN, and P(0 | 3) is ~5%, in which case the run is INCONCLUSIVE, not wrong."
+ },
+ "reads": ["deathfixread", "immobiledid"],
+ "read_minutes": [360, 1560],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {"name": "descent/injury rows (the population whose deaths this fix records)", "kind": "_fall_path", "min": 3}
+  ],
+  "note": "Every pool wrote 4-39 _fall_path rows in the 3 h before registration (hive-b lowest at 4); min 3 is a tripwire against a pool that has gone quiet, not a filter."
+ },
+ "exposure": {
+  "read": "deathfixread",
+  "field": "fall_deaths_canary",
+  "min": 1,
+  "note": "One recorded after-falling death on the canary shows the fixed handler ran on the fleet."
+ },
+ "own_lines": [
+  {"read": "deathfixread", "field": "crash_canary", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "CORRECTNESS. One ReferenceError crash on a canary unit means the fix did not fix it. Deterministic."},
+  {"read": "deathfixread", "field": "crash_control", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL for the journal query: ~9 expected in control over 26 h (dry run over 24 h on 69 control-equivalent bots found 9). A control zero means the instrument could not see a crash, so a canary zero proves nothing. No evidence class: BLOCKS KEEP, never reverts."},
+  {"read": "deathfixread", "field": "journal_failures", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "INSTRUMENT. A journalctl call that failed is a unit not checked. No evidence class: BLOCKS KEEP."},
+  {"read": "deathfixread", "field": "fall_deaths_control", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "The baseline cannot write 'after falling'. A control row means the arms are wrong. No evidence class: BLOCKS KEEP."},
+  {"read": "deathfixread", "field": "fall_deaths_canary", "op": ">=", "value": 1, "on_fail": "REVERT",
+   "note": "LIVENESS. Zero means the fixed handler never ran on the fleet. No evidence class: BLOCKS KEEP (INCONCLUSIVE), never reverts."}
+ ],
+ "primary": {
+  "read": "deathfixread",
+  "field": "unknown_idle_canary",
+  "note": "REPORTED, NOT GATED. The 'unknown; idle' re-count rows should fall on the canary because no restart follows these deaths; the dry run over 24 h found them equal to the journal crashes (3 and 9)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control. Death COUNTS are unchanged by this fix (the baseline re-counts after the restart), so any canary excess is real, not an artefact of better labels."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ }
+}

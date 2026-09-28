@@ -222,6 +222,15 @@ is owed before this deploys):
 
 
 ## QUEUE (after toolkeeper-01 closes)
+- **NEXT CANARY IS STAGED: `deathfix-01`** (sha `1d107ed`, promotion **fleet-wide** — the 24-27 Sep window
+  that forced `none` has ended; if the owner restarts that window, change this before launch). Registration
+  `~/mcai-analysis/registrations/deathfix-01.json` = `docs/reports/deathfix-01-registration.json`; read
+  `deathfixread` at `~/mcai-analysis/` and `/tmp/` (md5 `17045b95`) = `docs/reports/deathfix-01-read.py.txt`.
+  licencecheck and changerowcheck PASS on the live baseline (text 'after falling': 0 of 8 baseline _death rows).
+  Dry run over 24 h on a baseline pseudo-canary: canary crashes 3, control 9, re-count rows 3 and 9 — the
+  correctness gate fires on unfixed code, as it must. **Launch only after toolkeeper-01's teardown is
+  confirmed** (one canary, ever): `cd ~ && setsid bash ~/canary-loop.sh deathfix-01 </dev/null >
+  ~/canary-loop-deathfix-01.out 2>&1 &`, then kill nothing but confirm with pgrep + the journal.
 - **OWNER 21:00Z: QUEUED — bank fix with TIERED chest limits, then CRAFT LIMITS; Claude-only review for
   these two** (Codex out until 10-03; not a general waiver). Order: fall-death-tdz -> withdraw-home ->
   bank fix (A: place carried chest; B: tiers) -> craft limits. The one chest clear after the bank fix KEEPs.

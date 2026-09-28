@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+# deathfixread.py [window_min] -- the read for canary `deathfix-01` (branch fall-death-tdz, 1d107ed).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE: index.mjs's death handler read `cause` five lines before `const cause` (8f1e037, live
+# since 859af48 on 09-27). Every death more than 3 blocks below the recent peak threw a ReferenceError
+# out of mineflayer's packet handler and killed the process: 17 crashes on 15 bots in 36 h, measured
+# from the journal. The restarted bot rejoined dead and logged the death again as "unknown; idle", so
+# the death COUNT survived and its cause, fall distance and death site did not -- `after falling`
+# rows went from 6-45 a day on every build through efa2853 to 0 of 60 deaths on 859af48 and later.
+#
+# WHAT THIS READ GATES, and why it is not an effect: the fix is deterministic and passed the sandbox
+# (control threw, candidate wrote "fell from a high place after falling 17 blocks"). On the fleet the
+# question is only whether it RAN and did no harm. So:
+#   LIVENESS     `_death` rows containing "after falling" on the canary (the licence text). The baseline
+#                cannot write that text, so the CONTROL count must be 0 or the arms are wrong.
+#   CORRECTNESS  journal crashes with the ReferenceError on CANARY units must be 0. This is the defect
+#                gate. Its positive control is the SAME journal query on CONTROL units, which must find
+#                at least one crash in the window -- otherwise a canary zero proves nothing.
+#   INSTRUMENT   every journalctl call must succeed; a failed call is counted and blocks KEEP.
+# Deaths and the harm gates come from immobiledid, unchanged. Expected exposure: ~0.006 crash-class
+# deaths per bot-hour (17 / 80 bots / 36 h), so ~3 on a 20-bot canary in 26 h and ~9 in control.
+import sys, os, json, re, subprocess, glob
+import datetime as dt
+from collections import Counter
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+TEXT = 'after falling'
+CRASH = "Cannot access 'cause' before initialization"
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def load(since_minutes):
+    """Rotation-aware and deduped, as toolkeepread: day D's rows live in -{D+1}.gz."""
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=since_minutes)
+    key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+    rows, seen = [], set()
+    for r in ev.rows:
+        if key(r) not in seen:
+            rows.append(r); seen.add(key(r))
+    start = now - dt.timedelta(minutes=since_minutes)
+    for d in {(start + dt.timedelta(days=k)).date() for k in range(0, (now - start).days + 2)}:
+        for g in glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % (d + dt.timedelta(days=1)).strftime('%Y%m%d')):
+            try:
+                e2 = Events.load(paths=g, since_minutes=since_minutes, allow_zero=True)
+            except TypeError:
+                e2 = Events.load(paths=g, since_minutes=since_minutes)
+            for r in e2.rows:
+                if key(r) not in seen:
+                    rows.append(r); seen.add(key(r))
+    return rows
+
+
+# POSITIVE CONTROL for the text match, before any fleet row: the fix's own sandbox row must match
+# and the baseline's re-count row must not.
+assert TEXT in 'fell from a high place after falling 17 blocks; idle at the moment of death'
+assert TEXT not in 'unknown; idle at the moment of death | dropped: leaf_litter x320'
+
+rows = load(int(elapsed + 60))
+pools_seen = {pool_of((r.get('bot') or {}).get('name')) for r in rows}
+bots_seen = {(r.get('bot') or {}).get('name') for r in rows if r.get('bot')}
+print('rows walked %d  bots %d  pools %d  |  canary %s  sha %s  cutoff %s  window +%d min'
+      % (len(rows), len(bots_seen), len(pools_seen), CAN, CV, CUT.strftime('%H:%MZ'), W))
+
+deaths, fall, unknown = Counter(), Counter(), Counter()
+for r in rows:
+    if r.get('name') != '_death' or not (CUT <= r['t'] < END):
+        continue
+    arm = 'canary' if pool_of((r.get('bot') or {}).get('name')) in CANS else 'control'
+    d = r.get('detail') or ''
+    deaths[arm] += 1
+    if TEXT in d:
+        fall[arm] += 1
+    if d.startswith('unknown; idle'):
+        unknown[arm] += 1
+
+# THE JOURNAL, per unit, for exactly the window. Bot names come from the log directories, not a list.
+crash, journal_fail, units = Counter(), 0, Counter()
+since = CUT.strftime('%Y-%m-%d %H:%M:%S'); until = END.strftime('%Y-%m-%d %H:%M:%S')
+for d in sorted(glob.glob('/var/log/mcai/*-*-*')):
+    bot = os.path.basename(d)
+    if bot.startswith('_') or not os.path.isdir(d):
+        continue
+    arm = 'canary' if pool_of(bot) in CANS else 'control'
+    units[arm] += 1
+    try:
+        out = subprocess.run(['sudo', '-n', 'journalctl', '-u', 'mcbot@%s.service' % bot, '--since', since,
+                              '--until', until, '--utc', '--no-pager', '-o', 'cat'],
+                             capture_output=True, text=True, timeout=90)
+        if out.returncode != 0:
+            journal_fail += 1
+            continue
+        crash[arm] += out.stdout.count(CRASH)
+    except Exception:
+        journal_fail += 1
+
+print('-' * 78)
+print('%-40s %10s %10s' % ('', 'canary', 'control'))
+print('%-40s %10d %10d' % ('units queried in the journal', units['canary'], units['control']))
+print('%-40s %10d %10d' % ('_death rows', deaths['canary'], deaths['control']))
+print('%-40s %10d %10d' % ('  ... "%s" (LIVENESS: control must be 0)' % TEXT, fall['canary'], fall['control']))
+print('%-40s %10d %10d' % ('  ... "unknown; idle" (the re-count)', unknown['canary'], unknown['control']))
+print('%-40s %10d %10d' % ('journal ReferenceError crashes', crash['canary'], crash['control']))
+print('%-40s %10d' % ('journalctl calls that FAILED', journal_fail))
+print('-' * 78)
+print('CORRECTNESS  canary crashes %d (must be 0)  |  positive control: control crashes %d (must be >= 1)'
+      % (crash['canary'], crash['control']))
+print('LIVENESS     canary "%s" rows %d (>= 1)  |  control %d (must be 0)' % (TEXT, fall['canary'], fall['control']))
+
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('deathfixread', W, {
+        'fall_deaths_canary': fall['canary'], 'fall_deaths_control': fall['control'],
+        'crash_canary': crash['canary'], 'crash_control': crash['control'],
+        'journal_failures': journal_fail,
+        'units_canary': units['canary'], 'units_control': units['control'],
+        'deaths_canary': deaths['canary'], 'deaths_control': deaths['control'],
+        'unknown_idle_canary': unknown['canary'], 'unknown_idle_control': unknown['control'],
+    })
+except Exception as e:
+    print('emit failed:', e)
