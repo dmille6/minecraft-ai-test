@@ -1184,10 +1184,12 @@ export async function collectManually(bot, block, signal) {
 
   const tool = bestTool(bot, block, { lastSwing: true })
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
-  // The last swing is its own event so it can be counted, and read against what it yielded.
-  if (tool && remaining(tool) <= HARD_STOP) {
-    logEvent({ kind: 'last_swing', status: 'success',
-               detail: `${tool.name} at ${remaining(tool)} use(s) on ${block.name} at ${block.position.x},${block.position.y},${block.position.z}` })
+  // A LAST SWING MUST BE SWUNG WITH THE TOOL IT CHOSE. Durability is cached metadata and equip errors are
+  // swallowed above, so a copy the server already broke would leave the hand empty and the dig would run
+  // bare-handed (Codex review). Say so instead of digging.
+  const lastSwing = !!(tool && remaining(tool) <= HARD_STOP)
+  if (lastSwing && bot.heldItem?.name !== tool.name) {
+    throw Object.assign(new Error(`equip_failed: could not hold the last ${tool.name} for ${block.name}`), { failClass: 'equip_failed' })
   }
   // THE ADMISSION WENT STALE, AND THIS IS THE THIRD AND LAST CALL SITE.
   //
@@ -1244,6 +1246,12 @@ export async function collectManually(bot, block, signal) {
       new Error(`dig_unconfirmed: ${p.x},${p.y},${p.z} is still ${nowNamed} after the ` +
                 `dig resolved — the server never broke it`),
       { failClass: 'dig_unconfirmed' })
+  }
+  // Logged only once the block is CONFIRMED broken, with a snapshot, so the row is an outcome and not an
+  // intent (both reviews): the canary reads what last swings yielded, not how often the branch was entered.
+  if (lastSwing) {
+    logEvent({ kind: 'last_swing', status: 'success', snapshot: snapshot(bot),
+               detail: `broke ${wasNamed} at ${p.x},${p.y},${p.z} with a ${tool.name} at ${remaining(tool)} use(s)` })
   }
 
   await pickupNearbyItems(bot, signal)
