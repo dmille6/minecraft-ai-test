@@ -278,12 +278,25 @@ function connect() {
     // control state and pathfinder goto is refused unless its async context is
     // the arbiter's current holder (or the body is free). Installed before the
     // movement profiles so the pathfinder's goto is the wrapped one.
-    if (config.reflex.arbiter && runner?.arb) {
-      // The refusal names its CALL SITE (first frame outside arbiter.mjs and node internals): corpus run 5
-      // (2026-09-13) showed 86 refused control states on one fixture and no way to tell which unrouted path wrote them.
-      const site = () => { const st = (new Error().stack || '').split('\n').slice(1); const f = st.find(l => !/arbiter\.mjs|node:internal|index\.mjs/.test(l)) || st[2] || ''; return f.replace(/^\s*at\s+/, '').replace(/^.*\/bots\//, '').replace(/\?.*$/, '').slice(0, 80) }
-      runner.arb.installActuatorGate(bot, { onRefuse: (name, ctx, holder, bound) => logEvent({ kind: 'arbiter_actuator_refused', status: 'no_effect', detail: `${name} from ${ctx?.owner ?? 'an unrouted caller'} while ${holder?.owner ?? 'nobody'} holds the body (tick bound to ${bound?.owner ?? 'nobody'}) | at ${site()}`, snapshot: snapshot(bot) }) })
-    }
+    // THE ACTUATOR GATE IS NOT ON THIS BRANCH, AND THE CALL THAT INSTALLED IT CRASHED.
+    //
+    // `runner.arb.installActuatorGate(bot, ...)` stood here and `arbiter.mjs` does not define it:
+    // probed, `acquire`/`act`/`ok`/`release` are functions and this one is undefined, so ARBITER=1
+    // threw TypeError at startup and no bot could connect. The call arrived by a faithful
+    // cherry-pick (08a3da2, from 485ba61 on `recovery-ladder`) whose callee was part of the SOURCE
+    // BRANCH'S BASE rather than of the commit, so the 90-line method never came with it. No review
+    // of either commit could have seen that, and no test covered it.
+    //
+    // REMOVING THE CALL IS NOT ENOUGH ON ITS OWN, and config.mjs now refuses the flag for this
+    // reason: the arbiter is HALF wired. runner.mjs:191 acquires a grant per skill and reflex.mjs
+    // acquires for reflexes, but with no gate on bot.dig / placeBlock / setControlState /
+    // pathfinder.setGoal, a grant confers no ownership at all -- every actuator call proceeds
+    // whoever holds the body. That is worse than the crash, because it looks like it works.
+    //
+    // The real implementation is `installActuatorGate` on the movement-owner branches, and it is
+    // not a drop-in: enabled on a tree without async-context routing it produced 13,808 refusals
+    // in five minutes on a corpus fixture, and 1,890 in 90 minutes on 10 fleet bots, because a
+    // holder's own multi-leg goto refuses itself. Merging it is a canary, not a cherry-pick.
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
     const moves = new Movements(bot)

@@ -47,6 +47,19 @@ CODE_VERSION=$(git -C /opt/minecraft-ai rev-parse --short HEAD)
 mkdir -p "$H/env" "$SRV/bots/logs"
 cp -r /opt/minecraft-ai/bots/src "$H/"
 cp /opt/minecraft-ai/bots/package.json "$H/"
+# THE LOCKFILE, WHICH THIS SCRIPT DID NOT COPY FOR FIVE WEEKS.
+#
+# bots/package.json declares "mineflayer": "^4.37.1" -- a CARET. Without a lockfile beside it,
+# `npm install` below resolves the caret afresh, and 4.39.0 published 2026-09-06. The fleet stayed
+# on 4.37.1 only because a package-lock.json left behind by the original bootstrap on 2026-08-20
+# was still sitting in the runtime directory and npm kept honouring it. Delete that file, or let
+# npm rewrite it, and the next deploy silently moves 80 bots onto a release that rewrites
+# placeBlock -- the actuator the planting obligation now runs 1,034 times a day -- with every
+# health signal green, one code.version live, and the tripper satisfied.
+#
+# code.version is a sha of bots/src. It says nothing whatever about node_modules.
+cp /opt/minecraft-ai/bots/package-lock.json "$H/" 2>/dev/null || \
+  warn "no package-lock.json in the repo -- dependency versions are NOT pinned for this deploy"
 chown -R mcbot:mcbot "$SRV/bots"
 
 # prismarine-viewer needs node-canvas, which needs native build deps. Without
@@ -75,6 +88,30 @@ else
   echo "   DEPLOY REFUSED: lint found undeclared identifiers above."
   exit 1
 fi
+# WHAT ACTUALLY GOT INSTALLED, ASSERTED AGAINST WHAT THE LOCKFILE SAYS.
+#
+# Copying the lockfile is necessary and not sufficient: npm will rewrite it when package.json
+# disagrees, and the failure is silent. This refuses the deploy instead, in the same shape as the
+# lint gate above -- which is the only reason that one has ever fired.
+#
+# Not `if cmd | tail`: a pipeline reports the LAST command's status, so the gate would never fire.
+PIN_OUT=$(sudo -u mcbot bash -c "cd '$H' && node -e \"
+const lock = require('./package-lock.json').packages?.['node_modules/mineflayer']?.version;
+let got; try { got = require('mineflayer/package.json').version } catch (e) { got = null }
+if (!lock) { console.log('NOPIN no mineflayer entry in package-lock.json'); process.exit(3) }
+if (got !== lock) { console.log('DRIFT lockfile says ' + lock + ' but node_modules has ' + got); process.exit(1) }
+console.log('PINNED mineflayer ' + got);
+\"" 2>&1)
+case "$PIN_OUT" in
+  PINNED*) ok "$PIN_OUT" ;;
+  NOPIN*)  warn "$PIN_OUT -- proceeding UNPINNED" ;;
+  *)       printf '%s\n' "$PIN_OUT"
+           echo
+           echo "   DEPLOY REFUSED: the installed mineflayer does not match the lockfile."
+           echo "   An unpinned upgrade changes movement, containers and physics under 80 bots"
+           echo "   with every health signal green. Reconcile bots/package-lock.json first."
+           exit 1 ;;
+esac
 ok "dependencies installed ($(sudo -u mcbot bash -c "cd '$H' && ls node_modules | wc -l") packages)"
 
 # --------------------------------------------------------------------- env --
