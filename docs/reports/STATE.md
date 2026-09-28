@@ -259,13 +259,24 @@ y >= 0 holding zero stone — ~10x the craft-limit target. Both engines are now 
 stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) before anything is built.
 
 ## QUEUE (after toolkeeper-01 closes)
-- **2nd IN LINE (after deathfix-01): `last-swing` (`c63c847`, from 80b3bbd) — THE BIGGEST LEVER FOUND.** Both
+- **2nd IN LINE (after deathfix-01): `last-swing` (`b1c978e`, from 80b3bbd) — THE BIGGEST LEVER FOUND.** Both
   engines, independently, ~22 h of data: 92% of 3,393 failed stone/cobble gathers had every pickaxe at 1 use;
   61 of 80 bots in that trap (67.6% of bot-time); toolFor's HARD_STOP sent a bare hand at stone. Gather may now
   spend a last use when nothing else can harvest (collectManually only; travel and exit contract unchanged).
   SANDBOX PASSED: control "Digging aborted" + deepslate advice; candidate 3x `_last_swing`, "collected 3
   cobblestone", "crafted 1x stone_pickaxe". 204/204, 3 mutants. Implementation review by both engines running.
   The deepslate advice (skills.mjs:2663 recipe tie, not the sort) is cosmetic per both engines.
+  **Both implementation reviews done; changes applied in `b1c978e`:** stone family only,
+  equip_failed instead of a bare-hand dig, `_last_swing` logged after the confirmed break with a snapshot.
+  Sandbox re-passed. CANARY READ (both reviews): PRIMARY = per-bot binary, share of bots TRAPPED AT LAUNCH
+  (every pickaxe at 1 use) that hold a pickaxe with > 1 use within T h, DiD vs control bots trapped at launch;
+  SECONDARY = stone_pickaxe crafted per bot-h DiD (baseline ~0.125) and inventory-backed cobble yield;
+  REPORT per `_last_swing`: stone-family share, cobble gained, _tool_broke ~1:1 (a rise is expected — NOT a
+  harm gate). STRATIFY by sticks held (a bot short of 2 sticks gains cobble but cannot craft) and by
+  tool-keeper exposure. Tripwires: two-death floor, entombment/stuck-rescue failures, bots with zero pickaxes
+  > X min, mine refusals (should not move).
+- Queued, separate (pre-existing, Claude review): toolFor spends an iron pickaxe inside its FLOOR reserve on
+  stone while a 1-use lower-tier copy exists (`reserved_required`).
 - **NEXT CANARY IS STAGED: `deathfix-01`** (sha `1d107ed`, promotion **fleet-wide** — owner abandoned the 24-27 Sep
   window and approved fleet-wide promotion, 22:10Z). Registration
   `~/mcai-analysis/registrations/deathfix-01.json` = `docs/reports/deathfix-01-registration.json`; read
