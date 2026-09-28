@@ -14,6 +14,7 @@ const parse = line => {
   else if (skill === 'gather' && rest.length) { args.block = rest[rest.length - 1]; if (rest.length > 1) args.count = +rest[0] }
   else if (skill === 'explore' && rest.length) args.blocks = +rest[0]
   else if (skill === 'craft' && rest.length) { args.item = rest[rest.length - 1]; if (rest.length > 1) args.count = +rest[0] }
+  else if ((skill === 'withdraw' || skill === 'deposit') && rest.length) { args.item = rest[0]; if (rest.length > 1) args.count = +rest[1] }
   return { skill, args }
 }
 http.createServer((req, res) => {
