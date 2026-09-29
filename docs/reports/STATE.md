@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-29 05:45Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 06:10Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -287,10 +287,31 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     control 78 `_reflex_stuck` rows). Correctness gate; the effect is reported only (a -0.31/bot-h swing on
     an unchanged pool in 2.5 h).
     Memory: ghost-blocks-are-rejected-digs.
+  - **A/B on the ghost-making harness** (rejoin inside the arena + a mid-dig tp; the arms alternated): tunnel
+    only reached the ore 4 of 7 (3 stalled at y 116-117, the ghost signature; not RCON-verified per run);
+    tunnel + digsync 7 of 7, with 26/26 digs server-confirmed per run and player_loaded sent once per spawn.
+    Small n (one-sided Fisher p ~0.1); it agrees with the mechanism proof. Combined branch
+    `tmp-tunnel-digsync` (local only).
+  - **Ore tunnel committed: `ore-tunnel` @ `a63b93d`** (both reviews' findings fixed; 6/6 buried, gravel, water,
+    worn pickaxe OK; lava wall = the existing collectblock "collect threw nothing", a known limitation).
+    `oretunnel-01` registration + read staged (a capability canary: the outcome line gates KEEP; the draw
+    requires >= 10 iron gather rows because hive-c made 6 against 255 in control). It needs digsync on the
+    fleet first.
+  - **IDLE GAP BUILT: `idle-gap` @ `f3bff3d`** (from 80b3bbd; owner-approved tech-tree item 4). Both engines
+    analysed 24 h of fleet data first: idle is 25.3% of decisions; 51% of the attempts behind a skip were
+    admission REJECTIONS; skipCount never reset (69% of entries at the 6 h cap).
+    - Only an executed, serving outcome counts (servesRung: item rules + verb map + detours by their own
+      wants).
+    - A genuine completion resets skipCount (a no-means bypass does not).
+    - A 45-min no-progress deadline (persisted) is the exit; it is never reported to peers.
+    - 12 tests, 7 mutants killed, 204/204; the sandbox smoke is clean.
+    - **Implementation reviews by both engines running.** A canary registration is still to write.
+    - Side defect found (not fixed): hive pools lose milestone skip state on restart (lessons.mjs:322-325 vs
+      683-694).
   - **RECOMMENDED QUEUE (one canary at a time; the owner can reorder):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
-    3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it)
+    3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it; rebases cleanly onto 1d107ed, 205/205)
     4. lastswing-01
     5. hygiene-01
     6. ore tunnel (rebase the stack; registration to write)
