@@ -74,6 +74,16 @@ await t('the DIG WATCHER around a direct dig (no walk) no longer poisons the nex
   assert.equal(nextWalkDiesAtOnce(bot), false)
 })
 
+await t('LIVE MOTION (Codex): haltPath does not zero velocity or re-centre a moving, off-centre, airborne bot', () => {
+  const bot = makeBot()
+  bot.pathfinder.setGoal(new goals.GoalBlock(9, 64, 9))
+  bot.entity.position = new Vec3(0.93, 65.4, 0.12); bot.entity.velocity = new Vec3(0.21, 0.1, -0.18); bot.entity.onGround = false
+  haltPath(bot)
+  assert.deepEqual([bot.entity.velocity.x, bot.entity.velocity.z], [0.21, -0.18], 'horizontal momentum kept')
+  assert.deepEqual([bot.entity.position.x, bot.entity.position.z], [0.93, 0.12], 'not re-centred')
+  assert.equal(nextWalkDiesAtOnce(bot), false)
+})
+
 // Structural: no bare stop() left where a stale flag can follow (comments stripped; this codebase quotes code in them).
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 await t('no bare pathfinder.stop() outside pathhalt.mjs, except the dig watcher inside withTimeout', () => {

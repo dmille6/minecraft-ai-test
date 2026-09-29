@@ -8,8 +8,11 @@
 // drops failed in under 0.2 s straight after another failure, the signature of this; and the stuck reflex stops a bot
 // that by definition is not reaching nodes, then calls unstick(), whose own walk inherits the flag.
 //
-// stop() THEN setGoal(null): the reset consumes the flag in the same call, whatever the path state. Pure w.r.t. us.
+// setGoal(null) ALONE. resetPath already clears the path, stops a pathfinder dig and clears the controls
+// (index.js:123-139), so it halts completely -- and it never SETS the flag, while consuming one left by anyone else
+// (the dig watcher). An earlier draft did stop() THEN setGoal(null); Codex's review showed that makes the reset run
+// stop() -> fullStop(): horizontal velocity zeroed and the body re-centred even mid-air, which the old cleanup never
+// did. This is the old cleanup minus the trailing stop() that caused the bug -- the smallest behaviour change.
 export function haltPath (bot) {
-  try { bot?.pathfinder?.stop() } catch { /* not connected */ }
   try { bot?.pathfinder?.setGoal(null) } catch { /* not connected */ }
 }

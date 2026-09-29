@@ -233,7 +233,7 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
         if (onTimeout) {
           try { onTimeout() } catch { /* best effort; the reject still happens */ }
         } else {
-          haltPath(bot)   // stop() THEN setGoal(null), or the next goto dies of a stale flag (pathhalt.mjs)
+          haltPath(bot)   // setGoal(null) and NO trailing stop(): that left a stale flag the next goto died of (pathhalt.mjs)
         }
         // TAGGED, not just worded. The old message was matched by a regex that
         // also matched "no path", so OUR wall clock expiring was reported to
@@ -403,8 +403,11 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
         ? new goals.GoalNear(leg.x, leg.y, leg.z, Math.max(range, 2))
         : new goals.GoalNearXZ(leg.x, leg.z, Math.max(range, 2))
       const p = bot.pathfinder.goto(goal)
-      signal?.addEventListener('abort', () => haltPath(bot), { once: true })   // may fire after this leg ended: never leave a stale stop
-      await withTimeout(p, 25000, bot)
+      // Halt on abort -- and REMOVE the listener when the leg ends (Codex review: one per leg accumulated, and a
+      // finished leg's listener could halt a later walk).
+      const onAbort = () => haltPath(bot)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      try { await withTimeout(p, 25000, bot) } finally { signal?.removeEventListener?.('abort', onAbort) }
 
       // A RESOLVED PROMISE IS NOT AN ARRIVAL.
       //
@@ -6211,7 +6214,7 @@ export async function shaftAscend(bot, targetY, signal,
   // setGoal(null), not stop() alone: stop() takes effect at the next path node,
   // so a bot that cannot reach its next node never stops. withTimeout in this
   // file already had to learn that, and so did reflex.mjs.
-  haltPath(bot)   // stop() THEN setGoal(null): pathhalt.mjs
+  haltPath(bot)   // no trailing stop(): pathhalt.mjs
   try { bot.clearControlStates() } catch { /* not connected */ }
 
   const startY = bot.entity.position.y
