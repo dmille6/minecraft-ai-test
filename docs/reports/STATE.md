@@ -448,7 +448,17 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - digsync-01 is STAGED on the host (registration sha 59cbb71 = dig-rollback head, from 80b3bbd; read
       /tmp/digsyncread.py matches docs). Its dry draw at 15:08Z offered hive-a,board-a too. **Rebase it onto
       1d107ed if deathfix-01 is promoted.**
-  - **QUEUE (owner-approved 09-29; one canary at a time):**
+  - **OWNER 09-29 EVENING: "yes run last-swing next, and bundle the small fixes".** THE QUEUE NOW:
+    1. deathfix-02 (in the draw; ~02:10Z)
+    2. **lastswing-01 alone** -- both engines, 09-29: 92.3% of failed stone gathers held only 1-use pickaxes (1.1% success
+       vs 58.5% with a good one); 56 of 80 bots hold only spent copies. Rebase onto the fleet sha at launch.
+    3. **ONE FIXES BUNDLE**: branch `fixes-bundle` @ 7fc77e0 = 80b3bbd + dig-rollback + stale-stop + craft-advice +
+       hive-progress (clean merge, 207/207, sandbox smoke: gathers logs + cobble, deposits, no errors). After lastswing
+       lands, add prereq-usable and `tool-guard` (c6c37a4: nothing held can break it -> missing_tool before the walk,
+       not a learnable no_path; both reviews running). Reads: digsyncread, stalestopread, craftadviceread (staged,
+       dry-run OK), prequsableread, a hive-progress liveness line (`_progress_restored`), immobiledid.
+    4. hygiene-01, oretunnel-01, idlegap-01, bankfix-01 (a bundle already), exploretoward-01, vetoretry-01.
+  - (superseded) **QUEUE (owner-approved 09-29 morning; one canary at a time):**
     1. ~~toolkeeper-01~~ KEEP (not promoted)
     2. deathfix-01 (DEPLOYING 15:09Z, hive-a,board-a)
     3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it; rebases cleanly onto 1d107ed, 205/205)
