@@ -34,6 +34,10 @@ import { smeltRecipeFor } from './smelting.mjs'
  *     the only way out is a dead end). A no_progress skip is NOT reported to peers as "unreachable".
  */
 export const NO_PROGRESS_MS = 45 * 60_000
+/** A restart grants at least this long before the deadline: a bot offline for an hour must not give up on its first decision. */
+export const RESTART_GRACE_MS = 10 * 60_000
+/** runner.mjs failure classes that mean the skill never ran: not an attempt at anything. */
+export const RUNNER_REFUSALS = new Set(['runner_paused', 'runner_busy', 'body_held', 'unknown_skill', 'superseded'])
 /** Which block drops which item, for "does gathering X serve a rung that wants Y". Only the ones the ladder uses. */
 export const DROPS = { stone: 'cobblestone', deepslate: 'cobbled_deepslate', iron_ore: 'raw_iron', deepslate_iron_ore: 'raw_iron',
                        coal_ore: 'coal', deepslate_coal_ore: 'coal', grass_block: 'dirt', gravel: 'flint' }
@@ -54,16 +58,21 @@ const ROUTE = {
 export function servesRung (skill, args, task, wanted) {
   if (!skill || !task) return false
   const base = String(task.id ?? '').split(/[#+]/)[0]
-  const route = ROUTE[base] ?? (/^(survey|travel)_/.test(base) ? MOVE : null)
+  // A DETOUR IS JUDGED BY ITS OWN WANTS (Claude review: the route check ran first, so `gather dirt` on a
+  // stockpile_wood+prereq detour read as not serving).
+  const detour = /\+prereq$/.test(String(task.id ?? ''))
+  const route = detour ? null : ROUTE[base] ?? (/^(survey|travel)_/.test(base) ? MOVE : null)
   if (route) return !!route(skill, args)
   if (!(wanted instanceof Set) || !wanted.size) return false
   let out = null
   if (skill === 'craft') out = args?.item ?? null
   else if (skill === 'gather') out = args?.block ?? args?.item ?? null
   else if (skill === 'smelt') { try { out = smeltRecipeFor(args?.item)?.output ?? null } catch { out = null } }
+  else if (skill === 'withdraw') out = args?.item ?? null
   else if (skill === 'mine') return [...wanted].some(w => /_ore$|^raw_|^coal$|cobble|^stone$|deepslate|blackstone/.test(w))
   if (!out) return false
-  return wanted.has(out) || (DROPS[out] != null && wanted.has(DROPS[out]))
+  const plain = String(out).replace(/^deepslate_/, '')   // deepslate_iron_ore serves an iron_ore rung
+  return wanted.has(out) || wanted.has(plain) || (DROPS[out] != null && wanted.has(DROPS[out]))
 }
 
 // Role-specific chains. Three bots running the identical chain would fail in
@@ -827,6 +836,10 @@ export class MilestoneController {
     // When each rung last made serving progress (or first became current). Persisted: a restart must not reset the
     // no-progress deadline, or a bot that reconnects every 40 min would never leave an impossible rung.
     this.progressAt = p.progressAt ?? {}
+    // RESTART GRACE (Claude review): the deadline is wall-clock, so a bot back from an hour offline would give up its
+    // rung on its first decision. Persisted times are kept, but none is older than NO_PROGRESS_MS - RESTART_GRACE_MS.
+    { const floor = Date.now() - NO_PROGRESS_MS + RESTART_GRACE_MS
+      for (const [k, v] of Object.entries(this.progressAt)) if (v < floor) this.progressAt[k] = floor }
     // How many times the whole chain has been completed. SUSTAINING goals scale
     // their targets by it ("stockpile 16 + n*8 cobblestone"), and it was READ in
     // three places and ASSIGNED in none -- so every sustaining goal rendered as

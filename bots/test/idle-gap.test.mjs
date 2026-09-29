@@ -2,7 +2,7 @@
 // rung with no serving progress is still given up (the exit), and that give-up is never told to peers.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-const { MilestoneController, servesRung, NO_PROGRESS_MS } = await import('../src/milestones.mjs')
+const { MilestoneController, servesRung, NO_PROGRESS_MS, RESTART_GRACE_MS, RUNNER_REFUSALS } = await import('../src/milestones.mjs')
 
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -85,14 +85,32 @@ t('serving progress (a detour\'s success too) moves the deadline', () => {
   NOW += NO_PROGRESS_MS - 10
   assert.equal(c.noteAttempt({ failed: true, executed: false, serving: false }), false)
 })
-t('the deadline is PERSISTED: a restart (a new controller from the saved state) does not reset it', () => {
+t('the deadline is PERSISTED: a restart 20 min in keeps the original clock', () => {
   const first = ctl()
   first.c.noteAttempt({ failed: true, executed: false, serving: false })   // current since NOW
-  NOW += NO_PROGRESS_MS - 5
+  NOW += 20 * 60_000
   const again = ctl({ progress: first.progress })                            // the reconnect
+  NOW += NO_PROGRESS_MS - 20 * 60_000 - 5
   assert.equal(again.c.noteAttempt({ failed: true, executed: false, serving: false }), false)
   NOW += 5
   assert.equal(again.c.noteAttempt({ failed: true, executed: false, serving: false }), true, 'the deadline counted from BEFORE the restart')
+})
+t('RESTART GRACE: back after an hour offline, the bot gets 10 min before the deadline, not an instant give-up', () => {
+  const first = ctl()
+  first.c.noteAttempt({ failed: true, executed: false, serving: false })
+  NOW += 60 * 60_000
+  const again = ctl({ progress: first.progress })
+  assert.equal(again.c.noteAttempt({ failed: true, executed: false, serving: false }), false, 'no instant give-up')
+  NOW += RESTART_GRACE_MS
+  assert.equal(again.c.noteAttempt({ failed: true, executed: false, serving: false }), true)
+})
+t('a DETOUR on a route rung is judged by its own wants, not the route verbs', () => {
+  assert.equal(servesRung('gather', { block: 'dirt' }, { id: 'stockpile_wood#2+prereq', wants: 'dirt' }, W('dirt')), true)
+  assert.equal(servesRung('goto', {}, { id: 'patrol+prereq', wants: 'cobblestone' }, W('cobblestone')), false)
+})
+t('withdraw of a wanted item serves; deepslate ore serves its plain rung', () => {
+  assert.equal(servesRung('withdraw', { item: 'stick' }, { id: 'craft_stone_pickaxe_1' }, W('stone_pickaxe', 'stick')), true)
+  assert.equal(servesRung('gather', { block: 'deepslate_iron_ore' }, { id: 'gather_iron_ore_3' }, W('iron_ore')), true)
 })
 t('a GENUINE completion resets skipCount; a no-means BYPASS does not', () => {
   const a = ctl(); a.progress.skipCount['craft_stone_pickaxe_1'] = 9
@@ -111,6 +129,13 @@ t('the old boolean contract still works (every decision counts)', () => {
 
 // ---- wiring (comments stripped: this codebase's comments quote the code) ----
 const cog = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+t('WIRED: a runner refusal (paused/busy/body held/unknown/superseded) is NOT executed', () => {
+  for (const c of ['runner_paused', 'runner_busy', 'body_held', 'unknown_skill', 'superseded']) assert.ok(RUNNER_REFUSALS.has(c), c)
+  assert.match(cog, /const executed = !!admitted && outcome\.status !== 'aborted' && !RUNNER_REFUSALS\.has\(runFailClass\)/)
+  assert.match(cog, /runFailClass = r\.failClass \?\? null/)
+  const run = readFileSync(new URL('../src/runner.mjs', import.meta.url), 'utf8')
+  for (const c of RUNNER_REFUSALS) assert.ok(run.includes(`failClass: '${c}'`), `runner.mjs still emits ${c}`)
+})
 t('WIRED: cognitive passes the verdict object, and only an attempts give-up is reported to peers', () => {
   assert.match(cog, /this\.milestones\.noteAttempt\(\{ failed: outcome\.status !== 'success', executed, serving, overlay \}\)/)
   assert.match(cog, /gaveUp && why\.reason === 'attempts' && this\.worldFacts\?\.reportUnreachable/)

@@ -14,7 +14,7 @@ import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
-import { MilestoneController, servesRung, NO_PROGRESS_MS } from './milestones.mjs'
+import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
@@ -787,12 +787,14 @@ export class CognitiveLoop {
 
     // Execute (or not), then record ONE row describing the whole decision.
     let outcome = { status: 'aborted', detail: rejection?.detail ?? res.error ?? 'no action' }
+    let runFailClass = null
     if (admitted) {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
       })
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
+      runFailClass = r.failClass ?? null
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
@@ -1001,7 +1003,9 @@ export class CognitiveLoop {
     this.lessons.save()
     // THE IDLE GAP (milestones.mjs NO_PROGRESS_MS): only an executed decision that serves the task counts toward a
     // give-up. A rejection is not an attempt at the goal, and neither is exploring while the goal is a pickaxe.
-    const executed = !!admitted && outcome.status !== 'aborted'
+    // The runner's own refusals never ran the skill (Claude review of f3bff3d: 22% of 'serving failures' on the fleet
+    // were 'paused after repeated failures', and a paused give-up was even reported to peers).
+    const executed = !!admitted && outcome.status !== 'aborted' && !RUNNER_REFUSALS.has(runFailClass)
     let serving = false
     try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
     const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
