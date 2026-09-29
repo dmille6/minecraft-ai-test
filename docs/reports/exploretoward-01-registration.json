@@ -1,0 +1,100 @@
+{
+ "run_id": "exploretoward-01",
+ "sha": "SET-AT-LAUNCH: branch explore-toward (from 80b3bbd) rebased onto the fleet sha at launch",
+ "registered_at": "2026-09-29T16:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "EXPLORE WALKED TO IRON WHATEVER THE TASK (2026-09-29). explore takes the first sighting in an iron-first order when no `toward` is given, and the model cannot give one (explore declares only `blocks`; 16,055 of 16,056 proposals). Codex measured 28-29 Sep on 80b3bbd: 1,287 of 8,766 executed explores ran under a wood/dirt/sand/stone task and walked to IRON (9.8 execution h); control 78/78 iron-task explores chose iron. THE FIX (both engines designed; both reviewed the implementation, Claude AGREE+2 changes, Codex CHANGE, all applied): exploreintent.mjs maps a gather rung, the wood stockpile, the iron rung (by id) or a detour naming logs/sand/raw_iron/coal to the kinds the reflex sights; stone and dirt tasks are OUT (stone is buried, not distant; dirt is never sighted). Supplied AFTER admission on a copy of the args, so every gate key is unchanged. A family means the nearest member; no sighting means no target (never iron); the walk re-aims after each leg and stops on arrival (arrival is success); a null heading is no longer due east. Rows `_explore_toward_milestone` (target + the old pick as legacy=) and `_explore_toward_milestone_end` (arrived / not). 18 tests incl. explore() driven with a drifting pathfinder; 14 mutants all killed; 204/204.",
+ "licence": {
+  "class": "kind",
+  "kind": "_explore_toward_milestone",
+  "min_rows": 1,
+  "note": "Written only by this build, only for a task-aimed explore. The baseline has no exploreintent module and no such row kind."
+ },
+ "reads": [
+  "exploretowardread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "explore targeting activity (the population this changes)",
+    "kind": "_explore_toward_known",
+    "min": 30
+   }
+  ],
+  "note": "Dry run 09-29: 1,282 control rows in 3 h (~85 per pool). In-scope explores are ~0.74-0.80/bot-h (both reviews)."
+ },
+ "exposure": {
+  "read": "exploretowardread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 15 canary aimed rows AND control _explore_toward_known >= 1. ~0.8/bot-h in scope -> ~15 rows in 2 h on 10 bots, ~4 h on 5."
+ },
+ "own_lines": [
+  {
+   "read": "exploretowardread",
+   "field": "outside_kinds_judged",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS: an aimed walk targeted a kind its task did not ask for. Judged only on >= 15 canary rows (unchanged code writes none, and a zero there would be vacuous -- dry run 09-29 printed NOT judged)."
+  },
+  {
+   "read": "exploretowardread",
+   "field": "aimed_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "exploretowardread",
+   "field": "aimed_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "exploretowardread",
+   "field": "known_rows_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: explore targeting is visible to this query (1,282 in the dry run). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "exploretowardread",
+  "field": "differs_from_legacy",
+  "note": "REPORTED, NOT GATED: arrived share of aimed walks, none_known share, target != legacy share, explore distance_moved and failed/no_effect DiD. Between-pool noise is large: the dry run on UNCHANGED hive-b read median distance 56 -> 3 and failed share DiD +0.29 in 3 h. An items effect is not measurable at ~0.8 aimed walks/bot-h."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Sand targets are shorelines: name any drowning in the read."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}
