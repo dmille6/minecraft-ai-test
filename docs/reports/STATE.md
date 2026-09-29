@@ -342,6 +342,15 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
         asked, not answered -- not assumed);
     (2) withdraw-home is BUNDLED with the bank fix;
     (3) the mayor path is approved: chest ledger -> shadow-mode mayor, once the queue has moved.
+  - **CHEST LEDGER BUILT: `chest-ledger` @ `450b352`** (on withdraw-home; owner-approved colony step 1).
+    - Observe-only: one JSON snapshot per container per pool; nothing reads it yet.
+    - Designed by both engines; implementation reviews by both are running.
+    - 10 tests (incl. a broken ledger dir never breaks a transfer; no container open bypasses it); 205/205.
+    - REAL SERVER: the ledger matched RCON exactly for a double chest (one record, both halves) and a
+      single chest after a deposit + a withdraw.
+    - Positive control: an RCON change -> MISMATCH. The first comparator was TRUNCATED by the server and
+      read MATCH; it now reads entry by entry.
+    - Ships in the withdraw-home + bank-fix bundle.
   - **QUEUE (owner-approved 09-29; one canary at a time):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
