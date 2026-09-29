@@ -1,0 +1,101 @@
+{
+ "run_id": "lastswing-01",
+ "sha": "SET-AT-LAUNCH: branch last-swing rebased onto the fleet sha at launch (deathfix-01 goes first)",
+ "registered_at": "2026-09-29T05:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "61 OF 80 BOTS COULD NOT MAKE STONE. They held only pickaxes at 1 use, and gather's reserve refused to spend the last use, so no cobblestone -> no stone_pickaxe. In the 3 h to 2026-09-29 04:45Z, 227 of 281 stone_pickaxe craft rows were 'cannot craft stone_pickaxe -- gather cobblestone'. THE CHANGE (c63c847 + b1c978e): gather may spend a pickaxe's LAST use, on the stone family only (stone, cobblestone, deepslate, cobbled_deepslate, blackstone), and only when the held tool is confirmed equipped (else equip_failed, 0 digs). `_last_swing` is written after the block is confirmed broken, with a snapshot. Reviewed by Claude and Codex independently; both guards mutant-killed; 204/204. SANDBOX Paper 1.21.11: 3x `_last_swing` 'broke stone ... at 1 use(s)', 'collected 3 cobblestone', 'crafted 1x stone_pickaxe'. WHY THE GATE IS CORRECTNESS: the change is deterministic; the fleet question is whether it ran, only on stone, and harmed nothing. The effect lines are reported (DiD vs the same-length pre-window) and do not gate.",
+ "licence": {
+  "class": "kind",
+  "row": "_last_swing",
+  "min_rows": 1,
+  "note": "The baseline has no `_last_swing` row kind (git grep last_swing 80b3bbd -- bots/src: 0). ~3 'gather cobblestone' craft failures per bot per 3 h in control, so a 5-bot canary that contains the population should write several within 3 h."
+ },
+ "reads": [
+  "lastswingread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "bots failing a stone_pickaxe for want of cobblestone (the population this fix targets)",
+    "kind": "craft",
+    "detail_contains": "cannot craft stone_pickaxe -- gather cob",
+    "min": 3
+   }
+  ],
+  "note": "CLAUDE.md: a canary pool must contain the population the fix targets. Fleet-wide 225 such rows in 3 h on 75 bots (dry run 2026-09-29 04:50Z)."
+ },
+ "exposure": {
+  "read": "lastswingread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = at least one canary-build `_last_swing` (the fix ran) AND at least one control 'gather cobblestone' failure (the population query sees a presence)."
+ },
+ "own_lines": [
+  {
+   "read": "lastswingread",
+   "field": "offstone_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS. A last swing on anything outside the stone family burns the copy that buys a new pickaxe. Deterministic."
+  },
+  {
+   "read": "lastswingread",
+   "field": "swing_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "The baseline cannot write `_last_swing`; a control row means the arms are wrong. No evidence class: BLOCKS KEEP."
+  },
+  {
+   "read": "lastswingread",
+   "field": "swing_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. Zero means the branch never ran on the fleet. No evidence class: BLOCKS KEEP (INCONCLUSIVE), never reverts."
+  },
+  {
+   "read": "lastswingread",
+   "field": "short_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL for the population query (225 in the 3 h dry run). No evidence class: BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "lastswingread",
+  "field": "usable_share_did",
+  "note": "REPORTED, NOT GATED: DiD in the share of bots whose latest snapshot holds a pickaxe with >= 2 uses; also crafted_did_per_bh (stone_pickaxe crafts) and short_did_per_bh ('gather cobblestone' failures, expected to fall). Dry run on the unchanged fleet (hive-c, 3 h) gave usable_share_did +0.147 on 5 bots -- the noise on one pool is that large, so this cannot decide anything on its own."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

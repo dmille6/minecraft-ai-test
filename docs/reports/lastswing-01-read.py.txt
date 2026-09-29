@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+# lastswingread.py [window_min] -- the read for canary `lastswing-01` (branch last-swing).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE: gather may spend a pickaxe's LAST use, on the stone family only (stone, cobblestone,
+# deepslate, cobbled_deepslate, blackstone), and only when the held tool is confirmed equipped. 61 of 80
+# bots held only spent pickaxes and could not mine the cobblestone for a new one: in the 3 h to
+# 2026-09-29 04:45Z, 227 of 281 stone_pickaxe craft rows were "cannot craft stone_pickaxe -- gather
+# cobblestone". `_last_swing` is written only AFTER the block is confirmed broken, with a snapshot.
+#
+# WHAT THIS READ GATES (a fix: correctness, not effect -- owner 2026-09-29 "short canary for fixes"):
+#   LIVENESS     canary `_last_swing` rows written by the CANARY build (>= 1). The baseline has no such
+#                row kind, so the CONTROL count must be 0 or the arms are wrong.
+#   CORRECTNESS  canary `_last_swing` rows naming a block OUTSIDE the stone family must be 0 (the gate
+#                that stops a spent copy being burned on coal and leaving no way out).
+#   INSTRUMENT   positive control: the control's "gather cobblestone" craft failures must be >= 1, so the
+#                population query can see a presence.
+# REPORTED, NOT GATED (DiD, window vs the same-length window before the cutoff): the share of bots whose
+# latest snapshot holds a pickaxe with >= 2 uses; stone_pickaxe crafts and "gather cobblestone" craft
+# failures per bot-hour. Deaths and harm come from immobiledid, unchanged.
+import sys, os, json, re, glob
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+PRE = CUT - dt.timedelta(minutes=W)
+STONE = {'stone', 'cobblestone', 'deepslate', 'cobbled_deepslate', 'blackstone'}
+ROW_RE = re.compile(r'^broke (\S+) at ')
+SHORT = 'cannot craft stone_pickaxe -- gather cob'
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def load(since_minutes):
+    """Rotation-aware and deduped, as deathfixread: day D's rows live in -{D+1}.gz."""
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=since_minutes)
+    key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+    rows, seen = [], set()
+    for r in ev.rows:
+        if key(r) not in seen:
+            rows.append(r); seen.add(key(r))
+    start = now - dt.timedelta(minutes=since_minutes)
+    for d in {(start + dt.timedelta(days=k)).date() for k in range(0, (now - start).days + 2)}:
+        for g in glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % (d + dt.timedelta(days=1)).strftime('%Y%m%d')):
+            try:
+                e2 = Events.load(paths=g, since_minutes=since_minutes, allow_zero=True)
+            except TypeError:
+                e2 = Events.load(paths=g, since_minutes=since_minutes)
+            for r in e2.rows:
+                if key(r) not in seen:
+                    rows.append(r); seen.add(key(r))
+    return rows
+
+
+# POSITIVE CONTROL for the parser, before any fleet row: the sandbox row parses to its block.
+m = ROW_RE.match('broke stone at 404,114,236 with a stone_pickaxe at 1 use(s)')
+assert m and m.group(1) == 'stone'
+assert not ROW_RE.match('collected 3 cobblestone')
+
+rows = load(int(elapsed + W + 60))
+bots_seen = {(r.get('bot') or {}).get('name') for r in rows if r.get('bot')}
+print('rows walked %d  bots %d  |  canary %s  sha %s  cutoff %s  window +%d min'
+      % (len(rows), len(bots_seen), CAN, CV, CUT.strftime('%H:%MZ'), W))
+
+swing, offstone, offbuild = Counter(), Counter(), 0
+blocks = Counter()
+crafted, short = defaultdict(Counter), defaultdict(Counter)   # [period][arm]
+latest = defaultdict(dict)                                     # [period][bot] -> (t, tools)
+botset = defaultdict(lambda: defaultdict(set))                 # [period][arm] -> bots
+for r in rows:
+    t = r.get('t')
+    if t is None or not (PRE <= t < END):
+        continue
+    period = 'post' if t >= CUT else 'pre'
+    b = r.get('bot') or {}
+    name = b.get('name')
+    arm = 'canary' if pool_of(name) in CANS else 'control'
+    if name:
+        botset[period][arm].add(name)
+        if b.get('tools') is not None:
+            prev = latest[period].get(name)
+            if prev is None or t >= prev[0]:
+                latest[period][name] = (t, b.get('tools'))
+    n, d = r.get('name'), (r.get('detail') or '')
+    if n == '_last_swing' and period == 'post':
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if arm == 'canary' and CV and not ver.startswith(CV):
+            offbuild += 1
+            continue
+        swing[arm] += 1
+        mm = ROW_RE.match(d)
+        blk = mm.group(1) if mm else '?'
+        blocks[blk] += 1
+        if blk not in STONE:
+            offstone[arm] += 1
+    if n == 'craft':
+        if r.get('status') == 'success' and d.startswith('crafted') and 'stone_pickaxe' in d:
+            crafted[period][arm] += 1
+        if d.startswith(SHORT):
+            short[period][arm] += 1
+
+
+def usable_share(period, arm):
+    have = tot = 0
+    for bot, (t, tools) in latest[period].items():
+        if ('canary' if pool_of(bot) in CANS else 'control') != arm:
+            continue
+        tot += 1
+        picks = [c for k, v in (tools or {}).items() if k.endswith('_pickaxe') for c in (v or [])]
+        if any((c.get('max', 0) - c.get('used', 0)) >= 2 for c in picks):
+            have += 1
+    return have, tot
+
+
+def per_bh(c, period, arm):
+    n = len(botset[period][arm])
+    return c[period][arm] / (n * W / 60) if n else float('nan')
+
+
+print('-' * 78)
+print('%-46s %10s %10s' % ('', 'canary', 'control'))
+print('%-46s %10d %10d' % ('_last_swing rows (LIVENESS; control must be 0)', swing['canary'], swing['control']))
+print('%-46s %10d %10d' % ('  ... on a block OUTSIDE the stone family', offstone['canary'], offstone['control']))
+print('%-46s %10d' % ('canary-pool rows from another build', offbuild))
+print('blocks:', dict(blocks.most_common(8)))
+dd = {}
+for label, c in (('stone_pickaxe crafted /bot-h', crafted), ('"gather cobblestone" failures /bot-h', short)):
+    v = {(p, a): per_bh(c, p, a) for p in ('pre', 'post') for a in ('canary', 'control')}
+    dd[label] = (v[('post', 'canary')] - v[('pre', 'canary')]) - (v[('post', 'control')] - v[('pre', 'control')])
+    print('%-46s pre %.3f -> post %.3f | control pre %.3f -> post %.3f | DiD %+.3f'
+          % (label, v[('pre', 'canary')], v[('post', 'canary')], v[('pre', 'control')], v[('post', 'control')], dd[label]))
+us = {(p, a): usable_share(p, a) for p in ('pre', 'post') for a in ('canary', 'control')}
+frac = {k: (h / t if t else float('nan')) for k, (h, t) in us.items()}
+did_usable = (frac[('post', 'canary')] - frac[('pre', 'canary')]) - (frac[('post', 'control')] - frac[('pre', 'control')])
+print('%-46s pre %s -> post %s | control pre %s -> post %s | DiD %+.3f'
+      % ('bots holding a pickaxe with >= 2 uses', '%d/%d' % us[('pre', 'canary')], '%d/%d' % us[('post', 'canary')],
+         '%d/%d' % us[('pre', 'control')], '%d/%d' % us[('post', 'control')], did_usable))
+print('-' * 78)
+print('CORRECTNESS  canary off-stone last swings %d (must be 0)' % offstone['canary'])
+print('LIVENESS     canary last swings %d (>= 1)  |  control %d (must be 0)' % (swing['canary'], swing['control']))
+print('INSTRUMENT   control "gather cobblestone" failures in window %d (must be >= 1)' % short['post']['control'])
+print('READY        %s' % ('YES' if swing['canary'] >= 1 and short['post']['control'] >= 1 else 'not yet'))
+
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('lastswingread', W, {
+        'swing_canary': swing['canary'], 'swing_control': swing['control'],
+        'offstone_canary': offstone['canary'], 'offbuild_canary': offbuild,
+        'short_control': short['post']['control'],
+        'crafted_did_per_bh': round(dd['stone_pickaxe crafted /bot-h'], 4),
+        'short_did_per_bh': round(dd['"gather cobblestone" failures /bot-h'], 4),
+        'usable_share_did': round(did_usable, 4),
+        'exposure_ready': int(swing['canary'] >= 1 and short['post']['control'] >= 1),
+    })
+except Exception as e:
+    print('emit failed:', e)
