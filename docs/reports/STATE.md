@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-29 07:00Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 07:35Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -321,6 +321,20 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Canary: HIVE pools only; hive-c/d held out to 09-30 -> hive-a vs hive-b, effect INCONCLUSIVE, but
       correctness (restored progress non-empty after a 2nd restart, from the new load-log fields) is
       readable. A registration is not written yet.
+  - **DROPPED ITEMS -> STALE STOP, BUILT: `stale-stop` @ `7775d5e`** (from 80b3bbd). Both engines measured it:
+    - 13,275 pickup drops were retired unreached in 6 h (27.5/bot-h, 73/80 bots);
+    - 12.8% of gathers were barren (dug, drop left; mostly logs and dirt).
+    Root cause found by Claude and verified in the pathfinder source: `stop()` only sets a flag, and our
+    cleanup did setGoal(null) THEN stop(), so the flag stayed set and the NEXT goto died instantly
+    (>= 1,261 skips have that signature). The stuck reflex did it before unstick() too.
+    - haltPath = stop() then setGoal(null), at 4 sites; the skip row now carries err/item/offset.
+    - Real-pathfinder tests (the old order is the positive control), 3 mutants killed, 204/204, the smoke
+      is clean.
+    - An old source test had PINNED the buggy order.
+    - **Both engines' implementation reviews running.** A registration is still to write (licence text
+      `err=` in `_pickup_skipped`).
+    - Not in it (later design): a pickup goal matching the real pickup range; a bounded dig-out for pocket
+      drops (the tunnel's 1-in-3 lost ore).
   - **RECOMMENDED QUEUE (one canary at a time; the owner can reorder):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
