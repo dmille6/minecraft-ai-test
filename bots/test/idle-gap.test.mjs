@@ -2,7 +2,7 @@
 // rung with no serving progress is still given up (the exit), and that give-up is never told to peers.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-const { MilestoneController, servesRung, NO_PROGRESS_MS, RESTART_GRACE_MS, RUNNER_REFUSALS } = await import('../src/milestones.mjs')
+const { MilestoneController, servesRung, NO_PROGRESS_MS, RESTART_GRACE_MS, RUNNER_REFUSALS, RESIDENCE_MAX_MS, SUSTAINING } = await import('../src/milestones.mjs')
 
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -112,6 +112,33 @@ t('withdraw of a wanted item serves; deepslate ore serves its plain rung', () =>
   assert.equal(servesRung('withdraw', { item: 'stick' }, { id: 'craft_stone_pickaxe_1' }, W('stone_pickaxe', 'stick')), true)
   assert.equal(servesRung('gather', { block: 'deepslate_iron_ore' }, { id: 'gather_iron_ore_3' }, W('iron_ore')), true)
 })
+t('THE ABSOLUTE BOUND (Codex counterexample): serving successes every 44 min still end at 3 h, reason residence', () => {
+  const { c } = ctl()
+  c.noteAttempt({ failed: true, executed: false, serving: false })
+  let skipped = false, hours = 0
+  while (!skipped && hours < 10) {
+    NOW += 44 * 60_000; hours += 44 / 60
+    skipped = c.noteAttempt({ failed: false, executed: true, serving: true })
+  }
+  assert.equal(skipped, true); assert.equal(c.lastSkip.reason, 'residence')
+  assert.ok(hours * 3600_000 <= RESIDENCE_MAX_MS + 44 * 60_000, `held ${hours.toFixed(1)} h`)
+})
+t('RUNG IDENTITY: an outcome judged against another rung\'s task neither counts nor resets', () => {
+  const { c } = ctl()
+  for (let i = 0; i < 30; i++) c.noteAttempt({ failed: true, executed: true, serving: true, taskId: 'stockpile_wood#3' })
+  assert.equal(c.current().id, 'craft_stone_pickaxe_1')
+  for (let i = 0; i < 24; i++) c.noteAttempt({ failed: true, executed: true, serving: true, taskId: 'craft_stone_pickaxe_1+prereq' })
+  assert.equal(c.current().id, 'craft_stone_pickaxe_1', 'a detour of THIS rung is this rung, but overlays do not count')
+  let s2 = false
+  for (let i = 0; i < 25 && !s2; i++) s2 = c.noteAttempt({ failed: true, executed: true, serving: true, taskId: 'craft_stone_pickaxe_1' })
+  assert.equal(s2, true)
+})
+t('deposit_surplus: "no chest in range" steps over it but is NOT a genuine completion', () => {
+  const dep = SUSTAINING.find(m => m.id === 'deposit_surplus')
+  const carrying = { inventory: { items: () => [{ name: 'iron_ingot', count: 9 }, { name: 'raw_iron', count: 9 }, { name: 'coal', count: 20 }] }, findBlock: () => null, registry: { blocks: {} } }
+  assert.equal(dep.done(carrying), true, 'stepped over (no chest)')
+  assert.equal(dep.fulfilled(carrying), false, 'but not fulfilled')
+})
 t('a GENUINE completion resets skipCount; a no-means BYPASS does not', () => {
   const a = ctl(); a.progress.skipCount['craft_stone_pickaxe_1'] = 9
   a.state.fulfilled = true; a.c.refresh()
@@ -137,7 +164,7 @@ t('WIRED: a runner refusal (paused/busy/body held/unknown/superseded) is NOT exe
   for (const c of RUNNER_REFUSALS) assert.ok(run.includes(`failClass: '${c}'`), `runner.mjs still emits ${c}`)
 })
 t('WIRED: cognitive passes the verdict object, and only an attempts give-up is reported to peers', () => {
-  assert.match(cog, /this\.milestones\.noteAttempt\(\{ failed: outcome\.status !== 'success', executed, serving, overlay \}\)/)
+  assert.match(cog, /this\.milestones\.noteAttempt\(\{ failed: outcome\.status !== 'success', executed, serving, overlay, taskId: milestone\?\.id \?\? null \}\)/)
   assert.match(cog, /gaveUp && why\.reason === 'attempts' && this\.worldFacts\?\.reportUnreachable/)
   assert.doesNotMatch(cog, /noteAttempt\(outcome\.status !== 'success'\)/)
 })

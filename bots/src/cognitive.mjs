@@ -1009,14 +1009,14 @@ export class CognitiveLoop {
     let serving = false
     try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
     const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
-    if (this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay })) {
+    if (this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
       const sk = this.milestones.status()
       const why = this.milestones.lastSkip ?? {}
       log('warn', 'milestone unreachable, skipping', { now: sk.id, reason: why.reason })
       this.memory.addEvent(`gave up on the previous goal as unreachable; now: ${sk.describe}`)
       logEvent({ kind: 'milestone_skipped', status: 'failed',
-                 detail: (why.reason === 'no_progress'
-                   ? `no serving progress in ${Math.round(NO_PROGRESS_MS / 60_000)} min`
+                 detail: (why.reason === 'no_progress' ? `no serving progress in ${Math.round(NO_PROGRESS_MS / 60_000)} min`
+                   : why.reason === 'residence' ? 'current for 3 h without being met'
                    : `${why.budget ?? 25} serving attempts failed`) + ` (skip #${why.skipCount ?? '?'} of ${why.id ?? '?'}); moved on to ${sk.id}`,
                  snapshot: snapshot(this.bot) })
       this.lessons.save()   // a give-up is rare and expensive to relearn

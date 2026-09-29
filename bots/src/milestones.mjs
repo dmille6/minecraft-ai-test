@@ -34,6 +34,12 @@ import { smeltRecipeFor } from './smelting.mjs'
  *     the only way out is a dead end). A no_progress skip is NOT reported to peers as "unreachable".
  */
 export const NO_PROGRESS_MS = 45 * 60_000
+/**
+ * THE ABSOLUTE BOUND (Codex review of f3bff3d, REJECT with a counterexample): serving successes every 44 min held a
+ * rung for 6.6 simulated hours, because a success is not the rung advancing. However the deadline is renewed, no rung
+ * stays current longer than this without being fulfilled (reason residence).
+ */
+export const RESIDENCE_MAX_MS = 3 * 3600_000
 /** A restart grants at least this long before the deadline: a bot offline for an hour must not give up on its first decision. */
 export const RESTART_GRACE_MS = 10 * 60_000
 /** runner.mjs failure classes that mean the skill never ran: not an attempt at anything. */
@@ -46,7 +52,7 @@ const ROUTE = {
   patrol: s => MOVE(s),
   return: s => s === 'home' || s === 'goto',
   deposit_surplus: s => s === 'deposit',
-  stockpile_wood: (s, a) => s === 'gather' && /_(log|wood|stem|planks)$/.test(String(a?.block ?? a?.item ?? '')),
+  stockpile_wood: (s, a) => (s === 'gather' && /_(log|wood|stem)$/.test(String(a?.block ?? ''))) || (s === 'craft' && /_planks$/.test(String(a?.item ?? ''))),
   stockpile_stone: (s, a) => s === 'mine' || (s === 'gather' && /^(stone|cobblestone|deepslate|cobbled_deepslate|blackstone)$/.test(String(a?.block ?? a?.item ?? ''))),
 }
 /**
@@ -66,7 +72,7 @@ export function servesRung (skill, args, task, wanted) {
   if (!(wanted instanceof Set) || !wanted.size) return false
   let out = null
   if (skill === 'craft') out = args?.item ?? null
-  else if (skill === 'gather') out = args?.block ?? args?.item ?? null
+  else if (skill === 'gather') out = args?.block ?? null   // gather reads `block` only (skills.mjs)
   else if (skill === 'smelt') { try { out = smeltRecipeFor(args?.item)?.output ?? null } catch { out = null } }
   else if (skill === 'withdraw') out = args?.item ?? null
   else if (skill === 'mine') return [...wanted].some(w => /_ore$|^raw_|^coal$|cobble|^stone$|deepslate|blackstone/.test(w))
@@ -770,6 +776,8 @@ export const SUSTAINING = [
     // that already kill deposits.
     id: 'deposit_surplus',
     wants: null,
+    // Genuine only when the surplus is gone; "no chest within 48" steps over it without resetting its history (Codex).
+    fulfilled: b => bankableInventory(b.inventory?.items?.() ?? []).count < 4,
     describe: () => 'Put your surplus in the town chest before heading out again.',
     // SATISFIABLE EVEN WHEN IT CANNOT BE DONE, which is the whole lesson of the
     // note under M.travel below -- and which the first version of THIS rung got
@@ -838,8 +846,12 @@ export class MilestoneController {
     this.progressAt = p.progressAt ?? {}
     // RESTART GRACE (Claude review): the deadline is wall-clock, so a bot back from an hour offline would give up its
     // rung on its first decision. Persisted times are kept, but none is older than NO_PROGRESS_MS - RESTART_GRACE_MS.
-    { const floor = Date.now() - NO_PROGRESS_MS + RESTART_GRACE_MS
-      for (const [k, v] of Object.entries(this.progressAt)) if (v < floor) this.progressAt[k] = floor }
+    // Each entry is { t: last serving progress, since: when the rung became current } (a bare number is the older shape).
+    { const now = Date.now(), tFloor = now - NO_PROGRESS_MS + RESTART_GRACE_MS, sFloor = now - RESIDENCE_MAX_MS + RESTART_GRACE_MS
+      for (const [k, v] of Object.entries(this.progressAt)) {
+        const e = typeof v === 'number' ? { t: v, since: v } : (v && typeof v === 'object' ? v : { t: now, since: now })
+        this.progressAt[k] = { t: Math.max(e.t ?? now, tFloor), since: Math.max(e.since ?? now, sFloor) }
+      } }
     // How many times the whole chain has been completed. SUSTAINING goals scale
     // their targets by it ("stockpile 16 + n*8 cobblestone"), and it was READ in
     // three places and ASSIGNED in none -- so every sustaining goal rendered as
@@ -897,17 +909,21 @@ export class MilestoneController {
    */
   noteAttempt(outcome) {
     // A bare boolean is the old contract (every decision counts); cognitive passes the full verdict.
-    const { failed, executed = true, serving = true, overlay = false } =
+    const { failed, executed = true, serving = true, overlay = false, taskId = null } =
       outcome && typeof outcome === 'object' ? outcome : { failed: !!outcome }
     const m = this.current()
     if (!m) return false
+    // RUNG IDENTITY (Codex review): decisions are async, so refresh() can move the index while one is in flight. An
+    // outcome judged against another rung's task says nothing about this one -- but the bounds below still run.
+    const base = id => String(id ?? '').split(/[#+]/)[0]
+    const mine = taskId == null || base(taskId) === base(m.id)
     const now = Date.now()
-    this.progressAt[m.id] ??= now
+    const e = (this.progressAt[m.id] ??= { t: now, since: now })
     // Serving progress, including a detour's own success (the prereq is the rung's), moves the deadline.
-    if (executed && serving && !failed) { this.progressAt[m.id] = now; this.attempts[m.id] = 0 }
+    if (mine && executed && serving && !failed) { e.t = now; this.attempts[m.id] = 0 }
     // Only an executed, serving failure on the rung itself counts toward the skip. A detour is bounded by its own
     // TTL (cognitive.mjs PREREQ_TTL_MS), rejections by the livelock breaker, and everything by the deadline below.
-    if (executed && serving && failed && !overlay) this.attempts[m.id] = (this.attempts[m.id] ?? 0) + 1
+    if (mine && executed && serving && failed && !overlay) this.attempts[m.id] = (this.attempts[m.id] ?? 0) + 1
     // A peer that already proved this unreachable lowers the cost of
     // confirming it -- but does NOT replace confirming it. Trusting a peer
     // outright would make one bot's bad conclusion permanent for the fleet,
@@ -917,7 +933,8 @@ export class MilestoneController {
     const peers = this.worldFacts?.unreachableBy?.(m.id, config.bot.name, this.bot.entity?.position)
     const budget = peers ? 8 : 25
     if ((this.attempts[m.id] ?? 0) >= budget) return this.#skip(m, 'attempts', budget)
-    if (now - this.progressAt[m.id] >= NO_PROGRESS_MS) return this.#skip(m, 'no_progress', budget)
+    if (now - e.t >= NO_PROGRESS_MS) return this.#skip(m, 'no_progress', budget)
+    if (now - e.since >= RESIDENCE_MAX_MS) return this.#skip(m, 'residence', budget)
     this.#persist()
     return false
   }
