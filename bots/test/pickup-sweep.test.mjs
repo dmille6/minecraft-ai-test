@@ -126,7 +126,8 @@ test('MUTANT KILLED: returning on a failed walk restores the abandoned sweep', a
     // uniqueness-and-presence assertion in withMutant is for.
     "      refused.add(drop.id)\n      logEvent({ kind: 'pickup_skipped', status: 'success',\n" +
     "                 detail: `drop ${drop.id} refused the walk; retired it and kept sweeping ` +\n" +
-    "                         `(${refused.size} retired, attempt ${i + 1}/4)` })\n      continue\n    }",
+    "                         `(${refused.size} retired, attempt ${i + 1}/4) err=${e?.name ?? e?.failClass ?? 'Error'} ` +\n" +
+    "                         `item=${what} d=${off} ms=${Date.now() - walkT0}` })\n      continue\n    }",
     "      return\n    }",
     async mod => {
       const { bot, visited } = botWith(
