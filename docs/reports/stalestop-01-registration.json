@@ -1,0 +1,101 @@
+{
+ "run_id": "stalestop-01",
+ "sha": "SET-AT-LAUNCH: branch stale-stop (1eface8, from 80b3bbd) rebased onto the fleet sha at launch",
+ "registered_at": "2026-09-29T08:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "DROPPED ITEMS -> A STALE PATHFINDER STOP (2026-09-29). Both engines measured 13,275 pickup drops retired unreached in 6 h (27.5/bot-h, 73/80 bots) and 12.8% of gathers barren (block dug, drop left). Root cause (Claude analysis, verified in mineflayer-pathfinder 2.4.5 source): stop() only sets a flag, consumed by the next setGoal's reset or at a path node; withTimeout did setGoal(null) THEN stop(), so the flag outlived the walk and the NEXT goto died instantly (PathStopped) -- >= 1,261 skips carry that signature. The stuck reflex stopped a bot before unstick(), and the dig watcher around a direct dig did the same. THE FIX: haltPath = setGoal(null) alone (resetPath already halts completely; never sets the flag; consumes one left elsewhere), at every site; withTimeout's finally consumes the dig watcher's flag; goto's leg listeners removed; the pickup skip row carries err=/item=/d=/ms=. Implementation reviewed by Claude and Codex independently; all findings fixed (96a0b55, 1eface8): the dig-watcher gap, the err= order, and Codex's fullStop-mid-air side effect of the first draft. 8 real-pathfinder tests (the old order is the positive control), mutants killed, 204/204, sandbox smoke clean. WHY THE GATE IS CORRECTNESS: deterministic; the fast re-skip share is reported only because a dry run on UNCHANGED code read it as fixed (hive-c 0.041 vs control 0.135).",
+ "licence": {
+  "class": "text",
+  "row": "_pickup_skipped",
+  "text": "err=",
+  "min_rows": 1,
+  "note": "The baseline row is 'drop N refused the walk; retired it and kept sweeping (k retired, attempt i/4)' with no err=. ~140 skips per hour per 5-bot pool."
+ },
+ "reads": [
+  "stalestopread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "pickup skips (the population this fixes)",
+    "kind": "_pickup_skipped",
+    "min": 30
+   }
+  ],
+  "note": "27.5 skips/bot-h fleet-wide; min 30 in 3 h keeps a quiet pool out."
+ },
+ "exposure": {
+  "read": "stalestopread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 30 enriched (err=) canary skip rows AND >= 1 control fast re-skip."
+ },
+ "own_lines": [
+  {
+   "read": "stalestopread",
+   "field": "instant_over_1pct",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS: more than 1% of the canary's enriched skip rows are err=PathStopped in < 200 ms -- walks killed before they began, the stale-flag signature. Judged only on >= 30 enriched rows (a pool without the fix writes none, and a zero there would be vacuous)."
+  },
+  {
+   "read": "stalestopread",
+   "field": "err_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "stalestopread",
+   "field": "err_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "stalestopread",
+   "field": "fast_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the fast re-skip signature is visible in control (932 in the dry run). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "stalestopread",
+  "field": "skips_did_per_bh",
+  "note": "REPORTED, NOT GATED: skips/bot-h DiD, barren-gather share DiD, gather items/bot-h DiD, fast re-skip share (noisy between pools: an unchanged pool read 0.041 vs control 0.135). Also read by hand: unstick outcomes after _reflex_stuck."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

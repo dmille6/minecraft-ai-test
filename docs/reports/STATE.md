@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-29 07:35Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 08:10Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -321,24 +321,27 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Canary: HIVE pools only; hive-c/d held out to 09-30 -> hive-a vs hive-b, effect INCONCLUSIVE, but
       correctness (restored progress non-empty after a 2nd restart, from the new load-log fields) is
       readable. A registration is not written yet.
-  - **DROPPED ITEMS -> STALE STOP, BUILT: `stale-stop` @ `7775d5e`** (from 80b3bbd). Both engines measured it:
+  - **DROPPED ITEMS -> STALE STOP, BUILT: `stale-stop` @ `1eface8`** (from 80b3bbd). Both engines measured it:
     - 13,275 pickup drops were retired unreached in 6 h (27.5/bot-h, 73/80 bots);
-    - 12.8% of gathers were barren (dug, drop left; mostly logs and dirt).
-    Root cause found by Claude and verified in the pathfinder source: `stop()` only sets a flag, and our
-    cleanup did setGoal(null) THEN stop(), so the flag stayed set and the NEXT goto died instantly
-    (>= 1,261 skips have that signature). The stuck reflex did it before unstick() too.
-    - haltPath = stop() then setGoal(null), at 4 sites; the skip row now carries err/item/offset.
-    - Real-pathfinder tests (the old order is the positive control), 3 mutants killed, 204/204, the smoke
-      is clean.
-    - An old source test had PINNED the buggy order.
-    - **Both engines' implementation reviews running.** A registration is still to write (licence text
-      `err=` in `_pickup_skipped`).
-    - Not in it (later design): a pickup goal matching the real pickup range; a bounded dig-out for pocket
-      drops (the tunnel's 1-in-3 lost ore).
+    - 12.8% of gathers were barren (dug, drop left on the floor; mostly logs and dirt).
+    Root cause (Claude; verified in the pathfinder source): `stop()` only sets a flag, and our cleanup did
+    setGoal(null) THEN stop(), so the NEXT goto died instantly (>= 1,261 skips have that signature). The
+    stuck reflex and the dig watcher did it too.
+    - Both implementation reviews applied:
+      - Claude: the dig-watcher gap around a direct dig; err= logged 'Error'.
+      - Codex: the first draft's stop()->setGoal made pathfinder re-centre the bot mid-air -> haltPath is
+        setGoal(null) alone; leg listeners removed.
+    - 8 real-pathfinder tests, mutants killed, 204/204.
+    - **`stalestop-01` staged**: licence err= (0 of 13,867 baseline rows); correctness = instant
+      PathStopped deaths <= 1% of enriched rows.
+    - The first two drafts of this read would have passed UNCHANGED code (the between-pool share, then a
+      vacuous zero); both caught by dry runs.
+    - Not in it (later design): a pickup goal matching the real pickup range; a dig-out for pocket drops.
   - **RECOMMENDED QUEUE (one canary at a time; the owner can reorder):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
     3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it; rebases cleanly onto 1d107ed, 205/205)
+    3b. **stalestop-01** (fleet-wide dropped items; small, deterministic)
     4. lastswing-01
     5. hygiene-01
     6. ore tunnel (rebase the stack; oretunnel-01 staged)
