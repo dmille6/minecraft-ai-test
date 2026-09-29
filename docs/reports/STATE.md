@@ -271,6 +271,11 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
   the bank (inside the bank fix), (3) durability-aware ladder, (4) end the idle gap (skipCount never resets),
   (5) shared recipe/capability predicates (milestones.mjs:376 counts andesite etc. as cobble).
   **OWNER APPROVED all five into the queue, 2026-09-28.**
+  **IRON RESEARCH 2026-09-29** (`docs/reports/iron-research-2026-09-29.md`, both engines): anti-xray is OFF on
+  all worlds, so bots KNOW every ore; nearest iron median 15 blocks. Item (1) becomes a Baritone-style COSTED
+  TUNNEL to known ore (not novel: Baritone MineProcess does it) + hazard mask + exit-contract budget + cluster
+  mining, deterministic on "buried". Needs last-swing + hygiene first. Cheap side fix: deepslate_iron_ore is
+  missing from the model's INTERESTING_BLOCKS and perception.
 - **2nd IN LINE (after deathfix-01): `last-swing` (`b1c978e`, from 80b3bbd) — THE BIGGEST LEVER FOUND.** Both
   engines, independently, ~22 h of data: 92% of 3,393 failed stone/cobble gathers had every pickaxe at 1 use;
   61 of 80 bots in that trap (67.6% of bot-time); toolFor's HARD_STOP sent a bare hand at stone. Gather may now
