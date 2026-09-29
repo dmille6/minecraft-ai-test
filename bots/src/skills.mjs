@@ -27,7 +27,7 @@
 
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy, remaining, HARD_STOP, toolFor } from './toolfor.mjs'
+import { applyToolPolicy, remaining, HARD_STOP, toolFor, LAST_SWING_BLOCKS } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1470,16 +1470,27 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // so the fleet learned to avoid `gather cobblestone` for want of a PICKAXE). The same question the dig will ask
     // (toolFor, with the harvest dig's last swing), asked of the first candidate before any walking.
     {
+      // STONE FAMILY ONLY (Claude review): the last swing covers exactly these, so here "nothing can break it" means "no
+      // pickaxe at all" -- the need then clears only when one arrives, and admission's bootstrap exemption (holds NO
+      // pickaxe) applies. On ores a spent copy is still a pickaxe by name: the need would clear at once and loop, and
+      // their failures (unreachable/no_safe_target) are not evidence today. Ores keep today's path.
       const first = bot.blockAt?.(positions[0])
-      if (first && harvestRefused(first, bot.inventory?.items?.() ?? [])) {
+      if (first && LAST_SWING_BLOCKS.has(first.name) && harvestRefused(first, bot.inventory?.items?.() ?? [])) {
         if (collected > 0) return { status: 'success', detail: `collected ${collected} ${blockName} (no tool left that breaks ${first.name})` }
         logEvent({ kind: 'gather_missing_tool', status: 'failed',
                    detail: `${first.name} for ${blockName}: no tool held can harvest it (last swing allowed); ` +
                            `${positions.length} candidate(s) in reach, none walked to`,
                    snapshot: snapshot(bot) })
+        // THE GAP IS THE WOOD IN HAND (missing_tool is EVIDENCE_ONLY_IF_STUCK: lessons zero the streak when the gap
+        // moves). A bot gathering logs toward its first pickaxe is climbing, and is not taught to avoid gather; a bot
+        // failing with the same wood again and again is stuck, and accrues -- which is what the class is for. Without a
+        // gap every failure accrued exactly like no_path (Claude review: the first commit claimed otherwise).
+        const inv = bot.inventory?.items?.() ?? []
+        const n = re => inv.filter(i => re.test(i.name)).reduce((t, i) => t + (i.count ?? 0), 0)
         return { status: 'failed', failClass: 'missing_tool',
-                 detail: `${first.name} needs a pickaxe and none you hold can break it — craft a wooden_pickaxe (3 planks + 2 sticks), then gather again`,
-                 need: { items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1,
+                 gap: `no_pickaxe logs=${n(/_log$/)} planks=${n(/_planks$/)} sticks=${n(/^stick$/)}`,
+                 detail: `${first.name} needs a pickaxe and you hold none that can break it — craft a wooden_pickaxe (3 planks + 2 sticks), then gather again`,
+                 need: { items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'diamond_pickaxe', 'netherite_pickaxe'], count: 1,
                          describe: `Get a pickaxe. ${first.name} cannot be broken without one.`,
                          because: `gather ${blockName}: no tool held can harvest ${first.name}` } }
       }

@@ -25,23 +25,23 @@ await t('harvestRefused (real 1.21.8 blocks): stone with no pickaxe -> refused; 
   assert.equal(harvestRefused(blk('dirt', new Vec3(0, 0, 0)), []), false, 'the hand breaks dirt')
 })
 
-function gatherBot (items) {
-  const walks = []
+function gatherBot (items, target = 'cobblestone') {
+  const walks = [], digs = []
   const at = new Vec3(4, 63, 0)
   const bot = {
     registry, version: '1.21.8', health: 20, food: 20, game: { dimension: 'overworld' },
     entity: { position: new Vec3(0, 64, 0), onGround: true, velocity: new Vec3(0, 0, 0) },
     inventory: { items: () => items },
-    findBlocks: ({ matching }) => (matching === registry.blocksByName.cobblestone.id || (Array.isArray(matching) && matching.includes(registry.blocksByName.cobblestone.id)) ? [at] : []),
+    findBlocks: ({ matching }) => (matching === registry.blocksByName[target].id || (Array.isArray(matching) && matching.includes(registry.blocksByName[target].id)) ? [at] : []),
     findBlock: () => null,
-    blockAt: p => (p && p.x === at.x && p.y === at.y && p.z === at.z) ? blk('cobblestone', at) : blk(p && p.y < 64 ? 'stone' : 'air', p),
+    blockAt: p => (p && p.x === at.x && p.y === at.y && p.z === at.z) ? blk(target, at) : blk(p && p.y < 64 ? 'stone' : 'air', p),
     pathfinder: { goto: async g => { walks.push(g) }, setGoal () {}, stop () {}, movements: {}, setMovements () {} },
-    on () {}, off () {}, once () {}, removeListener () {}, lookAt: async () => {}, equip: async () => {}, dig: async () => { throw new Error('Digging aborted') },
+    on () {}, off () {}, once () {}, removeListener () {}, lookAt: async () => {}, equip: async () => {}, dig: async () => { digs.push(1); throw new Error('Digging aborted') },
     players: {}, entities: {}, waitForTicks: async () => {},
   }
-  return { bot, walks }
+  return { bot, walks, digs }
 }
-const run = (bot) => SKILLS.gather.run({ bot }, { block: 'cobblestone', count: 2 }, new AbortController().signal)
+const run = (bot, block = 'cobblestone') => SKILLS.gather.run({ bot }, { block, count: 2 }, new AbortController().signal)
 
 await t('DRIVEN: no pickaxe at all -> missing_tool with a pickaxe need, and NO walk (it was three barren rounds then no_path)', async () => {
   const { bot, walks } = gatherBot([])
@@ -50,11 +50,34 @@ await t('DRIVEN: no pickaxe at all -> missing_tool with a pickaxe need, and NO w
   assert.equal(walks.length, 0, 'it walked before refusing')
   assert.ok(r.need?.items?.includes('wooden_pickaxe') && r.need.count === 1, 'a prerequisite the goal layer can adopt')
   assert.match(r.detail, /craft a wooden_pickaxe/)
+  assert.equal(r.gap, 'no_pickaxe logs=0 planks=0 sticks=0', 'a gap, so a bot climbing toward a pickaxe is not taught to avoid gather')
+})
+await t('THE GAP MOVES WITH THE WOOD: two logs gathered between attempts is progress, and lessons forgive it', async () => {
+  const a = (await run(gatherBot([]).bot)).gap
+  const b = (await run(gatherBot([{ name: 'oak_log', count: 2, type: registry.itemsByName.oak_log.id }]).bot)).gap
+  assert.notEqual(a, b)
+  const { Lessons } = await import('../src/lessons.mjs')
+  const L = new Lessons(`/tmp/mt-lessons-${process.pid}.json`)
+  const args = { block: 'cobblestone', count: 2 }
+  for (let i = 0; i < 3; i++) L.recordFailure('gather', args, 'missing_tool', { x: 0, y: 64, z: 0 }, a)
+  const stuck = L.failCount('gather', args)
+  L.recordFailure('gather', args, 'missing_tool', { x: 0, y: 64, z: 0 }, b)
+  assert.ok(stuck >= 3 && L.failCount('gather', args) <= 1, `stuck accrues (${stuck}); a moved gap resets (${L.failCount('gather', args)})`)
+})
+await t('ORES ARE OUT OF SCOPE: a bot with only a spent pickaxe on iron_ore keeps today\'s path (no missing_tool, no need)', async () => {
+  const { bot } = gatherBot([pick('stone_pickaxe', 1)], 'iron_ore')
+  let r
+  try { r = await run(bot, 'iron_ore') } catch (e) { r = { status: 'threw', detail: String(e?.message ?? e) } }
+  assert.notEqual(r.failClass, 'missing_tool', r.detail); assert.equal(r.need, undefined)
 })
 await t('POSITIVE CONTROL: the same bot holding a spent pickaxe (last swing) is NOT refused -- the guard never blocks the fix', async () => {
-  const { bot } = gatherBot([pick('stone_pickaxe', 1)])
+  const { bot, digs } = gatherBot([pick('stone_pickaxe', 1)])
   let r
   try { r = await run(bot) } catch (e) { r = { status: 'threw', failClass: null, detail: String(e?.message ?? e) } }
   assert.notEqual(r.failClass, 'missing_tool', r.detail)
+  // PAST THE GUARD: the fake world has nowhere to stand within reach, so the next stage (candidate reach) is where it
+  // ends -- which is AFTER the guard. A refused bot never reaches candidate evaluation (the DRIVEN test above).
+  assert.doesNotMatch(r.detail ?? '', /needs a pickaxe/, r.detail)
+  assert.ok(digs.length >= 1 || /candidate/.test(r.detail ?? ''), `it stopped before the candidate stage (${r.status}: ${r.detail})`)
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
