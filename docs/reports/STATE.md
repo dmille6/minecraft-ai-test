@@ -282,6 +282,16 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
   harm gate). STRATIFY by sticks held (a bot short of 2 sticks gains cobble but cannot craft) and by
   tool-keeper exposure. Tripwires: two-death floor, entombment/stuck-rescue failures, bots with zero pickaxes
   > X min, mine refusals (should not move).
+- **3rd IN LINE (after last-swing, BEFORE withdraw-home): `inventory-hygiene` phase 1** (branch head, on last-swing).
+  OWNER 09-29: "stop bots from collecting and keeping junk". Both engines: median 35/36 slots, 25/80 full; a full
+  bot's gather 4.8% vs 52.2% with room (same bot+block). Tossing was REJECTED (sandbox: stacks back in 11-90 s;
+  owner: any pile is picked up by the next bot). Phase 1 drops nothing: pickup never chases ballast; `wear_out`
+  (work order at 34+ slots, chatOnly) breaks spent tools by one dig each on a safe natural block. Both engines'
+  implementation reviews applied; sandbox passed (36 -> 32 slots, stays). withdraw-home needs the room, hence
+  the order. Canary read (both reviews): DiD on snapshot slots, share at >=34/36, items/bot-h, spent copies held,
+  NEVER_KEEP over time; tripwires: a destroyed copy with 2+ uses, fall/air/death within 30 s of a wear_out,
+  sapling drops near one, wear_out share of decisions, milestone_skipped rate; controls on last-swing.
+  PHASE 2 (not built): pile-free disposal of stackable ballast (burial) — both reviews set the bar.
 - Queued, separate (pre-existing, Claude review): toolFor spends an iron pickaxe inside its FLOOR reserve on
   stone while a 1-use lower-tier copy exists (`reserved_required`).
 - **NEXT CANARY IS STAGED: `deathfix-01`** (sha `1d107ed`, promotion **fleet-wide** — owner abandoned the 24-27 Sep
