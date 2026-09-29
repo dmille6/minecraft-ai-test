@@ -397,6 +397,15 @@ export class Lessons {
       progress_cycle: this.data.progress?.cycle ?? 0,
       progress_blocked: Object.keys(this.data.progress?.blocked ?? {}).length,
     })
+    // THE SAME, AS TELEMETRY: the console line above is not in the skill log, so a canary read could not see whether a
+    // restart restored anything. One row per load, written only by this build.
+    try {
+      const pr = this.data.progress ?? {}
+      logEvent({ kind: 'progress_restored', status: 'success',
+                 detail: `shared=${this.shared ? 1 : 0} run=${this.data.runs} skipped=${(pr.skipped ?? []).length} ` +
+                         `cycle=${pr.cycle ?? 0} blocked=${Object.keys(pr.blocked ?? {}).length} ` +
+                         `attempts=${Object.keys(pr.attempts ?? {}).length}` })
+    } catch { /* telemetry never breaks a load */ }
   }
 
   #prune() {

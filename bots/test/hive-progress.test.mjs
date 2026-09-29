@@ -95,4 +95,21 @@ t('a PRIVATE store is unchanged', () => {
   assert.deepEqual(new Lessons(f2, false).getProgress().skipCount, { y: 4 })
 })
 fs.rmSync(dir, { recursive: true, force: true })
+// THE CANARY'S POSITIVE CONTROL IS TELEMETRY, not the console: a restart writes `_progress_restored` with what came back.
+{
+  const f = path.join(os.tmpdir(), `hive-restored-${process.pid}.json`)
+  const a = new Lessons(f, true)
+  a.setProgress({ craft_x: 4 }, ['r1', 'r2'], { r1: 1, r2: 2 }, { r1: 1, r2: 1 }, 3, { c: 1 })
+  a.save()
+  new Lessons(f, true)                                   // the restart
+  await new Promise(r => setTimeout(r, 300))             // the log is a write stream
+  const log = path.join(process.env.LOG_DIR, 'skill-hive-a-Alpha.jsonl')
+  const rows = fs.readFileSync(log, 'utf8').split('\n').flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } })
+  const last = rows.filter(r => r.skill?.name === '_progress_restored').at(-1)
+  try {
+    assert.ok(last, 'no _progress_restored row')
+    assert.match(last.skill.detail, /shared=1 run=\d+ skipped=2 cycle=3 blocked=0 attempts=1/, last.skill.detail)
+    pass++; console.log('  PASS  a restart writes _progress_restored with what came back (telemetry, not the console)')
+  } catch (e) { fail++; console.log(`  FAIL  _progress_restored\n        ${e.message}`) }
+}
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
