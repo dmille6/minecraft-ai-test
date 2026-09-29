@@ -790,11 +790,12 @@ export class CognitiveLoop {
         const vr = await vetoRetry({
           res, rejection,
           decide: followUp => this.llm.decide({ system: this.system, user, sentinel, schema: this.schema, followUp }),
-          check: p => this.admission.check(p, this.bot, this.#wantedItems(milestone)),
+          check: p => this.admission.check(p, this.bot, this.#wantedItems(milestone), { retry: true }),
         })
         if (vr.retried) {
-          logEvent({ kind: 'veto_retry', status: vr.result === 'admitted' ? 'success' : 'failed',
-                     detail: `vetoed=${vr.key} reason=${rejection.reason} retry=${vr.retryKey ?? '-'} result=${vr.result} ms=${vr.ms}` })
+          // Both calls' latency (the decision row records only the admitted one), and a snapshot for bot.pos.
+          logEvent({ kind: 'veto_retry', status: vr.result === 'admitted' ? 'success' : 'failed', snapshot: snapshot(this.bot),
+                     detail: `vetoed=${vr.key} reason=${rejection.reason} retry=${vr.retryKey ?? '-'} result=${vr.result} first_ms=${vr.firstMs ?? '?'} ms=${vr.ms}` })
           if (vr.admitted) { res = vr.res; admitted = vr.admitted; rejection = null }
         }
       }

@@ -219,7 +219,7 @@ export class AdmissionControl {
   /**
    * @returns {{ok: true, skill, args} | {ok: false, reason: string, detail: string}}
    */
-  check(proposal, bot, wanted = null) {
+  check(proposal, bot, wanted = null, { retry = false } = {}) {
     if (!proposal || typeof proposal !== 'object') {
       return { ok: false, reason: 'no_proposal', detail: 'model produced nothing usable' }
     }
@@ -628,6 +628,14 @@ export class AdmissionControl {
                forced: 'holds no pickaxe; acquiring the first tool is never hard-blocked' }
     }
 
+    // A VETO RETRY IS NOT A NEW DECISION (Claude review of 722b112, probed against this gate): its check bumped the
+    // probation count and the veto streak a SECOND time in one tick, so MAX_VETO_STREAK=4 became two decisions and
+    // forced admissions came twice as fast. On a retry a learned-blocked key is simply refused: no bump, no streak, no
+    // forced admission, no probation pass.
+    if (priorFails >= 4 && retry) {
+      return { ok: false, reason: 'learned_avoid', detail: `${skill} with these args has failed ${priorFails}x across runs (a retry does not count toward probation)`,
+               cited: this.lessons?.entryFor?.(skill, args) ?? null }
+    }
     if (priorFails >= 4) {
       // PROBATION. A learned block with no way to be disproved is permanent,
       // and the world changes: terrain gets mined, inventories fill, the bot

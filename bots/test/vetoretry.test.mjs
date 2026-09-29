@@ -52,12 +52,54 @@ await t('the retryable set is exactly the reasons a different choice can answer'
   assert.deepEqual([...RETRYABLE].sort(), ['bad_args', 'cooldown', 'deposit_item_missing', 'deposit_not_worth_it', 'learned_avoid', 'repeat_loop'])
   assert.match(vetoFeedback('k', { reason: 'r', detail: 'd' }), /saw_end/)
 })
+await t('a COUNT-only change and the gather item->block alias are the SAME action (refused without the gate)', async () => {
+  const a = stubs(prop('gather', { block: 'oak_log', count: 16 }))
+  assert.equal((await vetoRetry({ res: prop('gather', { block: 'oak_log', count: 8 }), rejection: veto('repeat_loop'), decide: a.decide, check: a.check })).result, 'retry_same_key')
+  const b = stubs(prop('gather', { item: 'minecraft:OAK_LOG', count: 8 }))
+  assert.equal((await vetoRetry({ res: prop('gather', { block: 'oak_log', count: 8 }), rejection: veto('learned_avoid'), decide: b.decide, check: b.check })).result, 'retry_same_key')
+  assert.equal(a.seen.check + b.seen.check, 0)
+  const c = stubs(prop('explore', { blocks: 120 }))
+  assert.equal((await vetoRetry({ res: prop('explore', { blocks: 60 }), rejection: veto('repeat_loop'), decide: c.decide, check: c.check })).result, 'retry_same_key')
+})
+
+// ---- THE REAL GATE (Claude review: stubs hid the double count) ----
+const { AdmissionControl } = await import('../src/admission.mjs')
+const { createRequire } = await import('node:module')
+const registry = createRequire(import.meta.url)('prismarine-registry')('1.21.8')
+function gate () {
+  const blocked = {}
+  const lessons = { failCount: (skill, args) => (['stick', 'oak_planks'].includes(args?.item) ? 6 : 0), bumpBlocked: k => (blocked[k] = (blocked[k] ?? 0) + 1), entryFor: () => null }
+  return new AdmissionControl(lessons)
+}
+const bot = { registry, inventory: { items: () => [] }, entity: { position: { x: 0, y: 64, z: 0 } } }
+const A = { skill: 'craft', args: { item: 'stick', count: 1 } }, B = { skill: 'craft', args: { item: 'oak_planks', count: 1 } }
+const seq = (retryOpt) => { const g = gate(); const out = []
+  for (let i = 0; i < 8; i++) {
+    const a = g.check({ ...A, args: { ...A.args } }, bot); out.push(a.ok ? (a.kind ?? 'ok') : a.reason)
+    if (retryOpt !== 'none' && !a.ok) g.check({ ...B, args: { ...B.args } }, bot, null, retryOpt === 'retry' ? { retry: true } : {})
+  }
+  return out }
+await t('REAL GATE: retries leave the ORIGINAL action\'s probation/streak sequence exactly as with no retries', () => {
+  const base = seq('none'), withRetry = seq('retry')
+  assert.deepEqual(withRetry, base)
+  assert.ok(base.includes('learned_avoid'), `the sequence must include vetoes: ${base}`)
+})
+await t('POSITIVE CONTROL: the same retries WITHOUT the retry option DO change the sequence (the double count)', () => {
+  assert.notDeepEqual(seq('plain'), seq('none'))
+})
+await t('REAL GATE: a retry on a learned-blocked key is refused and never forced or put on probation', () => {
+  const g = gate(); g.vetoStreak = 99
+  for (let i = 0; i < 10; i++) { const r = g.check({ ...B, args: { ...B.args } }, bot, null, { retry: true }); assert.equal(r.ok, false); assert.equal(r.reason, 'learned_avoid') }
+  assert.equal(g.vetoStreak, 99); assert.equal(g.forcedAdmissions ?? 0, 0)
+})
+
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 await t('WIRED: model proposals only (never a work order), the retry row, and decide() appends the follow-up', () => {
   const cog = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
   assert.match(cog, /if \(!admitted && !order\) \{\s*const vr = await vetoRetry\(/)
   assert.match(cog, /kind: 'veto_retry'/)
   assert.match(cog, /if \(vr\.admitted\) \{ res = vr\.res; admitted = vr\.admitted; rejection = null \}/)
+  assert.match(cog, /this\.admission\.check\(p, this\.bot, this\.#wantedItems\(milestone\), \{ retry: true \}\)/, 'the retry is checked with { retry: true }')
   const llm = strip(readFileSync(new URL('../src/llm.mjs', import.meta.url), 'utf8'))
   assert.match(llm, /\.\.\.\(Array\.isArray\(followUp\) \? followUp : \[\]\)/)
 })

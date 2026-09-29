@@ -12,6 +12,21 @@
 // WITHOUT calling the gate, so probation and repeat state are untouched; anything else goes through the gate normally.
 import { actionKey } from './skills.mjs'
 
+// WHAT THE ACTION IS AIMED AT, not how much of it (Claude review): the gate keys on NORMALISED args (gather's
+// item->block alias, admission.mjs:233), and a retry that changes only `count` (gather 16 after gather 8 was refused) or
+// `blocks` is the cheapest compliant answer and suppresses the livelock breaker. Both count as the SAME action.
+const AMOUNT = new Set(['count', 'blocks', 'reason'])
+export function targetKey (skill, args = {}) {
+  const a = { ...(args ?? {}) }
+  if (skill === 'gather' && !a.block && typeof a.item === 'string') { a.block = a.item; delete a.item }
+  const t = {}
+  for (const k of Object.keys(a).sort()) {
+    if (AMOUNT.has(k)) continue
+    t[k] = typeof a[k] === 'string' ? a[k].toLowerCase().replace(/^minecraft:/, '') : a[k]
+  }
+  return `${skill}:${JSON.stringify(t)}`
+}
+
 /** Rejections the model can answer by choosing differently. Not safety refusals (border, elevation, unknown skill). */
 export const RETRYABLE = new Set(['repeat_loop', 'learned_avoid', 'cooldown', 'deposit_not_worth_it', 'deposit_item_missing', 'bad_args'])
 
@@ -30,15 +45,16 @@ export async function vetoRetry ({ res, rejection, decide, check, now = () => Da
   if (!res?.schemaValid || !rejection || !RETRYABLE.has(rejection.reason) || res.raw == null) return out
   const t0 = now()
   const key = actionKey(res.proposal.skill, res.proposal.args)
-  out.key = key; out.retried = true
+  const target = targetKey(res.proposal.skill, res.proposal.args)
+  out.key = key; out.retried = true; out.firstMs = res.latencyMs ?? null
   let r2
   try { r2 = await decide([{ role: 'assistant', content: String(res.raw).slice(0, 500) }, { role: 'user', content: vetoFeedback(key, rejection) }]) }
   catch (e) { out.result = 'error'; out.ms = now() - t0; return out }
   out.ms = now() - t0
   if (!r2?.schemaValid) { out.result = 'invalid'; return out }
   out.retryKey = actionKey(r2.proposal.skill, r2.proposal.args)
-  if (out.retryKey === key) { out.result = 'retry_same_key'; return out }     // refused without touching the gate
-  const c2 = check(r2.proposal)
+  if (targetKey(r2.proposal.skill, r2.proposal.args) === target) { out.result = 'retry_same_key'; return out }     // refused without touching the gate
+  const c2 = check(r2.proposal)   // the caller passes { retry: true }: no probation bump, no streak, no forced admission
   if (c2?.ok) { out.res = r2; out.admitted = c2; out.rejection = null; out.result = 'admitted' }
   else { out.rejection = rejection; out.result = `vetoed:${c2?.reason ?? '?'}` }   // the ORIGINAL veto is what the decision records
   return out
