@@ -147,6 +147,25 @@ export function placeVerdict(places, pos, radius = PLACE_RADIUS, memory = PLACE_
   return 'new'
 }
 
+/** The fields MilestoneController and the probation counter keep in `progress`. */
+export const PROGRESS_FIELDS = ['attempts', 'skipped', 'skippedAt', 'skipCount', 'cycle', 'completions', 'progressAt', 'blocked']
+/**
+ * THIS bot's milestone progress, from either layout. A private store keeps the fields at the top of `progress`; a
+ * SHARED (hive) store keys them by bot name, because progress is goals, not experience. Before this, a hive bot
+ * loaded the whole map, getProgress() read top-level fields that were not there, and every restart began from an
+ * empty goal history; and once a save had replaced `this.data` with the merged file, later setProgress() writes
+ * landed BESIDE the bot keys, so the next save re-wrote the STALE per-bot slot (Claude review 2026-09-29; one host
+ * file read {'hive-a-Echo': {'hive-a-Bravo': {}}}). Pure: top-level fields win over the bot's slot (they are the
+ * newer writes); peer slots never leak in.
+ */
+export function ownProgress (progress, name) {
+  const p = progress && typeof progress === 'object' ? progress : {}
+  const flat = PROGRESS_FIELDS.some(f => f in p)
+  const slot = p[name] && typeof p[name] === 'object' && !Array.isArray(p[name]) ? p[name] : {}
+  const src = flat ? p : slot
+  return Object.fromEntries(PROGRESS_FIELDS.filter(f => f in src).map(f => [f, src[f]]))
+}
+
 export class Lessons {
   constructor(file, shared = false) {
     this.shared = shared
@@ -321,8 +340,7 @@ export class Lessons {
     }
     // progress is per-BOT even in a hive: it is goals, not experience.
     cur.progress = cur.progress ?? {}
-    cur.progress[config.bot.name] = (this.data.progress ?? {})[config.bot.name]
-      ?? this.data.progress ?? {}
+    cur.progress[config.bot.name] = ownProgress(this.data.progress, config.bot.name)
     cur.runs = Math.max(cur.runs ?? 0, this.data.runs ?? 0)
 
     try {
@@ -331,6 +349,8 @@ export class Lessons {
       fs.writeFileSync(tmp, JSON.stringify(cur, null, 1))
       fs.renameSync(tmp, this.file)   // atomic: peers never read a half file
       this.data = cur
+      // Back to THIS bot's flat progress, or the next setProgress() writes beside the peers' slots.
+      this.data.progress = ownProgress(cur.progress, config.bot.name)
       this.dirty = false
       // Only once the decisions are durable. Clearing earlier would lose them
       // if the write failed, and a lost forgetting reads as a belief that never
@@ -346,6 +366,7 @@ export class Lessons {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))
       if (raw.schema === SCHEMA) this.data = raw
       else log('warn', 'lessons: schema changed, starting fresh', { was: raw.schema })
+      if (this.shared) this.data.progress = ownProgress(this.data.progress, config.bot.name)
     } catch { /* first run */ }
     this.data.runs = (this.data.runs ?? 0) + 1
     this.#prune()
