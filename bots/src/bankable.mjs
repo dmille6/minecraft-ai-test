@@ -51,7 +51,6 @@ export function isScaffoldItem (name) {
   return SCAFFOLD_SET.has(name) || /^(cobblestone|cobbled_deepslate|stone)$/.test(name)
 }
 
-/** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
 /**
  * WHICH COPY A WITHDRAW TAKES. Pure. The fullest, and on a tie the lowest slot.
  *
@@ -70,6 +69,51 @@ export function bestBankCopy (copies = []) {
   return copies.slice().sort((a, b) => remaining(b) - remaining(a) || (a.slot ?? 0) - (b.slot ?? 0))[0] ?? null
 }
 
+/**
+ * WHICH COPIES OF A TOOL GO IN THE CHEST, AND WHICH ONE STAYS. Pure and exported.
+ *
+ * MEASURED, and this is the whole reason it exists: held pickaxes sit at a MEDIAN 1.7%
+ * durability (237 of 295 at <=10%) while BANKED ones sit at a median 48.1%, with 484 above 75%
+ * and 112 never used at all. A durability-blind split cannot produce a 28x asymmetry by chance --
+ * something was systematically keeping the worn copy.
+ *
+ * It was the absence of a choice. `bankableInventory` does `avail -= 1` per tool NAME and nothing
+ * anywhere reads durability, so which copy survives is decided by mineflayer: `transfer` finds
+ * source stacks with `findItemRange`, which scans ASCENDING from `inventoryStart`
+ * (prismarine-windows Window.js:308), and the hotbar is the LAST range in a container window. So
+ * the main-inventory copies are banked and the hotbar copy is kept, whatever its wear.
+ *
+ * `remaining` is toolfor.mjs's own, deliberately: `toolFor()` is what decides whether the kept
+ * copy can dig anything, and a second implementation here would be the ninth time a producer and
+ * a consumer disagreed about the same predicate. It treats unknown durability as Infinity -- full,
+ * never spent -- which is the direction toolfor.mjs already chose.
+ */
+export function toolBankOrder (copies = []) {
+  const sorted = copies.slice().sort((a, b) => remaining(a) - remaining(b) || (a.slot ?? 0) - (b.slot ?? 0))
+  return { bank: sorted.slice(0, -1), keep: sorted.at(-1) ?? null }
+}
+
+/**
+ * THE COPIES TO RANK, READ FROM THE OPEN CHEST WINDOW -- never from `bot.inventory`. Pure.
+ *
+ * `bot.moveSlotItem` clicks `bot.currentWindow || bot.inventory` (mineflayer inventory.js:552), so
+ * while the chest is open every slot number it is given is a CHEST-WINDOW slot. `bot.inventory`
+ * numbers the same items 9-44; a 27-slot chest numbers them 27-62. The first build ranked copies
+ * from `bot.inventory.items()` and passed those numbers straight through, so slots 9-26 clicked the
+ * chest's own contents and 27-44 banked whatever OTHER item of the bot's sat there -- with the log
+ * row recording the intended move, so the correctness gate read 0 by construction. Found by both
+ * pre-launch reviews, 2026-09-28, before it reached the fleet.
+ *
+ * It is also the only LIVE view: while a window is open mineflayer applies `set_slot` to the window
+ * alone (inventory.js:729) and copies it back into `bot.inventory` on close (:417), so
+ * `bot.inventory` is stale after the first move. `Window.items()` is the player range in window
+ * numbering (prismarine-windows Window.js:414, and `updateSlot` stamps `item.slot`, :287).
+ */
+export function toolCopiesInWindow (window, name) {
+  return (window?.items?.() ?? []).filter(it => it && it.name === name)
+}
+
+/** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
 export const RESERVE_RECIPE = 2
 
 /**

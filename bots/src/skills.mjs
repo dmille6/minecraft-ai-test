@@ -42,7 +42,7 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
-import { depositPlan, depositNoopReason, bestBankCopy } from './bankable.mjs'
+import { depositPlan, depositNoopReason, bestBankCopy, toolBankOrder, toolCopiesInWindow } from './bankable.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -2188,6 +2188,37 @@ async function openChestChecked (bot, chestBlock, signal) {
 }
 
 // ------------------------------------------------------------- deposit -----
+/**
+ * RETURN THE STACK THE CURSOR IS HOLDING BEFORE THE WINDOW CLOSES.
+ *
+ * mineflayer's `transfer` lifts the source stack onto the cursor with
+ * `clickWindow(sourceItem.slot, 0, 0)` and only puts it back on the `count === 0` path
+ * (inventory.js:288). When the destination has no room it throws `destination full` from
+ * clickDest (inventory.js:323) -- AFTER the lift and BEFORE any put-back. Closing a container
+ * window with an item on the cursor drops that item into the world in vanilla.
+ *
+ * So every mid-transfer "chest full" in deposit's loop was dropping one stack on the ground at the
+ * town chest, and the next iteration ran with a foreign item on the cursor. Measured floor: 108
+ * storage_full refusals across 33 bots in 6 h, and storage_full requires moved === 0, so the
+ * partial-fill case that reaches this line is strictly larger.
+ *
+ * The destination is chosen with firstEmptySlotRange so it is GUARANTEED empty -- mineflayer's own
+ * put-back net (inventory.js:665) reads bot.inventory.selectedItem while the cursor actually lives
+ * on bot.currentWindow, so it is inert while a container is open and cannot be relied on.
+ */
+export async function returnCursor (bot, window) {
+  try {
+    const held = window?.selectedItem ?? bot?.currentWindow?.selectedItem
+    if (!held) return { returned: false, reason: 'cursor empty' }
+    const dest = window.firstEmptySlotRange?.(window.inventoryStart, window.inventoryEnd)
+    if (dest == null) return { returned: false, reason: 'no empty slot to return it to' }
+    await bot.clickWindow(dest, 0, 0)
+    return { returned: true, slot: dest }
+  } catch (e) {
+    return { returned: false, reason: String(e?.message ?? e).slice(0, 60) }
+  }
+}
+
 async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [] } = {}) {
   if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
   const { bot } = ctx
@@ -2287,11 +2318,55 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       check(signal)
       const stacks = bot.inventory.items().filter(it => it.name === name)
       let left = count
+      // A TOOL IS NOT A COMMODITY: WHICH COPY LEAVES DECIDES WHETHER THE BOT CAN STILL DIG.
+      //
+      // `chest.deposit(type, ...)` picks source stacks by TYPE, scanning ascending from
+      // inventoryStart, so the hotbar copy is kept whatever its wear -- which is how the fleet
+      // arrived at a held median of 1.7% durability against a banked median of 48.1%. For tools,
+      // bank the worn copies by EXACT SLOT and keep the fullest.
+      // Ranked from the CHEST WINDOW, in its slot numbering: see toolCopiesInWindow.
+      // A tool never falls through to the type-based path below: with one live copy that path
+      // would bank the bot's last one, which the reserve exists to prevent.
+      const copies = TOOL_RE.test(name) ? toolCopiesInWindow(chest, name) : []
+      if (TOOL_RE.test(name) && copies.length <= 1) continue
+      if (copies.length > 1) {
+        const { bank, keep } = toolBankOrder(copies)
+        logEvent({ kind: 'deposit_tool_keep',
+                   detail: `${name} copies=${copies.length} keep=slot${keep?.slot}/${remaining(keep)}uses ` +
+                           `bank=${bank.map(b => `slot${b.slot}/${remaining(b)}uses`).join(',')}`,
+                   snapshot: snapshot(bot) })
+        for (const copy of bank) {
+          if (left <= 0) break
+          const dest = chest.firstEmptyContainerSlot?.()
+          eligible += copy.count ?? 1
+          if (dest == null) break                        // chest full: nothing lifted, nothing lost
+          try {
+            await bot.moveSlotItem(copy.slot, dest)
+            moved += copy.count ?? 1; left -= copy.count ?? 1
+          } catch (e) {
+            const back = await returnCursor(bot, chest)
+            logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : 'failed',
+                       detail: `${name} slot${copy.slot}: ${String(e?.message ?? e).slice(0, 40)} — ` +
+                               (back.returned ? `returned to slot ${back.slot}` : `NOT returned: ${back.reason}`) })
+            break
+          }
+        }
+        continue
+      }
       for (const it of stacks) {
         if (left <= 0) break
         const n = Math.min(left, it.count ?? 0)
         eligible += n
-        try { await chest.deposit(it.type, null, n); moved += n; left -= n } catch { /* chest full */ }
+        try { await chest.deposit(it.type, null, n); moved += n; left -= n }
+        catch (e) {
+          // THE CURSOR IS STILL HOLDING IT. See returnCursor: mineflayer throws after lifting the
+          // stack and before putting it back, and chest.close() below would drop it in the world.
+          const back = await returnCursor(bot, chest)
+          logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : 'failed',
+                     detail: `${name}: ${String(e?.message ?? e).slice(0, 40)} — ` +
+                             (back.returned ? `returned to slot ${back.slot}` : `NOT returned: ${back.reason}`) })
+          break
+        }
       }
     }
   } finally {
