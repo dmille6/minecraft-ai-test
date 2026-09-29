@@ -405,8 +405,15 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       abandoned program window, NEVER deployed) + a driven test. STILL LIVE: 1,782 of 4,238 craft rows in 24 h (42%,
       71 bots) tell a bot to gather cobbled_deepslate, 1,773 at y >= 0 where it does not exist; control: 45 rows
       gained it (below 0). Driven on real 1.21.8 recipes: branch says cobblestone at y=64, deepslate at y=-30;
-      80b3bbd says deepslate at both. **Both implementation reviews running.** Registration to write after them.
-      RECOMMEND moving it up the queue: it is the largest single misdirection measured (~10x the craft limits).
+      80b3bbd says deepslate at both.
+      **CORRECTED by the Claude review (same day): the fix is right and LOW IMPACT.** The model already ignores the
+      literal: after "gather cobbled_deepslate" the next action is `gather cobblestone` 331x vs deepslate ~1x (24 h,
+      80b3bbd). The real wall is `gather cobblestone` itself: 321 of 3,309 decisions succeed (9.7%); 858 blocked by
+      learned_avoid; 1,329 of 1,921 failed skill rows are no_path. 64% of `craft stone_pickaxe` decisions are
+      learned_avoid-blocked. Do NOT move it up the queue (I recommended that; wrong). Before it ships: the same
+      defect for torch (`charcoal`, smelt-only, 19/24 h), the driven test at depth 0, a behavioural dedupe test, an
+      `advice_reach` row. NEXT ANALYSIS (after deathfix-01 is read -- open-loop rule): why `gather cobblestone`
+      ends no_path at the surface.
     - hive-progress: its positive control (`lessons loaded` progress fields) is a CONSOLE log, not telemetry --
       add a `_progress_restored` row before registering it, or the read cannot see restored progress.
     - Registrations staged in docs: exploretoward-01, bankfix-01 (server-truth gate proved on the sandbox: the
