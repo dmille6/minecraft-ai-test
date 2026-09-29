@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-29 08:10Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 (owner decisions recorded; night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -337,7 +337,12 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - The first two drafts of this read would have passed UNCHANGED code (the between-pool share, then a
       vacuous zero); both caught by dry runs.
     - Not in it (later design): a pickup goal matching the real pickup range; a dig-out for pocket drops.
-  - **RECOMMENDED QUEUE (one canary at a time; the owner can reorder):**
+  - **OWNER DECISIONS 2026-09-29 (morning):**
+    (1) the queue order below is APPROVED; each change keeps its own canary (bundling the small fixes was
+        asked, not answered -- not assumed);
+    (2) withdraw-home is BUNDLED with the bank fix;
+    (3) the mayor path is approved: chest ledger -> shadow-mode mayor, once the queue has moved.
+  - **QUEUE (owner-approved 09-29; one canary at a time):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
     3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it; rebases cleanly onto 1d107ed, 205/205)
