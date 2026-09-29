@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+# withdrawread.py [window_min] -- the read for canary `withdraw-01` (branch withdraw-home).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE: withdraw walks home before opening (deposit did, withdraw never did), opens under a bound, tries up to
+# three chests, takes the FULLEST copy of a tool (bestBankCopy), verifies the transfer server-side, and fails with
+# classes that name the remedy (container_short, chest_unreachable, transfer_rejected). Baseline ~0.45 withdraws per
+# bot-day, so a 5-bot pool sees a handful a day: this read decides "does the skill work", not the endpoint.
+#
+#   LIVENESS     canary withdraw successes naming "from the chest at" (the new text), canary build (>= 1); control 0.
+#   CORRECTNESS  every canary withdraw SUCCESS row's own post-snapshot inventory holds the item it names (the defect the
+#                sandbox caught once: a verification read a slot prismarine had already moved) -- must be 0 misses.
+#   INSTRUMENT   control withdraw rows >= 1 (the query sees a presence).
+# REPORTED: withdraw success rate canary vs control, failure classes, rows per bot-day.
+import sys, os, json, re, glob
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+NEW = 'from the chest at'
+TOOK = re.compile(r'withdrew (\d+)x (\S+)')
+
+assert TOOK.search('withdrew 1x stone_pickaxe with 129 uses left (the fullest of 2 in the chest at 406,235)').group(2) == 'stone_pickaxe'
+assert TOOK.search('withdrew 3x stick from the chest at 406,235').groups() == ('3', 'stick')
+assert NEW in 'withdrew 3x stick from the chest at 406,235' and NEW not in 'withdrew 3x stick from the chest'
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=int(elapsed + 60))
+rows = [r for r in ev.rows if r.get('name') == 'withdraw' and r.get('t') and CUT <= r['t'] < END]
+bots = {(r.get('bot') or {}).get('name') for r in ev.rows if r.get('t') and CUT <= r['t'] < END} - {None}
+print('withdraw rows %d in window  bots %d  |  canary %s  sha %s  cutoff %s  window +%d min'
+      % (len(rows), len(bots), CAN, CV, CUT.strftime('%H:%MZ'), W))
+n, ok, new, miss, offbuild = Counter(), Counter(), Counter(), 0, 0
+classes = defaultdict(Counter)
+examples = []
+for r in rows:
+    b = (r.get('bot') or {}).get('name'); a = 'canary' if pool_of(b) in CANS else 'control'
+    ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+    if a == 'canary' and CV and not ver.startswith(CV):
+        offbuild += 1
+        continue
+    d = r.get('detail') or ''
+    n[a] += 1
+    if r.get('status') == 'success':
+        ok[a] += 1
+        if NEW in d or 'the fullest of' in d:
+            new[a] += 1
+        m = TOOK.search(d)
+        if a == 'canary' and m:
+            inv = (r.get('bot') or {}).get('inventory') or {}
+            tools = (r.get('bot') or {}).get('tools') or {}
+            if inv.get(m.group(2), 0) < 1 and not tools.get(m.group(2)):
+                miss += 1; examples.append('%s: %s | inventory lacks it' % (b, d[:90]))
+    else:
+        classes[a][r.get('fail_class') or '?'] += 1
+print('-' * 78)
+for a in ('canary', 'control'):
+    print('%-8s withdraws %d  success %d  new-format %d  per bot-day %.2f  fail classes %s'
+          % (a, n[a], ok[a], new[a], n[a] / max(1, len([b for b in bots if (pool_of(b) in CANS) == (a == 'canary')])) / (W / 1440), dict(classes[a].most_common(5))))
+for e in examples[:5]:
+    print('   MISS', e)
+print('-' * 78)
+print('LIVENESS     canary new-format successes %d (>= 1) | control %d (must be 0)' % (new['canary'], new['control']))
+print('CORRECTNESS  canary successes whose snapshot lacks the item %d (must be 0)' % miss)
+print('INSTRUMENT   control withdraw rows %d (must be >= 1)' % n['control'])
+
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('withdrawread', W, {
+        'new_success_canary': new['canary'], 'new_success_control': new['control'], 'success_miss_canary': miss,
+        'withdraw_control': n['control'], 'withdraw_canary': n['canary'], 'success_canary': ok['canary'],
+        'offbuild_canary': offbuild,
+        'exposure_ready': int(new['canary'] >= 1 and n['control'] >= 1),
+    })
+except Exception as e:
+    print('emit failed:', e)

@@ -324,6 +324,11 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     5. hygiene-01
     6. ore tunnel (rebase the stack; oretunnel-01 staged)
     6b. idle gap (idlegap-01 staged); hive-progress (needs a second-engine review + registration)
+    - **withdraw-home is NOT canary-able alone** (read staged: docs/reports/withdraw-01-read.py.txt). The dry run
+      found 5 withdraws in 7.3 h on 80 bots, 0 successes (~0.22/bot-day), so a 5-bot pool sees ~1 a day and
+      ends INCONCLUSIVE. Recommend BUNDLING it with the change that makes bots withdraw (craft sourcing from
+      the bank = colony step 3), or with the bank fix. The read's correctness gate (every success's snapshot
+      holds the item) is ready either way.
     7. withdraw-home
     8. bank fix
     9. craft limits
