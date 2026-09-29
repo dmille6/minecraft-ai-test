@@ -114,12 +114,14 @@ export function tombstoneGone (dir, pos, blockAt, { t = Date.now(), observer = n
   let files = []
   try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')) } catch { return gone }
   for (const f of files) {
+    // ONE DIMENSION (Codex review): a nether record must never be judged against overworld blocks at the same x,y,z.
+    if (!f.startsWith(`${dim}_`)) continue
     // FILTER BY NAME FIRST (Claude review): the file name carries the coordinates, so a far record is never read.
     const m = /_(-?\d+),(-?\d+),(-?\d+)\.json$/.exec(f)
     if (m && (Math.abs(+m[1] - pos.x) > radius || Math.abs(+m[2] - pos.y) > radius || Math.abs(+m[3] - pos.z) > radius)) continue
     let rec
     try { rec = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { continue }
-    if (!rec || rec.gone || !Array.isArray(rec.halves) || rec.key === skipKey) continue   // never judge the container in hand
+    if (!rec || rec.gone || !Array.isArray(rec.halves) || rec.key === skipKey || !String(rec.key).startsWith(`${dim}:`)) continue   // never judge the container in hand
     const h = rec.halves[0]
     if (Math.abs(h.x - pos.x) > radius || Math.abs(h.z - pos.z) > radius || Math.abs(h.y - pos.y) > radius) continue
     let b
@@ -152,7 +154,16 @@ export function ledgerDir () {
 }
 
 let warnedAt = 0
-function record (bot, window, block, phase, dir = ledgerDir()) {
+const warn = e => { try { if (Date.now() - warnedAt > 60_000) { warnedAt = Date.now(); log('warn', 'ledger: record failed (the transfer is unaffected)', { err: String(e?.message ?? e).slice(0, 120) }) } } catch { /* even the warning must not throw */ } }
+// OFF THE CRITICAL PATH (Codex review): the snapshot is taken synchronously (a walk over <= 54 slots), the disk work runs
+// after the caller continues. Tests swap in a synchronous defer.
+const DEFAULT_DEFER = fn => setImmediate(fn)
+let defer = DEFAULT_DEFER
+const SWEEP_EVERY_MS = 60_000
+let lastSweep = 0
+
+/** Take the snapshot NOW (the window is about to change or close); persist it LATER. Never throws. */
+function record (bot, window, block, phase, dirOverride = null) {
   try {
     const name = block?.name ?? bot.registry?.blocks?.[block?.type]?.name
     const expected = CONTAINERS[name]
@@ -165,20 +176,24 @@ function record (bot, window, block, phase, dir = ledgerDir()) {
     if ((n === 54) !== id.double) id.unresolved = true   // a 54-slot window we could not pair, or a pair with a 27 window
     const rec = snapshotRecord(window, id, { phase, observer: config.bot?.name ?? null, pool: config.memory?.pool ?? null,
                                             server: `${config.mc?.host}:${config.mc?.port}`, code: config.code?.version ?? null })
+    const pos = block.position, at = p => bot.blockAt(p)
+    defer(() => persist(rec, phase, pos, at, dim, dirOverride))
+    return true
+  } catch (e) { warn(e); return false }
+}
+function persist (rec, phase, pos, at, dim, dirOverride) {
+  try {
+    const dir = dirOverride ?? ledgerDir()
     // THE SERVER'S CONTENTS SURVIVE THE CLOSE (Claude review): newer-wins made every chest's last record the close --
-    // our PREDICTED state. Each record carries `server`: the last open snapshot (the server's), never a prediction.
+    // our PREDICTED state. Each record carries server_snapshot: the last open snapshot (the server's).
     if (phase === 'open') rec.server_snapshot = { items: rec.items, free: rec.free, t: rec.t }
     else { try { rec.server_snapshot = JSON.parse(fs.readFileSync(fileOf(dir, rec.key), 'utf8'))?.server_snapshot ?? null } catch { rec.server_snapshot = null } }
     const wrote = writeRecord(dir, rec)
-    if (phase === 'open') tombstoneGone(dir, block.position, p => bot.blockAt(p), { observer: rec.observer, dim, skipKey: rec.key })
+    if (phase === 'open' && Date.now() - lastSweep >= SWEEP_EVERY_MS) { lastSweep = Date.now(); tombstoneGone(dir, pos, at, { observer: rec.observer, dim, skipKey: rec.key }) }
     const total = Object.values(rec.items).reduce((a, b) => a + b, 0)
     logEvent({ kind: 'ledger', status: 'success',
                detail: `${phase} ${rec.key} ${rec.type}${rec.double ? ' (double)' : ''}: ${total} items, ${rec.slots - rec.free}/${rec.slots} slots${wrote ? '' : ' (older than the record, not written)'}` })
-    return wrote
-  } catch (e) {
-    if (Date.now() - warnedAt > 60_000) { warnedAt = Date.now(); log('warn', 'ledger: record failed (the transfer is unaffected)', { err: String(e?.message ?? e).slice(0, 120) }) }
-    return false
-  }
+  } catch (e) { warn(e) }
 }
 
 /**
@@ -188,12 +203,12 @@ function record (bot, window, block, phase, dir = ledgerDir()) {
  */
 export function openObserved (bot, block, open, abandoned = () => false) {
   const p = open()
-  try { p?.then?.(w => { if (!abandoned()) record(bot, w, block, 'open') }, () => {}) } catch { /* never the caller's problem */ }
+  try { p?.then?.(w => { try { if (!abandoned()) record(bot, w, block, 'open') } catch { /* never */ } }, () => {})?.catch?.(() => {}) } catch { /* never the caller's problem */ }
   return p
 }
 /** Record the window as our own transfers left it, then close it -- the close itself is the caller's, unchanged. */
 export function closeObserved (bot, window, block) {
-  record(bot, window, block, 'close')
+  try { record(bot, window, block, 'close') } catch { /* never the caller's problem */ }
   return window.close()
 }
-export const __testing = { record }
+export const __testing = { record, setDefer: fn => { defer = fn }, resetSweep: () => { lastSweep = 0 }, DEFAULT_DEFER }

@@ -12,6 +12,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ledger-'))
 process.env.LOG_DIR = process.env.LOG_DIR || path.join(tmp, 'logs')
 const { containerKey, chestPartnerOffset, snapshotRecord, writeRecord, tombstoneGone, openObserved, closeObserved, __testing } = await import('../src/ledger.mjs')
 
+__testing.setDefer(fn => fn())    // deterministic: persist at once (the real defer is tested separately below)
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 
@@ -100,6 +101,24 @@ await t('SUPERSEDED: a single chest that became half of a double, and a chest re
   const whys = ['overworld_11,64,10.json', 'overworld_20,64,20.json'].map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).why)
   assert.deepEqual(whys, ['superseded', 'replaced'])
 })
+await t('ONE DIMENSION (Codex): an overworld sweep never tombstones a nether record at the same x,y,z', () => {
+  const dir = path.join(tmp, 'dim')
+  writeRecord(dir, { key: 'the_nether:1,64,0', halves: [{ x: 1, y: 64, z: 0 }], type: 'chest', t: 1 })
+  const gone = tombstoneGone(dir, { x: 0, y: 64, z: 0 }, p => blk('air', p.floored()), { t: 2, dim: 'overworld' })
+  assert.deepEqual(gone, [])
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'the_nether_1,64,0.json'), 'utf8')).gone, undefined)
+})
+await t('OFF THE CRITICAL PATH (Codex): with the SHIPPED defer, nothing touches disk until the caller has continued', async () => {
+  __testing.setDefer(__testing.DEFAULT_DEFER)
+  const chest = blk('chest', { x: 40, y: 64, z: 40 }, { facing: 'north', type: 'single' })
+  const w = { inventoryStart: 27, slots: Array(63).fill(null) }
+  const dir = path.join(tmp, 'deferred')
+  assert.equal(__testing.record(fakeBot(w), w, chest, 'open', dir), true)
+  assert.equal(fs.existsSync(path.join(dir, 'overworld_40,64,40.json')), false, 'written synchronously on the caller\'s path')
+  await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r))
+  assert.equal(fs.existsSync(path.join(dir, 'overworld_40,64,40.json')), true, 'and written right after')
+  __testing.setDefer(fn => fn())
+})
 await t('the SERVER snapshot survives the optimistic close record', () => {
   process.env.POOL_STATE_DIR = path.join(tmp, 'pool-srv')
   const chest = blk('chest', { x: 30, y: 64, z: 30 }, { facing: 'north', type: 'single' })
@@ -146,24 +165,48 @@ await t('an ABANDONED open is not recorded', async () => {
   assert.equal(fs.existsSync(d) ? fs.readdirSync(d, { recursive: true }).filter(f => String(f).endsWith('.json')).length : 0, 0)
   delete process.env.POOL_STATE_DIR
 })
-// STRUCTURAL: no container is opened except through openObserved (comments stripped: this codebase quotes code in them).
-const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+// STRUCTURAL, SYNTAX-AWARE (Codex review: line regexes miss split calls, computed access and destructuring, and a same-
+// line openObserved masks an unrelated raw open). Every reference to a raw opener -- member access (dot or computed
+// string) or a destructured key -- must sit inside the arrow function passed as openObserved's third argument.
+import * as espree from 'espree'
+const OPENER = /^open(Container|Chest|Furnace|Block|Dispenser|Entity|Villager)$/
 export function bypasses (src) {
-  // WIDER (Claude review): any reference to a raw opener -- a call, a .bind alias, destructuring, bot['openContainer'] --
-  // not on an openObserved line. (activateBlock is not a container opener in this codebase; it is not used in src/.)
-  return strip(src).split('\n').filter(l => /\bopen(Container|Chest|Furnace|Block|Dispenser|Entity|Villager)\b/.test(l) && !/openObserved\(/.test(l))
+  const ast = espree.parse(src, { ecmaVersion: 'latest', sourceType: 'module', loc: true })
+  const bad = []
+  const walk = (node, inside) => {
+    if (!node || typeof node.type !== 'string') return
+    let ok = inside
+    if (node.type === 'CallExpression' && node.callee?.type === 'Identifier' && node.callee.name === 'openObserved') {
+      node.arguments.forEach((arg, i) => walk(arg, ok || i === 2))
+      walk(node.callee, ok)
+      return
+    }
+    const name = node.type === 'MemberExpression' ? (node.computed ? (node.property?.type === 'Literal' ? node.property.value : null) : node.property?.name)
+               : node.type === 'Property' && node.parent === 'ObjectPattern' ? (node.key?.name ?? node.key?.value) : null
+    if (typeof name === 'string' && OPENER.test(name) && !ok) bad.push(node.loc.start.line)
+    for (const [k, v] of Object.entries(node)) {
+      if (k === 'parent' || k === 'loc') continue
+      if (Array.isArray(v)) v.forEach(c => { if (c && typeof c.type === 'string') { if (node.type === 'ObjectPattern') c.parent = 'ObjectPattern'; walk(c, ok) } })
+      else if (v && typeof v.type === 'string') walk(v, ok)
+    }
+  }
+  walk(ast, false)
+  return bad
 }
-await t('NO BYPASS: every container open in src/ goes through openObserved', () => {
-  for (const f of fs.readdirSync(new URL('../src/', import.meta.url)).filter(f => f.endsWith('.mjs') && f !== 'ledger.mjs')) {
-    const hits = bypasses(fs.readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'))
-    assert.equal(hits.length, 0, `${f}: ${hits.map(h => h.trim()).join(' | ')}`)
+const srcFiles = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => e.isDirectory() ? srcFiles(path.join(dir, e.name)) : e.name.endsWith('.mjs') ? [path.join(dir, e.name)] : [])
+await t('NO BYPASS (syntax-aware, recursive): every container open in src/ goes through openObserved', () => {
+  for (const f of srcFiles(new URL('../src/', import.meta.url).pathname).filter(f => !f.endsWith('/ledger.mjs'))) {
+    const lines = bypasses(fs.readFileSync(f, 'utf8'))
+    assert.deepEqual(lines, [], `${path.basename(f)} opens a container outside openObserved at line(s) ${lines.join(',')}`)
   }
 })
-await t('the NO-BYPASS check fails for the right reason (a raw open added = caught)', () => {
-  const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
-  assert.equal(bypasses(src + '\nconst w = await bot.openContainer(b)\n').length, 1)
-  assert.equal(bypasses(src + '\n// bot.openContainer(b) in a comment\n').length, 0)
-  assert.equal(bypasses('const o = bot.openContainer.bind(bot)\nconst { openChest } = bot\nbot["openFurnace"](b)').length, 3, 'aliases are caught too')
+await t('the NO-BYPASS check catches what line regexes missed (split calls, computed, destructured, same-line masking)', () => {
+  assert.equal(bypasses('bot\n  .openContainer(b)').length, 1, 'split across lines')
+  assert.equal(bypasses('bot["openFurnace"](b)').length, 1, 'computed')
+  assert.equal(bypasses('const { openChest } = bot').length, 1, 'destructured')
+  assert.equal(bypasses('openObserved(bot, b, () => bot.openContainer(b)); bot.openChest(c)').length, 1, 'same line, outside the wrapper')
+  assert.equal(bypasses('openObserved(bot, b, () => bot.openContainer(b))').length, 0, 'the wrapped form is allowed')
+  assert.equal(bypasses('// bot.openContainer(b)\nconst s = "bot.openContainer(x)"').length, 0, 'comments and strings are not code')
 })
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
