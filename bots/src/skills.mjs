@@ -3630,9 +3630,15 @@ export function exploreBearing (heading, start, rand = Math.random) {
   return (Math.hypot(dx, dz) < 12 ? rand() * Math.PI * 2 : Math.atan2(dz, dx)) + (rand() - 0.5) * 0.8
 }
 
-/** Pure: how far a task-aimed explore walks -- to the sighting, never past it, never under 20 blocks. */
-export function exploreStopAt (want, dist) {
-  return Math.min(want, Math.max(20, Math.round(Number(dist) || 0)))
+/**
+ * Pure: the next leg of a task-aimed walk. Bearing to the sighting and the horizontal distance left; `arrived` inside
+ * EXPLORE_ARRIVE blocks (gather searches 32, so arriving within 6 puts the sighting well inside its reach).
+ */
+export const EXPLORE_ARRIVE = 6
+export function aimLeg (pos, target) {
+  const dx = target.x - pos.x, dz = target.z - pos.z
+  const remaining = Math.hypot(dx, dz)
+  return { ang: Math.atan2(dz, dx), remaining, arrived: remaining <= EXPLORE_ARRIVE }
 }
 
 async function explore(ctx, { blocks = 60, heading = null, toward = null, intentTask = null }, signal) {
@@ -3701,9 +3707,12 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
   // explores on 28-29 Sep had no target -- but a task whose material has no sighting now lands here on purpose.
   let ang = exploreBearing(heading, start)
 
-  let want = Math.min(Math.max(Number(blocks) || 60, 20), 120)
-  // STOP AT THE THING. A task-aimed walk that runs `blocks` past a sighting 30 blocks away ends 30 blocks beyond it.
-  if (intended && known?.kind) want = exploreStopAt(want, known.dist)
+  const want = Math.min(Math.max(Number(blocks) || 60, 20), 120)
+  // WALK TO THE THING, THEN STOP (Codex review: a distance cap is not arrival -- a blocked leg's turn persists, so the
+  // capped walk ended wherever the turns left it). A task-aimed walk re-aims at the sighting after every leg that
+  // succeeded, keeps a blocked leg's turn for exactly one leg, and ends on arrival. `blocks` stays the budget.
+  const aimAt = intended && known?.kind ? known : null
+  let reaim = true, arrived = false
   // 12, not 25. At 25 blocks through forest, A* spends long enough planning that
   // the bot stands still past the 45s stuck threshold and the reflex cancels the
   // path -- measured, 8 explore attempts and 8 aborts, every single one killed
@@ -3719,10 +3728,17 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
     check(signal)
     legs++
     const from = bot.entity.position.clone()
-    const step = Math.min(LEG, want - travelled)
+    let step = Math.min(LEG, want - travelled)
+    if (aimAt) {
+      const a = aimLeg(from, aimAt)
+      if (a.arrived) { arrived = true; break }
+      if (reaim) ang = a.ang
+      step = Math.min(step, Math.max(4, a.remaining))
+      reaim = true
+    }
     const tx = Math.round(from.x + Math.cos(ang) * step)
     const tz = Math.round(from.z + Math.sin(ang) * step)
-    try { assertInsideBorder(tx, tz) } catch { ang += Math.PI / 2; continue }
+    try { assertInsideBorder(tx, tz) } catch { ang += Math.PI / 2; reaim = false; continue }
 
     try {
       // BOUNDED. The helper at the top of this file exists because
@@ -3776,11 +3792,17 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
         await sleep(1200, signal)
         bot.clearControlStates()
       } catch { bot.clearControlStates() }
+      reaim = false   // the turn stands for one leg, or the next re-aim walks straight back into the obstacle
       continue
     }
     check(signal)
     travelled += from.distanceTo(bot.entity.position)
   }
+  if (aimAt && !arrived) arrived = aimLeg(bot.entity.position, aimAt).arrived
+  if (aimAt) logEvent({ kind: 'explore_toward_milestone_end', status: arrived ? 'success' : 'no_effect',
+    detail: `${arrived ? 'arrived' : 'not_arrived'} at ${aimAt.kind} ${aimAt.x},${aimAt.y},${aimAt.z}: ` +
+            `${Math.round(aimLeg(bot.entity.position, aimAt).remaining)}b left after ${legs} legs, ${Math.round(travelled)}b walked`,
+    snapshot: snapshot(bot) })
 
   const moved = Math.round(start.distanceTo(bot.entity.position))
   const p = bot.entity.position
@@ -3789,6 +3811,8 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
   // Movement IS the deliverable here, so the threshold is distance, not arrival
   // at any particular place.
   if (moved >= 20) return { status: 'success', detail }
+  // ARRIVING IS THE POINT. A sighting 24 blocks off is reached after ~18; "barely moved" would teach a cooldown.
+  if (arrived && moved >= 5) return { status: 'success', detail: `${detail}; arrived at the ${aimAt.kind} sighting` }
   if (moved >= 5) return { status: 'no_effect', detail: `${detail} — barely moved`, failClass: 'stuck' }
   return { status: 'failed', detail: `could not explore: ${detail}`, failClass: 'no_path' }
 }

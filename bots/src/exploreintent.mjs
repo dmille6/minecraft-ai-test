@@ -21,14 +21,18 @@
 export const SIGHTABLE = ['oak_log', 'birch_log', 'spruce_log', 'stone', 'coal_ore', 'iron_ore', 'sand']
 const LOGS = ['oak_log', 'birch_log', 'spruce_log']
 
-// What an ITEM the task counts is found as. Explicit rather than derived from drop tables: the sighting list is
-// seven blocks long, and each line here is a claim that finding that block yields the item the task counts.
+// What BREAKING a sighted block yields. Each line claims "mine this block, hold that item" -- so iron_ore (the item) is
+// NOT here: mining iron ore drops raw_iron, and a smelt prerequisite that counts the literal item iron_ore (Codex
+// review; smelting.mjs asks for exactly its input) cannot be met at a sighting. Same for coal_ore. Logs and sand drop
+// themselves.
 const FOUND_AS = {
   oak_log: ['oak_log'], birch_log: ['birch_log'], spruce_log: ['spruce_log'],
-  coal: ['coal_ore'], coal_ore: ['coal_ore'], deepslate_coal_ore: ['coal_ore'],
-  raw_iron: ['iron_ore'], iron_ore: ['iron_ore'], deepslate_iron_ore: ['iron_ore'],
   sand: ['sand'],
+  raw_iron: ['iron_ore'], coal: ['coal_ore'],
 }
+// The iron rung is the one rung whose `wants` names a block (iron_ore) while its check counts the drop (raw_iron, or
+// the ingot it smelts to). Named by id, like the stockpiles, because its `wants` is not an item it counts.
+const IRON_RUNG = /^gather_iron_ore_3(?:#|$)/
 
 const norm = s => String(s ?? '').toLowerCase().replace(/^minecraft:/, '')
 
@@ -42,6 +46,7 @@ const norm = s => String(s ?? '').toLowerCase().replace(/^minecraft:/, '')
  */
 export function exploreKindsFor (task) {
   if (!task) return null
+  if (IRON_RUNG.test(String(task.id ?? ''))) return { kinds: ['iron_ore'], source: 'iron_rung' }
   const named = Array.isArray(task.wantsAny) && task.wantsAny.length ? task.wantsAny
     : task.wants ? [task.wants] : null
   // THE MAIN ITEM MUST BE SIGHTABLE. The scaffold detour wants dirt (no tool, never sighted) in a family that includes
