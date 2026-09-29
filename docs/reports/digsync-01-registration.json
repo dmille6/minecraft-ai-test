@@ -1,0 +1,109 @@
+{
+ "run_id": "digsync-01",
+ "sha": "SET-AT-LAUNCH: branch dig-rollback (0f228ec, from 80b3bbd) rebased onto the fleet sha at launch",
+ "registered_at": "2026-09-29T07:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "GHOST BLOCKS, proven 2026-09-29 on the sandbox (Paper 1.21.11, RCON `execute if block` against the bot's blockAt each time). mineflayer 4.37.1 finishDigging writes AIR into the bot's world model when its own timer fires and never rolls back a dig the server refused (no ack handling, sequence always 0), so every refused dig is a PERMANENT ghost: two ore-tunnel stalls were ghosts, and global dig instrumentation tied the stall cell to the one unconfirmed dig. CAUSES MEASURED with a bare client: (1) mineflayer never sends player_loaded, so Paper drops every dig for ~3 s after each join and respawn (START not acked, block not broken; with player_loaded the same dig breaks in ~30 ms) -- the entombment reflex digs inside that window; (2) out-of-reach digs (7 blocks): no packet ever. ABORT does not resync. collectManually's dig_unconfirmed check assumed a re-send and is blind to both. THE FIX (digsync.mjs): one increasing sequence across block_dig/block_place/use_item; each STOP records the block it overwrites; block_change/multi_block_change record the server's word; the ack settles on it or on the prior block; 5 s backstop; chunk loads drop predictions; player_loaded on every spawn; collectManually waits for settlement (+600 ms after a restore, for Paper's delayed destroy). Design and implementation each reviewed by Claude and Codex independently; both rejected the first (timer) design and recommended this one. 18 tests, 13 anchored mutants killed, 204/204. REAL SERVER, bare client with mineflayer's own bot.dig: control 3 refused digs -> 3 ghosts; candidate: early dig broken (player_loaded), 7-block dig restored at its ack in 45 ms, normal dig broken -- client matches server in all three. WHY THE GATE IS CORRECTNESS: deterministic protocol conformance; the dry run shows the outcome (stuck rows) swings -0.31/bot-h on an unchanged 5-bot pool in 2.5 h, so effect is reported, never gated.",
+ "licence": {
+  "class": "kind",
+  "row": "_dig_sync",
+  "min_rows": 1,
+  "note": "The baseline has no digsync module and no `_dig_sync`/`_dig_rollback` row kinds. Every canary bot writes a heartbeat every 10 minutes and on disconnect, so rows are certain within the first read."
+ },
+ "reads": [
+  "digsyncread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "stuck bots in the pool (the population a ghost strands)",
+    "kind": "_reflex_stuck",
+    "min": 2
+   }
+  ],
+  "note": "Fleet-wide 142 `_reflex_stuck` rows on 48 bots in 5 h (09-29 dry run); min 2 keeps a pool with no stuck bots from being drawn."
+ },
+ "exposure": {
+  "read": "digsyncread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = canary heartbeats exist AND >= 100 settled digs on the canary (the ledger saw real work) AND control `_reflex_stuck` >= 1."
+ },
+ "own_lines": [
+  {
+   "read": "digsyncread",
+   "field": "predict_failed_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS. The bookkeeping in front of every dig failed on the fleet (the packet still went out, by design). Deterministic; expected 0."
+  },
+  {
+   "read": "digsyncread",
+   "field": "loaded_short_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "WIRING. A spawn without player_loaded means the handshake did not run and the 3-s dig blackout is still there."
+  },
+  {
+   "read": "digsyncread",
+   "field": "heartbeat_missing_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "LIVENESS/COVERAGE: every canary bot seen must write the heartbeat. No evidence class: BLOCKS KEEP."
+  },
+  {
+   "read": "digsyncread",
+   "field": "sync_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "The baseline cannot write these kinds; a control row means the arms are wrong. BLOCKS KEEP."
+  },
+  {
+   "read": "digsyncread",
+   "field": "reflex_stuck_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL for the outcome query (78 in the dry run). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "digsyncread",
+  "field": "stuck_did_per_bh",
+  "note": "REPORTED, NOT GATED: DiD per bot-hour of _reflex_stuck, _entombed_unrecoverable, _support_cache_outvoted; rollbacks per 1,000 digs (the fleet's ghost rate, measured for the first time); backstop and falseRestore shares; repeatMax (>= 10 = a re-dig loop: TRIPWIRE, named in the read); re-deaths within 30 s (Claude review: player_loaded ends the vanilla spawn grace -- TRIPWIRE). dig_unconfirmed failures WILL rise on the canary (collectManually can now see a refused dig): excluded from any failure-class comparison."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

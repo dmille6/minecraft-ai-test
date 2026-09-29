@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-29 05:40Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 05:45Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -268,8 +268,35 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - An early finish: confirmed at ~0.9 s (Paper's delayed destroy).
     - ABORT: an ack only, no resync.
     collectManually's `dig_unconfirmed` (skills.mjs:1225-1250) assumes a re-send, so it is BLIND to these.
-    Fix designed: a timer rollback (restore the prior state when no block_change arrives within ~3 s).
-    **Both engines are reviewing it.** Memory: ghost-blocks-are-rejected-digs.
+    **CAUSE #1 FOUND:** mineflayer never sends `player_loaded` (1.21.4+), so Paper DROPS every dig for ~3 s
+    after each join and respawn. A bare client showed it twice: a dig at +300 ms was not acked and not
+    broken; with the packet, the same dig broke in ~30 ms. The entombment reflex digs in that window.
+    **BUILT: `dig-rollback` @ `0f228ec`** (from 80b3bbd). Both engines rejected the timer design and
+    recommended the vanilla protocol instead:
+    - one increasing sequence; each STOP records the block it overwrites;
+    - on the ack, settle on the server's word (block_change / multi_block_change), else restore the prior
+      block; a 5 s backstop;
+    - `player_loaded` on every spawn;
+    - collectManually waits for settlement;
+    - a `_dig_sync` heartbeat with totals.
+    Both implementation reviews applied (never-throwing wrapper, no seq wrap, the version checked at spawn,
+    the delayed-destroy grace, the denominator). 18 tests, 13 mutants killed, 204/204.
+    REAL SERVER: control 3 refused digs -> 3 ghosts; candidate -> 0 ghosts (restored at the ack in 45 ms;
+    the early dig broken).
+    **Canary staged:** `digsync-01` registration + read (docs/reports), dry-run on the fleet (positive
+    control 78 `_reflex_stuck` rows). Correctness gate; the effect is reported only (a -0.31/bot-h swing on
+    an unchanged pool in 2.5 h).
+    Memory: ghost-blocks-are-rejected-digs.
+  - **RECOMMENDED QUEUE (one canary at a time; the owner can reorder):**
+    1. toolkeeper-01 (verdict 14:02Z)
+    2. deathfix-01 (staged)
+    3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it)
+    4. lastswing-01
+    5. hygiene-01
+    6. ore tunnel (rebase the stack; registration to write)
+    7. withdraw-home
+    8. bank fix
+    9. craft limits
   - **Ore tunnel** (`ore-tunnel`, e455cf5 + uncommitted fixes in `$SP/wt-hyg`):
     - Both implementation reviews: REJECT for canary as it stood.
     - Fixed: arrival checked (goto resolves on an empty path); the pickaxe remedy = this trip's need, with
