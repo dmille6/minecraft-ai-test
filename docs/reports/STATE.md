@@ -414,6 +414,9 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       defect for torch (`charcoal`, smelt-only, 19/24 h), the driven test at depth 0, a behavioural dedupe test, an
       `advice_reach` row. NEXT ANALYSIS (after deathfix-01 is read -- open-loop rule): why `gather cobblestone`
       ends no_path at the surface.
+      UPDATE 17:45Z: charcoal, depth-0 driven test and dedupeGap done (`ada1e4d`, 4 mutants, 204/204). Codex review
+      agrees correct + low impact; open: deepslate starts at y=8 (not 0), stonecutter says "gather stone", gaps are
+      still quantity-sensitive, and a `_craft_advice_selected_v1` row for the read. Parked behind the approved queue.
     - hive-progress: its positive control (`lessons loaded` progress fields) is a CONSOLE log, not telemetry --
       add a `_progress_restored` row before registering it, or the read cannot see restored progress.
     - Registrations staged in docs: exploretoward-01, bankfix-01 (server-truth gate proved on the sandbox: the
