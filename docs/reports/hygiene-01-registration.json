@@ -7,9 +7,9 @@
  "notes": "OWNER 2026-09-29: 'stop bots from collecting and keeping junk'. Measured 09-29 04:50Z: 47 of 80 bots at >= 34 estimated slots of 36; control bots hold ~178 NEVER_KEEP items each. THE CHANGE (70bf6a2 + 55222a4): pickupNearbyItems never walks to NEVER_KEEP ballast; at 34+ slots a deterministic `wear_out` work order destroys spent tools (EXACTLY 1 use) by using them once on a natural block (allowlist; ledge/sapling/cave/occupied-cell guards), keeping 3 spent pickaxes for last-swing, at most 4 per order, verified by count; a failed order backs off 30 min; wear_out is neither a milestone attempt nor a lessons success. Nothing is dropped, so nothing reaches another bot. Reviewed by Claude and Codex independently; 15 tests, 10 anchored mutants killed; 205/205. SANDBOX: '36 -> 32 slots: 4 of 4 worn out', 3 spent pickaxes kept, bot unmoved. WHY THE GATE IS CORRECTNESS: deterministic housekeeping; the fleet question is whether it ran and whether it ever destroyed something usable.",
  "licence": {
   "class": "kind",
-  "row": "_wear_out",
   "min_rows": 1,
-  "note": "The baseline has no wear_out skill or row kind. 47/80 bots are over the 34-slot trigger, so a 5-bot pool should fire within the first hour."
+  "note": "The baseline has no wear_out skill or row kind. 47/80 bots are over the 34-slot trigger, so a 5-bot pool should fire within the first hour.",
+  "kind": "_wear_out"
  },
  "reads": [
   "hygieneread",

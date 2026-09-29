@@ -7,9 +7,9 @@
  "notes": "OWNER 2026-09-29: 'use both engines to design, implement, build and deploy the best approach to mining; check if the bots have pickaxes, if not, that should be a priority before mining.' Anti-xray is off on every world, so bots see iron in loaded chunks (median nearest 15 blocks); iron failed as 'every candidate is buried' (474 of 483 iron gather rows failed in 5.6 h on 09-29; 2 succeeded). THE CHANGE: gather escalates a buried iron target to a planned staircase tunnel (pathfinder over a tunnel profile: dig allowed, no parkour/towers/diagonals/1x1 shafts, drops <= 1) under hazard masks (liquid/waterlogged/unknown faces, falling blocks, lavaguard's cell + drop tests = the corridor guard's, home radius), accepted only on status success and checked on arrival; a pickaxe budget whose refusal adopts a stone_pickaxe with THIS trip's uses as the task (chain property-tested); gather's rescan collects. Design (iron-research-2026-09-29.md) and implementation reviewed by Claude and Codex independently; both REJECTED the first implementation; every finding fixed (a63b93d). 21 tests; mutants killed; 206/206. SANDBOX Paper 1.21.11: buried ore 6/6 reached and collected; gravel ceiling and water above collected; worn pickaxe refused with the right remedy; lava wall reached but collectblock returned without collecting (the fleet's existing 8.8% 'collect threw nothing' -- a known limitation). A/B on the ghost-making harness: see STATE. A CAPABILITY change: the outcome line gates KEEP (>= 1 ore collected on the canary; baseline ~0.015/bot-h).",
  "licence": {
   "class": "kind",
-  "row": "_ore_tunnel",
   "min_rows": 1,
-  "note": "The baseline has no `_ore_tunnel` kind. Iron attempts run ~3.4 per bot per 2.6 h in control, so a pool that asks for iron writes tunnel rows within the first read."
+  "note": "The baseline has no `_ore_tunnel` kind. Iron attempts run ~3.4 per bot per 2.6 h in control, so a pool that asks for iron writes tunnel rows within the first read.",
+  "kind": "_ore_tunnel"
  },
  "reads": [
   "oretunnelread",
