@@ -575,9 +575,13 @@ export class CognitiveLoop {
     log('warn', 'prerequisite adopted as the current task', {
       need: need.items.slice(0, 3).join('/'), count: need.count, after: fromSkill,
     })
+    // named= vs usable= : the canary's licence text, and the number the old count hid (a bot holding six spent pickaxes
+    // reads named=6 usable=0).
+    const inv = this.bot.inventory?.items?.() ?? []
+    const named = inv.filter(it => (need.items ?? []).includes(it?.name)).reduce((n, it) => n + (it.count ?? 1), 0)
     logEvent({ kind: 'prereq_adopted', status: 'failed',
                detail: `${fromSkill} needs ${need.count}x ${need.items.slice(0, 3).join(' or ')} ` +
-                       `(${need.because}); it is now the task until satisfied`,
+                       `(${need.because}); it is now the task until satisfied named=${named} usable=${prereqHave(inv, need)}`,
                snapshot: snapshot(this.bot) })
   }
 

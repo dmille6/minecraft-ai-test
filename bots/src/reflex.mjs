@@ -395,11 +395,18 @@ export function scaffoldPrereq(because) {
   }
 }
 
+/**
+ * HOW MANY USABLE PICKAXES AN ESCAPE ASK MUST REQUEST: the count at which mayDigForEscape lets a tool dig (it refuses on
+ * exactly one -- the reserve rule). An ask for ONE was met by the first pickaxe crafted, the detour cleared, the escape
+ * refused to spend that same last pickaxe and asked again: a closed loop one level up (Claude review of af9e09e,
+ * reflex.mjs digStraightUp -> needs_pickaxe -> climbPrereqFor). A property test holds the two together.
+ */
+export const ESCAPE_PICKAXES_NEEDED = 2
 export function pickaxePrereq(because) {
   return {
     items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
-    count: 1,
-    describe: 'Get a pickaxe. The stone above you cannot be broken without one.',
+    count: ESCAPE_PICKAXES_NEEDED,
+    describe: 'Get two pickaxes. The stone above you needs one, and the escape will not spend your last.',
     because,
   }
 }
@@ -2751,7 +2758,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // ride it too); cognitive.mjs drains this on its next tick.
           bot.pendingPrereq = {
             items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
-            count: 1,
+            count: ESCAPE_PICKAXES_NEEDED,
             describe: 'Get a pickaxe. You are sealed in and cannot break the ceiling without one.',
             because: `${escapeGiveUps} escape attempts could not break out at y=${Math.round(bot.entity.position.y)}`,
           }
@@ -4529,8 +4536,8 @@ const PILLAR_MAX_BLOCKS = 24
 export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
   if (reason === 'needs_pickaxe') {
     return { items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
-             count: 1,
-             describe: 'Get a pickaxe. You are sealed in and cannot break the ceiling without one.' }
+             count: ESCAPE_PICKAXES_NEEDED,
+             describe: 'Get two pickaxes. You are sealed in; the escape will not spend your last one on the ceiling.' }
   }
   if (reason === 'needs_blocks') {
     const count = maxBlocks + 2

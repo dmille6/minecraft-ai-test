@@ -36,4 +36,26 @@ t('WIRED: the controller counts through prereqHave (comments stripped)', () => {
   const src = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
   assert.match(src, /#prereqHave\(\) \{\s*return prereqHave\(this\.bot\.inventory\?\.items\(\) \?\? \[\], this\.prereq\)/)
 })
+// ---- THE COMPOSITION (Claude review): an escape ask that counts as MET must leave the escape able to dig ----
+const { mayDigForEscape, pickaxePrereq, climbPrereqFor, ESCAPE_PICKAXES_NEEDED } = await import('../src/reflex.mjs')
+const stone = { name: 'stone', harvestTools: { 1: true } }   // a ceiling that needs a tool
+t('PROPERTY: for every mix of usable and spent pickaxes, a satisfied escape ask never meets a refusing escape', () => {
+  let satisfied = 0
+  for (const ask of [pickaxePrereq('x'), climbPrereqFor('needs_pickaxe')]) {
+    for (let usable = 0; usable <= 3; usable++) for (let spent = 0; spent <= 4; spent++) {
+      const inv = [...Array.from({ length: usable }, () => pick('stone_pickaxe', 90)), ...Array.from({ length: spent }, () => pick('stone_pickaxe', 1))]
+      if (prereqHave(inv, ask) >= ask.count) {
+        satisfied++
+        assert.equal(mayDigForEscape(inv, stone), true, `ask met with ${usable} usable + ${spent} spent, but the escape refuses`)
+      }
+    }
+  }
+  assert.ok(satisfied >= 10, `the sweep must reach satisfied asks (${satisfied})`)
+  assert.equal(ESCAPE_PICKAXES_NEEDED, 2)
+})
+t('POSITIVE CONTROL: the old count-1 ask DOES meet a refusing escape (the loop this closes)', () => {
+  const inv = [pick('stone_pickaxe', 90)]
+  assert.ok(prereqHave(inv, { ...pickaxePrereq('x'), count: 1 }) >= 1)
+  assert.equal(mayDigForEscape(inv, stone), false)
+})
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
