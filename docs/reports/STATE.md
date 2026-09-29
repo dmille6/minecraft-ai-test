@@ -383,8 +383,26 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       - Row `_explore_toward_milestone` (legacy= included). 13 tests, 9 mutants killed, 204/204.
       - **Both implementation reviews running.** d0c47c6 kept separate: Codex re-measured explore at 34.5%
         of repeat_loop vetoes (not 54%), median same-key separation 1.1 blocks (not 48).
-    - Codex's smaller finds, not built: deposit ignores cancellation in travel; craft walks before checking ingredients; deposit admits an
-      item-less trip; escape burns logs as scaffold.
+    - **EXPLORE after both implementation reviews: `explore-toward` @ `4458107`** -- stone and dirt OUT (buried, not
+      distant; dirt never sighted); an unsightable main item is never aimed; literal-item detours (a smelt prereq
+      counting iron_ore) not aimed; the walk RE-AIMS each leg and stops on ARRIVAL (a distance cap was not arrival).
+      18 tests incl. explore() driven with a drifting pathfinder, 14 mutants killed, 204/204. Registration
+      `exploretoward-01` staged in docs (correctness gate: every aimed target is a kind the task asked for; read
+      dry-run on unchanged hive-b prints NOT judged). Exposure ~0.8 aimed walks/bot-h: items effect unmeasurable.
+    - **BANK FIX BUILT: `bank-fix` @ `4d76b43`** (chest-ledger + tool-keeper-2 + craft-count, then 3 parts).
+      Part 1 = Codex triage: deposit's chest walk cancellable + bounded; a named deposit admitted on its own plan;
+      craft checks ingredients before walking to a table. Part 2 = the owner's tiers (valuable uncapped / useful 128
+      under 75% / bulk 64 under 50% / junk never; only valuable opens a chest; place a CARRIED chest first),
+      hold-iron 3, demand vs transfer (logs+cobble never send a bot), the capped/full state, withdraw skips bulk,
+      place() never on a lid. Part 3 = both implementation reviews + SANDBOX (RCON slot reads): A places the carried
+      chest and banks ONLY the valuables; an empty chest takes exactly 64 cobble; the next trip is refused. 209/209,
+      ~24 mutants killed. MEASURED FIRST: inventories are median 34/36 slots but bulk is ~3.6% of slots -- ballast
+      and spent tools fill them (hygiene's job). KNOWN RESIDUAL: nothing frees a slot for a bot full of capped bulk.
+      Registration NOT yet written; its gate must read the ledger open snapshots / RCON, never `_deposit_window`
+      (client-side), and key a double chest as one container. veto-retry's RETRYABLE needs deposit_nothing_to_bank
+      and bank_capped when the two meet.
+    - Codex's smaller finds: deposit cancellation, craft preflight and the deposit admission plan are INSIDE the bank
+      fix. Not built: escape burns logs as scaffold (1,009 logs/day).
   - **toolkeeper-01 DECIDED 2026-09-29 14:10Z: KEEP** (4320136).
     - 8 canary deaths in 520 bot-h (0.015/bh) vs 30 in 1,040 (0.029/bh).
     - Its registration said promotion 'none' (written before the owner allowed fleet-wide), so it was
