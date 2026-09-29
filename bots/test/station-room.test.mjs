@@ -130,7 +130,7 @@ const CODE = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
 await t('craft says on its success line when it made a table from wood, placed the carried one, or made room', async () => {
   assert.match(CODE, /stationDid\.push\('made a crafting_table from wood'\)/)
   assert.match(CODE, /stationDid\.push\(\/made room by digging/)
-  assert.match(CODE, /crafted \$\{count\}x \$\{item\}\$\{stationDid\.length \? ` \(\$\{stationDid\.join\('; '\)\}\)` : ''\}/)
+  assert.match(CODE, /crafted \$\{made\}x \$\{item\}\$\{stationDid\.length \? ` \(\$\{stationDid\.join\('; '\)\}\)` : ''\}/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
