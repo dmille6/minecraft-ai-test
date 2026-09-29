@@ -148,6 +148,12 @@ export function placeVerdict(places, pos, radius = PLACE_RADIUS, memory = PLACE_
 }
 
 /** The fields MilestoneController and the probation counter keep in `progress`. */
+/**
+ * The shared-slot format this build writes. A slot WITHOUT it was written by the old build, whose saves froze the slot
+ * at the bot's first-ever save (Claude review: weeks-old attempts/skips/blocked for hive-a/b). Such a slot loads as
+ * EMPTY, so the first boot of this build starts exactly as the old build did and only persistence changes.
+ */
+export const PROGRESS_SLOT_VERSION = 2
 export const PROGRESS_FIELDS = ['attempts', 'skipped', 'skippedAt', 'skipCount', 'cycle', 'completions', 'progressAt', 'blocked']
 /**
  * THIS bot's milestone progress, from either layout. A private store keeps the fields at the top of `progress`; a
@@ -161,7 +167,8 @@ export const PROGRESS_FIELDS = ['attempts', 'skipped', 'skippedAt', 'skipCount',
 export function ownProgress (progress, name) {
   const p = progress && typeof progress === 'object' ? progress : {}
   const flat = PROGRESS_FIELDS.some(f => f in p)
-  const slot = p[name] && typeof p[name] === 'object' && !Array.isArray(p[name]) ? p[name] : {}
+  const raw = p[name] && typeof p[name] === 'object' && !Array.isArray(p[name]) ? p[name] : {}
+  const slot = raw.v === PROGRESS_SLOT_VERSION ? raw : {}
   const src = flat ? p : slot
   return Object.fromEntries(PROGRESS_FIELDS.filter(f => f in src).map(f => [f, src[f]]))
 }
@@ -340,7 +347,7 @@ export class Lessons {
     }
     // progress is per-BOT even in a hive: it is goals, not experience.
     cur.progress = cur.progress ?? {}
-    cur.progress[config.bot.name] = ownProgress(this.data.progress, config.bot.name)
+    cur.progress[config.bot.name] = { ...ownProgress(this.data.progress, config.bot.name), v: PROGRESS_SLOT_VERSION }
     cur.runs = Math.max(cur.runs ?? 0, this.data.runs ?? 0)
 
     try {
@@ -376,6 +383,10 @@ export class Lessons {
       avoid: Object.keys(this.data.avoid).length,
       worked: Object.keys(this.data.worked).length,
       hazard_sites: this.data.sites.length,
+      // What progress came back: the canary's positive control that a restart restored anything at all.
+      progress_skipped: (this.data.progress?.skipped ?? []).length,
+      progress_cycle: this.data.progress?.cycle ?? 0,
+      progress_blocked: Object.keys(this.data.progress?.blocked ?? {}).length,
     })
   }
 

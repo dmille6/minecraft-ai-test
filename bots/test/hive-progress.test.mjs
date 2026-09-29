@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 process.env.BOT_NAME = 'hive-a-Alpha'
 process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/mcbot-test-logs-hive'
-const { Lessons, ownProgress } = await import('../src/lessons.mjs')
+const { Lessons, ownProgress, PROGRESS_FIELDS } = await import('../src/lessons.mjs')
 
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -15,7 +15,7 @@ t('ownProgress: a private (flat) layout is returned as is, minus stray keys', ()
   assert.deepEqual(ownProgress({ attempts: { a: 1 }, skipCount: { a: 2 }, junk: 1 }, 'x'), { attempts: { a: 1 }, skipCount: { a: 2 } })
 })
 t('ownProgress: a shared layout returns ONLY this bot\'s slot', () => {
-  const p = { 'hive-a-Alpha': { attempts: { a: 3 } }, 'hive-a-Bravo': { attempts: { b: 9 } } }
+  const p = { 'hive-a-Alpha': { attempts: { a: 3 }, v: 2 }, 'hive-a-Bravo': { attempts: { b: 9 }, v: 2 } }
   assert.deepEqual(ownProgress(p, 'hive-a-Alpha'), { attempts: { a: 3 } })
 })
 t('ownProgress: the mixed in-memory state prefers the fresh top-level writes over the stale slot', () => {
@@ -26,6 +26,9 @@ t('ownProgress: the corrupted host file ({Echo: {Bravo: {}}}) yields empty, neve
   assert.deepEqual(ownProgress({ 'hive-a-Echo': { 'hive-a-Bravo': {} } }, 'hive-a-Echo'), {})
 })
 
+t('a LEGACY slot (the old build\'s frozen first save, no version marker) loads as EMPTY, as the old build behaved', () => {
+  assert.deepEqual(ownProgress({ 'hive-a-Alpha': { attempts: { stale: 1 }, skipped: ['old_skip'], blocked: { k: 1 } } }, 'hive-a-Alpha'), {})
+})
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hive-progress-'))
 const file = path.join(dir, 'shared.json')
 t('A SHARED STORE across a restart: the latest progress comes back, and a peer\'s slot is untouched', () => {
@@ -56,6 +59,19 @@ t('BETWEEN saves (no restart) the store still reads this bot\'s progress, not th
   a.setProgress({ z: 1 }, [], {}, { z: 3 }, 0, {})
   a.save()
   assert.deepEqual(a.getProgress().skipCount, { z: 3 }, 'right after the merge, before any new write')
+})
+t('EVERY field setProgress and bumpBlocked write survives a shared save and reload', () => {
+  const f4 = path.join(dir, 'fields.json')
+  const a = new Lessons(f4, true)
+  a.setProgress({ a: 1 }, ['s'], { s: 1 }, { s: 2 }, 3, { c: 4 }, { r: { t: 5, since: 5 } })
+  a.bumpBlocked('k'); a.bumpBlocked('k')
+  a.save()
+  const p = new Lessons(f4, true).data.progress
+  const want = { attempts: { a: 1 }, skipped: ['s'], skippedAt: { s: 1 }, skipCount: { s: 2 }, cycle: 3, completions: { c: 4 }, blocked: { k: 2 } }
+  // idle-gap adds a 7th argument (progressAt); PROGRESS_FIELDS already carries it so the two merge without loss.
+  if (a.setProgress.length >= 7) want.progressAt = { r: { t: 5, since: 5 } }
+  for (const [k, v] of Object.entries(want)) assert.deepEqual(p[k], v, k)
+  for (const k of Object.keys(want)) assert.ok(PROGRESS_FIELDS.includes(k), `PROGRESS_FIELDS must cover ${k}`)
 })
 t('a PRIVATE store is unchanged', () => {
   const f2 = path.join(dir, 'private.json')
