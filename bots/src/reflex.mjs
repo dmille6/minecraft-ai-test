@@ -8,6 +8,7 @@
 // calmly pathfinding into lava because it is "busy gathering" is the failure
 // mode this layer exists to prevent.
 
+import { haltPath } from './pathhalt.mjs'
 import { applyToolPolicy } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
@@ -2965,7 +2966,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         logEvent({ kind: 'reflex_stuck', detail: `no movement for ${config.reflex.stuckSeconds}s`, snapshot: snapshot(bot) })
         stillSince = Date.now()
         runner.interrupt('stuck')
-        try { bot.pathfinder?.stop() } catch { /* pathfinder may be idle */ }
+        haltPath(bot)   // a stuck bot reaches no node, so a bare stop() stays pending and kills unstick's own walk (pathhalt.mjs)
         await unstick(bot)
       }
     } catch (e) {

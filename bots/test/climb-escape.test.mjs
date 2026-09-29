@@ -200,7 +200,8 @@ t('THE CLIMB OWNS THE BODY: it clears the pathfinder goal before starting', () =
   const i = src.indexOf('export async function shaftAscend')
   assert.ok(i > 0, 'shaftAscend moved; re-read this test')
   const head = src.slice(i, src.indexOf('const startY', i))
-  assert.ok(/setGoal\(null\)/.test(head),
+  // haltPath(bot) IS setGoal(null) (pathhalt.mjs; its behaviour is tested in pathhalt.test.mjs).
+  assert.ok(/setGoal\(null\)|haltPath\(bot\)/.test(head),
     'the climb starts without clearing the goal — stop() alone waits for a path node it may never reach')
   assert.ok(/clearControlStates\(\)/.test(head),
     'stale control states from the failed goto are still latched')

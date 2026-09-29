@@ -25,6 +25,7 @@
 // Every long loop must check `signal.aborted`, because the reflex layer
 // preempts skills and a skill that ignores that will fight it.
 
+import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy } from './toolfor.mjs'
@@ -232,8 +233,7 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
         if (onTimeout) {
           try { onTimeout() } catch { /* best effort; the reject still happens */ }
         } else {
-          try { bot.pathfinder?.setGoal(null) } catch {}
-          try { bot.pathfinder?.stop() } catch {}
+          haltPath(bot)   // setGoal(null) and NO trailing stop(): that left a stale flag the next goto died of (pathhalt.mjs)
         }
         // TAGGED, not just worded. The old message was matched by a regex that
         // also matched "no path", so OUR wall clock expiring was reported to
@@ -247,7 +247,13 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
                             budgetExceeded: true }))
       }, ms)
     }),
-  ]).finally(() => { clearTimeout(t); if (watch) clearInterval(watch) })
+  ]).finally(() => {
+    clearTimeout(t); if (watch) clearInterval(watch)
+    // THE DIG WATCHER'S stop() (watchDigging) IS CONSUMED HERE (Claude review of 7775d5e): on a walk the pathfinder's
+    // own dig_error reset eats it, but around gather's direct bot.dig there is no path, the dig settles first, and the
+    // stale flag killed the next walk -- the pickup sweep. The race has settled, so no walk of this call is live.
+    if (undiggable) haltPath(bot)
+  })
 }
 
 /** Refuse any destination outside the world border. */
@@ -397,8 +403,11 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
         ? new goals.GoalNear(leg.x, leg.y, leg.z, Math.max(range, 2))
         : new goals.GoalNearXZ(leg.x, leg.z, Math.max(range, 2))
       const p = bot.pathfinder.goto(goal)
-      signal?.addEventListener('abort', () => { try { bot.pathfinder.stop() } catch {} }, { once: true })
-      await withTimeout(p, 25000, bot)
+      // Halt on abort -- and REMOVE the listener when the leg ends (Codex review: one per leg accumulated, and a
+      // finished leg's listener could halt a later walk).
+      const onAbort = () => haltPath(bot)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      try { await withTimeout(p, 25000, bot) } finally { signal?.removeEventListener?.('abort', onAbort) }
 
       // A RESOLVED PROMISE IS NOT AN ARRIVAL.
       //
@@ -1286,6 +1295,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       e.name === 'item' && !refused.has(e.id) &&
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
+    const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
         new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
@@ -1299,10 +1309,16 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       // denominator and no row a control pool could not also emit -- three canaries
       // have been reverted on rows the baseline emitted too. HEAD cannot reach this
       // line at all: it returns here.
+      // WHY, WHAT AND WHERE (both analyses 2026-09-29: the row carried only an id, so the causes stayed inferred).
+      // err= is also the only text a build without this change cannot write.
+      let what = '?', off = '?'
+      try { what = drop.getDroppedItem?.()?.name ?? '?' } catch {}
+      try { const q = drop.position.minus(bot.entity.position); off = `${q.x.toFixed(1)},${q.y.toFixed(1)},${q.z.toFixed(1)}` } catch {}
       refused.add(drop.id)
       logEvent({ kind: 'pickup_skipped', status: 'success',
                  detail: `drop ${drop.id} refused the walk; retired it and kept sweeping ` +
-                         `(${refused.size} retired, attempt ${i + 1}/4)` })
+                         `(${refused.size} retired, attempt ${i + 1}/4) err=${e?.failClass ?? e?.name ?? 'Error'} ` +
+                         `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
     await sleep(250, signal)
@@ -6204,8 +6220,7 @@ export async function shaftAscend(bot, targetY, signal,
   // setGoal(null), not stop() alone: stop() takes effect at the next path node,
   // so a bot that cannot reach its next node never stops. withTimeout in this
   // file already had to learn that, and so did reflex.mjs.
-  try { bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
-  try { bot.pathfinder?.stop() } catch { /* not connected */ }
+  haltPath(bot)   // no trailing stop(): pathhalt.mjs
   try { bot.clearControlStates() } catch { /* not connected */ }
 
   const startY = bot.entity.position.y
