@@ -1231,7 +1231,13 @@ export async function collectManually(bot, block, signal) {
   // few ticks and then look. If the block is still what it was, the break did
   // not happen and calling this a harvest is the same overclaim the evidence
   // gate exists to stop.
-  await sleep(250, signal)
+  // THE SERVER'S WORD, when digsync (digsync.mjs) can give it: wait until the dig is settled by the server's ack, and if
+  // it was refused and restored, give a delayed destroy (Paper breaks an early STOP a few ticks later) 600 ms more
+  // before believing the block (Claude review of fbd7125: at 250 ms the check saw the restore and walked away from a
+  // block the server broke at 400 ms). Without digsync, the old 250 ms look.
+  const settled = bot.digSync?.waitSettled ? await bot.digSync.waitSettled(p, 1500) : null
+  if (settled?.broken === false) await sleep(600, signal)
+  else if (!settled) await sleep(250, signal)
   const nowNamed = bot.blockAt(p)?.name
   if (wasNamed && nowNamed === wasNamed && wasNamed !== 'air') {
     throw Object.assign(
