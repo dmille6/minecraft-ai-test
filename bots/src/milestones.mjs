@@ -18,7 +18,53 @@ import { equivalentTools } from './skills.mjs'
 import { bankableInventory } from './bankable.mjs'
 import { countItem } from './state.mjs'
 import { config } from './config.mjs'
-import { log } from './logger.mjs'
+import { log, logEvent } from './logger.mjs'
+import { smeltRecipeFor } from './smelting.mjs'
+
+/**
+ * THE IDLE GAP (tech-tree review 2026-09-28, item 4; both engines measured it on 162k decisions, 24 h to 09-29 05:35Z).
+ * A rung was skipped after 25 consecutive non-successes of ANY decision -- admission rejections (51% of them), and
+ * skills that had nothing to do with the rung -- and `skipCount` never reset, so 69% of skipped entries sat at the
+ * 6 h cap (median skipCount 34) and idle was 25.3% of all decisions. A rung was abandoned in ~15 min and barred for
+ * up to 6 h. Now:
+ *   - only an EXECUTED decision that SERVES the task counts toward the skip, and only a serving success resets it;
+ *   - a genuine completion (not the "no means" bypass) resets skipCount;
+ *   - a rung with no serving progress for NO_PROGRESS_MS is still skipped (reason no_progress), so an impossible or
+ *     never-chosen goal cannot hold a bot forever -- the exit both reviews required (CLAUDE.md: a filter that removes
+ *     the only way out is a dead end). A no_progress skip is NOT reported to peers as "unreachable".
+ */
+export const NO_PROGRESS_MS = 45 * 60_000
+/** Which block drops which item, for "does gathering X serve a rung that wants Y". Only the ones the ladder uses. */
+export const DROPS = { stone: 'cobblestone', deepslate: 'cobbled_deepslate', iron_ore: 'raw_iron', deepslate_iron_ore: 'raw_iron',
+                       coal_ore: 'coal', deepslate_coal_ore: 'coal', grass_block: 'dirt', gravel: 'flint' }
+const MOVE = s => s === 'goto' || s === 'explore'
+const ROUTE = {
+  patrol: s => MOVE(s),
+  return: s => s === 'home' || s === 'goto',
+  deposit_surplus: s => s === 'deposit',
+  stockpile_wood: (s, a) => s === 'gather' && /_(log|wood|stem|planks)$/.test(String(a?.block ?? a?.item ?? '')),
+  stockpile_stone: (s, a) => s === 'mine' || (s === 'gather' && /^(stone|cobblestone|deepslate|cobbled_deepslate|blackstone)$/.test(String(a?.block ?? a?.item ?? ''))),
+}
+/**
+ * Does this action serve the task? Pure. `task` is what the bot was working on (a prereq detour carries its own
+ * `wants`), `wanted` the set cognitive derives from it (#wantedItems: the item, its family, recipe and smelt inputs).
+ * Item rungs use the admission gate's own output rules (craft item / gather block / smelt output) plus DROPS; rungs
+ * with no item use ROUTE. Anything else -- including every rejected proposal -- is not an attempt at this rung.
+ */
+export function servesRung (skill, args, task, wanted) {
+  if (!skill || !task) return false
+  const base = String(task.id ?? '').split(/[#+]/)[0]
+  const route = ROUTE[base] ?? (/^(survey|travel)_/.test(base) ? MOVE : null)
+  if (route) return !!route(skill, args)
+  if (!(wanted instanceof Set) || !wanted.size) return false
+  let out = null
+  if (skill === 'craft') out = args?.item ?? null
+  else if (skill === 'gather') out = args?.block ?? args?.item ?? null
+  else if (skill === 'smelt') { try { out = smeltRecipeFor(args?.item)?.output ?? null } catch { out = null } }
+  else if (skill === 'mine') return [...wanted].some(w => /_ore$|^raw_|^coal$|cobble|^stone$|deepslate|blackstone/.test(w))
+  if (!out) return false
+  return wanted.has(out) || (DROPS[out] != null && wanted.has(DROPS[out]))
+}
 
 // Role-specific chains. Three bots running the identical chain would fail in
 // the identical way, which teaches us nothing beyond what one bot already
@@ -401,7 +447,9 @@ const countAny = (b, names) => names.reduce((t, n) => t + countItem(b, n), 0)
  * exactly when it is actionable, which is the only time asking is useful.
  */
 const rungOf = (base, hasMeans) =>
-  ({ ...base, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) })
+  // `fulfilled` is the rung ACTUALLY met; `done` also steps over a rung the bot has no means for. Only the first
+  // resets the rung's skipCount (Codex review: a bypass is not a completion).
+  ({ ...base, fulfilled: base.done, done: (b, ...rest) => base.done(b, ...rest) || !hasMeans(b) })
 const ladder = (item, n, why, hint, hasMeans) =>
   rungOf(M.craft(item, n, why, hint), hasMeans)
 /** The same wrapper over a furnace rung, so iron obeys the identical rule. */
@@ -776,6 +824,9 @@ export class MilestoneController {
     this.skipped = p.skipped
     this.skippedAt = p.skippedAt ?? {}
     this.skipCount = p.skipCount ?? {}
+    // When each rung last made serving progress (or first became current). Persisted: a restart must not reset the
+    // no-progress deadline, or a bot that reconnects every 40 min would never leave an impossible rung.
+    this.progressAt = p.progressAt ?? {}
     // How many times the whole chain has been completed. SUSTAINING goals scale
     // their targets by it ("stockpile 16 + n*8 cobblestone"), and it was READ in
     // three places and ASSIGNED in none -- so every sustaining goal rendered as
@@ -795,7 +846,7 @@ export class MilestoneController {
   }
 
   #persist() {
-    this.lessons?.setProgress?.(this.attempts, this.skipped, this.skippedAt, this.skipCount, this.cycle, this.completions)
+    this.lessons?.setProgress?.(this.attempts, this.skipped, this.skippedAt, this.skipCount, this.cycle, this.completions, this.progressAt)
   }
 
   /**
@@ -831,11 +882,19 @@ export class MilestoneController {
    * chain stops behind it permanently. Skipping is recorded, not silent: a
    * skipped milestone is a finding about the world, not a success.
    */
-  noteAttempt(failed) {
+  noteAttempt(outcome) {
+    // A bare boolean is the old contract (every decision counts); cognitive passes the full verdict.
+    const { failed, executed = true, serving = true, overlay = false } =
+      outcome && typeof outcome === 'object' ? outcome : { failed: !!outcome }
     const m = this.current()
     if (!m) return false
-    this.attempts[m.id] = (this.attempts[m.id] ?? 0) + (failed ? 1 : 0)
-    if (!failed) this.attempts[m.id] = 0
+    const now = Date.now()
+    this.progressAt[m.id] ??= now
+    // Serving progress, including a detour's own success (the prereq is the rung's), moves the deadline.
+    if (executed && serving && !failed) { this.progressAt[m.id] = now; this.attempts[m.id] = 0 }
+    // Only an executed, serving failure on the rung itself counts toward the skip. A detour is bounded by its own
+    // TTL (cognitive.mjs PREREQ_TTL_MS), rejections by the livelock breaker, and everything by the deadline below.
+    if (executed && serving && failed && !overlay) this.attempts[m.id] = (this.attempts[m.id] ?? 0) + 1
     // A peer that already proved this unreachable lowers the cost of
     // confirming it -- but does NOT replace confirming it. Trusting a peer
     // outright would make one bot's bad conclusion permanent for the fleet,
@@ -844,17 +903,22 @@ export class MilestoneController {
     // 25 each scout independently spent on the same goal tonight.
     const peers = this.worldFacts?.unreachableBy?.(m.id, config.bot.name, this.bot.entity?.position)
     const budget = peers ? 8 : 25
-    if (this.attempts[m.id] >= budget) {
-      if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
-      this.skippedAt[m.id] = Date.now()
-      this.skipCount[m.id] = (this.skipCount[m.id] ?? 0) + 1
-      this.attempts[m.id] = 0
-      this.index++
-      this.#persist()
-      return true
-    }
+    if ((this.attempts[m.id] ?? 0) >= budget) return this.#skip(m, 'attempts', budget)
+    if (now - this.progressAt[m.id] >= NO_PROGRESS_MS) return this.#skip(m, 'no_progress', budget)
     this.#persist()
     return false
+  }
+
+  #skip(m, reason, budget) {
+    if (!this.skipped.includes(m.id)) this.skipped.push(m.id)
+    this.skippedAt[m.id] = Date.now()
+    this.skipCount[m.id] = (this.skipCount[m.id] ?? 0) + 1
+    this.lastSkip = { id: m.id, reason, budget, skipCount: this.skipCount[m.id] }
+    this.attempts[m.id] = 0
+    delete this.progressAt[m.id]
+    this.index++
+    this.#persist()
+    return true
   }
 
   /** Advance past every milestone whose predicate is now satisfied. */
@@ -908,8 +972,18 @@ export class MilestoneController {
       if (done) {
         this.completedAt[m.id] = Date.now()
         this.completions[m.id] = (this.completions[m.id] ?? 0) + 1
+        // A GENUINE completion clears the rung's give-up history: it was possible after all, so the next give-up
+        // starts from the base backoff again (skipCount only ever grew: 69% of skipped entries sat at the 6 h cap).
+        let genuine = true
+        try { genuine = m.fulfilled ? !!m.fulfilled(this.bot, this.cycle ?? 0, this.worldFacts, this.completions[m.id] - 1) : true } catch { genuine = false }
+        if (genuine && (this.skipCount[m.id] ?? 0) > 0) {
+          logEvent({ kind: 'milestone_skip_reset', status: 'success', detail: `${m.id} completed; skipCount ${this.skipCount[m.id]} -> 0` })
+          delete this.skipCount[m.id]
+        }
+        if (genuine) this.attempts[m.id] = 0
         this.#persist()
       }
+      delete this.progressAt[m.id]
       this.index++
       advanced = true
     }

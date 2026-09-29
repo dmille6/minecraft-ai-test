@@ -14,7 +14,7 @@ import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
-import { MilestoneController } from './milestones.mjs'
+import { MilestoneController, servesRung, NO_PROGRESS_MS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
@@ -999,18 +999,28 @@ export class CognitiveLoop {
     // window lost it, sending the bot back through 25 more attempts at a goal
     // it had already proven impossible.
     this.lessons.save()
-    if (this.milestones.noteAttempt(outcome.status !== 'success')) {
+    // THE IDLE GAP (milestones.mjs NO_PROGRESS_MS): only an executed decision that serves the task counts toward a
+    // give-up. A rejection is not an attempt at the goal, and neither is exploring while the goal is a pickaxe.
+    const executed = !!admitted && outcome.status !== 'aborted'
+    let serving = false
+    try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
+    const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
+    if (this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay })) {
       const sk = this.milestones.status()
-      log('warn', 'milestone unreachable, skipping', { now: sk.id })
+      const why = this.milestones.lastSkip ?? {}
+      log('warn', 'milestone unreachable, skipping', { now: sk.id, reason: why.reason })
       this.memory.addEvent(`gave up on the previous goal as unreachable; now: ${sk.describe}`)
       logEvent({ kind: 'milestone_skipped', status: 'failed',
-                 detail: `no progress after 25 attempts; moved on to ${sk.id}`,
+                 detail: (why.reason === 'no_progress'
+                   ? `no serving progress in ${Math.round(NO_PROGRESS_MS / 60_000)} min`
+                   : `${why.budget ?? 25} serving attempts failed`) + ` (skip #${why.skipCount ?? '?'} of ${why.id ?? '?'}); moved on to ${sk.id}`,
                  snapshot: snapshot(this.bot) })
       this.lessons.save()   // a give-up is rare and expensive to relearn
       // Tell the fleet. Two scouts each spent 25 attempts proving the SAME
       // goal unreachable tonight; the second one should not have had to.
       const gaveUp = this.milestones.skipped[this.milestones.skipped.length - 1]
-      if (gaveUp && this.worldFacts?.reportUnreachable(gaveUp, config.bot.name, this.bot.entity?.position)) {
+      // A deadline give-up says nothing about the goal's reachability (Codex review): never tell peers.
+      if (gaveUp && why.reason === 'attempts' && this.worldFacts?.reportUnreachable(gaveUp, config.bot.name, this.bot.entity?.position)) {
         announceUnreachable(this.bot, gaveUp)
       }
     }
