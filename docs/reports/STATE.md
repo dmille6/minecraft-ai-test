@@ -454,8 +454,12 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
        vs 58.5% with a good one); 56 of 80 bots hold only spent copies. Rebase onto the fleet sha at launch.
     3. **ONE FIXES BUNDLE**: branch `fixes-bundle` @ 7fc77e0 = 80b3bbd + dig-rollback + stale-stop + craft-advice +
        hive-progress (clean merge, 207/207, sandbox smoke: gathers logs + cobble, deposits, no errors). After lastswing
-       lands, add prereq-usable and `tool-guard` (c6c37a4: nothing held can break it -> missing_tool before the walk,
-       not a learnable no_path; both reviews running). Reads: digsyncread, stalestopread, craftadviceread (staged,
+       lands, add prereq-usable. `tool-guard` (b1d6b62) is PARKED, not bundled: both reviews found the first version
+       wrong (fired on ores, no gap -> learnable, weak control); fixed to stone-family only + a wood gap + a real
+       control, 4 mutants, 205/205 -- but Codex REJECTS the composition (the need only changes the prompt; no wood /
+       no table / woodless-underground remain dead ends) and its population is ZERO today (0 of 572,996 inventory
+       rows lack a pickaxe). Revisit after lastswing-01 shows how many bots actually reach zero pickaxes (review
+       estimate: up to 37 of 80). Reads: digsyncread, stalestopread, craftadviceread (staged,
        dry-run OK), prequsableread, a hive-progress liveness line (`_progress_restored`), immobiledid.
     4. hygiene-01, oretunnel-01, idlegap-01, bankfix-01 (a bundle already), exploretoward-01, vetoretry-01.
   - (superseded) **QUEUE (owner-approved 09-29 morning; one canary at a time):**
