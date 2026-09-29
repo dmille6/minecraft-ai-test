@@ -132,6 +132,46 @@ await t('DRIVEN: the window is RE-READ before each item -- the coal that tips th
   assert.equal(inChest(slots, 'coal'), 64, 'coal (other) goes first by value and takes the 14th slot')
   assert.equal(inChest(slots, 'cobblestone'), 0, `14/27 = 52%: a stale read would have let 64 cobble in (${r.detail})`)
 })
+await t('DRIVEN: a stack that PARTLY fits then throws counts what moved (it read as a failure with items moved)', async () => {
+  const chest = [{ name: 'coal', count: 40 }, ...Array.from({ length: 26 }, () => ({ name: 'dirt', count: 64 }))]
+  const { bot, slots } = bank({ carry: { coal: 60 }, chest })
+  const r = await run(bot)
+  assert.equal(inChest(slots, 'coal'), 64, 'positive control: the fake moved 24 and threw')
+  assert.equal(r.status, 'success', `${r.status}: ${r.detail}`); assert.match(r.detail, /deposited 24 items/)
+})
+await t('DRIVEN: a FULL chest with nothing valuable waiting closes the bank too -- and a valuable item reopens it', async () => {
+  const full = Array.from({ length: 27 }, () => ({ name: 'dirt', count: 64 }))
+  const { bot } = bank({ carry: { coal: 40 }, chest: full })
+  const r = await run(bot)
+  assert.equal(r.failClass, 'storage_full'); assert.match(B.bankCapped(bot), /full/)
+  const gate = new AdmissionControl({ failCount: () => 0, bumpBlocked () {}, entryFor: () => null })
+  assert.equal(gate.check({ skill: 'deposit', args: {} }, bot).reason, 'bank_capped', 'the loop: full -> deposit -> full')
+  const withIron = { ...bot, inventory: { items: () => [{ name: 'coal', count: 40, type: 6 }, { name: 'raw_iron', count: 9, type: 4 }] } }
+  assert.notEqual(gate.check({ skill: 'deposit', args: {} }, withIron).reason, 'bank_capped', 'raw_iron can open a new chest')
+  assert.equal(B.bankClosed(withIron, withIron.inventory.items()), '')
+})
+await t('DRIVEN: an alternate that takes SOME of the valuables does not end the recovery -- it goes on to make room', async () => {
+  // Chest A: full. Chest B (the alternate): one partial diamond stack of 60, the rest full. 64 diamonds banked per trip:
+  // 4 fit in B, 60 are still in hand -- the recovery must go on to a new chest (here the craft fails: no recipe in the
+  // fake), not return B's partial success as if the job were done (Codex review).
+  const fullOf = n => Array.from({ length: 27 }, () => ({ name: n, count: 64 }))
+  const A = bank({ carry: { diamond: 64 }, chest: fullOf('dirt') })
+  const Bslots = [{ name: 'diamond', count: 60 }, ...fullOf('dirt').slice(1)]
+  const B = bank({ carry: {}, chest: Bslots })
+  const bot = A.bot
+  const blockA = { position: V(30, 79, 0), type: 1 }, blockB = { position: V(33, 79, 0), type: 1 }
+  const winB = await B.bot.openContainer(); const winA = await A.bot.openContainer()
+  // B's window moves items out of A's bag (one bot)
+  const origDeposit = winB.deposit.bind(winB)
+  winB.deposit = async (type, m, n) => { const before = B.bag.diamond ?? 0; B.bag.diamond = A.bag.diamond; try { await origDeposit(type, m, n) } finally { A.bag.diamond = B.bag.diamond; B.bag.diamond = before } }
+  bot.findBlock = ({ matching }) => [blockA, blockB].find(b => matching(b)) ?? null
+  bot.blockAt = p => (p && p.x === 33 && p.z === 0 && p.y === 79) ? blockB : (p && p.y > 79 ? { name: 'air', boundingBox: 'empty' } : { name: 'grass_block', boundingBox: 'block' })
+  bot.openContainer = async b => (b.position.x === 33 ? winB : winA)
+  const r = await run(bot)
+  assert.equal(inChest(B.slots, 'diamond'), 64, 'positive control: the alternate took the 4 that fit')
+  assert.match(r.detail, /could not make another chest|making another one failed/, `recovery stopped at the alternate: ${r.detail}`)
+  assert.equal(r.status, 'success', 'something moved, so it is still a success')
+})
 await t('DRIVEN: a full chest with only NON-valuable items waiting builds nothing (it used to craft a chest for cobble)', async () => {
   const full = Array.from({ length: 27 }, () => ({ name: 'coal', count: 64 }))
   const { bot } = bank({ carry: { coal: 40, chest: 1 }, chest: full })
@@ -153,12 +193,13 @@ await t('A NEW CHEST NEVER GOES ON A CONTAINER\'S LID: a cell over a chest/barre
 await t('WIRED: the loop reads the tier allowance from the LIVE window; the recovery asks afterFullChest; callers read demand', () => {
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.match(sk, /const allow = tierAllowance\(name, left, tier, windowState\(chest\)\)/)
-  assert.match(sk, /const next = afterFullChest\(\{ moved, capped, blocked, valuableBlocked, carried:/)
+  assert.match(sk, /const next = afterFullChest\(\{ moved: moved \+ altMoved, capped, blocked, valuableBlocked: valuableBlocked > 0 \? valuableLeft\(\) : 0,/)
   const pr = strip(readFileSync(new URL('../src/prompt.mjs', import.meta.url), 'utf8'))
   assert.match(pr, /depositDue\(\{ bankable: bank\.demand,/)
   const ad = strip(readFileSync(new URL('../src/admission.mjs', import.meta.url), 'utf8'))
   assert.match(ad, /bankable: bank\.demand,/)
   const ms = strip(readFileSync(new URL('../src/milestones.mjs', import.meta.url), 'utf8'))
-  assert.match(ms, /\.demand < 4 \|\| bankCapped\(b\)\) return true/)
+  assert.match(ms, /\.demand < 4 \|\| bankClosed\(b, b\.inventory\?\.items\?\.\(\) \?\? \[\]\)\) return true/)
+  assert.match(sk, /deposit\(ctx, \{ item \}, signal, \{ noRecovery: true, preferAt: put\.at, onlyValuable: true \}\)/, 'the new chest takes the valuables only')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

@@ -16,7 +16,7 @@ import { CLIMB_CEILING } from './reflex.mjs'
 import { mineTargetHint } from './mining.mjs'
 import { isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { logEvent } from './logger.mjs'
-import { bankableInventory, depositDue, bankCapped } from './bankable.mjs'
+import { bankableInventory, depositDue, depositPlan, bankClosed } from './bankable.mjs'
 import { config } from './config.mjs'
 
 const MAX_EVENTS = 12
@@ -612,7 +612,10 @@ function depositSituation (bot, memory) {
       maxDistance: 48,
     })
     // DEMAND, not transfer eligibility (bankable.mjs depositDemand): useful/bulk ride along, they never send a bot.
-    if (bankCapped(bot)) return ''
+    if (bankClosed(bot, items)) return ''
+    // Only a deposit that would TRANSFER something (Claude review: at 30+ slots with an empty plan the line said
+    // "0 items worth banking... Use deposit" and admission refused the deposit it urged, every decision).
+    if (!depositPlan(items).length) return ''
     if (!depositDue({ bankable: bank.demand, distHome, storageWithin48: !!storage,
                       occupiedSlots: items.length })) return ''
     const where = storage

@@ -148,6 +148,16 @@ t('BANK FIX: logs and cobblestone alone do NOT send a bot to the chest (they rid
   assert.doesNotMatch(u, /CARRYING/, 'useful + bulk are not demand: this was the full -> deposit -> capped -> repeat loop')
 })
 
+t('BANK FIX: 30+ slots of BALLAST (an empty plan) is not told to deposit -- admission would refuse it every decision', () => {
+  const junk = ['leaf_litter', 'brown_egg', 'egg', 'oak_sapling', 'short_grass', 'dead_bush', 'seagrass', 'vine', 'poppy', 'dandelion',
+                'pointed_dripstone', 'rail', 'bamboo', 'apple', 'flint', 'wheat_seeds', 'ink_sac', 'glass', 'torch', 'ladder',
+                'birch_sapling', 'string', 'feather', 'bone', 'rotten_flesh', 'gunpowder', 'spider_eye', 'arrow', 'clay_ball', 'sugar_cane', 'kelp']
+  const u = promptWith(Object.fromEntries(junk.map(n => [n, 1])), { x: 20, y: 64, z: 20 })
+  assert.doesNotMatch(u, /CARRYING/)
+  const control = promptWith({ ...Object.fromEntries(junk.map(n => [n, 1])), coal: 20 }, { x: 20, y: 64, z: 20 })
+  assert.match(control, /CARRYING/, 'positive control: the same 31 slots plus coal to bank DO get the line')
+})
+
 t('A BOT 800 BLOCKS OUT IS NOT TOLD TO WALK HOME', () => {
   // The whole point of the predicate. Telling a bot to bank from out here is
   // advice it should not take, through the travel failures that already kill

@@ -14,7 +14,7 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, depositNoopReason, bankCapped, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositDue, depositNoopReason, bankClosed, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
@@ -349,9 +349,10 @@ export class AdmissionControl {
       }
       // THE BANK IS AT ITS LIMIT FOR WHAT YOU CARRY (bankable.mjs bankCapped). Set by a deposit whose every refusal
       // was a tier cap; lifted by time, or at once when a VALUABLE item is carried (it may open a new chest).
-      if (bankCapped(bot) && !bankableInventory(items, { wants }).demand) {
+      const closed = bankClosed(bot, items, { wants })
+      if (closed) {
         return { ok: false, reason: 'bank_capped',
-                 detail: `the chests hold as much of what you carry as they take (${bankCapped(bot)}); keep it and keep working` }
+                 detail: `the chests take no more of what you carry (${closed}); keep it and keep working — metal, gems and ore still bank` }
       }
       const bank = bankableInventory(items, { wants })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'

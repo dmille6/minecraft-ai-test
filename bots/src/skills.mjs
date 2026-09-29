@@ -2199,7 +2199,9 @@ export async function walkCancellable (bot, goal, ms, signal, what) {
   check(signal)   // already cancelled: never start (a goal cleared BEFORE goto() sets its own clears nothing)
   signal?.addEventListener?.('abort', onAbort, { once: true })
   try {
-    await withTimeout(bot.pathfinder.goto(goal), ms, bot)
+    // onTimeout: setGoal(null) ALONE. withTimeout's default also calls stop(), whose flag outlives the walk and kills
+    // the NEXT goto (stale-stop; Claude review) -- this branch predates haltPath.
+    await withTimeout(bot.pathfinder.goto(goal), ms, bot, { onTimeout: () => { try { bot.pathfinder.setGoal(null) } catch {} } })
   } catch (e) {
     if (abortAt) {
       logEvent({ kind: `${what}_travel_cancelled`, status: 'no_effect',
@@ -2246,7 +2248,7 @@ export async function returnCursor (bot, window) {
   }
 }
 
-async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [] } = {}) {
+async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [], onlyValuable = false, meta = {} } = {}) {
   if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
   const { bot } = ctx
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
@@ -2340,6 +2342,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   let capped = 0, blocked = 0, valuableBlocked = 0
   const cappedNames = new Set()
   let before = null, after = null
+  meta.double = (chest.inventoryStart ?? 27) >= 54   // a double chest is ONE inventory at two coordinates
   try {
     before = windowState(chest)
     // HAND OVER THE PLAN, NOT THE INVENTORY (depositPlan, bankable.mjs). This loop
@@ -2350,6 +2353,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // chest keeps the iron.
     planItems = bot.inventory.items()
     const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [] })   // the wants admission judged with (set by the gate)
+      // A CHEST BUILT FOR THE DIAMONDS TAKES THE DIAMONDS (sandbox 09-29: the retry ran the whole plan and the new
+      // chest took 52 cobblestone beside the 16 diamonds it was placed for -- and the Claude review found the same).
+      .filter(({ name }) => !onlyValuable || tierOf(name) === 'valuable')
     for (const { name, count } of plan) {
       check(signal)
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -2401,16 +2407,21 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         if (left <= 0) break
         const n = Math.min(left, it.count ?? 0)
         eligible += n
+        // What the window gained, not what was asked: mineflayer's transfer can fill part of a stack and THEN throw
+        // `destination full` (inventory.js:317-320), and counting none of it failed deposits that had moved items.
+        const had = windowState(chest).counts[name] ?? 0
         try { await chest.deposit(it.type, null, n); moved += n; left -= n }
         catch (e) {
+          const got = Math.max(0, Math.min(n, (windowState(chest).counts[name] ?? 0) - had))
+          moved += got; left -= got
           // THE CURSOR IS STILL HOLDING IT. See returnCursor: mineflayer throws after lifting the
           // stack and before putting it back, and chest.close() below would drop it in the world.
           const back = await returnCursor(bot, chest)
           logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : 'failed',
                      detail: `${name}: ${String(e?.message ?? e).slice(0, 40)} — ` +
                              (back.returned ? `returned to slot ${back.slot}` : `NOT returned: ${back.reason}`) })
-          blocked += left
-          if (tier === 'valuable') valuableBlocked += left
+          blocked += Math.max(0, left)
+          if (tier === 'valuable') valuableBlocked += Math.max(0, left)
           break
         }
       }
@@ -2425,7 +2436,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const keptNote = capped ? `; kept ${capped} over the chest's limits (${[...cappedNames].slice(0, 4).join(', ')})` : ''
   if (moved > 0 && (noRecovery || valuableBlocked === 0)) return { status: 'success', detail: `deposited ${moved} items${keptNote}` }
   // A partial transfer is still a success; a failure after it only annotates it.
-  const orPartial = res => moved > 0 ? { status: 'success', detail: `deposited ${moved} items${keptNote}; ${res.detail}` } : res
+  let altMoved = 0   // what the alternate chests took, so a later failure still reports it
+  const orPartial = res => moved + altMoved > 0 ? { status: 'success', detail: `deposited ${moved + altMoved} items${keptNote}; ${res.detail}` } : res
   // Written out rather than left as a ternary on `status` so the preflight scan
   // in bots/test/evidence-gate.test.mjs can see it. A failure hidden inside a
   // conditional expression is exactly the one that keeps its class by accident.
@@ -2487,14 +2499,28 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // more containers (three tried in all), each attempt with recovery off, a
     // travel failure caught and named, an abort re-thrown; then ONE craft.
     const tried = [...exclude, chestBlock.position]
+    // THE OTHER HALF OF A DOUBLE CHEST IS THE SAME INVENTORY (withdraw's rule; Codex review): mark it tried, or one
+    // double chest spends two of the three attempts. A chest this bot placed beside a full one merges into one.
+    const halves = pos => [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => pos.offset(dx, 0, dz))
+      .filter(q => ['chest', 'trapped_chest'].includes(bot.blockAt(q)?.name))
+    if (meta.double) tried.push(...halves(chestBlock.position))
+    // WHAT VALUABLE IS STILL IN HAND, from the inventory itself once the windows are closed -- not the first chest's
+    // counters (Codex review: an alternate that took the coal and refused the iron ended the recovery).
+    const valuableLeft = () => depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
+      .filter(p => tierOf(p.name) === 'valuable').reduce((n, p) => n + p.count, 0)
     let alternate = null
     while (tried.length < 3) {
       const other = bot.findBlock({ matching: b => isContainer(b) && (!b.position || !tried.some(q => q.x === b.position.x && q.y === b.position.y && q.z === b.position.z)), maxDistance: 24 })
       if (!other) break
       tried.push(other.position)
       try {
-        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: other.position, exclude: tried })
-        if (again.status === 'success') return { ...again, detail: `${again.detail} (the first chest was full; used another one nearby)` }
+        const m = {}
+        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: other.position, exclude: tried, meta: m })
+        if (m.double) tried.push(...halves(other.position))
+        if (again.status === 'success') {
+          altMoved += Number(/deposited (\d+) items/.exec(again.detail)?.[1] ?? 0)
+          if (!(valuableBlocked > 0 && valuableLeft() > 0)) return { ...again, detail: `${moved ? `deposited ${moved} items first; ` : ''}${again.detail} (the first chest was full; used another one nearby)` }
+        }
         alternate = again.detail
       } catch (e) {
         if (e?.aborted || signal?.aborted) throw e
@@ -2504,15 +2530,19 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // ONLY A VALUABLE ITEM MAY OPEN A NEW CHEST (owner 2026-09-28). Everything else is either capped by its tier --
     // kept on purpose, and the bank is marked capped so nothing sends this bot back for it -- or a full chest that
     // metal, gems and ore alone are worth building for.
-    const next = afterFullChest({ moved, capped, blocked, valuableBlocked, carried: bot.inventory.items().find(i => i.name === 'chest' || i.name === 'trapped_chest')?.name })
+    const next = afterFullChest({ moved: moved + altMoved, capped, blocked, valuableBlocked: valuableBlocked > 0 ? valuableLeft() : 0,
+                                  carried: bot.inventory.items().find(i => i.name === 'chest' || i.name === 'trapped_chest')?.name })
     if (next === 'done' || next === 'capped' || next === 'full') {
-      if (next === 'done') return { status: 'success', detail: `deposited ${moved} items${keptNote}` }
+      if (next === 'done') return { status: 'success', detail: `deposited ${moved + altMoved} items${keptNote}` }
       if (next === 'capped') {
         const why = `${[...cappedNames].slice(0, 4).join(', ')} at their limits in every chest in reach`
         setBankCapped(bot, why)
         return { status: 'no_effect', failClass: 'bank_capped',
                  detail: `kept ${capped} item(s): ${why}. Keep them and keep working; metal, gems and ore still bank.` }
       }
+      // CLOSED TOO (Claude review: only 'capped' closed the bank, so a full chest with nothing valuable waiting sent
+      // the bot straight back -- full -> deposit -> storage_full -> repeat, on the 50 of 80 bots at 30+ slots).
+      setBankCapped(bot, 'the chests in reach are full')
       return { status: 'failed', failClass: 'storage_full',
                detail: `had ${eligible} item(s) and the chests in reach are full; only metal, gems or ore start a new ` +
                        `chest${alternate ? ` — ${alternate}` : ''}` }
@@ -2521,6 +2551,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // craft one). A carried chest or trapped chest -- never a barrel: on a town chest's lid it blocks the lid and the
     // next deposit digs it off. place() never puts it on top of a container.
     const carried = next === 'place_carried' ? bot.inventory.items().find(i => i.name === 'chest' || i.name === 'trapped_chest') : null
+    try {
     const built = carried ? { status: 'success' } : await craft(ctx, { item: 'chest', count: 1 }, signal, 1)
     if (built.status === 'success') {
       const put = await place(ctx, { item: carried?.name ?? 'chest' }, signal)
@@ -2532,7 +2563,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         // ONE retry, and explicitly not recursive: `noRecovery` stops a bot that
         // cannot place from crafting a chest per attempt forever. A bounded
         // recovery that can re-enter itself is an unbounded recovery.
-        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: put.at })
+        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: put.at, onlyValuable: true })
         if (again.status === 'success') {
           return { ...again, detail: `${moved ? `deposited ${moved} items first; ` : ''}${again.detail} (the old chest was full, so it ${carried ? 'placed the chest it carried' : 'built a new one'})` }
         }
@@ -2546,6 +2577,12 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     return orPartial({ status: 'failed', failClass: 'storage_full',
              detail: `had ${valuableBlocked} valuable item(s) and the chest is full; could not make another ` +
                      `chest — ${built.detail}` })
+    } catch (e) {
+      // craft/place/the retry threw: a transfer that already happened is still reported (Codex review).
+      if (e?.aborted || signal?.aborted) throw e
+      return orPartial({ status: 'failed', failClass: 'storage_full',
+               detail: `the chest was full and making another one failed: ${String(e?.message ?? e).slice(0, 80)}` })
+    }
   }
   if (capped > 0 && blocked === 0) {
     return { status: 'no_effect', failClass: 'bank_capped',
@@ -2575,11 +2612,12 @@ function logDepositWindow (bot, chestBlock, before, after, { moved, capped, bloc
     const names = new Set([...Object.keys(before?.counts ?? {}), ...Object.keys(after?.counts ?? {})])
     for (const n of names) {
       const d = (after?.counts?.[n] ?? 0) - (before?.counts?.[n] ?? 0)
-      if (d > 0) byTier[tierOf(n)] = (byTier[tierOf(n)] ?? 0) + d
+      const tier = TOOL_RE.test(n) ? 'tools' : tierOf(n)
+      if (d > 0) byTier[tier] = (byTier[tier] ?? 0) + d
     }
     const p = chestBlock?.position
     logEvent({ kind: 'deposit_window', status: moved > 0 ? 'success' : 'no_effect',
-               detail: `at ${p?.x},${p?.y},${p?.z} in ${['valuable', 'useful', 'bulk', 'other'].map(t => `${t}=${byTier[t] ?? 0}`).join(' ')} ` +
+               detail: `at ${p?.x},${p?.y},${p?.z} (client window) in ${['valuable', 'useful', 'bulk', 'other', 'tools'].map(t => `${t}=${byTier[t] ?? 0}`).join(' ')} ` +
                        `moved=${moved} capped=${capped}${cappedNames.size ? `(${[...cappedNames].slice(0, 4).join(',')})` : ''} ` +
                        `blocked=${blocked} valuable_blocked=${valuableBlocked} occupied=${before?.occupied ?? '?'}->${after?.occupied ?? '?'}/${after?.slots ?? before?.slots ?? '?'}`,
                snapshot: snapshot(bot) })
@@ -2768,6 +2806,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   // Recipes needing no table first -- cheaper and always available.
   let recipe = bot.recipesFor(def.id, null, count, null)[0]
   let table = null
+  let skippedTable = false     // a table in reach whose walk the preflight skipped: never place a second one beside it
   const stationDid = []       // what the station branch below did, for the success line
 
   if (!recipe) {
@@ -2781,6 +2820,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // meet a skipped walk (that would send the station branch to place a SECOND table beside this one). Otherwise
     // the gap names the missing ingredient, the resolver makes intermediates, and its retry walks once they exist.
     const makeable = !!tableBlock && bot.recipesFor(def.id, null, 1, true).length > 0
+    skippedTable = !!tableBlock && !makeable
     if (tableBlock && !makeable) {
       logEvent({ kind: 'craft_preflight_gap', status: 'no_effect',
                  detail: `${item}: no table recipe is makeable from what is carried; skipped the ` +
@@ -2957,7 +2997,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       //
       // So: no ingredients outstanding and still no recipe means the station is
       // the gap. Make one if needed, then put it on the ground.
-      if (!missing.length && !table) {
+      if (!missing.length && !table && !skippedTable) {
         check(signal)
         if (!hasTable) {
           const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1)

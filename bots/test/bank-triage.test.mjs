@@ -43,6 +43,12 @@ await t('POSITIVE CONTROL: with no cancel the same walk runs to its deadline, an
   const bot = walkerBot(); const ac = new AbortController()
   await assert.rejects(walkCancellable(bot, { x: 5 }, 80, ac.signal, 'deposit'), e => !e.aborted)
 })
+await t('the TIMEOUT clears the goal WITHOUT stop() -- stop()\'s flag outlives the walk and kills the next goto', async () => {
+  const bot = walkerBot(); const ac = new AbortController()
+  let stopped = 0; bot.pathfinder.stop = () => { stopped++ }
+  await assert.rejects(walkCancellable(bot, { x: 5 }, 60, ac.signal, 'deposit'))
+  assert.equal(stopped, 0, 'stop() was called on the timeout path')
+})
 await t('an already-cancelled skill never starts the walk', async () => {
   const bot = walkerBot(); const ac = new AbortController(); ac.abort()
   let started = false; const goto = bot.pathfinder.goto; bot.pathfinder.goto = g => { started = true; return goto(g) }

@@ -420,3 +420,16 @@ export function bankCapped (bot, now = Date.now()) {
 export function setBankCapped (bot, why, now = Date.now()) {
   if (bot) bot.bankCapped = { until: now + BANK_CAPPED_MS, why }
 }
+
+/**
+ * ONE READING of the closed bank, for admission, the prompt and the deposit_surplus rung (Claude review: they read it
+ * three ways, so a bot that picked up iron was urged by one and refused by another). Closed = the capped/full state
+ * holds AND nothing valuable is carried -- only a valuable item can open a new chest, so only it reopens the bank.
+ * Returns the reason while closed, else ''.
+ */
+export function bankClosed (bot, items = [], { wants = [], now = Date.now() } = {}) {
+  const why = bankCapped(bot, now)
+  if (!why) return ''
+  const { detail } = bankableInventory(items, { wants })
+  return Object.keys(detail).some(n => tierOf(n) === 'valuable') ? '' : why
+}
