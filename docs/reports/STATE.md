@@ -378,8 +378,17 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Codex's smaller finds, not built: explore aimed at ore when the task wants wood/dirt (9.5 bot-h);
       deposit ignores cancellation in travel; craft walks before checking ingredients; deposit admits an
       item-less trip; escape burns logs as scaffold.
+  - **toolkeeper-01 DECIDED 2026-09-29 14:10Z: KEEP** (4320136).
+    - 8 canary deaths in 520 bot-h (0.015/bh) vs 30 in 1,040 (0.029/bh).
+    - Its registration said promotion 'none' (written before the owner allowed fleet-wide), so it was
+      recorded and torn down, NOT promoted.
+    - Teardown verified by me: 80/80 bots report 80b3bbd, no drop-ins, 80 running.
+    - Its deposit change is folded into the bank-fix bundle (the same code) rather than a separate
+      fleet-wide deploy.
+  - **deathfix-01 LAUNCHED 2026-09-29 ~14:18Z** (1d107ed on the fleet base 80b3bbd). Licence and gate
+    digest preflights passed; drawing pools. Short canary: reads +180/+360, extension until exposure.
   - **QUEUE (owner-approved 09-29; one canary at a time):**
-    1. toolkeeper-01 (verdict 14:02Z)
+    1. ~~toolkeeper-01~~ KEEP (not promoted)
     2. deathfix-01 (staged)
     3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it; rebases cleanly onto 1d107ed, 205/205)
     3b. **stalestop-01** (fleet-wide dropped items; small, deterministic)
