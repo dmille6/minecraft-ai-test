@@ -63,6 +63,17 @@ await t('withTimeout\'s default timeout no longer poisons the next walk', async 
   assert.equal(nextWalkDiesAtOnce(bot), false)
 })
 
+await t('the DIG WATCHER around a direct dig (no walk) no longer poisons the next walk (Claude review probe)', async () => {
+  const bot = makeBot()
+  let rej
+  bot.targetDigBlock = { name: 'stone', canHarvest: () => false }
+  bot.stopDigging = () => { bot.targetDigBlock = null; rej(new Error('Digging aborted')) }
+  const dig = new Promise((_, r) => { rej = r })
+  const e = await withTimeout(dig, 20000, bot, { what: 'dig', onTimeout: () => bot.stopDigging() }).catch(x => x)
+  assert.match(String(e?.message), /Digging aborted/, 'the watcher fired and the dig settled first')
+  assert.equal(nextWalkDiesAtOnce(bot), false)
+})
+
 // Structural: no bare stop() left where a stale flag can follow (comments stripped; this codebase quotes code in them).
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 await t('no bare pathfinder.stop() outside pathhalt.mjs, except the dig watcher inside withTimeout', () => {

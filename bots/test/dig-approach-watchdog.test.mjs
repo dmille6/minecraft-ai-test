@@ -92,7 +92,9 @@ await ta('CONTROL: with the watchdog on, a bare-handed dig through stone is stop
   const e = await withTimeout(bot.pathfinder.goto(), 5000, bot).then(() => null, x => x)
   assert.ok(e, 'the walk must have been cancelled')
   assert.equal(e.name, 'PathStopped')
-  assert.equal(seen.stopped, 1, 'the watchdog calls pathfinder.stop() exactly once')
+  // Once by the watchdog, once by withTimeout's cleanup after the race settled (stale-stop, 2026-09-29: haltPath
+  // consumes the watchdog's flag so the NEXT walk is not killed by it). More than 2 = the watchdog fired repeatedly.
+  assert.equal(seen.stopped, 2, 'the watchdog stops once, and the settled cleanup halts once')
   const ms = Date.now() - t0
   assert.ok(ms >= 950 && ms < 1300, `cancelled at ${ms} ms: the watchdog polls at 1000`)
 })

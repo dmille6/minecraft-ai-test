@@ -247,7 +247,13 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
                             budgetExceeded: true }))
       }, ms)
     }),
-  ]).finally(() => { clearTimeout(t); if (watch) clearInterval(watch) })
+  ]).finally(() => {
+    clearTimeout(t); if (watch) clearInterval(watch)
+    // THE DIG WATCHER'S stop() (watchDigging) IS CONSUMED HERE (Claude review of 7775d5e): on a walk the pathfinder's
+    // own dig_error reset eats it, but around gather's direct bot.dig there is no path, the dig settles first, and the
+    // stale flag killed the next walk -- the pickup sweep. The race has settled, so no walk of this call is live.
+    if (undiggable) haltPath(bot)
+  })
 }
 
 /** Refuse any destination outside the world border. */
@@ -1302,7 +1308,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       refused.add(drop.id)
       logEvent({ kind: 'pickup_skipped', status: 'success',
                  detail: `drop ${drop.id} refused the walk; retired it and kept sweeping ` +
-                         `(${refused.size} retired, attempt ${i + 1}/4) err=${e?.name ?? e?.failClass ?? 'Error'} ` +
+                         `(${refused.size} retired, attempt ${i + 1}/4) err=${e?.failClass ?? e?.name ?? 'Error'} ` +
                          `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
