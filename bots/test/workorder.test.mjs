@@ -174,7 +174,8 @@ test('the hook is wired and emits a liveness counter', async () => {
   // Synthesised as a PROPOSAL so admission still vets it and the outcome still
   // feeds noteAttempt -- bypassing those would let a bot loop forever on an
   // impossible rung through a new door.
-  assert.match(exec, /const res = order\s*\n?\s*\?\s*\{ schemaValid: true/,
+  // `let` since veto-retry (2026-09-29): an admitted retry replaces the proposal; an order is never re-asked.
+  assert.match(exec, /(const|let) res = order\s*\n?\s*\?\s*\{ schemaValid: true/,
     'the order goes through the normal proposal path')
 })
 

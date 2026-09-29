@@ -9,6 +9,7 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
+import { vetoRetry } from './vetoretry.mjs'
 import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -762,7 +763,7 @@ export class CognitiveLoop {
                  detail: `${order.skill} ${JSON.stringify(order.args)} — ${order.why}`,
                  snapshot: snap })
     }
-    const res = order
+    let res = order
       ? { schemaValid: true, latencyMs: 0, raw: null,
           proposal: { skill: order.skill, args: order.args, reason: order.why } }
       : await this.llm.decide({ system: this.system, user, sentinel, schema: this.schema })
@@ -783,6 +784,20 @@ export class CognitiveLoop {
       const check = this.admission.check(res.proposal, this.bot, this.#wantedItems(milestone))
       if (check.ok) admitted = check
       else rejection = check
+      // ONE RETRY AFTER A VETO, IN THIS TICK (vetoretry.mjs): the model is told what was refused and why, instead of
+      // waiting a whole cycle to be told only that it was. Model proposals only -- a work order is not re-asked.
+      if (!admitted && !order) {
+        const vr = await vetoRetry({
+          res, rejection,
+          decide: followUp => this.llm.decide({ system: this.system, user, sentinel, schema: this.schema, followUp }),
+          check: p => this.admission.check(p, this.bot, this.#wantedItems(milestone)),
+        })
+        if (vr.retried) {
+          logEvent({ kind: 'veto_retry', status: vr.result === 'admitted' ? 'success' : 'failed',
+                     detail: `vetoed=${vr.key} reason=${rejection.reason} retry=${vr.retryKey ?? '-'} result=${vr.result} ms=${vr.ms}` })
+          if (vr.admitted) { res = vr.res; admitted = vr.admitted; rejection = null }
+        }
+      }
     }
 
     // Execute (or not), then record ONE row describing the whole decision.

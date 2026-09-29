@@ -226,11 +226,13 @@ export class LlmClient {
    * proposal. Never throws for model misbehaviour -- an invalid response is
    * data, recorded with schema_valid=false, not an exception.
    */
-  async decide({ system, user, sentinel, schema }) {
+  async decide({ system, user, sentinel, schema, followUp = null }) {
     const started = Date.now()
     const messages = [
       { role: 'system', content: system },
       { role: 'user', content: user },
+      // vetoretry.mjs: the refused proposal and why, appended to the SAME conversation.
+      ...(Array.isArray(followUp) ? followUp : []),
     ]
 
     // WHICH ENDPOINT ACTUALLY ANSWERED. #post knows -- it returns ep.url -- but
