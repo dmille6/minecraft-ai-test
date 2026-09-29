@@ -1,0 +1,101 @@
+{
+ "run_id": "idlegap-01",
+ "sha": "SET-AT-LAUNCH: branch idle-gap (45e152d, from 80b3bbd) rebased onto the fleet sha at launch",
+ "registered_at": "2026-09-29T07:00:00Z",
+ "ladder_change": true,
+ "promotion": "fleet-wide",
+ "notes": "Owner-approved tech-tree item 4. Both engines measured the fleet (24 h, 162k decisions) before building: idle = 25.3% of decisions; a rung was given up after 25 consecutive non-successes of ANY decision, 51% of them admission rejections; skipCount never reset (69% of skipped entries at the 6 h cap). THE CHANGE: only an executed (not rejected, not a runner refusal), serving (servesRung: the admission gate's output rules + a drop map + a verb map for route rungs; detours by their own wants) failure counts; a genuine completion (not a no-means or no-chest bypass) resets skipCount; exits: 45 min without serving progress, and 3 h current unmet (Codex's counterexample held a rung 6.6 h without it), persisted with a 10-min restart grace; no-progress/residence give-ups are never reported to peers; outcomes are charged only to the rung they were judged against. Analysis + implementation reviewed by Claude and Codex independently; all findings fixed (0e5ef8e, 45e152d). 19 tests, 15 anchored mutants killed, 204/204; sandbox smoke clean. A LADDER CHANGE: effect is reported, never gated -- the dry run shows idle share swinging +0.28 DiD on an unchanged pool in 2.4 h.",
+ "licence": {
+  "class": "text",
+  "row": "_milestone_skipped",
+  "text": "serving",
+  "min_rows": 1,
+  "note": "The baseline writes 'no progress after 25 attempts; moved on to X' (232 control rows, 0 containing 'serving', in the 09-29 dry run). The canary writes '25 serving attempts failed' or 'no serving progress in 45 min'. ~32 skips per bot-day, so a 5-bot pool writes several within 3 h."
+ },
+ "reads": [
+  "idlegapread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "skips happening in the pool (the mechanism this changes)",
+    "kind": "_milestone_skipped",
+    "min": 5
+   }
+  ],
+  "note": "Claude review: draw from bots whose idle share is >= 15%. drawexposure counts kinds only, so require >= 5 skips in 3 h (placebo-c wrote 12 in 2.4 h) and the OPERATOR checks the drawn pool's pre-period idle share in the first read."
+ },
+ "exposure": {
+  "read": "idlegapread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 1 canary skip in the new format AND >= 1 control skip."
+ },
+ "own_lines": [
+  {
+   "read": "idlegapread",
+   "field": "residence_over_bound_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS: a canary rung current longer than 3.5 h means the absolute bound did not hold (the dead end both reviews required an exit from)."
+  },
+  {
+   "read": "idlegapread",
+   "field": "resets_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: the baseline cannot write `_milestone_skip_reset`. BLOCKS KEEP."
+  },
+  {
+   "read": "idlegapread",
+   "field": "new_skips_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "idlegapread",
+   "field": "skips_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL (232 in the dry run). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "idlegapread",
+  "field": "idle_share_did",
+  "note": "REPORTED, NOT GATED: idle share DiD (idle and idle+prereq), completions/bot-h DiD, skips by reason, residence p90/max (Codex: read the tails; a lower idle share could be longer futile occupancy), skip resets. Items/bot-h expected ~3% (safety only, via immobiledid's gather_ratio). Three things change at once (what counts, the exits, the reset) -- named, not separable on one pool."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

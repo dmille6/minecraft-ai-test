@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+# idlegapread.py [window_min] -- the read for canary `idlegap-01` (branch idle-gap).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE (owner-approved tech-tree item 4; both engines measured it on 162k decisions): a rung is given up only
+# after 25 EXECUTED, SERVING failures (not rejections, runner refusals, or unrelated skills); a genuine completion
+# resets its skipCount; a rung with no serving progress for 45 min, or current for 3 h unmet, is still given up (the
+# exit). Baseline: idle 25.3% of decisions; 51% of the attempts behind a skip were rejections; 69% of skipped entries
+# sat at the 6 h backoff cap.
+#
+# WHAT THIS READ GATES
+#   LIVENESS     canary `_milestone_skipped` rows in the NEW format ("serving" / "current for 3 h") from the canary build
+#                (>= 1); control has none (its text is "no progress after 25 attempts").
+#   CORRECTNESS  no canary rung held longer than the absolute bound + margin (3.5 h) -- residence is measured from the
+#                decision stream, consecutive decisions on one milestone id per bot; `_milestone_skip_reset` in control
+#                must be 0 (arms).
+#   INSTRUMENT   control `_milestone_skipped` >= 1 (the skip query sees a presence); decisions walked on both arms.
+# REPORTED (DiD vs the same-length pre-window): idle share of decisions (idle AND idle+prereq, per the Claude review),
+# genuine completions per bot-h, skips by reason, residence p90/max (Codex: a lower idle share could merely mean longer
+# futile occupancy -- read the tails), skip resets.
+import sys, os, json, re, glob, gzip
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+PRE = CUT - dt.timedelta(minutes=W)
+NEW_SKIP = re.compile(r'serving attempts failed|no serving progress|current for 3 h without being met')
+BOUND_H = 3.5
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def arm(bot):
+    return 'canary' if pool_of(bot) in CANS else 'control'
+
+
+def ts(s):
+    try:
+        return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def decisions():
+    """(t, bot, milestone id, version) from the decision streams, current file + rotated gz, deduped."""
+    seen, out = set(), []
+    files = glob.glob('/var/log/mcai/*/llm-*.jsonl') + glob.glob('/var/log/mcai/*/llm-*.jsonl-*.gz')
+    for f in files:
+        op = gzip.open if f.endswith('.gz') else open
+        try:
+            with op(f, 'rt', errors='replace') as fh:
+                for l in fh:
+                    try:
+                        r = json.loads(l)
+                    except Exception:
+                        continue
+                    t = ts(r.get('@timestamp'))
+                    if t is None or not (PRE <= t < END):
+                        continue
+                    b = (r.get('bot') or {}).get('name') if isinstance(r.get('bot'), dict) else r.get('bot')
+                    mid = ((r.get('messages') or [{}])[0] or {}).get('milestone') or 'None'
+                    ver = ((r.get('code') or {}).get('version') or '') if isinstance(r.get('code'), dict) else ''
+                    k = (str(t), b)
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    out.append((t, b, str(mid), ver))
+        except Exception:
+            continue
+    return sorted(out)
+
+
+# POSITIVE CONTROLS for the text matchers, before any fleet row.
+assert NEW_SKIP.search('25 serving attempts failed (skip #3 of gather_sand_8); moved on to x')
+assert NEW_SKIP.search('no serving progress in 45 min (skip #1 of patrol); moved on to return')
+assert not NEW_SKIP.search('no progress after 25 attempts; moved on to stockpile_stone')
+
+D = decisions()
+print('decisions walked %d  bots %d  |  canary %s  sha %s  cutoff %s  window +%d min'
+      % (len(D), len({d[1] for d in D}), CAN, CV, CUT.strftime('%H:%MZ'), W))
+dec, idle = Counter(), Counter()
+runs = defaultdict(list)                    # arm -> residence hours (post, canary-build decisions only for canary)
+cur = {}
+for t, b, mid, ver in D:
+    a = arm(b); p = 'post' if t >= CUT else 'pre'
+    dec[(p, a)] += 1
+    if mid.startswith('idle') or mid == 'None':
+        idle[(p, a)] += 1
+    if p != 'post' or (a == 'canary' and CV and not ver.startswith(CV)):
+        continue
+    base = mid.split('#')[0].split('+')[0]
+    c = cur.get(b)
+    if c and c[0] == base:
+        cur[b] = (base, c[1], t)
+    else:
+        if c and not c[0].startswith('idle'):
+            runs[arm(b)].append((c[2] - c[1]).total_seconds() / 3600)
+        cur[b] = (base, t, t)
+for b, c in cur.items():
+    if not c[0].startswith('idle'):
+        runs[arm(b)].append((c[2] - c[1]).total_seconds() / 3600)
+
+ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=int(elapsed + W + 60))
+skips, reasons, comp, resets, offbuild = Counter(), Counter(), Counter(), Counter(), 0
+bots = defaultdict(set)
+for r in ev.rows:
+    t = r.get('t'); b = (r.get('bot') or {}).get('name')
+    if t is None or not b or not (PRE <= t < END):
+        continue
+    a = arm(b); p = 'post' if t >= CUT else 'pre'
+    bots[(p, a)].add(b)
+    k, d = r.get('name'), (r.get('detail') or '')
+    if k == '_milestone_complete':
+        comp[(p, a)] += 1
+    if k == '_milestone_skip_reset' and p == 'post':
+        resets[a] += 1
+    if k == '_milestone_skipped' and p == 'post':
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if a == 'canary' and CV and not ver.startswith(CV):
+            offbuild += 1
+            continue
+        skips[a] += 1
+        m = NEW_SKIP.search(d)
+        reasons[(a, m.group(0) if m else 'old format')] += 1
+
+
+def share(p, a):
+    return idle[(p, a)] / dec[(p, a)] if dec[(p, a)] else float('nan')
+
+
+def per_bh(c, p, a):
+    n = len(bots[(p, a)])
+    return c[(p, a)] / (n * W / 60) if n else float('nan')
+
+
+def pct(xs, q):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(q * len(xs)))] if xs else float('nan')
+
+
+did_idle = (share('post', 'canary') - share('pre', 'canary')) - (share('post', 'control') - share('pre', 'control'))
+did_comp = (per_bh(comp, 'post', 'canary') - per_bh(comp, 'pre', 'canary')) - (per_bh(comp, 'post', 'control') - per_bh(comp, 'pre', 'control'))
+new_canary = sum(v for (a, why), v in reasons.items() if a == 'canary' and why != 'old format')
+res_max = max(runs['canary'], default=0.0)
+print('-' * 78)
+print('idle share   canary %.3f -> %.3f | control %.3f -> %.3f | DiD %+.3f'
+      % (share('pre', 'canary'), share('post', 'canary'), share('pre', 'control'), share('post', 'control'), did_idle))
+print('completions /bot-h canary %.2f -> %.2f | control %.2f -> %.2f | DiD %+.2f'
+      % (per_bh(comp, 'pre', 'canary'), per_bh(comp, 'post', 'canary'), per_bh(comp, 'pre', 'control'), per_bh(comp, 'post', 'control'), did_comp))
+print('skips (post) canary %d control %d; by reason: %s' % (skips['canary'], skips['control'], dict(reasons)))
+print('skip resets  canary %d control %d (control must be 0)' % (resets['canary'], resets['control']))
+print('residence h  canary p90 %.2f max %.2f | control p90 %.2f max %.2f' % (pct(runs['canary'], .9), res_max, pct(runs['control'], .9), max(runs['control'], default=0)))
+print('canary-pool skip rows from another build %d' % offbuild)
+print('-' * 78)
+print('LIVENESS     canary new-format skips %d (>= 1)' % new_canary)
+print('CORRECTNESS  canary max residence %.2f h (<= %.1f); control resets %d (0)' % (res_max, BOUND_H, resets['control']))
+print('INSTRUMENT   control skips %d (>= 1); decisions canary %d control %d' % (skips['control'], dec[('post', 'canary')], dec[('post', 'control')]))
+
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('idlegapread', W, {
+        'new_skips_canary': new_canary, 'skips_control': skips['control'], 'resets_control': resets['control'],
+        'resets_canary': resets['canary'], 'residence_max_h_canary': round(res_max, 3),
+        'residence_over_bound_canary': int(res_max > BOUND_H),
+        'idle_share_did': round(did_idle, 4), 'completions_did_per_bh': round(did_comp, 4),
+        'decisions_canary': dec[('post', 'canary')], 'offbuild_canary': offbuild,
+        'exposure_ready': int(new_canary >= 1 and skips['control'] >= 1),
+    })
+except Exception as e:
+    print('emit failed:', e)

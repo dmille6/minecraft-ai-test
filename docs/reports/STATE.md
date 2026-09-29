@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-29 06:10Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 06:50Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -304,17 +304,26 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       wants).
     - A genuine completion resets skipCount (a no-means bypass does not).
     - A 45-min no-progress deadline (persisted) is the exit; it is never reported to peers.
-    - 12 tests, 7 mutants killed, 204/204; the sandbox smoke is clean.
-    - **Implementation reviews by both engines running.** A canary registration is still to write.
-    - Side defect found (not fixed): hive pools lose milestone skip state on restart (lessons.mjs:322-325 vs
-      683-694).
+    - Both implementation reviews applied:
+      - Claude: 22% of "serving failures" were runner refusals (paused/busy) -> excluded; detours are judged
+        by their own wants; withdraw/deepslate; a 10-min restart grace.
+      - Codex REJECTED the exit claim with a counterexample (a rung held 6.6 h) -> an absolute 3 h residence
+        bound; rung identity; the no-chest bypass is not a completion.
+    - Head `45e152d`: 19 tests, 15 anchored mutants killed, 204/204; the sandbox smoke is clean.
+    - `idlegap-01` registration + read staged (text licence 'serving'; correctness = the residence bound
+      holds; the effect is reported only: the idle share swung +0.28 DiD on an unchanged pool in 2.4 h).
+  - **HIVE PROGRESS FIXED: `hive-progress` @ `70455d8`** (the side defect above). A shared store lost every
+    hive bot's milestone history on restart and re-saved a stale slot; ownProgress() on load/save. The
+    restart test FAILS on 80b3bbd; 7 tests, 3 mutants killed, 204/204. A canary must draw a HIVE pool. It
+    has no second-engine review yet -- get one before it goes.
   - **RECOMMENDED QUEUE (one canary at a time; the owner can reorder):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
     3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it; rebases cleanly onto 1d107ed, 205/205)
     4. lastswing-01
     5. hygiene-01
-    6. ore tunnel (rebase the stack; registration to write)
+    6. ore tunnel (rebase the stack; oretunnel-01 staged)
+    6b. idle gap (idlegap-01 staged); hive-progress (needs a second-engine review + registration)
     7. withdraw-home
     8. bank fix
     9. craft limits
