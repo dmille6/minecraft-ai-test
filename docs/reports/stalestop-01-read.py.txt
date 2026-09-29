@@ -81,7 +81,7 @@ for r in rows:
         gathers[(p, a)] += 1
         if BARREN in d:
             barren[(p, a)] += 1
-        delta = (r.get('raw') or {}).get('inventory_delta') or {}
+        delta = ((r.get('raw') or {}).get('skill') or {}).get('inventory_delta') or {}   # raw.skill.inventory_delta
         if isinstance(delta, dict):
             items[(p, a)] += sum(v for v in delta.values() if isinstance(v, (int, float)) and v > 0)
 

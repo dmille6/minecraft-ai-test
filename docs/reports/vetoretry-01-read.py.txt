@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+# vetoretryread.py [window_min] -- the read for canary `vetoretry-01` (branch veto-retry).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE: after an admission veto (repeat_loop, learned_avoid, cooldown, deposit_*, bad_args) the bot asks the model
+# once more IN THE SAME TICK, telling it what was refused and why; a retry of the same target is refused without the gate;
+# the gate checks a retry with { retry: true } (no probation bump, no streak, no forced admission). Baseline (24 h, 60 bots):
+# 40.1% of decisions vetoed, 31.7% of bot-time; replay: feedback changed the action 97% vs 58%.
+# A BEHAVIOUR change: effect is the point, so the tripwires Codex asked for are REVERT lines.
+#
+#   LIVENESS     canary `_veto_retry` rows from the canary build (>= 1); control 0.
+#   TRIPWIRES    forced-admission share of decisions, canary/control ratio (REVERT above 2.0 -- the double count the review
+#                found would show here); LLM latency p95 canary/control (REVERT above 1.5 -- the fleet endpoint is shared).
+#   INSTRUMENT   decisions walked on both arms (positive control), control vetoed share >= 0.1.
+# REPORTED (DiD vs the same-length pre-window, per bot-hour): executed decisions, vetoed share of decisions, items gained,
+# retry result mix, retry-admitted share.
+import sys, os, json, re, glob, gzip
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+PRE = CUT - dt.timedelta(minutes=W)
+RESULT = re.compile(r'result=(\S+)')
+assert RESULT.search('vetoed=explore:{} reason=cooldown retry=explore:{} result=retry_same_key first_ms=1 ms=1').group(1) == 'retry_same_key'
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def arm(b):
+    return 'canary' if pool_of(b) in CANS else 'control'
+
+
+def ts(s):
+    try:
+        return dt.datetime.fromisoformat(str(s).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+dec, vetoed, forced = Counter(), Counter(), Counter()
+lat = defaultdict(list)
+bots = defaultdict(set)
+seen = set()
+for f in glob.glob('/var/log/mcai/*/llm-*.jsonl') + glob.glob('/var/log/mcai/*/llm-*.jsonl-*.gz'):
+    op = gzip.open if f.endswith('.gz') else open
+    try:
+        with op(f, 'rt', errors='replace') as fh:
+            for l in fh:
+                try:
+                    r = json.loads(l)
+                except Exception:
+                    continue
+                t = ts(r.get('@timestamp'))
+                if t is None or not (PRE <= t < END):
+                    continue
+                b = r['bot'].get('name') if isinstance(r.get('bot'), dict) else r.get('bot')
+                if (str(t), b) in seen:
+                    continue
+                seen.add((str(t), b))
+                a = arm(b); p = 'post' if t >= CUT else 'pre'
+                L = r.get('llm') or {}
+                bots[(p, a)].add(b)
+                dec[(p, a)] += 1
+                if L.get('schema_valid') is True and L.get('admission') is None:
+                    vetoed[(p, a)] += 1
+                if L.get('admission') == 'forced':
+                    forced[(p, a)] += 1
+                if p == 'post' and L.get('latency_ms') is not None:
+                    try:
+                        lat[a].append(float(L['latency_ms']))
+                    except Exception:
+                        pass
+    except Exception:
+        continue
+
+ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=int(elapsed + W + 60))
+retry_rows, results, offbuild, items = Counter(), Counter(), 0, Counter()
+for r in ev.rows:
+    t = r.get('t'); b = (r.get('bot') or {}).get('name')
+    if t is None or not b or not (PRE <= t < END):
+        continue
+    a = arm(b); p = 'post' if t >= CUT else 'pre'
+    delta = ((r.get('raw') or {}).get('skill') or {}).get('inventory_delta') or {}   # raw.skill.inventory_delta (a first draft read raw.inventory_delta: always empty)
+    if isinstance(delta, dict) and not str(r.get('name', '')).startswith('_'):
+        items[(p, a)] += sum(v for v in delta.values() if isinstance(v, (int, float)) and v > 0)
+    if r.get('name') == '_veto_retry' and p == 'post':
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if a == 'canary' and CV and not ver.startswith(CV):
+            offbuild += 1
+            continue
+        retry_rows[a] += 1
+        m = RESULT.search(r.get('detail') or '')
+        if a == 'canary' and m:
+            results[m.group(1).split(':')[0]] += 1
+
+
+def bh(p, a):
+    return len(bots[(p, a)]) * W / 60 or float('nan')
+
+
+def share(c, p, a):
+    return c[(p, a)] / dec[(p, a)] if dec[(p, a)] else float('nan')
+
+
+def p95(xs):
+    xs = sorted(xs)
+    return xs[int(0.95 * (len(xs) - 1))] if xs else float('nan')
+
+
+executed = Counter({k: dec[k] - vetoed[k] for k in dec})
+did = lambda f: (f('post', 'canary') - f('pre', 'canary')) - (f('post', 'control') - f('pre', 'control'))
+# EACH ARM AGAINST ITS OWN BASELINE: hive pools run ~9x the control's forced share on UNCHANGED code (dry run, hive-c
+# 0.050 vs 0.006), so a canary-vs-control ratio would revert any hive draw. Ratio of (post/pre) changes, judged only on
+# >= 10 canary forced admissions.
+def change(a):
+    pre, post = share(forced, 'pre', a), share(forced, 'post', a)
+    return (post / pre) if pre and pre == pre and pre > 0 else float('nan')
+fr_c, fr_k = share(forced, 'post', 'canary'), share(forced, 'post', 'control')
+forced_ratio = change('canary') / change('control') if forced[('post', 'canary')] >= 10 and change('control') and change('control') == change('control') else float('nan')
+lat_ratio = p95(lat['canary']) / p95(lat['control']) if lat['control'] and lat['canary'] else float('nan')
+print('decisions: canary %d control %d  |  canary %s sha %s cutoff %s window +%d min' % (dec[('post', 'canary')], dec[('post', 'control')], CAN, CV, CUT.strftime('%H:%MZ'), W))
+print('-' * 78)
+print('vetoed share      canary %.3f -> %.3f | control %.3f -> %.3f | DiD %+.3f' % (share(vetoed, 'pre', 'canary'), share(vetoed, 'post', 'canary'), share(vetoed, 'pre', 'control'), share(vetoed, 'post', 'control'), did(lambda p, a: share(vetoed, p, a))))
+print('executed /bot-h   DiD %+.2f' % did(lambda p, a: executed[(p, a)] / bh(p, a)))
+print('items /bot-h      DiD %+.2f' % did(lambda p, a: items[(p, a)] / bh(p, a)))
+print('forced share      canary %.4f -> %.4f | control %.4f -> %.4f  change ratio %.2f (REVERT > 2.0; judged on >= 10)' % (share(forced, 'pre', 'canary'), fr_c, share(forced, 'pre', 'control'), fr_k, forced_ratio))
+print('items positive control: canary %d control %d items in window' % (items[('post', 'canary')], items[('post', 'control')]))
+print('latency p95 ms    canary %.0f control %.0f  ratio %.2f (REVERT > 1.5)' % (p95(lat['canary']), p95(lat['control']), lat_ratio))
+print('_veto_retry rows  canary %d control %d; results %s; other-build %d' % (retry_rows['canary'], retry_rows['control'], dict(results), offbuild))
+print('-' * 78)
+
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('vetoretryread', W, {
+        'retry_rows_canary': retry_rows['canary'], 'retry_rows_control': retry_rows['control'], 'offbuild_canary': offbuild,
+        'forced_ratio': round(forced_ratio, 3) if forced_ratio == forced_ratio else None,
+        'latency_p95_ratio': round(lat_ratio, 3) if lat_ratio == lat_ratio else None,
+        'vetoed_share_control': round(share(vetoed, 'post', 'control'), 4), 'decisions_canary': dec[('post', 'canary')],
+        'vetoed_share_did': round(did(lambda p, a: share(vetoed, p, a)), 4),
+        'executed_did_per_bh': round(did(lambda p, a: executed[(p, a)] / bh(p, a)), 3),
+        'items_did_per_bh': round(did(lambda p, a: items[(p, a)] / bh(p, a)), 3),
+        'retry_admitted_canary': results.get('admitted', 0),
+        'exposure_ready': int(retry_rows['canary'] >= 20),
+    })
+except Exception as e:
+    print('emit failed:', e)

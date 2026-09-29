@@ -1,0 +1,93 @@
+{
+ "run_id": "vetoretry-01",
+ "sha": "SET-AT-LAUNCH: branch veto-retry (1f6efef, from 80b3bbd) rebased onto the fleet sha at launch",
+ "registered_at": "2026-09-29T14:40:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "VETOES HOLD A THIRD OF FLEET TIME. Both engines, 24 h to 2026-09-29 12:35Z, 60 bots on 80b3bbd: 48,536 of 121,174 decisions (40.1%) vetoed by admission, holding 456 of 1,439 bot-hours (31.7%); 44.5% followed by the SAME key because the next prompt says THAT the bot was refused, not WHAT. REPLAY before building (the fleet model on the warm spare 10.0.0.16; the deployed system prompt rebuilt and HASH-VERIFIED against the fleet's system_hash for board/hive/placebo): feedback changed the action 97% vs 58% without, 0 invalid. THE CHANGE: one retry in the same tick for repeat_loop/learned_avoid/cooldown/deposit_*/bad_args, the model told what was refused and why; a retry aimed at the SAME target (count/blocks ignored, gather item->block folded) is refused without the gate; the gate checks a retry with { retry: true } -- no probation bump, no streak, no forced admission (Claude review found the double count against the real gate; a real-gate test proves the original action's sequence is unchanged). Reviewed by Claude and Codex independently; all findings fixed. 12 tests, mutants killed, 204/204. A BEHAVIOUR change: full reads; the tripwires Codex required are REVERT lines, each judged against its own baseline (a dry run showed hive pools at ~9x control's forced share on unchanged code).",
+ "licence": {
+  "class": "kind",
+  "kind": "_veto_retry",
+  "min_rows": 1,
+  "note": "The baseline has no veto retry. ~40% of decisions are vetoed, so a 5-bot pool writes hundreds per hour."
+ },
+ "reads": [
+  "vetoretryread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360,
+  720,
+  1560
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "pools whose bots are being vetoed into standing down",
+    "kind": "_livelock_not_fixated",
+    "min": 10
+   }
+  ],
+  "note": "Vetoes live in the decision stream, which drawexposure cannot count; _livelock_not_fixated (11,438/day fleet-wide) is the skill-stream row a veto streak writes."
+ },
+ "exposure": {
+  "read": "vetoretryread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 20 canary _veto_retry rows."
+ },
+ "own_lines": [
+  {
+   "read": "vetoretryread",
+   "field": "forced_ratio",
+   "op": "<=",
+   "value": 2.0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "TRIPWIRE (Codex): forced admissions rising more than 2x faster on the canary than on control, each against its own pre-window -- the double count the Claude review found. Judged only on >= 10 canary forced admissions (null otherwise)."
+  },
+  {
+   "read": "vetoretryread",
+   "field": "latency_p95_ratio",
+   "op": "<=",
+   "value": 1.5,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "TRIPWIRE (Codex): the fleet endpoint .72 is shared by 80 bots; the canary's p95 decision latency > 1.5x control's means the extra calls queue."
+  },
+  {
+   "read": "vetoretryread",
+   "field": "retry_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "vetoretryread",
+   "field": "retry_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  }
+ ],
+ "primary": {
+  "read": "vetoretryread",
+  "field": "items_did_per_bh",
+  "note": "Items/bot-h DiD (NOISY: an unchanged pool swung -21.6 in 3 h in the dry run -- read at 26 h, not 3), executed decisions/bot-h DiD, vetoed share DiD, retry result mix and retry-admitted share. Harm from immobiledid (two-death floor, gather_ratio). Fleet-wide promotion needs a capacity check on .72 first (up to +40% calls)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": null
+}
