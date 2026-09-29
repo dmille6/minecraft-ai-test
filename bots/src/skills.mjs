@@ -3576,7 +3576,8 @@ export function knownTarget (bot, toward = null, radius = 400) {
   const wf = bot?.worldFacts
   const at = bot?.entity?.position
   if (!wf?.resourcesNear || !at) return null
-  const kinds = toward ? [toward]
+  const family = Array.isArray(toward)
+  const kinds = family ? toward : toward ? [toward]
     : ['iron_ore', 'coal_ore', 'oak_log', 'birch_log', 'diamond_ore', 'stone']
   // A SIGHTING ON A DEATH SITE IS NOT A TARGET. 43 of 66 lava deaths in 48 h came within a minute of explore steering
   // at a shared iron-ore sighting (deaths-review-2026-09-16). The route across the pool is the pathfinder's price
@@ -3584,6 +3585,23 @@ export function knownTarget (bot, toward = null, radius = 400) {
   let deaths = []
   try { deaths = wf.deathSites?.() ?? [] } catch { deaths = [] }
   let skipped = 0
+  // A FAMILY IS ONE GOAL: any log counts toward "12 logs", so the NEAREST sighting of any member wins, not the first
+  // member in the list that has one somewhere within 400 blocks. Same 24-block floor and death-site refusal as below.
+  if (family) {
+    const all = []
+    for (const kind of kinds) {
+      let seen
+      try { seen = wf.resourcesNear(kind, at, radius) } catch { continue }
+      for (const r of seen ?? []) all.push({ kind, r, d: Math.hypot(r.x - at.x, r.z - at.z) })
+    }
+    all.sort((a, b) => a.d - b.d)
+    for (const { kind, r, d } of all) {
+      if (d < 24) continue
+      if (nearDeathSite(deaths, r.x, r.y ?? at.y, r.z, { radius: DEATH_SITE_TARGET_RADIUS, dy: 8 })) { skipped++; continue }
+      return { kind, x: r.x, y: r.y, z: r.z, dist: d, skipped }
+    }
+    return skipped ? { skipped } : null
+  }
   for (const kind of kinds) {
     let seen
     try { seen = wf.resourcesNear(kind, at, radius) } catch { continue }
@@ -3601,7 +3619,23 @@ export function knownTarget (bot, toward = null, radius = 400) {
   return skipped ? { skipped } : null
 }
 
-async function explore(ctx, { blocks = 60, heading = null, toward = null }, signal) {
+/**
+ * Pure: the bearing (radians) an explore walks. A given heading is degrees; with none, away from spawn (the origin)
+ * with +-0.4 rad of jitter, or anywhere within 12 blocks of it. `heading != null` is tested FIRST: Number(null) is 0,
+ * so an absent heading used to read as "due east" and the outward branch never ran.
+ */
+export function exploreBearing (heading, start, rand = Math.random) {
+  if (heading != null && heading !== '' && Number.isFinite(Number(heading))) return (Number(heading) * Math.PI) / 180
+  const dx = start.x, dz = start.z            // spawn is the origin
+  return (Math.hypot(dx, dz) < 12 ? rand() * Math.PI * 2 : Math.atan2(dz, dx)) + (rand() - 0.5) * 0.8
+}
+
+/** Pure: how far a task-aimed explore walks -- to the sighting, never past it, never under 20 blocks. */
+export function exploreStopAt (want, dist) {
+  return Math.min(want, Math.max(20, Math.round(Number(dist) || 0)))
+}
+
+async function explore(ctx, { blocks = 60, heading = null, toward = null, intentTask = null }, signal) {
   const { bot } = ctx
   const start = bot.entity.position.clone()
 
@@ -3624,6 +3658,21 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
   // behaviour for a bot that has genuinely seen nothing: this makes explore
   // better-informed, not conditional on being informed.
   const known = knownTarget(bot, toward)
+  // THE TASK AIMED THIS WALK (exploreintent.mjs; only the cognitive loop passes an array). One row per explore, the
+  // only writer of it, carrying what the old iron-first order would have chosen so the read can count the changes.
+  const intended = Array.isArray(toward)
+  if (intended) {
+    let legacy = null
+    try { legacy = knownTarget(bot, null) } catch { legacy = null }
+    logEvent({
+      kind: 'explore_toward_milestone',
+      detail: `task=${intentTask ?? '?'} kinds=${toward.join(',')} ` +
+              (known?.kind ? `target=${known.kind}@${known.x},${known.y},${known.z} d=${known.dist.toFixed(0)}`
+                : `target=none_known skipped=${known?.skipped ?? 0}`) +
+              ` legacy=${legacy?.kind ?? 'none'}`,
+      snapshot: snapshot(bot),
+    })
+  }
   if (known?.skipped) logEvent({ kind: 'explore_target_skipped_death_site', status: 'no_effect', detail: `${known.skipped} sighting(s) within ${DEATH_SITE_TARGET_RADIUS} blocks of a recorded death were not steered at${known.kind ? `; heading for ${known.kind} instead` : '; random bearing'}`, snapshot: snapshot(bot) })
   if (known?.kind) {
     logEvent({
@@ -3648,15 +3697,13 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
   // where the resources were stripped first, and where the cave damage is. Away
   // from it is the direction with unexplored ground, which is what the comment
   // always meant.
-  let ang
-  if (Number.isFinite(Number(heading))) ang = (Number(heading) * Math.PI) / 180
-  else {
-    const dx = start.x, dz = start.z            // spawn is the origin
-    ang = (Math.hypot(dx, dz) < 12 ? Math.random() * Math.PI * 2 : Math.atan2(dz, dx))
-      + (Math.random() - 0.5) * 0.8
-  }
+  // An absent heading used to mean due east (Number(null) is 0; see exploreBearing). It rarely mattered -- 50 of 11,378
+  // explores on 28-29 Sep had no target -- but a task whose material has no sighting now lands here on purpose.
+  let ang = exploreBearing(heading, start)
 
-  const want = Math.min(Math.max(Number(blocks) || 60, 20), 120)
+  let want = Math.min(Math.max(Number(blocks) || 60, 20), 120)
+  // STOP AT THE THING. A task-aimed walk that runs `blocks` past a sighting 30 blocks away ends 30 blocks beyond it.
+  if (intended && known?.kind) want = exploreStopAt(want, known.dist)
   // 12, not 25. At 25 blocks through forest, A* spends long enough planning that
   // the bot stands still past the 45s stuck threshold and the reflex cancels the
   // path -- measured, 8 explore attempts and 8 aborts, every single one killed

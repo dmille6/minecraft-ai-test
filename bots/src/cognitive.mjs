@@ -14,6 +14,7 @@ import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
+import { exploreArgsFor } from './exploreintent.mjs'
 import { MilestoneController } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { logLlm, logEvent, log } from './logger.mjs'
@@ -791,7 +792,9 @@ export class CognitiveLoop {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
       })
-      const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
+      // AIM THE EXPLORE AT THE TASK (exploreintent.mjs). After admission and on a copy, so every gate key is unchanged.
+      const runArgs = admitted.skill === 'explore' ? exploreArgsFor(admitted.args, milestone).args : admitted.args
+      const r = await this.runner.run(admitted.skill, runArgs, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
