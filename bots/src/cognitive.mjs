@@ -226,11 +226,14 @@ export function prereqHave(items, prereq) {
   let n = 0
   for (const it of items ?? []) {
     if (!want.has(it?.name)) continue
-    if (it.maxDurability && it.maxDurability - (it.durabilityUsed ?? 0) < min) continue
+    // DIGGING TOOLS ONLY (Codex review): the floor is toolfor's swing reserve. A one-use shears, armour or
+    // flint_and_steel still does its job, so only pickaxes/axes/shovels/hoes are held to it.
+    if (DIG_TOOL.test(it.name) && it.maxDurability && it.maxDurability - (it.durabilityUsed ?? 0) < min) continue
     n += it.count ?? 1
   }
   return n
 }
+const DIG_TOOL = /_(pickaxe|axe|shovel|hoe)$/
 
 export function applyPrereq(milestone, prereq, have, now = Date.now()) {
   if (!prereq) return { task: milestone, clear: null }
@@ -579,6 +582,13 @@ export class CognitiveLoop {
     // reads named=6 usable=0).
     const inv = this.bot.inventory?.items?.() ?? []
     const named = inv.filter(it => (need.items ?? []).includes(it?.name)).reduce((n, it) => n + (it.count ?? 1), 0)
+    // THE CASE THIS BUILD CHANGES (Codex review): by name the bot "has" it, by use it does not. The old count cleared
+    // this detour at once; only this build can write the row.
+    if (named >= need.count && prereqHave(inv, need) < need.count) {
+      logEvent({ kind: 'prereq_usable_filtered', status: 'success',
+                 detail: `${fromSkill}: named=${named} usable=${prereqHave(inv, need)} of ${need.count}x ${need.items.slice(0, 2).join('/')}; floor ${Math.max(HARD_STOP + 1, need.minUses ?? 0)} uses`,
+                 snapshot: snapshot(this.bot) })
+    }
     logEvent({ kind: 'prereq_adopted', status: 'failed',
                detail: `${fromSkill} needs ${need.count}x ${need.items.slice(0, 3).join(' or ')} ` +
                        `(${need.because}); it is now the task until satisfied named=${named} usable=${prereqHave(inv, need)}`,
