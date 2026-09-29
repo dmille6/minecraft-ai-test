@@ -27,13 +27,16 @@
 //     BREAK veto, which stops the tunnel from OPENING liquid into itself.
 import pkg from 'mineflayer-pathfinder'
 import { remaining, HARD_STOP, tier } from './toolfor.mjs'
-import { cellLavaSafe } from './lavaguard.mjs'
+import { cellLavaSafe, dropLavaSafe } from './lavaguard.mjs'
 import { Vec3 } from 'vec3'
 const { goals, Movements } = pkg
 
 export const IRON_KINDS = ['iron_ore', 'deepslate_iron_ore']
 /** One number for the ladder AND the trip (both reviews): a stone pickaxe with fewer uses cannot pay a median tunnel. */
 export const MIN_TRIP_USES = 40
+// One fresh stone_pickaxe's spare uses (131 - HARD_STOP). A trip that needs more is refused as too long rather than as
+// pickaxe_short: the remedy "craft a stone_pickaxe" must be one that, once done, lets the same request pass.
+export const ONE_PICK_USES = 131 - HARD_STOP
 /** Pickaxe uses kept for the walk back: the measured reverse path needs 0-3 breaks. */
 export const RETURN_RESERVE = 5
 export const CLUSTER_CAP = 9
@@ -91,6 +94,10 @@ export function stepHazard (blockAt, block) {
     for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
       if (!cellLavaSafe(at, p.x + dx, p.y, p.z + dz).safe) return 100
     }
+    // THE SAME TEST THE CORRIDOR GUARD RUNS (index.mjs path_update -> lavaguard corridorSafe): it also scans the drop
+    // under every sample, lava beside included. A route this planner accepted and that guard refuses clears the goal
+    // mid-walk -- two correct guards meeting in a dead end (Claude review of e455cf5).
+    if (!dropLavaSafe(at, p.x, p.y, p.z).safe) return 100
     return 0
   } catch { return 100 }
 }
@@ -115,6 +122,18 @@ export function pickBudget (items = [], { pickBreaks = 0, cluster = 1, reserve =
   if (haveOre < cluster + reserve) return { ok: false, haveAll, haveOre, need, why: `stone-or-better pickaxe uses ${haveOre} < ${cluster} ore + ${reserve} reserve` }
   if (haveAll < need) return { ok: false, haveAll, haveOre, need, why: `pickaxe uses ${haveAll} < ${pickBreaks} tunnel + ${cluster} ore + ${reserve} reserve` }
   return { ok: true, haveAll, haveOre, need, why: null }
+}
+
+/**
+ * THE TRIP DECISION, pure, so the refusal CHAIN is testable (CLAUDE.md: test the chain, not the single guard).
+ *   too_long       the trip needs more than one fresh stone pickaxe holds: no pickaxe the bot can craft fixes it.
+ *   pickaxe_short  refuse with a remedy -- a pickaxe with minUses uses -- that, once held, makes this same call ok.
+ */
+export function tripDecision (items = [], { pickBreaks = 0, cluster = 1, reserve = RETURN_RESERVE } = {}) {
+  const budget = pickBudget(items, { pickBreaks, cluster, reserve })
+  if (budget.need > ONE_PICK_USES) return { ...budget, ok: false, refuse: 'too_long' }
+  if (!budget.ok) return { ...budget, refuse: 'pickaxe_short', minUses: budget.need + HARD_STOP }
+  return { ...budget, refuse: null }
 }
 
 /** Candidates ranked by estimated cost, not straight-line distance: depth below the feet costs ~2.4 breaks a block. */

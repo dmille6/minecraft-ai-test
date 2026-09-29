@@ -10,7 +10,7 @@ const registry = require('prismarine-registry')('1.21.8')
 const Block = require('prismarine-block')(registry)
 const { pathfinder, goals } = require('mineflayer-pathfinder')
 const { breakHazard, stepHazard, pickBudget, hasTripPickaxe, rankCandidates, clusterOf, tunnelMovements, planTunnel, nearHome,
-        MIN_TRIP_USES, RETURN_RESERVE, IRON_KINDS } = await import('../src/oretunnel.mjs')
+        MIN_TRIP_USES, RETURN_RESERVE, IRON_KINDS, tripDecision, ONE_PICK_USES } = await import('../src/oretunnel.mjs')
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -192,6 +192,39 @@ await t('iron rung is offered only with a trip-ready pickaxe (else vacuously don
   const r = rung('gather_iron_ore_3')
   assert.equal(r.done(ladderBot([pick('stone_pickaxe', 131)], true)), false, 'actionable')
   assert.equal(r.done(ladderBot([pick('stone_pickaxe', 10)], true)), true, 'not offered with a worn pickaxe')
+})
+
+// ---- the refusal CHAIN: pickaxe_short names a remedy that, once held, makes the SAME request pass ----
+// cognitive.mjs #prereqHave counts a copy toward the task when maxDurability - durabilityUsed >= minUses; restated here.
+const satisfies = (it, minUses) => it.maxDurability - (it.durabilityUsed ?? 0) >= minUses
+await t('chain: every pickaxe_short remedy, once met by a crafted stone_pickaxe, lets the same trip through', () => {
+  let shorts = 0, longs = 0
+  for (const held of [[], [pick('stone_pickaxe', 2)], [pick('stone_pickaxe', 40)], [pick('wooden_pickaxe', 30), pick('stone_pickaxe', 9)]]) {
+    for (let breaks = 0; breaks <= 140; breaks++) for (let cluster = 1; cluster <= 9; cluster++) {
+      const d = tripDecision(held, { pickBreaks: breaks, cluster })
+      if (d.refuse === 'too_long') { longs++; assert.ok(d.need > ONE_PICK_USES); continue }
+      if (d.refuse !== 'pickaxe_short') continue
+      shorts++
+      const fresh = pick('stone_pickaxe', 131)
+      assert.ok(satisfies(fresh, d.minUses), `a fresh stone_pickaxe must meet minUses ${d.minUses} (need ${d.need})`)
+      // The weakest copy that still satisfies the task must be enough, even if every old pickaxe broke meanwhile.
+      const weakest = pick('stone_pickaxe', d.minUses)
+      assert.equal(tripDecision([weakest], { pickBreaks: breaks, cluster }).refuse, null, `breaks ${breaks} cluster ${cluster}: minUses ${d.minUses} did not unlock the trip`)
+    }
+  }
+  assert.ok(shorts > 100 && longs > 10, `the sweep must reach both refusals (short ${shorts}, long ${longs})`)
+})
+await t('chain: a 40-use pickaxe does NOT satisfy the remedy for a 60-use trip (the loop both reviews found)', () => {
+  const d = tripDecision([pick('stone_pickaxe', 40)], { pickBreaks: 55, cluster: 3 })
+  assert.equal(d.refuse, 'pickaxe_short')
+  assert.ok(!satisfies(pick('stone_pickaxe', 40), d.minUses), `minUses ${d.minUses} must exceed 40`)
+})
+await t('stepHazard vetoes a cell whose DROP lands beside lava (the corridor guard would refuse it mid-walk)', () => {
+  const w = world({ '0,63,0': 'air', '0,62,0': 'air', '1,62,0': 'lava' })
+  const bot = makeBot(w)
+  assert.equal(stepHazard(blockAtOf(bot), bot.blockAt(new Vec3(0, 64, 0))), 100)
+  const ok = makeBot(world({ '0,63,0': 'air', '0,62,0': 'air' }))
+  assert.equal(stepHazard(blockAtOf(ok), ok.blockAt(new Vec3(0, 64, 0))), 0, 'control: the same drop with no lava is allowed')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

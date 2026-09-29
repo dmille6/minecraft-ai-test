@@ -29,7 +29,7 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
-import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel } from './oretunnel.mjs'
+import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1360,10 +1360,15 @@ const TUNNEL_TRIES = 3
 async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   const { bot, runner } = ctx
   const t0 = Date.now()
+  deadlineMs = Math.min(150_000, deadlineMs)
   const out = (res, extra) => {
     logEvent({ kind: 'ore_tunnel', status: res.status === 'success' ? 'success' : 'failed', snapshot: snapshot(bot),
                detail: `${res.status}${res.failClass ? `/${res.failClass}` : ''}: ${extra}`.slice(0, 300) })
     return res
+  }
+  // TIME FIRST: gather's contract is 180 s end to end and the ore still has to be collected after arrival.
+  if (deadlineMs < 30_000) {
+    return out({ status: 'failed', failClass: 'no_tunnel', detail: 'too little of this gather left to tunnel -- ask for the ore again' }, `refused: ${Math.round(deadlineMs / 1000)} s left`)
   }
   // ROOM FIRST: a tunnel yields ~2.4 cobblestone per block of depth plus the ore.
   if ((bot.inventory?.emptySlotCount?.() ?? 0) < 2) {
@@ -1387,11 +1392,17 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   }
   const cluster = clusterOf(at, plan.target)
   const pickBreaks = plan.breaks.filter(q => /pickaxe/.test(bot.blockAt(q)?.material ?? '')).length
-  const budget = pickBudget(bot.inventory.items(), { pickBreaks, cluster: cluster.length })
-  if (!budget.ok) {
+  const budget = tripDecision(bot.inventory.items(), { pickBreaks, cluster: cluster.length })
+  if (budget.refuse === 'too_long') {
+    return out({ status: 'failed', failClass: 'no_tunnel', detail: `the nearest iron is ${plan.breaks.length} blocks of digging away, more than one stone pickaxe lasts` },
+               `refused: needs ${budget.need} uses > ${ONE_PICK_USES}; plan ${plan.breaks.length} breaks, cluster ${cluster.length}, ${plan.ms} ms`)
+  }
+  if (budget.refuse === 'pickaxe_short') {
     // PICKAXE FIRST (owner): the remedy is a task the bot adopts, not advice it may ignore.
     return out({ status: 'failed', failClass: 'pickaxe_short',
-                 need: { items: ['stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1, minUses: MIN_TRIP_USES,
+                 // minUses is THIS trip's need, not a constant (both reviews): a 40-use copy must not "satisfy" a 60-use
+                 // trip and send the bot straight back to the same refusal. need <= ONE_PICK_USES, so a fresh stone pick meets it.
+                 need: { items: ['stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1, minUses: budget.minUses,
                          because: `a tunnel to iron needs ${budget.need} pickaxe uses (${budget.why})` },
                  detail: `iron is ${plan.breaks.length} blocks of digging away but ${budget.why} — craft a stone_pickaxe first` },
                `refused: ${budget.why}; plan ${plan.breaks.length} breaks (${pickBreaks} pick), cluster ${cluster.length}, ${plan.ms} ms`)
@@ -1413,9 +1424,16 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
       else if (Date.now() - moved > TUNNEL_STALL_MS && !stalled) { stalled = true; try { bot.pathfinder.setGoal(null) } catch {} }
     }, 500)
     const legMs = Math.max(5000, Math.min(deadlineMs - (Date.now() - t0), 20_000 + plan.breaks.length * 2500))
+    // ABORT STOPS THE WALK (Codex review): goto has no signal, so a cancelled gather would keep digging.
+    const onAbort = () => { try { bot.pathfinder.setGoal(null) } catch {} }
+    signal?.addEventListener?.('abort', onAbort, { once: true })
     withTimeout(bot.pathfinder.goto(plan.goal), legMs, bot, { needsDrop: false })
-      .then(resolve, e => reject(Object.assign(e ?? new Error('walk failed'), { stalled })))
-      .finally(() => clearInterval(watch))
+      // ARRIVAL IS CHECKED, NOT ASSUMED (both reviews): pathfinder's goto resolves on ANY path_update with an empty
+      // path, including a failed search (mineflayer-pathfinder lib/goto.js). Short of the goal is a stall, not success.
+      .then(() => (plan.goal.isEnd(bot.entity.position.floored()) ? resolve()
+                   : reject(Object.assign(new Error('the walk ended short of the ore'), { stalled: true }))),
+            e => reject(Object.assign(e ?? new Error('walk failed'), { stalled })))
+      .finally(() => { clearInterval(watch); signal?.removeEventListener?.('abort', onAbort) })
   })
   try {
     const renew = setInterval(() => claim?.renew?.(), 1000)
@@ -1458,6 +1476,7 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
 }
 
 async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
+  const gatherT0 = Date.now()   // the tunnel's deadline is what is left of gather's 180 s contract, less time to collect
   maxDistance = Math.min(Number(maxDistance) || 32, 48)   // callers cannot opt back into the blowup
   const { bot } = ctx
   const asked = blockName
@@ -1616,7 +1635,10 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // without relaxing what the model is told and it keeps reading
     // `exposed_safe=0` and steers away from targets the skill just unlocked.
     // That is the `model-cannot-see-it` failure, which cost four in one day.
-    const safeTarget = p => isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)
+    // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
+    // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
+    const ironStrict = IRON_KINDS.includes(blockName)
+    const safeTarget = p => (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
     // block has an air face, which is true of every log in a tree canopy -- so
     // findBlocks would return a trunk section five blocks up in the foliage,
@@ -1858,10 +1880,11 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (IRON_KINDS.includes(viaSource ?? blockName) && !escalated) {
         escalated = true
         check(signal)
-        const dug = await tunnelToOre(ctx, signal)
+        const dug = await tunnelToOre(ctx, signal, { deadlineMs: SKILL_CONTRACTS.gather.maxMs - (Date.now() - gatherT0) - 30_000 })
         mineSaid = dug?.detail ?? null
         if (dug?.status === 'success') continue     // rescan: the tunnel exposed the ore; gather's own collection takes it
-        if (dug?.need || ['pickaxe_short', 'inventory_full'].includes(dug?.failClass)) return dug   // the remedy is the answer
+        // inventory_full FALLS THROUGH (Claude review): its remedy, deposit, cannot be performed while the chests are full.
+        if (dug?.need || dug?.failClass === 'pickaxe_short') return dug   // the remedy is the answer
       }
       if (WORTH_TUNNELLING.test(viaSource ?? blockName) && !escalated) {
         escalated = true
