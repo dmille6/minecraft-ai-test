@@ -1,0 +1,100 @@
+{
+ "run_id": "prequsable-01",
+ "sha": "SET-AT-LAUNCH: branch prereq-usable (db3c461, on last-swing b1c978e, from 80b3bbd) rebased onto the fleet sha at launch -- after lastswing-01",
+ "registered_at": "2026-09-29T17:40:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "SPENT PICKAXES SATISFIED 'GET A PICKAXE' (2026-09-29). 88.4% of pickaxe prerequisites were counted met by spent copies (24 h, 60 bots); 4 bots sealed all day, 96 bot-h. Dry run of this read on unchanged code 09-29 17:20Z: control 487 of 560 pickaxe satisfactions (87%) held NO pickaxe with more than one use. THE FIX: prereqHave counts a digging tool only above toolfor's HARD_STOP (or the task's minUses); escape asks request TWO pickaxes (the reserve rule refuses on one -- a closed loop found by the Claude review, property-tested against mayDigForEscape). Both reviews applied (Codex: digging tools only). Row `_prereq_usable_filtered` (named= vs usable=) only this build writes.",
+ "licence": {
+  "class": "kind",
+  "kind": "_prereq_usable_filtered",
+  "min_rows": 1,
+  "note": "Written only when a prerequisite is met by name and not by use -- the case this build changes. ~3 prerequisites adopted per bot-h fleet-wide, most by spent copies."
+ },
+ "reads": [
+  "prequsableread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "prerequisites adopted (the population this changes)",
+    "kind": "_prereq_adopted",
+    "min": 10
+   }
+  ],
+  "note": "718 adopted in 3 h on 80 bots (09-29)."
+ },
+ "exposure": {
+  "read": "prequsableread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 5 canary pickaxe-class satisfactions AND the control shows the defect (>= 1 spent-satisfied)."
+ },
+ "own_lines": [
+  {
+   "read": "prequsableread",
+   "field": "spent_satisfied_judged",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS: a canary pickaxe prerequisite satisfied while the bot held no pickaxe with more than one use -- from the row's own tool-wear snapshot. Judged on >= 5. Unchanged code FAILS this (dry run: 34 of 46)."
+  },
+  {
+   "read": "prequsableread",
+   "field": "filtered_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "prequsableread",
+   "field": "filtered_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "prequsableread",
+   "field": "spent_satisfied_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL (487 in the dry run). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "prequsableread",
+  "field": "abandoned_did_per_bh",
+  "note": "REPORTED, NOT GATED: prerequisites adopted/satisfied/abandoned per bot-h DiD. HARM TO NAME: a bot now keeps 'get a pickaxe' as its task until PREREQ_TTL -- more abandons, livelock escapes and milestone skips are the cost side; a sealed bot with no wood still cannot make sticks (Codex)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}
