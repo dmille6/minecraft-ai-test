@@ -356,6 +356,28 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       read MATCH).
     - Ships in the withdraw-home + bank-fix bundle.
     - Before step 2 reads it, revisit (Codex): newer-wins races, mtime eviction, ambiguous 54-slot records.
+  - **DAY 2026-09-29 (owner: "analyze, find, fix, implement, deploy") -- fleet triage by both engines**
+    (24 h, 60 bots on 80b3bbd):
+    - **PREREQ-USABLE: `prereq-usable` @ `db3c461`** (on last-swing). 88.4% of pickaxe prerequisites
+      were counted met by SPENT pickaxes (57 bots; 4 bots sealed all day, 96 bot-h).
+      - The fix: a digging tool counts only above toolfor's floor.
+      - Escape asks now request TWO (the reserve rule refuses on one: a closed loop, found by Claude).
+      - `_prereq_usable_filtered` row.
+      - Both reviews applied (Codex: digging tools only; its REJECT of my claim was right -- a sealed bot
+        with NO wood still cannot make sticks/table). 9 tests, 205/205.
+      - Canaries after lastswing-01.
+    - **VETO RETRY: `veto-retry` @ `722b112`** (from 80b3bbd). 40% of decisions were vetoed, holding 32%
+      of fleet time; 44.5% of vetoes were followed by the same key.
+      - REPLAY on the spare 10.0.0.16 with the hash-verified deployed prompt: feedback changed the action
+        97% vs 58% without.
+      - One in-tick retry with what/why feedback; a same-key retry is refused without the gate.
+      - `_veto_retry` row. 204/204; the sandbox smoke shows the row.
+      - **Both implementation reviews running.**
+    - d0c47c6 (an explore repeat is not a repeat from 48 blocks away) was never deployed (program
+      window); it is part of the veto problem and should follow veto-retry.
+    - Codex's smaller finds, not built: explore aimed at ore when the task wants wood/dirt (9.5 bot-h);
+      deposit ignores cancellation in travel; craft walks before checking ingredients; deposit admits an
+      item-less trip; escape burns logs as scaffold.
   - **QUEUE (owner-approved 09-29; one canary at a time):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
