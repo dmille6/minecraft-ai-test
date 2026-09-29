@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-29 06:50Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 07:00Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -312,10 +312,15 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Head `45e152d`: 19 tests, 15 anchored mutants killed, 204/204; the sandbox smoke is clean.
     - `idlegap-01` registration + read staged (text licence 'serving'; correctness = the residence bound
       holds; the effect is reported only: the idle share swung +0.28 DiD on an unchanged pool in 2.4 h).
-  - **HIVE PROGRESS FIXED: `hive-progress` @ `70455d8`** (the side defect above). A shared store lost every
-    hive bot's milestone history on restart and re-saved a stale slot; ownProgress() on load/save. The
-    restart test FAILS on 80b3bbd; 7 tests, 3 mutants killed, 204/204. A canary must draw a HIVE pool. It
-    has no second-engine review yet -- get one before it goes.
+  - **HIVE PROGRESS FIXED: `hive-progress` @ `f2d447b`** (the side defect above). A shared store lost every
+    hive bot's milestone history on restart and re-saved a stale slot.
+    - Both engines reviewed it: Claude AGREE+2 (a version marker so the old build's frozen slot loads empty;
+      progress in the load log); Codex CHANGE (layout guessing fooled 3 ways -> an explicit keyed slotOf +
+      a migration of the legacy flat fields).
+    - 10 tests (the restart test FAILS on 80b3bbd), 8 mutants killed, 204/204; merged onto idle-gap 205/205.
+    - Canary: HIVE pools only; hive-c/d held out to 09-30 -> hive-a vs hive-b, effect INCONCLUSIVE, but
+      correctness (restored progress non-empty after a 2nd restart, from the new load-log fields) is
+      readable. A registration is not written yet.
   - **RECOMMENDED QUEUE (one canary at a time; the owner can reorder):**
     1. toolkeeper-01 (verdict 14:02Z)
     2. deathfix-01 (staged)
@@ -323,7 +328,7 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     4. lastswing-01
     5. hygiene-01
     6. ore tunnel (rebase the stack; oretunnel-01 staged)
-    6b. idle gap (idlegap-01 staged); hive-progress (needs a second-engine review + registration)
+    6b. idle gap (idlegap-01 staged); hive-progress (reviewed by both; registration to write)
     - **withdraw-home is NOT canary-able alone** (read staged: docs/reports/withdraw-01-read.py.txt). The dry run
       found 5 withdraws in 7.3 h on 80 bots, 0 successes (~0.22/bot-day), so a 5-bot pool sees ~1 a day and
       ends INCONCLUSIVE. Recommend BUNDLING it with the change that makes bots withdraw (craft sourcing from
