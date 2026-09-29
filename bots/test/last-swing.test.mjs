@@ -53,7 +53,12 @@ t('SCOPE: travel digs and the exit contract still honour the hard stop', () => {
 t('SCOPE (source, comments stripped): only collectManually opts in, and it logs the swing', () => {
   const code = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  const sites = code.match(/lastSwing:\s*true/g) ?? []
+  // harvestRefused (tool-guard, 09-29) asks the SAME question READ-ONLY -- it never swings -- so gather can refuse before
+  // the walk with the answer the dig would reach. It is the one permitted non-dig site; any other opt-in still fails.
+  const q = code.indexOf('export function harvestRefused ('), qe = code.indexOf('\n}', q)
+  const noQuery = q >= 0 ? code.slice(0, q) + code.slice(qe) : code
+  assert.ok(q < 0 || /toolFor\(block, items, \{ lastSwing: true \}\)\?\.reason === 'none'/.test(code.slice(q, qe)), 'the query only reads the reason')
+  const sites = noQuery.match(/lastSwing:\s*true/g) ?? []
   assert.equal(sites.length, 1, `expected exactly one opt-in, found ${sites.length}`)
   const s = code.indexOf('export async function collectManually('), e = code.indexOf('\nexport async function ', s + 10)
   const body = code.slice(s, e)

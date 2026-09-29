@@ -27,7 +27,7 @@
 
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
+import { applyToolPolicy, remaining, HARD_STOP, toolFor } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1462,6 +1462,27 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
             detail: `no ${blockName} within ${maxDistance} blocks` +
               (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') +
               belowGroundHint(bot) }
+    }
+
+    // NOTHING YOU HOLD CAN BREAK IT -- SAY SO BEFORE THE WALK, IN ITS OWN CLASS (both engines, 09-29: 2,265 of 2,663
+    // stone-family `no_path` failures were really "Digging aborted" after a SUCCESSFUL reach probe -- the dig started
+    // bare-handed, the watcher stopped it, three barren rounds became `no_path`, and `no_path` is learnable evidence,
+    // so the fleet learned to avoid `gather cobblestone` for want of a PICKAXE). The same question the dig will ask
+    // (toolFor, with the harvest dig's last swing), asked of the first candidate before any walking.
+    {
+      const first = bot.blockAt?.(positions[0])
+      if (first && harvestRefused(first, bot.inventory?.items?.() ?? [])) {
+        if (collected > 0) return { status: 'success', detail: `collected ${collected} ${blockName} (no tool left that breaks ${first.name})` }
+        logEvent({ kind: 'gather_missing_tool', status: 'failed',
+                   detail: `${first.name} for ${blockName}: no tool held can harvest it (last swing allowed); ` +
+                           `${positions.length} candidate(s) in reach, none walked to`,
+                   snapshot: snapshot(bot) })
+        return { status: 'failed', failClass: 'missing_tool',
+                 detail: `${first.name} needs a pickaxe and none you hold can break it — craft a wooden_pickaxe (3 planks + 2 sticks), then gather again`,
+                 need: { items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1,
+                         describe: `Get a pickaxe. ${first.name} cannot be broken without one.`,
+                         because: `gather ${blockName}: no tool held can harvest ${first.name}` } }
+      }
     }
 
     // ONE block per collect() call. Passing a batch makes collectblock work
@@ -5252,6 +5273,11 @@ export const COVER_EXEMPT_TARGET = /_log$/
  * mistake is teaching a durable lesson from a failure nobody could classify.
  * Refusing to teach costs a re-ask; teaching wrongly costs the tech tree.
  */
+/** Pure: would a HARVEST dig of this block have nothing to swing? toolFor with the last swing, reason 'none'. */
+export function harvestRefused (block, items = []) {
+  try { return toolFor(block, items, { lastSwing: true })?.reason === 'none' } catch { return false }
+}
+
 export function barrenFailClass (timedOut, barren, coverRounds = 0) {
   if (timedOut >= barren) return 'collect_budget'
   return coverRounds > 0 ? 'unreachable' : 'no_path'
