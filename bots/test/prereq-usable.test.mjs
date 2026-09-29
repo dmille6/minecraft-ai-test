@@ -20,6 +20,11 @@ t('a task that names minUses raises the bar (the ore tunnel sets it)', () => {
   assert.equal(prereqHave([pick('stone_pickaxe', 30)], { ...need, minUses: 40 }), 0)
   assert.equal(prereqHave([pick('stone_pickaxe', 40)], { ...need, minUses: 40 }), 1)
 })
+t('ONLY DIGGING TOOLS are held to the swing floor: a one-use shears / chestplate still counts (Codex review)', () => {
+  assert.equal(prereqHave([pick('shears', 1, 238)], { items: ['shears'], count: 1 }), 1)
+  assert.equal(prereqHave([pick('iron_chestplate', 1, 240)], { items: ['iron_chestplate'], count: 1 }), 1)
+  assert.equal(prereqHave([pick('stone_axe', 1)], { items: ['stone_axe'], count: 1 }), 0)
+})
 t('non-durable items count by stack size, and unwanted items never count', () => {
   const blocks = { items: ['dirt', 'cobblestone'], count: 8 }
   assert.equal(prereqHave([{ name: 'dirt', count: 5 }, { name: 'cobblestone', count: 4 }, { name: 'stone', count: 64 }], blocks), 9)
