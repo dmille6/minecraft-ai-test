@@ -259,6 +259,11 @@ y >= 0 holding zero stone — ~10x the craft-limit target. Both engines are now 
 stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) before anything is built.
 
 ## QUEUE (after toolkeeper-01 closes)
+- **OWNER 2026-09-29: SHORT CANARY FOR FIXES.** Reads +180/+360, extension until exposure (540/720/1080/1560),
+  deadline 1680; KEEP possible from +360 when correctness, harm and exposure are clean. A "fix" = a deterministic
+  correctness gate (licence row/text only the fix writes + a positive control) + sandbox + both engines. Safety
+  unchanged. deathfix-01 amended to it before launch (exposure_ready = a canary fall death AND a control crash;
+  read md5 5cae9332 staged in /tmp and ~/mcai-analysis). Apply the same shape to last-swing, hygiene, withdraw.
 - **TECH-TREE REVIEW 2026-09-28 (both engines, data + code + upstream source):** `docs/reports/tech-tree-review-2026-09-28.md`.
   After last-swing the wall is IRON (usable stone pick 45 bots -> raw_iron 22-25; buried ore; the mine escalation
   drops the ore's x/z at skills.mjs:1734-1741). Queue additions, each its own canary after the current queue:

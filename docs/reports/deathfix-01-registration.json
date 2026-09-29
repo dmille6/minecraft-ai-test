@@ -17,8 +17,8 @@
   "immobiledid"
  ],
  "read_minutes": [
-  360,
-  1560
+  180,
+  360
  ],
  "deadline_min": 1680,
  "change_rows": [],
@@ -36,9 +36,9 @@
  },
  "exposure": {
   "read": "deathfixread",
-  "field": "fall_deaths_canary",
+  "field": "exposure_ready",
   "min": 1,
-  "note": "One recorded after-falling death on the canary shows the fixed handler ran on the fleet."
+  "note": "Ready = at least one canary after-falling death (the fix ran) AND at least one control crash (the crash instrument can see a presence). Expected ~0.7 canary fall deaths and ~2 control crashes per 6 h, hence the extension."
  },
  "own_lines": [
   {
@@ -119,6 +119,36 @@
     "88 log directories exist for 80 bots, so directory enumeration could misattribute or skip; a missing unit or an empty successful journal query could pass silently.",
     "Promotion safety verified on the host: verdict.py returns NOT_YET below max(read_minutes) (line 1069), KEEP only at the final read with every line passing, a blocked line gives INCONCLUSIVE, and only the KEEP branch of canary-loop.sh promotes."
    ]
+  },
+  {
+   "at": "2026-09-29T01:00:00Z",
+   "by": "operator, BEFORE launch (no data seen)",
+   "what": "OWNER DECISION \"shorten the canary for fixes\": reads 180/360 + extension until exposure (540/720/1080/1560); exposure = exposure_ready",
+   "before": {
+    "read_minutes": [
+     360,
+     1560
+    ],
+    "deadline_min": 1680,
+    "exposure": {
+     "read": "deathfixread",
+     "field": "fall_deaths_canary",
+     "min": 1,
+     "note": "One recorded after-falling death on the canary shows the fixed handler ran on the fleet."
+    },
+    "extension": null
+   }
   }
- ]
+ ],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29). KEEP is possible from +360 when correctness, harm and exposure are all clean; without exposure the loop keeps reading at 540/720/1080/1560 and calls INCONCLUSIVE only at the last."
+ }
 }

@@ -145,6 +145,7 @@ print('-' * 78)
 print('CORRECTNESS  canary crashes %d (must be 0)  |  positive control: control crashes %d (must be >= 1)'
       % (crash['canary'], crash['control']))
 print('LIVENESS     canary "%s" rows %d (>= 1)  |  control %d (must be 0)' % (TEXT, fall['canary'], fall['control']))
+print('READY        %s  (short canary: decides once a canary fall death AND a control crash exist)' % ('YES' if fall['canary'] >= 1 and crash['control'] >= 1 else 'not yet'))
 
 try:
     if ovr:
@@ -160,6 +161,10 @@ try:
         'units_canary': units['canary'], 'units_control': units['control'],
         'deaths_canary': deaths['canary'], 'deaths_control': deaths['control'],
         'unknown_idle_canary': unknown['canary'], 'unknown_idle_control': unknown['control'],
+        # SHORT CANARY (owner 2026-09-29): the run is READY to decide once the fix has RUN on the canary (a recorded
+        # fall death) AND the crash instrument has been seen to work on the control (a control crash). Until
+        # both, the registered extension keeps reading instead of calling it early.
+        'exposure_ready': int(fall['canary'] >= 1 and crash['control'] >= 1),
     })
 except Exception as e:
     print('emit failed:', e)
