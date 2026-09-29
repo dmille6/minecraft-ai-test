@@ -2187,6 +2187,33 @@ async function openChestChecked (bot, chestBlock, signal) {
   }
 }
 
+/**
+ * A WALK THAT ENDS WHEN THE SKILL IS CANCELLED, OR AT `ms`. mineflayer-pathfinder's goto() never looks at our signal;
+ * setGoal(null) emits goal_updated, which rejects the pending goto with GoalChanged (lib/goto.js:34). On a
+ * cancellation, `_<what>_travel_cancelled` records how long the walk took to let go.
+ */
+export const DEPOSIT_WALK_MS = 60_000
+export async function walkCancellable (bot, goal, ms, signal, what) {
+  let abortAt = 0
+  const onAbort = () => { abortAt = Date.now(); try { bot.pathfinder.setGoal(null) } catch {} }
+  check(signal)   // already cancelled: never start (a goal cleared BEFORE goto() sets its own clears nothing)
+  signal?.addEventListener?.('abort', onAbort, { once: true })
+  try {
+    await withTimeout(bot.pathfinder.goto(goal), ms, bot)
+  } catch (e) {
+    if (abortAt) {
+      logEvent({ kind: `${what}_travel_cancelled`, status: 'no_effect',
+                 detail: `the walk let go ${Date.now() - abortAt} ms after the cancel (${String(e?.message ?? e).slice(0, 40)})`,
+                 snapshot: snapshot(bot) })
+      throw new Aborted()
+    }
+    throw e
+  } finally {
+    signal?.removeEventListener?.('abort', onAbort)
+  }
+  check(signal)
+}
+
 // ------------------------------------------------------------- deposit -----
 /**
  * RETURN THE STACK THE CURSOR IS HOLDING BEFORE THE WINDOW CLOSES.
@@ -2275,8 +2302,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
              detail: 'no chest or barrel within 48 blocks, even at home' }
   }
 
-  await bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
-  check(signal)
+  // BOUNDED AND CANCELLABLE (Codex triage, 28-29 Sep: 38 of 2,626 deposits reached the runner's hard stop, 33 of them
+  // still re-pathing after the watchdog -- this await had no deadline and did not hear the abort, so a cancelled
+  // deposit held the runner ~210 s). The abort now clears the goal, which rejects the pending goto (GoalChanged).
+  await walkCancellable(bot, new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2),
+                        DEPOSIT_WALK_MS, signal, 'deposit')
 
   // A CHEST UNDER A SOLID BLOCK DOES NOT OPEN, and mineflayer only says
   // "Event windowOpen did not fire within timeout of 20000ms" twenty seconds
@@ -2661,7 +2691,19 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table',
       maxDistance: 32,
     })
-    if (tableBlock) {
+    // PREFLIGHT BEFORE THE WALK (Codex triage, 28-29 Sep: 680 of 2,624 crafts walked >= 2 blocks to a table and then
+    // ended missing_ingredients with the inventory unchanged). Walk only when ONE craft of some table recipe is
+    // makeable from what is carried -- the same single-craft test the gap below uses, so an empty gap can never
+    // meet a skipped walk (that would send the station branch to place a SECOND table beside this one). Otherwise
+    // the gap names the missing ingredient, the resolver makes intermediates, and its retry walks once they exist.
+    const makeable = !!tableBlock && bot.recipesFor(def.id, null, 1, true).length > 0
+    if (tableBlock && !makeable) {
+      logEvent({ kind: 'craft_preflight_gap', status: 'no_effect',
+                 detail: `${item}: no table recipe is makeable from what is carried; skipped the ` +
+                         `${Math.round(bot.entity.position.distanceTo(tableBlock.position))}-block walk to the table`,
+                 snapshot: snapshot(bot) })
+    }
+    if (makeable) {
       check(signal)
       // Two attempts at getting close, because the first often fails on the
       // approach rather than the destination -- a bot standing on the table's

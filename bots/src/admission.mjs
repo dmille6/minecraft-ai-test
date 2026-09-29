@@ -14,7 +14,7 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositDue, depositNoopReason, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
@@ -337,6 +337,14 @@ export class AdmissionControl {
       // this gate judged with are handed to the skill through the bot (the runner's ctx carries no wants).
       const wants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
       bot.currentWants = wants
+      // A NAMED ITEM IS JUDGED BY THE PLAN EXECUTION WILL USE (Codex triage, 28-29 Sep: 1,048 of 2,626 deposits walked
+      // to the chest and reported the held item "not a banking target" -- admission counted the WHOLE inventory's
+      // bankable total, execution banks only the named item's plan). The same depositNoopReason execution reports.
+      if (arg.item) {
+        const why = depositNoopReason(items, arg.item, { wants })
+        if (why) return { ok: false, reason: 'deposit_nothing_to_bank',
+                          detail: `${why}. Deposit with no item banks whatever is worth banking.` }
+      }
       const bank = bankableInventory(items, { wants })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
