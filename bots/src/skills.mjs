@@ -4193,8 +4193,9 @@ async function smelt(ctx, { item, count = 1 }, signal) {
 
   let furnace
   try {
-    furnace = await withTimeout(openObserved(bot, block, () => bot.openFurnace(block)), SMELT_OPEN_MS, bot,
-                                { what: 'furnace', needsDrop: false, onTimeout: () => {} })
+    let furnaceAbandoned = false   // a furnace window that arrives after the timeout is not recorded (Claude review)
+    furnace = await withTimeout(openObserved(bot, block, () => bot.openFurnace(block), () => furnaceAbandoned), SMELT_OPEN_MS, bot,
+                                { what: 'furnace', needsDrop: false, onTimeout: () => { furnaceAbandoned = true } })
   } catch (e) {
     if (e.aborted) throw e
     return { status: 'unknown', failClass: 'furnace_window',

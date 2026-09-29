@@ -109,27 +109,39 @@ export function writeRecord (dir, rec) {
 }
 
 /** Records within `radius` of `pos` whose block is LOADED and no longer a container: tombstone them. Returns keys. */
-export function tombstoneGone (dir, pos, blockAt, { t = Date.now(), observer = null, radius = TOMBSTONE_RADIUS } = {}) {
+export function tombstoneGone (dir, pos, blockAt, { t = Date.now(), observer = null, radius = TOMBSTONE_RADIUS, dim = 'overworld', skipKey = null } = {}) {
   const gone = []
   let files = []
   try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')) } catch { return gone }
   for (const f of files) {
+    // FILTER BY NAME FIRST (Claude review): the file name carries the coordinates, so a far record is never read.
+    const m = /_(-?\d+),(-?\d+),(-?\d+)\.json$/.exec(f)
+    if (m && (Math.abs(+m[1] - pos.x) > radius || Math.abs(+m[2] - pos.y) > radius || Math.abs(+m[3] - pos.z) > radius)) continue
     let rec
     try { rec = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { continue }
-    if (!rec || rec.gone || !Array.isArray(rec.halves)) continue
+    if (!rec || rec.gone || !Array.isArray(rec.halves) || rec.key === skipKey) continue   // never judge the container in hand
     const h = rec.halves[0]
     if (Math.abs(h.x - pos.x) > radius || Math.abs(h.z - pos.z) > radius || Math.abs(h.y - pos.y) > radius) continue
     let b
     try { b = blockAt(new Vec3(h.x, h.y, h.z)) } catch { continue }
     if (b == null) continue                               // unloaded: unknown, not gone
-    if (CONTAINERS[b.name] != null) continue
-    writeRecord(dir, { schema: LEDGER_SCHEMA, key: rec.key, halves: rec.halves, gone: true, was: rec.type, t, observer, session: SESSION, seq: ++seq })
+    let why = null
+    if (CONTAINERS[b.name] == null) why = 'gone'
+    // SUPERSEDED (Claude review): a single chest that became one half of a double is keyed at the pair's lower half, and
+    // a chest replaced by a barrel is a different container -- the old record would otherwise stand forever.
+    else if (b.name !== rec.type) why = 'replaced'
+    else { try { if (containerKey(b, blockAt, dim).key !== rec.key) why = 'superseded' } catch { /* keep */ } }
+    if (!why) continue
+    writeRecord(dir, { schema: LEDGER_SCHEMA, key: rec.key, halves: rec.halves, gone: true, why, was: rec.type, t, observer, session: SESSION, seq: ++seq })
     gone.push(rec.key)
   }
   // BOUNDED: evict the oldest beyond MAX_RECORDS.
   if (files.length > MAX_RECORDS) {
     const ages = files.map(f => { try { return [f, fs.statSync(path.join(dir, f)).mtimeMs] } catch { return [f, 0] } }).sort((a, b) => a[1] - b[1])
-    for (const [f] of ages.slice(0, files.length - MAX_RECORDS)) { try { fs.unlinkSync(path.join(dir, f)) } catch {} }
+    const evict = ages.slice(0, files.length - MAX_RECORDS)
+    for (const [f] of evict) { try { fs.unlinkSync(path.join(dir, f)) } catch {} }
+    // Eviction is by AGE, not existence (Claude review): counted, so step 2 knows how often a live chest was dropped.
+    logEvent({ kind: 'ledger_evicted', status: 'success', detail: `${evict.length} oldest record(s) evicted over the ${MAX_RECORDS} cap` })
   }
   return gone
 }
@@ -153,8 +165,12 @@ function record (bot, window, block, phase, dir = ledgerDir()) {
     if ((n === 54) !== id.double) id.unresolved = true   // a 54-slot window we could not pair, or a pair with a 27 window
     const rec = snapshotRecord(window, id, { phase, observer: config.bot?.name ?? null, pool: config.memory?.pool ?? null,
                                             server: `${config.mc?.host}:${config.mc?.port}`, code: config.code?.version ?? null })
+    // THE SERVER'S CONTENTS SURVIVE THE CLOSE (Claude review): newer-wins made every chest's last record the close --
+    // our PREDICTED state. Each record carries `server`: the last open snapshot (the server's), never a prediction.
+    if (phase === 'open') rec.server_snapshot = { items: rec.items, free: rec.free, t: rec.t }
+    else { try { rec.server_snapshot = JSON.parse(fs.readFileSync(fileOf(dir, rec.key), 'utf8'))?.server_snapshot ?? null } catch { rec.server_snapshot = null } }
     const wrote = writeRecord(dir, rec)
-    if (phase === 'open') tombstoneGone(dir, block.position, p => bot.blockAt(p), { observer: rec.observer })
+    if (phase === 'open') tombstoneGone(dir, block.position, p => bot.blockAt(p), { observer: rec.observer, dim, skipKey: rec.key })
     const total = Object.values(rec.items).reduce((a, b) => a + b, 0)
     logEvent({ kind: 'ledger', status: 'success',
                detail: `${phase} ${rec.key} ${rec.type}${rec.double ? ' (double)' : ''}: ${total} items, ${rec.slots - rec.free}/${rec.slots} slots${wrote ? '' : ' (older than the record, not written)'}` })

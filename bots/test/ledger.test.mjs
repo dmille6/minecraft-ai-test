@@ -44,6 +44,13 @@ await t('a double chest has ONE key from either half, for every facing', () => {
     assert.equal(k1.key, k2.key, facing); assert.equal(k1.double, true); assert.equal(k1.halves.length, 2)
   }
 })
+await t('LITERAL pairing (the real server, facing=north: left at x, right at x+1), and its rotations', () => {
+  // A test that placed the partner with chestPartnerOffset itself could not fail (Claude review: swapping CW/CCW still
+  // passed). These are literal: vanilla ChestBlock.getConnectedDirection, LEFT -> clockwise of facing.
+  assert.deepEqual(chestPartnerOffset('north', 'left'), [1, 0]);  assert.deepEqual(chestPartnerOffset('north', 'right'), [-1, 0])
+  assert.deepEqual(chestPartnerOffset('east', 'left'), [0, 1]);   assert.deepEqual(chestPartnerOffset('south', 'left'), [-1, 0])
+  assert.deepEqual(chestPartnerOffset('west', 'left'), [0, -1]);  assert.equal(chestPartnerOffset('north', 'single'), null)
+})
 await t('an unvalidated neighbour is NEVER paired (wrong facing, same type, not a chest) -> own key, flagged', () => {
   const a = { x: 0, y: 64, z: 0 }; const off = chestPartnerOffset('north', 'left'); const b = { x: a.x + off[0], y: 64, z: a.z + off[1] }
   const L = blk('chest', a, { facing: 'north', type: 'left' })
@@ -72,14 +79,41 @@ await t('writeRecord: newer wins, atomic (no temp files left)', () => {
 })
 await t('tombstones: a LOADED non-container is gone; an unloaded chunk and a live container are left alone', () => {
   const dir = path.join(tmp, 'tomb')
-  for (const [k, x] of [['a', 1], ['b', 2], ['c', 3]]) writeRecord(dir, { key: k, halves: [{ x, y: 64, z: 0 }], type: 'chest', t: 1 })
+  for (const [k, x] of [['a', 1], ['b', 2], ['c', 3]]) writeRecord(dir, { key: `overworld:${x},64,0`, halves: [{ x, y: 64, z: 0 }], type: 'chest', t: 1 })
   const at = p => { const f = p.floored(); if (f.x === 1) return blk('air', f); if (f.x === 2) return null; return blk('chest', f) }
   const gone = tombstoneGone(dir, { x: 0, y: 64, z: 0 }, at, { t: 2 })
-  assert.deepEqual(gone, ['a'])
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'a.json'), 'utf8')).gone, true)
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'b.json'), 'utf8')).gone, undefined)
+  assert.deepEqual(gone, ['overworld:1,64,0'])
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'overworld_1,64,0.json'), 'utf8')).gone, true)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'overworld_2,64,0.json'), 'utf8')).gone, undefined)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'overworld_3,64,0.json'), 'utf8')).gone, undefined)
 })
 const fakeBot = (currentWindow) => ({ registry, game: { dimension: 'overworld' }, blockAt: p => blk('stone', p.floored()), currentWindow })
+await t('SUPERSEDED: a single chest that became half of a double, and a chest replaced by a barrel, are tombstoned', () => {
+  const dir = path.join(tmp, 'sup')
+  writeRecord(dir, { key: 'overworld:11,64,10', halves: [{ x: 11, y: 64, z: 10 }], type: 'chest', t: 1 })
+  writeRecord(dir, { key: 'overworld:20,64,20', halves: [{ x: 20, y: 64, z: 20 }], type: 'chest', t: 1 })
+  const L = blk('chest', { x: 10, y: 64, z: 10 }, { facing: 'north', type: 'left' }), R = blk('chest', { x: 11, y: 64, z: 10 }, { facing: 'north', type: 'right' })
+  const B = blk('barrel', { x: 20, y: 64, z: 20 })
+  const w = world([L, R, B])
+  const gone = tombstoneGone(dir, { x: 10, y: 64, z: 10 }, w, { t: 2, radius: 16 })
+  assert.deepEqual(gone.sort(), ['overworld:11,64,10', 'overworld:20,64,20'])
+  const whys = ['overworld_11,64,10.json', 'overworld_20,64,20.json'].map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).why)
+  assert.deepEqual(whys, ['superseded', 'replaced'])
+})
+await t('the SERVER snapshot survives the optimistic close record', () => {
+  process.env.POOL_STATE_DIR = path.join(tmp, 'pool-srv')
+  const chest = blk('chest', { x: 30, y: 64, z: 30 }, { facing: 'north', type: 'single' })
+  const slots = Array(63).fill(null); slots[0] = { name: 'stick', count: 6 }
+  const w = { inventoryStart: 27, slots, close () {} }
+  const dir = path.join(tmp, 'srv')
+  // the fake world is stone everywhere: the open's own sweep must still never tombstone the chest in hand
+  assert.equal(__testing.record(fakeBot(w), w, chest, 'open', dir), true)
+  slots[0] = { name: 'stick', count: 4 }                 // our withdraw, applied predictively
+  assert.equal(__testing.record(fakeBot(w), w, chest, 'close', dir), true)
+  const rec = JSON.parse(fs.readFileSync(path.join(dir, 'overworld_30,64,30.json'), 'utf8'))
+  assert.deepEqual([rec.phase, rec.items.stick, rec.server_snapshot.items.stick], ['close', 4, 6])
+  delete process.env.POOL_STATE_DIR
+})
 await t('a window that is not this block\'s (wrong size, or not the current window) is not recorded', () => {
   const dir = path.join(tmp, 'win')
   const chest = blk('chest', { x: 5, y: 64, z: 5 }, { facing: 'north', type: 'single' })
@@ -115,7 +149,9 @@ await t('an ABANDONED open is not recorded', async () => {
 // STRUCTURAL: no container is opened except through openObserved (comments stripped: this codebase quotes code in them).
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 export function bypasses (src) {
-  return strip(src).split('\n').filter(l => /\.open(Container|Chest|Furnace|Block|Dispenser|Entity)\(/.test(l) && !/openObserved\(/.test(l))
+  // WIDER (Claude review): any reference to a raw opener -- a call, a .bind alias, destructuring, bot['openContainer'] --
+  // not on an openObserved line. (activateBlock is not a container opener in this codebase; it is not used in src/.)
+  return strip(src).split('\n').filter(l => /\bopen(Container|Chest|Furnace|Block|Dispenser|Entity|Villager)\b/.test(l) && !/openObserved\(/.test(l))
 }
 await t('NO BYPASS: every container open in src/ goes through openObserved', () => {
   for (const f of fs.readdirSync(new URL('../src/', import.meta.url)).filter(f => f.endsWith('.mjs') && f !== 'ledger.mjs')) {
@@ -127,6 +163,7 @@ await t('the NO-BYPASS check fails for the right reason (a raw open added = caug
   const src = fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
   assert.equal(bypasses(src + '\nconst w = await bot.openContainer(b)\n').length, 1)
   assert.equal(bypasses(src + '\n// bot.openContainer(b) in a comment\n').length, 0)
+  assert.equal(bypasses('const o = bot.openContainer.bind(bot)\nconst { openChest } = bot\nbot["openFurnace"](b)').length, 3, 'aliases are caught too')
 })
 fs.rmSync(tmp, { recursive: true, force: true })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
