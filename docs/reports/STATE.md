@@ -375,8 +375,15 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       - **Both implementation reviews running.**
     - d0c47c6 (an explore repeat is not a repeat from 48 blocks away) was never deployed (program
       window); it is part of the veto problem and should follow veto-retry.
-    - Codex's smaller finds, not built: explore aimed at ore when the task wants wood/dirt (9.5 bot-h);
-      deposit ignores cancellation in travel; craft walks before checking ingredients; deposit admits an
+    - **EXPLORE TOWARD THE TASK: `explore-toward` @ `96bc68d`** (from 80b3bbd). Re-measured 28-29 Sep:
+      1,287 of 8,766 explores walked to IRON under a wood/dirt/sand/stone task (9.8 h); control 78/78.
+      - exploreintent.mjs maps gather/stockpile rungs to the kinds the reflex sights. The runner gets a copy
+        of the args after admission, so gate keys are unchanged. A family means the nearest member, with no
+        fall-through to iron. The walk stops at the target. A null heading is no longer due east.
+      - Row `_explore_toward_milestone` (legacy= included). 13 tests, 9 mutants killed, 204/204.
+      - **Both implementation reviews running.** d0c47c6 kept separate: Codex re-measured explore at 34.5%
+        of repeat_loop vetoes (not 54%), median same-key separation 1.1 blocks (not 48).
+    - Codex's smaller finds, not built: deposit ignores cancellation in travel; craft walks before checking ingredients; deposit admits an
       item-less trip; escape burns logs as scaffold.
   - **toolkeeper-01 DECIDED 2026-09-29 14:10Z: KEEP** (4320136).
     - 8 canary deaths in 520 bot-h (0.015/bh) vs 30 in 1,040 (0.029/bh).
@@ -385,18 +392,19 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Teardown verified by me: 80/80 bots report 80b3bbd, no drop-ins, 80 running.
     - Its deposit change is folded into the bank-fix bundle (the same code) rather than a separate
       fleet-wide deploy.
-  - **deathfix-01 LAUNCHED 2026-09-29 ~14:18Z** (1d107ed on the fleet base 80b3bbd). Licence and gate
-    digest preflights passed. **DRAW WAITING, by design:**
-    - 11 pools can expose it, but 8 are excluded: the 4 toolkeeper pools (12 h cool-down to ~02:10Z) and
-      hive-c/board-b/hive-d/placebo-d (manual, to 09-30 13:00-14:05Z).
-    - The other 3 (board-a, hive-a, hive-b) are outside the +/-40% productivity band.
-    - The loop re-draws every 20 min and should start ~02:10Z.
-    - THROUGHPUT: one canary at a time + a 12 h pool cool-down = >= 12 h per change before the next can
-      start. With ~8 changes queued that is >= 4 days. Bundling the small deterministic fixes (asked
-      09-29 morning, not answered) is the lever.
+  - **deathfix-01 DEPLOYING 2026-09-29 15:09Z** (1d107ed on the fleet base 80b3bbd) to **hive-a,board-a**
+    (10 bots, both on the 5080 half). Licence and gate digest passed 14:18Z. The draw waited 50 min, then
+    hive-a entered the +/-40% band when the median moved (34.1 -> 31.5).
+    - Reads at +180/+360, with extension until exposure. Promotion is fleet-wide, so on a KEEP every later
+      branch rebases onto 1d107ed.
+    - THROUGHPUT: one canary at a time + a 12 h pool cool-down = >= 12 h per change. With ~8 changes queued
+      that is >= 4 days. Bundling the small deterministic fixes (asked 09-29 morning, not answered) is the lever.
+    - digsync-01 is STAGED on the host (registration sha 59cbb71 = dig-rollback head, from 80b3bbd; read
+      /tmp/digsyncread.py matches docs). Its dry draw at 15:08Z offered hive-a,board-a too. **Rebase it onto
+      1d107ed if deathfix-01 is promoted.**
   - **QUEUE (owner-approved 09-29; one canary at a time):**
     1. ~~toolkeeper-01~~ KEEP (not promoted)
-    2. deathfix-01 (staged)
+    2. deathfix-01 (DEPLOYING 15:09Z, hive-a,board-a)
     3. **digsync-01** (fleet-wide stuck bots + the tunnel depend on it; rebases cleanly onto 1d107ed, 205/205)
     3b. **stalestop-01** (fleet-wide dropped items; small, deterministic)
     4. lastswing-01
