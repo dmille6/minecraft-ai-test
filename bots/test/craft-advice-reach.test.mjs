@@ -118,5 +118,26 @@ await ta('MUTANT KILLED: sorting rootGap is NOT a fix — only the selection cla
     })
 })
 
+
+// ---- DRIVEN (09-29 port): craft() itself, on the real 1.21.8 recipes (prismarine-recipe), no hand-built recipe list ----
+{
+  const { createRequire } = await import('node:module')
+  const req = createRequire(import.meta.url)
+  const reg = req('prismarine-registry')('1.21.8')
+  const Recipe = req('prismarine-recipe')(reg).Recipe
+  const { Vec3 } = req('vec3')
+  const { SKILLS } = await import('../src/skills.mjs')
+  const bot = y => ({
+    registry: reg, entity: { position: new Vec3(0, y, 0) }, game: { dimension: 'overworld' },
+    inventory: { items: () => [{ name: 'stick', count: 4, type: reg.itemsByName.stick.id }, { name: 'crafting_table', count: 1, type: reg.itemsByName.crafting_table.id }] },
+    recipesFor: () => [], recipesAll: (id, m, table) => Recipe.find(id, m).filter(r => !r.requiresTable || table),
+    findBlock: () => null, blockAt: () => null, lookAt: async () => {}, pathfinder: { goto: async () => {}, setGoal () {}, stop () {} },
+  })
+  const run = y => SKILLS.craft.run({ bot: bot(y) }, { item: 'stone_pickaxe', count: 1 }, new AbortController().signal, 3)
+  const surface = await run(64), deep = await run(-30)
+  const ok = /gather 3x cobblestone first/.test(surface.detail) && !/cobbled_deepslate/.test(surface.detail) && /cobbled_deepslate/.test(deep.detail)
+  if (ok) { pass++; console.log('  PASS  DRIVEN: a surface bot is told cobblestone; a bot at y=-30 is told cobbled_deepslate (both real)') }
+  else { fail++; console.log(`  FAIL  DRIVEN: surface=${surface.detail} | deep=${deep.detail}`) }
+}
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
