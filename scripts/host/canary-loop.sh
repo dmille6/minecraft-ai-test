@@ -183,7 +183,16 @@ for M in $READS; do
   V=$(python3 $H/verdict.py $RUN $M 2>$H/digest/verdict-err-$RUN-$M.log | tail -1)
   [ -z "$V" ] && V="CRASH (no verdict on stdout): $(tail -3 $H/digest/verdict-err-$RUN-$M.log 2>/dev/null | tr '\n' ' ' | cut -c1-400)"
   journal "read-$M" "$V"
-  case "$V" in *REVERT*|*KEEP*|*INCONCLUSIVE*) FINAL=$(echo "$V" | awk '{print $2}'); FINALV="$V"; page verdict "$V"; break;; *UNREADABLE*) page error "$V (HOLD: death poll continues)";; *WATCH*) page flag "$V";; *) echo "$V";; esac
+  # THE VERDICT WORD, NOT THE LINE (2026-09-29): `*KEEP*` matched the PROSE of a NOT_YET line -- deathfix-01's +180 read
+  # said "... this blocks KEEP rather than reverting", so FINAL became NOT_YET, which has no act branch, and the canary
+  # was contained as INCONCLUSIVE and torn down at its FIRST read, with its registered extension reads never taken.
+  # verdict.py prints `VERDICT <word> (+M) :: ...`; only the word decides. A WATCH note inside a line still pages.
+  W=$(echo "$V" | awk '$1 == "VERDICT" {print $2}')
+  case "$W" in
+    REVERT|KEEP|KEEP_ON_SAFETY|INCONCLUSIVE) FINAL=$W; FINALV="$V"; page verdict "$V"; break;;
+    UNREADABLE) page error "$V (HOLD: death poll continues)";;
+    *) case "$V" in *WATCH*) page flag "$V";; *) echo "$V";; esac;;
+  esac
 done
 [ -n "$FINAL" ] || { journal end "no final verdict"; page error "loop ended without a verdict"; exit 2; }
 # ---- phase ACT

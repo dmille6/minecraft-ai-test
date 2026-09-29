@@ -431,7 +431,14 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Teardown verified by me: 80/80 bots report 80b3bbd, no drop-ins, 80 running.
     - Its deposit change is folded into the bank-fix bundle (the same code) rather than a separate
       fleet-wide deploy.
-  - **deathfix-01 DEPLOYING 2026-09-29 15:09Z** (1d107ed on the fleet base 80b3bbd) to **hive-a,board-a**
+  - **deathfix-01 ENDED BY A LOOP DEFECT at +180 (18:13Z); RELAUNCHED as deathfix-02 (18:20Z, same sha 1d107ed, same
+    rules; waiting in the draw).** The loop matched `*KEEP*` against the verdict LINE, and the NOT_YET line's prose said
+    "this blocks KEEP rather than reverting" -> FINAL=NOT_YET (no act branch) -> contained INCONCLUSIVE -> torn down,
+    its registered extension reads never taken. The recorded INCONCLUSIVE is a harness artefact, not data (+180 had 0
+    canary deaths in 30 bot-h vs control 1 in 150). FIXED: the loop reads the verdict WORD
+    (scripts/host/canary-loop.sh, host md5 eae6e6f4, backup ~/canary-loop.sh.bak-20260929T1830Z); tested on real lines.
+    The teardown's "Charlie restart-failed" notes are noise: no pool has a Charlie (no env file); 80/80 bots run.
+  - (history) deathfix-01 DEPLOYED 2026-09-29 15:09Z (1d107ed on the fleet base 80b3bbd) to **hive-a,board-a**
     (10 bots, both on the 5080 half). Licence and gate digest passed 14:18Z. The draw waited 50 min, then
     hive-a entered the +/-40% band when the median moved (34.1 -> 31.5).
     - Reads at +180/+360, with extension until exposure. Promotion is fleet-wide, so on a KEEP every later
