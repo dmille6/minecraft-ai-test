@@ -133,11 +133,16 @@ await ta('MUTANT KILLED: sorting rootGap is NOT a fix — only the selection cla
     recipesFor: () => [], recipesAll: (id, m, table) => Recipe.find(id, m).filter(r => !r.requiresTable || table),
     findBlock: () => null, blockAt: () => null, lookAt: async () => {}, pathfinder: { goto: async () => {}, setGoal () {}, stop () {} },
   })
-  const run = y => SKILLS.craft.run({ bot: bot(y) }, { item: 'stone_pickaxe', count: 1 }, new AbortController().signal, 3)
-  const surface = await run(64), deep = await run(-30)
-  const ok = /gather 3x cobblestone first/.test(surface.detail) && !/cobbled_deepslate/.test(surface.detail) && /cobbled_deepslate/.test(deep.detail)
-  if (ok) { pass++; console.log('  PASS  DRIVEN: a surface bot is told cobblestone; a bot at y=-30 is told cobbled_deepslate (both real)') }
-  else { fail++; console.log(`  FAIL  DRIVEN: surface=${surface.detail} | deep=${deep.detail}`) }
+  // depth 0: the production path (the resolver, blockedBy and the dedupe all run -- depth 3 is MAX_CRAFT_DEPTH and skips them)
+  const run = (item, y) => SKILLS.craft.run({ bot: bot(y) }, { item, count: 1 }, new AbortController().signal, 0)
+  const surface = await run('stone_pickaxe', 64), deep = await run('stone_pickaxe', -30), furnace = await run('furnace', 64), torch = await run('torch', 64)
+  const ok = surface.gap === 'cobblestone' && deep.gap === 'cobbled_deepslate' && furnace.gap === 'cobblestone' && torch.gap !== 'charcoal'
+  if (ok) { pass++; console.log('  PASS  DRIVEN at depth 0: surface stone_pickaxe/furnace -> cobblestone; y=-30 -> cobbled_deepslate; torch never "charcoal"') }
+  else { fail++; console.log(`  FAIL  DRIVEN: surface=${surface.gap} deep=${deep.gap} furnace=${furnace.gap} torch=${torch.gap}`) }
+  const { dedupeGap } = await import('../src/skills.mjs')
+  const d = dedupeGap(['2x oak_planks', '3x oak_planks', '1x oak_log+oak_log', '2x stick+3x oak_planks'])
+  if (JSON.stringify(d) === JSON.stringify(['1x oak_log', '2x stick', '3x oak_planks'])) { pass++; console.log('  PASS  dedupeGap: by ITEM, largest count kept, compound sub-gaps split') }
+  else { fail++; console.log(`  FAIL  dedupeGap -> ${JSON.stringify(d)}`) }
 }
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

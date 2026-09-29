@@ -946,7 +946,28 @@ export function sourceReachCost (name, y = 64, dimension = 'overworld') {
   const n = String(name || '').replace(/^\d+x\s+/, '')
   if (NETHER_ONLY.has(n)) return dimension === 'the_nether' ? 0 : 2
   if (/(^|_)deepslate(_|$)/.test(n) || n === 'cobbled_deepslate') return y < 0 ? 0 : 1
+  // SMELTED, NEVER GATHERED (Claude review 09-29): torch's variants come back [charcoal+stick, coal+stick], so a tie
+  // advised "gather charcoal first" (19/24 h). Coal is mined; charcoal needs a furnace, fuel and logs.
+  if (SMELT_ONLY.has(n)) return 1
   return 0
+}
+export const SMELT_ONLY = new Set(['charcoal'])
+
+/**
+ * Pure: a blocker list deduped BY ITEM, keeping the largest requirement, sorted. A sub-craft's gap can itself be a
+ * '+'-joined list ("2x stick+3x oak_planks"), so it is split first (Claude review 09-29: it was keyed as one item).
+ */
+export function dedupeGap (blockedBy = []) {
+  const byItem = new Map()
+  for (const entry of blockedBy) {
+    for (const b of String(entry).split('+').map(x => x.trim()).filter(Boolean)) {
+      const m = /^(\d+)x\s+(.+)$/.exec(b)
+      const [n, item] = m ? [Number(m[1]), m[2]] : [1, b]
+      const prev = byItem.get(item)
+      if (!prev || n > prev.n) byItem.set(item, { n, text: b })
+    }
+  }
+  return [...byItem.values()].map(v => v.text).sort()
 }
 
 /** The worst (highest) reach cost in a gap, because a gap is only as good as its hardest member. */
@@ -2825,16 +2846,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // gap printed as two, and worse, the gap string is the lessons key -- lessons.mjs treats a
     // changed gap as progress and zeroes the failure streak, so a key that moves with the missing
     // QUANTITY can never accumulate. Keep the largest requirement per item.
-    const byItem = new Map()
-    for (const b of blockedBy) {
-      const m = /^(\d+)x\s+(.+)$/.exec(b)
-      const [n, item] = m ? [Number(m[1]), m[2]] : [1, b]
-      const prev = byItem.get(item)
-      if (!prev || n > prev.n) byItem.set(item, { n, text: b })
-    }
-    const rootGap = blockedBy.length
-      ? [...byItem.values()].map(v => v.text).sort()
-      : missing
+    const rootGap = blockedBy.length ? dedupeGap(blockedBy) : missing
     const gatherFirst = rootGap.filter(g => {
       const n = /^\d+x\s+(\S+)$/.exec(g)?.[1] ?? g
       const d = bot.registry.itemsByName[n]
