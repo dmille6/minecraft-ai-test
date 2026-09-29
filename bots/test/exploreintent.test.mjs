@@ -5,7 +5,8 @@ process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/mcbot-test-logs-explore'
 const { exploreKindsFor, exploreArgsFor, SIGHTABLE } = await import('../src/exploreintent.mjs')
 const { knownTarget, exploreStopAt, exploreBearing } = await import('../src/skills.mjs')
 const { MILESTONES_BY_ROLE, SUSTAINING } = await import('../src/milestones.mjs')
-const { SURVEY_BLOCKS } = await import('../src/reflex.mjs')
+const { SURVEY_BLOCKS, scaffoldPrereq, pickaxePrereq } = await import('../src/reflex.mjs')
+const { applyPrereq } = await import('../src/cognitive.mjs')
 
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -40,6 +41,7 @@ t('a family keeps the 24-block floor and the death-site refusal', () => {
   const dead = botWith({ oak_log: [[50, 0]] }, undefined, [{ x: 50, y: 64, z: 0, kind: 'death:lava', count: 4, last: Date.now() }])
   const r = knownTarget(dead, ['oak_log'])
   assert.equal(r?.kind, undefined, `a sighting on a death site must not be a target: ${JSON.stringify(r)}`)
+  assert.equal(r?.skipped, 1, 'the refusal is counted, so the row can report it')
 })
 t('NO SIGHTING OF THE MATERIAL: no target -- never a fall-through to iron', () => {
   const bot = botWith({ iron_ore: [[40, 0]], coal_ore: [[0, 40]] })
@@ -59,24 +61,31 @@ t('THE REAL RUNGS: gather/stockpile rungs aim; craft, smelt, survey, patrol, tra
   let aimed = 0, left = 0
   for (const m of all) {
     const r = exploreKindsFor(m)
-    if (/^(craft|smelt|survey|patrol|travel|deposit)/.test(m.id)) { assert.equal(r, null, `${m.id} must keep today's explore`); left++ }
+    if (/^(craft|smelt|survey|patrol|travel|deposit|stockpile_stone|gather_cobblestone)/.test(m.id)) { assert.equal(r, null, `${m.id} must keep today's explore`); left++ }
     if (r) { aimed++; for (const k of r.kinds) assert.ok(SIGHTABLE.includes(k), `${m.id} -> ${k}`) }
   }
   assert.ok(aimed >= 4 && left >= 8, `the sweep must reach both kinds of rung (aimed ${aimed}, left ${left})`)
   assert.deepEqual(exploreKindsFor(rung('gather_oak_log_12')).kinds, ['oak_log', 'birch_log', 'spruce_log'])
   assert.deepEqual(exploreKindsFor(rung('stockpile_wood')).kinds, ['oak_log', 'birch_log', 'spruce_log'])
-  assert.deepEqual(exploreKindsFor(rung('stockpile_stone')).kinds, ['stone'])
+  assert.equal(exploreKindsFor(rung('stockpile_stone')), null, 'stone is out of scope (buried, not distant)')
   assert.deepEqual(exploreKindsFor(rung('gather_iron_ore_3')).kinds, ['iron_ore'])
 })
 t('wants is literal (gather oak_log counts oak only); a lap suffix still names the stockpile', () => {
   assert.deepEqual(exploreKindsFor({ id: 'gather_oak_log_8', wants: 'oak_log' }).kinds, ['oak_log'])
   assert.deepEqual(exploreKindsFor({ id: 'stockpile_wood#7', wants: null }).kinds, ['oak_log', 'birch_log', 'spruce_log'])
-  assert.deepEqual(exploreKindsFor({ id: 'gather_x', wants: 'minecraft:COBBLESTONE' }).kinds, ['stone'])
+  assert.deepEqual(exploreKindsFor({ id: 'gather_x', wants: 'minecraft:SAND' }).kinds, ['sand'])
+  assert.equal(exploreKindsFor({ id: 'gather_cobblestone_16', wants: 'cobblestone' }), null)
 })
-t('A PREREQUISITE DETOUR names its own items: a pickaxe detour on a wood rung is not aimed at wood', () => {
-  const detour = { id: 'stockpile_wood#2+prereq', wants: 'wooden_pickaxe', wantsAny: ['wooden_pickaxe', 'stone_pickaxe'] }
-  assert.equal(exploreKindsFor(detour), null)
-  assert.deepEqual(exploreKindsFor({ id: 'x+prereq', wants: 'dirt', wantsAny: ['dirt', 'cobblestone'] }).kinds, ['stone'])
+t('THE REAL DETOURS through applyPrereq: neither the pickaxe nor the scaffold detour is aimed (a wood rung underneath)', () => {
+  for (const need of [pickaxePrereq('x'), scaffoldPrereq('x')]) {
+    const { task } = applyPrereq({ id: 'stockpile_wood#2', wants: null }, { ...need, since: Date.now(), fromSkill: 'surface' }, 0)
+    assert.match(task.id, /\+prereq$/, 'the detour is in force')
+    assert.equal(exploreKindsFor(task), null, `${task.wants} detour must not aim the walk`)
+  }
+})
+t('a family whose MAIN item is sightable drops only the unsightable members', () => {
+  assert.deepEqual(exploreKindsFor({ id: 'g', wants: 'sand', wantsAny: ['sand', 'red_sand'] }).kinds, ['sand'])
+  assert.equal(exploreKindsFor({ id: 'g', wants: 'dirt', wantsAny: ['dirt', 'sand'] }), null, 'an unsightable MAIN item is never aimed via a sightable member')
 })
 t('the runner gets a COPY: the admitted args (the gate keys) are untouched; an explicit toward is never replaced', () => {
   const admitted = { blocks: 60 }

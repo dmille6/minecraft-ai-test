@@ -9,8 +9,12 @@
 //
 // The fix supplies `toward` from the active task, deterministically, AFTER admission -- so the gate's keys, cooldowns
 // and learned_avoid entries are exactly what they were. It is scoped to tasks whose goal is a RAW MATERIAL a bot can
-// see from a distance: gather/gatherAny rungs, the two stockpile rungs, and a prerequisite detour that asks for one.
+// see from a distance: gather/gatherAny rungs, the wood stockpile, and a prerequisite detour that asks for one.
 // Craft, smelt, survey, patrol, travel and deposit rungs return null and keep today's behaviour.
+//
+// STONE IS OUT (Claude review, 09-29). 41 of 60 bots had a stone sighting inside explore's 24-block floor, and a stone
+// gather fails because every candidate is BURIED, not because none is near -- so aiming at stone walks ~34 blocks to
+// more buried stone. The stone rungs and gather_cobblestone keep today's explore.
 
 // The only kinds the reflex records as sightings (reflex.mjs SURVEY_BLOCKS minus water). A kind outside this set can
 // never have a sighting, and returning it would silently turn a directed walk into an unaimed one.
@@ -21,7 +25,6 @@ const LOGS = ['oak_log', 'birch_log', 'spruce_log']
 // seven blocks long, and each line here is a claim that finding that block yields the item the task counts.
 const FOUND_AS = {
   oak_log: ['oak_log'], birch_log: ['birch_log'], spruce_log: ['spruce_log'],
-  stone: ['stone'], cobblestone: ['stone'], cobbled_deepslate: ['stone'],
   coal: ['coal_ore'], coal_ore: ['coal_ore'], deepslate_coal_ore: ['coal_ore'],
   raw_iron: ['iron_ore'], iron_ore: ['iron_ore'], deepslate_iron_ore: ['iron_ore'],
   sand: ['sand'],
@@ -34,13 +37,16 @@ const norm = s => String(s ?? '').toLowerCase().replace(/^minecraft:/, '')
  *
  * `wantsAny` is the whole accepted family (any log counts toward gatherAny); `wants` alone is literal (gather
  * oak_log 8 counts oak only, so birch is not the goal). The stockpile rungs carry no `wants`; they are named by id.
- * A `wants` that is unmapped -- a pickaxe, planks, a furnace -- returns null. In a `wantsAny` family ANY member
- * satisfies the task, so the unmapped members are dropped and the rest still aim the walk.
+ * A `wants` that is unmapped -- a pickaxe, planks, a furnace, dirt, stone -- returns null, family or not. In a
+ * `wantsAny` family whose main item IS mapped, unmapped members are dropped and the rest aim the walk.
  */
 export function exploreKindsFor (task) {
   if (!task) return null
   const named = Array.isArray(task.wantsAny) && task.wantsAny.length ? task.wantsAny
     : task.wants ? [task.wants] : null
+  // THE MAIN ITEM MUST BE SIGHTABLE. The scaffold detour wants dirt (no tool, never sighted) in a family that includes
+  // stone (needs a pickaxe): aiming it at the family would send a sealed bot toward the one member it cannot mine.
+  if (task.wants && !FOUND_AS[norm(task.wants)]) return null
   if (named) {
     const kinds = new Set()
     for (const item of named) {
@@ -51,7 +57,6 @@ export function exploreKindsFor (task) {
   }
   const id = String(task.id ?? '')
   if (/^stockpile_wood(?:#|$)/.test(id)) return { kinds: [...LOGS], source: 'stockpile' }
-  if (/^stockpile_stone(?:#|$)/.test(id)) return { kinds: ['stone'], source: 'stockpile' }
   return null
 }
 
