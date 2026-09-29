@@ -6,28 +6,30 @@ import os from 'node:os'
 import path from 'node:path'
 process.env.BOT_NAME = 'hive-a-Alpha'
 process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/mcbot-test-logs-hive'
-const { Lessons, ownProgress, PROGRESS_FIELDS } = await import('../src/lessons.mjs')
+const { Lessons, pickFields, slotOf, PROGRESS_FIELDS } = await import('../src/lessons.mjs')
 
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 
-t('ownProgress: a private (flat) layout is returned as is, minus stray keys', () => {
-  assert.deepEqual(ownProgress({ attempts: { a: 1 }, skipCount: { a: 2 }, junk: 1 }, 'x'), { attempts: { a: 1 }, skipCount: { a: 2 } })
+t('pickFields: a flat layout minus stray keys', () => {
+  assert.deepEqual(pickFields({ attempts: { a: 1 }, skipCount: { a: 2 }, junk: 1 }), { attempts: { a: 1 }, skipCount: { a: 2 } })
 })
-t('ownProgress: a shared layout returns ONLY this bot\'s slot', () => {
+t('slotOf: a shared layout returns ONLY this bot\'s slot', () => {
   const p = { 'hive-a-Alpha': { attempts: { a: 3 }, v: 2 }, 'hive-a-Bravo': { attempts: { b: 9 }, v: 2 } }
-  assert.deepEqual(ownProgress(p, 'hive-a-Alpha'), { attempts: { a: 3 } })
+  assert.deepEqual(slotOf(p, 'hive-a-Alpha'), { attempts: { a: 3 } })
 })
-t('ownProgress: the mixed in-memory state prefers the fresh top-level writes over the stale slot', () => {
-  const p = { 'hive-a-Alpha': { attempts: { a: 1 } }, 'hive-a-Bravo': { attempts: { b: 9 } }, attempts: { a: 7 } }
-  assert.deepEqual(ownProgress(p, 'hive-a-Alpha'), { attempts: { a: 7 } })
-})
-t('ownProgress: the corrupted host file ({Echo: {Bravo: {}}}) yields empty, never a peer\'s data', () => {
-  assert.deepEqual(ownProgress({ 'hive-a-Echo': { 'hive-a-Bravo': {} } }, 'hive-a-Echo'), {})
+t('slotOf: the corrupted host file ({Echo: {Bravo: {}}}) yields empty, never a peer\'s data', () => {
+  assert.deepEqual(slotOf({ 'hive-a-Echo': { 'hive-a-Bravo': {} } }, 'hive-a-Echo'), {})
 })
 
 t('a LEGACY slot (the old build\'s frozen first save, no version marker) loads as EMPTY, as the old build behaved', () => {
-  assert.deepEqual(ownProgress({ 'hive-a-Alpha': { attempts: { stale: 1 }, skipped: ['old_skip'], blocked: { k: 1 } } }, 'hive-a-Alpha'), {})
+  assert.deepEqual(slotOf({ 'hive-a-Alpha': { attempts: { stale: 1 }, skipped: ['old_skip'], blocked: { k: 1 } } }, 'hive-a-Alpha'), {})
+})
+t('slotOf never guesses (Codex counterexamples): a bot named `attempts`, legacy flat fields, a stray top-level blocked', () => {
+  const map = { attempts: { r: 1 }, blocked: { x: 1 }, 'hive-a-Alpha': { attempts: { r: 9 }, v: 2 }, 'hive-a-Bravo': { attempts: { b: 5 }, v: 2 } }
+  assert.deepEqual(slotOf(map, 'hive-a-Alpha'), { attempts: { r: 9 } }, 'the slot, not the legacy flat field')
+  const named = { attempts: { attempts: { mine: 1 }, v: 2 }, 'hive-a-Bravo': { attempts: { b: 5 }, v: 2 } }
+  assert.deepEqual(slotOf(named, 'hive-a-Bravo'), { attempts: { b: 5 } }, 'a bot named attempts does not leak into a peer')
 })
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hive-progress-'))
 const file = path.join(dir, 'shared.json')
@@ -72,6 +74,18 @@ t('EVERY field setProgress and bumpBlocked write survives a shared save and relo
   if (a.setProgress.length >= 7) want.progressAt = { r: { t: 5, since: 5 } }
   for (const [k, v] of Object.entries(want)) assert.deepEqual(p[k], v, k)
   for (const k of Object.keys(want)) assert.ok(PROGRESS_FIELDS.includes(k), `PROGRESS_FIELDS must cover ${k}`)
+})
+t('MIGRATION: legacy flat fields in the shared file are removed on save and never resurrect on restart', () => {
+  const f5 = path.join(dir, 'legacy.json')
+  const schema = JSON.parse(fs.readFileSync(file, 'utf8')).schema
+  fs.writeFileSync(f5, JSON.stringify({ schema, avoid: {}, worked: {}, sites: [], runs: 0, skillVersions: {}, progress: { attempts: { r: 1 }, 'hive-a-Bravo': { attempts: { b: 5 }, v: 2 } } }))
+  const a = new Lessons(f5, true)
+  a.setProgress({ r: 9 }, [], {}, {}, 0, {})
+  a.save()
+  const disk = JSON.parse(fs.readFileSync(f5, 'utf8')).progress
+  assert.ok(!('attempts' in disk), 'legacy flat field removed')
+  assert.deepEqual(disk['hive-a-Bravo'], { attempts: { b: 5 }, v: 2 })
+  assert.deepEqual(new Lessons(f5, true).getProgress().attempts, { r: 9 }, 'restart returns the NEW value, not the legacy 1')
 })
 t('a PRIVATE store is unchanged', () => {
   const f2 = path.join(dir, 'private.json')
