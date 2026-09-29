@@ -1,0 +1,109 @@
+{
+ "run_id": "bankfix-01",
+ "sha": "SET-AT-LAUNCH: branch bank-fix (ad6a2dd; chest-ledger + tool-keeper-2 + craft-count + 3 parts) rebased onto the fleet sha at launch",
+ "registered_at": "2026-09-29T17:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "THE BANK FIX BUNDLE (owner 09-29: withdraw-home bundled with the bank fix; toolkeeper-01 KEPT and folded in). The town chests were saturated (124,894 items, 42% cobblestone; 51 of 62 canary tool deposits 'the chest is full'; 70 of 79 full-chest failures HOLDING a chest while the recovery crafted one). OWNER 09-28 tiers: valuable uncapped / useful <= 128 per item per container under 75% full / bulk <= 64 under 50% / junk never; only a valuable item opens a new chest; place a carried chest before crafting. Built with both engines' design amendments (STATE.md 09-28) and both implementation reviews (Claude + Codex, 09-29, every finding fixed), sandbox-proved by RCON: A places the carried chest and banks ONLY the valuables; an empty chest takes exactly 64 cobblestone; capped bulk sends nobody back. Also: demand vs transfer (logs/cobble never send a bot), a closed-bank state (capped or full, 30 min, reopened only by a valuable item), hold 3 iron, withdraw skips bulk, place() never on a lid, and the Codex triage fixes (deposit walk cancellable + bounded, a named deposit admitted on its own plan, craft checks ingredients before walking to a table). Bundled branches: toolkeeper-01 (KEEP), withdraw-home, chest ledger (observe-only; its row now carries tiered server counts), craft-count. MEASURED: inventories median 34/36 slots but bulk is ~3.6% of slots -- ballast and spent tools fill them (hygiene). KNOWN RESIDUAL: nothing frees a slot for a bot full of capped bulk. 209/209, ~25 mutants killed.",
+ "licence": {
+  "class": "kind",
+  "kind": "_deposit_window",
+  "min_rows": 1,
+  "note": "Written only by this build, once per container a deposit opens. The baseline has no such row kind."
+ },
+ "reads": [
+  "bankfixread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "deposits (the population this changes)",
+    "kind": "deposit",
+    "min": 10
+   }
+  ],
+  "note": "Fleet 29 Sep: 2.24-2.44 deposits/bot-h, ~0.28 successful. min 10 in 3 h keeps a pool that never deposits out."
+ },
+ "exposure": {
+  "read": "bankfixread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 5 canary deposits paired with the server's before/after open snapshots AND the pairing saw a limited item. ~0.28 successful deposits/bot-h -> ~5 pairs in ~4 h on 5 bots if the next open follows."
+ },
+ "own_lines": [
+  {
+   "read": "bankfixread",
+   "field": "over_limit_judged",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS, SERVER TRUTH: a canary deposit left an item above its tier limit AND above what the container held before it (the depositing bot's own ledger OPEN row before; the next open after). Judged on >= 5 pairs. Sandbox control: the pre-tier code into a chest of 60 cobblestone is a violation; the bank fix is not."
+  },
+  {
+   "read": "bankfixread",
+   "field": "new_chest_zero_valuable",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS: a new chest made with no valuable item waiting (owner: only valuable items may open a chest)."
+  },
+  {
+   "read": "bankfixread",
+   "field": "window_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "bankfixread",
+   "field": "window_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "bankfixread",
+   "field": "instrument_sees",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: a paired after-state held a limited item. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "bankfixread",
+  "field": "storage_full_did_per_bh",
+  "note": "REPORTED, NOT GATED: deposits, storage_full and successful deposits per bot-h (DiD), bots at 36/36 slots, travel cancels, craft preflight skips, bank_capped refusals. Path A (a new chest for a valuable item) fires ~never on 5 bots (3 of 80 bots hold any iron) -- it is proved on the sandbox, not here."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Name: bots at 36/36 slots rising (the known residual), deposit repeat loops, deposit_surplus skips."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. After a KEEP + promotion: the ONE-TIME chest clear (owner 09-28), shown to the owner first, slot-by-slot RCON before and after."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

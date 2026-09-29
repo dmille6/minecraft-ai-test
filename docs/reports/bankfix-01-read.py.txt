@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+# bankfixread.py [window_min] -- the read for canary `bankfix-01` (branch bank-fix).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE (a bundle: toolkeeper-01 KEEP + withdraw-home + chest ledger + craft-count + the bank fix):
+# chest limits by tier (useful <= 128 of an item per container under 75% full, bulk <= 64 under 50%, valuable
+# uncapped, junk never); only a VALUABLE item may open a new chest, and a carried chest is placed before one is crafted;
+# useful/bulk never SEND a bot to a chest (demand); a capped/full bank is closed for 30 min; hold 3 iron; plus the
+# Codex triage fixes (deposit walk cancellable, a named deposit admitted on its plan, craft preflight).
+#
+#   LIVENESS     canary `_deposit_window` rows from the canary build (>= 1); control 0.
+#   CORRECTNESS  SERVER TRUTH ONLY (both reviews: `_deposit_window` is mineflayer's client window). For every canary
+#                deposit that moved items into a container, pair the depositing bot's own `_ledger` OPEN row for that
+#                container just before (the server's state before) with the NEXT open row for it (the server's state
+#                after). A violation: an item AFTER is above its tier limit AND above BEFORE -- this deposit put it
+#                there (a chest that already held 3,000 cobblestone is not a violation unless it grew). Each pool is its
+#                own world, so only canary bots touch canary chests. Judged on >= 5 matched pairs. Plus 0
+#                `_deposit_new_chest` rows made for 0 valuable items.
+#   INSTRUMENT   the pairing found at least one AFTER state holding a limited item (it can see what it gates on).
+# REPORTED (DiD vs the same-length pre-window, per bot-hour): deposits, storage_full, successful deposits, bots at
+# 36/36 slots, `_deposit_travel_cancelled`, `_craft_preflight_gap`, bank_capped refusals (decision stream).
+import sys, os, json, re, glob, gzip
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+PRE = CUT - dt.timedelta(minutes=W)
+
+BULK = {'cobblestone', 'cobbled_deepslate', 'stone', 'deepslate', 'dirt', 'gravel', 'andesite', 'diorite', 'granite', 'tuff', 'netherrack'}
+def limit(name):
+    if name in BULK: return 64
+    if name.endswith('_log') or name.endswith('_planks') or name == 'stick': return 128
+    return None
+
+LEDGER = re.compile(r'^open \S+?:(-?\d+),(-?\d+),(-?\d+) .*? tiered=\[([^\]]*)')
+WINDOW = re.compile(r'^at (-?\d+),(-?\d+),(-?\d+) \(client window\) .*? moved=(\d+)')
+NEWCHEST = re.compile(r'for (\d+) valuable item')
+def tiered(s):
+    out = {}
+    for tok in s.split(','):
+        if '=' in tok:
+            n, c = tok.split('=', 1)
+            if c.isdigit(): out[n] = int(c)
+    return out
+m = LEDGER.search('open overworld:40,64,40 chest (double): 83 items, 4/27 slots tiered=[cobblestone=74,stick=6]')
+assert m and m.groups()[:3] == ('40', '64', '40') and tiered(m.group(4)) == {'cobblestone': 74, 'stick': 6}, m and m.groups()
+m = LEDGER.search('open overworld:1,2,3 chest: 900 items, 27/27 slots tiered=[cobblestone=1234,oak_lo')   # cut at 300 chars
+assert m and tiered(m.group(4)) == {'cobblestone': 1234}
+assert WINDOW.search('at 402,121,240 (client window) in valuable=16 useful=0 bulk=64 other=0 tools=0 moved=80 capped=0').group(4) == '80'
+
+
+UNSTACKABLE = re.compile(r'(_pickaxe|_axe|_shovel|_sword|_hoe|_helmet|_chestplate|_leggings|_boots|bucket|shears|flint_and_steel|bow|fishing_rod)$')
+def occupied(inv):
+    # slots, estimated from the name->count snapshot: stacks of 64, one per unstackable copy
+    return sum(c if UNSTACKABLE.search(n) else -(-c // 64) for n, c in inv.items() if isinstance(c, (int, float)))
+assert occupied({'cobblestone': 130, 'stone_pickaxe': 3, 'apple': 1}) == 7
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+# READ_LOG_GLOB: the sandbox positive control runs this same read over the sandbox's logs (dry runs only).
+ev = Events.load(paths=os.environ.get('READ_LOG_GLOB') if ovr and os.environ.get('READ_LOG_GLOB') else '/var/log/mcai/*/skill-*.jsonl', since_minutes=int(elapsed + W + 60))
+rows = sorted((r for r in ev.rows if r.get('t') and PRE <= r['t'] < END + dt.timedelta(hours=6)), key=lambda r: r['t'])
+bots = defaultdict(set)
+opens = defaultdict(list)          # (x,y,z) -> [(t, bot, counts)]   canary only, server truth
+deposits_w = []                    # canary (t, bot, (x,y,z), moved)
+win_rows, new_chest_zero, offbuild = Counter(), 0, 0
+dep, full, ok, travel_cancel, preflight = Counter(), Counter(), Counter(), Counter(), Counter()
+slots36 = defaultdict(set)
+for r in rows:
+    b = (r.get('bot') or {}).get('name'); t = r['t']
+    if not b:
+        continue
+    a = 'canary' if pool_of(b) in CANS else 'control'
+    in_win = t < END
+    p = 'post' if t >= CUT else 'pre'
+    if in_win:
+        bots[(p, a)].add(b)
+    k, d = r.get('name'), (r.get('detail') or '')
+    ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+    if a == 'canary' and p == 'post' and k in ('_deposit_window', '_ledger', '_deposit_new_chest') and CV and not ver.startswith(CV):
+        offbuild += 1
+        continue
+    if k == '_ledger' and a == 'canary' and t >= CUT:
+        mm = LEDGER.search(d)
+        if mm:
+            opens[tuple(int(v) for v in mm.groups()[:3])].append((t, b, tiered(mm.group(4))))
+    if not in_win:
+        continue
+    if k == '_deposit_window' and p == 'post':
+        win_rows[a] += 1
+        mm = WINDOW.search(d)
+        if a == 'canary' and mm and int(mm.group(4)) > 0:
+            deposits_w.append((t, b, tuple(int(v) for v in mm.groups()[:3]), int(mm.group(4))))
+    elif k == '_deposit_new_chest' and p == 'post' and a == 'canary':
+        mm = NEWCHEST.search(d)
+        if mm and int(mm.group(1)) == 0:
+            new_chest_zero += 1
+    elif k == 'deposit':
+        dep[(p, a)] += 1
+        if r.get('fail_class') == 'storage_full':
+            full[(p, a)] += 1
+        if r.get('status') == 'success':
+            ok[(p, a)] += 1
+    elif k == '_deposit_travel_cancelled' and p == 'post':
+        travel_cancel[a] += 1
+    elif k == '_craft_preflight_gap' and p == 'post':
+        preflight[a] += 1
+    inv = (r.get('bot') or {}).get('inventory')
+    if isinstance(inv, dict) and occupied(inv) >= 36:
+        slots36[(p, a)].add(b)
+
+
+def near(k, pos):
+    # a double chest is ONE container keyed by its lower half; a deposit may name either half
+    return k[1] == pos[1] and abs(k[0] - pos[0]) + abs(k[2] - pos[2]) <= 1
+
+
+pairs, violations, sees = 0, [], 0
+for (t, b, pos, moved) in deposits_w:
+    keys = [k for k in opens if near(k, pos)]
+    if not keys:
+        continue
+    seq = sorted((o for k in keys for o in opens[k]), key=lambda o: o[0])
+    # The ledger PERSISTS its open row off the critical path (setImmediate), so the row is stamped AFTER the deposit
+    # row it belongs to (sandbox 09-29: open 17:13:54, deposit 17:13:53). BEFORE = this bot's open nearest the deposit
+    # (within 15 s either side); AFTER = the next open of this container in sequence, by anyone.
+    mine = [(i, o) for i, o in enumerate(seq) if o[1] == b and abs((o[0] - t).total_seconds()) <= 15]
+    if not mine:
+        continue
+    i, _o = min(mine, key=lambda x: abs((x[1][0] - t).total_seconds()))
+    if i + 1 >= len(seq):
+        continue
+    pre_c, post_c = seq[i][2], seq[i + 1][2]
+    pairs += 1
+    if any(limit(n) for n in post_c):
+        sees += 1
+    for n, c in post_c.items():
+        lim = limit(n)
+        if lim and c > lim and c > pre_c.get(n, 0):
+            violations.append(f'{b} {pos} {n} {pre_c.get(n, 0)}->{c} (limit {lim})')
+
+
+def per_bh(c, p, a):
+    n = len(bots[(p, a)])
+    return c[(p, a)] / (n * W / 60) if n else float('nan')
+
+
+did = lambda f: (f('post', 'canary') - f('pre', 'canary')) - (f('post', 'control') - f('pre', 'control'))
+judged = pairs >= 5
+print('canary %s  sha %s  cutoff %s  window +%d min' % (CAN, CV, CUT.strftime('%H:%MZ'), W))
+print('-' * 78)
+print('LIVENESS     canary _deposit_window rows %d (>= 1) | control %d (0) | canary rows from another build %d'
+      % (win_rows['canary'], win_rows['control'], offbuild))
+print('CORRECTNESS  over-limit additions (server before/after): %d in %d matched deposits (judged on >= 5: %s); new chests for 0 valuables: %d'
+      % (len(violations), pairs, 'judged' if judged else 'NOT judged', new_chest_zero))
+for v in violations[:8]:
+    print('             ', v)
+print('INSTRUMENT   matched AFTER states holding a limited item: %d (>= 1)' % sees)
+print('REPORTED     deposits/bot-h DiD %+.2f | storage_full/bot-h DiD %+.3f | successes/bot-h DiD %+.3f'
+      % (did(lambda p, a: per_bh(dep, p, a)), did(lambda p, a: per_bh(full, p, a)), did(lambda p, a: per_bh(ok, p, a))))
+print('             bots at 36/36 slots: canary %d -> %d | control %d -> %d | travel cancels %d | craft preflight skips %d'
+      % (len(slots36[('pre', 'canary')]), len(slots36[('post', 'canary')]), len(slots36[('pre', 'control')]), len(slots36[('post', 'control')]),
+         travel_cancel['canary'], preflight['canary']))
+print('-' * 78)
+
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('bankfixread', W, {
+        'window_rows_canary': win_rows['canary'], 'window_rows_control': win_rows['control'], 'offbuild_canary': offbuild,
+        'over_limit_judged': int(judged and len(violations) > 0), 'over_limit': len(violations), 'pairs': pairs,
+        'new_chest_zero_valuable': new_chest_zero, 'instrument_sees': sees,
+        'deposits_did_per_bh': round(did(lambda p, a: per_bh(dep, p, a)), 3),
+        'storage_full_did_per_bh': round(did(lambda p, a: per_bh(full, p, a)), 4),
+        'exposure_ready': int(judged and sees >= 1),
+    })
+except Exception as e:
+    print('emit failed:', e)
