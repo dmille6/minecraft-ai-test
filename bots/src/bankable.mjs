@@ -179,7 +179,9 @@ export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', '
  */
 export function bankableInventory (items = [], { wants = [], creditCap = 64,
                                                  reserveScaffold = 8 } = {}) {
-  const want = new Set([...wants, ...STANDING_TARGETS].filter(Boolean))
+  // DEPOSIT_ALWAYS here, not only at the callers: the prompt and the deposit_surplus rung called this with no wants and
+  // counted iron ore as JUNK while admission and execution banked it (found building the bank fix, 2026-09-29).
+  const want = new Set([...wants, ...STANDING_TARGETS, ...DEPOSIT_ALWAYS].filter(Boolean))
   const counts = {}
   for (const it of items) {
     if (!it?.name) continue
@@ -196,6 +198,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   }
 
   const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
+  const ironReserve = ironKeep(counts)
   const detail = {}
   let bankable = 0, junk = 0
   for (const [name, n] of Object.entries(counts)) {
@@ -205,6 +208,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     if (m) avail -= 1                       // keep one of each tool family
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
     avail -= (scaffoldReserve[name] ?? 0)
+    avail -= (ironReserve[name] ?? 0)
     if (avail <= 0) continue
     // A SPARE TOOL IS REAL OUTPUT. Tools are never in the standing-target list
     // (that list is materials), and without this a second pickaxe -- which costs
@@ -215,7 +219,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     detail[name] = credited
     bankable += credited
   }
-  return { count: bankable, junk, detail }
+  return { count: bankable, junk, detail, demand: depositDemand(detail) }
 }
 
 /**
@@ -313,4 +317,106 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   for (const it of items) if (it?.name === item) held += (it.count ?? 0)
   if (held <= 0) return `you are carrying no ${item} — nothing to deposit`
   return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
+}
+
+// ------------------------------------------------------------------ TIERS -----
+//
+// THE BANK FILLS WITH WHAT IS ENDLESS. 2026-09-27, slot by slot over RCON: 124,894 items in 191 containers,
+// 52,957 of them cobblestone (42%); 51 of 62 canary deposits that tried to bank a TOOL ended "the chest is full".
+// Every mine makes cobblestone, and STANDING_TARGETS banked it without limit. OWNER (2026-09-28): a sliding scale --
+// valuable uncapped, useful up to two stacks while the chest is under 75% full, bulk one stack while under 50%,
+// junk never, and only a valuable item may cause a new chest. Reviewed by both engines (STATE.md, 09-28 21:30Z
+// and 23:00Z); the limits are judged per ITEM against the LIVE window, re-read before each item.
+//
+// Measured before building (09-29, 80 bots): inventories sit at a median 34 of 36 slots, but bulk is ~3.6% of
+// those slots (median ONE bulk stack a bot; 16 bots carry more than three). Full inventories are ballast and spent
+// tools -- hygiene's job. These tiers stop the chests refilling; they do not empty inventories.
+
+/** Metals and gems, plus the always-banked ores. The only things that may cause a NEW chest. No tools. */
+export const VALUABLE = new Set(['diamond', 'iron_ingot', 'raw_iron', ...DEPOSIT_ALWAYS])
+/** Endless: every dig makes more. */
+export const BULK = new Set(['cobblestone', 'cobbled_deepslate', 'stone', 'deepslate', 'dirt', 'gravel',
+                             'andesite', 'diorite', 'granite', 'tuff', 'netherrack'])
+const isUseful = name => /_(log|planks)$/.test(name) || name === 'stick'
+export const TIER_LIMITS = { useful: { perItem: 128, underOccupancy: 0.75 }, bulk: { perItem: 64, underOccupancy: 0.5 } }
+
+/**
+ * Pure: an item's tier. `spent` marks a surplus tool copy at or under toolfor's FLOOR (10 uses, absolute -- not 10%):
+ * it banks as bulk, so a worn copy never fills a chest the good ones need (Codex: only SURPLUS copies; the kept copy
+ * never reaches here).
+ */
+export function tierOf (name, { spent = false } = {}) {
+  if (NEVER_BANKABLE.has(name)) return 'junk'
+  if (VALUABLE.has(name)) return 'valuable'
+  if (spent || BULK.has(name)) return 'bulk'
+  if (isUseful(name)) return 'useful'
+  return 'other'
+}
+
+/** Pure: what the open container holds -- occupied slots, total slots, and a count per item. Window numbering. */
+export function windowState (window) {
+  const slots = Number.isFinite(window?.inventoryStart) ? window.inventoryStart : 27
+  const inside = window?.containerItems?.() ?? []
+  const counts = {}
+  for (const it of inside) if (it?.name) counts[it.name] = (counts[it.name] ?? 0) + (it.count ?? 0)
+  return { occupied: inside.length, slots, counts }
+}
+
+/**
+ * Pure: how many of `want` may go into this container now. Valuable and other: all of it. Useful and bulk: up to
+ * the per-item limit counted IN THIS CONTAINER, and nothing once the container is past its tier's occupancy.
+ */
+export function tierAllowance (name, want, tier, { counts = {}, occupied = 0, slots = 27 } = {}) {
+  if (tier === 'junk' || want <= 0) return 0
+  const lim = TIER_LIMITS[tier]
+  if (!lim) return want
+  if (!(slots > 0) || occupied / slots >= lim.underOccupancy) return 0
+  return Math.max(0, Math.min(want, lim.perItem - (counts[name] ?? 0)))
+}
+
+/**
+ * HOLD IRON (tech-tree review, 09-28): an iron pickaxe needs three ingots, and a bot that banks its first three
+ * raw_iron has to find them again. Pure: how many of each iron item stay in hand -- up to three, ingots first.
+ */
+export const IRON_HOLD = 3
+export function ironKeep (counts = {}) {
+  const keep = {}
+  let left = IRON_HOLD
+  for (const name of ['iron_ingot', 'raw_iron']) {
+    const n = Math.min(left, counts[name] ?? 0)
+    if (n > 0) { keep[name] = n; left -= n }
+  }
+  return keep
+}
+
+/**
+ * Pure: the DEMAND count -- what makes a deposit worth a walk. The prompt's CARRYING line, deposit admission and the
+ * deposit_surplus rung all read it. It counts valuable and other items only: useful and bulk bank when the bot is
+ * at a chest anyway, but a bot carrying 128 cobblestone must not be sent to a chest that will refuse it and then
+ * sent again (the loop both engines found: full -> deposit -> capped -> repeat). Tools are not demand either:
+ * spare copies bank on any deposit, and a chest full of them can never be relieved by a new chest.
+ */
+export function depositDemand (detail = {}) {
+  let n = 0
+  for (const [name, count] of Object.entries(detail)) {
+    const tier = tierOf(name)
+    if (TOOL_RE.test(name) || tier === 'useful' || tier === 'bulk' || tier === 'junk') continue
+    n += count
+  }
+  return n
+}
+
+/**
+ * THE CAPACITY-EXHAUSTED STATE (Codex review 09-28: without it a bot at 30+ slots loops full -> deposit -> capped ->
+ * repeat). deposit sets it when every refusal was a tier cap; it lasts BANK_CAPPED_MS and holds the reason. While it
+ * holds, the prompt stops urging a deposit, the deposit_surplus rung counts as done, and admission refuses a deposit
+ * that carries no demand. Returns the reason while capped, else ''.
+ */
+export const BANK_CAPPED_MS = 30 * 60 * 1000
+export function bankCapped (bot, now = Date.now()) {
+  const c = bot?.bankCapped
+  return c && now < c.until ? String(c.why || 'capped') : ''
+}
+export function setBankCapped (bot, why, now = Date.now()) {
+  if (bot) bot.bankCapped = { until: now + BANK_CAPPED_MS, why }
 }

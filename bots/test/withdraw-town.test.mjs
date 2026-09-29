@@ -307,6 +307,17 @@ await t('7-control. the same five misses classed nothing_found DO shut it -- the
   assert.equal(next.reason, 'learned_avoid')
 })
 
+await t('BANK FIX: a bare withdraw skips BULK -- it takes the sticks, not the cobblestone it just banked', async () => {
+  const { bot, log } = withdrawBot({ nearby: true, containers: [{ at: [30, 79, 0], items: [stack('cobblestone', 64, 0), stack('cobblestone', 64, 1), stack('stick', 20, 2)] }] })
+  const r = await run(bot, {})
+  assert.equal(r.status, 'success', r.detail); assert.match(r.detail, /stick/); assert.doesNotMatch(r.detail, /cobblestone/)
+})
+await t('BANK FIX control: a NAMED bulk item is still handed over', async () => {
+  const { bot } = withdrawBot({ nearby: true, containers: [{ at: [30, 79, 0], items: [stack('cobblestone', 64, 0), stack('stick', 20, 2)] }] })
+  const r = await run(bot, { item: 'cobblestone', count: 8 })
+  assert.equal(r.status, 'success', r.detail); assert.match(r.detail, /cobblestone/)
+})
+
 await t('the contract budget covers the walk home', () => {
   assert.ok(SKILL_CONTRACTS.withdraw.maxMs >= 240_000, `withdraw.maxMs=${SKILL_CONTRACTS.withdraw.maxMs}`)
 })

@@ -14,7 +14,7 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, depositNoopReason, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositDue, depositNoopReason, bankCapped, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
@@ -340,15 +340,23 @@ export class AdmissionControl {
       // A NAMED ITEM IS JUDGED BY THE PLAN EXECUTION WILL USE (Codex triage, 28-29 Sep: 1,048 of 2,626 deposits walked
       // to the chest and reported the held item "not a banking target" -- admission counted the WHOLE inventory's
       // bankable total, execution banks only the named item's plan). The same depositNoopReason execution reports.
-      if (arg.item) {
+      {
+        // Named or bare: an empty plan is a walk to report "nothing to deposit" (993 of 1,895 no-effect deposits
+        // were about apples, 09-28).
         const why = depositNoopReason(items, arg.item, { wants })
         if (why) return { ok: false, reason: 'deposit_nothing_to_bank',
-                          detail: `${why}. Deposit with no item banks whatever is worth banking.` }
+                          detail: arg.item ? `${why}. Deposit with no item banks whatever is worth banking.` : why }
+      }
+      // THE BANK IS AT ITS LIMIT FOR WHAT YOU CARRY (bankable.mjs bankCapped). Set by a deposit whose every refusal
+      // was a tier cap; lifted by time, or at once when a VALUABLE item is carried (it may open a new chest).
+      if (bankCapped(bot) && !bankableInventory(items, { wants }).demand) {
+        return { ok: false, reason: 'bank_capped',
+                 detail: `the chests hold as much of what you carry as they take (${bankCapped(bot)}); keep it and keep working` }
       }
       const bank = bankableInventory(items, { wants })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
-        bankable: bank.count,
+        bankable: bank.demand,
         distHome: horizontalDistanceFromSpawn(bot.entity.position),
         storageWithin48: !!bot.findBlock?.({
           matching: b => ['chest','barrel','trapped_chest']

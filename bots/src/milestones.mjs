@@ -15,7 +15,7 @@
 // that look like bad model judgement -- the worst kind of confounder.
 
 import { equivalentTools } from './skills.mjs'
-import { bankableInventory } from './bankable.mjs'
+import { bankableInventory, bankCapped } from './bankable.mjs'
 import { countItem } from './state.mjs'
 import { config } from './config.mjs'
 import { log } from './logger.mjs'
@@ -726,7 +726,7 @@ export const SUSTAINING = [
     // and the bot moves on. That also survives the town chest being destroyed,
     // which a strict version would not.
     done: b => {
-      if (bankableInventory(b.inventory?.items?.() ?? []).count < 4) return true
+      if (bankableInventory(b.inventory?.items?.() ?? []).demand < 4 || bankCapped(b)) return true   // demand, and a capped bank is 'nothing to do here'
       const chest = b.findBlock?.({
         matching: blk => ['chest', 'barrel', 'trapped_chest']
           .includes(b.registry?.blocks?.[blk.type]?.name),
@@ -734,7 +734,7 @@ export const SUSTAINING = [
       })
       return !chest
     },
-    progress: b => `${bankableInventory(b.inventory?.items?.() ?? []).count} bankable items carried`,
+    progress: b => `${bankableInventory(b.inventory?.items?.() ?? []).demand} bankable items carried`,
     hint: 'deposit — you are at the chest already; keep your tools and enough blocks to climb out.',
   },
   {

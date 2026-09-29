@@ -16,7 +16,7 @@ import { CLIMB_CEILING } from './reflex.mjs'
 import { mineTargetHint } from './mining.mjs'
 import { isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { logEvent } from './logger.mjs'
-import { bankableInventory, depositDue } from './bankable.mjs'
+import { bankableInventory, depositDue, bankCapped } from './bankable.mjs'
 import { config } from './config.mjs'
 
 const MAX_EVENTS = 12
@@ -611,12 +611,14 @@ function depositSituation (bot, memory) {
         .includes(bot.registry?.blocks?.[b.type]?.name),
       maxDistance: 48,
     })
-    if (!depositDue({ bankable: bank.count, distHome, storageWithin48: !!storage,
+    // DEMAND, not transfer eligibility (bankable.mjs depositDemand): useful/bulk ride along, they never send a bot.
+    if (bankCapped(bot)) return ''
+    if (!depositDue({ bankable: bank.demand, distHome, storageWithin48: !!storage,
                       occupiedSlots: items.length })) return ''
     const where = storage
       ? `storage is ${Math.round(p.distanceTo(storage.position))} blocks away`
       : `the town chest is ${Math.round(distHome)} blocks away`
-    return `CARRYING: ${bank.count} items worth banking and ${where}. ` +
+    return `CARRYING: ${bank.demand} items worth banking and ${where}. ` +
            `Use deposit — banked items survive your death, carried ones do not. ` +
            `Your tools and climb-out blocks are kept automatically.`
   } catch { return '' }

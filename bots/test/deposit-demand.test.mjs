@@ -137,9 +137,15 @@ t('a bot NEAR HOME with surplus is told to bank it', () => {
   // The milestone alone produced ZERO deposits in six bot-hours, because it sits
   // behind `return` and the median bot is 804 blocks from home. The observation
   // is what moved swim behaviour and craft behaviour today; same treatment.
-  const u = promptWith({ oak_log: 40, cobblestone: 40 }, { x: 20, y: 64, z: 20 })
+  // DEMAND since the bank fix: ore, coal and iron beyond the three held. Logs and cobblestone alone are the next test.
+  const u = promptWith({ oak_log: 40, cobblestone: 40, iron_ore: 10, coal: 8 }, { x: 20, y: 64, z: 20 })
   assert.match(u, /CARRYING/, 'no deposit line for a bot standing next to the chest with surplus')
   assert.match(u, /survive your death/, 'the reason to bank is not stated')
+})
+
+t('BANK FIX: logs and cobblestone alone do NOT send a bot to the chest (they ride along; the tiers cap them)', () => {
+  const u = promptWith({ oak_log: 40, cobblestone: 40 }, { x: 20, y: 64, z: 20 })
+  assert.doesNotMatch(u, /CARRYING/, 'useful + bulk are not demand: this was the full -> deposit -> capped -> repeat loop')
 })
 
 t('A BOT 800 BLOCKS OUT IS NOT TOLD TO WALK HOME', () => {

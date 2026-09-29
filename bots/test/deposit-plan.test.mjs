@@ -28,7 +28,7 @@ t('the valuable stacks go first, so a short chest keeps the iron', () => {
   assert.equal(names[0], 'raw_iron'); assert.ok(names.indexOf('oak_log') < names.indexOf('cobblestone'))
 })
 t('a named item restricts the plan to it EXACTLY, still under the reserve rules', () => {
-  assert.deepEqual(depositPlan(inv, 'raw_iron'), [{ name: 'raw_iron', count: 9 }])
+  assert.deepEqual(depositPlan(inv, 'raw_iron'), [{ name: 'raw_iron', count: 6 }], 'three raw_iron stay in hand (ironKeep: an iron pickaxe is three ingots)')
   assert.deepEqual(depositPlan(inv, 'iron_pickaxe'), [], 'the only iron pickaxe is not banked even when named')
   assert.deepEqual(depositPlan(inv, 'stone'), [], 'stone does not sweep in cobblestone')
 })
@@ -66,8 +66,8 @@ t('one station and one bucket stay even when they are wanted; the second copy go
 
 t('a full chest sends the bot to another chest within 24 blocks before it crafts a new one, excluding the ones tried', () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 12000)
-  const other = f.indexOf('while (tried.length < 3) {'), craftAt = f.indexOf("const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)")
+  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 20000)
+  const other = f.indexOf('while (tried.length < 3) {'), craftAt = f.indexOf("await craft(ctx, { item: 'chest', count: 1 }, signal, 1)")
   assert.ok(other > 0 && craftAt > other, 'the alternates are tried before crafting, iteratively')
   assert.match(f.slice(other, craftAt), /noRecovery: true, preferAt: other\.position, exclude: tried/, 'an alternate never recurses into recovery (one craft, in this frame only)')
   assert.match(f.slice(other, craftAt), /if \(e\?\.aborted \|\| signal\?\.aborted\) throw e/, 'a travel failure is caught; an abort is re-thrown')

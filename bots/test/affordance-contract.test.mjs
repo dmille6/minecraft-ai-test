@@ -126,9 +126,11 @@ const STATES = {
     ineligible: () => botIn({ inv: { raw_iron: 5, furnace: 1 } }),
   },
   bankable_surplus: {
-    // Carrying real output with a chest in sight: worth banking, cheaply.
+    // Carrying real output with a chest in sight: worth banking, cheaply. DEMAND, since the bank fix: logs (useful)
+    // and cobblestone (bulk) ride along on a deposit but never send a bot to one, so the load that makes the trip
+    // worth it is ore, coal and iron beyond the three held (bankable.mjs depositDemand / ironKeep).
     eligible: () => {
-      const b = botIn({ inv: { oak_log: 32, cobblestone: 40, iron_ore: 6 } })
+      const b = botIn({ inv: { oak_log: 32, cobblestone: 40, iron_ore: 6, raw_iron: 8, coal: 10 } })
       b.findBlock = () => CHEST
       return b
     },

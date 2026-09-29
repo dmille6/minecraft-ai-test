@@ -17,7 +17,7 @@ const CODE = SRC.split('\n').filter(l => !l.trim().startsWith('//') && !l.trim()
 
 test('POSITIVE CONTROL: the deposit tail is where we think it is', () => {
   assert.match(CODE, /let eligible = 0/, 'the eligibility count must exist')
-  assert.match(CODE, /if \(moved > 0\) return \{ status: 'success'/)
+  assert.match(CODE, /if \(moved > 0 && \(noRecovery \|\| valuableBlocked === 0\)\) return \{ status: 'success'/)   // bank fix: a valuable remainder goes on to recovery first
 })
 
 test('NOTHING ELIGIBLE is no_effect -- neither a success nor a failure', () => {
@@ -25,9 +25,9 @@ test('NOTHING ELIGIBLE is no_effect -- neither a success nor a failure', () => {
   // expects inventory_loss and the evidence gate downgrades a success that
   // produces none, so the rate fell 7.3% -> 1.1%. `no_effect` is the status this
   // codebase already carries for exactly this case.
-  assert.match(CODE, /if \(eligible === 0\) \{[\s\S]{0,700}?return \{ status: 'no_effect'/,
+  assert.match(CODE, /if \(eligible === 0 && capped === 0\) \{[\s\S]{0,700}?return \{ status: 'no_effect'/,
     'a bot with nothing depositable neither achieved nor failed anything')
-  assert.doesNotMatch(CODE, /if \(eligible === 0\) \{[\s\S]{0,700}?return \{ status: 'success'/,
+  assert.doesNotMatch(CODE, /if \(eligible === 0 && capped === 0\) \{[\s\S]{0,700}?return \{ status: 'success'/,
     'claiming success against a contract that expects inventory_loss is downgraded anyway')
 })
 

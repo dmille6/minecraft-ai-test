@@ -28,7 +28,7 @@
 import { openObserved, closeObserved } from './ledger.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy, remaining } from './toolfor.mjs'
+import { applyToolPolicy, remaining, FLOOR } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -42,7 +42,7 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
-import { depositPlan, depositNoopReason, bestBankCopy, toolBankOrder, toolCopiesInWindow } from './bankable.mjs'
+import { depositPlan, depositNoopReason, bestBankCopy, toolBankOrder, toolCopiesInWindow, tierOf, tierAllowance, windowState, setBankCapped } from './bankable.mjs'
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -2335,7 +2335,13 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // ONE SNAPSHOT, shared with the refusal sentence below: a reason computed from a
   // second read of the inventory can contradict the plan that was actually run.
   let planItems = []
+  // THE TIERS (bankable.mjs): what the window refused by tier (capped) is kept on purpose; what it had no room for
+  // (blocked) is a full chest. Only a VALUABLE item that found no room may open a new chest.
+  let capped = 0, blocked = 0, valuableBlocked = 0
+  const cappedNames = new Set()
+  let before = null, after = null
   try {
+    before = windowState(chest)
     // HAND OVER THE PLAN, NOT THE INVENTORY (depositPlan, bankable.mjs). This loop
     // handed over every stack in inventory order: measured 2026-09-13 over 24 h,
     // the fleet deposited 81 pickaxes, 62 furnaces, 59 crafting tables and 17
@@ -2367,9 +2373,12 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
                    snapshot: snapshot(bot) })
         for (const copy of bank) {
           if (left <= 0) break
+          // A SPENT SURPLUS COPY (<= toolfor's FLOOR) banks as bulk: it may not fill a chest the good copies need.
+          const tier = tierOf(name, { spent: remaining(copy) <= FLOOR })
+          if (tierAllowance(name, 1, tier, windowState(chest)) < 1) { capped += copy.count ?? 1; cappedNames.add(name); continue }
           const dest = chest.firstEmptyContainerSlot?.()
           eligible += copy.count ?? 1
-          if (dest == null) break                        // chest full: nothing lifted, nothing lost
+          if (dest == null) { blocked += left; break }   // chest full: nothing lifted, nothing lost
           try {
             await bot.moveSlotItem(copy.slot, dest)
             moved += copy.count ?? 1; left -= copy.count ?? 1
@@ -2383,6 +2392,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         }
         continue
       }
+      // THE TIER LIMIT, read from the LIVE window before each item (it changes as this loop fills it).
+      const tier = tierOf(name)
+      const allow = tierAllowance(name, left, tier, windowState(chest))
+      if (allow < left) { capped += left - allow; cappedNames.add(name) }
+      left = allow
       for (const it of stacks) {
         if (left <= 0) break
         const n = Math.min(left, it.count ?? 0)
@@ -2395,14 +2409,23 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
           logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : 'failed',
                      detail: `${name}: ${String(e?.message ?? e).slice(0, 40)} — ` +
                              (back.returned ? `returned to slot ${back.slot}` : `NOT returned: ${back.reason}`) })
+          blocked += left
+          if (tier === 'valuable') valuableBlocked += left
           break
         }
       }
     }
   } finally {
+    try { after = windowState(chest) } catch {}
     closeObserved(bot, chest, chestBlock)
   }
-  if (moved > 0) return { status: 'success', detail: `deposited ${moved} items` }
+  // WHAT THE WINDOW SAYS WENT IN, by tier -- measured from the container's own before/after counts, not from the plan
+  // (an intent row is not an outcome: 904cedb logged banking two pickaxes and banked none).
+  logDepositWindow(bot, chestBlock, before, after, { moved, capped, blocked, valuableBlocked, cappedNames })
+  const keptNote = capped ? `; kept ${capped} over the chest's limits (${[...cappedNames].slice(0, 4).join(', ')})` : ''
+  if (moved > 0 && (noRecovery || valuableBlocked === 0)) return { status: 'success', detail: `deposited ${moved} items${keptNote}` }
+  // A partial transfer is still a success; a failure after it only annotates it.
+  const orPartial = res => moved > 0 ? { status: 'success', detail: `deposited ${moved} items${keptNote}; ${res.detail}` } : res
   // Written out rather than left as a ternary on `status` so the preflight scan
   // in bots/test/evidence-gate.test.mjs can see it. A failure hidden inside a
   // conditional expression is exactly the one that keeps its class by accident.
@@ -2414,7 +2437,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // Nothing eligible: the task is complete, there was simply nothing to do.
   // Still logged distinctly so "arrived empty" stays countable and never
   // silently inflates the success rate of real transfers.
-  if (eligible === 0) {
+  if (eligible === 0 && capped === 0) {
     // `no_effect`, NOT `success`. The contract for deposit expects
     // inventory_loss, and the evidence gate downgrades a success that produces
     // none -- so calling this a success made the number WORSE, not better:
@@ -2478,31 +2501,92 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         alternate = `could not reach the chest at ${other.position.x},${other.position.z}: ${String(e?.message ?? e).slice(0, 60)}`
       }
     }
-    const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)
+    // ONLY A VALUABLE ITEM MAY OPEN A NEW CHEST (owner 2026-09-28). Everything else is either capped by its tier --
+    // kept on purpose, and the bank is marked capped so nothing sends this bot back for it -- or a full chest that
+    // metal, gems and ore alone are worth building for.
+    const next = afterFullChest({ moved, capped, blocked, valuableBlocked, carried: bot.inventory.items().find(i => i.name === 'chest' || i.name === 'trapped_chest')?.name })
+    if (next === 'done' || next === 'capped' || next === 'full') {
+      if (next === 'done') return { status: 'success', detail: `deposited ${moved} items${keptNote}` }
+      if (next === 'capped') {
+        const why = `${[...cappedNames].slice(0, 4).join(', ')} at their limits in every chest in reach`
+        setBankCapped(bot, why)
+        return { status: 'no_effect', failClass: 'bank_capped',
+                 detail: `kept ${capped} item(s): ${why}. Keep them and keep working; metal, gems and ore still bank.` }
+      }
+      return { status: 'failed', failClass: 'storage_full',
+               detail: `had ${eligible} item(s) and the chests in reach are full; only metal, gems or ore start a new ` +
+                       `chest${alternate ? ` — ${alternate}` : ''}` }
+    }
+    // PLACE BEFORE CRAFT (2026-09-28: 70 of 79 full-chest failures were HOLDING a chest while the recovery tried to
+    // craft one). A carried chest or trapped chest -- never a barrel: on a town chest's lid it blocks the lid and the
+    // next deposit digs it off. place() never puts it on top of a container.
+    const carried = next === 'place_carried' ? bot.inventory.items().find(i => i.name === 'chest' || i.name === 'trapped_chest') : null
+    const built = carried ? { status: 'success' } : await craft(ctx, { item: 'chest', count: 1 }, signal, 1)
     if (built.status === 'success') {
-      const put = await place(ctx, { item: 'chest' }, signal)
+      const put = await place(ctx, { item: carried?.name ?? 'chest' }, signal)
+      logEvent({ kind: 'deposit_new_chest', status: put.status === 'success' ? 'success' : 'failed',
+                 detail: `${carried ? `placed the ${carried.name} it carried` : 'crafted and placed a chest'} for ` +
+                         `${valuableBlocked} valuable item(s): ${put.status === 'success' ? `at ${put.at}` : put.detail}`,
+                 snapshot: snapshot(bot) })
       if (put.status === 'success') {
         // ONE retry, and explicitly not recursive: `noRecovery` stops a bot that
         // cannot place from crafting a chest per attempt forever. A bounded
         // recovery that can re-enter itself is an unbounded recovery.
         const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: put.at })
         if (again.status === 'success') {
-          return { ...again, detail: `${again.detail} (the old chest was full, so it built a new one)` }
+          return { ...again, detail: `${moved ? `deposited ${moved} items first; ` : ''}${again.detail} (the old chest was full, so it ${carried ? 'placed the chest it carried' : 'built a new one'})` }
         }
-        return { status: 'failed', failClass: 'storage_full',
-                 detail: `the chest was full; built and placed a new one and still could not ` +
-                         `bank ${eligible} item(s) — ${again.detail}` }
+        return orPartial({ status: 'failed', failClass: 'storage_full',
+                 detail: `the chest was full; placed a new one and still could not ` +
+                         `bank ${valuableBlocked} valuable item(s) — ${again.detail}` })
       }
-      return { status: 'failed', failClass: 'storage_full',
-               detail: `the chest was full and nowhere to put a new one — ${put.detail}` }
+      return orPartial({ status: 'failed', failClass: 'storage_full',
+               detail: `the chest was full and nowhere to put a new one — ${put.detail}` })
     }
-    return { status: 'failed', failClass: 'storage_full',
-             detail: `had ${eligible} item(s) and the chest is full; could not make another ` +
-                     `chest — ${built.detail}` }
+    return orPartial({ status: 'failed', failClass: 'storage_full',
+             detail: `had ${valuableBlocked} valuable item(s) and the chest is full; could not make another ` +
+                     `chest — ${built.detail}` })
+  }
+  if (capped > 0 && blocked === 0) {
+    return { status: 'no_effect', failClass: 'bank_capped',
+             detail: `kept ${capped} item(s) over this chest's limits (${[...cappedNames].slice(0, 4).join(', ')})` }
   }
   return { status: 'failed', failClass: 'storage_full',
            detail: `had ${eligible} item(s) to hand over and the chest took none — it is full` }
 }
+
+/**
+ * Pure: what deposit does once the chests in reach have been tried. 'done' (something banked, nothing valuable left),
+ * 'capped' (every refusal was a tier cap: keep it, mark the bank capped), 'full' (a full chest, but nothing valuable
+ * is waiting: no new chest), 'place_carried' (a valuable item found no room and a chest is in hand), 'craft'.
+ * Only a VALUABLE item may cause a new chest (owner 2026-09-28); a carried one is placed before one is crafted.
+ */
+export function afterFullChest ({ moved = 0, capped = 0, blocked = 0, valuableBlocked = 0, carried = null } = {}) {
+  if (valuableBlocked > 0) return carried === 'chest' || carried === 'trapped_chest' ? 'place_carried' : 'craft'
+  if (moved > 0) return 'done'
+  if (capped > 0 && blocked === 0) return 'capped'
+  return 'full'
+}
+
+/** The per-container outcome row, from the window's own counts before and after (by tier), and why the rest stayed. */
+function logDepositWindow (bot, chestBlock, before, after, { moved, capped, blocked, valuableBlocked, cappedNames }) {
+  try {
+    const byTier = {}
+    const names = new Set([...Object.keys(before?.counts ?? {}), ...Object.keys(after?.counts ?? {})])
+    for (const n of names) {
+      const d = (after?.counts?.[n] ?? 0) - (before?.counts?.[n] ?? 0)
+      if (d > 0) byTier[tierOf(n)] = (byTier[tierOf(n)] ?? 0) + d
+    }
+    const p = chestBlock?.position
+    logEvent({ kind: 'deposit_window', status: moved > 0 ? 'success' : 'no_effect',
+               detail: `at ${p?.x},${p?.y},${p?.z} in ${['valuable', 'useful', 'bulk', 'other'].map(t => `${t}=${byTier[t] ?? 0}`).join(' ')} ` +
+                       `moved=${moved} capped=${capped}${cappedNames.size ? `(${[...cappedNames].slice(0, 4).join(',')})` : ''} ` +
+                       `blocked=${blocked} valuable_blocked=${valuableBlocked} occupied=${before?.occupied ?? '?'}->${after?.occupied ?? '?'}/${after?.slots ?? before?.slots ?? '?'}`,
+               snapshot: snapshot(bot) })
+  } catch { /* telemetry must never break a deposit */ }
+}
+
+
 
 // --------------------------------------------------------------- board -----
 //
@@ -3294,6 +3378,13 @@ export function placementLanded({ before, after }) {
   return true
 }
 
+/** Pure over blockAt: does the cell at `pos` sit on top of a chest, trapped chest or barrel? */
+export function onContainerLid (bot, pos) {
+  let below = null
+  try { below = bot.blockAt?.(new Vec3(pos.x, pos.y - 1, pos.z)) } catch { below = null }
+  return ['chest', 'trapped_chest', 'barrel'].includes(below?.name)
+}
+
 async function place(ctx, { item, x, y, z }, signal) {
   const { bot } = ctx
   const held = bot.inventory.items().find(i => i.name === item)
@@ -3395,6 +3486,20 @@ async function place(ctx, { item, x, y, z }, signal) {
   // is right for a crafting table and wrong for anything that needs soil: the
   // server rejects it and six candidates are spent on placements that could never
   // land. Filtered here rather than inside the scan so the scan keeps one job.
+  // NEVER ON A CONTAINER'S LID (bank fix; Codex: on EVERY candidate path). A block on a chest's lid stops it opening,
+  // and the next deposit digs it off and spills it. The block under the TARGET cell is what matters, whichever
+  // face the placement clicks.
+  {
+    const before = candidates.length
+    candidates = candidates.filter(c => {
+      const r = c.ref?.position
+      return !r || !onContainerLid(bot, { x: r.x + (c.face?.x ?? 0), y: r.y + (c.face?.y ?? 0), z: r.z + (c.face?.z ?? 0) })
+    })
+    if (before && !candidates.length) {
+      logEvent({ kind: 'place_refused_container_lid', status: 'no_effect',
+                 detail: `${item}: all ${before} candidate cell(s) sit on a chest or barrel`, snapshot: snapshot(bot) })
+    }
+  }
   if (needsSoil(item)) {
     const before = candidates.length
     candidates = candidates.filter(c => soilOk(item, c.ref?.name))
@@ -3425,6 +3530,7 @@ async function place(ctx, { item, x, y, z }, signal) {
       const cell = bot.blockAt(cellPos)
       const under = bot.blockAt(cellPos.offset(0, -1, 0))
       if (!cell || !solid(under) || replaceable(cell) || !cell.diggable) continue
+      if (onContainerLid(bot, cellPos)) continue
       if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
       check(signal)
@@ -4059,8 +4165,10 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
     const summary = items.length
       ? items.slice().sort((a, b) => b.count - a.count).slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ')
       : 'nothing'
-    // No item named -> the most plentiful, as before. A bot that needs something specific says so.
-    const name = item ?? items.slice().sort((a, b) => b.count - a.count)[0]?.name ?? null
+    // No item named -> the most plentiful that is NOT bulk or junk (bank fix: the most plentiful was cobblestone, so a
+    // bare withdraw took back what the tiers had just capped -- a ping-pong). A bot that needs something specific
+    // says so, and a named item is never filtered.
+    const name = item ?? items.filter(i => !['bulk', 'junk'].includes(tierOf(i.name))).sort((a, b) => b.count - a.count)[0]?.name ?? null
     const copies = name ? items.filter(i => i.name === name) : []
     if (!copies.length) return { short: true, double, holds: `${cp.x},${cp.z}: ${summary}` }
 
