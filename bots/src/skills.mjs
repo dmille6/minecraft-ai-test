@@ -28,6 +28,7 @@
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
+import { wearOutPlan, wearTarget, neverPickUp } from './hygiene.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1291,7 +1292,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
   for (let i = 0; i < 4; i++) {
     check(signal)
     const drop = bot.nearestEntity?.(e =>
-      e.name === 'item' && !refused.has(e.id) &&
+      e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
     try {
@@ -3761,6 +3762,48 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null }, sign
 }
 
 
+// ------------------------------------------------------------- wear_out -----
+//
+// Destroys spent tools by using them: one dig on a cheap, safe block beside the bot breaks a copy at 1 use, and
+// nothing is dropped, so nothing can be picked up by this bot or another (hygiene.mjs says why piles are out).
+// Issued only as a work order at TRIGGER_SLOTS; never offered to the model. Each destroyed copy is VERIFIED gone
+// from the inventory -- the row is an outcome, not the intention.
+async function wearOut(ctx, _args, signal) {
+  const { bot } = ctx
+  const plan = wearOutPlan(bot.inventory?.items?.() ?? [])
+  if (!plan.tools.length) return { status: 'no_effect', detail: `no spent tool to wear out at ${plan.slots} of 36 slots` }
+  const here = bot.entity?.position?.floored?.() ?? bot.entity?.position
+  if (!here) return { status: 'no_effect', detail: 'no position' }
+  // Side cells only -- never the block under the bot: head height first (a tunnel wall), then feet height, then
+  // the ground beside it. roomVeto refuses liquid, a falling block above, and anything it cannot read.
+  const cells = []
+  for (const dy of [1, 0, -1]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) cells.push(here.offset(dx, dy, dz))
+  const destroyed = []
+  let stopped = null
+  for (const tool of plan.tools) {
+    check(signal)
+    const cell = cells.find(c => { const b = bot.blockAt(c); return wearTarget(b) && !roomVeto(bot, c) && (bot.canDigBlock?.(b) ?? true) })
+    if (!cell) { stopped = 'no safe block within reach'; break }
+    const block = bot.blockAt(cell)
+    await bot.equip(tool, 'hand').catch(() => {})
+    if (bot.heldItem?.name !== tool.name) { stopped = `could not hold the ${tool.name}`; break }
+    try {
+      await withTimeout(bot.dig(block, true), 10_000, bot, { what: 'dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch {} } })
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e; stopped = `dig failed: ${String(e?.message ?? e).slice(0, 40)}`; break }
+    await bot.waitForTicks?.(2)
+    const still = (bot.inventory?.items?.() ?? []).some(i => i.slot === tool.slot && i.name === tool.name && (i.durabilityUsed ?? 0) === (tool.durabilityUsed ?? 0))
+    if (still) { stopped = `${tool.name} survived the dig on ${block.name}`; break }
+    destroyed.push(`${tool.name} on ${block.name}`)
+  }
+  const after = bot.inventory?.items?.().length ?? plan.slots
+  logEvent({ kind: 'wear_out', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot),
+             detail: `${plan.slots} -> ${after} slots: ${destroyed.length} of ${plan.tools.length} spent tool(s) worn out` +
+                     `${destroyed.length ? ` (${destroyed.join(', ')})` : ''}${stopped ? `; stopped: ${stopped}` : ''}`.slice(0, 300) })
+  return destroyed.length
+    ? { status: 'success', detail: `wore out ${destroyed.length} spent tool(s) (${plan.slots} -> ${after} slots)${stopped ? `; ${stopped}` : ''}` }
+    : { status: 'failed', failClass: 'wear_out_failed', detail: `wore out nothing at ${plan.slots} slots: ${stopped ?? 'unknown'}` }
+}
+
 // ------------------------------------------------------------- withdraw -----
 //
 // The inverse of deposit, and its absence was structural.
@@ -5899,6 +5942,8 @@ export const SKILL_CONTRACTS = {
   // 60s covered "chest in sight"; the walk-home fallback makes deposit a
   // travel skill, and home's own budget (120s) plus the transfer must fit.
   deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
+  // Destroys spent tools by using them: the change it exists for is the loss.
+  wear_out: { expects: ['inventory_loss'],        maxMs: 60_000 },
   withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
@@ -6931,6 +6976,9 @@ export const SKILLS = {
   home:    { run: home,    usage: 'home',                          args: [], rescue: true },
   deposit: { run: deposit, usage: 'deposit [item_name]',           args: [] },
   withdraw:{ run: withdraw,usage: 'withdraw [item_name] [count]',  args: ['item', 'count'] },
+  // NEVER OFFERED TO THE MODEL (chatOnly keeps it out of the schema enum and the prompt): issued only as a
+  // deterministic work order from cognitive.mjs at TRIGGER_SLOTS, so a model can never choose to break a tool.
+  wear_out: { run: wearOut, usage: 'wear_out',                      args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },

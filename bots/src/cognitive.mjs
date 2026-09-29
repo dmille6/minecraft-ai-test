@@ -16,6 +16,9 @@ import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from 
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
+import { wearOutPlan } from './hygiene.mjs'
+/** One wear-out order per bot per two minutes at most. */
+export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
 // wrote and hands back a taxonomy label, which is a guess wearing a
@@ -712,6 +715,19 @@ export class CognitiveLoop {
     // spot that cannot be planted costs one decision every ten minutes rather than
     // every decision.
     let order = orderFor(readyFor(this.bot, milestone))
+    // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
+    // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
+    // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
+    if (!order && Date.now() - (this.lastWearOutAt ?? 0) >= WEAR_OUT_COOLDOWN_MS) {
+      try {
+        const plan = wearOutPlan(this.bot.inventory?.items?.() ?? [])
+        if (plan.tools.length) {
+          this.lastWearOutAt = Date.now()
+          order = { skill: 'wear_out', args: {},
+                    why: `inventory at ${plan.slots} of 36 slots; ${plan.tools.length} spent tool(s) to wear out` }
+        }
+      } catch { /* an inventory read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
