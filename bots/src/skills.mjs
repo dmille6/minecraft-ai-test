@@ -25,6 +25,7 @@
 // Every long loop must check `signal.aborted`, because the reflex layer
 // preempts skills and a skill that ignores that will fight it.
 
+import { openObserved, closeObserved } from './ledger.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining } from './toolfor.mjs'
@@ -2173,7 +2174,7 @@ async function openChestChecked (bot, chestBlock, signal) {
   // A WINDOW THAT ARRIVES AFTER THE TIMEOUT HAS NO OWNER. withTimeout abandons the promise, but
   // mineflayer keeps waiting and opens the window anyway; nothing would ever close it (Codex review).
   let abandoned = false
-  const opening = bot.openContainer(chestBlock)
+  const opening = openObserved(bot, chestBlock, () => bot.openContainer(chestBlock), () => abandoned)   // the chest ledger (ledger.mjs), observe-only
   opening.then?.(w => { if (abandoned) { try { w.close() } catch {} } }, () => {})
   try {
     const chest = await withTimeout(opening, 8_000, bot, { what: 'open the chest', onTimeout: () => { abandoned = true }, needsDrop: false })
@@ -2294,7 +2295,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       }
     }
   } finally {
-    chest.close()
+    closeObserved(bot, chest, chestBlock)
   }
   if (moved > 0) return { status: 'success', detail: `deposited ${moved} items` }
   // Written out rather than left as a ternary on `status` so the preflight scan
@@ -3974,7 +3975,7 @@ async function withdrawFrom(ctx, chestBlock, item, want, signal) {
       ? { status: 'success', detail: `withdrew ${took}x ${name} from the chest at ${cp.x},${cp.z}` }
       : { short: true, double, holds: `${cp.x},${cp.z}: ${summary}` }
   } finally {
-    try { chest.close() } catch { /* already closed */ }
+    try { closeObserved(bot, chest, chestBlock) } catch { /* already closed */ }
   }
 }
 
@@ -4192,7 +4193,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
 
   let furnace
   try {
-    furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot,
+    furnace = await withTimeout(openObserved(bot, block, () => bot.openFurnace(block)), SMELT_OPEN_MS, bot,
                                 { what: 'furnace', needsDrop: false, onTimeout: () => {} })
   } catch (e) {
     if (e.aborted) throw e
