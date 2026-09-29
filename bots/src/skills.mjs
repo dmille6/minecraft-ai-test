@@ -29,6 +29,7 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
+import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1349,6 +1350,113 @@ export function canopyDrop (at, pos, { maxDrop = 3, reach = 40 } = {}) {
   return { ok: false, why: `no solid block within ${reach} below` }
 }
 
+// ------------------------------------------------------------- tunnel to ore -----
+const TUNNEL_STALL_MS = 6000
+const TUNNEL_TRIES = 3
+//
+// Reach buried iron the bot already knows about (oretunnel.mjs says why and how). Called by gather in place of
+// the old `mine({y})` escalation, for iron only. Every refusal names a remedy the bot can perform from where it
+// stands and carries a class with no vote; the outcome row is written from the inventory, not the plan.
+async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
+  const { bot, runner } = ctx
+  const t0 = Date.now()
+  const out = (res, extra) => {
+    logEvent({ kind: 'ore_tunnel', status: res.status === 'success' ? 'success' : 'failed', snapshot: snapshot(bot),
+               detail: `${res.status}${res.failClass ? `/${res.failClass}` : ''}: ${extra}`.slice(0, 300) })
+    return res
+  }
+  // ROOM FIRST: a tunnel yields ~2.4 cobblestone per block of depth plus the ore.
+  if ((bot.inventory?.emptySlotCount?.() ?? 0) < 2) {
+    return out({ status: 'failed', failClass: 'inventory_full', detail: 'no room for what a tunnel yields — deposit first' }, 'refused: inventory full')
+  }
+  const ids = IRON_KINDS.map(n => bot.registry.blocksByName[n]?.id).filter(id => id != null)
+  const feet = bot.entity.position.floored()
+  const at = q => bot.blockAt(q)
+  const found = bot.findBlocks({ matching: ids, maxDistance: CANDIDATE_RADIUS, count: 64 }) ?? []
+  // The ORE's own dig happens outside the pathfinder, so its hazard check happens here.
+  const home = { x: config.world.homeX, z: config.world.homeZ }
+  const candidates = rankCandidates(feet, found.filter(q => breakHazard(at, bot.blockAt(q)) === 0 && !nearHome(q, home)))
+  if (!candidates.length) {
+    return out({ status: 'failed', failClass: 'no_tunnel', detail: `iron within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
+  }
+  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home })
+  const plan = await planTunnel(bot, { candidates, moves })
+  check(signal)
+  if (!plan.ok) {
+    return out({ status: 'failed', failClass: 'no_tunnel', detail: `no safe tunnel to iron: ${plan.why}` }, `refused: ${plan.why} over ${candidates.length} candidate(s) in ${plan.ms} ms`)
+  }
+  const cluster = clusterOf(at, plan.target)
+  const pickBreaks = plan.breaks.filter(q => /pickaxe/.test(bot.blockAt(q)?.material ?? '')).length
+  const budget = pickBudget(bot.inventory.items(), { pickBreaks, cluster: cluster.length })
+  if (!budget.ok) {
+    // PICKAXE FIRST (owner): the remedy is a task the bot adopts, not advice it may ignore.
+    return out({ status: 'failed', failClass: 'pickaxe_short',
+                 need: { items: ['stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1, minUses: MIN_TRIP_USES,
+                         because: `a tunnel to iron needs ${budget.need} pickaxe uses (${budget.why})` },
+                 detail: `iron is ${plan.breaks.length} blocks of digging away but ${budget.why} — craft a stone_pickaxe first` },
+               `refused: ${budget.why}; plan ${plan.breaks.length} breaks (${pickBreaks} pick), cluster ${cluster.length}, ${plan.ms} ms`)
+  }
+
+  const claim = runner?.claimBody?.('stair') ?? null      // the entombment reflex reads a staircase as sealed
+  let reached = false, stopped = null, recentred = 0
+  // index.mjs owns setMovements: the walk runs inside its tunnel profile and is restored there, whatever happens.
+  const inTunnel = fn => (bot.withTunnelMovements ? bot.withTunnelMovements(fn) : fn())
+  // A BOT OFF-CENTRE IN A 1-WIDE TUNNEL WEDGES AGAINST THE WALL. On the sandbox, walks that stalled had drifted
+  // sideways (z 236.5 -> 236.7) and the pathfinder re-tried the same blocked step until the stuck reflex fired at
+  // 35 s. So the tunnel watches its own progress: no movement and no dig for STALL_MS -> stop the walk, re-centre
+  // on the current block, and resume, up to TUNNEL_TRIES times -- long before the reflex.
+  const walkLeg = () => new Promise((resolve, reject) => {
+    let last = bot.entity.position.clone(), moved = Date.now(), stalled = false
+    const watch = setInterval(() => {
+      const q = bot.entity.position
+      if (q.distanceTo(last) > 0.3 || bot.targetDigBlock) { last = q.clone(); moved = Date.now() }
+      else if (Date.now() - moved > TUNNEL_STALL_MS && !stalled) { stalled = true; try { bot.pathfinder.setGoal(null) } catch {} }
+    }, 500)
+    const legMs = Math.max(5000, Math.min(deadlineMs - (Date.now() - t0), 20_000 + plan.breaks.length * 2500))
+    withTimeout(bot.pathfinder.goto(plan.goal), legMs, bot, { needsDrop: false })
+      .then(resolve, e => reject(Object.assign(e ?? new Error('walk failed'), { stalled })))
+      .finally(() => clearInterval(watch))
+  })
+  try {
+    const renew = setInterval(() => claim?.renew?.(), 1000)
+    try {
+      for (let attempt = 0; attempt < TUNNEL_TRIES && !reached; attempt++) {
+        try { await inTunnel(walkLeg); reached = true }
+        catch (e) {
+          if (e?.aborted || signal?.aborted) throw e
+          stopped = `walk: ${String(e?.message ?? e).slice(0, 50)}`
+          if (!e?.stalled || Date.now() - t0 > deadlineMs) break
+          const f = bot.entity.position.floored()
+          try { await inTunnel(() => withTimeout(bot.pathfinder.goto(new goals.GoalBlock(f.x, f.y, f.z)), 4000, bot, { needsDrop: false })) } catch (e2) { if (e2?.aborted || signal?.aborted) throw e2 }
+          recentred++
+        }
+      }
+      if (!reached) throw Object.assign(new Error(stopped ?? 'walk failed'), { soft: true })
+      // SETTLE BEFORE ANYONE DIGS. On the sandbox a dig issued the instant the tunnel walk resolved hung for the
+      // full 20 s dig timeout (three runs), while the SAME ore dug cleanly moments later through gather's rescan,
+      // and a controlled test beside an ore (stone or air above) dug fine. So the tunnel only ARRIVES; gather's
+      // own, tested collection takes the ore it exposed.
+      await bot.waitForTicks?.(10)
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      if (!e?.soft) stopped = `walk: ${String(e?.message ?? e).slice(0, 50)}`
+    } finally { clearInterval(renew) }
+  } finally {
+    // ON ARRIVAL THE CLAIM IS KEPT, NOT RELEASED: the bottom of a staircase is exactly what isEntombed reads as a
+    // trap (solid ceiling, 3 walls, terrain above), and on the sandbox the entombment reflex pillared the bot out
+    // the moment the tunnel let go, before gather could take the ore. Renewed once here, it lapses on its own after
+    // Runner.CLAIM_STEP_TTL_MS or when this gather run ends (the runner drops claims of a finished run).
+    if (reached) claim?.renew?.()
+    else claim?.release?.()
+  }
+  const summary = `${plan.breaks.length} planned breaks (${pickBreaks} pick) to ${plan.target.x},${plan.target.y},${plan.target.z}, ` +
+                  `cluster ${cluster.length}, uses ${budget.haveAll}/${budget.need}, plan ${plan.ms} ms, min y ${plan.minY}; ` +
+                  `reached ${reached}, re-centred ${recentred}, ${Math.round((Date.now() - t0) / 1000)} s` + (stopped && !reached ? `; stopped: ${stopped}` : '')
+  return reached
+    ? out({ status: 'success', detail: `tunnelled to iron at ${plan.target.x},${plan.target.y},${plan.target.z}` }, summary)
+    : out({ status: 'failed', failClass: 'tunnel_incomplete', detail: `could not finish the tunnel to iron${stopped ? ` (${stopped})` : ''}` }, summary)
+}
+
 async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
   maxDistance = Math.min(Number(maxDistance) || 32, 48)   // callers cannot opt back into the blowup
   const { bot } = ctx
@@ -1746,6 +1854,15 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // question, not by this one. Its answer is reported verbatim rather than
       // reclassified, because a refusal is evidence and this file has been
       // bitten before by deriving a failure class from prose.
+      // IRON TUNNELS TO THE ORE IT CAN SEE (oretunnel.mjs), instead of stairing toward dryness. Once per run.
+      if (IRON_KINDS.includes(viaSource ?? blockName) && !escalated) {
+        escalated = true
+        check(signal)
+        const dug = await tunnelToOre(ctx, signal)
+        mineSaid = dug?.detail ?? null
+        if (dug?.status === 'success') continue     // rescan: the tunnel exposed the ore; gather's own collection takes it
+        if (dug?.need || ['pickaxe_short', 'inventory_full'].includes(dug?.failClass)) return dug   // the remedy is the answer
+      }
       if (WORTH_TUNNELLING.test(viaSource ?? blockName) && !escalated) {
         escalated = true
         const nearest = positions[0]

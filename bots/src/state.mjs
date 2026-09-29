@@ -86,7 +86,7 @@ export function isNight(bot) {
  */
 export function perception(bot, radius = 40) {
   const want = ['oak_log', 'birch_log', 'spruce_log', 'dirt', 'grass_block', 'stone',
-    'coal_ore', 'iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest', 'bed']
+    'coal_ore', 'iron_ore', 'deepslate_iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest', 'bed']
   const seen = {}
   for (const name of want) {
     const t = bot.registry.blocksByName[name]

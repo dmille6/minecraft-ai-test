@@ -566,8 +566,12 @@ export class CognitiveLoop {
   #prereqHave() {
     if (!this.prereq) return 0
     const want = new Set(this.prereq.items)
+    // A TOOL TASK IS MET BY A TOOL THAT CAN DO THE WORK, not by its name (both design reviews): a spent pickaxe
+    // must not satisfy "craft a stone_pickaxe". `minUses` comes from the skill that set the task.
+    const min = this.prereq.minUses ?? 0
+    const uses = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUsed ?? 0) : Infinity)
     let n = 0
-    for (const it of (this.bot.inventory?.items() ?? [])) if (want.has(it.name)) n += it.count
+    for (const it of (this.bot.inventory?.items() ?? [])) if (want.has(it.name) && uses(it) >= min) n += it.count
     return n
   }
 

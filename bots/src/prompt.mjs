@@ -40,7 +40,7 @@ export class WorkingMemory {
 }
 
 const INTERESTING_BLOCKS = ['oak_log', 'birch_log', 'spruce_log', 'dirt', 'grass_block',
-  'stone', 'coal_ore', 'iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest']
+  'stone', 'coal_ore', 'iron_ore', 'deepslate_iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest']
 
 /**
  * WHAT THE BOT NEEDS GOES FIRST, BECAUSE THE SCAN RUNS OUT BEFORE THE LIST DOES.
