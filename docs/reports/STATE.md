@@ -386,7 +386,14 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Its deposit change is folded into the bank-fix bundle (the same code) rather than a separate
       fleet-wide deploy.
   - **deathfix-01 LAUNCHED 2026-09-29 ~14:18Z** (1d107ed on the fleet base 80b3bbd). Licence and gate
-    digest preflights passed; drawing pools. Short canary: reads +180/+360, extension until exposure.
+    digest preflights passed. **DRAW WAITING, by design:**
+    - 11 pools can expose it, but 8 are excluded: the 4 toolkeeper pools (12 h cool-down to ~02:10Z) and
+      hive-c/board-b/hive-d/placebo-d (manual, to 09-30 13:00-14:05Z).
+    - The other 3 (board-a, hive-a, hive-b) are outside the +/-40% productivity band.
+    - The loop re-draws every 20 min and should start ~02:10Z.
+    - THROUGHPUT: one canary at a time + a 12 h pool cool-down = >= 12 h per change before the next can
+      start. With ~8 changes queued that is >= 4 days. Bundling the small deterministic fixes (asked
+      09-29 morning, not answered) is the lever.
   - **QUEUE (owner-approved 09-29; one canary at a time):**
     1. ~~toolkeeper-01~~ KEEP (not promoted)
     2. deathfix-01 (staged)
