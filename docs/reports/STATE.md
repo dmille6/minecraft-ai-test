@@ -401,6 +401,17 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       Registration NOT yet written; its gate must read the ledger open snapshots / RCON, never `_deposit_window`
       (client-side), and key a double chest as one container. veto-retry's RETRYABLE needs deposit_nothing_to_bank
       and bank_capped when the two meet.
+    - **CRAFT ADVICE (found again, 09-29): `craft-advice` @ `2e9e9d8`** = 80b3bbd + 09a7667 (written for the
+      abandoned program window, NEVER deployed) + a driven test. STILL LIVE: 1,782 of 4,238 craft rows in 24 h (42%,
+      71 bots) tell a bot to gather cobbled_deepslate, 1,773 at y >= 0 where it does not exist; control: 45 rows
+      gained it (below 0). Driven on real 1.21.8 recipes: branch says cobblestone at y=64, deepslate at y=-30;
+      80b3bbd says deepslate at both. **Both implementation reviews running.** Registration to write after them.
+      RECOMMEND moving it up the queue: it is the largest single misdirection measured (~10x the craft limits).
+    - hive-progress: its positive control (`lessons loaded` progress fields) is a CONSOLE log, not telemetry --
+      add a `_progress_restored` row before registering it, or the read cannot see restored progress.
+    - Registrations staged in docs: exploretoward-01, bankfix-01 (server-truth gate proved on the sandbox: the
+      mutant 60->124 cobble reads 1 violation, the build 60->64 reads 0), prequsable-01 (unchanged code FAILS it,
+      34 of 46; control 487 of 560).
     - Codex's smaller finds: deposit cancellation, craft preflight and the deposit admission plan are INSIDE the bank
       fix. Not built: escape burns logs as scaffold (1,009 logs/day).
   - **toolkeeper-01 DECIDED 2026-09-29 14:10Z: KEEP** (4320136).
