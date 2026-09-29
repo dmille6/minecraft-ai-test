@@ -9,6 +9,7 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
+import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -209,6 +210,28 @@ export function ladderExhausted (latches, now, { max = LADDER_MAX_LATCHES, windo
  * the task to render plus, when the prereq is finished, WHY it finished --
  * `satisfied` (the bot holds enough) or `abandoned` (it ran out of patience).
  */
+/**
+ * How many of a prerequisite the bot holds that can DO THE WORK. Pure.
+ *
+ * A TOOL AT ITS FLOOR IS NOT A TOOL (fleet triage 2026-09-29, 24 h, 60 bots): 4,073 of 4,605 pickaxe prerequisites
+ * (88.4%) were counted SATISFIED while every pickaxe held had <= 1 use -- a copy toolfor.mjs will never swing
+ * (remaining > HARD_STOP, toolfor.mjs:51). So "get a pickaxe" cleared the moment it was adopted, the bot went back to
+ * the dig that had just failed, and four sealed bots looped for the whole window (96 bot-hours). A durable item counts
+ * only above HARD_STOP uses, and above `minUses` when the task names one.
+ */
+export function prereqHave(items, prereq) {
+  if (!prereq) return 0
+  const want = new Set(prereq.items ?? [])
+  const min = Math.max(HARD_STOP + 1, prereq.minUses ?? 0)
+  let n = 0
+  for (const it of items ?? []) {
+    if (!want.has(it?.name)) continue
+    if (it.maxDurability && it.maxDurability - (it.durabilityUsed ?? 0) < min) continue
+    n += it.count ?? 1
+  }
+  return n
+}
+
 export function applyPrereq(milestone, prereq, have, now = Date.now()) {
   if (!prereq) return { task: milestone, clear: null }
   if (have >= prereq.count) return { task: milestone, clear: 'satisfied' }
@@ -559,11 +582,7 @@ export class CognitiveLoop {
   }
 
   #prereqHave() {
-    if (!this.prereq) return 0
-    const want = new Set(this.prereq.items)
-    let n = 0
-    for (const it of (this.bot.inventory?.items() ?? [])) if (want.has(it.name)) n += it.count
-    return n
+    return prereqHave(this.bot.inventory?.items() ?? [], this.prereq)
   }
 
   #activeTask() {
