@@ -110,6 +110,12 @@ await t('WIRED: index.mjs attaches digsync to the bot (comments stripped)', () =
   const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
   assert.match(src, /bot\.digSync\s*=\s*attachDigSync\(bot,/)
 })
+await t('WIRED: the SIGTERM/SIGINT handler writes the final totals BEFORE it closes the logs', () => {
+  const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  const h = src.slice(src.indexOf("for (const sig of ['SIGINT', 'SIGTERM'])"))
+  const a = h.indexOf('digSyncFinal?.()'), b = h.indexOf('closeLogs()')
+  assert.ok(a > 0 && b > 0 && a < b, `final row at ${a}, closeLogs at ${b}`)
+})
 await t('waitSettled: the server\'s word for a refused dig, an accepted one, nothing pending, and a timeout', async () => {
   const f = fakeBot(); f.world.set('10,64,-3', STONE)
   f.finishDig(P); const w1 = f.ds.waitSettled(P, 500)
