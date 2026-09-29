@@ -133,6 +133,23 @@ await t('the SERVER snapshot survives the optimistic close record', () => {
   assert.deepEqual([rec.phase, rec.items.stick, rec.server_snapshot.items.stick], ['close', 4, 6])
   delete process.env.POOL_STATE_DIR
 })
+await t('THE ROW CARRIES THE SERVER\'S TIERED COUNTS (bulk + useful), largest first -- the bank fix\'s canary reads them', async () => {
+  process.env.POOL_STATE_DIR = path.join(tmp, 'pool-tier')
+  const chest = blk('chest', { x: 40, y: 64, z: 40 }, { facing: 'north', type: 'single' })
+  const slots = Array(63).fill(null)
+  slots[0] = { name: 'stick', count: 6 }; slots[1] = { name: 'cobblestone', count: 64 }; slots[2] = { name: 'diamond', count: 3 }; slots[3] = { name: 'cobblestone', count: 10 }
+  const w = { inventoryStart: 27, slots, close () {} }
+  assert.equal(__testing.record(fakeBot(w), w, chest, 'open', path.join(tmp, 'tier')), true)
+  await new Promise(r => setTimeout(r, 300))   // the log is a write stream
+  const files = []
+  const walk = d => { for (const f of fs.readdirSync(d, { withFileTypes: true })) { const q = path.join(d, f.name); f.isDirectory() ? walk(q) : files.push(q) } }
+  walk(process.env.LOG_DIR)
+  const rows = files.filter(f => f.includes('skill')).flatMap(f => fs.readFileSync(f, 'utf8').split('\n')).flatMap(l => { try { return [JSON.parse(l)] } catch { return [] } })
+  const row = rows.filter(r => r.skill?.name === '_ledger' && r.skill.detail.includes('overworld:40,64,40')).at(-1)
+  assert.ok(row, `no ledger row among ${rows.length}: ${rows.map(r => r.skill?.name + ' ' + String(r.skill?.detail).slice(0, 60)).join(' | ')}`)
+  assert.match(row.skill.detail, /tiered=\[cobblestone=74,stick=6\]/, row.skill.detail)
+  delete process.env.POOL_STATE_DIR
+})
 await t('a window that is not this block\'s (wrong size, or not the current window) is not recorded', () => {
   const dir = path.join(tmp, 'win')
   const chest = blk('chest', { x: 5, y: 64, z: 5 }, { facing: 'north', type: 'single' })

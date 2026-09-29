@@ -25,6 +25,7 @@ import { createRequire } from 'node:module'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { poolStateDir } from './worldfacts.mjs'
+import { tierOf } from './bankable.mjs'
 const { Vec3 } = createRequire(import.meta.url)('vec3')
 
 export const LEDGER_SCHEMA = 1
@@ -191,8 +192,15 @@ function persist (rec, phase, pos, at, dim, dirOverride) {
     const wrote = writeRecord(dir, rec)
     if (phase === 'open' && Date.now() - lastSweep >= SWEEP_EVERY_MS) { lastSweep = Date.now(); tombstoneGone(dir, pos, at, { observer: rec.observer, dim, skipKey: rec.key }) }
     const total = Object.values(rec.items).reduce((a, b) => a + b, 0)
+    // THE TIERED COUNTS, so the bank fix's canary can read the SERVER's per-item state at each open (the 'open' phase is
+    // the server's snapshot; the file keeps only the newest record, so the row is the only history). Bulk and useful
+    // only: the two tiers with limits. LARGEST FIRST: logEvent cuts detail at 300 characters, and an item over its
+    // limit is by definition a large count, so it is the last thing a truncation could drop.
+    const tiered = Object.entries(rec.items).filter(([n]) => ['bulk', 'useful'].includes(tierOf(n)))
+      .sort(([a, x], [b, y]) => y - x || a.localeCompare(b)).map(([n, c]) => `${n}=${c}`).join(',')
     logEvent({ kind: 'ledger', status: 'success',
-               detail: `${phase} ${rec.key} ${rec.type}${rec.double ? ' (double)' : ''}: ${total} items, ${rec.slots - rec.free}/${rec.slots} slots${wrote ? '' : ' (older than the record, not written)'}` })
+               detail: `${phase} ${rec.key} ${rec.type}${rec.double ? ' (double)' : ''}: ${total} items, ${rec.slots - rec.free}/${rec.slots} slots${wrote ? '' : ' (older than the record, not written)'}` +
+                       ` tiered=[${tiered}]` })
   } catch (e) { warn(e) }
 }
 
