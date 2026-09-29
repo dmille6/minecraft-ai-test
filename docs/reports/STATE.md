@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-28 12:06Z — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
+_updated 2026-09-29 05:40Z (night work: see QUEUE 'NIGHT 2026-09-29'; the canary block below is from 09-28 and still live) — **CANARY LIVE: `toolkeeper-01` on `4320136`, pools placebo-a, placebo-b,
 board-d, board-c (20 bots), declared 12:02:07Z.** Baseline `80b3bbd+8b910b` on the other 60. Exactly two
 versions verified live at 12:05Z (60/20). `canary-loop.sh toolkeeper-01` is running on 10.0.0.31 and
 does the reads, the verdict, the record and the teardown itself._
@@ -259,6 +259,32 @@ y >= 0 holding zero stone — ~10x the craft-limit target. Both engines are now 
 stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) before anything is built.
 
 ## QUEUE (after toolkeeper-01 closes)
+- **NIGHT 2026-09-29 (autonomous, owner asleep; both engines):**
+  - **GHOST BLOCKS — PROVEN, a fleet-wide defect.** A dig Paper rejects leaves the client holding AIR over
+    server STONE, permanently. mineflayer's finishDigging writes air on its own timer; there is no rollback,
+    and Paper re-sends nothing. RCON showed stone where the stalled bot saw air, twice. Global dig
+    instrumentation linked the stall cell to the ONE unconfirmed dig. Bare-client probes:
+    - A too-far dig: no packet, a permanent ghost.
+    - An early finish: confirmed at ~0.9 s (Paper's delayed destroy).
+    - ABORT: an ack only, no resync.
+    collectManually's `dig_unconfirmed` (skills.mjs:1225-1250) assumes a re-send, so it is BLIND to these.
+    Fix designed: a timer rollback (restore the prior state when no block_change arrives within ~3 s).
+    **Both engines are reviewing it.** Memory: ghost-blocks-are-rejected-digs.
+  - **Ore tunnel** (`ore-tunnel`, e455cf5 + uncommitted fixes in `$SP/wt-hyg`):
+    - Both implementation reviews: REJECT for canary as it stood.
+    - Fixed: arrival checked (goto resolves on an empty path); the pickaxe remedy = this trip's need, with
+      too-long trips refused (chain property test); inventory_full no longer ends gather; the deadline comes
+      from gather's own clock; abort stops the walk; the planner's step test = the corridor guard's (drop
+      lava); gather's iron candidates get the six-face check. 21 tests; 3 mutants killed.
+    - The sandbox stalls were ghost blocks. The harness made them (rejoin inside the refilled arena +
+      mid-dig tp); run-ore.sh now parks the bot on top.
+    - Waits for the ghost fix (the tunnel needs it on the fleet too).
+  - **Staged canaries:** `lastswing-01` and `hygiene-01` registrations + reads committed (docs/reports), both
+    dry-run on the fleet with positive controls (225 'gather cobblestone' failures; 50 control bots at >= 34
+    slots). The sha is set at launch after rebasing on the fleet. hygiene-01 needs a MANUAL pool check (>= 2
+    bots at >= 34 slots); drawexposure cannot see slots.
+  - **Jobs/mayor spec** (owner question): `docs/reports/jobs-mayor-spec-2026-09-29.md`. Both engines: duties,
+    not permanent jobs; ledger + retrieval first; mayor in shadow mode; one duty in one world.
 - **OWNER 2026-09-29: SHORT CANARY FOR FIXES.** Reads +180/+360, extension until exposure (540/720/1080/1560),
   deadline 1680; KEEP possible from +360 when correctness, harm and exposure are clean. A "fix" = a deterministic
   correctness gate (licence row/text only the fix writes + a positive control) + sandbox + both engines. Safety

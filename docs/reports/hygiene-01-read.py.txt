@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+# hygieneread.py [window_min] -- the read for canary `hygiene-01` (branch inventory-hygiene, phase 1).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE (owner 2026-09-29 "stop bots from collecting and keeping junk"): pickupNearbyItems never walks to
+# NEVER_KEEP ballast; at 34+ slots a deterministic `wear_out` work order destroys spent tools (exactly 1 use) by
+# using them once on a natural block, keeping 3 spent pickaxes for last-swing, at most 4 per order. Nothing is
+# dropped, so nothing reaches another bot. `_wear_out` is written after the digs, with a snapshot.
+#
+# WHAT THIS READ GATES (a fix: correctness -- owner "short canary for fixes"):
+#   LIVENESS     canary `_wear_out` successes by the CANARY build (>= 1); the baseline has no such kind (control 0).
+#   CORRECTNESS  from snapshots, per `_wear_out` row vs the same bot's previous snapshot (<= 120 s before):
+#                  usable_lost   a tool copy with >= 2 uses that existed before and is gone after (must be 0)
+#                  keeps_short   spent pickaxes after < min(3, spent before) (must be 0)
+#   INSTRUMENT   positive control for the slot estimator: control bots at >= 34 estimated slots (must be >= 1);
+#                and every `_wear_out` success must have a usable pre-snapshot (pairs_missing reported).
+# REPORTED, NOT GATED (DiD, window vs same-length pre-window): median estimated slots; NEVER_KEEP items held per bot.
+import sys, os, json, re, glob, math
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+PRE = CUT - dt.timedelta(minutes=W)
+NEVER_KEEP = {'leaf_litter', 'egg', 'brown_egg', 'blue_egg', 'wheat_seeds', 'beetroot_seeds', 'melon_seeds', 'pumpkin_seeds',
+              'flint', 'ink_sac', 'glow_ink_sac', 'pointed_dripstone', 'dead_bush', 'short_grass', 'tall_grass', 'fern',
+              'large_fern', 'poppy', 'dandelion', 'vine', 'seagrass', 'rail'}
+STACK16 = {'egg', 'brown_egg', 'blue_egg', 'ender_pearl', 'snowball', 'bucket', 'sign', 'honey_bottle'}
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def load(since_minutes):
+    """Rotation-aware and deduped, as deathfixread: day D's rows live in -{D+1}.gz."""
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=since_minutes)
+    key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+    rows, seen = [], set()
+    for r in ev.rows:
+        if key(r) not in seen:
+            rows.append(r); seen.add(key(r))
+    start = now - dt.timedelta(minutes=since_minutes)
+    for d in {(start + dt.timedelta(days=k)).date() for k in range(0, (now - start).days + 2)}:
+        for g in glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % (d + dt.timedelta(days=1)).strftime('%Y%m%d')):
+            try:
+                e2 = Events.load(paths=g, since_minutes=since_minutes, allow_zero=True)
+            except TypeError:
+                e2 = Events.load(paths=g, since_minutes=since_minutes)
+            for r in e2.rows:
+                if key(r) not in seen:
+                    rows.append(r); seen.add(key(r))
+    return rows
+
+
+def slots(b):
+    tools = b.get('tools') or {}
+    n = sum(len(v or []) for v in tools.values())
+    for k, c in (b.get('inventory') or {}).items():
+        if k in tools:
+            continue
+        n += math.ceil((c or 0) / (16 if k in STACK16 else 64))
+    return n
+
+
+def copies(b):
+    """[(name, uses_left)] for every tool copy in a snapshot."""
+    return [(k, c.get('max', 0) - c.get('used', 0)) for k, v in (b.get('tools') or {}).items() for c in (v or [])]
+
+
+# POSITIVE CONTROL for the pairing logic, before any fleet row.
+_pre = {'tools': {'stone_pickaxe': [{'used': 130, 'max': 131}] * 5 + [{'used': 20, 'max': 131}], 'stone_axe': [{'used': 130, 'max': 131}]}}
+_ok = {'tools': {'stone_pickaxe': [{'used': 130, 'max': 131}] * 3 + [{'used': 20, 'max': 131}]}}
+_bad = {'tools': {'stone_pickaxe': [{'used': 130, 'max': 131}] * 3}}
+usable = lambda b: Counter(n for n, u in copies(b) if u >= 2)
+spentp = lambda b: sum(1 for n, u in copies(b) if n.endswith('_pickaxe') and u == 1)
+assert not (usable(_pre) - usable(_ok)) and (usable(_pre) - usable(_bad)), 'usable-loss check is blind'
+assert spentp(_ok) >= min(3, spentp(_pre)) and spentp(_pre) == 5
+
+rows = load(int(elapsed + W + 60))
+rows.sort(key=lambda r: r['t'])
+bots_seen = {(r.get('bot') or {}).get('name') for r in rows if r.get('bot')}
+print('rows walked %d  bots %d  |  canary %s  sha %s  cutoff %s  window +%d min'
+      % (len(rows), len(bots_seen), CAN, CV, CUT.strftime('%H:%MZ'), W))
+
+prev = {}                                    # bot -> (t, snapshot) of its last row with tools
+wear, wear_fail, offbuild = Counter(), Counter(), 0
+usable_lost, keeps_short, pairs_missing = Counter(), Counter(), Counter()
+examples = []
+latest = defaultdict(dict)                   # period -> bot -> snapshot
+for r in rows:
+    t = r.get('t')
+    b = r.get('bot') or {}
+    name = b.get('name')
+    if not name or t is None:
+        continue
+    arm = 'canary' if pool_of(name) in CANS else 'control'
+    if PRE <= t < END and b.get('tools') is not None and b.get('inventory') is not None:
+        latest['post' if t >= CUT else 'pre'][name] = b
+    if r.get('name') == '_wear_out' and CUT <= t < END:
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if arm == 'canary' and CV and not ver.startswith(CV):
+            offbuild += 1
+        elif r.get('status') == 'success':
+            wear[arm] += 1
+            p = prev.get(name)
+            if not p or (t - p[0]).total_seconds() > 120:
+                pairs_missing[arm] += 1
+            else:
+                lost = usable(p[1]) - usable(b)
+                if lost:
+                    usable_lost[arm] += 1; examples.append('%s lost %s' % (name, dict(lost)))
+                if spentp(b) < min(3, spentp(p[1])):
+                    keeps_short[arm] += 1; examples.append('%s kept %d of %d spent picks' % (name, spentp(b), spentp(p[1])))
+        else:
+            wear_fail[arm] += 1
+    if b.get('tools') is not None:
+        prev[name] = (t, b)
+
+
+def med_slots(period, arm):
+    v = sorted(slots(b) for n, b in latest[period].items() if ('canary' if pool_of(n) in CANS else 'control') == arm)
+    return (v[len(v) // 2] if v else float('nan')), len(v)
+
+
+def junk(period, arm):
+    v = [sum(c for k, c in (b.get('inventory') or {}).items() if k in NEVER_KEEP)
+         for n, b in latest[period].items() if ('canary' if pool_of(n) in CANS else 'control') == arm]
+    return (sum(v) / len(v)) if v else float('nan')
+
+
+full_control = sum(1 for n, b in latest['post'].items() if pool_of(n) not in CANS and slots(b) >= 34)
+print('-' * 78)
+print('%-48s %10s %10s' % ('', 'canary', 'control'))
+print('%-48s %10d %10d' % ('_wear_out successes (LIVENESS; control must be 0)', wear['canary'], wear['control']))
+print('%-48s %10d %10d' % ('_wear_out failures', wear_fail['canary'], wear_fail['control']))
+print('%-48s %10d %10d' % ('  ... a usable (>= 2 uses) tool lost (DEFECT)', usable_lost['canary'], usable_lost['control']))
+print('%-48s %10d %10d' % ('  ... fewer than min(3, before) spent picks kept', keeps_short['canary'], keeps_short['control']))
+print('%-48s %10d %10d' % ('  ... no snapshot within 120 s before', pairs_missing['canary'], pairs_missing['control']))
+print('%-48s %10d' % ('canary-pool rows from another build', offbuild))
+for e in examples[:6]:
+    print('   ', e)
+ms = {(p, a): med_slots(p, a) for p in ('pre', 'post') for a in ('canary', 'control')}
+jk = {(p, a): junk(p, a) for p in ('pre', 'post') for a in ('canary', 'control')}
+did_slots = (ms[('post', 'canary')][0] - ms[('pre', 'canary')][0]) - (ms[('post', 'control')][0] - ms[('pre', 'control')][0])
+did_junk = (jk[('post', 'canary')] - jk[('pre', 'canary')]) - (jk[('post', 'control')] - jk[('pre', 'control')])
+print('median est. slots   canary %s -> %s | control %s -> %s | DiD %+.1f' % (ms[('pre', 'canary')][0], ms[('post', 'canary')][0], ms[('pre', 'control')][0], ms[('post', 'control')][0], did_slots))
+print('NEVER_KEEP held/bot canary %.1f -> %.1f | control %.1f -> %.1f | DiD %+.1f' % (jk[('pre', 'canary')], jk[('post', 'canary')], jk[('pre', 'control')], jk[('post', 'control')], did_junk))
+print('-' * 78)
+print('CORRECTNESS  canary usable tools lost %d, keeps short %d (both must be 0)' % (usable_lost['canary'], keeps_short['canary']))
+print('LIVENESS     canary wear_out successes %d (>= 1)  |  control %d (must be 0)' % (wear['canary'], wear['control']))
+print('INSTRUMENT   control bots at >= 34 est. slots %d (must be >= 1)' % full_control)
+print('READY        %s' % ('YES' if wear['canary'] >= 1 and full_control >= 1 else 'not yet'))
+
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('hygieneread', W, {
+        'wear_canary': wear['canary'], 'wear_control': wear['control'],
+        'wear_fail_canary': wear_fail['canary'],
+        'usable_lost_canary': usable_lost['canary'], 'keeps_short_canary': keeps_short['canary'],
+        'pairs_missing_canary': pairs_missing['canary'], 'offbuild_canary': offbuild,
+        'full_control': full_control,
+        'slots_did': did_slots, 'junk_did': round(did_junk, 2),
+        'exposure_ready': int(wear['canary'] >= 1 and full_control >= 1),
+    })
+except Exception as e:
+    print('emit failed:', e)

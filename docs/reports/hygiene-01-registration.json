@@ -1,0 +1,109 @@
+{
+ "run_id": "hygiene-01",
+ "sha": "SET-AT-LAUNCH: branch inventory-hygiene rebased onto the fleet sha at launch (after lastswing-01 is decided; hygiene keeps 3 spent pickaxes FOR last-swing)",
+ "registered_at": "2026-09-29T05:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "OWNER 2026-09-29: 'stop bots from collecting and keeping junk'. Measured 09-29 04:50Z: 47 of 80 bots at >= 34 estimated slots of 36; control bots hold ~178 NEVER_KEEP items each. THE CHANGE (70bf6a2 + 55222a4): pickupNearbyItems never walks to NEVER_KEEP ballast; at 34+ slots a deterministic `wear_out` work order destroys spent tools (EXACTLY 1 use) by using them once on a natural block (allowlist; ledge/sapling/cave/occupied-cell guards), keeping 3 spent pickaxes for last-swing, at most 4 per order, verified by count; a failed order backs off 30 min; wear_out is neither a milestone attempt nor a lessons success. Nothing is dropped, so nothing reaches another bot. Reviewed by Claude and Codex independently; 15 tests, 10 anchored mutants killed; 205/205. SANDBOX: '36 -> 32 slots: 4 of 4 worn out', 3 spent pickaxes kept, bot unmoved. WHY THE GATE IS CORRECTNESS: deterministic housekeeping; the fleet question is whether it ran and whether it ever destroyed something usable.",
+ "licence": {
+  "class": "kind",
+  "row": "_wear_out",
+  "min_rows": 1,
+  "note": "The baseline has no wear_out skill or row kind. 47/80 bots are over the 34-slot trigger, so a 5-bot pool should fire within the first hour."
+ },
+ "reads": [
+  "hygieneread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "an active pool (tripwire, not a filter)",
+    "kind": "gather",
+    "min": 10
+   }
+  ],
+  "note": "drawexposure.py counts row kinds only and cannot see slot pressure. The dry run's pool hive-c sat at a median of 21 slots against 35 in control, so the OPERATOR checks before launch that the drawn pool has >= 2 bots at >= 34 estimated slots (hygieneread prints it); otherwise redraw. This is a manual step and is named here so it is not skipped."
+ },
+ "exposure": {
+  "read": "hygieneread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = at least one canary-build `_wear_out` success AND at least one control bot at >= 34 estimated slots (the slot estimator sees a presence)."
+ },
+ "own_lines": [
+  {
+   "read": "hygieneread",
+   "field": "usable_lost_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS. A tool copy with >= 2 uses present in the bot's snapshot before a `_wear_out` and gone after it. Deterministic; the pairing logic is asserted against a synthetic case before any fleet row."
+  },
+  {
+   "read": "hygieneread",
+   "field": "keeps_short_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CORRECTNESS. Fewer than min(3, before) spent pickaxes kept: last-swing loses its material."
+  },
+  {
+   "read": "hygieneread",
+   "field": "wear_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "The baseline cannot write `_wear_out`; a control row means the arms are wrong. No evidence class: BLOCKS KEEP."
+  },
+  {
+   "read": "hygieneread",
+   "field": "wear_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. No evidence class: BLOCKS KEEP (INCONCLUSIVE), never reverts."
+  },
+  {
+   "read": "hygieneread",
+   "field": "full_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL for the slot estimator (50 in the dry run). No evidence class: BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "hygieneread",
+  "field": "slots_did",
+  "note": "REPORTED, NOT GATED: DiD of median estimated slots (expected to fall) and junk_did (NEVER_KEEP items held per bot; expected to stop rising). pairs_missing_canary is reported: a wear_out with no snapshot within 120 s before cannot be checked and is named in the read."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}
