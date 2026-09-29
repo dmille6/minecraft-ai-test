@@ -271,6 +271,11 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
   the bank (inside the bank fix), (3) durability-aware ladder, (4) end the idle gap (skipCount never resets),
   (5) shared recipe/capability predicates (milestones.mjs:376 counts andesite etc. as cobble).
   **OWNER APPROVED all five into the queue, 2026-09-28.**
+  **COLONY LAYER, two-engine analysis 2026-09-29** (`docs/reports/colony-design-2026-09-29.md`): not built. Both:
+  coordination is not the problem yet (3.5% contention); ACCESS is (stone_pickaxe failures are 3 cobble short,
+  bank full). Plan: (1) chest ledger observe-only, (2) craft/withdraw source from the bank deterministically,
+  (3) unify sharing as its own step + a deterministic needs-vector "mayor" that reorders, never vetoes; chat stays
+  outbound (fix only with auth + commands.mjs lockdown); claims later, with the ore tunnel. Canary unit = a world.
   **IRON RESEARCH 2026-09-29** (`docs/reports/iron-research-2026-09-29.md`, both engines): anti-xray is OFF on
   all worlds, so bots KNOW every ore; nearest iron median 15 blocks. Item (1) becomes a Baritone-style COSTED
   TUNNEL to known ore (not novel: Baritone MineProcess does it) + hazard mask + exit-contract budget + cluster
