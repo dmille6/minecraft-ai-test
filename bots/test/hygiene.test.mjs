@@ -2,7 +2,7 @@
 // The measurement and the owner's decision are in src/hygiene.mjs.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { wearOutPlan, wearTarget, neverPickUp, TRIGGER_SLOTS, SPENT_PICKAXES_KEPT } from '../src/hygiene.mjs'
+import { wearOutPlan, wearTarget, neverPickUp, TRIGGER_SLOTS, SPENT_PICKAXES_KEPT, MAX_PER_ORDER } from '../src/hygiene.mjs'
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -17,24 +17,31 @@ await t(`below ${TRIGGER_SLOTS} slots nothing is worn out`, () => {
   assert.deepEqual(wearOutPlan(inv).tools, [])
 })
 
-await t(`every spent axe/shovel/hoe goes; spent pickaxes beyond ${SPENT_PICKAXES_KEPT} go; nothing with 2+ uses, no sword`, () => {
+await t(`spent = EXACTLY 1 use: axes/hoes go, pickaxes beyond ${SPENT_PICKAXES_KEPT} go, phantom 0-use copies are neither worn nor kept`, () => {
   slotN = 9
-  const spent = [tool('stone_axe', 1), tool('wooden_shovel', 0, 59), tool('stone_hoe', 1),
-                 tool('stone_pickaxe', 1), tool('stone_pickaxe', 1), tool('wooden_pickaxe', 1, 59), tool('stone_pickaxe', 0), tool('stone_pickaxe', 1)]
+  const spent = [tool('stone_axe', 1), tool('stone_hoe', 1), tool('wooden_shovel', 0, 59),
+                 tool('stone_pickaxe', 0), tool('stone_pickaxe', 0), tool('stone_pickaxe', 1), tool('stone_pickaxe', 1), tool('stone_pickaxe', 1), tool('wooden_pickaxe', 1, 59)]
   const keep = [tool('stone_pickaxe', 2), tool('iron_pickaxe', 200, 250), tool('stone_axe', 50), tool('stone_sword', 1)]
-  const inv = filled(36, [...spent, ...keep])
-  const out = wearOutPlan(inv).tools
-  assert.ok(out.every(x => (x.maxDurability - x.durabilityUsed) <= 1), 'only spent copies')
-  assert.equal(out.filter(x => x.name.endsWith('_pickaxe')).length, 5 - SPENT_PICKAXES_KEPT)
-  for (const n of ['stone_axe', 'wooden_shovel', 'stone_hoe']) assert.ok(out.some(x => x.name === n), n)
+  const out = wearOutPlan(filled(36, [...spent, ...keep])).tools
+  assert.ok(out.every(x => (x.maxDurability - x.durabilityUsed) === 1), 'only copies at exactly 1 use')
+  assert.equal(out.filter(x => x.name.endsWith('_pickaxe')).length, 4 - SPENT_PICKAXES_KEPT, 'three REAL 1-use pickaxes kept; the 0-use phantoms do not count')
+  for (const n of ['stone_axe', 'stone_hoe']) assert.ok(out.some(x => x.name === n), n)
+  assert.ok(!out.some(x => x.name === 'wooden_shovel'), 'a 0-use copy is not real')
   assert.ok(!out.some(x => x.name === 'stone_sword'), 'swords are not worn out')
 })
 
-await t('wearTarget: dirt, stone and logs yes; air, plants, stations, containers, beds, farmland, obsidian, bedrock no', () => {
+await t(`at most ${MAX_PER_ORDER} tools per order`, () => {
+  slotN = 9
+  const inv = filled(36, Array.from({ length: 8 }, () => tool('stone_axe', 1)))
+  assert.equal(wearOutPlan(inv).tools.length, MAX_PER_ORDER)
+})
+
+await t('wearTarget is an ALLOWLIST of natural blocks: no ice, glass, built blocks, stations, plants', () => {
   const b = (name, hardness, boundingBox = 'block') => ({ name, hardness, boundingBox })
-  for (const x of [b('dirt', 0.5), b('stone', 1.5), b('oak_log', 2), b('grass_block', 0.6)]) assert.equal(wearTarget(x), true, x.name)
-  for (const x of [b('air', 0, 'empty'), b('oak_sapling', 0, 'empty'), b('short_grass', 0, 'empty'), b('chest', 2.5), b('crafting_table', 2.5),
-                   b('furnace', 3.5), b('red_bed', 0.2), b('farmland', 0.6), b('obsidian', 50), b('bedrock', -1), b('barrel', 2.5), b('leaf_litter', 0)])
+  for (const x of [b('dirt', 0.5), b('stone', 1.5), b('andesite', 1.5), b('oak_log', 2), b('grass_block', 0.6), b('netherrack', 0.4)]) assert.equal(wearTarget(x), true, x.name)
+  for (const x of [b('air', 0, 'empty'), b('oak_sapling', 0, 'empty'), b('chest', 2.5), b('crafting_table', 2.5), b('ice', 0.5), b('glass', 0.3),
+                   b('oak_planks', 2), b('cobblestone', 2), b('white_wool', 0.8), b('bookshelf', 1.5), b('infested_stone', 0.75),
+                   b('furnace', 3.5), b('red_bed', 0.2), b('farmland', 0.6), b('obsidian', 50), b('deepslate', 3), b('leaf_litter', 0)])
     assert.equal(wearTarget(x), false, x.name)
 })
 
@@ -53,7 +60,7 @@ const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c), 
 function fakeBot ({ inv, toolBreaks = true, solidAround = true }) {
   const dug = []
   const bot = {
-    heldItem: null, entity: { position: V(0, 64, 0) },
+    heldItem: null, entity: { position: V(0, 64, 0) }, entities: {},
     inventory: { items: () => inv },
     blockAt: p => (solidAround && !(p.x === 0 && p.z === 0) ? { name: 'dirt', hardness: 0.5, boundingBox: 'block', position: p } : { name: 'air', hardness: 0, boundingBox: 'empty', position: p }),
     canDigBlock: () => true,
@@ -70,13 +77,14 @@ await t('wear_out is registered, has a loss contract, and is chatOnly -- the mod
   assert.equal(SKILLS.discard, undefined, 'the tossing skill is gone')
 })
 
-await t('each planned tool is used for ONE dig on a side block, and is verified gone', async () => {
+await t('each planned tool is used for ONE dig on a side block at feet or head height, and is verified gone', async () => {
   const inv = filled(36, [tool('stone_axe', 1), tool('stone_hoe', 1), tool('stone_pickaxe', 90)])
   const { bot, dug } = fakeBot({ inv })
   const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
   assert.equal(r.status, 'success', r.detail)
   assert.equal(dug.length, 2)
-  assert.ok(dug.every(p => !(p.x === 0 && p.z === 0)), 'never the block under the bot')
+  assert.ok(dug.every(p => !(p.x === 0 && p.z === 0)), 'never the bot\'s own column')
+  assert.ok(dug.every(p => p.y >= 64), `never below the bot's feet: ${dug.map(p => p.y)}`)
   assert.ok(inv.some(x => x.name === 'stone_pickaxe'), 'the pickaxe with uses is untouched')
   assert.equal(inv.length, 34)
 })
@@ -86,6 +94,50 @@ await t('a tool that SURVIVES the dig is reported, not claimed', async () => {
   const { bot } = fakeBot({ inv, toolBreaks: false })
   const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
   assert.equal(r.status, 'failed'); assert.match(r.detail, /survived/)
+})
+
+const ground = (bot, { above = 'air', below = 'block' } = {}) => {
+  bot.blockAt = p => p.y === 63 ? { name: 'dirt', hardness: 0.5, boundingBox: 'block', position: p }
+    : p.y === 62 ? { name: below === 'block' ? 'stone' : 'cave_air', hardness: 1.5, boundingBox: below, position: p }
+    : p.y === 64 && above !== 'air' && !(p.x === 0 && p.z === 0) ? { name: above, hardness: 0, boundingBox: 'empty', position: p }
+    : { name: 'air', hardness: 0, boundingBox: 'empty', position: p }
+}
+await t('open ground: the ground beside the feet IS used, when it is safe', async () => {
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot, dug } = fakeBot({ inv }); ground(bot)
+  bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) }
+  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  assert.equal(r.status, 'success', r.detail); assert.equal(dug.length, 1); assert.equal(dug[0].y, 63)
+})
+await t('but NEVER when the bot straddles onto that column (the ledge), a plant sits on it, or a cave is under it', async () => {
+  for (const [label, setup] of [
+    ['ledge', bot => { ground(bot); bot.entity.position = { ...V(0.75, 64, 0.5), floored: () => V(0, 64, 0) } }],
+    ['sapling', bot => { ground(bot, { above: 'oak_sapling' }); bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) } }],
+    ['cave', bot => { ground(bot, { below: 'empty' }); bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) } }],
+  ]) {
+    const inv = filled(36, [tool('stone_axe', 1)])
+    const { bot, dug } = fakeBot({ inv }); setup(bot)
+    await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+    if (label === 'ledge') assert.ok(!dug.some(p => p.x === 1 && p.z === 0), `ledge: dug the column the bot stands on: ${JSON.stringify(dug)}`)
+    else assert.equal(dug.length, 0, `${label}: dug ${JSON.stringify(dug)}`)
+  }
+})
+
+await t('a same-name copy WITH USES in hand is never the one that digs', async () => {
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot, dug } = fakeBot({ inv })
+  bot.equip = async () => { bot.heldItem = { ...tool('stone_axe', 90) } }   // the server put a healthy axe in hand
+  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  assert.equal(dug.length, 0); assert.match(r.detail, /could not hold a spent/)
+})
+
+await t('a cell another bot stands in is never dug', async () => {
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot, dug } = fakeBot({ inv })
+  // another entity occupies every side column at feet height
+  bot.entities = Object.fromEntries([[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, z], i) => [i, { position: V(x + 0.5, 64, z + 0.5) }]))
+  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  assert.equal(dug.length, 0, `dug ${JSON.stringify(dug)}`); assert.equal(r.status, 'failed')
 })
 
 await t('an equip that does not take digs NOTHING with the hand -- it stops and says so', async () => {
@@ -112,6 +164,9 @@ await t('WIRING (source, comments stripped): the order precedes planting, is coo
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.match(sk, /e\.name === 'item' && !refused\.has\(e\.id\) && !neverPickUp\(e\)/)
   assert.ok(!/\.tossStack\(|bot\.toss\(/.test(sk), 'no skill tosses items')
+  assert.match(cog, /admitted\.skill === 'wear_out'\) this\.wearOutBackoffUntil = r\.status === 'failed'/, 'a failed wear-out backs off')
+  assert.match(cog, /admitted\?\.skill !== 'wear_out' && this\.milestones\.noteAttempt\(/, 'wear-out is not a milestone attempt')
+  assert.match(cog, /if \(admitted\.skill !== 'wear_out'\) this\.lessons\.recordSuccess\(/, 'wear-out never becomes a reliable choice')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

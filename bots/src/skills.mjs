@@ -28,7 +28,7 @@
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
-import { wearOutPlan, wearTarget, neverPickUp } from './hygiene.mjs'
+import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -3772,29 +3772,49 @@ async function wearOut(ctx, _args, signal) {
   const { bot } = ctx
   const plan = wearOutPlan(bot.inventory?.items?.() ?? [])
   if (!plan.tools.length) return { status: 'no_effect', detail: `no spent tool to wear out at ${plan.slots} of 36 slots` }
-  const here = bot.entity?.position?.floored?.() ?? bot.entity?.position
-  if (!here) return { status: 'no_effect', detail: 'no position' }
-  // Side cells only -- never the block under the bot: head height first (a tunnel wall), then feet height, then
-  // the ground beside it. roomVeto refuses liquid, a falling block above, and anything it cannot read.
-  const cells = []
-  for (const dy of [1, 0, -1]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) cells.push(here.offset(dx, dy, dz))
+  const spentOf = name => (bot.inventory?.items?.() ?? []).filter(i => i.name === name && remaining(i) === 1).length
   const destroyed = []
   let stopped = null
   for (const tool of plan.tools) {
     check(signal)
-    const cell = cells.find(c => { const b = bot.blockAt(c); return wearTarget(b) && !roomVeto(bot, c) && (bot.canDigBlock?.(b) ?? true) })
+    // Recomputed every tool, from where the bot stands NOW. Side cells at head and feet height first; the ground
+    // beside the feet only under the guards below (both reviews: an unguarded dy=-1 dig undermined the bot on a
+    // ledge, popped a planted sapling off its grass, and can open a cave). No cell another entity stands in.
+    // Stone first, so a non-pickaxe breaks without a drop.
+    const here = bot.entity?.position?.floored?.() ?? bot.entity?.position
+    if (!here) { stopped = 'no position'; break }
+    const occupied = c => Object.values(bot.entities ?? {}).some(e => e !== bot.entity && e?.position &&
+      Math.floor(e.position.x) === c.x && Math.floor(e.position.z) === c.z && Math.abs(Math.floor(e.position.y) - c.y) <= 1)
+    const cells = []
+    for (const dy of [1, 0, -1]) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) cells.push(here.offset(dx, dy, dz))
+    // THE GROUND BESIDE THE FEET (dy=-1) only with three guards, because on open ground it is the only block in
+    // reach: its column is outside the bot's own footprint (a bot straddling onto the neighbour cell stands ON it),
+    // the cell above it is plain air by NAME (a sapling or plant there has 'empty' bounds and would be popped),
+    // and the block below it is solid (no hole into a cave).
+    const pos = bot.entity?.position
+    const underfoot = c => pos && c.x + 1 > pos.x - 0.3 && c.x < pos.x + 0.3 && c.z + 1 > pos.z - 0.3 && c.z < pos.z + 0.3
+    const groundOk = c => c.y >= here.y || (!underfoot(c) && /^(air|cave_air)$/.test(bot.blockAt(c.offset(0, 1, 0))?.name ?? '') &&
+                                            bot.blockAt(c.offset(0, -1, 0))?.boundingBox === 'block')
+    const cell = cells.filter(c => { const bl = bot.blockAt(c); return wearTarget(bl) && groundOk(c) && !roomVeto(bot, c) && !occupied(c) && (bot.canDigBlock?.(bl) ?? true) })
+      .sort((x, y) => (x.y < here.y) - (y.y < here.y) || wearRank(bot.blockAt(x).name) - wearRank(bot.blockAt(y).name))[0]
     if (!cell) { stopped = 'no safe block within reach'; break }
     const block = bot.blockAt(cell)
+    const before = spentOf(tool.name)
     await bot.equip(tool, 'hand').catch(() => {})
-    if (bot.heldItem?.name !== tool.name) { stopped = `could not hold the ${tool.name}`; break }
+    check(signal)
+    // THE COPY IN HAND MUST BE A SPENT ONE (Codex review): equip errors are swallowed, and a same-name copy with
+    // uses must never be the one that digs.
+    const held = bot.heldItem
+    if (!held || held.name !== tool.name || remaining(held) !== 1) { stopped = `could not hold a spent ${tool.name}`; break }
     try {
       await withTimeout(bot.dig(block, true), 10_000, bot, { what: 'dig', needsDrop: false, onTimeout: () => { try { bot.stopDigging?.() } catch {} } })
     } catch (e) { if (e?.aborted || signal?.aborted) throw e; stopped = `dig failed: ${String(e?.message ?? e).slice(0, 40)}`; break }
     await bot.waitForTicks?.(2)
-    const still = (bot.inventory?.items?.() ?? []).some(i => i.slot === tool.slot && i.name === tool.name && (i.durabilityUsed ?? 0) === (tool.durabilityUsed ?? 0))
-    if (still) { stopped = `${tool.name} survived the dig on ${block.name}`; break }
+    // VERIFIED BY COUNT, not by slot: one fewer spent copy of that name (Codex review).
+    if (spentOf(tool.name) !== before - 1) { stopped = `${tool.name} survived the dig on ${block.name}`; break }
     destroyed.push(`${tool.name} on ${block.name}`)
   }
+  await bot.waitForTicks?.(12)   // a block drop is collectable after 10 ticks: count the slots after it could land
   const after = bot.inventory?.items?.().length ?? plan.slots
   logEvent({ kind: 'wear_out', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot),
              detail: `${plan.slots} -> ${after} slots: ${destroyed.length} of ${plan.tools.length} spent tool(s) worn out` +
