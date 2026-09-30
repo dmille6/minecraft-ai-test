@@ -17,6 +17,14 @@ else:
     CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00')); RUN = man.get('run_id') or 'none'
 elapsed = (dt.datetime.now(dt.timezone.utc) - CUT).total_seconds() / 60
 W = int(min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180))
+# prereq-usable rides in the bundle only when lastswing-01 was promoted (09-30); when the registration lists its read,
+# it is a member like the others -- it must not pass vacuously either.
+try:
+    _reads = json.load(open(os.path.expanduser(f'~/mcai-analysis/registrations/{RUN}.json')))['reads']
+except Exception:
+    _reads = []
+if 'prequsableread' in _reads:
+    MEMBERS.append('prequsableread')
 D = os.environ.get('READS_DIR') if ovr and os.environ.get('READS_DIR') else os.path.expanduser('~/digest/reads')   # dry-run tests only
 ready, pending, missing = [], [], []
 for m in MEMBERS:

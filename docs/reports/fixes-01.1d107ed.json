@@ -1,0 +1,193 @@
+{
+ "run_id": "fixes-01",
+ "sha": "ecf33b6",
+ "registered_at": "2026-09-30T11:45:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "VARIANT for fleet 1d107ed (lastswing-01 NOT promoted): fixes-bundle ecf33b6 = 1d107ed + digsync + stale-stop + craft-advice + hive-progress; prereq-usable is NOT in it (it is built on last-swing). THE FIXES BUNDLE (owner 09-29 evening: 'bundle the small fixes'). Members, each built, reviewed by both engines and tested on its own: (1) digsync -- ghost blocks: a server-refused dig is rolled back and player_loaded is sent (proved on the sandbox: 3 ghosts -> 0); (2) stale-stop -- a pathfinder stop flag no longer kills the next walk (13,275 pickup drops retired unreached in 6 h); (3) craft-advice -- a surface bot is told cobblestone, not cobbled_deepslate (42% of craft rows), torch never 'charcoal' (LOW IMPACT by both reviews; correctness only); (4) hive-progress -- a hive bot's milestone progress survives a restart in its own slot. Clean merge, 207/207, sandbox smoke (gather logs + cobble, deposit, no errors). A REVERT names its member (each line is tagged); that member is dropped and the rest rerun. EXPOSURE is the AGGREGATE (fixesbundleread): ready only when digsync, stalestop and craftadvice can each be judged -- no member passes vacuously.",
+ "licence": {
+  "class": "kind",
+  "min_rows": 1,
+  "note": "The baseline has no digsync module and no `_dig_sync`/`_dig_rollback` row kinds. Every canary bot writes a heartbeat every 10 minutes and on disconnect, so rows are certain within the first read.",
+  "kind": "_dig_sync"
+ },
+ "reads": [
+  "digsyncread",
+  "stalestopread",
+  "craftadviceread",
+  "hiveprogressread",
+  "fixesbundleread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "stuck bots in the pool (the population a ghost strands)",
+    "kind": "_reflex_stuck",
+    "min": 2
+   },
+   {
+    "name": "pickup skips (the population this fixes)",
+    "kind": "_pickup_skipped",
+    "min": 30
+   }
+  ],
+  "note": "Union of the members' draw requirements (digsync: stuck bots; stalestop: pickup skips)."
+ },
+ "exposure": {
+  "read": "fixesbundleread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Every member's own exposure_ready, for the same window."
+ },
+ "own_lines": [
+  {
+   "read": "digsyncread",
+   "field": "predict_failed_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "[digsync] CORRECTNESS. The bookkeeping in front of every dig failed on the fleet (the packet still went out, by design). Deterministic; expected 0."
+  },
+  {
+   "read": "digsyncread",
+   "field": "loaded_short_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "[digsync] WIRING. A spawn without player_loaded means the handshake did not run and the 3-s dig blackout is still there."
+  },
+  {
+   "read": "digsyncread",
+   "field": "heartbeat_missing_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "[digsync] LIVENESS/COVERAGE: every canary bot seen must write the heartbeat. No evidence class: BLOCKS KEEP."
+  },
+  {
+   "read": "digsyncread",
+   "field": "sync_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "[digsync] The baseline cannot write these kinds; a control row means the arms are wrong. BLOCKS KEEP."
+  },
+  {
+   "read": "digsyncread",
+   "field": "reflex_stuck_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "[digsync] POSITIVE CONTROL for the outcome query (78 in the dry run). BLOCKS KEEP."
+  },
+  {
+   "read": "stalestopread",
+   "field": "instant_over_1pct",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "[stalestop] CORRECTNESS: more than 1% of the canary's enriched skip rows are err=PathStopped in < 200 ms -- walks killed before they began, the stale-flag signature. Judged only on >= 30 enriched rows (a pool without the fix writes none, and a zero there would be vacuous)."
+  },
+  {
+   "read": "stalestopread",
+   "field": "err_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "[stalestop] Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "stalestopread",
+   "field": "err_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "[stalestop] LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "stalestopread",
+   "field": "fast_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "[stalestop] POSITIVE CONTROL: the fast re-skip signature is visible in control (932 in the dry run). BLOCKS KEEP."
+  },
+  {
+   "read": "craftadviceread",
+   "field": "deepslate_advice_judged",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "[craftadvice] CORRECTNESS: a canary craft row at y >= 0 advising cobbled_deepslate while holding none. Judged on >= 10 stone-family craft rows."
+  },
+  {
+   "read": "craftadviceread",
+   "field": "charcoal_advice_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "[craftadvice] CORRECTNESS: 'gather charcoal' (smelted, never gathered)."
+  },
+  {
+   "read": "craftadviceread",
+   "field": "defect_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "[craftadvice] POSITIVE CONTROL (293 in a 3 h dry run). BLOCKS KEEP."
+  },
+  {
+   "read": "hiveprogressread",
+   "field": "restored_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "[hiveprogress] LIVENESS: every canary bot writes _progress_restored at the deploy restart. BLOCKS KEEP."
+  },
+  {
+   "read": "hiveprogressread",
+   "field": "restored_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "[hiveprogress] Arms. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "fixesbundleread",
+  "field": "members_ready",
+  "note": "REPORTED, NOT GATED: each member's primary (see its own registration)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for fixes (owner 2026-09-29)."
+ }
+}
