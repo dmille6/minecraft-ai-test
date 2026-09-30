@@ -109,6 +109,22 @@ Registrations docs: `docs/reports/fixes-01.{1d107ed,8ed9450}.json`; base `fixes-
    rows), **idlegap-01** (idle-gap c7d0d99), **bankfix-01** (bank-fix 15dec57 = chest-ledger + tool-keeper-2 +
    withdraw-home + tiers; gate reads ledger/RCON, never `_deposit_window`), **exploretoward-01** (explore-toward
    86e8985), **vetoretry-01** (veto-retry 1efd82c; d0c47c6 follows it). Registrations staged in docs/reports.
+3b. **tool-safe** `e837c03` (branch tool-safe, on 8ed9450) -- BUILT 09-30, both implementation reviews RUNNING.
+   PROVED on the sandbox: mineflayer's unequip('hand') TOSSES the held stack on a full bag (36/36: the pickaxe on the
+   ground; 35/36 control: kept); the reflex called it unguarded at 6 sites -> ~45 stone pickaxes with > 10 uses lost a
+   day (Claude analysis; 36/45 near an escape). emptyHand never tosses (sandbox re-run: dirt swapped in, pickaxe kept);
+   pickScaffold cheapest-first at the 5 escape sites (~1,200 logs/day, both engines); travelTool holds a filler, not a
+   pickaxe, when the hand will do (~1,630 uses/day, both engines). 11 tests, 5 mutants, 206/206. Candidate member of
+   the fixes bundle's 8ed9450 variant.
+3c. **COMPOSTER (hygiene phase 2) -- DESIGNED by both engines 09-30, not built.** Agreed: one composter per town;
+   deterministic, only when a bot is ALREADY at town with >= 34 slots (after a deposit), never a trip, never a model
+   skill; compost non-food non-sapling junk (leaf litter first -- the biggest; seeds/flowers/grass verified compostable
+   on Paper 1.21.11); every insert at levels 0-6 consumes the item; take the bone meal at level 8; eggs deferred (chicks
+   lay more eggs); keep saplings/apples; one builder per town (7 slabs), placed >= 3 blocks from any container (lid
+   digs) with onContainerLid. VERIFIED: items FLOAT in water (the owner's ocean idea would drift and be re-collected;
+   drowning is the top death at 17-18 of ~40/day). Builds on hygiene phase 1 + the bank fix. Designs:
+   scratchpad codex-composter.out and the Claude report (in the session). SIDE FINDING: ~6,000 bamboo carried; 2 bamboo
+   = 1 stick (sticks block stone pickaxes).
 4. PARKED: `tool-guard` b1d6b62 (Codex rejects the composition; population zero today) — revisit after
    lastswing-01 shows how many bots reach zero pickaxes.
 5. Analysis backlog (only when no canary is unread): why `gather cobblestone` ends no_path at the surface (321 of
