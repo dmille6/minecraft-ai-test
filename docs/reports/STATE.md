@@ -114,8 +114,16 @@ Registrations docs: `docs/reports/fixes-01.{1d107ed,8ed9450}.json`; base `fixes-
    ground; 35/36 control: kept); the reflex called it unguarded at 6 sites -> ~45 stone pickaxes with > 10 uses lost a
    day (Claude analysis; 36/45 near an escape). emptyHand never tosses (sandbox re-run: dirt swapped in, pickaxe kept);
    pickScaffold cheapest-first at the 5 escape sites (~1,200 logs/day, both engines); travelTool holds a filler, not a
-   pickaxe, when the hand will do (~1,630 uses/day, both engines). 11 tests, 5 mutants, 206/206. Candidate member of
-   the fixes bundle's 8ed9450 variant.
+   pickaxe, when the hand will do (~1,630 uses/day, both engines). BOTH IMPLEMENTATION REVIEWS APPLIED -> `5756ff2`:
+   Claude (log only tool tosses; cobblestone after other cheap blocks; a dead scaffold pick removed; a real-window
+   test of mineflayer's own simple_inventory) and Codex (unequip can toss even with a free slot -> the filler FIRST;
+   a bag of only tools selects a non-pickaxe hotbar item so the escape never swings the last pickaxe; results
+   checked; unknown inventory is not free). Sandbox re-run: 36/36 and 35/36 -> dirt in hand, pickaxe kept, nothing on
+   the ground. 207/207, 9 mutants. READ staged: docs/reports/toolsafe-read.py.txt = /tmp/toolsaferead.py (gate: canary
+   pickaxes with > 10 uses lost outside deposit/death <= 2 on >= 40 bot-h; dry run on today's code: placebo-d+isolated-d
+   lost 22 in 6 h, all near an escape -> the gate FAILS the defect; control 66). JOINS THE FIXES BUNDLE (8ed9450
+   variant) after hygiene: merge tool-safe into fixes-bundle-on-8ed9450, add toolsaferead to its reads/own_lines and to
+   fixesbundleread's members.
 3c. **COMPOSTER (hygiene phase 2) -- DESIGNED by both engines 09-30, not built.** Agreed: one composter per town;
    deterministic, only when a bot is ALREADY at town with >= 34 slots (after a deposit), never a trip, never a model
    skill; compost non-food non-sapling junk (leaf litter first -- the biggest; seeds/flowers/grass verified compostable
