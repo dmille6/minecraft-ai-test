@@ -431,7 +431,14 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Teardown verified by me: 80/80 bots report 80b3bbd, no drop-ins, 80 running.
     - Its deposit change is folded into the bank-fix bundle (the same code) rather than a separate
       fleet-wide deploy.
-  - **deathfix-02 DEPLOYED 02:26Z to placebo-b,placebo-a,board-c,board-d (20 bots, 1d107ed)** -- after an INCIDENT: the
+  - **deathfix-02 KEEP (+360, 08:33Z) and PROMOTED fleet-wide (08:43Z): THE FLEET IS NOW 1d107ed (80/80 verified).**
+    2 canary deaths in 120 bot-h vs 6 in 240 (0.67x; the death gate held -- too few to tell from noise); exposure
+    ready (fall-death rows back). The +180 NOT_YET no longer ended it (the loop fix works). main merged
+    fall-death-tdz (8f458f5; main-pre-20260930 kept). EVERY queued branch built on 80b3bbd must now rebase onto
+    1d107ed at its launch (it touches index.mjs only: expect clean).
+  - **lastswing-01 AUTO-LAUNCHED 08:45Z by the chain** (registration lastswing-01.1d107ed -> sha 8ed9450); preflight,
+    licence and gate digest OK 08:46Z; in the draw.
+  - (history) deathfix-02 DEPLOYED 02:26Z to placebo-b,placebo-a,board-c,board-d (20 bots, 1d107ed) -- after an INCIDENT: the
     notes (mine) quoted the loop's own prose in double quotes; deploy-fleet.sh writes the manifest with a heredoc, so the
     manifest did not parse. The verifier timed out, the tripper read "undeclared code change" for all 80 (DRY-RUN:
     nothing stopped; 80/80 kept running), every read was blind, and the loop exited with the canary deployed and
