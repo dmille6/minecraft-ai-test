@@ -436,6 +436,11 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     ready (fall-death rows back). The +180 NOT_YET no longer ended it (the loop fix works). main merged
     fall-death-tdz (8f458f5; main-pre-20260930 kept). EVERY queued branch built on 80b3bbd must now rebase onto
     1d107ed at its launch (it touches index.mjs only: expect clean).
+  - **EVERY QUEUED BRANCH NOW CARRIES 1d107ed (09-30 ~09:30Z; merged, full suite green, pushed):** fixes-bundle ecf33b6
+    (208/208), bank-fix 15dec57 (210/210), explore-toward 86e8985, veto-retry 1efd82c, idle-gap c7d0d99 (205/205 each),
+    ore-tunnel 7ab4f23 (207/207), inventory-hygiene 43dffe8 (206/206). Launch shas = these unless the fleet moves again.
+  - lastswing-01 draw: only 7 pools pass its exposure filter and only board-a is free now; hive-c frees 12:59Z ->
+    expected draw ~13:00Z. (The aborted-stone-dig signature would admit hive-a/b, but they sit outside the +/-40% band.)
   - **lastswing-01 AUTO-LAUNCHED 08:45Z by the chain** (registration lastswing-01.1d107ed -> sha 8ed9450); preflight,
     licence and gate digest OK 08:46Z; in the draw.
   - (history) deathfix-02 DEPLOYED 02:26Z to placebo-b,placebo-a,board-c,board-d (20 bots, 1d107ed) -- after an INCIDENT: the
