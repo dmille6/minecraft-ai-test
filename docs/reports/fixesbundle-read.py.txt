@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+# fixesbundleread.py [window_min] -- the AGGREGATE read of the fixes bundle (owner 09-29: "bundle the small fixes").
+# Runs LAST among the bundle's reads and reads their emitted evidence for the same window. A registration carries ONE
+# exposure field; a bundle is exposed only when EVERY member can be judged -- otherwise a member whose correctness line
+# reads "not judged (0)" would pass vacuously into a KEEP. This read says which member is still pending.
+import sys, os, json
+import datetime as dt
+sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+
+MEMBERS = ['digsyncread', 'stalestopread', 'craftadviceread']   # each emits exposure_ready
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00')); RUN = os.environ.get('DRY_RUN_ID', 'none')
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00')); RUN = man.get('run_id') or 'none'
+elapsed = (dt.datetime.now(dt.timezone.utc) - CUT).total_seconds() / 60
+W = int(min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180))
+D = os.environ.get('READS_DIR') if ovr and os.environ.get('READS_DIR') else os.path.expanduser('~/digest/reads')   # dry-run tests only
+ready, pending, missing = [], [], []
+for m in MEMBERS:
+    p = os.path.join(D, f'{RUN}-{m}-{W}.json')
+    try:
+        f = json.load(open(p))['fields']
+    except Exception:
+        missing.append(m); continue
+    (ready if f.get('exposure_ready') == 1 else pending).append(m)
+print('bundle %s window +%d: exposure ready %s | pending %s | evidence missing %s' % (RUN, W, ready, pending, missing))
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    from readjson import emit
+    emit('fixesbundleread', W, {'exposure_ready': int(not pending and not missing), 'members_ready': len(ready),
+                                'members_pending': ','.join(pending) or None, 'members_missing': ','.join(missing) or None})
+except Exception as e:
+    print('emit failed:', e)
