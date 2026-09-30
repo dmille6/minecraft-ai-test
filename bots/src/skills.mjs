@@ -28,7 +28,7 @@
 import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy } from './toolfor.mjs'
+import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -264,12 +264,13 @@ function assertInsideBorder(x, z) {
   }
 }
 
-function bestTool(bot, block) {
+function bestTool(bot, block, opts = {}) {
   // THE CHEAPEST TOOL THAT DOES THE JOB, not the fastest (iron-retention plan v3, 2026-09-15): 16 iron pickaxes
   // vanished during work in two days, worn out on dirt, cobble and coal. toolFor() reads the server's harvest
   // table and the durability floor. (The fastest-tool picker it replaces broke digTime ties by tier because every
   // pickaxe ties on the 93 `incorrect_for_wooden_tool` ores -- that tie-break is now inside toolFor's cost order.)
-  return applyToolPolicy(bot, block)
+  // `opts.lastSwing`: a HARVEST dig may spend a tool's final use when nothing else can harvest (see toolFor).
+  return applyToolPolicy(bot, block, opts)
 }
 
 // ---------------------------------------------------------------- goto -----
@@ -1254,8 +1255,15 @@ export async function collectManually(bot, block, signal) {
   }
   const wasNamed = here?.name
 
-  const tool = bestTool(bot, block)
+  const tool = bestTool(bot, block, { lastSwing: true })
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
+  // A LAST SWING MUST BE SWUNG WITH THE TOOL IT CHOSE. Durability is cached metadata and equip errors are
+  // swallowed above, so a copy the server already broke would leave the hand empty and the dig would run
+  // bare-handed (Codex review). Say so instead of digging.
+  const lastSwing = !!(tool && remaining(tool) <= HARD_STOP)
+  if (lastSwing && bot.heldItem?.name !== tool.name) {
+    throw Object.assign(new Error(`equip_failed: could not hold the last ${tool.name} for ${block.name}`), { failClass: 'equip_failed' })
+  }
   // THE ADMISSION WENT STALE, AND THIS IS THE THIRD AND LAST CALL SITE.
   //
   // gather admits a candidate at scan time and digs it after a walk and an equip.
@@ -1317,6 +1325,12 @@ export async function collectManually(bot, block, signal) {
       new Error(`dig_unconfirmed: ${p.x},${p.y},${p.z} is still ${nowNamed} after the ` +
                 `dig resolved — the server never broke it`),
       { failClass: 'dig_unconfirmed' })
+  }
+  // Logged only once the block is CONFIRMED broken, with a snapshot, so the row is an outcome and not an
+  // intent (both reviews): the canary reads what last swings yielded, not how often the branch was entered.
+  if (lastSwing) {
+    logEvent({ kind: 'last_swing', status: 'success', snapshot: snapshot(bot),
+               detail: `broke ${wasNamed} at ${p.x},${p.y},${p.z} with a ${tool.name} at ${remaining(tool)} use(s)` })
   }
 
   await pickupNearbyItems(bot, signal)
