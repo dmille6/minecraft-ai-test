@@ -2,8 +2,9 @@
 _updated 2026-09-30 13:20Z by the daily operator session — **CANARY LIVE: `lastswing-01` on `8ed9450`, pools
 board-a, hive-c (10 bots), declared 13:04:30Z.** Fleet baseline `1d107ed+52f617` on the other 70. Exactly two
 versions live at 13:15Z (telemetry: 5,797 rows / 80 bots in 8 min; 660 rows `8ed9450+addedf`, 5,137 `1d107ed+52f617`).
-`canary-loop.sh lastswing-01` (pid 1553802) does the reads, verdict, record, promote/teardown. **`fixes-01` is
-auto-chained behind it** (`~/chain-fixes.sh`, pid 1575514)._
+`canary-loop.sh lastswing-01` (pid 1553802) does the reads, verdict, record, promote/teardown. **UPDATED 15:56Z (owner
+~13:15Z: "yes run hygiene before the bundle"): `hygiene-01` is auto-chained behind it (`~/chain-hygiene.sh`, pid
+1613048); `~/chain-fixes.sh` was STOPPED (note in `~/chain-fixes.out`) -- relaunch it after hygiene-01 ends.**_
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. The 610-line version this replaces (full history of
@@ -33,7 +34,19 @@ row `_last_swing` (baseline writes 0). Population: 61/80 bots could not make sto
 recorded, restart it with `setsid nohup bash ~/canary-loop.sh lastswing-01 >> ~/canary-loop-lastswing-01.out 2>&1 < /dev/null &`
 — it resumes from the journal and skips the redeploy because the manifest names the sha.
 
-## NEXT CANARY — fixes-01, AUTO-CHAINED (staged 09-30 ~11:15Z)
+## NEXT CANARY — hygiene-01, AUTO-CHAINED (15:56Z; owner reordered: hygiene BEFORE the bundle)
+
+`~/chain-hygiene.sh` (repo `scripts/host/chain-hygiene.sh`, log `~/chain-hygiene.out`) waits for lastswing-01 to end,
+and launches hygiene-01 ONLY if the fleet is the promoted last-swing `8ed9450`: the hygiene branch is BUILT ON
+last-swing (b1c978e is its ancestor), so on any other sha it STOPS -- hygiene would carry last-swing back in and needs
+a rebuild. sha `adc7658` = branch `hygiene-on-8ed9450` (inventory-hygiene + a merge of 8ed9450; identical content to
+the reviewed branch; differs from 8ed9450 by hygiene's 5 files; 206/206). Registration `~/mcai-analysis/hygiene-01.8ed9450.json`.
+The registration's MANUAL step is automated: before launch `~/hygiene-pool-check.py --apply` (repo scripts/host)
+excludes pools with < 2 bots at >= 34 estimated slots (tagged `hygiene-slot-pressure`, 12 h). Dry run 15:5xZ: board-b,
+hive-c, hive-d would be excluded (the fresh worlds); the other 13 qualify.
+
+## AFTER HYGIENE — fixes-01 (chain STOPPED 15:56Z; relaunch `~/chain-fixes.sh` after hygiene-01 ends, with its
+## `fixes-01.8ed9450.json` sha re-based onto whatever hygiene leaves on the fleet)
 
 `~/chain-fixes.sh` (repo `scripts/host/chain-fixes.sh`, log `~/chain-fixes.out`) waits for lastswing-01 to end
 (`promoted` | `torn-down`), waits for the loop lock, then picks the registration for the fleet sha and launches
@@ -88,7 +101,8 @@ Registrations docs: `docs/reports/fixes-01.{1d107ed,8ed9450}.json`; base `fixes-
 
 ## QUEUE (owner-approved order, 09-29 evening: "run last-swing next, and bundle the small fixes")
 1. **lastswing-01** — LIVE (above).
-2. **fixes-01** — auto-chained (above).
+2. **hygiene-01** — auto-chained (above; owner 09-30 moved it before the bundle).
+2b. **fixes-01** — after hygiene (its chain is stopped; relaunch then).
 3. Then, each its own canary, all merged onto 1d107ed and green 09-30 ~09:30Z (rebase onto the fleet sha at launch
    if lastswing-01 is promoted): **hygiene-01** (inventory-hygiene 43dffe8, needs a MANUAL pool check: >= 2 bots at
    >= 34 slots), **oretunnel-01** (ore-tunnel 7ab4f23, needs digsync on the fleet first; draw >= 10 iron gather
