@@ -140,6 +140,9 @@ export function travelTool (block, items, held) {
  *   'filler'  a tool was held on a full bag: a harmless non-tool stack is swapped INTO the hand (equip swaps, never tosses);
  *   'kept_tool' a full bag holding only tools: the tool stays in the hand -- one use spent beats a whole tool thrown away.
  */
+/** Pure: was a TOOL toss averted? The only case worth a row: a held non-tool is the filler a previous call swapped in. */
+export const tossAverted = (heldName, how) => !!heldName && TOOL_RE.test(heldName) && (how === 'filler' || how === 'kept_tool')
+
 export async function emptyHand (bot) {
   const held = bot?.heldItem
   if (!held) return 'empty'
@@ -155,15 +158,19 @@ export async function emptyHand (bot) {
 
 /**
  * THE SCAFFOLD A BOT PLACES, CHEAPEST FIRST (both engines, 09-30: escapes placed ~1,170-1,250 logs/day while cheaper blocks
- * were held -- five reflex sites took the first PLACEABLE stack in inventory order). Rank: non-falling cheap blocks, then
- * falling ones (sand, gravel -- placed onto a solid top face they hold), then planks, then logs/wood/stems; within a rank
- * the biggest stack. Never refuses: a bot holding only wood still climbs with wood.
+ * were held -- the reflex took the first PLACEABLE stack in inventory order). Rank: cheap non-falling blocks, then
+ * falling ones (sand, gravel -- every site places onto a solid top face, where they hold), then cobblestone (the pickaxe
+ * material), then planks, then logs/wood/stems; within a rank the biggest stack. Never refuses: a bot holding only wood
+ * still climbs with wood.
  */
 const SCAFFOLD_RANK = [
-  [0, /^(dirt|coarse_dirt|rooted_dirt|cobblestone|stone|andesite|diorite|granite|deepslate|cobbled_deepslate|tuff|netherrack|sandstone|red_sandstone|dripstone_block)$/],
+  [0, /^(dirt|coarse_dirt|rooted_dirt|stone|andesite|diorite|granite|deepslate|tuff|netherrack|sandstone|red_sandstone|dripstone_block)$/],
   [1, /^(sand|gravel)$/],
-  [2, /_planks$/],
-  [3, /(_log|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/],
+  // COBBLESTONE AFTER THE OTHER CHEAP BLOCKS (Claude review): it is the stone-pickaxe material last-swing exists to
+  // recover. Still before any wood.
+  [2, /^(cobblestone|cobbled_deepslate)$/],
+  [3, /_planks$/],
+  [4, /(_log|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/],
 ]
 export const scaffoldRank = name => { for (const [r, re] of SCAFFOLD_RANK) if (re.test(name)) return r; return null }
 export function pickScaffold (items = [], placeable = /./) {

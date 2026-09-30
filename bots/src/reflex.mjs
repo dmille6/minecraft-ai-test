@@ -8,7 +8,7 @@
 // calmly pathfinding into lava because it is "busy gathering" is the failure
 // mode this layer exists to prevent.
 
-import { applyToolPolicy, emptyHand, pickScaffold, scaffoldRank } from './toolfor.mjs'
+import { applyToolPolicy, emptyHand, pickScaffold, scaffoldRank, tossAverted } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -3113,8 +3113,10 @@ const SOFT_BLOCK = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|s
 async function safeEmptyHand (bot, site) {
   const held = bot?.heldItem?.name
   const how = await emptyHand(bot)
-  if (how === 'filler' || how === 'kept' || how === 'kept_tool') {
-    logEvent({ kind: 'hand_safe', status: 'success', detail: `${site}: ${how} -- the bag was full; unequip would have tossed ${held}`, snapshot: snapshot(bot) })
+  // ONLY A TOOL (Claude review): after the first swap the hand holds the filler, and every later call would log a "toss"
+  // of that dirt that the old code never made (its first unequip had already emptied the hand).
+  if (tossAverted(held, how)) {
+    logEvent({ kind: 'hand_safe', status: 'success', detail: `${site}: how=${how} -- the bag was full; unequip would have tossed ${held}`, snapshot: snapshot(bot) })
   }
   return how
 }
@@ -4827,7 +4829,6 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     return null
   }
   // 4/5. pillar: dig the cell two above the feet if solid, then jump-place a block under the feet; verify each step
-  const block = scaffoldFor(bot, 'flooded_pillar')
   for (let step = 0; step < plan.need; step++) {
     const a0 = abortIfNeeded(); if (a0) return end(false, `abort at step ${step}: ${a0}`)
     const feetY = Math.floor(bot.entity.position.y); const ceil = B(fx, feetY + 2, fz)

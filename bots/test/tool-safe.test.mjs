@@ -3,7 +3,7 @@
 // pickaxe landed on the ground; with one free slot it was kept). ~45 good stone pickaxes/day were lost this way.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { emptyHand, pickScaffold, scaffoldRank, travelTool } from '../src/toolfor.mjs'
+import { emptyHand, pickScaffold, scaffoldRank, travelTool, tossAverted } from '../src/toolfor.mjs'
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -35,6 +35,11 @@ await t('a bot with NO emptySlotCount (a fake, or an old API) counts its stacks 
   const b = { calls: [], heldItem: pick('wooden_pickaxe'), inventory: { items: () => [pick('wooden_pickaxe')] }, unequip: async () => { b.calls.push('unequip') }, equip: async () => { b.calls.push('equip') } }
   assert.equal(await emptyHand(b), 'unequip'); assert.deepEqual(b.calls, ['unequip'])
 })
+await t('THE ROW COUNTS ONLY TOOL TOSSES AVERTED -- a second call holding the swapped-in dirt is not one', async () => {
+  assert.equal(tossAverted('stone_pickaxe', 'filler'), true); assert.equal(tossAverted('iron_axe', 'kept_tool'), true)
+  assert.equal(tossAverted('dirt', 'kept'), false, 'the filler a previous call swapped in')
+  assert.equal(tossAverted('stone_pickaxe', 'unequip'), false, 'a free slot: nothing would have been tossed')
+})
 await t('nothing held: nothing to do', async () => {
   const b = bot({ held: null, items: [], free: 0 }); assert.equal(await emptyHand(b), 'empty'); assert.deepEqual(b.calls, [])
 })
@@ -48,10 +53,11 @@ await t('SCAFFOLD cheapest first: cobblestone before the logs listed ahead of it
 await t('ranks: stone family < sand/gravel < planks < logs; biggest stack within a rank; wood when only wood; never a refusal', async () => {
   assert.equal(pickScaffold([stack('sand', 64), stack('dirt', 3)], PLACEABLE).name, 'dirt')
   assert.equal(pickScaffold([stack('oak_log', 5), stack('birch_planks', 2)], PLACEABLE).name, 'birch_planks')
-  assert.equal(pickScaffold([stack('dirt', 3), stack('cobblestone', 30)], PLACEABLE).name, 'cobblestone')
+  assert.equal(pickScaffold([stack('dirt', 3), stack('cobblestone', 30)], PLACEABLE).name, 'dirt', 'cobblestone is the pickaxe material: spent after dirt')
+  assert.equal(pickScaffold([stack('cobblestone', 30), stack('oak_planks', 64)], PLACEABLE).name, 'cobblestone', 'but still before any wood')
   assert.equal(pickScaffold([stack('oak_log', 5)], PLACEABLE).name, 'oak_log', 'a bot holding only wood still climbs')
   assert.equal(pickScaffold([stack('apple', 5)], PLACEABLE), null)
-  assert.equal(scaffoldRank('oak_log') > scaffoldRank('oak_planks') && scaffoldRank('oak_planks') > scaffoldRank('gravel') && scaffoldRank('gravel') > scaffoldRank('cobblestone'), true)
+  assert.equal(scaffoldRank('oak_log') > scaffoldRank('oak_planks') && scaffoldRank('oak_planks') > scaffoldRank('cobblestone') && scaffoldRank('cobblestone') > scaffoldRank('gravel') && scaffoldRank('gravel') > scaffoldRank('dirt'), true)
 })
 
 const dirtBlock = { name: 'dirt', digTime: () => 750 }                                   // no harvestTools: the hand can break it
@@ -70,7 +76,7 @@ await t('WIRED: no bare unequip anywhere in src; the five escape scaffold sites 
   const r = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
   assert.equal((r.match(/\.unequip\??\.?\(/g) ?? []).length, 0, 'reflex must empty the hand through safeEmptyHand')
   assert.equal((r.match(/await safeEmptyHand\(bot, '/g) ?? []).length, 6)
-  assert.equal((r.match(/scaffoldFor\(bot, '/g) ?? []).length, 5)
+  assert.equal((r.match(/scaffoldFor\(bot, '/g) ?? []).length, 4, 'four LIVE placement sites (the dead flooded_pillar pick is gone)')
   const tf = strip(readFileSync(new URL('../src/toolfor.mjs', import.meta.url), 'utf8'))
   assert.equal((tf.match(/\.unequip\??\.?\(/g) ?? []).length, 2, 'only the two GUARDED unequips (applyToolPolicy, emptyHand)')
 })
