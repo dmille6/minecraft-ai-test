@@ -130,31 +130,53 @@ export function travelTool (block, items, held) {
 
 /**
  * EMPTY THE HAND WITHOUT THROWING ANYTHING AWAY. mineflayer's unequip('hand') (simple_inventory.js equipEmpty) TOSSES the
- * held stack when neither the hotbar nor the inventory has a free slot. PROVED on the sandbox 2026-09-30: at 36/36 slots
- * unequip threw a stone pickaxe on the ground (the server held the item entity); with one free slot it was kept. The
- * fleet lost ~45 stone pickaxes with > 10 uses left a day this way (Claude analysis; 36 of 45 within 30 s of an escape)
- * -- the reflex called unequip unguarded at six sites. Returns how the hand was emptied:
- *   'empty'   nothing held;
- *   'unequip' a free slot exists, so unequip cannot toss;
- *   'kept'    the held item is not a tool (a block/food in the hand digs like the hand) -- kept, never tossed;
- *   'filler'  a tool was held on a full bag: a harmless non-tool stack is swapped INTO the hand (equip swaps, never tosses);
- *   'kept_tool' a full bag holding only tools: the tool stays in the hand -- one use spent beats a whole tool thrown away.
+ * held stack when neither the hotbar nor the inventory has a free slot -- PROVED on the sandbox 2026-09-30 (36/36: the
+ * stone pickaxe on the ground; 35/36: kept) and against mineflayer's own code on a real window (tool-safe-window test).
+ * The fleet lost ~45-94 good stone pickaxes a day this way. Order of preference (Codex review: even with a free slot,
+ * unequip can toss if a pickup fills that slot between its clicks, so it is the LAST resort, not the first):
+ *   'empty'        nothing held;
+ *   'kept'         a non-tool in hand (a block digs like the hand) -- never unequipped, so never tossed;
+ *   'filler'       a harmless non-tool stack swapped INTO the hand (equip swaps; it never uses the -999 drop);
+ *   'unequip'      no filler, a KNOWN free slot: the plain unequip;
+ *   'hotbar_other' a bag of only tools: select a hotbar item that is NOT a pickaxe (no click at all) -- the escape
+ *                  must not swing the last pickaxe (mayDigForEscape's reserve);
+ *   'kept_tool'    nothing else possible: keep it (a use spent beats a tool thrown away);
+ *   'failed'       the swap/unequip did not take (checked after, not assumed).
  */
-/** Pure: was a TOOL toss averted? The only case worth a row: a held non-tool is the filler a previous call swapped in. */
-export const tossAverted = (heldName, how) => !!heldName && TOOL_RE.test(heldName) && (how === 'filler' || how === 'kept_tool')
-
 export async function emptyHand (bot) {
   const held = bot?.heldItem
   if (!held) return 'empty'
-  // mineflayer's own count when it exists; otherwise the occupied stacks against the 36 player slots (never "unknown =
-  // full": that kept a tool in a climber's hand that had 35 free slots).
-  const free = (() => { try { return bot.inventory?.emptySlotCount?.() ?? Math.max(0, 36 - (bot.inventory?.items?.() ?? []).length) } catch { return 0 } })()
-  if (free > 0) { try { await bot.unequip('hand') } catch {} ; return 'unequip' }
   if (!isTool(held)) return 'kept'
-  const filler = handFiller(bot.inventory?.items?.() ?? [])
-  if (filler) { try { await bot.equip(filler, 'hand') } catch {} ; return 'filler' }
+  const items = bot.inventory?.items?.()
+  const filler = Array.isArray(items) ? handFiller(items) : null
+  if (filler) {
+    try { await bot.equip(filler, 'hand') } catch {}
+    return isTool(bot.heldItem) ? 'failed' : 'filler'
+  }
+  if (freeSlots(bot) > 0) {
+    try { await bot.unequip('hand') } catch {}
+    return isTool(bot.heldItem) ? 'failed' : 'unequip'
+  }
+  const slots = bot.inventory?.slots
+  if (Array.isArray(slots) && typeof bot.setQuickBarSlot === 'function') {
+    for (let i = 0; i < 9; i++) {
+      const it = slots[36 + i]
+      if (it && !/_pickaxe$/.test(it.name)) { try { bot.setQuickBarSlot(i) } catch {} ; return /_pickaxe$/.test(bot.heldItem?.name ?? '') ? 'failed' : 'hotbar_other' }
+    }
+  }
   return 'kept_tool'
 }
+/** Free player slots (9..44, hotbar included): mineflayer's own count, else the stacks against 36; UNKNOWN is 0, never "free". */
+export function freeSlots (bot) {
+  try {
+    const n = bot?.inventory?.emptySlotCount?.()
+    if (Number.isFinite(n)) return n
+    const items = bot?.inventory?.items?.()
+    return Array.isArray(items) ? Math.max(0, 36 - items.length) : 0
+  } catch { return 0 }
+}
+/** Pure: was a TOOL toss averted? Only on a FULL bag, only for a held tool, only when the hand was not simply unequipped. */
+export const tossAverted = (heldName, how, full) => !!full && !!heldName && TOOL_RE.test(heldName) && ['filler', 'hotbar_other', 'kept_tool'].includes(how)
 
 /**
  * THE SCAFFOLD A BOT PLACES, CHEAPEST FIRST (both engines, 09-30: escapes placed ~1,170-1,250 logs/day while cheaper blocks

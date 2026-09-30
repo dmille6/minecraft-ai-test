@@ -42,8 +42,20 @@ await t('emptyHand on the FULL bag: swaps a filler in, tosses nothing, keeps the
   assert.deepEqual(tossed, []); assert.equal(picks(inv), 1); assert.equal(inv.selectedItem ?? null, null)
   assert.notEqual(bot.heldItem?.name, 'stone_pickaxe')
 })
-await t('emptyHand with a free slot: a plain unequip, nothing tossed, pickaxe kept', async () => {
+await t('emptyHand with a free slot: the filler is swapped in all the same (no unequip race), nothing tossed, pickaxe kept', async () => {
   const { bot, inv, tossed } = mk(false)
-  assert.equal(await emptyHand(bot), 'unequip'); assert.deepEqual(tossed, []); assert.equal(picks(inv), 1)
+  assert.equal(await emptyHand(bot), 'filler'); assert.deepEqual(tossed, []); assert.equal(picks(inv), 1)
+})
+await t('A FULL BAG OF ONLY TOOLS (real window): a non-pickaxe on the hotbar is selected; nothing tossed; the pickaxe not in hand', async () => {
+  const inv = windows.createWindow(0, 'minecraft:inventory', 'inv', 46)
+  for (let s = 9; s < 45; s++) inv.updateSlot(s, new Item(mcd.itemsByName[s === 36 ? 'stone_pickaxe' : (s === 38 ? 'wooden_axe' : 'iron_shovel')].id, 1))
+  const tossed = []
+  const bot = { inventory: inv, quickBarSlot: 0, currentWindow: null, supportFeature: () => false, _client: { write () {} }, updateHeldItem () {},
+    get heldItem () { return inv.slots[36 + this.quickBarSlot] },
+    async clickWindow (slot, btn, mode) { if (slot === -999) tossed.push(inv.selectedItem?.name); inv.acceptClick({ slot, mouseButton: btn, mode, windowId: 0, item: slot === -999 ? null : inv.slots[slot] }) },
+    closeWindow () {}, async moveSlotItem (a, b) { await this.clickWindow(a, 0, 0); await this.clickWindow(b, 0, 0) } }
+  inject(bot); bot.tossStack = async item => { tossed.push(item.name) }
+  const how = await emptyHand(bot)
+  assert.equal(how, 'hotbar_other'); assert.deepEqual(tossed, []); assert.equal(picks(inv), 1); assert.notEqual(bot.heldItem?.name, 'stone_pickaxe')
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

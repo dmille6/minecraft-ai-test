@@ -8,7 +8,7 @@
 // calmly pathfinding into lava because it is "busy gathering" is the failure
 // mode this layer exists to prevent.
 
-import { applyToolPolicy, emptyHand, pickScaffold, scaffoldRank, tossAverted } from './toolfor.mjs'
+import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -3112,10 +3112,11 @@ const SOFT_BLOCK = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|s
  */
 async function safeEmptyHand (bot, site) {
   const held = bot?.heldItem?.name
+  const full = freeSlots(bot) === 0
   const how = await emptyHand(bot)
   // ONLY A TOOL (Claude review): after the first swap the hand holds the filler, and every later call would log a "toss"
   // of that dirt that the old code never made (its first unequip had already emptied the hand).
-  if (tossAverted(held, how)) {
+  if (tossAverted(held, how, full)) {
     logEvent({ kind: 'hand_safe', status: 'success', detail: `${site}: how=${how} -- the bag was full; unequip would have tossed ${held}`, snapshot: snapshot(bot) })
   }
   return how

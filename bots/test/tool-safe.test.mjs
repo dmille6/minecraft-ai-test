@@ -3,21 +3,41 @@
 // pickaxe landed on the ground; with one free slot it was kept). ~45 good stone pickaxes/day were lost this way.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { emptyHand, pickScaffold, scaffoldRank, travelTool, tossAverted } from '../src/toolfor.mjs'
+import { emptyHand, freeSlots, pickScaffold, scaffoldRank, travelTool, tossAverted } from '../src/toolfor.mjs'
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const pick = (name, left = 100, max = 131) => ({ name, count: 1, type: 1, maxDurability: max, durabilityUsed: max - left })
 const stack = (name, count) => ({ name, count, type: 2 })
-function bot ({ held, items, free }) {
+function bot ({ held, items, free, hotbar = null }) {
   const calls = []
-  return { calls, heldItem: held, inventory: { items: () => items, emptySlotCount: () => free },
-           unequip: async w => { calls.push(['unequip', w]) }, equip: async (it, w) => { calls.push(['equip', it.name, w]) } }
+  const b = { calls, heldItem: held, inventory: { items: () => items, emptySlotCount: () => free, slots: hotbar },
+              unequip: async w => { calls.push(['unequip', w]); b.heldItem = null },
+              equip: async (it, w) => { calls.push(['equip', it.name, w]); b.heldItem = it } }
+  if (hotbar) b.setQuickBarSlot = i => { calls.push(['quickbar', i]); b.heldItem = hotbar[36 + i] }
+  return b
 }
 
-await t('a FREE slot: unequip is safe and is what happens', async () => {
+await t('a free slot AND a filler: the filler is swapped in -- unequip can toss even with a free slot (a pickup can fill it mid-click)', async () => {
   const b = bot({ held: pick('stone_pickaxe'), items: [pick('stone_pickaxe'), stack('dirt', 64)], free: 1 })
+  assert.equal(await emptyHand(b), 'filler'); assert.deepEqual(b.calls, [['equip', 'dirt', 'hand']])
+})
+await t('a free slot and NO filler: the plain unequip (the last resort)', async () => {
+  const b = bot({ held: pick('stone_pickaxe'), items: [pick('stone_pickaxe'), pick('wooden_axe', 30, 59)], free: 1 })
   assert.equal(await emptyHand(b), 'unequip'); assert.deepEqual(b.calls, [['unequip', 'hand']])
+})
+await t('a bag of ONLY tools with an axe on the hotbar: select the axe (no click) -- never swing the last pickaxe', async () => {
+  const hot = []; hot[36] = pick('stone_pickaxe'); hot[37] = pick('wooden_axe', 30, 59)
+  const b = bot({ held: hot[36], items: [hot[36], hot[37]], free: 0, hotbar: hot })
+  assert.equal(await emptyHand(b), 'hotbar_other'); assert.deepEqual(b.calls, [['quickbar', 1]]); assert.equal(b.heldItem.name, 'wooden_axe')
+})
+await t('a swap that does not take is reported as FAILED, not as success', async () => {
+  const b = bot({ held: pick('stone_pickaxe'), items: [pick('stone_pickaxe'), stack('dirt', 64)], free: 0 })
+  b.equip = async () => {}   // the server rejected it: the pickaxe is still in hand
+  assert.equal(await emptyHand(b), 'failed')
+})
+await t('UNKNOWN inventory is not free space', async () => {
+  assert.equal(freeSlots({ inventory: {} }), 0); assert.equal(freeSlots({ inventory: { items: () => [stack('dirt', 1)] } }), 35)
 })
 await t('A FULL BAG holding a pickaxe: a block is swapped INTO the hand -- unequip (which tosses) is never called', async () => {
   const b = bot({ held: pick('stone_pickaxe'), items: [pick('stone_pickaxe'), stack('dirt', 64)], free: 0 })
@@ -32,13 +52,14 @@ await t('a full bag of ONLY tools: the tool stays in hand -- one use spent beats
   assert.equal(await emptyHand(b), 'kept_tool'); assert.deepEqual(b.calls, [])
 })
 await t('a bot with NO emptySlotCount (a fake, or an old API) counts its stacks -- 1 of 36 is not a full bag', async () => {
-  const b = { calls: [], heldItem: pick('wooden_pickaxe'), inventory: { items: () => [pick('wooden_pickaxe')] }, unequip: async () => { b.calls.push('unequip') }, equip: async () => { b.calls.push('equip') } }
+  const b = { calls: [], heldItem: pick('wooden_pickaxe'), inventory: { items: () => [pick('wooden_pickaxe')] }, unequip: async () => { b.calls.push('unequip'); b.heldItem = null }, equip: async () => { b.calls.push('equip') } }
   assert.equal(await emptyHand(b), 'unequip'); assert.deepEqual(b.calls, ['unequip'])
 })
 await t('THE ROW COUNTS ONLY TOOL TOSSES AVERTED -- a second call holding the swapped-in dirt is not one', async () => {
-  assert.equal(tossAverted('stone_pickaxe', 'filler'), true); assert.equal(tossAverted('iron_axe', 'kept_tool'), true)
-  assert.equal(tossAverted('dirt', 'kept'), false, 'the filler a previous call swapped in')
-  assert.equal(tossAverted('stone_pickaxe', 'unequip'), false, 'a free slot: nothing would have been tossed')
+  assert.equal(tossAverted('stone_pickaxe', 'filler', true), true); assert.equal(tossAverted('iron_axe', 'kept_tool', true), true)
+  assert.equal(tossAverted('stone_pickaxe', 'hotbar_other', true), true)
+  assert.equal(tossAverted('dirt', 'kept', true), false, 'the filler a previous call swapped in')
+  assert.equal(tossAverted('stone_pickaxe', 'filler', false), false, 'a free slot: the old unequip would not have tossed')
 })
 await t('nothing held: nothing to do', async () => {
   const b = bot({ held: null, items: [], free: 0 }); assert.equal(await emptyHand(b), 'empty'); assert.deepEqual(b.calls, [])
