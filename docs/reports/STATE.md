@@ -450,7 +450,11 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
       1d107ed if deathfix-01 is promoted.**
   - **OWNER 09-29 EVENING: "yes run last-swing next, and bundle the small fixes".** THE QUEUE NOW:
     1. deathfix-02 (in the draw; ~02:10Z)
-    2. **lastswing-01 alone** -- both engines, 09-29: 92.3% of failed stone gathers held only 1-use pickaxes (1.1% success
+    2. **lastswing-01 alone -- AUTO-CHAINED on the host** (`~/chain-lastswing.sh`, log `~/chain-lastswing.out`, started
+       00:39Z): waits for deathfix-02 to end (promoted|torn-down), checks no canary is declared, picks
+       `~/mcai-analysis/lastswing-01.<fleet>.json` (80b3bbd -> b1c978e; 1d107ed -> 8ed9450 = last-swing rebased, 205/205,
+       branch last-swing-on-1d107ed), registers it and launches the loop. Stops (does not guess) on anything else.
+       Evidence -- both engines, 09-29: 92.3% of failed stone gathers held only 1-use pickaxes (1.1% success
        vs 58.5% with a good one); 56 of 80 bots hold only spent copies. Rebase onto the fleet sha at launch.
     3. **ONE FIXES BUNDLE**: branch `fixes-bundle` @ 7fc77e0 = 80b3bbd + dig-rollback + stale-stop + craft-advice +
        hive-progress (clean merge, 207/207, sandbox smoke: gathers logs + cobble, deposits, no errors). After lastswing
