@@ -16,7 +16,8 @@ t('the pathfinder\'s bestHarvestTool is overridden with toolFor, after the plugi
 t('skills.bestTool and reflex.bestTool return toolFor(...).item and no fastest-tool loop survives', () => {
   for (const f of ['skills.mjs', 'reflex.mjs']) {
     const s = src(f)
-    once(s, 'return applyToolPolicy(bot, block)', f)
+    // skills.mjs forwards `opts` since 2026-09-28 (the harvest dig's lastSwing opt-in); reflex.mjs does not
+    once(s, f === 'skills.mjs' ? 'return applyToolPolicy(bot, block, opts)' : 'return applyToolPolicy(bot, block)', f)
     assert.equal(s.includes('bestTime'), false, `${f}: the digTime-minimising loop is gone`)
   }
 })
