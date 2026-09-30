@@ -1,15 +1,19 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-09-30 13:20Z by the daily operator session — **CANARY LIVE: `lastswing-01` on `8ed9450`, pools
-board-a, hive-c (10 bots), declared 13:04:30Z.** Fleet baseline `1d107ed+52f617` on the other 70. Exactly two
-versions live at 13:15Z (telemetry: 5,797 rows / 80 bots in 8 min; 660 rows `8ed9450+addedf`, 5,137 `1d107ed+52f617`).
-`canary-loop.sh lastswing-01` (pid 1553802) does the reads, verdict, record, promote/teardown. **UPDATED 15:56Z (owner
-~13:15Z: "yes run hygiene before the bundle"): `hygiene-01` is auto-chained behind it (`~/chain-hygiene.sh`, pid
-1613048); `~/chain-fixes.sh` was STOPPED (note in `~/chain-fixes.out`) -- relaunch it after hygiene-01 ends.**_
+_updated 2026-09-30 19:40Z by the interactive session — **FLEET = `8ed9450` (last-swing KEPT +360 and PROMOTED 19:16Z;
+80/80 verified; main merged it, main-pre-20260930b kept). CANARY: `hygiene-01` (sha `adc7658`) launched 19:19Z by
+`~/chain-hygiene.sh`, in the draw (hive-a/c/d excluded until 10-01 07:19Z for low slot pressure -- tagged
+`hygiene-slot-pressure`). NEXT: `fixes-01` auto-chained behind hygiene (`~/chain-fixes.sh`, pid 1650326): 8ed9450 ->
+df5611f, adc7658 -> c29568f; members digsync + stale-stop + craft-advice + hive-progress + prereq-usable + TOOL-SAFE;
+it clears the hygiene-slot-pressure exclusions before drawing.**_
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. The 610-line version this replaces (full history of
 > 09-27..09-30 night work, every branch's review trail) is `git show 40a09da:docs/reports/STATE.md` on main.
 
+lastswing-01 result (+360, 19:07Z): correctness clean (19 last swings, all stone/cobblestone, 0 off-stone); deaths 0
+canary vs 4 control; outcome DiDs NOT visible at 10 bots x 6 h (stone_pickaxe crafted -0.08/bh, cobble gather
+failures -0.03/bh, usable-pickaxe holders +0.03) -- judge the FLEET-WIDE effect on 10-01 morning against the 09-30
+baseline: 21/80 bots with a usable pickaxe, 37.5 items/bot-h, 42 deaths/24 h.
 ---
 
 ## THE LIVE CANARY — lastswing-01

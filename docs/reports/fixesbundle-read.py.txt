@@ -25,6 +25,8 @@ except Exception:
     _reads = []
 if 'prequsableread' in _reads:
     MEMBERS.append('prequsableread')
+if 'toolsaferead' in _reads:   # tool-safe (09-30): the pickaxe-toss fix joins the bundle's 8ed9450+ variants
+    MEMBERS.append('toolsaferead')
 D = os.environ.get('READS_DIR') if ovr and os.environ.get('READS_DIR') else os.path.expanduser('~/digest/reads')   # dry-run tests only
 ready, pending, missing = [], [], []
 for m in MEMBERS:
