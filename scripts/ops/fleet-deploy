@@ -5,6 +5,13 @@
 set -u
 SHA=${1:?usage: fleet-deploy <sha> <run_id> "<notes>" [--pool P]}; RUN=${2:?run_id}; NOTES=${3:?notes}; shift 3
 LOG=/tmp/deploy-$SHA-$RUN.log; MAN=/srv/mcbots/trial-manifest.json
+# NOTES GO INTO A JSON STRING, SO THEY ARE JSON-ESCAPED HERE (2026-09-30 02:26Z). deploy-fleet.sh writes the manifest
+# with a heredoc -- "notes": "$NOTES" -- and a note that QUOTED the loop's own verdict prose ("this blocks KEEP ...")
+# produced a manifest that did not parse: the verifier timed out, the tripper read "undeclared code change" for all
+# 80 bots (dry-run, nothing stopped), every read was blind, and the loop exited with the canary deployed and unread.
+# deploy-fleet.sh ships with each sha, so the fix lives here, where every deploy passes. Expanded parameter values are
+# inserted into a heredoc verbatim, so the escaped text lands intact (tested: quotes, a backslash, a newline).
+NOTES=$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1])[1:-1])' "$NOTES")
 sudo git -C /opt/minecraft-ai fetch -q --all 2>/dev/null
 # A CANARY WITH NO READER IS NOT A CANARY, IT IS AN UNMONITORED DEPLOY.
 #
@@ -87,6 +94,8 @@ echo "deploy launched; polling $LOG"
 for i in $(seq 1 120); do
   sleep 10
   if grep -q "canary split confirmed\|all live bots on $SHA" "$LOG" 2>/dev/null; then
+    # A MANIFEST THAT DOES NOT PARSE IS NOT A DECLARATION. Every reader and the tripper load it as JSON.
+    python3 -c "import json; json.load(open('$MAN'))" 2>/dev/null || { echo "MANIFEST INVALID: $MAN does not parse as JSON -- NOT verified"; exit 3; }
     restore_analysis_lib
     if printf '%s ' "$@" | grep -q -- '--pool'; then
       echo "VERIFIED: canary $SHA is split from the baseline"

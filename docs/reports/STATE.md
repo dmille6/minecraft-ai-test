@@ -431,6 +431,15 @@ stone-pickaxe funnel (advice vs worn pickaxes at toolfor FLOOR vs reachability) 
     - Teardown verified by me: 80/80 bots report 80b3bbd, no drop-ins, 80 running.
     - Its deposit change is folded into the bank-fix bundle (the same code) rather than a separate
       fleet-wide deploy.
+  - **deathfix-02 DEPLOYED 02:26Z to placebo-b,placebo-a,board-c,board-d (20 bots, 1d107ed)** -- after an INCIDENT: the
+    notes (mine) quoted the loop's own prose in double quotes; deploy-fleet.sh writes the manifest with a heredoc, so the
+    manifest did not parse. The verifier timed out, the tripper read "undeclared code change" for all 80 (DRY-RUN:
+    nothing stopped; 80/80 kept running), every read was blind, and the loop exited with the canary deployed and
+    unread (~20 min). REPAIRED 02:47Z (backup trial-manifest.json.broken-20260930T0250Z; values rebuilt from the file,
+    parses; tripper then read "declared canary: 20 bots ... split is declared", no trip). ROOT FIX in the host wrapper
+    ~/bin/fleet-deploy (scripts/ops/fleet-deploy, backup .bak-20260930T0300Z): notes are JSON-escaped before the
+    deploy script sees them, and success is refused unless the manifest parses. Loop RESUMED ~03:00Z (skips the
+    redeploy, reads from declared_at 02:26Z: +180 ~05:26Z). lastswing-01 chain still armed.
   - **deathfix-01 ENDED BY A LOOP DEFECT at +180 (18:13Z); RELAUNCHED as deathfix-02 (18:20Z, same sha 1d107ed, same
     rules; waiting in the draw).** The loop matched `*KEEP*` against the verdict LINE, and the NOT_YET line's prose said
     "this blocks KEEP rather than reverting" -> FINAL=NOT_YET (no act branch) -> contained INCONCLUSIVE -> torn down,
