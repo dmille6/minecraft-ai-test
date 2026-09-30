@@ -121,7 +121,55 @@ export function travelTool (block, items, held) {
   const d = toolFor(block, items)
   if (d.item) return d.item
   if (!isTool(held)) return null
+  // WHEN THE HAND IS THE ANSWER, HOLD A BLOCK, NOT A PICKAXE (both engines, 09-30: ~1,630 pickaxe uses/day went on dirt,
+  // leaves and logs -- this returned the cheapest open tool, a wooden pickaxe, ahead of the dirt stack in the bag). Only
+  // when the hand cannot break it does a tool of any kind beat a filler.
+  if (d.hand) return handFiller(items) ?? cheapestOpen(items)
   return cheapestOpen(items) ?? handFiller(items)   // a block in the hand beats a spent pickaxe in the hand (the pathfinder equips whatever this returns)
+}
+
+/**
+ * EMPTY THE HAND WITHOUT THROWING ANYTHING AWAY. mineflayer's unequip('hand') (simple_inventory.js equipEmpty) TOSSES the
+ * held stack when neither the hotbar nor the inventory has a free slot. PROVED on the sandbox 2026-09-30: at 36/36 slots
+ * unequip threw a stone pickaxe on the ground (the server held the item entity); with one free slot it was kept. The
+ * fleet lost ~45 stone pickaxes with > 10 uses left a day this way (Claude analysis; 36 of 45 within 30 s of an escape)
+ * -- the reflex called unequip unguarded at six sites. Returns how the hand was emptied:
+ *   'empty'   nothing held;
+ *   'unequip' a free slot exists, so unequip cannot toss;
+ *   'kept'    the held item is not a tool (a block/food in the hand digs like the hand) -- kept, never tossed;
+ *   'filler'  a tool was held on a full bag: a harmless non-tool stack is swapped INTO the hand (equip swaps, never tosses);
+ *   'kept_tool' a full bag holding only tools: the tool stays in the hand -- one use spent beats a whole tool thrown away.
+ */
+export async function emptyHand (bot) {
+  const held = bot?.heldItem
+  if (!held) return 'empty'
+  // mineflayer's own count when it exists; otherwise the occupied stacks against the 36 player slots (never "unknown =
+  // full": that kept a tool in a climber's hand that had 35 free slots).
+  const free = (() => { try { return bot.inventory?.emptySlotCount?.() ?? Math.max(0, 36 - (bot.inventory?.items?.() ?? []).length) } catch { return 0 } })()
+  if (free > 0) { try { await bot.unequip('hand') } catch {} ; return 'unequip' }
+  if (!isTool(held)) return 'kept'
+  const filler = handFiller(bot.inventory?.items?.() ?? [])
+  if (filler) { try { await bot.equip(filler, 'hand') } catch {} ; return 'filler' }
+  return 'kept_tool'
+}
+
+/**
+ * THE SCAFFOLD A BOT PLACES, CHEAPEST FIRST (both engines, 09-30: escapes placed ~1,170-1,250 logs/day while cheaper blocks
+ * were held -- five reflex sites took the first PLACEABLE stack in inventory order). Rank: non-falling cheap blocks, then
+ * falling ones (sand, gravel -- placed onto a solid top face they hold), then planks, then logs/wood/stems; within a rank
+ * the biggest stack. Never refuses: a bot holding only wood still climbs with wood.
+ */
+const SCAFFOLD_RANK = [
+  [0, /^(dirt|coarse_dirt|rooted_dirt|cobblestone|stone|andesite|diorite|granite|deepslate|cobbled_deepslate|tuff|netherrack|sandstone|red_sandstone|dripstone_block)$/],
+  [1, /^(sand|gravel)$/],
+  [2, /_planks$/],
+  [3, /(_log|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/],
+]
+export const scaffoldRank = name => { for (const [r, re] of SCAFFOLD_RANK) if (re.test(name)) return r; return null }
+export function pickScaffold (items = [], placeable = /./) {
+  const c = (Array.isArray(items) ? items : []).filter(it => it?.name && placeable.test(it.name) && scaffoldRank(it.name) != null)
+  c.sort((a, b) => (scaffoldRank(a.name) - scaffoldRank(b.name)) || ((b.count ?? 0) - (a.count ?? 0)))
+  return c[0] ?? null
 }
 
 /** Every tool the bot could still swing at this block (ignores the floor; honours the hard stop). Used by the exit contract. */
