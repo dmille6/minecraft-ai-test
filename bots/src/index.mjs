@@ -1008,12 +1008,18 @@ function connect() {
     // died holding the fleet's only stone_pickaxe" are different events, and
     // the second one is the one that explains a stalled milestone chain.
     // Captured BEFORE the respawn clears it.
+    // `cause` is declared BEFORE its first read. It used to be declared five lines below this one, so every
+    // death more than 3 blocks below the recent peak -- a fall, or a drowning or lava death after a descent --
+    // threw a ReferenceError out of mineflayer's packet handler and killed the process before this record,
+    // the death site or the respawn. The restarted bot rejoined dead and logged the death again as
+    // "unknown; idle", so the COUNT survived and the cause, fall distance and site did not (17 of 17 crashes
+    // matched, 09-27/28). test/no-tdz.test.mjs.
+    const cause = freshDeathCause()
     if (fell != null && fell > 3) fallRecord(bot, runner, fell, 'death', { cause: deathClass(cause) })
     const lost = inventorySummary(bot)
     const lostSummary = Object.entries(lost)
       .sort((a, b) => b[1] - a[1]).slice(0, 6)
       .map(([k, n]) => `${k} x${n}`).join(', ')
-    const cause = freshDeathCause()
     // THE DEATH BECOMES A SITE the pool's planner prices from now on (deathsites.mjs). Published before the cause and
     // peak are cleared below; a failure to write is logged and never blocks the death record.
     if (worldFacts && deathPos) {
@@ -1049,6 +1055,9 @@ function connect() {
     })
     lastDeathCause = null
     peakY = null; descentOnset = null
+    // The trail is a ring that outlives the body: without this a quick second death reports an hp trajectory
+    // spanning two lives. The crash above used to hide it by restarting the process.
+    hpTrail.length = 0
     runner.cancel('death')
     cognitive?.notify('death', 'died and respawned')
     // Respawn is automatic; clearing the failure budget avoids a death
