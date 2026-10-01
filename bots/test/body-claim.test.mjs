@@ -56,9 +56,10 @@ t('the harvest watchdog is ON by default — gather still wants the drop', () =>
 t('THE CLIMB OPTS OUT: it wants the hole, not the cobble', () => {
   const code = strip('../src/skills.mjs')
   const digs = code.match(/withTimeout\(bot\.dig\([^;]*?\}\)/gs) ?? []
-  assert.equal(digs.length, 7, `expected 7 dig call sites, found ${digs.length}`)   // + deposit's chest-lid dig (2026-09-13)
+  assert.equal(digs.length, 8, `expected 8 dig call sites, found ${digs.length}`)   // + deposit's chest-lid dig (2026-09-13), + wear_out's dig (2026-09-29)
   const optedOut = digs.filter(d => /needsDrop:\s*false/.test(d))
-  assert.equal(optedOut.length, 6,
+  // wear_out opts out too: it digs to BREAK THE TOOL, and the drop is irrelevant (hygiene.mjs)
+  assert.equal(optedOut.length, 7,
     'the two escape digs, the staircase re-dig, place()\'s make-room dig, goto\'s float dig and deposit\'s chest-lid dig ' +
     'float dig may opt out — all five want the HOLE, not the drop. The staircase one ' +
     'recovers a dig the server did not accept; make-room opens one cell for a station ' +
