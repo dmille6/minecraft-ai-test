@@ -52,6 +52,18 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
   fi
   journal gatedigest-ok "$(tail -1 $H/digest/gatedigest-$RUN.log)"
 fi
+# ---- v30 AS A PREFLIGHT, BEFORE THE DRAW. Measured 2026-10-01: the only v30 check sat AFTER the deploy,
+# so fixes-01 went live on 20 bots at 02:02Z, was refused at 02:05Z, and ran ~2 h with no reader and no
+# death poll (canarywatch's heal budget relaunched it three times into the same refusal). A schedule
+# defect must refuse before a single bot is touched; the later check stays for resumed runs.
+if [ "$(mf canary_code_version)" != "$SHA" ]; then
+  _DL=$(jf deadline_min); [ -n "$_DL" ] || _DL=780
+  if ! python3 "$HOME/v30check.py" "$REG" "$_DL"; then
+    page error "canary-loop refused $RUN BEFORE the draw: v30 schedule invariant (deadline_min $_DL vs read_minutes)"
+    journal refused-v30 "deadline_min $_DL vs read_minutes: the final read would be unreachable (preflight, nothing deployed)"
+    exit 1
+  fi
+fi
 # ---- phase DRAW + DEPLOY (skipped when the manifest already names this sha)
 if [ "$(mf canary_code_version)" != "$SHA" ]; then
   if [ -n "$(mf canary_pool)" ]; then page error "manifest names another canary ($(mf canary_pool) $(mf canary_code_version)); refusing to start"; exit 2; fi
