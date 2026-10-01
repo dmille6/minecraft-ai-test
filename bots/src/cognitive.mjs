@@ -14,7 +14,7 @@ import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
-import { MilestoneController } from './milestones.mjs'
+import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan } from './hygiene.mjs'
 /** One wear-out order per bot per two minutes at most. */
@@ -805,12 +805,14 @@ export class CognitiveLoop {
 
     // Execute (or not), then record ONE row describing the whole decision.
     let outcome = { status: 'aborted', detail: rejection?.detail ?? res.error ?? 'no action' }
+    let runFailClass = null
     if (admitted) {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
       })
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
+      runFailClass = r.failClass ?? null
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
@@ -1021,20 +1023,31 @@ export class CognitiveLoop {
     // window lost it, sending the bot back through 25 more attempts at a goal
     // it had already proven impossible.
     this.lessons.save()
-    // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (Claude review): a wear_out success reset the give-up counter of
-    // whatever milestone was current, and a failure counted toward skipping it.
-    if (admitted?.skill !== 'wear_out' && this.milestones.noteAttempt(outcome.status !== 'success')) {
+    // THE IDLE GAP (milestones.mjs NO_PROGRESS_MS): only an executed decision that serves the task counts toward a
+    // give-up. A rejection is not an attempt at the goal, and neither is exploring while the goal is a pickaxe.
+    // The runner's own refusals never ran the skill (Claude review of f3bff3d: 22% of 'serving failures' on the fleet
+    // were 'paused after repeated failures', and a paused give-up was even reported to peers).
+    const executed = !!admitted && outcome.status !== 'aborted' && !RUNNER_REFUSALS.has(runFailClass)
+    let serving = false
+    try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
+    const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
+    // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (hygiene, Claude review): a wear_out neither resets nor feeds the give-up.
+    if (admitted?.skill !== 'wear_out' && this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
       const sk = this.milestones.status()
-      log('warn', 'milestone unreachable, skipping', { now: sk.id })
+      const why = this.milestones.lastSkip ?? {}
+      log('warn', 'milestone unreachable, skipping', { now: sk.id, reason: why.reason })
       this.memory.addEvent(`gave up on the previous goal as unreachable; now: ${sk.describe}`)
       logEvent({ kind: 'milestone_skipped', status: 'failed',
-                 detail: `no progress after 25 attempts; moved on to ${sk.id}`,
+                 detail: (why.reason === 'no_progress' ? `no serving progress in ${Math.round(NO_PROGRESS_MS / 60_000)} min`
+                   : why.reason === 'residence' ? 'current for 3 h without being met'
+                   : `${why.budget ?? 25} serving attempts failed`) + ` (skip #${why.skipCount ?? '?'} of ${why.id ?? '?'}); moved on to ${sk.id}`,
                  snapshot: snapshot(this.bot) })
       this.lessons.save()   // a give-up is rare and expensive to relearn
       // Tell the fleet. Two scouts each spent 25 attempts proving the SAME
       // goal unreachable tonight; the second one should not have had to.
       const gaveUp = this.milestones.skipped[this.milestones.skipped.length - 1]
-      if (gaveUp && this.worldFacts?.reportUnreachable(gaveUp, config.bot.name, this.bot.entity?.position)) {
+      // A deadline give-up says nothing about the goal's reachability (Codex review): never tell peers.
+      if (gaveUp && why.reason === 'attempts' && this.worldFacts?.reportUnreachable(gaveUp, config.bot.name, this.bot.entity?.position)) {
         announceUnreachable(this.bot, gaveUp)
       }
     }
