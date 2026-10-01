@@ -2,9 +2,14 @@
 _updated 2026-09-30 19:40Z by the interactive session — **FLEET = `8ed9450` (last-swing KEPT +360 and PROMOTED 19:16Z;
 80/80 verified; main merged it, main-pre-20260930b kept). CANARY: `hygiene-01` (sha `adc7658`) launched 19:19Z by
 `~/chain-hygiene.sh`, in the draw (hive-a/c/d excluded until 10-01 07:19Z for low slot pressure -- tagged
-`hygiene-slot-pressure`). NEXT: `fixes-01` auto-chained behind hygiene (`~/chain-fixes.sh`, pid 1650326): 8ed9450 ->
-df5611f, adc7658 -> c29568f; members digsync + stale-stop + craft-advice + hive-progress + prereq-usable + TOOL-SAFE;
-it clears the hygiene-slot-pressure exclusions before drawing.**_
+`hygiene-slot-pressure`). NEXT: `fixes-01` auto-chained behind hygiene (`~/chain-fixes.sh`): 8ed9450 -> **99fbc28**,
+adc7658 -> **a943b7f**; members digsync + stale-stop + craft-advice + hive-progress + prereq-usable + tool-safe
++ **BANK-WHY** (added 10-01 at the owner request; the old shas df5611f / c29568f no longer match the
+registrations); it clears the hygiene-slot-pressure exclusions before drawing.**_
+
+_10-01 01:52Z: hygiene-01 KEEP recorded 01:46:59Z, fleet promoting to `adc7658`. chain-fixes was STOPPED at
+01:51:29Z BEFORE it registered anything, bank-why was merged into both bundle variants, both registrations now
+name the new shas and carry `bankwhyread`, and the chain is re-armed behind an 80/80 convergence wait._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. The 610-line version this replaces (full history of
@@ -61,8 +66,10 @@ existing `fixes-01` registration, or a missing `/tmp` read.
 |---|---|---|---|
 | `1d107ed` (torn down) | `~/mcai-analysis/fixes-01.1d107ed.json` | `ecf33b6` (branch fixes-bundle) | digsync + stale-stop + craft-advice + hive-progress |
 | `8ed9450` (promoted) | `~/mcai-analysis/fixes-01.8ed9450.json` | `25a8397` (branch fixes-bundle-on-8ed9450) | the above + last-swing + prereq-usable; npm test 210/210 on 09-30 |
+| **LIVE CHOICE after hygiene KEEP** | `~/mcai-analysis/fixes-01.adc7658.json` | **`a943b7f`** (branch `fixes3-on-adc7658`) | the above + tool-safe + **bank-why**; 213/213 |
+| had hygiene reverted | `~/mcai-analysis/fixes-01.8ed9450.json` | **`99fbc28`** (branch `fixes3-on-8ed9450`) | same without hygiene; 212/212 |
 
-Reads (all in `/tmp` on 10.0.0.31): digsyncread, stalestopread, craftadviceread, hiveprogressread,
+Reads (all in `/tmp` on 10.0.0.31; **bankwhyread md5 4394aa46 added 10-01**): digsyncread, stalestopread, craftadviceread, hiveprogressread,
 [prequsableread — 8ed9450 variant only], fixesbundleread, immobiledid. `fixesbundleread` now adds prequsableread
 to its exposure MEMBERS when the registration lists it (dry run: 3 members without, 4 with; backup
 `/tmp/fixesbundleread.py.bak-20260930T*`). Draw exposure: `_reflex_stuck` >= 2, `_pickup_skipped` >= 30,
