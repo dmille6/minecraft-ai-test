@@ -16,6 +16,11 @@ import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from 
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
+import { wearOutPlan } from './hygiene.mjs'
+/** One wear-out order per bot per two minutes at most. */
+export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
+/** After a wear-out that destroyed nothing, wait this long before the next order. */
+export const WEAR_OUT_BACKOFF_MS = 30 * 60 * 1000
 import { logLlm, logEvent, log } from './logger.mjs'
 // classifyFailure is deliberately NOT imported. It regexes the prose a skill
 // wrote and hands back a taxonomy label, which is a guess wearing a
@@ -712,6 +717,19 @@ export class CognitiveLoop {
     // spot that cannot be planted costs one decision every ten minutes rather than
     // every decision.
     let order = orderFor(readyFor(this.bot, milestone))
+    // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
+    // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
+    // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
+    if (!order && Date.now() - (this.lastWearOutAt ?? 0) >= WEAR_OUT_COOLDOWN_MS && Date.now() >= (this.wearOutBackoffUntil ?? 0)) {
+      try {
+        const plan = wearOutPlan(this.bot.inventory?.items?.() ?? [])
+        if (plan.tools.length) {
+          this.lastWearOutAt = Date.now()
+          order = { skill: 'wear_out', args: {},
+                    why: `inventory at ${plan.slots} of 36 slots; ${plan.tools.length} spent tool(s) to wear out` }
+        }
+      } catch { /* an inventory read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -795,6 +813,9 @@ export class CognitiveLoop {
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
+      // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
+      // otherwise take a decision every cooldown, forever.
+      if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
@@ -894,7 +915,8 @@ export class CognitiveLoop {
         // false, whichever milestone happened to be current. There is no longer
         // a `neutral` branch calling recordSuccess -- there is one call, and it
         // cannot be made without the measurement in hand.
-        this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
+        // wear_out is housekeeping the model cannot choose: it must not become a "reliable choice" in its prompt.
+        if (admitted.skill !== 'wear_out') this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
 
         // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
         if (value === 'valuable') {
@@ -1009,7 +1031,8 @@ export class CognitiveLoop {
     let serving = false
     try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
     const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
-    if (this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
+    // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (hygiene, Claude review): a wear_out neither resets nor feeds the give-up.
+    if (admitted?.skill !== 'wear_out' && this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
       const sk = this.milestones.status()
       const why = this.milestones.lastSkip ?? {}
       log('warn', 'milestone unreachable, skipping', { now: sk.id, reason: why.reason })
