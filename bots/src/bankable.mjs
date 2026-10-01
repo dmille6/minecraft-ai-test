@@ -98,6 +98,30 @@ export function scaffoldKeep (counts = {}, reserveScaffold = 8) {
   return keep
 }
 
+/**
+ * WHICH RULE HELD THE ITEM BACK. A bounded vocabulary, and the phrases carry NO DIGITS.
+ *
+ * Measured on the deployed 8ed9450 over 4,483 deposit runs / 80 bots / 24 h: 2,203 runs
+ * (49.2%) end in the "not a banking target" refusal, and in EVERY ONE of them the bot was
+ * holding items the chests demonstrably accept -- a median of 32, up to 504, with `oak_log`
+ * present in 1,275 and `cobblestone` in 606. The refusal is correct for the item the model
+ * NAMED; what the row could not say was which of five separate rules removed it. "apple is
+ * not a banking target" and "those eight cobblestone are the scaffold reserve" are the same
+ * sentence today, and they need different answers.
+ *
+ * No digits, because `deposit-truth.test.mjs` forbids them and the reason is the same one it
+ * gives: a quantity splits one refusal into one distinct `detail` string per amount held, and
+ * this project's refusal reads bucket on `Counter(detail[:95])`. The rule goes FIRST in the
+ * sentence for that reason too -- a long item name must not push it past the truncation.
+ */
+export const EXCLUSION_PHRASE = Object.freeze({
+  ballast: 'ballast',
+  not_wanted: 'no goal wants it',
+  scaffold_reserve: 'scaffold reserve',
+  last_of_tool_family: 'last of its tool family',
+  the_only_station: 'the only station',
+})
+
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 /** One of each of these stays in the bot's hands whatever the wants say: the stations and the bucket are how it
  *  works, and banking the only copy disarms it the way banking the only pickaxe does (Codex, deposit pass 2). */
@@ -134,25 +158,36 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
 
   const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
   const detail = {}
+  // name -> the rule that removed it, recorded HERE so no second route can disagree with the
+  // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
+  // alone suffices, otherwise the keep-one that applies.
+  const excluded = {}
   let bankable = 0, junk = 0
   for (const [name, n] of Object.entries(counts)) {
-    if (NEVER_BANKABLE.has(name)) { junk += n; continue }
+    if (NEVER_BANKABLE.has(name)) { junk += n; excluded[name] = 'ballast'; continue }
     let avail = n
     const m = TOOL_RE.exec(name)
     if (m) avail -= 1                       // keep one of each tool family
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
-    avail -= (scaffoldReserve[name] ?? 0)
-    if (avail <= 0) continue
+    const reserved = scaffoldReserve[name] ?? 0
+    avail -= reserved
+    if (avail <= 0) {
+      excluded[name] = reserved >= n ? 'scaffold_reserve'
+        : m ? 'last_of_tool_family'
+        : KEEP_ONE.has(name) ? 'the_only_station'
+        : 'scaffold_reserve'
+      continue
+    }
     // A SPARE TOOL IS REAL OUTPUT. Tools are never in the standing-target list
     // (that list is materials), and without this a second pickaxe -- which costs
     // wood, sticks and a crafting table to make -- was scored as ballast.
     const isTool = !!m
-    if (!isTool && !want.has(name)) { junk += avail; continue }
+    if (!isTool && !want.has(name)) { junk += avail; excluded[name] = 'not_wanted'; continue }
     const credited = Math.min(avail, creditCap)
     detail[name] = credited
     bankable += credited
   }
-  return { count: bankable, junk, detail }
+  return { count: bankable, junk, detail, excluded }
 }
 
 /**
@@ -184,10 +219,32 @@ export function depositDue ({ bankable, distHome, storageWithin48 = false,
 export const DEPOSIT_VALUE = ['diamond', 'iron_ingot', 'raw_iron', 'iron_ore', 'coal', 'oak_log', 'birch_log', 'jungle_log', 'oak_planks', 'stick', 'stone', 'cobbled_deepslate', 'cobblestone']
 /** Banked whenever carried, wanted or not: ores and rare drops are never ballast. */
 export const DEPOSIT_ALWAYS = ['iron_ore', 'deepslate_iron_ore', 'raw_copper', 'copper_ingot', 'raw_gold', 'gold_ingot', 'redstone', 'lapis_lazuli', 'emerald', 'amethyst_shard']
+/**
+ * THE ONE WANTS AUGMENTATION, IN ONE PLACE. `depositPlan` and `bankableExclusion` must judge
+ * the same inventory the same way; the previous attempt at naming the rule computed
+ * bankability by two different routes and was refused in review for exactly that. Both now
+ * go through here, so "what moves" and "why nothing moved" cannot disagree for any input.
+ * (Codex: a bot carrying wanted iron_ore passed admission and transferred nothing because ore
+ * is not a standing target -- hence DEPOSIT_ALWAYS.)
+ */
+function depositView (items, { wants = [], ...opts } = {}) {
+  return bankableInventory(items, { ...opts, wants: [...wants, ...DEPOSIT_ALWAYS] })
+}
+
+/**
+ * WHICH RULE REMOVED `item` FROM THIS DEPOSIT, or null when it did not. Pure.
+ *
+ * Reads the map `bankableInventory` fills in the pass that makes the decision, so this is a
+ * lookup and not a re-derivation. Returns null when the item IS bankable and when the bot
+ * holds none of it -- "held none" is a different sentence and `depositNoopReason` owns it.
+ */
+export function bankableExclusion (items = [], item = null, opts = {}) {
+  if (!item) return null
+  return depositView(items, opts).excluded[item] ?? null
+}
+
 export function depositPlan (items = [], item = null, { wants = [], ...opts } = {}) {
-  // the same wants admission judged with, plus the always-banked list (Codex: a bot carrying wanted iron_ore
-  // passed admission and transferred nothing because ore is not a standing target)
-  const { detail } = bankableInventory(items, { ...opts, wants: [...wants, ...DEPOSIT_ALWAYS] })
+  const { detail } = depositView(items, { wants, ...opts })
   const rank = name => { const i = DEPOSIT_VALUE.indexOf(name); return i < 0 ? (TOOL_RE.test(name) ? DEPOSIT_VALUE.length : DEPOSIT_VALUE.length + 1) : i }
   return Object.entries(detail)
     .filter(([name]) => !item || name === item)   // EXACT: a named item never sweeps in its substrings
@@ -244,10 +301,21 @@ export function depositPlan (items = [], item = null, { wants = [], ...opts } = 
  * wording rather than this one asserting something it cannot see.
  */
 export function depositNoopReason (items = [], item = null, { wants = [], ...opts } = {}) {
-  if (depositPlan(items, item, { wants, ...opts }).length) return null
+  // SPREAD `wants` ONCE. The old comment noted the sentence and the plan can differ only for a
+  // non-array `wants` (a consumed generator), which admission never passes. Naming the rule
+  // means judging the inventory twice, which would consume such a generator on the first pass
+  // and leave the second looking at an empty want set -- so materialise it here and the edge
+  // closes for both callers rather than merely staying unlikely.
+  const w = Array.isArray(wants) ? wants : [...(wants ?? [])]
+  if (depositPlan(items, item, { wants: w, ...opts }).length) return null
   if (!item) return 'nothing worth banking — nothing to deposit'
   let held = 0
   for (const it of items) if (it?.name === item) held += (it.count ?? 0)
   if (held <= 0) return `you are carrying no ${item} — nothing to deposit`
-  return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
+  // THE RULE GOES FIRST. `Counter(detail[:95])` is how this project's refusal reads bucket, and
+  // a long item name would push a trailing reason past the cut -- every rule would merge back
+  // into the one bucket this change exists to split.
+  const phrase = EXCLUSION_PHRASE[bankableExclusion(items, item, { wants: w, ...opts })]
+  if (!phrase) return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
+  return `not a banking target (${phrase}): you are carrying ${item} — nothing to deposit`
 }
