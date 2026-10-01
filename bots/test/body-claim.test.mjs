@@ -318,7 +318,9 @@ t('A TOOL-SHORT CLIMB ASKS FOR A TOOL', () => {
   const r = climbPrereqFor('needs_pickaxe')
   assert.ok(r, 'no prerequisite for a tool-short refusal')
   assert.ok(r.items.every(i => /_pickaxe$/.test(i)), `asked for ${r.items}`)
-  assert.equal(r.count, 1)
+  // TWO, not one (prereq-usable, 2026-09-29): the escape refuses to spend its last pickaxe on the ceiling, so an ask
+  // for one was met and refused in turn -- a loop. prereq-usable.test.mjs holds the ask and mayDigForEscape together.
+  assert.equal(r.count, 2)
 })
 
 t('A BLOCK-SHORT CLIMB ASKS FOR BLOCKS', () => {

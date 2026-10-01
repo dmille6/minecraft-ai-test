@@ -121,7 +121,84 @@ export function travelTool (block, items, held) {
   const d = toolFor(block, items)
   if (d.item) return d.item
   if (!isTool(held)) return null
+  // WHEN THE HAND IS THE ANSWER, HOLD A BLOCK, NOT A PICKAXE (both engines, 09-30: ~1,630 pickaxe uses/day went on dirt,
+  // leaves and logs -- this returned the cheapest open tool, a wooden pickaxe, ahead of the dirt stack in the bag). Only
+  // when the hand cannot break it does a tool of any kind beat a filler.
+  if (d.hand) return handFiller(items) ?? cheapestOpen(items)
   return cheapestOpen(items) ?? handFiller(items)   // a block in the hand beats a spent pickaxe in the hand (the pathfinder equips whatever this returns)
+}
+
+/**
+ * EMPTY THE HAND WITHOUT THROWING ANYTHING AWAY. mineflayer's unequip('hand') (simple_inventory.js equipEmpty) TOSSES the
+ * held stack when neither the hotbar nor the inventory has a free slot -- PROVED on the sandbox 2026-09-30 (36/36: the
+ * stone pickaxe on the ground; 35/36: kept) and against mineflayer's own code on a real window (tool-safe-window test).
+ * The fleet lost ~45-94 good stone pickaxes a day this way. Order of preference (Codex review: even with a free slot,
+ * unequip can toss if a pickup fills that slot between its clicks, so it is the LAST resort, not the first):
+ *   'empty'        nothing held;
+ *   'kept'         a non-tool in hand (a block digs like the hand) -- never unequipped, so never tossed;
+ *   'filler'       a harmless non-tool stack swapped INTO the hand (equip swaps; it never uses the -999 drop);
+ *   'unequip'      no filler, a KNOWN free slot: the plain unequip;
+ *   'hotbar_other' a bag of only tools: select a hotbar item that is NOT a pickaxe (no click at all) -- the escape
+ *                  must not swing the last pickaxe (mayDigForEscape's reserve);
+ *   'kept_tool'    nothing else possible: keep it (a use spent beats a tool thrown away);
+ *   'failed'       the swap/unequip did not take (checked after, not assumed).
+ */
+export async function emptyHand (bot) {
+  const held = bot?.heldItem
+  if (!held) return 'empty'
+  if (!isTool(held)) return 'kept'
+  const items = bot.inventory?.items?.()
+  const filler = Array.isArray(items) ? handFiller(items) : null
+  if (filler) {
+    try { await bot.equip(filler, 'hand') } catch {}
+    return isTool(bot.heldItem) ? 'failed' : 'filler'
+  }
+  if (freeSlots(bot) > 0) {
+    try { await bot.unequip('hand') } catch {}
+    return isTool(bot.heldItem) ? 'failed' : 'unequip'
+  }
+  const slots = bot.inventory?.slots
+  if (Array.isArray(slots) && typeof bot.setQuickBarSlot === 'function') {
+    for (let i = 0; i < 9; i++) {
+      const it = slots[36 + i]
+      if (it && !/_pickaxe$/.test(it.name)) { try { bot.setQuickBarSlot(i) } catch {} ; return /_pickaxe$/.test(bot.heldItem?.name ?? '') ? 'failed' : 'hotbar_other' }
+    }
+  }
+  return 'kept_tool'
+}
+/** Free player slots (9..44, hotbar included): mineflayer's own count, else the stacks against 36; UNKNOWN is 0, never "free". */
+export function freeSlots (bot) {
+  try {
+    const n = bot?.inventory?.emptySlotCount?.()
+    if (Number.isFinite(n)) return n
+    const items = bot?.inventory?.items?.()
+    return Array.isArray(items) ? Math.max(0, 36 - items.length) : 0
+  } catch { return 0 }
+}
+/** Pure: was a TOOL toss averted? Only on a FULL bag, only for a held tool, only when the hand was not simply unequipped. */
+export const tossAverted = (heldName, how, full) => !!full && !!heldName && TOOL_RE.test(heldName) && ['filler', 'hotbar_other', 'kept_tool'].includes(how)
+
+/**
+ * THE SCAFFOLD A BOT PLACES, CHEAPEST FIRST (both engines, 09-30: escapes placed ~1,170-1,250 logs/day while cheaper blocks
+ * were held -- the reflex took the first PLACEABLE stack in inventory order). Rank: cheap non-falling blocks, then
+ * falling ones (sand, gravel -- every site places onto a solid top face, where they hold), then cobblestone (the pickaxe
+ * material), then planks, then logs/wood/stems; within a rank the biggest stack. Never refuses: a bot holding only wood
+ * still climbs with wood.
+ */
+const SCAFFOLD_RANK = [
+  [0, /^(dirt|coarse_dirt|rooted_dirt|stone|andesite|diorite|granite|deepslate|tuff|netherrack|sandstone|red_sandstone|dripstone_block)$/],
+  [1, /^(sand|gravel)$/],
+  // COBBLESTONE AFTER THE OTHER CHEAP BLOCKS (Claude review): it is the stone-pickaxe material last-swing exists to
+  // recover. Still before any wood.
+  [2, /^(cobblestone|cobbled_deepslate)$/],
+  [3, /_planks$/],
+  [4, /(_log|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/],
+]
+export const scaffoldRank = name => { for (const [r, re] of SCAFFOLD_RANK) if (re.test(name)) return r; return null }
+export function pickScaffold (items = [], placeable = /./) {
+  const c = (Array.isArray(items) ? items : []).filter(it => it?.name && placeable.test(it.name) && scaffoldRank(it.name) != null)
+  c.sort((a, b) => (scaffoldRank(a.name) - scaffoldRank(b.name)) || ((b.count ?? 0) - (a.count ?? 0)))
+  return c[0] ?? null
 }
 
 /** Every tool the bot could still swing at this block (ignores the floor; honours the hard stop). Used by the exit contract. */

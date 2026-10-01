@@ -209,8 +209,11 @@ t('reflex and skill layers ask for the SAME pickaxe', () => {
   const fromSkill = climbPrerequisite('dig failed on stone by hand: dig exceeded 15000ms')   // a BARE-HANDED failure asks for a pickaxe; one with a pickaxe in hand asks for nothing (2026-09-13)
   const fromReflex = pickaxePrereq('capped shaft')
   assert.deepEqual(fromReflex.items, fromSkill.items)
-  assert.equal(fromReflex.count, fromSkill.count)
-  assert.equal(fromReflex.describe, fromSkill.describe)
+  // THE COUNTS DIFFER ON PURPOSE (prereq-usable, 2026-09-29). The reflex escape keeps a reserve (mayDigForEscape refuses
+  // on exactly one usable pickaxe), so its ask is for two; the surface skill's climb digs with whatever it holds, so one
+  // is enough there. An equal count of one was the loop: the reflex's ask met, its dig refused.
+  assert.equal(fromReflex.count, 2)
+  assert.equal(fromSkill.count, 1)
 })
 
 t('the scaffold ask carries a reason, since applyPrereq surfaces it', () => {

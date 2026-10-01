@@ -30,6 +30,7 @@ import { travelTool } from './toolfor.mjs'
 import { diffTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
+import { attachDigSync } from './digsync.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
@@ -44,6 +45,9 @@ const require_ = createRequire(import.meta.url)
 let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
+// digsync's final totals row: the signal handler closes the logs and exits without ending the bot, so an 'end'
+// listener never runs on a systemd stop. It calls this before closeLogs().
+let digSyncFinal = null
 let stopComms = null
 let worldFacts = null
 let cognitive = null
@@ -159,6 +163,38 @@ function connect() {
   // packet-witness.mjs -- `onGround` cannot separate those and reading it as
   // if it could is a measurement that was already retracted once.
   bot.packetWitness = attachPacketWitness(bot)
+
+  // GHOST BLOCKS (digsync.mjs): restore what the server kept when it refused a dig, as the vanilla client does on the
+  // ack, and send `player_loaded` so Paper stops dropping digs for 3 s after every join and respawn. Before anything
+  // digs. The row is an OUTCOME: written only when a restore changed the bot's world model, at most one per 5 s,
+  // carrying every restore since the last row and the running totals (the denominator).
+  {
+    const rb = []
+    let lastRow = 0
+    // key=value, so a read parses fields instead of prose (both reviews); the same string on every row kind.
+    const totals = c => `predicted=${c.predicted} confirmed=${c.confirmed} rolledBack=${c.rolledBack} backstop=${c.backstop} ` +
+                        `falseRestore=${c.falseRestore} repeatMax=${c.repeatMax} predictFailed=${c.predictFailed} spawns=${c.spawns} loadedSent=${c.loadedSent}`
+    const flush = () => {
+      if (!rb.length) return
+      const c = bot.digSync?.counts ?? {}
+      const first = rb.slice(0, 3).map(r => `${r.pos.x},${r.pos.y},${r.pos.z} ${r.why} ${Math.round(r.sinceSpawnMs / 1000)}s after spawn x${r.repeat}`).join('; ')
+      logEvent({ kind: 'dig_rollback', status: 'success', snapshot: snapshot(bot),
+                 detail: `restored ${rb.length} block(s) the server never broke: ${first}${rb.length > 3 ? '; ...' : ''} | ` +
+                         totals(c) })
+      rb.length = 0; lastRow = Date.now()
+    }
+    bot.digSync = attachDigSync(bot, { onRollback: r => { rb.push(r); if (Date.now() - lastRow >= 5000) flush() } })
+    const t = setInterval(() => { if (Date.now() - lastRow >= 5000) flush() }, 5000)
+    t.unref?.()
+    // THE DENOMINATOR (both reviews): rollback rows alone are silent on a bot that never needed one, so every bot also
+    // writes its totals every 10 minutes and on disconnect. `_dig_sync` is a kind the baseline cannot emit either.
+    const beat = () => { try { logEvent({ kind: 'dig_sync', status: 'success', snapshot: snapshot(bot), detail: totals(bot.digSync?.counts ?? {}) }) } catch { /* never the bot's problem */ } }
+    const hb = setInterval(beat, 10 * 60 * 1000)
+    hb.unref?.()
+    let finalDone = false
+    digSyncFinal = () => { if (finalDone) return; finalDone = true; clearInterval(t); clearInterval(hb); flush(); beat() }
+    bot.once('end', () => digSyncFinal?.())
+  }
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer
   // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
@@ -1095,6 +1131,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     if (cognitive) cognitive.stop()
     if (watchdog) watchdog.stop()
     try { lessons?.save() } catch {}
+    try { digSyncFinal?.() } catch {}
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })
