@@ -85,6 +85,10 @@ for r in ev.rows:
     elif k == '_prereq_satisfied':
         satisfied[(p, a)] += 1
         if p == 'post' and re.match(r'\w+_pickaxe-class', d):
+            ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+            if a == 'canary' and CV and ver and not ver.startswith(CV):
+                offbuild += 1   # a pre-restart row on the old build (fixes-01's false REVERT, 10-01)
+                continue
             pick_sat[a] += 1
             tools = bot.get('tools') or ((r.get('raw') or {}).get('bot') or {}).get('tools')
             if usable_picks(tools) == 0:

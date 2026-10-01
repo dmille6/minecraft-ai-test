@@ -65,7 +65,11 @@ for r in ev.rows:
     if k == '_tool_gone':
         m = GONE.search(d)
         if m and int(m.group(2)) > 10:
-            gone.append((t, b, m.group(1), int(m.group(2))))
+            ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+            if p == 'post' and a == 'canary' and CV and ver and not ver.startswith(CV):
+                offbuild += 1   # a pre-restart loss on the old build is not the canary's
+            else:
+                gone.append((t, b, m.group(1), int(m.group(2))))
     if k in ('_hand_safe', '_scaffold_pick') and p == 'post':
         ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
         if a == 'canary' and CV and not ver.startswith(CV):
