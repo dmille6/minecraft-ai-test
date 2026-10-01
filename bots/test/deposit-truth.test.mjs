@@ -23,7 +23,7 @@ process.env.LOG_DIR = '/tmp/mcbot-test-logs-deposit-truth'
 process.env.BOT_NAME = 'TestBot'
 process.env.HOME_X = '28'; process.env.HOME_Y = '79'; process.env.HOME_Z = '0'
 
-const { depositNoopReason, depositPlan } = await import('../src/bankable.mjs')
+const { depositNoopReason, depositPlan, bankableExclusion, EXCLUSION_PHRASE } = await import('../src/bankable.mjs')
 const { SKILLS } = await import('../src/skills.mjs')
 
 let pass = 0, fail = 0
@@ -163,6 +163,69 @@ await t('END TO END: holding none of it is still reported as none', async () => 
   const r = await run(bot, { item: 'diamond' })
   assert.equal(r.status, 'no_effect', JSON.stringify(r))
   assert.match(r.detail, /carrying no diamond/, `got: ${r.detail}`)
+})
+
+// --------------------------------------------- WHICH RULE HELD IT BACK (2026-10-01)
+// Measured on 8ed9450, 4,483 deposit runs / 80 bots / 24 h: 2,203 (49.2%) end in this
+// refusal, and in EVERY one the bot held items the chests accept -- median 32, max 504,
+// oak_log in 1,275, cobblestone in 606. Five different rules produced one sentence.
+
+await t('EACH RULE NAMES ITSELF, and no two classes share a sentence', async () => {
+  const cases = [
+    ['no goal wants it',          inv({ apple: 30, oak_log: 12 }), 'apple'],
+    ['scaffold reserve',          inv({ cobblestone: 8 }),         'cobblestone'],
+    ['ballast',                   inv({ leaf_litter: 40 }),        'leaf_litter'],
+    ['last of its tool family',   inv({ iron_pickaxe: 1 }),        'iron_pickaxe'],
+    ['the only station',          inv({ crafting_table: 1 }),      'crafting_table'],
+  ]
+  const seen = new Set()
+  for (const [phrase, items, item] of cases) {
+    const r = depositNoopReason(items, item)
+    assert.ok(r, `${item}: expected a refusal, got ${r}`)
+    assert.match(r, new RegExp(`\\(${phrase.replace(/[()]/g, '')}\\)`), `${item}: ${r}`)
+    assert.match(r, /not a banking target/, `${item} lost the phrase the reads match on: ${r}`)
+    assert.match(r, new RegExp(`carrying ${item}`), `${item}: ${r}`)
+    seen.add(r.replace(item, '<item>'))
+  }
+  assert.equal(seen.size, cases.length, 'two rules collapsed into the same sentence')
+})
+
+await t('THE RULE SURVIVES THE READ TRUNCATION: it sits inside detail[:95] for the longest item name', async () => {
+  // sneak.py / wo5.py bucket refusals on Counter(detail[:95]). A trailing reason would merge
+  // every rule back into the one bucket this change exists to split.
+  for (const [items, item] of [[inv({ cobbled_deepslate: 8 }), 'cobbled_deepslate'],
+                               [inv({ apple: 30 }), 'apple']]) {
+    const r = depositNoopReason(items, item)
+    const head = r.slice(0, 95)
+    assert.match(head, /\(/, `the rule fell past the truncation: ${head}`)
+    assert.ok(r.length <= 120, `${r.length} chars: ${r}`)
+    assert.doesNotMatch(r, /\d/, `a number crept into the message: ${r}`)
+    assert.doesNotMatch(r, /try |instead|you should|say deposit/i, `a remedy crept in: ${r}`)
+  }
+})
+
+await t('ONE DEFINITION STILL: the named rule exists exactly when the plan is empty and the item is held', async () => {
+  const items = inv({ apple: 30, oak_log: 12, cobblestone: 8, iron_pickaxe: 1, crafting_table: 1,
+                      leaf_litter: 5, raw_iron: 2, stick: 2 })
+  for (const name of ['apple', 'oak_log', 'cobblestone', 'iron_pickaxe', 'crafting_table',
+                      'leaf_litter', 'raw_iron', 'stick', 'diamond']) {
+    const planned = depositPlan(items, name).length > 0
+    const rule = bankableExclusion(items, name)
+    const held = items.some(i => i.name === name)
+    if (!held) { assert.equal(rule, null, `${name}: not held, so no rule applies`); continue }
+    assert.equal(planned, rule === null,
+      `${name}: plan says ${planned ? 'bankable' : 'not'} but the rule is ${JSON.stringify(rule)}`)
+    if (rule) assert.ok(EXCLUSION_PHRASE[rule], `${name}: rule ${rule} has no phrase`)
+  }
+})
+
+await t('A RESERVED STACK AND AN UNWANTED ONE ARE NOW DIFFERENT SENTENCES -- the point of the change', async () => {
+  const reserved = depositNoopReason(inv({ cobblestone: 8 }), 'cobblestone')
+  const unwanted = depositNoopReason(inv({ apple: 30 }), 'apple')
+  assert.notEqual(reserved.replace('cobblestone', 'X'), unwanted.replace('apple', 'X'),
+    'the two states that needed different answers still read identically')
+  assert.match(reserved, /scaffold reserve/, reserved)
+  assert.match(unwanted, /no goal wants it/, unwanted)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -9,6 +9,7 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
+import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -214,6 +215,31 @@ export function ladderExhausted (latches, now, { max = LADDER_MAX_LATCHES, windo
  * the task to render plus, when the prereq is finished, WHY it finished --
  * `satisfied` (the bot holds enough) or `abandoned` (it ran out of patience).
  */
+/**
+ * How many of a prerequisite the bot holds that can DO THE WORK. Pure.
+ *
+ * A TOOL AT ITS FLOOR IS NOT A TOOL (fleet triage 2026-09-29, 24 h, 60 bots): 4,073 of 4,605 pickaxe prerequisites
+ * (88.4%) were counted SATISFIED while every pickaxe held had <= 1 use -- a copy toolfor.mjs will never swing
+ * (remaining > HARD_STOP, toolfor.mjs:51). So "get a pickaxe" cleared the moment it was adopted, the bot went back to
+ * the dig that had just failed, and four sealed bots looped for the whole window (96 bot-hours). A durable item counts
+ * only above HARD_STOP uses, and above `minUses` when the task names one.
+ */
+export function prereqHave(items, prereq) {
+  if (!prereq) return 0
+  const want = new Set(prereq.items ?? [])
+  const min = Math.max(HARD_STOP + 1, prereq.minUses ?? 0)
+  let n = 0
+  for (const it of items ?? []) {
+    if (!want.has(it?.name)) continue
+    // DIGGING TOOLS ONLY (Codex review): the floor is toolfor's swing reserve. A one-use shears, armour or
+    // flint_and_steel still does its job, so only pickaxes/axes/shovels/hoes are held to it.
+    if (DIG_TOOL.test(it.name) && it.maxDurability && it.maxDurability - (it.durabilityUsed ?? 0) < min) continue
+    n += it.count ?? 1
+  }
+  return n
+}
+const DIG_TOOL = /_(pickaxe|axe|shovel|hoe)$/
+
 export function applyPrereq(milestone, prereq, have, now = Date.now()) {
   if (!prereq) return { task: milestone, clear: null }
   if (have >= prereq.count) return { task: milestone, clear: 'satisfied' }
@@ -557,22 +583,26 @@ export class CognitiveLoop {
     log('warn', 'prerequisite adopted as the current task', {
       need: need.items.slice(0, 3).join('/'), count: need.count, after: fromSkill,
     })
+    // named= vs usable= : the canary's licence text, and the number the old count hid (a bot holding six spent pickaxes
+    // reads named=6 usable=0).
+    const inv = this.bot.inventory?.items?.() ?? []
+    const named = inv.filter(it => (need.items ?? []).includes(it?.name)).reduce((n, it) => n + (it.count ?? 1), 0)
+    // THE CASE THIS BUILD CHANGES (Codex review): by name the bot "has" it, by use it does not. The old count cleared
+    // this detour at once; only this build can write the row.
+    if (named >= need.count && prereqHave(inv, need) < need.count) {
+      logEvent({ kind: 'prereq_usable_filtered', status: 'success',
+                 detail: `${fromSkill}: named=${named} usable=${prereqHave(inv, need)} of ${need.count}x ${need.items.slice(0, 2).join('/')}; floor ${Math.max(HARD_STOP + 1, need.minUses ?? 0)} uses`,
+                 snapshot: snapshot(this.bot) })
+    }
     logEvent({ kind: 'prereq_adopted', status: 'failed',
                detail: `${fromSkill} needs ${need.count}x ${need.items.slice(0, 3).join(' or ')} ` +
-                       `(${need.because}); it is now the task until satisfied`,
+                       `(${need.because}); it is now the task until satisfied named=${named} usable=${prereqHave(inv, need)}`,
                snapshot: snapshot(this.bot) })
   }
 
   #prereqHave() {
-    if (!this.prereq) return 0
-    const want = new Set(this.prereq.items)
-    // A TOOL TASK IS MET BY A TOOL THAT CAN DO THE WORK, not by its name (both design reviews): a spent pickaxe
-    // must not satisfy "craft a stone_pickaxe". `minUses` comes from the skill that set the task.
-    const min = this.prereq.minUses ?? 0
-    const uses = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUsed ?? 0) : Infinity)
-    let n = 0
-    for (const it of (this.bot.inventory?.items() ?? [])) if (want.has(it.name) && uses(it) >= min) n += it.count
-    return n
+    // prereq-usable's prereqHave (it honours `minUses`, which the ore tunnel sets) replaces the tunnel's own copy.
+    return prereqHave(this.bot.inventory?.items() ?? [], this.prereq)
   }
 
   #activeTask() {

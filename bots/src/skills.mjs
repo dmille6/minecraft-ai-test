@@ -25,6 +25,7 @@
 // Every long loop must check `signal.aborted`, because the reflex layer
 // preempts skills and a skill that ignores that will fight it.
 
+import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
@@ -234,8 +235,7 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
         if (onTimeout) {
           try { onTimeout() } catch { /* best effort; the reject still happens */ }
         } else {
-          try { bot.pathfinder?.setGoal(null) } catch {}
-          try { bot.pathfinder?.stop() } catch {}
+          haltPath(bot)   // setGoal(null) and NO trailing stop(): that left a stale flag the next goto died of (pathhalt.mjs)
         }
         // TAGGED, not just worded. The old message was matched by a regex that
         // also matched "no path", so OUR wall clock expiring was reported to
@@ -249,7 +249,13 @@ export function withTimeout(promise, ms, bot, { what = 'pathfinding', onTimeout 
                             budgetExceeded: true }))
       }, ms)
     }),
-  ]).finally(() => { clearTimeout(t); if (watch) clearInterval(watch) })
+  ]).finally(() => {
+    clearTimeout(t); if (watch) clearInterval(watch)
+    // THE DIG WATCHER'S stop() (watchDigging) IS CONSUMED HERE (Claude review of 7775d5e): on a walk the pathfinder's
+    // own dig_error reset eats it, but around gather's direct bot.dig there is no path, the dig settles first, and the
+    // stale flag killed the next walk -- the pickup sweep. The race has settled, so no walk of this call is live.
+    if (undiggable) haltPath(bot)
+  })
 }
 
 /** Refuse any destination outside the world border. */
@@ -400,8 +406,11 @@ async function goto(ctx, { x, y, z, range = 1 }, signal) {
         ? new goals.GoalNear(leg.x, leg.y, leg.z, Math.max(range, 2))
         : new goals.GoalNearXZ(leg.x, leg.z, Math.max(range, 2))
       const p = bot.pathfinder.goto(goal)
-      signal?.addEventListener('abort', () => { try { bot.pathfinder.stop() } catch {} }, { once: true })
-      await withTimeout(p, 25000, bot)
+      // Halt on abort -- and REMOVE the listener when the leg ends (Codex review: one per leg accumulated, and a
+      // finished leg's listener could halt a later walk).
+      const onAbort = () => haltPath(bot)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      try { await withTimeout(p, 25000, bot) } finally { signal?.removeEventListener?.('abort', onAbort) }
 
       // A RESOLVED PROMISE IS NOT AN ARRIVAL.
       //
@@ -916,6 +925,70 @@ function resolveBlockName(bot, name) {
   return { name: null, via: null }
 }
 
+/**
+ * CAN THE SOURCE OF THIS INGREDIENT EXIST WHERE THE BOT IS STANDING? Pure, exported, testable.
+ *
+ * Lower is better. This is the tiebreak the recipe chooser was missing, and the reason it is
+ * needed is measured: for `stone_pickaxe`, minecraft-data 1.21.8 returns the variants in registry
+ * order `cobbled_deepslate, blackstone, cobblestone`, `better()` is strict on every clause, so a
+ * tie keeps index 0 -- and the fleet is advised to fetch `cobbled_deepslate` 1,415 times a day
+ * having obtained ZERO of it, ever, against `cobblestone` at 7.3% of 2,723 attempts.
+ *
+ * AND IT IS NOT AN ALPHABETICAL BUG, which is what I first reported and what an independent review
+ * refuted by mutant: sorting the FINAL blocker list (`rootGap`) changes only the word order of one
+ * sentence, because every member of that list is printed. Alphabetically `blackstone` would win
+ * anyway, and the fleet sees `cobbled_deepslate` -- index 0. The choice is made HERE.
+ *
+ * Three tiers, and every one is a fact about Minecraft rather than about this fleet's history:
+ *   2  DIMENSION-IMPOSSIBLE -- blackstone and basalt exist only in the Nether. All 16 worlds are
+ *      overworld, so advice naming them can never be acted on from anywhere.
+ *   1  DEPTH-IMPOSSIBLE     -- deepslate and its variants exist only below y=0, which the file
+ *      already knows (`depthVariant`: "Below y=0 an ore only exists as its deepslate variant").
+ *      A surface bot cannot go and get cobbled_deepslate without first digging past y=0.
+ *   0  reachable from here.
+ *
+ * Deliberately NOT ranked by the fleet's own success rates: those live in the lessons store, which
+ * is SHARED WITHIN HIVE POOLS, so a history-based ordering would differ by arm and make every
+ * downstream change carry an interaction term -- the exact cost the arms were retired over.
+ */
+export const NETHER_ONLY = new Set(['blackstone', 'basalt', 'blackstone_slab', 'polished_blackstone',
+  'netherrack', 'soul_sand', 'soul_soil', 'nether_bricks', 'gilded_blackstone'])
+
+export function sourceReachCost (name, y = 64, dimension = 'overworld') {
+  const n = String(name || '').replace(/^\d+x\s+/, '')
+  if (NETHER_ONLY.has(n)) return dimension === 'the_nether' ? 0 : 2
+  if (/(^|_)deepslate(_|$)/.test(n) || n === 'cobbled_deepslate') return y < 0 ? 0 : 1
+  // SMELTED, NEVER GATHERED (Claude review 09-29): torch's variants come back [charcoal+stick, coal+stick], so a tie
+  // advised "gather charcoal first" (19/24 h). Coal is mined; charcoal needs a furnace, fuel and logs.
+  if (SMELT_ONLY.has(n)) return 1
+  return 0
+}
+export const SMELT_ONLY = new Set(['charcoal'])
+
+/**
+ * Pure: a blocker list deduped BY ITEM, keeping the largest requirement, sorted. A sub-craft's gap can itself be a
+ * '+'-joined list ("2x stick+3x oak_planks"), so it is split first (Claude review 09-29: it was keyed as one item).
+ */
+export function dedupeGap (blockedBy = []) {
+  const byItem = new Map()
+  for (const entry of blockedBy) {
+    for (const b of String(entry).split('+').map(x => x.trim()).filter(Boolean)) {
+      const m = /^(\d+)x\s+(.+)$/.exec(b)
+      const [n, item] = m ? [Number(m[1]), m[2]] : [1, b]
+      const prev = byItem.get(item)
+      if (!prev || n > prev.n) byItem.set(item, { n, text: b })
+    }
+  }
+  return [...byItem.values()].map(v => v.text).sort()
+}
+
+/** The worst (highest) reach cost in a gap, because a gap is only as good as its hardest member. */
+export function gapReachCost (gap = [], y = 64, dimension = 'overworld') {
+  let worst = 0
+  for (const g of gap) worst = Math.max(worst, sourceReachCost(g, y, dimension))
+  return worst
+}
+
 /** Below y=0 an ore only exists as its deepslate variant. */
 function depthVariant(bot, name, y) {
   if (y >= 0 || name.startsWith('deepslate_')) return null
@@ -1241,7 +1314,13 @@ export async function collectManually(bot, block, signal) {
   // few ticks and then look. If the block is still what it was, the break did
   // not happen and calling this a harvest is the same overclaim the evidence
   // gate exists to stop.
-  await sleep(250, signal)
+  // THE SERVER'S WORD, when digsync (digsync.mjs) can give it: wait until the dig is settled by the server's ack, and if
+  // it was refused and restored, give a delayed destroy (Paper breaks an early STOP a few ticks later) 600 ms more
+  // before believing the block (Claude review of fbd7125: at 250 ms the check saw the restore and walked away from a
+  // block the server broke at 400 ms). Without digsync, the old 250 ms look.
+  const settled = bot.digSync?.waitSettled ? await bot.digSync.waitSettled(p, 1500) : null
+  if (settled?.broken === false) await sleep(600, signal)
+  else if (!settled) await sleep(250, signal)
   const nowNamed = bot.blockAt(p)?.name
   if (wasNamed && nowNamed === wasNamed && wasNamed !== 'air') {
     throw Object.assign(
@@ -1296,6 +1375,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
+    const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
         new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
@@ -1309,10 +1389,16 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       // denominator and no row a control pool could not also emit -- three canaries
       // have been reverted on rows the baseline emitted too. HEAD cannot reach this
       // line at all: it returns here.
+      // WHY, WHAT AND WHERE (both analyses 2026-09-29: the row carried only an id, so the causes stayed inferred).
+      // err= is also the only text a build without this change cannot write.
+      let what = '?', off = '?'
+      try { what = drop.getDroppedItem?.()?.name ?? '?' } catch {}
+      try { const q = drop.position.minus(bot.entity.position); off = `${q.x.toFixed(1)},${q.y.toFixed(1)},${q.z.toFixed(1)}` } catch {}
       refused.add(drop.id)
       logEvent({ kind: 'pickup_skipped', status: 'success',
                  detail: `drop ${drop.id} refused the walk; retired it and kept sweeping ` +
-                         `(${refused.size} retired, attempt ${i + 1}/4)` })
+                         `(${refused.size} retired, attempt ${i + 1}/4) err=${e?.failClass ?? e?.name ?? 'Error'} ` +
+                         `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
     await sleep(250, signal)
@@ -2811,10 +2897,18 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
         // nothing is pointed at a material it can go and find.
         const DEFAULT_WOOD = 'oak'
         const canonical = g => g.filter(x => stem(x) === DEFAULT_WOOD).length
+        // REACHABILITY, ahead of the wood preference and behind affinity. A gap naming a block
+        // that cannot exist where the bot stands is worse than one naming a block that can,
+        // whatever else is equal -- and every clause below it still decides ties as before.
+        const by = bot?.entity?.position?.y
+        const reach = g => gapReachCost(g, Number.isFinite(by) ? by : 64,
+                                        bot?.game?.dimension ?? 'overworld')
         const better = (g, b) =>
           g.length < b.length ||
           (g.length === b.length && affinity(g) > affinity(b)) ||
-          (g.length === b.length && affinity(g) === affinity(b) && canonical(g) > canonical(b))
+          (g.length === b.length && affinity(g) === affinity(b) && reach(g) < reach(b)) ||
+          (g.length === b.length && affinity(g) === affinity(b) && reach(g) === reach(b) &&
+            canonical(g) > canonical(b))
         if (!best || better(gap, best)) best = gap
         if (best.length === 0) break
       }
@@ -2923,7 +3017,13 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     //
     // Naming the deepest unresolved requirement turns a dead end into an
     // instruction: gather oak_log.
-    const rootGap = blockedBy.length ? [...new Set(blockedBy)].sort() : missing
+    // DEDUPE BY ITEM, NOT BY STRING. `new Set(blockedBy)` compares the whole entry, counts and all,
+    // so one blocker seen twice with different quantities survives twice: MEASURED, `craft
+    // wooden_pickaxe` holding 4 oak_log yields the gap `2x oak_planks+3x oak_planks`. That is one
+    // gap printed as two, and worse, the gap string is the lessons key -- lessons.mjs treats a
+    // changed gap as progress and zeroes the failure streak, so a key that moves with the missing
+    // QUANTITY can never accumulate. Keep the largest requirement per item.
+    const rootGap = blockedBy.length ? dedupeGap(blockedBy) : missing
     const gatherFirst = rootGap.filter(g => {
       const n = /^\d+x\s+(\S+)$/.exec(g)?.[1] ?? g
       const d = bot.registry.itemsByName[n]
@@ -6417,8 +6517,7 @@ export async function shaftAscend(bot, targetY, signal,
   // setGoal(null), not stop() alone: stop() takes effect at the next path node,
   // so a bot that cannot reach its next node never stops. withTimeout in this
   // file already had to learn that, and so did reflex.mjs.
-  try { bot.pathfinder?.setGoal(null) } catch { /* not connected */ }
-  try { bot.pathfinder?.stop() } catch { /* not connected */ }
+  haltPath(bot)   // no trailing stop(): pathhalt.mjs
   try { bot.clearControlStates() } catch { /* not connected */ }
 
   const startY = bot.entity.position.y

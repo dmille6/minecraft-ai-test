@@ -630,7 +630,7 @@ await t('MUTANT KILLED: dropping the jump-clearance cell stalls the ramp after o
 // comment line is what makes this one unique, and the EXECUTABLE line is what
 // the mutant deletes.
 const UNEQUIP = `    // server round trip and the durability that matters is spent on the dig.
-    if (bot.heldItem) await bot.unequip('hand').catch(() => {})`
+    await safeEmptyHand(bot, 'entombed_b')`   // tool-safe 09-30: the hand is emptied through safeEmptyHand (never a toss)
 const UNEQUIP_GONE = '    // server round trip and the durability that matters is spent on the dig.'
 
 await t('MUTANT KILLED: without the unequip the climb swings the last pickaxe', async () => {

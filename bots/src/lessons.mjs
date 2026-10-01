@@ -147,6 +147,37 @@ export function placeVerdict(places, pos, radius = PLACE_RADIUS, memory = PLACE_
   return 'new'
 }
 
+/** The fields MilestoneController and the probation counter keep in `progress`. */
+/**
+ * The shared-slot format this build writes. A slot WITHOUT it was written by the old build, whose saves froze the slot
+ * at the bot's first-ever save (Claude review: weeks-old attempts/skips/blocked for hive-a/b). Such a slot loads as
+ * EMPTY, so the first boot of this build starts exactly as the old build did and only persistence changes.
+ */
+export const PROGRESS_SLOT_VERSION = 2
+export const PROGRESS_FIELDS = ['attempts', 'skipped', 'skippedAt', 'skipCount', 'cycle', 'completions', 'progressAt', 'blocked']
+/**
+ * THIS bot's milestone progress, from either layout. A private store keeps the fields at the top of `progress`; a
+ * SHARED (hive) store keys them by bot name, because progress is goals, not experience. Before this, a hive bot
+ * loaded the whole map, getProgress() read top-level fields that were not there, and every restart began from an
+ * empty goal history; and once a save had replaced `this.data` with the merged file, later setProgress() writes
+ * landed BESIDE the bot keys, so the next save re-wrote the STALE per-bot slot (Claude review 2026-09-29; one host
+ * file read {'hive-a-Echo': {'hive-a-Bravo': {}}}). Memory holds this bot's FLAT progress; a shared file is keyed (slotOf).
+ */
+/** The progress fields of a FLAT object (memory, or a private store). */
+export function pickFields (p) {
+  const src = p && typeof p === 'object' ? p : {}
+  return Object.fromEntries(PROGRESS_FIELDS.filter(f => f in src).map(f => [f, src[f]]))
+}
+/**
+ * THIS bot's slot in a SHARED store's progress map -- no layout guessing (Codex review: "flat if any field name is at
+ * the top" was fooled by a bot named `attempts`, by the old build's legacy flat fields beside new slots, and by a stray
+ * top-level `blocked`). A shared file is ALWAYS keyed; a slot without the version marker is the old build's frozen one.
+ */
+export function slotOf (map, name) {
+  const raw = map && typeof map === 'object' && map[name] && typeof map[name] === 'object' && !Array.isArray(map[name]) ? map[name] : {}
+  return raw.v === PROGRESS_SLOT_VERSION ? pickFields(raw) : {}
+}
+
 export class Lessons {
   constructor(file, shared = false) {
     this.shared = shared
@@ -321,8 +352,11 @@ export class Lessons {
     }
     // progress is per-BOT even in a hive: it is goals, not experience.
     cur.progress = cur.progress ?? {}
-    cur.progress[config.bot.name] = (this.data.progress ?? {})[config.bot.name]
-      ?? this.data.progress ?? {}
+    // MIGRATION: the old build wrote flat fields at the top of the shared map beside the slots; they would resurrect
+    // stale values forever (Codex). Removed here, unless the key is a real bot's versioned slot.
+    for (const f of PROGRESS_FIELDS) if (f in cur.progress && cur.progress[f]?.v !== PROGRESS_SLOT_VERSION) delete cur.progress[f]
+    // Memory is always THIS bot's flat progress (load and the post-merge restore guarantee it).
+    cur.progress[config.bot.name] = { ...pickFields(this.data.progress), v: PROGRESS_SLOT_VERSION }
     cur.runs = Math.max(cur.runs ?? 0, this.data.runs ?? 0)
 
     try {
@@ -331,6 +365,8 @@ export class Lessons {
       fs.writeFileSync(tmp, JSON.stringify(cur, null, 1))
       fs.renameSync(tmp, this.file)   // atomic: peers never read a half file
       this.data = cur
+      // Back to THIS bot's flat progress, or the next setProgress() writes beside the peers' slots.
+      this.data.progress = slotOf(cur.progress, config.bot.name)
       this.dirty = false
       // Only once the decisions are durable. Clearing earlier would lose them
       // if the write failed, and a lost forgetting reads as a belief that never
@@ -346,6 +382,7 @@ export class Lessons {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'))
       if (raw.schema === SCHEMA) this.data = raw
       else log('warn', 'lessons: schema changed, starting fresh', { was: raw.schema })
+      if (this.shared) this.data.progress = slotOf(this.data.progress, config.bot.name)
     } catch { /* first run */ }
     this.data.runs = (this.data.runs ?? 0) + 1
     this.#prune()
@@ -355,7 +392,20 @@ export class Lessons {
       avoid: Object.keys(this.data.avoid).length,
       worked: Object.keys(this.data.worked).length,
       hazard_sites: this.data.sites.length,
+      // What progress came back: the canary's positive control that a restart restored anything at all.
+      progress_skipped: (this.data.progress?.skipped ?? []).length,
+      progress_cycle: this.data.progress?.cycle ?? 0,
+      progress_blocked: Object.keys(this.data.progress?.blocked ?? {}).length,
     })
+    // THE SAME, AS TELEMETRY: the console line above is not in the skill log, so a canary read could not see whether a
+    // restart restored anything. One row per load, written only by this build.
+    try {
+      const pr = this.data.progress ?? {}
+      logEvent({ kind: 'progress_restored', status: 'success',
+                 detail: `shared=${this.shared ? 1 : 0} run=${this.data.runs} skipped=${(pr.skipped ?? []).length} ` +
+                         `cycle=${pr.cycle ?? 0} blocked=${Object.keys(pr.blocked ?? {}).length} ` +
+                         `attempts=${Object.keys(pr.attempts ?? {}).length}` })
+    } catch { /* telemetry never breaks a load */ }
   }
 
   #prune() {

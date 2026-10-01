@@ -8,7 +8,8 @@
 // calmly pathfinding into lava because it is "busy gathering" is the failure
 // mode this layer exists to prevent.
 
-import { applyToolPolicy } from './toolfor.mjs'
+import { haltPath } from './pathhalt.mjs'
+import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -395,11 +396,18 @@ export function scaffoldPrereq(because) {
   }
 }
 
+/**
+ * HOW MANY USABLE PICKAXES AN ESCAPE ASK MUST REQUEST: the count at which mayDigForEscape lets a tool dig (it refuses on
+ * exactly one -- the reserve rule). An ask for ONE was met by the first pickaxe crafted, the detour cleared, the escape
+ * refused to spend that same last pickaxe and asked again: a closed loop one level up (Claude review of af9e09e,
+ * reflex.mjs digStraightUp -> needs_pickaxe -> climbPrereqFor). A property test holds the two together.
+ */
+export const ESCAPE_PICKAXES_NEEDED = 2
 export function pickaxePrereq(because) {
   return {
     items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
-    count: 1,
-    describe: 'Get a pickaxe. The stone above you cannot be broken without one.',
+    count: ESCAPE_PICKAXES_NEEDED,
+    describe: 'Get two pickaxes. The stone above you needs one, and the escape will not spend your last.',
     because,
   }
 }
@@ -2751,7 +2759,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // ride it too); cognitive.mjs drains this on its next tick.
           bot.pendingPrereq = {
             items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
-            count: 1,
+            count: ESCAPE_PICKAXES_NEEDED,
             describe: 'Get a pickaxe. You are sealed in and cannot break the ceiling without one.',
             because: `${escapeGiveUps} escape attempts could not break out at y=${Math.round(bot.entity.position.y)}`,
           }
@@ -2965,7 +2973,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         logEvent({ kind: 'reflex_stuck', detail: `no movement for ${config.reflex.stuckSeconds}s`, snapshot: snapshot(bot) })
         stillSince = Date.now()
         runner.interrupt('stuck')
-        try { bot.pathfinder?.stop() } catch { /* pathfinder may be idle */ }
+        haltPath(bot)   // a stuck bot reaches no node, so a bare stop() stays pending and kills unstick's own walk (pathhalt.mjs)
         await unstick(bot)
       }
     } catch (e) {
@@ -3106,6 +3114,31 @@ const SOFT_BLOCK = /^(dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|s
 // this counted oak_log and oak_planks and no other species, so the pillar rung
 // read 8,422 birch logs as zero placeable blocks. Same hardcoded-oak assumption,
 // third occurrence this week.
+/**
+ * The reflex's hand-emptying, through emptyHand (toolfor.mjs): it never lets mineflayer toss the held stack on a full bag.
+ * `_hand_safe` is written for every toss AVERTED -- each row is a tool or stack the old unequip would have thrown away.
+ */
+async function safeEmptyHand (bot, site) {
+  const held = bot?.heldItem?.name
+  const full = freeSlots(bot) === 0
+  const how = await emptyHand(bot)
+  // ONLY A TOOL (Claude review): after the first swap the hand holds the filler, and every later call would log a "toss"
+  // of that dirt that the old code never made (its first unequip had already emptied the hand).
+  if (tossAverted(held, how, full)) {
+    logEvent({ kind: 'hand_safe', status: 'success', detail: `${site}: how=${how} -- the bag was full; unequip would have tossed ${held}`, snapshot: snapshot(bot) })
+  }
+  return how
+}
+/** The escape's scaffold, cheapest first (pickScaffold). `_scaffold_pick` when it spares a stack the old inventory-order pick would have spent. */
+function scaffoldFor (bot, site) {
+  const items = bot.inventory?.items?.() ?? []
+  const chosen = pickScaffold(items, PLACEABLE)
+  const old = items.find(it => PLACEABLE.test(it.name))
+  if (chosen && old && chosen.name !== old.name && scaffoldRank(old.name) > scaffoldRank(chosen.name)) {
+    logEvent({ kind: 'scaffold_pick', status: 'success', detail: `${site}: ${chosen.name} instead of ${old.name}` })
+  }
+  return chosen
+}
 const PLACEABLE = /^(dirt|cobblestone|stone|sand|gravel|andesite|diorite|granite|deepslate|cobbled_deepslate|sandstone|red_sandstone|dripstone_block|tuff|netherrack|coarse_dirt|rooted_dirt)$|(_log|_planks|_wood|_hyphae)$|^(crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$/
 
 /**
@@ -3853,7 +3886,7 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
   // an inventory, 5,951 -- 68% -- were destroyed during escape activity,
   // against 55 lost to death. Mean health at the moment of loss was 20.0/20.
   // These are healthy bots grinding their tools to dust digging their way out.
-  if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+  await safeEmptyHand(bot, 'escape_dig')
 
   const tool = bestTool(bot, target)
   // The REAL environment, not the on-ground fiction: an escape dig happens
@@ -3879,7 +3912,7 @@ async function harvestUnderfoot (bot, { maxProbe = 24, budgetMs = 6000 } = {}) {
       why: `${target.name} underfoot is too slow to break, tool or not` }
   }
   if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
-  else if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+  else await safeEmptyHand(bot, 'escape_dig_else')
 
   // The budget follows the hand. Bare-handed is slower, so keeping the fixed 6s
   // deadline while dropping the tool would just turn the durability saving into
@@ -4210,7 +4243,7 @@ export async function escapeStairUp (bot, {
     // is that it never equips a tool, so the invariant that guard protects is
     // preserved by construction rather than waived. Breaking the ceiling by
     // hand keeps that true of the first swing as well as the rest.
-    if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+    await safeEmptyHand(bot, 'entombed_a')
     const [dx, dy, dz] = plan.dig[0]
     const b = bot.blockAt(p.offset(dx, dy, dz))
     if (!b) { stopped = 'terrain not loaded'; return finish() }
@@ -4264,7 +4297,7 @@ export async function escapeStairUp (bot, {
 
     // EMPTY THE HAND BEFORE THE FIRST SWING, not per block: `unequip` is a
     // server round trip and the durability that matters is spent on the dig.
-    if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+    await safeEmptyHand(bot, 'entombed_b')
 
     let blocked = null
     for (const [dx, dy, dz] of plan.dig) {
@@ -4403,7 +4436,7 @@ export async function unburySelf (bot, { deadline = Infinity, digWithin } = {}) 
     const hit = buried()
     if (!hit) return { dug, stopped: null }
     if (Date.now() > deadline) break
-    if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+    await safeEmptyHand(bot, 'falling_head')
     const failed = await digWithin(hit.b)
     if (failed) return { dug, stopped: `buried in ${hit.b.name} and ${failed}` }
     dug++
@@ -4529,8 +4562,8 @@ const PILLAR_MAX_BLOCKS = 24
 export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
   if (reason === 'needs_pickaxe') {
     return { items: ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'],
-             count: 1,
-             describe: 'Get a pickaxe. You are sealed in and cannot break the ceiling without one.' }
+             count: ESCAPE_PICKAXES_NEEDED,
+             describe: 'Get two pickaxes. You are sealed in; the escape will not spend your last one on the ceiling.' }
   }
   if (reason === 'needs_blocks') {
     const count = maxBlocks + 2
@@ -4595,7 +4628,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
       const hand = digHand({ bareMs: predictedDigMs(head, null), toolMs: predictedDigMs(head, tool),
                              bareActualMs: predictedDigMs(head, null, env), toolActualMs: predictedDigMs(head, tool, env) })
       if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
-      else if (bot.heldItem) await bot.unequip('hand').catch(() => {})
+      else await safeEmptyHand(bot, 'pillar_out')
       try {
         if (!alive()) return 'preempted'
         if (!hand.refuse) await digBounded(bot, head, Math.max(8000, hand.budgetMs))
@@ -4603,7 +4636,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
       await sleep(150)
     }
 
-    const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
+    const item = scaffoldFor(bot, 'pillar_out')
     if (!item) {
       // OUT OF BLOCKS MID-CLIMB. Do NOT fall through to digging up: that is the
       // path that spends the last pickaxe and finishes the seal. Stop here and
@@ -4760,7 +4793,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
   const clearOf = (cx, cz) => { const q = bot.entity.position; return Math.abs(q.x - cx - 0.5) >= 0.8 || Math.abs(q.z - cz - 0.5) >= 0.8 }   // the 0.6-wide hitbox is outside cell (cx,cz)
   const placeOnto = async (rx, ry, rz) => {   // place on the top face of the solid block at (rx,ry,rz); verify the cell above turned solid
     const ref = B(rx, ry, rz); if (!ref || ref.boundingBox !== 'block') return `no reference block at ${rx},${ry},${rz}`
-    const blk = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name)); if (!blk) return 'out of placeable blocks'
+    const blk = scaffoldFor(bot, 'place_onto'); if (!blk) return 'out of placeable blocks'
     try { await bot.equip(blk, 'hand') } catch {}
     const a = abortIfNeeded(); if (a) return `abort after equipping: ${a}`   // the equip await can outlive a preemption (Codex code pass 2)
     try { await bot.placeBlock(ref, new Vec3(0, 1, 0)) } catch (e) { return `place failed at ${rx},${ry + 1},${rz}: ${String(e?.message ?? e).slice(0, 50)}` }
@@ -4805,7 +4838,6 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
     return null
   }
   // 4/5. pillar: dig the cell two above the feet if solid, then jump-place a block under the feet; verify each step
-  const block = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name))
   for (let step = 0; step < plan.need; step++) {
     const a0 = abortIfNeeded(); if (a0) return end(false, `abort at step ${step}: ${a0}`)
     const feetY = Math.floor(bot.entity.position.y); const ceil = B(fx, feetY + 2, fz)
@@ -4842,7 +4874,7 @@ async function floodedPocketRung (bot, { plan, floorY, firstDryY, tool, columnCe
       logEv({ kind: 'flooded_pocket_side_exit', status: 'success', detail: `out and back over the column dry at y=${feetY + 1}; the pillar continues (blocks so far ${spent})` })
       continue   // one level gained: the loop's step++ credits it (Codex pass 1, height accounting)
     }
-    const blk = (bot.inventory?.items?.() ?? []).find(it => PLACEABLE.test(it.name)); if (!blk) return end(false, 'out of placeable blocks')
+    const blk = scaffoldFor(bot, 'flooded_step'); if (!blk) return end(false, 'out of placeable blocks')
     try { await bot.equip(blk, 'hand') } catch {}
     // IN WATER THE RISE IS SLOW: wait until the feet are a full block above the reference (the body no longer overlaps
     // the target cell -- mineflayer's placement rule) instead of a fixed 300 ms (pocket corpus run 5: three placements
@@ -4902,7 +4934,7 @@ async function digStraightUp(bot, startY, maxSteps = 20) {
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (!above || above.name === 'air') {
       // Ceiling clear -- try to gain the block, otherwise walk toward the gap.
-      const item = bot.inventory.items().find(it => PLACEABLE.test(it.name))
+      const item = scaffoldFor(bot, 'dig_straight_up')
       if (item) {
         await bot.equip(item, 'hand').catch(() => {})
         const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
