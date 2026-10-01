@@ -139,6 +139,22 @@ Registrations docs: `docs/reports/fixes-01.{1d107ed,8ed9450}.json`; base `fixes-
    = 1 stick (sticks block stone pickaxes).
 4. PARKED: `tool-guard` b1d6b62 (Codex rejects the composition; population zero today) — revisit after
    lastswing-01 shows how many bots reach zero pickaxes.
+4b. **bank-why** `17cca93` (branch `bank-why-on-8ed9450`) — BUILT 10-01, not registered, no slot asked.
+   The deposit refusal now names which of five rules removed the item (`no goal wants it`,
+   `scaffold reserve`, `ballast`, `last of its tool family`, `the only station`) instead of one
+   sentence for all five. MEASURED on 8ed9450 over 4,483 deposit runs / 80 bots / 24 h: this
+   refusal is **49.2% of all deposit outcomes** (2,203 runs) and in every one the bot held a median
+   of 32 bankable items (oak_log in 1,275, cobblestone in 606); once a lid opens 78% convert, so the
+   storing path is sound and the open path is not (18.1% time out, concentrated in a handful of
+   immobile bots retrying an unreachable chest from a constant distance). Behaviour-neutral: only
+   the refusal string changes, `excluded` is additive, `depositPlan` untouched. The rule goes first
+   in the sentence because the refusal reads bucket on `Counter(detail[:95])`.
+   WHY IT MATTERS FOR THE STOCK NUMBER: it splits "the model proposed junk" from "a reserve is
+   holding bankable goods", which the row cannot distinguish today, and that split decides whether
+   the bank fix or the veto feedback is the lever. It does NOT stop the re-proposing on its own —
+   90.1% of these refusals are a bot re-asking for an item already refused, which is vetob2's job
+   (KEPT, unpromoted, owner call 5 above).
+
 5. Analysis backlog (only when no canary is unread): why `gather cobblestone` ends no_path at the surface (321 of
    3,309 succeed); escape burns logs as scaffold (1,009/day); planting cohort vs depletion curve; `gather` event
    with a coordinate; merge the two `place-town.py` copies (run the HOST copy); `PLANT_RESERVE` per species;
@@ -147,6 +163,9 @@ Registrations docs: `docs/reports/fixes-01.{1d107ed,8ed9450}.json`; base `fixes-
    `docs/reports/jobs-mayor-spec-2026-09-29.md`.
 
 ## WORKTREES / BRANCHES touched 09-30
+- `bank-why-on-8ed9450` @ 17cca93 — on origin; the deposit refusal names which rule held the item
+  back (built 10-01, 205/205, 4 anchored mutants). BEHAVIOUR-NEUTRAL, so it can ride a bundle
+  rather than take a slot. See the queue entry below.
 - `fixes-bundle-on-8ed9450` @ 25a8397 — on origin; local worktree in session scratchpad (disposable).
 - `last-swing-on-1d107ed` @ 8ed9450 — the live canary; on origin.
 - `mcai-rl02` worktree carries someone else's uncommitted `check-movement-writers.mjs`, `movement-ratchet.test.mjs`
