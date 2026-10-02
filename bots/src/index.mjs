@@ -45,9 +45,6 @@ const require_ = createRequire(import.meta.url)
 let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
-// digsync's final totals row: the signal handler closes the logs and exits without ending the bot, so an 'end'
-// listener never runs on a systemd stop. It calls this before closeLogs().
-let digSyncFinal = null
 let stopComms = null
 let worldFacts = null
 let cognitive = null
@@ -191,9 +188,7 @@ function connect() {
     const beat = () => { try { logEvent({ kind: 'dig_sync', status: 'success', snapshot: snapshot(bot), detail: totals(bot.digSync?.counts ?? {}) }) } catch { /* never the bot's problem */ } }
     const hb = setInterval(beat, 10 * 60 * 1000)
     hb.unref?.()
-    let finalDone = false
-    digSyncFinal = () => { if (finalDone) return; finalDone = true; clearInterval(t); clearInterval(hb); flush(); beat() }
-    bot.once('end', () => digSyncFinal?.())
+    bot.once('end', () => { clearInterval(t); clearInterval(hb); flush(); beat() })
   }
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer
@@ -1131,7 +1126,6 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     if (cognitive) cognitive.stop()
     if (watchdog) watchdog.stop()
     try { lessons?.save() } catch {}
-    try { digSyncFinal?.() } catch {}
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })
