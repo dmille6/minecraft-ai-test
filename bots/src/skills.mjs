@@ -1314,15 +1314,30 @@ export async function collectManually(bot, block, signal) {
   // not happen and calling this a harvest is the same overclaim the evidence
   // gate exists to stop.
   // THE SERVER'S WORD, when digsync (digsync.mjs) can give it: wait until the dig's outcome is KNOWN. digsync v2 owns
-  // the delayed destroy (Paper breaks an early STOP a few ticks after it acks it): an ack with no server word holds a
-  // GRACE_MS grace, so `broken: false` already means "the server said nothing, or said not-air, for the whole grace".
-  // The 600 ms extra look v1 needed here (Claude review of fbd7125) is the grace's job now. The default timeout is
-  // digsync's own (ack + grace + one tick); the confirmed case resolves at the ack, so this waits only when refused.
-  // `pending: true` (no ack in time, or aborted) falls through to the local read, as without digsync. No digsync: the
-  // old 250 ms look.
+  // the delayed destroy (Paper breaks an early STOP a few ticks after it acks it) with a grace after the ack, so the
+  // 600 ms extra look v1 needed here (Claude review of fbd7125) is gone. The default timeout is digsync's worst-case
+  // settlement; the common cases answer at the ack or at the server's word.
+  //
+  // NEVER TAKE PREDICTED AIR AS EVIDENCE (Codex review of ede3b83): while a prediction is unresolved the local world
+  // holds mineflayer's optimistic air, so reading it would call any unresolved dig a harvest. So:
+  //   broken false  -> dig_unconfirmed (the server's refusal, or digsync's fallback restore at grace expiry/backstop)
+  //   broken null   -> UNKNOWN: unverified, not a harvest -- EXCEPT 'none' (digsync had nothing in flight) and
+  //                    'dropped-chunk' (a fresh chunk is the truth), which fall back to the old 250 ms look.
+  //   pending       -> only on abort (check() throws) or a ledger bug: unknown as above.
   const settled = bot.digSync?.waitSettled ? await bot.digSync.waitSettled(p, undefined, signal) : null
   check(signal)
-  if (!settled) await sleep(250, signal)
+  if (settled?.broken === false) {
+    throw Object.assign(
+      new Error(`dig_unconfirmed: ${p.x},${p.y},${p.z} (${wasNamed}) was not broken -- ` +
+                `${settled.why === 'server' ? 'the server re-sent the block' : `no server word (${settled.why}), restored`}`),
+      { failClass: 'dig_unconfirmed' })
+  }
+  if (settled && settled.broken === null && settled.why !== 'none' && settled.why !== 'dropped-chunk') {
+    throw Object.assign(
+      new Error(`dig_unsettled: ${p.x},${p.y},${p.z} (${wasNamed}) outcome unknown (${settled.why}) -- not counted as a harvest`),
+      { failClass: 'unverified' })
+  }
+  if (settled?.broken !== true) await sleep(250, signal)
   const nowNamed = bot.blockAt(p)?.name
   if (wasNamed && nowNamed === wasNamed && wasNamed !== 'air') {
     throw Object.assign(

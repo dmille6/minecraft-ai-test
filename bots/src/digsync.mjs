@@ -40,8 +40,8 @@ export const BACKSTOP_MS = 5000
  * server word for the position during the grace settles it on that word; silence until expiry restores the prior.
  */
 export const GRACE_MS = 3000
-/** What waitSettled allows for the ack itself on top of the grace and one tick (the ack normally takes a tick or two). */
-export const ACK_WAIT_MS = 1000
+/** waitSettled's margin past the worst-case settlement (backstop + grace + two ticks); see settleBoundMs. */
+export const SETTLE_MARGIN_MS = 250
 /** A restore contradicted by the server's AIR this soon after is counted as false. 10 s so the tail beyond the grace
  * is visible (v1 used 2 s, which was the whole question). */
 export const FALSE_RESTORE_MS = 10_000
@@ -149,6 +149,8 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
     predicted: 0, confirmed: 0, rolledBack: 0, backstop: 0, falseRestore: 0, repeatMax: 0, predictFailed: 0, spawns: 0, loadedSent: 0,
     // The grace's books balance: graceStarted = graceAir + graceOther + graceExpired + graceDropped (+ still pending).
     graceStarted: 0, graceAir: 0, graceOther: 0, graceExpired: 0, graceDropped: 0,
+    // A fallback restore (grace expiry or backstop) the world model would not take: the outcome is UNKNOWN, not "not broken".
+    restoreFailed: 0, superseded: 0,
     ...Object.fromEntries([...GRACE_EDGES.map(e => `graceLt${e}`), `graceGe${GRACE_EDGES.at(-1)}`].map(k => [k, 0])),
     ...Object.fromEntries(LATE_AIR_EDGES.map(e => [`lateAirLt${e / 1000}s`, 0])),
   }
@@ -169,42 +171,60 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
         // Read BEFORE the write returns: finishDigging calls write() and only then _updateBlockState(pos, 0).
         // NEVER THROWS (Codex review): this sits in front of every dig the bot makes; a bookkeeping failure must cost
         // the prediction, not the packet. The position is normalised to a real Vec3 (prismarine-world floors it).
+        // A RE-DIG AT A PREDICTED POSITION (Codex review of ede3b83): mineflayer's dig() keeps the block object it was
+        // handed and sends STOP without re-reading the world, so the second STOP finds the first prediction's local
+        // AIR. It still supersedes the old prediction (keeping the ORIGINAL prior), or the old grace would restore stone
+        // under the new dig before its ack. The old prediction's waiters are told UNKNOWN: its outcome is now unknowable.
         try {
           const loc = new Vec3(params.location.x, params.location.y, params.location.z)
-          const prior = bot.blockAt(loc)?.stateId
-          if (prior != null && prior !== 0) {
+          const key = posKey(loc)
+          const existing = ledger.pending.get(key)
+          const prior = existing ? existing.prior : bot.blockAt(loc)?.stateId
+          if (existing || (prior != null && prior !== 0)) {
+            if (existing) { counts.superseded++; notify(key, { broken: null, why: 'superseded' }) }
             if (ledger.predict(loc, seq, prior, now()).superseded) counts.graceDropped++
             counts.predicted++
-            const r = restored.get(posKey(loc)); if (r) r.redug = true
+            const r = restored.get(key); if (r) r.redug = true
           }
         } catch { counts.predictFailed++ }
       }
     }
     return write(name, params, ...rest)
   }
-  const apply = settled => {
-    for (const s of settled) {
-      const key = posKey(s.pos)
-      if (s.confirmed) counts.confirmed++
-      if (s.why === 'grace') { counts[s.target === 0 ? 'graceAir' : 'graceOther']++; counts[graceKey(s.afterAckMs)]++ }
-      if (s.why === 'grace-expired') counts.graceExpired++
-      let cur
-      try { cur = bot.blockAt(s.pos)?.stateId } catch { cur = undefined }
-      if (cur == null || cur === s.target) continue   // unloaded, or already what the server says
-      if (s.confirmed) { try { bot._updateBlockState(s.pos, s.target) } catch { /* mineflayer applies the word anyway */ } continue }
-      try { bot._updateBlockState(s.pos, s.target) } catch { continue }
-      counts.rolledBack++
-      const r = restored.get(key) ?? { n: 0, t: 0 }
-      r.n++; r.t = now(); r.redug = false; restored.set(key, r)
-      if (restored.size > 512) restored.delete(restored.keys().next().value)
-      counts.repeatMax = Math.max(counts.repeatMax, r.n)
-      if (s.why === 'backstop') counts.backstop++
-      try { onRollback({ pos: s.pos, from: cur, to: s.target, why: s.why, ms: s.ms, sinceSpawnMs: now() - spawnedAt, repeat: r.n }) } catch { /* a logger must not break the bot */ }
+  /**
+   * One settlement -> what a waiter may be told. On the server's word the outcome is KNOWN whatever happens to the write
+   * (mineflayer writes the word too). Without a word, `broken: false` is a FALLBACK DECISION, not a server outcome, and
+   * it is only told once the restore is actually in the world model; a restore that could not be applied is UNKNOWN.
+   */
+  const settleOne = s => {
+    const key = posKey(s.pos)
+    if (s.confirmed) counts.confirmed++
+    if (s.why === 'grace') { counts[s.target === 0 ? 'graceAir' : 'graceOther']++; counts[graceKey(s.afterAckMs)]++ }
+    if (s.why === 'grace-expired') counts.graceExpired++
+    let cur
+    try { cur = bot.blockAt(s.pos)?.stateId } catch { cur = undefined }
+    if (s.confirmed) {
+      if (cur != null && cur !== s.target) { try { bot._updateBlockState(s.pos, s.target) } catch { /* mineflayer applies the word anyway */ } }
+      return { broken: s.target === 0, why: 'server' }
     }
-    for (const s of settled) notify(posKey(s.pos), s)
+    if (cur == null) { counts.restoreFailed++; return { broken: null, why: 'restore-failed' } }   // unloaded, or the world threw
+    if (cur === s.target) return { broken: false, why: s.why }                                      // already the prior
+    try { bot._updateBlockState(s.pos, s.target) } catch { counts.restoreFailed++; return { broken: null, why: 'restore-failed' } }
+    counts.rolledBack++
+    const r = restored.get(key) ?? { n: 0, t: 0 }
+    r.n++; r.t = now(); r.redug = false; restored.set(key, r)
+    if (restored.size > 512) restored.delete(restored.keys().next().value)
+    counts.repeatMax = Math.max(counts.repeatMax, r.n)
+    if (s.why === 'backstop') counts.backstop++
+    try { onRollback({ pos: s.pos, from: cur, to: s.target, why: s.why, ms: s.ms, sinceSpawnMs: now() - spawnedAt, repeat: r.n }) } catch { /* a logger must not break the bot */ }
+    return { broken: false, why: s.why }
   }
-  const notify = (key, s) => { const w = waiters.get(key); if (w) { waiters.delete(key); for (const f of w) f(s) } }
-  const notifyAll = () => { for (const k of [...waiters.keys()]) notify(k, null) }
+  const apply = settled => {
+    const told = settled.map(s => [posKey(s.pos), settleOne(s)])
+    for (const [k, res] of told) notify(k, res)
+  }
+  const notify = (key, res) => { const w = waiters.get(key); if (w) { waiters.delete(key); for (const f of w) f(res) } }
+  const notifyAll = why => { for (const k of [...waiters.keys()]) notify(k, { broken: null, why }) }
   // NEVER THROWS: this runs inside the client's packet handlers.
   const serverWord = (pos, stateId) => {
     try {
@@ -232,7 +252,7 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
     try {
       const before = new Set(ledger.pending.keys())
       counts.graceDropped += ledger.dropColumn(cx, cz)
-      for (const k of before) if (!ledger.pending.has(k)) notify(k, null)
+      for (const k of before) if (!ledger.pending.has(k)) notify(k, { broken: null, why: 'dropped-chunk' })
     } catch { /* never the packet path's problem */ }
   }
   client.on('map_chunk', pk => dropColumn(pk.x, pk.z))
@@ -241,7 +261,7 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
   // every join and respawn -- which is exactly when the entombment reflex digs. Gated on the protocol having it.
   // Evaluated AT SPAWN, not at attach (both reviews): with an auto-detected version the registry does not exist yet.
   const hasLoaded = () => { try { return !!bot.registry?.version?.['>=']?.('1.21.4') } catch { return false } }
-  const reset = () => { counts.graceDropped += ledger.clear(); notifyAll() }
+  const reset = () => { counts.graceDropped += ledger.clear(); notifyAll('cleared') }
   bot.on('spawn', () => {   // mineflayer emits spawn on the first join AND on every respawn (health.js)
     spawnedAt = now()
     counts.spawns++
@@ -253,32 +273,39 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
   timer.unref?.()
   bot.once('end', () => { clearInterval(timer); reset() })
   /**
-   * THE CONTRACT (v2): resolves as soon as the dig's outcome is KNOWN, with { broken: true|false, pending: false }:
-   *   - at the ack, when the server already spoke about the position (the common, confirmed case: no extra wait);
-   *   - during the grace, the moment the server speaks (AIR -> broken, any other state -> not broken);
-   *   - at grace expiry with no word (restored -> not broken), or at the backstop when no ack ever came.
-   * { broken: null, pending: false } at once when nothing is pending there, or when the prediction was dropped
-   * (respawn, death, disconnect, a fresh or unloaded chunk). { broken: null, pending: true } at `timeoutMs` or on
-   * `signal` abort. The default timeout covers the ack + the grace + one tick, so a refused dig gets its truthful
-   * `broken: false` rather than `pending` -- callers should not pass a shorter one unless they mean to give up early.
+   * THE CONTRACT (v2, after the Codex review of ede3b83). Resolves { broken, pending, why } as soon as the outcome of
+   * the dig at `pos` is KNOWN, or is known to be unknowable:
+   *   broken: true   why 'server'  the server said AIR (before the ack, or during the grace)
+   *   broken: false  why 'server'  the server said a non-air state
+   *   broken: false  why 'grace-expired' | 'backstop' | 'ack'   NO server word; digsync restored the prior and the
+   *                  restore is in the world model. A fallback decision, not a server outcome.
+   *   broken: null   pending: false, why:
+   *                  'none'           nothing was pending there when asked (digsync has nothing to say)
+   *                  'dropped-chunk'  a fresh or unloaded chunk took the prediction (the chunk is the truth)
+   *                  'cleared'        respawn, death or disconnect
+   *                  'superseded'     the bot dug the same position again before this dig settled
+   *                  'restore-failed' no server word, and the restore could not be applied
+   *   broken: null   pending: true, why 'timeout' | 'aborted'
+   * The default timeout is settleBoundMs: the WORST-CASE settlement (an ack arriving just before the backstop opens a
+   * full grace), so with the default only an abort or a ledger bug ever yields `pending`. Common cases answer at once.
    */
-  const settleWaitMs = Math.max(0, graceMs) + tickMs + ACK_WAIT_MS
-  const waitSettled = (pos, timeoutMs = settleWaitMs, signal = null) => new Promise(resolve => {
+  const settleBoundMs = backstopMs + Math.max(0, graceMs) + 2 * tickMs + SETTLE_MARGIN_MS
+  const waitSettled = (pos, timeoutMs = settleBoundMs, signal = null) => new Promise(resolve => {
     let key
-    try { key = posKey(new Vec3(pos.x, pos.y, pos.z).floored()) } catch { return resolve({ broken: null, pending: false }) }
-    if (!ledger.pending.has(key)) return resolve({ broken: null, pending: false })
-    if (signal?.aborted) return resolve({ broken: null, pending: true })
+    try { key = posKey(new Vec3(pos.x, pos.y, pos.z).floored()) } catch { return resolve({ broken: null, pending: false, why: 'none' }) }
+    if (!ledger.pending.has(key)) return resolve({ broken: null, pending: false, why: 'none' })
+    if (signal?.aborted) return resolve({ broken: null, pending: true, why: 'aborted' })
     let timer = null
     const unhook = () => {
       clearTimeout(timer)
       signal?.removeEventListener?.('abort', onAbort)
       const w = waiters.get(key); if (w) { const i = w.indexOf(done); if (i >= 0) w.splice(i, 1); if (!w.length) waiters.delete(key) }
     }
-    const done = s => { unhook(); resolve({ broken: s ? s.target === 0 : null, pending: false }) }
-    const onAbort = () => { unhook(); resolve({ broken: null, pending: true }) }
-    timer = setTimeout(onAbort, timeoutMs)
+    const done = res => { unhook(); resolve({ broken: res?.broken ?? null, pending: false, why: res?.why ?? 'cleared' }) }
+    const onAbort = () => { unhook(); resolve({ broken: null, pending: true, why: 'aborted' }) }
+    timer = setTimeout(() => { unhook(); resolve({ broken: null, pending: true, why: 'timeout' }) }, timeoutMs)
     signal?.addEventListener?.('abort', onAbort, { once: true })
     waiters.set(key, [...(waiters.get(key) ?? []), done])
   })
-  return { ledger, counts, waitSettled, settleWaitMs }
+  return { ledger, counts, waitSettled, settleBoundMs }
 }
