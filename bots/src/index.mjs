@@ -30,7 +30,6 @@ import { travelTool } from './toolfor.mjs'
 import { diffTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
-import { attachDigSync } from './digsync.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
@@ -160,28 +159,6 @@ function connect() {
   // packet-witness.mjs -- `onGround` cannot separate those and reading it as
   // if it could is a measurement that was already retracted once.
   bot.packetWitness = attachPacketWitness(bot)
-
-  // GHOST BLOCKS (digsync.mjs): restore what the server kept when it refused a dig, as the vanilla client does on the
-  // ack, and send `player_loaded` so Paper stops dropping digs for 3 s after every join and respawn. Before anything
-  // digs. The row is an OUTCOME: written only when a restore changed the bot's world model, at most one per 5 s,
-  // carrying every restore since the last row and the running totals (the denominator).
-  {
-    const rb = []
-    let lastRow = 0
-    const flush = () => {
-      if (!rb.length) return
-      const c = bot.digSync?.counts ?? {}
-      const first = rb.slice(0, 3).map(r => `${r.pos.x},${r.pos.y},${r.pos.z} ${r.why} ${Math.round(r.sinceSpawnMs / 1000)}s after spawn`).join('; ')
-      logEvent({ kind: 'dig_rollback', status: 'success', snapshot: snapshot(bot),
-                 detail: `restored ${rb.length} block(s) the server never broke: ${first}${rb.length > 3 ? '; ...' : ''} | ` +
-                         `totals ${c.rolledBack} restored (${c.backstop} by backstop) of ${c.predicted} digs; player_loaded sent ${c.loadedSent}` })
-      rb.length = 0; lastRow = Date.now()
-    }
-    bot.digSync = attachDigSync(bot, { onRollback: r => { rb.push(r); if (Date.now() - lastRow >= 5000) flush() } })
-    const t = setInterval(() => { if (Date.now() - lastRow >= 5000) flush() }, 5000)
-    t.unref?.()
-    bot.once('end', () => clearInterval(t))
-  }
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer
   // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
