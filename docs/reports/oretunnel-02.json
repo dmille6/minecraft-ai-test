@@ -1,0 +1,118 @@
+{
+  "run_id": "oretunnel-02",
+  "sha": "553adf2",
+  "registered_at": "2026-10-02T06:55:00Z",
+  "ladder_change": false,
+  "promotion": "fleet-wide",
+  "notes": "[oretunnel-02, 10-02: LAUNCH ONLY ON FLEET 254f208 (digsync2-01 KEPT + promoted). Branch ore-on-digsync2 @ 553adf2 = digsync2-on-8453c09 254f208 + the ore-tunnel change (f5609af..49096f4, applied with git apply --3way, no conflicts), 216/216. oretunnel.mjs and its tests are byte-identical to the reviewed 49096f4 version; the base changed (fixes-03 + digsync-v2 instead of the reverted fixes-02). The v11 climbs guard applies unchanged: if the tunnel traps bots more, it SHOULD revert; both engines recommend outcome guards (trapped-seconds) prospectively, NOT applied.] (oretunnel-01 notes:) OWNER 2026-09-29: 'use both engines to design, implement, build and deploy the best approach to mining; check if the bots have pickaxes, if not, that should be a priority before mining.' Anti-xray is off on every world, so bots see iron in loaded chunks (median nearest 15 blocks); iron failed as 'every candidate is buried' (474 of 483 iron gather rows failed in 5.6 h on 09-29; 2 succeeded). THE CHANGE: gather escalates a buried iron target to a planned staircase tunnel (pathfinder over a tunnel profile: dig allowed, no parkour/towers/diagonals/1x1 shafts, drops <= 1) under hazard masks (liquid/waterlogged/unknown faces, falling blocks, lavaguard's cell + drop tests = the corridor guard's, home radius), accepted only on status success and checked on arrival; a pickaxe budget whose refusal adopts a stone_pickaxe with THIS trip's uses as the task (chain property-tested); gather's rescan collects. Design (iron-research-2026-09-29.md) and implementation reviewed by Claude and Codex independently; both REJECTED the first implementation; every finding fixed (a63b93d). 21 tests; mutants killed; 206/206. SANDBOX Paper 1.21.11: buried ore 6/6 reached and collected; gravel ceiling and water above collected; worn pickaxe refused with the right remedy; lava wall reached but collectblock returned without collecting (the fleet's existing 8.8% 'collect threw nothing' -- a known limitation). A/B on the ghost-making harness: see STATE. A CAPABILITY change: the outcome line gates KEEP (>= 1 ore collected on the canary; baseline ~0.015/bot-h).",
+  "licence": {
+    "class": "kind",
+    "min_rows": 1,
+    "note": "The baseline has no `_ore_tunnel` kind. Iron attempts run ~3.4 per bot per 2.6 h in control, so a pool that asks for iron writes tunnel rows within the first read.",
+    "kind": "_ore_tunnel"
+  },
+  "reads": [
+    "oretunnelread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    180,
+    360,
+    720,
+    1560
+  ],
+  "deadline_min": 1680,
+  "change_rows": [],
+  "linkage_extra": [],
+  "draw_exposure": {
+    "hours": 3,
+    "require": [
+      {
+        "name": "bots asking for iron (the population the tunnel serves)",
+        "kind": "gather",
+        "detail_contains": "iron",
+        "min": 10
+      }
+    ],
+    "note": "Dry run: hive-c wrote 6 iron gather rows in 2.6 h against 255 on 75 control bots; min 10 keeps a pool that rarely asks for iron from being drawn."
+  },
+  "exposure": {
+    "read": "oretunnelread",
+    "field": "exposure_ready",
+    "min": 1,
+    "note": "Ready = >= 3 canary tunnels AND control iron gather rows >= 1."
+  },
+  "own_lines": [
+    {
+      "read": "oretunnelread",
+      "field": "tunnel_deaths_canary",
+      "op": "<=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "HARM, the two-death floor applied to deaths within 120 s after a tunnel row (the deaths this change can cause). One is reported and named, not a verdict (OWNER 2026-09-11)."
+    },
+    {
+      "read": "oretunnelread",
+      "field": "worst_short_loop_canary",
+      "op": "<=",
+      "value": 5,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "A bot refused pickaxe_short 6+ times in the window means the adopted remedy is not unlocking the trip -- the loop both reviews found and the chain test forbids."
+    },
+    {
+      "read": "oretunnelread",
+      "field": "tunnels_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "oretunnelread",
+      "field": "tunnels_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "oretunnelread",
+      "field": "collected_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "OUTCOME: the tunnel yields iron on the fleet. BLOCKS KEEP (INCONCLUSIVE), never reverts."
+    },
+    {
+      "read": "oretunnelread",
+      "field": "iron_rows_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "POSITIVE CONTROL (255 in the dry run). BLOCKS KEEP."
+    }
+  ],
+  "primary": {
+    "read": "oretunnelread",
+    "field": "collected_did_per_bh",
+    "note": "Iron ore collected per bot-hour, DiD vs the same-length pre-window (baseline control 0.005-0.015). Immobile bot-hours and the stuck/entombment rows come from immobiledid; a rise in bots immobile below y=60 is read by hand at every read."
+  },
+  "harm": {
+    "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+  },
+  "teardown": {
+    "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+  },
+  "amendments": [],
+  "extension": {
+    "until_exposure": true,
+    "extra_reads": [
+      1080,
+      1560
+    ],
+    "final_on_zero_exposure": "INCONCLUSIVE",
+    "note": "A capability, not a fix: the standard 26 h with reads at 3/6/12 h, extended until >= 3 canary tunnels."
+  }
+}

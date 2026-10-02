@@ -49,7 +49,8 @@ W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
 END = CUT + dt.timedelta(minutes=W)
 PRE = CUT - dt.timedelta(minutes=W)
 V2 = ['graceStarted', 'graceAir', 'graceOther', 'graceExpired', 'graceDropped', 'restoreFailed', 'superseded',
-      'graceLt250', 'graceLt500', 'graceLt1000', 'graceLt2000', 'graceLt3000', 'graceGe3000', 'lateAirLt2s', 'lateAirLt5s', 'lateAirLt10s']
+      'graceLt250', 'graceLt500', 'graceLt1000', 'graceLt2000', 'graceLt3000', 'graceGe3000', 'lateAirLt2s', 'lateAirLt5s', 'lateAirLt10s',
+      'serverNonAir', 'airAfterServerWord', 'airAfterWordLt2s', 'airAfterWordLt5s', 'airAfterWordLt10s']   # 57adb5b
 KV = re.compile(r'\b(predicted|confirmed|rolledBack|backstop|falseRestore|repeatMax|predictFailed|spawns|loadedSent|' + '|'.join(V2) + r')=(\d+)')
 FIELDS = ['predicted', 'confirmed', 'rolledBack', 'backstop', 'falseRestore', 'predictFailed', 'spawns', 'loadedSent'] + V2
 
@@ -117,6 +118,7 @@ sync_bots, offbuild, sync_control = set(), 0, 0
 kinds = defaultdict(Counter)                      # [period][(arm, kind)]
 botsets = defaultdict(lambda: defaultdict(set))   # [period][arm] -> bots
 deaths = defaultdict(list)
+unconf = Counter()   # canary gather rows ending dig_unconfirmed / unverified, per bot (Claude 3rd pass: the no_path brake is gone)
 OUT = ['_reflex_stuck', '_entombed_unrecoverable', '_support_cache_outvoted']
 for r in rows:
     t = r.get('t'); name = (r.get('bot') or {}).get('name')
@@ -128,6 +130,8 @@ for r in rows:
     k = r.get('name')
     if k in OUT:
         kinds[period][(arm, k)] += 1
+    if k == 'gather' and period == 'post' and arm == 'canary' and str(r.get('fail_class') or '').lower() in ('dig_unconfirmed', 'unverified'):
+        unconf[name] += 1
     if k == '_death' and period == 'post':
         deaths[name].append(t)
     if k in ('_dig_sync', '_dig_rollback') and period == 'post':
@@ -168,6 +172,7 @@ for k in OUT:
     did[k] = (v[('post', 'canary')] - v[('pre', 'canary')]) - (v[('post', 'control')] - v[('pre', 'control')])
     print('%-26s /bot-h canary %.3f -> %.3f | control %.3f -> %.3f | DiD %+.3f'
           % (k, v[('pre', 'canary')], v[('post', 'canary')], v[('pre', 'control')], v[('post', 'control')], did[k]))
+print('TRIPWIRE     canary gather runs ending dig_unconfirmed/unverified: %d total, worst bot %s' % (sum(unconf.values()), unconf.most_common(1)))
 print('re-deaths within 30 s: canary %d control %d' % (redeaths['canary'], redeaths['control']))
 print('-' * 78)
 print('LIVENESS     heartbeat bots %d of %d canary bots seen' % (len(sync_bots), len(canary_units)))
@@ -175,14 +180,19 @@ print('WIRING       player_loaded sent %d for %d spawns' % (tot['loadedSent'], t
 print('CORRECTNESS  predictFailed %d (must be 0)' % tot['predictFailed'])
 print('INSTRUMENT   control _reflex_stuck rows %d (must be >= 1)' % kinds['post'][('control', '_reflex_stuck')])
 print('TRIPWIRES    repeatMax %d (>= 10 = a re-dig loop); falseRestore %d of %d rollbacks' % (rmax, tot['falseRestore'], tot['rolledBack']))
-fr_share = tot['falseRestore'] / tot['rolledBack'] if tot['rolledBack'] else float('nan')
-fr_judged = tot['rolledBack'] >= 20
+# BOTH places a wrong "not broken" can come from (Claude review of 35dd656): digsync's own fallback restores, AND a
+# server's non-air word later contradicted by AIR at the same cell (the defect moved, not fixed). One ratio over both.
+_den = tot['rolledBack'] + tot['serverNonAir']; _num = tot['falseRestore'] + tot['airAfterServerWord']
+fr_share = _num / _den if _den else float('nan')
+fr_judged = _den >= 20
+print('             server non-air words %d, AIR after one within 10 s %d (<2s %d <5s %d <10s %d)'
+      % (tot['serverNonAir'], tot['airAfterServerWord'], tot['airAfterWordLt2s'], tot['airAfterWordLt5s'], tot['airAfterWordLt10s']))
 print('GRACE        started %d: server AIR %d, other %d, expired->restored %d, dropped %d | superseded %d restoreFailed %d'
       % (tot['graceStarted'], tot['graceAir'], tot['graceOther'], tot['graceExpired'], tot['graceDropped'], tot['superseded'], tot['restoreFailed']))
 print('             word delay <250 %d <500 %d <1000 %d <2000 %d <3000 %d >=3000 %d | AIR after a restore <2s %d <5s %d <10s %d'
-      % tuple(tot[k] for k in V2[7:]))
-print('CORRECTNESS  falseRestore share %.2f of %d fallback restores (gate <= 0.25; %s)'
-      % (fr_share, tot['rolledBack'], 'judged' if fr_judged else 'NOT judged: < 20'))
+      % tuple(tot[k] for k in ['graceLt250', 'graceLt500', 'graceLt1000', 'graceLt2000', 'graceLt3000', 'graceGe3000', 'lateAirLt2s', 'lateAirLt5s', 'lateAirLt10s']))
+print('CORRECTNESS  contradicted share %.2f = (falseRestore %d + airAfterServerWord %d) / (fallback restores %d + server non-air %d) (gate <= 0.25; %s)'
+      % (fr_share, tot['falseRestore'], tot['airAfterServerWord'], tot['rolledBack'], tot['serverNonAir'], 'judged' if fr_judged else 'NOT judged: < 20'))
 
 try:
     if ovr:
@@ -205,7 +215,7 @@ try:
         'redeaths_canary': redeaths['canary'], 'redeaths_control': redeaths['control'],
         'grace_started_canary': tot['graceStarted'], 'grace_air_canary': tot['graceAir'], 'grace_other_canary': tot['graceOther'],
         'grace_expired_canary': tot['graceExpired'], 'superseded_canary': tot['superseded'], 'restore_failed_canary': tot['restoreFailed'],
-        'false_restore_share': None if not tot['rolledBack'] else round(fr_share, 3),
+        'false_restore_share': None if not _den else round(fr_share, 3), 'server_nonair_canary': tot['serverNonAir'], 'unconfirmed_gathers_canary': sum(unconf.values()), 'unconfirmed_gathers_worst_bot': (unconf.most_common(1)[0][1] if unconf else 0), 'air_after_server_word_canary': tot['airAfterServerWord'],
         'false_restore_over_quarter_judged': int(fr_judged and fr_share > 0.25),
         'exposure_ready': int(len(sync_bots) >= 1 and tot['predicted'] >= 100 and tot['graceStarted'] >= 20 and kinds['post'][('control', '_reflex_stuck')] >= 1),
     })

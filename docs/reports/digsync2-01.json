@@ -1,10 +1,10 @@
 {
   "run_id": "digsync2-01",
-  "sha": "35dd656",
+  "sha": "254f208",
   "registered_at": "2026-10-02T06:50:00Z",
   "ladder_change": false,
   "promotion": "fleet-wide",
-  "notes": "digsync-v2 (branch digsync2-on-8453c09 = fixes-03 8453c09 + digsync v1 re-applied + v2: 3 s grace after an ack with no server word; restore only at expiry/backstop; collectManually never takes predicted AIR as evidence). WHY: fixes-02 reverted on climbs +123% (real: null 0.1%); 92/138 v1 rollbacks were false restores and climbs ran 2.3-5.1x faster in the 2 min after a rollback; trapped-s per hour below y48 doubled on the canary. digsync is needed by the ore tunnel (ghost blocks stall it) and keeps player_loaded (digs in the first 3 s after join were dropped). Reviews: Codex CHANGES (4: unresolved digs accepted, re-dig not superseding, waiters, failed restore) -> fixed in 35dd656 with 6 tests that failed first; second passes Codex + Claude pending at registration. 214/214. Sandbox corpus (trap + iron, 2 repeats, control 8453c09): no difference, no deaths, no picks lost; the grace path did not run there (no server lag) -- only the fleet exercises it. The v11 climbs guard applies unchanged.",
+  "notes": "digsync-v2 (branch digsync2-on-8453c09 = fixes-03 8453c09 + digsync v1 re-applied + v2: 3 s grace after an ack with no server word; restore only at expiry/backstop; collectManually never takes predicted AIR as evidence). WHY: fixes-02 reverted on climbs +123% (real: null 0.1%); 92/138 v1 rollbacks were false restores and climbs ran 2.3-5.1x faster in the 2 min after a rollback; trapped-s per hour below y48 doubled on the canary. digsync is needed by the ore tunnel (ghost blocks stall it) and keeps player_loaded (digs in the first 3 s after join were dropped). Reviews: Codex CHANGES (4: unresolved digs accepted, re-dig not superseding, waiters, failed restore) -> fixed in 35dd656 with 6 tests that failed first; second passes both CHANGES (Claude C1-C4: stale server word on re-dig, false 'server' settlements uncounted, a test bound that could not fail, 'timeout' prose; Codex X1-X2: unload/predictFailed harvested without evidence, gather discarding failClass) -> fixed in 57adb5b, 215/215; third passes: Claude AGREE (watch: repeated refusals no longer teach no_path -> tripwire unconfirmed_gathers in the read); Codex CHANGES (null prior read at STOP; a throwing final read) -> fixed in 254f208, 215/215; Codex fourth pass at registration. gather now returns failClass 'unverified' / 'dig_unconfirmed' instead of no_path for unknown/refused digs (neither creates an avoid rule). Sandbox corpus (trap + iron, 2 repeats, control 8453c09): no difference, no deaths, no picks lost; the grace path did not run there (no server lag) -- only the fleet exercises it. The v11 climbs guard applies unchanged.",
   "licence": {
     "class": "kind",
     "min_rows": 1,
@@ -89,7 +89,7 @@
       "value": 0,
       "on_fail": "REVERT",
       "evidence": "defect",
-      "note": "[digsync2] CORRECTNESS, the defect v2 exists to fix: more than a quarter of fallback restores contradicted by the server's AIR within 10 s. Judged only on >= 20 fallback restores. Dry run on fixes-02 (v1 code) reads 0.67 of 138 -> the gate FAILS v1."
+      "note": "[digsync2] CORRECTNESS, the defect v2 exists to fix: more than a quarter of 'not broken' settlements contradicted by the server's AIR within 10 s -- digsync's fallback restores AND server non-air words (both reviews: the defect must not just move). Judged on >= 20. Dry run on fixes-02 (v1 code) reads 0.67 of 138 -> the gate FAILS v1."
     }
   ],
   "primary": {
