@@ -1313,13 +1313,16 @@ export async function collectManually(bot, block, signal) {
   // few ticks and then look. If the block is still what it was, the break did
   // not happen and calling this a harvest is the same overclaim the evidence
   // gate exists to stop.
-  // THE SERVER'S WORD, when digsync (digsync.mjs) can give it: wait until the dig is settled by the server's ack, and if
-  // it was refused and restored, give a delayed destroy (Paper breaks an early STOP a few ticks later) 600 ms more
-  // before believing the block (Claude review of fbd7125: at 250 ms the check saw the restore and walked away from a
-  // block the server broke at 400 ms). Without digsync, the old 250 ms look.
-  const settled = bot.digSync?.waitSettled ? await bot.digSync.waitSettled(p, 1500) : null
-  if (settled?.broken === false) await sleep(600, signal)
-  else if (!settled) await sleep(250, signal)
+  // THE SERVER'S WORD, when digsync (digsync.mjs) can give it: wait until the dig's outcome is KNOWN. digsync v2 owns
+  // the delayed destroy (Paper breaks an early STOP a few ticks after it acks it): an ack with no server word holds a
+  // GRACE_MS grace, so `broken: false` already means "the server said nothing, or said not-air, for the whole grace".
+  // The 600 ms extra look v1 needed here (Claude review of fbd7125) is the grace's job now. The default timeout is
+  // digsync's own (ack + grace + one tick); the confirmed case resolves at the ack, so this waits only when refused.
+  // `pending: true` (no ack in time, or aborted) falls through to the local read, as without digsync. No digsync: the
+  // old 250 ms look.
+  const settled = bot.digSync?.waitSettled ? await bot.digSync.waitSettled(p, undefined, signal) : null
+  check(signal)
+  if (!settled) await sleep(250, signal)
   const nowNamed = bot.blockAt(p)?.name
   if (wasNamed && nowNamed === wasNamed && wasNamed !== 'air') {
     throw Object.assign(

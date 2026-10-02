@@ -2,15 +2,18 @@
 // real one (finishDigging: write STOP, then _updateBlockState(pos, 0)). See src/digsync.mjs for the measurements.
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
-import { readFileSync } from 'node:fs'
-const { attachDigSync, PredictionLedger, decodeSectionRecord, BACKSTOP_MS } = await import('../src/digsync.mjs')
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+const DIGSYNC = await import('../src/digsync.mjs')
+const { attachDigSync, PredictionLedger, decodeSectionRecord, BACKSTOP_MS, GRACE_MS, FALSE_RESTORE_MS } = DIGSYNC
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const STONE = 1, AIR = 0
 
-function fakeBot ({ version = '1.21.8', backstopMs, tickMs } = {}) {
+// `graceMs` defaults to a LONG grace here (an ack with no word stays pending for the whole test) unless a test injects
+// a short one; `attach` lets a mutant module stand in for the real one.
+function fakeBot ({ version = '1.21.8', backstopMs, tickMs, graceMs = 60_000, now, attach = attachDigSync } = {}) {
   const world = new Map()
   const k = p => `${p.x},${p.y},${p.z}`
   const client = new EventEmitter()
@@ -25,11 +28,15 @@ function fakeBot ({ version = '1.21.8', backstopMs, tickMs } = {}) {
   bot.blockAt = p => { const f = p.floored(); return world.has(k(f)) ? { stateId: world.get(k(f)) } : null }
   bot._updateBlockState = (p, s) => { const f = p.floored(); world.set(k(f), s) }
   const rollbacks = []
-  const ds = attachDigSync(bot, { onRollback: r => rollbacks.push(r), ...(backstopMs ? { backstopMs } : {}), ...(tickMs ? { tickMs } : {}) })
+  const ds = attach(bot, { onRollback: r => rollbacks.push(r), graceMs, ...(backstopMs ? { backstopMs } : {}), ...(tickMs ? { tickMs } : {}), ...(now ? { now } : {}) })
   // mineflayer's finishDigging, as it is: STOP then the local air write.
   const finishDig = pos => { client.write('block_dig', { status: 2, location: pos, face: 1, sequence: 0 }); bot._updateBlockState(pos, AIR) }
   const lastSeq = () => sent.at(-1).params.sequence
-  return { bot, client, world, sent, rollbacks, ds, finishDig, lastSeq, at: p => world.get(k(p)) }
+  const ack = () => client.emit('acknowledge_player_digging', { sequenceId: lastSeq() })
+  // The server's word as mineflayer sees it: our listener runs first (digsync attaches before the plugins inject),
+  // then mineflayer's blocks plugin writes the state into the world.
+  const say = (p, type) => { client.emit('block_change', { location: p, type }); world.set(k(p), type) }
+  return { bot, client, world, sent, rollbacks, ds, finishDig, lastSeq, ack, say, at: p => world.get(k(p)) }
 }
 import { createRequire } from 'node:module'
 const { Vec3 } = createRequire(import.meta.url)('vec3')
@@ -52,11 +59,20 @@ await t('ACCEPTED dig: the server says air before its ack -> nothing restored', 
   f.client.emit('acknowledge_player_digging', { sequenceId: seq })
   assert.equal(f.at(P), AIR); assert.equal(f.rollbacks.length, 0); assert.equal(f.ds.counts.confirmed, 1)
 })
-await t('REJECTED dig: an ack with no server word restores the block the bot believed it broke', () => {
-  const f = fakeBot(); f.world.set('10,64,-3', STONE)
+// CONTRACT CHANGE (v2): v1 restored at the ack; now the restore waits out the grace. Same end state, later.
+await t('REJECTED dig: an ack with no server word restores the block the bot believed it broke -- at grace EXPIRY, not before', async () => {
+  const f = fakeBot({ graceMs: 80, tickMs: 5 }); f.world.set('10,64,-3', STONE)
   f.finishDig(P); assert.equal(f.at(P), AIR, 'mineflayer wrote the ghost')
-  f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
-  assert.equal(f.at(P), STONE); assert.equal(f.rollbacks.length, 1); assert.equal(f.rollbacks[0].why, 'ack')
+  const w = f.ds.waitSettled(P); const t0 = Date.now()
+  f.ack()
+  assert.equal(f.ds.counts.graceStarted, 1)
+  await sleep(30)
+  assert.equal(f.at(P), AIR, 'restored inside the grace'); assert.equal(f.rollbacks.length, 0)
+  assert.deepEqual(await w, { broken: false, pending: false })
+  assert.ok(Date.now() - t0 >= 75, `waitSettled answered at ${Date.now() - t0} ms, before the grace expired`)
+  assert.equal(f.at(P), STONE); assert.equal(f.rollbacks.length, 1); assert.equal(f.rollbacks[0].why, 'grace-expired')
+  assert.equal(f.ds.counts.graceExpired, 1); assert.equal(f.ds.counts.rolledBack, 1); assert.equal(f.ds.counts.backstop, 0)
+  f.bot.emit('end')
 })
 await t('confirmation by multi_block_change counts as server word (the probe saw both kinds)', () => {
   const f = fakeBot(); const Q = new Vec3(35, 72, 21); f.world.set('35,72,21', STONE)
@@ -75,12 +91,94 @@ await t('an ack for an EARLIER sequence (the START) does not settle the STOP', (
   f.client.emit('acknowledge_player_digging', { sequenceId: startSeq })
   assert.equal(f.at(P), AIR, 'still a prediction'); assert.equal(f.ds.ledger.size, 1)
 })
-await t('DELAYED destroy: restored at the ack, then the late server air is simply applied (converges to the truth)', () => {
-  const f = fakeBot(); f.world.set('10,64,-3', STONE)
-  f.finishDig(P); f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
-  assert.equal(f.at(P), STONE)
-  f.client.emit('block_change', { location: P, type: AIR }); f.world.set('10,64,-3', AIR)   // Paper breaks it ~0.9 s later
-  assert.equal(f.at(P), AIR); assert.equal(f.ds.ledger.size, 0, 'nothing left pending to fight the server')
+// CONTRACT CHANGE (v2): v1 restored stone at the ack and let the late air overwrite it (a false restore, 67% of all
+// restores on the fixes-02 canary). Now the late air lands inside the grace and nothing is ever restored.
+// Shared with the mutant below, so the mutant runs exactly this scenario.
+async function delayedDestroy (attach) {
+  const f = fakeBot({ graceMs: 150, tickMs: 5, attach }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P)
+  const w = f.ds.waitSettled(P); let answeredAt = null
+  w.then(() => { answeredAt = Date.now() })
+  f.ack(); const ackAt = Date.now()
+  const right_after_ack = f.at(P)
+  await sleep(40)
+  f.say(P, AIR)                       // Paper breaks it a few ticks after it acked the STOP
+  const res = await w
+  await sleep(200)                    // well past the grace: nothing may restore now
+  f.bot.emit('end')
+  return { f, res, right_after_ack, answeredMs: answeredAt - ackAt }
+}
+await t('DELAYED destroy: the ack outruns the air -> held through the grace, NEVER restored, world stays AIR, graceAir=1', async () => {
+  const { f, res, right_after_ack, answeredMs } = await delayedDestroy(attachDigSync)
+  assert.equal(right_after_ack, AIR, 'restored at the ack (the v1 false restore)')
+  assert.equal(f.at(P), AIR); assert.equal(f.rollbacks.length, 0); assert.equal(f.ds.counts.rolledBack, 0)
+  assert.equal(f.ds.counts.graceStarted, 1); assert.equal(f.ds.counts.graceAir, 1); assert.equal(f.ds.counts.graceExpired, 0)
+  assert.equal(f.ds.counts.graceLt250, 1, 'the ack->air delay histogram'); assert.equal(f.ds.counts.confirmed, 1)
+  assert.deepEqual(res, { broken: true, pending: false })
+  assert.ok(answeredMs < 120, `waitSettled answered ${answeredMs} ms after the ack: it waited for expiry instead of the word`)
+  assert.equal(f.ds.counts.falseRestore, 0)
+})
+await t('GRACE, server says STONE: settled on the server\'s word at once, graceOther=1, not counted as a rollback', async () => {
+  const f = fakeBot({ graceMs: 100, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); const w = f.ds.waitSettled(P); f.ack()
+  await sleep(20)
+  f.client.emit('block_change', { location: P, type: STONE })   // digsync's listener first: it settles and writes it
+  assert.equal(f.at(P), STONE, 'the server\'s STONE is in the world model immediately')
+  assert.deepEqual(await w, { broken: false, pending: false })
+  assert.equal(f.ds.counts.graceOther, 1); assert.equal(f.ds.counts.graceAir, 0); assert.equal(f.ds.ledger.size, 0)
+  await sleep(130)
+  assert.equal(f.ds.counts.graceExpired, 0, 'the grace must not also expire'); assert.equal(f.rollbacks.length, 0)
+  f.bot.emit('end')
+})
+await t('the server\'s word BEFORE the ack: unchanged v1 behaviour, settled at the ack with no grace', () => {
+  const f = fakeBot({ graceMs: 100, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.say(P, AIR); f.ack()
+  assert.equal(f.ds.counts.graceStarted, 0); assert.equal(f.ds.counts.confirmed, 1); assert.equal(f.ds.ledger.size, 0)
+  f.bot.emit('end')
+})
+await t('the BACKSTOP does not pre-empt a running grace, even when the prediction is older than the backstop', async () => {
+  const f = fakeBot({ backstopMs: 30, graceMs: 120, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); await sleep(20); f.ack()
+  await sleep(60)                     // prediction age ~80 ms > backstop 30; grace ~60 of 120
+  assert.equal(f.at(P), AIR, 'restored before the grace expired'); assert.equal(f.ds.counts.backstop, 0)
+  assert.equal([...f.ds.ledger.pending.values()][0]?.phase, 'grace')
+  await sleep(110)
+  assert.equal(f.at(P), STONE); assert.equal(f.rollbacks[0]?.why, 'grace-expired'); assert.equal(f.ds.counts.backstop, 0)
+  f.bot.emit('end')
+})
+for (const [what, act] of [['respawn', f => f.bot.emit('spawn')], ['death', f => f.bot.emit('death')], ['disconnect', f => f.bot.emit('end')]]) {
+  await t(`${what} DURING the grace clears it and tells the waiter nothing is known (null), and nothing restores later`, async () => {
+    const f = fakeBot({ graceMs: 60, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+    f.finishDig(P); const w = f.ds.waitSettled(P); f.ack()
+    await sleep(10); act(f)
+    assert.deepEqual(await w, { broken: null, pending: false })
+    assert.equal(f.ds.ledger.size, 0); assert.equal(f.ds.counts.graceDropped, 1)
+    await sleep(90)
+    assert.equal(f.at(P), AIR); assert.equal(f.rollbacks.length, 0); assert.equal(f.ds.counts.graceExpired, 0)
+    f.bot.emit('end')
+  })
+}
+await t('a fresh chunk DURING the grace drops the prediction (the chunk is the truth), and tells the waiter', async () => {
+  const f = fakeBot({ graceMs: 60, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); const w = f.ds.waitSettled(P); f.ack()
+  f.client.emit('map_chunk', { x: 5, z: 5 })        // another column: positive control, nothing dropped
+  assert.equal(f.ds.ledger.size, 1)
+  f.client.emit('map_chunk', { x: 0, z: -1 })
+  assert.deepEqual(await w, { broken: null, pending: false })
+  await sleep(90)
+  assert.equal(f.at(P), AIR); assert.equal(f.rollbacks.length, 0); assert.equal(f.ds.counts.graceDropped, 1)
+  f.bot.emit('end')
+})
+await t('a re-dig at the same position DURING the grace cancels it, keeps the OLDER prior, and waits for its own ack', async () => {
+  const f = fakeBot({ graceMs: 60, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.ack()
+  f.world.set('10,64,-3', 7); f.finishDig(P)        // the bot digs there again (prior now reads 7)
+  assert.equal(f.ds.counts.graceDropped, 1)
+  await sleep(90)
+  assert.equal(f.at(P), AIR, 'the newer prediction was settled by the old grace')
+  f.ack(); await sleep(90)
+  assert.equal(f.at(P), STONE, 'restored to the FIRST prior'); assert.equal(f.ds.counts.graceExpired, 1)
+  f.bot.emit('end')
 })
 await t('a fresh chunk is authoritative: its column\'s predictions are dropped, so no reverse ghost', () => {
   const f = fakeBot(); f.world.set('10,64,-3', STONE)
@@ -102,9 +200,9 @@ await t('player_loaded is sent on EVERY spawn (join and respawn) on 1.21.4+, and
   assert.equal(old.sent.filter(s => s.name === 'player_loaded').length, 0)
 })
 await t('ledger: a repeat prediction at one position keeps the FIRST prior (the state the server may still hold)', () => {
-  const l = new PredictionLedger()
+  const l = new PredictionLedger({ graceMs: 0 })   // CONTRACT CHANGE (v2): ack() returns { settled, graced }
   l.predict(P, 5, STONE, 0); l.predict(P, 9, AIR + 7, 1)
-  assert.deepEqual(l.ack(9, 2).map(s => s.target), [STONE])
+  assert.deepEqual(l.ack(9, 2).settled.map(s => s.target), [STONE])
 })
 await t('WIRED: index.mjs attaches digsync to the bot (comments stripped)', () => {
   const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
@@ -116,8 +214,9 @@ await t('WIRED: the SIGTERM/SIGINT handler writes the final totals BEFORE it clo
   const a = h.indexOf('digSyncFinal?.()'), b = h.indexOf('closeLogs()')
   assert.ok(a > 0 && b > 0 && a < b, `final row at ${a}, closeLogs at ${b}`)
 })
+// CONTRACT CHANGE (v2): a refused dig answers at grace expiry, so the refused case injects a short grace.
 await t('waitSettled: the server\'s word for a refused dig, an accepted one, nothing pending, and a timeout', async () => {
-  const f = fakeBot(); f.world.set('10,64,-3', STONE)
+  const f = fakeBot({ graceMs: 40, tickMs: 5 }); f.world.set('10,64,-3', STONE)
   f.finishDig(P); const w1 = f.ds.waitSettled(P, 500)
   f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
   assert.deepEqual(await w1, { broken: false, pending: false })
@@ -127,15 +226,61 @@ await t('waitSettled: the server\'s word for a refused dig, an accepted one, not
   assert.deepEqual(await w2, { broken: true, pending: false })
   assert.deepEqual(await f.ds.waitSettled(new Vec3(99, 1, 99), 500), { broken: null, pending: false })
   f.world.set('10,64,-3', STONE); f.finishDig(P)
-  assert.deepEqual(await f.ds.waitSettled(P, 30), { broken: null, pending: true })
+  assert.deepEqual(await f.ds.waitSettled(P, 15), { broken: null, pending: true })
+  const ac = new AbortController(); const w4 = f.ds.waitSettled(P, 5000, ac.signal); ac.abort()
+  assert.deepEqual(await w4, { broken: null, pending: true }, 'an abort answers at once')
+  f.bot.emit('end')
 })
-await t('a restore the server contradicts with AIR soon after counts as a FALSE restore; repeats at one position are counted', () => {
-  const f = fakeBot(); f.world.set('10,64,-3', STONE)
-  f.finishDig(P); f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
-  f.finishDig(P); f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
+await t('waitSettled DEFAULT timeout covers the ack + the whole grace: a refused dig answers broken:false, never pending', async () => {
+  const f = fakeBot({ graceMs: 120, tickMs: 10 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); const w = f.ds.waitSettled(P)
+  await sleep(60); f.ack()                         // a slow ack: 60 ms, then the full grace
+  assert.deepEqual(await w, { broken: false, pending: false })
+  assert.ok(f.ds.settleWaitMs >= 120 + 10, `settleWaitMs ${f.ds.settleWaitMs}`)
+  f.bot.emit('end')
+})
+// CONTRACT CHANGE (v2): restores happen at grace expiry, so each ack is followed by a wait past the grace.
+await t('a restore the server contradicts with AIR soon after counts as a FALSE restore; repeats at one position are counted', async () => {
+  const f = fakeBot({ graceMs: 20, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.ack(); await sleep(45)
+  f.finishDig(P); f.ack(); await sleep(45)
   assert.equal(f.ds.counts.repeatMax, 2)
   f.client.emit('block_change', { location: P, type: AIR })
-  assert.equal(f.ds.counts.falseRestore, 1)
+  assert.equal(f.ds.counts.falseRestore, 1); assert.equal(f.ds.counts.lateAirLt2s, 1)
+  f.bot.emit('end')
+})
+await t('a RE-DIG after a restore is the bot\'s own new dig: its AIR is not a false restore (positive control above)', async () => {
+  const f = fakeBot({ graceMs: 20, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.ack(); await sleep(45)
+  assert.equal(f.ds.counts.rolledBack, 1, 'the restore this test is about')
+  f.finishDig(P)                                     // dig it again; the server breaks it this time
+  f.say(P, AIR); f.ack()
+  assert.equal(f.ds.counts.falseRestore, 0); assert.equal(f.ds.counts.confirmed, 1)
+  f.bot.emit('end')
+})
+await t('late AIR after a restore is bucketed by delay (<2s, <5s, <10s) and ignored beyond FALSE_RESTORE_MS', async () => {
+  assert.equal(FALSE_RESTORE_MS, 10_000)
+  const out = []
+  for (const late of [3000, 7000, 12_000]) {
+    let clock = 1_000_000
+    const f = fakeBot({ graceMs: 50, tickMs: 5, now: () => clock }); f.world.set('10,64,-3', STONE)
+    f.finishDig(P); f.ack(); clock += 50; await sleep(20)
+    assert.equal(f.ds.counts.rolledBack, 1, 'positive control: the restore happened')
+    clock += late; f.client.emit('block_change', { location: P, type: AIR })
+    out.push([f.ds.counts.lateAirLt2s, f.ds.counts.lateAirLt5s, f.ds.counts.lateAirLt10s, f.ds.counts.falseRestore])
+    f.bot.emit('end')
+  }
+  assert.deepEqual(out, [[0, 1, 0, 1], [0, 0, 1, 1], [0, 0, 0, 0]])
+})
+await t('the packet path NEVER throws: a world model that throws during the grace costs the bookkeeping, not the handler', async () => {
+  const f = fakeBot({ graceMs: 20, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.ack()
+  f.bot.blockAt = () => { throw new Error('world not ready') }
+  f.client.emit('block_change', { location: P, type: AIR })
+  f.client.emit('multi_block_change', { chunkCoordinates: null, records: [1n] })
+  f.client.emit('acknowledge_player_digging', { sequenceId: 99 })
+  await sleep(30)
+  f.bot.emit('end')
 })
 await t('the write wrapper NEVER throws: a broken world model costs the prediction, not the packet', () => {
   const f = fakeBot(); f.bot.blockAt = () => { throw new Error('world not ready') }
@@ -154,35 +299,75 @@ await t('player_loaded is decided AT SPAWN: a registry that appears after attach
   assert.equal(sent2.filter(n => n === 'player_loaded').length, 1)
 })
 
-// ---- collectManually through digsync: the delayed-destroy case the Claude review found ----
+// ---- collectManually through the REAL digsync: the delayed-destroy case the Claude review found, now the grace's ----
+// CONTRACT CHANGE (v2): v1 faked waitSettled and collectManually slept 600 ms more after a restore. The grace owns the
+// delayed destroy now, so these drive collectManually through attachDigSync itself (the refusal CHAIN, not one guard).
 const { collectManually } = await import('../src/skills.mjs')
-function manualBot ({ serverBreaksAtMs }) {
-  const world = new Map([['6,64,0', 'stone']])
-  const bot = new EventEmitter()
-  const at = { x: 5, y: 64, z: 0 }
+function manualBot ({ serverSays = null, afterAckMs = 0, graceMs = 60 }) {
+  const NAMES = { [STONE]: 'stone' }
+  const world = new Map([['6,64,0', STONE]])
+  const key = p => `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`
+  const bot = new EventEmitter(); const client = new EventEmitter(); let seq = null
+  client.write = (name, params) => { if (name === 'block_dig') seq = params.sequence }
+  bot._client = client
   Object.assign(bot, {
     entity: { position: new Vec3(5.5, 64, 0.5) }, heldItem: null, targetDigBlock: null, gatherMovements: { canDig: true },
-    blockAt: p => { const n = world.get(`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`); return n ? { name: n, position: new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)), diggable: true, boundingBox: 'block' } : { name: 'air', position: p, diggable: false, boundingBox: 'empty' } },
+    blockAt: p => { const id = world.get(key(p)) ?? AIR; const pos = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)); return id ? { name: NAMES[id], stateId: id, position: pos, diggable: true, boundingBox: 'block' } : { name: 'air', stateId: AIR, position: pos, diggable: false, boundingBox: 'empty' } },
+    _updateBlockState: (p, st) => world.set(key(p), st),
     canDigBlock: b => !!b && b.name !== 'air', inventory: { items: () => [] }, equip: async () => {},
-    dig: async () => { world.delete('6,64,0') },                // mineflayer's optimistic local air
+    // mineflayer's finishDigging: STOP, then the optimistic local air. The server acks 10 ms later, and maybe speaks.
+    dig: async b => {
+      bot._client.write('block_dig', { status: 2, location: b.position, face: 1, sequence: 0 }); bot._updateBlockState(b.position, AIR)
+      setTimeout(() => {
+        client.emit('acknowledge_player_digging', { sequenceId: seq })
+        if (serverSays != null) setTimeout(() => { client.emit('block_change', { location: b.position, type: serverSays }); world.set(key(b.position), serverSays) }, afterAckMs)
+      }, 10)
+    },
     stopDigging: () => {}, nearestEntity: () => null, withGatherMovements: async fn => fn(),
     pathfinder: { movements: { canDig: true }, stop: () => {}, goto: async () => {}, getPathFromTo: () => ({ next: () => ({ value: { result: { status: 'success', path: [] } } }) }) },
-    digSync: { waitSettled: () => new Promise(r => setTimeout(() => {
-      world.set('6,64,0', 'stone')                               // the ack came with no server word: restored
-      if (serverBreaksAtMs != null) setTimeout(() => world.delete('6,64,0'), serverBreaksAtMs)
-      r({ broken: false, pending: false })
-    }, 40)) },
   })
-  return { bot, target: bot.blockAt(new Vec3(6, 64, 0)) }
+  const rollbacks = []
+  bot.digSync = attachDigSync(bot, { graceMs, tickMs: 5, onRollback: r => rollbacks.push(r) })
+  return { bot, rollbacks, target: bot.blockAt(new Vec3(6, 64, 0)), done: () => bot.emit('end') }
 }
-await t('collectManually: a REFUSED dig (restored, never broken) is dig_unconfirmed', async () => {
-  const { bot, target } = manualBot({ serverBreaksAtMs: null })
-  await assert.rejects(collectManually(bot, target, new AbortController().signal), e => e.failClass === 'dig_unconfirmed')
+await t('collectManually: a REFUSED dig (no word for the whole grace, restored) is dig_unconfirmed', async () => {
+  const m = manualBot({})
+  await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => e.failClass === 'dig_unconfirmed')
+  assert.equal(m.rollbacks.length, 1); m.done()
 })
-await t('collectManually: a DELAYED destroy (restored at the ack, broken 300 ms later) is NOT walked away from', async () => {
-  const { bot, target } = manualBot({ serverBreaksAtMs: 300 })
-  await collectManually(bot, target, new AbortController().signal)
+await t('collectManually: a DELAYED destroy (air 30 ms after the ack, inside the grace) is collected, never restored', async () => {
+  const m = manualBot({ serverSays: AIR, afterAckMs: 30 })
+  const t0 = Date.now()
+  await collectManually(m.bot, m.target, new AbortController().signal)
+  assert.equal(m.rollbacks.length, 0)
+  assert.ok(Date.now() - t0 < 60 + 10 + 40, 'it waited out the grace instead of answering on the word')
+  m.done()
+})
+await t('collectManually: the server REFUSES with an explicit STONE during the grace -> dig_unconfirmed without waiting out the grace', async () => {
+  const m = manualBot({ serverSays: STONE, afterAckMs: 5, graceMs: 500 })
+  const t0 = Date.now()
+  await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => e.failClass === 'dig_unconfirmed')
+  assert.ok(Date.now() - t0 < 300, `took ${Date.now() - t0} ms`); m.done()
+})
+
+// ---- the mutant: GRACE 0 (v1's restore-at-the-ack) must fail the delayed-destroy test for the stated reason ----
+await t('MUTANT KILLED: with the grace forced to 0 the delayed destroy is restored at the ack (the v1 false restore)', async () => {
+  const path = new URL('../src/digsync.mjs', import.meta.url)
+  const src = readFileSync(path, 'utf8')
+  const old = 'const ledger = new PredictionLedger({ graceMs })'
+  assert.ok(src.includes(old), 'ANCHOR MISSING: a mutant that was never written reads as killed')
+  assert.equal(src.split(old).length, 2, 'the mutation target is not unique')
+  const out = new URL(`./_mutant-digsync-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, 'const ledger = new PredictionLedger({ graceMs: 0 })'))
+  try {
+    const mod = await import(out.href)
+    const { f, right_after_ack } = await delayedDestroy(mod.attachDigSync)
+    assert.equal(right_after_ack, STONE, 'the mutant did not restore at the ack, so it does not reproduce v1')
+    assert.equal(f.rollbacks.length, 1); assert.equal(f.ds.counts.graceAir, 0)
+    assert.equal(f.ds.counts.falseRestore, 1, 'the late air contradicts the mutant\'s restore')
+  } finally { try { unlinkSync(out) } catch {} }
 })
 
 assert.ok(BACKSTOP_MS >= 3000, 'the backstop must outlast a normal confirmation (~0.9 s) with margin')
+assert.ok(GRACE_MS >= 2000, 'the grace must outlast the measured ack->air delay (92 of 92 false restores were contradicted within 2 s)')
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

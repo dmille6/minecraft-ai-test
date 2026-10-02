@@ -171,9 +171,10 @@ function connect() {
   {
     const rb = []
     let lastRow = 0
-    // key=value, so a read parses fields instead of prose (both reviews); the same string on every row kind.
-    const totals = c => `predicted=${c.predicted} confirmed=${c.confirmed} rolledBack=${c.rolledBack} backstop=${c.backstop} ` +
-                        `falseRestore=${c.falseRestore} repeatMax=${c.repeatMax} predictFailed=${c.predictFailed} spawns=${c.spawns} loadedSent=${c.loadedSent}`
+    // key=value, so a read parses fields instead of prose (both reviews); the same string on every row kind. EVERY
+    // counter digsync keeps, in its own fixed order (v1's nine first, then the v2 grace/late-air counters), so a new
+    // counter cannot be kept and silently left off the row.
+    const totals = c => Object.entries(c).map(([k, v]) => `${k}=${v}`).join(' ')
     const flush = () => {
       if (!rb.length) return
       const c = bot.digSync?.counts ?? {}
