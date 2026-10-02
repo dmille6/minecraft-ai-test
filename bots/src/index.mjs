@@ -168,27 +168,19 @@ function connect() {
   {
     const rb = []
     let lastRow = 0
-    // key=value, so a read parses fields instead of prose (both reviews); the same string on every row kind.
-    const totals = c => `predicted=${c.predicted} confirmed=${c.confirmed} rolledBack=${c.rolledBack} backstop=${c.backstop} ` +
-                        `falseRestore=${c.falseRestore} repeatMax=${c.repeatMax} predictFailed=${c.predictFailed} spawns=${c.spawns} loadedSent=${c.loadedSent}`
     const flush = () => {
       if (!rb.length) return
       const c = bot.digSync?.counts ?? {}
-      const first = rb.slice(0, 3).map(r => `${r.pos.x},${r.pos.y},${r.pos.z} ${r.why} ${Math.round(r.sinceSpawnMs / 1000)}s after spawn x${r.repeat}`).join('; ')
+      const first = rb.slice(0, 3).map(r => `${r.pos.x},${r.pos.y},${r.pos.z} ${r.why} ${Math.round(r.sinceSpawnMs / 1000)}s after spawn`).join('; ')
       logEvent({ kind: 'dig_rollback', status: 'success', snapshot: snapshot(bot),
                  detail: `restored ${rb.length} block(s) the server never broke: ${first}${rb.length > 3 ? '; ...' : ''} | ` +
-                         totals(c) })
+                         `totals ${c.rolledBack} restored (${c.backstop} by backstop) of ${c.predicted} digs; player_loaded sent ${c.loadedSent}` })
       rb.length = 0; lastRow = Date.now()
     }
     bot.digSync = attachDigSync(bot, { onRollback: r => { rb.push(r); if (Date.now() - lastRow >= 5000) flush() } })
     const t = setInterval(() => { if (Date.now() - lastRow >= 5000) flush() }, 5000)
     t.unref?.()
-    // THE DENOMINATOR (both reviews): rollback rows alone are silent on a bot that never needed one, so every bot also
-    // writes its totals every 10 minutes and on disconnect. `_dig_sync` is a kind the baseline cannot emit either.
-    const beat = () => { try { logEvent({ kind: 'dig_sync', status: 'success', snapshot: snapshot(bot), detail: totals(bot.digSync?.counts ?? {}) }) } catch { /* never the bot's problem */ } }
-    const hb = setInterval(beat, 10 * 60 * 1000)
-    hb.unref?.()
-    bot.once('end', () => { clearInterval(t); clearInterval(hb); flush(); beat() })
+    bot.once('end', () => clearInterval(t))
   }
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer

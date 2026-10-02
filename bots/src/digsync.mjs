@@ -27,19 +27,13 @@ export const SEQUENCED = new Set(['block_dig', 'block_place', 'use_item'])
 export const STOP_DIGGING = 2
 /** An ack that never arrives (a disconnect mid-dig, a dropped packet): restore after this. */
 export const BACKSTOP_MS = 5000
-/** A restore contradicted by the server's AIR this soon after was a delayed destroy the ack outran, not a refusal. */
-export const FALSE_RESTORE_MS = 2000
 
 export const posKey = p => `${p.x},${p.y},${p.z}`
 
 export class PredictionLedger {
   constructor () { this.seq = 0; this.pending = new Map() }
-  /**
-   * Strictly increasing and never 0 (0 is what mineflayer sends; the server's "nothing to ack" is -1). NO WRAP (Codex
-   * review: an old high ack would settle a new low sequence). One bot object is one connection, and ~10k sequenced
-   * packets a day would take ~500 years to reach 2^31.
-   */
-  nextSeq () { return ++this.seq }
+  /** Strictly increasing and never 0 (0 is what mineflayer sends, and the server's "nothing to ack" is -1). */
+  nextSeq () { this.seq = this.seq >= 0x3fffffff ? 1 : this.seq + 1; return this.seq }
   /**
    * The bot is about to write air over `prior` at `pos` for the STOP it sent with `seq`. A newer prediction at the
    * same position replaces an older one, and keeps the OLDER prior: the state before the first unconfirmed write is
@@ -90,13 +84,7 @@ export function decodeSectionRecord (chunk, record) {
 export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.now(), backstopMs = BACKSTOP_MS, tickMs = 500 } = {}) {
   const ledger = new PredictionLedger()
   const client = bot._client
-  const counts = { predicted: 0, confirmed: 0, rolledBack: 0, backstop: 0, falseRestore: 0, repeatMax: 0, predictFailed: 0, spawns: 0, loadedSent: 0 }
-  // Restores by position, for two measurements both reviews asked for: a restore the server contradicts with AIR within
-  // FALSE_RESTORE_MS (a delayed destroy the ack outran), and the most restores at one position (pathfinder re-digging a
-  // block the server keeps refusing: bounded by the callers' own deadlines, measured here, not acted on).
-  const restored = new Map()
-  // Settlement waiters, for collectManually: resolve when a position leaves the ledger, with whether it was restored.
-  const waiters = new Map()
+  const counts = { predicted: 0, confirmed: 0, rolledBack: 0, backstop: 0, loadedSent: 0 }
   let spawnedAt = now()
   const write = client.write.bind(client)
   client.write = (name, params, ...rest) => {
@@ -105,75 +93,42 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
       params = { ...params, sequence: seq }
       if (name === 'block_dig' && params.status === STOP_DIGGING && params.location) {
         // Read BEFORE the write returns: finishDigging calls write() and only then _updateBlockState(pos, 0).
-        // NEVER THROWS (Codex review): this sits in front of every dig the bot makes; a bookkeeping failure must cost
-        // the prediction, not the packet. The position is normalised to a real Vec3 (prismarine-world floors it).
-        try {
-          const loc = new Vec3(params.location.x, params.location.y, params.location.z)
-          const prior = bot.blockAt(loc)?.stateId
-          if (prior != null && prior !== 0) { ledger.predict(loc, seq, prior, now()); counts.predicted++ }
-        } catch { counts.predictFailed++ }
+        const prior = bot.blockAt(params.location)?.stateId
+        if (prior != null && prior !== 0) { ledger.predict(params.location, seq, prior, now()); counts.predicted++ }
       }
     }
     return write(name, params, ...rest)
   }
   const apply = settled => {
     for (const s of settled) {
-      const key = posKey(s.pos)
       if (s.confirmed) counts.confirmed++
       let cur
       try { cur = bot.blockAt(s.pos)?.stateId } catch { cur = undefined }
       if (cur == null || cur === s.target) continue   // unloaded, or already what the server says
       try { bot._updateBlockState(s.pos, s.target) } catch { continue }
       counts.rolledBack++
-      const r = restored.get(posKey(s.pos)) ?? { n: 0, t: 0 }
-      r.n++; r.t = now(); restored.set(posKey(s.pos), r)
-      if (restored.size > 512) restored.delete(restored.keys().next().value)
-      counts.repeatMax = Math.max(counts.repeatMax, r.n)
       if (s.why === 'backstop') counts.backstop++
-      try { onRollback({ pos: s.pos, from: cur, to: s.target, why: s.why, ms: s.ms, sinceSpawnMs: now() - spawnedAt, repeat: restored.get(key)?.n ?? 1 }) } catch { /* a logger must not break the bot */ }
+      try { onRollback({ pos: s.pos, from: cur, to: s.target, why: s.why, ms: s.ms, sinceSpawnMs: now() - spawnedAt }) } catch { /* a logger must not break the bot */ }
     }
-    for (const s of settled) notify(posKey(s.pos), s)
   }
-  const notify = (key, s) => { const w = waiters.get(key); if (w) { waiters.delete(key); for (const f of w) f(s) } }
-  const serverWord = (pos, stateId) => {
-    ledger.serverUpdate(pos, stateId)
-    const r = restored.get(posKey(pos))
-    if (r && stateId === 0 && now() - r.t <= FALSE_RESTORE_MS) { counts.falseRestore++; restored.delete(posKey(pos)) }
-  }
-  client.on('block_change', pk => { if (pk?.location) serverWord(pk.location, pk.type) })
+  client.on('block_change', pk => { if (pk?.location) ledger.serverUpdate(pk.location, pk.type) })
   client.on('multi_block_change', pk => {
-    try { for (const r of pk.records ?? []) { const d = decodeSectionRecord(pk.chunkCoordinates, r); serverWord(d.pos, d.stateId) } } catch { /* malformed: nothing to learn */ }
+    try { for (const r of pk.records ?? []) { const d = decodeSectionRecord(pk.chunkCoordinates, r); ledger.serverUpdate(d.pos, d.stateId) } } catch { /* malformed: nothing to learn */ }
   })
   client.on('acknowledge_player_digging', pk => apply(ledger.ack(pk.sequenceId, now())))
   client.on('map_chunk', pk => ledger.dropColumn(pk.x, pk.z))
   client.on('unload_chunk', pk => ledger.dropColumn(pk.chunkX, pk.chunkZ))
   // THE LOADED HANDSHAKE (1.21.4+): until the client says `player_loaded`, Paper ignores its digs for 60 ticks after
   // every join and respawn -- which is exactly when the entombment reflex digs. Gated on the protocol having it.
-  // Evaluated AT SPAWN, not at attach (both reviews): with an auto-detected version the registry does not exist yet.
-  const hasLoaded = () => { try { return !!bot.registry?.version?.['>=']?.('1.21.4') } catch { return false } }
-  bot.on('spawn', () => {   // mineflayer emits spawn on the first join AND on every respawn (health.js)
+  const hasLoaded = (() => { try { return !!bot.registry?.version?.['>=']?.('1.21.4') } catch { return false } })()
+  bot.on('spawn', () => {   // mineflayer emits spawn on the first join AND on every respawn
     spawnedAt = now()
-    counts.spawns++
     ledger.clear()
-    for (const k of [...waiters.keys()]) notify(k, null)
-    if (hasLoaded()) { try { write('player_loaded', {}); counts.loadedSent++ } catch { /* not in play state */ } }
+    if (hasLoaded) { try { write('player_loaded', {}); counts.loadedSent++ } catch { /* not in play state */ } }
   })
-  bot.on('death', () => { ledger.clear(); for (const k of [...waiters.keys()]) notify(k, null) })
+  bot.on('death', () => ledger.clear())
   const timer = setInterval(() => apply(ledger.stale(now(), backstopMs)), tickMs)
   timer.unref?.()
   bot.once('end', () => clearInterval(timer))
-  /**
-   * Resolves once the server has settled a dig at `pos` (ack or backstop), with { broken: true|false } -- the server's
-   * word, or the prior block when it said nothing -- or { broken: null, pending: true } at `timeoutMs`, or
-   * { broken: null, pending: false } at once when nothing is pending there. For callers that must know whether a dig happened (collectManually).
-   */
-  const waitSettled = (pos, timeoutMs = 1500) => new Promise(resolve => {
-    let key
-    try { key = posKey(new Vec3(pos.x, pos.y, pos.z).floored()) } catch { return resolve({ broken: null, pending: false }) }
-    if (!ledger.pending.has(key)) return resolve({ broken: null, pending: false })
-    const done = s => { clearTimeout(timer); resolve({ broken: s ? s.target === 0 : null, pending: false }) }
-    const timer = setTimeout(() => { const w = waiters.get(key); if (w) { const i = w.indexOf(done); if (i >= 0) w.splice(i, 1) } resolve({ broken: null, pending: true }) }, timeoutMs)
-    waiters.set(key, [...(waiters.get(key) ?? []), done])
-  })
-  return { ledger, counts, waitSettled }
+  return { ledger, counts }
 }
