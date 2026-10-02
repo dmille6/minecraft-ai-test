@@ -20,8 +20,9 @@ t('the last planned path is kept from every accepted path_update, with the activ
   once(idx, "catch { try { logEvent({ kind: 'fall_path', status: 'failed', detail }) } catch {", 'index')
 })
 t('every movement profile names itself and every helper restores the walk profile with the walk movements', () => {
-  for (const [h, n] of [['gatherMoves', 'gather'], ['ascendMoves', 'ascend'], ['descendMoves', 'descend'], ['waterMoves', 'water']]) once(idx, `bot.pathfinder.setMovements(${h}); bot.movementProfile = '${n}'`, 'index')
-  assert.equal(idx.split("finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }").length - 1, 4, 'four helpers restore walk')
+  for (const [h, n] of [['gatherMoves', 'gather'], ['ascendMoves', 'ascend'], ['descendMoves', 'descend'], ['waterMoves', 'water'], ['bot.tunnelMovements', 'tunnel']]) once(idx, `bot.pathfinder.setMovements(${h}); bot.movementProfile = '${n}'`, 'index')
+  // five since 2026-09-29: the ore tunnel's profile (oretunnel.mjs) restores walk like the others
+  assert.equal(idx.split("finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }").length - 1, 5, 'five helpers restore walk')
 })
 t('mutant: dropping the death-time record is detected', () => {
   const m = idx.replace("if (fell != null && fell > 3) fallRecord(bot, runner, fell, 'death', { cause: deathClass(cause) })\n", '')

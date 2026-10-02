@@ -4,6 +4,7 @@
 // intelligence -- recover after death or disconnection, and run four hours
 // without unrecoverable failure. That is what this file is for.
 
+import { tunnelMovements } from './oretunnel.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
@@ -556,6 +557,14 @@ function connect() {
     // never reaches the log line.
     gatherMoves.dontCreateFlow = true
     bot.gatherMovements = gatherMoves
+    // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
+    // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
+    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: { x: config.world.homeX, z: config.world.homeZ } })
+    bot.withTunnelMovements = async (fn) => {
+      bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
+      try { return await withApproachBound(bot, fn) }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+    }
     bot.withGatherMovements = async (fn) => {
       bot.pathfinder.setMovements(gatherMoves); bot.movementProfile = 'gather'
       // The plan was admitted under a cost cap; the walk's own re-plans were
