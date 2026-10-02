@@ -110,5 +110,73 @@ await t('WIRED: index.mjs attaches digsync to the bot (comments stripped)', () =
   const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
   assert.match(src, /bot\.digSync\s*=\s*attachDigSync\(bot,/)
 })
+await t('waitSettled: the server\'s word for a refused dig, an accepted one, nothing pending, and a timeout', async () => {
+  const f = fakeBot(); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); const w1 = f.ds.waitSettled(P, 500)
+  f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
+  assert.deepEqual(await w1, { broken: false, pending: false })
+  f.world.set('10,64,-3', STONE); f.finishDig(P); const w2 = f.ds.waitSettled(P, 500)
+  f.client.emit('block_change', { location: P, type: AIR }); f.world.set('10,64,-3', AIR)
+  f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
+  assert.deepEqual(await w2, { broken: true, pending: false })
+  assert.deepEqual(await f.ds.waitSettled(new Vec3(99, 1, 99), 500), { broken: null, pending: false })
+  f.world.set('10,64,-3', STONE); f.finishDig(P)
+  assert.deepEqual(await f.ds.waitSettled(P, 30), { broken: null, pending: true })
+})
+await t('a restore the server contradicts with AIR soon after counts as a FALSE restore; repeats at one position are counted', () => {
+  const f = fakeBot(); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
+  f.finishDig(P); f.client.emit('acknowledge_player_digging', { sequenceId: f.lastSeq() })
+  assert.equal(f.ds.counts.repeatMax, 2)
+  f.client.emit('block_change', { location: P, type: AIR })
+  assert.equal(f.ds.counts.falseRestore, 1)
+})
+await t('the write wrapper NEVER throws: a broken world model costs the prediction, not the packet', () => {
+  const f = fakeBot(); f.bot.blockAt = () => { throw new Error('world not ready') }
+  f.client.write('block_dig', { status: 2, location: { x: 1, y: 2, z: 3 }, face: 1 })
+  assert.equal(f.sent.at(-1).name, 'block_dig'); assert.equal(f.ds.counts.predictFailed, 1)
+})
+await t('no sequence wrap: an old high ack cannot settle a new low sequence', () => {
+  const l = new PredictionLedger(); l.seq = 0x3fffffff
+  assert.equal(l.nextSeq(), 0x40000000)
+})
+await t('player_loaded is decided AT SPAWN: a registry that appears after attach still gets it', () => {
+  const reg = fakeBot().bot.registry   // a 1.21.8 registry
+  // attach to a bot with NO registry yet (an auto-detected version), then let it appear before the first spawn
+  const bot2 = new EventEmitter(); const c2 = new EventEmitter(); const sent2 = []; c2.write = (n, pr) => sent2.push(n); bot2._client = c2
+  attachDigSync(bot2); bot2.registry = reg; bot2.emit('spawn')
+  assert.equal(sent2.filter(n => n === 'player_loaded').length, 1)
+})
+
+// ---- collectManually through digsync: the delayed-destroy case the Claude review found ----
+const { collectManually } = await import('../src/skills.mjs')
+function manualBot ({ serverBreaksAtMs }) {
+  const world = new Map([['6,64,0', 'stone']])
+  const bot = new EventEmitter()
+  const at = { x: 5, y: 64, z: 0 }
+  Object.assign(bot, {
+    entity: { position: new Vec3(5.5, 64, 0.5) }, heldItem: null, targetDigBlock: null, gatherMovements: { canDig: true },
+    blockAt: p => { const n = world.get(`${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`); return n ? { name: n, position: new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)), diggable: true, boundingBox: 'block' } : { name: 'air', position: p, diggable: false, boundingBox: 'empty' } },
+    canDigBlock: b => !!b && b.name !== 'air', inventory: { items: () => [] }, equip: async () => {},
+    dig: async () => { world.delete('6,64,0') },                // mineflayer's optimistic local air
+    stopDigging: () => {}, nearestEntity: () => null, withGatherMovements: async fn => fn(),
+    pathfinder: { movements: { canDig: true }, stop: () => {}, goto: async () => {}, getPathFromTo: () => ({ next: () => ({ value: { result: { status: 'success', path: [] } } }) }) },
+    digSync: { waitSettled: () => new Promise(r => setTimeout(() => {
+      world.set('6,64,0', 'stone')                               // the ack came with no server word: restored
+      if (serverBreaksAtMs != null) setTimeout(() => world.delete('6,64,0'), serverBreaksAtMs)
+      r({ broken: false, pending: false })
+    }, 40)) },
+  })
+  return { bot, target: bot.blockAt(new Vec3(6, 64, 0)) }
+}
+await t('collectManually: a REFUSED dig (restored, never broken) is dig_unconfirmed', async () => {
+  const { bot, target } = manualBot({ serverBreaksAtMs: null })
+  await assert.rejects(collectManually(bot, target, new AbortController().signal), e => e.failClass === 'dig_unconfirmed')
+})
+await t('collectManually: a DELAYED destroy (restored at the ack, broken 300 ms later) is NOT walked away from', async () => {
+  const { bot, target } = manualBot({ serverBreaksAtMs: 300 })
+  await collectManually(bot, target, new AbortController().signal)
+})
+
 assert.ok(BACKSTOP_MS >= 3000, 'the backstop must outlast a normal confirmation (~0.9 s) with margin')
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
