@@ -43,7 +43,7 @@ and immobiledid (deaths → two-death floor) skip a post-cutoff canary row whose
 startswith(CV). Empty versions still count (0 of 450,482 rows carry one). Codex: CHANGES → narrowed → APPROVE. The
 other member reads already filtered (audit by a Claude subagent). Memory: restart-lag-rows-are-not-canary.
 
-## THE LIVE CANARY — fixes-02
+## (PAST, REVERTED 10-01 16:39Z) fixes-02
 | | |
 |---|---|
 | sha | `f5609af` (branch `idle-on-a943b7f` = fixes3-on-adc7658 a943b7f + bf296c9), 214/214 |
@@ -64,7 +64,7 @@ A REVERT names its member; drop that member and rerun the rest — **but first c
 **If the loop has died:** `pgrep -af canary-loop`. If absent and no decision is recorded, restart with
 `setsid nohup bash ~/canary-loop.sh fixes-02 >> ~/canary-loop-fixes-02.out 2>&1 < /dev/null &` (resumes from journal).
 
-## NEXT — oretunnel-01, AUTO-CHAINED
+## (STOPPED) oretunnel-01 chain — rebuilt as ore-on-digsync2, see 10-02 above
 `~/chain-ore.sh` (repo `scripts/host/chain-ore.sh`): when fixes-02 ends `promoted` with fleet `f5609af*`, registers
 `~/mcai-analysis/oretunnel-01.f5609af.json` (sha **49096f4**, branch `ore-on-f5609af` = bc3bcba + f5609af, 215/215,
 v30 passes at 1680) and launches the loop. ANY other ending (torn-down, refused-*, error) → STOP; then rebuild ore
@@ -101,7 +101,7 @@ on whatever the fleet is (bc3bcba carries the bundle, so on a torn-down fleet it
 4. `vetob2-01` (`efabf13`) KEPT and unpromoted; recommend re-drawing it off the hive pools.
 
 ## QUEUE
-1. **fixes-02** — LIVE.
+1. **fixes-03** — LIVE (fixes-02 reverted).
 2. **oretunnel-01** — chained.
 3. Then each its own canary (rebase onto the fleet sha at launch): **bankfix-01** (bank-fix 15dec57; gate reads
    ledger/RCON, never `_deposit_window`), **exploretoward-01** (86e8985), **vetoretry-01** (1efd82c; d0c47c6 follows).
