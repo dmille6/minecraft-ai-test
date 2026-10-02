@@ -601,6 +601,7 @@ export class CognitiveLoop {
   }
 
   #prereqHave() {
+    // prereq-usable's prereqHave (it honours `minUses`, which the ore tunnel sets) replaces the tunnel's own copy.
     return prereqHave(this.bot.inventory?.items() ?? [], this.prereq)
   }
 

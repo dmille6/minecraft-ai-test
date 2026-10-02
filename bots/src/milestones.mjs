@@ -17,6 +17,7 @@
 import { equivalentTools } from './skills.mjs'
 import { bankableInventory } from './bankable.mjs'
 import { countItem } from './state.mjs'
+import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
 import { log, logEvent } from './logger.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
@@ -249,17 +250,21 @@ const M = {
     id: `craft_${item}_${n}`,
     wants: item,
     describe: `Craft ${n} ${item}. ${why}`,
+    // CAPABILITY MEANS A TOOL THAT CAN STILL WORK (owner 2026-09-29: "check if the bots have pickaxes, if not,
+    // that should be a priority"). countItem counted a copy at 1 use -- which toolFor never swings -- as a
+    // pickaxe, so 61 of 80 bots holding only spent copies were told they had one. Tools count only when usable;
+    // the stone pickaxe only when it can pay for an iron trip (MIN_TRIP_USES, the same number the trip checks).
     // SATISFIED BY CAPABILITY, NOT BY NAME. The note under M.travel below
     // already says why: a target that can be genuinely unreachable means the
     // milestone never completes and the bot loops on it forever. A bot holding a
     // STONE pickaxe has satisfied "craft a wooden pickaxe" in every sense that
     // matters, and refusing to say so left isolated-a-Alpha entombed for ten
     // hours with the materials for the better tool in its pockets.
-    done: b => countItem(b, item) + equivalentTools(item)
-                 .reduce((t, alt) => t + countItem(b, alt), 0) >= n,
+    done: b => capCount(b, item, item) + equivalentTools(item)
+                 .reduce((t, alt) => t + capCount(b, alt, item), 0) >= n,
     progress: b => {
-      const exact = countItem(b, item)
-      const better = equivalentTools(item).reduce((t, alt) => t + countItem(b, alt), 0)
+      const exact = capCount(b, item, item)
+      const better = equivalentTools(item).reduce((t, alt) => t + capCount(b, alt, item), 0)
       return better
         ? `${exact + better}/${n} ${item} (${better} of them better)`
         : `${exact}/${n} ${item}`
@@ -461,6 +466,14 @@ const countAny = (b, names) => names.reduce((t, n) => t + countItem(b, n), 0)
  * vacuously satisfied if it has no plausible means to make it. The rung fires
  * exactly when it is actionable, which is the only time asking is useful.
  */
+const TOOLISH = /_(pickaxe|axe|shovel|hoe|sword)$/
+const usesLeft = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUsed ?? 0) : Infinity)
+/** How many of `name` count toward a rung for `rungItem`: all of them for materials; usable copies for tools. */
+function capCount (b, name, rungItem) {
+  if (!TOOLISH.test(name)) return countItem(b, name)
+  const min = rungItem === 'stone_pickaxe' ? MIN_TRIP_USES : 2
+  return (b?.inventory?.items?.() ?? []).filter(it => it.name === name && usesLeft(it) >= min).reduce((n, it) => n + (it.count ?? 1), 0)
+}
 const rungOf = (base, hasMeans) =>
   // `fulfilled` is the rung ACTUALLY met; `done` also steps over a rung the bot has no means for. Only the first
   // resets the rung's skipCount (Codex review: a bypass is not a completion).
@@ -553,9 +566,7 @@ const TECH_LADDER = [
     progress: b => `${countItem(b, 'raw_iron') + countItem(b, 'iron_ingot')}/3 iron ` +
                    `(${countItem(b, 'raw_iron')} raw, ${countItem(b, 'iron_ingot')} smelted)`,
     hint: 'gather with block=iron_ore.',
-  }, b => ironInReach(b) &&
-          (countItem(b, 'stone_pickaxe') >= 1 || countItem(b, 'iron_pickaxe') >= 1 ||
-           countItem(b, 'diamond_pickaxe') >= 1)),
+  }, b => ironInReach(b) && hasTripPickaxe(b?.inventory?.items?.() ?? [])),   // a pickaxe that can pay the trip, not a name
   // IRON. The rung the ladder terminated one step short of; the note below this
   // array explains why it could not be added until `smelt` existed.
   // THREE for the same reason as the rung above: an iron_pickaxe costs three.
