@@ -50,7 +50,7 @@ const FOOD_PRIORITY = [
 // What is worth remembering the location of. Kept short: every entry costs a
 // findBlocks call per survey tick, and the point is a sparse map of
 // opportunities, not an index of the world.
-const SURVEY_BLOCKS = [
+export const SURVEY_BLOCKS = [
   'oak_log', 'birch_log', 'spruce_log',
   'stone', 'coal_ore', 'iron_ore',
   'sand', 'water',
