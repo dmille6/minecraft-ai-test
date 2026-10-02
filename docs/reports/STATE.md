@@ -1,103 +1,61 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-01 13:40Z by the daily operator session — **CANARY LIVE: `fixes-02` on `f5609af`, pools board-a,
-hive-c (10 bots), declared 13:28:21Z.** Fleet baseline `bf296c9+9287fd` (idlegap-01 KEPT + promoted 11:38Z) on the
-other 70. Exactly two versions live at 13:31Z (80 bots in 8 min; 6,044 rows `bf296c9`, 207 `f5609af`).
-`canary-loop.sh fixes-02` (pid 1792186) does the reads, verdict, record, promote/teardown. **`oretunnel-01` is
-auto-chained behind it** (`~/chain-ore.sh`, pid 1795635, log `~/chain-ore.out`)._
+_updated 2026-10-02 11:40Z by the daily operator session (scheduled task). **FLEET `8453c09+5ad1cf` on 80/80 bots
+(fixes-03 KEEP +360 11:15:35Z, promoted 11:25:16Z). `digsync2-01` (sha `254f208`) launched by the host chain 11:27:29Z
+(`canary-loop.sh digsync2-01`, pid 1982258); at 11:28Z it was in preflight/draw.** `oretunnel-02` (553adf2) is chained
+behind it._
 
-> **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
-> If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
-> (to 09-30 morning) and `git show 6a18e70:docs/reports/STATE.md` (09-30 evening, lastswing/hygiene/fixes-01 staging).
+> **TWO SESSIONS ON 10-02.** The owner-granted autonomous session (worktree `.claude/worktrees/heuristic-nightingale-49eee9`,
+> grant 04:45Z → ~00:45Z 10-03, progress reports `docs/reports/progress-1002-*.md`) OWNS the queue, `main` and the
+> merges today. The daily operator session yields to it: it read, verified and recorded, and did not merge or deploy.
+> If the two copies of this file disagree, take the later `_updated` stamp. History: `git show b638373:docs/reports/STATE.md`
+> (10-02 06:10Z), `git show d67d840:docs/reports/STATE.md` (10-01), `git show 6a18e70:docs/reports/STATE.md` (09-30).
 
 ---
 
-## WHAT HAPPENED SINCE 09-30 13:20Z (all decided by the host loop)
+## DECIDED SINCE 10-01 13:40Z (all by the host loop)
 | run | sha | result |
 |---|---|---|
-| lastswing-01 | 8ed9450 | KEEP +360, promoted 09-30 19:16Z |
-| hygiene-01 | adc7658 | KEEP, recorded 10-01 01:46:59Z, promoted |
-| fixes-01 | a943b7f | **REVERT +180 (05:10Z) — FALSE.** The one failing row (prequsableread.spent_satisfied_judged) was placebo-a-Comet 02:03:06Z on the OLD build adc7658, before the restart finished (declared 02:02:10, deployed 02:05:30). Canary-build rows: 0 of 45 spent-satisfied; control 101 of 212. The recorded verdict stands; amendments prospective only. |
-| idlegap-01 | bf296c9 | KEEP +360 (11:28Z; deaths 0 vs control 9), promoted fleet-wide 11:38Z; `main` merged it (a2b5d36, `main-pre-20261001b` kept), 208/208 |
+| fixes-02 | f5609af | REVERT +180 (10-01 16:39Z) on v11 climbs +123%. REAL (null: >+100% in 0.1% of 858 draws); came with 5x more mine descents. digsync v1 the suspect (92/138 rollbacks were false restores). |
+| fixes-03 | 8453c09 | = fixes-02 minus digsync, 20 bots (hive-c, board-a, placebo-d, placebo-b), declared 05:03:00Z. **KEEP +360** 11:15:35Z; deaths 3 (0.025/bh) vs control 8 (0.033/bh), ratio 0.75x, death gate held (v21, not a verdict). Exposure ready (fixesbundleread). +180 member reads: tool-safe good-pickaxe losses canary 0.417 → 0.017/bh vs control 0.378 → 0.472 (DiD -0.494); prereq-usable 0/51 spent-satisfied vs control 199/373; stale-stop 0/2528 instant PathStopped; craft-advice 0 deepslate advice vs control 122; hive-progress 20/20 bots restored. Promoted 11:25:16Z; verified 80/80 bots on 8453c09 at ~11:33Z (4,013 rows / 4 min; positive control). |
 
-**Read fix (e8cd891 on main, /tmp on 10.0.0.31 with `.bak-20261001T*`):** prequsableread, toolsaferead (`_tool_gone`)
-and immobiledid (deaths → two-death floor) skip a post-cutoff canary row whose version is NON-EMPTY and not
-startswith(CV). Empty versions still count (0 of 450,482 rows carry one). Codex: CHANGES → narrowed → APPROVE. The
-other member reads already filtered (audit by a Claude subagent). Memory: restart-lag-rows-are-not-canary.
-
-## THE LIVE CANARY — fixes-02
+## LIVE — digsync2-01
 | | |
 |---|---|
-| sha | `f5609af` (branch `idle-on-a943b7f` = fixes3-on-adc7658 a943b7f + bf296c9), 214/214 |
-| members | digsync, stale-stop, craft-advice, hive-progress, prereq-usable, tool-safe, bank-why (same seven as fixes-01) |
-| pools | board-a, hive-c (both 5080 half) — drawn by the loop 13:28:20Z |
-| declared | 2026-10-01T13:28:21Z |
-| read +180 | **2026-10-01 16:28Z** (correctness) |
-| read +360 | **2026-10-01 19:28Z** — KEEP possible |
-| extensions (until exposure) | 540 → 22:28Z · 720 → 10-02 01:28Z · 1080 → 07:28Z · 1560 → 15:28Z |
-| deadline | **2026-10-02 17:48Z** (1700 min; v30 passes) |
-| registration | `~/mcai-analysis/registrations/fixes-02.json` = `docs/reports/fixes-02.f5609af.json` |
-| reads | digsyncread stalestopread craftadviceread hiveprogressread prequsableread toolsaferead bankwhyread fixesbundleread immobiledid (all /tmp) |
-| promotion | fleet-wide on KEEP. Then merge `f5609af` into `main` (keep `main-pre-<date>`). |
+| sha | `254f208` (branch digsync2-on-8453c09; digsync-v2: 3 s grace after an ack with no server word, restore only at expiry; 3 review rounds, both engines) |
+| registration | `~/mcai-analysis/digsync2-01.254f208.json` = `docs/reports/digsync2-01.json` on main |
+| reads | digsync2read, immobiledid; read_minutes 180, 360; deadline 1700 min |
+| pools / declared_at | drawn by the loop — read them from `/srv/mcbots/trial-manifest.json`; reads land at declared_at +180 and +360 |
+| climbs guard | v11 raw climbs (+100%) still in force; digsync2 makes descents, so watch it. Outcome-guard amendment recommended by both engines, NOT applied (prospective only) |
 
-A REVERT names its member; drop that member and rerun the rest — **but first check the failing rows' build
-(`raw.code.version`)**: fixes-01 was lost to an old-build row.
-
-**If the loop has died:** `pgrep -af canary-loop`. If absent and no decision is recorded, restart with
-`setsid nohup bash ~/canary-loop.sh fixes-02 >> ~/canary-loop-fixes-02.out 2>&1 < /dev/null &` (resumes from journal).
-
-## NEXT — oretunnel-01, AUTO-CHAINED
-`~/chain-ore.sh` (repo `scripts/host/chain-ore.sh`): when fixes-02 ends `promoted` with fleet `f5609af*`, registers
-`~/mcai-analysis/oretunnel-01.f5609af.json` (sha **49096f4**, branch `ore-on-f5609af` = bc3bcba + f5609af, 215/215,
-v30 passes at 1680) and launches the loop. ANY other ending (torn-down, refused-*, error) → STOP; then rebuild ore
-on whatever the fleet is (bc3bcba carries the bundle, so on a torn-down fleet it needs the bundle members removed).
-
-## FLEET
-| | |
-|---|---|
-| baseline | `bf296c9+9287fd`, 70 bots |
-| canary | `f5609af+433de1`, 10 bots |
-| `main` | `6a18e70` = fleet bf296c9 + docs/scripts |
-| analyst 12:00Z | fleet healthy, one version; 49.9 items/bot-h, 39.6 decisions/bot-h; 8 immobile; 3 deaths in 2 h |
-| iron funnel (24 h) | raw iron 23, ingots 32, iron pickaxes crafted 3, gone 22 (14 at <= 3 uses) |
-| last-swing fleet check | 09-30 baseline to compare: 21/80 bots with a usable pickaxe, 37.5 items/bot-h, 42 deaths/24 h — NOT yet re-measured |
+## NEXT — oretunnel-02 (AUTO-CHAINED)
+`chain-next.sh digsync2-01 254f208 oretunnel-02` (pid 1940387, log `~/chain-oretunnel-02.out`) launches 553adf2 only if
+digsync2-01 ends `promoted` at fleet 254f208. Any other ending STOPs the chain.
 
 ## LOOP STATE
-- `check-open-loop.py` 12:05Z: "no open canary". It names fixes-02 open until the loop records a decision.
-- **While fixes-02 is unread, no new analysis starts.** Build/stage work for later slots is fine.
+- fixes-03: KEEP recorded and promoted — closed. **digsync2-01 is the open loop**; no new analysis until it is read.
+- `main` has NOT yet merged 8453c09 (the 11:25Z PROMOTED page says "fast-forward main and keep main-pre-<date>"). Left
+  to the autonomous session; if it has not happened by the next daily run, do it then (`git tag main-pre-20261002`,
+  merge 8453c09, `npm test`, push).
 
 ## RE-ARM ON A FRESH SESSION
-1. `date -u`; read this file; on 10.0.0.31: `grep -E '"fixes-02"|"oretunnel-01"' ~/canary-journal.jsonl | tail`,
-   `cat ~/chain-ore.out /srv/mcbots/trial-manifest.json`, `tail ~/digest/page.jsonl`.
-2. `pgrep -af 'canary-loop|chain-'` — expect `canary-loop.sh fixes-02` and/or `chain-ore.sh`.
-3. If fixes-02 decided: KEEP → confirm 80/80 on f5609af, merge into `main`, PushNotification; confirm chain-ore says
-   `launched`. REVERT → check the failing rows' build before believing it; confirm teardown (ONE version), write up.
-4. Live versions: `cd /opt/minecraft-ai/scripts && python3 -c "from lib.telemetry import Events; e=Events.load(since_minutes=8); print(e.versions())"`.
-5. Monitors: ONE background `until` wait on a journal phase, not re-armed 30-min Monitors.
+1. `date -u`; read this file AND `git show origin/main:docs/reports/STATE.md`; take the later stamp.
+2. On 10.0.0.31: `grep -E '"digsync2-01"|"oretunnel-02"' ~/canary-journal.jsonl | tail`; `cat ~/chain-oretunnel-02.out
+   /srv/mcbots/trial-manifest.json`; `tail ~/digest/page.jsonl`; `pgrep -af 'canary-loop|chain-'`.
+3. Check whether another session is live (newest jsonl under `~/.claude/projects/*minecraft-ai*`); if so, yield on main/deploys.
+4. Versions per bot (positive control: 80 bots): `Events.load(since_minutes=4)`; bot name is `r['bot']['name']`
+   (`r['bot']` is a dict), build is `r['raw']['code']['version']`.
+5. ONE background `until` wait on a journal phase; no re-armed 30-min Monitors.
 
 ## OWNER CALLS WAITING (unchanged from 09-27)
-1. The v21 death-gate lower bound — trips on 0 of 15 death-involved reverts.
-2. The audit (`8019b1d`): 7 of 23 reverts CONFIRMED FALSE, 5 more suspect. (fixes-01 is now another false revert,
-   by a different mechanism: restart-lag rows.)
-3. Commits headed "OWNER DECISION" with no recorded artefact — three over 24–25 Sep.
-4. `vetob2-01` (`efabf13`) KEPT and unpromoted; recommend re-drawing it off the hive pools.
+1. The v21 death-gate lower bound. 2. The audit (`8019b1d`): 7/23 reverts confirmed false (+fixes-01, restart-lag).
+3. "OWNER DECISION" commits with no artefact (24–25 Sep). 4. `vetob2-01` (efabf13) KEPT, unpromoted.
 
 ## QUEUE
-1. **fixes-02** — LIVE.
-2. **oretunnel-01** — chained.
-3. Then each its own canary (rebase onto the fleet sha at launch): **bankfix-01** (bank-fix 15dec57; gate reads
-   ledger/RCON, never `_deposit_window`), **exploretoward-01** (86e8985), **vetoretry-01** (1efd82c; d0c47c6 follows).
-   Registrations staged in docs/reports (shas need rebasing). Before staging any new read: copy the known-other-build
-   skip from prequsableread into every correctness/harm count.
-4. COMPOSTER (hygiene phase 2) — designed by both engines 09-30, not built (see `git show 6a18e70:docs/reports/STATE.md` 3c).
-5. PARKED: `tool-guard` b1d6b62.
-6. Analysis backlog (only when no canary is unread): last-swing/hygiene fleet-wide effect vs 09-30 baseline; why
-   `gather cobblestone` ends no_path at the surface; escape burns logs as scaffold; planting cohort vs depletion;
-   `container_open` 446/4,160 uncharacterised; ~6,000 bamboo carried (2 bamboo = 1 stick).
-7. Colony path: chest ledger (in bank-fix) → shadow-mode mayor (`docs/reports/jobs-mayor-spec-2026-09-29.md`).
+1. digsync2-01 — LIVE. 2. oretunnel-02 — chained. 3. Then, each its own canary rebased on the fleet sha: bankfix-01
+(15dec57), exploretoward-01 (86e8985), vetoretry-01 (1efd82c; d0c47c6 follows); copy the known-other-build skip into
+every new read. 4. Climbs-guard amendment (outcome guards, null-calibrated with restarts) — both reviews, prospective.
+5. COMPOSTER (designed, not built). 6. PARKED tool-guard b1d6b62. 7. Analysis backlog per `git show 6a18e70:docs/reports/STATE.md`.
 
-## WORKTREES / BRANCHES touched 10-01
-- `idle-on-a943b7f` @ f5609af — the live canary; on origin.
-- `ore-on-f5609af` @ 49096f4 — chained; on origin (pushed `--no-verify`, new branch only).
-- session scratchpad worktree `fx` (disposable).
-- `mcai-rl02` worktree carries someone else's uncommitted `check-movement-writers.mjs`, `movement-ratchet.test.mjs`
-  and 09-27 reports — still left alone.
+## WORKTREES
+- `.claude/worktrees/{fx3,digsync2,ore2,heuristic-nightingale-49eee9}` — the autonomous session's.
+- `mcai-rl02` carries someone else's uncommitted `check-movement-writers.mjs`, `movement-ratchet.test.mjs`, 09-27 reports — left alone.
