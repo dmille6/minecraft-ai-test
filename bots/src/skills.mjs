@@ -30,7 +30,8 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
-import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
+import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision,
+         tunnelRoom, packPlan, isPackRecipe, resultHasRoom, bulkiest } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1437,7 +1438,44 @@ const TUNNEL_TRIES = 3
 // Reach buried iron the bot already knows about (oretunnel.mjs says why and how). Called by gather in place of
 // the old `mine({y})` escalation, for iron only. Every refusal names a remedy the bot can perform from where it
 // stands and carries a class with no vote; the outcome row is written from the inventory, not the plan.
-async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
+const PACK_CRAFT_MS = 4000
+/**
+ * PACK THE BAG: carry out packPlan through mineflayer's own craft (the path craft() uses), ONE craft at a time, and
+ * only while the result has somewhere to go -- mineflayer TOSSES a craft result with no room (owner rule: never drop).
+ * Stops as soon as the tunnel has room. Writes one `bag_packed` row when it plans anything. Never throws but on abort.
+ */
+async function packBag (bot, signal, room) {
+  const items = () => bot.inventory?.items?.() ?? []
+  const empty = () => bot.inventory?.emptySlotCount?.() ?? 0
+  const plan = packPlan(items(), { emptySlots: empty(), want: room.slotsShort,
+                                   stackSizeOf: n => bot.registry?.itemsByName?.[n]?.stackSize })
+  if (!plan) return { said: 'nothing to pack (or no room for the first result)' }
+  const fromId = bot.registry.itemsByName[plan.from]?.id, toId = bot.registry.itemsByName[plan.to]?.id
+  const recipe = (bot.recipesFor?.(toId, null, 1, null) ?? []).find(r => isPackRecipe(r, fromId, toId, plan))
+  const before = empty()
+  let made = 0, stopped = null
+  if (!recipe) stopped = `no ${plan.from}->${plan.to} inventory recipe offered`
+  for (; recipe && made < plan.crafts; made++) {
+    check(signal)
+    if (tunnelRoom(items(), empty()).ok) break
+    if (!resultHasRoom(items(), empty(), plan.to, plan.makes)) { stopped = `no room for the next ${plan.to}`; break }
+    try {
+      await withTimeout(bot.craft(recipe, 1, undefined), PACK_CRAFT_MS, bot, { what: 'craft', needsDrop: false, onTimeout: () => {} })
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      stopped = `craft failed: ${String(e?.message ?? e).slice(0, 50)}`
+      break
+    }
+  }
+  const after = empty()
+  const said = `${made}x ${plan.from}->${plan.to}, empty slots ${before}->${after}${stopped ? ` (${stopped})` : ''}`
+  logEvent({ kind: 'bag_packed', status: after > before ? 'success' : 'failed', snapshot: snapshot(bot),
+             detail: (`${said}; planned ${plan.crafts} crafts freeing ${plan.freed} (${plan.slotsBefore}->${plan.slotsAfter} slots); ` +
+                      `short ${room.slotsShort}: ${room.why}`).slice(0, 300) })
+  return { said, made, before, after }
+}
+
+export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   const { bot, runner } = ctx
   const t0 = Date.now()
   deadlineMs = Math.min(150_000, deadlineMs)
@@ -1450,9 +1488,23 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   if (deadlineMs < 30_000) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: 'too little of this gather left to tunnel -- ask for the ore again' }, `refused: ${Math.round(deadlineMs / 1000)} s left`)
   }
-  // ROOM FIRST: a tunnel yields ~2.4 cobblestone per block of depth plus the ore.
-  if ((bot.inventory?.emptySlotCount?.() ?? 0) < 2) {
-    return out({ status: 'failed', failClass: 'inventory_full', detail: 'no room for what a tunnel yields — deposit first' }, 'refused: inventory full')
+  // ROOM FIRST, BY CAPACITY (oretunnel.mjs tunnelRoom): a tunnel yields ~2.4 cobblestone per block of depth plus the
+  // ore. Spare room in held stone and raw_iron stacks counts; when that is not enough, pack the bag (one lossless
+  // inventory-grid craft, nothing dropped) and look again. "Deposit first" was a remedy the full bank often refused.
+  const emptyNow = () => bot.inventory?.emptySlotCount?.() ?? 0
+  let room = tunnelRoom(bot.inventory?.items?.() ?? [], emptyNow())
+  let packSaid = null
+  if (!room.ok) {
+    const packed = await packBag(bot, signal, room)
+    packSaid = packed.said
+    room = tunnelRoom(bot.inventory?.items?.() ?? [], emptyNow())
+  }
+  if (!room.ok) {
+    const bulk = bulkiest(bot.inventory?.items?.() ?? []).map(b => `${b.name} ${b.count} (${b.slots} slot${b.slots === 1 ? '' : 's'})`).join(', ')
+    return out({ status: 'failed', failClass: 'inventory_full',
+                 detail: `no room for what a tunnel yields (${room.why}) — free ${room.slotsShort} slot${room.slotsShort === 1 ? '' : 's'}: ` +
+                         `deposit${bulk ? ` or use up ${bulk}` : ''}` },
+               `refused: inventory full; empty ${room.emptySlots}, stone spare ${room.stoneSpare}, ore spare ${room.oreSpare}; pack: ${packSaid ?? 'none'}`)
   }
   const ids = IRON_KINDS.map(n => bot.registry.blocksByName[n]?.id).filter(id => id != null)
   const feet = bot.entity.position.floored()

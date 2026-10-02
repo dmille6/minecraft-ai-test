@@ -136,6 +136,124 @@ export function tripDecision (items = [], { pickBreaks = 0, cluster = 1, reserve
   return { ...budget, refuse: null }
 }
 
+// ---- ROOM BY CAPACITY ---------------------------------------------------------------------------------------------
+// The old rule was `emptySlotCount() < 2 -> refuse, deposit first`. On oretunnel-03 (10-02) that refused 9 of 12
+// tunnels; the 3 that ran all reached the ore. The refused bots had 0 empty slots but 176-252 items of spare room in
+// stone stacks they already held, and "deposit first" names a remedy the bot often cannot perform: the bank chests
+// are full (CLAUDE.md: a refusal must name a remedy executable from where the bot is). So room is counted as
+// CAPACITY for what the tunnel actually yields, using each stack's real stackSize.
+/** What the tunnel's own breaks drop (registry 1.21.x): stone->cobblestone, deepslate->cobbled_deepslate,
+ *  grass_block/dirt->dirt, gravel, andesite, diorite, granite, tuff. Pinned against the registry in the test. */
+export const STONE_DROPS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'gravel', 'andesite', 'diorite', 'granite', 'tuff'])
+/** Spare stone capacity that stands in for a second empty slot. Each break yields at most one item; the canary's
+ *  tunnels were 3-27 blocks (oretunnel-03, 10-02), and rankCandidates prices depth at ~2.4 breaks a block, so a
+ *  median-depth trip (~10 down) is ~24. 32 covers the longest measured tunnel with room to spare. What does not fit
+ *  is never thrown: it stays where the server dropped it, as before. */
+export const STONE_ROOM = 32
+export const ORE_DROP = 'raw_iron'
+
+const spareOf = (items, names) => (items || []).reduce((n, it) =>
+  n + (names.has(it?.name) && Number.isFinite(it.stackSize) && Number.isFinite(it.count) ? Math.max(0, it.stackSize - it.count) : 0), 0)
+
+/**
+ * tunnelRoom(items, emptySlots, { clusterCap, stoneNeed }) -> { ok, ore, stone, slotsShort, oreSpare, stoneSpare, why }
+ *   ORE   room: an empty slot, or a held raw_iron stack with >= clusterCap spare.
+ *   STONE room: >= stoneNeed spare in held stone-drop stacks, or an empty slot the ore does not need.
+ * A stack with no finite stackSize counts as no room (never assume 64). slotsShort = empty slots that would pass it.
+ */
+export function tunnelRoom (items = [], emptySlots = 0, { clusterCap = CLUSTER_CAP, stoneNeed = STONE_ROOM } = {}) {
+  const empty = Math.max(0, Math.floor(Number(emptySlots) || 0))
+  const oreSpare = spareOf(items, new Set([ORE_DROP]))
+  const stoneSpare = spareOf(items, STONE_DROPS)
+  const oreInStack = oreSpare >= clusterCap
+  const ore = oreInStack || empty >= 1
+  const stone = stoneSpare >= stoneNeed || empty - (oreInStack ? 0 : 1) >= 1
+  const slotsShort = (ore ? 0 : 1) + (stone ? 0 : 1)
+  const why = slotsShort === 0
+    ? null
+    : [ore ? null : `no empty slot and no ${ORE_DROP} stack with ${clusterCap} spare for the ore`,
+       stone ? null : `${stoneSpare} spare in stone stacks < ${stoneNeed} and no second empty slot`].filter(Boolean).join('; ')
+  return { ok: slotsShort === 0, ore, stone, slotsShort, oreSpare, stoneSpare, emptySlots: empty, why }
+}
+
+// ---- PACK THE BAG ---------------------------------------------------------------------------------------------------
+// A remedy the bot can perform anywhere: one lossless 2x2 (inventory-grid) craft that frees a slot. Nothing is ever
+// dropped (owner rule). Recipe checked against minecraft-data 1.21.4/1.21.8/1.21.11: `stick x1 <- bamboo / bamboo`
+// is a 2x1 shape, so it fits the inventory grid and needs no table. Sticks are a pickaxe input the fleet lacks.
+// Considered and left out: bamboo_block/hay_block/bone_block/dried_kelp_block are 9-item (3x3, table) recipes;
+// clay/snow_block/white_wool/honeycomb_block/dripstone_block are 2x2 but cannot be undone in the grid and are not on
+// any production chain the fleet works; planks->stick would spend wood.
+export const PACK_RECIPES = [{ from: 'bamboo', per: 2, to: 'stick', makes: 1 }]
+/** Never an input: tools, wood, saplings, ores and their drops. Checked inside packPlan, not just by the list above. */
+export const PACK_PROTECTED = /(_pickaxe|_axe|_shovel|_hoe|_sword|_log|_wood|_stem|_hyphae|_planks|_sapling|_ore|^raw_[a-z]+|_ingot|^stick|^coal|^crafting_table|^torch)$/
+
+/** May this craft's RESULT go somewhere? mineflayer's putAway TOSSES a result that has neither an empty slot nor
+ *  room in a held stack of the same item (inventory.js putSelectedItemRange -> clickWindow(-999)). */
+export function resultHasRoom (items = [], emptySlots = 0, name, n = 1) {
+  if ((Number(emptySlots) || 0) >= 1) return true
+  return (items || []).some(it => it?.name === name && Number.isFinite(it.stackSize) && it.stackSize - (it.count ?? 0) >= n)
+}
+
+/**
+ * packPlan(items, { emptySlots, want, stackSizeOf }) -> { from, to, per, makes, crafts, slotsBefore, slotsAfter, freed } | null
+ * The fewest crafts that free `want` slots (else the most it can free, if >= 1), simulated one craft at a time:
+ * every craft's result needs a destination at the moment it is made, or the plan stops there. The first craft is
+ * judged on the REAL stacks (resultHasRoom); later ones on packed counts, which mineflayer's merge-first putback
+ * approximates. Execution re-checks the live inventory before every craft anyway.
+ */
+export function packPlan (items = [], { emptySlots = 0, want = 1, stackSizeOf = null } = {}) {
+  let best = null
+  for (const r of PACK_RECIPES) {
+    if (PACK_PROTECTED.test(r.from)) continue
+    const held = (items || []).filter(it => it?.name === r.from && (it.count ?? 0) > 0)
+    if (!held.length) continue
+    const fromSize = held.find(it => Number.isFinite(it.stackSize))?.stackSize
+    const outHeld = (items || []).filter(it => it?.name === r.to && (it.count ?? 0) > 0)
+    const toSize = outHeld.find(it => Number.isFinite(it.stackSize))?.stackSize ?? stackSizeOf?.(r.to)
+    if (!Number.isFinite(fromSize) || !Number.isFinite(toSize) || fromSize < 1 || toSize < 1) continue
+    if (!resultHasRoom(items, emptySlots, r.to, r.makes)) continue
+    const B = held.reduce((n, it) => n + it.count, 0), S = outHeld.reduce((n, it) => n + it.count, 0)
+    const slotsBefore = held.length + outHeld.length
+    const packed = (b, s) => Math.ceil(b / fromSize) + Math.ceil(s / toSize)
+    let pick = null
+    for (let k = 1; k <= Math.floor(B / r.per); k++) {
+      if (k > 1) {
+        const s = S + (k - 1) * r.makes
+        const spare = s % toSize === 0 ? 0 : toSize - (s % toSize)
+        const free = emptySlots + slotsBefore - packed(B - (k - 1) * r.per, s)
+        if (spare < r.makes && free < 1) break
+      }
+      const slotsAfter = packed(B - k * r.per, S + k * r.makes)
+      const freed = slotsBefore - slotsAfter
+      if (freed >= 1 && (!pick || freed > pick.freed)) pick = { from: r.from, to: r.to, per: r.per, makes: r.makes, crafts: k, slotsBefore, slotsAfter, freed }
+      if (freed >= want) break
+    }
+    if (pick && (!best || pick.freed > best.freed)) best = pick
+  }
+  return best
+}
+
+/** Is this prismarine recipe the planned pack, and nothing else? Inventory grid only, consumes only `per` of `from`,
+ *  yields `makes` of `to`. recipesFor(stick) also returns planks->stick; this is what keeps the wood out. */
+export function isPackRecipe (recipe, fromId, toId, { per = 2, makes = 1 } = {}) {
+  if (!recipe || recipe.requiresTable) return false
+  const d = recipe.delta ?? []
+  const used = d.filter(x => x.count < 0), made = d.filter(x => x.count > 0)
+  return used.length === 1 && used[0].id === fromId && used[0].count === -per &&
+         made.length === 1 && made[0].id === toId && made[0].count === makes
+}
+
+/** The bulkiest stacks the bot could shed, for the refusal's remedy: name what is filling the bag. */
+export function bulkiest (items = [], n = 3) {
+  const by = new Map()
+  for (const it of items || []) {
+    if (!it?.name || PACK_PROTECTED.test(it.name) || STONE_DROPS.has(it.name)) continue
+    const e = by.get(it.name) ?? { name: it.name, count: 0, slots: 0 }
+    e.count += it.count ?? 0; e.slots++; by.set(it.name, e)
+  }
+  return [...by.values()].sort((a, b) => b.slots - a.slots || b.count - a.count).slice(0, n)
+}
+
 /** Candidates ranked by estimated cost, not straight-line distance: depth below the feet costs ~2.4 breaks a block. */
 export function rankCandidates (feet, positions = [], max = MAX_CANDIDATES) {
   const cost = p => Math.hypot(p.x - feet.x, p.z - feet.z) + 2.4 * Math.max(0, Math.floor(feet.y) - p.y) + 1.5 * Math.max(0, p.y - Math.floor(feet.y) - 1)
