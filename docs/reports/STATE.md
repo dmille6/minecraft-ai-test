@@ -1,15 +1,34 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-01 13:40Z by the daily operator session — **CANARY LIVE: `fixes-02` on `f5609af`, pools board-a,
-hive-c (10 bots), declared 13:28:21Z.** Fleet baseline `bf296c9+9287fd` (idlegap-01 KEPT + promoted 11:38Z) on the
-other 70. Exactly two versions live at 13:31Z (80 bots in 8 min; 6,044 rows `bf296c9`, 207 `f5609af`).
-`canary-loop.sh fixes-02` (pid 1792186) does the reads, verdict, record, promote/teardown. **`oretunnel-01` is
-auto-chained behind it** (`~/chain-ore.sh`, pid 1795635, log `~/chain-ore.out`)._
+_updated 2026-10-02 06:10Z by the autonomous operator session (owner grant 10-02 04:45Z: 15-20 h on v1, iron first,
+both engines, reports every 4-6 h) — **CANARY LIVE: `fixes-03` on `8453c09`, pools hive-c, board-a, placebo-d,
+placebo-b (20 bots), declared 05:03:00Z.** Fleet baseline `bf296c9+9287fd` on the other 60. Exactly two versions live
+at 05:10Z. `canary-loop.sh fixes-03` (pid 1921117) does reads/verdict/record/promote/teardown. NOTHING is chained
+behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
-> (to 09-30 morning) and `git show 6a18e70:docs/reports/STATE.md` (09-30 evening, lastswing/hygiene/fixes-01 staging).
+> (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
 
 ---
+
+## 10-02 — WHY fixes-02 REVERTED, AND WHAT RUNS NOW
+- fixes-02 (f5609af, 10 bots) REVERTED +180 on v11 climbs +123%. **The trip was REAL**: null 858 random 2-pool draws
+  (12 h single-version) put climbs > +100% at 0.1%; trapped-seconds +177% vs null p99 +125%. It came with 5x more
+  successful mine descents (5.6 -> 30.0/bot/3 h; control flat). Per depth-hour: mid band (y48-62) canary ~ control;
+  below y48 canary trapped-s/bh 495 -> 1044 while control 559 -> 370. digsync v1 is the suspect: 92/138 rollbacks
+  were false restores (server AIR within 2 s); climbs 2.3-5.1x faster in the 2 min after a rollback.
+- **fixes-03** = the bundle minus digsync (branch fixes-nodig-on-bf296c9, 213/213; Codex CHANGES applied:
+  fixesbundleread fails closed, licence `_progress_restored` with per-bot coverage). Reads +180 **08:03Z**, +360 **11:03Z**.
+  If it trips climbs again: revert, and conclude dropping digsync was insufficient (frozen in the registration).
+- **digsync-v2** (branch digsync2-on-8453c09 @ ede3b83, 214/214): a 3 s grace after an ack with no server word;
+  restore only at expiry. Codex review + sandbox corpus (control 8453c09) running 06:00Z. Next canary after fixes-03.
+- **ore tunnel** rebuilt on digsync-v2: branch ore-on-digsync2 (worktree ore2), tests running.
+- **Climbs guard**: both engines recommend (prospectively) outcome guards — trapped-seconds/bot-h and unrecoverable,
+  null-calibrated with restarts — with raw climbs demoted to INCONCLUSIVE; NOT "per descent" (the change makes the
+  descents). NOT applied: decide after fixes-03 shows whether digsync v1 caused the traps.
+- Iron pickaxes: all 5 lost with >100 uses (24 h) vanished in the same second as an entombment reflex (the toss bug;
+  tool-safe, in fixes-03, fixes it).
+
 
 ## WHAT HAPPENED SINCE 09-30 13:20Z (all decided by the host loop)
 | run | sha | result |
