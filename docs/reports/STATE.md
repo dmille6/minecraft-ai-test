@@ -22,6 +22,14 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   ore tunnel ends WHATEVER its verdict, picking the variant by fleet sha: 8453c09 -> b268881 (explore-on-8453c09, 214/214),
   3edf1d6 -> ccead1e (explore-on-3edf1d6, 215/215). Registrations docs/reports/exploretoward-02.<fleet>.json; read
   /tmp/exploretowardread.py (dry run: instrument 429 control rows).
+- **oretunnel-03 +180 (23:27Z): NOT_YET, exposure ready.** 12 tunnels; the 3 that ran ALL reached the ore (3 raw iron;
+  control 0); the other 9 were `inventory_full` refusals on 2 bots holding 176-252 spare in stone stacks but no free slot.
+  Climbs 8.9 -> 6.7/bh (control 6.7 -> 6.0); deaths 1 vs 6. KEEP possible at +360 (~02:22Z).
+- **STAGED, not registered: orepack** (branch orepack-on-3edf1d6 @ 3b17b30, 215/215, 3 mutants killed; NO reviews yet):
+  room by capacity (`tunnelRoom`) + lossless bag packing (bamboo -> stick, a 2x1 inventory recipe, no table). Needs both
+  reviews + a sandbox run. Limitation: a bot with 0 empty slots cannot pack (a craft result with no room is DROPPED).
+- **LEAD (unverified):** 163 of 325 pickaxe crafts that "succeeded" in 4 h logged "nothing changed" (inventory gain not
+  seen); 62 of them on an estimated-full bag. mineflayer drops a craft result when the bag is full. Worth a read.
 - **WHY IRON IS RARE (10-02 21:00Z, 80 bots, 2-3 h):** iron visible in 77% of scans, but 53/80 bots hold NO pickaxe
   and 52 of those hold no wood; only 11 hold a trip pickaxe, and the iron rung exists only for them. 68% of 1,186 log
   gathers fail (unreachable / no standing spot / beside water); escapes burned ~145 logs in 2 h.
