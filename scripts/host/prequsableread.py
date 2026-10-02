@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+# prequsableread.py [window_min] -- the read for canary `prequsable-01` (branch prereq-usable, on last-swing).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE: a digging tool counts toward a prerequisite only above toolfor's HARD_STOP (1 use) -- or the task's
+# minUses. "Get a pickaxe" was cleared at once by a bot holding six spent pickaxes (88.4% of pickaxe prerequisites,
+# 24 h, 60 bots). Escape asks now request TWO pickaxes (the reserve rule refuses on one).
+#
+#   LIVENESS     canary `_prereq_usable_filtered` rows from the canary build (>= 1); control 0.
+#   CORRECTNESS  a pickaxe-class `_prereq_satisfied` row on a canary bot whose snapshot holds NO pickaxe with more than
+#                one use left -- satisfied by spent copies, exactly what this build forbids. 0, judged on >= 5 canary
+#                pickaxe-class satisfactions. Read from the row's own tool-wear snapshot (bot.tools).
+#   INSTRUMENT   control has >= 1 such spent-satisfied row (the query can see the defect it gates on).
+# REPORTED (DiD vs the same-length pre-window, per bot-hour): prerequisites adopted / satisfied / abandoned, and
+# canary satisfied rows that held a usable pickaxe.
+import sys, os, json, re
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+from lib.telemetry import Events
+
+man = json.load(open('/srv/mcbots/trial-manifest.json'))
+ovr = os.environ.get('CANARY_DRYRUN')
+if ovr:
+    CAN, CV, ISO = ovr.split(':', 2)
+    CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+else:
+    CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+now = dt.datetime.now(dt.timezone.utc)
+elapsed = (now - CUT).total_seconds() / 60
+assert elapsed > 0 and CAN, 'no canary declared'
+W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+END = CUT + dt.timedelta(minutes=W)
+PRE = CUT - dt.timedelta(minutes=W)
+HARD_STOP = 1
+PICK = re.compile(r'^(wooden|stone|iron|golden|diamond|netherite)_pickaxe$')
+
+
+def usable_picks(tools):
+    n = 0
+    for name, copies in (tools or {}).items():
+        if not PICK.match(name) or not isinstance(copies, list):
+            continue
+        for c in copies:
+            try:
+                if (c.get('max') or 0) - (c.get('used') or 0) > HARD_STOP:
+                    n += 1
+            except Exception:
+                pass
+    return n
+assert usable_picks({'stone_pickaxe': [{'used': 130, 'max': 131}, {'used': 130, 'max': 131}]}) == 0
+assert usable_picks({'stone_pickaxe': [{'used': 129, 'max': 131}]}) == 1
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since_minutes=int(elapsed + W + 60))
+bots = defaultdict(set)
+adopted, satisfied, abandoned = Counter(), Counter(), Counter()
+filtered, offbuild = Counter(), 0
+spent_sat, usable_sat, pick_sat = Counter(), Counter(), Counter()
+for r in ev.rows:
+    t = r.get('t'); bot = r.get('bot') or {}; b = bot.get('name')
+    if t is None or not b or not (PRE <= t < END):
+        continue
+    a = 'canary' if pool_of(b) in CANS else 'control'; p = 'post' if t >= CUT else 'pre'
+    bots[(p, a)].add(b)
+    k, d = r.get('name'), (r.get('detail') or '')
+    if k == '_prereq_usable_filtered' and p == 'post':
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if a == 'canary' and CV and not ver.startswith(CV):
+            offbuild += 1
+            continue
+        filtered[a] += 1
+    elif k == '_prereq_adopted':
+        adopted[(p, a)] += 1
+    elif k == '_prereq_abandoned':
+        abandoned[(p, a)] += 1
+    elif k == '_prereq_satisfied':
+        satisfied[(p, a)] += 1
+        if p == 'post' and re.match(r'\w+_pickaxe-class', d):
+            ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+            if a == 'canary' and CV and ver and not ver.startswith(CV):
+                offbuild += 1   # a pre-restart row on the old build (fixes-01's false REVERT, 10-01)
+                continue
+            pick_sat[a] += 1
+            tools = bot.get('tools') or ((r.get('raw') or {}).get('bot') or {}).get('tools')
+            if usable_picks(tools) == 0:
+                spent_sat[a] += 1
+            else:
+                usable_sat[a] += 1
+
+
+def per_bh(c, p, a):
+    n = len(bots[(p, a)])
+    return c[(p, a)] / (n * W / 60) if n else float('nan')
+
+
+did = lambda c: (per_bh(c, 'post', 'canary') - per_bh(c, 'pre', 'canary')) - (per_bh(c, 'post', 'control') - per_bh(c, 'pre', 'control'))
+judged = pick_sat['canary'] >= 5
+print('canary %s  sha %s  cutoff %s  window +%d min' % (CAN, CV, CUT.strftime('%H:%MZ'), W))
+print('-' * 78)
+print('LIVENESS     canary _prereq_usable_filtered %d (>= 1) | control %d (0) | other build %d' % (filtered['canary'], filtered['control'], offbuild))
+print('CORRECTNESS  canary pickaxe prerequisites SATISFIED BY SPENT COPIES: %d of %d (0; judged on >= 5: %s)'
+      % (spent_sat['canary'], pick_sat['canary'], 'judged' if judged else 'NOT judged'))
+print('INSTRUMENT   control spent-satisfied %d of %d pickaxe satisfactions (>= 1)' % (spent_sat['control'], pick_sat['control']))
+print('REPORTED     adopted/bot-h DiD %+.3f | satisfied/bot-h DiD %+.3f | abandoned/bot-h DiD %+.3f | canary usable-satisfied %d'
+      % (did(adopted), did(satisfied), did(abandoned), usable_sat['canary']))
+print('-' * 78)
+try:
+    if ovr:
+        raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+    sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+    from readjson import emit
+    emit('prequsableread', W, {
+        'filtered_canary': filtered['canary'], 'filtered_control': filtered['control'], 'offbuild_canary': offbuild,
+        'spent_satisfied_judged': int(judged and spent_sat['canary'] > 0), 'spent_satisfied_canary': spent_sat['canary'],
+        'pick_satisfied_canary': pick_sat['canary'], 'spent_satisfied_control': spent_sat['control'],
+        'abandoned_did_per_bh': round(did(abandoned), 4),
+        'exposure_ready': int(judged and spent_sat['control'] >= 1),
+    })
+except Exception as e:
+    print('emit failed:', e)

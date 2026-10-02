@@ -1,0 +1,236 @@
+{
+  "run_id": "fixes-03",
+  "sha": "8453c09",
+  "registered_at": "2026-10-02T04:56:00Z",
+  "ladder_change": false,
+  "promotion": "fleet-wide",
+  "notes": "[fixes-03, 10-02: fixes-02 MINUS digsync, on fleet bf296c9. Branch fixes-nodig-on-bf296c9 = f5609af + reverts of 59cbb71, 0f228ec, fbd7125. WHY: fixes-02 REVERTED +180 on v11 climbs +123% (canary 163->316, control 1035->900). That is outside every earlier canary's climbs ratio-DiD (12 reads: -56%..+63%), the rise was spread over 9 of 10 canary bots (not the two trapped at deploy), and climbs ran 2.34x (fixes-02) and 5.10x (fixes-01) faster in the 2 min after a _dig_rollback than elsewhere; 92 of 138 rollbacks were contradicted by the server's AIR within 2 s (falseRestore). digsync is therefore the suspect and is reworked separately (grace before restore) to ride with oretunnel. Remaining six members unchanged and already correct at fixes-02 +180.] Codex review (10-02): CHANGES -> applied: fixesbundleread fails closed on an unreadable/mismatched registration; licence coverage is per bot (hiveprogressread.bots_without_restore_canary). Frozen: if fixes-03 trips climbs, revert and conclude that dropping digsync was insufficient -- it neither exonerates digsync nor convicts tool-safe. (prior notes) [fixes-02, 10-01: the SAME seven members re-run on fleet bf296c9 (idlegap-01 promoted). sha f5609af = a943b7f + bf296c9 (branch idle-on-a943b7f), 214/214. fixes-01 REVERTED at +180 on prequsableread.spent_satisfied_judged=1; that one row was placebo-a-Comet 02:03:06Z on the OLD build adc7658, before the restart finished -- all 45 canary-build rows were correct (0 spent-satisfied vs control 101 of 212). Reads patched (prequsableread, toolsaferead, immobiledid deaths) to exclude post-cutoff canary rows from a KNOWN other build; empty versions still count. Codex 2 passes: CHANGES (missing version) -> APPROVE. deadline 1700 per the v30 schedule (9 reads).] [fleet adc7658: fixes2-on-adc7658 = the above + hygiene-on-8ed9450 (hygiene PROMOTED); 213/213. tool-safe = the pickaxe-toss fix (unequip on a full bag threw the held tool away; proved on the sandbox), cheapest-first escape scaffold, filler-not-pickaxe travel digs; both implementation reviews applied.] VARIANT for fleet 8ed9450 (lastswing-01 promoted): branch fixes-bundle-on-8ed9450 @ 25a8397 = fixes-bundle ecf33b6 + last-swing-on-1d107ed 8ed9450 + prereq-usable (af9e09e, acda978, db3c461 cherry-picked), npm test 210/210 on 09-30. (5) prereq-usable -- a spent pickaxe no longer satisfies \"get a pickaxe\"; its read prequsableread is a bundle member (fixesbundleread adds it when listed). THE FIXES BUNDLE (owner 09-29 evening: 'bundle the small fixes'). Members, each built, reviewed by both engines and tested on its own: (1) digsync -- ghost blocks: a server-refused dig is rolled back and player_loaded is sent (proved on the sandbox: 3 ghosts -> 0); (2) stale-stop -- a pathfinder stop flag no longer kills the next walk (13,275 pickup drops retired unreached in 6 h); (3) craft-advice -- a surface bot is told cobblestone, not cobbled_deepslate (42% of craft rows), torch never 'charcoal' (LOW IMPACT by both reviews; correctness only); (4) hive-progress -- a hive bot's milestone progress survives a restart in its own slot. Clean merge, 207/207, sandbox smoke (gather logs + cobble, deposit, no errors). A REVERT names its member (each line is tagged); that member is dropped and the rest rerun. EXPOSURE is the AGGREGATE (fixesbundleread): ready only when digsync, stalestop and craftadvice can each be judged -- no member passes vacuously. PLUS bank-why 17cca93 (10-01): the deposit refusal names which of five rules held the item back. Bundle sha c29568f -> a943b7f; behaviour-neutral; suite green on the merge.",
+  "licence": {
+    "class": "kind",
+    "min_rows": 1,
+    "kind": "_progress_restored",
+    "note": "hive-progress writes one _progress_restored row per bot per load; the baseline has no such kind. Measured in fixes-02: 10 rows on all 10 canary bots (board and hive), 0 control."
+  },
+  "reads": [
+    "stalestopread",
+    "craftadviceread",
+    "hiveprogressread",
+    "prequsableread",
+    "toolsaferead",
+    "bankwhyread",
+    "fixesbundleread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    180,
+    360
+  ],
+  "deadline_min": 1700,
+  "change_rows": [],
+  "linkage_extra": [],
+  "draw_exposure": {
+    "hours": 3,
+    "require": [
+      {
+        "name": "pickup skips (the population this fixes)",
+        "kind": "_pickup_skipped",
+        "min": 30
+      },
+      {
+        "name": "prerequisites adopted (the population this changes)",
+        "kind": "_prereq_adopted",
+        "min": 10
+      }
+    ],
+    "note": "Union of the members' draw requirements (stalestop: pickup skips; prereq-usable: prerequisites adopted). digsync dropped."
+  },
+  "exposure": {
+    "read": "fixesbundleread",
+    "field": "exposure_ready",
+    "min": 1,
+    "note": "Every member's own exposure_ready, for the same window (fixesbundleread: digsync joins only when listed)."
+  },
+  "own_lines": [
+    {
+      "read": "stalestopread",
+      "field": "instant_over_1pct",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "[stalestop] CORRECTNESS: more than 1% of the canary's enriched skip rows are err=PathStopped in < 200 ms -- walks killed before they began, the stale-flag signature. Judged only on >= 30 enriched rows (a pool without the fix writes none, and a zero there would be vacuous)."
+    },
+    {
+      "read": "stalestopread",
+      "field": "err_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "[stalestop] Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "stalestopread",
+      "field": "err_rows_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "[stalestop] LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "stalestopread",
+      "field": "fast_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "[stalestop] POSITIVE CONTROL: the fast re-skip signature is visible in control (932 in the dry run). BLOCKS KEEP."
+    },
+    {
+      "read": "craftadviceread",
+      "field": "deepslate_advice_judged",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "[craftadvice] CORRECTNESS: a canary craft row at y >= 0 advising cobbled_deepslate while holding none. Judged on >= 10 stone-family craft rows."
+    },
+    {
+      "read": "craftadviceread",
+      "field": "charcoal_advice_canary",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "[craftadvice] CORRECTNESS: 'gather charcoal' (smelted, never gathered)."
+    },
+    {
+      "read": "craftadviceread",
+      "field": "defect_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "[craftadvice] POSITIVE CONTROL (293 in a 3 h dry run). BLOCKS KEEP."
+    },
+    {
+      "read": "hiveprogressread",
+      "field": "restored_rows_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "[hiveprogress] LIVENESS: every canary bot writes _progress_restored at the deploy restart. BLOCKS KEEP."
+    },
+    {
+      "read": "hiveprogressread",
+      "field": "bots_without_restore_canary",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "[hiveprogress] COVERAGE of the licence row (Codex review, fixes-03): every canary bot seen on the canary build wrote _progress_restored at its restart. BLOCKS KEEP."
+    },
+    {
+      "read": "hiveprogressread",
+      "field": "bots_seen_canary",
+      "op": ">=",
+      "value": 8,
+      "on_fail": "REVERT",
+      "note": "[hiveprogress] POSITIVE CONTROL for the coverage line: the canary-build bot count is not blind (a 10-bot draw; 8 allows two bots offline). BLOCKS KEEP."
+    },
+    {
+      "read": "hiveprogressread",
+      "field": "restored_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "[hiveprogress] Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "prequsableread",
+      "field": "spent_satisfied_judged",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "[prequsable] CORRECTNESS: a canary pickaxe prerequisite satisfied while the bot held no pickaxe with more than one use -- from the row's own tool-wear snapshot. Judged on >= 5. Unchanged code FAILS this (dry run: 34 of 46)."
+    },
+    {
+      "read": "prequsableread",
+      "field": "filtered_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "[prequsable] Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "prequsableread",
+      "field": "filtered_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "[prequsable] LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "prequsableread",
+      "field": "spent_satisfied_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "[prequsable] POSITIVE CONTROL (487 in the dry run). BLOCKS KEEP."
+    },
+    {
+      "read": "toolsaferead",
+      "field": "lost_judged",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "[toolsafe] CORRECTNESS: canary pickaxes with > 10 uses lost outside deposit/death windows <= 2, judged on >= 40 canary bot-h. Dry run on 1d107ed code: placebo-d+isolated-d lost 22 in 6 h (all near an escape) -- the gate FAILS the defect."
+    },
+    {
+      "read": "toolsaferead",
+      "field": "safe_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "[toolsafe] Arms: the baseline cannot write _hand_safe/_scaffold_pick. BLOCKS KEEP."
+    },
+    {
+      "read": "toolsaferead",
+      "field": "lost_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "[toolsafe] POSITIVE CONTROL: the control still loses good pickaxes (66 in the 6 h dry run). BLOCKS KEEP."
+    },
+    {
+      "read": "bankwhyread",
+      "field": "rulenamed_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "[bank-why] LINKAGE, and the member's only gate. The new sentence -- \"not a banking target (<rule>): ...\" -- cannot exist on the baseline, which writes one sentence for all five rules. A control row of the new shape means the arms are wrong, not that the change is. The member is BEHAVIOUR-NEUTRAL (only the refusal string changes; `excluded` is additive and depositPlan is untouched), so there is no effect to gate on. Measured on 8ed9450 over 4,483 deposit runs / 80 bots / 24 h: this refusal is 49.2% of all deposit outcomes (2,203 runs) and in every one the bot held a median of 32 bankable items (oak_log in 1,275, cobblestone in 606); dry run on today's code found 1,156 refusals of the OLD shape in the window, so the query is not blind."
+    }
+  ],
+  "primary": {
+    "read": "fixesbundleread",
+    "field": "members_ready",
+    "note": "REPORTED, NOT GATED: each member's primary (see its own registration)."
+  },
+  "harm": {
+    "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+  },
+  "teardown": {
+    "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+  },
+  "amendments": [],
+  "extension": {
+    "until_exposure": true,
+    "extra_reads": [
+      540,
+      720,
+      1080,
+      1560
+    ],
+    "final_on_zero_exposure": "INCONCLUSIVE",
+    "note": "SHORT CANARY for fixes (owner 2026-09-29)."
+  }
+}
