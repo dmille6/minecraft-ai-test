@@ -1349,7 +1349,10 @@ export async function collectManually(bot, block, signal) {
     throw unsettledDig(p, wasNamed, settled.why)
   }
   if (settled?.broken !== true) await sleep(250, signal)
-  const nowNamed = bot.blockAt(p)?.name
+  // A READ THAT THROWS is no evidence either, and an error with no failClass is invisible to gather's dig counters, so
+  // a run of them came back as no_path (Codex third pass). Converted here, where the class is known.
+  let nowNamed
+  try { nowNamed = bot.blockAt(p)?.name } catch { throw unsettledDig(p, wasNamed, 'block read failed') }
   if (settled?.broken !== true && nowNamed == null) throw unsettledDig(p, wasNamed, 'block unreadable')
   if (wasNamed && nowNamed === wasNamed && wasNamed !== 'air') {
     throw Object.assign(

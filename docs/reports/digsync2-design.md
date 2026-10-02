@@ -46,7 +46,7 @@ faster in the 2 minutes after a rollback.
    - `broken: false`, `why: 'grace-expired' | 'backstop'`: the fallback restore, told only once it is actually in the
      world model;
    - `broken: null`, `pending: false`: `none` (nothing in flight), `unpredicted` (nothing in flight because the
-     prediction read threw at STOP, so the local air is unchecked), `replaced-chunk` (a fresh chunk: readable),
+     prior read at STOP threw or returned nothing -- an unloaded column -- so the local air is unchecked), `replaced-chunk` (a fresh chunk: readable),
      `unloaded-chunk` (nothing to read), `cleared` (respawn/death/end), `superseded`, `restore-failed`;
    - `broken: null`, `pending: true`: `timeout` or `aborted`.
 
@@ -58,7 +58,7 @@ faster in the 2 minutes after a rollback.
    `broken: null` (except `none` and `replaced-chunk`) or `pending` -> `failClass: 'unverified'` with message
    `dig_unsettled: ...` (an existing unknown-status class; the prose never contains "timeout"/"exceeded", which
    gather's collect-timeout regex would count); `none` / `replaced-chunk` -> the old 250 ms look and local read; a
-   block that cannot be read afterwards (null) -> `unverified`; an abort throws.
+   block that cannot be read afterwards (null, or the read throws) -> `unverified`; an abort throws.
 
    **gather carries these classes** (Codex review of 35dd656). Its catch used to keep only the error text, so three
    unknown or refused digs became `no_path` (an avoid-rule class) and a one-candidate run said "could not stand

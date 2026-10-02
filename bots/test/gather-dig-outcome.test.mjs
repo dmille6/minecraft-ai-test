@@ -20,13 +20,16 @@ const { SKILLS } = await import('../src/skills.mjs')
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 
-function gatherBot (logs, waitResult, { digBreaks = false } = {}) {
+function gatherBot (logs, waitResult, { digBreaks = false, readThrowsAfterDig = false } = {}) {
   const world = new Map()
   const k = (x, y, z) => `${x},${y},${z}`
   for (let x = -8; x <= 8; x++) for (let z = -8; z <= 8; z++) world.set(k(x, 63, z), 'stone')
   for (const [x, y, z] of logs) world.set(k(x, y, z), 'oak_log')
+  // readThrowsAfterDig: the first read of a block after it was dug THROWS (prismarine-world mid-update), once.
+  const throwOnce = new Set()
   const blockAt = p => {
     const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
+    if (throwOnce.delete(k(x, y, z))) throw new Error('world not ready')
     const name = world.get(k(x, y, z)) ?? 'air'
     const def = registry.blocksByName[name]
     return { name, type: def.id, stateId: def.defaultState, position: new Vec3(x, y, z), boundingBox: name === 'air' ? 'empty' : 'block',
@@ -40,7 +43,7 @@ function gatherBot (logs, waitResult, { digBreaks = false } = {}) {
     inventory: { items: () => [], slots: [] },
     blockAt, canDigBlock: b => !!b && b.name !== 'air',
     findBlocks: ({ matching }) => [...world].filter(([, n]) => registry.blocksByName[n].id === matching).map(([s]) => new Vec3(...s.split(',').map(Number))),
-    findBlock: () => null, equip: async () => {}, dig: async b => { if (digBreaks) world.delete(k(b.position.x, b.position.y, b.position.z)) }, stopDigging: () => {}, nearestEntity: () => null,
+    findBlock: () => null, equip: async () => {}, dig: async b => { if (readThrowsAfterDig) throwOnce.add(k(b.position.x, b.position.y, b.position.z)); if (digBreaks) world.delete(k(b.position.x, b.position.y, b.position.z)) }, stopDigging: () => {}, nearestEntity: () => null,
     withGatherMovements: async fn => fn(),
     pathfinder: { movements: { canDig: true }, setGoal: () => {}, stop: () => {}, goto: async () => {},
                   getPathFromTo: () => ({ next: () => ({ value: { result: { status: 'success', path: [] } } }) }) },
@@ -71,6 +74,11 @@ await t('one candidate, UNKNOWN outcome (all-excluded return) -> unverified, not
 await t('a waitSettled TIMEOUT is not a collect timeout: no collect_budget from dig_unsettled prose', async () => {
   const r = await run(FOUR, { broken: null, pending: true, why: 'timeout' })
   assert.notEqual(r.failClass, 'collect_budget', r.detail)
+  assert.equal(r.failClass, 'unverified', r.detail)
+})
+await t('a block read that THROWS after the dig is unverified, not an unclassified error that ends in no_path', async () => {
+  const r = await run(FOUR, { broken: null, pending: false, why: 'none' }, { readThrowsAfterDig: true })
+  assert.notEqual(r.failClass, 'no_path', r.detail)
   assert.equal(r.failClass, 'unverified', r.detail)
 })
 await t('positive control: a CONFIRMED dig (the block is gone) with no item gained is still an ordinary barren run (no_path), unchanged', async () => {

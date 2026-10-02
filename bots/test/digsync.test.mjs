@@ -304,19 +304,20 @@ await t('player_loaded is decided AT SPAWN: a registry that appears after attach
 // CONTRACT CHANGE (v2): v1 faked waitSettled and collectManually slept 600 ms more after a restore. The grace owns the
 // delayed destroy now, so these drive collectManually through attachDigSync itself (the refusal CHAIN, not one guard).
 const { collectManually } = await import('../src/skills.mjs')
-function manualBot ({ serverSays = null, afterAckMs = 0, graceMs = 60, ackAtMs = 10, backstopMs, restoreThrows = false, script = null, predictReadThrows = false }) {
+function manualBot ({ serverSays = null, afterAckMs = 0, graceMs = 60, ackAtMs = 10, backstopMs, restoreThrows = false, script = null, predictReadThrows = false, predictReadNull = false }) {
   const NAMES = { [STONE]: 'stone' }
   const world = new Map([['6,64,0', STONE]])
   const key = p => `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`
   const bot = new EventEmitter(); const client = new EventEmitter(); let seq = null
   // unloaded: the column is gone from the world model (blockAt -> null, as prismarine-world answers for an unloaded chunk).
   // failNextRead: digsync's read of the prior at STOP throws once (predictFailed), every other read works.
-  const ctl = { unloaded: false, failNextRead: false }
+  // nullNextRead: digsync's read of the prior at STOP returns null WITHOUT throwing (an unloaded column), once.
+  const ctl = { unloaded: false, failNextRead: false, nullNextRead: false }
   client.write = (name, params) => { if (name === 'block_dig') seq = params.sequence }
   bot._client = client
   Object.assign(bot, {
     entity: { position: new Vec3(5.5, 64, 0.5) }, heldItem: null, targetDigBlock: null, gatherMovements: { canDig: true },
-    blockAt: p => { if (ctl.failNextRead) { ctl.failNextRead = false; throw new Error('world not ready') } if (ctl.unloaded) return null; const id = world.get(key(p)) ?? AIR; const pos = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)); return id ? { name: NAMES[id], stateId: id, position: pos, diggable: true, boundingBox: 'block' } : { name: 'air', stateId: AIR, position: pos, diggable: false, boundingBox: 'empty' } },
+    blockAt: p => { if (ctl.failNextRead) { ctl.failNextRead = false; throw new Error('world not ready') } if (ctl.nullNextRead) { ctl.nullNextRead = false; return null } if (ctl.unloaded) return null; const id = world.get(key(p)) ?? AIR; const pos = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)); return id ? { name: NAMES[id], stateId: id, position: pos, diggable: true, boundingBox: 'block' } : { name: 'air', stateId: AIR, position: pos, diggable: false, boundingBox: 'empty' } },
     // restoreThrows: the world model refuses digsync's write (an unloaded column, a prismarine error). mineflayer's own
     // optimistic air write in dig() below goes straight to the world, so only digsync's restore is affected.
     _updateBlockState: (p, st) => { if (restoreThrows) throw new Error('column not loaded'); world.set(key(p), st) },
@@ -324,6 +325,7 @@ function manualBot ({ serverSays = null, afterAckMs = 0, graceMs = 60, ackAtMs =
     // mineflayer's finishDigging: STOP, then the optimistic local air. The server acks 10 ms later, and maybe speaks.
     dig: async b => {
       if (predictReadThrows) ctl.failNextRead = true
+      if (predictReadNull) ctl.nullNextRead = true
       bot._client.write('block_dig', { status: 2, location: b.position, face: 1, sequence: 0 }); world.set(key(b.position), AIR)
       if (script) { setTimeout(() => script({ client, world, ctl, pos: b.position, seq, k: key(b.position) }), 10); return }
       if (ackAtMs == null) return                    // the ack never comes
@@ -475,6 +477,26 @@ await t('[X1] a dig whose prediction FAILED is not accepted on mineflayer\'s opt
   await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => e.failClass === 'unverified')
   assert.equal(m.bot.digSync.counts.predictFailed, 1, 'positive control: the prediction really failed')
   m.done()
+})
+
+// ---- Codex third pass on 57adb5b ----
+await t('[T1] a prior read that returns NULL at STOP (no throw) is unpredicted too: not accepted on optimistic air', async () => {
+  const m = manualBot({ predictReadNull: true, ackAtMs: null })
+  await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => e.failClass === 'unverified')
+  assert.equal(m.bot.digSync.counts.predicted, 0, 'positive control: no prediction was made')
+  assert.equal(m.bot.digSync.counts.predictFailed, 0, 'this is the NON-throwing path, distinct from predictFailed')
+  m.done()
+})
+await t('[T1] waitSettled says unpredicted (not none) after a null prior read; a STOP over real AIR is still none', async () => {
+  const f = fakeBot(); const realAt = f.bot.blockAt
+  f.bot.blockAt = () => null
+  f.client.write('block_dig', { status: 2, location: P, face: 1, sequence: 0 })
+  f.bot.blockAt = realAt
+  assert.equal((await f.ds.waitSettled(P)).why, 'unpredicted')
+  const Q = new Vec3(1, 64, 1); f.world.set('1,64,1', AIR)
+  f.client.write('block_dig', { status: 2, location: Q, face: 1, sequence: 0 })
+  assert.equal((await f.ds.waitSettled(Q)).why, 'none', 'control: a known-AIR prior is not a missing read')
+  f.bot.emit('end')
 })
 
 // ---- the mutant: GRACE 0 (v1's restore-at-the-ack) must fail the delayed-destroy test for the stated reason ----

@@ -56,12 +56,12 @@ test('arrival is asserted before digging', () => {
 })
 
 test('the break is verified against the server, not against our own cache', () => {
-  assert.match(CODE, /const nowNamed = bot\.blockAt\(p\)\?\.name/)
+  assert.match(CODE, /nowNamed = bot\.blockAt\(p\)\?\.name/)
   assert.match(CODE, /failClass: 'dig_unconfirmed'/)
   // The settle is the whole mechanism: reading immediately just returns the air
   // that _updateBlockState wrote locally. The server re-sends the real block
   // when it disagrees, so the wait is what makes the read mean anything.
-  const idx = CODE.indexOf('const nowNamed')
+  const idx = CODE.indexOf('nowNamed = bot.blockAt')
   const before = CODE.slice(Math.max(0, idx - 400), idx)
   assert.match(before, /await sleep\(\d+, signal\)/,
     'there must be a settle between the dig and the re-read')
@@ -74,7 +74,7 @@ test('the ORDER is dig, then settle, then re-read', () => {
   // that the right code fails is worse than no assertion. The order is the
   // thing that matters, so assert the order.
   assert.match(CODE,
-    /bot\.dig\(block\)[\s\S]*?await sleep\(\d+, signal\)[\s\S]*?const nowNamed = bot\.blockAt/,
+    /bot\.dig\(block\)[\s\S]*?await sleep\(\d+, signal\)[\s\S]*?nowNamed = bot\.blockAt/,
     'dig, then a settle for the server to correct us, then the read')
 })
 

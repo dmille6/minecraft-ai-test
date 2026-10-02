@@ -202,6 +202,11 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
             unpredicted.delete(key)
             const r = restored.get(key); if (r) r.redug = true
             const w = worded.get(key); if (w) w.redug = true
+          } else if (prior == null) {
+            // A MISSING READ, NOT A THROW (Codex third pass): an unloaded column answers null. Nothing to predict from,
+            // and mineflayer still writes its optimistic air if the column comes back, so this is unpredicted too.
+            // (prior === 0 is a known AIR: nothing was predicted because nothing was there to break.)
+            remember(unpredicted, key, now())
           }
         } catch {
           counts.predictFailed++
@@ -310,8 +315,8 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
    *                  restore is in the world model. A fallback decision, not a server outcome.
    *   broken: null   pending: false, why:
    *                  'none'           nothing was pending there when asked (digsync has nothing to say)
-   *                  'unpredicted'    nothing pending because the prediction FAILED at STOP: the local world holds
-   *                                   mineflayer's optimistic air, unchecked
+   *                  'unpredicted'    nothing pending because the prior could not be read at STOP (the read threw
+   *                                   or returned nothing): the local world may hold mineflayer's optimistic air
    *                  'replaced-chunk' a fresh chunk took the prediction: read the block, the chunk is the truth
    *                  'unloaded-chunk' the column was unloaded: nothing to read
    *                  'cleared'        respawn, death or disconnect
