@@ -33,6 +33,9 @@ faster in the 2 minutes after a rollback.
    A re-dig supersedes the pending prediction **even when the local state is already AIR** (mineflayer's `dig()`
    sends STOP for the block object it was handed without re-reading the world), and the superseded dig's waiters are
    told `why: 'superseded'` (unknown) rather than inheriting the replacement's outcome (Codex review of ede3b83).
+   A server word that arrived BEFORE the re-dig describes the state before it, so it becomes the new prediction's
+   prior and the new prediction starts with no word (Claude review of 35dd656: carrying it over settled a
+   delayed-destroy re-dig on the stale STONE at its ack, which is v1's false restore again).
 4. **A server word is not a rollback.** A settlement on the server's word (before the ack or during the grace) may
    write that state into the world model (mineflayer writes it too, so this is idempotent), but it does not count as
    `rolledBack` and does not produce a `dig_rollback` row. `rolledBack` now means exactly "digsync restored the prior
@@ -42,8 +45,9 @@ faster in the 2 minutes after a rollback.
    - `broken: true` / `false`, `why: 'server'`: the server's word (at the ack, or the moment it speaks in a grace);
    - `broken: false`, `why: 'grace-expired' | 'backstop'`: the fallback restore, told only once it is actually in the
      world model;
-   - `broken: null`, `pending: false`: `none` (nothing in flight), `dropped-chunk`, `cleared` (respawn/death/end),
-     `superseded`, `restore-failed` (no word and the restore could not be applied);
+   - `broken: null`, `pending: false`: `none` (nothing in flight), `unpredicted` (nothing in flight because the
+     prediction read threw at STOP, so the local air is unchecked), `replaced-chunk` (a fresh chunk: readable),
+     `unloaded-chunk` (nothing to read), `cleared` (respawn/death/end), `superseded`, `restore-failed`;
    - `broken: null`, `pending: true`: `timeout` or `aborted`.
 
    Default timeout = `settleBoundMs` = backstop + grace + 2 ticks + 250 ms (9250 ms in production): the worst-case
@@ -51,10 +55,16 @@ faster in the 2 minutes after a rollback.
    ack; only a missing or very late ack waits that long.
 
    `collectManually` **never takes mineflayer's predicted AIR as evidence**: `broken: false` -> `dig_unconfirmed`;
-   `broken: null` (except `none` and `dropped-chunk`) or `pending` -> `failClass: 'unverified'` with message
-   `dig_unsettled: ...` (an existing unknown-status class; gather excludes the target for the run, as for any
-   failure); `none` / `dropped-chunk` -> the old 250 ms look and local read (digsync has nothing to say, or the fresh
-   chunk is the truth); an abort throws. The v1 extra 600 ms sleep after `broken: false` is removed (the grace owns
+   `broken: null` (except `none` and `replaced-chunk`) or `pending` -> `failClass: 'unverified'` with message
+   `dig_unsettled: ...` (an existing unknown-status class; the prose never contains "timeout"/"exceeded", which
+   gather's collect-timeout regex would count); `none` / `replaced-chunk` -> the old 250 ms look and local read; a
+   block that cannot be read afterwards (null) -> `unverified`; an abort throws.
+
+   **gather carries these classes** (Codex review of 35dd656). Its catch used to keep only the error text, so three
+   unknown or refused digs became `no_path` (an avoid-rule class) and a one-candidate run said "could not stand
+   within reach". Now any `unverified` dig in the run makes a barren or all-excluded run `unverified` (status
+   unknown); otherwise any `dig_unconfirmed` makes it `dig_unconfirmed` (status failed). Neither class is in an
+   evidence set, so neither teaches an avoid rule. Dig outcomes are not counted as collect timeouts. The v1 extra 600 ms sleep after `broken: false` is removed (the grace owns
    the delayed destroy). Cost: a refused dig takes ack + 3.0-3.5 s (v1: ack + 0.6 s); a missing ack takes up to
    ~5.5 s and is now unconfirmed (v2 at ede3b83 called it a harvest); a confirmed dig costs nothing extra.
 
@@ -71,6 +81,8 @@ The totals line now prints every key in `counts`, in a fixed order, as `key=valu
 | `graceDropped` | grace cancelled by a re-dig, chunk replace/unload, spawn, death or disconnect |
 | `superseded` | a STOP at a position with a prediction still pending (any phase) |
 | `restoreFailed` | a fallback restore the world model would not take (outcome reported unknown) |
+| `serverNonAir` | settlements on a non-air server word (the server refused the break) |
+| `airAfterServerWord`, `airAfterWordLt2s` / `Lt5s` / `Lt10s` | such a settlement later contradicted by AIR at that position within 10 s, not re-dug: the false-settlement case `falseRestore` cannot see |
 | `graceLt250` .. `graceLt3000`, `graceGe3000` | ack-to-word delay for `graceAir + graceOther` |
 | `falseRestore` | a restore contradicted by AIR within `FALSE_RESTORE_MS` (now 10 s, was 2 s); excludes a position the bot re-dug after the restore |
 | `lateAirLt2s`, `lateAirLt5s`, `lateAirLt10s` | the same, bucketed by delay after the restore |
@@ -81,7 +93,9 @@ Books: `graceStarted = graceAir + graceOther + graceExpired + graceDropped + (st
 
 Difference-in-differences against the control pools, per CLAUDE.md; fixes are a correctness gate:
 
-- **Primary:** `falseRestore / rolledBack` falls from 0.67 to **< 0.15** on the canary. Note the 10 s window is wider
+- **Primary:** `falseRestore / rolledBack` falls from 0.67 to **< 0.15** on the canary, AND
+  `airAfterServerWord / serverNonAir` is reported alongside it: a false settlement on a server word is the same
+  error by another route, and the primary ratio is blind to it. Note the 10 s window is wider
   than v1's 2 s, so this is a conservative comparison (v1's 0.67 would only be higher on a 10 s window).
 - Report `graceAir / graceStarted` (expected high: it is the share v1 would have restored falsely) and the
   `graceLt*` histogram. If `graceGe3000` or `lateAirLt5s` / `lateAirLt10s` carry real mass, GRACE_MS is too short.

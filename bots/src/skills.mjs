@@ -1072,6 +1072,16 @@ const mustCollectManually = name =>
  * or the item lies on the ground and the inventory delta stays zero -- which is
  * indistinguishable from not having mined it.
  */
+/** A dig whose outcome digsync could not establish: unknown, never a harvest. Prose free of "timeout"/"exceeded". */
+const UNSETTLED_PROSE = { timeout: 'no answer before the wait ended', aborted: 'the skill was cancelled' }
+function unsettledDig (p, wasNamed, why) {
+  return Object.assign(
+    new Error(`dig_unsettled: ${p.x},${p.y},${p.z} (${wasNamed}) outcome unknown (${UNSETTLED_PROSE[why] ?? why}) -- not counted as a harvest`),
+    { failClass: 'unverified' })
+}
+/** collectManually's two dig-outcome classes: the block was REACHED and swung at, so neither is a path fact. */
+const DIG_OUTCOME_CLASSES = new Set(['unverified', 'dig_unconfirmed'])
+
 export async function collectManually(bot, block, signal) {
   const p = block.position
   const wanted = block.name
@@ -1318,12 +1328,15 @@ export async function collectManually(bot, block, signal) {
   // 600 ms extra look v1 needed here (Claude review of fbd7125) is gone. The default timeout is digsync's worst-case
   // settlement; the common cases answer at the ack or at the server's word.
   //
-  // NEVER TAKE PREDICTED AIR AS EVIDENCE (Codex review of ede3b83): while a prediction is unresolved the local world
-  // holds mineflayer's optimistic air, so reading it would call any unresolved dig a harvest. So:
+  // NEVER TAKE PREDICTED AIR AS EVIDENCE (Codex reviews of ede3b83 and 35dd656): while a prediction is unresolved the
+  // local world holds mineflayer's optimistic air, so reading it would call any unresolved dig a harvest. So:
   //   broken false  -> dig_unconfirmed (the server's refusal, or digsync's fallback restore at grace expiry/backstop)
   //   broken null   -> UNKNOWN: unverified, not a harvest -- EXCEPT 'none' (digsync had nothing in flight) and
-  //                    'dropped-chunk' (a fresh chunk is the truth), which fall back to the old 250 ms look.
+  //                    'replaced-chunk' (a fresh chunk is the truth), which read the block after the old 250 ms look.
+  //                    'unloaded-chunk' and 'unpredicted' are unknown: nothing true to read.
   //   pending       -> only on abort (check() throws) or a ledger bug: unknown as above.
+  // And a block that cannot be read at all afterwards is no evidence either way.
+  // The reason is named in prose that gather's /exceeded|timeout/ collect-timeout test cannot match.
   const settled = bot.digSync?.waitSettled ? await bot.digSync.waitSettled(p, undefined, signal) : null
   check(signal)
   if (settled?.broken === false) {
@@ -1332,13 +1345,12 @@ export async function collectManually(bot, block, signal) {
                 `${settled.why === 'server' ? 'the server re-sent the block' : `no server word (${settled.why}), restored`}`),
       { failClass: 'dig_unconfirmed' })
   }
-  if (settled && settled.broken === null && settled.why !== 'none' && settled.why !== 'dropped-chunk') {
-    throw Object.assign(
-      new Error(`dig_unsettled: ${p.x},${p.y},${p.z} (${wasNamed}) outcome unknown (${settled.why}) -- not counted as a harvest`),
-      { failClass: 'unverified' })
+  if (settled && settled.broken === null && settled.why !== 'none' && settled.why !== 'replaced-chunk') {
+    throw unsettledDig(p, wasNamed, settled.why)
   }
   if (settled?.broken !== true) await sleep(250, signal)
   const nowNamed = bot.blockAt(p)?.name
+  if (settled?.broken !== true && nowNamed == null) throw unsettledDig(p, wasNamed, 'block unreadable')
   if (wasNamed && nowNamed === wasNamed && wasNamed !== 'air') {
     throw Object.assign(
       new Error(`dig_unconfirmed: ${p.x},${p.y},${p.z} is still ${nowNamed} after the ` +
@@ -1501,6 +1513,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   const excluded = new Set()
   const key = q => `${q.x},${q.y},${q.z}`
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
+  // Dig outcomes collectManually reported this run, by class (Codex second pass): a reached block whose dig was unknown
+  // or refused is not a path failure, and must not come back out of this loop as one. See `barrenFailClass`.
+  let digUnknown = 0, digRefused = 0
   // Rounds this RUN whose candidates came only from the cover fallback. Run-scoped
   // on purpose: `viaCover` resets every round, and the question this answers is
   // about the whole run's failure class. See `barrenFailClass`.
@@ -1904,6 +1919,12 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                    detail: `${blockName} via foliage cover: ${viaCover} candidate(s), ` +
                            `all ${excluded.size} already refused this run — nothing attempted` })
       }
+      const digClass = digOutcomeClass({ digUnknown, digRefused })
+      if (digClass) {
+        return { status: statusFor(digClass), failClass: digClass,
+                 detail: `${blockName}: all ${excluded.size} candidate(s) in range refused — reached, but ` +
+                         `${digUnknown} dig(s) had no known outcome and ${digRefused} were not broken by the server` }
+      }
       return { status: 'failed', failClass: 'unreachable',
                detail: `${blockName}: all ${excluded.size} candidate(s) in range refused — ` +
                        `could not stand within reach of any of them` }
@@ -1979,7 +2000,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     } catch (e) {
       if (e.aborted) throw e
       // Remember WHY, so the failure below can tell the truth about itself.
-      if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
+      if (e.failClass === 'unverified') digUnknown++
+      else if (e.failClass === 'dig_unconfirmed') digRefused++
+      else if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
       // AND SAY IT WHERE ANYONE CAN READ IT.
       //
       // This was a debug log and nothing else, so the ONE fact that explains the
@@ -2082,10 +2105,13 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
           ? ` [probe: ${lastProbe.status}, slate ${lastProbe.checked}, ` +
             `${lastProbe.hit ? 'A* reached a candidate' : 'A* reached none'}]`
           : ''
-        const fc = barrenFailClass(timedOut, barren, coverRounds)
+        const fc = barrenFailClass(timedOut, barren, coverRounds, { digUnknown, digRefused })
         const [failClass, why] = fc === 'collect_budget'
           ? ['collect_budget',
              `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`]
+          : DIG_OUTCOME_CLASSES.has(fc)
+          ? [fc, `${blockName} found and reached, but after ${barren} attempts ${digUnknown} dig(s) had no known ` +
+                 `outcome and ${digRefused} were not broken by the server${errNote}`]
           : [fc, `${blockName} found but unreachable after ${barren} attempts${probeNote}${errNote}` +
                  (coverRounds > 0
                    ? ` [${coverRounds} round(s) were foliage-covered last resorts, so this is not evidence there is no route]`
@@ -5433,9 +5459,23 @@ export const COVER_EXEMPT_TARGET = /_log$/
  * mistake is teaching a durable lesson from a failure nobody could classify.
  * Refusing to teach costs a re-ask; teaching wrongly costs the tech tree.
  */
-export function barrenFailClass (timedOut, barren, coverRounds = 0) {
+//
+// A REACHED BLOCK IS NOT A PATH FAILURE (Codex second pass on digsync-v2). If any round this run ended in a dig whose
+// outcome was unknown (`unverified`) or refused by the server (`dig_unconfirmed`), the barren run is that class, not
+// `no_path`: the bot stood in reach and swung. Same reasoning as the cover downgrade -- barren rounds cannot be
+// attributed per candidate, so one is enough. Neither class is in any evidence set, so neither teaches an avoid rule.
+export function barrenFailClass (timedOut, barren, coverRounds = 0, digs = {}) {
   if (timedOut >= barren) return 'collect_budget'
+  const dig = digOutcomeClass(digs)
+  if (dig) return dig
   return coverRounds > 0 ? 'unreachable' : 'no_path'
+}
+
+/** The class a run's dig outcomes impose, or null: unknown beats refused (a don't-know is not a no). */
+export function digOutcomeClass ({ digUnknown = 0, digRefused = 0 } = {}) {
+  if (digUnknown > 0) return 'unverified'
+  if (digRefused > 0) return 'dig_unconfirmed'
+  return null
 }
 
 export function coverFallback (primary, covered, { approachable = () => false, collected = 0 } = {}) {

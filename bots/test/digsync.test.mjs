@@ -164,7 +164,8 @@ await t('a fresh chunk DURING the grace drops the prediction (the chunk is the t
   f.client.emit('map_chunk', { x: 5, z: 5 })        // another column: positive control, nothing dropped
   assert.equal(f.ds.ledger.size, 1)
   f.client.emit('map_chunk', { x: 0, z: -1 })
-  assert.deepEqual(await w, { broken: null, pending: false, why: 'dropped-chunk' })
+  // CONTRACT CHANGE (second pass): 'dropped-chunk' split into 'replaced-chunk' (readable) and 'unloaded-chunk' (unknown)
+  assert.deepEqual(await w, { broken: null, pending: false, why: 'replaced-chunk' })
   await sleep(90)
   assert.equal(f.at(P), AIR); assert.equal(f.rollbacks.length, 0); assert.equal(f.ds.counts.graceDropped, 1)
   f.bot.emit('end')
@@ -303,23 +304,28 @@ await t('player_loaded is decided AT SPAWN: a registry that appears after attach
 // CONTRACT CHANGE (v2): v1 faked waitSettled and collectManually slept 600 ms more after a restore. The grace owns the
 // delayed destroy now, so these drive collectManually through attachDigSync itself (the refusal CHAIN, not one guard).
 const { collectManually } = await import('../src/skills.mjs')
-function manualBot ({ serverSays = null, afterAckMs = 0, graceMs = 60, ackAtMs = 10, backstopMs, restoreThrows = false }) {
+function manualBot ({ serverSays = null, afterAckMs = 0, graceMs = 60, ackAtMs = 10, backstopMs, restoreThrows = false, script = null, predictReadThrows = false }) {
   const NAMES = { [STONE]: 'stone' }
   const world = new Map([['6,64,0', STONE]])
   const key = p => `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`
   const bot = new EventEmitter(); const client = new EventEmitter(); let seq = null
+  // unloaded: the column is gone from the world model (blockAt -> null, as prismarine-world answers for an unloaded chunk).
+  // failNextRead: digsync's read of the prior at STOP throws once (predictFailed), every other read works.
+  const ctl = { unloaded: false, failNextRead: false }
   client.write = (name, params) => { if (name === 'block_dig') seq = params.sequence }
   bot._client = client
   Object.assign(bot, {
     entity: { position: new Vec3(5.5, 64, 0.5) }, heldItem: null, targetDigBlock: null, gatherMovements: { canDig: true },
-    blockAt: p => { const id = world.get(key(p)) ?? AIR; const pos = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)); return id ? { name: NAMES[id], stateId: id, position: pos, diggable: true, boundingBox: 'block' } : { name: 'air', stateId: AIR, position: pos, diggable: false, boundingBox: 'empty' } },
+    blockAt: p => { if (ctl.failNextRead) { ctl.failNextRead = false; throw new Error('world not ready') } if (ctl.unloaded) return null; const id = world.get(key(p)) ?? AIR; const pos = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)); return id ? { name: NAMES[id], stateId: id, position: pos, diggable: true, boundingBox: 'block' } : { name: 'air', stateId: AIR, position: pos, diggable: false, boundingBox: 'empty' } },
     // restoreThrows: the world model refuses digsync's write (an unloaded column, a prismarine error). mineflayer's own
     // optimistic air write in dig() below goes straight to the world, so only digsync's restore is affected.
     _updateBlockState: (p, st) => { if (restoreThrows) throw new Error('column not loaded'); world.set(key(p), st) },
     canDigBlock: b => !!b && b.name !== 'air', inventory: { items: () => [] }, equip: async () => {},
     // mineflayer's finishDigging: STOP, then the optimistic local air. The server acks 10 ms later, and maybe speaks.
     dig: async b => {
+      if (predictReadThrows) ctl.failNextRead = true
       bot._client.write('block_dig', { status: 2, location: b.position, face: 1, sequence: 0 }); world.set(key(b.position), AIR)
+      if (script) { setTimeout(() => script({ client, world, ctl, pos: b.position, seq, k: key(b.position) }), 10); return }
       if (ackAtMs == null) return                    // the ack never comes
       setTimeout(() => {
         client.emit('acknowledge_player_digging', { sequenceId: seq })
@@ -338,12 +344,14 @@ await t('collectManually: a REFUSED dig (no word for the whole grace, restored) 
   await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => e.failClass === 'dig_unconfirmed')
   assert.equal(m.rollbacks.length, 1); m.done()
 })
+// The grace is 500 ms so the bound DISCRIMINATES (Claude second pass): answering on the word takes ~40 ms, waiting out
+// the grace takes >= 510. With a 60 ms grace both fit under the old bound and the test could not fail.
 await t('collectManually: a DELAYED destroy (air 30 ms after the ack, inside the grace) is collected, never restored', async () => {
-  const m = manualBot({ serverSays: AIR, afterAckMs: 30 })
+  const m = manualBot({ serverSays: AIR, afterAckMs: 30, graceMs: 500 })
   const t0 = Date.now()
   await collectManually(m.bot, m.target, new AbortController().signal)
   assert.equal(m.rollbacks.length, 0)
-  assert.ok(Date.now() - t0 < 60 + 10 + 40, 'it waited out the grace instead of answering on the word')
+  assert.ok(Date.now() - t0 < 300, `took ${Date.now() - t0} ms: it waited out the grace instead of answering on the word`)
   m.done()
 })
 await t('collectManually: the server REFUSES with an explicit STONE during the grace -> dig_unconfirmed without waiting out the grace', async () => {
@@ -406,6 +414,66 @@ await t('[P2] a restore that could not be applied is UNKNOWN to the waiter (not 
 await t('[P2] collectManually: a refused dig whose restore FAILED (local still AIR) is not a harvest', async () => {
   const m = manualBot({ restoreThrows: true })
   await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => /dig_unsettled/.test(e.message))
+  m.done()
+})
+
+// ---- second-pass reviews of 35dd656 ----
+await t('[C1] a server word that came BEFORE a re-dig describes the state before it: the re-dig is a fresh prediction, not settled by it', async () => {
+  const f = fakeBot({ graceMs: 150, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); const seq1 = f.lastSeq()
+  f.say(P, STONE)                                      // dig #1 refused, word before its ack
+  f.finishDig(P)                                       // the bot digs again; this one is a delayed destroy
+  f.client.emit('acknowledge_player_digging', { sequenceId: seq1 })
+  f.ack()                                              // ack #2 outruns its air
+  assert.equal(f.at(P), AIR, 'dig #2 settled at its ack on dig #1\'s STONE word (the v1 false restore)')
+  await sleep(30); f.say(P, AIR)
+  await sleep(200)
+  assert.equal(f.at(P), AIR); assert.equal(f.ds.counts.graceAir, 1); assert.equal(f.rollbacks.length, 0)
+  f.bot.emit('end')
+})
+await t('[C1] a superseded server word becomes the prior: a refused re-dig restores what the server last said', async () => {
+  const f = fakeBot({ graceMs: 30, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.say(P, 7)                          // the server says the block is now state 7
+  f.finishDig(P); f.ack(); await sleep(60)
+  assert.equal(f.at(P), 7, 'restored the stale pre-word prior instead of the server\'s last word')
+  f.bot.emit('end')
+})
+await t('[C2] a non-air SERVER settlement contradicted by AIR within 10 s is counted and bucketed (re-digs excluded)', async () => {
+  const f = fakeBot({ graceMs: 150, tickMs: 5 }); f.world.set('10,64,-3', STONE)
+  f.finishDig(P); f.say(P, STONE); f.ack()             // settled 'server', not broken
+  assert.equal(f.ds.counts.serverNonAir, 1)
+  f.say(P, AIR)                                        // ...and then the server breaks it after all
+  assert.equal(f.ds.counts.airAfterServerWord, 1); assert.equal(f.ds.counts.airAfterWordLt2s, 1)
+  // exclusion: a re-dig after the word is the bot's own dig
+  const g = fakeBot({ graceMs: 150, tickMs: 5 }); g.world.set('10,64,-3', STONE)
+  g.finishDig(P); g.say(P, STONE); g.ack()
+  g.finishDig(P); g.say(P, AIR); g.ack()
+  assert.equal(g.ds.counts.airAfterServerWord, 0); assert.equal(g.ds.counts.serverNonAir, 1, 'positive control: the word was counted')
+  f.bot.emit('end'); g.bot.emit('end')
+})
+await t('[C2] the totals row carries the new counters (every key in counts)', () => {
+  const f = fakeBot()
+  for (const k of ['serverNonAir', 'airAfterServerWord', 'airAfterWordLt2s', 'airAfterWordLt5s', 'airAfterWordLt10s'])
+    assert.ok(k in f.ds.counts, `${k} missing`)
+  f.bot.emit('end')
+})
+await t('[X1] an UNLOADED column is unknown, not a harvest (blockAt is null afterwards)', async () => {
+  const m = manualBot({ script: ({ client, ctl }) => { ctl.unloaded = true; client.emit('unload_chunk', { chunkX: 0, chunkZ: 0 }) } })
+  await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => e.failClass === 'unverified')
+  m.done()
+})
+await t('[X1] a REPLACED chunk is the truth: stone in it -> dig_unconfirmed; air in it -> collected', async () => {
+  const a = manualBot({ script: ({ client, world, k }) => { world.set(k, STONE); client.emit('map_chunk', { x: 0, z: 0 }) } })
+  await assert.rejects(collectManually(a.bot, a.target, new AbortController().signal), e => e.failClass === 'dig_unconfirmed')
+  a.done()
+  const b = manualBot({ script: ({ client, world, k }) => { world.set(k, AIR); client.emit('map_chunk', { x: 0, z: 0 }) } })
+  await collectManually(b.bot, b.target, new AbortController().signal)
+  b.done()
+})
+await t('[X1] a dig whose prediction FAILED is not accepted on mineflayer\'s optimistic air', async () => {
+  const m = manualBot({ predictReadThrows: true, ackAtMs: null })
+  await assert.rejects(collectManually(m.bot, m.target, new AbortController().signal), e => e.failClass === 'unverified')
+  assert.equal(m.bot.digSync.counts.predictFailed, 1, 'positive control: the prediction really failed')
   m.done()
 })
 

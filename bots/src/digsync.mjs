@@ -66,14 +66,17 @@ export class PredictionLedger {
   /**
    * The bot is about to write air over `prior` at `pos` for the STOP it sent with `seq`. A newer prediction at the
    * same position replaces an older one, and keeps the OLDER prior: the state before the first unconfirmed write is
-   * what the server may still hold. Replacing one that was in its grace cancels that grace: returns { superseded }.
+   * what the server may still hold -- UNLESS the server spoke about the position before the new STOP: that word
+   * describes the state BEFORE the re-dig, so it becomes the prior and the new prediction starts with no word
+   * (Claude second pass: carrying it over settled a delayed-destroy re-dig on a stale STONE, v1's false restore).
+   * Replacing one that was in its grace cancels that grace: returns { superseded }.
    */
   predict (pos, seq, prior, t) {
     const key = posKey(pos)
     const old = this.pending.get(key)
     // A REAL Vec3: mineflayer's blockAt and _updateBlockState go through prismarine-world, which calls pos.floored().
     // A plain {x,y,z} threw there, the catch skipped the restore, and on the sandbox the ghost stayed (ack seen, 0 restored).
-    this.pending.set(key, { pos: new Vec3(pos.x, pos.y, pos.z), seq, prior: old ? old.prior : prior, server: old ? old.server : null, t, phase: 'awaiting-ack', ackT: null })
+    this.pending.set(key, { pos: new Vec3(pos.x, pos.y, pos.z), seq, prior: old ? (old.server ?? old.prior) : prior, server: null, t, phase: 'awaiting-ack', ackT: null })
     return { superseded: old?.phase === 'grace' }
   }
   /**
@@ -151,6 +154,10 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
     graceStarted: 0, graceAir: 0, graceOther: 0, graceExpired: 0, graceDropped: 0,
     // A fallback restore (grace expiry or backstop) the world model would not take: the outcome is UNKNOWN, not "not broken".
     restoreFailed: 0, superseded: 0,
+    // The primary gate's blind spot (Claude second pass): falseRestore only sees FALLBACK restores. A non-air SERVER
+    // settlement later contradicted by AIR at that position (not re-dug) is the same error by the server's word.
+    serverNonAir: 0, airAfterServerWord: 0,
+    ...Object.fromEntries(LATE_AIR_EDGES.map(e => [`airAfterWordLt${e / 1000}s`, 0])),
     ...Object.fromEntries([...GRACE_EDGES.map(e => `graceLt${e}`), `graceGe${GRACE_EDGES.at(-1)}`].map(k => [k, 0])),
     ...Object.fromEntries(LATE_AIR_EDGES.map(e => [`lateAirLt${e / 1000}s`, 0])),
   }
@@ -159,6 +166,13 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
   // re-digging a block the server keeps refusing: bounded by the callers' own deadlines, measured here, not acted on).
   // `redug`: the bot dug the position again after the restore, so a later AIR is its own new dig, not a contradiction.
   const restored = new Map()
+  // Non-air SERVER settlements by position, for airAfterServerWord: { t, redug }.
+  const worded = new Map()
+  // Positions whose last STOP could not be predicted (the read threw): waitSettled must not answer 'none' for them,
+  // because the local world then holds mineflayer's optimistic air with nothing to correct it (Codex second pass).
+  const unpredicted = new Map()
+  const UNPREDICTED_MS = 60_000
+  const remember = (m, key, v) => { m.delete(key); m.set(key, v); if (m.size > 512) m.delete(m.keys().next().value) }
   // Settlement waiters, for collectManually: resolve when a position leaves the ledger, with whether it was restored.
   const waiters = new Map()
   let spawnedAt = now()
@@ -175,18 +189,24 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
         // handed and sends STOP without re-reading the world, so the second STOP finds the first prediction's local
         // AIR. It still supersedes the old prediction (keeping the ORIGINAL prior), or the old grace would restore stone
         // under the new dig before its ack. The old prediction's waiters are told UNKNOWN: its outcome is now unknowable.
+        let key = null
         try {
           const loc = new Vec3(params.location.x, params.location.y, params.location.z)
-          const key = posKey(loc)
+          key = posKey(loc)
           const existing = ledger.pending.get(key)
           const prior = existing ? existing.prior : bot.blockAt(loc)?.stateId
           if (existing || (prior != null && prior !== 0)) {
             if (existing) { counts.superseded++; notify(key, { broken: null, why: 'superseded' }) }
             if (ledger.predict(loc, seq, prior, now()).superseded) counts.graceDropped++
             counts.predicted++
+            unpredicted.delete(key)
             const r = restored.get(key); if (r) r.redug = true
+            const w = worded.get(key); if (w) w.redug = true
           }
-        } catch { counts.predictFailed++ }
+        } catch {
+          counts.predictFailed++
+          try { if (key) remember(unpredicted, key, now()) } catch { /* nothing more to lose */ }
+        }
       }
     }
     return write(name, params, ...rest)
@@ -205,10 +225,11 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
     try { cur = bot.blockAt(s.pos)?.stateId } catch { cur = undefined }
     if (s.confirmed) {
       if (cur != null && cur !== s.target) { try { bot._updateBlockState(s.pos, s.target) } catch { /* mineflayer applies the word anyway */ } }
+      if (s.target !== 0) { counts.serverNonAir++; remember(worded, key, { t: now(), redug: false }) }
       return { broken: s.target === 0, why: 'server' }
     }
     if (cur == null) { counts.restoreFailed++; return { broken: null, why: 'restore-failed' } }   // unloaded, or the world threw
-    if (cur === s.target) return { broken: false, why: s.why }                                      // already the prior
+    if (cur === s.target) return { broken: s.target === 0, why: s.why }                             // already the prior
     try { bot._updateBlockState(s.pos, s.target) } catch { counts.restoreFailed++; return { broken: null, why: 'restore-failed' } }
     counts.rolledBack++
     const r = restored.get(key) ?? { n: 0, t: 0 }
@@ -217,7 +238,7 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
     counts.repeatMax = Math.max(counts.repeatMax, r.n)
     if (s.why === 'backstop') counts.backstop++
     try { onRollback({ pos: s.pos, from: cur, to: s.target, why: s.why, ms: s.ms, sinceSpawnMs: now() - spawnedAt, repeat: r.n }) } catch { /* a logger must not break the bot */ }
-    return { broken: false, why: s.why }
+    return { broken: s.target === 0, why: s.why }   // target 0 only when the prior IS a superseded server AIR word
   }
   const apply = settled => {
     const told = settled.map(s => [posKey(s.pos), settleOne(s)])
@@ -236,6 +257,12 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
         const b = lateAirKey(t - r.t); if (b) counts[b]++
         restored.delete(key)
       }
+      const w = worded.get(key)
+      if (w && !w.redug && stateId === 0 && t - w.t <= FALSE_RESTORE_MS) {
+        counts.airAfterServerWord++
+        const b = lateAirKey(t - w.t); if (b) counts[b.replace('lateAir', 'airAfterWord')]++
+        worded.delete(key)
+      }
       const s = ledger.serverUpdate(pos, stateId, t)
       if (s) apply([s])
     } catch { /* a bookkeeping failure must not break the packet path */ }
@@ -248,20 +275,22 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
     try { const { settled, graced } = ledger.ack(pk.sequenceId, now()); counts.graceStarted += graced; apply(settled) } catch { /* never the packet path's problem */ }
   })
   // A dropped prediction's waiter is told nothing is known (null), not left to time out.
-  const dropColumn = (cx, cz) => {
+  // UNLOAD and REPLACE are different answers (Codex second pass): a replaced chunk holds the server's state for the
+  // position, so a caller can read it; an unloaded one holds nothing, so the outcome is unknown.
+  const dropColumn = (cx, cz, why) => {
     try {
       const before = new Set(ledger.pending.keys())
       counts.graceDropped += ledger.dropColumn(cx, cz)
-      for (const k of before) if (!ledger.pending.has(k)) notify(k, { broken: null, why: 'dropped-chunk' })
+      for (const k of before) if (!ledger.pending.has(k)) notify(k, { broken: null, why })
     } catch { /* never the packet path's problem */ }
   }
-  client.on('map_chunk', pk => dropColumn(pk.x, pk.z))
-  client.on('unload_chunk', pk => dropColumn(pk.chunkX, pk.chunkZ))
+  client.on('map_chunk', pk => dropColumn(pk.x, pk.z, 'replaced-chunk'))
+  client.on('unload_chunk', pk => dropColumn(pk.chunkX, pk.chunkZ, 'unloaded-chunk'))
   // THE LOADED HANDSHAKE (1.21.4+): until the client says `player_loaded`, Paper ignores its digs for 60 ticks after
   // every join and respawn -- which is exactly when the entombment reflex digs. Gated on the protocol having it.
   // Evaluated AT SPAWN, not at attach (both reviews): with an auto-detected version the registry does not exist yet.
   const hasLoaded = () => { try { return !!bot.registry?.version?.['>=']?.('1.21.4') } catch { return false } }
-  const reset = () => { counts.graceDropped += ledger.clear(); notifyAll('cleared') }
+  const reset = () => { counts.graceDropped += ledger.clear(); unpredicted.clear(); notifyAll('cleared') }
   bot.on('spawn', () => {   // mineflayer emits spawn on the first join AND on every respawn (health.js)
     spawnedAt = now()
     counts.spawns++
@@ -281,7 +310,10 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
    *                  restore is in the world model. A fallback decision, not a server outcome.
    *   broken: null   pending: false, why:
    *                  'none'           nothing was pending there when asked (digsync has nothing to say)
-   *                  'dropped-chunk'  a fresh or unloaded chunk took the prediction (the chunk is the truth)
+   *                  'unpredicted'    nothing pending because the prediction FAILED at STOP: the local world holds
+   *                                   mineflayer's optimistic air, unchecked
+   *                  'replaced-chunk' a fresh chunk took the prediction: read the block, the chunk is the truth
+   *                  'unloaded-chunk' the column was unloaded: nothing to read
    *                  'cleared'        respawn, death or disconnect
    *                  'superseded'     the bot dug the same position again before this dig settled
    *                  'restore-failed' no server word, and the restore could not be applied
@@ -293,7 +325,10 @@ export function attachDigSync (bot, { onRollback = () => {}, now = () => Date.no
   const waitSettled = (pos, timeoutMs = settleBoundMs, signal = null) => new Promise(resolve => {
     let key
     try { key = posKey(new Vec3(pos.x, pos.y, pos.z).floored()) } catch { return resolve({ broken: null, pending: false, why: 'none' }) }
-    if (!ledger.pending.has(key)) return resolve({ broken: null, pending: false, why: 'none' })
+    if (!ledger.pending.has(key)) {
+      const u = unpredicted.get(key)
+      return resolve({ broken: null, pending: false, why: u != null && now() - u <= UNPREDICTED_MS ? 'unpredicted' : 'none' })
+    }
     if (signal?.aborted) return resolve({ broken: null, pending: true, why: 'aborted' })
     let timer = null
     const unhook = () => {
