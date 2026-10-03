@@ -46,23 +46,42 @@ export const restored = (r) => r.bot.clickWindow === r.orig.clickWindow && r.bot
   r.bot.putSelectedItemRange === r.orig.putSelectedItemRange && r.bot._client.write === r.orig.write &&
   r.bot.equip === r.orig.equip
 
-/** A bare bot for the cap tests: window 5 is open, nothing is mineflayer. `click` decides what a click does. */
-export function stubBot ({ click = () => new Promise(() => {}), spam = null } = {}) {
+/** A bare bot for the cap tests: nothing is mineflayer. The craft opens window 5 (its window_items is the cursor
+ *  proof), clicks once, and counts one item made. `click` decides what a click does. A resync (-999, stateId -1)
+ *  is answered with that window's window_items after `resyncAnswerMs` -- a number, or a list consumed in order
+ *  (Infinity = never answered). `wrongAnswers`: answer window 5's resync with set_slot(5) + window_items(0) only. */
+export function stubBot ({ click = () => new Promise(() => {}), spam = null, resyncAnswerMs = 20, wrongAnswers = false } = {}) {
   const bot = new EventEmitter()
   bot._client = new EventEmitter()
-  bot._client.writes = []
-  bot._client.write = (name, params) => bot._client.writes.push({ name, params, t: Date.now() })
+  const writes = bot._client.writes = []
+  const queue = Array.isArray(resyncAnswerMs) ? [...resyncAnswerMs] : null
+  bot._client.write = (name, params) => {
+    writes.push({ name, params, t: Date.now() })
+    if (name !== 'window_click' || params.stateId !== -1 || params.slot !== -999) return
+    const w = params.windowId
+    if (wrongAnswers && w === 5) {
+      setTimeout(() => {
+        bot._client.emit('set_slot', { windowId: 5, stateId: 2, slot: 3 })
+        bot._client.emit('window_items', { windowId: 0, stateId: 9, items: [], carriedItem: { itemCount: 0 } })
+      }, 20)
+      return
+    }
+    const d = queue ? (queue.length ? queue.shift() : Infinity) : resyncAnswerMs
+    if (Number.isFinite(d)) setTimeout(() => bot._client.emit('window_items', { windowId: w, stateId: 7, items: [], carriedItem: { itemCount: 0 } }), d)
+  }
   bot.made = 0
   bot.inventory = { id: 0, count: () => bot.made }
-  bot.currentWindow = { id: 5 }
+  bot.currentWindow = null
   bot.clickWindow = click
   bot.putAway = async () => {}
   bot.putSelectedItemRange = async () => {}
   bot.craft = async () => {
-    // the window opening: its window_items says the cursor is empty (the proof the resync needs)
-    bot._client.emit('window_items', { windowId: 5, stateId: 1, items: [], carriedItem: { itemCount: 0 } })
-    await bot.clickWindow(3, 0, 0)
-    bot.made++
+    bot.currentWindow = { id: 5 }
+    try {
+      bot._client.emit('window_items', { windowId: 5, stateId: 1, items: [], carriedItem: { itemCount: 0 } })
+      await bot.clickWindow(3, 0, 0)
+      bot.made++
+    } finally { bot.currentWindow = null }
   }
   let timer = null
   if (spam) timer = setInterval(() => bot._client.emit(...spam()), 20)

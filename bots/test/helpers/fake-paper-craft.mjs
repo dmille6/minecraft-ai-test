@@ -76,6 +76,11 @@ export class FakePaper {
   result (w) {
     const g = this.gridOf(w); const W = this.gridW(w)
     for (const r of this.recipes) {
+      if (r.ingredients && !r.inShape) {                       // shapeless: the grid holds exactly the ingredients
+        const have = g.filter(Boolean).map(it => it.type).sort().join()
+        if (have && have === r.ingredients.map(i => i.id).sort().join()) return new Item(r.result.id, r.result.count)
+        continue
+      }
       if (!r.inShape) continue
       let ok = true
       for (let y = 0; y < W && ok; y++) {

@@ -54,7 +54,8 @@
 export const CRAFT_SYNC = Object.freeze({
   quietMs: 100,          // no window traffic for this long = the server has answered
   quietCapMs: 1000,      // never wait longer than this for quiet
-  clickCapMs: 1500,      // a click mineflayer has not finished in this long REJECTS the craft
+  clickCapMs: 4000,      // a click mineflayer has not finished in this long REJECTS the craft (server lag spikes
+                         // run to seconds; click_caps on the row is the tripwire if this is still too short)
   resyncCapMs: 1000,     // never wait longer than this for a resync's window_items
   pollMs: 10,
   maxPutIterations: 64,  // put-away loop bound (mineflayer's is unbounded)
@@ -108,11 +109,13 @@ export function cursorProvablyEmpty (proof, win, clicksSent) {
   return !!proof && (proof.win === win || proof.win === 'any') && proof.clicks === clicksSent
 }
 
-/** Did the craft deliver? produced = after - before; confirmed only when it covers the request. Pure. */
-export function craftConfirmed ({ before, after, count, perCraft }) {
+/** Did the craft deliver? produced = after - before; confirmed only when it covers the request AND both counts
+ *  came from the server (an answered window-0 resync). A local count is mineflayer's belief -- the very thing
+ *  that reported the lost crafts as made -- so it can never confirm. Pure. */
+export function craftConfirmed ({ before, after, count, perCraft, authoritative = false }) {
   const requested = Number(count ?? 1) * Number(perCraft ?? 1)
   const produced = (Number.isFinite(before) && Number.isFinite(after)) ? after - before : null
-  return { requested, produced, confirmed: produced !== null && produced >= requested }
+  return { requested, produced, confirmed: authoritative === true && produced !== null && produced >= requested }
 }
 
 const emptySlot = (item) => !(item && item.itemCount > 0)
@@ -149,7 +152,13 @@ export function installCraftSync (bot, opts = {}) {
       active.awaitingSince = null
     }
   }
-  const cursorStatement = (win, item) => { if (active) active.proof = emptySlot(item) ? { win, clicks: active.clicksSent } : null }
+  // A full cursor kills the proof. An empty one sets it -- but never narrows a still-valid one (a window-5
+  // window_items must not erase what a close_window already proved for every window).
+  const cursorStatement = (win, item) => {
+    if (!active) return
+    if (!emptySlot(item)) { active.proof = null; return }
+    if (!cursorProvablyEmpty(active.proof, active.proof?.win, active.clicksSent)) active.proof = { win, clicks: active.clicksSent }
+  }
   bot._client.on('window_items', (p) => {
     if (p?.windowId === undefined) return
     touch(p.windowId)
@@ -186,6 +195,9 @@ export function installCraftSync (bot, opts = {}) {
   async function resync (st, win, until) {
     if (!cursorProvablyEmpty(st.proof, win, st.clicksSent)) { st.resyncSkipped++; return 'skipped' }
     await waitQuiet(st, win, until)
+    // AGAIN, AT SEND TIME: the wait above is long enough for a cursor packet or a cancellation to arrive, and a
+    // proof that was true before it is not proof now.
+    if (until() || !cursorProvablyEmpty(st.proof, win, st.clicksSent)) { st.resyncSkipped++; return 'skipped' }
     const before = itemsSeen.get(win) ?? 0
     st.origWrite.call(bot._client, 'window_click', resyncPacket(win))
     st.resyncs++
@@ -379,7 +391,12 @@ export function installCraftSync (bot, opts = {}) {
     let error = null, result
     try {
       restore = install(st)
-      const verifyUntil = () => !!st.cancelReason || now() >= st.deadline
+      const verifyUntil = () => !!st.cancelReason || !!st.signal?.aborted || now() >= st.deadline
+      const entryWhy = stopReason(st)
+      if (entryWhy && entryWhy !== 'deadline') {     // aborted before it began: an interruption, not a deadline
+        st.outcome = 'aborted'
+        throw new CraftSyncError(`craft aborted: ${entryWhy}`, { failClass: 'interrupted', aborted: true, reason: entryWhy })
+      }
       if (stopReason(st)) {
         st.refused = stopReason(st)
       } else {
@@ -417,12 +434,14 @@ export function installCraftSync (bot, opts = {}) {
 
         // VERIFY: the server's window 0, not mineflayer's belief about it.
         const after = await serverCount(st, verifyUntil)
-        st.verify = { ...craftConfirmed({ before: before.count, after: after.count, count, perCraft: recipe?.result?.count }),
-                      source: before.source === 'resync' && after.source === 'resync' ? 'resync' : 'local' }
+        const authoritative = before.source === 'resync' && after.source === 'resync'
+        st.verify = { ...craftConfirmed({ before: before.count, after: after.count, count, perCraft: recipe?.result?.count, authoritative }),
+                      source: authoritative ? 'resync' : `local (${before.source === 'resync' ? 'after' : 'before'} unanswered)` }
         const { produced, requested, confirmed } = st.verify
-        if (st.cancelReason) {                         // preempted or disconnected while verifying
+        const lateStop = st.cancelReason ?? (st.signal?.aborted ? 'aborted' : null)
+        if (lateStop) {                                // aborted, preempted or disconnected while verifying
           st.outcome = 'aborted'
-          throw new CraftSyncError(`craft aborted: ${st.cancelReason}`, { failClass: 'interrupted', aborted: true, produced, requested, reason: st.cancelReason })
+          throw new CraftSyncError(`craft aborted: ${lateStop}`, { failClass: 'interrupted', aborted: true, produced, requested, reason: lateStop })
         }
         if (st.refused === 'deadline') {
           st.outcome = 'deadline'
@@ -441,8 +460,10 @@ export function installCraftSync (bot, opts = {}) {
         }
         if (!confirmed) {
           st.outcome = 'unconfirmed'
-          throw new CraftSyncError(`mineflayer reported the craft done, but ${produced ?? '?'} of ${requested} arrived`,
-            { failClass: 'craft_unconfirmed', produced, requested, reason: 'not_in_inventory' })
+          throw new CraftSyncError(authoritative
+            ? `mineflayer reported the craft done, but ${produced ?? '?'} of ${requested} arrived`
+            : `the server did not answer the inventory resync (${st.verify.source}); the craft cannot be confirmed`,
+          { failClass: 'craft_unconfirmed', produced, requested, reason: authoritative ? 'not_in_inventory' : 'unverified' })
         }
         st.outcome = 'ok'
         return result
@@ -474,6 +495,7 @@ export function installCraftSync (bot, opts = {}) {
         max_answer_ms: st.maxAnswerMs ?? 0, stateid_rewrites: st.rewrites ?? 0,
         stop: st.refused ?? st.cancelReason ?? null, abandoned: !!st.abandoned,
         restore_conflicts: st.restoreConflicts ?? 0, preempt_timeouts: st.preemptTimeouts ?? 0,
+        preempted: /^preempted/.test(st.cancelReason ?? ''),
       }
       log({
         kind: 'craft_sync',

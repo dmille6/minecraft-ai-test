@@ -86,7 +86,8 @@ await t('MUTANT KILLED: overlapping crafts allowed -> the second craft is not re
 })
 
 await t('MUTANT KILLED: resync without proof -> a held cursor is dropped on the ground', async () => {
-  await withMutant("    if (!cursorProvablyEmpty(st.proof, win, st.clicksSent)) { st.resyncSkipped++; return 'skipped' }\n", '', async mod => {
+  await withMutant('export function cursorProvablyEmpty (proof, win, clicksSent) {\n  return ',
+    'export function cursorProvablyEmpty (proof, win, clicksSent) {\n  return true || ', async mod => {
     const r = await trialWith(mod, { cursorOnOpen: ['dirt', 3] })
     assert.ok(r.tableResyncs.length > 0)
     assert.ok(r.server.dropped.length > 0, 'the mutant did not drop the cursor; the safety test proves nothing')

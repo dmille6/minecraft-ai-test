@@ -3176,7 +3176,10 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // { signal, deadline }: craftsync.mjs stops the craft on abort or at the runner's deadline and verifies the
     // result against the server; mineflayer itself ignores the fourth argument.
     const deadline = (ctx.runner?.current?.startedAt ?? Date.now()) + config.skills.defaultTimeoutMs
-    await bot.craft(recipe, count, table ?? undefined, { signal, deadline })
+    // `count` is ITEMS; bot.craft takes CRAFTS. Passing the item count crafted 4 times for 4 sticks -- 16 sticks,
+    // or 'missing ingredient' after the first craft, reported failed, with the planks already spent.
+    const crafts = craftsFor(count, recipe)
+    await bot.craft(recipe, crafts, table ?? undefined, { signal, deadline })
     return { status: 'success',
              detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   } catch (e) {
@@ -3184,6 +3187,11 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     if (out === CRAFT_ABORTED) throw new Aborted()
     return out
   }
+}
+
+/** How many crafts make `count` items: each craft yields recipe.result.count. Pure, exported for tests. */
+export function craftsFor (count, recipe) {
+  return Math.max(1, Math.ceil(Number(count ?? 1) / Math.max(1, Number(recipe?.result?.count ?? 1))))
 }
 
 /** craftFailureOutcome's answer when the craft was interrupted: the skill rethrows Aborted. */
