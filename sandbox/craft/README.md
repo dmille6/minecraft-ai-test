@@ -82,3 +82,35 @@ Each results line has `before`/`after` (server slots `{slot: {id, count, damage}
 the moment the decision was served (`firstReal`/`lastReal` = the craft's own clicks; slot `-999` clicks are
 craftsync's resyncs or a toss, and the ground oracle tells which). A trial's outcome is the server's, not the row's:
 a pickaxe on the ground after the trial is TOSSED whatever the craft row says.
+
+## Composter A/B (`composter-ab.cjs`, `coab.sh`, `summarize-composter.py`)
+
+`compost` and `build_composter` are deterministic town orders (composter.mjs `townOrder`), never the model's choice,
+so this driver queues nothing: it sets a scene and WATCHES for the order for a fixed window (100 s), then reads the
+server. **One fresh bot per trial**: the orders' cooldowns and backoffs (build 5 / 30 min, compost 3 / 15 min) live in
+the bot's memory, and the shared site record lives in the pool state dir (`sandbox/state/_pool-<MEMORY_POOL>`), both
+fresh per trial.
+
+What "town" needs in the sandbox (cognitive.mjs): the bot within 48 of `HOME_X/HOME_Z` (the driver puts home at the
+stand, 700 120 700), a **chest within 16 of the bot** (690 120 690), and for compost a composter within 16 of home.
+**The arena is built only after the bot has been teleported there**: `setblock`/`fill` into an unloaded chunk fails
+("not loaded"), and the first pilot built its chest into nothing, so no order could ever fire. The driver now refuses
+to run a trial whose arena did not build.
+
+For this arena the canonical site is 697 120 699, its standing cell 698 120 699, the builder's table cell 699 120 699
+(computed with composter.mjs and confirmed by every build).
+
+| scene | bag | expects |
+|---|---|---|
+| `build30` / `build34` | oak_log 3 + rocks to 30 / 34 slots | one composter at the site; oak_log -3, oak_planks +2, oak_slab +5; table at 699 120 699 |
+| `build35` / `build36` | the same at 35 / 36 | no order (the chain from logs needs 2 free slots) |
+| `build34-fillmid` | as build34; `give` 2 stacks of tuff the moment the order starts | the refusal path the scheduler never reaches |
+| `compost36` | leaf_litter 64/64/30, wheat_seeds 64/6, beetroot_seeds 5, oak_sapling 64/20, birch_sapling 10, apple 12, bread 8, cooked_beef 4, poppy 3 + rocks = 36/36; a level-0 composter at the site | slots freed, saplings above 16/species only, food kept, bone meal in the bag, nothing on the ground |
+| `compost36-stuck20` | as compost36 with `STUCK_SECONDS=20` (the fleet's value; the sandbox env file says 35) | the same, under the fleet's stuck watchdog |
+| `stand-blocked` | as build30; an oak boat on the standing cell under a stone at y+2 | composter_unreachable before any table goes down |
+
+```bash
+sandbox/craft/coab.sh ../coab-cand ../coab-ctrl 3        # ~70 min: cand 7 scenes, ctrl 5 scenes, 3 reps, alternating order
+python3 sandbox/craft/summarize-composter.py sandbox/log/composter-ab/results-cand.jsonl sandbox/log/composter-ab/results-ctrl.jsonl
+python3 sandbox/craft/summarize-composter.py --rows sandbox/log/composter-ab/results-cand.jsonl compost36
+```
