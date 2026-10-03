@@ -9,7 +9,8 @@ import { readFileSync } from 'node:fs'
 process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/mcbot-test-logs-cellmem'
 const M = await import('../src/cellmem.mjs')
 const { familyOf, createCellMemory, recordGather, refusalFor, chooseTarget, cellOf, isRefusedCell, visit,
-        REFUSE_WINDOW_MS, MAX_ENTRIES, MAX_VISITS, NIGHT_NEAR, TRIP_CAP, CELL } = M
+        REFUSE_WINDOW_MS, MAX_ENTRIES, MAX_VISITS, TRIP_CAP, CELL } = M
+const LIMIT32 = 32   // an explore cell-trip limit under test (explore enforces whatever limit it is given)
 const { SKILLS, gatherCell, aimLeg } = await import('../src/skills.mjs')
 const { evidenceScope, EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK, EVIDENCE_ONLY_IF_HERE } = await import('../src/cognitive.mjs')
 const { UNKNOWN_FAIL_CLASSES } = await import('../src/skills.mjs')
@@ -150,22 +151,30 @@ await t('CAP: a success column 200 blocks away is not a trip', () => {
   const g = chooseTarget(mem, { pos: at(8, 8), family: 'log', now: T0 + 2 * MIN })
   assert.notEqual(g.source, 'success'); assert.ok(g.dist <= TRIP_CAP)
 })
-await t('NIGHT: no trip beyond 32 blocks without a bed; with a bed, or by day, the far success column is the target', () => {
-  const mem = createCellMemory()
-  recordGather(mem, { pos: at(108, 8), family: 'log', result: {}, gained: 1, now: T0 })
-  failTwice(mem, at(8, 8), T0)
-  const q = { pos: at(8, 8), family: 'log', now: T0 + 2 * MIN }
-  assert.equal(chooseTarget(mem, q).source, 'success', 'positive control: by day it goes')
-  assert.equal(chooseTarget(mem, { ...q, night: true, hasBed: true }).source, 'success')
-  const n = chooseTarget(mem, { ...q, night: true })
-  assert.ok(n.none || n.dist <= NIGHT_NEAR, `night walk of ${n.dist} to ${n.source}`)
+await t('EXEMPTIONS (pure): ore, then underground, then night without a bed; a surface log by day, or at night with a bed, is refusable', () => {
+  assert.equal(typeof M.exemptReason, 'function')
+  const R = M.exemptReason
+  assert.equal(R('oak_log', {}), null, 'control: a surface log by day is refusable')
+  assert.equal(R('iron_ore', {}), 'ore'); assert.equal(R('deepslate_iron_ore', {}), 'ore'); assert.equal(R('coal_ore', {}), 'ore')
+  assert.equal(R('oak_log', { underground: true }), 'underground')
+  assert.equal(R('oak_log', { night: true }), 'night')
+  assert.equal(R('oak_log', { night: true, hasBed: true }), null, 'a bed makes a night trip acceptable')
+  assert.equal(R('iron_ore', { underground: true, night: true }), 'ore')
+})
+await t('UNDER ROCK, NOT UNDER LEAVES: stone, deepslate or soil overhead is underground; leaves, logs and planks are tree cover', () => {
+  const U = M.undergroundFrom
+  assert.equal(typeof U, 'function')
+  assert.equal(U(['stone']), true); assert.equal(U(['deepslate']), true); assert.equal(U(['oak_leaves', 'dirt']), true)
+  assert.equal(U(['grass_block']), true, 'an overhang of turf is terrain')
+  for (const cover of [['oak_leaves'], ['oak_leaves', 'oak_log'], ['birch_leaves', 'spruce_log', 'oak_planks'], ['azalea_leaves', 'vine'], []])
+    assert.equal(U(cover), false, cover.join('+') || 'open sky')
 })
 
 // --------------------------------------------- DRIVEN: gather -> refuse -> explore ---
 // A bot whose pathfinder walks it to each leg's goal, and a world that says what a gather returns in each column.
 // Ground: solid below y=64, air above (so there is sky -- not underground). `stall`: every leg fails and the ground is
 // lava, so the blind step is refused too and the bot cannot move. `blind`: every leg fails, but the blind fallback
-// step really walks BLIND blocks along the yaw it looked at (mineflayer's convention, as stepLineSafe checks it). `ceiling`: rock overhead (underground). `trail`
+// step really walks BLIND blocks along the yaw it looked at (mineflayer's convention, as stepLineSafe checks it). `ceiling`: 'stone' overhead (underground) or an oak 'canopy' (a trunk and leaves: not underground). `trail`
 // records every position the body reached.
 const BLIND = 6
 function fakeBot (start = [8, 64, 8], { stall = false, blind = false, time = 6000, ceiling = false, short = 0 } = {}) {
@@ -184,7 +193,10 @@ function fakeBot (start = [8, 64, 8], { stall = false, blind = false, time = 600
     },
     clearControlStates () {}, deathSitesNow: () => [],
     blockAt: v => stall ? { name: 'lava', boundingBox: 'empty' }
-      : v.y < 64 || (ceiling && v.y >= start[1] + 3) ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' },
+      : v.y < 64 ? { name: 'stone', boundingBox: 'block' }
+      : ceiling === 'stone' && v.y >= start[1] + 3 ? { name: 'stone', boundingBox: 'block' }
+      : ceiling === 'canopy' && v.y >= start[1] + 3 && v.y <= start[1] + 7 ? { name: v.y === start[1] + 3 ? 'oak_log' : 'oak_leaves', boundingBox: 'block' }
+      : { name: 'air', boundingBox: 'empty' },
     findBlocks: () => [], findBlock: () => null,
     pathfinder: { setGoal () {}, stop () {}, goto: async g => {
       if (stall || blind) throw new Error('no path')
@@ -267,22 +279,25 @@ await t("THE CHAIN ENDS on explore's own no_path: the model gets the bot back, a
   assert.equal(w.calls.length, 3, 'the next gather RAN: no second refusal from a spot the walk could not leave')
   assert.equal(again.failClass, 'no_path')
 })
-await t('DRIVEN NIGHT: no bed, a success column 100 blocks off -> the walk stays within 32 blocks', async () => {
+await t('DRIVEN NIGHT: no bed -> no refusal and no trip, the gather runs as before and a cell_exempt row says why; with a bed it walks', async () => {
   let clock = T0; const now = () => (clock += MIN)
+  const rows = []; const emit = row => rows.push(row)
   const bot = fakeBot([108, 64, 8], { time: 18000 }); const w = world(new Set(['6,0']))
-  const go = () => gatherCell({ bot }, { block: 'oak_log', count: 4 }, new AbortController().signal, { inner: w.inner, now })
+  const go = () => gatherCell({ bot }, { block: 'oak_log', count: 4 }, new AbortController().signal, { inner: w.inner, now, emit })
   await go()
   bot.entity.position = new Vec3(8, 64, 8)
   await go(); await go()
   const r = await go()
-  assert.equal(r.failClass, 'cell_refused')
-  const moved = Math.hypot(bot.entity.position.x - 8, bot.entity.position.z - 8)
-  assert.ok(moved <= NIGHT_NEAR + 1, `walked ${moved.toFixed(0)} at night without a bed`)
+  assert.equal(w.calls.length, 4, 'the third failing gather RAN')
+  assert.equal(r.failClass, 'no_path'); assert.equal(here(bot), '0,0', 'no night trip')
+  assert.ok(rows.some(x => x.kind === 'cell_exempt' && /reason=night/.test(x.detail)), JSON.stringify(rows.map(x => x.kind)))
+  assert.ok(!rows.some(x => x.kind === 'cell_refused'))
   bot.bag.push({ name: 'red_bed', count: 1 })
-  bot.entity.position = new Vec3(8, 64, 8); clock += 40 * MIN
-  await go(); await go()
   const withBed = await go()
+  assert.equal(withBed.failClass, 'cell_refused', 'positive control: the same column with a bed in the bag is refused')
   assert.equal(here(bot), '6,0', `with a bed it goes to the success column: ${withBed.detail}`)
+  assert.deepEqual([...new Set(rows.map(x => x.kind))].sort(), ['cell_exempt', 'cell_refused', 'cell_target'],
+    'every row kind as logEvent expects it: it prefixes the underscore itself (`_${kind}`), so these land as _cell_*')
 })
 
 // ------------------------------------------------ review fixes (fa1016f, both engines) ---
@@ -310,26 +325,26 @@ await t('MIXED SEQUENCE: refuse -> walk -> the model explores toward logs -> it 
   await SKILLS.explore.run({ bot }, { blocks: 60, toward: ['oak_log', 'birch_log', 'spruce_log'] }, new AbortController().signal)
   assert.notEqual(here(bot), '0,0', 'the ordinary explore walked the bot back to the column it was refused in')
 })
-await t('NIGHT LIMIT HOLDS DURING MOVEMENT: every leg blocked, the blind fallback steps never carry the body past the limit', async () => {
+await t('THE TRIP LIMIT HOLDS DURING MOVEMENT: every leg blocked, the blind fallback steps never carry the body past the limit', async () => {
   // A target beyond the limit, every pathfinder leg refused, blind steps that really walk: the blocked-leg turn
   // alternates (+60, -60), so the fallback walks steadily outward -- the case the limit exists for.
   const bot = fakeBot(undefined, { blind: true })
   const seq = [0.2, 0.8]; let i = 0
   const realRandom = Math.random; Math.random = () => seq[i++ % 2]
-  try { await SKILLS.explore.run({ bot }, { blocks: 120, cellTarget: { x: 108, z: 8, kind: 'log cell 6,0', limit: NIGHT_NEAR } }, new AbortController().signal) } finally { Math.random = realRandom }
+  try { await SKILLS.explore.run({ bot }, { blocks: 120, cellTarget: { x: 108, z: 8, kind: 'log cell 6,0', limit: LIMIT32 } }, new AbortController().signal) } finally { Math.random = realRandom }
   assert.ok(bot.trail.length >= 3, `positive control: the blind steps really moved the body (${bot.trail.length})`)
   const far = Math.max(...bot.trail.map(p => Math.hypot(p.x - 8, p.z - 8)))
-  assert.ok(far <= NIGHT_NEAR, `the body reached ${far.toFixed(0)} blocks from the trip start against a limit of ${NIGHT_NEAR}`)
-  assert.ok(far >= NIGHT_NEAR - 2 * BLIND, `and it did walk out toward the limit (${far.toFixed(0)})`)
+  assert.ok(far <= LIMIT32, `the body reached ${far.toFixed(0)} blocks from the trip start against a limit of ${LIMIT32}`)
+  assert.ok(far >= LIMIT32 - 2 * BLIND, `and it did walk out toward the limit (${far.toFixed(0)})`)
 })
 await t('THE LIMIT HOLDS FOR LEGS THAT WORK: a target past the limit, every leg walkable -> the body stops at the limit', async () => {
   const bot = fakeBot()
-  const r = await SKILLS.explore.run({ bot }, { blocks: 120, cellTarget: { x: 108, z: 8, kind: 'log cell 6,0', limit: NIGHT_NEAR } }, new AbortController().signal)
+  const r = await SKILLS.explore.run({ bot }, { blocks: 120, cellTarget: { x: 108, z: 8, kind: 'log cell 6,0', limit: LIMIT32 } }, new AbortController().signal)
   const far = Math.max(...bot.trail.map(p => Math.hypot(p.x - 8, p.z - 8)))
-  assert.ok(far <= NIGHT_NEAR, `the body reached ${far.toFixed(0)} against a limit of ${NIGHT_NEAR}: ${r.detail}`)
-  assert.ok(far >= NIGHT_NEAR - 4, `positive control: it walked out to the limit (${far.toFixed(0)})`)
+  assert.ok(far <= LIMIT32, `the body reached ${far.toFixed(0)} against a limit of ${LIMIT32}: ${r.detail}`)
+  assert.ok(far >= LIMIT32 - 4, `positive control: it walked out to the limit (${far.toFixed(0)})`)
 })
-await t('NIGHT LIMIT IS PASSED: the trip carries limit 32 at night without a bed, the full cap by day or with a bed', async () => {
+await t('THE CAP IS PASSED: by day and at night with a bed the trip carries TRIP_CAP; at night without one there is no walk', async () => {
   const limits = []
   const walk = async (_ctx, a) => { limits.push(a.cellTarget.limit); return { status: 'success', detail: 'x' } }
   for (const [time, bed] of [[18000, false], [6000, false], [18000, true]]) {
@@ -339,7 +354,7 @@ await t('NIGHT LIMIT IS PASSED: the trip carries limit 32 at night without a bed
     const go = () => gatherCell({ bot }, { block: 'oak_log', count: 4 }, new AbortController().signal, { inner: w.inner, now, walk })
     await go(); await go(); await go()
   }
-  assert.deepEqual(limits, [NIGHT_NEAR, TRIP_CAP, TRIP_CAP])
+  assert.deepEqual(limits, [TRIP_CAP, TRIP_CAP])
 })
 await t('ABORTED WALK: a walk that throws and leaves the bot in the refused column ends the chain', async () => {
   let clock = T0; const now = () => (clock += MIN)
@@ -361,22 +376,40 @@ await t('BARELY MOVED: a walk of 6 blocks that stays in the column ends the chai
   await go()
   assert.equal(w.calls.length, 3, 'refused again from the column the walk could not leave')
 })
-await t('UNDERGROUND / ORE: never refuse an ore (the tunnel is the remedy) nor any gather under rock (horizontal walks through stone are not executable)', async () => {
-  assert.equal(typeof M.refusalExempt, 'function')
-  assert.equal(M.refusalExempt('iron_ore', { underground: false }), true)
-  assert.equal(M.refusalExempt('deepslate_iron_ore', { underground: false }), true)
-  assert.equal(M.refusalExempt('coal_ore', { underground: false }), true)
-  assert.equal(M.refusalExempt('oak_log', { underground: true }), true)
-  assert.equal(M.refusalExempt('oak_log', { underground: false }), false, 'control: a log on the surface is refusable')
+await t('UNDERGROUND / ORE, DRIVEN: an ore and a gather under a stone ceiling are never refused, and each says so in a cell_exempt row', async () => {
   let clock = T0; const now = () => (clock += MIN)
+  const rows = []; const emit = row => rows.push(row)
   const iron = fakeBot(); const wi = world()
-  const gi = () => gatherCell({ bot: iron }, { block: 'iron_ore', count: 3 }, new AbortController().signal, { inner: wi.inner, now })
+  const gi = () => gatherCell({ bot: iron }, { block: 'iron_ore', count: 3 }, new AbortController().signal, { inner: wi.inner, now, emit })
   await gi(); await gi(); await gi()
   assert.equal(wi.calls.length, 3, 'an iron gather was refused')
-  const deep = fakeBot(undefined, { ceiling: true }); const wd = world()
-  const gd = () => gatherCell({ bot: deep }, { block: 'oak_log', count: 3 }, new AbortController().signal, { inner: wd.inner, now })
+  const deep = fakeBot(undefined, { ceiling: 'stone' }); const wd = world()
+  const gd = () => gatherCell({ bot: deep }, { block: 'oak_log', count: 3 }, new AbortController().signal, { inner: wd.inner, now, emit })
   await gd(); await gd(); await gd()
   assert.equal(wd.calls.length, 3, 'a gather under rock was refused')
+  assert.deepEqual(rows.filter(x => x.kind === 'cell_exempt').map(x => /reason=(\w+)/.exec(x.detail)[1]), ['ore', 'underground'])
+})
+await t('UNDER AN OAK CANOPY (the main population): repeated failures ARE refused -- leaves and trunks overhead are not underground', async () => {
+  let clock = T0; const now = () => (clock += MIN)
+  const bot = fakeBot(undefined, { ceiling: 'canopy' }); const w = world()
+  assert.equal(bot.blockAt(new Vec3(8, 68, 8)).boundingBox, 'block', 'positive control: there IS a solid canopy overhead')
+  const r = await refuseHere(bot, w, now)
+  assert.equal(w.calls.length, 2, 'the third gather under the canopy ran: a tree read as rock')
+  assert.equal(r.failClass, 'cell_refused')
+})
+await t('EXEMPT ROWS ARE THROTTLED, AND EVERY ROW IS NAMED AS LOGGED (logEvent prefixes one underscore)', async () => {
+  let clock = T0; const now = () => (clock += 10_000)   // every call reads the clock; 8 gathers stay well inside 10 min
+  const rows = []; const emit = row => rows.push(row)
+  const bot = fakeBot(undefined, { time: 18000 }); const w = world()
+  const go = () => gatherCell({ bot }, { block: 'oak_log', count: 4 }, new AbortController().signal, { inner: w.inner, now, emit })
+  for (let i = 0; i < 8; i++) await go()
+  assert.ok(clock - T0 < M.EXEMPT_LOG_MS, 'the window under test')
+  const ex = rows.filter(x => x.kind === 'cell_exempt')
+  assert.ok(ex.length >= 1, 'positive control: the exemption was logged')
+  assert.ok(ex.length <= 1, `${ex.length} exempt rows for 6 exemptions inside ${M.EXEMPT_LOG_MS / MIN} min`)
+  clock += M.EXEMPT_LOG_MS; await go()
+  assert.equal(rows.filter(x => x.kind === 'cell_exempt').length, 2, 'after the window the next exemption is logged again')
+  for (const x of rows) assert.ok(!x.kind.startsWith('_'), `${x.kind} would be logged as _${x.kind}`)
 })
 await t('SUCCESS TARGETS: not nearer than 32 blocks (same search disc) and not older than 2 h', () => {
   const mem = createCellMemory()

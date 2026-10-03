@@ -14,7 +14,10 @@
 //   - A refusal is a `no_effect` gather with class cell_refused; the runner's skill row carries no failClass for a
 //     no_effect, so the refusal is identified by its `_cell_refused` row (and `_cell_target` for the walk).
 //     EXCLUDE no_effect gather rows from every gather success/failure denominator, or the refusals read as failures.
-//   - Ores and gathers under rock are never refused (refusalExempt), so iron numbers should not move by this change.
+//   - Never refused (exemptReason): ores, gathers under rock or soil, and anything at night without a bed. Each
+//     would-be refusal it waives is a `_cell_exempt` row (reason=ore|underground|night), at most one per reason,
+//     column and family every EXEMPT_LOG_MS per bot. Read them as the population the change did NOT touch; iron
+//     numbers should not move by it, and night gathers behave as before.
 
 export const CELL = 16
 /** The measured hard-failure classes: the bot found the material and could not reach it. Not nothing_found (a
@@ -32,7 +35,6 @@ export const FRONTIER_MAX = 96
 export const TRIP_CAP = 120
 /** A success older than this is not "where it works now": forests are cut, and other bots cut them. */
 export const SUCCESS_FRESH_MS = 2 * 3600_000
-export const NIGHT_NEAR = 32
 export const BEARING_WALK = 60
 /** Bounds. A (cell, family) entry is ~100 bytes; a visit is one Map slot. LRU by last touch. */
 export const MAX_ENTRIES = 1024
@@ -53,13 +55,42 @@ export function familyOf (block) {
 /** Never refuse an ore: the buried copy is the only copy and the ore tunnel (oretunnel.mjs) is its remedy. */
 const NEVER_REFUSED = /(_ore|^ancient_debris)$/
 export const refusable = family => !!family && !NEVER_REFUSED.test(family)
+
 /**
- * Pure: a gather that is never refused. An ore family, or any gather while the bot is under rock: the remedy is a
- * horizontal explore, and a horizontal walk through stone is not executable from there (CLAUDE.md: a refusal must
- * name a remedy the bot can perform from where it is).
+ * Pure: why a refusal that would otherwise fire is waived, or null. A refusal must name a remedy the bot can perform
+ * from where it is (CLAUDE.md), and the remedy here is a horizontal walk:
+ *   ore          the buried copy is the only copy; the ore tunnel is its remedy, not a walk
+ *   underground  under rock or soil a horizontal walk is a walk through stone
+ *   night        no trips at night without a bed (owner/coordinator decision 10-03): the gather runs as before
  */
-export function refusalExempt (block, { underground = false } = {}) {
-  return underground || !refusable(familyOf(block))
+export function exemptReason (block, { underground = false, night = false, hasBed = false } = {}) {
+  if (!refusable(familyOf(block))) return 'ore'
+  if (underground) return 'underground'
+  if (night && !hasBed) return 'night'
+  return null
+}
+
+/**
+ * Pure: is the bot under ROCK OR SOIL, given the solid blocks above its head (nearest first)? Tree cover is not
+ * underground: the main population this change exists for is a bot under an oak canopy, and the old test (any
+ * boundingBox 'block' overhead) read every canopy as a cave and never refused there (both second reviews).
+ */
+// ONLY ROCK OR SOIL COUNTS: leaves, logs, planks, vines and anything a bot or player built never match, so a canopy, a
+// trunk or a roof reads as open sky. A list of what IS underground, not of what is not (an allowlist, as cognitive.mjs
+// keeps its evidence classes): an unlisted block can only ever fail to waive a refusal, never wrongly waive one.
+const ROCK_OR_SOIL = /^(stone|deepslate|cobblestone|cobbled_deepslate|tuff|calcite|andesite|diorite|granite|dripstone_block|gravel|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|sand|red_sand|sandstone|red_sandstone|netherrack|basalt|smooth_basalt|blackstone|bedrock|obsidian|packed_ice|snow_block|moss_block)$|_ore$|terracotta$/
+export function undergroundFrom (namesAbove) {
+  return (namesAbove ?? []).some(n => ROCK_OR_SOIL.test(norm(n)))
+}
+
+/** One `_cell_exempt` row per reason, column and family per bot in this long. */
+export const EXEMPT_LOG_MS = 10 * 60_000
+export function exemptLogDue (mem, key, now) {
+  if (!mem) return false
+  const last = mem.exemptLogged.get(key)
+  if (last != null && now - last < EXEMPT_LOG_MS) return false
+  touch(mem.exemptLogged, key, now, MAX_ENTRIES)
+  return true
 }
 
 /** Does inventory item `name` count as a gain for `family`? Logs by suffix; otherwise the caller's drop names. */
@@ -78,7 +109,7 @@ const centre = (cx, cz) => ({ x: cx * CELL + CELL / 2, z: cz * CELL + CELL / 2 }
 const entryKey = (cx, cz, family) => `${cx},${cz}|${family}`
 
 export function createCellMemory () {
-  return { entries: new Map(), visits: new Map(), trips: new Map() }
+  return { entries: new Map(), visits: new Map(), trips: new Map(), exemptLogged: new Map() }
 }
 
 function touch (map, key, value, cap) {
@@ -163,14 +194,14 @@ const angDiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
  * than REFUSE_FAILS hard failures since; else the nearest cell not visited in VISIT_FRESH_MS inside the frontier ring
  * (ties broken toward `bearing`); else `bearing` itself (the existing explore bearing), turned 90/-90/180 if its line
  * ends in or crosses a refused cell. Never a refused cell, never the current cell. A success column must be at least
- * FRONTIER_MIN away and no older than SUCCESS_FRESH_MS. Capped at TRIP_CAP; at night, NIGHT_NEAR unless the bot holds
- * a bed.
+ * FRONTIER_MIN away and no older than SUCCESS_FRESH_MS. Capped at TRIP_CAP. (Night is not a shorter trip; it is no
+ * refusal at all -- exemptReason.)
  * Returns { x, z, cx, cz, source, dist, limit } or { none: why }.
  */
-export function chooseTarget (mem, { pos, family, now, night = false, hasBed = false, bearing = 0 }) {
+export function chooseTarget (mem, { pos, family, now, bearing = 0 }) {
   const here = cellOf(pos)
   if (!mem || !here || !family) return { none: 'no_position' }
-  const cap = night && !hasBed ? NIGHT_NEAR : TRIP_CAP
+  const cap = TRIP_CAP
   const refused = (cx, cz) => isRefusedCell(mem, cx, cz, family, now)
   const isHere = (cx, cz) => cx === here.cx && cz === here.cz
   const distTo = (cx, cz) => { const c = centre(cx, cz); return Math.hypot(c.x - pos.x, c.z - pos.z) }

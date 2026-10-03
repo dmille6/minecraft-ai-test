@@ -52,7 +52,7 @@ import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor } from './smelting.mjs'
-import { familyOf, countsFor, cellOf, isRefusedCell, refusalExempt, createCellMemory, visit as visitCell, recordGather, refusalFor, noteTripFailed, chooseTarget, TRIP_CAP } from './cellmem.mjs'
+import { familyOf, countsFor, cellOf, isRefusedCell, exemptReason, undergroundFrom, exemptLogDue, createCellMemory, visit as visitCell, recordGather, refusalFor, noteTripFailed, chooseTarget, TRIP_CAP } from './cellmem.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -2271,7 +2271,19 @@ function noteCellVisit (bot) {
   try { const p = bot?.entity?.position; if (p) visitCell(cellMemoryOf(bot), p, Date.now()) } catch { /* never costs a skill its turn */ }
 }
 
-export async function gatherCell (ctx, args, signal, { inner = gather, walk = explore, now = () => Date.now() } = {}) {
+/** The solid blocks over the bot's head (nearest first, 2..12 up), for undergroundFrom. Unloaded reads as sky. */
+function solidAbove (bot, up = 12) {
+  const at = bot?.entity?.position
+  const out = []
+  if (!at?.offset || !bot.blockAt) return out
+  for (let dy = 2; dy <= up; dy++) {
+    const b = bot.blockAt(at.offset(0, dy, 0))
+    if (b && b.boundingBox === 'block') out.push(b.name)
+  }
+  return out
+}
+
+export async function gatherCell (ctx, args, signal, { inner = gather, walk = explore, now = () => Date.now(), emit = logEvent } = {}) {
   const { bot } = ctx
   const mem = cellMemoryOf(bot)
   const p = bot?.entity?.position
@@ -2280,20 +2292,27 @@ export async function gatherCell (ctx, args, signal, { inner = gather, walk = ex
   try { block = resolveBlockName(bot, args?.block).name ?? args?.block } catch { block = args?.block }
   const family = familyOf(block)
 
-  // NEVER REFUSED: an ore (its remedy is the ore tunnel) or any gather under rock (a horizontal walk through stone is
-  // not executable from there). Their outcomes are still recorded.
-  let exempt = true
-  try { exempt = refusalExempt(block, { underground: hasCeiling(bot) }) } catch { exempt = true }
-  const ref = start && family && !exempt ? refusalFor(mem, start, family, now()) : null
+  let ref = start && family ? refusalFor(mem, start, family, now()) : null
   if (ref) {
+    // WAIVED, AND SAID SO: an ore, a bot under rock or soil, or night without a bed (exemptReason). The gather runs as
+    // it always did; a throttled `_cell_exempt` row names the population this change did not touch.
     const hasBed = (bot.inventory?.items?.() ?? []).some(i => String(i.name).endsWith('_bed'))
-    const target = chooseTarget(mem, { pos: start, family, now: now(), night: isNightTime(bot), hasBed,
-                                       bearing: exploreBearing(null, start, () => 0.5) })
+    let why
+    try { why = exemptReason(block, { underground: undergroundFrom(solidAbove(bot)), night: isNightTime(bot), hasBed }) } catch { why = 'unknown' }
+    if (why) {
+      if (exemptLogDue(mem, `${why}|${ref.cell}|${family}`, now())) {
+        emit({ kind: 'cell_exempt', status: 'skipped', detail: `reason=${why} cell=${ref.cell} family=${family} fails=${ref.fails} fail_reason=${ref.reason}`, snapshot: snapshot(bot) })
+      }
+      ref = null
+    }
+  }
+  if (ref) {
+    const target = chooseTarget(mem, { pos: start, family, now: now(), bearing: exploreBearing(null, start, () => 0.5) })
     if (target.none) {
       // NO EXECUTABLE REMEDY, SO NO REFUSAL: every way out is a refused column. The gather runs as it always did.
-      logEvent({ kind: '_cell_target', status: 'skipped', detail: `cell=${ref.cell} family=${family} fails=${ref.fails} none: ${target.none}; not refused, the gather runs`, snapshot: snapshot(bot) })
+      emit({ kind: 'cell_target', status: 'skipped', detail: `cell=${ref.cell} family=${family} fails=${ref.fails} none: ${target.none}; not refused, the gather runs`, snapshot: snapshot(bot) })
     } else {
-      logEvent({ kind: '_cell_refused', status: 'no_effect',
+      emit({ kind: 'cell_refused', status: 'no_effect',
                  detail: `cell=${ref.cell} family=${family} fails=${ref.fails} reason=${ref.reason}`,
                  snapshot: snapshot(bot) })
       let r = null, arrived = false
@@ -2309,7 +2328,7 @@ export async function gatherCell (ctx, args, signal, { inner = gather, walk = ex
         const qc = cellOf(q)
         const stillHere = !!qc && qc.cx === ref.cx && qc.cz === ref.cz
         if (r?.status === 'failed' || (!arrived && stillHere)) noteTripFailed(mem, ref.cx, ref.cz, family, now())
-        logEvent({ kind: '_cell_target', status: arrived ? 'success' : 'no_effect',
+        emit({ kind: 'cell_target', status: arrived ? 'success' : 'no_effect',
                    detail: `target=${target.cx},${target.cz} source=${target.source} dist=${Math.round(target.dist)} limit=${target.limit} ` +
                            `${arrived ? 'arrived' : 'not_arrived'} explore=${r?.status ?? 'aborted'}${r?.failClass ? `/${r.failClass}` : ''}`,
                    snapshot: snapshot(bot) })
@@ -4069,8 +4088,8 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
   // explores on 28-29 Sep had no target -- but a task whose material has no sighting now lands here on purpose.
   let ang = exploreBearing(heading, start)
 
-  // A CELL TRIP IS BOUNDED BY DISTANCE FROM ITS START, NOT BY BLOCKS WALKED (Codex review of fa1016f): `limit` (32 at
-  // night without a bed, else TRIP_CAP) holds on the body itself -- each leg's goal is pulled inside it, and a blind
+  // A CELL TRIP IS BOUNDED BY DISTANCE FROM ITS START, NOT BY BLOCKS WALKED (Codex review of fa1016f): `limit` (TRIP_CAP,
+  // or less if the caller says so) holds on the body itself -- each leg's goal is pulled inside it, and a blind
   // fallback step that could carry the body past it is not taken. Its walking budget is not the binding constraint.
   const limit = cellTarget ? Math.min(Number(cellTarget.limit) || TRIP_CAP, TRIP_CAP) : Infinity
   const fromStart = p => Math.hypot(p.x - start.x, p.z - start.z)
