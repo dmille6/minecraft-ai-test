@@ -1,0 +1,2812 @@
+{
+ "schema": 1,
+ "sites": [
+  {
+   "kind": "entombed",
+   "x": 307,
+   "y": 47,
+   "z": 196,
+   "count": 252,
+   "last": 1790865417559,
+   "by": [
+    "hive-a-Bravo"
+   ],
+   "decayedAt": 1790951817559
+  },
+  {
+   "kind": "entombed",
+   "x": 350,
+   "y": 57,
+   "z": 187,
+   "count": 577,
+   "last": 1790994440893,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Echo"
+   ]
+  },
+  {
+   "kind": "drowning",
+   "x": 541,
+   "y": 7,
+   "z": 219,
+   "count": 1,
+   "last": 1790801435266,
+   "by": [
+    "hive-a-Alpha"
+   ],
+   "decayedAt": 1790974235266
+  },
+  {
+   "kind": "drowning",
+   "x": 549,
+   "y": 7,
+   "z": 216,
+   "count": 8,
+   "last": 1790921904384,
+   "by": [
+    "hive-a-Alpha"
+   ],
+   "decayedAt": 1790965104384
+  },
+  {
+   "kind": "drowning",
+   "x": 307,
+   "y": 48,
+   "z": 196,
+   "count": 1,
+   "last": 1790865409557,
+   "by": [
+    "hive-a-Bravo"
+   ],
+   "decayedAt": 1790951809557
+  },
+  {
+   "kind": "entombed",
+   "x": 268,
+   "y": 58,
+   "z": 171,
+   "count": 1,
+   "last": 1790911221740,
+   "by": [
+    "hive-a-Bravo"
+   ],
+   "decayedAt": 1790954421740
+  },
+  {
+   "kind": "entombed",
+   "x": 477,
+   "y": 63,
+   "z": 80,
+   "count": 1,
+   "last": 1790918231983,
+   "by": [
+    "hive-a-Bravo"
+   ],
+   "decayedAt": 1790961431983
+  },
+  {
+   "kind": "entombed",
+   "x": 350,
+   "y": 49,
+   "z": 160,
+   "count": 2,
+   "last": 1790963273794,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 410,
+   "y": 62,
+   "z": 233,
+   "count": 1,
+   "last": 1790946459878,
+   "by": [
+    "hive-a-Bravo"
+   ],
+   "decayedAt": 1790989659878
+  },
+  {
+   "kind": "death:drowning",
+   "x": 352,
+   "y": 60,
+   "z": 186,
+   "count": 4,
+   "deaths": 1,
+   "last": 1790961913007,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 436,
+   "y": 34,
+   "z": 345,
+   "count": 1,
+   "last": 1790965255759,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "death:fall",
+   "x": 476,
+   "y": -22,
+   "z": 331,
+   "count": 4,
+   "deaths": 1,
+   "last": 1790967723001,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 379,
+   "y": 63,
+   "z": 163,
+   "count": 2,
+   "last": 1790969931542,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 407,
+   "y": 61,
+   "z": 170,
+   "count": 2,
+   "last": 1790982620320,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 392,
+   "y": 68,
+   "z": 236,
+   "count": 1,
+   "last": 1790975098621,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 479,
+   "y": 61,
+   "z": 151,
+   "count": 3,
+   "last": 1790975431852,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 374,
+   "y": 66,
+   "z": 122,
+   "count": 1,
+   "last": 1790977464730,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 320,
+   "y": 68,
+   "z": 93,
+   "count": 1,
+   "last": 1790979556058,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 389,
+   "y": 65,
+   "z": 123,
+   "count": 2,
+   "last": 1790980257326,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "entombed",
+   "x": 348,
+   "y": 62,
+   "z": 205,
+   "count": 1,
+   "last": 1790982805158,
+   "by": [
+    "hive-a-Comet"
+   ]
+  }
+ ],
+ "unreachable": {
+  "gather_dirt_16": {
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Delta",
+    "hive-a-Echo",
+    "hive-a-Alpha"
+   ],
+   "last": 1790992301609,
+   "detail": "",
+   "where": {
+    "hive-a-Bravo": {
+     "x": 402,
+     "y": 67,
+     "z": 163
+    },
+    "hive-a-Comet": {
+     "x": 356,
+     "y": 65,
+     "z": 117
+    },
+    "hive-a-Delta": {
+     "x": 377,
+     "y": 58,
+     "z": 130
+    },
+    "hive-a-Echo": {
+     "x": 350,
+     "y": 57,
+     "z": 186
+    },
+    "hive-a-Alpha": {
+     "x": 541,
+     "y": 7,
+     "z": 219
+    }
+   }
+  },
+  "stockpile_wood": {
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Bravo",
+    "hive-a-Alpha",
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ],
+   "last": 1790980892509,
+   "detail": "",
+   "where": {
+    "hive-a-Echo": {
+     "x": 350,
+     "y": 57,
+     "z": 186
+    },
+    "hive-a-Bravo": {
+     "x": 406,
+     "y": 67,
+     "z": 199
+    },
+    "hive-a-Alpha": {
+     "x": 549,
+     "y": 7,
+     "z": 216
+    },
+    "hive-a-Delta": {
+     "x": 378,
+     "y": 52,
+     "z": 182
+    },
+    "hive-a-Comet": {
+     "x": 356,
+     "y": 62,
+     "z": 178
+    }
+   }
+  },
+  "gather_oak_log_12": {
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Bravo",
+    "hive-a-Alpha",
+    "hive-a-Echo",
+    "hive-a-Comet"
+   ],
+   "last": 1790981900677,
+   "detail": "",
+   "where": {
+    "hive-a-Delta": {
+     "x": 354,
+     "y": 49,
+     "z": 180
+    },
+    "hive-a-Bravo": {
+     "x": 412,
+     "y": 64,
+     "z": 172
+    },
+    "hive-a-Alpha": {
+     "x": 549,
+     "y": 7,
+     "z": 216
+    },
+    "hive-a-Echo": {
+     "x": 350,
+     "y": 57,
+     "z": 186
+    },
+    "hive-a-Comet": {
+     "x": 353,
+     "y": 50,
+     "z": 184
+    }
+   }
+  },
+  "gather_sand_8": {
+   "by": [
+    "hive-a-Alpha",
+    "hive-a-Bravo",
+    "hive-a-Delta",
+    "hive-a-Echo",
+    "hive-a-Comet"
+   ],
+   "last": 1790994205000,
+   "detail": "",
+   "where": {
+    "hive-a-Alpha": {
+     "x": 549,
+     "y": 7,
+     "z": 216
+    },
+    "hive-a-Bravo": {
+     "x": 431,
+     "y": 71,
+     "z": 196
+    },
+    "hive-a-Delta": {
+     "x": 357,
+     "y": 57,
+     "z": 109
+    },
+    "hive-a-Echo": {
+     "x": 350,
+     "y": 57,
+     "z": 186
+    },
+    "hive-a-Comet": {
+     "x": 457,
+     "y": 66,
+     "z": 138
+    }
+   }
+  },
+  "patrol": {
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Delta",
+    "hive-a-Alpha",
+    "hive-a-Echo"
+   ],
+   "last": 1790989847038,
+   "detail": "",
+   "where": {
+    "hive-a-Bravo": {
+     "x": 369,
+     "y": 70,
+     "z": 101
+    },
+    "hive-a-Comet": {
+     "x": 368,
+     "y": 49,
+     "z": 183
+    },
+    "hive-a-Delta": {
+     "x": 333,
+     "y": 65,
+     "z": 126
+    },
+    "hive-a-Alpha": {
+     "x": 365,
+     "y": 36,
+     "z": 185
+    },
+    "hive-a-Echo": {
+     "x": 350,
+     "y": 57,
+     "z": 187
+    }
+   }
+  },
+  "gather_iron_ore_3": {
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Comet",
+    "hive-a-Delta",
+    "hive-a-Bravo",
+    "hive-a-Alpha"
+   ],
+   "last": 1790971059701,
+   "detail": "",
+   "where": {
+    "hive-a-Echo": {
+     "x": 350,
+     "y": 57,
+     "z": 186
+    },
+    "hive-a-Comet": {
+     "x": 355,
+     "y": 73,
+     "z": 149
+    },
+    "hive-a-Delta": {
+     "x": 365,
+     "y": 68,
+     "z": 161
+    },
+    "hive-a-Bravo": {
+     "x": 322,
+     "y": 57,
+     "z": 136
+    },
+    "hive-a-Alpha": {
+     "x": 486,
+     "y": 46,
+     "z": 197
+    }
+   }
+  },
+  "gather_cobblestone_8": {
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Alpha",
+    "hive-a-Echo",
+    "hive-a-Delta"
+   ],
+   "last": 1790984500058,
+   "detail": "",
+   "where": {
+    "hive-a-Bravo": {
+     "x": 396,
+     "y": 66,
+     "z": 170
+    },
+    "hive-a-Comet": {
+     "x": 350,
+     "y": 57,
+     "z": 186
+    },
+    "hive-a-Alpha": {
+     "x": 549,
+     "y": 7,
+     "z": 216
+    },
+    "hive-a-Echo": {
+     "x": 350,
+     "y": 57,
+     "z": 186
+    },
+    "hive-a-Delta": {
+     "x": 303,
+     "y": 63,
+     "z": 259
+    }
+   }
+  }
+ },
+ "resources": [
+  {
+   "kind": "iron_ore",
+   "x": 311,
+   "y": 50,
+   "z": 141,
+   "count": 61,
+   "last": 1790994933271,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 321,
+   "y": 72,
+   "z": 88,
+   "count": 21,
+   "last": 1790983990940,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 333,
+   "y": 52,
+   "z": 83,
+   "count": 18,
+   "last": 1790993637293,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 329,
+   "y": 64,
+   "z": 112,
+   "count": 45,
+   "last": 1790994948308,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 357,
+   "y": 74,
+   "z": 279,
+   "count": 38,
+   "last": 1790984889393,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 558,
+   "y": 5,
+   "z": 213,
+   "count": 545,
+   "last": 1790994936940,
+   "by": [
+    "hive-a-Alpha"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 306,
+   "y": 74,
+   "z": 120,
+   "count": 22,
+   "last": 1790994161307,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 386,
+   "y": 69,
+   "z": 302,
+   "count": 19,
+   "last": 1790984527318,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 358,
+   "y": 64,
+   "z": 291,
+   "count": 18,
+   "last": 1790984527423,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 373,
+   "y": 67,
+   "z": 297,
+   "count": 1,
+   "last": 1790984507288,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 390,
+   "y": 37,
+   "z": 295,
+   "count": 1,
+   "last": 1790984507375,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 396,
+   "y": 64,
+   "z": 169,
+   "count": 161,
+   "last": 1790993388200,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 409,
+   "y": 73,
+   "z": 175,
+   "count": 218,
+   "last": 1790994356372,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 306,
+   "y": 65,
+   "z": 124,
+   "count": 13,
+   "last": 1790994363825,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 291,
+   "y": 62,
+   "z": 124,
+   "count": 31,
+   "last": 1790994363847,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 353,
+   "y": 64,
+   "z": 240,
+   "count": 16,
+   "last": 1790991068939,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 354,
+   "y": 71,
+   "z": 254,
+   "count": 1,
+   "last": 1790984668393,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 372,
+   "y": 75,
+   "z": 263,
+   "count": 24,
+   "last": 1790990660703,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 261,
+   "y": 70,
+   "z": 151,
+   "count": 24,
+   "last": 1790987056316,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 260,
+   "y": 64,
+   "z": 134,
+   "count": 152,
+   "last": 1790987801992,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 265,
+   "y": 61,
+   "z": 135,
+   "count": 139,
+   "last": 1790987701052,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 257,
+   "y": 63,
+   "z": 136,
+   "count": 156,
+   "last": 1790994181678,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 271,
+   "y": 59,
+   "z": 134,
+   "count": 108,
+   "last": 1790994363841,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 271,
+   "y": 62,
+   "z": 140,
+   "count": 146,
+   "last": 1790987680759,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 237,
+   "y": 64,
+   "z": 128,
+   "count": 17,
+   "last": 1790994343535,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 283,
+   "y": 61,
+   "z": 136,
+   "count": 152,
+   "last": 1790994363792,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 383,
+   "y": 57,
+   "z": 258,
+   "count": 3,
+   "last": 1790985110859,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 356,
+   "y": 65,
+   "z": 149,
+   "count": 139,
+   "last": 1790994933248,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 413,
+   "y": 56,
+   "z": 173,
+   "count": 214,
+   "last": 1790993831608,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 376,
+   "y": 66,
+   "z": 99,
+   "count": 49,
+   "last": 1790994941263,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 391,
+   "y": 55,
+   "z": 191,
+   "count": 7,
+   "last": 1790991471981,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 244,
+   "y": 55,
+   "z": 149,
+   "count": 63,
+   "last": 1790987378845,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 393,
+   "y": 66,
+   "z": 90,
+   "count": 99,
+   "last": 1790994085776,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 420,
+   "y": 54,
+   "z": 196,
+   "count": 112,
+   "last": 1790994356439,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 430,
+   "y": 64,
+   "z": 215,
+   "count": 19,
+   "last": 1790994255795,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 433,
+   "y": 64,
+   "z": 222,
+   "count": 1,
+   "last": 1790985479995,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 418,
+   "y": 65,
+   "z": 218,
+   "count": 42,
+   "last": 1790994255814,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 434,
+   "y": 54,
+   "z": 206,
+   "count": 147,
+   "last": 1790994356548,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 422,
+   "y": 56,
+   "z": 223,
+   "count": 32,
+   "last": 1790994255858,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 350,
+   "y": 57,
+   "z": 187,
+   "count": 477,
+   "last": 1790994929751,
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 349,
+   "y": 51,
+   "z": 183,
+   "count": 476,
+   "last": 1790994929756,
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 440,
+   "y": 57,
+   "z": 227,
+   "count": 1,
+   "last": 1790985500307,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 407,
+   "y": 65,
+   "z": 208,
+   "count": 70,
+   "last": 1790994032948,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 404,
+   "y": 70,
+   "z": 204,
+   "count": 45,
+   "last": 1790994032943,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 433,
+   "y": 68,
+   "z": 152,
+   "count": 30,
+   "last": 1790992027621,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 456,
+   "y": 48,
+   "z": 147,
+   "count": 169,
+   "last": 1790991114820,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 447,
+   "y": 64,
+   "z": 161,
+   "count": 36,
+   "last": 1790991114882,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 440,
+   "y": 60,
+   "z": 163,
+   "count": 45,
+   "last": 1790994356504,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 449,
+   "y": 59,
+   "z": 162,
+   "count": 52,
+   "last": 1790990463175,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 350,
+   "y": 57,
+   "z": 186,
+   "count": 524,
+   "last": 1790994933297,
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Delta",
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 452,
+   "y": 61,
+   "z": 149,
+   "count": 33,
+   "last": 1790991114946,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 468,
+   "y": 69,
+   "z": 175,
+   "count": 110,
+   "last": 1790993529606,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 474,
+   "y": 64,
+   "z": 167,
+   "count": 100,
+   "last": 1790992952302,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 477,
+   "y": 55,
+   "z": 175,
+   "count": 89,
+   "last": 1790992952314,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 470,
+   "y": 59,
+   "z": 173,
+   "count": 157,
+   "last": 1790990088368,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 492,
+   "y": 62,
+   "z": 165,
+   "count": 144,
+   "last": 1790990088453,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 457,
+   "y": 50,
+   "z": 196,
+   "count": 67,
+   "last": 1790993529638,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 455,
+   "y": 55,
+   "z": 188,
+   "count": 66,
+   "last": 1790994356543,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 446,
+   "y": 66,
+   "z": 94,
+   "count": 65,
+   "last": 1790993823383,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 446,
+   "y": 62,
+   "z": 85,
+   "count": 12,
+   "last": 1790991276394,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 446,
+   "y": 62,
+   "z": 78,
+   "count": 22,
+   "last": 1790992572387,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 435,
+   "y": 48,
+   "z": 104,
+   "count": 82,
+   "last": 1790993823487,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 444,
+   "y": 56,
+   "z": 93,
+   "count": 136,
+   "last": 1790993904237,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 464,
+   "y": 75,
+   "z": 89,
+   "count": 30,
+   "last": 1790988332092,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 469,
+   "y": 71,
+   "z": 84,
+   "count": 77,
+   "last": 1790988332190,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 471,
+   "y": 58,
+   "z": 86,
+   "count": 77,
+   "last": 1790988332208,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 470,
+   "y": 60,
+   "z": 83,
+   "count": 78,
+   "last": 1790988332213,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 468,
+   "y": 62,
+   "z": 85,
+   "count": 62,
+   "last": 1790988979442,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 472,
+   "y": 66,
+   "z": 90,
+   "count": 73,
+   "last": 1790988332196,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 502,
+   "y": 74,
+   "z": 69,
+   "count": 50,
+   "last": 1790988311837,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 502,
+   "y": 66,
+   "z": 74,
+   "count": 2,
+   "last": 1790987325268,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 503,
+   "y": 65,
+   "z": 80,
+   "count": 2,
+   "last": 1790987325290,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 497,
+   "y": 64,
+   "z": 78,
+   "count": 3,
+   "last": 1790987345547,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 496,
+   "y": 53,
+   "z": 49,
+   "count": 2,
+   "last": 1790987325318,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 496,
+   "y": 53,
+   "z": 68,
+   "count": 50,
+   "last": 1790988311984,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 478,
+   "y": 62,
+   "z": 202,
+   "count": 35,
+   "last": 1790988061974,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 473,
+   "y": 56,
+   "z": 201,
+   "count": 1,
+   "last": 1790987376634,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 488,
+   "y": 54,
+   "z": 201,
+   "count": 32,
+   "last": 1790988061992,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 478,
+   "y": 61,
+   "z": 216,
+   "count": 4,
+   "last": 1790987437117,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 505,
+   "y": 59,
+   "z": 226,
+   "count": 3,
+   "last": 1790987436925,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 492,
+   "y": 59,
+   "z": 225,
+   "count": 3,
+   "last": 1790987437053,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 480,
+   "y": 51,
+   "z": 224,
+   "count": 3,
+   "last": 1790987437087,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 510,
+   "y": 58,
+   "z": 212,
+   "count": 3,
+   "last": 1790987437111,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 485,
+   "y": 45,
+   "z": 198,
+   "count": 27,
+   "last": 1790987981510,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 501,
+   "y": 58,
+   "z": 191,
+   "count": 31,
+   "last": 1790988062121,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 273,
+   "y": 56,
+   "z": 112,
+   "count": 7,
+   "last": 1790994363836,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 286,
+   "y": 57,
+   "z": 120,
+   "count": 20,
+   "last": 1790994363831,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 350,
+   "y": 57,
+   "z": 118,
+   "count": 136,
+   "last": 1790994948358,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 311,
+   "y": 62,
+   "z": 143,
+   "count": 40,
+   "last": 1790994666027,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 362,
+   "y": 56,
+   "z": 108,
+   "count": 158,
+   "last": 1790994948273,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 363,
+   "y": 55,
+   "z": 111,
+   "count": 139,
+   "last": 1790994948346,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 485,
+   "y": 70,
+   "z": 107,
+   "count": 32,
+   "last": 1790988979195,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 474,
+   "y": 65,
+   "z": 119,
+   "count": 48,
+   "last": 1790989302042,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 474,
+   "y": 65,
+   "z": 118,
+   "count": 49,
+   "last": 1790989998699,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 471,
+   "y": 63,
+   "z": 116,
+   "count": 69,
+   "last": 1790993823455,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 480,
+   "y": 42,
+   "z": 173,
+   "count": 97,
+   "last": 1790990088357,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 502,
+   "y": 61,
+   "z": 163,
+   "count": 1,
+   "last": 1790988446013,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 483,
+   "y": 69,
+   "z": 149,
+   "count": 94,
+   "last": 1790990088168,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 482,
+   "y": 60,
+   "z": 148,
+   "count": 94,
+   "last": 1790990068176,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 485,
+   "y": 64,
+   "z": 144,
+   "count": 53,
+   "last": 1790989786578,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 365,
+   "y": 65,
+   "z": 121,
+   "count": 16,
+   "last": 1790994927845,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 347,
+   "y": 54,
+   "z": 188,
+   "count": 296,
+   "last": 1790994929761,
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 360,
+   "y": 75,
+   "z": 116,
+   "count": 77,
+   "last": 1790994948260,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 435,
+   "y": 46,
+   "z": 142,
+   "count": 31,
+   "last": 1790991114926,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 426,
+   "y": 61,
+   "z": 139,
+   "count": 56,
+   "last": 1790992047790,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 447,
+   "y": 53,
+   "z": 134,
+   "count": 29,
+   "last": 1790993722240,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 447,
+   "y": 48,
+   "z": 130,
+   "count": 46,
+   "last": 1790993823408,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 366,
+   "y": 68,
+   "z": 210,
+   "count": 3,
+   "last": 1790990826677,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 359,
+   "y": 78,
+   "z": 206,
+   "count": 14,
+   "last": 1790991068970,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 405,
+   "y": 57,
+   "z": 142,
+   "count": 48,
+   "last": 1790994106195,
+   "by": [
+    "hive-a-Bravo",
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 329,
+   "y": 70,
+   "z": 171,
+   "count": 9,
+   "last": 1790994933215,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 362,
+   "y": 63,
+   "z": 140,
+   "count": 36,
+   "last": 1790994791891,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 383,
+   "y": 62,
+   "z": 118,
+   "count": 21,
+   "last": 1790994941269,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 386,
+   "y": 64,
+   "z": 123,
+   "count": 53,
+   "last": 1790994941280,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 328,
+   "y": 61,
+   "z": 150,
+   "count": 24,
+   "last": 1790994569415,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 320,
+   "y": 41,
+   "z": 150,
+   "count": 10,
+   "last": 1790994771762,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 307,
+   "y": 63,
+   "z": 117,
+   "count": 19,
+   "last": 1790994569432,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 283,
+   "y": 61,
+   "z": 112,
+   "count": 2,
+   "last": 1790990359144,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 397,
+   "y": 62,
+   "z": 226,
+   "count": 6,
+   "last": 1790990660917,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 420,
+   "y": 64,
+   "z": 179,
+   "count": 11,
+   "last": 1790994356494,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 430,
+   "y": 64,
+   "z": 194,
+   "count": 34,
+   "last": 1790994336490,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 393,
+   "y": 76,
+   "z": 235,
+   "count": 1,
+   "last": 1790990640688,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 388,
+   "y": 81,
+   "z": 228,
+   "count": 1,
+   "last": 1790990640876,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 390,
+   "y": 80,
+   "z": 225,
+   "count": 1,
+   "last": 1790990640882,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 405,
+   "y": 64,
+   "z": 246,
+   "count": 2,
+   "last": 1790990660845,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 401,
+   "y": 54,
+   "z": 227,
+   "count": 1,
+   "last": 1790990641103,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 351,
+   "y": 57,
+   "z": 177,
+   "count": 308,
+   "last": 1790994933287,
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Delta",
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 414,
+   "y": 76,
+   "z": 262,
+   "count": 1,
+   "last": 1790990660794,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 415,
+   "y": 66,
+   "z": 275,
+   "count": 1,
+   "last": 1790990660825,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 405,
+   "y": 67,
+   "z": 263,
+   "count": 7,
+   "last": 1790990781594,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 435,
+   "y": 81,
+   "z": 257,
+   "count": 6,
+   "last": 1790990781433,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 444,
+   "y": 70,
+   "z": 271,
+   "count": 6,
+   "last": 1790990781573,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 444,
+   "y": 68,
+   "z": 270,
+   "count": 6,
+   "last": 1790990781578,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 445,
+   "y": 58,
+   "z": 263,
+   "count": 6,
+   "last": 1790990781589,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 406,
+   "y": 63,
+   "z": 113,
+   "count": 68,
+   "last": 1790994106127,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 414,
+   "y": 47,
+   "z": 125,
+   "count": 44,
+   "last": 1790994106168,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 415,
+   "y": 47,
+   "z": 116,
+   "count": 84,
+   "last": 1790994106174,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 412,
+   "y": 39,
+   "z": 119,
+   "count": 39,
+   "last": 1790994106216,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 413,
+   "y": 50,
+   "z": 125,
+   "count": 42,
+   "last": 1790994106121,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 353,
+   "y": 60,
+   "z": 190,
+   "count": 271,
+   "last": 1790994929737,
+   "by": [
+    "hive-a-Echo",
+    "hive-a-Bravo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 356,
+   "y": 60,
+   "z": 146,
+   "count": 62,
+   "last": 1790994933254,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Bravo",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 344,
+   "y": 65,
+   "z": 239,
+   "count": 3,
+   "last": 1790990887405,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 328,
+   "y": 63,
+   "z": 235,
+   "count": 1,
+   "last": 1790990867109,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 327,
+   "y": 53,
+   "z": 236,
+   "count": 1,
+   "last": 1790990867119,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 422,
+   "y": 41,
+   "z": 114,
+   "count": 39,
+   "last": 1790993339704,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 446,
+   "y": 67,
+   "z": 120,
+   "count": 53,
+   "last": 1790993823236,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 426,
+   "y": 73,
+   "z": 72,
+   "count": 27,
+   "last": 1790992572309,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 438,
+   "y": 69,
+   "z": 54,
+   "count": 6,
+   "last": 1790992269753,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 357,
+   "y": 60,
+   "z": 121,
+   "count": 31,
+   "last": 1790994948314,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 395,
+   "y": 69,
+   "z": 69,
+   "count": 6,
+   "last": 1790992289811,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 396,
+   "y": 64,
+   "z": 67,
+   "count": 11,
+   "last": 1790992269674,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 397,
+   "y": 58,
+   "z": 68,
+   "count": 20,
+   "last": 1790993273490,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 395,
+   "y": 72,
+   "z": 34,
+   "count": 9,
+   "last": 1790992229407,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 399,
+   "y": 62,
+   "z": 66,
+   "count": 19,
+   "last": 1790993273546,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 550,
+   "y": 5,
+   "z": 215,
+   "count": 144,
+   "last": 1790994936918,
+   "by": [
+    "hive-a-Alpha"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 413,
+   "y": 64,
+   "z": 85,
+   "count": 13,
+   "last": 1790992572358,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 416,
+   "y": 62,
+   "z": 84,
+   "count": 13,
+   "last": 1790992572426,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 420,
+   "y": 59,
+   "z": 92,
+   "count": 12,
+   "last": 1790992572376,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 367,
+   "y": 65,
+   "z": 144,
+   "count": 90,
+   "last": 1790994933221,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo",
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 414,
+   "y": 71,
+   "z": 100,
+   "count": 10,
+   "last": 1790992814003,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 388,
+   "y": 66,
+   "z": 157,
+   "count": 2,
+   "last": 1790993004113,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 355,
+   "y": 39,
+   "z": 158,
+   "count": 20,
+   "last": 1790994665944,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "birch_log",
+   "x": 418,
+   "y": 48,
+   "z": 147,
+   "count": 3,
+   "last": 1790993085116,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 367,
+   "y": 39,
+   "z": 148,
+   "count": 2,
+   "last": 1790994416801,
+   "by": [
+    "hive-a-Comet",
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 387,
+   "y": 57,
+   "z": 179,
+   "count": 20,
+   "last": 1790994658212,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 411,
+   "y": 52,
+   "z": 174,
+   "count": 2,
+   "last": 1790993085141,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 407,
+   "y": 54,
+   "z": 174,
+   "count": 3,
+   "last": 1790993145768,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 376,
+   "y": 73,
+   "z": 98,
+   "count": 9,
+   "last": 1790993273403,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 380,
+   "y": 60,
+   "z": 83,
+   "count": 9,
+   "last": 1790993273508,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 350,
+   "y": 69,
+   "z": 56,
+   "count": 19,
+   "last": 1790993657209,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 335,
+   "y": 64,
+   "z": 56,
+   "count": 19,
+   "last": 1790993657258,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 320,
+   "y": 57,
+   "z": 66,
+   "count": 18,
+   "last": 1790993637328,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 331,
+   "y": 86,
+   "z": 44,
+   "count": 18,
+   "last": 1790993637341,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 348,
+   "y": 59,
+   "z": 56,
+   "count": 19,
+   "last": 1790993657309,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 440,
+   "y": 62,
+   "z": 188,
+   "count": 19,
+   "last": 1790994356558,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 443,
+   "y": 56,
+   "z": 184,
+   "count": 6,
+   "last": 1790994336366,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 544,
+   "y": 12,
+   "z": 212,
+   "count": 73,
+   "last": 1790994936904,
+   "by": [
+    "hive-a-Alpha"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 529,
+   "y": 6,
+   "z": 221,
+   "count": 73,
+   "last": 1790994936931,
+   "by": [
+    "hive-a-Alpha"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 550,
+   "y": 10,
+   "z": 210,
+   "count": 73,
+   "last": 1790994936948,
+   "by": [
+    "hive-a-Alpha"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 548,
+   "y": 7,
+   "z": 215,
+   "count": 73,
+   "last": 1790994936954,
+   "by": [
+    "hive-a-Alpha"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 328,
+   "y": 58,
+   "z": 54,
+   "count": 1,
+   "last": 1790993516370,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 415,
+   "y": 62,
+   "z": 204,
+   "count": 7,
+   "last": 1790993690456,
+   "by": [
+    "hive-a-Bravo"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 351,
+   "y": 59,
+   "z": 67,
+   "count": 1,
+   "last": 1790993657269,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 344,
+   "y": 58,
+   "z": 79,
+   "count": 1,
+   "last": 1790993657275,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 300,
+   "y": 65,
+   "z": 114,
+   "count": 3,
+   "last": 1790994161391,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 284,
+   "y": 61,
+   "z": 136,
+   "count": 17,
+   "last": 1790994060918,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 292,
+   "y": 51,
+   "z": 162,
+   "count": 10,
+   "last": 1790994060943,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 350,
+   "y": 52,
+   "z": 187,
+   "count": 53,
+   "last": 1790994929731,
+   "by": [
+    "hive-a-Echo"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 298,
+   "y": 60,
+   "z": 161,
+   "count": 1,
+   "last": 1790994080832,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 297,
+   "y": 60,
+   "z": 161,
+   "count": 2,
+   "last": 1790994101092,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 293,
+   "y": 56,
+   "z": 162,
+   "count": 3,
+   "last": 1790994121219,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "sand",
+   "x": 299,
+   "y": 57,
+   "z": 164,
+   "count": 3,
+   "last": 1790994121266,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 292,
+   "y": 62,
+   "z": 161,
+   "count": 1,
+   "last": 1790994080916,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 333,
+   "y": 72,
+   "z": 128,
+   "count": 33,
+   "last": 1790994771673,
+   "by": [
+    "hive-a-Delta",
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "coal_ore",
+   "x": 323,
+   "y": 63,
+   "z": 138,
+   "count": 31,
+   "last": 1790994771734,
+   "by": [
+    "hive-a-Delta"
+   ]
+  },
+  {
+   "kind": "oak_log",
+   "x": 243,
+   "y": 60,
+   "z": 97,
+   "count": 9,
+   "last": 1790994343441,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "stone",
+   "x": 257,
+   "y": 66,
+   "z": 110,
+   "count": 9,
+   "last": 1790994343530,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 259,
+   "y": 53,
+   "z": 109,
+   "count": 9,
+   "last": 1790994343615,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "iron_ore",
+   "x": 250,
+   "y": 61,
+   "z": 93,
+   "count": 8,
+   "last": 1790994343555,
+   "by": [
+    "hive-a-Comet"
+   ]
+  },
+  {
+   "kind": "water",
+   "x": 333,
+   "y": 53,
+   "z": 169,
+   "count": 9,
+   "last": 1790994771778,
+   "by": [
+    "hive-a-Delta"
+   ]
+  }
+ ]
+}
