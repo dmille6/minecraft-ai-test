@@ -299,6 +299,6 @@ test('the outcome row is actually wired, and on both exits', () => {
     'the outcome row must be guarded on the fallback having fired')
   assert.equal(src.split('coverRounds++').length - 1, 1,
     'the run-scoped counter must be incremented exactly where the fallback fires')
-  assert.ok(src.includes('barrenFailClass(timedOut, barren, coverRounds)'),
+  assert.ok(src.includes('barrenFailClass(timedOut, barren, coverRounds, { pickupFailed, unconfirmed })'),
     'the barren return must ask barrenFailClass rather than re-deriving the class')
 })

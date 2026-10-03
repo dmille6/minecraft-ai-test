@@ -74,7 +74,8 @@ test('the ORDER is dig, then settle, then re-read', () => {
   // that the right code fails is worse than no assertion. The order is the
   // thing that matters, so assert the order.
   assert.match(CODE,
-    /bot\.dig\(block\)[\s\S]*?await sleep\(\d+, signal\)[\s\S]*?const nowNamed = bot\.blockAt/,
+    // dig(block, 'ignore') since the look moved ahead of it (logpickup third pass: look, re-check, then dig)
+    /bot\.dig\(block(, 'ignore')?\)[\s\S]*?await sleep\(\d+, signal\)[\s\S]*?const nowNamed = bot\.blockAt/,
     'dig, then a settle for the server to correct us, then the read')
 })
 
