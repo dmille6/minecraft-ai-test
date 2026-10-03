@@ -29,7 +29,9 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   -> 2) exploretoward-02 (chained) -> 3) orepack (ready) -> 4) **composter** (BUILDING, branch composter-on-3edf1d6;
   design agreed by both engines 09-30: one per town, deterministic only when already at town with >= 34 slots, compost
   leaf litter/seeds/flowers, keep saplings/food, collect bone meal, place >= 3 from containers). Then implementation
-  reviews by both engines + sandbox. LATER IDEA: bone meal on planted saplings grows trees at town (the wood bottleneck).
+  reviews by both engines + sandbox. 5) **SHADOW MAYOR** (OWNER 10-03 ~02:30Z; plan docs/reports/shadow-mayor-plan-2026-10-03.md,
+  both engines): host-side, observe-only, NO canary slot -- runs in parallel with the queue; frontier replay after ~24-48 h of
+  snapshots; decision date 72 h after start. LATER IDEA: bone meal on planted saplings grows trees at town (the wood bottleneck).
 - **READY, not registered: orepack** (branch orepack-on-3edf1d6 @ **f642b17**, 215/215, 43 tests): tunnel room by CAPACITY
   per item with a reserved ore slot (ore room = route iron + target cluster at max drop + 5 slack), post-plan recheck,
   enchanted tools refused with a structured need, a plan-time veto on unplanned digs (same-item spare only, never an empty
