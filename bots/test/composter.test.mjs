@@ -461,7 +461,7 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
         for (const d of recipe.delta) if (d.count < 0) take(REG.items[d.id].name, -d.count)
         add(REG.items[recipe.result.id].name, recipe.result.count)
         state.crafted.push(REG.items[recipe.result.id].name)
-        state.onCraft?.(REG.items[recipe.result.id].name)
+        await state.onCraft?.(REG.items[recipe.result.id].name)
       }
     },
   }
@@ -969,6 +969,60 @@ await t('P3#5 a timed-out place() is told to stop: its late progress never puts 
   await new Promise(res => setTimeout(res, 600))
   assert.deepEqual(composters(town.world), [], `placed after the order gave up (${r.status}: ${r.detail})`)
   assert.notEqual(r.status, 'success')
+})
+
+// ===================================================================================================================
+// FOURTH REVIEW PASS (7fc336c)
+// ===================================================================================================================
+await t('P4#1 FENCE: B publishes generation N+1 while A builds on N -> A does not place; exactly one composter', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'composter-fence-'))
+  const a = fakeTown({ hand: PICK, composterAt: null, storeDir, items: [S('oak_log', 3)] })
+  let x = null, rb = null, b = null
+  a.state.onCraft = async name => {
+    if (name !== 'composter' || b) return
+    // While A holds the composter it just crafted, B arrives with a different view: A's cell is blocked for B, so B
+    // replaces the record (N+1) and builds on the next cell. B has not placed in A's view of the world.
+    x = C.readTownSite(storeDir, storeKey()).site
+    b = fakeTown({ hand: PICK, composterAt: null, storeDir, items: [S('oak_log', 3)], blocks: { [`${x.x},${x.y},${x.z}`]: 'oak_log' } })
+    rb = await run('build_composter', b.bot)
+  }
+  const ra = await run('build_composter', a.bot)
+  assert.ok(b && rb?.status === 'success', `test setup: B did not build (${rb?.detail})`)
+  assert.equal(C.readTownSite(storeDir, storeKey()).gen, 2)
+  assert.deepEqual(composters(a.world), [], `A placed on the superseded site: ${ra.status} ${ra.detail}`)
+  assert.equal(composters(a.world).length + composters(b.world).length, 1)
+  assert.equal(ra.status, 'no_effect', ra.detail)
+})
+
+await t('P4#2 a race loser VALIDATES the adopted site in its own view: unknown or refused -> no site this visit', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'composter-adopt-'))
+  const X = { x: 4, y: 64, z: 0 }, W = { x: 7, y: 64, z: 7 }, Z = { x: 0, y: 64, z: 6 }
+  for (const [label, verdict] of [['unknown', 'unknown'], ['refused', 'chest within 3']]) {
+    const d = path.join(dir, label)
+    C.createSiteGen(d, 'k', 1, X, 'w')
+    const refuse = s => (s.x === X.x && s.z === X.z ? 'cell is oak_log' : s.x === W.x && s.z === W.z ? verdict : null)
+    const r = C.resolveTownSite({ dir: d, key: 'k', world: 'w', refuse, compute: () => { C.createSiteGen(d, 'k', 2, W, 'w'); return { site: Z } } })
+    assert.equal(r.site, null, `${label}: adopted a site its own view ${verdict === 'unknown' ? 'cannot see' : 'refuses'}`)
+    assert.equal(r.defer, true)
+  }
+})
+
+await t('P4#3 a RESTORING equip that overruns the settle window is logged unsettled, and the order says so', async () => {
+  // A full hotbar: equipping the leaf_litter swaps the pickaxe out into the main bag, so the restore must EQUIP it.
+  const { bot, state } = fakeTown({ hand: PICK, rolls: () => 0.9, items: [S('leaf_litter', 5), ...filler(34)] })
+  state.equipDelay = item => (item?.name === 'stone_pickaxe' ? BOUNDS.awaitMs + BOUNDS.settleMs + 300 : 0)
+  await within(SKILLS.compost.run({ bot }, {}, { aborted: false }), HUNG_MS, 'compost')
+  assert.ok(state.equips.some(e => e.name === 'stone_pickaxe'), 'test setup: the restore never equipped the pickaxe')
+  const un = (await rows('_housekeeping_unsettled')).at(-1)
+  assert.match(un?.skill?.detail ?? '', /^compost: the restoring equip is still outstanding/)
+  await new Promise(r => setTimeout(r, BOUNDS.settleMs + 500))
+})
+
+await t('P4#4 old generations are pruned: only the current and the two before it are kept', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'composter-prune-'))
+  for (let g = 1; g <= 5; g++) assert.equal(C.createSiteGen(dir, 'k', g, { x: g, y: 64, z: 0 }, 'w'), true)
+  assert.deepEqual(fsMod.readdirSync(dir).filter(f => f.endsWith('.json')).sort(), ['k.g3.json', 'k.g4.json', 'k.g5.json'])
+  assert.deepEqual(C.readTownSite(dir, 'k').site, { x: 5, y: 64, z: 0 })
 })
 
 // ---- mutants, in-file (withMutant from climb-escape.test.mjs). Suite-level reds are shown in the commit message. ----

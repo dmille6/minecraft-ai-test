@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
-         canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite,
+         canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
 import path from 'node:path'
@@ -4149,7 +4149,13 @@ async function settleAndRestore (bot, was, g, order = 'housekeeping') {
   try {
     await applyHand(bot, handPlan({ was, held: handOf(bot.heldItem), hotbar: hotbarOf(bot), items: bot.inventory?.items?.() ?? [] }), g.restoreBound)
   } catch { /* best effort: equip swaps, so the item is in the bag either way */ }
-  try { await g.settle() } catch { /* the restore's own equip */ }
+  let restored = false
+  try { restored = await g.settle() } catch { restored = false }
+  if (!restored) {
+    logEvent({ kind: 'housekeeping_unsettled', status: 'failed', snapshot: snapshot(bot),
+               detail: `${order}: the restoring equip is still outstanding after ${HK_SETTLE_MS}ms (held ${bot.heldItem?.name ?? 'nothing'}, was ${was?.name ?? 'nothing'})` })
+    return false
+  }
   return true
 }
 const homeVec = () => new Vec3(config.world.homeX, config.world.homeY, config.world.homeZ)
@@ -4172,11 +4178,12 @@ const readCell = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z));
  * it, replaced compare-and-swap if this bot's view refuses it, deferred if anything is unknown or nothing can be shared.
  * The record is per pool + home and carries the world id (bot.worldId, from the login packet), so a reseed starts over.
  */
+const townSiteKey = () => `composter-site-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
 export function townComposterSite (bot) {
   const home = homeVec(), read = readCell(bot)
   return resolveTownSite({
     dir: poolStateDir(config.memory.pool),
-    key: `composter-site-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`,
+    key: townSiteKey(),
     world: bot.worldId ?? null,
     compute: () => canonicalComposterSite({ home, read }),
     refuse: site => siteRefusal(read, site, home),
@@ -4298,7 +4305,7 @@ async function buildComposter (ctx, _args, signal) {
   if (free() < pre.slotsNeeded) return skip(`building needs ${pre.slotsNeeded} free slots for the craft chain and the bag has ${free()}; not started`)
   const home = homeVec(), read = readCell(bot)
   // NO SITE IS A FREE SKIP: an unloaded cell, no valid cell, or no shared record -- never this bot's private answer.
-  const { site, why } = townComposterSite(bot)
+  const { site, gen, why } = townComposterSite(bot)
   if (!site) return skip(`the town's composter site cannot be settled from here: ${why}`)
   const stand = standableBeside(read, site)
   const centre = new Vec3(site.x + 0.5, site.y + 0.5, site.z + 0.5)
@@ -4364,6 +4371,12 @@ async function buildComposter (ctx, _args, signal) {
     const refusal = siteRefusal(read, site, home)
     if (refusal === 'unknown') return skip(`a cell around the composter site at ${site.x},${site.y},${site.z} is not loaded; placing waits for another visit`)
     if (refusal) return fail('composter_site', `the composter site ${site.x},${site.y},${site.z} is no longer valid (${refusal}); the composter stays in the bag`)
+    // THE FENCE: the shared record must still name this generation and this cell. Another bot that refused it has
+    // published N+1 and is building there; this one stands down (no penalty) and the composter stays in the bag.
+    const now = readTownSite(poolStateDir(config.memory.pool), townSiteKey())
+    if (now.gen !== gen || !now.site || now.site.x !== site.x || now.site.y !== site.y || now.site.z !== site.z) {
+      return skip(`the town's composter site moved (generation ${gen} -> ${now.gen}) while this build was under way; nothing placed`)
+    }
     if (Object.values(bot.entities ?? {}).some(e => e !== bot.entity && e?.name !== 'item' && inSiteColumn(e))) {
       return skip(`something is standing on the composter site at ${site.x},${site.y},${site.z}; placing waits for another visit`)
     }

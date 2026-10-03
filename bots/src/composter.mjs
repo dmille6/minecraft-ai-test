@@ -405,6 +405,7 @@ export function createSiteGen (dir, key, gen, site, world = null) {
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(tmp, JSON.stringify({ x: site.x, y: site.y, z: site.z, world: world || null, at: new Date().toISOString() }))
     fs.linkSync(tmp, file)
+    pruneSiteGens(dir, key, gen)
     return true
   } catch {
     return false
@@ -413,8 +414,20 @@ export function createSiteGen (dir, key, gen, site, world = null) {
   }
 }
 
+/** Keep the current generation and the two before it; older records are history nobody reads. Best effort. */
+function pruneSiteGens (dir, key, gen) {
+  try {
+    const re = GEN(key)
+    for (const f of fs.readdirSync(dir)) {
+      const m = re.exec(f)
+      if (m && Number(m[1]) < gen - 2) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* another bot pruned it */ } }
+    }
+  } catch { /* unreadable dir: nothing to prune */ }
+}
+
 /**
- * THE TOWN'S SITE -> { site, why, defer, replaced }.
+ * THE TOWN'S SITE -> { site, gen, why, defer, replaced }. `gen` is the generation the site came from: a builder FENCES
+ * on it (re-reads the record immediately before placing and stands down if the generation moved).
  *   compute  () -> { site, why }   this bot's canonical answer (only evaluated when a new generation is needed)
  *   refuse   (site) -> reason|null  siteRefusal in this bot's view
  * 'unknown' (an unloaded cell) is a deferral, never a reason to replace.
@@ -423,14 +436,20 @@ export function resolveTownSite ({ dir, key, world = null, compute, refuse }) {
   const cur = readTownSite(dir, key)
   if (cur.site && sameWorld(cur.world, world)) {
     const why = refuse(cur.site)
-    if (!why) return { site: cur.site, why: null, defer: false, replaced: null }
+    if (!why) return { site: cur.site, gen: cur.gen, why: null, defer: false, replaced: null }
     if (why === 'unknown') return { site: null, why: 'unknown cell around the town\'s composter site', defer: true, replaced: null }
   }
   const next = compute()
   if (!next?.site) return { site: null, why: next?.why ?? 'no canonical site', defer: true, replaced: null }
-  if (createSiteGen(dir, key, cur.gen + 1, next.site, world)) return { site: next.site, why: null, defer: false, replaced: cur.site }
+  if (createSiteGen(dir, key, cur.gen + 1, next.site, world)) return { site: next.site, gen: cur.gen + 1, why: null, defer: false, replaced: cur.site }
   const won = readTownSite(dir, key)
-  if (won.gen > cur.gen && won.site && sameWorld(won.world, world)) return { site: won.site, why: null, defer: false, replaced: cur.site }
+  if (won.gen > cur.gen && won.site && sameWorld(won.world, world)) {
+    // THE WINNER'S SITE IS VALIDATED IN THIS BOT'S VIEW before anything is crafted for it. Unknown: wait. Refused:
+    // wait too -- the next visit sees it as the current record and replaces it by the generation rules.
+    const why = refuse(won.site)
+    if (!why) return { site: won.site, gen: won.gen, why: null, defer: false, replaced: cur.site }
+    return { site: null, why: `the site another bot just recorded is ${why === 'unknown' ? 'not loaded here' : `refused here (${why})`}`, defer: true, replaced: null }
+  }
   return { site: null, why: 'the shared site record could not be written or read', defer: true, replaced: null }
 }
 
