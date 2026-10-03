@@ -59,3 +59,36 @@ print(f'log gathers that succeed            {logs["ok"]}/{logs["all"]} = {100 * 
 print(f'bags at >= 34 est. slots            {sum(o >= 34 for o in occ)}/{n} (median {statistics.median(occ):g})')
 print(f'raw iron gained (flow)              {iron:g}')
 print(f'pickaxe crafts reported success     {picks}')
+
+# BLOCKER CENSUS (OWNER 10-03): from the shadow mayor's records, every 5 min, each need no bot could take and WHY.
+# Scope is fixed by the mayor plan's ADDENDUM 2: only `t`, `mayor_rev` and the `unstaffed` entries are used -- never
+# `assignments`, leases, outcomes or any comparison (the 10-06 trial read must stay blind). Unit: need-checks (one
+# unmet need seen at one 5-minute check); one bot can be counted under several duties. Split by mayor revision:
+# GET_WOOD changed meaning at 18:02:46Z 10-03 (world-pooled -> per bot), so revisions are never added together.
+import glob, json
+from collections import defaultdict
+need = defaultdict(Counter); why = defaultdict(Counter); recs = Counter()
+for f in glob.glob('/var/lib/mcai-mayor/assign-*.jsonl'):
+    with open(f) as fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+                t = dt.datetime.fromisoformat(str(o['t']).replace('Z', '+00:00'))
+            except (ValueError, KeyError, TypeError):
+                continue
+            if not (START <= t < END):
+                continue
+            rev = o.get('mayor_rev') or 'unstamped'
+            recs[rev] += 1
+            for u in o.get('unstaffed') or []:
+                need[rev][u.get('duty', '?')] += 1
+                for b in (u.get('blockers') or {}):
+                    why[rev][(u.get('duty', '?'), b)] += 1
+if not recs:
+    print('\nblocker census: no mayor records in this window (mayor stopped, or files moved)')
+for rev in sorted(recs, key=lambda r: (r != 'unstamped', r)):
+    hrs = recs[rev] / 16 * 5 / 60                       # 16 worlds, one record per world per 5-min tick
+    print(f'\nblocker census, mayor rev {rev}: {recs[rev]} world-checks (~{hrs:.1f} h); unmet need-checks per hour by duty, then why')
+    for duty, n in need[rev].most_common():
+        top = ', '.join(f'{b} {v / hrs:.0f}' for (d, b), v in why[rev].most_common() if d == duty)
+        print(f'  {duty:13} {n / hrs:7.0f}/h   {top}')
