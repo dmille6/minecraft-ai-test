@@ -288,3 +288,51 @@ export function recipeFor (bot, server, name, table) {
   return r
 }
 export const TABLE = { position: new Vec3(1, 64, 0), name: 'crafting_table' }
+
+/** Every recipe mineflayer knows for these items, taught to the server (so a skill can choose its own). */
+export function learnAll (bot, server, names) {
+  for (const n of names) server.recipes.push(...(bot.recipesAll(id(n), null, true) ?? []))
+}
+
+/**
+ * A FLAT WORLD for the craft skill's table branch: stone below y=64, air above, placed blocks remembered.
+ * Just what skills.mjs's craft -> place -> findBlock -> craft path reads: blockAt, findBlock, placeBlock (takes
+ * the item from the SERVER's inventory and syncs), equip/lookAt/pathfinder as no-ops. Returns the block map.
+ */
+export function fakeWorld (bot, server) {
+  const placed = new Map()
+  const key = p => `${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)}`
+  bot.entity.onGround = true
+  bot.entity.position = new Vec3(0.5, 64, 0.5)
+  bot.game.dimension = 'overworld'
+  bot.blockAt = (p) => {
+    const pos = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
+    const name = placed.get(key(pos)) ?? (pos.y < 64 ? 'stone' : 'air')
+    const solid = name !== 'air'
+    return { name, type: registry.blocksByName[name].id, position: pos, boundingBox: solid ? 'block' : 'empty',
+             diggable: true, shapes: solid ? [[0, 0, 0, 1, 1, 1]] : [] }
+  }
+  bot.findBlock = ({ matching, maxDistance = 32 }) => {
+    for (const k of placed.keys()) {
+      const [x, y, z] = k.split(',').map(Number)
+      const b = bot.blockAt(new Vec3(x, y, z))
+      if (b.position.distanceTo(bot.entity.position) <= maxDistance && matching(b)) return b
+    }
+    return null
+  }
+  bot.placeBlock = async (ref, face) => {
+    const at = ref.position.offset(face.x, face.y, face.z)
+    const slot = server.p.findIndex((it, i) => i >= 36 && it && registry.items[it.type].name === 'crafting_table') >= 0
+      ? server.p.findIndex((it, i) => i >= 36 && it && registry.items[it.type].name === 'crafting_table')
+      : server.p.findIndex(it => it && registry.items[it.type].name === 'crafting_table')
+    if (slot < 0) throw new Error('fake world: nothing to place')
+    server.p[slot].count--
+    if (!server.p[slot].count) server.p[slot] = null
+    placed.set(key(at), 'crafting_table')
+    await server.sync()
+  }
+  bot.equip = async () => {}
+  bot.lookAt = async () => {}
+  bot.pathfinder = { goto: async () => {}, setGoal: () => {}, stop: () => {} }
+  return placed
+}

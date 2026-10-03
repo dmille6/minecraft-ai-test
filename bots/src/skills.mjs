@@ -36,6 +36,7 @@ import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
+import { planCraftTree, planRecipe } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
@@ -2818,6 +2819,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // Ask the registry which ingredients ANY recipe for this item wants, and
     // report the ones the bot does not have. The model can act on a name.
     let missing = []
+    let bestRecipe = null      // the variant `missing` was read from: the root of the craft plan below
     let notCraftable = false
     try {
       const all = [
@@ -2912,7 +2914,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
           (g.length === b.length && affinity(g) === affinity(b) && reach(g) < reach(b)) ||
           (g.length === b.length && affinity(g) === affinity(b) && reach(g) === reach(b) &&
             canonical(g) > canonical(b))
-        if (!best || better(gap, best)) best = gap
+        if (!best || better(gap, best)) { best = gap; bestRecipe = r }
         if (best.length === 0) break
       }
       missing = best ?? []
@@ -2981,7 +2983,25 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       // One level down, per missing ingredient. `missing` entries look like
       // "3x oak_planks"; anything that does not parse is left alone rather than
       // guessed at.
-      for (const m of missing) {
+      // THE WHOLE TREE, ONCE (craftplan.mjs). Making each missing ingredient for this parent alone starved the
+      // rest of the tree: the sticks and the table drew on the pickaxe's planks, and with exact craft counts
+      // `craft wooden_pickaxe` from logs failed 6/6 on the sandbox at MAX_CRAFT_DEPTH. Demand is summed over the
+      // parent, its other ingredients and the table it will need, and each intermediate is crafted once.
+      const plan = missing.length && bestRecipe ? craftPlanFor(bot, item, count, bestRecipe, !!table || hasTable) : null
+      if (plan?.raw.length) {
+        // gather first; spend nothing on a tree that cannot finish. Bare names, as the recursion's sub.gap was:
+        // the lessons key must not move with the missing quantity.
+        blockedBy.push(...plan.raw.map(r => r.item))
+      } else if (plan) {
+        for (const step of plan.steps) {
+          check(signal)
+          const want = step.crafts * step.yield
+          const sub = await craft(ctx, { item: step.item, count: want }, signal, depth + 1)
+          if (sub.status === 'success') made.push(step.item)
+          else { blockedBy.push(sub.gap || `${want}x ${step.item}`); break }
+        }
+      }
+      for (const m of plan ? [] : missing) {
         const parsed = /^(\d+)x\s+(\S+)$/.exec(m)
         if (!parsed) continue
         const [, need, name] = parsed
@@ -3179,9 +3199,11 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // `count` is ITEMS; bot.craft takes CRAFTS. Passing the item count crafted 4 times for 4 sticks -- 16 sticks,
     // or 'missing ingredient' after the first craft, reported failed, with the planks already spent.
     const crafts = craftsFor(count, recipe)
-    await bot.craft(recipe, crafts, table ?? undefined, { signal, deadline })
+    const got = await bot.craft(recipe, crafts, table ?? undefined, { signal, deadline })
+    // What was PRODUCED (craftsync's server-verified count; crafts x yield without it), not what was asked.
+    const produced = Number.isFinite(got?.produced) ? got.produced : crafts * (recipe.result?.count || 1)
     return { status: 'success',
-             detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
+             detail: `crafted ${produced}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   } catch (e) {
     const out = craftFailureOutcome(e, { aborted: !!signal?.aborted, item, table })
     if (out === CRAFT_ABORTED) throw new Aborted()
@@ -3189,9 +3211,34 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   }
 }
 
+/** craftplan.mjs's view of this bot: what it holds, and each item's recipes as { yield, table, ingredients }. */
+function craftPlanFor (bot, item, count, rootRecipe, tableReady) {
+  const have = Object.fromEntries(heldCounts(bot.inventory.items()))
+  const made = r => (r.delta ?? []).filter(d => d.count > 0).reduce((n, d) => n + d.count, 0)
+  const shape = r => ({
+    yield: r.result?.count || made(r) || 1,      // mineflayer's delta carries the result too
+    table: !!(r.requiresTable ?? r.needsTable),
+    ingredients: (r.delta ?? []).filter(d => d.count < 0)
+      .map(d => ({ name: bot.registry.items[d.id]?.name, count: -d.count })).filter(i => i.name),
+  })
+  const cache = new Map()
+  const shapesOf = name => {
+    if (cache.has(name)) return cache.get(name)
+    const d = bot.registry.itemsByName[name]
+    let out = []
+    try { if (d) out = [...bot.recipesAll(d.id, null, null), ...(bot.recipesAll(d.id, null, true) ?? [])].map(shape) } catch { out = [] }
+    cache.set(name, out)
+    return out
+  }
+  return planCraftTree({ item, count, rootRecipe: shape(rootRecipe), have, tableReady,
+                         recipeOf: name => planRecipe(shapesOf(name), have, shapesOf) })
+}
+
 /** How many crafts make `count` items: each craft yields recipe.result.count. Pure, exported for tests. */
 export function craftsFor (count, recipe) {
-  return Math.max(1, Math.ceil(Number(count ?? 1) / Math.max(1, Number(recipe?.result?.count ?? 1))))
+  const made = (recipe?.delta ?? []).filter(d => d.count > 0).reduce((n, d) => n + d.count, 0)   // delta carries the result too
+  const per = Number(recipe?.result?.count) || made || 1
+  return Math.max(1, Math.ceil(Number(count ?? 1) / per))
 }
 
 /** craftFailureOutcome's answer when the craft was interrupted: the skill rethrows Aborted. */

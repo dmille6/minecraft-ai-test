@@ -466,7 +466,7 @@ export function installCraftSync (bot, opts = {}) {
           { failClass: 'craft_unconfirmed', produced, requested, reason: authoritative ? 'not_in_inventory' : 'unverified' })
         }
         st.outcome = 'ok'
-        return result
+        return result === undefined ? { produced, requested } : result   // mineflayer's craft resolves undefined
       }
       // refused before anything was sent
       st.outcome = 'deadline'
