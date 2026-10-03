@@ -36,7 +36,7 @@ import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
-import { planCraftTree, planRecipe } from './craftplan.mjs'
+import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
@@ -2819,7 +2819,6 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // Ask the registry which ingredients ANY recipe for this item wants, and
     // report the ones the bot does not have. The model can act on a name.
     let missing = []
-    let bestRecipe = null      // the variant `missing` was read from: the root of the craft plan below
     let notCraftable = false
     try {
       const all = [
@@ -2914,7 +2913,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
           (g.length === b.length && affinity(g) === affinity(b) && reach(g) < reach(b)) ||
           (g.length === b.length && affinity(g) === affinity(b) && reach(g) === reach(b) &&
             canonical(g) > canonical(b))
-        if (!best || better(gap, best)) { best = gap; bestRecipe = r }
+        if (!best || better(gap, best)) best = gap
         if (best.length === 0) break
       }
       missing = best ?? []
@@ -2952,7 +2951,33 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // when nothing could be made -- see the return at the bottom.
     const blockedBy = []
 
-    if (depth < MAX_CRAFT_DEPTH) {
+    // THE WHOLE TREE, THE FULL QUANTITY AND THE STATION, PLANNED BEFORE ANYTHING IS CRAFTED (craftplan.mjs).
+    // The per-ingredient recursion below made each missing ingredient for its parent alone and lived on the old
+    // over-crafting for slack; with exact counts `craft wooden_pickaxe` from logs failed 6/6 on the sandbox.
+    // The plan is all or nothing: a shortfall is named and nothing is spent (4 planks + 2 sticks and no table
+    // used to become a table and then a refusal). The chosen recipes are crafted exactly -- no re-choosing.
+    // A table is READY only when it is within STATION_REACH after the walk above, or carried.
+    let plan = null
+    let planShort = ''
+    try {
+      const inReach = !!table && bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5)) <= STATION_REACH
+      plan = craftPlanFor(bot, item, count, hasTable || inReach)
+    } catch { plan = null }
+    if (plan?.ok) {
+      const ran = await runCraftPlan(ctx, plan, { item, signal, table })
+      if (ran.status !== 'success') return ran
+      return { status: 'success',
+               detail: `crafted ${ran.produced}x ${item}` +
+                       `${ran.stationDid.length ? ` (${ran.stationDid.join('; ')})` : ''}` +
+                       `${ran.made.length ? ` (first made ${ran.made.join(', ')})` : ''}` }
+    }
+    if (plan) {
+      // Bare names in the gap, as the recursion's sub.gap was: the lessons key must not move with the quantity.
+      blockedBy.push(...plan.shortfall.map(x => x.item))
+      planShort = plan.shortfall.map(x => `${x.count}x ${x.item}`).join(' and ')
+    }
+
+    if (depth < MAX_CRAFT_DEPTH && !plan) {
       const made = []
 
       // A STATION IS A PREREQUISITE TOO, and it is the one that was actually
@@ -2982,26 +3007,8 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 
       // One level down, per missing ingredient. `missing` entries look like
       // "3x oak_planks"; anything that does not parse is left alone rather than
-      // guessed at.
-      // THE WHOLE TREE, ONCE (craftplan.mjs). Making each missing ingredient for this parent alone starved the
-      // rest of the tree: the sticks and the table drew on the pickaxe's planks, and with exact craft counts
-      // `craft wooden_pickaxe` from logs failed 6/6 on the sandbox at MAX_CRAFT_DEPTH. Demand is summed over the
-      // parent, its other ingredients and the table it will need, and each intermediate is crafted once.
-      const plan = missing.length && bestRecipe ? craftPlanFor(bot, item, count, bestRecipe, !!table || hasTable) : null
-      if (plan?.raw.length) {
-        // gather first; spend nothing on a tree that cannot finish. Bare names, as the recursion's sub.gap was:
-        // the lessons key must not move with the missing quantity.
-        blockedBy.push(...plan.raw.map(r => r.item))
-      } else if (plan) {
-        for (const step of plan.steps) {
-          check(signal)
-          const want = step.crafts * step.yield
-          const sub = await craft(ctx, { item: step.item, count: want }, signal, depth + 1)
-          if (sub.status === 'success') made.push(step.item)
-          else { blockedBy.push(sub.gap || `${want}x ${step.item}`); break }
-        }
-      }
-      for (const m of plan ? [] : missing) {
+      // guessed at. (Only reached when the planner above could not run.)
+      for (const m of missing) {
         const parsed = /^(\d+)x\s+(\S+)$/.exec(m)
         if (!parsed) continue
         const [, need, name] = parsed
@@ -3057,16 +3064,17 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       } catch { return false }
     })
 
+    const stationOnlyNow = stationOnly && !planShort
     return {
       status: 'failed',
-      failClass: stationOnly ? 'needs_station' : 'missing_ingredients',
+      failClass: stationOnlyNow ? 'needs_station' : 'missing_ingredients',
       // THE GAP, named exactly, so the lessons store can tell "stuck on the
       // same missing thing" from "working through the tech tree". Without it
       // the only question the store can ask is "did craft fail again", which
       // is how `craft oak_planks` reached 47 while the bot was doing the right
       // thing every time. Sorted so two identical gaps compare equal.
-      gap: stationOnly ? 'crafting_table' : rootGap.slice().sort().join('+'),
-      detail: stationOnly
+      gap: stationOnlyNow ? 'crafting_table' : rootGap.slice().sort().join('+'),
+      detail: stationOnlyNow
         // SAY WHY THE TABLE IS NOT DOWN, because we already tried to put it down.
         //
         // `stationOnly` means the bot HAS a table and lacks nothing else, so the
@@ -3083,10 +3091,11 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
           `and putting it down failed — ${stationFailure || 'no reason recorded'}`
         : gatherFirst.length
           ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
-            `nothing crafts it (you have ` +
+            `nothing crafts it${planShort ? ` (short ${planShort} for the whole tree)` : ''} (you have ` +
             `${inventoryLine(bot.inventory.items(), { focus: [...gatherFirst, item] })})` +
             belowGroundHint(bot) + craftableAlternative(bot, item)
-          : `cannot craft ${item} -- ${why}`,
+          : `cannot craft ${item} -- ${planShort ? `short ${planShort} for the whole tree (you have ` +
+              `${inventoryLine(bot.inventory.items(), { focus: [...plan.shortfall.map(x => x.item), item] })})` : why}`,
     }
   }
 
@@ -3211,27 +3220,74 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   }
 }
 
-/** craftplan.mjs's view of this bot: what it holds, and each item's recipes as { yield, table, ingredients }. */
-function craftPlanFor (bot, item, count, rootRecipe, tableReady) {
+/** craftplan.mjs's view of this bot: what it holds, and every recipe as { yield, table, ingredients, ref }. */
+function craftPlanFor (bot, item, count, tableReady) {
   const have = Object.fromEntries(heldCounts(bot.inventory.items()))
   const made = r => (r.delta ?? []).filter(d => d.count > 0).reduce((n, d) => n + d.count, 0)
   const shape = r => ({
+    ref: r,
     yield: r.result?.count || made(r) || 1,      // mineflayer's delta carries the result too
     table: !!(r.requiresTable ?? r.needsTable),
     ingredients: (r.delta ?? []).filter(d => d.count < 0)
       .map(d => ({ name: bot.registry.items[d.id]?.name, count: -d.count })).filter(i => i.name),
   })
-  const cache = new Map()
-  const shapesOf = name => {
-    if (cache.has(name)) return cache.get(name)
+  const recipesOf = name => {
     const d = bot.registry.itemsByName[name]
-    let out = []
-    try { if (d) out = [...bot.recipesAll(d.id, null, null), ...(bot.recipesAll(d.id, null, true) ?? [])].map(shape) } catch { out = [] }
-    cache.set(name, out)
-    return out
+    if (!d) return []
+    try { return (bot.recipesAll(d.id, null, true) ?? []).map(shape) } catch { return [] }
   }
-  return planCraftTree({ item, count, rootRecipe: shape(rootRecipe), have, tableReady,
-                         recipeOf: name => planRecipe(shapesOf(name), have, shapesOf) })
+  // Ties (nothing held to rank by) go the way the gap advice above goes: the cheapest source to reach from
+  // here first (cobblestone on the surface, cobbled_deepslate below y=0, never a smelted charcoal), then oak.
+  const by = bot?.entity?.position?.y
+  const reachCost = r => gapReachCost(r.ingredients.map(i => i.name), Number.isFinite(by) ? by : 64, bot?.game?.dimension ?? 'overworld')
+  const prefer = r => -10 * reachCost(r) + r.ingredients.filter(i => /^oak_/.test(i.name)).length
+  return planCraft({ item, count, recipesOf, have, tableReady, prefer })
+}
+
+/**
+ * Craft a plan's steps with exactly the recipes it chose, putting down a table before the first step that needs
+ * one (reusing one within STATION_REACH). Returns { status: 'success', produced, made, stationDid } or a
+ * classified failure; an interruption throws Aborted.
+ */
+async function runCraftPlan (ctx, plan, { item, signal, table }) {
+  const { bot } = ctx
+  const deadline = (ctx.runner?.current?.startedAt ?? Date.now()) + config.skills.defaultTimeoutMs
+  const reachOf = b => bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5))
+  const findStation = () => {
+    if (table && reachOf(table) <= STATION_REACH) return table
+    const b = bot.findBlock?.({ matching: x => bot.registry.blocks[x.type]?.name === 'crafting_table', maxDistance: STATION_REACH + 1 })
+    return b && reachOf(b) <= STATION_REACH ? b : null
+  }
+  const made = [], stationDid = []
+  let produced = 0, station = null
+  for (const step of plan.steps) {
+    check(signal)
+    if (step.recipe.table && !station) {
+      station = findStation()
+      if (!station) {
+        const put = await place(ctx, { item: 'crafting_table' }, signal)
+        station = put.status === 'success' && put.at && bot.blockAt(put.at)?.name === 'crafting_table' ? bot.blockAt(put.at) : findStation()
+        if (!station) {
+          return { status: 'failed', failClass: 'needs_station', gap: 'crafting_table',
+                   detail: `could not put down a crafting_table for ${item}: ${put.detail || put.failClass || 'no reason recorded'}` +
+                           `${made.length ? ` [after making ${made.join(', ')}]` : ''}` }
+        }
+        stationDid.push('placed a crafting_table')
+      }
+      try { await bot.lookAt(station.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
+    }
+    try {
+      const got = await bot.craft(step.recipe.ref, step.crafts, step.recipe.table ? station : undefined, { signal, deadline })
+      const n = Number.isFinite(got?.produced) ? got.produced : step.crafts * step.recipe.yield
+      if (step.item === item) produced += n
+      else made.push(`${n}x ${step.item}`)
+    } catch (e) {
+      const out = craftFailureOutcome(e, { aborted: !!signal?.aborted, item: step.item, table: station })
+      if (out === CRAFT_ABORTED) throw new Aborted()
+      return { ...out, detail: `${out.detail}${made.length ? ` [after making ${made.join(', ')}]` : ''}` }
+    }
+  }
+  return { status: 'success', produced, made, stationDid }
 }
 
 /** How many crafts make `count` items: each craft yields recipe.result.count. Pure, exported for tests. */

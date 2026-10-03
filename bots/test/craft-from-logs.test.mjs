@@ -1,17 +1,19 @@
-// THE CRAFT TREE FROM LOGS (sandbox, c5c2dc5): with exact craft counts, `craft wooden_pickaxe` from logs alone
-// failed 6/6 -- "needs 3x oak_planks (you have 2x)". The resolver made each missing ingredient for its parent
-// alone and had been living on the old over-crafting for slack: planks +4, sticks -2, planks +4, table -4,
-// retry -> MAX_CRAFT_DEPTH. craftplan.mjs sums the demand of the whole remaining tree and crafts each
-// intermediate once.
+// THE CRAFT PLAN (craftplan.mjs) and the resolver that executes it, on the REAL 1.21.8 recipes.
 //
-// The skill runs for real: skills.mjs's craft -> craftsync -> mineflayer's craft.js/inventory.js -> the fake
-// Paper, in a flat fake world where it can put the table it makes down. Server counts are the oracle.
+// History: with exact craft counts (craftsync) `craft wooden_pickaxe` from logs failed 6/6 on the sandbox -- the
+// per-ingredient resolver had lived on over-crafting. The first planner (db359f2) fixed that case and both third
+// reviews broke it five ways against the real recipes: root inventory subtracted, one-variant choice, a far table
+// counted as ready, a one-craft station shortcut that spent planks, and iron cycles. Each has a test here.
+//
+// Planner tests use mineflayer's own recipe list (12 wooden_pickaxe variants, 13 stick, ...). Skill tests run
+// skills.mjs's craft -> craftsync -> mineflayer's craft.js/inventory.js -> the fake Paper, in a flat fake world;
+// the SERVER's counts are the oracle.
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import * as CS from '../src/craftsync.mjs'
-import { planCraftTree, chooseRecipe } from '../src/craftplan.mjs'
+import { planCraft, mergeSteps } from '../src/craftplan.mjs'
 import { FakePaper, craftBot, learnAll, fakeWorld } from './helpers/fake-paper-craft.mjs'
 
 process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-test-craftlogs-'))
@@ -24,57 +26,101 @@ const t = async (name, fn) => {
   catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) }
 }
 
-// ------------------------------------------------------------------ the planner, pure
-const R = {
-  wooden_pickaxe: { yield: 1, table: true, ingredients: [{ name: 'oak_planks', count: 3 }, { name: 'stick', count: 2 }] },
-  stone_pickaxe: { yield: 1, table: true, ingredients: [{ name: 'cobblestone', count: 3 }, { name: 'stick', count: 2 }] },
-  stick: { yield: 4, table: false, ingredients: [{ name: 'oak_planks', count: 2 }] },
-  crafting_table: { yield: 1, table: false, ingredients: [{ name: 'oak_planks', count: 4 }] },
-  oak_planks: { yield: 4, table: false, ingredients: [{ name: 'oak_log', count: 1 }] },
-}
-const recipeOf = n => R[n] ?? null
-const plan = (item, have, tableReady = false) => planCraftTree({ item, count: 1, rootRecipe: R[item], recipeOf, have, tableReady })
-const crafts = p => Object.fromEntries(p.steps.map(s => [s.item, s.crafts]))
+// ------------------------------------------------------------------ the planner on the real recipes
+const reg = craftBot(new FakePaper({})).registry
+const probe = craftBot(new FakePaper({}))
+const made = r => (r.delta ?? []).filter(d => d.count > 0).reduce((n, d) => n + d.count, 0)
+const shape = r => ({ ref: r, yield: r.result?.count || made(r) || 1, table: !!r.requiresTable,
+  ingredients: (r.delta ?? []).filter(d => d.count < 0).map(d => ({ name: reg.items[d.id]?.name, count: -d.count })) })
+const recipesOf = name => { const d = reg.itemsByName[name]; return d ? probe.recipesAll(d.id, null, true).map(shape) : [] }
+const prefer = r => r.ingredients.filter(i => /^oak_/.test(i.name)).length
+const plan = (item, have, tableReady = false, count = 1, extra = {}) => planCraft({ item, count, recipesOf, have, tableReady, prefer, ...extra })
+const total = (p, item) => p.steps.filter(s => s.item === item).reduce((n, s) => n + s.crafts, 0)
+const woods = p => [...new Set(p.steps.flatMap(s => s.recipe.ingredients.map(i => i.name)).filter(n => /_planks$|_log$/.test(n)))].sort()
 
-await t('PLAN: wooden_pickaxe from 3 logs, no table -> 3 plank crafts (3 + 2 + 4 planks), 1 stick, 1 table', () => {
+await t('PLAN: wooden_pickaxe from 3 oak logs, no table -> 3 plank crafts, 1 stick, 1 table, the pickaxe last', () => {
   const p = plan('wooden_pickaxe', { oak_log: 3 })
-  assert.deepEqual(crafts(p), { oak_planks: 3, stick: 1, crafting_table: 1 })
-  assert.equal(p.rootCrafts, 1)
-  assert.deepEqual(p.raw, [])
-  assert.equal(p.steps[0].item, 'oak_planks', 'producers first')
+  assert.ok(p.ok, JSON.stringify(p.shortfall))
+  assert.deepEqual([total(p, 'oak_planks'), total(p, 'stick'), total(p, 'crafting_table'), total(p, 'wooden_pickaxe')], [3, 1, 1, 1])
+  assert.equal(p.steps.at(-1).item, 'wooden_pickaxe')
 })
-await t('PLAN: with a table in reach the table\'s planks are not made', () => {
-  assert.deepEqual(crafts(plan('wooden_pickaxe', { oak_log: 3 }, true)), { oak_planks: 2, stick: 1 })
+await t('ROOT DEMAND: holding a wooden_pickaxe, asking for one plans ANOTHER', () => {
+  const p = plan('wooden_pickaxe', { wooden_pickaxe: 1, oak_log: 2 }, true)
+  assert.ok(p.ok, JSON.stringify(p.shortfall))
+  assert.equal(total(p, 'wooden_pickaxe'), 1, 'the held pickaxe was subtracted from the request')
 })
-await t('PLAN: what is held is used first; a shortfall of a raw material is reported, not crafted around', () => {
-  assert.deepEqual(crafts(plan('wooden_pickaxe', { oak_log: 1, oak_planks: 5, stick: 2 })), { oak_planks: 1, crafting_table: 1 })
-  const short = plan('wooden_pickaxe', { oak_log: 2 })
-  assert.deepEqual(short.raw, [{ item: 'oak_log', count: 1 }])
+await t('VARIANTS BY QUANTITY: 2 oak_log + 1 birch_log makes a wooden_pickaxe (needs 9 planks of two kinds)', () => {
+  const p = plan('wooden_pickaxe', { oak_log: 2, birch_log: 1 })
+  assert.ok(p.ok, `refused: ${JSON.stringify(p.shortfall)}`)
+  assert.deepEqual(woods(p), ['birch_log', 'birch_planks', 'oak_log', 'oak_planks'])
 })
-await t('PLAN: stone_pickaxe from logs + cobblestone, no table -> 2 plank crafts (2 + 4), 1 stick, 1 table', () => {
-  assert.deepEqual(crafts(plan('stone_pickaxe', { oak_log: 2, cobblestone: 3 })), { oak_planks: 2, stick: 1, crafting_table: 1 })
+await t('VARIANTS BY QUANTITY: 1 oak_log + 2 birch_log too', () => {
+  assert.ok(plan('wooden_pickaxe', { oak_log: 1, birch_log: 2 }).ok)
 })
-await t('chooseRecipe: a variant made from what is held beats one that is not', () => {
-  const birch = { yield: 4, table: false, ingredients: [{ name: 'birch_planks', count: 2 }] }
-  const oak = { yield: 4, table: false, ingredients: [{ name: 'oak_planks', count: 2 }] }
-  const recipes = n => n === 'oak_planks' ? [R.oak_planks] : n === 'birch_planks' ? [{ yield: 4, table: false, ingredients: [{ name: 'birch_log', count: 1 }] }] : []
-  assert.equal(chooseRecipe([birch, oak], { oak_log: 2 }, recipes), oak)
-  assert.equal(chooseRecipe([birch, oak], { birch_planks: 2 }, recipes), birch)
+await t('VARIANTS BY QUANTITY: 1 birch_planks + 3 oak_log takes the oak path and leaves the birch alone', () => {
+  const p = plan('wooden_pickaxe', { birch_planks: 1, oak_log: 3 })
+  assert.ok(p.ok, JSON.stringify(p.shortfall))
+  assert.deepEqual(woods(p), ['oak_log', 'oak_planks'])
+})
+await t('STATION + BATCH: 4 planks + 2 sticks, no table, no logs -> refused up front, naming the log; nothing planned', () => {
+  const p = plan('wooden_pickaxe', { oak_planks: 4, stick: 2 })
+  assert.equal(p.ok, false, 'the planks would have become a table and then a refusal')
+  assert.deepEqual(p.shortfall, [{ item: 'oak_log', count: 1 }])
+  assert.deepEqual(p.steps, [])
+})
+await t('BATCH: the full quantity is planned -- 3 pickaxes need 13 planks: 3 logs short, 4 logs enough', () => {
+  const short = plan('wooden_pickaxe', { oak_log: 3 }, true, 3)
+  assert.equal(short.ok, false)
+  assert.deepEqual(short.shortfall, [{ item: 'oak_log', count: 1 }])
+  const p = plan('wooden_pickaxe', { oak_log: 4 }, true, 3)
+  assert.ok(p.ok); assert.equal(total(p, 'wooden_pickaxe'), 3)
+})
+await t('CYCLES: iron_pickaxe with 1 iron_ingot + 2 sticks -> exactly "2x iron_ingot", no loop', () => {
+  const p = plan('iron_pickaxe', { iron_ingot: 1, stick: 2 }, true)
+  assert.equal(p.ok, false)
+  assert.deepEqual(p.shortfall, [{ item: 'iron_ingot', count: 2 }])
+  assert.equal(p.limit, false, 'it ran into the node budget: the cycle was walked')
+})
+await t('CYCLES: an iron_ingot is never "made" from the held one (ingot -> nuggets -> ingot)', () => {
+  const p = plan('iron_ingot', { iron_ingot: 1 }, true)
+  assert.equal(p.ok, false, `planned a conversion loop: ${p.steps.map(s => s.item).join(' > ')}`)
+})
+await t('CYCLES: iron_pickaxe with 3 ingots is one craft; with 27 nuggets it goes through ingots', () => {
+  const a = plan('iron_pickaxe', { iron_ingot: 3, stick: 2 }, true)
+  assert.ok(a.ok); assert.deepEqual(a.steps.map(s => s.item), ['iron_pickaxe'])
+  const b = plan('iron_pickaxe', { iron_nugget: 27, stick: 2 }, true)
+  assert.ok(b.ok); assert.deepEqual(b.steps.map(s => `${s.item}x${s.crafts}`), ['iron_ingotx3', 'iron_pickaxex1'])
+})
+await t('LIMITS: an exhausted node budget fails the plan explicitly and plans nothing', () => {
+  const p = plan('wooden_pickaxe', { oak_log: 3 }, false, 1, { maxNodes: 1 })
+  assert.equal(p.ok, false)
+  assert.equal(p.limit, true)
+  assert.deepEqual(p.steps, [])
+  assert.ok(p.shortfall.length > 0, 'a limit must still say what is short')
+})
+await t('mergeSteps: same recipe joins an earlier step unless something between makes its inputs', () => {
+  const A = { ingredients: [{ name: 'oak_log', count: 1 }] }, B = { ingredients: [{ name: 'oak_planks', count: 4 }] }
+  assert.deepEqual(mergeSteps([{ item: 'p', crafts: 1, recipe: A }, { item: 't', crafts: 1, recipe: B }, { item: 'p', crafts: 2, recipe: A }])
+    .map(s => `${s.item}x${s.crafts}`), ['px3', 'tx1'])
+  const C = { ingredients: [{ name: 'p', count: 1 }] }
+  assert.deepEqual(mergeSteps([{ item: 'x', crafts: 1, recipe: C }, { item: 'p', crafts: 1, recipe: A }, { item: 'x', crafts: 1, recipe: C }])
+    .map(s => `${s.item}x${s.crafts}`), ['xx1', 'px1', 'xx1'])
 })
 
 // ------------------------------------------------------------------ the skill, for real
-async function skill (inv, item, count = 1) {
+async function skill (inv, item, count = 1, { tableAt = null } = {}) {
   const server = new FakePaper({ lagClicks: 3, fallbackMs: 60, inventory: inv })
   const bot = craftBot(server)
   const placed = fakeWorld(bot, server)
+  if (tableAt) placed.set(tableAt, 'crafting_table')
   await server.sync()
   CS.installCraftSync(bot, {})
-  learnAll(bot, server, ['wooden_pickaxe', 'stone_pickaxe', 'stick', 'crafting_table', 'oak_planks'])
+  learnAll(bot, server, ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'stick', 'crafting_table', 'oak_planks', 'birch_planks', 'iron_ingot'])
   const out = await SKILLS.craft.run({ bot }, { item, count }, new AbortController().signal)
   await server.settle(); server.stop()
-  const n = name => server.count(name)
-  return { out, n, placed: [...placed.values()] }
+  return { out, n: name => server.count(name), placed: [...placed.values()] }
 }
+const NEXT_TO = '1,64,0', FAR = '10,64,0'
 
 await t('SKILL: wooden_pickaxe from 3 logs, no table -> success; 3 planks + 2 sticks left, table placed', async () => {
   const { out, n, placed } = await skill({ 36: ['oak_log', 3], 9: ['dirt', 64] }, 'wooden_pickaxe')
@@ -87,16 +133,52 @@ await t('SKILL: wooden_pickaxe from 4 logs, no table -> success; 1 log left over
   assert.equal(out.status, 'success', out.detail)
   assert.deepEqual([n('wooden_pickaxe'), n('oak_planks'), n('stick'), n('oak_log')], [1, 3, 2, 1])
 })
-await t('SKILL: stone_pickaxe from 2 logs + 3 cobblestone, no table -> success; 2 planks + 2 sticks left', async () => {
+await t('SKILL: stone_pickaxe from 2 logs + 3 cobblestone, no table -> success', async () => {
   const { out, n } = await skill({ 36: ['oak_log', 2], 37: ['cobblestone', 3], 9: ['dirt', 64] }, 'stone_pickaxe')
   assert.equal(out.status, 'success', out.detail)
   assert.deepEqual([n('stone_pickaxe'), n('oak_planks'), n('stick'), n('cobblestone'), n('oak_log')], [1, 2, 2, 0, 0])
 })
-await t('SKILL: wooden_pickaxe from 2 logs says which raw material is short and crafts nothing', async () => {
-  const { out, n } = await skill({ 36: ['oak_log', 2], 9: ['dirt', 64] }, 'wooden_pickaxe')
+await t('SKILL ROOT DEMAND: 1 wooden_pickaxe held + 2 logs + a table beside it -> a second pickaxe', async () => {
+  const { out, n } = await skill({ 36: ['oak_log', 2], 37: ['wooden_pickaxe', 1], 9: ['dirt', 64] }, 'wooden_pickaxe', 1, { tableAt: NEXT_TO })
+  assert.equal(out.status, 'success', out.detail)
+  assert.equal(n('wooden_pickaxe'), 2)
+})
+await t('SKILL VARIANTS: 2 oak_log + 1 birch_log -> wooden_pickaxe', async () => {
+  const { out, n } = await skill({ 36: ['oak_log', 2], 37: ['birch_log', 1], 9: ['dirt', 64] }, 'wooden_pickaxe')
+  assert.equal(out.status, 'success', out.detail)
+  assert.equal(n('wooden_pickaxe'), 1)
+})
+await t('SKILL VARIANTS: 1 birch_planks + 3 oak_log -> the oak path; the birch plank is untouched', async () => {
+  const { out, n } = await skill({ 36: ['oak_log', 3], 37: ['birch_planks', 1], 9: ['dirt', 64] }, 'wooden_pickaxe')
+  assert.equal(out.status, 'success', out.detail)
+  assert.deepEqual([n('wooden_pickaxe'), n('birch_planks')], [1, 1])
+})
+await t('SKILL STATION GATE: 4 planks + 2 sticks, no table, no logs -> refused, nothing spent, the log named', async () => {
+  const { out, n, placed } = await skill({ 36: ['oak_planks', 4], 37: ['stick', 2], 9: ['dirt', 64] }, 'wooden_pickaxe')
   assert.notEqual(out.status, 'success')
   assert.match(out.detail, /oak_log/)
-  assert.equal(n('oak_log'), 2, 'logs were spent on a tree that could not finish')
+  assert.deepEqual([n('oak_planks'), n('stick'), n('crafting_table')], [4, 2, 0])
+  assert.deepEqual(placed, [])
+})
+await t('SKILL TABLE READINESS: a table out of reach is not ready -- 2 logs are refused, nothing spent', async () => {
+  const { out, n } = await skill({ 36: ['oak_log', 2], 9: ['dirt', 64] }, 'wooden_pickaxe', 1, { tableAt: FAR })
+  assert.notEqual(out.status, 'success')
+  assert.equal(n('oak_log'), 2, 'logs were spent on a tree that needed the far table')
+})
+await t('SKILL TABLE READINESS: ... and 3 logs make a new table beside the bot', async () => {
+  const { out, n, placed } = await skill({ 36: ['oak_log', 3], 9: ['dirt', 64] }, 'wooden_pickaxe', 1, { tableAt: FAR })
+  assert.equal(out.status, 'success', out.detail)
+  assert.equal(n('wooden_pickaxe'), 1)
+  assert.equal(placed.length, 2)
+})
+await t('SKILL CYCLES: iron_pickaxe from 3 ingots + 2 sticks at a table -> made; from 1 ingot -> "2x iron_ingot"', async () => {
+  const a = await skill({ 36: ['iron_ingot', 3], 37: ['stick', 2], 9: ['dirt', 64] }, 'iron_pickaxe', 1, { tableAt: NEXT_TO })
+  assert.equal(a.out.status, 'success', a.out.detail)
+  assert.equal(a.n('iron_pickaxe'), 1)
+  const b = await skill({ 36: ['iron_ingot', 1], 37: ['stick', 2], 9: ['dirt', 64] }, 'iron_pickaxe', 1, { tableAt: NEXT_TO })
+  assert.notEqual(b.out.status, 'success')
+  assert.match(b.out.detail, /2x iron_ingot/)
+  assert.equal(b.n('iron_ingot'), 1)
 })
 await t('SKILL: a direct request stays exact, and the success line states what was PRODUCED', async () => {
   const { out, n } = await skill({ 36: ['oak_planks', 4], 9: ['dirt', 64] }, 'stick', 5)
@@ -105,7 +187,7 @@ await t('SKILL: a direct request stays exact, and the success line states what w
   assert.match(out.detail, /^crafted 8x stick/)
 })
 
-// ------------------------------------------------------------------ mutants: each must reproduce the regression
+// ------------------------------------------------------------------ mutants: each must reproduce its defect
 const SRC = new URL('../src/craftplan.mjs', import.meta.url)
 async function withMutant (old, neu, fn) {
   const src = fs.readFileSync(SRC, 'utf8')
@@ -115,17 +197,28 @@ async function withMutant (old, neu, fn) {
   fs.writeFileSync(out, src.replace(old, neu))
   try { return await fn(await import(out.href)) } finally { try { fs.unlinkSync(out) } catch {} }
 }
-await t('MUTANT KILLED: per-ingredient minimal crafting (each consumer alone) under-makes the shared planks', async () => {
-  await withMutant('    for (const ing of r.ingredients) demand[ing.name] = (demand[ing.name] ?? 0) + ing.count * n',
-    '    for (const ing of r.ingredients) demand[ing.name] = Math.max(demand[ing.name] ?? 0, ing.count * n)', async mod => {
-      const p = mod.planCraftTree({ item: 'wooden_pickaxe', count: 1, rootRecipe: R.wooden_pickaxe, recipeOf, have: { oak_log: 3 } })
-      assert.ok(crafts(p).oak_planks < 3, 'the mutant still sums the demand; the plan test proves nothing')
+const mplan = (mod, item, have, tableReady = false, extra = {}) => mod.planCraft({ item, count: 1, recipesOf, have, tableReady, prefer, ...extra })
+await t('MUTANT KILLED: the root drawn from the bag -> a held pickaxe answers the request', async () => {
+  await withMutant('  const done = make({ inv: { ...have }, steps: [], station: false }, item,',
+    '  const done = obtain({ inv: { ...have }, steps: [], station: false }, item,', async mod => {
+      assert.equal(total(mplan(mod, 'wooden_pickaxe', { wooden_pickaxe: 1, oak_log: 2 }, true), 'wooden_pickaxe'), 0)
     })
 })
-await t('MUTANT KILLED: the table\'s planks left out of the plan', async () => {
-  await withMutant("  if (needsTable) demand.crafting_table = (demand.crafting_table ?? 0) + 1\n", '', async mod => {
-    const p = mod.planCraftTree({ item: 'wooden_pickaxe', count: 1, rootRecipe: R.wooden_pickaxe, recipeOf, have: { oak_log: 3 } })
-    assert.ok(!crafts(p).crafting_table && crafts(p).oak_planks < 3, 'the mutant still plans the table')
+await t('MUTANT KILLED: no cycle filter -> an ingot is "made" by melting the held one into nuggets', async () => {
+  await withMutant('  const usable = (name, anc) => shapes(name).filter(r => !r.ingredients.some(i => anc.has(i.name)))',
+    '  const usable = (name, anc) => shapes(name)', async mod => {
+      const p = mplan(mod, 'iron_ingot', { iron_ingot: 1 }, true)
+      assert.equal(p.ok, true, 'the mutant did not take the conversion loop')
+    })
+})
+await t('MUTANT KILLED: the station left out of the plan -> 4 planks + 2 sticks is "ok"', async () => {
+  await withMutant('          let t = c.r.table ? station(st, a2) : st', '          let t = st', async mod => {
+    assert.equal(mplan(mod, 'wooden_pickaxe', { oak_planks: 4, stick: 2 }).ok, true)
+  })
+})
+await t('MUTANT KILLED: no node budget -> the limit test sees no limit', async () => {
+  await withMutant('    if (++nodes > maxNodes) { limit = true; return null }', '    ++nodes', async mod => {
+    assert.equal(mplan(mod, 'wooden_pickaxe', { oak_log: 3 }, false, { maxNodes: 1 }).limit, false)
   })
 })
 
