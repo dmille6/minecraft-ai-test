@@ -63,6 +63,14 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   on open) -> 0/20, 0/10, 0/10; never hung; ~1.4 s per craft. Per-window stateId alone: 3/10 short. BUILDING
   craftsync-on-93b3892 (own canary; propose it NEXT after explore-toward — it is the pickaxe supply). Upstream: mineflayer
   #3906 (same symptom), #4103 (per-window stateId), #3974 (4.39.0). Artifacts: session scratchpad craftsync/.
+11c) **CRAFTING STATUS 10-03 ~09:30Z:** craftroom APPROVED by both engines at **f0a677c** (verdict from server packets,
+  reconcile + one retry after a denial, wear-out room remedy, table retake, `crafted` evidence contract). craftsync
+  (lockstep + post-craft verification) in its third round. Both reviewers: keep craftroom's verdict/retry as the safety
+  net when combined with craftsync; a combined branch needs a test that the final-click marker survives craftsync's
+  click path. PRE-EXISTING FLEET BUG found by the Claude reviewer: craft passes the ITEM count as the CRAFT count (ask 4
+  sticks -> 4 crafts -> 16 sticks; wood wasted; can throw 'missing ingredient' after success) — fixed in craftsync,
+  must also be applied when craftroom is combined. OWNER DECISION NEEDED: craftsync + craftroom as one 'crafting' canary
+  or two.
 11) **TABLE CRAFTS REJECTED BY PAPER (sandbox 10-03 ~06:00Z, RCON-verified, BOTH builds):** 5 of 12 crafts at a
   crafting table were rejected by the server (no result, ingredients back in the bag) — mostly the first craft after a
   table is placed — while the fleet's code reports success with a pickaxe that exists only locally. 2x2 grid crafts were
