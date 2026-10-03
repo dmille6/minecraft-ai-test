@@ -42,6 +42,12 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   CHANGE (non-transitive comparator; name-only equip guard; hard stop 0 only on harvest digs; telemetry) -- fixing.
   Chest fix: building.
 
+- **AUTOMATED LINE (host chains, 23:45Z):** craftsync-01 (live, ba84fa6) -> craftroom-01 (fleet ba84fa6 -> ffa0f57;
+  chain pid 2294257) -> composter-01 (fleet ffa0f57 -> 56db2cd; chain pid 2295673; read scripts/host/composterread.py,
+  positive control 57 full junk-holding control bots; read under Claude review). Each chain STOPs if the previous run
+  was not promoted to the expected sha. Building: tool cleanup fixes (tc-on-948bc26), chest fix (chest-on-948bc26),
+  bamboo sticks (bb-on-56db2cd) -- each to be rebased onto the line's tip before its own registration.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
