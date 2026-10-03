@@ -56,9 +56,10 @@ export function roomRecipe (registry, recipe, item = null) {
  *   reason  null | 'no_room' (short = slots that must be freed) | 'ingredients' (missing = the name that ran out)
  *
  * ONLY A SLOT THE RECIPE FULLY EMPTIES IS FREED. Ingredients are taken from the LARGEST stack first, which is the
- * order that empties the fewest slots: mineflayer takes them in slot order and sometimes merges a remainder, so
- * the real bag can end up with a slot more than this says, never one fewer. A conservative answer refuses a craft
- * that would have fitted; an optimistic one throws a pickaxe on the ground.
+ * order that empties the fewest slots: mineflayer takes them in slot order and sometimes merges a remainder into
+ * another stack, so the real bag can end up with MORE free slots than this predicts, never fewer -- the occupancy
+ * predicted here is an upper bound. A conservative answer refuses a craft that would have fitted; an optimistic one
+ * throws a pickaxe on the ground.
  */
 export function craftRoom (items = [], recipe = {}, count = 1, { capacity = BAG_SLOTS } = {}) {
   const bag = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
@@ -121,17 +122,46 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
  *   'replaced'  a pickaxe craft may go below SPENT_PICKAXES_KEPT by ONE copy: the one it is replacing (lowest tier
  *               first -- every copy at 1 use is worth the same one last swing)
  * Only copies at EXACTLY one use: a 0-use copy is a phantom the server already broke (hygiene.mjs).
+ *
+ * THE LAST DIGGING TOOL IS NEVER THE PRICE OF A SLOT (Codex review). The craft has not happened yet when the tool is
+ * destroyed; if it then fails, a bot underground that wore out its last pickaxe has no way out. So nothing is worn out
+ * unless a pickaxe with at least MIN_SURVIVOR_USES uses is still in the bag afterwards -- a real digging tool, not
+ * another last swing.
  */
+export const MIN_SURVIVOR_USES = 2
 export function craftRoomRemedy (items = [], item = '') {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
-  const planned = wearOutPlan(list).tools[0]
+  const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= MIN_SURVIVOR_USES)
+  const planned = wearOutPlan(list).tools.find(survives)
   if (planned) return { tool: planned, why: 'spent' }
   if (/_pickaxe$/.test(String(item))) {
-    const spent = list.filter(it => /_pickaxe$/.test(it.name) && remaining(it) === 1)
+    const spent = list.filter(it => /_pickaxe$/.test(it.name) && remaining(it) === 1 && survives(it))
       .sort((a, b) => tier(a.name) - tier(b.name))
     if (spent.length) return { tool: spent[0], why: 'replaced' }
   }
   return null
+}
+
+/** Does this item name place as a solid block? (wheat names a crop block but the item does not place it.) */
+export const placeableBlock = (registry, name) =>
+  registry?.blocksByName?.[name]?.boundingBox === 'block' && !!registry?.itemsByName?.[name]
+
+// Never offered as filler: stations (the craft may need them), wood (the scarce material), and anything the recipe
+// itself consumes.
+const NOT_FILLER = /(^(crafting_table|furnace|blast_furnace|smoker|chest|barrel|trapped_chest)$|_(log|wood|stem|hyphae|planks)$)/
+const fillerCandidates = (items, consumes, isPlaceable) => {
+  const used = new Set((consumes ?? []).map(c => c.name))
+  return (Array.isArray(items) ? items : []).filter(it => it?.name && !TOOL_RE.test(it.name) && !used.has(it.name) &&
+    !NOT_FILLER.test(it.name) && isPlaceable(it.name))
+}
+/**
+ * A ROOM REMEDY THE CRAFT CAN EXECUTE ITSELF: a stack of exactly ONE solid, placeable, non-ingredient block. One
+ * placement empties its slot -- a single move from where the bot stands, so it is done rather than advised.
+ * -> { name, count: 1 } | null
+ */
+export function placeFiller (items = [], consumes = [], isPlaceable = () => false) {
+  const one = fillerCandidates(items, consumes, isPlaceable).find(it => (it.count ?? 1) === 1)
+  return one ? { name: one.name, count: 1 } : null
 }
 
 const ROCK = name => wearRank(name) === 0   // the stone family: every one of them drops nothing without a pickaxe
@@ -152,16 +182,15 @@ export function wearKeepsSlot (items = [], toolName = '', blockName = '', drops 
 /**
  * WHAT FILLS THE BAG, for a refusal that names it. -> { line, cheapest }
  *   line      "cobblestone 20 slots, dirt 8, stone_pickaxe 3, ..." (most slots first, top 5)
- *   cheapest  the smallest stack of something the bot can PLACE (isBlock(name)) -- placing all of it frees its
- *             slot, which is a move from where the bot stands; null when nothing placeable is held
+ *   cheapest  the smallest stack the bot could PLACE away (placeFiller's rules, any count): advice, so it names
+ *             the move and its size; null when nothing qualifies
  */
-export function bagFill (items = [], isBlock = () => false) {
+export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const by = new Map()
   for (const it of list) by.set(it.name, (by.get(it.name) ?? 0) + 1)
   const line = [...by.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 5)
     .map(([n, k], i) => `${n} ${k}${i === 0 ? (k === 1 ? ' slot' : ' slots') : ''}`).join(', ')
-  const cheapest = list.filter(it => !TOOL_RE.test(it.name) && isBlock(it.name))
-    .sort((a, b) => (a.count ?? 1) - (b.count ?? 1))[0] ?? null
+  const cheapest = fillerCandidates(list, consumes, isPlaceable).sort((a, b) => (a.count ?? 1) - (b.count ?? 1))[0] ?? null
   return { line, cheapest: cheapest && { name: cheapest.name, count: cheapest.count ?? 1 } }
 }

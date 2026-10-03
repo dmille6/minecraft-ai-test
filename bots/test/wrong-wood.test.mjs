@@ -79,7 +79,8 @@ function makeBot(inv = {}, { tableNearby = true } = {}) {
   }
   return { bot, bag }
 }
-const run = (bot, args) => SKILLS.craft.run({ bot }, args, { aborted: false })
+// The runner passes a real AbortSignal (runner.mjs controller.signal); craft now sleeps on it while the server settles.
+const run = (bot, args) => SKILLS.craft.run({ bot }, args, new AbortController().signal)
 
 // --- the live failure, reproduced ------------------------------------------
 

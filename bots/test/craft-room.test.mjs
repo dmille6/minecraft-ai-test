@@ -12,6 +12,7 @@ import { mkdtempSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Vec3 } from 'vec3'
+import { EventEmitter } from 'node:events'
 
 process.env.LOG_DIR = mkdtempSync(path.join(tmpdir(), 'mcbot-craft-room-'))
 process.env.BOT_NAME = 'CraftRoomBot'
@@ -21,7 +22,7 @@ const mc = require_('minecraft-data')('1.21.8')
 const { Recipe } = require_('prismarine-recipe')('1.21.8')
 
 const { SKILLS } = await import('../src/skills.mjs')
-const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS } =
+const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeFiller, roomForOne, BAG_SLOTS } =
   await import('../src/craftroom.mjs')
 
 let pass = 0, fail = 0
@@ -92,13 +93,34 @@ await t('craftArrived: a tool counts only as a NEW full-durability copy; a stack
 })
 
 await t('craftRoomRemedy: a spent axe first; a pickaxe craft may wear ONE spent pickaxe below the kept three; nothing else', () => {
-  assert.equal(craftRoomRemedy(bagOf(36, [spent('stone_axe'), spent('stone_pickaxe')]), 'stone_pickaxe').tool.name, 'stone_axe')
-  const three = bagOf(36, [spent('stone_pickaxe'), spent('wooden_pickaxe'), spent('stone_pickaxe')])
+  const PK = item('iron_pickaxe', 1, { left: 200 })
+  assert.equal(craftRoomRemedy(bagOf(36, [PK, spent('stone_axe'), spent('stone_pickaxe')]), 'stone_pickaxe').tool.name, 'stone_axe')
+  const three = bagOf(36, [PK, spent('stone_pickaxe'), spent('wooden_pickaxe'), spent('stone_pickaxe')])
   const r = craftRoomRemedy(three, 'stone_pickaxe')
   assert.equal(r.why, 'replaced'); assert.equal(r.tool.name, 'wooden_pickaxe', 'lowest tier first')
   assert.equal(craftRoomRemedy(three, 'oak_planks'), null, 'planks replace no pickaxe: the three stay')
-  assert.equal(craftRoomRemedy(bagOf(36, [item('stone_pickaxe', 1, { left: 0 })]), 'stone_pickaxe'), null, 'a 0-use phantom is not real')
-  assert.equal(craftRoomRemedy(bagOf(36, [item('stone_pickaxe', 1, { left: 2 })]), 'stone_pickaxe'), null, 'two uses is not spent')
+  assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 0 })]), 'stone_pickaxe'), null, 'a 0-use phantom is not real')
+  assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 2 })]), 'stone_pickaxe'), null, 'two uses is not spent')
+})
+
+await t('craftRoomRemedy PROTECTS THE LAST DIGGING TOOL: nothing is worn out unless a pickaxe with 2+ uses survives it', () => {
+  assert.equal(craftRoomRemedy(bagOf(36, [spent('stone_pickaxe')]), 'stone_pickaxe'), null, 'the only pickaxe, spent: it is the escape')
+  assert.equal(craftRoomRemedy(bagOf(36, [spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe')]),
+    'stone_pickaxe'), null, 'four spent copies and no working one: the last swings are all it has')
+  assert.equal(craftRoomRemedy(bagOf(36, [spent('stone_axe')]), 'stone_pickaxe'), null, 'no pickaxe at all: nothing is worn out')
+  assert.equal(craftRoomRemedy(bagOf(36, [spent('stone_axe'), item('stone_pickaxe', 1, { left: 2 })]), 'stone_pickaxe').tool.name,
+    'stone_axe', 'a pickaxe with two uses survives the axe')
+})
+
+await t('placeFiller: a count-1 stack of a solid block that is not an ingredient, a station or wood', () => {
+  const isPlaceable = n => mc.blocksByName[n]?.boundingBox === 'block' && !!mc.itemsByName[n]
+  const consumes = [{ name: 'cobblestone', count: 3 }, { name: 'stick', count: 2 }]
+  assert.equal(placeFiller(bagOf(36, [item('cobblestone', 1), item('wheat', 1), item('oak_log', 1), item('crafting_table', 1)]),
+    consumes, isPlaceable), null, 'an ingredient, an item that does not place, wood and a station are never filler')
+  assert.equal(placeFiller(bagOf(36, [item('dirt', 2)]), consumes, isPlaceable), null, 'two dirt is two placements: not one move')
+  assert.deepEqual(placeFiller(bagOf(36, [item('dirt', 2), item('andesite', 1)]), consumes, isPlaceable), { name: 'andesite', count: 1 })
+  const f = bagFill(bagOf(36, [item('cobblestone', 1), item('wheat', 1), item('dirt', 5)]), isPlaceable, consumes)
+  assert.deepEqual(f.cheapest, { name: 'dirt', count: 5 }, 'the advice excludes the ingredient and the non-block too')
 })
 
 await t('wearKeepsSlot: an axe on stone drops nothing; a pickaxe on stone needs a non-full cobblestone stack', () => {
@@ -110,7 +132,7 @@ await t('wearKeepsSlot: an axe on stone drops nothing; a pickaxe on stone needs 
 })
 
 await t('bagFill names what fills the bag and the smallest placeable stack', () => {
-  const f = bagFill(bagOf(36, [item('dirt', 3), item('stick', 1)]), n => !!mc.blocksByName[n])
+  const f = bagFill(bagOf(36, [item('dirt', 3), item('stick', 1)]), n => !!mc.blocksByName[n] && !!mc.itemsByName[n])
   assert.match(f.line, /^cobblestone 34 slots, dirt 1, stick 1$/)
   assert.deepEqual(f.cheapest, { name: 'dirt', count: 3 }, 'a stick is not a block')
   assert.equal(roomForOne(bagOf(36, [item('crafting_table', 1)]), 'crafting_table'), true, 'joins the stack')
@@ -120,16 +142,31 @@ await t('bagFill names what fills the bag and the smallest placeable stack', () 
 
 // --- the fake bot -----------------------------------------------------------
 const key = p => `${p.x},${p.y},${p.z}`
-function makeBot (stacks, { tables = [], craftLands = true, afterCraft = null } = {}) {
+/**
+ * opts
+ *   tables      crafting tables already standing (not this call's)
+ *   craftLands  false: bot.craft returns and nothing arrives
+ *   rejectMs    the client shows the result at once, the SERVER takes it back this many ms later (a rejected craft)
+ *   afterCraft  hook after each bot.craft ({ setBlock, world, slots })
+ *   onDig       hook before each dig (block) -- e.g. an abort arriving mid-dig
+ *   registry    a registry override (an id the bot cannot name)
+ */
+function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, afterCraft = null, onDig = null, registry = mc } = {}) {
   const slots = Array(36).fill(null)
   stacks.forEach((s, i) => { slots[i] = { ...s } })
   const world = new Map(tables.map(p => [key(p), 'crafting_table']))
-  const tossed = []; const digs = []; const ground = []
+  const tossed = []; const digs = []; const ground = []; const crafts = []
   const nameAt = p => world.get(key(p)) ?? (p.y < 64 ? 'stone' : 'air')
   const blockAt = p => {
     if (!p) return null
     const name = nameAt(p); const d = mc.blocksByName[name]
-    return { name, type: d.id, position: new Vec3(p.x, p.y, p.z), boundingBox: d.boundingBox, hardness: d.hardness, diggable: true, drops: d.drops }
+    return { name, type: d.id, stateId: d.defaultState, position: new Vec3(p.x, p.y, p.z), boundingBox: d.boundingBox,
+             hardness: d.hardness, diggable: true, drops: d.drops }
+  }
+  // every world change emits what prismarine-world emits: blockUpdate:(x, y, z)
+  const setBlock = (p, name) => {
+    const old = blockAt(p); world.set(key(p), name)
+    bot.emit(`blockUpdate:${new Vec3(p.x, p.y, p.z)}`, old, blockAt(p))
   }
   // mineflayer's put-away (inventory.js putSelectedItemRange with slot=null)
   const putAway = it => {
@@ -157,8 +194,8 @@ function makeBot (stacks, { tables = [], craftLands = true, afterCraft = null } 
     if (n > 0) throw new Error('missing ingredient')
   }
   const have = name => slots.reduce((n, s) => n + (s?.name === name ? s.count : 0), 0)
-  const bot = {
-    registry: mc,
+  const bot = Object.assign(new EventEmitter(), {
+    registry,
     entity: { position: new Vec3(0.5, 64, 0.5), onGround: true },
     entities: {},
     heldItem: null,
@@ -181,23 +218,30 @@ function makeBot (stacks, { tables = [], craftLands = true, afterCraft = null } 
     canDigBlock: b => !!b && b.position.distanceTo(bot.entity.position) < 5.1,
     async craft (recipe, count = 1, table) {
       if (recipe.requiresTable && !table) throw new Error('Recipe requires craftingTable')
+      crafts.push(count)
       for (let k = 0; k < count; k++) {
         for (const d of recipe.delta) if (d.count < 0) take(mc.items[d.id].name, -d.count)
         const name = mc.items[recipe.result.id].name
-        if (craftLands) putAway(item(name, recipe.result.count))
+        if (!craftLands) continue
+        const before = slots.map(x => x && { ...x })
+        putAway(item(name, recipe.result.count))
+        // THE SERVER SAYS NO: the client-predicted slots are put back a moment later (window_items)
+        if (rejectMs) setTimeout(() => { before.forEach((x, i) => { slots[i] = x }) }, rejectMs)
       }
-      afterCraft?.({ world, slots })
+      afterCraft?.({ setBlock, world, slots })
     },
     async equip (it) { bot.heldItem = slots.find(s => s && s.slot === it.slot) ?? null },
     async lookAt () {},
     async waitForTicks () {},
     async placeBlock (ref, face) {
       const at = ref.position.offset(face.x, face.y, face.z)
-      world.set(key(at), 'crafting_table'); take('crafting_table', 1)
+      const name = bot.heldItem?.name ?? 'crafting_table'   // place() equips what it places
+      setBlock(at, name); take(name, 1)
     },
     async dig (block) {
+      onDig?.(block)
       digs.push({ name: block.name, at: key(block.position), with: bot.heldItem?.name ?? 'hand' })
-      world.set(key(block.position), 'air')
+      setBlock(block.position, 'air')
       const held = bot.heldItem
       if (held?.maxDurability) {           // any block with hardness > 0 costs a tool one use
         held.durabilityUsed++
@@ -210,11 +254,12 @@ function makeBot (stacks, { tables = [], craftLands = true, afterCraft = null } 
       if (drop && !putAway(item(drop, 1))) { tossed.pop(); ground.push(drop) }
     },
     pathfinder: { async goto () {}, setGoal () {}, stop () {} },
-  }
-  return { bot, slots, world, tossed, digs, ground, have }
+  })
+  return { bot, slots, world, tossed, digs, ground, have, crafts, setBlock }
 }
-const run = (bot, args) => SKILLS.craft.run({ bot }, args, new AbortController().signal)
+const run = (bot, args, signal = new AbortController().signal) => SKILLS.craft.run({ bot }, args, signal)
 const NEAR = new Vec3(1, 64, 0)    // a table in reach that this call did not place
+const PICK = () => item('iron_pickaxe', 1, { left: 200 })   // a working digging tool that survives any wear-out
 
 const LOG = path.join(process.env.LOG_DIR, 'skill-CraftRoomBot.jsonl')
 const rowsSince = async n => {
@@ -275,7 +320,7 @@ await t('recursive with a full bag: the PLANKS level refuses (the log stack is n
 
 await t('make room: wears out the spent pickaxe the craft replaces (below the kept three), its cobblestone joins a stack', async () => {
   const n = await mark()
-  const { bot, tossed, have, digs, slots } = makeBot(bagOf(36, [item('stick', 5), item('cobblestone', 30),
+  const { bot, tossed, have, digs, slots } = makeBot(bagOf(36, [item('stick', 5), item('cobblestone', 30), PICK(),
     spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe')]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'success', r.detail)
@@ -284,19 +329,19 @@ await t('make room: wears out the spent pickaxe the craft replaces (below the ke
   const copies = slots.filter(s => s?.name === 'stone_pickaxe')
   assert.equal(copies.filter(s => s.durabilityUsed === s.maxDurability - 1).length, 2, 'exactly one spent copy gone')
   assert.equal(copies.filter(s => s.durabilityUsed === 0).length, 1, 'and one new full copy')
-  assert.deepEqual(tossed, []); assert.equal(have('cobblestone'), 31 * 64 + 30 - 3 + 1, '3 into the pickaxe, 1 from the dig')
+  assert.deepEqual(tossed, []); assert.equal(have('cobblestone'), 30 * 64 + 30 - 3 + 1, '3 into the pickaxe, 1 from the dig')
   assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'made_room'))
 })
 
 await t('make room with a spent axe: it digs stone, drops nothing, frees the slot', async () => {
-  const { bot, tossed, digs, have } = makeBot(bagOf(36, [item('stick', 5), spent('stone_axe')]), { tables: [NEAR] })
+  const { bot, tossed, digs, have } = makeBot(bagOf(36, [item('stick', 5), spent('stone_axe'), PICK()]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'success', r.detail)
   assert.equal(digs[0].with, 'stone_axe'); assert.equal(have('stone_axe'), 0); assert.deepEqual(tossed, [])
 })
 
 await t('make room refuses a dig whose drop would refill the slot (every cobblestone stack full): inventory_full', async () => {
-  const { bot, tossed, digs } = makeBot(bagOf(36, [item('stick', 5), spent('stone_pickaxe')]), { tables: [NEAR] })
+  const { bot, tossed, digs } = makeBot(bagOf(36, [item('stick', 5), spent('stone_pickaxe'), PICK()]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'inventory_full', r.detail)
   assert.match(r.detail, /drop would not refill the slot/)
@@ -331,8 +376,10 @@ await t('a table this call PLACED is dug back and arrives in the bag', async () 
 
 await t('no room for the table after the craft: it is LEFT and logged, never dug into a full bag', async () => {
   const n = await mark()
-  // 36 with the table; placing frees its slot, the pickaxe takes it back: 36/36 at the retake
-  const { bot, world, digs, ground, have } = makeBot(bagOf(36, [item('stick', 5), item('crafting_table', 1)]))
+  // 35 with the table: the reserve holds the table's slot through the craft, then the server's auto-pickup hands the
+  // bot a stray block into that slot (it cannot be refused) -- 36/36 at the retake
+  const { bot, world, digs, ground, have } = makeBot(bagOf(35, [item('stick', 5), item('crafting_table', 1)]), {
+    afterCraft: ({ slots }) => { slots[slots.indexOf(null)] = item('dirt', 1) } })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'success', r.detail); assert.equal(have('stone_pickaxe'), 1)
   assert.equal(digs.length, 0, 'dug a table it had no room for'); assert.deepEqual(ground, [])
@@ -364,6 +411,114 @@ await t('never a table this call did not place', async () => {
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'success', r.detail); assert.equal(digs.length, 0)
   assert.equal(world.get(key(NEAR)), 'crafting_table')
+})
+
+// --- review round 1 (both engines) ---------------------------------------------
+await t('36/36 WITH THE CARRIED TABLE: the table\'s slot is reserved, room is made for it, and the table comes home', async () => {
+  // placing the table frees its slot, the pickaxe takes it, and the retake found no room: the population losing tables
+  const { bot, have, world, tossed } = makeBot(bagOf(36, [item('stick', 5), item('crafting_table', 1), spent('stone_axe'), PICK()]))
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(have('stone_pickaxe'), 1); assert.equal(have('crafting_table'), 1, `the table was left: ${r.detail}`)
+  assert.ok(![...world.values()].includes('crafting_table')); assert.deepEqual(tossed, [])
+})
+
+await t('36/36 with the carried table and NO remedy: refuses the pickaxe and still takes the table back', async () => {
+  const { bot, have, world, crafts } = makeBot(bagOf(36, [item('stick', 5), item('crafting_table', 1)]))
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.equal(crafts.length, 0)
+  assert.equal(have('crafting_table'), 1); assert.ok(![...world.values()].includes('crafting_table'))
+})
+
+await t('full bag, exactly one spent pickaxe and no other tool: it is NOT worn out (it is the escape)', async () => {
+  const { bot, digs, slots } = makeBot(bagOf(36, [item('stick', 5), item('cobblestone', 30), spent('stone_pickaxe')]), { tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.equal(digs.length, 0)
+  assert.equal(slots.filter(s => s?.name === 'stone_pickaxe').length, 1)
+})
+
+await t('a REJECTED craft the client briefly showed is not verified (the read waits for the server)', async () => {
+  const { bot, have } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], rejectMs: 30 })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'unverified', `accepted a client-side prediction: ${r.detail}`)
+  assert.equal(r.status, 'unknown'); assert.equal(have('stone_pickaxe'), 0)
+})
+
+await t('abort during make-room: the craft never runs and the abort propagates', async () => {
+  const ac = new AbortController()
+  const { bot, crafts } = makeBot(bagOf(36, [item('stick', 5), spent('stone_axe'), PICK()]), { tables: [NEAR], onDig: () => ac.abort() })
+  await assert.rejects(run(bot, { item: 'stone_pickaxe', count: 1 }, ac.signal), e => e?.aborted === true)
+  assert.equal(crafts.length, 0, 'bot.craft ran after the abort')
+})
+
+await t('abort during the retake: rethrown after cleanup, not swallowed into a success', async () => {
+  const n = await mark()
+  const ac = new AbortController()
+  const { bot, have } = makeBot(bagOf(30, [item('stick', 5), item('crafting_table', 1)]),
+    { onDig: b => { if (b.name === 'crafting_table') ac.abort() } })
+  await assert.rejects(run(bot, { item: 'stone_pickaxe', count: 1 }, ac.signal), e => e?.aborted === true)
+  assert.equal(have('stone_pickaxe'), 1)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_table_retaken' && x.status === 'left' && /abort/.test(x.detail)))
+})
+
+await t('the craft RUNS ITS OWN ROOM REMEDY: a count-1 stack of a non-ingredient block is placed, then the pickaxe fits', async () => {
+  const { bot, have, crafts, tossed, world } = makeBot(bagOf(36, [item('stick', 5), item('dirt', 1)]), { tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(have('stone_pickaxe'), 1); assert.equal(crafts.length, 1)
+  assert.equal(have('dirt'), 0); assert.ok([...world.values()].includes('dirt')); assert.deepEqual(tossed, [])
+  assert.match(r.detail, /made room by placing the 1 dirt/)
+})
+
+await t('the refusal never advises an ingredient or something that does not place', async () => {
+  const { bot } = makeBot(bagOf(36, [item('stick', 5), item('cobblestone', 1), item('wheat', 1)]), { tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail)
+  assert.doesNotMatch(r.detail, /placing your \d+ (cobblestone|wheat)/)
+})
+
+await t('a recipe the room check cannot read (an unnamed id) is refused, never crafted unchecked', async () => {
+  const items = { ...mc.items }; delete items[mc.itemsByName.stick.id]
+  const { bot, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], registry: { ...mc, items } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(crafts.length, 0, 'bot.craft ran without a room check'); assert.equal(r.failClass, 'unverified', r.detail)
+})
+
+await t('COUNT CONTRACT: count is executions; the result says executions, produced and requested', async () => {
+  // recipesFor grants "3 planks" with one log (one execution makes 4); executions 2 and 3 run out
+  const { bot, have } = makeBot(bagOf(10, [item('oak_log', 1)]))
+  const r = await run(bot, { item: 'oak_planks', count: 3 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(have('oak_planks'), 4)
+  assert.equal(r.requested, 3); assert.equal(r.executions, 1); assert.equal(r.produced, 4); assert.equal(r.item, 'oak_planks')
+  assert.match(r.detail, /1 of 3 executions \(4 oak_planks\)/)
+})
+
+await t('35/36 crafting TWO pickaxes: one is made, the second is refused, nothing thrown (each execution re-checks)', async () => {
+  const { bot, have, tossed, crafts } = makeBot(bagOf(35, [item('stick', 9)]), { tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 2 })
+  assert.deepEqual(tossed, [], 'the second pickaxe went on the ground')
+  assert.equal(have('stone_pickaxe'), 1); assert.equal(r.failClass, 'inventory_full', r.detail)
+  assert.equal(r.executions, 1); assert.deepEqual(crafts, [1])
+})
+
+await t('a known table out of reach: places the CARRIED one, crafts, takes back only that one', async () => {
+  const FAR = new Vec3(20, 64, 0)
+  const { bot, have, world, digs } = makeBot(bagOf(20, [item('stick', 5), item('crafting_table', 1)]), { tables: [FAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.match(r.detail, /placed the carried table/)
+  assert.equal(have('stone_pickaxe'), 1); assert.equal(have('crafting_table'), 1)
+  assert.equal(world.get(key(FAR)), 'crafting_table', 'the far table is not ours')
+  assert.deepEqual(digs.map(d => d.name), ['crafting_table']); assert.notEqual(digs[0].at, key(FAR))
+})
+
+await t('TABLE OWNERSHIP: a table broken and re-placed at the same spot since ours went down is not ours -- left', async () => {
+  const n = await mark()
+  const { bot, digs } = makeBot(bagOf(30, [item('stick', 5), item('crafting_table', 1)]), {
+    afterCraft: ({ setBlock, world }) => {
+      for (const [k, v] of [...world]) if (v === 'crafting_table') { const p = k.split(',').map(Number); setBlock({ x: p[0], y: p[1], z: p[2] }, 'air'); setBlock({ x: p[0], y: p[1], z: p[2] }, 'crafting_table') }
+    } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(digs.length, 0, 'dug a table this call cannot prove is its own')
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_table_retaken' && x.status === 'left' && /changed since/.test(x.detail)))
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

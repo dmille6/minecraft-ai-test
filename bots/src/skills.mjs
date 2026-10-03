@@ -30,7 +30,7 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
-import { BAG_SLOTS, roomRecipe, craftRoom, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne } from './craftroom.mjs'
+import { BAG_SLOTS, roomRecipe, craftRoom, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeFiller, placeableBlock, roomForOne } from './craftroom.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -2764,20 +2764,31 @@ const PLACE_ACK_MS = 3_000
 // THE TABLE THIS CALL PUT DOWN COMES BACK WITH IT (craftroom.mjs has the measurement). Every level of the recursion
 // is its own call through this wrapper, so each takes back exactly the tables IT placed, after it has used them,
 // success or failure. Never a table this call did not place.
-async function craft(ctx, args, signal, depth = 0) {
+//
+// `owed` is how many tables the CALLERS placed and still mean to take back: their slot is reserved here too, or a
+// 36/36 bag fills the slot the table freed and the retake finds no room (review: the exact population losing tables).
+//
+// An abort during the retake is RETHROWN after the cleanup it interrupted, never swallowed into a success.
+async function craft(ctx, args, signal, depth = 0, owed = 0) {
   const placedHere = []
   let out
   let retook = null
   try {
-    out = await craftLevel(ctx, args, signal, depth, placedHere)
+    out = await craftLevel(ctx, args, signal, depth, placedHere, owed)
   } finally {
-    if (placedHere.length) retook = await retakeTables(ctx, placedHere, signal).catch(() => null)
+    if (placedHere.length) {
+      try { retook = await retakeTables(ctx, placedHere, signal) } catch (e) {
+        if (e?.aborted || signal?.aborted) throw e
+        retook = `could not take the table back: ${String(e?.message ?? e).slice(0, 60)}`
+      }
+    }
   }
   return retook ? { ...out, detail: `${out.detail} (${retook})` } : out
 }
 
-async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = []) {
+async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = [], owed = 0) {
   const { bot } = ctx
+  const owedNow = () => owed + placedHere.length
   const def = bot.registry.itemsByName[item]
   // `other`, not `bad_target`, deliberately. bad_target IS evidence about the
   // action and would begin writing permanent avoid rules for every item name the
@@ -2976,12 +2987,12 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       if (!missing.length && !table) {
         check(signal)
         if (!hasTable) {
-          const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1)
+          const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1, owedNow())
           if (built.status === 'success') made.push('crafting_table')
           else if (STOP_CLASSES.has(built.failClass)) return { ...built, detail: `${built.detail} [making a crafting_table for ${item}]` }
         }
         const put = await place(ctx, { item: 'crafting_table' }, signal)
-        if (put.status === 'success' && put.at) placedHere.push(put.at)
+        if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
         if (put.status === 'success') made.push('placed crafting_table')
         // Kept so the refusal below can say what actually stopped it.
         else stationFailure = put.detail || put.failClass || ''
@@ -2996,7 +3007,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
         const [, need, name] = parsed
         if (name === item) continue          // a recipe that needs itself: never recurse
         check(signal)
-        const sub = await craft(ctx, { item: name, count: Number(need) }, signal, depth + 1)
+        const sub = await craft(ctx, { item: name, count: Number(need) }, signal, depth + 1, owedNow())
         if (sub.status === 'success') made.push(name)
         // A FULL BAG OR AN UNVERIFIED CRAFT STOPS THE TREE. Either is the real blocker with its own remedy;
         // filed as this level's missing ingredient it would print "needs 3x oak_planks" to a bot that has the logs
@@ -3011,7 +3022,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       // a bounded recursion still burns the whole skill timeout.
       if (made.length) {
         check(signal)
-        const retry = await craft(ctx, { item, count }, signal, depth + 1)
+        const retry = await craft(ctx, { item, count }, signal, depth + 1, owedNow())
         if (retry.status === 'success') {
           return { status: 'success', detail: `${retry.detail} (first made ${made.join(', ')})` }
         }
@@ -3126,7 +3137,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       const wood = inv.filter(i => /_log$|_planks$/.test(i.name)).reduce((n, i) => n + i.count, 0)
       if (wood >= 1) {
         check(signal)
-        const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1)
+        const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1, owedNow())
         if (STOP_CLASSES.has(built.failClass)) return { ...built, detail: `${built.detail} [making a crafting_table for ${item}]` }
         if (built.status === 'success') {
           carried = bot.inventory.items().some(i => i.name === 'crafting_table')
@@ -3152,7 +3163,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
     if (reach > STATION_REACH && carried) {
       check(signal)
       const put = await place(ctx, { item: 'crafting_table' }, signal)
-      if (put.status === 'success' && put.at) placedHere.push(put.at)
+      if (put.status === 'success' && put.at) placedHere.push(watchPlaced(bot, put.at))
       // THE TABLE IT JUST PUT DOWN, by the coordinate place() returns -- not a
       // second nearest-search, which could name a different table. The
       // nearest-search is only the fallback for an older place() shape.
@@ -3187,30 +3198,47 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
     try { await bot.lookAt(table.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
   }
 
-  // ONE REPETITION AT A TIME, each one checked for room first and read back after (craftroom.mjs). bot.craft(recipe,
-  // count) runs every repetition inside one call and puts each result away with putAway(0), which THROWS the result
-  // on the ground when no slot takes it -- so the check has to sit in front of every repetition, at every level of
+  // ONE EXECUTION AT A TIME, each one checked for room first and read back after (craftroom.mjs). bot.craft(recipe,
+  // count) runs every execution inside one call and puts each result away with putAway(0), which THROWS the result
+  // on the ground when no slot takes it -- so the check has to sit in front of every execution, at every level of
   // the tree (planks, sticks and the tool are each a craft() call that ends here).
+  //
+  // COUNT IS EXECUTIONS, as it always was here and as it is in bot.craft: `craft 3 oak_planks` runs the recipe three
+  // times (12 planks). The result carries `requested` (executions asked for), `executions` (done and verified),
+  // `produced` (items that arrived) and `item`, so no caller has to parse "1 of 3" out of prose.
   const plan = roomRecipe(bot.registry, recipe, item)
   const reps = Math.max(1, Math.floor(Number(count) || 1))
-  let madeRoom = false
+  const tally = done => ({ item: plan.result?.name ?? item, requested: reps, executions: done,
+                           produced: done * (plan.result?.count ?? 0) })
+  let roomTries = 0
   let done = 0
   for (let rep = 0; rep < reps; rep++) {
     check(signal)
-    let room = craftRoom(bot.inventory.items(), plan, 1)
+    let room = craftRoomNow(bot, plan, owedNow())
     // The recipe was granted for the whole count; ingredients running out part-way is the end of the batch, not a
     // failure of what was already made.
     if (!room.ok && room.reason === 'ingredients' && done > 0) break
-    if (!room.ok && room.reason === 'no_room' && !madeRoom) {
-      madeRoom = true
-      const freed = await makeCraftRoom(ctx, item, plan, signal)
-      if (freed.ok) stationDid.push(freed.said)
-      room = craftRoom(bot.inventory.items(), plan, 1)
-      if (!room.ok && room.reason === 'no_room') return refuseNoRoom(bot, item, room, freed.said, done, reps)
-    } else if (!room.ok && room.reason === 'no_room') {
-      return refuseNoRoom(bot, item, room, 'already made room once in this craft', done, reps)
+    // NO ROOM CHECK, NO CRAFT. mineflayer granted the recipe but the simulation cannot account for an ingredient
+    // (an id the registry does not name): an unchecked craft is exactly the one that throws a pickaxe away.
+    if (!room.ok && room.reason === 'ingredients') {
+      logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
+                 detail: `could not check room for ${item}: the simulation finds no ${room.missing} in the bag` })
+      return { status: 'unknown', failClass: 'unverified', ...tally(done),
+               detail: `could not check room for ${item} (the recipe's ${room.missing} is not in the bag as the room ` +
+                       'check reads it) — not crafted' }
     }
+    // Up to two slots made per call: one for the output, one for a table this call (or a caller) will take back.
+    while (!room.ok && room.reason === 'no_room' && roomTries < 2) {
+      roomTries++
+      const freed = await makeCraftRoom(ctx, item, plan, signal)
+      check(signal)
+      if (!freed.ok) return refuseNoRoom(bot, item, plan, craftRoomNow(bot, plan, owedNow()), freed.said, tally(done))
+      stationDid.push(freed.said)
+      room = craftRoomNow(bot, plan, owedNow())
+    }
+    if (!room.ok) return refuseNoRoom(bot, item, plan, room, 'already made room twice in this craft', tally(done))
     const before = bot.inventory.items().map(i => ({ name: i.name, count: i.count, durabilityUsed: i.durabilityUsed, maxDurability: i.maxDurability }))
+    check(signal)
     try {
       await bot.craft(recipe, 1, table ?? undefined)
     } catch (e) {
@@ -3221,14 +3249,18 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       return {
         status: 'failed',
         failClass: windowFail ? 'no_path' : 'other',
+        ...tally(done),
         detail: (windowFail
           ? `could not open the crafting_table at ${table?.position.x},${table?.position.z} — ` +
             'stand next to it and face it before crafting'
           : `craft ${item} failed: ${e.message.slice(0, 80)}`) + (done ? ` (after ${done} of ${reps} made)` : ''),
       }
     }
-    // READ IT BACK. "crafted, but nothing changed" was 44% of stone_pickaxe crafts: a claimed success the
-    // inventory never saw. A few short polls, because the server's slot updates can trail the click.
+    // READ IT BACK, AFTER THE SERVER HAS HAD ITS SAY. "crafted, but nothing changed" was 44% of stone_pickaxe
+    // crafts. mineflayer applies its clicks to the local window before the server confirms them, so the first read
+    // shows the client's PREDICTION; a rejected craft is corrected by a later window_items/set_slot. Settle first
+    // (serverSettle), then read; then a few short polls for a server that is merely slow.
+    await serverSettle(bot, signal)
     let arrived = craftArrived(before, bot.inventory.items(), plan.result)
     for (let i = 0; i < 4 && !arrived; i++) {
       await sleep(100, signal)
@@ -3239,7 +3271,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       logEvent({ kind: 'craft_room', status: 'unverified', snapshot: snapshot(bot),
                  detail: `unverified ${item} rep ${rep + 1}/${reps}: no new ${plan.result?.name ?? item} arrived ` +
                          `(${slots}/${BAG_SLOTS} slots, predicted peak ${room.peak})` })
-      return { status: 'unknown', failClass: 'unverified',
+      return { status: 'unknown', failClass: 'unverified', ...tally(done),
                detail: `crafted ${item} but no new ${plan.result?.name ?? item} arrived in the inventory ` +
                        `(${slots}/${BAG_SLOTS} slots) — stopped after ${done} of ${reps}` }
     }
@@ -3249,52 +3281,123 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
                        `predicted peak ${room.peak})` })
   }
   if (done < reps) {
-    return { status: 'success',
-             detail: `crafted ${done} of ${reps}x ${item}, then the ingredients ran out${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
+    const t = tally(done)
+    return { status: 'success', ...t,
+             detail: `crafted ${done} of ${reps} executions (${t.produced} ${t.item}) of ${item}, then the ingredients ran out` +
+                     `${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   }
-  return { status: 'success',
+  return { status: 'success', ...tally(done),
            detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
+}
+
+/**
+ * The room check with the TABLE'S SLOT RESERVED: when this call or a caller placed a table it will take back and no
+ * crafting_table stack in the bag can receive it, one slot is held back for it (capacity 35).
+ */
+function craftRoomNow(bot, plan, owedTables) {
+  const items = bot.inventory.items()
+  const stackRoom = items.some(i => i.name === 'crafting_table' && (i.count ?? 1) + owedTables <= (i.stackSize ?? 64))
+  const reserve = owedTables > 0 && !stackRoom ? 1 : 0
+  return craftRoom(items, plan, 1, { capacity: BAG_SLOTS - reserve })
+}
+
+/**
+ * The server's say on the craft: a bounded settle, extended once while slot packets (set_slot / window_items) are
+ * still arriving at its end. Clamped with the skill budget like STEP_SETTLE_MS, so the suite does not pay it in full.
+ */
+const CRAFT_SETTLE_MS = Math.max(60, Math.min(750, Math.floor(config.skills.defaultTimeoutMs / 3)))
+async function serverSettle(bot, signal) {
+  let last = 0
+  const c = bot?._client
+  const on = () => { last = Date.now() }
+  try { c?.on?.('set_slot', on); c?.on?.('window_items', on) } catch { /* no client: the plain settle */ }
+  try {
+    await sleep(CRAFT_SETTLE_MS, signal)
+    if (last && Date.now() - last < 100) await sleep(100, signal)
+  } finally {
+    try { c?.removeListener?.('set_slot', on); c?.removeListener?.('window_items', on) } catch {}
+  }
+}
+
+/**
+ * IS THIS STILL THE TABLE WE PUT DOWN? Watch its cell from the moment place() returns: any block update there that
+ * is not crafting_table -> crafting_table (a break, an unload, a world switch) taints it, even if a crafting table
+ * stands there again by the retake. No way to watch (no block events) is "unsure", and unsure is left alone.
+ */
+function watchPlaced(bot, at) {
+  const w = { at, stateId: bot.blockAt?.(at)?.stateId, changed: null, stop: () => {} }
+  if (typeof bot.on !== 'function') { w.changed = 'no block events to watch it by'; return w }
+  const ev = `blockUpdate:${new Vec3(at.x, at.y, at.z)}`   // prismarine-world's per-cell event: blockUpdate:(x, y, z)
+  const fn = (was, now) => {
+    if (w.changed) return
+    if (was?.name !== 'crafting_table' || now?.name !== 'crafting_table') w.changed = `${was?.name ?? 'unknown'} -> ${now?.name ?? 'unknown'}`
+  }
+  bot.on(ev, fn)
+  w.stop = () => { try { (bot.off ?? bot.removeListener)?.call(bot, ev, fn) } catch {} }
+  return w
 }
 
 /** Failure classes that end the whole recipe tree instead of being reported as a missing ingredient. */
 const STOP_CLASSES = new Set(['inventory_full', 'unverified'])
 
 /**
- * MAKE ROOM, EXECUTABLY: wear out one spent tool (craftRoomRemedy picks it; nothing is dropped), on a block whose
- * own drop cannot refill the slot (wearKeepsSlot). -> { ok, said }
+ * MAKE ROOM, EXECUTABLY -> { ok, said }. In order:
+ *   1. place a count-1 stack of a solid, non-ingredient block (placeFiller): one placement empties its slot, and no
+ *      tool is spent on it;
+ *   2. wear out one spent tool (craftRoomRemedy: never the last digging tool), on a block whose own drop cannot
+ *      refill the slot (wearKeepsSlot).
+ * Each is followed by the wait for drops to land, and an abort during either propagates.
  */
 async function makeCraftRoom(ctx, item, plan, signal) {
   const { bot } = ctx
   const items = bot.inventory.items()
+  const row = (status, said) => logEvent({ kind: 'craft_room', status, snapshot: snapshot(bot),
+    detail: `${item}: ${said} (${items.length} -> ${bot.inventory.items().length}/${BAG_SLOTS} slots)` })
+  const filler = placeFiller(items, plan.consumes, n => placeableBlock(bot.registry, n))
+  let fillerSaid = null
+  if (filler) {
+    const put = await place(ctx, { item: filler.name }, signal)
+    check(signal)
+    await bot.waitForTicks?.(12)
+    check(signal)
+    if (put.status === 'success') {
+      const said = `made room by placing the 1 ${filler.name}`
+      row('made_room', said)
+      return { ok: true, said }
+    }
+    fillerSaid = `placing the 1 ${filler.name} failed: ${String(put.detail ?? put.failClass ?? '').slice(0, 60)}`
+  }
   const pick = craftRoomRemedy(items, item)
   if (!pick) {
-    logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
-               detail: `no room for ${item} at ${items.length}/${BAG_SLOTS} slots and no spent tool to wear out` })
-    return { ok: false, said: 'no spent tool to wear out' }
+    const said = (fillerSaid ? `${fillerSaid}; ` : '') + 'no spent tool that can be spared (the last digging tool is kept)'
+    row('refused', said)
+    return { ok: false, said }
   }
   const cellOk = (bl, tool) => wearKeepsSlot(items, tool.name, bl.name, dropsOf(bot.registry, bl.name))
   const worn = await wearOutOne(ctx, pick.tool, signal, { cellOk })
+  check(signal)
   await bot.waitForTicks?.(12)   // a drop is collectable after 10 ticks: re-check the slots after it could land
+  check(signal)
   const said = worn.ok
     ? `made room by wearing out a spent ${pick.tool.name} on ${worn.on}${pick.why === 'replaced' ? ' (the copy this craft replaces)' : ''}`
     : `wearing out a spent ${pick.tool.name} failed: ${worn.said}`
-  logEvent({ kind: 'craft_room', status: worn.ok ? 'made_room' : 'refused', snapshot: snapshot(bot),
-             detail: `${item}: ${said} (${items.length} -> ${bot.inventory.items().length}/${BAG_SLOTS} slots)` })
+  row(worn.ok ? 'made_room' : 'refused', said)
   return { ok: worn.ok, said }
 }
 
 /** The refusal: names what fills the bag and a move the bot can make from where it stands. Never deposit, never toss. */
-function refuseNoRoom(bot, item, room, why, done, reps) {
+function refuseNoRoom(bot, item, plan, room, why, tally) {
   const items = bot.inventory.items()
-  const fill = bagFill(items, n => !!bot.registry?.blocksByName?.[n])
+  const fill = bagFill(items, n => placeableBlock(bot.registry, n), plan.consumes)
   const remedy = fill.cheapest
     ? `placing your ${fill.cheapest.count} ${fill.cheapest.name} (the smallest stack of a block) frees its slot`
     : 'use up one of those stacks to free a slot'
   logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
              detail: `refused ${item}: needs ${room.short} more slot(s) at ${items.length}/${BAG_SLOTS}; ${why}; bag: ${fill.line}` })
-  return { status: 'failed', failClass: 'inventory_full', gap: 'inventory_space',
+  return { status: 'failed', failClass: 'inventory_full', gap: 'inventory_space', ...tally,
            detail: `no room for ${item}: the bag is ${items.length}/${BAG_SLOTS} and the craft needs ${room.short} more ` +
-                   `slot(s) — ${fill.line}; ${why}. ${remedy}` + (done ? ` (${done} of ${reps} already made)` : '') }
+                   `slot(s) — ${fill.line}; ${why}. ${remedy}` +
+                   (tally.executions ? ` (${tally.executions} of ${tally.requested} already made)` : '') }
 }
 
 /**
@@ -3303,15 +3406,22 @@ function refuseNoRoom(bot, item, room, why, done, reps) {
  * with room to receive it. The dig goes through collectManually (reach, dig, read-back, pickup), and the table
  * must ARRIVE in the bag. Every outcome is a `_table_retaken` row.
  */
-async function retakeTables(ctx, ats, signal) {
+async function retakeTables(ctx, watched, signal) {
   const { bot } = ctx
   const said = []
-  for (const at of ats) {
+  for (const w of watched) w.stop()          // our own dig must not read as someone else's
+  for (const w of watched) {
+    const at = w.at
     const where = `${at.x},${at.y},${at.z}`
     const row = (status, detail) => logEvent({ kind: 'table_retaken', status, snapshot: snapshot(bot), detail: `${where}: ${detail}` })
     if (signal?.aborted) { row('left', 'craft aborted; an aborted skill does not dig'); said.push('left the table: aborted'); continue }
     const block = bot.blockAt(at)
     if (block?.name !== 'crafting_table') { row('gone', `no longer a crafting_table (${block?.name ?? 'unknown'})`); continue }
+    // NEVER A TABLE THIS CALL CANNOT PROVE IS ITS OWN (Codex review): a break or a re-place at the cell since ours
+    // went down, a different block state, or no way to watch -- leave it.
+    const notOurs = w.changed ?? (w.stateId != null && block.stateId != null && block.stateId !== w.stateId
+      ? `state ${w.stateId} -> ${block.stateId}` : null)
+    if (notOurs) { row('left', `changed since placement (${notOurs}); not provably ours`); said.push('left the table: it changed since it was placed'); continue }
     const def = bot.registry?.itemsByName?.crafting_table
     if (!roomForOne(bot.inventory.items(), 'crafting_table', def?.stackSize ?? 64)) {
       row('left', `no room to carry it (${bot.inventory.items().length}/${BAG_SLOTS} slots)`)
