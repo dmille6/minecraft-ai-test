@@ -5146,6 +5146,13 @@ export function townComposterSite (bot) {
   })
 }
 
+/**
+ * THE COMPOSTER VISIT'S WALKS never put a node on a composter's top (index.mjs withComposterWalk, composter.mjs
+ * composterSafeMovements): a GoalNear(composter, 2) or a pickup walk could otherwise end on, or cross, the open top and
+ * drop into the hollow. A bot without the helper (a test fake) walks with its own profile.
+ */
+const composterWalk = (bot, fn) => (typeof bot.withComposterWalk === 'function' ? bot.withComposterWalk(fn) : fn())
+
 /** How long a popped bone meal may take to settle and its position to reach mineflayer (~20 ticks per update). */
 const BONEMEAL_SETTLE_TICKS = 20
 /** The compost visit's declared stationary window runs this long past its budget (the last insert or ripen). */
@@ -5185,7 +5192,7 @@ async function compost(ctx, _args, signal) {
   let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false, stationary = 0
   try {
     if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
-      try { await g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      try { await composterWalk(bot, () => g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       check(signal)
       if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
         row('failed', { stop: 'composter out of reach', levelBefore })
@@ -5214,7 +5221,7 @@ async function compost(ctx, _args, signal) {
           (() => { try { return e.getDroppedItem?.()?.name === 'bone_meal' } catch { return false } })())
         if (countOf('bone_meal') <= before && drop && !inPickupBox(bot.entity.position, drop.position)) {
           const goal = pickupGoalOutside(bot, drop.position, pos)
-          if (goal) { try { await g.bound(bot.pathfinder.goto(goal), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
+          if (goal) { try { await composterWalk(bot, () => g.bound(bot.pathfinder.goto(goal), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
           await ticks(12)
         }
       }

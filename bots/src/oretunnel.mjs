@@ -29,7 +29,7 @@ import pkg from 'mineflayer-pathfinder'
 import { remaining, HARD_STOP, tier } from './toolfor.mjs'
 import { cellLavaSafe, dropLavaSafe } from './lavaguard.mjs'
 import { Vec3 } from 'vec3'
-import { protectTownBlocks, composterTopStep } from './composter.mjs'
+import { protectTownBlocks } from './composter.mjs'
 const { goals, Movements } = pkg
 
 export const IRON_KINDS = ['iron_ore', 'deepslate_iron_ore']
@@ -185,8 +185,7 @@ export function tunnelMovements (bot, base = null, { home = null } = {}) {
   // re-centrings; cardinal-only staircases are straight lines the bot's 0.6-wide box always fits.
   m.getMoveDiagonal = () => {}
   const at = p => bot.blockAt(p)
-  // a base from index.mjs already carries the composter-top exclusion; a fresh profile gets its own
-  m.exclusionAreasStep = [...(base?.exclusionAreasStep ?? [composterTopStep(p => bot.blockAt(p, false), bot.registry)]), b => stepHazard(at, b)]
+  m.exclusionAreasStep = [...(base?.exclusionAreasStep ?? []), b => stepHazard(at, b)]
   m.exclusionAreasBreak = [...(base?.exclusionAreasBreak ?? []), b => (nearHome(b?.position, home) ? 100 : breakHazard(at, b))]
   return m
 }

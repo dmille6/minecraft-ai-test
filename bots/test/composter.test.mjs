@@ -1251,9 +1251,11 @@ await t('#1 the instrument: a body INSIDE the composter\'s hollow is not handed 
   assert.equal(town.count('bone_meal'), 1, 'positive control: from the cell beside it, the drop is handed over')
 })
 
-// THE REAL PATHFINDER: mineflayer-pathfinder 2.4.5's Movements + AStar over a one-wide corridor whose only short way
-// on crosses a composter. Positive control: with no exclusion the route stands ON the composter (1,65,0).
-const routeWorld = () => {
+// THE REAL PATHFINDER: mineflayer-pathfinder 2.4.5's Movements + AStar over an in-memory world. Two layouts:
+//   corridor  a one-wide corridor whose short way on crosses a composter: getMoveJumpUp onto (1,65,0)
+//   pillar    Codex's repro: a supported start at (0,67,0), walls on three sides, a composter at (1,64,0) below the
+//             only way off -- getMoveDropDown lands on (1,65,0)
+const routeWorld = (layout = 'corridor') => {
   const req = createRequire(import.meta.url)
   const reg = req('prismarine-registry')('1.21.8'); const Block = req('prismarine-block')(reg)
   const { Movements: Mv, goals: G } = req('mineflayer-pathfinder')
@@ -1261,48 +1263,80 @@ const routeWorld = () => {
   const w = new Map(), k = (x, y, z) => `${x},${y},${z}`
   for (let x = -3; x <= 6; x++) for (let z = -3; z <= 3; z++) {
     w.set(k(x, 63, z), 'stone')
-    if (Math.abs(z) >= 1) for (let y = 64; y <= 68; y++) w.set(k(x, y, z), 'bedrock')
+    if (Math.abs(z) >= 1) for (let y = 64; y <= 70; y++) w.set(k(x, y, z), 'bedrock')
   }
   w.set(k(1, 64, 0), 'composter')
+  let start = new Move(0, 64, 0, 0, 0)
+  if (layout === 'pillar') {
+    for (let y = 64; y <= 66; y++) w.set(k(0, y, 0), 'stone')          // the pillar the bot stands on
+    for (let y = 64; y <= 70; y++) w.set(k(-1, y, 0), 'bedrock')       // the only way off is +x
+    start = new Move(0, 67, 0, 0, 0)
+  }
+  const nameAt = (x, y, z) => w.get(k(x, y, z)) ?? (y < 63 ? 'bedrock' : 'air')
   const blockAt = p => {
     const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
-    const b = Block.fromStateId(reg.blocksByName[w.get(k(x, y, z)) ?? (y < 63 ? 'bedrock' : 'air')].defaultState, 0)
+    const b = Block.fromStateId(reg.blocksByName[nameAt(x, y, z)].defaultState, 0)
     b.position = new Vec3(x, y, z); return b
   }
-  const bot = { registry: reg, version: '1.21.8', game: { minY: -64, height: 384 }, blockAt, entity: { position: new Vec3(0.5, 64, 0.5), effects: {} },
+  const stateIdAt = (x, y, z) => reg.blocksByName[nameAt(x, y, z)].defaultState
+  const bot = { registry: reg, version: '1.21.8', game: { minY: -64, height: 384 }, blockAt, entity: { position: new Vec3(start.x + 0.5, start.y, start.z + 0.5), effects: {} },
                 entities: {}, inventory: { items: () => [], slots: [] }, pathfinder: { bestHarvestTool: () => null } }
-  const route = m => new AStar(new Move(0, 64, 0, 0, 0), m, new G.GoalBlock(3, 64, 0), 3000, 1000).compute()
-  const onTop = r => r.path.filter(n => blockAt(new Vec3(n.x, n.y - 1, n.z)).name === 'composter')
-  const fresh = () => { const m = C.protectTownBlocks(new Mv(bot), reg); m.canDig = false; return m }
-  return { bot, reg, route, onTop, fresh }
+  const route = m => new AStar(start, m, new G.GoalBlock(3, 64, 0), 3000, 1000).compute()
+  const onTop = r => r.path.filter(n => nameAt(n.x, n.y - 1, n.z) === 'composter').map(n => `${n.x},${n.y},${n.z}`)
+  const shared = () => { const m = C.protectTownBlocks(new Mv(bot), reg); m.canDig = false; return m }   // the base profile's town protection, nothing more
+  const scoped = () => C.composterSafeMovements(shared(), C.composterFloorFilter(stateIdAt, reg))
+  return { bot, reg, route, onTop, shared, scoped, stateIdAt }
 }
 
-await t('#1 THE REAL PATHFINDER never routes across a composter\'s TOP (composterTopStep); without it, it does', () => {
-  const { bot, reg, route, onTop, fresh } = routeWorld()
-  const plain = route(fresh())
-  assert.equal(plain.status, 'success')
-  assert.deepEqual(onTop(plain).map(n => `${n.x},${n.y},${n.z}`), ['1,65,0'], 'positive control: the unexcluded route stands on the composter')
-  const m = fresh(); m.exclusionAreasStep = [C.composterTopStep(p => bot.blockAt(p), reg)]
-  const r = route(m)
-  assert.equal(r.status, 'success', 'a detour exists')
-  assert.deepEqual(onTop(r), [], `a node stands on the composter: ${r.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')}`)
-  assert.ok(m.blocksCantBreak.has(reg.blocksByName.composter.id), 'and it is still never dug')
+await t('#1 JUMP-UP (corridor): the scoped composter-walk profile never stands on a composter\'s top; the shared profile does', () => {
+  const { route, onTop, shared, scoped } = routeWorld('corridor')
+  const plain = route(shared())
+  assert.equal(plain.status, 'success'); assert.deepEqual(onTop(plain), ['1,65,0'], 'positive control: the shared profile jumps onto the composter')
+  const r = route(scoped())
+  assert.equal(r.status, 'success', 'a detour exists'); assert.deepEqual(onTop(r), [], 'the composter walk stood on the composter')
 })
 
-await t('#1 a FRESH tunnel profile (no base) carries the composter-top exclusion too; a based one inherits the base\'s', async () => {
-  const { tunnelMovements } = await import('../src/oretunnel.mjs')
-  const { bot, reg, route, onTop } = routeWorld()
-  const m = tunnelMovements(bot, null); m.canDig = false
-  assert.deepEqual(onTop(route(m)), [], 'the fresh tunnel profile routes over the composter')
-  const base = { exclusionAreasStep: [C.composterTopStep(p => bot.blockAt(p), reg)], exclusionAreasBreak: [] }
-  assert.equal(tunnelMovements(bot, Object.assign(Object.create(Object.getPrototypeOf(m)), m, base)).exclusionAreasStep[0], base.exclusionAreasStep[0])
+await t('#1 DROP-DOWN (Codex\'s repro, start (0,67,0)): without the filter the route lands on (1,65,0); the scoped profile never does', () => {
+  const { route, onTop, shared, scoped } = routeWorld('pillar')
+  const plain = route(shared())
+  assert.equal(plain.status, 'success'); assert.deepEqual(onTop(plain), ['1,65,0'], 'positive control: the drop-down lands on the composter')
+  const r = route(scoped())
+  assert.deepEqual(onTop(r), [], `the composter walk dropped onto the composter: ${r.status} ${r.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')}`)
 })
 
-await t('#1 WIRED: index.mjs puts the composter-top exclusion into BOTH its own arrays (the shared base and waterMoves\' replacement)', () => {
+await t('#1 the filter is the LANDING cell, any state of the composter; the base profile is not touched', () => {
+  const { reg, shared } = routeWorld('corridor')
+  const c = reg.blocksByName.composter
+  const keep = C.composterFloorFilter((x, y, z) => (y === 64 ? c.maxStateId : reg.blocksByName.air.defaultState), reg)
+  assert.equal(keep({ x: 1, y: 65, z: 0 }), false, 'a full composter (max state) under the feet')
+  assert.equal(keep({ x: 1, y: 66, z: 0 }), true)
+  const base = shared(); const own = base.getNeighbors
+  const m = C.composterSafeMovements(base, keep)
+  assert.equal(base.getNeighbors, own, 'the shared profile was modified')
+  assert.notEqual(m.getNeighbors, own)
+})
+
+await t('#1 SCOPED: the shared profiles carry no composter entry (index.mjs arrays as before, a fresh tunnel profile still crosses); only the visit borrows the filter', async () => {
   const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
-  assert.match(src, /const composterTop = composterTopStep\(p => bot\.blockAt\(p, false\), bot\.registry\)/)
-  assert.match(src, /\n\s*moves\.exclusionAreasStep = \[[^\]]*\bcomposterTop\]/)
-  assert.match(src, /\n\s*waterMoves\.exclusionAreasStep = \[[^\]]*\bcomposterTop\]/)
+  assert.match(src, /\n\s*moves\.exclusionAreasStep = \[waterEntryPenalty, deathSitePenalty\]\n/)
+  assert.match(src, /\n\s*waterMoves\.exclusionAreasStep = \[deathSitePenalty\]/)
+  assert.equal((src.match(/setMovements\(composterWalkMoves\)/g) ?? []).length, 1, 'the filtered profile is installed somewhere else too')
+  assert.match(src, /bot\.withComposterWalk = async \(fn\) => \{\s*\n\s*bot\.pathfinder\.setMovements\(composterWalkMoves\)/)
+  const { tunnelMovements } = await import('../src/oretunnel.mjs')
+  const { bot, route, onTop } = routeWorld('corridor')
+  const t1 = tunnelMovements(bot, null); t1.canDig = false
+  assert.deepEqual(onTop(route(t1)), ['1,65,0'], 'a shared profile now avoids composters (it must be unaffected)')
+})
+
+await t('#1 the compost VISIT walks with the scoped profile (its approach and its bone-meal walk)', async () => {
+  let n = 0, borrowed = 0
+  const town = fakeTown({ hand: PICK, botAt: new Vec3(HOME.x - 8.5, HOME.y, HOME.z + 0.5), rolls: () => (n++ % 3 === 0 ? 0.1 : 0.9),
+    items: [S('leaf_litter', 64), S('leaf_litter', 30), ...filler(30)] })
+  town.bot.withComposterWalk = async fn => { borrowed++; return fn() }
+  const r = await run('compost', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(borrowed >= 2, `the visit borrowed the composter walk ${borrowed}x (approach + bone-meal walk expected)`)
+  assert.equal(town.state.gotos, borrowed, 'a visit walk went out with the shared profile')
 })
 
 await t('#2 COMPOSED with the fleet\'s 20 s stuck limit: the visit declares a BOUNDED stationary window; the watchdog does not fire inside it, does after', async () => {

@@ -654,23 +654,34 @@ export function protectTownBlocks (movements, registry) {
 }
 
 /**
- * NO PATH NODE STANDS ON A COMPOSTER (sandbox, Paper 1.21.8: 5 of 6 compost visits left the bone meal in the world).
- * Its cell is never a node -- its boundingBox is 'block' -- but the cell ABOVE it is: the floor reads `physical`, so a
- * walk or a jump-up lands on the top (mineflayer-pathfinder 2.4.5 getMoveJumpUp emits it), and the body falls into the
- * hollow at y + 0.125. An exclusionAreasStep entry: the pathfinder hands it the destination's cells, and a cell whose
- * floor is a composter costs COMPOSTER_TOP_COST, past the `cost > 100` that deletes the move. `blockAt(pos)` is the
- * bot's (extraInfos off: hot path); index.mjs puts it into EACH profile's own array.
+ * NO NODE OF THE COMPOSTER'S OWN WALKS STANDS ON A COMPOSTER (sandbox, Paper 1.21.8: the bone-meal walk ended in the
+ * hollow, y + 0.125). Its cell is never a node -- its boundingBox is 'block' -- but the cell ABOVE it is, and every move
+ * generator can land there: jump-up, forward, diagonal, and drop-down (Codex: from (0,67,0), getMoveDropDown lands on
+ * (1,65,0) above a composter at (1,64,0), at cost 1, past an exclusionAreasStep entry -- it prices the cells it passes,
+ * not the landing). So the check is ONE filter on every generated neighbour's real feet cell.
+ * SCOPED to the composter's walks (index.mjs withComposterWalk): the shared profiles every other walk uses stay as
+ * they were -- one block per town is not worth a cost on every path of every bot.
+ *   stateIdAt(x, y, z)  the block state id there (bot.world.getBlockStateId, no Block allocated)
+ * -> keep(node): false when the block under the node's feet is a composter (any of its states).
  */
-export const COMPOSTER_TOP_COST = 101
-export function composterTopStep (blockAt, registry) {
-  const id = registry?.blocksByName?.composter?.id
-  return block => {
-    const p = block?.position
-    if (id == null || !p) return 0
-    let below = null
-    try { below = blockAt(p.offset(0, -1, 0)) } catch { below = null }
-    return below?.type === id ? COMPOSTER_TOP_COST : 0
+export function composterFloorFilter (stateIdAt, registry) {
+  const c = registry?.blocksByName?.composter
+  if (!c || typeof stateIdAt !== 'function') return () => true
+  const lo = c.minStateId, hi = c.maxStateId
+  return node => {
+    let id
+    try { id = stateIdAt(node.x, node.y - 1, node.z) } catch { return true }
+    return !(id >= lo && id <= hi)
   }
+}
+
+/** A clone of `base` whose getNeighbors drops every neighbour `keep` refuses. The base is not touched. */
+export function composterSafeMovements (base, keep) {
+  if (!base) return base
+  const proto = Object.getPrototypeOf(base)
+  const m = Object.assign(Object.create(proto), base)
+  m.getNeighbors = function (node) { return proto.getNeighbors.call(this, node).filter(keep) }
+  return m
 }
 
 /**
