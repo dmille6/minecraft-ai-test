@@ -1,0 +1,201 @@
+// REMEMBER WHERE IT FAILED, GO WHERE IT WORKED (town map, stage 1; docs/reports/town-map-plan-2026-10-03.md).
+//
+// Measured 10-03 (80 bots, 3 h, full walk): of 1,290 failed log gathers, 1,248 had a log within 40 blocks (median 5)
+// -- the bots see wood and fail to REACH it -- and 696 of 1,062 hard failures (65.5%) were the same bot failing within
+// 16 blocks of its own failure in the previous 30 min. The admission cooldown (45 s, keyed on skill+args, no place)
+// cannot see that. This is a per-bot, in-memory grid of gather outcomes by 16x16 column, and the two decisions it
+// feeds: refuse a gather here, and where to walk instead.
+//
+// Everything below is pure (the clock is a parameter) so the decisions are tested by behaviour, not by source text.
+
+export const CELL = 16
+/** The measured hard-failure classes: the bot found the material and could not reach it. Not nothing_found (a
+ *  fact about the search radius, place-scoped in lessons.mjs) and not inventory_full (a fact about the bag). The
+ *  "A* reached a candidate [collect threw nothing]" failure is a no_path (barrenFailClass) and is named in `reason`. */
+export const HARD_FAIL = new Set(['no_path', 'unreachable', 'no_safe_target'])
+export const REFUSE_FAILS = 2
+export const REFUSE_WINDOW_MS = 30 * 60_000
+export const VISIT_FRESH_MS = 4 * 3600_000
+/** The frontier ring: a cell centre at least FRONTIER_MIN away (gather searches 32 by default, so a nearer cell
+ *  searches mostly the same ground) and at most FRONTIER_MAX. */
+export const FRONTIER_MIN = 32
+export const FRONTIER_MAX = 96
+export const TRIP_CAP = 160
+export const NIGHT_NEAR = 32
+export const BEARING_WALK = 60
+/** Bounds. A (cell, family) entry is ~100 bytes; a visit is one Map slot. LRU by last touch. */
+export const MAX_ENTRIES = 1024
+export const MAX_VISITS = 4096
+const FAIL_TIMES_KEPT = 4
+
+const norm = s => String(s ?? '').toLowerCase().replace(/^minecraft:/, '')
+
+/** The kind family a gather counts toward. Logs are one family, as explore-toward groups them (any log serves a
+ *  wood rung); deepslate ores are their ore. Everything else is its own name. */
+export function familyOf (block) {
+  const b = norm(block)
+  if (!b) return null
+  if (b === 'log' || b === 'wood' || /_(log|wood)$/.test(b)) return 'log'
+  return b.replace(/^deepslate_(?=.*_ore$)/, '')
+}
+
+/** Does inventory item `name` count as a gain for `family`? Logs by suffix; otherwise the caller's drop names. */
+export function countsFor (family, name, dropNames = null) {
+  const n = norm(name)
+  if (family === 'log') return /_(log|wood)$/.test(n)
+  return dropNames ? dropNames.has(n) : n === family
+}
+
+export function cellOf (pos) {
+  if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return null
+  return { cx: Math.floor(pos.x / CELL), cz: Math.floor(pos.z / CELL) }
+}
+export const cellKey = (cx, cz) => `${cx},${cz}`
+const centre = (cx, cz) => ({ x: cx * CELL + CELL / 2, z: cz * CELL + CELL / 2 })
+const entryKey = (cx, cz, family) => `${cx},${cz}|${family}`
+
+export function createCellMemory () {
+  return { entries: new Map(), visits: new Map(), trips: new Map() }
+}
+
+function touch (map, key, value, cap) {
+  map.delete(key)
+  map.set(key, value)
+  while (map.size > cap) map.delete(map.keys().next().value)
+}
+
+export function visit (mem, pos, now) {
+  const c = cellOf(pos)
+  if (!mem || !c) return
+  touch(mem.visits, cellKey(c.cx, c.cz), now, MAX_VISITS)
+}
+
+/** The hard-failure reason of a gather result, or null when the result is not a hard failure. */
+export function hardFailReason (result) {
+  if (!result || result.status === 'success') return null
+  if (!HARD_FAIL.has(result.failClass)) return null
+  return /collect threw nothing/.test(String(result.detail ?? '')) ? `${result.failClass}:collect_threw_nothing` : result.failClass
+}
+
+/**
+ * Record one gather return. `pos` is where the gather STARTED (the refusal is asked there). Success is items
+ * actually gained (`gained` > 0, measured by the caller from the inventory), whatever the status said; a hard failure
+ * is a HARD_FAIL class with nothing gained. Anything else (nothing_found, inventory_full, budgets) is not recorded as
+ * an outcome, only as a visit.
+ */
+export function recordGather (mem, { pos, family, result, gained = 0, now }) {
+  const c = cellOf(pos)
+  if (!mem || !c || !family) return null
+  visit(mem, pos, now)
+  const k = entryKey(c.cx, c.cz, family)
+  const reason = gained > 0 ? null : hardFailReason(result)
+  if (!(gained > 0) && !reason) return null
+  const e = mem.entries.get(k) ?? { cx: c.cx, cz: c.cz, family, ok: 0, fail: 0, lastOk: 0, lastFail: 0, failTimes: [], reasons: {} }
+  if (gained > 0) { e.ok++; e.lastOk = now } else {
+    e.fail++; e.lastFail = now
+    e.failTimes = [...e.failTimes, now].slice(-FAIL_TIMES_KEPT)
+    e.reasons[reason] = (e.reasons[reason] ?? 0) + 1
+  }
+  touch(mem.entries, k, e, MAX_ENTRIES)
+  return e
+}
+
+/** Hard failures in this entry inside the window AND after its last success. */
+export function recentFails (e, now) {
+  if (!e) return 0
+  return e.failTimes.filter(t => t > now - REFUSE_WINDOW_MS && t > e.lastOk).length
+}
+/** A cell this bot should not gather `family` in right now. */
+export function isRefusedCell (mem, cx, cz, family, now) {
+  return recentFails(mem?.entries.get(entryKey(cx, cz, family)), now) >= REFUSE_FAILS
+}
+
+/**
+ * Pure: refuse a gather of `family` at `pos`? Null, or { cell, fails, reason }. A trip out of this cell that already
+ * failed inside the window ENDS THE CHAIN: the refusal stands down for that cell and the model has the bot back (a
+ * refusal whose remedy just proved unexecutable from here is a dead end, CLAUDE.md).
+ */
+export function refusalFor (mem, pos, family, now) {
+  const c = cellOf(pos)
+  if (!mem || !c || !family) return null
+  const e = mem.entries.get(entryKey(c.cx, c.cz, family))
+  const fails = recentFails(e, now)
+  if (fails < REFUSE_FAILS) return null
+  const trip = mem.trips.get(entryKey(c.cx, c.cz, family))
+  if (trip && trip.failedAt > now - REFUSE_WINDOW_MS) return null
+  const reasons = Object.entries(e.reasons).sort((a, b) => b[1] - a[1]).map(([r]) => r)
+  return { cell: cellKey(c.cx, c.cz), cx: c.cx, cz: c.cz, fails, reason: reasons[0] ?? 'unknown' }
+}
+
+/** The trip out of this cell failed (explore no_path): no refusal from that cell for the rest of the window. */
+export function noteTripFailed (mem, cx, cz, family, now) {
+  if (mem) touch(mem.trips, entryKey(cx, cz, family), { failedAt: now }, MAX_ENTRIES)
+}
+
+const angDiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
+
+/**
+ * Pure: where to walk after a refusal. In order: the nearest cell where `family` succeeded for this bot with fewer
+ * than REFUSE_FAILS hard failures since; else the nearest cell not visited in VISIT_FRESH_MS inside the frontier ring
+ * (ties broken toward `bearing`); else `bearing` itself (the existing explore bearing), turned 90/-90/180 if its line
+ * ends in or crosses a refused cell. Never a refused cell, never the current cell. Capped at TRIP_CAP; at night,
+ * NIGHT_NEAR unless the bot holds a bed.
+ * Returns { x, z, cx, cz, source, dist } or { none: why }.
+ */
+export function chooseTarget (mem, { pos, family, now, night = false, hasBed = false, bearing = 0 }) {
+  const here = cellOf(pos)
+  if (!mem || !here || !family) return { none: 'no_position' }
+  const cap = night && !hasBed ? NIGHT_NEAR : TRIP_CAP
+  const refused = (cx, cz) => isRefusedCell(mem, cx, cz, family, now)
+  const isHere = (cx, cz) => cx === here.cx && cz === here.cz
+  const distTo = (cx, cz) => { const c = centre(cx, cz); return Math.hypot(c.x - pos.x, c.z - pos.z) }
+  const point = (cx, cz, source) => { const c = centre(cx, cz); return { x: c.x, z: c.z, cx, cz, source, dist: distTo(cx, cz) } }
+
+  // 1. where it worked
+  let best = null
+  for (const e of mem.entries.values()) {
+    if (e.family !== family || !(e.lastOk > 0) || isHere(e.cx, e.cz)) continue
+    // NOT >= REFUSE_FAILS HARD FAILURES SINCE ITS LAST SUCCESS (any age): a forest that worked and then refused us
+    // twice is not "where it worked". This subsumes the 30-min refusal for these cells.
+    if (e.failTimes.filter(t => t > e.lastOk).length >= REFUSE_FAILS) continue
+    const d = distTo(e.cx, e.cz)
+    if (d > cap) continue
+    if (!best || d < best.d) best = { e, d }
+  }
+  if (best) return point(best.e.cx, best.e.cz, 'success')
+
+  // 2. the frontier: not visited recently, inside the ring
+  const hi = Math.min(FRONTIER_MAX, cap)
+  const r = Math.ceil(hi / CELL) + 1
+  let front = null
+  for (let dx = -r; dx <= r; dx++) {
+    for (let dz = -r; dz <= r; dz++) {
+      const cx = here.cx + dx, cz = here.cz + dz
+      if (isHere(cx, cz) || refused(cx, cz)) continue
+      const d = distTo(cx, cz)
+      if (d < FRONTIER_MIN || d > hi) continue
+      const seen = mem.visits.get(cellKey(cx, cz))
+      if (seen != null && seen > now - VISIT_FRESH_MS) continue
+      const c = centre(cx, cz)
+      const off = angDiff(Math.atan2(c.z - pos.z, c.x - pos.x), bearing)
+      if (!front || d < front.d - 1e-9 || (Math.abs(d - front.d) <= 1e-9 && off < front.off)) front = { cx, cz, d, off }
+    }
+  }
+  if (front) return point(front.cx, front.cz, 'frontier')
+
+  // 3. the existing explore bearing, never along a line that ends in or crosses a refused cell
+  const len = Math.min(BEARING_WALK, cap)
+  for (const turn of [0, Math.PI / 2, -Math.PI / 2, Math.PI]) {
+    const a = bearing + turn
+    let blocked = false
+    for (let s = 8; s <= len; s += 8) {
+      const c = cellOf({ x: pos.x + Math.cos(a) * s, z: pos.z + Math.sin(a) * s })
+      if (!isHere(c.cx, c.cz) && refused(c.cx, c.cz)) { blocked = true; break }
+    }
+    const end = { x: pos.x + Math.cos(a) * len, z: pos.z + Math.sin(a) * len }
+    const ec = cellOf(end)
+    if (blocked || isHere(ec.cx, ec.cz) || refused(ec.cx, ec.cz)) continue
+    return { x: Math.round(end.x), z: Math.round(end.z), cx: ec.cx, cz: ec.cz, source: 'bearing', dist: len }
+  }
+  return { none: 'every_bearing_refused' }
+}

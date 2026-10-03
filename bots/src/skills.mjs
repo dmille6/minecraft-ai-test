@@ -52,6 +52,7 @@ import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor } from './smelting.mjs'
+import { familyOf, countsFor, cellOf, createCellMemory, visit as visitCell, recordGather, refusalFor, noteTripFailed, chooseTarget, TRIP_CAP } from './cellmem.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -2238,6 +2239,96 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                 `${maxRounds} attempts — not a shortage, an allowance` }
 }
 
+// ------------------------------------------------------- cell memory -----
+//
+// THE SAME BOT FAILING ON THE SAME SPOT (cellmem.mjs; town map stage 1). 65.5% of hard gather failures were the bot
+// failing within 16 blocks of its own failure in the previous 30 minutes. This wraps every gather the runner runs:
+// before it, a refusal when this bot has failed this family in this 16x16 column twice in 30 min with no success
+// since; after it, the outcome is recorded against the column the gather started in.
+//
+// THE REMEDY IS EXECUTED, NOT PRINTED (CLAUDE.md: "advice printed is not advice taken"). A refusal walks the bot,
+// in the same call, to the nearest column where this family worked for it, else the nearest unvisited column in the
+// ring, else the explore bearing -- through explore itself, so the walk is explore's legs, lava guard and death
+// sites, not a new mover. The refusal is `no_effect` / `cell_refused`: in no EVIDENCE_* set, so no lesson and no
+// learned-avoid line; and not `failed`, so no 45 s admission cooldown on `gather <block>` -- the bot that just walked
+// to wood must be allowed to gather it on the next decision.
+
+/** Count of items in the bag that count as `family` gained. */
+export function familyHeld (bot, family, block) {
+  let drops = null
+  if (family !== 'log') { try { drops = new Set(dropsOf(bot?.registry, block)) } catch { drops = null } }
+  let n = 0
+  for (const it of (bot?.inventory?.items?.() ?? [])) if (countsFor(family, it.name, drops)) n += it.count
+  return n
+}
+
+function cellMemoryOf (bot) {
+  if (!bot) return null
+  if (!bot.cellMemory) bot.cellMemory = createCellMemory()
+  return bot.cellMemory
+}
+function noteCellVisit (bot) {
+  try { const p = bot?.entity?.position; if (p) visitCell(cellMemoryOf(bot), p, Date.now()) } catch { /* never costs a skill its turn */ }
+}
+
+export async function gatherCell (ctx, args, signal, { inner = gather, walk = explore, now = () => Date.now() } = {}) {
+  const { bot } = ctx
+  const mem = cellMemoryOf(bot)
+  const p = bot?.entity?.position
+  const start = p ? { x: p.x, y: p.y, z: p.z } : null
+  let block = args?.block
+  try { block = resolveBlockName(bot, args?.block).name ?? args?.block } catch { block = args?.block }
+  const family = familyOf(block)
+
+  const ref = start && family ? refusalFor(mem, start, family, now()) : null
+  if (ref) {
+    const hasBed = (bot.inventory?.items?.() ?? []).some(i => String(i.name).endsWith('_bed'))
+    const target = chooseTarget(mem, { pos: start, family, now: now(), night: isNightTime(bot), hasBed,
+                                       bearing: exploreBearing(null, start, () => 0.5) })
+    if (target.none) {
+      // NO EXECUTABLE REMEDY, SO NO REFUSAL: every way out is a refused column. The gather runs as it always did.
+      logEvent({ kind: '_cell_target', status: 'skipped', detail: `cell=${ref.cell} family=${family} fails=${ref.fails} none: ${target.none}; not refused, the gather runs`, snapshot: snapshot(bot) })
+    } else {
+      logEvent({ kind: '_cell_refused', status: 'no_effect',
+                 detail: `cell=${ref.cell} family=${family} fails=${ref.fails} reason=${ref.reason}`,
+                 snapshot: snapshot(bot) })
+      let r = null, arrived = false
+      try {
+        r = await walk(ctx, { blocks: Math.ceil(target.dist), cellTarget: { ...target, kind: `${family} cell ${target.cx},${target.cz}` } }, signal)
+      } finally {
+        const q = bot.entity?.position
+        arrived = !!q && aimLeg(q, target).arrived
+        logEvent({ kind: '_cell_target', status: arrived ? 'success' : 'no_effect',
+                   detail: `target=${target.cx},${target.cz} source=${target.source} dist=${Math.round(target.dist)} ` +
+                           `${arrived ? 'arrived' : 'not_arrived'} explore=${r?.status ?? 'aborted'}${r?.failClass ? `/${r.failClass}` : ''}`,
+                   snapshot: snapshot(bot) })
+      }
+      // EXPLORE'S OWN NO_PATH ENDS THE CHAIN: this column stops refusing for the window and the model has the bot.
+      // So does a walk that left the bot inside the refused column ("barely moved"): refusing again from the same
+      // spot would be the loop this exists to break.
+      const q = cellOf(bot.entity?.position)
+      const stillHere = !!q && q.cx === ref.cx && q.cz === ref.cz
+      if (r?.status === 'failed' || (!arrived && stillHere)) noteTripFailed(mem, ref.cx, ref.cz, family, now())
+      noteCellVisit(bot)
+      return { status: 'no_effect', failClass: 'cell_refused',
+               detail: `refused gather ${block} here (column ${ref.cell}): ${ref.fails} ${ref.reason} failures in 30 min, none since a success; ` +
+                       `walked toward column ${target.cx},${target.cz} (${target.source}, ${Math.round(target.dist)}b): ` +
+                       `${arrived ? 'arrived' : 'not arrived'} — ${String(r?.detail ?? '').slice(0, 80)}` }
+    }
+  }
+
+  const before = family ? familyHeld(bot, family, block) : 0
+  const res = await inner(ctx, args, signal)
+  if (start && family) {
+    try {
+      const gained = familyHeld(bot, family, block) - before
+      recordGather(mem, { pos: start, family, result: res, gained, now: now() })
+    } catch { /* a measurement may never cost the skill its result */ }
+  }
+  noteCellVisit(bot)
+  return res
+}
+
 // ---------------------------------------------------------------- come -----
 async function come(ctx, { player }, signal) {
   const { bot } = ctx
@@ -3895,7 +3986,7 @@ export function aimLeg (pos, target) {
   return { ang: Math.atan2(dz, dx), remaining, arrived: remaining <= EXPLORE_ARRIVE }
 }
 
-async function explore(ctx, { blocks = 60, heading = null, toward = null, intentTask = null }, signal) {
+async function explore(ctx, { blocks = 60, heading = null, toward = null, intentTask = null, cellTarget = null }, signal) {
   const { bot } = ctx
   const start = bot.entity.position.clone()
 
@@ -3917,7 +4008,8 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
   // Falls back to the old bearing when nothing is known, which is the honest
   // behaviour for a bot that has genuinely seen nothing: this makes explore
   // better-informed, not conditional on being informed.
-  const known = knownTarget(bot, toward)
+  // A CELL TRIP (gatherCell) names its point; it is not a sighting walk and writes none of the sighting rows.
+  const known = cellTarget ? null : knownTarget(bot, toward)
   // THE TASK AIMED THIS WALK (exploreintent.mjs; only the cognitive loop passes an array). One row per explore, the
   // only writer of it, carrying what the old iron-first order would have chosen so the read can count the changes.
   const intended = Array.isArray(toward)
@@ -3961,11 +4053,11 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
   // explores on 28-29 Sep had no target -- but a task whose material has no sighting now lands here on purpose.
   let ang = exploreBearing(heading, start)
 
-  const want = Math.min(Math.max(Number(blocks) || 60, 20), 120)
+  const want = Math.min(Math.max(Number(blocks) || 60, 20), cellTarget ? TRIP_CAP : 120)
   // WALK TO THE THING, THEN STOP (Codex review: a distance cap is not arrival -- a blocked leg's turn persists, so the
   // capped walk ended wherever the turns left it). A task-aimed walk re-aims at the sighting after every leg that
   // succeeded, keeps a blocked leg's turn for exactly one leg, and ends on arrival. `blocks` stays the budget.
-  const aimAt = intended && known?.kind ? known : null
+  const aimAt = cellTarget?.kind ? cellTarget : intended && known?.kind ? known : null
   let reaim = true, arrived = false
   // 12, not 25. At 25 blocks through forest, A* spends long enough planning that
   // the bot stands still past the 45s stuck threshold and the reflex cancels the
@@ -4051,9 +4143,10 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
     }
     check(signal)
     travelled += from.distanceTo(bot.entity.position)
+    noteCellVisit(bot)
   }
   if (aimAt && !arrived) arrived = aimLeg(bot.entity.position, aimAt).arrived
-  if (aimAt) logEvent({ kind: 'explore_toward_milestone_end', status: arrived ? 'success' : 'no_effect',
+  if (aimAt && !cellTarget) logEvent({ kind: 'explore_toward_milestone_end', status: arrived ? 'success' : 'no_effect',
     detail: `${arrived ? 'arrived' : 'not_arrived'} at ${aimAt.kind} ${aimAt.x},${aimAt.y},${aimAt.z}: ` +
             `${Math.round(aimLeg(bot.entity.position, aimAt).remaining)}b left after ${legs} legs, ${Math.round(travelled)}b walked`,
     snapshot: snapshot(bot) })
@@ -4066,7 +4159,7 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
   // at any particular place.
   if (moved >= 20) return { status: 'success', detail }
   // ARRIVING IS THE POINT. A sighting 24 blocks off is reached after ~18; "barely moved" would teach a cooldown.
-  if (arrived && moved >= 5) return { status: 'success', detail: `${detail}; arrived at the ${aimAt.kind} sighting` }
+  if (arrived && moved >= 5) return { status: 'success', detail: `${detail}; arrived at the ${aimAt.kind}${cellTarget ? '' : ' sighting'}` }
   if (moved >= 5) return { status: 'no_effect', detail: `${detail} — barely moved`, failClass: 'stuck' }
   return { status: 'failed', detail: `could not explore: ${detail}`, failClass: 'no_path' }
 }
@@ -7299,7 +7392,7 @@ async function bucketSkill (ctx, args, signal) {
 
 export const SKILLS = {
   goto:    { run: goto,    usage: 'goto <x> <y> <z>',              args: ['x', 'y', 'z'] },
-  gather:  { run: gather,  usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
+  gather:  { run: gatherCell, usage: 'gather <count> <block_name>',   args: ['count', 'block'] },
   come:    { run: come,    usage: 'come',                          args: [], chatOnly: true },
   follow:  { run: follow,  usage: 'follow [seconds]',              args: [], chatOnly: true },
   home:    { run: home,    usage: 'home',                          args: [], rescue: true },
