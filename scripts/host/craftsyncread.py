@@ -16,6 +16,9 @@
 # REPORTED: outcomes, click/quiet/resync cap hits, preemptions, crafts and pickaxe crafts per bot-hour (DiD), duplicate
 # tool crafts (the bot already held a usable copy -- now they succeed and spend materials; Claude review), usable
 # pickaxe holders canary vs control.
+# ALSO REPORTED (Claude review 10-03): craftsync waits for the server on every click, so a long batch could outlast the
+# fleet's 20 s stuck watchdog and be interrupted -- craft durations p50/p95/max, crafts ending aborted, and
+# `_reflex_stuck` rows per bot-hour (DiD).
 import sys, os, json, re
 import datetime as dt
 from collections import Counter, defaultdict
@@ -55,6 +58,7 @@ print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(e
 sync = defaultdict(Counter); outcomes = Counter(); src = Counter(); caps = Counter(); offbuild = 0
 crafts = defaultdict(Counter); picks = defaultdict(Counter); nothing = Counter(); judged_n = Counter(); dup = 0
 botsets = defaultdict(lambda: defaultdict(set)); last = {}
+durs = []; aborted = 0; stuck = defaultdict(Counter)
 for r in ev.rows:
     t = r.get('t'); b = (r.get('bot') or {}).get('name')
     if t is None or not b:
@@ -79,6 +83,12 @@ for r in ev.rows:
             for c in ('click_caps', 'quiet_caps', 'resync_caps'):
                 caps[c] += int(a.get(c) or 0)
             caps['preempted'] += int(bool(a.get('preempted')))
+            dm = skill(r).get('durationMs') or (r.get('raw') or {}).get('durationMs')
+            if isinstance(dm, (int, float)):
+                durs.append(dm)
+            aborted += int(a.get('outcome') == 'aborted')
+    if k == '_reflex_stuck' and not other:
+        stuck[period][arm] += 1
     if k == 'craft' and not other:
         item = str((skill(r).get('args') or {}).get('item') or '')
         st = skill(r).get('status')
@@ -128,6 +138,9 @@ print('TRIPWIRE     verified by something other than a server resync: %d of %d =
 print('REPORTED     outcomes %s | caps %s | crafts/bot-h DiD %+.2f | pickaxe crafts/bot-h DiD %+.3f | duplicate tool crafts %d'
       % (dict(outcomes), dict(caps), did(crafts), did(picks), dup))
 print('             usable pickaxe holders: canary %d/%d control %d/%d' % (gc, nc, gk, nk))
+q = lambda f: (sorted(durs)[min(len(durs) - 1, int(f * len(durs)))] / 1000) if durs else float('nan')
+print('             craft durations s: p50 %.1f p95 %.1f max %.1f (n %d) | aborted %d | _reflex_stuck/bot-h DiD %+.3f (watchdog 20 s)'
+      % (q(.5), q(.95), (max(durs) / 1000 if durs else float('nan')), len(durs), aborted, did(stuck)))
 try:
     if ovr:
         raise RuntimeError('CANARY_DRYRUN set -- not emitting')
@@ -141,6 +154,8 @@ try:
         'click_caps': caps['click_caps'], 'preempted': caps['preempted'], 'duplicate_tool_crafts': dup,
         'crafts_did_per_bh': round(did(crafts), 3), 'pickaxe_crafts_did_per_bh': round(did(picks), 4),
         'usable_pick_canary': gc, 'bots_canary': nc, 'usable_pick_control': gk, 'bots_control': nk,
+        'craft_p95_s': None if not durs else round(q(.95), 2), 'craft_max_s': None if not durs else round(max(durs) / 1000, 2),
+        'crafts_aborted': aborted, 'stuck_did_per_bh': round(did(stuck), 4),
         'exposure_ready': int(judged and nothing['control'] >= 1),
     })
 except Exception as e:
