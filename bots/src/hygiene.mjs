@@ -71,3 +71,11 @@ export function wearTarget (block) {
 }
 /** Lower sorts first: stone family, then logs, then soils. */
 export const wearRank = name => (/^(stone|andesite|diorite|granite|tuff|calcite|netherrack)$/.test(name) ? 0 : /_log$/.test(name) ? 1 : 2)
+
+/**
+ * HOUSEKEEPING: deterministic orders the model can never choose (chatOnly). They are not attempts at the goal (no
+ * milestone give-up either way) and never become a "reliable choice" in the prompt. cognitive.mjs asks this, so a
+ * new housekeeping order cannot be wired into one of those sites and forgotten at the other.
+ */
+export const HOUSEKEEPING = new Set(['wear_out', 'compost'])
+export const isHousekeeping = skill => HOUSEKEEPING.has(skill)
