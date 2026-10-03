@@ -31,6 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
+import { pickupTransaction, itemIdsNow, supportLavaFree, PICKUP_THINK_MS } from './logpickup.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -1296,6 +1297,11 @@ export async function collectManually(bot, block, signal) {
   // Named `dig` so a dig that never finishes is not filed as a pathing failure,
   // and cleaned up with stopDigging() rather than the pathfinder default --
   // clearing a path goal does nothing for a stuck dig.
+  // A LOG'S PICKUP IS A TRANSACTION (logpickup.mjs): know which item entities were already lying here, and how
+  // many logs were held, BEFORE the dig -- so the drop of THIS dig can be named and only a bag gain counts.
+  const logDig = LOG_PICKUP.test(wasNamed ?? '')
+  const preIds = logDig ? itemIdsNow(bot) : null
+  const heldBefore = logDig ? heldFromBlock(bot, wasNamed) : 0
   await withTimeout(bot.dig(block), 20_000, bot, {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
@@ -1330,7 +1336,58 @@ export async function collectManually(bot, block, signal) {
                detail: `broke ${wasNamed} at ${p.x},${p.y},${p.z} with a ${tool.name} at ${remaining(tool)} use(s)` })
   }
 
+  // A LOG IS GATHERED WHEN IT IS IN THE BAG, NOT WHEN IT BREAKS. The sweep below walks GoalNear(drop, 1), whose
+  // acceptance set is empty for a drop resting on leaves or a trunk stub (27% of 1,866 left-behind log drops,
+  // 10-03), and retires each drop whether or not it was collected. Logs get the bounded pickup transaction
+  // instead; it finishes only on an inventory gain and says why when it does not. Everything else is unchanged.
+  if (logDig) {
+    const pickup = await pickupTransaction(bot, {
+      cell: p, logName: wasNamed, family: dropsOf(bot.registry, wasNamed), preIds, heldBefore,
+      held: () => heldFromBlock(bot, wasNamed), signal,
+    }, pickupIO(bot))
+    return { broke: true, pickup }
+  }
   await pickupNearbyItems(bot, signal)
+  return { broke: true, pickup: null }
+}
+
+/** Logs: the blocks whose pickup is a transaction. */
+const LOG_PICKUP = /_log$/
+
+/** Uses the dig needs to take a support down without spending a last swing (toolfor.HARD_STOP). */
+function supportBreakable (bot, b) {
+  try {
+    if (!b?.position || !(bot.canDigBlock && bot.canDigBlock(b))) return false
+    if (!isSafeToBreak(bot, b.position)) return false          // liquids and falling blocks: pathfinder's own rule
+    if (!supportLavaFree((x, y, z) => bot.blockAt(new Vec3(x, y, z)), b.position)) return false
+    const h = bot.heldItem
+    return !(h && remaining(h) <= HARD_STOP)                     // a last swing is for a harvest, never for a leaf
+  } catch { return false }
+}
+
+/** The pickup transaction's I/O, bounded the same way as every other walk and dig in this file. */
+function pickupIO (bot) {
+  return {
+    goals,
+    now: () => Date.now(),
+    sleep: (ms, signal) => sleep(ms, signal),
+    // THINK TIME CAPPED: a pickup is worth seconds, not a 5 s A* drain. Restored on every path out.
+    walk: async (goal, ms) => {
+      const pf = bot.pathfinder
+      const prev = pf.thinkTimeout
+      pf.thinkTimeout = PICKUP_THINK_MS
+      try { await withTimeout(pf.goto(goal), ms, bot) } finally { pf.thinkTimeout = prev }
+    },
+    // The hole is the point, not the drop: a leaf yields nothing a tool must harvest.
+    dig: b => withTimeout(bot.dig(b), 3000, bot, {
+      what: 'dig', needsDrop: false,
+      onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+    }),
+    supportOk: b => supportBreakable(bot, b),
+    sought: id => noteSought(bot, id, 'pickup'),
+    log: row => logEvent({ kind: 'pickup_reach', status: row.outcome === 'collected' ? 'success' : 'failed',
+                           detail: row.detail, args: row.args }),
+  }
 }
 
 /** Walk over anything on the floor within a few blocks. */
@@ -1613,6 +1670,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   // on purpose: `viaCover` resets every round, and the question this answers is
   // about the whole run's failure class. See `barrenFailClass`.
   let coverRounds = 0
+  // WHAT THE PICKUP SAID (logpickup.mjs), run-scoped: a log that broke and never reached the bag is not a claim
+  // about a route, and a break no drop ever confirmed is not one either. See `barrenFailClass`.
+  let pickupFailed = 0, unconfirmed = 0, bagFull = false
   // The most recent reachability probe, so the failure can cite what A* said.
   let lastProbe = null
   // Verbatim collectblock failure messages, so a refusal it makes can be read
@@ -2044,7 +2104,11 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // and stays under the 45s stuck reflex so a genuinely wedged bot is still
       // rescued rather than sitting out its whole budget.
       if (mustCollectManually(target.name)) {
-        await collectManually(bot, target, signal)
+        const got = await collectManually(bot, target, signal)
+        const v = got?.pickup?.verdict
+        if (v === 'pickup_failed') pickupFailed++
+        else if (v === 'break_unconfirmed') unconfirmed++
+        else if (v === 'inventory_full') bagFull = true
       } else {
         // ABANDONING A PROMISE DOES NOT STOP THE WORK BEHIND IT.
         //
@@ -2101,6 +2165,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (e.aborted) throw e
       // Remember WHY, so the failure below can tell the truth about itself.
       if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
+      if (e.failClass === 'dig_unconfirmed') unconfirmed++
       // AND SAY IT WHERE ANYONE CAN READ IT.
       //
       // This was a debug log and nothing else, so the ONE fact that explains the
@@ -2173,6 +2238,14 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                  detail: `${blockName} via foliage cover: ${viaCover} candidate(s), ` +
                          `gained ${gained - collected} this round, run total ${gained}/${count}` })
     }
+    // A FULL BAG ENDS THE RUN AT THE FIRST LOG IT COULD NOT TAKE. Breaking more of them only leaves more on the
+    // ground. Neither class votes (cognitive.mjs), and the remedies can be done from here.
+    if (bagFull && gained === collected) {
+      const why = `no slot for ${blockName}: broke one and could not take it — deposit at a chest, or wear_out spent tools to free a slot`
+      return collected > 0
+        ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
+        : { status: 'failed', failClass: 'inventory_full', detail: why }
+    }
     if (gained === collected) {
       barren++
       // A barren round means this target gave nothing even though nothing threw.
@@ -2203,10 +2276,16 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
           ? ` [probe: ${lastProbe.status}, slate ${lastProbe.checked}, ` +
             `${lastProbe.hit ? 'A* reached a candidate' : 'A* reached none'}]`
           : ''
-        const fc = barrenFailClass(timedOut, barren, coverRounds)
+        const fc = barrenFailClass(timedOut, barren, coverRounds, { pickupFailed, unconfirmed })
         const [failClass, why] = fc === 'collect_budget'
           ? ['collect_budget',
              `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`]
+          : fc === 'pickup_failed'
+          ? [fc, `broke ${pickupFailed} ${blockName} and could not pick up the drop — it rests where no stance ` +
+                 `reaches it; try another tree (this is not a missing route)`]
+          : fc === 'break_unconfirmed'
+          ? [fc, `${unconfirmed} ${blockName} dig(s) were never confirmed by the server (no drop appeared) — ` +
+                 `try again or another tree`]
           : [fc, `${blockName} found but unreachable after ${barren} attempts${probeNote}${errNote}` +
                  (coverRounds > 0
                    ? ` [${coverRounds} round(s) were foliage-covered last resorts, so this is not evidence there is no route]`
@@ -5625,8 +5704,13 @@ export const COVER_EXEMPT_TARGET = /_log$/
  * mistake is teaching a durable lesson from a failure nobody could classify.
  * Refusing to teach costs a re-ask; teaching wrongly costs the tech tree.
  */
-export function barrenFailClass (timedOut, barren, coverRounds = 0) {
+export function barrenFailClass (timedOut, barren, coverRounds = 0, { pickupFailed = 0, unconfirmed = 0 } = {}) {
+  // BLOCKS BROKE, NOTHING ARRIVED: a pickup failure, never a route (logpickup.mjs). 291 of 949 failed log gathers
+  // in 3 h (10-03) were this, and as `no_path` each one taught an avoid rule against `gather oak_log`.
+  // Neither class below is in any EVIDENCE_* set.
+  if (pickupFailed > 0) return 'pickup_failed'
   if (timedOut >= barren) return 'collect_budget'
+  if (unconfirmed > 0) return 'break_unconfirmed'
   return coverRounds > 0 ? 'unreachable' : 'no_path'
 }
 
