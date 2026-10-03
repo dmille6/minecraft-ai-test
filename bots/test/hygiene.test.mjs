@@ -93,7 +93,7 @@ await t('a tool that SURVIVES the dig is reported, not claimed', async () => {
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot } = fakeBot({ inv, toolBreaks: false })
   const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
-  assert.equal(r.status, 'failed'); assert.match(r.detail, /survived/)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /not confirmed destroyed/); assert.doesNotMatch(r.detail, /survived/, 'an unconfirmed dig is not a survivor')
 })
 
 const ground = (bot, { above = 'air', below = 'block' } = {}) => {
@@ -174,11 +174,11 @@ await t('DIAGNOSIS (logging only): "no safe block" carries a per-guard tally of 
   assert.match(r.detail, /footprint 1/, r.detail); assert.match(r.detail, /occupied 3/, r.detail)
 })
 
-await t('DIAGNOSIS: a survivor is reported UNCONFIRMED with what its slot held, not as a fact', async () => {
+await t('DIAGNOSIS: an unconfirmed wear-out is reported as UNCONFIRMED with what its slot held, not as a survivor', async () => {
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot } = fakeBot({ inv, toolBreaks: false })
   const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
-  assert.equal(r.status, 'failed'); assert.match(r.detail, /survived the dig on dirt \(unconfirmed at \d+ ms: slot \d+ /)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /not confirmed destroyed after the dig on dirt \(unconfirmed at \d+ ms, not a survivor: slot \d+ /)
 })
 
 await t('WIRING (source, comments stripped): the order precedes planting, is cooldown-gated, and pickup filters ballast; nothing tosses', () => {

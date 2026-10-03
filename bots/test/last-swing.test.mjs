@@ -55,15 +55,15 @@ t('SCOPE: travel digs and the exit contract still honour the hard stop', () => {
   assert.notEqual(travelTool(STONE, inv, null)?.name, 'stone_pickaxe', 'the pathfinder must not be handed a 1-use pickaxe')
 })
 
-t('SCOPE (source, comments stripped): only collectManually opts in, and it logs the swing', () => {
+// WHICH ROW a confirmed swing logs (last_swing vs spent_swing) is asserted on EMITTED rows in toolfor-spent.test.mjs.
+t('SCOPE (source, comments stripped): only collectManually opts in', () => {
   const code = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const sites = code.match(/lastSwing:\s*true/g) ?? []
   assert.equal(sites.length, 1, `expected exactly one opt-in, found ${sites.length}`)
   const s = code.indexOf('export async function collectManually('), e = code.indexOf('\nexport async function ', s + 10)
   const body = code.slice(s, e)
-  assert.match(body, /bestTool\(bot, block, \{ lastSwing: true, decision \}\)/)
-  assert.match(body, /kind: decision\.reason === 'last_swing' \? 'last_swing' : 'spent_swing'/)
+  assert.match(body, /bestTool\(bot, block, \{ lastSwing: true/)
 })
 
 t('STONE FAMILY ONLY: a last use is never spent on a block that cannot rebuild a pickaxe', () => {

@@ -18,16 +18,20 @@ export const HARD_STOP = 1
  * CONSUMED, not kept: no block in the game needs one to drop (the hand harvests every log, soil and leaf), so the floor
  * reserve below -- "swing it only when nothing else can break the block" -- meant a spent axe or shovel was NEVER swung.
  * Measured 10-03 ~22:45Z on bots at >= 34/36 slots: ~118-170 copies at 2-10 uses, overwhelmingly SOLE axes (74) and
- * shovels (53), held forever. So for these three kinds: no floor reserve, and the hard stop is 0 -- the last use is
- * spent ON a dig and the copy breaks in use. The drop is unaffected: their blocks drop to the bare hand anyway, and
+ * shovels (53), held forever. So for these three kinds: no floor reserve (every dig), and on a HARVEST dig the hard stop
+ * is 0 -- the last use is spent ON the dig and the copy breaks in use. Travel and reflex digs keep HARD_STOP for every
+ * kind (review, 10-03): the client shows a broken copy at 1 use until the slot update lands (> 1.5 s on the sandbox), so
+ * back-to-back travel digs would re-pick a copy the server already broke and dig at hand speed server-side. A harvest
+ * dig verifies the held copy and re-reads the block ~250 ms after (collectManually). The drop is unaffected: their blocks drop to the bare hand anyway, and
  * where a drop does need the tool (snow and a shovel) vanilla computes drops from a copy of the stack taken before the
  * damage (the same mechanism last_swing relies on for pickaxes, proved on the sandbox). PICKAXES ARE NOT CONSUMABLE:
  * they are the way out of a hole, and keep FLOOR, HARD_STOP, iron retention and the exit contract unchanged.
  */
 export const CONSUMABLE_RE = /_(axe|shovel|hoe)$/
 export const isConsumable = name => CONSUMABLE_RE.test(String(name ?? ''))
-/** The hard stop for this copy: HARD_STOP for a pickaxe, 0 for an axe/shovel/hoe (a copy at 1 use is swung and breaks). */
-export const hardStopFor = it => (isConsumable(it?.name) ? 0 : HARD_STOP)
+/** The hard stop for this copy: 0 for an axe/shovel/hoe on a HARVEST dig (`lastSwing`: a 1-use copy is swung and breaks);
+ *  HARD_STOP for a pickaxe, and for every kind on travel and reflex digs. */
+export const hardStopFor = (it, { lastSwing = false } = {}) => (lastSwing && isConsumable(it?.name) ? 0 : HARD_STOP)
 /** Blocks whose drop is a stone-tool material (cobblestone / cobbled_deepslate / blackstone): the only ones a last swing may break. */
 export const LAST_SWING_BLOCKS = new Set(['stone', 'cobblestone', 'deepslate', 'cobbled_deepslate', 'blackstone'])
 /** A candidate slower than this multiple of the fastest eligible tool is "slow"; a cheaper tool within it wins. */
@@ -76,7 +80,7 @@ export function toolFor (block, items = [], { lastSwing = false } = {}) {
     const spare = spentPickaxeFor(block, tools)
     if (spare) return { item: spare, hand: false, reason: 'spend_spent' }
   }
-  const eligible = tools.filter(it => canHarvest(block, it.type) && remaining(it) > hardStopFor(it))
+  const eligible = tools.filter(it => canHarvest(block, it.type) && remaining(it) > hardStopFor(it, { lastSwing }))
   if (!eligible.length) {
     if (handOk) return { item: null, hand: true, reason: 'hand' }
     // THE LAST SWING, for a HARVEST dig only (the caller opts in). Measured 2026-09-28 by both engines over
@@ -101,35 +105,58 @@ export function toolFor (block, items = [], { lastSwing = false } = {}) {
   const handT = handOk ? digTime(block, null) : Infinity
   const fastest = Math.min(...timed.map(x => x.t), handT)
   const cap = fastest > 0 && Number.isFinite(fastest) ? fastest * SLACK : Infinity
-  const open = timed.filter(x => x.spend || x.r > FLOOR).sort(byCost)
+  // A SPENT axe/shovel/hoe is open only where it is FASTER than the hand (its own block class), so no branch below --
+  // `slow` included -- spends one on a block the hand digs as fast. Above FLOOR they are open as before.
+  const open = timed.filter(x => x.r > FLOOR || (x.spend && x.t < handT)).sort(byCost)
   const withinCap = open.filter(x => x.t <= cap)
+  // THE CHOICE IS MADE WITH THE TRANSITIVE ORDER, THEN the most-worn copy of the SAME NAME is swapped in (same name =
+  // same tier and speed, so the swap cannot change which kind or tier digs). A comparator that reversed wear only within
+  // a name was a cycle across kinds (both reviews: stone_axe@3 < stone_axe@90 < stone_pickaxe@50 < stone_axe@3), and the
+  // pick depended on slot order.
+  const pick = (x, pool) => (x.spend ? mostWornOfName(x, pool) : x).it
   if (handOk && handT <= cap) {
     // THE HAND IS THE CHEAPEST TOOL OF ALL -- except against a spent axe/shovel/hoe that is actually faster on this
     // block: its last uses are worth nothing kept and a slot used up. Real 1.21 dig times: a wooden axe takes a log
     // in 1.5 s against the hand's 3.0 s, inside SLACK, so without this a wooden axe never touched a log at all.
-    // Only a tool strictly faster than the hand (its own block class): an axe never wastes a swing on dirt.
-    const useUp = open.find(x => x.spend && x.r <= FLOOR && x.t < handT)
-    if (useUp) return { item: useUp.it, hand: false, reason: 'use_up' }
+    const useUp = open.find(x => x.spend && x.r <= FLOOR)
+    if (useUp) return { item: pick(useUp, open), hand: false, reason: 'use_up' }
     return { item: null, hand: true, reason: 'hand' }
   }
-  if (withinCap.length) return { item: withinCap[0].it, hand: false, reason: 'cheapest' }
-  if (open.length) return { item: open[0].it, hand: false, reason: 'slow' }
+  if (withinCap.length) return { item: pick(withinCap[0], withinCap), hand: false, reason: 'cheapest' }
+  if (open.length) return { item: pick(open[0], open), hand: false, reason: 'slow' }
   if (handOk) return { item: null, hand: true, reason: 'hand' }
   const reserved = timed.filter(x => !open.includes(x)).sort(byCost)
   return { item: reserved[0].it, hand: false, reason: 'reserved_required' }
 }
 
-/**
- * The cost order: cheaper tier first; among equal tiers the fuller copy -- EXCEPT copies of the same axe/shovel/hoe,
- * where the most-worn goes first (finish one before starting the next). Never reversed across kinds or tiers: an iron
- * tool is not preferred over a stone one because it is fuller, nor a spent stone axe over a fresh wooden one.
- */
+/** The cost order, TRANSITIVE: cheaper tier first; among equal tiers the fuller copy (unknown durability ties). */
 export function byCost (a, b) {
-  const byTier = a.tier - b.tier
-  if (byTier) return byTier
-  const d = a.name === b.name && a.spend ? a.r - b.r : b.r - a.r
-  return Number.isNaN(d) ? 0 : d   // two unknown (Infinity) durabilities tie
+  const d = (a.tier - b.tier) || (b.r - a.r)
+  return Number.isNaN(d) ? 0 : d
 }
+/**
+ * The most-worn candidate in `pool` with x's name (x itself when none is more worn): an axe/shovel/hoe finishes one
+ * copy before starting the next. Same name = same tier and dig time, so this never changes the kind or tier chosen.
+ */
+export function mostWornOfName (x, pool = []) {
+  let best = x
+  for (const y of pool) if (y.name === x.name && y.r < best.r) best = y
+  return best
+}
+/**
+ * WAS THE CHOSEN COPY THE ONE THAT WENT INTO THE HAND? -> 'swing' | 'hand' | 'refuse'. For a copy at or below
+ * HARD_STOP (a last swing, a spent pickaxe spent, a 1-use axe/shovel/hoe), compared by name AND uses, captured BEFORE
+ * the equip: a name-only check let a failed equip of a 1-use stone_pickaxe dig with the 100-use stone_pickaxe already
+ * in hand (both reviews). On a mismatch an axe/shovel/hoe on a hand-harvestable block falls back to the HAND (its block
+ * drops to the hand anyway); a pickaxe, or a block that needs the tool, is refused -- never dug with the working copy.
+ */
+export function spentEquipOutcome ({ chosen, held, handOk = false } = {}) {
+  if (!chosen) return 'swing'
+  if (held && held.name === chosen.name && remaining(held) === chosen.left) return 'swing'
+  return isConsumable(chosen.name) && handOk ? 'hand' : 'refuse'
+}
+/** The bare hand harvests this block (prismarine canHarvest(null), else no harvestTools). */
+export const handHarvests = block => canHarvest(block, null)
 /**
  * PART 2 (harvest digs on the stone family): the 1-use pickaxe to swing INSTEAD of a working one, or null. Only while
  * ANOTHER pickaxe above FLOOR that can harvest the block is held -- so the copy swung is never the last pickaxe with

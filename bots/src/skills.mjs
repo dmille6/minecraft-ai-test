@@ -28,8 +28,8 @@
 import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy, remaining, hardStopFor, HARD_STOP } from './toolfor.mjs'
-import { wearOutPlan, wearTarget, wearRank, wearRefusals, survivorVerdict, neverPickUp } from './hygiene.mjs'
+import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
+import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS, inPickupBox, pickupGoalClass, pickupGoal } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
@@ -1277,13 +1277,26 @@ export async function collectManually(bot, block, signal, { deadline = Infinity,
 
   const decision = {}
   const tool = bestTool(bot, block, { lastSwing: true, decision })
+  // The chosen copy, captured BEFORE the equip (prismarine moves the item object, so its fields after are not proof).
+  const chosen = tool ? { name: tool.name, left: remaining(tool) } : null
   if (tool) await bot.equip(tool, 'hand').catch(() => {})
-  // A LAST SWING MUST BE SWUNG WITH THE TOOL IT CHOSE. Durability is cached metadata and equip errors are
+  // A SPENT SWING MUST BE SWUNG WITH THE COPY IT CHOSE. Durability is cached metadata and equip errors are
   // swallowed above, so a copy the server already broke would leave the hand empty and the dig would run
-  // bare-handed (Codex review). Say so instead of digging.
-  const lastSwing = !!(tool && remaining(tool) <= HARD_STOP)
-  if (lastSwing && bot.heldItem?.name !== tool.name) {
-    throw Object.assign(new Error(`equip_failed: could not hold the last ${tool.name} for ${block.name}`), { failClass: 'equip_failed' })
+  // bare-handed (Codex review) -- or, with a same-name working copy already in hand, dig with THAT copy (both reviews,
+  // 10-03: a name-only check passed it). spentEquipOutcome compares name AND uses: a pickaxe is refused; a 1-use
+  // axe/shovel/hoe on a block the hand harvests falls back to the hand (never tossing what is held: emptyHand).
+  let lastSwing = !!(chosen && chosen.left <= HARD_STOP)
+  if (lastSwing) {
+    const outcome = spentEquipOutcome({ chosen, held: bot.heldItem, handOk: handHarvests(block) })
+    if (outcome === 'hand') {
+      await emptyHand(bot)
+      if (DIG_TOOL_RE.test(bot.heldItem?.name ?? '')) {
+        throw Object.assign(new Error(`equip_failed: could not hold the spent ${tool.name} nor empty the hand for ${block.name}`), { failClass: 'equip_failed' })
+      }
+      lastSwing = false   // a bare-hand dig: no spent swing to log
+    } else if (outcome === 'refuse') {
+      throw Object.assign(new Error(`equip_failed: could not hold the last ${tool.name} for ${block.name}`), { failClass: 'equip_failed' })
+    }
   }
   // THE ADMISSION WENT STALE, AND THIS IS THE THIRD AND LAST CALL SITE.
   //
@@ -1362,7 +1375,7 @@ export async function collectManually(bot, block, signal, { deadline = Infinity,
   // 1-use axe/shovel/hoe finished on its own block are `spent_swing`, so the last_swing read keeps its meaning.
   if (lastSwing) {
     logEvent({ kind: decision.reason === 'last_swing' ? 'last_swing' : 'spent_swing', status: 'success', snapshot: snapshot(bot),
-               detail: `broke ${wasNamed} at ${p.x},${p.y},${p.z} with a ${tool.name} at ${remaining(tool)} use(s) (${decision.reason ?? '?'})` })
+               detail: `broke ${wasNamed} at ${p.x},${p.y},${p.z} with a ${chosen.name} at ${chosen.left} use(s) (${decision.reason ?? '?'})` })
   }
 
   // A LOG IS GATHERED WHEN IT IS IN THE BAG, NOT WHEN IT BREAKS. The sweep below walks GoalNear(drop, 1), whose
@@ -1444,8 +1457,7 @@ function supportVetoFor (bot, b) {
     block: b,
     at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)) ?? null,
     safeToBreak: typeof m?.safeToBreak === 'function' ? q => m.safeToBreak(q) : null,
-    // A PICKAXE at its hard stop; an axe/shovel/hoe only at 0 (a phantom): its last use is meant to be spent (toolfor.mjs).
-    heldSpent: !!(bot.heldItem && remaining(bot.heldItem) <= hardStopFor(bot.heldItem)),
+    heldSpent: !!(bot.heldItem && remaining(bot.heldItem) <= HARD_STOP),
     canDig: !!(bot.canDigBlock && bot.canDigBlock(b)),
   })
 }
@@ -5040,24 +5052,29 @@ async function wearOutOne(ctx, tool, signal, { cellOk = null, sidesOnly = false 
   // gone, _tool_broke row) while this read said it survived. Poll, bounded.
   for (const until = Date.now() + WEAR_CONFIRM_MS; spentOf(tool.name) !== before - 1 && Date.now() < until;) { check(signal); await sleep(50, signal) }
   if (spentOf(tool.name) !== before - 1) {
-    // UNCONFIRMED, NOT A SURVIVOR YET (logging only): the sandbox already saw a slot update land after this window. A
-    // late look -- off this skill's clock, never awaited -- says which it was: the copy's slot emptied (a late
-    // break), or the same copy is still there at 1 use (a confirmed survivor), and whether the block is still there.
+    // NOT CONFIRMED DESTROYED -- an outcome this function cannot name (logging only): the sandbox already saw a slot
+    // update land after this window. A late look, off this skill's clock and never awaited, records what the copy's
+    // slot SHOWS then (slotObservation) and whether the block is still there; the read decides what it means.
     const nowSlot = Number.isInteger(heldSlot) ? bot.inventory?.slots?.[heldSlot] : undefined
     const was = block.name, at = block.position
+    let ended = false
+    const onEnd = () => { ended = true }
+    bot.once?.('end', onEnd)
     const late = setTimeout(() => {
       try {
+        bot.removeListener?.('end', onEnd)
         const it = Number.isInteger(heldSlot) ? bot.inventory?.slots?.[heldSlot] : undefined
-        const v = survivorVerdict({ slotKnown: Number.isInteger(heldSlot) && Array.isArray(bot.inventory?.slots), item: it, name: tool.name })
+        const alive = !ended && !!bot.entity && !(Number.isFinite(bot.health) && bot.health <= 0)
+        const seen = slotObservation({ slotKnown: Number.isInteger(heldSlot) && Array.isArray(bot.inventory?.slots), item: it, name: tool.name, alive })
         const blockNow = at ? bot.blockAt?.(at)?.name ?? '?' : '?'
-        logEvent({ kind: 'wear_out_late', status: v === 'late_break' ? 'success' : 'no_effect', snapshot: snapshot(bot),
-                   detail: `${v}: ${tool.name} in slot ${heldSlot ?? '?'} ${WEAR_LATE_MS} ms after the dig on ${was} ` +
-                           `(slot now ${it ? `${it.name} at ${remaining(it)} use(s)` : 'empty'}; block now ${blockNow})` })
+        logEvent({ kind: 'wear_out_late', status: 'no_effect', snapshot: snapshot(bot),
+                   detail: `${seen}: ${tool.name} slot ${heldSlot ?? '?'} ${WEAR_LATE_MS} ms after the dig on ${was} ` +
+                           `(slot shows ${it ? `${it.name} at ${remaining(it)} use(s)` : it === null ? 'nothing' : '?'}; block now ${blockNow})` })
       } catch { /* telemetry */ }
     }, WEAR_LATE_MS)
     late.unref?.()
-    return { ok: false, said: `${tool.name} survived the dig on ${block.name} (unconfirmed at ${WEAR_CONFIRM_MS} ms: ` +
-                              `slot ${heldSlot ?? '?'} ${nowSlot ? `holds ${nowSlot.name} at ${remaining(nowSlot)} use(s)` : nowSlot === null ? 'is empty' : 'unknown'}; ` +
+    return { ok: false, said: `${tool.name} not confirmed destroyed after the dig on ${block.name} (unconfirmed at ${WEAR_CONFIRM_MS} ms, ` +
+                              `not a survivor: slot ${heldSlot ?? '?'} ${nowSlot ? `holds ${nowSlot.name} at ${remaining(nowSlot)} use(s)` : nowSlot === null ? 'is empty' : 'unknown'}; ` +
                               `${spentOf(tool.name)} spent copies, was ${before})` }
   }
   return { ok: true, on: block.name }

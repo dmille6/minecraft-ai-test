@@ -465,9 +465,7 @@ await ta('A SUPPORT DIG THAT CANNOT FIT (15 s) is not started', async () => {
 for (const [label, opts, veto] of [
   ['LAVA beside the support', { blocks: { ...CANOPY, [K(2, 66, 0)]: 'lava' } }, 'lava'],
   ['a WATERLOGGED leaf', { blocks: CANOPY, waterlogged: [K(1, 66, 0)] }, 'waterlogged'],
-  // a PICKAXE at its hard stop: its last use is kept for stone (last_swing); an axe/shovel/hoe is not (see below)
-  ['the held tool at its LAST SWING', { blocks: CANOPY, heldItem: { name: 'iron_pickaxe', maxDurability: 250, durabilityUsed: 249 } }, 'last_swing'],
-  ['a held AXE at 0 uses (a phantom the server already broke)', { blocks: CANOPY, heldItem: { name: 'iron_axe', maxDurability: 250, durabilityUsed: 250 } }, 'last_swing'],
+  ['the held tool at its LAST SWING', { blocks: CANOPY, heldItem: { name: 'iron_axe', maxDurability: 250, durabilityUsed: 249 } }, 'last_swing'],
   ['NO SAFETY CHECKER', { blocks: CANOPY, safety: false }, 'no_safety_checker'],
   ['DRIPSTONE hanging under the leaf', { blocks: { ...CANOPY, [K(1, 65, 0)]: 'pointed_dripstone' } }, 'falling_block'],
 ]) {
@@ -479,13 +477,6 @@ for (const [label, opts, veto] of [
     assert.equal(r.pickup.rows[0].args.veto, veto, r.pickup.rows[0].detail)
   })
 }
-
-await ta('SPENT TOOLS GET USED UP: a held axe at 1 use does NOT veto the support (its last use is meant to be spent; toolfor hardStopFor)', async () => {
-  const bot = world({ blocks: CANOPY, heldItem: { name: 'iron_axe', maxDurability: 250, durabilityUsed: 249 } })
-  const { e } = await run(bot, target(bot, 1, 67, 0))
-  assert.equal(e, undefined, `threw: ${e?.message}`)
-  assert.ok(bot.seen.digs.length >= 2 && bot.seen.digs[0] === 'oak_log@1,67,0', `the support was not broken: ${JSON.stringify(bot.seen.digs)}`)
-})
 
 await ta('MERGE: the drop merges into an older log stack on the leaves -> that stack is pursued -> collected', async () => {
   const bot = world({ mergeInto: true, blocks: { [K(2, 67, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' },

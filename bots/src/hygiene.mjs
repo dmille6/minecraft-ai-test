@@ -83,14 +83,15 @@ export function wearRefusals (refused = {}, cells = 0) {
 }
 
 /**
- * DIAGNOSIS ONLY: what an unconfirmed "<tool> survived the dig" turned out to be, read from the copy's own slot a few
- * seconds later. 'late_break' the slot emptied (the break's slot update was late); 'confirmed_survivor' the same tool is
- * still there at 1 use; 'slot_changed' something else is in the slot now; 'unknown' no slot to read.
+ * DIAGNOSIS ONLY: what the copy's own slot SHOWS a few seconds after an unconfirmed wear-out dig -- an observation, not
+ * an outcome (both reviews): an empty slot may be a late break or the copy moved; the same name at 1 use may be the same
+ * copy or another. 'slot_empty' | 'same_name_at_one_use' | 'slot_changed' (ambiguous) | 'unknown' (no slot to read, or
+ * the bot ended or is dead -- a respawn's empty bag says nothing about the dig).
  */
-export function survivorVerdict ({ slotKnown = false, item = null, name = '' } = {}) {
-  if (!slotKnown) return 'unknown'
-  if (!item) return 'late_break'
-  return item.name === name && usesLeft(item) === 1 ? 'confirmed_survivor' : 'slot_changed'
+export function slotObservation ({ slotKnown = false, item = null, name = '', alive = true } = {}) {
+  if (!slotKnown || !alive) return 'unknown'
+  if (!item) return 'slot_empty'
+  return item.name === name && usesLeft(item) === 1 ? 'same_name_at_one_use' : 'slot_changed'
 }
 
 /**
