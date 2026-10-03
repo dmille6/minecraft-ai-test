@@ -16,6 +16,14 @@ placebo-a (10 bots), declared 22:53:29Z; exactly two versions live (70 x 3edf1d6
 Reads +180 (~01:53Z) and +360 (~04:53Z); KEEP possible from +360. NOTHING chained behind it (logpickup chain stopped;
 craftroom needs its no-logpickup rebuild + registration + the read's positive control proven on craftsync's rows).
 Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): watch it now the tunnel is fleet-wide.
+- **OWNER 10-03 ~23:10Z: "fix the chest full problem, use claude and codex to find the best approach, implement it and
+  deploy it" + "yes" to bamboo -> sticks.** Queue: craftsync (live) -> craftroom -> composter -> tool cleanup -> CHEST
+  FULL -> BAMBOO STICKS -> logpickup -> explore -> orepack -> cellmem. The ported bank fix is dropped from the slot (frees
+  ~0 today; its loop-stopping parts can return later). MEASURED 24 h, 1,970 deposits: success 343 (+99 used another
+  chest, +13 built one), failed 938, no_effect 659. Full-chest blocks only 90 -- and **75 of the 90 bots CARRIED a chest**
+  while the skill tried to CRAFT one (bug). Bigger deposit losses: 538 path failures (no path 252, goal changed 153,
+  path timeout 133) and 494 "not a banking target" (apple 311, dirt 92, scaffold cobblestone 91). Designs running.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
