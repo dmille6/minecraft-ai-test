@@ -29,6 +29,7 @@ import pkg from 'mineflayer-pathfinder'
 import { remaining, HARD_STOP, tier } from './toolfor.mjs'
 import { cellLavaSafe, dropLavaSafe } from './lavaguard.mjs'
 import { Vec3 } from 'vec3'
+import { protectTownBlocks } from './composter.mjs'
 const { goals, Movements } = pkg
 
 export const IRON_KINDS = ['iron_ore', 'deepslate_iron_ore']
@@ -168,6 +169,7 @@ export function clusterOf (blockAt, start, kinds = IRON_KINDS, cap = CLUSTER_CAP
  */
 export function tunnelMovements (bot, base = null, { home = null } = {}) {
   const m = base ? Object.assign(Object.create(Object.getPrototypeOf(base)), base) : new Movements(bot)
+  protectTownBlocks(m, bot.registry)   // the composter is never a tunnel's dig, base or not (composter.mjs)
   m.canDig = true
   m.allowParkour = false
   m.allow1by1towers = false

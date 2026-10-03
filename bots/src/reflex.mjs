@@ -2963,13 +2963,13 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // Digging is also legitimately stationary: a bot mining a vein by hand
       // stands still for many seconds and is working perfectly.
       const p = bot.entity.position
-      const digging = bot.targetDigBlock != null
-      if (!runner.isBusy() || digging || (lastPos && p.distanceTo(lastPos) > 0.6)) {
-        stillSince = Date.now()
-      }
+      const stuck = stuckDecision({ busy: runner.isBusy(), digging: bot.targetDigBlock != null, stationaryUntil: bot.stationaryUntil,
+                                    moved: !!(lastPos && p.distanceTo(lastPos) > 0.6), inDanger, now: Date.now(), stillSince,
+                                    stuckMs: config.reflex.stuckSeconds * 1000 })
+      if (stuck.reset) stillSince = Date.now()
       lastPos = p.clone()
 
-      if (runner.isBusy() && !digging && !inDanger && Date.now() - stillSince > config.reflex.stuckSeconds * 1000) {
+      if (stuck.fire) {
         log('warn', 'reflex: stuck, cancelling path', { seconds: config.reflex.stuckSeconds })
         logEvent({ kind: 'reflex_stuck', detail: `no movement for ${config.reflex.stuckSeconds}s`, snapshot: snapshot(bot) })
         stillSince = Date.now()
@@ -3011,6 +3011,22 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // pickup. Read by nothing that decides; the flags it reads are the arms' own and are not changed here.
   stop.activeReflex = () => activeReflexOf({ rescuing, escaping, pocketing, marooned, eating })
   return stop
+}
+
+/**
+ * THE STUCK WATCHDOG'S DECISION -> { reset, fire, declared }. Pure.
+ * Stillness only counts while a task runs ("no movement DESPITE AN ACTIVE TASK"), and two kinds of task are
+ * legitimately stationary: a dig (bot.targetDigBlock), and a skill that DECLARES a bounded stationary window by setting
+ * bot.stationaryUntil to an absolute time -- the compost visit, which stands at the composter inserting items for up to
+ * its own 45 s budget (sandbox: the fleet's 20 s stuck limit interrupted 1 of 3 visits, the 35 s one the pilot). The
+ * window expires by itself, so a skill that forgets to clear it is still watched once its budget is gone.
+ *   reset  restart the stillness clock (not busy, digging, a live declared window, or the body moved)
+ *   fire   still for longer than stuckMs while busy, outside both exemptions, and not in danger
+ */
+export function stuckDecision ({ busy = false, digging = false, stationaryUntil = 0, moved = false, inDanger = false, now = 0, stillSince = 0, stuckMs = 0 } = {}) {
+  const declared = Number(stationaryUntil) > now
+  const reset = !busy || digging || declared || moved
+  return { reset, fire: !reset && !inDanger && now - stillSince > stuckMs, declared }
 }
 
 /** Walls on 3+ sides at head height, and open sky is far above. */

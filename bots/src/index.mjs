@@ -5,6 +5,7 @@
 // without unrecoverable failure. That is what this file is for.
 
 import { tunnelMovements } from './oretunnel.mjs'
+import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSafeMovements } from './composter.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
@@ -165,6 +166,9 @@ function connect() {
   // packet-witness.mjs -- `onGround` cannot separate those and reading it as
   // if it could is a measurement that was already retracted once.
   bot.packetWitness = attachPacketWitness(bot)
+  // THE WORLD'S IDENTITY (the login packet's hashed seed): the town composter's shared site record carries it, so a
+  // reseed that keeps pool and home starts a new record instead of building on the old world's cell (composter.mjs).
+  bot._client.on('login', packet => { bot.worldId = worldIdFromLogin(packet) })
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer
   // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
@@ -314,7 +318,8 @@ function connect() {
     // holder's own multi-leg goto refuses itself. Merging it is a canary, not a cherry-pick.
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
-    const moves = new Movements(bot)
+    // THE TOWN COMPOSTER IS NEVER A PATH'S DIG (composter.mjs): added BEFORE any clone below, which share this Set.
+    const moves = protectTownBlocks(new Movements(bot), bot.registry)
     // canDig=false is deliberate and load-bearing. With digging enabled the
     // pathfinder treats excavation as a normal way to reach a goal, and the bot
     // steadily tunnels downward -- observed descending 68->65 while "walking"
@@ -540,6 +545,18 @@ function connect() {
     bot.withTunnelMovements = async (fn) => {
       bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
       try { return await withApproachBound(bot, fn) }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+    }
+    // THE COMPOSTER'S OWN WALKS (composter.mjs composterSafeMovements): the walk profile, cloned, with every neighbour
+    // standing on a composter dropped. Scoped: only the compost visit borrows it; the shared profiles are untouched.
+    const composterScratch = new Vec3(0, 0, 0)
+    const composterWalkMoves = composterSafeMovements(moves, composterFloorFilter((x, y, z) => {
+      composterScratch.x = x; composterScratch.y = y; composterScratch.z = z
+      return bot.world.getBlockStateId(composterScratch)
+    }, bot.registry))
+    bot.withComposterWalk = async (fn) => {
+      bot.pathfinder.setMovements(composterWalkMoves); bot.movementProfile = 'composter_walk'
+      try { return await fn() }
       finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
     }
     bot.withGatherMovements = async (fn) => {
