@@ -1310,11 +1310,11 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
   // the handler stopDigging() reaches, so an abort or deadline during that look stopped nothing and the dig began
   // after this function had rejected. lookFirst checks the signal and the deadline after the look; nothing awaits
   // between that check and the dig packet.
-  await lookFirst(bot, block, signal, deadline)
-  await abortable(withTimeout(bot.dig(block, 'ignore'), Math.min(20_000, clampLeft(20_000, deadline)), bot, {
-    what: 'dig',
-    onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
-  }), signal, () => { try { bot.stopDigging?.() } catch { /* not digging */ } })
+  await lookThenDig(bot, block, signal, deadline, () =>
+    abortable(withTimeout(bot.dig(block, 'ignore'), Math.min(20_000, clampLeft(20_000, deadline)), bot, {
+      what: 'dig',
+      onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+    }), signal, () => { try { bot.stopDigging?.() } catch { /* not digging */ } }))
 
   // THE COMMENT ABOVE USED TO SAY dig() "resolves when the server confirms the
   // break". IT DOES NOT. digging.js contains zero ack handling -- it arms
@@ -1414,11 +1414,13 @@ function supportVetoFor (bot, b) {
 const LOOK_MS = 500
 
 /**
- * Face the block (bounded and abortable), then re-check the abort and the deadline. The caller digs with
- * forceLook 'ignore' immediately after, so no await sits between this check and the dig packet. A look that times
- * out is not fatal -- the dig still targets the block -- but an abort, or a deadline that passed meanwhile, is.
+ * Face the block (bounded and abortable), then -- in ONE synchronous step after the look's await returns -- re-check
+ * the abort and the deadline and START the dig. `startDig` must call bot.dig(block, 'ignore') synchronously, so no
+ * other look happens and no microtask can run between the check and the dig packet (Codex pass 4: an abort queued
+ * after an inner check but before the caller resumed let a dig begin after the skill had been aborted). A look that
+ * times out is not fatal -- the dig still targets the block -- but an abort, or a deadline that passed, is.
  */
-async function lookFirst (bot, block, signal, deadline) {
+async function lookThenDig (bot, block, signal, deadline, startDig) {
   check(signal)
   if (typeof bot.lookAt === 'function' && block?.position) {
     try {
@@ -1426,10 +1428,12 @@ async function lookFirst (bot, block, signal, deadline) {
         clampLeft(LOOK_MS, deadline), bot, { what: 'look', needsDrop: false, onTimeout: () => {} }), signal, () => {})
     } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   }
+  // --- synchronous from here to the dig call: no await ---
   check(signal)
   if (deadline - Date.now() < 250) {
     throw Object.assign(new Error(`dig exceeded the deadline before it could start (${block?.name ?? '?'})`), { failClass: 'dig_budget' })
   }
+  return startDig()
 }
 
 /** `ms`, but never past `deadline` (absolute); at least 1 so withTimeout still fires. */
@@ -1472,11 +1476,12 @@ function pickupIO (bot) {
     // from digTime, so a bare-handed log support (3 s grounded, 15 s in the air) is not killed half-way.
     dig: async (b, ms, signal) => {
       const until = Date.now() + ms
-      await lookFirst(bot, b, signal, until)          // same race as the harvest dig: look, re-check, then 'ignore'
-      return abortable(withTimeout(bot.dig(b, 'ignore'), clampLeft(ms, until), bot, {
-        what: 'dig', needsDrop: false,
-        onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
-      }), signal, () => bot.stopDigging?.())
+      // same race as the harvest dig: look, then re-check and START the dig in one synchronous step
+      return lookThenDig(bot, b, signal, until, () =>
+        abortable(withTimeout(bot.dig(b, 'ignore'), clampLeft(ms, until), bot, {
+          what: 'dig', needsDrop: false,
+          onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+        }), signal, () => bot.stopDigging?.()))
     },
     digMs: b => (typeof bot.digTime === 'function' ? bot.digTime(b) : NaN),
     veto: b => supportVetoFor(bot, b),

@@ -210,7 +210,7 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
   }
   const inv = new Map([['oak_log', 0], ...Object.entries(held)])
   let nextId = 1000, digCancel = null, walkCancel = null
-  const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0, looks: 0, digStarts: 0 }
+  const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0, looks: 0, digStarts: 0, lateStarts: 0 }
   const bot = new EventEmitter()
   const restY = e => { let cy = Math.floor(e.position.y - 0.05); while (cy > 40 && !solid(e.position.x, cy, e.position.z)) cy--; return cy + top(e.position.x, cy, e.position.z) }
   const spawn = (n, at, count = 1, born = Date.now()) => {
@@ -257,6 +257,7 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
     dig: async (b, forceLook) => {
       if (forceLook !== 'ignore') await bot.lookAt(b.position.offset(0.5, 0.5, 0.5), forceLook)
       seen.digStarts++
+      if (bot.watchSignal?.aborted) seen.lateStarts++      // a dig begun AFTER the skill was aborted
       return digNow(b)
     },
     digNow: null,
@@ -351,6 +352,9 @@ await ta('CANOPY CATCH (packet-driven): the drop lands on leaves 3 up -> break_s
   assert.equal(row.args.dy, 3, 'the decision was made from the LANDED position, not mid-air')
   assert.equal(row.args.support, 'oak_leaves')
   assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0', 'oak_leaves@1,66,0'], 'only the log and the one leaf were broken')
+  // ONE look per dig, and it is ours: a dig that looks again itself (forceLook not 'ignore') reopens the abort race
+  assert.equal(bot.seen.digStarts, 2)
+  assert.equal(bot.seen.looks, 2, `${bot.seen.looks} looks for 2 digs: a dig did its own look`)
 })
 
 await ta('OPEN TRUNK: a drop inside the box -> wait -> collected, no walk at all', async () => {
@@ -636,6 +640,24 @@ await ta('LOOK RACE, SUPPORT: an abort during the support\'s look means the leaf
   assert.equal(bot.seen.looks, 2, 'the support break never reached its look (the scene did not exercise the race)')
   assert.equal(bot.seen.digStarts, 1, 'the support dig started after the abort')
   assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0'])
+})
+
+await ta('LOOK HANDOFF: an abort queued as a microtask after the look resolves never lets a dig start', async () => {
+  // Sweep the abort across microtask depths after the look resolves, so it lands in every gap between the look's
+  // resolution and the dig call -- including the handoff from the helper back to its caller (Codex pass 4).
+  const hop = (n, f) => (n <= 0 ? f() : queueMicrotask(() => hop(n - 1, f)))
+  const late = []
+  for (let n = 0; n <= 16; n++) {
+    const ac = new AbortController()
+    const bot = world({ digTimes: { oak_log: 100 }, blocks: { [K(1, 64, 0)]: 'oak_log' }, gateLooksFrom: 1,
+                        onGatedLook: b => setTimeout(() => { b.releaseLook(); hop(n, () => ac.abort()) }, 30) })
+    bot.watchSignal = ac.signal
+    const { e } = await run(bot, target(bot, 1, 64, 0), { signal: ac.signal })
+    await later(250)
+    assert.ok(e?.aborted, `n=${n}: did not reject as aborted: ${e?.message}`)
+    if (bot.seen.lateStarts) late.push(n)
+  }
+  assert.deepEqual(late, [], `a dig started after the abort at microtask depth(s) ${late.join(',')}`)
 })
 
 // ============================================================ wired: gather ===
