@@ -32,7 +32,7 @@ import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
-         handPlan, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
+         handPlan, isCompostInput, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -6548,9 +6548,10 @@ export const SKILL_CONTRACTS = {
   // Destroys spent tools by using them: the change it exists for is the loss.
   wear_out: { expects: ['inventory_loss'],        maxMs: 60_000 },
   // Consumes ballast into the town composter; a build visit also crafts and places it, so it gets more time.
-  // A visit LOSES ballast, or -- a harvest-only visit to a ripe composter -- GAINS bone meal. Either is the change it
-  // exists for (sandbox 10-03: harvest-only visits were downgraded to unknown and backed off for 15 minutes).
-  compost:  { expects: ['inventory_loss', 'inventory_gain'], maxMs: 120_000 },
+  // A visit LOSES compost inputs, or -- a harvest-only visit to a ripe composter -- GAINS bone meal (sandbox 10-03:
+  // harvest-only visits were downgraded to unknown). NOT any gain or loss: an auto-pickup of cobblestone on the walk
+  // is not composting (classifyOutcome, compost_effect).
+  compost:  { expects: ['compost_effect'],        maxMs: 120_000 },
   // Crafts and places the town composter: the change it exists for is the block in the world.
   build_composter: { expects: ['world_change'],   maxMs: 150_000 },
   withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
@@ -6659,6 +6660,14 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   }
   if (expects.includes('inventory_loss')) {
     const l = Object.entries(inv).filter(([, n]) => n < 0)
+    if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
+  }
+  // THE COMPOSTER'S OWN EVIDENCE, narrower than inventory_gain/loss: bone meal gained, or a planner input lost. The
+  // strings keep the inventory_ prefixes so DURABLE_EVIDENCE still reads them as durable.
+  if (expects.includes('compost_effect')) {
+    const bm = inv.bone_meal ?? 0
+    if (bm > 0) because.push(`inventory_gain: bone_meal +${bm}`)
+    const l = Object.entries(inv).filter(([k, n]) => n < 0 && isCompostInput(k))
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {

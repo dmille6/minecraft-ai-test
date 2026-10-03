@@ -66,6 +66,9 @@ export function isCompostJunk (name) {
   return typeof name === 'string' && NEVER_KEEP.has(name) && Object.hasOwn(COMPOST_CHANCE, name) && !NEVER_COMPOST.test(name)
 }
 
+/** Could this item have gone INTO the composter (the planner's inputs: junk, and saplings -- only ever above the reserve)? */
+export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
+
 /** name -> how many of it may be composted from this bag: all of the junk, saplings only above SAPLING_RESERVE. */
 export function compostAllowance (items = []) {
   const totals = {}

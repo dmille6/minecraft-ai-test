@@ -494,7 +494,7 @@ const run = (name, bot, signal = { aborted: false }) => within(SKILLS[name].run(
 
 await t('both skills are registered, chatOnly, with contracts', () => {
   assert.ok(SKILLS.compost?.run); assert.equal(SKILLS.compost.chatOnly, true)
-  assert.deepEqual(SKILL_CONTRACTS.compost.expects, ['inventory_loss', 'inventory_gain'])
+  assert.deepEqual(SKILL_CONTRACTS.compost.expects, ['compost_effect'])
   assert.ok(SKILLS.build_composter?.run); assert.equal(SKILLS.build_composter.chatOnly, true)
   assert.deepEqual(SKILL_CONTRACTS.build_composter.expects, ['world_change'])
 })
@@ -1064,6 +1064,19 @@ await t('S#2 a HARVEST-ONLY visit (bone meal gained, nothing composted) passes t
     'a harvest-only success is downgraded to unknown by the evidence gate')
   assert.ok(classifyOutcome('compost', 'success', { inventory: { leaf_litter: -20 } }, null).because.length)
   assert.equal(classifyOutcome('compost', 'success', { inventory: {} }, null).because.length, 0, 'a visit that changed nothing is still not evidence')
+})
+
+await t('S#2b compost evidence is ONLY bone meal gained or compost inputs lost -- an unrelated pickup or drop is not evidence', async () => {
+  const { classifyOutcome } = await import('../src/skills.mjs')
+  const ev = inv => classifyOutcome('compost', 'success', { inventory: inv }, null).because
+  assert.deepEqual(ev({ cobblestone: 1 }), [], 'an unrelated auto-pickup during the visit counted as composting')
+  assert.deepEqual(ev({ cobblestone: 3, oak_log: 1 }), [])
+  assert.deepEqual(ev({ cobblestone: -2 }), [], 'losing a non-compostable is not composting')
+  assert.deepEqual(ev({ apple: -1 }), [], 'apples are never composted')
+  assert.deepEqual(ev({}), [])
+  assert.ok(ev({ bone_meal: 2 }).length); assert.ok(ev({ leaf_litter: -20, cobblestone: 1 }).length)
+  assert.ok(ev({ oak_sapling: -40 }).length, 'surplus saplings are compost inputs'); assert.ok(ev({ wheat_seeds: -5 }).length)
+  assert.match(ev({ bone_meal: 1, cobblestone: 4 }).join(' '), /^inventory_gain: bone_meal \+1$/, 'the unrelated gain leaked into the evidence')
 })
 
 await t('S#3 a town order the RUNNER refused (paused, busy, body held) is a free skip, not a backoff', () => {
