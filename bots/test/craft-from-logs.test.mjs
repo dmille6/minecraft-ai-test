@@ -153,6 +153,13 @@ await t('SKILL VARIANTS: 1 birch_planks + 3 oak_log -> the oak path; the birch p
   assert.equal(out.status, 'success', out.detail)
   assert.deepEqual([n('wooden_pickaxe'), n('birch_planks')], [1, 1])
 })
+await t('SKILL KEEPS THE CHOSEN RECIPES: 3 birch + 2 oak planks at a table -> sticks from OAK, head from birch', async () => {
+  // The only plan: the head takes all 3 birch, so the sticks must be oak. Re-choosing at execution (mineflayer's
+  // first satisfiable stick variant is birch) spends the head's birch on sticks and the head then cannot be made.
+  const { out, n } = await skill({ 36: ['birch_planks', 3], 37: ['oak_planks', 2], 9: ['dirt', 64] }, 'wooden_pickaxe', 1, { tableAt: NEXT_TO })
+  assert.equal(out.status, 'success', out.detail)
+  assert.deepEqual([n('wooden_pickaxe'), n('birch_planks'), n('oak_planks'), n('stick')], [1, 0, 0, 2])
+})
 await t('SKILL STATION GATE: 4 planks + 2 sticks, no table, no logs -> refused, nothing spent, the log named', async () => {
   const { out, n, placed } = await skill({ 36: ['oak_planks', 4], 37: ['stick', 2], 9: ['dirt', 64] }, 'wooden_pickaxe')
   assert.notEqual(out.status, 'success')
