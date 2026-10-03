@@ -399,12 +399,13 @@ await t('SKILL: 4 sticks from 2 planks is ONE craft -- success, 4 sticks, planks
   assert.equal(server.count('oak_planks'), 0)
   assert.deepEqual([rows[0].args.count, rows[0].args.produced, rows[0].args.confirmed], [1, 4, 'yes'])
 })
-await t('SKILL: 16 planks from 4 logs is FOUR crafts', async () => {
+await t('SKILL: 16 planks from 4 logs is FOUR crafts -- one verified bot.craft each (craftroom: the room check before every one)', async () => {
   const { out, server, rows } = await skillCraft({ 36: ['oak_log', 4], 9: ['dirt', 64] }, 'oak_planks', 16)
   assert.equal(out.status, 'success', JSON.stringify(out))
   assert.equal(server.count('oak_planks'), 16)
   assert.equal(server.count('oak_log'), 0)
-  assert.deepEqual([rows[0].args.count, rows[0].args.produced, rows[0].args.requested], [4, 16, 16])
+  assert.deepEqual(rows.map(r => [r.args.count, r.args.produced, r.args.requested, r.args.confirmed]), Array(4).fill([1, 4, 4, 'yes']))
+  assert.deepEqual([out.requested, out.executions, out.produced], [16, 4, 16], 'the skill sums what craftsync verified, once')
 })
 
 // ------------------------------------------------------------------ 2. the skill: abort is aborted
@@ -509,7 +510,7 @@ await t('WIRED: index.mjs installs craftsync inside the spawn handler; skills.mj
   const mutant = idx.replace(/\n[^\n]*installCraftSync\(bot[^\n]*/, '').replace('const runner = new Runner(bot)', 'installCraftSync(bot, {})\n  const runner = new Runner(bot)')
   assert.ok(mutant.includes('installCraftSync(bot, {})') && !wiredAtSpawn(mutant), 'the wiring check cannot see a createBot-time install')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(sk.includes('await bot.craft(recipe, crafts, table ?? undefined, { signal, deadline })'))
+  assert.ok(sk.includes('got = await bot.craft(recipe, 1, table ?? undefined, { signal, deadline })'))
 })
 
 await new Promise(resolve => setTimeout(resolve, 50))

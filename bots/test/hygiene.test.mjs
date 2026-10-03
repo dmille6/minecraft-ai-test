@@ -80,7 +80,7 @@ await t('wear_out is registered, has a loss contract, and is chatOnly -- the mod
 await t('each planned tool is used for ONE dig on a side block at feet or head height, and is verified gone', async () => {
   const inv = filled(36, [tool('stone_axe', 1), tool('stone_hoe', 1), tool('stone_pickaxe', 90)])
   const { bot, dug } = fakeBot({ inv })
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'success', r.detail)
   assert.equal(dug.length, 2)
   assert.ok(dug.every(p => !(p.x === 0 && p.z === 0)), 'never the bot\'s own column')
@@ -92,7 +92,7 @@ await t('each planned tool is used for ONE dig on a side block at feet or head h
 await t('a tool that SURVIVES the dig is reported, not claimed', async () => {
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot } = fakeBot({ inv, toolBreaks: false })
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'failed'); assert.match(r.detail, /survived/)
 })
 
@@ -106,7 +106,7 @@ await t('open ground: the ground beside the feet IS used, when it is safe', asyn
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv }); ground(bot)
   bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) }
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'success', r.detail); assert.equal(dug.length, 1); assert.equal(dug[0].y, 63)
 })
 await t('but NEVER when the bot straddles onto that column (the ledge), a plant sits on it, or a cave is under it', async () => {
@@ -117,7 +117,7 @@ await t('but NEVER when the bot straddles onto that column (the ledge), a plant 
   ]) {
     const inv = filled(36, [tool('stone_axe', 1)])
     const { bot, dug } = fakeBot({ inv }); setup(bot)
-    await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+    await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
     if (label === 'ledge') assert.ok(!dug.some(p => p.x === 1 && p.z === 0), `ledge: dug the column the bot stands on: ${JSON.stringify(dug)}`)
     else assert.equal(dug.length, 0, `${label}: dug ${JSON.stringify(dug)}`)
   }
@@ -127,7 +127,7 @@ await t('a same-name copy WITH USES in hand is never the one that digs', async (
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv })
   bot.equip = async () => { bot.heldItem = { ...tool('stone_axe', 90) } }   // the server put a healthy axe in hand
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(dug.length, 0); assert.match(r.detail, /could not hold a spent/)
 })
 
@@ -136,7 +136,7 @@ await t('a cell another bot stands in is never dug', async () => {
   const { bot, dug } = fakeBot({ inv })
   // another entity occupies every side column at feet height
   bot.entities = Object.fromEntries([[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, z], i) => [i, { position: V(x + 0.5, 64, z + 0.5) }]))
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(dug.length, 0, `dug ${JSON.stringify(dug)}`); assert.equal(r.status, 'failed')
 })
 
@@ -144,14 +144,14 @@ await t('an equip that does not take digs NOTHING with the hand -- it stops and 
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv })
   bot.equip = async () => {}   // the server never put it in the hand
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'failed'); assert.equal(dug.length, 0); assert.match(r.detail, /could not hold/)
 })
 
 await t('no safe block beside the bot: nothing is dug, the failure says why', async () => {
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv, solidAround: false })
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'failed'); assert.equal(dug.length, 0); assert.match(r.detail, /no safe block/)
 })
 
