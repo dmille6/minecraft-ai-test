@@ -30,11 +30,13 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
+import { noteSought } from './pickuplog.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
+import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
@@ -107,6 +109,10 @@ export const UNKNOWN_FAIL_CLASSES = new Set([
   //               the whole fleet that smelting raw_iron is impossible
   //               everywhere -- the `explore:{}` collapse documented in SKILLS.
   'furnace_window',
+  // craft_deadline  craftsync stopped a repeated craft at the skill's deadline and counted what the server
+  //               delivered. Running out of clock on a big batch is the smelt_budget case again: "call craft
+  //               again for the rest", not evidence that the recipe does not work.
+  'craft_deadline',
 ])
 
 /** The honest status for a failure class: a don't-know is not a no. */
@@ -1369,11 +1375,15 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
+    // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
+    // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
+    const releaseSought = noteSought(bot, drop.id, 'pickup')
     const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
         new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
     } catch (e) {
+      releaseSought()
       if (e.aborted || signal?.aborted) throw e
       // The walk failed. That is a fact about THIS drop, so retire it and let
       // the next iteration pick the next-nearest -- the old code returned here
@@ -1395,7 +1405,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
                          `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
-    await sleep(250, signal)
+    try { await sleep(250, signal) } finally { releaseSought() }
     // ONE WALK PER DROP PER SWEEP, whatever happened.
     //
     // The first draft retired a drop only when the bot ended up >= 2 blocks
@@ -2941,7 +2951,33 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
     // when nothing could be made -- see the return at the bottom.
     const blockedBy = []
 
-    if (depth < MAX_CRAFT_DEPTH) {
+    // THE WHOLE TREE, THE FULL QUANTITY AND THE STATION, PLANNED BEFORE ANYTHING IS CRAFTED (craftplan.mjs).
+    // The per-ingredient recursion below made each missing ingredient for its parent alone and lived on the old
+    // over-crafting for slack; with exact counts `craft wooden_pickaxe` from logs failed 6/6 on the sandbox.
+    // The plan is all or nothing: a shortfall is named and nothing is spent (4 planks + 2 sticks and no table
+    // used to become a table and then a refusal). The chosen recipes are crafted exactly -- no re-choosing.
+    // A table is READY only when it is within STATION_REACH after the walk above, or carried.
+    let plan = null
+    let planShort = ''
+    try {
+      const inReach = !!table && bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5)) <= STATION_REACH
+      plan = craftPlanFor(bot, item, count, hasTable || inReach)
+    } catch { plan = null }
+    if (plan?.ok) {
+      const ran = await runCraftPlan(ctx, plan, { item, signal, table })
+      if (ran.status !== 'success') return ran
+      return { status: 'success',
+               detail: `crafted ${ran.produced}x ${item}` +
+                       `${ran.stationDid.length ? ` (${ran.stationDid.join('; ')})` : ''}` +
+                       `${ran.made.length ? ` (first made ${ran.made.join(', ')})` : ''}` }
+    }
+    if (plan) {
+      // Bare names in the gap, as the recursion's sub.gap was: the lessons key must not move with the quantity.
+      blockedBy.push(...plan.shortfall.map(x => x.item))
+      planShort = plan.shortfall.map(x => `${x.count}x ${x.item}`).join(' and ')
+    }
+
+    if (depth < MAX_CRAFT_DEPTH && !plan) {
       const made = []
 
       // A STATION IS A PREREQUISITE TOO, and it is the one that was actually
@@ -2971,7 +3007,7 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
 
       // One level down, per missing ingredient. `missing` entries look like
       // "3x oak_planks"; anything that does not parse is left alone rather than
-      // guessed at.
+      // guessed at. (Only reached when the planner above could not run.)
       for (const m of missing) {
         const parsed = /^(\d+)x\s+(\S+)$/.exec(m)
         if (!parsed) continue
@@ -3028,16 +3064,17 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
       } catch { return false }
     })
 
+    const stationOnlyNow = stationOnly && !planShort
     return {
       status: 'failed',
-      failClass: stationOnly ? 'needs_station' : 'missing_ingredients',
+      failClass: stationOnlyNow ? 'needs_station' : 'missing_ingredients',
       // THE GAP, named exactly, so the lessons store can tell "stuck on the
       // same missing thing" from "working through the tech tree". Without it
       // the only question the store can ask is "did craft fail again", which
       // is how `craft oak_planks` reached 47 while the bot was doing the right
       // thing every time. Sorted so two identical gaps compare equal.
-      gap: stationOnly ? 'crafting_table' : rootGap.slice().sort().join('+'),
-      detail: stationOnly
+      gap: stationOnlyNow ? 'crafting_table' : rootGap.slice().sort().join('+'),
+      detail: stationOnlyNow
         // SAY WHY THE TABLE IS NOT DOWN, because we already tried to put it down.
         //
         // `stationOnly` means the bot HAS a table and lacks nothing else, so the
@@ -3054,10 +3091,11 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
           `and putting it down failed — ${stationFailure || 'no reason recorded'}`
         : gatherFirst.length
           ? `cannot craft ${item} -- gather ${gatherFirst.join(' and ')} first, ` +
-            `nothing crafts it (you have ` +
+            `nothing crafts it${planShort ? ` (short ${planShort} for the whole tree)` : ''} (you have ` +
             `${inventoryLine(bot.inventory.items(), { focus: [...gatherFirst, item] })})` +
             belowGroundHint(bot) + craftableAlternative(bot, item)
-          : `cannot craft ${item} -- ${why}`,
+          : `cannot craft ${item} -- ${planShort ? `short ${planShort} for the whole tree (you have ` +
+              `${inventoryLine(bot.inventory.items(), { focus: [...plan.shortfall.map(x => x.item), item] })})` : why}`,
     }
   }
 
@@ -3164,22 +3202,134 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   }
 
   try {
-    await bot.craft(recipe, count, table ?? undefined)
+    // { signal, deadline }: craftsync.mjs stops the craft on abort or at the runner's deadline and verifies the
+    // result against the server; mineflayer itself ignores the fourth argument.
+    const deadline = (ctx.runner?.current?.startedAt ?? Date.now()) + config.skills.defaultTimeoutMs
+    // `count` is ITEMS; bot.craft takes CRAFTS. Passing the item count crafted 4 times for 4 sticks -- 16 sticks,
+    // or 'missing ingredient' after the first craft, reported failed, with the planks already spent.
+    const crafts = craftsFor(count, recipe)
+    const got = await bot.craft(recipe, crafts, table ?? undefined, { signal, deadline })
+    // What was PRODUCED (craftsync's server-verified count; crafts x yield without it), not what was asked.
+    const produced = Number.isFinite(got?.produced) ? got.produced : crafts * (recipe.result?.count || 1)
     return { status: 'success',
-             detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
+             detail: `crafted ${produced}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   } catch (e) {
-    // Name the real problem. "Event windowOpen did not fire" is mineflayer's
-    // wording for "the server refused to open the container", which in practice
-    // means out of reach or the block is gone.
-    const windowFail = /windowOpen|window/i.test(e.message)
-    return {
-      status: 'failed',
-      failClass: windowFail ? 'no_path' : 'other',
-      detail: windowFail
-        ? `could not open the crafting_table at ${table?.position.x},${table?.position.z} — ` +
-          'stand next to it and face it before crafting'
-        : `craft ${item} failed: ${e.message.slice(0, 80)}`,
+    const out = craftFailureOutcome(e, { aborted: !!signal?.aborted, item, table })
+    if (out === CRAFT_ABORTED) throw new Aborted()
+    return out
+  }
+}
+
+/** craftplan.mjs's view of this bot: what it holds, and every recipe as { yield, table, ingredients, ref }. */
+function craftPlanFor (bot, item, count, tableReady) {
+  const have = Object.fromEntries(heldCounts(bot.inventory.items()))
+  const made = r => (r.delta ?? []).filter(d => d.count > 0).reduce((n, d) => n + d.count, 0)
+  const shape = r => ({
+    ref: r,
+    yield: r.result?.count || made(r) || 1,      // mineflayer's delta carries the result too
+    table: !!(r.requiresTable ?? r.needsTable),
+    ingredients: (r.delta ?? []).filter(d => d.count < 0)
+      .map(d => ({ name: bot.registry.items[d.id]?.name, count: -d.count })).filter(i => i.name),
+  })
+  const recipesOf = name => {
+    const d = bot.registry.itemsByName[name]
+    if (!d) return []
+    try { return (bot.recipesAll(d.id, null, true) ?? []).map(shape) } catch { return [] }
+  }
+  // Ties (nothing held to rank by) go the way the gap advice above goes: the cheapest source to reach from
+  // here first (cobblestone on the surface, cobbled_deepslate below y=0, never a smelted charcoal), then oak.
+  const by = bot?.entity?.position?.y
+  const reachCost = r => gapReachCost(r.ingredients.map(i => i.name), Number.isFinite(by) ? by : 64, bot?.game?.dimension ?? 'overworld')
+  const prefer = r => -10 * reachCost(r) + r.ingredients.filter(i => /^oak_/.test(i.name)).length
+  return planCraft({ item, count, recipesOf, have, tableReady, prefer })
+}
+
+/**
+ * Craft a plan's steps with exactly the recipes it chose, putting down a table before the first step that needs
+ * one (reusing one within STATION_REACH). Returns { status: 'success', produced, made, stationDid } or a
+ * classified failure; an interruption throws Aborted.
+ */
+async function runCraftPlan (ctx, plan, { item, signal, table }) {
+  const { bot } = ctx
+  const deadline = (ctx.runner?.current?.startedAt ?? Date.now()) + config.skills.defaultTimeoutMs
+  const reachOf = b => bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5))
+  const findStation = () => {
+    if (table && reachOf(table) <= STATION_REACH) return table
+    const b = bot.findBlock?.({ matching: x => bot.registry.blocks[x.type]?.name === 'crafting_table', maxDistance: STATION_REACH + 1 })
+    return b && reachOf(b) <= STATION_REACH ? b : null
+  }
+  const made = [], stationDid = []
+  let produced = 0, station = null
+  for (const step of plan.steps) {
+    check(signal)
+    if (step.recipe.table && !station) {
+      station = findStation()
+      if (!station) {
+        const put = await place(ctx, { item: 'crafting_table' }, signal)
+        station = put.status === 'success' && put.at && bot.blockAt(put.at)?.name === 'crafting_table' ? bot.blockAt(put.at) : findStation()
+        if (!station) {
+          return { status: 'failed', failClass: 'needs_station', gap: 'crafting_table',
+                   detail: `could not put down a crafting_table for ${item}: ${put.detail || put.failClass || 'no reason recorded'}` +
+                           `${made.length ? ` [after making ${made.join(', ')}]` : ''}` }
+        }
+        stationDid.push('placed a crafting_table')
+      }
+      try { await bot.lookAt(station.position.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
     }
+    try {
+      const got = await bot.craft(step.recipe.ref, step.crafts, step.recipe.table ? station : undefined, { signal, deadline })
+      const n = Number.isFinite(got?.produced) ? got.produced : step.crafts * step.recipe.yield
+      if (step.item === item) produced += n
+      else made.push(`${n}x ${step.item}`)
+    } catch (e) {
+      const out = craftFailureOutcome(e, { aborted: !!signal?.aborted, item: step.item, table: station })
+      if (out === CRAFT_ABORTED) throw new Aborted()
+      return { ...out, detail: `${out.detail}${made.length ? ` [after making ${made.join(', ')}]` : ''}` }
+    }
+  }
+  return { status: 'success', produced, made, stationDid }
+}
+
+/** How many crafts make `count` items: each craft yields recipe.result.count. Pure, exported for tests. */
+export function craftsFor (count, recipe) {
+  const made = (recipe?.delta ?? []).filter(d => d.count > 0).reduce((n, d) => n + d.count, 0)   // delta carries the result too
+  const per = Number(recipe?.result?.count) || made || 1
+  return Math.max(1, Math.ceil(Number(count ?? 1) / per))
+}
+
+/** craftFailureOutcome's answer when the craft was interrupted: the skill rethrows Aborted. */
+export const CRAFT_ABORTED = Symbol('craft aborted')
+/**
+ * What the craft skill returns when bot.craft rejects. Pure, exported for tests. An ABORT IS AN ABORT: with the
+ * signal aborted (or craftsync reporting an interruption) the answer is CRAFT_ABORTED -- the runner's
+ * aborted/interrupted -- never `failed`/`other`, which would put an interruption on the failure ledger.
+ * craftsync's classes carry what the server actually delivered; none of them is in an evidence set.
+ */
+export function craftFailureOutcome (e, { aborted = false, item, table = null } = {}) {
+  if (aborted || e?.aborted) return CRAFT_ABORTED
+  const made = `${e?.produced ?? '?'} of ${e?.requested ?? '?'}`
+  if (e?.failClass === 'craft_busy') {
+    return { status: 'failed', failClass: 'craft_busy', detail: `another craft is still finishing — craft ${item} again in a few seconds` }
+  }
+  if (e?.failClass === 'craft_deadline') {
+    return { status: statusFor('craft_deadline'), failClass: 'craft_deadline',
+             detail: `ran out of time crafting ${item}: ${made} made — call craft again for the rest` }
+  }
+  if (e?.failClass === 'craft_unconfirmed') {
+    return { status: 'failed', failClass: 'craft_unconfirmed',
+             detail: `crafting ${item} did not reach the inventory: ${made} made (${String(e.message).slice(0, 80)})` }
+  }
+  // Name the real problem. "Event windowOpen did not fire" is mineflayer's
+  // wording for "the server refused to open the container", which in practice
+  // means out of reach or the block is gone.
+  const windowFail = /windowOpen|window/i.test(e?.message ?? '')
+  return {
+    status: 'failed',
+    failClass: windowFail ? 'no_path' : 'other',
+    detail: windowFail
+      ? `could not open the crafting_table at ${table?.position.x},${table?.position.z} — ` +
+        'stand next to it and face it before crafting'
+      : `craft ${item} failed: ${String(e?.message ?? e).slice(0, 80)}`,
   }
 }
 

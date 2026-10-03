@@ -20,7 +20,8 @@ import { config } from './config.mjs'
 import { withApproachBound } from './digapproach.mjs'
 import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
-import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
+import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
+import { attachPickupLog } from './pickuplog.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { installAirTrace } from './air-trace.mjs'
@@ -34,6 +35,7 @@ import { attachPacketWitness } from './packet-witness.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
+import { installCraftSync } from './craftsync.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -45,6 +47,9 @@ const require_ = createRequire(import.meta.url)
 let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
+// The pickup log's final _pickups row (pickuplog.mjs): the signal handler closes the logs and exits without ending
+// the bot, so an 'end' listener never runs on a systemd stop. It calls this before closeLogs().
+let pickupFinal = null
 let stopComms = null
 let worldFacts = null
 let cognitive = null
@@ -250,6 +255,15 @@ function connect() {
   }
 
   bot.once('spawn', () => {
+    // CRAFTS IN LOCKSTEP (craftsync.mjs). Unpatched mineflayer lost 7/40 table crafts on the sandbox while
+    // reporting success: stale-stateId clicks fired as a burst, Paper's refresh landing behind them. Installed
+    // here, not at createBot: the plugins (bot.craft among them) are injected after login, and a wrapper put on
+    // earlier is overwritten without a word -- which is what happened in the sandbox experiment.
+    try {
+      installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
+    } catch (e) {
+      log('warn', 'craftsync not installed', { error: e.message })
+    }
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
@@ -881,6 +895,20 @@ function connect() {
     // information `explore` needed while explore picked random headings.
     bot.worldFacts = worldFacts
     stopReflexes = startReflexes(bot, runner, lessons, worldFacts)
+    // PICKUP TELEMETRY (pickuplog.mjs). TELEMETRY ONLY: nothing reads these rows to decide anything. Where bag junk
+    // comes from: one _junk_pickup row per junk item collected, a per-minute _pickups summary for the rest.
+    try {
+      const reflexes = stopReflexes
+      const pl = attachPickupLog(bot, {
+        context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
+                          reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
+        emitSummary: detail => { try { logEvent({ kind: 'pickups', status: 'success', snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } },
+        emitJunk: ({ detail, args }) => { try { logEvent({ kind: 'junk_pickup', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+        tap: tapRecords,
+      })
+      pickupFinal = pl.final
+      bot.once('end', () => { try { pl.final() } catch { /* telemetry */ } })
+    } catch (e) { log('warn', 'pickup log not attached', { err: e?.message }) }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
@@ -1104,6 +1132,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     if (cognitive) cognitive.stop()
     if (watchdog) watchdog.stop()
     try { lessons?.save() } catch {}
+    try { pickupFinal?.() } catch {}
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })
