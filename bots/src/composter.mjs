@@ -497,8 +497,14 @@ export const townPlanTableAvailable = (items = []) => (Array.isArray(items) ? it
  * WHERE THE BUILDER PUTS ITS CRAFTING TABLE -> {x,y,z} | null. Pure. Within 2 of where it stands (so it can craft
  * without walking), at its own level, replaceable on a solid floor -- and never on the site or any cell touching it
  * (Chebyshev >= 2): a table beside the site could turn it into a corridor or take the only standing cell.
+ * `bodies` ({ x, y, z, w, h }: feet centre, width, height) -- the bot's own included -- are never placed into: a cell
+ * one intersects cannot take a block (sandbox: an off-centre bot overlapped 699,120,699 and the placement timed out).
  */
-export function tableCellFor ({ site, stand, read } = {}) {
+export function bodyInCell (b, c) {
+  const hw = (Number(b?.w) || 0.6) / 2, h = Number(b?.h) || 1.8
+  return b?.x + hw > c.x && b.x - hw < c.x + 1 && b.z + hw > c.z && b.z - hw < c.z + 1 && b.y + h > c.y && b.y < c.y + 1
+}
+export function tableCellFor ({ site, stand, read, bodies = [] } = {}) {
   if (!site || !stand || typeof read !== 'function') return null
   const out = []
   for (let dx = -2; dx <= 2; dx++) {
@@ -508,6 +514,7 @@ export function tableCellFor ({ site, stand, read } = {}) {
       if (Math.max(Math.abs(x - site.x), Math.abs(z - site.z)) < 2) continue
       const cell = read(x, y, z), head = read(x, y + 1, z), floor = read(x, y - 1, z)
       if (!cell || !PLACEABLE_INTO.has(cell.name) || !solidAt(floor) || !head) continue
+      if ((bodies ?? []).some(b => bodyInCell(b, { x, y, z }))) continue
       out.push({ x, y, z, d: Math.abs(dx) + Math.abs(dz) })
     }
   }
@@ -521,6 +528,8 @@ export const COMPOST_COOLDOWN_MS = 3 * 60 * 1000
 export const COMPOST_BACKOFF_MS = 15 * 60 * 1000
 export const BUILD_COOLDOWN_MS = 5 * 60 * 1000
 export const BUILD_BACKOFF_MS = 30 * 60 * 1000
+/** A build refused for room (the bag-full family) backs off only a cooldown: room is a matter of the next visit's bag. */
+export const BUILD_NO_ROOM_BACKOFF_MS = BUILD_COOLDOWN_MS
 /** World scans (storage, composter, table) at most this often per bot, however often it decides. */
 export const TOWN_SCAN_MS = 30 * 1000
 export const TOWN_ORDERS = new Set(['compost', 'build_composter'])
@@ -582,7 +591,8 @@ export function townOrderOutcome (skill, status, now = 0, state = {}, failClass 
   const s = { ...state }
   if (!TOWN_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
   const key = skill === 'compost' ? 'compostBackoffUntil' : 'buildBackoffUntil'
-  s[key] = status === 'success' ? 0 : now + (skill === 'compost' ? COMPOST_BACKOFF_MS : BUILD_BACKOFF_MS)
+  const backoff = skill === 'compost' ? COMPOST_BACKOFF_MS : failClass === 'composter_no_room' ? BUILD_NO_ROOM_BACKOFF_MS : BUILD_BACKOFF_MS
+  s[key] = status === 'success' ? 0 : now + backoff
   return s
 }
 
@@ -640,6 +650,11 @@ export function protectTownBlocks (movements, registry) {
   if (!(movements.blocksCantBreak instanceof Set)) movements.blocksCantBreak = new Set(movements.blocksCantBreak ?? [])
   const id = registry?.blocksByName?.composter?.id
   if (id != null) movements.blocksCantBreak.add(id)
+  // NOR A PATH'S NODE (sandbox, Paper 1.21.8: 5 of 6 compost visits left the bone meal in the world). The composter is a
+  // hollow block a path can step INTO -- the walk to collect a popped bone meal ended at its inner floor (y + 0.125), and
+  // the drop was never handed over. blocksToAvoid keeps every node out of its cell.
+  if (!(movements.blocksToAvoid instanceof Set)) movements.blocksToAvoid = new Set(movements.blocksToAvoid ?? [])
+  if (id != null) movements.blocksToAvoid.add(id)
   return movements
 }
 

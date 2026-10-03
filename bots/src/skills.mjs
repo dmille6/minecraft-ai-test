@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
-import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS, inPickupBox, pickupGoalClass } from './logpickup.mjs'
+import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS, inPickupBox, pickupGoalClass, pickupGoal } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -3711,7 +3711,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
           : 'no new item by the local count (craftsync is not installed)'
       logEvent({ kind: 'craft_room', status: 'unverified', snapshot: snapshot(bot),
                  detail: `unverified ${item} rep ${rep + 1}/${reps}: ${why} ${facts}` })
-      const out = error ? craftFailureOutcome(error, { item, table })
+      const out = error ? { ...craftFailureOutcome(error, { item, table }), reason: error.reason ?? null }
         : { status: 'unknown', failClass: 'unverified', verification: 'unverified', detail: `crafted ${item} but ${why}` }
       return fail({ ...out, detail: `${out.detail} (${slots}/${BAG_SLOTS} slots)${sofar(done)}` })
     }
@@ -5146,6 +5146,22 @@ export function townComposterSite (bot) {
   })
 }
 
+/** How long a popped bone meal may take to settle and its position to reach mineflayer (~20 ticks per update). */
+const BONEMEAL_SETTLE_TICKS = 20
+/** The compost visit's declared stationary window runs this long past its budget (the last insert or ripen). */
+const STATIONARY_SLACK_MS = 5_000
+/**
+ * logpickup's pickup-box goal for `item`, with the REAL standing height of each node, whose end never lies in `cell`
+ * (the composter's own column, the cell and the one above): a body inside the hollow is not handed the drop.
+ */
+export function pickupGoalOutside(bot, item, cell) {
+  const goal = pickupGoal(goals, item, node => node.y - 1 + standHeight(bot.blockAt(new Vec3(node.x, node.y - 1, node.z), false)))
+  if (!goal) return null
+  const isEnd = goal.isEnd.bind(goal)
+  goal.isEnd = node => !(node.x === cell.x && node.z === cell.z && node.y >= cell.y && node.y <= cell.y + 1) && isEnd(node)
+  return goal
+}
+
 async function compost(ctx, _args, signal) {
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
@@ -5166,7 +5182,7 @@ async function compost(ctx, _args, signal) {
   const g = hkGuards(bot, signal)
   const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
   const taken = {}
-  let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false
+  let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false, stationary = 0
   try {
     if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
       try { await g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -5187,10 +5203,18 @@ async function compost(ctx, _args, signal) {
       await ticks(12)   // the drop's pickup delay is 10 ticks
       if (composterLevel(at()) === 8) return 'level 8 did not empty'
       if (countOf('bone_meal') <= before) {
+        // NOT IN THE BAG YET (sandbox, Paper 1.21.8: 5 of 6 visits left a bone meal in the world). It pops at the
+        // composter's top centre +-0.35 and can fall into the hollow; mineflayer hears an item's position only every ~20
+        // ticks. So: let it settle and the position arrive, then -- only if it is not already in this body's pickup box
+        // -- walk into its box with logpickup's goal (the server's own pickup rule), on a cell OUTSIDE the composter.
+        // The old GoalNear(drop, 1) accepted the composter's own cell: the walk ended inside the hollow and the drop
+        // was never handed over.
+        await ticks(BONEMEAL_SETTLE_TICKS)
         const drop = bot.nearestEntity?.(e => e?.name === 'item' && e.position && e.position.distanceTo(centre) < 4 &&
           (() => { try { return e.getDroppedItem?.()?.name === 'bone_meal' } catch { return false } })())
-        if (drop) {
-          try { await g.bound(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        if (countOf('bone_meal') <= before && drop && !inPickupBox(bot.entity.position, drop.position)) {
+          const goal = pickupGoalOutside(bot, drop.position, pos)
+          if (goal) { try { await g.bound(bot.pathfinder.goto(goal), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e } }
           await ticks(12)
         }
       }
@@ -5200,6 +5224,10 @@ async function compost(ctx, _args, signal) {
       return null
     }
     const deadline = Date.now() + VISIT_BUDGET_MS
+    // A BOUNDED, DECLARED STATIONARY WINDOW for the stuck watchdog (reflex.mjs stuckDecision): the visit stands at the
+    // composter on purpose for up to its own budget; the window expires by itself and is cleared below.
+    stationary = deadline + STATIONARY_SLACK_MS
+    bot.stationaryUntil = stationary
     let misses = 0
     for (;;) {
       check(signal)
@@ -5227,6 +5255,7 @@ async function compost(ctx, _args, signal) {
       else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
     }
   } finally {
+    if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     await settleAndRestore(bot, was, g, 'compost')
   }
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
@@ -5245,6 +5274,22 @@ async function compost(ctx, _args, signal) {
 }
 
 // ------------------------------------------------------ build_composter -----
+/** "On the stand" means the feet within this of the standing cell's centre, horizontally (the body is 0.6 wide). */
+export const STAND_CENTRE_TOL = 0.3
+const centredOn = (bot, c) => { const q = bot.entity?.position; return !!q && !!c && Math.abs(q.x - (c.x + 0.5)) <= STAND_CENTRE_TOL && Math.abs(q.z - (c.z + 0.5)) <= STAND_CENTRE_TOL }
+/** A bounded nudge to the centre of the cell the bot already stands in: face it, step, stop. */
+async function centreOn(bot, c, signal) {
+  const target = new Vec3(c.x + 0.5, bot.entity.position.y + 1.62, c.z + 0.5)
+  try { await bot.lookAt?.(target, true) } catch { /* not fatal */ }
+  try {
+    bot.setControlState?.('forward', true)
+    for (const until = Date.now() + 1_500; !centredOn(bot, c) && Date.now() < until;) await sleep(25, signal)
+  } finally { try { bot.setControlState?.('forward', false) } catch { /* nothing held */ } }
+}
+/** Every body near the bot that a placed block may not intersect: its own, and every entity's but items' and orbs'. */
+const bodiesAround = bot => [bot.entity, ...Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position &&
+  !['item', 'experience_orb'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < 8)]
+  .filter(e => e?.position).map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 }))
 const hkStop = (failClass, message) => Object.assign(new Error(message), { hkStop: true, failClass })
 /** What the composter chain consumes (never advised away to free a slot). */
 const chainConsumes = plan => (plan?.wood ? [plan.log, `${plan.wood}_planks`, `${plan.wood}_slab`].map(name => ({ name, count: 1 })) : [])
@@ -5263,10 +5308,14 @@ function noRoomToBuild(bot, plan, said) {
  * filled the room the plan counted on) is composter_no_room, its detail the executor's own refusal with its remedy;
  * everything else is composter_craft. Neither votes (evidenceScope); a failed build backs off (townOrderOutcome).
  */
-export function composterCraftFailure (item, out = {}) {
+export function composterCraftFailure (item, out = {}, { free = null } = {}) {
   // THE EXECUTOR'S DETAIL LEADS WITH ITS REMEDY, so it goes first, untruncated; the composter context follows.
   const said = String(out?.detail ?? out?.failClass ?? 'unknown')
-  if (out?.failClass === 'inventory_full') {
+  // THE BAG-FULL FAMILY (sandbox scene 2c, 2 of 3): a pickup landing mid-click leaves the result no slot, put-away tosses
+  // it, and craftsync reports the server count did not rise (craft_unconfirmed / not_in_inventory). With the bag full
+  // at that moment that is a room failure, not a broken craft: composter_no_room, and its own (shorter) backoff.
+  const tossedForRoom = out?.failClass === 'craft_unconfirmed' && out?.reason === 'not_in_inventory' && free != null && free <= 0
+  if (out?.failClass === 'inventory_full' || tossedForRoom) {
     return { failClass: 'composter_no_room', detail: `${said} [crafting ${item} for the town composter, which is not built yet, so composting cannot free the slot]` }
   }
   return { failClass: 'composter_craft', detail: `${said} [crafting ${item} for the town composter]` }
@@ -5333,7 +5382,7 @@ async function buildComposter (ctx, _args, signal) {
         if (e?.aborted || signal?.aborted) throw e
         throw hkStop('composter_craft', `crafting ${item} failed: ${String(e?.message ?? e).slice(0, 80)}`)
       }
-      if (!ran.ok) { const f = composterCraftFailure(item, ran.out); throw hkStop(f.failClass, f.detail) }
+      if (!ran.ok) { const f = composterCraftFailure(item, ran.out, { free: free() }); throw hkStop(f.failClass, f.detail) }
     }
   }
   try {
@@ -5355,19 +5404,30 @@ async function buildComposter (ctx, _args, signal) {
         // ended. approach() alone is satisfied anywhere within reach of the site, which is not enough here.
         // ENFORCED (Codex): a failed walk back is not swallowed -- off the stand, nothing is put down, and the table cell
         // is chosen from the VERIFIED stand, never from the feet.
+        // ON THE STAND MEANS CENTRED (sandbox: the floored feet passed with the bot at x+0.94 on its stand, its own body
+        // overlapped the table cell, and the placement timed out): within STAND_CENTRE_TOL of the cell's centre, after a
+        // bounded nudge if the cell is right but the body is not.
         const onStand = () => { const f = bot.entity.position.floored(); return !!stand && f.x === stand.x && f.y === stand.y && f.z === stand.z }
         if (stand && !onStand()) {
           try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
           check(signal)
         }
-        if (!onStand()) {
-          const f = bot.entity.position.floored()
+        if (onStand() && !centredOn(bot, stand)) await centreOn(bot, stand, signal)
+        if (!onStand() || !centredOn(bot, stand)) {
+          const q = bot.entity.position
           return fail('composter_unreachable', `walk to the composter's standing cell at ${stand?.x},${stand?.y},${stand?.z} and clear it ` +
-                      `(something may be standing on it): the bot is at ${f.x},${f.y},${f.z}, and the crafting table goes down only from that cell`)
+                      `(something may be standing on it): the bot is at ${q.x.toFixed(2)},${q.y.toFixed(2)},${q.z.toFixed(2)}, and the crafting table goes down only from the centre of that cell`)
         }
         if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z} to put the crafting table down`)
-        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read })
-        if (!cell) return fail('composter_site', `nowhere within 2 of the composter site's standing cell to put a crafting table`)
+        // NEVER INTO A BODY: the bot's own and every other's (items aside) are kept out of the table's cell.
+        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot) })
+        if (!cell) {
+          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read })) {
+            return fail('composter_unreachable', `wait for the cells beside the composter's standing cell at ${stand.x},${stand.y},${stand.z} to clear: ` +
+                        `every cell where the crafting table could go has someone standing in it`)
+          }
+          return fail('composter_site', `nowhere within 2 of the composter site's standing cell to put a crafting table`)
+        }
         let put
         try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('composter_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)

@@ -225,5 +225,27 @@ await t('PICKUPS BETWEEN TWO CRAFTS: the pre-execution room check refuses the co
   assert.ok(!rows.some(r => r.args.item === 'composter'), 'craftsync was entered for the composter')
 })
 
+await t('#4 SCENE 2c: pickups fill the bag on the planks craft\'s result click -> the planks are tossed (the known limit) and it is filed composter_no_room, not composter_craft', async () => {
+  const { server, bot } = await town(bag({ 36: ['oak_log', 3] }, 30))
+  const receive = server.receive.bind(server)
+  let fired = false
+  server.receive = (name, params) => {
+    if (!fired && name === 'window_click' && params.slot === 0 && params.stateId !== -1 && server.count('oak_planks') === 0) {
+      fired = true
+      for (let s = 9; s <= 44; s++) {
+        if (server.p[s]) continue
+        server.p[s] = new Item(registry.itemsByName.dirt.id, 64); server.sid[0]++
+        server.send([['set_slot', { windowId: 0, stateId: server.sid[0], slot: s, item: Item.toNotch(server.p[s]) }]])
+      }
+    }
+    return receive(name, params)
+  }
+  const out = await build(bot, server)
+  assert.ok(fired, 'the burst never happened')
+  assert.deepEqual(server.dropped.map(nameOf), ['oak_planks'], 'positive control: the planks were tossed (craftsync can only detect this)')
+  assert.equal(out.failClass, 'composter_no_room', out.detail)
+  assert.ok(C.townOrderOutcome('build_composter', out.status, 0, {}, out.failClass).buildBackoffUntil === C.BUILD_NO_ROOM_BACKOFF_MS, 'not the room family\'s backoff')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

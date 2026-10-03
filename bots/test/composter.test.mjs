@@ -5,6 +5,7 @@
 // output that has no slot is DROPPED, as inventory.js putAway does), a fake crafting system built on the same
 // prismarine-recipe tables mineflayer uses, and a fake composter that follows the vanilla rules (consume at 0-6,
 // ripen 7->8 after 20 ticks, a use at 8 pops one bone meal on top with a 10-tick pickup delay).
+import { inPickupBox } from '../src/logpickup.mjs'
 import assert from 'node:assert/strict'
 import fsMod, { readFileSync, writeFileSync, unlinkSync, rmSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -403,9 +404,25 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
       goto: async goal => {
         state.gotos++; state.events.push('goto')
         const here = bot.entity.position.floored()
-        if (!goal.isEnd?.(here)) {
+        if (goal?.item && typeof goal.isEnd === 'function') {
+          // A PICKUP-BOX GOAL ends where A* would: the nearest standable node whose own end test holds. The composter's
+          // hollow counts as standable -- the real pathfinder stepped into it (sandbox) -- unless the goal refuses it.
+          const gi = goal.item, nodes = []
+          for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) for (let dy = -1; dy <= 1; dy++) {
+            const n = new Vec3(Math.floor(gi.x) + dx, Math.floor(gi.y) + dy, Math.floor(gi.z) + dz)
+            const feet = nameAt(n), head = nameAt(n.offset(0, 1, 0)), under = nameAt(n.offset(0, -1, 0))
+            if (!['air', 'composter'].includes(feet) || head !== 'air' || ['air', 'composter'].includes(under)) continue
+            if (goal.isEnd(n)) nodes.push(n)
+          }
+          nodes.sort((a, b) => a.distanceTo(here) - b.distanceTo(here))
+          state.pickupWalks = (state.pickupWalks ?? 0) + 1
+          if (nodes[0]) bot.entity.position = new Vec3(nodes[0].x + 0.5, nodes[0].y + (nameAt(nodes[0]) === 'composter' ? 0.125 : 0), nodes[0].z + 0.5)
+        } else if (!goal.isEnd?.(here)) {
           const off = (goal.rangeSq ?? 0) >= 4 ? 2 : 0
           bot.entity.position = new Vec3(Math.floor(goal.x) + off + 0.5, goal.y ?? bot.entity.position.y, Math.floor(goal.z) + 0.5)
+          // nothing stands on a composter's open top: a landing there falls into its hollow (inner floor 2/16)
+          const below = bot.entity.position.offset(0, -0.5, 0).floored()
+          if (nameAt(below) === 'composter') bot.entity.position = new Vec3(below.x + 0.5, below.y + 0.125, below.z + 0.5)
         }
         state.path.push(bot.entity.position.clone())
         await state.onGoto?.(goal)
@@ -416,8 +433,13 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
         state.tick++
         if (state.level === 7 && state.ripenAt != null && state.tick >= state.ripenAt) { state.level = 8; state.levels.push(8); state.ripenAt = null }
         for (const d of [...state.pending]) {
+          if (state.tick >= d.spawnTick + 20) d.entity.position = d.rest   // mineflayer hears the item's position ~every 20 ticks
           if (!pickup || state.tick < d.at) continue
-          if (d.entity.position.distanceTo(bot.entity.position) <= 1.5 && (bot.inventory.items().length < 36 || slots.some(s => s?.name === 'bone_meal' && s.count < 64))) {
+          // the SERVER's rule: vanilla's pickup box around the body, against where the item really lies; a body standing
+          // inside the composter's hollow is not handed it (the sandbox's end state, 5 of 6 visits)
+          const feet = bot.entity.position
+          const inside = nameAt(feet.floored()) === 'composter'
+          if (!inside && inPickupBox(feet, d.rest) && (bot.inventory.items().length < 36 || slots.some(s => s?.name === 'bone_meal' && s.count < 64))) {
             add('bone_meal', 1); state.pending.splice(state.pending.indexOf(d), 1); delete bot.entities[d.entity.id]
           }
         }
@@ -436,9 +458,11 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
       }
       if (state.level === 8) {
         state.level = 0; state.levels.push(0); state.extracted++
+        // vanilla pops it at the top centre (+1.01); over the hollow it falls to the inner floor (+2/16), beside it to the ground
         const pos = dropFar ? b.position.offset(0.5, 1.01, 2.6) : b.position.offset(0.5, 1.01, 0.5)
+        const rest = dropFar ? b.position.offset(0.5, 0, 2.6) : b.position.offset(0.5, 0.125, 0.5)
         const entity = { id: 1000 + state.extracted, name: 'item', position: pos, getDroppedItem: () => ({ name: 'bone_meal' }) }
-        bot.entities[entity.id] = entity; state.pending.push({ entity, at: state.tick + 10 })
+        bot.entities[entity.id] = entity; state.pending.push({ entity, rest, at: state.tick + 10, spawnTick: state.tick })
       }
     },
     placeBlock: async (ref, face) => {
@@ -1196,6 +1220,172 @@ await t('C5 ENFORCED (Codex): the walk BACK to the standing cell fails -> compos
   assert.match(r.detail, new RegExp(`^walk to the composter's standing cell at ${stand.x},${stand.y},${stand.z} and clear it`))
   assert.equal([...town.world.values()].filter(n => n === 'crafting_table').length, 0, 'a table was put down from the displaced feet')
   assert.equal(evidenceScope(r.failClass), null)
+})
+
+// ===================================================================================================================
+// SANDBOX A/B FINDINGS (Paper 1.21.8, 661c249)
+// ===================================================================================================================
+const { stuckDecision } = await import('../src/reflex.mjs')
+
+await t('#1 BONE MEAL: every pop ends in the bag, collected from a cell OUTSIDE the composter (never its hollow)', async () => {
+  let n = 0
+  const { bot, state, count, site } = fakeTown({ hand: PICK, rolls: () => (n++ % 3 === 0 ? 0.1 : 0.9),
+    items: [S('leaf_litter', 64), S('leaf_litter', 64), S('leaf_litter', 30), ...filler(29)] })
+  const r = await run('compost', bot)
+  assert.ok(state.extracted >= 2, `positive control: ${state.extracted} extractions`)
+  assert.equal(count('bone_meal'), state.extracted, `left ${state.extracted - count('bone_meal')} bone meal in the world: ${r.detail}`)
+  assert.doesNotMatch(r.detail, /not confirmed/)
+  const inside = state.path.filter(p => Math.floor(p.x) === site.x && Math.floor(p.z) === site.z)
+  assert.deepEqual(inside, [], 'a walk ended inside the composter')
+  assert.ok((state.pickupWalks ?? 0) >= 1, 'positive control: the pickup-box walk was used')
+})
+
+await t('#1 the instrument: a body INSIDE the composter\'s hollow is not handed the drop (the sandbox end state)', async () => {
+  const town = fakeTown({ hand: PICK, level: 8, items: [S('leaf_litter', 64), ...filler(30)] })
+  town.bot.entity.position = new Vec3(town.site.x + 0.5, town.site.y + 0.125, town.site.z + 0.5)
+  await town.bot.activateBlock(town.bot.blockAt(new Vec3(town.site.x, town.site.y, town.site.z)))
+  await town.bot.waitForTicks(30)
+  assert.equal(town.count('bone_meal'), 0, 'the fake hands a drop to a body inside the composter: it cannot see the defect')
+  town.bot.entity.position = new Vec3(town.site.x + 1.5, town.site.y, town.site.z + 0.5)
+  await town.bot.waitForTicks(2)
+  assert.equal(town.count('bone_meal'), 1, 'positive control: from the cell beside it, the drop is handed over')
+})
+
+await t('#1 protectTownBlocks keeps every path node OUT of a composter cell (blocksToAvoid), and still never digs one', () => {
+  const m = C.protectTownBlocks({ blocksCantBreak: new Set(), blocksToAvoid: new Set([1]) }, REG)
+  assert.ok(m.blocksToAvoid.has(REG.blocksByName.composter.id)); assert.ok(m.blocksToAvoid.has(1), 'the existing avoid set is kept')
+  assert.ok(m.blocksCantBreak.has(REG.blocksByName.composter.id))
+})
+
+await t('#2 COMPOSED with the fleet\'s 20 s stuck limit: the visit declares a BOUNDED stationary window; the watchdog does not fire inside it, does after', async () => {
+  const STUCK_MS = 20_000
+  let n = 0, seen = null, t0 = null
+  const town = fakeTown({ hand: PICK, rolls: () => (n++ % 3 === 0 ? 0.1 : 0.9), items: [S('leaf_litter', 64), S('leaf_litter', 20), ...filler(30)] })
+  const wait = town.bot.waitForTicks
+  town.bot.waitForTicks = async k => { if (seen == null && town.bot.stationaryUntil) { seen = town.bot.stationaryUntil; t0 = Date.now() } return wait(k) }
+  const r = await run('compost', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(seen, 'the visit declared no stationary window')
+  assert.ok(seen - t0 <= C.VISIT_BUDGET_MS + 5_000 + 50, `the window is not bounded by the visit's budget: ${seen - t0} ms`)
+  // a busy bot standing still at the composter: 21 s into the visit -> no fire; past the window -> fires
+  const at = now => stuckDecision({ busy: true, stationaryUntil: seen, now, stillSince: t0, stuckMs: STUCK_MS })
+  assert.equal(at(t0 + 21_000).fire, false, 'the 20 s watchdog cut a visit inside its own budget')
+  assert.equal(at(seen + 1).fire, true, 'the window never expires: a wedged visit would never be caught')
+  assert.equal(town.bot.stationaryUntil, 0, 'the visit did not clear its window')
+  assert.equal(stuckDecision({ busy: true, stationaryUntil: town.bot.stationaryUntil, now: t0 + 21_000, stillSince: t0, stuckMs: STUCK_MS }).fire, true,
+    'positive control: without the window, the same stillness fires at 20 s')
+})
+
+await t('#2 COMPOSED, live: a reflex-style loop polling stuckDecision during a real visit (stuck limit compressed) never interrupts it', async () => {
+  let n = 0
+  const town = fakeTown({ hand: PICK, rolls: () => (n++ % 3 === 0 ? 0.1 : 0.9), items: [S('leaf_litter', 64), S('leaf_litter', 20), ...filler(30)] })
+  const STUCK_MS = 30   // compressed: the fake visit is shorter than 20 s, so the limit scales with it
+  let stillSince = Date.now(), last = null, fired = 0, polls = 0, running = true
+  const tick = setInterval(() => {
+    if (!running) return
+    polls++
+    const p = town.bot.entity.position
+    const d = stuckDecision({ busy: true, stationaryUntil: town.bot.stationaryUntil, moved: !!(last && p.distanceTo(last) > 0.6), now: Date.now(), stillSince, stuckMs: STUCK_MS })
+    if (d.reset) stillSince = Date.now()
+    last = p.clone()
+    if (d.fire) { fired++; stillSince = Date.now() }
+  }, 5)
+  const wait = town.bot.waitForTicks
+  town.bot.waitForTicks = async k => { await new Promise(res => setTimeout(res, 2)); return wait(k) }   // the visit takes real time
+  try { await run('compost', town.bot) } finally { running = false; clearInterval(tick) }
+  assert.ok(polls >= 10, `positive control: the loop polled ${polls} times`)
+  assert.equal(fired, 0, `the watchdog fired ${fired}x inside the visit`)
+  // positive control: the same loop over a still, busy bot with no window fires
+  let f2 = 0; stillSince = Date.now() - 100
+  if (stuckDecision({ busy: true, stationaryUntil: 0, now: Date.now(), stillSince, stuckMs: STUCK_MS }).fire) f2++
+  assert.equal(f2, 1)
+})
+
+await t('#2 WIRED: the reflex loop decides stuck through stuckDecision with bot.stationaryUntil (structural)', () => {
+  const src = readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+  assert.match(src, /const stuck = stuckDecision\(\{[^}]*stationaryUntil: bot\.stationaryUntil/)
+  assert.match(src, /if \(stuck\.fire\) \{\s*\n\s*log\('warn', 'reflex: stuck, cancelling path'/)
+})
+
+await t('#3 tableCellFor never picks a cell a body intersects -- the bot\'s own off-centre included', () => {
+  const read = flat()
+  const site = { x: 3, y: 64, z: 0 }, stand = { x: 2, y: 64, z: 0 }
+  const free = C.tableCellFor({ site, stand, read })
+  assert.ok(free, 'positive control: a cell exists with no bodies')
+  const offCentre = { x: free.x + 0.05, y: 64, z: free.z + 0.5 }   // a body whose box reaches into that cell
+  assert.equal(C.bodyInCell(offCentre, free), true)
+  const c = C.tableCellFor({ site, stand, read, bodies: [offCentre] })
+  assert.notDeepEqual(c, free, 'placed into a body')
+  assert.equal(C.bodyInCell({ x: stand.x + 0.5, y: 64, z: stand.z + 0.5 }, { x: stand.x + 1, y: 64, z: stand.z }), false, 'a centred body stays in its cell')
+  assert.equal(C.bodyInCell({ x: stand.x + 0.94, y: 64, z: stand.z + 0.5 }, { x: stand.x + 1, y: 64, z: stand.z }), true, 'x+0.94 overlaps the next cell (sandbox)')
+})
+
+const offCentreTown = ({ nudges }) => {
+  const items = [S('oak_log', 3), ...filler(10)]
+  const probe = fakeTown({ hand: PICK, composterAt: null, items })
+  const read = (x, y, z) => { const b = probe.bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null }
+  const stand = C.standableBeside(read, probe.site)
+  const town = fakeTown({ hand: PICK, composterAt: null, items, storeDir: process.env.POOL_STATE_DIR })
+  // the walk to the stand ends OFF-CENTRE (x+0.94, as in the sandbox); a nudge forward recentres only if `nudges`
+  const goto = town.bot.pathfinder.goto
+  town.bot.pathfinder.goto = async goal => {
+    await goto(goal)
+    if (goal?.x === stand.x && goal?.z === stand.z && !goal?.item) town.bot.entity.position = new Vec3(stand.x + 0.94, stand.y, stand.z + 0.5)
+  }
+  town.bot.setControlState = (k, v) => { if (k === 'forward' && v && nudges) town.bot.entity.position = new Vec3(stand.x + 0.5, stand.y, stand.z + 0.5) }
+  return { town, stand }
+}
+await t('#3 OFF-CENTRE on the stand and the nudge cannot centre it -> composter_unreachable BEFORE any placement', async () => {
+  const { town, stand } = offCentreTown({ nudges: false })
+  const r = await run('build_composter', town.bot)
+  assert.equal(r.failClass, 'composter_unreachable', r.detail)
+  assert.match(r.detail, new RegExp(`^walk to the composter's standing cell at ${stand.x},${stand.y},${stand.z}`))
+  assert.equal([...town.world.values()].filter(v => v === 'crafting_table').length, 0, 'a table was placed from off-centre')
+})
+await t('#3 OFF-CENTRE, and the nudge centres it -> built; the table is never in the bot\'s own cell', async () => {
+  const { town, stand } = offCentreTown({ nudges: true })
+  const r = await run('build_composter', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const table = [...town.world].find(([, n]) => n === 'crafting_table')?.[0]?.split(',').map(Number)
+  assert.ok(table); assert.ok(!(table[0] === stand.x && table[2] === stand.z))
+})
+
+await t('#4 a toss at a FULL bag (craft_unconfirmed / not_in_inventory, no free slot) is composter_no_room with its own shorter backoff', async () => {
+  const { composterCraftFailure } = await import('../src/skills.mjs')
+  const tossed = { failClass: 'craft_unconfirmed', reason: 'not_in_inventory', detail: 'crafting oak_planks did not reach the inventory: 0 of 4 made' }
+  assert.equal(composterCraftFailure('oak_planks', tossed, { free: 0 }).failClass, 'composter_no_room')
+  assert.equal(composterCraftFailure('oak_planks', tossed, { free: 3 }).failClass, 'composter_craft', 'with room it is not the bag')
+  assert.equal(composterCraftFailure('oak_planks', { ...tossed, reason: 'unverified' }, { free: 0 }).failClass, 'composter_craft', 'an unanswered resync is not a toss')
+  const NOW = 1e9
+  const noRoom = C.townOrderOutcome('build_composter', 'failed', NOW, {}, 'composter_no_room').buildBackoffUntil
+  const craft = C.townOrderOutcome('build_composter', 'failed', NOW, {}, 'composter_craft').buildBackoffUntil
+  assert.equal(noRoom, NOW + C.BUILD_NO_ROOM_BACKOFF_MS); assert.equal(craft, NOW + C.BUILD_BACKOFF_MS)
+  assert.ok(noRoom < craft)
+})
+
+await t('#1 pickupGoalOutside: logpickup\'s box goal, whose end is never the composter\'s own cell (or the cell above it)', async () => {
+  const { pickupGoalOutside } = await import('../src/skills.mjs')
+  const town = fakeTown({ hand: PICK, items: [S('leaf_litter', 64)] })
+  const c = town.site
+  const g = pickupGoalOutside(town.bot, new Vec3(c.x + 0.5, c.y + 0.125, c.z + 0.5), c)
+  assert.equal(g.isEnd(new Vec3(c.x, c.y, c.z)), false, 'the composter cell is an end')
+  assert.equal(g.isEnd(new Vec3(c.x, c.y + 1, c.z)), false, 'the top of the composter is an end')
+  assert.equal(g.isEnd(new Vec3(c.x + 1, c.y, c.z)), true, 'positive control: the cell beside it, inside the pickup box')
+  assert.equal(g.isEnd(new Vec3(c.x + 3, c.y, c.z)), false, 'outside the pickup box')
+})
+
+await t('#3 another body in the table\'s first-choice cell: the table goes elsewhere, never into it', async () => {
+  const items = [S('oak_log', 3), ...filler(10)]
+  const probe = fakeTown({ hand: PICK, composterAt: null, items })
+  const read = (x, y, z) => { const b = probe.bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null }
+  const stand = C.standableBeside(read, probe.site)
+  const first = C.tableCellFor({ site: probe.site, stand, read })
+  const town = fakeTown({ hand: PICK, composterAt: null, items, storeDir: process.env.POOL_STATE_DIR })
+  town.bot.entities[900] = { id: 900, name: 'player', type: 'player', width: 0.6, height: 1.8, position: new Vec3(first.x + 0.5, first.y, first.z + 0.5) }
+  const r = await run('build_composter', town.bot)
+  const table = [...town.world].find(([, n]) => n === 'crafting_table')?.[0]?.split(',').map(Number)
+  assert.ok(table, `no table: ${r.detail}`)
+  assert.notDeepEqual({ x: table[0], y: table[1], z: table[2] }, first, 'the table went into another player')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
