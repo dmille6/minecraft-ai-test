@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
-         canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, readSiteRecord, claimSite,
+         canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite,
          handPlan, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
 import path from 'node:path'
@@ -4079,6 +4079,7 @@ async function wearOut(ctx, _args, signal) {
 const HK_AWAIT_MS = Math.max(200, Math.min(3_000, Math.floor(config.skills.defaultTimeoutMs / 60)))
 const HK_PATH_MS = Math.max(500, Math.min(25_000, Math.floor(config.skills.defaultTimeoutMs / 7)))
 const HK_CRAFT_MS = Math.max(1_000, Math.min(60_000, Math.floor(config.skills.defaultTimeoutMs / 3)))
+/** The HARD bound on waiting for outstanding operations after a timeout or abort; past it the order is 'unsettled'. */
 const HK_SETTLE_MS = Math.max(500, Math.min(5_000, Math.floor(config.skills.defaultTimeoutMs / 36)))
 export const HOUSEKEEPING_BOUNDS = Object.freeze({ awaitMs: HK_AWAIT_MS, pathMs: HK_PATH_MS, craftMs: HK_CRAFT_MS, settleMs: HK_SETTLE_MS })
 
@@ -4093,7 +4094,7 @@ function hkGuards (bot, signal) {
     if (walk) haltPath(bot)
     try { if (bot.currentWindow) bot.closeWindow?.(bot.currentWindow) } catch { /* nothing open */ }
   }
-  const bound = (p, ms, what, { path: walk = false, abortable = true } = {}) => {
+  const bound = (p, ms, what, { path: walk = false, abortable = true, controller = null } = {}) => {
     const op = Promise.resolve(p)
     const done = op.then(() => {}, () => {})
     pending.add(done); done.then(() => pending.delete(done))
@@ -4105,21 +4106,25 @@ function hkGuards (bot, signal) {
         if (onAbort) { try { signal?.removeEventListener?.('abort', onAbort) } catch { /* plain-object signal */ } }
         fn(v)
       }
-      timer = setTimeout(() => { cancel(walk); finish(reject, Object.assign(new Error(`${what} exceeded ${ms}ms`), { budgetExceeded: true })) }, ms)
+      // `controller` is the operation's OWN signal (place() takes one): a timed-out operation is told to stop, not
+      // merely abandoned while it keeps the order's still-live signal.
+      const stop = () => { cancel(walk); try { controller?.abort() } catch { /* already aborted */ } }
+      timer = setTimeout(() => { stop(); finish(reject, Object.assign(new Error(`${what} exceeded ${ms}ms`), { budgetExceeded: true })) }, ms)
       if (abortable) {
-        if (signal?.aborted) { cancel(walk); finish(reject, new Aborted()); return }
-        onAbort = () => { cancel(walk); finish(reject, new Aborted()) }
+        if (signal?.aborted) { stop(); finish(reject, new Aborted()); return }
+        onAbort = () => { stop(); finish(reject, new Aborted()) }
         signal?.addEventListener?.('abort', onAbort, { once: true })
       }
       op.then(v => finish(resolve, v), e => finish(reject, e))
     })
   }
+  /** -> true when everything outstanding has finished, false when the hard bound ran out first. */
   const settle = () => new Promise(res => {
-    if (!pending.size) { res(); return }
-    const t = setTimeout(res, HK_SETTLE_MS)
-    Promise.all([...pending]).then(() => { clearTimeout(t); res() })
+    if (!pending.size) { res(true); return }
+    const t = setTimeout(() => res(false), HK_SETTLE_MS)
+    Promise.all([...pending]).then(() => { clearTimeout(t); res(true) })
   })
-  return { bound, restoreBound: (p, ms, what) => bound(p, ms, what, { abortable: false }), settle }
+  return { bound, restoreBound: (p, ms, what) => bound(p, ms, what, { abortable: false }), settle, outstanding: () => pending.size }
 }
 const handOf = it => (it ? { name: it.name, used: it.durabilityUsed ?? 0 } : null)
 const hotbarOf = bot => Array.from({ length: 9 }, (_, i) => handOf(bot.inventory?.slots?.[36 + i]))
@@ -4127,13 +4132,25 @@ async function applyHand (bot, plan, bound) {
   if (plan?.action === 'select') bot.setQuickBarSlot?.(plan.index)
   else if (plan?.action === 'equip') await bound(bot.equip(plan.item, 'hand'), HK_AWAIT_MS, 'equip')
 }
-/** Wait for everything outstanding, THEN put the hand back (bounded, not abortable: it runs after an abort too). */
-async function settleAndRestore (bot, was, g) {
-  try { await g.settle() } catch { /* bounded */ }
+/**
+ * Wait for everything outstanding, THEN put the hand back (bounded, not abortable: it runs after an abort too). The
+ * order keeps the body the whole time -- the skill has not returned. If the hard bound runs out with an operation
+ * still in flight, the hand is NOT restored: an equip that may still land would overwrite the restore, which is worse
+ * than leaving the hand as it is. That is logged as `_housekeeping_unsettled` and returned as false.
+ */
+async function settleAndRestore (bot, was, g, order = 'housekeeping') {
+  let settled = false
+  try { settled = await g.settle() } catch { settled = false }
+  if (!settled) {
+    logEvent({ kind: 'housekeeping_unsettled', status: 'failed', snapshot: snapshot(bot),
+               detail: `${order}: ${g.outstanding()} operation(s) still outstanding after ${HK_SETTLE_MS}ms; hand not restored (held ${bot.heldItem?.name ?? 'nothing'}, was ${was?.name ?? 'nothing'})` })
+    return false
+  }
   try {
     await applyHand(bot, handPlan({ was, held: handOf(bot.heldItem), hotbar: hotbarOf(bot), items: bot.inventory?.items?.() ?? [] }), g.restoreBound)
   } catch { /* best effort: equip swaps, so the item is in the bag either way */ }
   try { await g.settle() } catch { /* the restore's own equip */ }
+  return true
 }
 const homeVec = () => new Vec3(config.world.homeX, config.world.homeY, config.world.homeZ)
 const blockNameOf = (bot, b) => b?.name ?? bot.registry?.blocks?.[b?.type]?.name
@@ -4150,16 +4167,20 @@ export function townBuildPlan (bot) {
   return composterBuildPlan(Object.fromEntries(heldCounts(items)), { tableAvailable: townPlanTableAvailable(items) })
 }
 const readCell = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: blockNameOf(bot, b), boundingBox: b.boundingBox } : null }
-const siteFile = () => path.join(poolStateDir(config.memory.pool),
-  `composter-site-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.json`)
-/** The town's site: the shared record if any bot ever chose one, else this bot's canonical answer, claimed first-writer-wins. */
+/**
+ * The town's site, from the shared generation record (composter.mjs resolveTownSite): adopted if this bot's view accepts
+ * it, replaced compare-and-swap if this bot's view refuses it, deferred if anything is unknown or nothing can be shared.
+ * The record is per pool + home and carries the world id (bot.worldId, from the login packet), so a reseed starts over.
+ */
 export function townComposterSite (bot) {
-  const file = siteFile()
-  const stored = readSiteRecord(file)
-  if (stored) return { site: stored, why: null, stored: true }
-  const r = canonicalComposterSite({ home: homeVec(), read: readCell(bot) })
-  if (!r.site) return r
-  return { site: claimSite(file, r.site), why: null, stored: false }
+  const home = homeVec(), read = readCell(bot)
+  return resolveTownSite({
+    dir: poolStateDir(config.memory.pool),
+    key: `composter-site-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`,
+    world: bot.worldId ?? null,
+    compute: () => canonicalComposterSite({ home, read }),
+    refuse: site => siteRefusal(read, site, home),
+  })
 }
 
 async function compost(ctx, _args, signal) {
@@ -4243,7 +4264,7 @@ async function compost(ctx, _args, signal) {
       else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
     }
   } finally {
-    await settleAndRestore(bot, was, g)
+    await settleAndRestore(bot, was, g, 'compost')
   }
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
@@ -4276,10 +4297,9 @@ async function buildComposter (ctx, _args, signal) {
   // NEVER CRAFT INTO A FULL BAG: mineflayer drops crafted output that has no slot.
   if (free() < pre.slotsNeeded) return skip(`building needs ${pre.slotsNeeded} free slots for the craft chain and the bag has ${free()}; not started`)
   const home = homeVec(), read = readCell(bot)
+  // NO SITE IS A FREE SKIP: an unloaded cell, no valid cell, or no shared record -- never this bot's private answer.
   const { site, why } = townComposterSite(bot)
-  if (!site) return skip(`the town's composter site cannot be determined from here: ${why}`)
-  const early = siteRefusal(read, site, home)
-  if (early) return fail('composter_site', `the town's composter site ${site.x},${site.y},${site.z} is not usable (${early}); nothing was crafted`)
+  if (!site) return skip(`the town's composter site cannot be settled from here: ${why}`)
   const stand = standableBeside(read, site)
   const centre = new Vec3(site.x + 0.5, site.y + 0.5, site.z + 0.5)
   const was = handOf(bot.heldItem)
@@ -4291,6 +4311,16 @@ async function buildComposter (ctx, _args, signal) {
     try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
     return bot.entity.position.distanceTo(centre) <= STATION_REACH && !inSiteColumn(bot.entity)
+  }
+  // place() gets its OWN signal, aborted when the order's is or when the bound runs out, so a timed-out place stops at
+  // its next check instead of putting the block down after the order has given up on it.
+  const placeWithin = async args => {
+    const ac = new AbortController()
+    const relay = () => ac.abort()
+    try { signal?.addEventListener?.('abort', relay, { once: true }) } catch { /* plain-object signal */ }
+    try { return await g.bound(place(ctx, args, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } finally {
+      try { signal?.removeEventListener?.('abort', relay) } catch { /* plain-object signal */ }
+    }
   }
   const craftTimes = async (item, times, table) => {
     check(signal)
@@ -4318,7 +4348,7 @@ async function buildComposter (ctx, _args, signal) {
         const cell = tableCellFor({ site, stand: { x: feet.x, y: feet.y, z: feet.z }, read })
         if (!cell) return fail('composter_site', `nowhere within 2 of the composter site's standing cell to put a crafting table`)
         let put
-        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, signal), HK_CRAFT_MS, 'place') } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('composter_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
         table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
       }
@@ -4332,12 +4362,13 @@ async function buildComposter (ctx, _args, signal) {
     // is read again cell by cell.
     if (findTownComposter(bot)) return skip('another bot placed the town composter first; this one stays in the bag')
     const refusal = siteRefusal(read, site, home)
+    if (refusal === 'unknown') return skip(`a cell around the composter site at ${site.x},${site.y},${site.z} is not loaded; placing waits for another visit`)
     if (refusal) return fail('composter_site', `the composter site ${site.x},${site.y},${site.z} is no longer valid (${refusal}); the composter stays in the bag`)
     if (Object.values(bot.entities ?? {}).some(e => e !== bot.entity && e?.name !== 'item' && inSiteColumn(e))) {
       return skip(`something is standing on the composter site at ${site.x},${site.y},${site.z}; placing waits for another visit`)
     }
     let put
-    try { put = await g.bound(place(ctx, { item: 'composter', x: site.x, y: site.y, z: site.z }, signal), HK_CRAFT_MS, 'place') } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+    try { put = await placeWithin({ item: 'composter', x: site.x, y: site.y, z: site.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
     if (put?.status !== 'success') return fail('composter_place', `could not place the town composter at ${site.x},${site.y},${site.z}: ${String(put?.detail).slice(0, 120)}`)
     if (blockNameOf(bot, bot.blockAt(new Vec3(site.x, site.y, site.z))) !== 'composter') return fail('composter_place', `placed, but ${site.x},${site.y},${site.z} does not read composter`)
     logEvent({ kind: 'composter_built', status: 'success', snapshot: snapshot(bot),
@@ -4347,7 +4378,7 @@ async function buildComposter (ctx, _args, signal) {
     if (e?.hkStop) return fail(e.failClass, e.message)
     throw e
   } finally {
-    await settleAndRestore(bot, was, g)
+    await settleAndRestore(bot, was, g, 'build_composter')
   }
 }
 

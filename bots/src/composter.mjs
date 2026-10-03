@@ -237,6 +237,12 @@ export const HOME_CLEARANCE = 3
 /** Rings searched around home for the canonical site (kept inside ADOPT_RADIUS even on the diagonal). */
 export const CANONICAL_RADIUS = 11
 const COLUMN_UP = 8, COLUMN_DOWN = 8
+/**
+ * THE ONE DISTANCE: block coordinates, 3-D Euclidean from home -- exactly what mineflayer's findBlocks compares against
+ * maxDistance (cursor.distanceTo(point)). Site selection and composter discovery both use it, so a site that is chosen
+ * is a site that is found (11 rings and 8 blocks up would otherwise reach ~17.5 from home, past a 16-block search).
+ */
+export const townDistance = (home, p) => Math.hypot(p.x - home.x, p.y - Math.floor(home.y ?? p.y), p.z - home.z)
 /** Every block that is a container or feeds/pulls one. Matched by NAME over the whole clearance volume, uncapped. */
 export const CLEARANCE_CONTAINER = /^(chest|trapped_chest|ender_chest|barrel|hopper|dropper|dispenser|furnace|blast_furnace|smoker|brewing_stand|(\w+_)?shulker_box)$/
 const PLACEABLE_INTO = new Set(['air', 'cave_air', 'short_grass', 'fern', 'dead_bush'])
@@ -345,6 +351,7 @@ export function canonicalComposterSite ({ home, read } = {}) {
       if (PLACEABLE_INTO.has(cell.name) && floor.boundingBox === 'block') { surface = { x, y, z }; break }
     }
     if (!surface) continue
+    if (townDistance(home, surface) > ADOPT_RADIUS) continue
     const why = siteRefusal(read, surface, home)
     if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${surface.y},${z}` }
     if (!why) return { site: surface, why: null }
@@ -353,27 +360,50 @@ export function canonicalComposterSite ({ home, read } = {}) {
 }
 
 /**
- * ONE SITE PER TOWN, STICKY AND SHARED. The spiral's answer can change as obstructions come and go, so the first bot
- * to compute a site WRITES it to the pool state dir and every later bot adopts it, even if an earlier spiral cell has
- * since become valid. First writer wins atomically: the record is written to a private temp file and hard-linked into
- * place; link() fails with EEXIST if a record already exists, and then the existing record is read and adopted.
+ * ONE SITE PER TOWN, STICKY, SHARED -- AND REPLACEABLE WHEN IT GOES BAD.
+ *
+ * The spiral's answer moves as obstructions come and go, so the first bot to compute a site records it in the pool
+ * state dir and every later bot targets that cell even if an earlier spiral cell becomes valid. SHARING IS BY DISK: all
+ * bots of a pool run on one host today, so they share the pool state dir; a pool split across hosts would get one
+ * record per host, and only the "a composter within ADOPT_RADIUS of home wins" re-scan would join them.
+ *
+ * The record is a GENERATION: `<key>.g<N>.json`, the highest N is current. A generation is created with a temp file
+ * and link(), which fails if that generation exists, so for any N exactly one writer wins and the rest adopt it --
+ * compare-and-swap without a lock. A bot whose view REFUSES the current site (a sapling grew into a tree, a chest went
+ * in beside it, scaffold dirt) creates N+1 from its own canonical answer; a bot that loses that race adopts the winner.
+ * A record from ANOTHER WORLD (a reseed keeps pool and home) counts as absent. Nothing is ever deleted.
+ *
+ * FAILS CLOSED: if no record can be read or established (unwritable dir, no hard links), there is no site and the
+ * build waits -- a bot never builds on its private answer.
  */
-export function readSiteRecord (file) {
+const GEN = key => new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.g(\\d+)\\.json$`)
+const genFile = (dir, key, n) => path.join(dir, `${key}.g${n}.json`)
+const validSite = r => !!r && [r.x, r.y, r.z].every(Number.isInteger)
+/** Two world ids are the same world unless both are known and differ (an unknown id never invalidates a record). */
+export const sameWorld = (a, b) => !a || !b || String(a) === String(b)
+
+/** The current record -> { gen, site, world, malformed }. gen 0 = no record at all. */
+export function readTownSite (dir, key) {
+  let gen = 0
   try {
-    const r = JSON.parse(fs.readFileSync(file, 'utf8'))
-    return [r?.x, r?.y, r?.z].every(Number.isInteger) ? { x: r.x, y: r.y, z: r.z } : null
-  } catch { return null }
+    const re = GEN(key)
+    for (const f of fs.readdirSync(dir)) { const m = re.exec(f); if (m) gen = Math.max(gen, Number(m[1])) }
+  } catch { return { gen: 0, site: null, world: null, malformed: false } }
+  if (!gen) return { gen: 0, site: null, world: null, malformed: false }
+  try {
+    const r = JSON.parse(fs.readFileSync(genFile(dir, key, gen), 'utf8'))
+    if (!validSite(r)) return { gen, site: null, world: null, malformed: true }
+    return { gen, site: { x: r.x, y: r.y, z: r.z }, world: r.world ?? null, malformed: false }
+  } catch { return { gen, site: null, world: null, malformed: true } }
 }
-/**
- * THE ATOMIC STEP -> true if this call created the record, false if one already existed (or nothing could be written).
- * Two bots that both read "no record" both get here; link() lets exactly one of them win. rename() would not: it
- * replaces, so the second writer would silently move the town's site.
- */
-export function writeSiteFirst (file, site) {
+
+/** Create generation `gen` -> true if THIS call created it; false if it exists or nothing could be written. */
+export function createSiteGen (dir, key, gen, site, world = null) {
+  const file = genFile(dir, key, gen)
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
   try {
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(tmp, JSON.stringify({ x: site.x, y: site.y, z: site.z, at: new Date().toISOString() }))
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify({ x: site.x, y: site.y, z: site.z, world: world || null, at: new Date().toISOString() }))
     fs.linkSync(tmp, file)
     return true
   } catch {
@@ -382,11 +412,34 @@ export function writeSiteFirst (file, site) {
     try { fs.unlinkSync(tmp) } catch { /* never written */ }
   }
 }
-export function claimSite (file, site) {
-  const have = readSiteRecord(file)
-  if (have) return have
-  if (writeSiteFirst(file, site)) return { x: site.x, y: site.y, z: site.z }
-  return readSiteRecord(file) ?? site   // lost the race: adopt the winner; no store at all: this bot's own
+
+/**
+ * THE TOWN'S SITE -> { site, why, defer, replaced }.
+ *   compute  () -> { site, why }   this bot's canonical answer (only evaluated when a new generation is needed)
+ *   refuse   (site) -> reason|null  siteRefusal in this bot's view
+ * 'unknown' (an unloaded cell) is a deferral, never a reason to replace.
+ */
+export function resolveTownSite ({ dir, key, world = null, compute, refuse }) {
+  const cur = readTownSite(dir, key)
+  if (cur.site && sameWorld(cur.world, world)) {
+    const why = refuse(cur.site)
+    if (!why) return { site: cur.site, why: null, defer: false, replaced: null }
+    if (why === 'unknown') return { site: null, why: 'unknown cell around the town\'s composter site', defer: true, replaced: null }
+  }
+  const next = compute()
+  if (!next?.site) return { site: null, why: next?.why ?? 'no canonical site', defer: true, replaced: null }
+  if (createSiteGen(dir, key, cur.gen + 1, next.site, world)) return { site: next.site, why: null, defer: false, replaced: cur.site }
+  const won = readTownSite(dir, key)
+  if (won.gen > cur.gen && won.site && sameWorld(won.world, world)) return { site: won.site, why: null, defer: false, replaced: cur.site }
+  return { site: null, why: 'the shared site record could not be written or read', defer: true, replaced: null }
+}
+
+/** The world's identity from the login packet (SpawnInfo.hashedSeed, an i64): a reseed changes it. '' if absent. */
+export function worldIdFromLogin (packet) {
+  const h = packet?.worldState?.hashedSeed ?? packet?.hashedSeed
+  if (h === undefined || h === null) return ''
+  if (Array.isArray(h)) return h.map(String).join(':')
+  return String(h)
 }
 
 /** The plan may count on a table only if one is CARRIED: a placed one may be out of reach of the site. */
