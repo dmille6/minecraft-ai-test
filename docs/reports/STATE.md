@@ -63,6 +63,11 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   on open) -> 0/20, 0/10, 0/10; never hung; ~1.4 s per craft. Per-window stateId alone: 3/10 short. BUILDING
   craftsync-on-93b3892 (own canary; propose it NEXT after explore-toward — it is the pickaxe supply). Upstream: mineflayer
   #3906 (same symptom), #4103 (per-window stateId), #3974 (4.39.0). Artifacts: session scratchpad craftsync/.
+11d) **CRAFTSYNC SANDBOX through the real craft skill (10-03 ~10:00Z, c5c2dc5 vs 93b3892, RCON oracle):** window-0
+  verification answered 140/140. Candidate 38 OK / 0 lost / 0 over / 6 honest fails; CONTROL 16 OK / 13 LOST (reported
+  success, nothing made) / 7 OVER-CRAFTED (4 sticks -> 16; 8 planks -> 20 = all logs) / 4 false fails. Cost ~1.1-1.9 s
+  per craft. One regression (wooden_pickaxe from logs only: the table eats the pickaxe's planks once over-crafting is
+  gone) being fixed. This is likely the largest single pickaxe-supply fix available.
 11c) **CRAFTING STATUS 10-03 ~09:30Z:** craftroom APPROVED by both engines at **f0a677c** (verdict from server packets,
   reconcile + one retry after a denial, wear-out room remedy, table retake, `crafted` evidence contract). craftsync
   (lockstep + post-craft verification) in its third round. Both reviewers: keep craftroom's verdict/retry as the safety
