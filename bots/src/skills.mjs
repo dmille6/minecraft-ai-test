@@ -1361,30 +1361,39 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
     let sweep = null
     if (sweepMs >= 500 && pickup.verdict !== 'inventory_full') {   // a full bag cannot take a sapling either
       const t = Date.now(), pursued = []
-      await pickupNearbyItems(bot, signal, SWEEP_RADIUS, {
-        exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs, pursued,
-        accept: e => sweepWants(e, { items: bot.inventory?.items?.() ?? [], emptySlots: bot.inventory?.emptySlotCount?.() }),
-      })
-      const sum = pred => pursued.filter(r => pred(r.name)).reduce((n, r) => n + r.got, 0)
-      sweep = { saplings: sum(n => SAPLING_SET.has(n)), apples: sum(n => n === 'apple'), pursued: pursued.length,
-                ms: Date.now() - t }
-      logEvent({ kind: 'pickup_sweep', status: 'success',
-                 detail: `after ${wasNamed}: saplings +${sweep.saplings} apples +${sweep.apples} ` +
-                         `(${sweep.pursued} pursued) ms=${sweep.ms}`,
-                 args: { block: wasNamed, ...sweep } })
+      // CREDIT ONLY WHAT THIS BOT COLLECTED OF WHAT IT PURSUED: playerCollect for that entity id, collector = us --
+      // the event pickuplog.mjs already reads (mineflayer emits it with the entity and its metadata still present).
+      const onCollect = (collector, collected) => {
+        try {
+          const me = bot.entity
+          if (!collector || !me || (collector !== me && collector.id !== me.id)) return
+          const rec = pursued.find(r => r.id === collected?.id)
+          if (rec) { rec.got += collected.getDroppedItem?.()?.count ?? 1; rec.outcome = 'collected' }
+        } catch { /* telemetry */ }
+      }
+      bot.on?.('playerCollect', onCollect)
+      try {
+        await pickupNearbyItems(bot, signal, SWEEP_RADIUS, {
+          exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs, pursued,
+          accept: e => sweepWants(e, { items: bot.inventory?.items?.() ?? [], emptySlots: bot.inventory?.emptySlotCount?.() }),
+        })
+      } finally {
+        bot.off?.('playerCollect', onCollect)
+        for (const r of pursued) if (r.outcome === 'walked') r.outcome = 'left'; else if (r.outcome === 'pending') r.outcome = 'aborted'
+        const sum = pred => pursued.filter(r => pred(r.name)).reduce((n, r) => n + r.got, 0)
+        sweep = { attempts: pursued.length, collected: pursued.filter(r => r.outcome === 'collected').length,
+                  saplings: sum(n => SAPLING_SET.has(n)), apples: sum(n => n === 'apple'),
+                  outcomes: pursued.map(r => r.outcome), ms: Date.now() - t }
+        logEvent({ kind: 'pickup_sweep', status: 'success',
+                   detail: `after ${wasNamed}: saplings +${sweep.saplings} apples +${sweep.apples} ` +
+                           `(${sweep.collected}/${sweep.attempts} attempts collected: ${sweep.outcomes.join(',') || 'none'}) ms=${sweep.ms}`,
+                   args: { block: wasNamed, ...sweep, outcomes: sweep.outcomes.join(',') } })
+      }
     }
     return { broke: true, pickup, sweep }
   }
   await pickupNearbyItems(bot, signal)
   return { broke: true, pickup: null }
-}
-
-/** How many of `name` the bag holds (all stacks). */
-function heldItemCount (bot, name) {
-  if (!name) return 0
-  let n = 0
-  try { for (const it of bot.inventory?.items?.() ?? []) if (it.name === name) n += it.count } catch { /* none */ }
-  return n
 }
 
 /** Logs: the blocks whose pickup is a transaction. */
@@ -1555,13 +1564,16 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
     // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
     const releaseSought = noteSought(bot, drop.id, 'pickup')
     const walkT0 = Date.now()
-    // WHAT THIS SWEEP PURSUED, for a caller that counts its own intake (pursued: an array it owns). Passive pickups
-    // during the window are not this sweep's (sandbox, 720d079): only a drop it walked to, that is gone, and whose
-    // item rose in the bag, bounded by that drop's own stack.
-    let pName = null, pCount = 1, pBefore = 0
+    // WHAT THIS SWEEP PURSUED, for a caller that counts its own intake (pursued: an array it owns). Recorded BEFORE
+    // the walk, so a failed or aborted walk is still an attempt; the outcome is set on every exit below. Whether the
+    // sweep COLLECTED it is not decided here at all -- the caller credits it only from playerCollect for this id
+    // with this bot as the collector (Codex, final pass: disappearance + bag growth credited another player's take).
+    let rec = null
     if (pursued) {
-      try { const it = drop.getDroppedItem?.(); pName = it?.name ?? null; pCount = it?.count ?? 1 } catch { /* unnamed */ }
-      pBefore = heldItemCount(bot, pName)
+      let name = null
+      try { name = drop.getDroppedItem?.()?.name ?? null } catch { /* unnamed */ }
+      rec = { id: drop.id, name, outcome: 'pending', got: 0 }
+      pursued.push(rec)
     }
     try {
       await abortable(withTimeout(bot.pathfinder.goto(
@@ -1569,6 +1581,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
       signal, () => haltPath(bot))
     } catch (e) {
       releaseSought()
+      if (rec) rec.outcome = e.aborted || signal?.aborted ? 'aborted' : 'failed'
       if (e.aborted || signal?.aborted) throw e
       // The walk failed. That is a fact about THIS drop, so retire it and let
       // the next iteration pick the next-nearest -- the old code returned here
@@ -1590,11 +1603,8 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
                          `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
-    try { await sleep(Math.max(0, Math.min(250, sweepEnd - Date.now())), signal) } finally { releaseSought() }
-    if (pursued && pName) {
-      const d = heldItemCount(bot, pName) - pBefore
-      pursued.push({ name: pName, got: !bot.entities?.[drop.id] && d > 0 ? Math.min(d, pCount) : 0 })
-    }
+    if (rec) rec.outcome = 'walked'
+    try { await sleep(Math.max(0, Math.min(250, sweepEnd - Date.now())), signal) } catch (e) { if (rec) rec.outcome = 'aborted'; throw e } finally { releaseSought() }
     // ONE WALK PER DROP PER SWEEP, whatever happened.
     //
     // The first draft retired a drop only when the bot ended up >= 2 blocks

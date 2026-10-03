@@ -231,9 +231,10 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
     return bot.entities[id]
   }
   bot.give = (n, c = 1) => inv.set(n, (inv.get(n) ?? 0) + c)
+  bot.takeByOther = e => { bot.emit('playerCollect', { id: 999 }, e); delete bot.entities[e.id] }
   Object.assign(bot, {
     seen,
-    entity: { position: new Vec3(...feet), onGround: true, velocity: new Vec3(0, 0, 0) },
+    entity: { id: 1, position: new Vec3(...feet), onGround: true, velocity: new Vec3(0, 0, 0) },
     entities: {},
     heldItem,
     registry: {
@@ -341,9 +342,10 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
                                                    ...(noOnGround ? {} : { onGround }) })
       }
       const age = now - e.born
-      if (thief && age >= 300) { delete bot.entities[e.id]; continue }      // another player took it
+      if (thief && age >= 300) { bot.takeByOther(e); continue }            // another player took it
       if (age >= 500 && touches(bot.entity.position, e.truePos) &&
           (emptySlots > 0 || ((inv.get(e.n) ?? 0) > 0 && inv.get(e.n) < 64))) {
+        bot.emit('playerCollect', bot.entity, e)        // mineflayer: emitted with the entity still present
         delete bot.entities[e.id]; inv.set(e.n, (inv.get(e.n) ?? 0) + e.count)
       }
     }
@@ -729,6 +731,37 @@ await ta('SWEEP COUNT: only what the sweep pursued -- a passive sapling during i
   assert.equal(bot.held('apple'), 1)
   assert.equal(r.sweep?.apples, 1, `sweep row: ${JSON.stringify(r.sweep)}`)
   assert.equal(r.sweep?.saplings, 0, 'a passive pickup was counted as the sweep\'s')
+})
+
+await ta('SWEEP ATTRIBUTION: the pursued apple taken by ANOTHER player while a different apple enters the bag -> not counted', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, items: [{ name: 'apple', at: [-2.5, 64, 0.5] }],
+                      onGoto: (g, b) => {
+                        if (g.constructor.name !== 'GoalNear') return
+                        const pursued = Object.values(b.entities).find(e => e.n === 'apple')
+                        if (pursued) b.takeByOther(pursued)           // someone else collects THAT entity
+                        b.give('apple', 1)                            // and a different apple reaches our bag
+                      } })
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(bot.held('apple'), 1, 'control: an apple did enter the bag')
+  assert.equal(r.sweep?.attempts, 1, `sweep: ${JSON.stringify(r.sweep)}`)
+  assert.equal(r.sweep?.apples, 0, 'credited the sweep with an apple another player collected')
+  assert.deepEqual(r.sweep?.outcomes, ['left'])
+})
+
+await ta('SWEEP ATTEMPTS: a failed walk is recorded as an attempt with outcome failed', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, items: [{ name: 'apple', at: [-2.5, 64, 0.5] }],
+                      walkable: n => n.y === 64 && n.x >= 0 })            // the apple's side is not walkable
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(r.sweep?.attempts, 1, `sweep: ${JSON.stringify(r.sweep)}`)
+  assert.deepEqual(r.sweep?.outcomes, ['failed'])
+  assert.equal(r.sweep?.apples, 0)
+})
+
+await ta('control: SWEEP ATTRIBUTION credits a pursued apple the bot itself collected', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, items: [{ name: 'apple', at: [-2.5, 64, 0.5] }] })
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(r.sweep?.apples, 1, `sweep: ${JSON.stringify(r.sweep)}`)
+  assert.deepEqual(r.sweep?.outcomes, ['collected'])
 })
 
 // ============================================================ wired: gather ===
