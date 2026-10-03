@@ -51,7 +51,12 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   classed no_path (an action-level learned-avoid vote); 1,866 log drops left behind vs 2,584 logs gained in 3 h; the
   pickup walk's GoalNear(drop,1) times out when the drop rests on leaves (27% of left drops 2.3+ above the feet).
   BUILDING (branch logpickup-on-93b3892): pickup-box goal, break the supporting leaves, finish on inventory gain,
-  fail class pickup_failed (no avoid vote). Slot: right after craftroom. 10) EXPLORE BLIND-STEP HEADING BUG (pre-existing,
+  fail class pickup_failed (no avoid vote). Slot: right after craftroom. 11) **TABLE CRAFTS REJECTED BY PAPER (sandbox 10-03 ~06:00Z, RCON-verified, BOTH builds):** 5 of 12 crafts at a
+  crafting table were rejected by the server (no result, ingredients back in the bag) — mostly the first craft after a
+  table is placed — while the fleet's code reports success with a pickaxe that exists only locally. 2x2 grid crafts were
+  not rejected. Likely a large share of the fleet's 44% "crafted, nothing changed". Suspect: mineflayer stateId / clicking
+  before the crafting window's initial window_items. Both engines diagnosing (root cause + smallest fix in our code).
+  Also from that run: wear_out's waitForTicks(2) check misses breaks (same code on the fleet). 10) EXPLORE BLIND-STEP HEADING BUG (pre-existing,
   confirmed by the Claude reviewer 10-03): explore's fallback step calls bot.look(ang) with a math angle, so the body walks a
   MIRRORED heading (ang=0 east walks north). Not a lava risk (stepLineSafe checks the walked line). Fix
   look(Math.atan2(-Math.cos(a), -Math.sin(a)), 0) as its OWN canary (changes explore fleet-wide). 7) **BONE-MEAL TREES AT TOWN** after the composter (renewable wood where the bots live). 5) **SHADOW MAYOR** (OWNER 10-03 ~02:30Z; plan docs/reports/shadow-mayor-plan-2026-10-03.md,
