@@ -116,12 +116,14 @@ UTC) select which proposals and base windows are scored; an unparseable bound is
 world-scope GET_WOOD shortage (before 9cad2ad) is UNKNOWN per bot, never true for every bot.
 
 **GET_WOOD biases, corrected.**
-- **The read rule is the GATE RATIO** (GET_WOOD and GET_IRON): the deterministic mayor's `xbase` divided by the
-  LEASED-random baseline's `xbase` in the same partition. Both went through the same lease/cooldown logic, so lease
-  timing cancels (and so does the base rate). It prints with both raw `xbase` values and a sensitivity band (below).
-  FREE_BAG and RESTORE_PICK get no gate ratio: they have no target and are worked from the bot's own bag (a disposal
-  method, or ingredients already held), and their only candidate is the short bot itself, so there is no choice of
-  bot or place for an overseer to make better than random -- their rows are unchanged.
+- **The read rule is the GATE RATIO**, for every duty: the deterministic mayor's `xbase` divided by the LEASED-random
+  baseline's `xbase` in the same partition, both over the SAME period (proposals before the random run's warm-up
+  deadline are dropped from both sides). Both went through the same lease/cooldown logic, so lease timing cancels
+  (and so does the base rate). The raw `xbase` values print beside it. **Raw `xbase` is not a read**: a bot that keeps
+  failing is re-proposed about every 25 min (lease + cooldown) while the base rate samples it every 5, so raw
+  `xbase` leans KEEP for any leased engine. **FREE_BAG and RESTORE_PICK come out ~1.0 by construction** -- their only
+  candidate is the short bot itself, so the mayor and the leased random baseline make the same proposals: no
+  selection value. That 1.0 is the honest answer, and it is tested (`test_review7`).
 - **Baseline initialization.** A leased baseline CARRIES its own state (never the mayor's) across an epoch
   transition only where `core.decide()` semantics are identical: the same code revision AND the same
   `DECIDE_CFG` values (`cap_per_world`, `cap_per_duty`, `lease_s`, `cooldown_s`, `full_slots` -- the only keys decide
@@ -129,9 +131,13 @@ world-scope GET_WOOD shortage (before 9cad2ad) is UNKNOWN per bot, never true fo
   of the data, any code change (including the GET_WOOD decision epoch), any change to those keys -- it RESETS,
   because "compatible" there would be invented. A reset is not cured by the warm-up (a reset baseline and a carried
   one can stay out of phase indefinitely), so the gate ratio carries a **sensitivity band**: the leased random
-  baseline rerun from start offsets 0/5/10/15/20/25 min after every reset (each excluding its own warm-up), min..max
-  of the gate ratio, `undefined` for offsets whose random `xbase` is 0 or missing. The comparison is flagged
-  **INITIALIZATION-DEPENDENT** when the band straddles the 1.5x gate; otherwise PASSES or FAILS on the whole band.
+  baseline rerun from start offsets 0/5/10/15/20/25 min after every reset (each excluding its own warm-up; offset 0
+  is the headline), min..max of the gate ratio over the defined offsets and the `undefined` count (random `xbase` 0
+  or missing, or no mayor proposal in that offset's period). The flag: **INCOMPLETE** if ANY offset is undefined
+  (the partial band still prints); else **INITIALIZATION-DEPENDENT** when the band straddles the 1.5x gate; else
+  PASSES (every offset at or above it) or FAILS. Across a compatible transition each leased run keeps its own lease
+  state AND its absolute start time AND its absolute warm-up deadline, so a pending band start or an unfinished
+  warm-up is never dropped.
 - `xrand` is a **diagnostic, never a gate input**. It counts only STATELESS-CONTESTED proposals (`stcon`): any
   competition inside the snapshot -- duty cap, world cap, a bot feasible for two duties, or two candidates sharing
   a target. Without one, every order assigns the same candidates and targets (property-tested against
@@ -179,7 +185,7 @@ only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (110 tests, ~75 s). `test_mutants.py` applies each of 112
+`python3 -m unittest discover -s scripts/mayor/tests -v` (113 tests, ~80 s). `test_mutants.py` applies each of 117
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
 red (a missing or non-unique anchor raises). **No mutant runs until the unmutated suite is proven green**:
 `run_mutants` (used by both the unittest and `--report`) aborts with `BaselineRed` -- `--report` prints ABORT and

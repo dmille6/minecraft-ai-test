@@ -28,12 +28,14 @@ Per proposal (held leases are not re-scored; a frontier proposal is scored every
               the snapshot -- see contested()) after the warm-up. Differences that come from lease HISTORY
               (who is held, who cools down) are excluded from it by construction. Deterministic vs the
               leased baselines; frontier engines vs the stateless ones (`*-stateless`).
-  GATE RATIO  THE READ RULE, GET_WOOD and GET_IRON: deterministic x base / LEASED-random x base in the same
-              partition (both through the same lease logic, so lease timing cancels), with both raw x base
-              values and a SENSITIVITY BAND: the leased random baseline rerun from start offsets 0/5/10/15/20/25
-              min after every reset, min..max of the gate ratio, flagged 'initialization-dependent' when the
-              band straddles 1.5x. A baseline CARRIES its own state across a transition only when decide()
-              semantics are identical there (same code rev, same DECIDE_CFG); every other epoch start resets.
+  GATE RATIO  THE READ RULE, EVERY duty: deterministic x base / LEASED-random x base in the same partition
+              over the SAME period (both lose the random run's warm-up), so lease timing cancels; raw x base
+              values printed beside it. FREE_BAG / RESTORE_PICK come out ~1.0 by construction (one candidate
+              per short bot: no selection value). SENSITIVITY BAND: the leased random baseline rerun from start
+              offsets 0/5/10/15/20/25 min after every reset (offset 0 is the headline), min..max; INCOMPLETE if
+              any offset is undefined, else 'initialization-dependent' when it straddles 1.5x, else PASSES /
+              FAILS. A leased run CARRIES its own state, absolute start and absolute warm-up deadline across a
+              transition only when decide() semantics are identical (same code rev, same DECIDE_CFG).
   x base      CONCORDANCE / the base rate of ELIGIBLE short bots: the same outcome, window and observation
               rule on both sides (a base bot has no target, so target-conditioned downstream is not used).
   logs30      GET_WOOD only, its own label: logs gained >= 1 in 30 min (the outcome is shortage RELIEF).
@@ -305,7 +307,10 @@ def nearest_order(snap):
 # other key leaves decide's output identical; perturbing one of these changes it.
 DECIDE_CFG = ('cap_per_world', 'cap_per_duty', 'lease_s', 'cooldown_s', 'full_slots')
 BAND_OFFSETS_MIN = (0, 5, 10, 15, 20, 25)     # leased-baseline start offsets after a reset (sensitivity band)
-GATE_DUTIES = ('GET_WOOD', 'GET_IRON')
+# ALL four duties: FREE_BAG / RESTORE_PICK's raw x base leans KEEP (a failing bot is re-proposed about every
+# 25 min while the base samples it every 5), and only the lease-matched ratio cancels that; with one candidate
+# per short bot their ratio is ~1.0 by construction -- no selection value, which is the honest answer.
+GATE_DUTIES = core.DUTIES
 GATE_THRESHOLD = 1.5
 
 
@@ -362,10 +367,14 @@ def gate_ratio(det_xbase, random_xbase):
     return det_xbase / random_xbase if det_xbase is not None and random_xbase else None
 
 
-def band_flag(lo, hi, threshold=GATE_THRESHOLD):
-    """'initialization-dependent' when the band of gate ratios over baseline start offsets straddles the gate."""
-    if lo is None or hi is None:
-        return 'undefined'
+def band_flag(values, threshold=GATE_THRESHOLD):
+    """INCOMPLETE if ANY offset is undefined -- including offset 0, which IS the headline gate ratio -- (the
+    partial band and the undefined count are still printed); else 'initialization-dependent' when the band
+    straddles the gate, 'passes' only when every offset is at or above it, 'fails' when every one is below."""
+    got = [v for v in values if v is not None]
+    if not got or len(got) < len(values):
+        return 'incomplete'
+    lo, hi = min(got), max(got)
     return 'initialization-dependent' if lo < threshold <= hi else ('passes' if lo >= threshold else 'fails')
 
 
@@ -438,7 +447,7 @@ def epochs(ws):
 
 
 def score_world(ws, records, rejected, tel, tel_end, cfg, interval_ms, res, gaps, epoch_end=None,
-                scored=lambda s: True, warm_until=None):
+                scored=lambda s: True, warm_until=None, warm_all=False):
     """Add ONE EPOCH's proposals into `res` {engine: {duty: metrics}} and `gaps`. `ws` is the whole epoch (every
     lookup -- next snapshot, +30/+60, eligibility through -- stays inside it); `scored(s)` picks the snapshots
     whose proposals count (--since/--until). `epoch_end` (None for the last epoch) is the epoch's LAST snapshot:
@@ -468,7 +477,7 @@ def score_world(ws, records, rejected, tel, tel_end, cfg, interval_ms, res, gaps
             bot = next(b for b in s['bots'] if b['id'] == c['bot'])
             m = res.setdefault(eng, {}).setdefault(duty, dict.fromkeys(METRICS, 0))
             warm = warm_until is not None and t < warm_until
-            if warm and eng in LEASED_BASELINES:
+            if warm and (warm_all or eng in LEASED_BASELINES):
                 m['warmup_excluded'] += 1        # its empty start state forced this proposal: unmatched
                 continue
             m['n'] += 1
@@ -689,7 +698,10 @@ def main(argv=None):
         tels = {}                                 # telemetry COMPACTED WITH EACH EPOCH'S OWN cfg
         runs = epochs(hist)
         scored = (lambda s: in_window(s, since, until))
-        carry, prev_compat = {}, None             # each leased baseline's OWN state, by name (+ band offset)
+        # each leased run (random, nearest, random@offset) carries its OWN {state, start, warm}: the lease state,
+        # the ABSOLUTE time it started replaying and the ABSOLUTE end of its warm-up -- all three survive a
+        # compatible transition, so a pending band start or an unfinished warm-up is never dropped
+        carry, prev_compat = {}, None
         for idx, (key, ep) in enumerate(runs):
             cfg_e = ep[0]['_cfg']
             compat = decide_compat(ep[0])
@@ -699,15 +711,20 @@ def main(argv=None):
                 carry = {}
             ep0 = ep[0]['t_ms']
             warm_ms = (cfg_e['lease_s'] + cfg_e['cooldown_s']) * 1000
+            def run_of(nm, start_ms):
+                if nm not in carry:               # a reset: this run starts at start_ms with an empty state
+                    carry[nm] = {'state': None, 'start': start_ms, 'warm': start_ms + warm_ms}
+                return carry[nm]
             # replay EVERY epoch (selected or not) so carried state is never skipped
             leased = {}
             for name, order_of in (('random', random_order), ('nearest', nearest_order)):
-                leased[name], carry[name] = leased_run(ep, cfg_e, order_of, carry.get(name))
-            band_props = {}
+                r = run_of(name, ep0)
+                leased[name], r['state'] = leased_run(ep, cfg_e, order_of, r['state'], r['start'])
+            band_props, band_warm = {}, {}
             for o in BAND_OFFSETS_MIN:
-                nm = 'random@%d' % o
-                band_props[o], carry[nm] = leased_run(ep, cfg_e, random_order, carry.get(nm),
-                                                      None if carried else ep0 + o * MIN)
+                r = run_of('random@%d' % o, ep0 + o * MIN)
+                band_props[o], r['state'] = leased_run(ep, cfg_e, random_order, r['state'], r['start'])
+                band_warm[o] = r['warm']
             mine = [s for s in ep if scored(s)]
             if not mine:
                 continue
@@ -718,7 +735,7 @@ def main(argv=None):
                 n_rows += n
             tel, tel_end = tels[tag]
             epoch_end = ep[-1]['t_ms'] if idx < len(runs) - 1 else None
-            warm_until = None if carried else ep0 + warm_ms
+            warm_until = carry['random']['warm']
             R = revs.setdefault(key, new_part(ep, cfg_e, tag))
             a, b = mine[0]['t_ms'], mine[-1]['t_ms']
             R['t_lo'], R['t_hi'] = min(R['t_lo'] or a, a), max(R['t_hi'] or b, b)
@@ -733,10 +750,12 @@ def main(argv=None):
             score_world(ep, recs, rejected.get(world, {}), tel, tel_end, cfg_e, interval_ms, R['res'], R['gaps'],
                         epoch_end=epoch_end, scored=scored, warm_until=warm_until)
             base_rates(ep, tel, tel_end, cfg_e, R['base'], R['base_elig'], epoch_end=epoch_end, scored=scored)
-            for o in BAND_OFFSETS_MIN:            # the same random baseline started o minutes after each reset
-                score_world(ep, {'random': band_props[o]}, {}, tel, tel_end, cfg_e, interval_ms, R['band'][o], {},
-                            epoch_end=epoch_end, scored=scored,
-                            warm_until=None if carried else ep0 + o * MIN + warm_ms)
+            det_recs = records.get(world, {}).get('deterministic', [])
+            for o in BAND_OFFSETS_MIN:            # the same random baseline started o minutes after each reset,
+                # and the mayor over the SAME period (both lose the run's warm-up): the gate is period-matched
+                score_world(ep, {'random': band_props[o], 'deterministic': det_recs}, {}, tel, tel_end, cfg_e,
+                            interval_ms, R['band'][o], {}, epoch_end=epoch_end, scored=scored,
+                            warm_until=band_warm[o], warm_all=True)
             # POSITIVE CONTROLS FOR THIS PARTITION, with ITS cfg: detector events in the scored span (+30 min
             # outcome horizon, never past the epoch), and coverage of its snapshot times with its stale_s
             horizon = min(tel_end, epoch_end) if epoch_end is not None else tel_end
@@ -755,17 +774,23 @@ def main(argv=None):
                 m['x_base_elig'] = x_base(m, R['base_elig'].get(d, (0, 0)))
         R['gate'] = {}
         for d in GATE_DUTIES:
-            dm = R['res'].get('deterministic', {}).get(d)
-            dx = dm['x_base_elig'] if dm else None
-            rx = R['res'].get('random', {}).get(d, {}).get('x_base_elig')
-            vals = [gate_ratio(dx, x_base(R['band'][o].get('random', {}).get(d), R['base_elig'][d]))
-                    for o in BAND_OFFSETS_MIN]
+            per = []                              # (det x base, random x base) over each offset's matched period
+            for o in BAND_OFFSETS_MIN:
+                dx = x_base(R['band'][o].get('deterministic', {}).get(d), R['base_elig'][d])
+                rx = x_base(R['band'][o].get('random', {}).get(d), R['base_elig'][d])
+                per.append((dx, rx))
+            vals = [gate_ratio(dx, rx) for dx, rx in per]
             got = [v for v in vals if v is not None]
             lo, hi = (min(got), max(got)) if got else (None, None)
-            R['gate'][d] = {'gate_ratio': gate_ratio(dx, rx), 'det_xbase': dx, 'random_xbase': rx,
+            raw = lambda e: (R['res'].get(e, {}).get(d) or {}).get('x_base_elig')
+            bm = [R['band'][o].get('random', {}).get(d) or {} for o in BAND_OFFSETS_MIN]
+            R['gate'][d] = {'gate_ratio': vals[0], 'det_xbase': per[0][0], 'random_xbase': per[0][1],
+                            'raw_det_xbase': raw('deterministic'), 'raw_random_xbase': raw('random'),
                             'band': {'offsets_min': list(BAND_OFFSETS_MIN), 'values': vals, 'min': lo, 'max': hi,
-                                     'undefined': len(vals) - len(got)},
-                            'flag': band_flag(lo, hi), 'threshold': GATE_THRESHOLD,
+                                     'undefined': len(vals) - len(got),
+                                     'random_n': [m.get('n', 0) for m in bm],
+                                     'random_warmup_excluded': [m.get('warmup_excluded', 0) for m in bm]},
+                            'flag': band_flag(vals), 'threshold': GATE_THRESHOLD,
                             'reset_epochs': R['epochs'] - R['carried_epochs']}
 
     # ---- POSITIVE CONTROLS FIRST: global, then per partition (with each partition's own cfg)
@@ -803,9 +828,10 @@ def main(argv=None):
         for d in GATE_DUTIES:
             g = R['gate'][d]
             f = lambda v: '   -  ' if v is None else '%6.2f' % v
-            print('  %-10s gate %s   (raw xbase: deterministic %s, leased random %s)   band over random start offsets '
-                  '%s min: %s .. %s (%d undefined) -> %s' % (
-                      d, f(g['gate_ratio']), f(g['det_xbase']), f(g['random_xbase']),
+            print('  %-12s gate %s   (matched-period xbase: deterministic %s, leased random %s; raw xbase %s, %s)   '
+                  'band over random start offsets %s min: %s .. %s (%d undefined) -> %s' % (
+                      d, f(g['gate_ratio']), f(g['det_xbase']), f(g['random_xbase']), f(g['raw_det_xbase']),
+                      f(g['raw_random_xbase']),
                       '/'.join(map(str, BAND_OFFSETS_MIN)), f(g['band']['min']), f(g['band']['max']),
                       g['band']['undefined'], g['flag'].upper()))
         print('\n%-26s %-12s %4s %4s %7s %7s %7s %7s %5s %7s %5s %6s %6s %8s %8s %4s' % (

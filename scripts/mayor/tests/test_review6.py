@@ -42,7 +42,7 @@ class GateRatio(unittest.TestCase):
             timeline(d, ONE_GATHERS_AT_40, LOG1, record_ks=(30,))
             rc, r, text = score(d)
             g = r['gate']['GET_WOOD']
-            self.assertEqual(sorted(r['gate']), ['GET_IRON', 'GET_WOOD'], 'FREE_BAG / RESTORE_PICK have no gate ratio')
+            self.assertEqual(sorted(r['gate']), sorted(core.DUTIES), 'every duty has a gate ratio (round 4)')
             eng = r['engines']
             self.assertEqual((eng['deterministic']['GET_WOOD']['concord'], eng['deterministic']['GET_WOOD']['concord_n']), (1, 1))
             self.assertEqual((eng['random']['GET_WOOD']['concord'], eng['random']['GET_WOOD']['concord_n']), (1, 2))
@@ -52,7 +52,8 @@ class GateRatio(unittest.TestCase):
             self.assertNotEqual(eng['deterministic']['GET_WOOD']['x_random'], g['gate_ratio'],
                                 'precondition: x random differs, so a gate reading it would show')
             self.assertIn('GATE RATIO (the read rule)', text)
-            self.assertIn('raw xbase: deterministic', text)
+            self.assertIn('matched-period xbase: deterministic', text)
+            self.assertIn('raw xbase', text)
         finally:
             shutil.rmtree(d)
 
@@ -137,26 +138,26 @@ class ResetBias(unittest.TestCase):
 
     def test_sensitivity_band_over_start_offsets(self):
         d = tempfile.mkdtemp()
-        try:   # random from offset o after the reset: o=0 -> 25 (1), 50 (0); 5 -> 30, 55; 10 -> 35, 60: all 1/2 -> 2.0;
-            # 15 -> 40 (0); 20 -> 45 (0); 25 -> 50 (0): random x base 0 -> the gate is undefined there
+        try:   # random from offset o after the reset: o=0 -> 25 (1), 50 (0); 5 -> 30 (1), 55 (0): 1/2 -> gate 2.0 with
+            # the mayor's +30 proposal inside the matched period. From o=10 the period starts at 35 and holds no
+            # mayor proposal (and random's x base is 0 from o=15): undefined
             timeline(d, ONE_GATHERS_AT_40, LOG1, record_ks=(30,))
             _, r, text = score(d)
             band = r['gate']['GET_WOOD']['band']
             self.assertEqual(band['offsets_min'], [0, 5, 10, 15, 20, 25])
-            self.assertEqual([None if v is None else round(v, 6) for v in band['values']], [2.0, 2.0, 2.0, None, None, None])
-            self.assertEqual((band['min'], band['max'], band['undefined']), (2.0, 2.0, 3))
+            self.assertEqual([None if v is None else round(v, 6) for v in band['values']], [2.0, 2.0, None, None, None, None])
+            self.assertEqual((band['min'], band['max'], band['undefined']), (2.0, 2.0, 4))
             self.assertEqual(band['values'][0], r['gate']['GET_WOOD']['gate_ratio'], 'offset 0 IS the headline run')
-            self.assertEqual(r['gate']['GET_WOOD']['flag'], 'passes')
+            self.assertEqual(r['gate']['GET_WOOD']['flag'], 'incomplete', 'undefined offsets: never PASSES (round 4)')
             self.assertIn('band over random start offsets', text)
         finally:
             shutil.rmtree(d)
 
     def test_band_flag(self):
         f = mayor_score.band_flag
-        self.assertEqual(f(1.2, 1.8), 'initialization-dependent')
-        self.assertEqual(f(1.5, 1.8), 'passes')
-        self.assertEqual(f(1.0, 1.49), 'fails')
-        self.assertEqual(f(None, None), 'undefined')
+        self.assertEqual(f([1.2, 1.8]), 'initialization-dependent')
+        self.assertEqual(f([1.5, 1.8]), 'passes')
+        self.assertEqual(f([1.0, 1.49]), 'fails')
 
 
 class StatelessContestedLabel(unittest.TestCase):
