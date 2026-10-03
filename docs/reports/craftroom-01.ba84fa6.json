@@ -1,0 +1,116 @@
+{
+  "run_id": "craftroom-01",
+  "sha": "ffa0f57",
+  "registered_at": "2026-10-04T00:00:00Z",
+  "ladder_change": false,
+  "promotion": "fleet-wide",
+  "notes": "[craftroom-01 (OWNER queue 10-03 ~22:30Z: craftsync -> CRAFTROOM -> composter -> tool cleanup -> chest fix -> bamboo -> logpickup). Variant for fleet ba84fa6 (craftsync-01 KEPT+promoted), branch cr-on-ba84fa6 @ ffa0f57 = ba84fa6 + craftroom WITHOUT logpickup (pickup helpers re-extracted verbatim to pickupbox.mjs; gather byte-identical to ba84fa6 -- Codex AGREE on the rebuild). Launched by chain-after.sh when craftsync-01 ends; STOPs if the fleet is not ba84fa6.] FULL BAGS LOSE CRAFTS: mineflayer's putAway tosses a craft result when the bag is full. Live craftsync-01 canary (10-03 22:53-23:30Z): 2 of 5 pickaxe crafts confirmed LOST by the server. Paper sandbox A/B (16:40Z): control tossed the pickaxe 21 of 21 times the bag had no room; craftroom never did except a drop landing mid-click (both arms). THE CHANGE (both engines approved after 5 rounds + a backport round, b00b22c; rebuilt as ffa0f57, sandbox regression 15/15): room checked before every craft execution AND inside craftsync after its answered baseline resync (else refused before any click); pickup hold-back that never wears a tool, collects only within the table's reach band and re-measures reach after any walk; make room only by wearing out a spent non-last-pickaxe tool; executable remedies only (place a filler with a real site, eat, deposit one non-ingredient item whose deposit empties a stack), remedy first in the text; takes back only the table it placed; craftsync is the single verifier.",
+  "licence": {
+    "class": "kind",
+    "kind": "_craft_room",
+    "min_rows": 1,
+    "note": "Written only by this build, once per craft execution/refusal. The fleet (ba84fa6) has no craftroom module."
+  },
+  "reads": [
+    "craftroomread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    180,
+    360
+  ],
+  "deadline_min": 1680,
+  "change_rows": [],
+  "linkage_extra": [],
+  "draw_exposure": {
+    "hours": 3,
+    "require": [
+      {
+        "name": "craft activity (the population this changes)",
+        "kind": "craft",
+        "min": 30
+      }
+    ],
+    "note": "~994 craft rows per 3 h fleet-wide (10-03)."
+  },
+  "exposure": {
+    "read": "craftroomread",
+    "field": "exposure_ready",
+    "min": 1,
+    "note": "Ready = >= 10 canary pickaxe crafts that sent clicks AND control server-lost pickaxe crafts >= 1 (positive control proven 10-03 23:35Z on craftsync-01 rows: 2 of 5)."
+  },
+  "own_lines": [
+    {
+      "read": "craftroomread",
+      "field": "lost_judged",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "CORRECTNESS: more than ONE canary pickaxe craft the server saw lost (craftsync outcome=unconfirmed, confirmed=no, verify_source=resync, produced<=0, clicks>0). One is tolerated: a drop landing after the clicks start (known limit; detected, not preventable). Judged on >= 10 canary pickaxe crafts."
+    },
+    {
+      "read": "craftroomread",
+      "field": "room_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "craftroomread",
+      "field": "room_rows_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "craftroomread",
+      "field": "lost_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "POSITIVE CONTROL: the server-lost query sees a presence on the control (which runs craftsync after its promotion). BLOCKS KEEP."
+    },
+    {
+      "read": "craftroomread",
+      "field": "unanswered_over_5pct",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "INSTRUMENT: > 5% of canary executions unanswered (after clicks, or baseline before any click) means Paper is not answering the resyncs this design relies on. Judged on >= 20. BLOCKS KEEP."
+    },
+    {
+      "read": "craftroomread",
+      "field": "verified_local_canary",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "Any verified_local row means craftsync is not installed on a canary bot. BLOCKS KEEP."
+    }
+  ],
+  "primary": {
+    "read": "craftroomread",
+    "field": "lost_rate_did",
+    "note": "REPORTED, NOT GATED: lost-pickaxe rate DiD, refusals by kind (no_room, admission:*, pickup_pending, table_out_of_reach), table retakes, usable pickaxe holders canary vs control."
+  },
+  "harm": {
+    "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Craft executions are ~0.5 s slower each; watch _reflex_stuck."
+  },
+  "teardown": {
+    "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+  },
+  "amendments": [],
+  "extension": {
+    "until_exposure": true,
+    "extra_reads": [
+      540,
+      720,
+      1080,
+      1560
+    ],
+    "final_on_zero_exposure": "INCONCLUSIVE",
+    "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+  }
+}

@@ -33,6 +33,15 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   which may burn planks), only when a slot is actually freed (64 bamboo + 0 sticks frees 0), via craftExecutions.
   OWNER QUESTION OPEN: any bankable item may open a new chest (current) vs valuable-only (09-28 rule) -- kept current + cap.
 
+- **craftroom-01 CHAINED (~00:00Z 10-04)** behind craftsync-01: variant ba84fa6 -> ffa0f57 (cr-on-ba84fa6, craftroom
+  WITHOUT logpickup; Codex AGREE on the rebuild, Claude confirmation pending -- stop the chain if it says CHANGE; Paper
+  regression 15/15). STOPs by itself if craftsync is not promoted. Read /tmp/craftroomread.py = repo c6bd787 (md5
+  0dc5218a); POSITIVE CONTROL PROVEN on live craftsync-01 rows: 2 of 5 canary pickaxe crafts lost on the server
+  (dry run with the craftsync pools on the control side). Preflights dry-run OK.
+- Composter rebuilt without logpickup: co-on-ffa0f57 @ 56db2cd (Codex AGREE). Tool cleanup de7d0aa: both reviews
+  CHANGE (non-transitive comparator; name-only equip guard; hard stop 0 only on harvest digs; telemetry) -- fixing.
+  Chest fix: building.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
