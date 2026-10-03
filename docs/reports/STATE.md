@@ -63,7 +63,10 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   The backport changes advice text only, not the crafting mechanics the sandbox measured.
 - **composter on craftroom FINAL = co-on-b00b22c @ 661c249 (pushed), both engines AGREE (~18:30Z).** Stand cell
   enforced before the table (composter_unreachable otherwise). C4: chain room simulated (from logs 2 slots, not 4).
-  NEXT: Paper sandbox build-from-logs / no-start-when-full / compost / occupied-stand (agent running).
+  **SANDBOX (Paper, ~18:45Z): build from logs 6/6 exact (34/36 and 30/36), never starts at 35-36/36 -- BUT 3 defects:**
+  bone meal left on the ground 5/6 compost visits; the 20 s stuck watchdog interrupts compost visits (only dig is
+  exempt -- guard composition); the stand-cell check passes off-centre and the bot's own body blocks its table cell
+  (placement timed out 2/3). Builder fixing; NOT queueable until re-sandboxed. Harness on main (7742265).
 - **MAYOR GET_WOOD was blind (found 17:00Z):** world-pooled wood; in 1,376 of 2,661 quiet snapshots a pickaxe-less bot
   held < 2 log-eq while the richest bot held a median 49% of its world's wood. Fix (shadow-mayor 77c025c + 9cad2ad,
   pushed, NOT deployed): per-bot shortage sharing RESTORE_PICK's arithmetic; replay on 2,768 live snapshots: 62 -> 1,812
