@@ -11,6 +11,13 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-03 22:38Z — oretunnel-03 KEPT (+1560), promotion to the fleet in progress
+- Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
+  vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
+  control (0.035/bh), none mechanism-linked; every v6/v15c guard within. Chain launches craftsync-01 (variant by fleet sha).
+- CORRECTION to the tool numbers below: the 2-10-use spent copies were 118 in a 24 h last-snapshot window and 170 in a
+  90 min window; both are "latest snapshot per bot" over different windows (Codex and Claude both caught the mismatch).
+
 ## 10-03 EVENING (22:40Z) — NEW ORDER (OWNER ~22:30Z: "lets do 1 and 2 now and do the bank fix now too")
 - **QUEUE NOW: craftsync (launching after the ore verdict) -> craftroom -> composter -> SPENT-TOOL CLEANUP (new) ->
   BANK FIX (port of bank-fix 4d76b43) -> logpickup -> explore-toward -> orepack -> cellmem.** Still one canary at a
