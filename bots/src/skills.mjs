@@ -33,7 +33,7 @@ import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS, inPickupBox, pickupGoalClass } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
-import { BAG_SLOTS, roomRecipe, craftRoom, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
+import { BAG_SLOTS, roomRecipe, admitRoom, pickupPending, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -3609,7 +3609,16 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, signal, deadl
       check(signal)
       let got = null
       error = null
-      try { got = await bot.craft(recipe, 1, table ?? undefined, { signal, deadline }) } catch (e) { error = e }
+      // ADMISSION AFTER THE BASELINE RESYNC (craftsync.mjs): the same room predicate, asked again on the bag the server
+      // holds once craftsync has resynced it, before any craft click -- a pickup that landed while the resync was in
+      // flight would otherwise leave the result no slot. Without craftsync the option is ignored (mineflayer).
+      const admit = items => {
+        const r = craftRoomNow(bot, plan, reserveFor(), items)
+        if (r.ok) return true
+        return { ok: false, failClass: 'craft_room', reason: r.reason === 'no_room' ? 'no_room_after_resync' : 'ingredients_after_resync',
+                 detail: r.reason === 'no_room' ? `${items.length}/${BAG_SLOTS} slots, ${r.short} short, ${r.reserve} held back` : `no ${r.missing}` }
+      }
+      try { got = await bot.craft(recipe, 1, table ?? undefined, { signal, deadline, admit }) } catch (e) { error = e }
       // AN ABORT IS AN ABORT (craftFailureOutcome): the runner's aborted/interrupted, never a failure.
       if (error && (error.aborted || signal?.aborted)) throw new Aborted()
       v = executionVerdict({ synced, got, error, perCraft,
@@ -3621,6 +3630,20 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, signal, deadl
       const again = craftRoomNow(bot, plan, reserveFor())
       if (!again.ok) { note = ` not_retried=${again.reason}`; break }
       retries++
+    }
+    if (v.refused) {
+      // craftsync's admission said no after its resync: nothing was clicked. A bag that filled is the full-bag refusal;
+      // ingredients the server's bag does not have is a don't-know about this bot's own bag.
+      const now = craftRoomNow(bot, plan, reserveFor())
+      logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
+                 detail: `refused ${item} at admission: source=${v.source} verdict=${v.verdict} ` +
+                         `(${bot.inventory.items().length}/${BAG_SLOTS} slots after the resync, ${now.reserve} held back)` })
+      if (v.verdict === 'no_room_after_resync') {
+        return fail(refuseNoRoom(bot, item, plan, now.ok ? { ...now, short: 1 } : now,
+          'the bag filled while craftsync resynced it, before any click', sofar(done)))
+      }
+      return fail({ status: 'unknown', failClass: 'unverified',
+                    detail: `not crafted: the server's bag, resynced by craftsync, lacks an ingredient of ${item} (${error?.message ?? ''})${sofar(done)}` })
     }
     if (v.verdict === 'error') {
       const out = craftFailureOutcome(error, { aborted: !!signal?.aborted, item, table })
@@ -3653,14 +3676,13 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, signal, deadl
 }
 
 /**
- * The room check with the TABLE'S SLOT RESERVED: when this call or a caller placed a table it will take back and no
- * crafting_table stack in the bag can receive it, one slot is held back for it (capacity 35).
+ * The room check on the bag as it is NOW (admitRoom, craftroom.mjs): the TABLE'S SLOT is reserved when this call or a
+ * caller placed a table it will take back and no crafting_table stack can receive it, and ONE MORE slot is held back
+ * while an item on the ground is within pickup range (pickupPending). `items` defaults to mineflayer's bag; craftsync's
+ * admission passes the bag it has just resynced from the server.
  */
-function craftRoomNow(bot, plan, owedTables) {
-  const items = bot.inventory.items()
-  const stackRoom = items.some(i => i.name === 'crafting_table' && (i.count ?? 1) + owedTables <= (i.stackSize ?? 64))
-  const reserve = owedTables > 0 && !stackRoom ? 1 : 0
-  return craftRoom(items, plan, 1, { capacity: BAG_SLOTS - reserve })
+function craftRoomNow(bot, plan, owedTables, items = bot.inventory.items()) {
+  return admitRoom(items, plan, { owedTables, pickupNear: pickupPending(bot.entity?.position, bot.entities) })
 }
 
 /** craftplan.mjs's view of this bot: what it holds, and every recipe as { yield, table, ingredients, ref }. */
@@ -3765,8 +3787,12 @@ export function craftFailureOutcome (e, { aborted = false, item, table = null } 
              detail: `ran out of time crafting ${item}: ${made} made — call craft again for the rest` }
   }
   if (e?.failClass === 'craft_unconfirmed') {
+    // "did not reach the inventory" ONLY when the server's own count said so (not_in_inventory). An unanswered resync or
+    // a click timeout is a don't-know: delivery could not be confirmed (Codex review).
     return { status: 'failed', failClass: 'craft_unconfirmed',
-             detail: `crafting ${item} did not reach the inventory: ${made} made (${String(e.message).slice(0, 80)})` }
+             detail: (e.reason === 'not_in_inventory'
+               ? `crafting ${item} did not reach the inventory: ${made} made`
+               : `could not confirm delivery of ${item}: ${made} confirmed`) + ` (${String(e.message).slice(0, 80)})` }
   }
   // Name the real problem. "Event windowOpen did not fire" is mineflayer's
   // wording for "the server refused to open the container", which in practice
@@ -3850,10 +3876,16 @@ async function makeCraftRoom(ctx, item, plan, signal) {
 /** The refusal: names what fills the bag and a move the bot can make from where it stands. Never deposit, never toss. */
 function refuseNoRoom(bot, item, plan, room, why, sofar = '') {
   const items = bot.inventory.items()
-  const fill = bagFill(items, n => placeableBlock(bot.registry, n), plan.consumes)
-  const remedy = fill.cheapest
-    ? `placing your one ${fill.cheapest.name} frees its slot`
-    : 'use up one of those stacks to free a slot'
+  const isPlaceable = n => placeableBlock(bot.registry, n)
+  const fill = bagFill(items, isPlaceable, plan.consumes)
+  // ONLY A REMEDY WHOSE PRECONDITION HOLDS FROM HERE (roomAdvice): a placement only where place() itself would find a
+  // site, eating only a single food when not full, else deposit (it walks home), else say nothing can be freed.
+  let placeSite = false
+  try { placeSite = !!fill.cheapest && placeSites(bot).length > 0 } catch { placeSite = false }
+  let bankable = 0
+  try { bankable = depositPlan(items, null, { wants: bot.currentWants ?? [] }).length } catch { bankable = 0 }
+  const remedy = roomAdvice({ items, consumes: plan.consumes, isPlaceable, placeSite, foodOrder: FOOD_PRIORITY,
+                              hunger: bot.food ?? 20, bankable }).text
   logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
              detail: `refused ${item}: needs ${room.short} more slot(s) at ${items.length}/${BAG_SLOTS}; ${why}; bag: ${fill.line}` })
   return { status: 'failed', failClass: 'inventory_full', gap: 'inventory_space',
@@ -4148,6 +4180,63 @@ export function placementLanded({ before, after }) {
   return true
 }
 
+/**
+ * WHERE CAN A BLOCK GO FROM HERE? -> [{ ref, face }], nearest first, dry before wet. The scan place() runs when it is
+ * given no coordinates (and nothing else: no digging, no soil filter), so a refusal that suggests placing something
+ * asks exactly the question place() will. Reads the world; does not change it.
+ */
+function placeSites(bot) {
+  const solid = b => b != null && b.boundingBox === 'block'
+  const replaceable = b => placeableInto(b)
+  const UP = new Vec3(0, 1, 0)
+  const candidates = []
+  // Diagonals and one step up or down as well, nearest first. A bot on uneven
+  // ground has a valid spot behind it far more often than beside it.
+  const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+  // DRY SPOTS FIRST, then wet ones. Placing into water is legal and works,
+  // but a table on dry land stays easier to walk back to, so a wet cell is a
+  // fallback rather than an equal.
+  const wet = []
+  for (const dy of [-1, 0, -2]) {
+    for (const [dx, dz] of around) {
+      const under = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
+      const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
+      if (!solid(under) || !replaceable(at)) continue
+      ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
+    }
+  }
+  candidates.push(...wet)
+
+  // THE BLOCK UNDER THE BOT'S OWN FEET WAS NEVER PROBED.
+  //
+  // `around` is eight horizontal offsets; [0,0] is not among them, so across
+  // three dy levels the search examined 24 cells and never the one the bot is
+  // standing on. A bot on a narrow perch -- a mountain spine, a one-wide
+  // pillar, a peak -- therefore reported "no solid block with a free space
+  // above it" while standing on solid ground.
+  //
+  // Measured: 83 refusals reading `no_support=24 [air]`, every one at FULL
+  // HEALTH with y unchanged either side, so none of them was falling. One bot,
+  // board-a-Bravo, produced 44 and has failed all 57 of its place attempts,
+  // every one a crafting_table, which is what has kept it off the tech tree
+  // for the whole window.
+  //
+  // A player in that spot does not look for a neighbour: they build off the
+  // side of the block beneath them. `placeBlock(ref, face)` can express that
+  // and the old top-face-only candidate list could not.
+  if (!candidates.length) {
+    const underfoot = bot.blockAt(bot.entity.position.offset(0, -1, 0))
+    if (solid(underfoot)) {
+      for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
+                          new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
+        const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
+        if (replaceable(target)) candidates.push({ ref: underfoot, face })
+      }
+    }
+  }
+  return candidates
+}
+
 async function place(ctx, { item, x, y, z }, signal) {
   const { bot } = ctx
   const held = bot.inventory.items().find(i => i.name === item)
@@ -4200,50 +4289,7 @@ async function place(ctx, { item, x, y, z }, signal) {
     assertInsideBorder(Number(x), Number(z))
     candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
-    // Diagonals and one step up or down as well, nearest first. A bot on uneven
-    // ground has a valid spot behind it far more often than beside it.
-    const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
-    // DRY SPOTS FIRST, then wet ones. Placing into water is legal and works,
-    // but a table on dry land stays easier to walk back to, so a wet cell is a
-    // fallback rather than an equal.
-    const wet = []
-    for (const dy of [-1, 0, -2]) {
-      for (const [dx, dz] of around) {
-        const under = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
-        const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
-        if (!solid(under) || !replaceable(at)) continue
-        ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
-      }
-    }
-    candidates.push(...wet)
-
-    // THE BLOCK UNDER THE BOT'S OWN FEET WAS NEVER PROBED.
-    //
-    // `around` is eight horizontal offsets; [0,0] is not among them, so across
-    // three dy levels the search examined 24 cells and never the one the bot is
-    // standing on. A bot on a narrow perch -- a mountain spine, a one-wide
-    // pillar, a peak -- therefore reported "no solid block with a free space
-    // above it" while standing on solid ground.
-    //
-    // Measured: 83 refusals reading `no_support=24 [air]`, every one at FULL
-    // HEALTH with y unchanged either side, so none of them was falling. One bot,
-    // board-a-Bravo, produced 44 and has failed all 57 of its place attempts,
-    // every one a crafting_table, which is what has kept it off the tech tree
-    // for the whole window.
-    //
-    // A player in that spot does not look for a neighbour: they build off the
-    // side of the block beneath them. `placeBlock(ref, face)` can express that
-    // and the old top-face-only candidate list could not.
-    if (!candidates.length) {
-      const underfoot = bot.blockAt(bot.entity.position.offset(0, -1, 0))
-      if (solid(underfoot)) {
-        for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
-                            new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
-          const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
-          if (replaceable(target)) candidates.push({ ref: underfoot, face })
-        }
-      }
-    }
+    candidates = placeSites(bot)
   }
   // A SAPLING CANNOT GO ON STONE. The scan above accepts any SOLID top face, which
   // is right for a crafting table and wrong for anything that needs soil: the

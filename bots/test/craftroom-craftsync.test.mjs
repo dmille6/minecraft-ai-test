@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Vec3 } from 'vec3'
 import * as CS from '../src/craftsync.mjs'
-import { FakePaper, craftBot, learnAll, fakeWorld, recipeFor, registry } from './helpers/fake-paper-craft.mjs'
+import { FakePaper, craftBot, learnAll, fakeWorld, recipeFor, registry, Item } from './helpers/fake-paper-craft.mjs'
 
 process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-test-craftroom-sync-'))
 process.env.SKILL_TIMEOUT_MS = '180000'   // the craft deadline is the runner's timeout; the suite's 300 ms leaves none
@@ -66,6 +66,34 @@ const viaRunner = async (bot, server, item, count) => {
   return r
 }
 const clicks = server => server.writes.filter(w => w.name === 'window_click').length
+/** Craft clicks only: craftsync's resync is a no-op click outside the window (slot -999, stateId -1). */
+const craftClicks = server => server.writes.filter(w => w.name === 'window_click' && w.params.stateId !== -1).length
+/**
+ * THE SERVER'S AUTO-PICKUP, at a moment of the test's choosing: when the client sends a packet `when` matches, a full
+ * stack of dirt lands in the first empty bag slot and the server says so (set_slot), exactly as a collected item does.
+ */
+function pickupOn (server, when, { viaOpenWindow = false } = {}) {
+  const receive = server.receive.bind(server)
+  let done = false
+  server.receive = (name, params) => {
+    if (!done && when(name, params)) {
+      const slot = server.p.findIndex((it, i) => i >= 9 && i <= 44 && !it)
+      if (slot >= 0) {
+        done = true
+        server.p[slot] = new Item(registry.itemsByName.dirt.id, 64)
+        // viaOpenWindow: announced through the open crafting window (its bag region is window-0 slot + 1), as a
+        // server syncs the player's slots while a container menu is open; otherwise through window 0
+        const w = viaOpenWindow && server.tableId != null ? server.tableId : 0
+        server.sid[w]++
+        server.send([['set_slot', { windowId: w, stateId: server.sid[w], slot: w === 0 ? slot : slot + 1, item: Item.toNotch(server.p[slot]) }]])
+      }
+    }
+    return receive(name, params)
+  }
+  return () => done
+}
+// The baseline resync begins with craftsync's close_window(0); a pickup then is inside the resync's flight.
+const duringBaseline = (name, params) => name === 'close_window' && params.windowId === 0
 
 // ------------------------------------------------------------------ 1. never into a full bag
 await t('POSITIVE CONTROL: the same full bag handed straight to craftsync -> the pickaxe is on the ground; craftsync only reports it', async () => {
@@ -109,6 +137,54 @@ await t('COMBINED PLAN: the bag fills mid-tree -> the stick step refuses, nothin
   assert.equal(out.failClass, 'inventory_full', out.detail); assert.match(out.detail, /making stick for wooden_pickaxe/)
   assert.deepEqual(server.dropped, [])
   assert.deepEqual([server.count('oak_planks'), server.count('stick'), server.count('wooden_pickaxe')], [8, 0, 0])
+})
+
+// ------------------------------------------------------------------ 1b. the pickup race (Codex, both reviews: P1)
+// 35 slots, 5 sticks, 10 cobblestone: the room check before bot.craft says yes. A pickup lands while craftsync's
+// baseline resync is in flight; the result now has no slot.
+const RACE = () => fullBag({ 36: ['stick', 5], 37: ['cobblestone', 10] }, 1)
+
+await t('RACE, POSITIVE CONTROL: without admission the pickup during the baseline resync costs the pickaxe (dropped, none kept)', async () => {
+  assert.equal(used(RACE()), 35)
+  const { server, bot } = await setup(RACE())
+  const landed = pickupOn(server, duringBaseline)
+  const recipe = recipeFor(bot, server, 'stone_pickaxe', true)
+  await assert.rejects(bot.craft(recipe, 1, { position: new Vec3(1, 64, 0), name: 'crafting_table' }, { deadline: Date.now() + 60_000 }),
+    e => e.failClass === 'craft_unconfirmed')
+  await server.settle(); server.stop()
+  assert.ok(landed(), 'the pickup never happened')
+  assert.deepEqual(server.dropped.map(nameOf), ['stone_pickaxe'])
+  assert.equal(server.count('stone_pickaxe'), 0)
+})
+
+await t('RACE through the skill: craftsync admits AFTER its resync -> refused, no craft click, nothing dropped, nothing spent', async () => {
+  const { server, bot, rows } = await setup(RACE())
+  const landed = pickupOn(server, duringBaseline)
+  const out = await skill(bot, server, 'stone_pickaxe', 1)
+  assert.ok(landed(), 'the pickup never happened')
+  assert.equal(out.failClass, 'inventory_full', out.detail)
+  assert.match(out.detail, /filled while craftsync resynced it/)
+  assert.equal(craftClicks(server), 0, 'a craft click went out after the admission refused')
+  assert.ok(clicks(server) >= 1, 'positive control: the baseline resync itself did go out')
+  assert.deepEqual(server.dropped, [])
+  assert.deepEqual([server.count('stick'), server.count('cobblestone'), server.count('stone_pickaxe')], [5, 10, 0])
+  assert.deepEqual(rows.map(r => [r.args.outcome, r.args.stop]), [['refused', 'admission: no_room_after_resync']])
+})
+
+await t('LIMIT, documented: a pickup landing AFTER the clicks began (on the result click) still costs the pickaxe -- craftsync detects it, nothing can undo it', async () => {
+  // Admission passed (35/36, no item in range). The pickup lands as the result is taken and the server announces it
+  // through the open crafting window; mineflayer's put-away then finds no slot and throws the pickaxe. craftsync's
+  // verification sees the count did not rise: craft_unconfirmed, not_in_inventory. (Announced through window 0 instead,
+  // the client's table view does not learn of it, put-away swaps the pickaxe into the "empty" slot and the DIRT is
+  // dropped on close -- the pickaxe survives. Which a real Paper does is not established here.)
+  const { server, bot } = await setup(RACE())
+  const landed = pickupOn(server, (name, params) => name === 'window_click' && params.windowId !== 0 && params.slot === 0, { viaOpenWindow: true })
+  const out = await skill(bot, server, 'stone_pickaxe', 1)
+  assert.ok(landed(), 'the pickup never happened')
+  assert.equal(out.failClass, 'craft_unconfirmed', out.detail)
+  assert.match(out.detail, /did not reach the inventory/, 'a server-confirmed absence is said as such')
+  assert.deepEqual([out.executions, out.produced], [0, 0], 'nothing credited')
+  assert.deepEqual(server.dropped.map(nameOf), ['stone_pickaxe'])
 })
 
 // ------------------------------------------------------------------ 2. never double-counted

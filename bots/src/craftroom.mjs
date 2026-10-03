@@ -14,6 +14,7 @@
 
 import { wearOutPlan, wearRank } from './hygiene.mjs'
 import { TOOL_RE, tier, remaining } from './toolfor.mjs'
+import { inPickupBox } from './logpickup.mjs'
 
 /** The slots putSelectedItemRange searches: inventoryStart..inventoryEnd, 27 main + 9 hotbar. */
 export const BAG_SLOTS = 36
@@ -93,6 +94,61 @@ export function craftRoom (items = [], recipe = {}, count = 1, { capacity = BAG_
     if (peak > capacity) return { ok: false, reason: 'no_room', rep, before, peak, after: bag.length, short: peak - capacity, missing: null }
   }
   return { ok: true, reason: null, rep: reps, before, peak, after: bag.length, short: 0, missing: null }
+}
+
+/**
+ * AN ITEM ON THE GROUND THAT CAN STILL LAND IN THE BAG during the craft -> true | false. Pure.
+ * The server's auto-pickup cannot be refused; an item in the pickup box takes a slot the room check counted on
+ * (Claude review). "Within pickup range" is vanilla's box (logpickup.mjs) GROWN by PICKUP_MARGIN on every side: a drop
+ * just outside it still falls, slides, or meets a bot that sways. Any item counts -- ballast takes a slot like anything.
+ */
+export const PICKUP_MARGIN = 1.0
+export function pickupPending (feet, entities = {}) {
+  if (!feet) return false
+  return Object.values(entities ?? {}).some(e => e?.name === 'item' && e.position &&
+    inPickupBox(feet, e.position, -PICKUP_MARGIN, -PICKUP_MARGIN))
+}
+
+/**
+ * THE ROOM PREDICATE, one execution -> craftRoom's answer plus `reserve`. Pure. Used twice per execution: before
+ * bot.craft (to choose a remedy) and as craftsync's `admit`, on the bag the server holds after the baseline resync.
+ *   owedTables  tables this call or a caller placed and will take back: one slot is held for them unless a
+ *               crafting_table stack can take them
+ *   pickupNear  pickupPending(): ONE more slot is held back for the item that may land during the craft
+ */
+export function admitRoom (items = [], recipe = {}, { owedTables = 0, pickupNear = false, capacity = BAG_SLOTS } = {}) {
+  const list = Array.isArray(items) ? items : []
+  const stackRoom = list.some(i => i?.name === 'crafting_table' && (i.count ?? 1) + owedTables <= (i.stackSize ?? DEFAULT_STACK))
+  const reserve = (owedTables > 0 && !stackRoom ? 1 : 0) + (pickupNear ? 1 : 0)
+  return { ...craftRoom(list, recipe, 1, { capacity: capacity - reserve }), reserve }
+}
+
+/**
+ * WHAT A FULL-BAG REFUSAL MAY TELL THE BOT TO DO -> { kind, text }. Pure (Codex P2: a refusal must name a remedy whose
+ * precondition holds from where the bot is). In order:
+ *   place    a ONE-block inert filler (bagFill's rules) AND a placement site exists next to the bot (the same scan
+ *            place() runs -- the caller passes its answer as `placeSite`)
+ *   eat      the food eat() would pick (foodOrder) is a single item, the bot is not full (eat refuses at 20), and the
+ *            recipe does not need it
+ *   deposit  the bag holds something bankable: deposit walks home to the town chest from anywhere
+ *   none     nothing holds -- said plainly, never a remedy that cannot run
+ * wear_out is never named: it is not a model action (chatOnly), and craft has already run it itself (makeCraftRoom).
+ */
+export function roomAdvice ({ items = [], consumes = [], isPlaceable = () => false, placeSite = false, foodOrder = [], hunger = 20, bankable = 0 } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
+  const used = new Set((consumes ?? []).map(c => c.name))
+  const fill = bagFill(list, isPlaceable, consumes)
+  if (fill.cheapest && placeSite) {
+    return { kind: 'place', text: `placing your one ${fill.cheapest.name} frees its slot (place ${fill.cheapest.name})` }
+  }
+  const food = (foodOrder ?? []).map(n => list.find(i => i.name === n)).find(Boolean)
+  if (food && (food.count ?? 1) === 1 && Number(hunger) < 20 && !used.has(food.name)) {
+    return { kind: 'eat', text: `eating your one ${food.name} frees its slot (eat)` }
+  }
+  if (Number(bankable) > 0) {
+    return { kind: 'deposit', text: 'nothing in the bag can be freed from where you stand -- deposit (it walks home to the town chest) frees slots' }
+  }
+  return { kind: 'none', text: 'nothing in the bag can be freed from where you stand, and nothing in it is bankable' }
 }
 
 /** Room for one more of `name` (the table retake): a non-full compatible stack, or a free slot. */
@@ -197,15 +253,19 @@ export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
  *   error     what it threw (never an abort: the caller rethrows those first)
  *   arrived   craftArrived() over the local bag -- consulted ONLY when craftsync is not installed
  *   perCraft  items one execution makes
- * `source` is what the _craft_room row prints as source=<x>; `verdict` is the row's verdict=<x>:
+ * `source` is what the _craft_room row prints as source=<x> -- WHO CONFIRMED the row's statement, `none` when nothing
+ * did; `verdict` is the row's verdict=<x>, taken from craftsync's own reason:
  *   synced, resolved                        ok      server  'server'   produced = ONE execution: got.produced capped
  *                                                                      at perCraft, so an item the server's pickup
  *                                                                      added during the craft is not counted as made
  *   synced, craft_unconfirmed               NOT ok  server  'denied'   reason not_in_inventory: the server's own count
- *                                                                      did not rise; retried once when NOTHING arrived
- *   synced, craft_unconfirmed (other)       NOT ok  local   'unanswered' the resync went unanswered (or a click timed
- *                                                                      out): craftsync's rule, a local count can never
- *                                                                      confirm -- so no verified_local under craftsync
+ *     not_in_inventory                                                 did not rise; retried once when NOTHING arrived
+ *   synced, craft_unconfirmed unverified    NOT ok  none    'unanswered'    the resync went unanswered: craftsync's
+ *                                                                      rule, a local count can never confirm -- so no
+ *                                                                      verified_local under craftsync
+ *   synced, craft_unconfirmed click_timeout NOT ok  none    'click_timeout' (its counts may have been answered; the
+ *                                                                      craft is still unconfirmed)
+ *   synced, craft_room (admission refused)  NOT ok  none    <its reason, e.g. no_room_after_resync>, `refused`
  *   any other error (window, busy, deadline) NOT ok  none   'error'    the caller's craftFailureOutcome names it
  *   not synced, resolved, arrived           ok      local   'none'     verified_local: mineflayer's bag is all there is
  *   not synced, resolved, nothing arrived   NOT ok  none    'none'
@@ -213,11 +273,14 @@ export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
 export function executionVerdict ({ synced = false, got = null, error = null, arrived = false, perCraft = 1 } = {}) {
   const per = Math.max(1, Number(perCraft) || 1)
   if (error) {
+    if (synced && error.failClass === 'craft_room') {
+      return { ok: false, source: 'none', verdict: String(error.reason ?? 'refused'), produced: 0, retry: false, refused: true }
+    }
     if (!synced || error.failClass !== 'craft_unconfirmed') return { ok: false, source: 'none', verdict: 'error', produced: 0, retry: false }
     if (error.reason === 'not_in_inventory') {
       return { ok: false, source: 'server', verdict: 'denied', produced: 0, retry: !(Number(error.produced) > 0) }
     }
-    return { ok: false, source: 'local', verdict: 'unanswered', produced: 0, retry: false }
+    return { ok: false, source: 'none', verdict: error.reason === 'unverified' ? 'unanswered' : String(error.reason ?? 'unconfirmed'), produced: 0, retry: false }
   }
   if (synced) {
     const n = Number(got?.produced)

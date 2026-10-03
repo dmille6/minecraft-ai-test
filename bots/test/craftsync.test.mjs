@@ -510,7 +510,8 @@ await t('WIRED: index.mjs installs craftsync inside the spawn handler; skills.mj
   const mutant = idx.replace(/\n[^\n]*installCraftSync\(bot[^\n]*/, '').replace('const runner = new Runner(bot)', 'installCraftSync(bot, {})\n  const runner = new Runner(bot)')
   assert.ok(mutant.includes('installCraftSync(bot, {})') && !wiredAtSpawn(mutant), 'the wiring check cannot see a createBot-time install')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(sk.includes('got = await bot.craft(recipe, 1, table ?? undefined, { signal, deadline })'))
+  assert.ok(sk.includes('got = await bot.craft(recipe, 1, table ?? undefined, { signal, deadline, admit })'),
+    'the craft skill must hand craftsync its signal, deadline AND the room admission')
 })
 
 await new Promise(resolve => setTimeout(resolve, 50))

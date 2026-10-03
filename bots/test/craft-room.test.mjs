@@ -27,9 +27,9 @@ const { Recipe } = require_('prismarine-recipe')('1.21.8')
 const { SKILLS } = await import('../src/skills.mjs')
 const { Runner } = await import('../src/runner.mjs')
 const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS,
-        executionVerdict } =
+        executionVerdict, admitRoom, pickupPending, roomAdvice, PICKUP_MARGIN } =
   await import('../src/craftroom.mjs')
-const { CraftSyncError } = await import('../src/craftsync.mjs')
+const { CraftSyncError, admissionRefusal } = await import('../src/craftsync.mjs')
 
 let pass = 0, fail = 0
 const t = async (name, fn) => {
@@ -155,9 +155,58 @@ await t('executionVerdict: under craftsync ITS verdict is the verdict -- resolve
   assert.equal(executionVerdict({ synced: true, error: unconfirmed('not_in_inventory', 2), perCraft: 4 }).retry, false,
     'something arrived: never retried (a retry could make it twice)')
   const silent = executionVerdict({ synced: true, error: unconfirmed('unverified', 1), arrived: true, perCraft: 1 })
-  assert.deepEqual([silent.ok, silent.source, silent.verdict, silent.produced], [false, 'local', 'unanswered', 0],
-    'an unanswered resync with a local gain is NOT verified_local under craftsync')
-  assert.equal(executionVerdict({ synced: true, error: unconfirmed('click_timeout') }).source, 'local')
+  assert.deepEqual([silent.ok, silent.source, silent.verdict, silent.produced], [false, 'none', 'unanswered', 0],
+    'an unanswered resync with a local gain is NOT verified_local under craftsync, and nothing confirmed it')
+  const late = executionVerdict({ synced: true, error: unconfirmed('click_timeout', 1) })
+  assert.deepEqual([late.ok, late.source, late.verdict], [false, 'none', 'click_timeout'], 'a click timeout is its own verdict')
+  const refused = executionVerdict({ synced: true, error: new CraftSyncError('x', { failClass: 'craft_room', reason: 'no_room_after_resync' }) })
+  assert.deepEqual([refused.ok, refused.source, refused.verdict, refused.refused], [false, 'none', 'no_room_after_resync', true])
+})
+
+await t('admissionRefusal (craftsync): true/{ok:true} admit; a refusal keeps its class and reason; a THROWING admit refuses', () => {
+  assert.equal(admissionRefusal(() => true, []), null)
+  assert.equal(admissionRefusal(() => ({ ok: true }), []), null)
+  assert.deepEqual(admissionRefusal(() => ({ ok: false, failClass: 'craft_room', reason: 'no_room_after_resync', detail: 'd' }), []),
+    { failClass: 'craft_room', reason: 'no_room_after_resync', detail: 'd' })
+  assert.equal(admissionRefusal(() => { throw new Error('boom') }, []).reason, 'admit_threw', 'fail closed')
+  assert.equal(admissionRefusal(() => undefined, []).reason, 'refused_by_admit', 'only an explicit yes admits')
+})
+
+await t('pickupPending + admitRoom: an item within pickup range (box + margin) holds ONE more slot back', () => {
+  const feet = new Vec3(0.5, 64, 0.5)
+  const at = (x, y, z) => ({ 1: { name: 'item', position: new Vec3(x, y, z) } })
+  assert.equal(pickupPending(feet, at(1.5, 64, 0.5)), true, 'inside the box')
+  assert.equal(pickupPending(feet, at(0.5 + 1.425 + PICKUP_MARGIN - 0.1, 64, 0.5)), true, 'just outside the box, inside the margin')
+  assert.equal(pickupPending(feet, at(0.5 + 1.425 + PICKUP_MARGIN + 0.2, 64, 0.5)), false, 'beyond the margin')
+  assert.equal(pickupPending(feet, { 1: { name: 'zombie', position: new Vec3(1, 64, 0) } }), false, 'only items')
+  const pick = roomRecipe(mc, recipeOf('stone_pickaxe', { cobblestone: 1, stick: 1 }), 'stone_pickaxe')
+  const bag = bagOf(35, [item('stick', 5)])
+  assert.equal(admitRoom(bag, pick).ok, true, 'positive control: 35 + the pickaxe fits')
+  const r = admitRoom(bag, pick, { pickupNear: true })
+  assert.deepEqual([r.ok, r.reason, r.reserve], [false, 'no_room', 1], 'the margin slot is held back')
+  assert.equal(admitRoom(bagOf(34, [item('stick', 5)]), pick, { pickupNear: true, owedTables: 1 }).ok, false, 'table + pickup: two held back')
+})
+
+await t('roomAdvice names ONLY a remedy whose precondition holds here; CONFINED (full stacks, no tool, no site) -> deposit or none', () => {
+  const isPlaceable = n => mc.blocksByName[n]?.boundingBox === 'block' && !!mc.itemsByName[n]
+  const consumes = [{ name: 'cobblestone', count: 3 }, { name: 'stick', count: 2 }]
+  const withDirt = bagOf(36, [item('stick', 5), item('dirt', 1)])
+  assert.equal(roomAdvice({ items: withDirt, consumes, isPlaceable, placeSite: true }).kind, 'place')
+  assert.match(roomAdvice({ items: withDirt, consumes, isPlaceable, placeSite: true }).text, /placing your one dirt frees its slot/)
+  assert.notEqual(roomAdvice({ items: withDirt, consumes, isPlaceable, placeSite: false }).kind, 'place', 'no site: never "place"')
+  const bread = bagOf(36, [item('stick', 5), item('bread', 1)])
+  const order = ['bread']
+  assert.equal(roomAdvice({ items: bread, consumes, foodOrder: order, hunger: 12 }).kind, 'eat')
+  assert.notEqual(roomAdvice({ items: bread, consumes, foodOrder: order, hunger: 20 }).kind, 'eat', 'eat refuses at full hunger')
+  assert.notEqual(roomAdvice({ items: bagOf(36, [item('stick', 5), item('bread', 3)]), consumes, foodOrder: order, hunger: 12 }).kind, 'eat',
+    'three breads: one bite frees nothing')
+  // CONFINED: every stack full, no expendable tool, no placement site
+  const confined = bagOf(36, [item('stick', 64)])
+  const d = roomAdvice({ items: confined, consumes, isPlaceable, placeSite: false, foodOrder: order, hunger: 10, bankable: 2 })
+  assert.equal(d.kind, 'deposit'); assert.match(d.text, /nothing in the bag can be freed from where you stand -- deposit/)
+  const n = roomAdvice({ items: confined, consumes, isPlaceable, placeSite: false, foodOrder: order, hunger: 10, bankable: 0 })
+  assert.equal(n.kind, 'none'); assert.match(n.text, /nothing in the bag can be freed from where you stand, and nothing in it is bankable/)
+  for (const a of [d, n]) assert.doesNotMatch(a.text, /plac|eat|use up|wear/, `an unexecutable remedy was named: ${a.text}`)
 })
 
 await t('executionVerdict: produced is ONE execution -- an inflated server count (a pickup during the craft) is capped', () => {
@@ -201,10 +250,11 @@ const WALLS = [new Vec3(-1, 64, 0), new Vec3(0, 64, -1)]
  *               taken by the pickup rule -- not straight into the bag
  *   onLook      hook on every lookAt -- including the one mineflayer's dig does itself unless forceLook is 'ignore'
  *   afterCraft  hook after each bot.craft ({ setBlock, world, slots })
+ *   beforeAdmit hook inside craftsync's baseline resync, before its admission reads the bag ({ slots, putAway })
  *   onDig       hook before each dig (block) -- e.g. an abort arriving mid-dig
  *   registry    a registry override (an id the bot cannot name)
  */
-function makeBot (stacks, { tables = [], craftLands = true, synced = true, server = null, afterCraft = null,
+function makeBot (stacks, { tables = [], craftLands = true, synced = true, server = null, afterCraft = null, beforeAdmit = null,
                             onDig = null, afterDig = null, onGoto = null, onLook = null, registry = mc,
                             walls = WALLS, toolBreakMs = 0, tableDrop = null } = {}) {
   const slots = Array(36).fill(null)
@@ -220,7 +270,7 @@ function makeBot (stacks, { tables = [], craftLands = true, synced = true, serve
       if (Math.abs(d.x) < 1.425 && Math.abs(d.z) < 1.425 && d.y > -0.75 && d.y < 2.3 && putAway(item(e.drop, 1))) delete bot.entities[id]
     }
   }
-  const tossed = []; const digs = []; const ground = []; const crafts = []
+  const tossed = []; const digs = []; const ground = []; const crafts = []; const admissions = []
   const nameAt = p => world.get(key(p)) ?? (p.y < 64 ? 'stone' : 'air')
   const blockAt = p => {
     if (!p) return null
@@ -292,6 +342,15 @@ function makeBot (stacks, { tables = [], craftLands = true, synced = true, serve
     // unanswered, interrupted on an abort.
     async craft (recipe, count = 1, table, opts = {}) {
       if (recipe.requiresTable && !table) throw new Error('Recipe requires craftingTable')
+      // the baseline resync: what lands meanwhile (beforeAdmit) is in the bag craftsync's admission reads
+      if (synced && typeof opts?.admit === 'function') {
+        beforeAdmit?.({ slots, putAway })
+        const no = admissionRefusal(opts.admit, bot.inventory.items(), { source: 'resync' })
+        if (no) {
+          admissions.push(no)
+          throw new CraftSyncError(`craft refused before any click: ${no.reason}`, { failClass: no.failClass, produced: 0, requested: count * recipe.result.count, reason: no.reason })
+        }
+      }
       crafts.push(count)
       const name = mc.items[recipe.result.id].name
       const start = have(name)
@@ -363,7 +422,7 @@ function makeBot (stacks, { tables = [], craftLands = true, synced = true, serve
     }, setGoal () {}, stop () {} },
   })
   if (synced) bot.craftSync = { fake: 'craftsync contract' }
-  return { bot, slots, world, tossed, digs, ground, have, crafts, setBlock }
+  return { bot, slots, world, tossed, digs, ground, have, crafts, setBlock, admissions }
 }
 const run = (bot, args, signal = new AbortController().signal) => SKILLS.craft.run({ bot }, args, signal)
 const NEAR = new Vec3(1, 64, 0)    // a table in reach that this call did not place
@@ -465,6 +524,7 @@ await t('verification failure: nothing arrives -> craftsync\'s craft_unconfirmed
   const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], craftLands: false })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'craft_unconfirmed', r.detail)
+  assert.match(r.detail, /did not reach the inventory/, 'the server confirmed the absence')
   assert.deepEqual([r.executions, r.produced], [0, 0])
   assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'unverified' && /source=server verdict=denied/.test(x.detail)))
 })
@@ -570,7 +630,7 @@ await t('WITHOUT craftsync, and the local count shows no gain either: unverified
   assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'unverified' && /source=none/.test(x.detail)))
 })
 
-await t('UNDER craftsync an unanswered resync is NOT verified_local, though the local bag shows the pickaxe: source=local, unconfirmed', async () => {
+await t('UNDER craftsync an unanswered resync is NOT verified_local, though the local bag shows the pickaxe: source=none, unconfirmed', async () => {
   const n = await mark()
   const { bot, have, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: () => 'silent' })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
@@ -578,8 +638,10 @@ await t('UNDER craftsync an unanswered resync is NOT verified_local, though the 
   assert.equal(r.failClass, 'craft_unconfirmed', r.detail); assert.notEqual(r.status, 'success')
   assert.deepEqual([r.executions, r.produced], [0, 0], 'a local count credited as made')
   assert.deepEqual(crafts, [1], 'an unanswered resync is never retried')
+  assert.match(r.detail, /could not confirm delivery of stone_pickaxe/)
+  assert.doesNotMatch(r.detail, /did not reach the inventory/, 'an unanswered resync is a don\'t-know, not a server-confirmed absence')
   const rows = (await rowsSince(n)).filter(x => x.kind === '_craft_room')
-  assert.ok(rows.some(x => x.status === 'unverified' && /source=local verdict=unanswered/.test(x.detail)), JSON.stringify(rows))
+  assert.ok(rows.some(x => x.status === 'unverified' && /source=none verdict=unanswered/.test(x.detail)), JSON.stringify(rows))
   assert.ok(!rows.some(x => x.status === 'verified_local'))
 })
 
@@ -938,6 +1000,33 @@ await t('PLAN puts down a table: it is watched and taken back, and its slot is r
   assert.equal(have('crafting_table'), 1); assert.ok(![...world.values()].includes('crafting_table'))
   assert.deepEqual(digs.map(d => d.name), ['crafting_table'])
   assert.ok((await rowsSince(n)).some(x => x.kind === '_table_retaken' && x.status === 'success'))
+})
+
+// --- admission after craftsync's baseline resync (both reviews, P1) ----------------------
+await t('ADMISSION: a pickup lands during the baseline resync -> refused before any click, nothing taken, row source=none', async () => {
+  const n = await mark()
+  const { bot, crafts, have, tossed, admissions } = makeBot(bagOf(35, [item('stick', 5)]), { tables: [NEAR],
+    beforeAdmit: ({ putAway }) => putAway(item('dirt', 1)) })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(admissions.length, 1, 'craftsync admission never asked')
+  assert.deepEqual(crafts, [], 'clicked after the admission refused'); assert.deepEqual(tossed, [])
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.match(r.detail, /filled while craftsync resynced it/)
+  assert.equal(have('stick'), 5)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'refused' &&
+    /source=none verdict=no_room_after_resync/.test(x.detail)))
+})
+
+await t('ADMISSION positive control: the same craft with nothing landing is admitted and made', async () => {
+  const { bot, crafts, have, admissions } = makeBot(bagOf(35, [item('stick', 5)]), { tables: [NEAR], beforeAdmit: () => {} })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.deepEqual(admissions, []); assert.deepEqual(crafts, [1]); assert.equal(have('stone_pickaxe'), 1)
+})
+
+await t('PICKUP MARGIN: an item lying within pickup range holds a slot back -- 35/36 with a drop beside the bot is refused, not risked', async () => {
+  const { bot, crafts, tossed } = makeBot(bagOf(35, [item('stick', 5)]), { tables: [NEAR] })
+  bot.entities[77] = { id: 77, name: 'item', position: new Vec3(1.5, 64, 0.5), getDroppedItem: () => ({ name: 'dirt', count: 1 }) }
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.deepEqual(crafts, []); assert.deepEqual(tossed, [])
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
