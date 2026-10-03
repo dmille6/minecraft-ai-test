@@ -78,7 +78,8 @@ test('explore still accepts an explicit heading and falls back to it', async () 
   const src = fs.readFileSync(path.join(
     path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'skills.mjs'), 'utf8')
   const exec = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  assert.match(exec, /const known = knownTarget\(bot, toward\)/)
+  // A cell trip (gatherCell, cellmem.mjs) names its own point; every other explore still asks knownTarget.
+  assert.match(exec, /const known = cellTarget \? null : knownTarget\(bot, toward\)/)
   assert.match(exec, /if \(known\?\.kind\) \{/, 'the known-target branch is conditional')
   assert.match(exec, /Number\.isFinite\(Number\(heading\)\)/,
     'the original bearing path survives for bots that have seen nothing')
