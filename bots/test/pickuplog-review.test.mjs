@@ -328,3 +328,54 @@ test('9: the same event sequence makes IDENTICAL actuator calls with the telemet
   assert.deepEqual(on.calls, off.calls)
   assert.deepEqual(on.left, off.left)
 })
+
+// ------------------------------------------------- second pass on 4ecc6c2 (Codex) -----
+
+test('2nd/1: more than 64 identical actions inside 30 s are never silently undercounted', () => {
+  const r = new ActionRing()
+  for (let i = 0; i < 100; i++) r.push('dig:stone', 1_000 + i * 100)    // 100 digs in 10 s
+  assert.deepEqual(r.recent(11_000), ['dig:stone x64+ -0s'], 'a truncated run must say it is a lower bound')
+  const q = new ActionRing()
+  for (let i = 0; i < 64; i++) q.push('dig:stone', 1_000 + i * 100)
+  assert.deepEqual(q.recent(8_000), ['dig:stone x64 -1s'], 'exactly 64 is exact')
+  const old = new ActionRing()
+  for (let i = 0; i < 100; i++) old.push('dig:stone', i * 1_000)          // 0..99 s: the dropped ones are old
+  assert.deepEqual(old.recent(99_000), ['dig:stone x31 -0s'], 'repeats dropped OUTSIDE the window do not mark it')
+})
+
+test('2nd/2: a junk row is counted only once it is emitted; a throwing sampler or emitter is an error', () => {
+  const bot = fakeBot()
+  let failEmit = true
+  const { pl, summaries, junk, clock } = harness(bot, {
+    sample: () => { throw new Error('world gone') },
+    emitJunk: r => { if (failEmit) throw new Error('disk full'); junk.push(r) },
+  })
+  serverCollect(bot, drop(1001, 'apple'))                                 // sampler throws
+  failEmit = true
+  serverCollect(bot, drop(1002, 'apple'))                                 // sampler throws again
+  assert.equal(pl.stats.junk, 0, 'a row that was never written was counted')
+  clock.advance(10_000); pl.flush()
+  assert.match(summaries[0], /^0 items in 0 pickups in 10s; err=2$/)
+  const bot2 = fakeBot()
+  const h2 = harness(bot2, { emitJunk: () => { throw new Error('disk full') } })
+  serverCollect(bot2, drop(1003, 'apple'))
+  assert.equal(h2.pl.stats.junk, 0)
+  h2.clock.advance(5_000); h2.pl.flush()
+  assert.match(h2.summaries[0], /^0 items in 0 pickups in 5s; err=1$/)
+})
+
+test('2nd/3: a summary that fails to emit is kept for the next flush and its failure counted in that window', () => {
+  const bot = fakeBot()
+  let fail = true
+  const out = []
+  const { pl, clock } = harness(bot, { emitSummary: d => { if (fail) throw new Error('disk full'); out.push(d) } })
+  serverCollect(bot, drop(1101, 'cobblestone'))
+  clock.advance(60_000); pl.flush()                                       // fails
+  assert.equal(out.length, 0)
+  fail = false
+  serverCollect(bot, drop(1102, 'cobblestone'))
+  clock.advance(60_000); pl.flush()
+  assert.deepEqual(out, ['cobblestone 2 idle passive | 2 items in 2 pickups in 120s; err=1'])
+  clock.advance(60_000); pl.flush()
+  assert.equal(out.length, 1, 'the carried window was not cleared after it was written')
+})

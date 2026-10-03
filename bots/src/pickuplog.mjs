@@ -140,20 +140,26 @@ export class ActionRing {
     const last = this.items[this.items.length - 1]
     if (last && last.label === label) {
       last.times.push(t)
-      if (last.times.length > this.maxRepeats) last.times.shift()
+      // Bounded: the oldest repeat goes, but WHEN it went is kept, so a window that still covers it can say its
+      // count is a lower bound (x64+) instead of undercounting silently (Codex, second pass).
+      if (last.times.length > this.maxRepeats) last.droppedT = last.times.shift()
       return
     }
-    this.items.push({ label, times: [t] })
+    this.items.push({ label, times: [t], droppedT: null })
     if (this.items.length > this.max) this.items.shift()
   }
-  /** Up to n entries with a repeat in the last windowMs, oldest first, as `label[ xN] -Ss` (N = repeats inside). */
+  /**
+   * Up to n entries with a repeat in the last windowMs, oldest first, as `label[ xN[+]] -Ss`: N = repeats inside the
+   * window, `+` when repeats beyond the bound were dropped from inside it (N is then a lower bound).
+   */
   recent (now, { n = 3, windowMs = 30_000 } = {}) {
     const out = []
     for (const e of this.items) {
       const inside = e.times.filter(t => t <= now && now - t <= windowMs)
-      if (inside.length) out.push({ label: e.label, n: inside.length, t: inside[inside.length - 1] })
+      const more = e.droppedT != null && e.droppedT <= now && now - e.droppedT <= windowMs
+      if (inside.length) out.push({ label: e.label, n: inside.length, more, t: inside[inside.length - 1] })
     }
-    return out.slice(-n).map(e => `${e.label}${e.n > 1 ? ` x${e.n}` : ''} -${Math.round((now - e.t) / 1000)}s`)
+    return out.slice(-n).map(e => `${e.label}${e.n > 1 || e.more ? ` x${e.n}${e.more ? '+' : ''}` : ''} -${Math.round((now - e.t) / 1000)}s`)
   }
 }
 
@@ -386,8 +392,6 @@ export function attachPickupLog (bot, { context = () => ({}), emitSummary = () =
           addPickup(agg, { name, count, source, mode })
           return
         }
-        burst.n++
-        stats.junk++; win.junk++
         const t0 = process.hrtime.bigint()
         const ctx = sample(bot)
         const sampleUs = Number((process.hrtime.bigint() - t0) / 1000n)
@@ -400,6 +404,10 @@ export function attachPickupLog (bot, { context = () => ({}), emitSummary = () =
           holder: c.holder ?? null, reflex: c.reflex ?? null,
           recent: ring.recent(t), ctx, sampleUs,
         }))
+        // Counted only once the row is out (Codex, second pass): a sampler or emitter that throws lands in the
+        // catch below as an error, never as a row.
+        burst.n++
+        stats.junk++; win.junk++
       } else {
         stats.other++
         addPickup(agg, { name, count, source, mode })
@@ -407,21 +415,29 @@ export function attachPickupLog (bot, { context = () => ({}), emitSummary = () =
     } catch { err() }
   }
 
-  /** Write this window's summary when ANYTHING happened in it (pickups, junk rows, capped junk or errors). */
+  /**
+   * Write this window's summary when ANYTHING happened in it (pickups, junk rows, capped junk or errors). The
+   * aggregate and the window are cleared only AFTER the row is out: a failed write keeps them (bounded -- the
+   * aggregate is capped at MAX_GROUPS and the window is counters), counts the failure in the window's err=, and
+   * the next flush writes the carried window under its true, longer length (Codex + Claude, second pass).
+   */
   const flush = () => {
     if (done) return
+    let t
     try {
-      const t = now()
+      t = now()
       for (const [id, s] of seeking) if (t - s.at > seekTtlMs) seeking.delete(id)
       packetCounts.clear()
+    } catch { err() }
+    try {
       const w = win
-      win = { start: t, junk: 0, capped: 0, errors: 0 }
-      if (!agg.size && !w.junk && !w.capped && !w.errors) return
+      if (!agg.size && !w.junk && !w.capped && !w.errors) { win = { start: t, junk: 0, capped: 0, errors: 0 }; return }
       const detail = formatPickups(agg, { errors: w.errors, junk: w.junk, junkCapped: w.capped,
                                          windowS: Math.max(0, Math.round((t - w.start) / 1000)) })
-      agg.clear()
       emitSummary(detail)
-    } catch { stats.errors++ }
+      agg.clear()
+      win = { start: t, junk: 0, capped: 0, errors: 0 }
+    } catch { err() }
   }
 
   const client = bot._client
