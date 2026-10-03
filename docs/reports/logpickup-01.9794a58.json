@@ -1,0 +1,100 @@
+{
+  "run_id": "logpickup-01",
+  "sha": "54ed323",
+  "registered_at": "2026-10-03T13:00:00Z",
+  "ladder_change": false,
+  "promotion": "fleet-wide",
+  "notes": "[logpickup-01, 10-03 (OWNER queue per Codex: craftsync -> LOGPICKUP -> craftroom -> composter -> explore-toward -> orepack -> cellmem). Variant for fleet 9794a58 (craftsync-01 KEPT+promoted on 8453c09; gather declares gatherT0 itself (the base has no ore tunnel)), branch lp-on-9794a58 @ 54ed323 = base + logpickup (93b3892..fe1fd5e); npm test green; no-undef lint clean but for the pre-existing typeof-guarded withinBody. Launched by chain-after.sh when craftsync-01 ends, choosing the variant by fleet sha.] LOGS CHOPPED AND LEFT ON THE GROUND (both engines, independently, 10-03): 291 of 949 failed log gathers (31%, 48 bots) end 'collect threw nothing' and are classed no_path -- an action-level learned-avoid vote; 1,866 log drops left vs 2,584 logs gained in 3 h; GoalNear(drop,1) times out when the drop rests on leaves (27% rest 2.3+ above the feet). THE FIX (both engines reviewed): after each log dig, pick up THAT dig's drop -- wait if it is in the pickup box, break the supporting leaf/log, else walk to a pickup-box goal; done only on a bag gain; broken-but-not-gained is pickup_failed (no avoid vote). SANDBOX 10-03: open trunk 15/15 vs 12/15 at 1.8 vs 6.7 s/log; canopy 18/18 vs 14/18; stub 15/15 vs 12/15; full bag 1 log + inventory_full vs control 3 logs left + no_path + an avoid rule.",
+  "licence": {
+    "class": "kind",
+    "kind": "_pickup_reach",
+    "min_rows": 1,
+    "note": "Written only by logpickup, once per log drop pursued. The pickup telemetry the control also runs (_junk_pickup, _pickups) never writes it."
+  },
+  "reads": [
+    "logpickupread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    180,
+    360
+  ],
+  "deadline_min": 1680,
+  "change_rows": [],
+  "linkage_extra": [],
+  "draw_exposure": {
+    "hours": 3,
+    "require": [
+      {
+        "name": "gather activity (logs are the population this changes)",
+        "kind": "gather",
+        "min": 30
+      }
+    ],
+    "note": "Log gathers ~949 failed of ~1,400 per 3 h fleet-wide (10-03)."
+  },
+  "exposure": {
+    "read": "logpickupread",
+    "field": "exposure_ready",
+    "min": 1,
+    "note": "Ready = >= 20 canary log gathers AND control 'collect threw nothing' >= 1."
+  },
+  "own_lines": [
+    {
+      "read": "logpickupread",
+      "field": "old_signature_judged",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "CORRECTNESS: a canary log gather ended with the old 'collect threw nothing' (the pickup path this replaces). Judged on >= 20 canary log gathers."
+    },
+    {
+      "read": "logpickupread",
+      "field": "reach_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "logpickupread",
+      "field": "reach_rows_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "logpickupread",
+      "field": "old_signature_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "POSITIVE CONTROL: the old signature is visible to this query on the control (291 failures/3 h fleet-wide on 10-03). BLOCKS KEEP."
+    }
+  ],
+  "primary": {
+    "read": "logpickupread",
+    "field": "logs_did_per_bh",
+    "note": "REPORTED, NOT GATED: logs gained per bot-hour DiD, pickup outcomes and strategies, left reasons, canary log fail classes, sweep saplings."
+  },
+  "harm": {
+    "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Breaking a supporting leaf/log can drop the bot: name any fall death after a _pickup_reach row."
+  },
+  "teardown": {
+    "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+  },
+  "amendments": [],
+  "extension": {
+    "until_exposure": true,
+    "extra_reads": [
+      540,
+      720,
+      1080,
+      1560
+    ],
+    "final_on_zero_exposure": "INCONCLUSIVE",
+    "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+  }
+}

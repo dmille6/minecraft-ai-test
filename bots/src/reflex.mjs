@@ -2233,6 +2233,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               pocketing = true
               try {
                 // withinBody/ownsBody exist only on trees with the arbiter (recovery-ladder); the canary base has neither (pocket corpus run 3 threw)
+                /* global withinBody -- typeof-guarded on the next line: the binding exists only on arbiter trees */
                 const within = typeof withinBody === 'function' ? withinBody : (g, fn) => fn()
                 const owns = typeof ownsBody === 'function' ? ownsBody(() => pocketGrant) : () => true
                 await within(pocketGrant, () => floodedPocketRung(bot, { plan, floorY, firstDryY, tool, columnCells, alive: owns, log: e => logEvent({ ...e, snapshot: snapshot(bot) }) }))

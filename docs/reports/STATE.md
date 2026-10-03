@@ -20,6 +20,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   behaviour-neutral pickup telemetry 3edf1d6..e2b4ebd). Registrations docs/reports/craftsync-01.<fleet>.json; read
   scripts/host/craftsyncread.py (dry run 10-03: control 100/892 crafts "nothing changed" = the positive control; the
   UNCHANGED canary pool read 17/101, so the correctness line would have fired on today's code).
+- **logpickup-01 CHAINED (12:36Z)** behind craftsync-01 (chain-after.sh pid 2197785, log ~/chain-logpickup-01.out),
+  FOUR variants so it launches whatever craftsync's verdict: fleet ba84fa6 -> a40c588, 9794a58 -> 54ed323 (craftsync
+  promoted), 3edf1d6 -> 8c66dda, 8453c09 -> 10251f3 (not promoted; these carry the pickup telemetry). All npm test green.
+  Registrations docs/reports/logpickup-01.<fleet>.json; read /tmp/logpickupread.py (md5 = repo).
+- **REBASE DEFECT CAUGHT (12:20Z):** logpickup on an 8453c09 base read `gatherT0`, declared only by the ore-tunnel
+  change -- every log gather would have thrown ReferenceError. logpickup.test.mjs caught it; fixed in both 8453c09
+  variants. Then found the no-undef lint gate (eslint.config.mjs: "Deploys run it") was NEVER run by any v1 fleet
+  deploy script (only instance #1's deploy-harness.sh) and the fleet sha fails it. Now `bots/test/lint-gate.test.mjs`
+  runs it in the suite (positive control + mutant killed); the one typeof-guarded `withinBody` is declared global.
+  Every cross-base variant: run the no-undef lint, not only the suite.
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.

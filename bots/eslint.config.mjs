@@ -15,7 +15,8 @@
 //
 //   npm run lint     -- from bots/
 //
-// Deploys run it and refuse to install a harness that fails.
+// The SUITE runs it: test/lint-gate.test.mjs. (This line used to say deploys run it. Only
+// deploy-harness.sh, instance #1's, ever did; the v1 fleet deploy scripts never have -- found 2026-10-03.)
 
 import noFloatingPromise from 'eslint-plugin-no-floating-promise'
 
