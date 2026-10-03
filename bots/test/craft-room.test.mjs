@@ -22,6 +22,7 @@ const mc = require_('minecraft-data')('1.21.8')
 const { Recipe } = require_('prismarine-recipe')('1.21.8')
 
 const { SKILLS } = await import('../src/skills.mjs')
+const { Runner } = await import('../src/runner.mjs')
 const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS,
         packetSays, serverVerdict } =
   await import('../src/craftroom.mjs')
@@ -117,9 +118,9 @@ await t('craftRoomRemedy PROTECTS THE LAST DIGGING TOOL: no pickaxe is worn out 
 await t('bagFill ADVICE never names an ingredient, a non-block, wood or a station', () => {
   const isPlaceable = n => mc.blocksByName[n]?.boundingBox === 'block' && !!mc.itemsByName[n]
   const consumes = [{ name: 'cobblestone', count: 3 }, { name: 'stick', count: 2 }]
-  const f = bagFill(bagOf(36, [item('cobblestone', 1), item('wheat', 1), item('oak_log', 1), item('crafting_table', 1), item('dirt', 5)]),
+  const f = bagFill(bagOf(36, [item('cobblestone', 1), item('wheat', 1), item('oak_log', 1), item('crafting_table', 1), item('dirt', 1)]),
     isPlaceable, consumes)
-  assert.deepEqual(f.cheapest, { name: 'dirt', count: 5 })
+  assert.deepEqual(f.cheapest, { name: 'dirt', count: 1 })
 })
 
 await t('THE MAPPING, verified against prismarine-windows: window 0 bag = slot, a 3x3 crafting window bag = slot - 1', () => {
@@ -186,9 +187,11 @@ await t('wearKeepsSlot: an axe on stone drops nothing; a pickaxe on stone needs 
 })
 
 await t('bagFill names what fills the bag and the smallest placeable stack', () => {
-  const f = bagFill(bagOf(36, [item('dirt', 3), item('stick', 1)]), n => !!mc.blocksByName[n] && !!mc.itemsByName[n])
+  const f = bagFill(bagOf(36, [item('dirt', 1), item('stick', 1)]), n => !!mc.blocksByName[n] && !!mc.itemsByName[n])
   assert.match(f.line, /^cobblestone 34 slots, dirt 1, stick 1$/)
-  assert.deepEqual(f.cheapest, { name: 'dirt', count: 3 }, 'a stick is not a block')
+  assert.deepEqual(f.cheapest, { name: 'dirt', count: 1 }, 'a stick is not a block')
+  assert.equal(bagFill(bagOf(36, [item('dirt', 3)]), n => !!mc.blocksByName[n]).cheapest, null,
+    'three dirt is three placements: advice names only a ONE-block stack')
   assert.equal(roomForOne(bagOf(36, [item('crafting_table', 1)]), 'crafting_table'), true, 'joins the stack')
   assert.equal(roomForOne(bagOf(36, []), 'crafting_table'), false)
   assert.equal(BAG_SLOTS, 36)
@@ -196,6 +199,8 @@ await t('bagFill names what fills the bag and the smallest placeable stack', () 
 
 // --- the fake bot -----------------------------------------------------------
 const key = p => `${p.x},${p.y},${p.z}`
+/** Two side blocks at foot level with solid floor below: what the wear-out remedy may dig. */
+const WALLS = [new Vec3(-1, 64, 0), new Vec3(0, 64, -1)]
 /**
  * opts
  *   tables      crafting tables already standing (not this call's)
@@ -208,16 +213,31 @@ const key = p => `${p.x},${p.y},${p.z}`
  *               craft, instead of the default confirmation. send(name, packet, ms); full({ cursor, grid, bagAt })
  *               builds a window_items from the bag as the server holds it (bagAt overrides one bag slot).
  *   afterDig    hook after each dig has landed (block, { putAway }) -- e.g. the server's auto-pickup of a stray item
+ *   walls       stone at these cells (default WALLS: two side blocks at foot level, the only safe wear-out targets)
+ *   toolBreakMs a tool's last use is taken off the bag this long AFTER the dig resolves (the server's slot update)
+ *   tableDrop   {dx,dy,dz}: a dug table's item comes to rest here (from the cell's corner) as an entity, and is only
+ *               taken by the pickup rule -- not straight into the bag
  *   onLook      hook on every lookAt -- including the one mineflayer's dig does itself unless forceLook is 'ignore'
  *   afterCraft  hook after each bot.craft ({ setBlock, world, slots })
  *   onDig       hook before each dig (block) -- e.g. an abort arriving mid-dig
  *   registry    a registry override (an id the bot cannot name)
  */
 function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confirmMs = 10, noise = [], server = null, afterCraft = null,
-                            onDig = null, afterDig = null, onGoto = null, onLook = null, registry = mc } = {}) {
+                            onDig = null, afterDig = null, onGoto = null, onLook = null, registry = mc,
+                            walls = WALLS, toolBreakMs = 0, tableDrop = null } = {}) {
   const slots = Array(36).fill(null)
   stacks.forEach((s, i) => { slots[i] = { ...s } })
-  const world = new Map(tables.map(p => [key(p), 'crafting_table']))
+  const world = new Map([...walls.map(p => [key(p), 'stone']), ...tables.map(p => [key(p), 'crafting_table'])])
+  let entityId = 1000
+  // THE SERVER'S PICKUP RULE (vanilla Player.aiStep: the player box 0.6 x 1.8 inflated (1.0, 0.5, 1.0) touches the
+  // item's 0.25 box): item minus feet within |dx|,|dz| < 1.425 and dy in (-0.75, 2.3). Checked after every move.
+  const sweep = () => {
+    const f = bot.entity.position
+    for (const [id, e] of Object.entries(bot.entities)) {
+      const d = e.position.minus(f)
+      if (Math.abs(d.x) < 1.425 && Math.abs(d.z) < 1.425 && d.y > -0.75 && d.y < 2.3 && putAway(item(e.drop, 1))) delete bot.entities[id]
+    }
+  }
   const tossed = []; const digs = []; const ground = []; const crafts = []
   const nameAt = p => world.get(key(p)) ?? (p.y < 64 ? 'stone' : 'air')
   const blockAt = p => {
@@ -274,6 +294,7 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
     },
     recipesAll (id, _meta, table) { return Recipe.find(id).filter(r => !r.requiresTable || table) },
     findBlock ({ matching, maxDistance = 32 }) {
+      if (typeof matching !== 'function') return null        // the runner's perception asks by id list: no ore here
       const hits = [...world.entries()].filter(([, n]) => n === 'crafting_table')
         .map(([k]) => blockAt(new Vec3(...k.split(',').map(Number))))
         .filter(b => matching(b) && b.position.distanceTo(bot.entity.position) <= maxDistance)
@@ -285,10 +306,11 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
       if (recipe.requiresTable && !table) throw new Error('Recipe requires craftingTable')
       crafts.push(count)
       for (let k = 0; k < count; k++) {
+        // a server denial puts the bag back as it was BEFORE the clicks: ingredients included (RCON, every denied scene)
+        const before = slots.map(x => x && { ...x })
         for (const d of recipe.delta) if (d.count < 0) take(mc.items[d.id].name, -d.count)
         const name = mc.items[recipe.result.id].name
         const winId = table ? 1 : 0; const base = table ? 10 : 9      // a 3x3 window's inventory starts at 10
-        const before = slots.map(x => x && { ...x })
         // the window's bag as the server holds it, in that window's numbering (46 slots either way)
         const full = ({ cursor = null, grid = false, bagAt = null } = {}) => {
           const items = Array(46).fill(null).map(() => ({ itemCount: 0 }))
@@ -334,16 +356,31 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
       const held = bot.heldItem
       if (held?.maxDurability) {           // any block with hardness > 0 costs a tool one use
         held.durabilityUsed++
-        if (held.durabilityUsed >= held.maxDurability) { slots[slots.indexOf(held)] = null; bot.heldItem = null }
+        if (held.durabilityUsed >= held.maxDurability) {
+          const gone = () => { const i = slots.indexOf(held); if (i >= 0) slots[i] = null; if (bot.heldItem === held) bot.heldItem = null }
+          if (toolBreakMs) { held.durabilityUsed-- ; setTimeout(() => { held.durabilityUsed++; gone() }, toolBreakMs) } else gone()
+        }
       }
       const pick = /_pickaxe$/.test(held?.name ?? '')
       const drop = block.name === 'crafting_table' ? 'crafting_table'
         : block.name === 'stone' ? (pick ? 'cobblestone' : null) : block.name
-      // the server's auto-pickup: into the bag when it fits, else it lies there
-      if (drop && !putAway(item(drop, 1))) { tossed.pop(); ground.push(drop) }
+      if (drop === 'crafting_table' && tableDrop) {
+        const id = entityId++
+        bot.entities[id] = { id, name: 'item', drop, position: block.position.offset(tableDrop.dx + 0.5, tableDrop.dy, tableDrop.dz + 0.5),
+                             getDroppedItem: () => ({ name: drop, count: 1 }) }
+        sweep()
+      } else if (drop && !putAway(item(drop, 1))) { tossed.pop(); ground.push(drop) }   // the server's auto-pickup
       afterDig?.(block, { putAway })
     },
-    pathfinder: { async goto (goal) { await onGoto?.({ goal, setBlock, bot }) }, setGoal () {}, stop () {} },
+    nearestEntity (match) { return Object.values(bot.entities).filter(e => match(e)).sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0] ?? null },
+    // A walk reaches only what the goal accepts: a PICKUP-BOX goal (it carries the item) moves the feet onto the
+    // item's column; any other goal (GoalNear(drop, 1) included) is "reached" where the bot already stands -- the
+    // sandbox case of a drop resting just outside the box while the pathfinder calls its target reached.
+    pathfinder: { async goto (goal) {
+      await onGoto?.({ goal, setBlock, bot })
+      if (goal?.item) bot.entity.position = new Vec3(goal.item.x, Math.floor(goal.item.y), goal.item.z)
+      sweep()
+    }, setGoal () {}, stop () {} },
   })
   return { bot, slots, world, tossed, digs, ground, have, crafts, setBlock }
 }
@@ -369,11 +406,11 @@ await t('POSITIVE CONTROL: the fake throws a pickaxe on the ground exactly as mi
 
 await t('full bag, no spent tool: refuses inventory_full, names the bag, says nothing of deposit, throws nothing', async () => {
   const n = await mark()
-  const { bot, tossed, have } = makeBot(bagOf(36, [item('stick', 5), item('dirt', 3)]), { tables: [NEAR] })
+  const { bot, tossed, have } = makeBot(bagOf(36, [item('stick', 5), item('dirt', 1)]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'inventory_full', r.detail)
   assert.match(r.detail, /36\/36/); assert.match(r.detail, /cobblestone 34 slots/)
-  assert.match(r.detail, /placing your 3 dirt/, 'a move the bot can make where it stands')
+  assert.match(r.detail, /placing your one dirt/, 'a move the bot can make where it stands')
   assert.doesNotMatch(r.detail, /deposit|toss|drop/i)
   assert.deepEqual(tossed, []); assert.equal(have('stone_pickaxe'), 0); assert.equal(have('stick'), 5, 'nothing consumed')
   const rows = (await rowsSince(n)).filter(x => x.kind === '_craft_room')
@@ -586,7 +623,7 @@ await t('TABLE CRAFT, window_items AFTER CLOSE that DENIES (mineflayer stashes i
   const { bot, have } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, full, at }) => {
     send('window_items', full({ bagAt: { i: at, item: { itemCount: 0 } } }), 20) } })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
-  assert.equal(have('stone_pickaxe'), 1, 'the local bag still shows the prediction')
+  assert.ok(have('stone_pickaxe') >= 1, 'the local bag still shows the prediction')
   assert.equal(r.failClass, 'unverified', `read the local prediction over the server: ${r.detail}`)
 })
 
@@ -640,7 +677,7 @@ await t('craft NEVER PLACES A BLOCK to make room (it could seal a tunnel or an e
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'inventory_full', r.detail); assert.equal(crafts.length, 0)
   assert.equal(have('dirt'), 1); assert.ok(![...world.values()].includes('dirt'), 'a block was placed')
-  assert.match(r.detail, /placing your 1 dirt/)
+  assert.match(r.detail, /placing your one dirt/)
 })
 
 await t('a spent AXE is worn out even with no pickaxe in the bag (the survivor rule is for pickaxes)', async () => {
@@ -653,7 +690,7 @@ await t('the refusal never advises an ingredient or something that does not plac
   const { bot } = makeBot(bagOf(36, [item('stick', 5), item('cobblestone', 1), item('wheat', 1)]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'inventory_full', r.detail)
-  assert.doesNotMatch(r.detail, /placing your \d+ (cobblestone|wheat)/)
+  assert.doesNotMatch(r.detail, /placing your \S+ (cobblestone|wheat)/)
 })
 
 await t('a recipe the room check cannot read (an unnamed id) is refused, never crafted unchecked', async () => {
@@ -770,7 +807,7 @@ await t('the refusal ADVICE names only dirt/stone-family blocks, never a hazardo
   const { bot } = makeBot(bagOf(36, [item('stick', 5), item('sand', 1), item('gravel', 1), item('magma_block', 1)]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'inventory_full', r.detail)
-  assert.doesNotMatch(r.detail, /placing your \d+ (sand|gravel|magma_block)/)
+  assert.doesNotMatch(r.detail, /placing your \S+ (sand|gravel|magma_block)/)
 })
 
 await t('a "shows" inside a burst still running at the deadline is NOT server-confirmed: the local count decides', async () => {
@@ -778,6 +815,115 @@ await t('a "shows" inside a burst still running at the deadline is NOT server-co
   const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], confirmMs: 280, noise })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'success', r.detail); assert.equal(r.verification, 'verified_local', 'the deadline bypassed the quiet period')
+})
+
+// --- sandbox round (Paper 1.21.8, 46c4836) -------------------------------------
+await t('WEAR-OUT CHECK RACE: the broken tool leaves the bag 120 ms after the dig -- the check waits for it', async () => {
+  const { bot, have, digs } = makeBot(bagOf(36, [item('stick', 5), item('cobblestone', 30), PICK(),
+    spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe')]), { tables: [NEAR], toolBreakMs: 120 })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(digs.length, 1)
+  assert.equal(r.status, 'success', `read "survived" before the server's slot update: ${r.detail}`)
+  assert.equal(have('stone_pickaxe'), 3, 'two spent + the new one')
+})
+
+await t('RUNNER: a replacement (spent copy worn out + new one crafted) keeps the name count 3 -> 3 and is still a SUCCESS', async () => {
+  const { bot } = makeBot(bagOf(36, [item('stick', 5), item('cobblestone', 30), PICK(),
+    spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe')]), { tables: [NEAR] })
+  Object.assign(bot, { health: 20, food: 20, chat () {} })
+  const r = await new Runner(bot).run('craft', { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', `downgraded: ${r.failClass} ${r.detail}`)
+  assert.match((r.contractEvidence ?? []).join(';'), /crafted: stone_pickaxe \+1/)
+})
+
+await t('RUNNER: the final item DENIED by the server stays unknown, whatever the sub-crafts put in the bag', async () => {
+  const deny = mc.itemsByName.wooden_pickaxe.id
+  // planks in hand, so the sub-craft (sticks) and the final craft fit inside the suite's 300 ms runner watchdog
+  const { bot, have } = makeBot(bagOf(20, [item('oak_planks', 7)]), { tables: [NEAR], server: ({ send, winId, base, at, resultId, count, restore }) => {
+    if (resultId === deny) { setTimeout(restore, 10); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 10) }
+    else send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: count } }, 10)
+  } })
+  Object.assign(bot, { health: 20, food: 20, chat () {} })
+  const r = await new Runner(bot).run('craft', { item: 'wooden_pickaxe', count: 1 })
+  assert.ok(have('stick') > 0, 'the sub-crafts did put things in the bag')
+  assert.equal(r.status, 'unknown', `upgraded on the sub-crafts' gain: ${r.detail}`)
+  assert.equal(r.failClass, 'unverified')
+})
+
+await t('RUNNER: the craft verified count is evidence ONLY for the item it was asked for', async () => {
+  const bot = makeBot(bagOf(10, [])).bot
+  Object.assign(bot, { health: 20, food: 20, chat () {} })
+  const orig = SKILLS.craft.run
+  SKILLS.craft.run = async () => ({ status: 'unknown', failClass: 'unverified', item: 'oak_planks', requested: 1, executions: 1, produced: 4,
+                                    detail: 'a result whose fields are about another item' })
+  try {
+    const r = await new Runner(bot).run('craft', { item: 'wooden_pickaxe', count: 1 })
+    assert.equal(r.status, 'unknown', `credited planks to a pickaxe: ${r.detail}`)
+  } finally { SKILLS.craft.run = orig }
+})
+
+await t('a STOP at a sub-level reports the REQUESTED item with nothing produced', async () => {
+  const { bot } = makeBot(bagOf(20, [item('oak_log', 3)]), { tables: [NEAR], craftLands: false })
+  const r = await run(bot, { item: 'wooden_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'unverified')
+  assert.deepEqual([r.item, r.executions, r.produced], ['wooden_pickaxe', 0, 0], 'the sub-level\'s fields leaked up')
+})
+
+await t('RETAKE DROP OUT OF RANGE: the table item rests 2.6 above the cell; the bot walks to a pickup-box goal and it ARRIVES', async () => {
+  const n = await mark()
+  const { bot, have, world } = makeBot(bagOf(30, [item('stick', 5), item('crafting_table', 1)]), { tableDrop: { dx: 0, dy: 2.6, dz: 0 } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.ok(![...world.values()].includes('crafting_table'))
+  assert.equal(have('crafting_table'), 1, `the table was lost: ${r.detail}`)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_table_retaken' && x.status === 'success'))
+})
+
+await t('WEAR-OUT PIT: on open ground (no side block) the floor is never dug -- refuse, no pit', async () => {
+  const { bot, digs } = makeBot(bagOf(36, [item('stick', 5), spent('stone_axe')]), { tables: [NEAR], walls: [] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(digs.length, 0, `dug ${JSON.stringify(digs)}`); assert.equal(r.failClass, 'inventory_full', r.detail)
+})
+
+await t('WEAR-OUT digs a SIDE block at foot level, never the floor under or beside the feet', async () => {
+  const { bot, digs } = makeBot(bagOf(36, [item('stick', 5), spent('stone_axe')]), { tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(digs.every(d => Number(d.at.split(',')[1]) >= 64), `dug the floor: ${JSON.stringify(digs)}`)
+})
+
+// --- a server denial is retried once ---------------------------------------------
+const denyThen = (pattern) => {
+  let n = 0
+  return ({ send, winId, base, at, resultId, count, restore }) => {
+    const say = pattern[Math.min(n++, pattern.length - 1)]
+    if (say === 'deny') { setTimeout(restore, 10); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 10) }
+    else send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: count } }, 10)
+  }
+}
+
+await t('DENIED, then CONFIRMED on the one retry: success, two crafts, retried=1 on the row', async () => {
+  const n = await mark()
+  const { bot, have, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: denyThen(['deny', 'show']) })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(r.verification, 'server')
+  assert.deepEqual(crafts, [1, 1]); assert.equal(have('stone_pickaxe'), 1); assert.equal(have('stick'), 3)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'success' && /retried=1 retry=server/.test(x.detail)))
+})
+
+await t('DENIED TWICE: unknown/unverified, ingredients intact, no third try', async () => {
+  const n = await mark()
+  const { bot, have, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: denyThen(['deny', 'deny', 'show']) })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'unknown'); assert.equal(r.failClass, 'unverified', r.detail)
+  assert.deepEqual(crafts, [1, 1], 'a third try')
+  assert.equal(have('stick'), 5); assert.equal(have('stone_pickaxe'), 0)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'unverified' && /retried=1 retry=denied/.test(x.detail)))
+})
+
+await t('NO SERVER STATEMENT is never retried (only a denial is)', async () => {
+  const { bot, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], craftLands: false })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'unverified'); assert.deepEqual(crafts, [1])
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

@@ -175,8 +175,8 @@ export function wearKeepsSlot (items = [], toolName = '', blockName = '', drops 
 /**
  * WHAT FILLS THE BAG, for a refusal that names it. -> { line, cheapest }
  *   line      "cobblestone 20 slots, dirt 8, stone_pickaxe 3, ..." (most slots first, top 5)
- *   cheapest  the smallest stack the bot could PLACE away (the filler rules above, any count): advice, so it names
- *             the move and its size; null when nothing qualifies
+ *   cheapest  a ONE-block stack the bot could place away (the filler rules above): advice naming one move;
+ *             null when nothing qualifies
  */
 export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
@@ -184,7 +184,8 @@ export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
   for (const it of list) by.set(it.name, (by.get(it.name) ?? 0) + 1)
   const line = [...by.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 5)
     .map(([n, k], i) => `${n} ${k}${i === 0 ? (k === 1 ? ' slot' : ' slots') : ''}`).join(', ')
-  const cheapest = fillerCandidates(list, consumes, isPlaceable).sort((a, b) => (a.count ?? 1) - (b.count ?? 1))[0] ?? null
+  // ONE block: a stack of 64 is 64 placements, not a move from where the bot stands (sandbox: 'placing your 64 diorite').
+  const cheapest = fillerCandidates(list, consumes, isPlaceable).find(it => (it.count ?? 1) === 1) ?? null
   return { line, cheapest: cheapest && { name: cheapest.name, count: cheapest.count ?? 1 } }
 }
 

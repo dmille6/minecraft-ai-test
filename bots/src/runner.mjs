@@ -301,6 +301,10 @@ export class Runner {
       // recorded, so a visit that changed no minds cannot claim it did.
       adopted: Number(result.adopted ?? 0),
       filed: Number(result.filed ?? 0),
+      // THE CRAFT'S OWN VERIFIED COUNT, same rule as `placed`, and only for the item it was ASKED for: sub-crafts'
+      // planks are not evidence about a pickaxe, and a replacement (spent copy out, new copy in) moves no name count.
+      crafted: result.item != null && result.item === args?.item ? Number(result.produced ?? 0) : 0,
+      craftedItem: result.item ?? null,
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless
