@@ -14,10 +14,13 @@
 //   - A refusal is a `no_effect` gather with class cell_refused; the runner's skill row carries no failClass for a
 //     no_effect, so the refusal is identified by its `_cell_refused` row (and `_cell_target` for the walk).
 //     EXCLUDE no_effect gather rows from every gather success/failure denominator, or the refusals read as failures.
-//   - Never refused (exemptReason): ores, gathers under rock or soil, and anything at night without a bed. Each
-//     would-be refusal it waives is a `_cell_exempt` row (reason=ore|underground|night), at most one per reason,
-//     column and family every EXEMPT_LOG_MS per bot. Read them as the population the change did NOT touch; iron
-//     numbers should not move by it, and night gathers behave as before.
+//   - Never refused (exemptReason): ores, gathers under rock or soil (a rock/soil ROOF counts too: names cannot tell
+//     it from terrain), and anything at night without a bed. Each would-be refusal it waives is a `_cell_exempt` row,
+//     at most one per reason, column and family every EXEMPT_LOG_MS per bot. FOUR reason values:
+//       reason=ore | underground | night   -- the three exemptions
+//       reason=unknown                     -- the check itself threw (e.g. a block read failed); waived, not refused
+//     Read them as the population the change did NOT touch; iron numbers should not move by it, and night gathers
+//     behave as before. A rising `unknown` share is an instrument fault, not a behaviour.
 
 export const CELL = 16
 /** The measured hard-failure classes: the bot found the material and could not reach it. Not nothing_found (a
@@ -75,10 +78,22 @@ export function exemptReason (block, { underground = false, night = false, hasBe
  * underground: the main population this change exists for is a bot under an oak canopy, and the old test (any
  * boundingBox 'block' overhead) read every canopy as a cave and never refused there (both second reviews).
  */
-// ONLY ROCK OR SOIL COUNTS: leaves, logs, planks, vines and anything a bot or player built never match, so a canopy, a
-// trunk or a roof reads as open sky. A list of what IS underground, not of what is not (an allowlist, as cognitive.mjs
-// keeps its evidence classes): an unlisted block can only ever fail to waive a refusal, never wrongly waive one.
-const ROCK_OR_SOIL = /^(stone|deepslate|cobblestone|cobbled_deepslate|tuff|calcite|andesite|diorite|granite|dripstone_block|gravel|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|sand|red_sand|sandstone|red_sandstone|netherrack|basalt|smooth_basalt|blackstone|bedrock|obsidian|packed_ice|snow_block|moss_block)$|_ore$|terracotta$/
+// ONLY ROCK OR SOIL COUNTS: leaves, logs, planks, glass, bricks and other built blocks never match, so a canopy, a
+// trunk or a timber roof reads as open sky. An allowlist of what IS underground (as cognitive.mjs keeps its evidence
+// classes): an unlisted block can only ever fail to waive a refusal, never wrongly waive one.
+//
+// THE CONTRACT, ACCEPTED (Codex, third pass): a name cannot tell a built roof from terrain. A bot under a COBBLESTONE
+// (or dirt, or stone) roof is treated as underground: exempt, never refused. That errs toward the old behaviour --
+// the gather runs and the row says reason=underground -- which is the safe direction for a refusal.
+// Terracotta counts in its plain and sixteen dyed forms (badlands generate them); GLAZED terracotta is smelted, never
+// natural, and does not.
+const DYES = 'white|orange|magenta|light_blue|yellow|lime|pink|gray|light_gray|cyan|purple|blue|brown|green|red|black'
+const ROCK_OR_SOIL = new RegExp(
+  '^(stone|deepslate|cobblestone|mossy_cobblestone|cobbled_deepslate|tuff|calcite|andesite|diorite|granite|dripstone_block|' +
+  'gravel|suspicious_gravel|dirt|coarse_dirt|rooted_dirt|grass_block|podzol|mycelium|mud|clay|sand|suspicious_sand|red_sand|' +
+  'sandstone|red_sandstone|netherrack|basalt|smooth_basalt|blackstone|bedrock|obsidian|magma_block|soul_sand|soul_soil|' +
+  'end_stone|sculk|amethyst_block|budding_amethyst|ice|packed_ice|blue_ice|snow_block|moss_block)$' +
+  '|^infested_' + '|_ore$' + `|^((${DYES})_)?terracotta$`)
 export function undergroundFrom (namesAbove) {
   return (namesAbove ?? []).some(n => ROCK_OR_SOIL.test(norm(n)))
 }

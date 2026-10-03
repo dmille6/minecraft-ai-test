@@ -151,6 +151,17 @@ await t('CAP: a success column 200 blocks away is not a trip', () => {
   const g = chooseTarget(mem, { pos: at(8, 8), family: 'log', now: T0 + 2 * MIN })
   assert.notEqual(g.source, 'success'); assert.ok(g.dist <= TRIP_CAP)
 })
+await t('ROCK AND SOIL, THE WHOLE NATURAL SET: sculk, infested, amethyst, magma, mossy cobble, suspicious, ice, soul sand/soil, end stone', () => {
+  for (const n of ['soul_sand', 'soul_soil', 'end_stone', 'sculk', 'infested_stone', 'infested_deepslate', 'infested_cobblestone',
+                   'amethyst_block', 'budding_amethyst', 'magma_block', 'mossy_cobblestone', 'suspicious_sand', 'suspicious_gravel',
+                   'ice', 'blue_ice', 'terracotta', 'red_terracotta', 'light_gray_terracotta'])
+    assert.equal(M.undergroundFrom([n]), true, n)
+})
+await t('THE CONTRACT: a rock/soil ROOF is treated as underground (names cannot tell it from terrain); glazed terracotta is not rock', () => {
+  assert.equal(M.undergroundFrom(['cobblestone']), true, 'accepted: a bot under a cobblestone roof is exempt, never refused')
+  assert.equal(M.undergroundFrom(['white_glazed_terracotta']), false, 'glazed terracotta is smelted, never natural')
+  assert.equal(M.undergroundFrom(['oak_planks', 'glass', 'bricks']), false, 'a built roof of anything else is sky')
+})
 await t('EXEMPTIONS (pure): ore, then underground, then night without a bed; a surface log by day, or at night with a bed, is refusable', () => {
   assert.equal(typeof M.exemptReason, 'function')
   const R = M.exemptReason
@@ -396,6 +407,20 @@ await t('UNDER AN OAK CANOPY (the main population): repeated failures ARE refuse
   const r = await refuseHere(bot, w, now)
   assert.equal(w.calls.length, 2, 'the third gather under the canopy ran: a tree read as rock')
   assert.equal(r.failClass, 'cell_refused')
+})
+await t('UNKNOWN: if the exemption check throws, the refusal is waived and a cell_exempt row says reason=unknown', async () => {
+  let clock = T0; const now = () => (clock += MIN)
+  const rows = []; const emit = row => rows.push(row)
+  const bot = fakeBot(); const w = world()
+  const ground = bot.blockAt
+  bot.blockAt = v => { if (v.y >= 66) throw new Error('chunk read failed'); return ground(v) }
+  const go = () => gatherCell({ bot }, { block: 'oak_log', count: 4 }, new AbortController().signal, { inner: w.inner, now, emit })
+  await go(); await go(); const r = await go()
+  assert.equal(w.calls.length, 3, 'refused on a check that could not be made')
+  assert.equal(r.failClass, 'no_path')
+  assert.deepEqual(rows.filter(x => x.kind === 'cell_exempt').map(x => /reason=(\w+)/.exec(x.detail)[1]), ['unknown'])
+  bot.blockAt = ground; await go()
+  assert.equal(w.calls.length, 3, 'positive control: the same column with a readable sky IS refused')
 })
 await t('EXEMPT ROWS ARE THROTTLED, AND EVERY ROW IS NAMED AS LOGGED (logEvent prefixes one underscore)', async () => {
   let clock = T0; const now = () => (clock += 10_000)   // every call reads the clock; 8 gathers stay well inside 10 min

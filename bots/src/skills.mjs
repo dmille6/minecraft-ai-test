@@ -2298,6 +2298,8 @@ export async function gatherCell (ctx, args, signal, { inner = gather, walk = ex
     // it always did; a throttled `_cell_exempt` row names the population this change did not touch.
     const hasBed = (bot.inventory?.items?.() ?? []).some(i => String(i.name).endsWith('_bed'))
     let why
+    // A check that throws WAIVES the refusal (reason=unknown, the fourth value in cellmem.mjs READ NOTES): a refusal
+    // needs the exemptions to have been asked, and an unanswered question is not a "no".
     try { why = exemptReason(block, { underground: undergroundFrom(solidAbove(bot)), night: isNightTime(bot), hasBed }) } catch { why = 'unknown' }
     if (why) {
       if (exemptLogDue(mem, `${why}|${ref.cell}|${family}`, now())) {
