@@ -92,6 +92,13 @@ bullet's details above with what the pinned scorer computes:
   first 20 minutes: 65 snapshots, GET_WOOD n=2 proposals, no outcome columns populated (windows not yet complete). No
   decision-partition data has been read since, and none will be until the read.
 
+**ADDENDUM 2 (written 2026-10-03 22:40Z, before the census below read anything; OWNER asked for a daily blocker
+census).** The daily scoreboard (scripts/host/scoreboard.py) may read, from mayor assignment records, ONLY the
+`unstaffed` entries -- each unmet need's duty and its blocker reasons -- counted by mayor_rev. It does NOT read
+`assignments` (which bot was chosen), leases, outcomes, concordance, base rates, or any engine comparison, and it does
+not run the scorer. Nothing it prints is an input to the gate. Before 18:02:46Z and after it, GET_WOOD counts are
+NOT comparable (world scope vs per bot) and are printed separately by revision.
+
 ## Not built
 In-bot mayor, SQLite leases, permanent jobs, chest ledger/quartermaster before withdraw works, prompt "advice",
 a frontier call per bot, live frontier calls before the replay result, new telemetry fields.
