@@ -2804,13 +2804,17 @@ async function craft(ctx, args, signal, depth = 0, owed = 0) {
   }
   let out
   let retook = null
+  let pending = null            // an error craftLevel threw, which a cleanup error would REPLACE
   try {
     out = await craftLevel(ctx, args, signal, depth, placedHere, owed, progress)
   } catch (e) {
-    throw carry(e)
+    throw (pending = carry(e))
   } finally {
     if (placedHere.length) {
       try { retook = await retakeTables(ctx, placedHere, signal) } catch (e) {
+        // The replacement inherits the pending error's verified tally (a deeper retry's executions), then this
+        // level's own result or progress may only add to it (carry keeps the larger tally for the same item).
+        if ((e?.aborted || signal?.aborted) && pending?.verified && e && typeof e === 'object') e.verified = { ...pending.verified }
         if (e?.aborted || signal?.aborted) throw carry(e, out?.item === progress.item ? out : progress)
         retook = `could not take the table back: ${String(e?.message ?? e).slice(0, 60)}`
       }
@@ -3470,8 +3474,9 @@ function itemClassFor(registry) {
   }
   return ITEM_CLASS.get(registry)
 }
-// -> slots written, or null when the server said something about a closed window and it could NOT be written: then the
-// local bag is not the server's, and nothing may be concluded from it.
+// -> slots written, or null when the server said something about a closed window and ANY of it could not be written
+// (no item class, no updateSlot, a decode that fails, an updateSlot that throws): then the local bag is not the
+// server's, and nothing may be concluded from it -- not a count, not 0.
 function applyServerSlots(bot, packets = [], craftWindow = null) {
   const mine = (packets ?? []).filter(p => p && p.windowId !== 0 && (craftWindow == null || p.windowId === craftWindow))
   if (!mine.length) return 0
@@ -3479,14 +3484,23 @@ function applyServerSlots(bot, packets = [], craftWindow = null) {
   if (!Item || typeof bot.inventory?.updateSlot !== 'function') return null
   const empty = it => !(Number(it?.itemCount ?? 0) > 0)
   let wrote = 0
-  const put = (bag, it) => { if (bag >= 9 && bag <= 44) { try { bot.inventory.updateSlot(bag, Item.fromNotch(it)); wrote++ } catch {} } }
+  let failed = false
+  const put = (bag, it) => {
+    if (bag < 9 || bag > 44) return
+    try {
+      const v = Item.fromNotch(it)
+      if (!v && !empty(it)) throw new Error('an item the registry could not decode')
+      bot.inventory.updateSlot(bag, v)
+      wrote++
+    } catch { failed = true }
+  }
   for (const p of mine) {
     if (p.kind === 'set_slot') put(p.slot - 1, p.item)
     else if (p.kind === 'window_items' && Array.isArray(p.items) && empty(p.carriedItem) && p.items.slice(1, 10).every(empty)) {
       for (let bag = 9; bag <= 44; bag++) put(bag, p.items[bag + 1])
     }
   }
-  return wrote
+  return failed ? null : wrote
 }
 
 /**

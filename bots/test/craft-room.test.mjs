@@ -996,5 +996,29 @@ await t('a denial that CANNOT be written into the bag stays unverified: the loca
   assert.equal(r.failClass, 'unverified', r.detail); assert.deepEqual(crafts, [1], 'retried on an unreconciled bag')
 })
 
+// --- seventh pass ------------------------------------------------------------------
+await t('a WRITE THAT FAILS while applying the denial: the bag is not reconciled -- unverified, no retry, no promotion', async () => {
+  const { bot, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ deny }) => deny(10) })
+  bot.inventory.updateSlot = () => { throw new Error('injected: updateSlot failed') }
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'unverified', r.detail); assert.deepEqual(crafts, [1], 'retried on a bag it failed to reconcile')
+})
+
+await t('CLEANUP REPLACES A PENDING ERROR: the deeper retry verified one execution and threw; an abort in the outer retake keeps crafted +1', async () => {
+  // carried table -> placed at depth 0 -> the retry (depth 1) crafts 2: the first verifies, the second throws a
+  // non-abort error before its click; the depth-0 retake is then aborted and its error replaces the pending one
+  let runner = null; let armed = false
+  const made = makeBot(bagOf(30, [item('stick', 9), item('crafting_table', 1)]), {
+    afterCraft: () => { armed = true },
+    onDig: b => { if (b.name === 'crafting_table') runner.interrupt('test: abort in the outer cleanup') } })
+  const { bot } = made
+  const client = bot._client
+  Object.defineProperty(bot, '_client', { get () { if (armed) { armed = false; throw new Error('injected: a non-abort failure in the deeper retry') } return client } })
+  Object.assign(bot, { health: 20, food: 20, chat () {} })
+  runner = new Runner(bot)
+  const r = await runner.run('craft', { item: 'stone_pickaxe', count: 2 })
+  assert.match((r.contractEvidence ?? []).join(';'), /crafted: stone_pickaxe \+1/, `${r.status} ${r.detail}`)
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
