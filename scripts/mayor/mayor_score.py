@@ -23,12 +23,17 @@ Per proposal (held leases are not re-scored; a frontier proposal is scored every
               unioned per bot+duty) per world-day and per day. A shortage whose certainty is
               'unknown-bank' (GET_IRON: banked iron is unknown) is reported apart, never in the gap.
   downstream  outcome within 30 min AND (for a resource target) the bot came within 16 blocks of it.
-  x random    downstream rate / the random-eligible baseline's, BOTH on CONTESTED snapshots only (any
-              duty-cap, world-cap, bot or target competition -- see contested(); without it every order
-              assigns the same candidates and targets, property-tested) and after the epoch WARM-UP. The
-              deterministic mayor is compared with baselines run through the SAME lease/cooldown logic
-              (core.decide with a random or nearest order); the stateless frontier engines with stateless
-              baselines (`*-stateless`).
+  x random    DIAGNOSTIC ONLY, never a gate input: downstream rate / the random baseline's, both on
+              STATELESS-CONTESTED proposals (`stcon`: duty-cap, world-cap, bot or target competition inside
+              the snapshot -- see contested()) after the warm-up. Differences that come from lease HISTORY
+              (who is held, who cools down) are excluded from it by construction. Deterministic vs the
+              leased baselines; frontier engines vs the stateless ones (`*-stateless`).
+  GATE RATIO  THE READ RULE, GET_WOOD and GET_IRON: deterministic x base / LEASED-random x base in the same
+              partition (both through the same lease logic, so lease timing cancels), with both raw x base
+              values and a SENSITIVITY BAND: the leased random baseline rerun from start offsets 0/5/10/15/20/25
+              min after every reset, min..max of the gate ratio, flagged 'initialization-dependent' when the
+              band straddles 1.5x. A baseline CARRIES its own state across a transition only when decide()
+              semantics are identical there (same code rev, same DECIDE_CFG); every other epoch start resets.
   x base      CONCORDANCE / the base rate of ELIGIBLE short bots: the same outcome, window and observation
               rule on both sides (a base bot has no target, so target-conditioned downstream is not used).
   logs30      GET_WOOD only, its own label: logs gained >= 1 in 30 min (the outcome is shortage RELIEF).
@@ -50,9 +55,10 @@ down >= 2; GET_WOOD RELIEF -- the short bot gained a log OR is no longer short_o
 got a pickaxe), the same test as the lease's duty_done (GET_WOOD is a PER-BOT shortage: no usable pickaxe
 and too little of its own wood to craft one); GET_IRON iron gained >= 1; RESTORE_PICK pickaxe back above 10%.
 
-POSITIVE CONTROLS PRINT FIRST, global AND per bot: rows, span, per-bot coverage of the snapshot
-times, and outcome EVENTS of each duty the detector finds. A zero next to a zero control prints as
-UNCONTROLLED and exits 4. REPLAY snapshots (`replay: true`) are refused unless --replay-only, which
+POSITIVE CONTROLS PRINT FIRST: rows and span globally, then PER PARTITION with that partition's cfg --
+outcome EVENTS of each duty the detector finds in its scored span (FREE_BAG = crossing ITS full_slots)
+and per-bot coverage of its snapshot times (within ITS stale_s). A zero next to a zero control OF THE
+SAME PARTITION prints as UNCONTROLLED and exits 4. REPLAY snapshots (`replay: true`) are refused unless --replay-only, which
 scores them on their own and never mixed with live ones.
 
 MEMORY. One world at a time: that world's snapshots (inventories dropped) and its bots' state rows as
@@ -186,11 +192,14 @@ def logs_gained(base, seq):
     return bool(seq) and gained(LOGS, base['logs'], seq) >= 1
 
 
-def detector_events(tel, cfg):
-    """POSITIVE CONTROL: outcome events of each kind anywhere in the loaded telemetry."""
+def detector_events(tel, cfg, t_from=None, t_to=None):
+    """POSITIVE CONTROL: outcome events of each kind in the loaded telemetry -- judged with `cfg` (a FREE_BAG event
+    is crossing THAT partition's full_slots) and, when given, only for steps ending inside [t_from, t_to]."""
     n = dict.fromkeys(core.DUTIES, 0)
     for seq in tel.values():
         for a, b in zip(seq, seq[1:]):
+            if (t_from is not None and b[T] < t_from) or (t_to is not None and b[T] > t_to):
+                continue
             n['FREE_BAG'] += a[SLOTS] >= cfg['full_slots'] > b[SLOTS]
             n['RESTORE_PICK'] += (not a[PICK_OK]) and b[PICK_OK]
             n['GET_WOOD'] += b[LOGS] > a[LOGS] or (a[WOOD_SHORT] is True and b[WOOD_SHORT] is False)
@@ -220,12 +229,16 @@ def coverage(seq, times, gap):
     """Fraction of snapshot times with a state row within +-gap (the per-bot positive control)."""
     if not times:
         return None
+    return coverage_hits(seq, times, gap) / len(times)
+
+
+def coverage_hits(seq, times, gap):
     ts = [r[T] for r in seq]
     hit = 0
     for t in times:
         i = bisect.bisect_left(ts, t - gap)
         hit += i < len(ts) and ts[i] <= t + gap
-    return hit / len(times)
+    return hit
 
 
 def need_holds(duty, bot_name, snap):
@@ -287,22 +300,73 @@ def nearest_order(snap):
                                                 c['bot_name']))
 
 
+# The cfg keys core.decide() reads (caps, lease, cooldown; duty_done reads full_slots). Every OTHER key only
+# shapes the snapshot (candidates, feasibility), which decide takes as given. Property-tested: perturbing any
+# other key leaves decide's output identical; perturbing one of these changes it.
+DECIDE_CFG = ('cap_per_world', 'cap_per_duty', 'lease_s', 'cooldown_s', 'full_slots')
+BAND_OFFSETS_MIN = (0, 5, 10, 15, 20, 25)     # leased-baseline start offsets after a reset (sensitivity band)
+GATE_DUTIES = ('GET_WOOD', 'GET_IRON')
+GATE_THRESHOLD = 1.5
+
+
+def decide_compat(snap):
+    """Two epochs with the same value here run IDENTICAL decide() semantics: the same code revision (decide is
+    in mayor_core, inside the hash) and the same DECIDE_CFG values. Only then may a baseline carry its state."""
+    cfg = snap.get('_cfg') or effective_cfg(snap)
+    return rev_of(snap), json.dumps({k: cfg[k] for k in DECIDE_CFG}, sort_keys=True)
+
+
+def leased_run(ep, cfg, order_of, state=None, start_ms=None):
+    """One leased baseline over one epoch: core.decide with only the ORDER changed (same leases, cooldowns,
+    caps). `state` is this baseline's OWN state carried from the previous epoch (never the mayor's), or None
+    (a reset); `start_ms` starts the replay later (the sensitivity band). -> (new proposals, end state)"""
+    props = []
+    for s in ep:
+        if start_ms is not None and s['t_ms'] < start_ms:
+            continue
+        order = order_of(s)
+        rec, state = core.decide(s, state, cfg, order=order)
+        props += [(s['snap_id'], {'candidate_id': a['candidate_id'], 'target': a['target']})
+                  for a in rec['assignments'] if a['lease'] != 'held']
+    return props, state
+
+
+def stateless_run(ep, cfg, order_of):
+    """Greedy per snapshot, no memory: the matched baseline for the per-snapshot frontier engines."""
+    out = []
+    for s in ep:
+        out += [(s['snap_id'], a) for a in core.greedy(s, order_of(s)(s['candidates']), cfg)]
+    return out
+
+
 def baselines(snaps, cfg=core.DEFAULTS):
-    """random / nearest run through core.decide -- the SAME leases, cooldowns and caps as the deterministic
-    mayor, only the order differs -- over one world's snapshots in time order; their NEW assignments are
-    scored like the mayor's. `*-stateless` (greedy per snapshot, no memory) are the matched baselines for
-    the per-snapshot frontier engines."""
+    """All four baselines over one epoch from a reset (kept for callers that want them in one call)."""
     out = {}
     for name, order_of in (('random', random_order), ('nearest', nearest_order)):
-        state, leased, flat = None, [], []
-        for s in snaps:
-            order = order_of(s)
-            rec, state = core.decide(s, state, cfg, order=order)
-            leased += [(s['snap_id'], {'candidate_id': a['candidate_id'], 'target': a['target']})
-                       for a in rec['assignments'] if a['lease'] != 'held']
-            flat += [(s['snap_id'], a) for a in core.greedy(s, order(s['candidates']), cfg)]
-        out[name], out[name + '-stateless'] = leased, flat
+        out[name] = leased_run(snaps, cfg, order_of)[0]
+        out[name + '-stateless'] = stateless_run(snaps, cfg, order_of)
     return out
+
+
+def x_base(m, base_elig):
+    """CONCORDANCE / the eligible base rate: the same outcome, window and observation rule on both sides."""
+    k, n = base_elig
+    cr = m['concord'] / m['concord_n'] if m and m['concord_n'] else None
+    return (cr / (k / n)) if cr is not None and n and k else None
+
+
+def gate_ratio(det_xbase, random_xbase):
+    """THE READ RULE: the deterministic mayor's x base over the LEASED-random baseline's, same partition. Both
+    went through the same lease logic, so lease timing cancels. Reads x base ONLY -- x random is a diagnostic
+    and never a gate input."""
+    return det_xbase / random_xbase if det_xbase is not None and random_xbase else None
+
+
+def band_flag(lo, hi, threshold=GATE_THRESHOLD):
+    """'initialization-dependent' when the band of gate ratios over baseline start offsets straddles the gate."""
+    if lo is None or hi is None:
+        return 'undefined'
+    return 'initialization-dependent' if lo < threshold <= hi else ('passes' if lo >= threshold else 'fails')
 
 
 def baseline_for(eng):
@@ -597,9 +661,15 @@ def main(argv=None):
             if rec.get('valid') is False:
                 invalid[lab] = invalid.get(lab, 0) + 1
     paths = sorted(glob.glob(args.logs))
-    det = dict.fromkeys(core.DUTIES, 0)
-    revs = {}         # partition key (code rev + effective cfg) -> {res, gaps, base, base_elig, wd, ...}
-    cov, n_rows, n_snaps, t_lo, t_hi = {}, 0, 0, None, None
+    revs = {}         # partition key (code rev + effective cfg) -> {res, gaps, base, base_elig, det, cov, band, ...}
+    n_rows, n_snaps, t_lo, t_hi = 0, 0, None, None
+
+    def new_part(ep, cfg_e, tag):
+        return {'res': {}, 'gaps': {}, 'base': {d: [0, 0] for d in core.DUTIES},
+                'base_elig': {d: [0, 0] for d in core.DUTIES}, 'wd': 0.0, 'epochs': 0, 'carried_epochs': 0,
+                't_lo': None, 't_hi': None, 'snapshots': 0, 'cfg': cfg_e, 'mayor_rev': rev_of(ep[0]), 'cfg_tag': tag,
+                'det': dict.fromkeys(core.DUTIES, 0), 'cov': {}, 'band': {o: {} for o in BAND_OFFSETS_MIN}}
+
     for world in sorted(w for w in files_by_world if w):
         # the WHOLE history of the world (no --since/--until yet): baselines replay from the start of the data
         hist = []
@@ -618,9 +688,26 @@ def main(argv=None):
         others = set().union(*(v for k, v in bots_by_world.items() if k != world)) - bots
         tels = {}                                 # telemetry COMPACTED WITH EACH EPOCH'S OWN cfg
         runs = epochs(hist)
+        scored = (lambda s: in_window(s, since, until))
+        carry, prev_compat = {}, None             # each leased baseline's OWN state, by name (+ band offset)
         for idx, (key, ep) in enumerate(runs):
             cfg_e = ep[0]['_cfg']
-            scored = (lambda s: in_window(s, since, until))
+            compat = decide_compat(ep[0])
+            carried = compat == prev_compat       # identical decide() semantics across the transition
+            prev_compat = compat
+            if not carried:
+                carry = {}
+            ep0 = ep[0]['t_ms']
+            warm_ms = (cfg_e['lease_s'] + cfg_e['cooldown_s']) * 1000
+            # replay EVERY epoch (selected or not) so carried state is never skipped
+            leased = {}
+            for name, order_of in (('random', random_order), ('nearest', nearest_order)):
+                leased[name], carry[name] = leased_run(ep, cfg_e, order_of, carry.get(name))
+            band_props = {}
+            for o in BAND_OFFSETS_MIN:
+                nm = 'random@%d' % o
+                band_props[o], carry[nm] = leased_run(ep, cfg_e, random_order, carry.get(nm),
+                                                      None if carried else ep0 + o * MIN)
             mine = [s for s in ep if scored(s)]
             if not mine:
                 continue
@@ -631,69 +718,98 @@ def main(argv=None):
                 n_rows += n
             tel, tel_end = tels[tag]
             epoch_end = ep[-1]['t_ms'] if idx < len(runs) - 1 else None
-            warm_until = ep[0]['t_ms'] + (cfg_e['lease_s'] + cfg_e['cooldown_s']) * 1000
-            R = revs.setdefault(key, {'res': {}, 'gaps': {}, 'base': {d: [0, 0] for d in core.DUTIES},
-                                      'base_elig': {d: [0, 0] for d in core.DUTIES}, 'wd': 0.0, 'epochs': 0,
-                                      't_lo': None, 't_hi': None, 'snapshots': 0, 'cfg': cfg_e,
-                                      'mayor_rev': rev_of(ep[0]), 'cfg_tag': tag})
+            warm_until = None if carried else ep0 + warm_ms
+            R = revs.setdefault(key, new_part(ep, cfg_e, tag))
             a, b = mine[0]['t_ms'], mine[-1]['t_ms']
             R['t_lo'], R['t_hi'] = min(R['t_lo'] or a, a), max(R['t_hi'] or b, b)
             R['wd'] += (b - a + interval_ms) / 8.64e7
             R['snapshots'] += len(mine)
             R['epochs'] += 1
+            R['carried_epochs'] += carried
             recs = dict(records.get(world, {}))
-            recs.update(baselines(ep, cfg_e))     # the epoch's FULL history, its own cfg, its own empty state
+            recs.update(leased)                   # the epoch's FULL history, its own cfg, its own (carried) state
+            for name, order_of in (('random', random_order), ('nearest', nearest_order)):
+                recs[name + '-stateless'] = stateless_run(ep, cfg_e, order_of)
             score_world(ep, recs, rejected.get(world, {}), tel, tel_end, cfg_e, interval_ms, R['res'], R['gaps'],
                         epoch_end=epoch_end, scored=scored, warm_until=warm_until)
             base_rates(ep, tel, tel_end, cfg_e, R['base'], R['base_elig'], epoch_end=epoch_end, scored=scored)
-        first_tel = next(iter(tels.values()))[0] if tels else {}
-        times = [s['t_ms'] for s in sel]
-        for b in bots:
-            cov[b] = coverage(first_tel.get(b, []), times, gapms)
-        for d, k in detector_events(first_tel, sel[0]['_cfg']).items():
-            det[d] += k
+            for o in BAND_OFFSETS_MIN:            # the same random baseline started o minutes after each reset
+                score_world(ep, {'random': band_props[o]}, {}, tel, tel_end, cfg_e, interval_ms, R['band'][o], {},
+                            epoch_end=epoch_end, scored=scored,
+                            warm_until=None if carried else ep0 + o * MIN + warm_ms)
+            # POSITIVE CONTROLS FOR THIS PARTITION, with ITS cfg: detector events in the scored span (+30 min
+            # outcome horizon, never past the epoch), and coverage of its snapshot times with its stale_s
+            horizon = min(tel_end, epoch_end) if epoch_end is not None else tel_end
+            for d, k in detector_events(tel, cfg_e, a, min(b + 30 * MIN, horizon)).items():
+                R['det'][d] += k
+            times = [s['t_ms'] for s in mine]
+            for bn in bots:
+                h, nn = R['cov'].get(bn, (0, 0))
+                R['cov'][bn] = (h + coverage_hits(tel.get(bn, []), times, cfg_e['stale_s'] * 1000), nn + len(times))
         del hist, sel, tels
     for R in revs.values():
         R['days'] = (R['t_hi'] - R['t_lo'] + interval_ms) / 8.64e7
         finish(R['res'], R['gaps'], R['wd'], R['days'])
         for eng in R['res']:
             for d, m in R['res'][eng].items():
-                # x base: CONCORDANCE (the same outcome, observation rule and window as the base rate) over the
-                # base rate of ELIGIBLE short bots. Not downstream: a base bot has no target to come near.
-                k, n = R['base_elig'][d] if d in R['base_elig'] else (0, 0)
-                cr = m['concord'] / m['concord_n'] if m['concord_n'] else None
-                m['x_base_elig'] = (cr / (k / n)) if cr is not None and n and k else None
+                m['x_base_elig'] = x_base(m, R['base_elig'].get(d, (0, 0)))
+        R['gate'] = {}
+        for d in GATE_DUTIES:
+            dm = R['res'].get('deterministic', {}).get(d)
+            dx = dm['x_base_elig'] if dm else None
+            rx = R['res'].get('random', {}).get(d, {}).get('x_base_elig')
+            vals = [gate_ratio(dx, x_base(R['band'][o].get('random', {}).get(d), R['base_elig'][d]))
+                    for o in BAND_OFFSETS_MIN]
+            got = [v for v in vals if v is not None]
+            lo, hi = (min(got), max(got)) if got else (None, None)
+            R['gate'][d] = {'gate_ratio': gate_ratio(dx, rx), 'det_xbase': dx, 'random_xbase': rx,
+                            'band': {'offsets_min': list(BAND_OFFSETS_MIN), 'values': vals, 'min': lo, 'max': hi,
+                                     'undefined': len(vals) - len(got)},
+                            'flag': band_flag(lo, hi), 'threshold': GATE_THRESHOLD,
+                            'reset_epochs': R['epochs'] - R['carried_epochs']}
 
-    # ---- POSITIVE CONTROLS FIRST: global, then per bot
-    with_rows = sum(1 for v in cov.values() if v)
-    vals = sorted(v for v in cov.values() if v is not None)
+    # ---- POSITIVE CONTROLS FIRST: global, then per partition (with each partition's own cfg)
     print('CONTROLS  %s snapshots %d, %s .. %s; partitions (code rev/cfg): %s' % (
         'REPLAY' if args.replay_only else 'live', n_snaps, core.iso(t_lo), core.iso(t_hi),
         ', '.join('%s (%d)' % (r, R['snapshots']) for r, R in sorted(revs.items()))))
-    print('          telemetry state rows: %d; outcome events the detector sees: %s' % (
-        n_rows, ', '.join('%s %d' % kv for kv in det.items())))
-    print('          per-bot coverage of snapshot times (a state row within %ds): %d of %d bots have rows; '
-          'median %.2f, min %.2f' % (cfg['stale_s'], with_rows, len(cov), vals[len(vals) // 2] if vals else 0, vals[0] if vals else 0))
-    low = sorted((v, b) for b, v in cov.items() if v is not None and v < 0.5)
-    if low:
-        print('          bots under 50%% coverage (their silences are unobserved, not failures): %s' % ', '.join(
-            '%s %.2f' % (b, v) for v, b in low[:12]))
-    print('          invalid responses: %s' % (', '.join('%s %d' % kv for kv in sorted(invalid.items())) or 'none'))
+    print('          telemetry state rows: %d; invalid responses: %s' % (
+        n_rows, ', '.join('%s %d' % kv for kv in sorted(invalid.items())) or 'none'))
     if not n_rows:
         print('UNCONTROLLED: no telemetry rows in the window -- every outcome below would be a blind zero')
         return 4
     uncontrolled = []
     for rev, R in sorted(revs.items()):
         res = R['res']
-        print('\n=== PARTITION %s: %d snapshots in %d epoch(s), %s .. %s (scored alone; never pooled, no window '
-              'crosses an epoch)' % (rev, R['snapshots'], R['epochs'], core.iso(R['t_lo']), core.iso(R['t_hi'])))
+        cov = {b: (h / n if n else None) for b, (h, n) in R['cov'].items()}
+        vals = sorted(v for v in cov.values() if v is not None)
+        print('\n=== PARTITION %s: %d snapshots in %d epoch(s) (%d carried a baseline state), %s .. %s (scored alone; '
+              'never pooled, no window crosses an epoch)' % (rev, R['snapshots'], R['epochs'], R['carried_epochs'],
+                                                             core.iso(R['t_lo']), core.iso(R['t_hi'])))
+        print('CONTROLS  (this partition, cfg full_slots=%s stale_s=%s) detector events: %s' % (
+            R['cfg']['full_slots'], R['cfg']['stale_s'], ', '.join('%s %d' % kv for kv in R['det'].items())))
+        print('          coverage of its snapshot times: %d of %d bots have rows; median %.2f, min %.2f' % (
+            sum(1 for v in cov.values() if v), len(cov), vals[len(vals) // 2] if vals else 0, vals[0] if vals else 0))
+        low = sorted((v, b) for b, v in cov.items() if v is not None and v < 0.5)
+        if low:
+            print('          bots under 50%% coverage (their silences are unobserved, not failures): %s' % ', '.join(
+                '%s %.2f' % (b, v) for v, b in low[:12]))
         print('          proposals: %s' % (', '.join('%s %d' % (e, sum(m['n'] for m in res[e].values())) for e in sorted(res)) or 'none'))
         print('BASE RATE (outcome within 30 min; all short bots / ELIGIBLE short bots):')
         for d in core.DUTIES:
             print('  %-12s %s  (%d of %d)   eligible %s  (%d of %d)' % (d, pct(*R['base'][d]), R['base'][d][0], R['base'][d][1],
                                                                    pct(*R['base_elig'][d]), R['base_elig'][d][0], R['base_elig'][d][1]))
+        print('\nGATE RATIO (the read rule): deterministic x base / LEASED-random x base, same partition; threshold %.1fx'
+              % GATE_THRESHOLD)
+        for d in GATE_DUTIES:
+            g = R['gate'][d]
+            f = lambda v: '   -  ' if v is None else '%6.2f' % v
+            print('  %-10s gate %s   (raw xbase: deterministic %s, leased random %s)   band over random start offsets '
+                  '%s min: %s .. %s (%d undefined) -> %s' % (
+                      d, f(g['gate_ratio']), f(g['det_xbase']), f(g['random_xbase']),
+                      '/'.join(map(str, BAND_OFFSETS_MIN)), f(g['band']['min']), f(g['band']['max']),
+                      g['band']['undefined'], g['flag'].upper()))
         print('\n%-26s %-12s %4s %4s %7s %7s %7s %7s %5s %7s %5s %6s %6s %8s %8s %4s' % (
-            'engine', 'duty', 'n', 'rej', 'exec+5', 'pers30', 'pers60', 'concord', 'unobs', 'downstr', 'contd', 'xrand',
+            'engine', 'duty', 'n', 'rej', 'exec+5', 'pers30', 'pers60', 'concord', 'unobs', 'downstr', 'stcon', 'xrand',
             'xbase', 'gap h/wd', 'gap h/d', 'unkb'))
         for eng in sorted(res):
             for d in list(core.DUTIES) + ['?']:
@@ -711,38 +827,44 @@ def main(argv=None):
                 if d == 'GET_WOOD' and m['concord_n']:
                     print('%-26s   (logs gained, its own metric: %d of %d observed; the outcome above is RELIEF)'
                           % ('', m['logs30'], m['concord_n']))
-                if d in det and m['concord_n'] and m['concord'] == 0 and det[d] == 0:
+                if d in R['det'] and m['concord_n'] and m['concord'] == 0 and R['det'][d] == 0:
                     uncontrolled.append('%s %s %s concord' % (rev, eng, d))
                 if m['censored'] or m['censored_epoch'] or m['warmup_excluded']:
                     print('%-26s   (censored: %d telemetry ends before +30 min, %d window crosses an epoch; %d warm-up '
                           'proposals excluded)' % ('', m['censored'], m['censored_epoch'], m['warmup_excluded']))
-        print('  xrand: downstream on CONTESTED snapshots (contd = how many: any duty-cap, world-cap, bot or target '
-              'competition), after the epoch warm-up, vs the lease-matched baseline for the deterministic mayor and the '
-              'stateless one for frontier engines. xbase: CONCORDANCE vs the base rate of ELIGIBLE short bots.')
+        print('  stcon: STATELESS-CONTESTED proposals (any duty-cap, world-cap, bot or target competition within the '
+              'snapshot). xrand: downstream on those only, after the warm-up -- a DIAGNOSTIC, never a gate input; '
+              'differences that come from lease HISTORY (who is held, who cools down) are excluded from it. '
+              'xbase: CONCORDANCE vs the base rate of ELIGIBLE short bots.')
     if args.json:
-        out = {'controls': {'snapshots': n_snaps, 'rows': n_rows, 'detector_events': det,
-                            'from': core.iso(t_lo), 'to': core.iso(t_hi), 'replay': args.replay_only,
-                            'since': args.since, 'until': args.until,
-                            'coverage': {'bots': len(cov), 'bots_with_rows': with_rows, 'per_bot': cov}},
+        out = {'controls': {'snapshots': n_snaps, 'rows': n_rows, 'from': core.iso(t_lo), 'to': core.iso(t_hi),
+                            'replay': args.replay_only, 'since': args.since, 'until': args.until,
+                            'detector_events': {k: sum(R['det'][k] for R in revs.values()) for k in core.DUTIES}},
                'invalid_responses': invalid,
                'partitions': {rev: {'mayor_rev': R['mayor_rev'], 'cfg_tag': R['cfg_tag'], 'cfg': R['cfg'],
-                                    'epochs': R['epochs'],
+                                    'epochs': R['epochs'], 'carried_epochs': R['carried_epochs'],
                                     'snapshots': R['snapshots'], 'from': core.iso(R['t_lo']), 'to': core.iso(R['t_hi']),
-                                   'world_days': R['wd'], 'days': R['days'], 'engines': R['res'],
-                                   'base': {d: {'k': k, 'n': n} for d, (k, n) in R['base'].items()},
-                                   'base_eligible': {d: {'k': k, 'n': n} for d, (k, n) in R['base_elig'].items()}}
-                             for rev, R in revs.items()}}
+                                    'world_days': R['wd'], 'days': R['days'], 'engines': R['res'], 'gate': R['gate'],
+                                    'xrand_role': 'diagnostic (stateless-contested only); never a gate input',
+                                    'controls': {'detector_events': R['det'],
+                                                 'coverage': {'bots': len(R['cov']),
+                                                              'bots_with_rows': sum(1 for h, n in R['cov'].values() if h),
+                                                              'per_bot': {
+                                                     b: (h / n if n else None) for b, (h, n) in R['cov'].items()}}},
+                                    'base': {d: {'k': k, 'n': n} for d, (k, n) in R['base'].items()},
+                                    'base_eligible': {d: {'k': k, 'n': n} for d, (k, n) in R['base_elig'].items()}}
+                              for rev, R in revs.items()}}
         if len(revs) == 1:                        # one partition: nothing to pool, so the flat view is safe
             (only,) = out['partitions'].values()
-            out.update({k: only[k] for k in ('engines', 'base', 'base_eligible', 'world_days', 'days')})
+            out.update({k: only[k] for k in ('engines', 'base', 'base_eligible', 'world_days', 'days', 'gate')})
+            out['controls']['coverage'] = only['controls']['coverage']
         mayor_io.write_atomic(os.path.join(jdir, os.path.basename(args.json)), json.dumps(out, indent=1))
     if uncontrolled:
-        print('\nUNCONTROLLED ZERO (the detector saw no such outcome anywhere, so a 0 could be blindness): %s'
+        print('\nUNCONTROLLED ZERO (this partition\'s detector saw no such outcome, so a 0 could be blindness): %s'
               % '; '.join(uncontrolled))
         if not args.allow_zero:
             return 4
     return 0
-
 
 if __name__ == '__main__':
     sys.exit(main())

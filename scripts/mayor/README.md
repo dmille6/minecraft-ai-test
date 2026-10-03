@@ -93,8 +93,9 @@ ANTHROPIC_API_KEY=... OPENAI_API_KEY=... python3 scripts/mayor/mayor_frontier.py
   --out-dir replay-<date> --max-snapshots 100 --budget-usd 10              # REAL MONEY: owner approves first
 ```
 
-The scorer prints positive controls before any rate (global, and per-bot coverage of the snapshot times) and exits
-4 on a zero its detector could not have seen. Its headline executability is **at the next snapshot**, with the
+The scorer prints positive controls before any rate -- rows globally, then PER PARTITION with that partition's cfg
+(detector events in its span, FREE_BAG = crossing its own `full_slots`; per-bot coverage within its own `stale_s`) --
+and exits 4 on a zero that partition's own detector could not have seen. Its headline executability is **at the next snapshot**, with the
 validator's rejected proposals in the denominator. **Silence is unknown, never a result:** a window in which the
 bot's state telemetry has a gap > 5 min is **unobserved** and leaves EVERY outcome denominator (concordance,
 downstream, unforced, base rate) whether or not the outcome was seen; a bot missing or stale at the next snapshot
@@ -115,14 +116,32 @@ UTC) select which proposals and base windows are scored; an unparseable bound is
 world-scope GET_WOOD shortage (before 9cad2ad) is UNKNOWN per bot, never true for every bot.
 
 **GET_WOOD biases, corrected.**
-- `xrand` counts only **contested** proposals (`contd`): any competition for the duty -- duty cap, world cap, a bot
-  feasible for two duties, or two candidates sharing a target. Without one, every order assigns the same candidates
-  and targets (property-tested against `core.greedy`), so random and the mayor cannot differ there.
+- **The read rule is the GATE RATIO** (GET_WOOD and GET_IRON): the deterministic mayor's `xbase` divided by the
+  LEASED-random baseline's `xbase` in the same partition. Both went through the same lease/cooldown logic, so lease
+  timing cancels (and so does the base rate). It prints with both raw `xbase` values and a sensitivity band (below).
+  FREE_BAG and RESTORE_PICK get no gate ratio: they have no target and are worked from the bot's own bag (a disposal
+  method, or ingredients already held), and their only candidate is the short bot itself, so there is no choice of
+  bot or place for an overseer to make better than random -- their rows are unchanged.
+- **Baseline initialization.** A leased baseline CARRIES its own state (never the mayor's) across an epoch
+  transition only where `core.decide()` semantics are identical: the same code revision AND the same
+  `DECIDE_CFG` values (`cap_per_world`, `cap_per_duty`, `lease_s`, `cooldown_s`, `full_slots` -- the only keys decide
+  reads; property-tested: perturbing every other key leaves decide's output identical). Everywhere else -- the start
+  of the data, any code change (including the GET_WOOD decision epoch), any change to those keys -- it RESETS,
+  because "compatible" there would be invented. A reset is not cured by the warm-up (a reset baseline and a carried
+  one can stay out of phase indefinitely), so the gate ratio carries a **sensitivity band**: the leased random
+  baseline rerun from start offsets 0/5/10/15/20/25 min after every reset (each excluding its own warm-up), min..max
+  of the gate ratio, `undefined` for offsets whose random `xbase` is 0 or missing. The comparison is flagged
+  **INITIALIZATION-DEPENDENT** when the band straddles the 1.5x gate; otherwise PASSES or FAILS on the whole band.
+- `xrand` is a **diagnostic, never a gate input**. It counts only STATELESS-CONTESTED proposals (`stcon`): any
+  competition inside the snapshot -- duty cap, world cap, a bot feasible for two duties, or two candidates sharing
+  a target. Without one, every order assigns the same candidates and targets (property-tested against
+  `core.greedy`). Differences that come from lease history (who is held, who is cooling down) are excluded from
+  `xrand` by that construction; they are what the gate ratio measures.
 - **Lease timing.** The mayor re-proposes right after a success and goes quiet ~25 min after a failure (lease 10 min
   + cooldown 15). The `random`/`nearest` baselines run through the SAME `core.decide` -- leases, cooldowns, caps --
-  with only the order changed, replayed from the FIRST snapshot of each epoch (before `--since`/`--until`) from their
-  own empty state, never the mayor's leases. Their proposals in the first lease + cooldown (25 min) of an epoch are
-  forced by that empty start and excluded (`warmup_excluded`); no engine's `xrand` counts that period. The frontier
+  with only the order changed, replayed over each epoch's full history (before `--since`/`--until`). After a RESET
+  their proposals in the first lease + cooldown (25 min) are forced by the empty start and excluded
+  (`warmup_excluded`); no engine's `xrand` counts that period. The frontier
   engines are per-snapshot (no memory), so they are compared with `random-stateless`/`nearest-stateless`.
 - `xbase` = **concordance** / base rate of **eligible** short bots (fresh, observed, short AND feasible by the
   mayor's own `evaluate`): the same outcome, window and observation rule on both sides. Target-conditioned
@@ -160,7 +179,7 @@ only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (99 tests, ~45 s). `test_mutants.py` applies each of 99
+`python3 -m unittest discover -s scripts/mayor/tests -v` (110 tests, ~75 s). `test_mutants.py` applies each of 112
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
 red (a missing or non-unique anchor raises). **No mutant runs until the unmutated suite is proven green**:
 `run_mutants` (used by both the unittest and `--report`) aborts with `BaselineRed` -- `--report` prints ABORT and
