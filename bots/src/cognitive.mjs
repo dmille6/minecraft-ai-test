@@ -16,7 +16,7 @@ import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { exploreArgsFor } from './exploreintent.mjs'
-import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
+import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS, REMEDY_NOT_ATTEMPT } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan } from './hygiene.mjs'
 /** One wear-out order per bot per two minutes at most. */
@@ -1064,7 +1064,7 @@ export class CognitiveLoop {
     // give-up. A rejection is not an attempt at the goal, and neither is exploring while the goal is a pickaxe.
     // The runner's own refusals never ran the skill (Claude review of f3bff3d: 22% of 'serving failures' on the fleet
     // were 'paused after repeated failures', and a paused give-up was even reported to peers).
-    const executed = !!admitted && outcome.status !== 'aborted' && !RUNNER_REFUSALS.has(runFailClass)
+    const executed = !!admitted && outcome.status !== 'aborted' && !RUNNER_REFUSALS.has(runFailClass) && !REMEDY_NOT_ATTEMPT.has(runFailClass)
     let serving = false
     try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
     const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))

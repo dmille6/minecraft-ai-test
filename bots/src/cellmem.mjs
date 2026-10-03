@@ -7,6 +7,14 @@
 // feeds: refuse a gather here, and where to walk instead.
 //
 // Everything below is pure (the clock is a parameter) so the decisions are tested by behaviour, not by source text.
+//
+// READ NOTES (for the canary read; both reviews of fa1016f):
+//   - NO HOME TETHER. A trip goes up to TRIP_CAP from wherever the bot stands, not from home. Read deaths (the
+//     two-death floor) and the time spent on deposit/home walks per bot-hour, canary vs control, DiD.
+//   - A refusal is a `no_effect` gather with class cell_refused; the runner's skill row carries no failClass for a
+//     no_effect, so the refusal is identified by its `_cell_refused` row (and `_cell_target` for the walk).
+//     EXCLUDE no_effect gather rows from every gather success/failure denominator, or the refusals read as failures.
+//   - Ores and gathers under rock are never refused (refusalExempt), so iron numbers should not move by this change.
 
 export const CELL = 16
 /** The measured hard-failure classes: the bot found the material and could not reach it. Not nothing_found (a
@@ -20,7 +28,10 @@ export const VISIT_FRESH_MS = 4 * 3600_000
  *  searches mostly the same ground) and at most FRONTIER_MAX. */
 export const FRONTIER_MIN = 32
 export const FRONTIER_MAX = 96
-export const TRIP_CAP = 160
+/** What ONE explore call can actually cover (14 legs of 12, less detours); a target past it is never arrived at. */
+export const TRIP_CAP = 120
+/** A success older than this is not "where it works now": forests are cut, and other bots cut them. */
+export const SUCCESS_FRESH_MS = 2 * 3600_000
 export const NIGHT_NEAR = 32
 export const BEARING_WALK = 60
 /** Bounds. A (cell, family) entry is ~100 bytes; a visit is one Map slot. LRU by last touch. */
@@ -37,6 +48,18 @@ export function familyOf (block) {
   if (!b) return null
   if (b === 'log' || b === 'wood' || /_(log|wood)$/.test(b)) return 'log'
   return b.replace(/^deepslate_(?=.*_ore$)/, '')
+}
+
+/** Never refuse an ore: the buried copy is the only copy and the ore tunnel (oretunnel.mjs) is its remedy. */
+const NEVER_REFUSED = /(_ore|^ancient_debris)$/
+export const refusable = family => !!family && !NEVER_REFUSED.test(family)
+/**
+ * Pure: a gather that is never refused. An ore family, or any gather while the bot is under rock: the remedy is a
+ * horizontal explore, and a horizontal walk through stone is not executable from there (CLAUDE.md: a refusal must
+ * name a remedy the bot can perform from where it is).
+ */
+export function refusalExempt (block, { underground = false } = {}) {
+  return underground || !refusable(familyOf(block))
 }
 
 /** Does inventory item `name` count as a gain for `family`? Logs by suffix; otherwise the caller's drop names. */
@@ -107,6 +130,7 @@ export function recentFails (e, now) {
 }
 /** A cell this bot should not gather `family` in right now. */
 export function isRefusedCell (mem, cx, cz, family, now) {
+  if (!refusable(family)) return false
   return recentFails(mem?.entries.get(entryKey(cx, cz, family)), now) >= REFUSE_FAILS
 }
 
@@ -138,9 +162,10 @@ const angDiff = (a, b) => Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)))
  * Pure: where to walk after a refusal. In order: the nearest cell where `family` succeeded for this bot with fewer
  * than REFUSE_FAILS hard failures since; else the nearest cell not visited in VISIT_FRESH_MS inside the frontier ring
  * (ties broken toward `bearing`); else `bearing` itself (the existing explore bearing), turned 90/-90/180 if its line
- * ends in or crosses a refused cell. Never a refused cell, never the current cell. Capped at TRIP_CAP; at night,
- * NIGHT_NEAR unless the bot holds a bed.
- * Returns { x, z, cx, cz, source, dist } or { none: why }.
+ * ends in or crosses a refused cell. Never a refused cell, never the current cell. A success column must be at least
+ * FRONTIER_MIN away and no older than SUCCESS_FRESH_MS. Capped at TRIP_CAP; at night, NIGHT_NEAR unless the bot holds
+ * a bed.
+ * Returns { x, z, cx, cz, source, dist, limit } or { none: why }.
  */
 export function chooseTarget (mem, { pos, family, now, night = false, hasBed = false, bearing = 0 }) {
   const here = cellOf(pos)
@@ -149,17 +174,20 @@ export function chooseTarget (mem, { pos, family, now, night = false, hasBed = f
   const refused = (cx, cz) => isRefusedCell(mem, cx, cz, family, now)
   const isHere = (cx, cz) => cx === here.cx && cz === here.cz
   const distTo = (cx, cz) => { const c = centre(cx, cz); return Math.hypot(c.x - pos.x, c.z - pos.z) }
-  const point = (cx, cz, source) => { const c = centre(cx, cz); return { x: c.x, z: c.z, cx, cz, source, dist: distTo(cx, cz) } }
+  // `limit` travels with the target: explore enforces it on the BODY, fallback steps included.
+  const point = (cx, cz, source) => { const c = centre(cx, cz); return { x: c.x, z: c.z, cx, cz, source, dist: distTo(cx, cz), limit: cap } }
 
   // 1. where it worked
   let best = null
   for (const e of mem.entries.values()) {
     if (e.family !== family || !(e.lastOk > 0) || isHere(e.cx, e.cz)) continue
+    if (now - e.lastOk > SUCCESS_FRESH_MS) continue
     // NOT >= REFUSE_FAILS HARD FAILURES SINCE ITS LAST SUCCESS (any age): a forest that worked and then refused us
     // twice is not "where it worked". This subsumes the 30-min refusal for these cells.
     if (e.failTimes.filter(t => t > e.lastOk).length >= REFUSE_FAILS) continue
     const d = distTo(e.cx, e.cz)
-    if (d > cap) continue
+    // NOT NEARER THAN THE FRONTIER RING: a column 16 blocks off is searched by the same 32-block gather.
+    if (d < FRONTIER_MIN || d > cap) continue
     if (!best || d < best.d) best = { e, d }
   }
   if (best) return point(best.e.cx, best.e.cz, 'success')
@@ -195,7 +223,7 @@ export function chooseTarget (mem, { pos, family, now, night = false, hasBed = f
     const end = { x: pos.x + Math.cos(a) * len, z: pos.z + Math.sin(a) * len }
     const ec = cellOf(end)
     if (blocked || isHere(ec.cx, ec.cz) || refused(ec.cx, ec.cz)) continue
-    return { x: Math.round(end.x), z: Math.round(end.z), cx: ec.cx, cz: ec.cz, source: 'bearing', dist: len }
+    return { x: Math.round(end.x), z: Math.round(end.z), cx: ec.cx, cz: ec.cz, source: 'bearing', dist: len, limit: cap }
   }
   return { none: 'every_bearing_refused' }
 }

@@ -52,7 +52,7 @@ import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor } from './smelting.mjs'
-import { familyOf, countsFor, cellOf, createCellMemory, visit as visitCell, recordGather, refusalFor, noteTripFailed, chooseTarget, TRIP_CAP } from './cellmem.mjs'
+import { familyOf, countsFor, cellOf, isRefusedCell, refusalExempt, createCellMemory, visit as visitCell, recordGather, refusalFor, noteTripFailed, chooseTarget, TRIP_CAP } from './cellmem.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -2280,7 +2280,11 @@ export async function gatherCell (ctx, args, signal, { inner = gather, walk = ex
   try { block = resolveBlockName(bot, args?.block).name ?? args?.block } catch { block = args?.block }
   const family = familyOf(block)
 
-  const ref = start && family ? refusalFor(mem, start, family, now()) : null
+  // NEVER REFUSED: an ore (its remedy is the ore tunnel) or any gather under rock (a horizontal walk through stone is
+  // not executable from there). Their outcomes are still recorded.
+  let exempt = true
+  try { exempt = refusalExempt(block, { underground: hasCeiling(bot) }) } catch { exempt = true }
+  const ref = start && family && !exempt ? refusalFor(mem, start, family, now()) : null
   if (ref) {
     const hasBed = (bot.inventory?.items?.() ?? []).some(i => String(i.name).endsWith('_bed'))
     const target = chooseTarget(mem, { pos: start, family, now: now(), night: isNightTime(bot), hasBed,
@@ -2298,17 +2302,18 @@ export async function gatherCell (ctx, args, signal, { inner = gather, walk = ex
       } finally {
         const q = bot.entity?.position
         arrived = !!q && aimLeg(q, target).arrived
+        // THE CHAIN ENDS when the walk did not get the bot out: explore's own failure (no_path), or a walk that left
+        // it inside the refused column -- "barely moved", an abort, a throw. Refusing again from the same spot would
+        // be the loop this exists to break, so that column stops refusing for the window and the model has the bot.
+        // In the finally, so an aborted or thrown walk ends it too (both reviews of fa1016f).
+        const qc = cellOf(q)
+        const stillHere = !!qc && qc.cx === ref.cx && qc.cz === ref.cz
+        if (r?.status === 'failed' || (!arrived && stillHere)) noteTripFailed(mem, ref.cx, ref.cz, family, now())
         logEvent({ kind: '_cell_target', status: arrived ? 'success' : 'no_effect',
-                   detail: `target=${target.cx},${target.cz} source=${target.source} dist=${Math.round(target.dist)} ` +
+                   detail: `target=${target.cx},${target.cz} source=${target.source} dist=${Math.round(target.dist)} limit=${target.limit} ` +
                            `${arrived ? 'arrived' : 'not_arrived'} explore=${r?.status ?? 'aborted'}${r?.failClass ? `/${r.failClass}` : ''}`,
                    snapshot: snapshot(bot) })
       }
-      // EXPLORE'S OWN NO_PATH ENDS THE CHAIN: this column stops refusing for the window and the model has the bot.
-      // So does a walk that left the bot inside the refused column ("barely moved"): refusing again from the same
-      // spot would be the loop this exists to break.
-      const q = cellOf(bot.entity?.position)
-      const stillHere = !!q && q.cx === ref.cx && q.cz === ref.cz
-      if (r?.status === 'failed' || (!arrived && stillHere)) noteTripFailed(mem, ref.cx, ref.cz, family, now())
       noteCellVisit(bot)
       return { status: 'no_effect', failClass: 'cell_refused',
                detail: `refused gather ${block} here (column ${ref.cell}): ${ref.fails} ${ref.reason} failures in 30 min, none since a success; ` +
@@ -3930,6 +3935,13 @@ export function knownTarget (bot, toward = null, radius = 400) {
   let deaths = []
   try { deaths = wf.deathSites?.() ?? [] } catch { deaths = [] }
   let skipped = 0
+  // NOT BACK INTO A COLUMN THIS BOT REFUSES (cellmem.mjs; Codex review of fa1016f): a refusal walks the bot out, and an
+  // ordinary explore toward the nearest sighting walked it straight back. Same family rule as the refusal itself.
+  let cellSkipped = 0
+  const cm = bot?.cellMemory, tNow = Date.now()
+  const refusedAt = (kind, r) => { if (!cm) return false; const c = cellOf(r); return !!c && isRefusedCell(cm, c.cx, c.cz, familyOf(kind), tNow) }
+  const none = () => skipped || cellSkipped ? { skipped, ...(cellSkipped ? { cellSkipped } : {}) } : null
+  const hit = (kind, r, d) => ({ kind, x: r.x, y: r.y, z: r.z, dist: d, skipped, ...(cellSkipped ? { cellSkipped } : {}) })
   // A FAMILY IS ONE GOAL: any log counts toward "12 logs", so the NEAREST sighting of any member wins, not the first
   // member in the list that has one somewhere within 400 blocks. Same 24-block floor and death-site refusal as below.
   if (family) {
@@ -3943,9 +3955,10 @@ export function knownTarget (bot, toward = null, radius = 400) {
     for (const { kind, r, d } of all) {
       if (d < 24) continue
       if (nearDeathSite(deaths, r.x, r.y ?? at.y, r.z, { radius: DEATH_SITE_TARGET_RADIUS, dy: 8 })) { skipped++; continue }
-      return { kind, x: r.x, y: r.y, z: r.z, dist: d, skipped }
+      if (refusedAt(kind, r)) { cellSkipped++; continue }
+      return hit(kind, r, d)
     }
-    return skipped ? { skipped } : null
+    return none()
   }
   for (const kind of kinds) {
     let seen
@@ -3958,10 +3971,11 @@ export function knownTarget (bot, toward = null, radius = 400) {
       if (d < 24) continue
       const site = nearDeathSite(deaths, r.x, r.y ?? at.y, r.z, { radius: DEATH_SITE_TARGET_RADIUS, dy: 8 })
       if (site) { skipped++; continue }
-      return { kind, x: r.x, y: r.y, z: r.z, dist: d, skipped }
+      if (refusedAt(kind, r)) { cellSkipped++; continue }
+      return hit(kind, r, d)
     }
   }
-  return skipped ? { skipped } : null
+  return none()
 }
 
 /**
@@ -3980,6 +3994,8 @@ export function exploreBearing (heading, start, rand = Math.random) {
  * EXPLORE_ARRIVE blocks (gather searches 32, so arriving within 6 puts the sighting well inside its reach).
  */
 export const EXPLORE_ARRIVE = 6
+/** The farthest explore's blind fallback step (forward held 1.2 s, no sprint, no jump) can carry the body. */
+export const BLIND_STEP_MAX = 6
 export function aimLeg (pos, target) {
   const dx = target.x - pos.x, dz = target.z - pos.z
   const remaining = Math.hypot(dx, dz)
@@ -4020,7 +4036,7 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
       kind: 'explore_toward_milestone',
       detail: `task=${intentTask ?? '?'} kinds=${toward.join(',')} ` +
               (known?.kind ? `target=${known.kind}@${known.x},${known.y},${known.z} d=${known.dist.toFixed(0)}`
-                : `target=none_known skipped=${known?.skipped ?? 0}`) +
+                : `target=none_known skipped=${known?.skipped ?? 0}`) + (known?.cellSkipped ? ` cell_skipped=${known.cellSkipped}` : '') +
               ` legacy=${legacy?.kind ?? 'none'}`,
       snapshot: snapshot(bot),
     })
@@ -4053,7 +4069,12 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
   // explores on 28-29 Sep had no target -- but a task whose material has no sighting now lands here on purpose.
   let ang = exploreBearing(heading, start)
 
-  const want = Math.min(Math.max(Number(blocks) || 60, 20), cellTarget ? TRIP_CAP : 120)
+  // A CELL TRIP IS BOUNDED BY DISTANCE FROM ITS START, NOT BY BLOCKS WALKED (Codex review of fa1016f): `limit` (32 at
+  // night without a bed, else TRIP_CAP) holds on the body itself -- each leg's goal is pulled inside it, and a blind
+  // fallback step that could carry the body past it is not taken. Its walking budget is not the binding constraint.
+  const limit = cellTarget ? Math.min(Number(cellTarget.limit) || TRIP_CAP, TRIP_CAP) : Infinity
+  const fromStart = p => Math.hypot(p.x - start.x, p.z - start.z)
+  const want = cellTarget ? TRIP_CAP + 24 : Math.min(Math.max(Number(blocks) || 60, 20), 120)
   // WALK TO THE THING, THEN STOP (Codex review: a distance cap is not arrival -- a blocked leg's turn persists, so the
   // capped walk ended wherever the turns left it). A task-aimed walk re-aims at the sighting after every leg that
   // succeeded, keeps a blocked leg's turn for exactly one leg, and ends on arrival. `blocks` stays the budget.
@@ -4082,8 +4103,12 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
       step = Math.min(step, Math.max(4, a.remaining))
       reaim = true
     }
-    const tx = Math.round(from.x + Math.cos(ang) * step)
-    const tz = Math.round(from.z + Math.sin(ang) * step)
+    let tx = Math.round(from.x + Math.cos(ang) * step)
+    let tz = Math.round(from.z + Math.sin(ang) * step)
+    if (cellTarget) {
+      const out = Math.hypot(tx - start.x, tz - start.z), edge = limit - 3   // GoalNear lands within 3
+      if (out > edge) { const k = edge / out; tx = Math.round(start.x + (tx - start.x) * k); tz = Math.round(start.z + (tz - start.z) * k) }
+    }
     try { assertInsideBorder(tx, tz) } catch { ang += Math.PI / 2; reaim = false; continue }
 
     try {
@@ -4121,6 +4146,12 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
       // refusal left the bot where the failed plan had started: explores per hour fell a third. The turn, the
       // other turn, then the two perpendiculars; the first safe line wins.
       let stepOk = false
+      // A cell trip's limit holds for the blind step too: 1.2 s of walking is at most BLIND_STEP_MAX blocks, any way.
+      const blindFrom = bot.entity.position.clone()
+      if (cellTarget && fromStart(blindFrom) + BLIND_STEP_MAX > limit) {
+        logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `cell_trip_limit: ${Math.round(fromStart(blindFrom))}b of ${limit} from the trip start; the fallback walk is refused`, snapshot: snapshot(bot) })
+        await sleep(300, signal); continue
+      }
       for (const cand of [ang, ang - 2 * turn, ang + Math.PI / 2, ang - Math.PI / 2]) {
         const v = stepLineSafe((x, y, z) => bot.blockAt(new Vec3(x, y, z)), bot.entity.position, cand)
         if (!v.safe) { logEvent({ kind: 'explore_blind_step_refused', status: 'no_effect', detail: `${v.why} at ${v.at?.join(',')}: the fallback walk is refused`, snapshot: snapshot(bot) }); continue }
@@ -4138,12 +4169,14 @@ async function explore(ctx, { blocks = 60, heading = null, toward = null, intent
         await sleep(1200, signal)
         bot.clearControlStates()
       } catch { bot.clearControlStates() }
+      if (cellTarget) { travelled += blindFrom.distanceTo(bot.entity.position); noteCellVisit(bot) }
       reaim = false   // the turn stands for one leg, or the next re-aim walks straight back into the obstacle
       continue
     }
     check(signal)
     travelled += from.distanceTo(bot.entity.position)
     noteCellVisit(bot)
+    if (cellTarget && fromStart(bot.entity.position) > limit) break
   }
   if (aimAt && !arrived) arrived = aimLeg(bot.entity.position, aimAt).arrived
   if (aimAt && !cellTarget) logEvent({ kind: 'explore_toward_milestone_end', status: arrived ? 'success' : 'no_effect',

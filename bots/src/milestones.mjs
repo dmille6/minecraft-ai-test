@@ -45,6 +45,9 @@ export const RESIDENCE_MAX_MS = 3 * 3600_000
 export const RESTART_GRACE_MS = 10 * 60_000
 /** runner.mjs failure classes that mean the skill never ran: not an attempt at anything. */
 export const RUNNER_REFUSALS = new Set(['runner_paused', 'runner_busy', 'body_held', 'unknown_skill', 'superseded'])
+/** Skill-side refusals whose remedy ran instead (cellmem.mjs): the gather never ran, so it is not an attempt at the rung.
+ *  Counted, the refusal designed to save a rung burned its give-up budget (both reviews of fa1016f). */
+export const REMEDY_NOT_ATTEMPT = new Set(['cell_refused'])
 /** Which block drops which item, for "does gathering X serve a rung that wants Y". Only the ones the ladder uses. */
 export const DROPS = { stone: 'cobblestone', deepslate: 'cobbled_deepslate', iron_ore: 'raw_iron', deepslate_iron_ore: 'raw_iron',
                        coal_ore: 'coal', deepslate_coal_ore: 'coal', grass_block: 'dirt', gravel: 'flint' }
