@@ -47,6 +47,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   verdict labels unanswered/click_timeout, source=none. Known limit: a pickup after clicks start can still toss.
   NEXT: sandbox A/B on Paper (agent running; also lands the craft harness from the scratchpad into sandbox/craft/),
   then registrations once the fleet sha after logpickup is known. Read: scripts/host/craftroomread.py (main c6bd787).
+- **craftroom SANDBOX A/B (Paper 1.21.8, 16:40Z, 3 reps/arm/scene, server-slot oracle): control a40c588 TOSSED the
+  pickaxe 21 of 21 times the bag had no room; candidate e9da587 never tossed except `race-late` (drop lands mid-clicks;
+  both arms 3/3 -- the documented limit).** Candidate: full36 refused with 0 clicks + "place your one dirt" (executed:
+  worked, then crafted); race-early/stream refused (admission saw the drop); logs exact (-3 log, +1 pickaxe, table
+  retaken; +5.5 s); wear-out spent axe never the good pickaxe; nothing-to-free says so. Deposit advice NOT executed
+  (no town chest in the sandbox). Harness landed on main: sandbox/craft/ (67a5efd). Results sandbox/log/craftroom-ab/.
+- **BEFORE craftroom's canary, backport from the composter review:** depositTarget (deposit advice names one item the
+  craft does not consume -- e9da587's plain "deposit" would bank the craft's own sticks/cobblestone), remedy-first
+  text (Codex: 220-char truncation drops the remedy, twice: skill detail and cognitive.mjs:1037), whole-chain
+  ingredient protection for planned crafts.
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
