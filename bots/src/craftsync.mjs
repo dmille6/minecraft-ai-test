@@ -1,4 +1,4 @@
-// CRAFTSYNC: clicks in lockstep with the server while bot.craft runs.
+// CRAFTSYNC: clicks in lockstep with the server while bot.craft runs, and VERIFIES what came out.
 //
 // WHAT IS BROKEN (sandbox A/B, RCON-verified, 2026-10-03). With spare ingredients in the bag, unpatched
 // mineflayer 4.37.1 on Paper 1.21.8 lost 7/40 single table crafts, 3/20 2x2 crafts, and came up short on 11/20
@@ -16,17 +16,35 @@
 //      server that click SWAPS, the cursor is left holding an ingredient, the result click picks up nothing,
 //      and closing the window hands the grid back. Nothing was crafted; mineflayer resolves.
 //
-// THE FIX (arm A of the A/B: 0/20, 0/10, 0/10): while a craft runs, every click waits for the window to go
-// quiet before the next one goes out, so no refresh can land behind a later click. The first click in a
-// container window is preceded by a forced resync (a no-op click with stateId -1, which Paper answers with a
-// full refresh) so the craft starts from the server's view, not the client's. Arm B -- sending the window's own
-// last stateId instead of the global one -- is cheap and rides along; alone it left 3/10 short on repeats.
+// TWO LAYERS, and only one of them is allowed to say "crafted".
 //
-// Cost: ~1.3-1.4 s per craft (median, sandbox). Every wait is capped -- quiet at 1 s, one click at 1.5 s,
-// the resync answer at 1 s -- so a craft cannot hang on a server that stops answering.
+//   LOCKSTEP (best effort; arm A of the A/B: 0/20, 0/10, 0/10). While a craft runs every click waits for the
+//   window to go quiet before the next goes out, so a refresh cannot land behind a later click. The first click
+//   in a container is preceded by a forced resync (a no-op click with stateId -1 that Paper answers with a full
+//   refresh). Arm B -- each click carries its own window's last stateId -- rides along. This RAISES the success
+//   rate; it cannot guarantee it: a refresh slower than the quiet window still lands behind a click (the test
+//   suite shows one).
 //
-// SCOPE. Nothing here is active outside bot.craft. The click/put-away wrappers and the write hook go in when a
-// craft starts and come out in a finally, whatever the craft does (returns, throws, is aborted).
+//   VERIFICATION (truth). Before and after the craft, window 0 is resynced from the server and the result item
+//   counted. The craft resolves only if the count rose by count x result.count; otherwise it throws, with what
+//   was produced. A click that is not answered in time rejects. Nothing is reported as made that the server's
+//   own inventory does not show.
+//
+// THE RESYNC IS ONLY SENT WHEN IT IS PROVABLY A NO-OP. Slot -999 with a held cursor DROPS the cursor. So the
+// resync goes out only when the server's cursor is known empty: the last server statement about it (a
+// window_items' carriedItem, set_cursor_item, set_slot -1/-1) said empty, or a close_window was sent (the server
+// returns the carried stack on close) -- and no click has been sent since. Otherwise it is skipped and counted.
+// Only a window_items for THAT window counts as the resync's answer.
+//
+// EXCLUSIVE. One craft at a time ("craft busy" otherwise). For the craft's duration bot.equip / unequip /
+// moveSlotItem / toss / tossStack first abort the craft and wait (at most preemptWaitMs) for it to unwind, then
+// proceed: a reflex is never blocked long and never interleaves its clicks with a craft's.
+//
+// CANCELLATION (signal, deadline, preemption, disconnect) returns promptly even while mineflayer is awaiting
+// windowOpen: the craft is raced against it and every wrapper is restored -- except a one-line FUSE left on
+// bot.clickWindow until the abandoned mineflayer craft settles (its own 20 s windowOpen timeout at worst), so a
+// window that opens late cannot be clicked by a craft nobody is waiting for. The fuse throws; mineflayer's own
+// catch then closes the window.
 //
 // WHY AT SPAWN. mineflayer injects its plugins after login, so at createBot time bot.craft does not exist yet;
 // a wrapper installed there was silently overwritten in the sandbox experiment. installCraftSync refuses to run
@@ -34,18 +52,36 @@
 
 /** Defaults, measured on the sandbox. Exported so a test can assert them and pass smaller ones for speed. */
 export const CRAFT_SYNC = Object.freeze({
-  quietMs: 100,         // no window traffic for this long = the server has answered
-  quietCapMs: 1000,     // never wait longer than this for quiet
-  clickCapMs: 1500,     // never wait longer than this for mineflayer's own click promise
-  resyncCapMs: 1000,    // never wait longer than this for the resync's answer
+  quietMs: 100,          // no window traffic for this long = the server has answered
+  quietCapMs: 1000,      // never wait longer than this for quiet
+  clickCapMs: 1500,      // a click mineflayer has not finished in this long REJECTS the craft
+  resyncCapMs: 1000,     // never wait longer than this for a resync's window_items
   pollMs: 10,
-  maxPutIterations: 64, // put-away loop bound (mineflayer's is unbounded)
-  rewriteStateId: true, // arm B; false runs arm A alone (the sandbox's A-only arm, and the tests' A-only proof)
+  maxPutIterations: 64,  // put-away loop bound (mineflayer's is unbounded)
+  rewriteStateId: true,  // arm B; false runs arm A alone (the sandbox's A-only arm, and the tests' A-only proof)
+  verifyReserveMs: 600,  // clicks stop this long before the deadline so verification fits inside it
+  preemptWaitMs: 2000,   // an inventory action waits at most this long for a craft to unwind
 })
+
+export const GUARDED_INVENTORY_ACTIONS = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack']
+
+/** Every refusal/failure craftsync raises itself. failClass is the skill's; `aborted` marks an interruption. */
+export class CraftSyncError extends Error {
+  constructor (message, { failClass, aborted = false, produced = null, requested = null, reason = null } = {}) {
+    super(message)
+    this.name = 'CraftSyncError'
+    this.failClass = failClass
+    this.aborted = aborted
+    this.produced = produced
+    this.requested = requested
+    this.reason = reason
+  }
+}
 
 /** The resync click: outside the window, empty cursor, stateId -1. Paper applies a no-op and sends a full refresh.
  *  Field names are minecraft-data 1.21.8 `packet_window_click`; the empty cursor is exactly what
- *  prismarine-item's Item.toNotch(null) produces for 1.21.8, i.e. what mineflayer itself sends for no cursor. */
+ *  prismarine-item's Item.toNotch(null) produces for 1.21.8, i.e. what mineflayer itself sends for no cursor.
+ *  ONLY a no-op when the server's cursor is empty -- see cursorProvablyEmpty. */
 export function resyncPacket (windowId) {
   return {
     windowId, stateId: -1, slot: -999, mouseButton: 0, mode: 0, changedSlots: [],
@@ -66,13 +102,25 @@ export function quietReached ({ now, start, lastPacketAt, quietMs }) {
   return now - start >= quietMs && now - lastPacketAt >= quietMs
 }
 
-const WINDOW_PACKETS = ['set_slot', 'window_items', 'set_cursor_item', 'set_player_inventory']
+/** Is the server's cursor provably empty for `win`? `proof` is the last empty-cursor statement ({ win, clicks },
+ *  win 'any' for a close or a cursor packet), `clicksSent` the clicks written since the craft began. Pure. */
+export function cursorProvablyEmpty (proof, win, clicksSent) {
+  return !!proof && (proof.win === win || proof.win === 'any') && proof.clicks === clicksSent
+}
+
+/** Did the craft deliver? produced = after - before; confirmed only when it covers the request. Pure. */
+export function craftConfirmed ({ before, after, count, perCraft }) {
+  const requested = Number(count ?? 1) * Number(perCraft ?? 1)
+  const produced = (Number.isFinite(before) && Number.isFinite(after)) ? after - before : null
+  return { requested, produced, confirmed: produced !== null && produced >= requested }
+}
+
+const emptySlot = (item) => !(item && item.itemCount > 0)
 
 /**
- * Wrap bot.craft so each craft runs in lockstep. Call at SPAWN, after mineflayer's plugins have loaded.
+ * Wrap bot.craft so each craft runs in lockstep and is verified. Call at SPAWN, after mineflayer's plugins load.
  * opts: { log(row), now(), sleep(ms), ...CRAFT_SYNC overrides }. Returns the controller (also bot.craftSync).
- * bot.craft keeps mineflayer's signature plus an optional 4th argument { signal }: an aborted signal stops the
- * waits and refuses the next click, so mineflayer's own catch closes the window and the craft rejects.
+ * bot.craft(recipe, count, table, { signal, deadline }): an aborted signal or a passed deadline stops the craft.
  */
 export function installCraftSync (bot, opts = {}) {
   if (bot.craftSync) return bot.craftSync
@@ -85,66 +133,117 @@ export function installCraftSync (bot, opts = {}) {
   const sleep = opts.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)))
   const log = opts.log ?? (() => {})
 
-  // Inbound window traffic, always tracked (a Map write per packet): when, how many, and each window's stateId.
-  const lastAt = new Map()     // windowId -> ms of the last packet for it ('cursor' for set_cursor_item)
-  const seen = new Map()       // windowId -> packets received, so "did anything answer" is not a timestamp tie
+  const origCraft = bot.craft
+  let active = null   // the in-flight craft's state; non-null exactly while its wrappers are installed
+  let zombie = null   // an abandoned mineflayer craft still pending (the fuse is on bot.clickWindow until it settles)
+  let craftSeq = 0
+
+  // Inbound window traffic, always tracked (a Map write per packet).
+  const lastAt = new Map()     // windowId -> ms of the last packet for it ('cursor' for cursor packets)
+  const itemsSeen = new Map()  // windowId -> window_items received: the ONLY thing that answers a resync
   const stateIds = new Map()   // windowId -> last stateId
-  const mark = (win) => { lastAt.set(win, now()); seen.set(win, (seen.get(win) ?? 0) + 1) }
-  for (const name of WINDOW_PACKETS) {
-    bot._client.on(name, (p) => {
-      if (name === 'set_cursor_item') return mark('cursor')
-      if (name === 'set_player_inventory') return mark(0)
-      if (p?.windowId === undefined) return
-      mark(p.windowId)
-      if (p.stateId !== undefined) stateIds.set(p.windowId, p.stateId)
-    })
+  const touch = (win) => {
+    lastAt.set(win, now())
+    if (active?.awaitingSince != null) {
+      active.maxAnswerMs = Math.max(active.maxAnswerMs, now() - active.awaitingSince)
+      active.awaitingSince = null
+    }
   }
+  const cursorStatement = (win, item) => { if (active) active.proof = emptySlot(item) ? { win, clicks: active.clicksSent } : null }
+  bot._client.on('window_items', (p) => {
+    if (p?.windowId === undefined) return
+    touch(p.windowId)
+    itemsSeen.set(p.windowId, (itemsSeen.get(p.windowId) ?? 0) + 1)
+    if (p.stateId !== undefined) stateIds.set(p.windowId, p.stateId)
+    cursorStatement(p.windowId, p.carriedItem)
+  })
+  bot._client.on('set_slot', (p) => {
+    if (p?.windowId === undefined) return
+    if (p.windowId === -1 && p.slot === -1) { touch('cursor'); return cursorStatement('any', p.item) }
+    touch(p.windowId)
+    if (p.stateId !== undefined) stateIds.set(p.windowId, p.stateId)
+  })
+  bot._client.on('set_cursor_item', (p) => { touch('cursor'); cursorStatement('any', p?.contents) })
+  bot._client.on('set_player_inventory', () => touch(0))
   const lastPacketAt = (win) => Math.max(lastAt.get(win) ?? 0, lastAt.get(0) ?? 0, lastAt.get('cursor') ?? 0)
 
-  const origCraft = bot.craft
-  let active = null   // the in-flight craft's state; non-null exactly while the wrappers are installed
+  /** Why should this craft stop clicking? null = keep going. */
+  const stopReason = (st) => st.cancelReason ?? (st.signal?.aborted ? 'aborted' : (now() >= st.clickDeadline ? 'deadline' : null))
 
-  const abortError = () => new Error('craft aborted')
-  const aborted = (st) => !!st.signal?.aborted
-
-  async function waitQuiet (st, win) {
+  async function waitQuiet (st, win, until) {
     const start = now()
     for (;;) {
       const t = now()
       if (quietReached({ now: t, start, lastPacketAt: lastPacketAt(win), quietMs: cfg.quietMs })) break
       if (t - start >= cfg.quietCapMs) { st.quietCaps++; break }
-      if (aborted(st)) break
+      if (until()) break
       await sleep(cfg.pollMs)
     }
     st.waitMs += now() - start
   }
 
-  async function waitAnswer (st, win, before) {
+  /** Resync `win` if, and only if, it is provably a no-op. Returns 'answered' | 'unanswered' | 'skipped'. */
+  async function resync (st, win, until) {
+    if (!cursorProvablyEmpty(st.proof, win, st.clicksSent)) { st.resyncSkipped++; return 'skipped' }
+    await waitQuiet(st, win, until)
+    const before = itemsSeen.get(win) ?? 0
+    st.origWrite.call(bot._client, 'window_click', resyncPacket(win))
+    st.resyncs++
     const start = now()
     let got = false
     for (;;) {
-      if ((seen.get(win) ?? 0) > before) { got = true; break }
-      if (now() - start >= cfg.resyncCapMs || aborted(st)) break
+      if ((itemsSeen.get(win) ?? 0) > before) { got = true; break }
+      if (now() - start >= cfg.resyncCapMs || until()) break
       await sleep(cfg.pollMs)
     }
     st.waitMs += now() - start
-    return got
+    if (got) st.resyncAnswered++
+    else st.resyncCaps++
+    await waitQuiet(st, win, until)
+    return got ? 'answered' : 'unanswered'
   }
 
-  /** mineflayer's click promise, never waited on longer than clickCapMs. A rejection inside the cap is the
-   *  craft's error; one after it is swallowed (the craft has moved on, and an unhandled rejection kills the bot). */
+  /** Window 0 from the server, then the result count. Closing the (inventory) window first makes the cursor
+   *  provably empty -- the server hands a carried stack back on close, exactly as when a player shuts the screen. */
+  async function serverCount (st, until) {
+    let source = 'local'
+    if (!bot.currentWindow && !until()) {
+      bot._client.write('close_window', { windowId: 0 })   // through the hook: it records the empty-cursor proof
+      if (await resync(st, 0, until) === 'answered') source = 'resync'
+    } else {
+      await waitQuiet(st, 0, until)
+    }
+    const count = typeof bot.inventory?.count === 'function' ? bot.inventory.count(st.resultId, null) : NaN
+    return { count, source }
+  }
+
+  /** mineflayer's click, never waited on longer than clickCapMs -- and a cap REJECTS. A rejection that arrives
+   *  after the craft moved on is swallowed here (an unhandled rejection kills the bot) and changes nothing. */
   async function cappedClick (st, orig, slot, button, mode) {
     let settled = false, failed = false, error = null
     const p = (async () => orig.call(bot, slot, button, mode))()   // a synchronous throw becomes a rejection
     p.then(() => { settled = true }, (e) => { settled = true; failed = true; error = e })
     const start = now()
     while (!settled) {
-      if (now() - start >= cfg.clickCapMs) { st.clickCaps++; break }
-      if (aborted(st)) break
+      if (now() - start >= cfg.clickCapMs) {
+        st.clickCaps++
+        st.clickTimedOut = slot
+        throw new Error(`craftsync: click on slot ${slot} not answered in ${cfg.clickCapMs} ms`)
+      }
+      if (stopReason(st)) break
       await sleep(cfg.pollMs)
     }
     st.waitMs += now() - start
     if (failed) throw error
+  }
+
+  /** An inventory action arrived mid-craft: stop the craft, wait (bounded, shared) for it to unwind. */
+  async function preempt (st, name) {
+    if (active !== st) return
+    if (!st.cancelReason) st.cancelReason = `preempted by ${name}`
+    st.preemptUntil ??= now() + cfg.preemptWaitMs
+    while (active === st && now() < st.preemptUntil) await sleep(cfg.pollMs)
+    if (active === st) st.preemptTimeouts++
   }
 
   function install (st) {
@@ -152,29 +251,27 @@ export function installCraftSync (bot, opts = {}) {
       clickWindow: bot.clickWindow,
       putAway: bot.putAway,
       putSelectedItemRange: bot.putSelectedItemRange,
-      write: bot._client.write,
     }
-    let resyncing = false
+    for (const name of GUARDED_INVENTORY_ACTIONS) if (typeof bot[name] === 'function') orig[name] = bot[name]
+    const origWrite = st.origWrite = bot._client.write
+    st.origClick = orig.clickWindow
+    const clickPhase = () => !!stopReason(st)
 
-    // (a) LOCKSTEP. Resync once per container window, then every click: send, bounded wait, wait for quiet.
+    // (a) LOCKSTEP. Resync once per container window (when safe), then every click: send, bounded wait, quiet.
     const clickWindow = async function (slot, mouseButton, mode) {
-      if (aborted(st)) throw abortError()
+      const why = stopReason(st)
+      if (why) { st.refused = why; throw new Error(`craftsync: ${why}`) }
       const win = (bot.currentWindow || bot.inventory)?.id ?? 0
       if (win !== 0 && !st.resynced.has(win)) {
         st.resynced.add(win)
-        await waitQuiet(st, win)
-        const before = seen.get(win) ?? 0
-        resyncing = true
-        try { orig.write.call(bot._client, 'window_click', resyncPacket(win)) } finally { resyncing = false }
-        st.resyncs++
-        if (await waitAnswer(st, win, before)) st.resyncAnswered++
-        else st.resyncCaps++
-        await waitQuiet(st, win)
-        if (aborted(st)) throw abortError()
+        await resync(st, win, clickPhase)          // written below the hook: not counted, not rewritten
+        const why2 = stopReason(st)
+        if (why2) { st.refused = why2; throw new Error(`craftsync: ${why2}`) }
       }
       st.clicks++
+      st.awaitingSince = now()
       await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)
-      await waitQuiet(st, win)
+      await waitQuiet(st, win, clickPhase)
     }
 
     // (b) mineflayer's putAway/putSelectedItemRange call its INTERNAL clickWindow, not bot.clickWindow, so the
@@ -207,54 +304,155 @@ export function installCraftSync (bot, opts = {}) {
         await bot.putSelectedItemRange(window.inventoryStart, window.inventoryEnd, window, null)
         // mineflayer awaits this with its 20 s once(); the local click normally fires it synchronously.
         const start = now()
-        while (!updated && now() - start < cfg.clickCapMs && !aborted(st)) await sleep(cfg.pollMs)
+        while (!updated && now() - start < cfg.clickCapMs && !stopReason(st)) await sleep(cfg.pollMs)
       } finally {
         window.removeListener?.(`updateSlot:${slot}`, onUpdate)
       }
     }
 
-    // (c) Arm B: each click carries its own window's last stateId. The resync's -1 is deliberate and untouched.
+    // (c) The write hook: counts clicks (for the cursor proof), records a close as an empty-cursor statement,
+    // and -- arm B -- gives each click its own window's last stateId. The resync's -1 is deliberate and untouched.
     const write = function (name, params) {
-      if (name === 'window_click' && !resyncing && cfg.rewriteStateId) {
-        const fixed = withWindowStateId(params, stateIds)
-        if (fixed !== params) st.rewrites++
-        params = fixed
+      if (name === 'window_click') {
+        st.clicksSent++
+        if (cfg.rewriteStateId) {
+          const fixed = withWindowStateId(params, stateIds)
+          if (fixed !== params) st.rewrites++
+          params = fixed
+        }
+      } else if (name === 'close_window') {
+        const r = origWrite.call(this, name, params)
+        st.proof = { win: 'any', clicks: st.clicksSent }
+        return r
       }
-      return orig.write.call(this, name, params)
+      return origWrite.call(this, name, params)
     }
 
-    const mine = { clickWindow, putAway, putSelectedItemRange }
+    // (d) Other inventory actions preempt the craft instead of interleaving with it.
+    const guards = {}
+    for (const name of GUARDED_INVENTORY_ACTIONS) {
+      if (!orig[name]) continue
+      guards[name] = async function (...args) {
+        await preempt(st, name)
+        return orig[name].apply(bot, args)
+      }
+    }
+
+    const mine = { clickWindow, putAway, putSelectedItemRange, ...guards }
     Object.assign(bot, mine)
     bot._client.write = write
 
-    return function restore () {
+    return function restore ({ fuse = false } = {}) {
       for (const k of Object.keys(mine)) {
-        if (bot[k] === mine[k]) bot[k] = orig[k]
-        else st.restoreConflicts++
+        if (bot[k] !== mine[k]) { st.restoreConflicts++; continue }
+        bot[k] = (k === 'clickWindow' && fuse) ? st.fuse : orig[k]
       }
-      if (bot._client.write === write) bot._client.write = orig.write
+      if (bot._client.write === write) bot._client.write = origWrite
       else st.restoreConflicts++
     }
   }
 
-  async function craft (recipe, count, craftingTable, options) {
-    // A craft started while another is still running (a hard-stopped skill's craft finishing in the background)
-    // runs under the same lockstep; the outer craft owns install/restore and the row.
-    if (active) { active.overlapped++; return origCraft.call(bot, recipe, count, craftingTable) }
-    const st = active = {
-      signal: options?.signal, resynced: new Set(), clicks: 0, resyncs: 0, resyncAnswered: 0, waitMs: 0,
-      quietCaps: 0, clickCaps: 0, resyncCaps: 0, rewrites: 0, restoreConflicts: 0, overlapped: 0,
-    }
+  async function craft (recipe, count, craftingTable, options = {}) {
     const t0 = now()
-    let restore = null, error = null
+    if (active || zombie) {
+      const e = new CraftSyncError('craft busy: another craft is still running', { failClass: 'craft_busy' })
+      emitRow({ outcome: 'busy', clicks: 0 }, { recipe, count, craftingTable, error: e, durationMs: 0 })
+      throw e
+    }
+    const deadline = Number.isFinite(options?.deadline) ? options.deadline : Infinity
+    const st = active = {
+      id: ++craftSeq, signal: options?.signal, deadline, clickDeadline: deadline - cfg.verifyReserveMs,
+      resultId: recipe?.result?.id, cancelReason: null, refused: null, clickTimedOut: null,
+      resynced: new Set(), clicks: 0, clicksSent: 0, proof: null, resyncs: 0, resyncAnswered: 0, resyncSkipped: 0,
+      waitMs: 0, quietCaps: 0, clickCaps: 0, resyncCaps: 0, rewrites: 0, restoreConflicts: 0, preemptTimeouts: 0,
+      maxAnswerMs: 0, awaitingSince: null, abandoned: false, outcome: null, verify: null,
+    }
+    const onEnd = () => { st.cancelReason ??= 'disconnected' }
+    bot.once?.('end', onEnd)
+    let restore = null
+    let restored = false
+    const unwind = (fuse) => {
+      if (restored) return
+      restored = true
+      try { restore?.({ fuse }) } finally { active = null; bot.removeListener?.('end', onEnd) }
+    }
+    let error = null, result
     try {
       restore = install(st)
-      return await origCraft.call(bot, recipe, count, craftingTable)
+      const verifyUntil = () => !!st.cancelReason || now() >= st.deadline
+      if (stopReason(st)) {
+        st.refused = stopReason(st)
+      } else {
+        const before = await serverCount(st, () => !!stopReason(st))
+
+        // THE CRAFT, raced against cancellation so an abort while mineflayer awaits windowOpen returns now.
+        let settled = false, runError = null
+        const run = (async () => origCraft.call(bot, recipe, count, craftingTable))()
+        run.then(v => { settled = true; result = v }, e => { settled = true; runError = e })
+        while (!settled && !stopReason(st)) await sleep(cfg.pollMs)
+        if (!settled) {                                // give a craft that is mid-click its one poll to unwind
+          const graceEnd = now() + cfg.quietMs
+          while (!settled && now() < graceEnd) await sleep(cfg.pollMs)
+        }
+        if (!settled) {
+          st.abandoned = true
+          st.refused ??= stopReason(st)
+          st.fuse = function () { throw new Error('craftsync: an abandoned craft may not click') }
+          zombie = run
+          run.catch(() => {}).finally(() => {
+            if (bot.clickWindow === st.fuse) bot.clickWindow = st.origClick
+            if (zombie === run) zombie = null
+          })
+        }
+
+        const cancelled = st.cancelReason ?? (st.signal?.aborted ? 'aborted' : null)
+        if (cancelled) {
+          unwind(st.abandoned)
+          st.outcome = 'aborted'
+          throw new CraftSyncError(`craft aborted: ${cancelled}`, { failClass: 'interrupted', aborted: true, reason: cancelled })
+        }
+
+        // VERIFY: the server's window 0, not mineflayer's belief about it.
+        const after = await serverCount(st, verifyUntil)
+        st.verify = { ...craftConfirmed({ before: before.count, after: after.count, count, perCraft: recipe?.result?.count }),
+                      source: before.source === 'resync' && after.source === 'resync' ? 'resync' : 'local' }
+        const { produced, requested, confirmed } = st.verify
+        if (st.cancelReason) {                         // preempted or disconnected while verifying
+          st.outcome = 'aborted'
+          throw new CraftSyncError(`craft aborted: ${st.cancelReason}`, { failClass: 'interrupted', aborted: true, produced, requested, reason: st.cancelReason })
+        }
+        if (st.refused === 'deadline') {
+          st.outcome = 'deadline'
+          throw new CraftSyncError(`craft stopped at the deadline: ${produced ?? '?'} of ${requested} made`,
+            { failClass: 'craft_deadline', produced, requested, reason: 'deadline' })
+        }
+        if (st.clickTimedOut !== null) {
+          st.outcome = 'unconfirmed'
+          throw new CraftSyncError(`click on slot ${st.clickTimedOut} not answered in ${cfg.clickCapMs} ms; ` +
+            `${produced ?? '?'} of ${requested} made`, { failClass: 'craft_unconfirmed', produced, requested, reason: 'click_timeout' })
+        }
+        if (runError) {
+          st.outcome = 'error'
+          runError.produced = produced; runError.requested = requested
+          throw runError
+        }
+        if (!confirmed) {
+          st.outcome = 'unconfirmed'
+          throw new CraftSyncError(`mineflayer reported the craft done, but ${produced ?? '?'} of ${requested} arrived`,
+            { failClass: 'craft_unconfirmed', produced, requested, reason: 'not_in_inventory' })
+        }
+        st.outcome = 'ok'
+        return result
+      }
+      // refused before anything was sent
+      st.outcome = 'deadline'
+      throw new CraftSyncError('craft refused: the deadline leaves no time to craft and verify',
+        { failClass: 'craft_deadline', produced: 0, requested: Number(count ?? 1) * Number(recipe?.result?.count ?? 1), reason: 'deadline' })
     } catch (e) {
       error = e
       throw e
     } finally {
-      try { restore?.() } finally { active = null }
+      unwind(st.abandoned)
       emitRow(st, { recipe, count, craftingTable, error, durationMs: now() - t0 })
     }
   }
@@ -262,19 +460,26 @@ export function installCraftSync (bot, opts = {}) {
   function emitRow (st, { recipe, count, craftingTable, error, durationMs }) {
     try {
       const item = bot.registry?.items?.[recipe?.result?.id]?.name ?? String(recipe?.result?.id ?? '?')
+      const v = st.verify ?? {}
       const args = {
-        item, count: Number(count ?? 1), table: !!craftingTable,
-        clicks: st.clicks, resyncs: st.resyncs, resync_answered: st.resyncAnswered,
-        wait_ms: Math.round(st.waitMs), quiet_caps: st.quietCaps, click_caps: st.clickCaps,
-        resync_caps: st.resyncCaps, stateid_rewrites: st.rewrites, aborted: aborted(st),
-        restore_conflicts: st.restoreConflicts, overlapped: st.overlapped,
+        item, count: Number(count ?? 1), table: !!craftingTable, outcome: st.outcome ?? 'error',
+        confirmed: v.confirmed ? 'yes' : 'no', produced: v.produced ?? null, requested: v.requested ?? null,
+        verify_source: v.source ?? 'none',
+        clicks: st.clicks ?? 0, resyncs: st.resyncs ?? 0, resync_answered: st.resyncAnswered ?? 0,
+        resync_skipped: st.resyncSkipped ?? 0, wait_ms: Math.round(st.waitMs ?? 0),
+        quiet_caps: st.quietCaps ?? 0, click_caps: st.clickCaps ?? 0, resync_caps: st.resyncCaps ?? 0,
+        max_answer_ms: st.maxAnswerMs ?? 0, stateid_rewrites: st.rewrites ?? 0,
+        stop: st.refused ?? st.cancelReason ?? null, abandoned: !!st.abandoned,
+        restore_conflicts: st.restoreConflicts ?? 0, preempt_timeouts: st.preemptTimeouts ?? 0,
       }
       log({
         kind: 'craft_sync',
         status: error ? 'failed' : 'success',
         durationMs,
-        detail: `${item} x${args.count}${args.table ? ' (table)' : ''}: ${st.clicks} clicks, resync ${st.resyncAnswered}/${st.resyncs}, ` +
-                `waited ${args.wait_ms} ms, caps quiet ${st.quietCaps} click ${st.clickCaps} resync ${st.resyncCaps}` +
+        detail: `${item} x${args.count}${args.table ? ' (table)' : ''}: ${args.outcome}, confirmed=${args.confirmed} ` +
+                `(${args.produced ?? '?'}/${args.requested ?? '?'} via ${args.verify_source}); ${args.clicks} clicks, ` +
+                `resync ${args.resync_answered}/${args.resyncs} skipped ${args.resync_skipped}, waited ${args.wait_ms} ms, ` +
+                `max answer ${args.max_answer_ms} ms, caps q${args.quiet_caps} c${args.click_caps} r${args.resync_caps}` +
                 (error ? `; ${String(error.message ?? error).slice(0, 80)}` : ''),
         args,
       })
@@ -282,7 +487,7 @@ export function installCraftSync (bot, opts = {}) {
   }
 
   bot.craft = craft
-  const controller = { cfg, active: () => active, original: origCraft }
+  const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft }
   bot.craftSync = controller
   return controller
 }

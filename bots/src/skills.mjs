@@ -108,6 +108,10 @@ export const UNKNOWN_FAIL_CLASSES = new Set([
   //               the whole fleet that smelting raw_iron is impossible
   //               everywhere -- the `explore:{}` collapse documented in SKILLS.
   'furnace_window',
+  // craft_deadline  craftsync stopped a repeated craft at the skill's deadline and counted what the server
+  //               delivered. Running out of clock on a big batch is the smelt_budget case again: "call craft
+  //               again for the rest", not evidence that the recipe does not work.
+  'craft_deadline',
 ])
 
 /** The honest status for a failure class: a don't-know is not a no. */
@@ -3169,23 +3173,52 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   }
 
   try {
-    // { signal }: craftsync.mjs stops its waits and refuses the next click on abort; mineflayer ignores it.
-    await bot.craft(recipe, count, table ?? undefined, { signal })
+    // { signal, deadline }: craftsync.mjs stops the craft on abort or at the runner's deadline and verifies the
+    // result against the server; mineflayer itself ignores the fourth argument.
+    const deadline = (ctx.runner?.current?.startedAt ?? Date.now()) + config.skills.defaultTimeoutMs
+    await bot.craft(recipe, count, table ?? undefined, { signal, deadline })
     return { status: 'success',
              detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   } catch (e) {
-    // Name the real problem. "Event windowOpen did not fire" is mineflayer's
-    // wording for "the server refused to open the container", which in practice
-    // means out of reach or the block is gone.
-    const windowFail = /windowOpen|window/i.test(e.message)
-    return {
-      status: 'failed',
-      failClass: windowFail ? 'no_path' : 'other',
-      detail: windowFail
-        ? `could not open the crafting_table at ${table?.position.x},${table?.position.z} — ` +
-          'stand next to it and face it before crafting'
-        : `craft ${item} failed: ${e.message.slice(0, 80)}`,
-    }
+    const out = craftFailureOutcome(e, { aborted: !!signal?.aborted, item, table })
+    if (out === CRAFT_ABORTED) throw new Aborted()
+    return out
+  }
+}
+
+/** craftFailureOutcome's answer when the craft was interrupted: the skill rethrows Aborted. */
+export const CRAFT_ABORTED = Symbol('craft aborted')
+/**
+ * What the craft skill returns when bot.craft rejects. Pure, exported for tests. An ABORT IS AN ABORT: with the
+ * signal aborted (or craftsync reporting an interruption) the answer is CRAFT_ABORTED -- the runner's
+ * aborted/interrupted -- never `failed`/`other`, which would put an interruption on the failure ledger.
+ * craftsync's classes carry what the server actually delivered; none of them is in an evidence set.
+ */
+export function craftFailureOutcome (e, { aborted = false, item, table = null } = {}) {
+  if (aborted || e?.aborted) return CRAFT_ABORTED
+  const made = `${e?.produced ?? '?'} of ${e?.requested ?? '?'}`
+  if (e?.failClass === 'craft_busy') {
+    return { status: 'failed', failClass: 'craft_busy', detail: `another craft is still finishing — craft ${item} again in a few seconds` }
+  }
+  if (e?.failClass === 'craft_deadline') {
+    return { status: statusFor('craft_deadline'), failClass: 'craft_deadline',
+             detail: `ran out of time crafting ${item}: ${made} made — call craft again for the rest` }
+  }
+  if (e?.failClass === 'craft_unconfirmed') {
+    return { status: 'failed', failClass: 'craft_unconfirmed',
+             detail: `crafting ${item} did not reach the inventory: ${made} made (${String(e.message).slice(0, 80)})` }
+  }
+  // Name the real problem. "Event windowOpen did not fire" is mineflayer's
+  // wording for "the server refused to open the container", which in practice
+  // means out of reach or the block is gone.
+  const windowFail = /windowOpen|window/i.test(e?.message ?? '')
+  return {
+    status: 'failed',
+    failClass: windowFail ? 'no_path' : 'other',
+    detail: windowFail
+      ? `could not open the crafting_table at ${table?.position.x},${table?.position.z} — ` +
+        'stand next to it and face it before crafting'
+      : `craft ${item} failed: ${String(e?.message ?? e).slice(0, 80)}`,
   }
 }
 

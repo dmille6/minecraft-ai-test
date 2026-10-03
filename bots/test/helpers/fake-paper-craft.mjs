@@ -36,9 +36,11 @@ const notch = (it) => Item.toNotch(it ?? null)
 const copy = (it) => (it ? new Item(it.type, it.count, it.metadata) : null)
 
 export class FakePaper {
-  constructor ({ lagClicks = 1, fallbackMs = 30, inventory = {} } = {}) {
+  constructor ({ lagClicks = 1, fallbackMs = 30, openDelayMs = 0, cursorOnOpen = null, inventory = {} } = {}) {
+    this.cursorOnOpen = cursorOnOpen              // [name, count]: the server cursor is NOT empty when the table opens
     this.lagClicks = lagClicks
     this.fallbackMs = fallbackMs
+    this.openDelayMs = openDelayMs                // Infinity: the table never opens (out of reach, gone)
     this.p = new Array(46).fill(null)          // player inventory, window-0 numbering (9-35 main, 36-44 hotbar)
     for (const [slot, [name, count]] of Object.entries(inventory)) this.p[+slot] = new Item(id(name), count)
     this.grid = { 0: new Array(5).fill(null), table: new Array(10).fill(null) }
@@ -198,32 +200,40 @@ export class FakePaper {
     }
   }
 
-  give (it) {
-    if (!it) return
+  /** Return a stack to the player inventory (hotbar first, then main); returns the player slots it touched. */
+  give (it, touched = new Set()) {
+    if (!it) return touched
     const stack = registry.items[it.type].stackSize
     const order = [...Array.from({ length: 9 }, (_, i) => 36 + i), ...Array.from({ length: 27 }, (_, i) => 9 + i)]
     for (const s of order) {
       const x = this.p[s]
-      if (x && x.type === it.type && x.count < stack) { const n = Math.min(stack - x.count, it.count); x.count += n; it.count -= n }
-      if (!it.count) return
+      if (x && x.type === it.type && x.count < stack) { const n = Math.min(stack - x.count, it.count); x.count += n; it.count -= n; touched.add(s) }
+      if (!it.count) return touched
     }
-    for (const s of order) if (!this.p[s]) { this.p[s] = it; return }
+    for (const s of order) if (!this.p[s]) { this.p[s] = it; touched.add(s); return touched }
     this.dropped.push(it)
+    return touched
   }
 
+  /** Close: the grid and the cursor go back to the inventory, and -- like Paper's broadcastChanges -- only the
+   *  player slots that CHANGED are sent. A slot the client wrongly believes in is not corrected by a close. */
   onClose ({ windowId: w }) {
-    if (w !== this.tableId) return
-    this.tableId = null
-    for (let i = 1; i < this.grid.table.length; i++) { this.give(this.grid.table[i]); this.grid.table[i] = null }
-    this.give(this.cursor); this.cursor = null
-    this.release(() => true)
-    this.sid[0]++
-    this.send([['window_items', { windowId: 0, stateId: this.sid[0], items: this.slotsOf(0).map(notch), carriedItem: notch(null) }]])
+    if (w !== 0 && w !== this.tableId) return
+    const touched = new Set()
+    const g = w === 0 ? this.grid[0] : this.grid.table
+    for (let i = 1; i < g.length; i++) { this.give(g[i], touched); g[i] = null }
+    this.give(this.cursor, touched); this.cursor = null
+    if (w !== 0) { this.tableId = null; this.release(() => true) }
+    if (!touched.size) return
+    this.send([...touched].map(s => { this.sid[0]++; return ['set_slot', { windowId: 0, stateId: this.sid[0], slot: s, item: notch(this.p[s]) }] }))
   }
 
   openTable () {
+    if (this.openDelayMs === Infinity) return
+    if (this.openDelayMs > 0) { const d = this.openDelayMs; this.openDelayMs = 0; setTimeout(() => this.openTable(), d); return }
     const w = this.tableId = this.nextWindowId++
     this.sid[w] = 1
+    if (this.cursorOnOpen) { this.cursor = new Item(id(this.cursorOnOpen[0]), this.cursorOnOpen[1]); this.cursorOnOpen = null }
     this.send([
       ['open_window', { windowId: w, inventoryType: 'minecraft:crafting', windowTitle: '{"text":"Crafting"}' }],
       ['window_items', { windowId: w, stateId: this.sid[w], items: this.slotsOf(w).map(notch), carriedItem: notch(this.cursor) }],

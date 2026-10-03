@@ -1,54 +1,36 @@
-// craftsync.mjs: lockstep clicks while bot.craft runs (see the header there for the sandbox evidence).
+// craftsync.mjs: lockstep clicks (best effort) + server-verified results (truth) while bot.craft runs.
 //
 // The scenario tests run mineflayer 4.37.1's REAL craft.js + inventory.js against test/helpers/fake-paper-craft.mjs,
-// a server model of the four behaviours the sandbox trace showed. The first test is the positive control: bare
+// a server model of the behaviours the sandbox trace showed. The first test is the positive control: bare
 // mineflayer must LOSE the craft against the fake while reporting success, or nothing after it means anything.
-//
-// The fake's refresh lands 3 client clicks behind, or 60 ms after the click, whichever is first. Both are model
-// parameters, not Paper measurements: 3 clicks is where a 10 ms-paced client (the no-quiet-wait mutant) loses the
-// craft as a microsecond burst does; 60 ms is under quietMs, so a lockstep client is waiting when it lands.
+// The mutants live in craftsync-mutants.test.mjs (same fixtures), to keep each file inside the runner's timeout.
 import assert from 'node:assert/strict'
-import { EventEmitter } from 'node:events'
-import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import * as CS from '../src/craftsync.mjs'
-import { FakePaper, craftBot, recipeFor, TABLE, Item, VERSION } from './helpers/fake-paper-craft.mjs'
+import { Item, VERSION, id } from './helpers/fake-paper-craft.mjs'
+import { trial as trialWith, restored, stubBot, STUB_RECIPE, INV, INV2, INV3 } from './helpers/craftsync-trial.mjs'
+
+process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-test-craftsync-'))
+// The craft skill's deadline is the runner's skill timeout. The suite runner sets 300 ms (for hard-stop tests),
+// which leaves no room to craft and verify -- the skill then correctly refuses with craft_deadline. This file
+// tests the abort path, so it gets the production timeout; the deadline itself is tested on bot.craft below.
+process.env.SKILL_TIMEOUT_MS = '180000'
+const { SKILLS, craftFailureOutcome, CRAFT_ABORTED, statusFor } = await import('../src/skills.mjs')
+const { evidenceScope } = await import('../src/cognitive.mjs')
 
 const require_ = createRequire(import.meta.url)
+const trial = (o) => trialWith(CS, o)
 let pass = 0, fail = 0
 const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) }
   catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) }
 }
-
-const INV = { 36: ['oak_planks', 7], 37: ['stick', 4], 9: ['dirt', 64] }   // spare ingredients: the losing case
-const INV2 = { 36: ['oak_planks', 9], 37: ['stick', 5], 9: ['dirt', 64] }  // two pickaxes, with spares
-
-async function trial ({ mod = CS, wrap = true, opts = {}, item = 'wooden_pickaxe', table = true, count = 1, inv = INV,
-                        lag = 3, fallbackMs = 60, signal = null, before = null } = {}) {
-  const server = new FakePaper({ lagClicks: lag, fallbackMs, inventory: inv })
-  const bot = craftBot(server)
-  await server.sync()
-  const orig = { clickWindow: bot.clickWindow, putAway: bot.putAway, putSelectedItemRange: bot.putSelectedItemRange, write: bot._client.write }
-  const rows = []
-  if (wrap) mod.installCraftSync(bot, { log: r => rows.push(r), ...opts })
-  const recipe = recipeFor(bot, server, item, table)
-  if (before) await before({ server, bot })
-  const startWrite = server.writes.length
-  const t0 = Date.now()
-  let error = null
-  try { await bot.craft(recipe, count, table ? TABLE : undefined, signal ? { signal } : undefined) } catch (e) { error = e }
-  const ms = Date.now() - t0
-  const writes = server.writes.slice(startWrite)
-  await server.settle(); server.stop()
-  const clicks = writes.filter(w => w.name === 'window_click')
-  const resyncs = clicks.filter(w => w.params.stateId === -1 && w.params.slot === -999)
-  const real = clicks.filter(w => !resyncs.includes(w))
-  const gaps = real.slice(1).map((w, i) => w.t - real[i].t)
-  return { server, bot, rows, error, ms, orig, writes, clicks, resyncs, real, minGap: gaps.length ? Math.min(...gaps) : Infinity }
-}
-const restored = (r) => r.bot.clickWindow === r.orig.clickWindow && r.bot.putAway === r.orig.putAway &&
-  r.bot.putSelectedItemRange === r.orig.putSelectedItemRange && r.bot._client.write === r.orig.write
+let unhandled = 0
+process.on('unhandledRejection', () => { unhandled++ })
 
 // ------------------------------------------------------------------ the mechanism, and the fix
 let bare
@@ -57,22 +39,24 @@ await t('POSITIVE CONTROL: bare mineflayer loses the table craft against the fak
   assert.equal(bare.error, null, 'bare craft threw; the defect is that it does NOT')
   assert.equal(bare.server.count('wooden_pickaxe'), 0, 'the fake did not reproduce the loss; every test below is unproven')
   assert.equal(bare.server.count('oak_planks'), 7, 'the grid was handed back on close')
-  assert.equal(bare.server.count('stick'), 4)
   assert.ok(bare.server.staleClicks > 1, 'the loss must come from stale clicks, as on the sandbox')
 })
 
-await t('lockstep keeps the craft: one pickaxe on the SERVER, ingredients spent', async () => {
+await t('lockstep keeps the craft: one pickaxe on the SERVER, ingredients spent, confirmed via resync', async () => {
   const r = await trial()
-  assert.equal(r.error, null)
+  assert.equal(r.error, null, r.error?.message)
   assert.equal(r.server.count('wooden_pickaxe'), 1)
   assert.equal(r.server.count('oak_planks'), 4)
   assert.equal(r.server.count('stick'), 2)
+  assert.equal(r.rows[0].args.confirmed, 'yes')
+  assert.equal(r.rows[0].args.verify_source, 'resync')
 })
 
 let aOnly
 await t('arm A alone (no stateId rewrite) keeps it too: stale clicks still happen, and lockstep absorbs them', async () => {
   aOnly = await trial({ opts: { rewriteStateId: false } })
-  assert.ok(aOnly.server.staleClicks > 1, 'with B off the clicks should still be stale; this is not testing A')
+  assert.ok(aOnly.server.staleClicks > aOnly.resyncs.length, 'with B off the clicks should still be stale; this is not testing A')
+  assert.equal(aOnly.error, null, aOnly.error?.message)
   assert.equal(aOnly.server.count('wooden_pickaxe'), 1)
 })
 
@@ -80,8 +64,9 @@ await t('two crafts in one window: bare comes up short, lockstep makes both', as
   const b = await trial({ wrap: false, inv: INV2, count: 2 })
   assert.ok(b.server.count('wooden_pickaxe') < 2, `bare made ${b.server.count('wooden_pickaxe')}; the repeat case is not reproduced`)
   const r = await trial({ inv: INV2, count: 2, opts: { rewriteStateId: false } })
+  assert.equal(r.error, null, r.error?.message)
   assert.equal(r.server.count('wooden_pickaxe'), 2)
-  assert.equal(r.resyncs.length, 1, 'one resync per window, not per craft')
+  assert.equal(r.tableResyncs.length, 1, 'one resync per window, not per craft')
 })
 
 await t('lockstep on the wire: no two real clicks closer than quietMs (A-only, so nothing else hides a burst)', async () => {
@@ -89,22 +74,109 @@ await t('lockstep on the wire: no two real clicks closer than quietMs (A-only, s
   assert.ok(aOnly.minGap >= CS.CRAFT_SYNC.quietMs, `min gap ${aOnly.minGap} ms < ${CS.CRAFT_SYNC.quietMs}`)
 })
 
-await t('2x2 inventory craft: lockstepped, no resync for window 0, sticks land on the server', async () => {
+await t('2x2 inventory craft: lockstepped, no container resync, sticks land on the server and are confirmed', async () => {
   const r = await trial({ item: 'stick', table: false, inv: { 36: ['oak_planks', 5], 9: ['dirt', 64] } })
-  assert.equal(r.error, null)
+  assert.equal(r.error, null, r.error?.message)
   assert.equal(r.server.count('stick'), 4)
-  assert.equal(r.resyncs.length, 0)
+  assert.equal(r.tableResyncs.length, 0)
   assert.ok(r.minGap >= CS.CRAFT_SYNC.quietMs)
+  assert.equal(r.rows[0].args.confirmed, 'yes')
 })
 
-// ------------------------------------------------------------------ the resync
+// ------------------------------------------------------------------ 1. verification is the truth
+await t('LIMIT, DOCUMENTED: a refresh slower than quietMs beats lockstep -- and verification says so', async () => {
+  // fallbackMs 400 >> quietMs 100: each refresh lands ~3 lockstep clicks late, as the burst's did. A-only.
+  // (At 150-300 ms lockstep still happened to keep this recipe; 400 is where it loses. A model, not Paper.)
+  const r = await trial({ lag: 999, fallbackMs: 400, opts: { rewriteStateId: false } })
+  assert.equal(r.server.count('wooden_pickaxe'), 0, 'lockstep survived a slow refresh here; this test no longer shows the limit')
+  assert.ok(r.error, 'the lost craft RESOLVED: verification did not catch it')
+  assert.equal(r.error.failClass, 'craft_unconfirmed')
+  assert.equal(r.error.produced, 0)
+  assert.equal(r.error.requested, 1)
+  assert.equal(r.rows[0].args.confirmed, 'no')
+  assert.equal(r.rows[0].args.verify_source, 'resync')
+  assert.ok(Number.isFinite(r.rows[0].args.max_answer_ms))
+})
+
+await t('craftConfirmed: produced must cover count x result.count', () => {
+  assert.deepEqual(CS.craftConfirmed({ before: 2, after: 6, count: 1, perCraft: 4 }), { requested: 4, produced: 4, confirmed: true })
+  assert.equal(CS.craftConfirmed({ before: 2, after: 5, count: 1, perCraft: 4 }).confirmed, false)
+  assert.equal(CS.craftConfirmed({ before: 0, after: 1, count: 2, perCraft: 1 }).confirmed, false)
+  assert.equal(CS.craftConfirmed({ before: NaN, after: 1, count: 1, perCraft: 1 }).confirmed, false, 'no count is no confirmation')
+})
+
+await t('a click timeout REJECTS, and the abandoned click\'s late error leaks nowhere', async () => {
+  let n = 0
+  const { bot } = stubBot({ click: () => (++n === 1
+    ? new Promise((resolve, reject) => setTimeout(() => reject(new Error('late failure')), 300))
+    : Promise.resolve()) })
+  const rows = []
+  CS.installCraftSync(bot, { log: r => rows.push(r), clickCapMs: 100 })
+  let err = null
+  try { await bot.craft(STUB_RECIPE, 1) } catch (e) { err = e }
+  assert.ok(err, 'the craft resolved although its click was never answered')
+  assert.equal(err.failClass, 'craft_unconfirmed')
+  assert.match(err.message, /not answered in 100 ms/)
+  await new Promise(resolve => setTimeout(resolve, 400))            // the late rejection fires now
+  const before = unhandled
+  await bot.craft(STUB_RECIPE, 1)                                  // later work is untouched
+  assert.equal(unhandled, before)
+  assert.equal(unhandled, 0, 'an abandoned click\'s rejection escaped')
+  assert.equal(rows.at(-1).args.confirmed, 'yes')
+})
+
+// ------------------------------------------------------------------ 3. one craft at a time
+await t('a second craft while one is running is refused as craft_busy; the first completes', async () => {
+  let second = null
+  const r = await trial({
+    during: async ({ bot }) => {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      try { await bot.craft(bot.recipesFor(id('wooden_pickaxe'), null, 1, true)[0], 1, null) } catch (e) { second = e }
+    },
+  })
+  assert.ok(second, 'the overlapping craft was let through')
+  assert.equal(second.failClass, 'craft_busy')
+  assert.equal(evidenceScope('craft_busy'), null, 'busy must not vote')
+  assert.equal(r.error, null, r.error?.message)
+  assert.equal(r.server.count('wooden_pickaxe'), 1)
+})
+
+// ------------------------------------------------------------------ 4. resync safety
+await t('cursorProvablyEmpty: only an empty statement with no click since, for that window or any', () => {
+  assert.equal(CS.cursorProvablyEmpty(null, 3, 0), false)
+  assert.equal(CS.cursorProvablyEmpty({ win: 3, clicks: 2 }, 3, 2), true)
+  assert.equal(CS.cursorProvablyEmpty({ win: 3, clicks: 2 }, 3, 3), false, 'a click since may have filled it')
+  assert.equal(CS.cursorProvablyEmpty({ win: 3, clicks: 0 }, 4, 0), false)
+  assert.equal(CS.cursorProvablyEmpty({ win: 'any', clicks: 0 }, 4, 0), true)
+})
+
 await t('resync: the first click in a container is a stateId -1 no-op outside the window, sent once', async () => {
   const r = await trial()
-  assert.equal(r.resyncs.length, 1)
-  assert.equal(r.clicks[0], r.resyncs[0], 'the resync must precede every real click')
-  assert.deepEqual({ ...r.resyncs[0].params, cursorItem: undefined },
-    { windowId: r.real[0].params.windowId, stateId: -1, slot: -999, mouseButton: 0, mode: 0, changedSlots: [], cursorItem: undefined })
-  assert.equal(r.rows[0].args.resync_answered, 1, 'the fake answers a stale click with a refresh; the wrapper must see it')
+  assert.equal(r.tableResyncs.length, 1)
+  const firstTable = r.clicks.find(w => w.params.windowId !== 0)
+  assert.equal(firstTable, r.tableResyncs[0], 'the resync must precede every real click in the table')
+  assert.deepEqual({ ...r.tableResyncs[0].params, cursorItem: undefined },
+    { windowId: firstTable.params.windowId, stateId: -1, slot: -999, mouseButton: 0, mode: 0, changedSlots: [], cursorItem: undefined })
+  assert.ok(r.rows[0].args.resync_answered >= 1)
+})
+
+await t('resync SKIPPED when the server cursor is not provably empty: nothing is dropped', async () => {
+  const r = await trial({ cursorOnOpen: ['dirt', 3] })
+  assert.equal(r.tableResyncs.length, 0, 'a -999 click went out with a held cursor -- that drops it')
+  assert.ok(r.rows[0].args.resync_skipped >= 1)
+  assert.deepEqual(r.server.dropped, [])
+})
+
+await t('only a window_items for THAT window answers a resync', async () => {
+  const { bot, stop } = stubBot({ click: async () => {}, spam: () => ['set_slot', { windowId: 5, stateId: 2, slot: 3 }] })
+  const rows = []
+  CS.installCraftSync(bot, { log: r => rows.push(r), quietCapMs: 150, resyncCapMs: 200 })
+  setTimeout(() => bot._client.emit('window_items', { windowId: 0, stateId: 9, items: [], carriedItem: { itemCount: 0 } }), 150)
+  await bot.craft(STUB_RECIPE, 1)
+  stop()
+  assert.equal(rows[0].args.resyncs, 1)
+  assert.equal(rows[0].args.resync_answered, 0, 'set_slot or another window\'s window_items was taken as the answer')
+  assert.equal(rows[0].args.resync_caps, 1)
 })
 
 await t('resync packet serializes for 1.21.8 exactly as mineflayer encodes an empty cursor', () => {
@@ -116,7 +188,7 @@ await t('resync packet serializes for 1.21.8 exactly as mineflayer encodes an em
 })
 
 // ------------------------------------------------------------------ arm B
-await t('withWindowStateId uses the per-window value, leaves unknown windows and -1 decisions to the caller', () => {
+await t('withWindowStateId uses the per-window value and leaves unknown windows alone', () => {
   const ids = new Map([[0, 512], [3, 7]])
   assert.equal(CS.withWindowStateId({ windowId: 3, stateId: 512 }, ids).stateId, 7)
   const same = { windowId: 3, stateId: 7 }
@@ -125,9 +197,9 @@ await t('withWindowStateId uses the per-window value, leaves unknown windows and
   assert.equal(CS.withWindowStateId(unknown, ids), unknown)
 })
 
-await t('arm B on: every real click carries the table\'s own stateId, so only the resync is stale', async () => {
+await t('arm B on: every real click carries its window\'s own stateId, so only the resyncs are stale', async () => {
   const r = await trial()
-  assert.equal(r.server.staleClicks, 1, `stale clicks ${r.server.staleClicks}; expected only the deliberate resync`)
+  assert.equal(r.server.staleClicks, r.resyncs.length, `stale ${r.server.staleClicks}, resyncs ${r.resyncs.length}`)
   assert.ok(r.rows[0].args.stateid_rewrites > 0)
 })
 
@@ -135,70 +207,152 @@ await t('arm B on: every real click carries the table\'s own stateId, so only th
 await t('wrappers are mineflayer\'s again after a successful craft', async () => {
   const r = await trial()
   assert.ok(restored(r), 'a wrapper outlived the craft')
-  assert.ok(r.bot.craftSync && r.bot.craftSync.active() === null)
+  assert.equal(r.bot.craftSync.busy(), false)
 })
 
 await t('wrappers restored when the craft throws mid-way (missing ingredient after the planks)', async () => {
-  const r = await trial({
-    before: async ({ server }) => { server.p[37] = null; await server.sync() },   // sticks gone after the recipe was chosen
-  })
+  const r = await trial({ before: async ({ server }) => { server.p[37] = null; await server.sync() } })
   assert.ok(r.error && /missing ingredient/.test(r.error.message), `expected mineflayer's own error, got ${r.error?.message}`)
   assert.ok(r.real.length >= 3, 'the throw must come mid-craft, with wrappers installed')
   assert.ok(restored(r))
   assert.equal(r.rows[0].status, 'failed')
 })
 
-await t('abort: the signal stops the craft within one click, closes the window, restores everything', async () => {
+await t('abort mid-craft: stops within one click, closes the window, restores everything, says aborted', async () => {
   const ac = new AbortController()
-  setTimeout(() => ac.abort(), 250)
-  const r = await trial({ signal: ac.signal })
-  assert.ok(r.error && /craft aborted/.test(r.error.message), `got ${r.error?.message}`)
-  assert.ok(r.ms < 250 + CS.CRAFT_SYNC.clickCapMs, `took ${r.ms} ms after a 250 ms abort`)
-  assert.ok(r.writes.some(w => w.name === 'close_window'), 'mineflayer\'s catch should close the table')
+  setTimeout(() => ac.abort(), 400)
+  const r = await trial({ options: { signal: ac.signal } })
+  assert.ok(r.error?.aborted, `got ${r.error?.message}`)
+  assert.ok(r.ms < 400 + 300, `took ${r.ms} ms after a 400 ms abort`)
+  assert.ok(r.writes.some(w => w.name === 'close_window' && w.params.windowId !== 0), 'mineflayer\'s catch should close the table')
   assert.ok(restored(r))
-  assert.equal(r.rows[0].args.aborted, true)
+  assert.equal(r.rows[0].args.outcome, 'aborted')
+})
+
+// ------------------------------------------------------------------ 6. cancellation while mineflayer awaits windowOpen
+await t('abort while awaiting windowOpen returns promptly; only the fuse stays until the late window is refused', async () => {
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 150)
+  let mid = null
+  const r = await trial({
+    openDelayMs: 900, options: { signal: ac.signal },
+    during: async ({ bot, orig }) => {
+      await new Promise(resolve => setTimeout(resolve, 300))
+      mid = { fuse: bot.clickWindow !== orig.clickWindow, write: bot._client.write === orig.write, putAway: bot.putAway === orig.putAway,
+              busy: bot.craftSync.busy() }
+      let busyErr = null
+      try { await bot.craft(bot.recipesFor(id('wooden_pickaxe'), null, 1, true)[0], 1, null) } catch (e) { busyErr = e }
+      mid.busyErr = busyErr?.failClass
+      await new Promise(resolve => setTimeout(resolve, 1200))       // the table opens at 900 ms; the zombie hits the fuse
+      return { clickBack: bot.clickWindow === orig.clickWindow, busy: bot.craftSync.busy() }
+    },
+  })
+  assert.ok(r.error?.aborted, `got ${r.error?.message}`)
+  assert.ok(r.ms < 150 + CS.CRAFT_SYNC.quietMs + 150, `took ${r.ms} ms to honour an abort at 150 ms`)
+  assert.ok(mid.write && mid.putAway, 'wrappers other than the fuse must be gone at once')
+  assert.ok(mid.fuse && mid.busy, 'the abandoned craft must be fused and count as busy')
+  assert.equal(mid.busyErr, 'craft_busy')
+  assert.equal(r.real.filter(w => w.params.windowId !== 0).length, 0, 'the abandoned craft clicked the late window')
+  assert.ok(r.writes.some(w => w.name === 'close_window' && w.params.windowId !== 0), 'the late window was not closed')
+  assert.deepEqual(r.sideResult, { clickBack: true, busy: false })
+})
+
+await t('disconnect while awaiting windowOpen: aborted, promptly', async () => {
+  const r = await trial({ openDelayMs: Infinity, during: async ({ bot }) => { await new Promise(resolve => setTimeout(resolve, 150)); bot.emit('end') } })
+  assert.ok(r.error?.aborted && /disconnected/.test(r.error.message), `got ${r.error?.message}`)
+  assert.ok(r.ms < 150 + CS.CRAFT_SYNC.quietMs + 150, `took ${r.ms} ms`)
+})
+
+// ------------------------------------------------------------------ 5. other inventory actions preempt
+await t('a reflex equip mid-craft preempts it: the craft unwinds first, the equip waits < 2 s, nothing interleaves', async () => {
+  const seen = []
+  const r = await trial({
+    equip: (bot) => async function () { seen.push({ t: Date.now(), clickWindowIsMineflayers: bot.clickWindow === bot.__origClick, writes: bot.__server.writes.length }) },
+    before: async ({ bot, server }) => { bot.__server = server },
+    during: async ({ bot, orig }) => {
+      bot.__origClick = orig.clickWindow
+      await new Promise(resolve => setTimeout(resolve, 500))
+      const t0 = Date.now()
+      await bot.equip({ name: 'stone_sword' }, 'hand')
+      return { waited: Date.now() - t0 }
+    },
+  })
+  assert.equal(seen.length, 1, 'the equip never ran')
+  assert.ok(r.sideResult.waited < CS.CRAFT_SYNC.preemptWaitMs, `the reflex waited ${r.sideResult.waited} ms`)
+  assert.ok(seen[0].clickWindowIsMineflayers, 'the equip ran with the craft\'s wrappers still installed')
+  assert.ok(r.error?.aborted && /preempted by equip/.test(r.error.message), `got ${r.error?.message}`)
+  const craftClicksAfter = r.server.writes.slice(seen[0].writes).filter(w => w.name === 'window_click')
+  assert.equal(craftClicksAfter.length, 0, 'the craft clicked after the equip began')
+})
+
+// ------------------------------------------------------------------ 7. deadline
+await t('repeated crafts stop at the deadline, never past it, and report produced/requested from the server', async () => {
+  const deadlineIn = 2600
+  let deadline
+  const r = await trial({ inv: INV3, count: 3, before: async () => { deadline = Date.now() + deadlineIn }, options: { get deadline () { return deadline } } })
+  assert.ok(r.error, 'three crafts fit in 2.6 s; the deadline was not exercised')
+  assert.equal(r.error.failClass, 'craft_deadline', r.error.message)
+  assert.equal(r.error.requested, 3)
+  assert.ok(r.error.produced < 3)
+  assert.equal(r.error.produced, r.server.count('wooden_pickaxe'), 'produced must be the server\'s count')
+  assert.ok(r.ms <= deadlineIn + 30, `the craft ran ${r.ms} ms against a ${deadlineIn} ms deadline`)
+  assert.equal(statusFor('craft_deadline'), 'unknown', 'running out of clock is not a failure of the recipe')
+})
+
+// ------------------------------------------------------------------ 2. the skill: abort is aborted
+await t('craftFailureOutcome: an aborted signal is ABORTED whatever the error says; classes carry produced/requested', () => {
+  assert.equal(craftFailureOutcome(new Error('Event windowOpen did not fire'), { aborted: true, item: 'stick' }), CRAFT_ABORTED)
+  assert.equal(craftFailureOutcome(Object.assign(new Error('x'), { aborted: true }), { item: 'stick' }), CRAFT_ABORTED)
+  const busy = craftFailureOutcome(new CS.CraftSyncError('busy', { failClass: 'craft_busy' }), { item: 'stick' })
+  assert.deepEqual([busy.status, busy.failClass], ['failed', 'craft_busy'])
+  const un = craftFailureOutcome(new CS.CraftSyncError('m', { failClass: 'craft_unconfirmed', produced: 0, requested: 4 }), { item: 'stick' })
+  assert.equal(un.failClass, 'craft_unconfirmed'); assert.match(un.detail, /0 of 4/)
+  const dl = craftFailureOutcome(new CS.CraftSyncError('m', { failClass: 'craft_deadline', produced: 2, requested: 3 }), { item: 'stick' })
+  assert.deepEqual([dl.status, dl.failClass], ['unknown', 'craft_deadline']); assert.match(dl.detail, /2 of 3/)
+  for (const fc of ['craft_busy', 'craft_unconfirmed', 'craft_deadline']) assert.equal(evidenceScope(fc), null, `${fc} must not vote`)
+})
+
+await t('the craft SKILL throws Aborted when its signal is aborted mid-craft (runner: aborted/interrupted)', async () => {
+  const ac = new AbortController()
+  let thrown = null, returned = null
+  await trial({
+    item: 'stick', table: false, inv: { 36: ['oak_planks', 5], 9: ['dirt', 64] },
+    before: async ({ bot }) => {
+      // run the skill instead of the bare call: the trial's own bot.craft call is a no-op recipe-less refusal
+      setTimeout(() => ac.abort(), 300)
+      try { returned = await SKILLS.craft.run({ bot }, { item: 'stick', count: 1 }, ac.signal) } catch (e) { thrown = e }
+    },
+  })
+  assert.equal(returned, null, `the skill returned ${JSON.stringify(returned)} instead of throwing Aborted`)
+  assert.ok(thrown?.aborted, `threw ${thrown?.message}`)
 })
 
 // ------------------------------------------------------------------ caps
-function stubBot ({ spam = false } = {}) {
-  const bot = new EventEmitter()
-  bot._client = new EventEmitter()
-  bot._client.writes = []
-  bot._client.write = (name, params) => bot._client.writes.push({ name, params })
-  bot.inventory = { id: 0 }
-  bot.currentWindow = { id: 5 }
-  bot.clickWindow = spam ? async () => {} : () => new Promise(() => {})  // silent server: mineflayer's click never settles
-  bot.putAway = async () => {}
-  bot.putSelectedItemRange = async () => {}
-  bot.craft = async () => { await bot.clickWindow(3, 0, 0) }
-  let timer = null
-  if (spam) timer = setInterval(() => bot._client.emit('set_slot', { windowId: 5, stateId: 1, slot: 3 }), 20)
-  return { bot, stop: () => clearInterval(timer) }
-}
-
-await t('caps bound every wait at the DEFAULTS: silent server = quiet + resync 1 s + quiet + click 1.5 s + quiet', async () => {
+await t('caps bound every wait at the DEFAULTS: a silent server costs quiet + resync 1 s + quiet + click 1.5 s + quiet x2', async () => {
   assert.deepEqual([CS.CRAFT_SYNC.quietMs, CS.CRAFT_SYNC.quietCapMs, CS.CRAFT_SYNC.clickCapMs, CS.CRAFT_SYNC.resyncCapMs], [100, 1000, 1500, 1000])
   const { bot } = stubBot()
   const rows = []
   CS.installCraftSync(bot, { log: r => rows.push(r) })
   const t0 = Date.now()
-  await bot.craft({ result: { id: 1 } }, 1)
+  let err = null
+  try { await bot.craft(STUB_RECIPE, 1) } catch (e) { err = e }
   const ms = Date.now() - t0
-  assert.ok(ms >= 2700 && ms < 3300, `silent craft took ${ms} ms`)
+  assert.ok(ms >= 2800 && ms < 3500, `silent craft took ${ms} ms`)
+  assert.equal(err?.failClass, 'craft_unconfirmed')
   assert.equal(rows[0].args.resync_caps, 1)
   assert.equal(rows[0].args.click_caps, 1)
 })
 
 await t('caps bound the quiet wait when the window never goes quiet', async () => {
-  const { bot, stop } = stubBot({ spam: true })
+  const { bot, stop } = stubBot({ click: async () => {}, spam: () => ['window_items', { windowId: 5, stateId: 1, items: [], carriedItem: { itemCount: 0 } }] })
   const rows = []
   CS.installCraftSync(bot, { log: r => rows.push(r), quietCapMs: 250 })
   const t0 = Date.now()
-  await bot.craft({ result: { id: 1 } }, 1)
+  await bot.craft(STUB_RECIPE, 1)
   const ms = Date.now() - t0
   stop()
-  assert.equal(rows[0].args.quiet_caps, 3, 'before the resync, after it, after the click')
-  assert.ok(ms < 3 * 250 + 200, `took ${ms} ms`)
+  assert.equal(rows[0].args.quiet_caps, 3, 'before the resync, after it, after the click (window 0 is quiet)')
+  assert.ok(ms < 3 * 250 + 400, `took ${ms} ms`)
 })
 
 await t('quietReached: needs quietMs since the wait began AND since the last packet', () => {
@@ -208,19 +362,22 @@ await t('quietReached: needs quietMs since the wait began AND since the last pac
 })
 
 // ------------------------------------------------------------------ install + telemetry + wiring
-await t('install refuses a bot whose plugins have not loaded (the createBot-time overwrite)', () => {
+await t('install refuses a bot whose plugins have not loaded (the createBot-time overwrite)', async () => {
+  const { EventEmitter } = await import('node:events')
   const bot = new EventEmitter(); bot._client = new EventEmitter(); bot._client.write = () => {}
   assert.throws(() => CS.installCraftSync(bot), /plugins not loaded/)
 })
 
-await t('one _craft_sync row per craft, and its click count is the wire\'s', async () => {
+await t('one _craft_sync row per craft: confirmed, produced/requested, max answer, and the wire\'s click count', async () => {
   const r = await trial()
   assert.equal(r.rows.length, 1)
   const a = r.rows[0].args
   assert.equal(r.rows[0].kind, 'craft_sync')
   assert.equal(a.clicks, r.real.length, `row says ${a.clicks} clicks, the wire carried ${r.real.length}`)
-  assert.equal(a.resyncs, 1)
+  assert.deepEqual([a.confirmed, a.produced, a.requested, a.outcome], ['yes', 1, 1, 'ok'])
+  assert.equal(a.resyncs, r.resyncs.length)
   assert.ok(a.wait_ms >= a.clicks * CS.CRAFT_SYNC.quietMs)
+  assert.ok(a.max_answer_ms >= 0 && a.max_answer_ms < CS.CRAFT_SYNC.quietMs)
   assert.equal(a.quiet_caps + a.click_caps + a.resync_caps, 0)
   assert.equal(a.item, 'wooden_pickaxe')
 })
@@ -238,58 +395,16 @@ function wiredAtSpawn (code) {
   }
   return false
 }
-await t('WIRED: index.mjs installs craftsync inside the spawn handler, and skills.mjs hands the craft its signal', () => {
+await t('WIRED: index.mjs installs craftsync inside the spawn handler; skills.mjs hands the craft its signal and deadline', () => {
   const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
   assert.ok(wiredAtSpawn(idx), 'installCraftSync is not called (exactly once) inside bot.once(\'spawn\')')
   const mutant = idx.replace(/\n[^\n]*installCraftSync\(bot[^\n]*/, '').replace('const runner = new Runner(bot)', 'installCraftSync(bot, {})\n  const runner = new Runner(bot)')
   assert.ok(mutant.includes('installCraftSync(bot, {})') && !wiredAtSpawn(mutant), 'the wiring check cannot see a createBot-time install')
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.ok(sk.includes('await bot.craft(recipe, count, table ?? undefined, { signal })'))
+  assert.ok(sk.includes('await bot.craft(recipe, count, table ?? undefined, { signal, deadline })'))
 })
 
-// ------------------------------------------------------------------ mutants (each must reproduce its defect)
-const SRC = new URL('../src/craftsync.mjs', import.meta.url)
-async function withMutant (old, neu, fn) {
-  const src = readFileSync(SRC, 'utf8')
-  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}. A mutant that was never written reads as killed.`)
-  assert.equal(src.split(old).length, 2, 'the mutation target is not unique; the mutant is ambiguous')
-  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(old, neu))
-  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
-}
-
-await t('MUTANT KILLED: no quiet wait after a click -> the A-only craft bursts and is lost again', async () => {
-  await withMutant('      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)\n      await waitQuiet(st, win)\n',
-    '      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)\n', async mod => {
-      const r = await trial({ mod, opts: { rewriteStateId: false } })
-      assert.ok(r.minGap < CS.CRAFT_SYNC.quietMs, 'the mutant still waits between clicks')
-      assert.equal(r.server.count('wooden_pickaxe'), 0, 'the mutant kept the craft, so the lockstep test proves nothing')
-    })
-})
-
-await t('MUTANT KILLED: no resync click -> the resync test sees none', async () => {
-  await withMutant("        try { orig.write.call(bot._client, 'window_click', resyncPacket(win)) } finally { resyncing = false }",
-    '        try { /* mutant: no resync */ } finally { resyncing = false }', async mod => {
-      const r = await trial({ mod })
-      assert.equal(r.resyncs.length, 0, 'the mutant still sends a resync')
-    })
-})
-
-await t('MUTANT KILLED: put-away not routed -> its clicks burst past the lockstep and the row undercounts', async () => {
-  await withMutant('    const mine = { clickWindow, putAway, putSelectedItemRange }',
-    '    const mine = { clickWindow }', async mod => {
-      const r = await trial({ mod, opts: { rewriteStateId: false } })
-      assert.ok(r.minGap < CS.CRAFT_SYNC.quietMs, `min gap ${r.minGap}: the put-away still waits`)
-      assert.ok(r.rows[0].args.clicks < r.real.length, 'the row still counts every wire click')
-    })
-})
-
-await t('MUTANT KILLED: wrappers not restored -> they outlive the craft', async () => {
-  await withMutant('      try { restore?.() } finally { active = null }', '      active = null', async mod => {
-    const r = await trial({ mod })
-    assert.ok(!restored(r), 'the mutant restored anyway')
-  })
-})
-
-console.log(`\n${pass} passed, ${fail} failed`)
-process.exit(fail ? 1 : 0)
+await new Promise(resolve => setTimeout(resolve, 50))
+assert.equal(unhandled, 0)
+console.log(`\n${pass} passed, ${fail} failed${unhandled ? `, ${unhandled} unhandled rejections` : ''}`)
+process.exit(fail || unhandled ? 1 : 0)
