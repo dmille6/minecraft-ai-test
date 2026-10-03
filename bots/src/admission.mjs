@@ -15,6 +15,7 @@ import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankClosed, bankClosedDetail } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
@@ -317,6 +318,10 @@ export class AdmissionControl {
     }
 
     if (skill === 'deposit') {
+      // THE BANK IS CLOSED for this bot after a full-chest refusal (chestfull.mjs): nothing it carries can go in until it
+      // reopens, so the deposit is refused here, before any walk, with a remedy it can act on from anywhere.
+      const closed = bankClosed(bot)
+      if (closed) return { ok: false, reason: 'bank_closed', detail: bankClosedDetail(closed) }
       const items = bot.inventory?.items?.() ?? []
       // THE NAMED ITEM MUST BE IN HAND (2026-09-13: 842 of 1,748 deposit runs in 24 h
       // did nothing -- "nothing matching none/null/wheat_seeds to hand over"). A

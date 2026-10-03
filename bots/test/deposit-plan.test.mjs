@@ -64,15 +64,9 @@ t('one station and one bucket stay even when they are wanted; the second copy go
 })
 
 
-t('a full chest sends the bot to another chest within 24 blocks before it crafts a new one, excluding the ones tried', () => {
-  const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 12000)
-  const other = f.indexOf('while (tried.length < 3) {'), craftAt = f.indexOf("const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)")
-  assert.ok(other > 0 && craftAt > other, 'the alternates are tried before crafting, iteratively')
-  assert.match(f.slice(other, craftAt), /noRecovery: true, preferAt: other\.position, exclude: tried/, 'an alternate never recurses into recovery (one craft, in this frame only)')
-  assert.match(f.slice(other, craftAt), /if \(e\?\.aborted \|\| signal\?\.aborted\) throw e/, 'a travel failure is caught; an abort is re-thrown')
-  assert.equal((f.slice(other, craftAt).match(/await craft\(/g) || []).length, 0, 'no craft inside the alternate loop')
-})
+// (2026-10-03) The source-text test that stood here -- "the alternates are tried before crafting" -- is replaced by
+// behaviour in chest-full.test.mjs: another town container WITH ROOM is used before anything is placed, an unreadable
+// one defers, and a carried chest is placed before any craft. It pinned the unconditional craft that was the defect.
 
 
 // ---------------------------------------------------------------------------
