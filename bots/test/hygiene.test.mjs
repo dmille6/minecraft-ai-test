@@ -165,8 +165,8 @@ await t('WIRING (source, comments stripped): the order precedes planting, is coo
   assert.match(sk, /e\.name === 'item' && !refused\.has\(e\.id\) && !neverPickUp\(e\)/)
   assert.ok(!/\.tossStack\(|bot\.toss\(/.test(sk), 'no skill tosses items')
   assert.match(cog, /admitted\.skill === 'wear_out'\) this\.wearOutBackoffUntil = r\.status === 'failed'/, 'a failed wear-out backs off')
-  assert.match(cog, /admitted\?\.skill !== 'wear_out' && this\.milestones\.noteAttempt\(/, 'wear-out is not a milestone attempt')
-  assert.match(cog, /if \(admitted\.skill !== 'wear_out'\) this\.lessons\.recordSuccess\(/, 'wear-out never becomes a reliable choice')
+  assert.match(cog, /!isHousekeeping\(admitted\?\.skill\) && this\.milestones\.noteAttempt\(/, 'wear-out is not a milestone attempt')
+  assert.match(cog, /if \(!isHousekeeping\(admitted\.skill\)\) this\.lessons\.recordSuccess\(/, 'wear-out never becomes a reliable choice')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

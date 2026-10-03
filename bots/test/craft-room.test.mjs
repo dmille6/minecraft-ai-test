@@ -1086,6 +1086,19 @@ await t('the hold-back is HELD ONLY while it would bite: admitRoom.pickupOnly, h
   assert.equal(admitRoom(bagOf(36, [item('stick', 5)]), pick, { pickupNear: p }).pickupOnly, false, 'really full: not pickup-only')
 })
 
+await t('DEPOSIT TARGET is never an ingredient of the craft: `deposit <item>` for one the craft does not consume that empties a stack', () => {
+  // the composter chain at 34/36: logs + full cobblestone stacks. A plain deposit banks the LOGS too (they are bankable);
+  // the advice must name cobblestone, never the wood the build needs.
+  const bag = [item('oak_log', 3)]; for (let i = 0; i < 33; i++) bag.push(item('cobblestone', 64))
+  const plan = depositPlan(bag, null, { wants: [] })
+  assert.ok(plan.some(e => e.name === 'oak_log'), 'positive control: the whole plan does bank the logs')
+  assert.equal(depositTarget(bag, plan, [{ name: 'oak_log' }, { name: 'oak_planks' }, { name: 'oak_slab' }]), 'cobblestone')
+  assert.equal(depositTarget(bag, plan, [{ name: 'cobblestone' }, { name: 'oak_log' }]), null, 'every freeing entry is an ingredient: none')
+  const a = roomAdvice({ items: bag, consumes: [{ name: 'oak_log' }], depositItem: 'cobblestone' })
+  assert.equal(a.kind, 'deposit'); assert.match(a.text, /^deposit cobblestone -- it walks home to the town chest/)
+  assert.equal(roomAdvice({ items: bag, consumes: [{ name: 'cobblestone' }], depositItem: 'cobblestone' }).kind, 'none', 'an ingredient is never advised away')
+})
+
 await t('PLACEMENT ADVICE uses the stack place() takes: dirt x64 BEFORE dirt x1 -> no "place" advice; x1 first -> advised', () => {
   const isPlaceable = n => mc.blocksByName[n]?.boundingBox === 'block' && !!mc.itemsByName[n]
   const consumes = [{ name: 'cobblestone', count: 3 }, { name: 'stick', count: 2 }]

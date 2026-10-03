@@ -34,6 +34,11 @@ import { noteSought } from './pickuplog.mjs'
 import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS, inPickupBox, pickupGoalClass } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
+import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
+         canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
+         handPlan, isCompostInput, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
+import { poolStateDir } from './worldfacts.mjs'
+import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -125,7 +130,9 @@ class Aborted extends Error { constructor() { super('aborted'); this.aborted = t
 const check = signal => { if (signal?.aborted) throw new Aborted() }
 const sleep = (ms, signal) => new Promise((res, rej) => {
   const t = setTimeout(res, ms)
-  signal?.addEventListener('abort', () => { clearTimeout(t); rej(new Aborted()) }, { once: true })
+  // `?.` on the method too: housekeeping orders tolerate a plain-object signal ({ aborted }), and they now sleep here
+  // (craftExecutions); a real AbortSignal behaves exactly as before.
+  signal?.addEventListener?.('abort', () => { clearTimeout(t); rej(new Aborted()) }, { once: true })
 })
 
 /**
@@ -3523,6 +3530,8 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
            detail: `crafted ${produced}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
 }
 
+/** How long a crafted result may take to appear in the LOCAL bag after bot.craft resolves (no craftsync). */
+const CRAFT_READBACK_MS = 2_000
 /** The craft's absolute deadline: the runner's start plus the skill timeout. craftsync stops clicking before it. */
 const craftDeadline = ctx => (ctx.runner?.current?.startedAt ?? Date.now()) + config.skills.defaultTimeoutMs
 
@@ -3560,6 +3569,17 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
   const sofar = done => (done ? ` (${done} of ${reps} executions already made)` : '')
   let done = 0, produced = 0, local = 0
   const fail = out => ({ ok: false, produced, out })
+  // WITHOUT craftsync the local bag is the only witness, and the server's slot updates can land after bot.craft
+  // resolves (composter build, sandbox Paper 1.21.8: an immediate read saw 4 logs / 8 planks while the server held 12
+  // planks). So the local count is read back, bounded, before it decides. Under craftsync this is never consulted.
+  const localArrival = async before => {
+    const until = Date.now() + CRAFT_READBACK_MS
+    for (;;) {
+      if (craftArrived(before, bot.inventory.items(), plan.result)) return true
+      if (Date.now() >= until) return false
+      await sleep(50, signal)
+    }
+  }
   for (let rep = 0; rep < reps; rep++) {
     check(signal)
     let room = craftRoomNow(bot, plan, reserveFor())
@@ -3646,8 +3666,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
       try { got = await bot.craft(recipe, 1, table ?? undefined, { signal, deadline, admit }) } catch (e) { error = e }
       // AN ABORT IS AN ABORT (craftFailureOutcome): the runner's aborted/interrupted, never a failure.
       if (error && (error.aborted || signal?.aborted)) throw new Aborted()
-      v = executionVerdict({ synced, got, error, perCraft,
-                             arrived: !synced && !error && craftArrived(before, bot.inventory.items(), plan.result) })
+      v = executionVerdict({ synced, got, error, perCraft, arrived: !synced && !error && await localArrival(before) })
       if (!v.retry || retries >= 1) break
       // A SERVER DENIAL IS RETRIED ONCE (craftroom: the sandbox's 5 of 12 denied table crafts) -- only when the
       // server's own bag, which craftsync just resynced, has every ingredient back and room for the result.
@@ -4434,7 +4453,8 @@ async function place(ctx, { item, x, y, z }, signal) {
       const cell = bot.blockAt(cellPos)
       const under = bot.blockAt(cellPos.offset(0, -1, 0))
       if (!cell || !solid(under) || replaceable(cell) || !cell.diggable) continue
-      if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || /_ore$/.test(cell.name)) continue
+      // Never the town composter either (composter.mjs): it is not a station this bot carries, but it is one the town uses.
+      if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || cell.name === 'composter' || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
       check(signal)
       // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
@@ -4998,6 +5018,389 @@ async function wearOutOne(ctx, tool, signal, { cellOk = null, sidesOnly = false 
   for (const until = Date.now() + WEAR_CONFIRM_MS; spentOf(tool.name) !== before - 1 && Date.now() < until;) { check(signal); await sleep(50, signal) }
   if (spentOf(tool.name) !== before - 1) return { ok: false, said: `${tool.name} survived the dig on ${block.name}` }
   return { ok: true, on: block.name }
+}
+
+// -------------------------------------------------------------- compost -----
+//
+// INVENTORY HYGIENE, PHASE 2 (composter.mjs has the measurement, the design and every decision). Two deterministic
+// work orders issued by townOrder, never offered to the model:
+//   compost          insert ballast (and saplings above SAPLING_RESERVE) into the town composter; at 7 it ripens to 8
+//                    after 20 ticks; at 8 one use pops a bone meal that must be CONFIRMED in the bag.
+//   build_composter  craft one from wood held, AT the town's sticky canonical site, and place it there.
+// Nothing is ever tossed. Every count in the rows is verified from the inventory. Every await is bounded and abortable;
+// on a timeout or an abort the pathfinder is stopped, an open window closed, and every outstanding operation is
+// waited for (bounded) BEFORE the hand is restored -- a late equip must not land on top of the restore.
+
+/** Per-await bounds, scaled from the skill budget (production: 3 s / 25 s / 60 s / 5 s) like the step pacing above. */
+const HK_AWAIT_MS = Math.max(200, Math.min(3_000, Math.floor(config.skills.defaultTimeoutMs / 60)))
+const HK_PATH_MS = Math.max(500, Math.min(25_000, Math.floor(config.skills.defaultTimeoutMs / 7)))
+const HK_CRAFT_MS = Math.max(1_000, Math.min(60_000, Math.floor(config.skills.defaultTimeoutMs / 3)))
+/** The HARD bound on waiting for outstanding operations after a timeout or abort; past it the order is 'unsettled'. */
+const HK_SETTLE_MS = Math.max(500, Math.min(5_000, Math.floor(config.skills.defaultTimeoutMs / 36)))
+export const HOUSEKEEPING_BOUNDS = Object.freeze({ awaitMs: HK_AWAIT_MS, pathMs: HK_PATH_MS, craftMs: HK_CRAFT_MS, settleMs: HK_SETTLE_MS })
+
+/**
+ * bound(p, ms, what, { path, abortable }): p's result, or a budget error after ms, or Aborted the moment the signal
+ * fires. Either way the loser's timer and listener are cleared, the pathfinder is halted for a walk, an open window
+ * is closed, and `p` stays TRACKED: settle() waits (bounded) for every tracked operation to finish.
+ */
+function hkGuards (bot, signal) {
+  const pending = new Set()
+  const cancel = walk => {
+    if (walk) haltPath(bot)
+    try { if (bot.currentWindow) bot.closeWindow?.(bot.currentWindow) } catch { /* nothing open */ }
+  }
+  const bound = (p, ms, what, { path: walk = false, abortable = true, controller = null } = {}) => {
+    const op = Promise.resolve(p)
+    const done = op.then(() => {}, () => {})
+    pending.add(done); done.then(() => pending.delete(done))
+    return new Promise((resolve, reject) => {
+      let timer = null, onAbort = null, over = false
+      const finish = (fn, v) => {
+        if (over) return
+        over = true; clearTimeout(timer)
+        if (onAbort) { try { signal?.removeEventListener?.('abort', onAbort) } catch { /* plain-object signal */ } }
+        fn(v)
+      }
+      // `controller` is the operation's OWN signal (place() takes one): a timed-out operation is told to stop, not
+      // merely abandoned while it keeps the order's still-live signal.
+      const stop = () => { cancel(walk); try { controller?.abort() } catch { /* already aborted */ } }
+      timer = setTimeout(() => { stop(); finish(reject, Object.assign(new Error(`${what} exceeded ${ms}ms`), { budgetExceeded: true })) }, ms)
+      if (abortable) {
+        if (signal?.aborted) { stop(); finish(reject, new Aborted()); return }
+        onAbort = () => { stop(); finish(reject, new Aborted()) }
+        signal?.addEventListener?.('abort', onAbort, { once: true })
+      }
+      op.then(v => finish(resolve, v), e => finish(reject, e))
+    })
+  }
+  /** -> true when everything outstanding has finished, false when the hard bound ran out first. */
+  const settle = () => new Promise(res => {
+    if (!pending.size) { res(true); return }
+    const t = setTimeout(() => res(false), HK_SETTLE_MS)
+    Promise.all([...pending]).then(() => { clearTimeout(t); res(true) })
+  })
+  return { bound, restoreBound: (p, ms, what) => bound(p, ms, what, { abortable: false }), settle, outstanding: () => pending.size }
+}
+const handOf = it => (it ? { name: it.name, used: it.durabilityUsed ?? 0 } : null)
+const hotbarOf = bot => Array.from({ length: 9 }, (_, i) => handOf(bot.inventory?.slots?.[36 + i]))
+async function applyHand (bot, plan, bound) {
+  if (plan?.action === 'select') bot.setQuickBarSlot?.(plan.index)
+  else if (plan?.action === 'equip') await bound(bot.equip(plan.item, 'hand'), HK_AWAIT_MS, 'equip')
+}
+/**
+ * Wait for everything outstanding, THEN put the hand back (bounded, not abortable: it runs after an abort too). The
+ * order keeps the body the whole time -- the skill has not returned. If the hard bound runs out with an operation
+ * still in flight, the hand is NOT restored: an equip that may still land would overwrite the restore, which is worse
+ * than leaving the hand as it is. That is logged as `_housekeeping_unsettled` and returned as false.
+ */
+async function settleAndRestore (bot, was, g, order = 'housekeeping') {
+  let settled = false
+  try { settled = await g.settle() } catch { settled = false }
+  if (!settled) {
+    logEvent({ kind: 'housekeeping_unsettled', status: 'failed', snapshot: snapshot(bot),
+               detail: `${order}: ${g.outstanding()} operation(s) still outstanding after ${HK_SETTLE_MS}ms; hand not restored (held ${bot.heldItem?.name ?? 'nothing'}, was ${was?.name ?? 'nothing'})` })
+    return false
+  }
+  try {
+    await applyHand(bot, handPlan({ was, held: handOf(bot.heldItem), hotbar: hotbarOf(bot), items: bot.inventory?.items?.() ?? [] }), g.restoreBound)
+  } catch { /* best effort: equip swaps, so the item is in the bag either way */ }
+  let restored = false
+  try { restored = await g.settle() } catch { restored = false }
+  if (!restored) {
+    logEvent({ kind: 'housekeeping_unsettled', status: 'failed', snapshot: snapshot(bot),
+               detail: `${order}: the restoring equip is still outstanding after ${HK_SETTLE_MS}ms (held ${bot.heldItem?.name ?? 'nothing'}, was ${was?.name ?? 'nothing'})` })
+    return false
+  }
+  return true
+}
+const homeVec = () => new Vec3(config.world.homeX, config.world.homeY, config.world.homeZ)
+const blockNameOf = (bot, b) => b?.name ?? bot.registry?.blocks?.[b?.type]?.name
+
+/** The town's composter: searched around HOME within ADOPT_RADIUS, never around the bot, never a village's. */
+export function findTownComposter (bot) {
+  try {
+    return bot.findBlock?.({ point: homeVec(), matching: b => blockNameOf(bot, b) === 'composter', maxDistance: ADOPT_RADIUS }) ?? null
+  } catch { return null }
+}
+/** What this bot could build a composter from, right now. A table counts only if CARRIED (composter.mjs). */
+export function townBuildPlan (bot) {
+  const items = bot.inventory?.items?.() ?? []
+  return composterBuildPlan(Object.fromEntries(heldCounts(items)), { tableAvailable: townPlanTableAvailable(items), items })
+}
+const readCell = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: blockNameOf(bot, b), boundingBox: b.boundingBox } : null }
+/**
+ * The town's site, from the shared generation record (composter.mjs resolveTownSite): adopted if this bot's view accepts
+ * it, replaced compare-and-swap if this bot's view refuses it, deferred if anything is unknown or nothing can be shared.
+ * The record is per pool + home and carries the world id (bot.worldId, from the login packet), so a reseed starts over.
+ */
+const townSiteKey = () => `composter-site-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+export function townComposterSite (bot) {
+  const home = homeVec(), read = readCell(bot)
+  return resolveTownSite({
+    dir: poolStateDir(config.memory.pool),
+    key: townSiteKey(),
+    world: bot.worldId ?? null,
+    compute: () => canonicalComposterSite({ home, read }),
+    refuse: site => siteRefusal(read, site, home),
+  })
+}
+
+async function compost(ctx, _args, signal) {
+  const { bot } = ctx
+  const items = () => bot.inventory?.items?.() ?? []
+  const countOf = n => items().reduce((a, i) => a + (i.name === n ? (i.count ?? 0) : 0), 0)
+  const slotsBefore = items().length
+  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot),
+                                        detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
+  const skip = (why, f = {}) => { row('no_effect', { stop: why, ...f }); return { status: 'no_effect', detail: why } }
+  // ANOTHER SUBSYSTEM'S SNEAK IS NOT OURS TO RELEASE, and a sneaking use is an item use, not a block use.
+  if (bot.controlState?.sneak) return skip('sneaking (held by another subsystem); composting waits for another visit')
+  const comp = findTownComposter(bot)
+  if (!comp) return skip('no composter within 16 of home yet')
+  const pos = comp.position, centre = pos.offset(0.5, 0.5, 0.5), at = () => bot.blockAt(pos)
+  const levelBefore = composterLevel(at())
+  const ripe = levelBefore >= 7 && boneMealRoom(items())
+  if (!compostPlan(items()).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
+  const was = handOf(bot.heldItem)
+  const g = hkGuards(bot, signal)
+  const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
+  const taken = {}
+  let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false
+  try {
+    if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
+      try { await g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      check(signal)
+      if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
+        row('failed', { stop: 'composter out of reach', levelBefore })
+        return { status: 'failed', failClass: 'composter_unreachable', detail: `the town composter at ${pos.x},${pos.y},${pos.z} could not be reached` }
+      }
+    }
+    const ripen = async () => {   // level 7 -> 8 takes 20 ticks
+      for (let i = 0; i < 8 && composterLevel(at()) === 7; i++) { check(signal); await ticks(5) }
+      return composterLevel(at()) !== 7
+    }
+    const harvest = async () => {   // level 8: one use pops a bone meal on top; it is not done until it is in the bag
+      try { await applyHand(bot, handPlan({ mode: 'harvest', was, held: handOf(bot.heldItem), hotbar: hotbarOf(bot), items: items() }), g.bound) } catch (e) { if (e?.aborted) throw e }
+      const before = countOf('bone_meal')
+      try { await g.bound(bot.activateBlock(at()), HK_AWAIT_MS, 'use the composter') } catch (e) { if (e?.aborted) throw e }
+      await ticks(12)   // the drop's pickup delay is 10 ticks
+      if (composterLevel(at()) === 8) return 'level 8 did not empty'
+      if (countOf('bone_meal') <= before) {
+        const drop = bot.nearestEntity?.(e => e?.name === 'item' && e.position && e.position.distanceTo(centre) < 4 &&
+          (() => { try { return e.getDroppedItem?.()?.name === 'bone_meal' } catch { return false } })())
+        if (drop) {
+          try { await g.bound(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+          await ticks(12)
+        }
+      }
+      const got = countOf('bone_meal') - before
+      if (got <= 0) { uncollected = true; return 'bone meal popped but not confirmed in the bag; extraction stopped' }
+      bonemeal += got
+      return null
+    }
+    const deadline = Date.now() + VISIT_BUDGET_MS
+    let misses = 0
+    for (;;) {
+      check(signal)
+      if (Date.now() > deadline) { stop = 'budget'; break }
+      const room = boneMealRoom(items())
+      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room }) : null
+      const act = fillDecision({ level: composterLevel(at()), room, smallest: next?.n ?? 0 })
+      if (act === 'done') break
+      if (act === 'gone') { stop = 'composter gone'; break }
+      if (act === 'skip_no_room') { noRoom = true; stop = 'no room for the bone meal'; break }
+      if (act === 'ripen') { if (!(await ripen())) { stop = 'did not ripen'; break } continue }
+      if (act === 'harvest') { const why = await harvest(); if (why) { stop = why; break } continue }
+      const stack = next.item
+      if (bot.heldItem?.name !== stack.name || bot.heldItem?.slot !== stack.slot) {
+        try { await g.bound(bot.equip(stack, 'hand'), HK_AWAIT_MS, 'equip') } catch (e) { if (e?.aborted) throw e; stop = `could not hold ${stack.name}`; break }
+        check(signal)
+        if (bot.heldItem?.name !== stack.name) { stop = `could not hold ${stack.name}`; break }
+      }
+      const before = countOf(stack.name)
+      try { await g.bound(bot.activateBlock(at()), HK_AWAIT_MS, 'use the composter') } catch (e) { if (e?.aborted) throw e }
+      await ticks(2)
+      let after = countOf(stack.name)
+      if (after >= before) { await ticks(4); after = countOf(stack.name) }
+      if (after < before) { taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0 }
+      else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
+    }
+  } finally {
+    await settleAndRestore(bot, was, g, 'compost')
+  }
+  const n = Object.values(taken).reduce((a, b) => a + b, 0)
+  const slotsAfter = items().length
+  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done' }
+  if (n || bonemeal) {
+    row('success', f)
+    return { status: 'success',
+             detail: `composted ${n} item(s) (${slotsBefore} -> ${slotsAfter} slots, ${bonemeal} bone meal)${stop ? `; stopped: ${stop}` : ''}` }
+  }
+  // NO PENALTY for a visit that could not start: a ripe composter with no room, or no fill that could finish.
+  if (noRoom) return skip(`${stop}: the composter waits for a bot with room`, f)
+  row('failed', f)
+  return { status: 'failed', failClass: uncollected ? 'bonemeal_uncollected' : 'compost_refused',
+           detail: `composted nothing at the composter: ${stop ?? 'nothing left to insert'}` }
+}
+
+// ------------------------------------------------------ build_composter -----
+const hkStop = (failClass, message) => Object.assign(new Error(message), { hkStop: true, failClass })
+/** What the composter chain consumes (never advised away to free a slot). */
+const chainConsumes = plan => (plan?.wood ? [plan.log, `${plan.wood}_planks`, `${plan.wood}_slab`].map(name => ({ name, count: 1 })) : [])
+/**
+ * NO ROOM TO START THE BUILD -> the skip's detail. The worst case of the chain does not fit, and the remedy cannot be
+ * the composter itself (it is not built) or composting (nothing to compost into): it is slotRemedy's, which names only
+ * a move whose precondition holds from here -- or says plainly that nothing can be freed here.
+ */
+function noRoomToBuild(bot, plan, said) {
+  const { remedy } = slotRemedy(bot, bot.inventory?.items?.() ?? [], chainConsumes(plan))
+  // THE REMEDY FIRST: the prompt keeps 220 characters of the whole outcome (cognitive.mjs formatOutcome).
+  return `${remedy}. Not started: ${said}; the town has no composter yet, so composting cannot free them`
+}
+/**
+ * A COMPOSTER CRAFT THE EXECUTOR REFUSED OR COULD NOT VERIFY -> { failClass, detail }. Pure. A full bag (a pickup
+ * filled the room the plan counted on) is composter_no_room, its detail the executor's own refusal with its remedy;
+ * everything else is composter_craft. Neither votes (evidenceScope); a failed build backs off (townOrderOutcome).
+ */
+export function composterCraftFailure (item, out = {}) {
+  // THE EXECUTOR'S DETAIL LEADS WITH ITS REMEDY, so it goes first, untruncated; the composter context follows.
+  const said = String(out?.detail ?? out?.failClass ?? 'unknown')
+  if (out?.failClass === 'inventory_full') {
+    return { failClass: 'composter_no_room', detail: `${said} [crafting ${item} for the town composter, which is not built yet, so composting cannot free the slot]` }
+  }
+  return { failClass: 'composter_craft', detail: `${said} [crafting ${item} for the town composter]` }
+}
+async function buildComposter (ctx, _args, signal) {
+  const { bot } = ctx
+  const items = () => bot.inventory?.items?.() ?? []
+  const free = () => 36 - items().length
+  const skip = why => ({ status: 'no_effect', detail: why })
+  const fail = (failClass, why) => ({ status: 'failed', failClass, detail: why })
+  const REMEDY = 'no composter in town and not enough wood to build one: it takes 7 slabs of one wood and a crafting table -- ' +
+                 '3 logs of one kind (2 if a crafting table is carried) -- gather 3 logs and the next town visit builds it'
+  if (findTownComposter(bot)) return skip('the town already has a composter')
+  const pre = townBuildPlan(bot)
+  if (!pre) return skip(REMEDY)
+  // NEVER CRAFT INTO A FULL BAG: mineflayer drops crafted output that has no slot. And NO CIRCULAR REMEDY: the
+  // composter is what would free slots, and it does not exist yet -- the refusal names what frees one from HERE.
+  if (free() < pre.slotsNeeded) return skip(noRoomToBuild(bot, pre, `building needs ${pre.slotsNeeded} free slots for the craft chain and the bag has ${free()}`))
+  const home = homeVec(), read = readCell(bot)
+  // NO SITE IS A FREE SKIP: an unloaded cell, no valid cell, or no shared record -- never this bot's private answer.
+  const { site, gen, why } = townComposterSite(bot)
+  if (!site) return skip(`the town's composter site cannot be settled from here: ${why}`)
+  const stand = standableBeside(read, site)
+  const centre = new Vec3(site.x + 0.5, site.y + 0.5, site.z + 0.5)
+  const was = handOf(bot.heldItem)
+  const g = hkGuards(bot, signal)
+  const inSiteColumn = e => e?.position && Math.floor(e.position.x) === site.x && Math.floor(e.position.z) === site.z && Math.abs(Math.floor(e.position.y) - site.y) <= 1
+  const approach = async () => {
+    const here = bot.entity.position
+    if (here.distanceTo(centre) <= STATION_REACH && !inSiteColumn(bot.entity)) return true
+    try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    return bot.entity.position.distanceTo(centre) <= STATION_REACH && !inSiteColumn(bot.entity)
+  }
+  // place() gets its OWN signal, aborted when the order's is or when the bound runs out, so a timed-out place stops at
+  // its next check instead of putting the block down after the order has given up on it.
+  const placeWithin = async args => {
+    const ac = new AbortController()
+    const relay = () => ac.abort()
+    try { signal?.addEventListener?.('abort', relay, { once: true }) } catch { /* plain-object signal */ }
+    try { return await g.bound(place(ctx, args, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } finally {
+      try { signal?.removeEventListener?.('abort', relay) } catch { /* plain-object signal */ }
+    }
+  }
+  // ONE REPETITION AT A TIME, THROUGH THE CRAFT SKILL'S OWN EXECUTOR (craftExecutions): the room check before each
+  // execution (make-room never wears the last digging pickaxe), craftsync's admission after its baseline resync,
+  // craftsync's verdict (or, without craftsync, the bounded local read-back the sandbox called for), the item-on-the-
+  // ground hold-back, and the _craft_room rows. The next repetition's recipe is looked up only after the previous one
+  // was verified, so it never runs on a stale view of the bag. bot.craft's count here is ONE EXECUTION (craftsync's
+  // `count` is crafts; plan.logCrafts/slabCrafts are executions), so no item/execution conversion is involved.
+  const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: () => 0, stationDid: [] }
+  let chain = []   // the chain's ingredients (set once the plan is read at the site): never advised away mid-build
+  const craftTimes = async (item, times, table) => {
+    const def = bot.registry.itemsByName[item]
+    for (let i = 0; i < times; i++) {
+      check(signal)
+      const recipe = def && (bot.recipesFor(def.id, null, 1, table ?? null) ?? [])[0]
+      if (!recipe) throw hkStop('composter_craft', `no ${item} recipe from what is held${table ? ' at the table' : ''}`)
+      let ran
+      try {
+        ran = await g.bound(craftExecutions(ctx, { item, recipe, crafts: 1, table: table ?? undefined, anchor: table ?? null,
+                                                   protect: chain, signal, deadline: Date.now() + HK_CRAFT_MS - 500, rs }), HK_CRAFT_MS, 'craft')
+      } catch (e) {
+        if (e?.aborted || signal?.aborted) throw e
+        throw hkStop('composter_craft', `crafting ${item} failed: ${String(e?.message ?? e).slice(0, 80)}`)
+      }
+      if (!ran.ok) { const f = composterCraftFailure(item, ran.out); throw hkStop(f.failClass, f.detail) }
+    }
+  }
+  try {
+    if (!(await approach())) return fail('composter_unreachable', `could not reach the town's composter site at ${site.x},${site.y},${site.z}`)
+    // AT THE SITE: the table actually in reach, then the ingredients and the free slots, all read again here.
+    const tableHere = bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
+    let table = tableHere && bot.entity.position.distanceTo(tableHere.position.offset(0.5, 0.5, 0.5)) <= STATION_REACH ? tableHere : null
+    const counts = Object.fromEntries(heldCounts(items()))
+    const plan = composterBuildPlan(counts, { tableAvailable: !!table || townPlanTableAvailable(items()), items: items() })
+    if (!plan) return skip(REMEDY)
+    chain = chainConsumes(plan)
+    if (free() < plan.slotsNeeded) return skip(noRoomToBuild(bot, plan, `at the site the bag has ${free()} free slots and the craft chain needs ${plan.slotsNeeded}`))
+    if (!plan.carried) {
+      if (plan.logCrafts) await craftTimes(`${plan.wood}_planks`, plan.logCrafts, null)
+      if (!table) {
+        if (countItem(bot, 'crafting_table') < 1) await craftTimes('crafting_table', 1, null)
+        // BACK ON THE STANDING CELL FIRST (C5): a pickup walk during the planks or table craft (craftExecutions) may have
+        // moved the bot; the table goes within 2 of the composter's standing cell, never beside wherever that walk
+        // ended. approach() alone is satisfied anywhere within reach of the site, which is not enough here.
+        const f0 = bot.entity.position.floored()
+        if (stand && (f0.x !== stand.x || f0.y !== stand.y || f0.z !== stand.z)) {
+          try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+          check(signal)
+        }
+        if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z} to put the crafting table down`)
+        const feet = bot.entity.position.floored()
+        const cell = tableCellFor({ site, stand: { x: feet.x, y: feet.y, z: feet.z }, read })
+        if (!cell) return fail('composter_site', `nowhere within 2 of the composter site's standing cell to put a crafting table`)
+        let put
+        try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        if (put?.status !== 'success') return fail('composter_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
+        table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
+      }
+      if (plan.slabCrafts) await craftTimes(`${plan.wood}_slab`, plan.slabCrafts, table)
+      // A BOT THAT LOSES THE RACE KEEPS NOTHING it cannot use: the check runs right before the composter itself.
+      if (findTownComposter(bot)) return skip('another bot built the town composter first; no composter crafted (the planks/slabs stay)')
+      await craftTimes('composter', 1, table)
+    }
+    if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z}`)
+    // AFTER THE LAST MOVE AND IMMEDIATELY BEFORE PLACING: a composter anywhere in town wins, and the clearance volume
+    // is read again cell by cell.
+    if (findTownComposter(bot)) return skip('another bot placed the town composter first; this one stays in the bag')
+    const refusal = siteRefusal(read, site, home)
+    if (refusal === 'unknown') return skip(`a cell around the composter site at ${site.x},${site.y},${site.z} is not loaded; placing waits for another visit`)
+    if (refusal) return fail('composter_site', `the composter site ${site.x},${site.y},${site.z} is no longer valid (${refusal}); the composter stays in the bag`)
+    // THE FENCE: the shared record must still name this generation and this cell. Another bot that refused it has
+    // published N+1 and is building there; this one stands down (no penalty) and the composter stays in the bag.
+    const now = readTownSite(poolStateDir(config.memory.pool), townSiteKey())
+    if (now.gen !== gen || !now.site || now.site.x !== site.x || now.site.y !== site.y || now.site.z !== site.z) {
+      return skip(`the town's composter site moved (generation ${gen} -> ${now.gen}) while this build was under way; nothing placed`)
+    }
+    if (Object.values(bot.entities ?? {}).some(e => e !== bot.entity && e?.name !== 'item' && inSiteColumn(e))) {
+      return skip(`something is standing on the composter site at ${site.x},${site.y},${site.z}; placing waits for another visit`)
+    }
+    let put
+    try { put = await placeWithin({ item: 'composter', x: site.x, y: site.y, z: site.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+    if (put?.status !== 'success') return fail('composter_place', `could not place the town composter at ${site.x},${site.y},${site.z}: ${String(put?.detail).slice(0, 120)}`)
+    if (blockNameOf(bot, bot.blockAt(new Vec3(site.x, site.y, site.z))) !== 'composter') return fail('composter_place', `placed, but ${site.x},${site.y},${site.z} does not read composter`)
+    logEvent({ kind: 'composter_built', status: 'success', snapshot: snapshot(bot),
+               detail: `at=${site.x},${site.y},${site.z} wood=${plan.wood ?? 'carried'} free=${free()} need=${plan.slotsNeeded} table=${table ? `${table.position.x},${table.position.y},${table.position.z}` : 'none'}` })
+    return { status: 'success', placed: 1, detail: `built the town composter at ${site.x},${site.y},${site.z}` }
+  } catch (e) {
+    if (e?.hkStop) return fail(e.failClass, e.message)
+    throw e
+  } finally {
+    await settleAndRestore(bot, was, g, 'build_composter')
+  }
 }
 
 // ------------------------------------------------------------- withdraw -----
@@ -7148,6 +7551,13 @@ export const SKILL_CONTRACTS = {
   deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
   // Destroys spent tools by using them: the change it exists for is the loss.
   wear_out: { expects: ['inventory_loss'],        maxMs: 60_000 },
+  // Consumes ballast into the town composter; a build visit also crafts and places it, so it gets more time.
+  // A visit LOSES compost inputs, or -- a harvest-only visit to a ripe composter -- GAINS bone meal (sandbox 10-03:
+  // harvest-only visits were downgraded to unknown). NOT any gain or loss: an auto-pickup of cobblestone on the walk
+  // is not composting (classifyOutcome, compost_effect).
+  compost:  { expects: ['compost_effect'],        maxMs: 120_000 },
+  // Crafts and places the town composter: the change it exists for is the block in the world.
+  build_composter: { expects: ['world_change'],   maxMs: 150_000 },
   withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
@@ -7254,6 +7664,14 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   }
   if (expects.includes('inventory_loss')) {
     const l = Object.entries(inv).filter(([, n]) => n < 0)
+    if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
+  }
+  // THE COMPOSTER'S OWN EVIDENCE, narrower than inventory_gain/loss: bone meal gained, or a planner input lost. The
+  // strings keep the inventory_ prefixes so DURABLE_EVIDENCE still reads them as durable.
+  if (expects.includes('compost_effect')) {
+    const bm = inv.bone_meal ?? 0
+    if (bm > 0) because.push(`inventory_gain: bone_meal +${bm}`)
+    const l = Object.entries(inv).filter(([k, n]) => n < 0 && isCompostInput(k))
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
@@ -8188,6 +8606,9 @@ export const SKILLS = {
   // NEVER OFFERED TO THE MODEL (chatOnly keeps it out of the schema enum and the prompt): issued only as a
   // deterministic work order from cognitive.mjs at TRIGGER_SLOTS, so a model can never choose to break a tool.
   wear_out: { run: wearOut, usage: 'wear_out',                      args: [], chatOnly: true },
+  // Same rule as wear_out: deterministic town orders from townOrder (composter.mjs), never the model's choice.
+  compost:  { run: compost,  usage: 'compost',                       args: [], chatOnly: true },
+  build_composter: { run: buildComposter, usage: 'build_composter', args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },

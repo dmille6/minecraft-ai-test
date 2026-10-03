@@ -5,6 +5,7 @@
 // without unrecoverable failure. That is what this file is for.
 
 import { tunnelMovements } from './oretunnel.mjs'
+import { protectTownBlocks, worldIdFromLogin } from './composter.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
@@ -165,6 +166,9 @@ function connect() {
   // packet-witness.mjs -- `onGround` cannot separate those and reading it as
   // if it could is a measurement that was already retracted once.
   bot.packetWitness = attachPacketWitness(bot)
+  // THE WORLD'S IDENTITY (the login packet's hashed seed): the town composter's shared site record carries it, so a
+  // reseed that keeps pool and home starts a new record instead of building on the old world's cell (composter.mjs).
+  bot._client.on('login', packet => { bot.worldId = worldIdFromLogin(packet) })
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer
   // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
@@ -314,7 +318,8 @@ function connect() {
     // holder's own multi-leg goto refuses itself. Merging it is a canary, not a cherry-pick.
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
-    const moves = new Movements(bot)
+    // THE TOWN COMPOSTER IS NEVER A PATH'S DIG (composter.mjs): added BEFORE any clone below, which share this Set.
+    const moves = protectTownBlocks(new Movements(bot), bot.registry)
     // canDig=false is deliberate and load-bearing. With digging enabled the
     // pathfinder treats excavation as a normal way to reach a goal, and the bot
     // steadily tunnels downward -- observed descending 68->65 while "walking"

@@ -93,7 +93,8 @@ export function craftRoom (items = [], recipe = {}, count = 1, { capacity = BAG_
     }
     if (peak > capacity) return { ok: false, reason: 'no_room', rep, before, peak, after: bag.length, short: peak - capacity, missing: null }
   }
-  return { ok: true, reason: null, rep: reps, before, peak, after: bag.length, short: 0, missing: null }
+  // `bag`: the simulated stacks after every repetition -- the next step of a chain starts from it (chainPeak).
+  return { ok: true, reason: null, rep: reps, before, peak, after: bag.length, short: 0, missing: null, bag }
 }
 
 /**
@@ -207,6 +208,27 @@ export function roomAdvice ({ items = [], consumes = [], isPlaceable = () => fal
              text: `deposit ${depositItem} -- it walks home to the town chest and frees slots; nothing else frees one from where you stand` }
   }
   return { kind: 'none', text: 'no slot can be freed from here -- nothing in the bag can be freed from where you stand, and no deposit would empty a stack the craft does not need' }
+}
+
+/**
+ * A WHOLE CHAIN OF CRAFTS, SIMULATED IN ORDER -> { ok, peak, before, slotsNeeded, step } | { ok: false, reason, step }.
+ * Pure. Each step is { recipe: { consumes, outputs }, times } (a recipe with no outputs models a block put down, e.g.
+ * the crafting table placed between the planks and the slabs); each starts from the bag the previous one left
+ * (craftRoom's `bag`). `slotsNeeded` is how many free slots the chain needs NOW: its highest occupancy minus today's,
+ * at least 0 -- a chain that empties a stack before it needs a new one can need none (composter.mjs's build plan).
+ */
+export function chainPeak (items = [], steps = []) {
+  let bag = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
+  const before = bag.length
+  let peak = before
+  for (let i = 0; i < (steps ?? []).length; i++) {
+    const st = steps[i]
+    const r = craftRoom(bag, st.recipe, Math.max(1, st.times ?? 1), { capacity: Infinity })
+    if (!r.ok) return { ok: false, reason: r.reason, step: i, missing: r.missing }
+    peak = Math.max(peak, r.peak)
+    bag = r.bag
+  }
+  return { ok: true, peak, before, slotsNeeded: Math.max(0, peak - before), step: null }
 }
 
 /** Room for one more of `name` (the table retake): a non-full compatible stack, or a free slot. */

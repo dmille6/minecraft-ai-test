@@ -10,14 +10,15 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
-import { wearOutPlan } from './hygiene.mjs'
+import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -776,6 +777,33 @@ export class CognitiveLoop {
         }
       } catch { /* an inventory read must never break the decision loop */ }
     }
+    // THE TOWN ORDERS (composter.mjs townOrder decides; this only supplies readings and keeps the state): compost at
+    // town at 34+ slots, or build the town's composter when there is none and the bag has room for the craft chain.
+    // Never a trip. Every world scan is lazy and rate-limited inside townOrder.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const items = bot.inventory?.items?.() ?? []
+        const p = bot.entity?.position
+        const plan = compostPlan(items)
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = townOrder({
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: plan.junk,
+          distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+          storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
+          composterAtTown: () => !!findTownComposter(bot),
+          room: boneMealRoom(items),
+          composterRipe: () => (composterLevel(findTownComposter(bot)) ?? 0) >= 7,
+          buildPlan: () => townBuildPlan(bot),
+          myName: bot.username ?? '',
+          peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
+            Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
+          state: this.townState ?? {},
+        })
+        this.townState = r.state
+        if (r.order) order = r.order
+      } catch { /* an inventory or world read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -862,6 +890,8 @@ export class CognitiveLoop {
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
+      // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
+      if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
@@ -961,8 +991,8 @@ export class CognitiveLoop {
         // false, whichever milestone happened to be current. There is no longer
         // a `neutral` branch calling recordSuccess -- there is one call, and it
         // cannot be made without the measurement in hand.
-        // wear_out is housekeeping the model cannot choose: it must not become a "reliable choice" in its prompt.
-        if (admitted.skill !== 'wear_out') this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
+        // Housekeeping (wear_out, compost, build_composter) is never the model's choice, nor a "reliable choice" in its prompt.
+        if (!isHousekeeping(admitted.skill)) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
 
         // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
         if (value === 'valuable') {
@@ -1074,8 +1104,8 @@ export class CognitiveLoop {
     let serving = false
     try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
     const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
-    // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (hygiene, Claude review): a wear_out neither resets nor feeds the give-up.
-    if (admitted?.skill !== 'wear_out' && this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
+    // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (hygiene, Claude review): housekeeping neither resets nor feeds the give-up.
+    if (!isHousekeeping(admitted?.skill) && this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
       const sk = this.milestones.status()
       const why = this.milestones.lastSkip ?? {}
       log('warn', 'milestone unreachable, skipping', { now: sk.id, reason: why.reason })
