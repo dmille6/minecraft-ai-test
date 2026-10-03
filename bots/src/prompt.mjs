@@ -17,6 +17,7 @@ import { mineTargetHint } from './mining.mjs'
 import { isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
+import { bankClosed } from './chestfull.mjs'
 import { config } from './config.mjs'
 
 const MAX_EVENTS = 12
@@ -599,6 +600,7 @@ function depositSituation (bot, memory) {
   try {
     const items = bot.inventory?.items?.() ?? []
     if (!items.length) return ''
+    if (bankClosed(bot)) return ''   // admission refuses every deposit while the bank is closed (chestfull.mjs)
     const bank = bankableInventory(items)
     const home = memory?.locations?.home
     const p = bot.entity?.position

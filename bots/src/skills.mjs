@@ -41,6 +41,11 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
+// The full-chest recovery (deposit): its decisions are chestfull.mjs's. A separate line so a rebase stays mechanical.
+import { fullChestNext, carriedChest, chestCap, readChestClaims, claimTownChest, chestClaimKey, pickChestSite, chestSiteRefusal,
+         closeMsFor, closeBank, bankClosed, bagTotal, returnCursor, chestPartnerOffset, isChestPartner,
+         TOWN_SWEEP_MS, PLACE_READBACK_MS, MAX_SITE_TRIES } from './chestfull.mjs'
+import { STORAGE_NEAR, townDistance } from './composter.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -2436,9 +2441,11 @@ async function home(ctx, _args, signal) {
 }
 
 // ------------------------------------------------------------- deposit -----
-async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [] } = {}) {
+async function deposit(ctx, { item = null }, signal, { noRecovery = false, preferAt = null, exclude = [], meta = {} } = {}) {
   if (item != null && ['', 'none', 'null', 'any', 'all', 'everything', 'items', 'inventory', 'undefined'].includes(String(item).trim().toLowerCase())) item = null   // a wildcard word is "everything bankable", not an item named none
   const { bot } = ctx
+  // The bag's item total when the skill began: the full-chest recovery's row compares it with the end (chestfull.mjs).
+  const bagBefore = bagTotal(bot.inventory?.items?.() ?? [])
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
     .includes(bot.registry.blocks[b.type]?.name)
   const skip = new Set(exclude.map(q => `${q.x},${q.y},${q.z}`))
@@ -2492,7 +2499,10 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
              detail: 'no chest or barrel within 48 blocks, even at home' }
   }
 
-  await bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
+  // The full-chest recovery's own attempts (noRecovery) walk under a bound: its sweep visits every container near home,
+  // and one walk that never ends would hold the whole sweep. A timeout throws, and the sweep reads it as UNKNOWN.
+  const toChest = bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
+  await (noRecovery ? withTimeout(toChest, RECOVERY_WALK_MS, bot) : toChest)
   check(signal)
 
   // A CHEST UNDER A SOLID BLOCK DOES NOT OPEN, and mineflayer only says
@@ -2523,6 +2533,10 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
              detail: `could not open the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} (${String(e?.message ?? e).slice(0, 50)}); lid ${lid?.name ?? '?'}, ${Math.round(eyeToBlock(bot.entity.position.offset(0, 1.62, 0), chestBlock.position) * 10) / 10} blocks from the eyes` }
   }
   let moved = 0
+  let cursorLost = false
+  // Which container this was, for the full-chest sweep: a double chest is ONE inventory at two coordinates.
+  meta.at = chestBlock.position
+  meta.double = (chest.inventoryStart ?? 27) >= 54
   // NOTHING TO HAND OVER IS NOT A FAILURE, AND CONFLATING THE TWO FAKED A NUMBER.
   //
   // This returned `failed` whether the bot had nothing eligible or the chest
@@ -2555,13 +2569,28 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         if (left <= 0) break
         const n = Math.min(left, it.count ?? 0)
         eligible += n
-        try { await chest.deposit(it.type, null, n); moved += n; left -= n } catch { /* chest full */ }
+        // WHAT THE WINDOW GAINED, not what was asked: mineflayer's transfer can fill part of a stack and THEN throw
+        // `destination full` (inventory.js:317-323), and counting none of it called a deposit that moved items a failure.
+        const had = inChest(chest, name)
+        try { await chest.deposit(it.type, null, n); moved += n; left -= n } catch (e) {
+          const got = Math.max(0, Math.min(n, inChest(chest, name) - had))
+          moved += got; left -= got
+          // THE CURSOR IS STILL HOLDING THE STACK: mineflayer throws after lifting it and before putting it back, and
+          // chest.close() below would drop it into the world. Put it back first (chestfull.mjs returnCursor).
+          const back = await returnCursor(bot, chest)
+          logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : back.reason === 'cursor empty' ? 'no_effect' : 'failed',
+                     detail: `${name}: ${String(e?.message ?? e).slice(0, 40)} -- ` +
+                             (back.returned ? `returned to slot ${back.slot}` : `not returned: ${back.reason}`), snapshot: snapshot(bot) })
+          // A stack still on the cursor is never clicked past: the next click would put it somewhere unplanned.
+          if (!back.returned && back.reason !== 'cursor empty') { cursorLost = true; break }
+        }
       }
+      if (cursorLost) break
     }
   } finally {
     chest.close()
   }
-  if (moved > 0) return { status: 'success', detail: `deposited ${moved} items` }
+  if (moved > 0) return { status: 'success', moved, detail: `deposited ${moved} items` }
   // Written out rather than left as a ternary on `status` so the preflight scan
   // in bots/test/evidence-gate.test.mjs can see it. A failure hidden inside a
   // conditional expression is exactly the one that keeps its class by accident.
@@ -2611,56 +2640,231 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // lack of it. This is also the only version of the fix that respects the
   // owner's standing rule: adding chests by RCON would be changing the world to
   // fix a bot; teaching bots to build storage is a capability.
-  if (!noRecovery) {
-    // ANOTHER CHEST BEFORE A NEW CHEST (2026-09-13: 167 deposits a day ended
-    // "the chest is full; could not make another chest"). Storage usually comes
-    // in clusters; a second container within 24 blocks that has not been tried
-    // this run is cheaper than eight planks, and it does not need wood the bot
-    // may not have. The tried chest is excluded so the retry cannot loop.
-    // Alternates are tried HERE, iteratively, never recursively into recovery
-    // (Codex: a recursive fallback crafted a chest in every frame, and an
-    // unreachable alternate's goto rejection escaped every frame): at most two
-    // more containers (three tried in all), each attempt with recovery off, a
-    // travel failure caught and named, an abort re-thrown; then ONE craft.
-    const tried = [...exclude, chestBlock.position]
-    let alternate = null
-    while (tried.length < 3) {
-      const other = bot.findBlock({ matching: b => isContainer(b) && (!b.position || !tried.some(q => q.x === b.position.x && q.y === b.position.y && q.z === b.position.z)), maxDistance: 24 })
-      if (!other) break
-      tried.push(other.position)
-      try {
-        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: other.position, exclude: tried })
-        if (again.status === 'success') return { ...again, detail: `${again.detail} (the first chest was full; used another one nearby)` }
-        alternate = again.detail
-      } catch (e) {
-        if (e?.aborted || signal?.aborted) throw e
-        alternate = `could not reach the chest at ${other.position.x},${other.position.z}: ${String(e?.message ?? e).slice(0, 60)}`
-      }
-    }
-    const built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1)
-    if (built.status === 'success') {
-      const put = await place(ctx, { item: 'chest' }, signal)
-      if (put.status === 'success') {
-        // ONE retry, and explicitly not recursive: `noRecovery` stops a bot that
-        // cannot place from crafting a chest per attempt forever. A bounded
-        // recovery that can re-enter itself is an unbounded recovery.
-        const again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: put.at })
-        if (again.status === 'success') {
-          return { ...again, detail: `${again.detail} (the old chest was full, so it built a new one)` }
-        }
-        return { status: 'failed', failClass: 'storage_full',
-                 detail: `the chest was full; built and placed a new one and still could not ` +
-                         `bank ${eligible} item(s) — ${again.detail}` }
-      }
-      return { status: 'failed', failClass: 'storage_full',
-               detail: `the chest was full and nowhere to put a new one — ${put.detail}` }
-    }
-    return { status: 'failed', failClass: 'storage_full',
-             detail: `had ${eligible} item(s) and the chest is full; could not make another ` +
-                     `chest — ${built.detail}` }
-  }
+  if (!noRecovery) return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstMeta: meta, exclude, eligible, bagBefore })
   return { status: 'failed', failClass: 'storage_full',
            detail: `had ${eligible} item(s) to hand over and the chest took none — it is full` }
+}
+
+/** The bound on one walk to a container during the full-chest recovery (deposit's noRecovery attempts). */
+const RECOVERY_WALK_MS = 30_000
+/** How many of the chest's items the open window's CONTAINER range holds (the client window: mineflayer applies
+ *  clicks locally). 0 for a window that cannot say. */
+const inChest = (chest, name) => {
+  try { return (chest?.containerItems?.() ?? []).reduce((n, it) => n + (it?.name === name ? (it.count ?? 0) : 0), 0) } catch { return 0 }
+}
+/** The other half of a DOUBLE chest at `pos`, from its block state, or null (a single chest, a barrel, no state). */
+function chestPartner (bot, pos) {
+  try {
+    const at = q => { const b = bot.blockAt(q); return b ? { name: blockNameOf(bot, b), props: b.getProperties?.() ?? {} } : null }
+    const me = at(pos)
+    const off = chestPartnerOffset(me?.props)
+    if (!off) return null
+    const q = pos.offset(off.x, 0, off.z)
+    return isChestPartner(me, at(q)) ? q : null
+  } catch { return null }
+}
+const posKey = q => `${q.x},${q.y},${q.z}`
+
+/**
+ * THE TOWN CHESTS ARE FULL -> the deposit's result. The decisions are chestfull.mjs's; this walks, opens and places.
+ *
+ * 1. FAR FROM HOME (beyond STORAGE_NEAR): at most two other containers within 24 blocks, as before -- and nothing built.
+ *    A chest in a mine is not town storage.
+ * 2. NEAR HOME: EVERY container within STORAGE_NEAR of home that has not been tried gets the deposit (a double chest is
+ *    one: its other half is marked tried from the block state). Any that takes items ends it. A container that could
+ *    not be opened or reached, or that the TOWN_SWEEP_MS bound left unvisited, is UNKNOWN -- unknown capacity is not "full",
+ *    so nothing is built (defer).
+ * 3. Otherwise fullChestNext: the cap (one new chest per town per 10 min, at most 12 containers near home) or else a
+ *    CARRIED chest is placed -- crafted (through the craft skill's executor) only when none is carried -- at the first
+ *    cell chestSiteRefusal accepts in rings 1-4 around the full chest, from its standing cell, with explicit
+ *    coordinates, after the town's claim record is taken. A placement that does not read back is read again after
+ *    PLACE_READBACK_MS before another cell is tried, so a late ack never becomes a second chest. Then ONE retry into
+ *    the new chest, with recovery off.
+ * Every refusal closes the bank for this bot (bankClosed): admission, the prompt's CARRYING line, the deposit_surplus
+ * rung and craft's room advice stop sending it back until it reopens, and its refusal says to keep working.
+ * Every decision writes one `deposit_new_chest` row.
+ */
+async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, exclude = [], eligible = 0, bagBefore = 0 }) {
+  const { bot } = ctx
+  const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
+  const home = homeVec()
+  const here = () => bot.entity.position
+  const nearHome = Math.hypot(here().x - home.x, here().z - home.z) <= STORAGE_NEAR
+  const tried = new Map(exclude.map(q => [posKey(q), { at: q, room: 'excluded' }]))
+  const mark = (q, room) => { if (q) tried.set(posKey(q), { at: q, room }) }
+  const markWith = (q, m, room) => { mark(q, room); if (m?.double) mark(chestPartner(bot, q), `${room} (same double chest)`) }
+  markWith(first.position, firstMeta, 'full')
+  const triedList = () => [...tried.values()].map(v => v.at)
+  const bag = () => bagTotal(bot.inventory?.items?.() ?? [])
+  const dir = poolStateDir(config.memory.pool)
+  let containers = null, unknown = 0
+  // ONE ROW PER DECISION. key=value, decision first: logEvent cuts detail at 300 characters, so tried[] goes last.
+  const row = (decision, status, extra = {}) => {
+    const triedS = [...tried.values()].filter(v => v.room !== 'excluded').map(v => `${posKey(v.at)}:${String(v.room).replace(/\s+/g, '_')}`).join(';')
+    const f = Object.entries(extra).map(([k, v]) => `${k}=${v}`).join(' ')
+    logEvent({ kind: 'deposit_new_chest', status, snapshot: snapshot(bot),
+               detail: (`decision=${decision} near_home=${nearHome} containers=${containers ?? '?'} unknown=${unknown} bag=${bagBefore}->${bag()} ${f} tried=[${triedS}]`).slice(0, 300) })
+  }
+  const shut = (outcome, why, until = null) => closeBank(bot, why, closeMsFor(outcome, { until }))
+  const refuse = (detail, extra = {}) => ({ status: 'failed', failClass: 'storage_full', ...extra,
+                                            detail: `${detail} [bag ${bagBefore}->${bag()} items]` })
+  // ONE ATTEMPT AT ANOTHER CONTAINER, recovery off: 'success' ends the recovery; storage_full is a full container; a
+  // throw or any other class is UNKNOWN (it was never read).
+  const attempt = async at => {
+    const m = {}
+    let again
+    try {
+      again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: at, exclude: triedList(), meta: m })
+    } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      mark(at, 'unknown:travel'); unknown++
+      return null
+    }
+    const opened = m.at ?? at
+    // deposit fell back to another container (the one at `at` is gone): `at` holds nothing, so it is neither full nor unknown.
+    if (posKey(opened) !== posKey(at)) mark(at, 'gone')
+    if (again.status === 'success') { markWith(opened, m, `took_${again.moved ?? '?'}`); return again }
+    if (again.status === 'no_effect') return again             // nothing left to hand over: the deposit is complete
+    if (again.failClass === 'storage_full') { markWith(opened, m, 'full'); return null }
+    mark(at, `unknown:${again.failClass ?? again.status}`); unknown++
+    return null
+  }
+
+  if (!nearHome) {
+    // FAR FROM HOME: the old alternates (three containers in all), and never a new chest away from town.
+    for (let alternates = 0; alternates < 2; alternates++) {
+      const other = bot.findBlock({ matching: b => isContainer(b) && (!b.position || !tried.has(posKey(b.position))), maxDistance: 24 })
+      if (!other) break
+      mark(other.position, 'pending')
+      const done = await attempt(other.position)
+      if (done) return done.status === 'success' ? { ...done, detail: `${done.detail} (the first chest was full; used another one nearby)` } : done
+    }
+    const why = 'the chests here are full, and new chests are only made at the town chest'
+    shut('far', why)
+    row('far', 'no_effect')
+    return refuse(`keep working and deposit at the town chest later -- ${why}; had ${eligible} item(s)`)
+  }
+
+  // NEAR HOME: every container within STORAGE_NEAR of home, nearest to the bot first.
+  let near = []
+  try { near = bot.findBlocks?.({ point: home, matching: isContainer, maxDistance: STORAGE_NEAR, count: 64 }) ?? [] } catch { near = [] }
+  containers = near.length
+  // The sweep stops at TOWN_SWEEP_MS, and early enough to leave a minute of deposit's own budget for the chest itself.
+  const skillEnd = (ctx.runner?.current?.startedAt ?? Date.now()) + (SKILL_CONTRACTS.deposit?.maxMs ?? 240_000)
+  const deadline = Math.min(Date.now() + TOWN_SWEEP_MS, skillEnd - 60_000)
+  for (const at of [...near].sort((a, b) => here().distanceTo(a) - here().distanceTo(b))) {
+    if (tried.has(posKey(at))) continue
+    check(signal)
+    if (Date.now() > deadline) { mark(at, 'unknown:time'); unknown++; continue }
+    mark(at, 'pending')
+    const done = await attempt(at)
+    if (done) return done.status === 'success' ? { ...done, detail: `${done.detail} (the first chest was full; used another one in town)` } : done
+  }
+
+  const carried = carriedChest(bot.inventory.items())
+  const cap = chestCap({ containers, last: readChestClaims(dir, chestClaimKey(home)), world: bot.worldId ?? null })
+  const next = fullChestNext({ nearHome, unknown, cap, carried: !!carried })
+  if (next === 'defer') {
+    const why = `${unknown} container(s) in town could not be opened or reached, so their room is unknown and no chest is built`
+    shut('defer', why)
+    row('defer', 'no_effect')
+    return refuse(`keep working and deposit later -- ${why}; had ${eligible} item(s)`)
+  }
+  if (next === 'refuse_cap') {
+    shut('refuse_cap', cap.why, cap.until)
+    row('refuse_cap', 'no_effect', { cap: String(cap.why).slice(0, 40).replace(/\s+/g, '_') })
+    return refuse(`keep working; the town is at its chest limit -- ${cap.why}; had ${eligible} item(s)`)
+  }
+
+  // A NEW CHEST: where first, so nothing is crafted for a town with no cell to put it in.
+  const read = readCell(bot)
+  const fullNear = [...tried.values()].filter(v => String(v.room).startsWith('full') && townDistance(home, v.at) <= STORAGE_NEAR).map(v => v.at)
+  const anchor = fullNear.sort((a, b) => here().distanceTo(a) - here().distanceTo(b))[0] ?? first.position
+  const composterSites = [readTownSite(dir, townSiteKey()).site, findTownComposter(bot)?.position].filter(Boolean)
+  const pickAt = skip => pickChestSite({ read, anchor, home, composterSites, bodies: bodiesAround(bot), skip })
+  let pick = pickAt([])
+  if (!pick.site) {
+    shut('no_site', pick.why)
+    row(next, 'no_effect', { site: 'none' })
+    return refuse(`keep working and deposit later -- the town chests are full and ${pick.why}; had ${eligible} item(s)`)
+  }
+
+  // THE DECISION DRIVES IT: fullChestNext said place_carried (a chest is in the bag) or craft (none is).
+  const source = next === 'place_carried' ? 'carried' : 'crafted'
+  if (next === 'craft') {
+    let built
+    try { built = await craft(ctx, { item: 'chest', count: 1 }, signal, 1) } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      built = { status: 'failed', failClass: 'other', detail: String(e?.message ?? e).slice(0, 80) }
+    }
+    if (built?.status !== 'success' || !carriedChest(bot.inventory.items())) {
+      // The craft's own detail leads with ITS remedy, which may be a deposit: never quoted inside a deposit's refusal.
+      const why = built?.failClass === 'inventory_full' ? 'the bag has no room to craft a chest' : `no chest could be crafted (${built?.failClass ?? 'not in the bag'})`
+      shut('craft_failed', why)
+      row('craft', 'failed', { source })
+      return refuse(`keep working and deposit later -- the town chests are full and ${why}; had ${eligible} item(s)`)
+    }
+  }
+  const name = carriedChest(bot.inventory.items())
+  const skip = []
+  let placedAt = null, claim = null, lastWhy = 'not tried'
+  for (let i = 0; i < MAX_SITE_TRIES && pick.site && !placedAt; i++) {
+    check(signal)
+    const { site, stand } = pick
+    skip.push(site)
+    try {
+      if (stand) await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), RECOVERY_WALK_MS, bot)
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    // AGAIN, FROM THE STANDING CELL and with the bodies as they are now, immediately before the claim and the placement.
+    const why = chestSiteRefusal(read, site, { home, composterSites, bodies: bodiesAround(bot) })
+    if (why) { lastWhy = why; pick = pickAt(skip); continue }
+    if (!claim) {
+      claim = claimTownChest({ dir, key: chestClaimKey(home), site, world: bot.worldId ?? null, containers })
+      if (!claim.ok) {
+        shut('refuse_cap', claim.why, claim.until)
+        row(next, 'no_effect', { source, claim: String(claim.why).slice(0, 40).replace(/\s+/g, '_') })
+        return refuse(`keep working; the town is at its chest limit -- ${claim.why}; had ${eligible} item(s)`)
+      }
+    }
+    let put
+    try { put = await place(ctx, { item: name, x: site.x, y: site.y, z: site.z }, signal) } catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      put = { status: 'failed', detail: String(e?.message ?? e).slice(0, 80) }
+    }
+    if (put?.status === 'success') { placedAt = new Vec3(site.x, site.y, site.z); break }
+    // NOT YET A FAILURE: a late server ack can still put the chest down. Read the cell until PLACE_READBACK_MS has
+    // passed; only a cell that still holds no chest lets another cell be tried (no second chest from one claim).
+    const cell = new Vec3(site.x, site.y, site.z)
+    for (const until = Date.now() + PLACE_READBACK_MS; Date.now() < until;) {
+      if (/^(chest|trapped_chest)$/.test(bot.blockAt(cell)?.name ?? '')) { placedAt = cell; break }
+      await sleep(100, signal)
+    }
+    if (placedAt) break
+    lastWhy = String(put?.detail ?? 'did not land').slice(0, 80)
+    pick = pickAt(skip)
+  }
+  const distTo = q => (q ? Math.round(Math.hypot(placedAt.x - q.x, placedAt.y - q.y, placedAt.z - q.z) * 10) / 10 : 'none')
+  if (!placedAt) {
+    shut('place_failed', `the new chest could not be put down (${lastWhy})`)
+    row(next, 'failed', { source, claim: claim?.gen ?? 'none', last: lastWhy.replace(/\s+/g, '_').slice(0, 40) })
+    return refuse(`keep working and deposit later -- the town chests are full and the ${name} could not be put down (${lastWhy}); had ${eligible} item(s)`)
+  }
+  let again
+  try { again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: placedAt, exclude: triedList() }) } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    again = { status: 'failed', failClass: 'other', detail: `the new chest could not be reached: ${String(e?.message ?? e).slice(0, 60)}` }
+  }
+  const extra = { at: posKey(placedAt), home_d: distTo(home), composter_d: distTo(composterSites[0] ?? null), source, claim: claim?.gen ?? 'none',
+                  moved: again.moved ?? 0, placed: 1 }
+  if (again.status === 'no_effect') { row(next, 'no_effect', extra); return again }   // nothing was left to hand over
+  if (again.status === 'success') {
+    row(next, 'success', extra)
+    return { ...again, detail: `${again.detail} (the town chests were full, so it ${source === 'carried' ? `placed the ${name} it carried` : 'crafted and placed a chest'} at ${posKey(placedAt)}) [bag ${bagBefore}->${bag()} items]` }
+  }
+  shut('retry_failed', `a new chest went down at ${posKey(placedAt)} and took nothing`)
+  row(next, 'failed', extra)
+  return refuse(`placed a new ${name} at ${posKey(placedAt)} and still could not bank ${eligible} item(s) — ${again.detail}`)
 }
 
 // --------------------------------------------------------------- board -----
@@ -3803,13 +4007,20 @@ async function makeCraftRoom(ctx, item, plan, signal) {
  * else it says nothing can be freed. `keep` -- the step's ingredients plus, for a plan, every step's -- is never
  * advised away.
  */
+/**
+ * THE ITEM A ROOM REFUSAL MAY TELL THE BOT TO DEPOSIT -> its name | null (depositTarget). NEVER WHILE THE BANK IS CLOSED
+ * (chestfull.mjs): admission refuses every deposit then, so naming one would be a remedy the bot cannot perform.
+ */
+export function adviseDeposit (bot, items, keep = []) {
+  if (bankClosed(bot)) return null
+  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }
+}
 function slotRemedy(bot, items, keep = []) {
   const isPlaceable = n => placeableBlock(bot.registry, n)
   const fill = bagFill(items, isPlaceable, keep)
   let placeSite = false
   try { placeSite = !!fill.cheapest && placeSites(bot).length > 0 } catch { placeSite = false }
-  let depositItem = null
-  try { depositItem = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { depositItem = null }
+  const depositItem = adviseDeposit(bot, items, keep)
   const advice = roomAdvice({ items, consumes: keep, isPlaceable, placeSite, foodOrder: FOOD_PRIORITY, hunger: bot.food ?? 20, depositItem })
   return { fill, remedy: advice.text, kind: advice.kind }
 }
@@ -4115,6 +4326,17 @@ export function placementLanded({ before, after }) {
 }
 
 /**
+ * DOES THE CELL AT `pos` SIT ON A CONTAINER'S LID? Pure over blockAt. A block on a chest's lid stops it opening, and the
+ * next deposit digs it off (bank-fix 7720d8b). Checked INSIDE placeSites, so place() and craft's room advice (which asks
+ * placeSites whether a placement exists) can never disagree about it; and on place()'s explicit coordinates.
+ */
+export function onContainerLid (bot, pos) {
+  let below = null
+  try { below = bot.blockAt?.(new Vec3(Math.floor(pos.x), Math.floor(pos.y) - 1, Math.floor(pos.z))) } catch { below = null }
+  return /^(chest|trapped_chest|barrel|ender_chest|(\w+_)?shulker_box)$/.test(below?.name ?? '')
+}
+
+/**
  * WHERE CAN A BLOCK GO FROM HERE? -> [{ ref, face }], nearest first, dry before wet. The scan place() runs when it is
  * given no coordinates (and nothing else: no digging, no soil filter), so a refusal that suggests placing something
  * asks exactly the question place() will. Reads the world; does not change it.
@@ -4136,6 +4358,7 @@ function placeSites(bot) {
       const under = bot.blockAt(bot.entity.position.offset(dx, dy, dz))
       const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
       if (!solid(under) || !replaceable(at)) continue
+      if (onContainerLid(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // never on a lid (below)
       ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
     }
   }
@@ -4164,7 +4387,7 @@ function placeSites(bot) {
       for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
                           new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
         const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
-        if (replaceable(target)) candidates.push({ ref: underfoot, face })
+        if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
       }
     }
   }
@@ -4221,6 +4444,9 @@ async function place(ctx, { item, x, y, z }, signal) {
   let candidates = []
   if ([x, y, z].every(v => Number.isFinite(Number(v)))) {
     assertInsideBorder(Number(x), Number(z))
+    if (onContainerLid(bot, { x: Number(x), y: Number(y), z: Number(z) })) {
+      return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is on top of a container, which would stop it opening -- place it beside the container` }
+    }
     candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
     candidates = placeSites(bot)

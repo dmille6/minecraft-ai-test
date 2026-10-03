@@ -16,6 +16,7 @@
 
 import { equivalentTools } from './skills.mjs'
 import { bankableInventory } from './bankable.mjs'
+import { bankClosed } from './chestfull.mjs'
 import { countItem } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
@@ -803,6 +804,7 @@ export const SUSTAINING = [
     // which a strict version would not.
     done: b => {
       if (bankableInventory(b.inventory?.items?.() ?? []).count < 4) return true
+      if (bankClosed(b)) return true   // the bank is closed for this bot (chestfull.mjs): nothing to do here, as with no chest
       const chest = b.findBlock?.({
         matching: blk => ['chest', 'barrel', 'trapped_chest']
           .includes(b.registry?.blocks?.[blk.type]?.name),
