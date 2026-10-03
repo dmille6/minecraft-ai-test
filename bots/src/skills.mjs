@@ -30,8 +30,8 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
-import { compostPlan, nextStack, composterLevel, compostDetail, composterBuildPlan, builderDecision, chooseComposterSite,
-         COMPOSTER_RADIUS, TOWN_RADIUS, VISIT_BUDGET_MS, BUILDER_MAX_DEFERRALS, CONTAINER } from './composter.mjs'
+import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
+         canonicalComposterSite, siteRefusal, handPlan, TOWN_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -4062,204 +4062,227 @@ async function wearOut(ctx, _args, signal) {
 
 // -------------------------------------------------------------- compost -----
 //
-// INVENTORY HYGIENE, PHASE 2 (composter.mjs has the measurement and the design). Issued only as a deterministic work
-// order when the bot is ALREADY at town at TRIGGER_SLOTS; never offered to the model. Inserts verified-compostable
-// ballast into the town composter: at levels 0-6 every insert consumes the item, at 7 the composter ripens to 8 after
-// 20 ticks, at 8 one use pops a bone meal out on top of it, which the bot collects. Nothing is ever tossed. If the
-// town has no composter, ONE bot builds one (builderDecision) from wood it already holds and places it >= 3 blocks
-// from every chest. Every count in the row is VERIFIED from the inventory, never inferred from clicks.
-let composterDeferrals = 0
+// INVENTORY HYGIENE, PHASE 2 (composter.mjs has the measurement, the design and every decision). Two deterministic
+// work orders issued by townOrder, never offered to the model:
+//   compost          insert ballast (and saplings above SAPLING_RESERVE) into the town composter; at 7 it ripens to 8
+//                    after 20 ticks; at 8 one use pops a bone meal that must be CONFIRMED in the bag.
+//   build_composter  craft one from wood held and place it on the town's canonical site.
+// Nothing is ever tossed. Every count in the rows is verified from the inventory. Every await is bounded and abortable;
+// the hand is restored in a finally around the whole order. Fail classes are housekeeping-only (no avoid vote).
+
+/** Per-await bounds, scaled from the skill budget (production: 3 s / 25 s / 60 s) like the step pacing above. */
+const HK_AWAIT_MS = Math.max(200, Math.min(3_000, Math.floor(config.skills.defaultTimeoutMs / 60)))
+const HK_PATH_MS = Math.max(500, Math.min(25_000, Math.floor(config.skills.defaultTimeoutMs / 7)))
+const HK_CRAFT_MS = Math.max(1_000, Math.min(60_000, Math.floor(config.skills.defaultTimeoutMs / 3)))
+
+/** bound(p, ms, what): p, or a budget error after ms, or Aborted the moment the signal fires. */
+function hkGuards (bot, signal) {
+  let onAbort = null
+  const aborted = new Promise((_, rej) => {
+    if (signal?.aborted) { rej(new Aborted()); return }
+    onAbort = () => rej(new Aborted())
+    signal?.addEventListener?.('abort', onAbort, { once: true })
+  })
+  aborted.catch(() => {})
+  const bound = (p, ms, what, onTimeout = () => {}) =>
+    Promise.race([withTimeout(Promise.resolve(p), ms, bot, { what, needsDrop: false, onTimeout }), aborted])
+  // The restore runs AFTER an abort, so it is bounded but not abortable.
+  const restoreBound = (p, ms, what) => withTimeout(Promise.resolve(p), ms, bot, { what, needsDrop: false, onTimeout: () => {} })
+  const done = () => { try { signal?.removeEventListener?.('abort', onAbort) } catch { /* plain-object signal */ } }
+  return { bound, restoreBound, done }
+}
+const handOf = it => (it ? { name: it.name, used: it.durabilityUsed ?? 0 } : null)
+const hotbarOf = bot => Array.from({ length: 9 }, (_, i) => handOf(bot.inventory?.slots?.[36 + i]))
+async function applyHand (bot, plan, bound) {
+  if (plan?.action === 'select') bot.setQuickBarSlot?.(plan.index)
+  else if (plan?.action === 'equip') await bound(bot.equip(plan.item, 'hand'), HK_AWAIT_MS, 'equip')
+}
+async function restoreHand (bot, was, restoreBound) {
+  try {
+    await applyHand(bot, handPlan({ was, held: handOf(bot.heldItem), hotbar: hotbarOf(bot), items: bot.inventory?.items?.() ?? [] }), restoreBound)
+  } catch { /* best effort: equip swaps, so the item is in the bag either way */ }
+}
+const homeVec = () => new Vec3(config.world.homeX, config.world.homeY, config.world.homeZ)
+const blockNameOf = (bot, b) => b?.name ?? bot.registry?.blocks?.[b?.type]?.name
+
+/** The town's composter: searched around HOME, never around the bot (a bot 48 out would otherwise reach 96 from home). */
+export function findTownComposter (bot) {
+  try {
+    return bot.findBlock?.({ point: homeVec(), matching: b => blockNameOf(bot, b) === 'composter', maxDistance: TOWN_RADIUS }) ?? null
+  } catch { return null }
+}
+/** What this bot could build a composter from, right now (composterBuildPlan over the bag). */
+export function townBuildPlan (bot) {
+  const counts = Object.fromEntries(heldCounts(bot.inventory?.items?.() ?? []))
+  const tableAvailable = (counts.crafting_table ?? 0) > 0 ||
+    !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: 32 })
+  return composterBuildPlan(counts, { tableAvailable })
+}
+const readCell = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: blockNameOf(bot, b), boundingBox: b.boundingBox } : null }
+
 async function compost(ctx, _args, signal) {
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
   const countOf = n => items().reduce((a, i) => a + (i.name === n ? (i.count ?? 0) : 0), 0)
-  const blockName = b => b?.name ?? bot.registry?.blocks?.[b?.type]?.name
-  const findComposter = () => bot.findBlock?.({ matching: b => blockName(b) === 'composter', maxDistance: COMPOSTER_RADIUS }) ?? null
   const slotsBefore = items().length
-  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
-  if (!compostPlan(items()).take.length) {
-    row('failed', { stop: 'nothing compostable' })
-    return { status: 'no_effect', detail: `nothing compostable in the bag at ${slotsBefore} of 36 slots` }
-  }
-
-  let comp = findComposter()
-  let built = null
-  if (!comp) {
-    const b = await buildComposter(ctx, signal, findComposter)
-    check(signal)
-    if (b.block) { comp = b.block; built = b.built ?? null }
-    else {
-      row('failed', { stop: b.refusal })
-      return { status: 'no_effect', detail: b.refusal }
-    }
-  }
-  const pos = comp.position
-  const at = () => bot.blockAt(pos)
-  const centre = pos.offset(0.5, 0.5, 0.5)
-  if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
-    try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), 20_000, bot)
-    } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-    check(signal)
-    if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
-      row('failed', { stop: 'composter out of reach', built })
-      return { status: 'failed', failClass: 'no_path', detail: `the town composter at ${pos.x},${pos.y},${pos.z} could not be reached` }
-    }
-  }
-
-  // THE HAND IS PUT BACK. equip() swaps slots (moveSlotItem), it never tosses, so the tool is somewhere in the bag;
-  // it is found again by name AND wear, so a fresher copy of the same tool is not mistaken for it.
-  const was = bot.heldItem ? { name: bot.heldItem.name, used: bot.heldItem.durabilityUsed ?? 0 } : null
-  const quickBefore = bot.quickBarSlot
-  const restoreHand = async () => {
-    try {
-      if (!was) { if (Number.isInteger(quickBefore) && bot.quickBarSlot !== quickBefore) bot.setQuickBarSlot?.(quickBefore); return }
-      if (bot.heldItem?.name === was.name && (bot.heldItem.durabilityUsed ?? 0) === was.used) return
-      const it = items().find(i => i.name === was.name && (i.durabilityUsed ?? 0) === was.used) ?? items().find(i => i.name === was.name)
-      if (it) await withTimeout(bot.equip(it, 'hand'), 3_000, bot, { what: 'restore the held item', needsDrop: false, onTimeout: () => {} })
-    } catch { /* best effort: the item is still in the bag either way */ }
-  }
-  try { bot.setControlState?.('sneak', false) } catch {}   // a sneaking use is an item use, not a block use
-
+  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot),
+                                        detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
+  const skip = (why, f = {}) => { row('no_effect', { stop: why, ...f }); return { status: 'no_effect', detail: why } }
+  // ANOTHER SUBSYSTEM'S SNEAK IS NOT OURS TO RELEASE, and a sneaking use is an item use, not a block use.
+  if (bot.controlState?.sneak) return skip('sneaking (held by another subsystem); composting waits for another visit')
+  if (!compostPlan(items()).junk) return skip(`nothing compostable at ${slotsBefore} of 36 slots`)
+  const comp = findTownComposter(bot)
+  if (!comp) return skip('no composter around home yet')
+  const pos = comp.position, centre = pos.offset(0.5, 0.5, 0.5), at = () => bot.blockAt(pos)
+  const was = handOf(bot.heldItem)
+  const { bound, restoreBound, done } = hkGuards(bot, signal)
+  const ticks = n => bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
   const taken = {}
-  let bonemeal = 0, stop = null
   const levelBefore = composterLevel(at())
-  const ripen = async () => {   // level 7 -> 8 takes 20 ticks
-    for (let i = 0; i < 8 && composterLevel(at()) === 7; i++) { check(signal); await bot.waitForTicks?.(5) }
-    return composterLevel(at()) !== 7
-  }
-  const harvest = async () => {   // level 8: one use pops a bone meal on top
-    const room = items().length < 36 || items().some(i => i.name === 'bone_meal' && (i.count ?? 0) < 64)
-    if (!room) return 'bag full, bone meal would be left on the ground'
-    await restoreHand()   // collect with the tool in hand, never a compostable (which could be read as an insert)
-    const before = countOf('bone_meal')
-    for (let i = 0; i < 2 && composterLevel(at()) === 8; i++) {
-      check(signal)
-      try { await bot.activateBlock(at()) } catch { /* read back below */ }
-      await bot.waitForTicks?.(12)   // the drop's pickup delay is 10 ticks
-    }
-    if (composterLevel(at()) === 8) return 'level 8 did not empty'
-    if (countOf('bone_meal') <= before) {
-      const drop = bot.nearestEntity?.(e => e?.name === 'item' && e.position && e.position.distanceTo(centre) < 3 &&
-        (() => { try { return e.getDroppedItem?.()?.name === 'bone_meal' } catch { return false } })())
-      if (drop) {
-        try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 5_000, bot) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-        await bot.waitForTicks?.(12)
-      }
-    }
-    bonemeal += Math.max(0, countOf('bone_meal') - before)
-    return null
-  }
-
-  const deadline = Date.now() + VISIT_BUDGET_MS
+  let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false
   try {
-    outer: for (const { name, count } of compostPlan(items()).take) {
-      let done = 0, misses = 0
-      while (done < count) {
-        check(signal)
-        if (Date.now() > deadline) { stop = 'budget'; break outer }
-        const lvl = composterLevel(at())
-        if (lvl === null) { stop = 'composter gone'; break outer }
-        if (lvl === 7) { if (!(await ripen())) { stop = 'did not ripen'; break outer } continue }
-        if (lvl === 8) { const why = await harvest(); if (why) { stop = why; break outer } continue }
-        const stack = nextStack(items(), name)
-        if (!stack) break
-        if (bot.heldItem?.name !== name) {
-          await bot.equip(stack, 'hand').catch(() => {})
-          check(signal)
-          if (bot.heldItem?.name !== name) { stop = `could not hold ${name}`; break outer }
-        }
-        const before = countOf(name)
-        try { await bot.activateBlock(at()) } catch { /* read back below */ }
-        await bot.waitForTicks?.(2)
-        let after = countOf(name)
-        if (after >= before) { await bot.waitForTicks?.(4); after = countOf(name) }
-        if (after < before) { taken[name] = (taken[name] ?? 0) + (before - after); done += before - after; misses = 0 }
-        else if (++misses >= 3) { stop = `took no ${name} in 3 tries at level ${lvl}`; break outer }
+    if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
+      try { await bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', null) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      check(signal)
+      if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
+        row('failed', { stop: 'composter out of reach', levelBefore })
+        return { status: 'failed', failClass: 'composter_unreachable', detail: `the town composter at ${pos.x},${pos.y},${pos.z} could not be reached` }
       }
     }
-    // Finish the cycle: a ripe composter left at 8 refuses the next bot's inserts until someone empties it.
-    if (!stop && composterLevel(at()) === 7) await ripen()
-    if (!stop && composterLevel(at()) === 8) stop = await harvest()
+    const ripen = async () => {   // level 7 -> 8 takes 20 ticks
+      for (let i = 0; i < 8 && composterLevel(at()) === 7; i++) { check(signal); await ticks(5) }
+      return composterLevel(at()) !== 7
+    }
+    const harvest = async () => {   // level 8: one use pops a bone meal on top; it is not done until it is in the bag
+      try { await applyHand(bot, handPlan({ mode: 'harvest', was, held: handOf(bot.heldItem), hotbar: hotbarOf(bot), items: items() }), bound) } catch (e) { if (e?.aborted) throw e }
+      const before = countOf('bone_meal')
+      try { await bound(bot.activateBlock(at()), HK_AWAIT_MS, 'use the composter') } catch (e) { if (e?.aborted) throw e }
+      await ticks(12)   // the drop's pickup delay is 10 ticks
+      if (composterLevel(at()) === 8) return 'level 8 did not empty'
+      if (countOf('bone_meal') <= before) {
+        const drop = bot.nearestEntity?.(e => e?.name === 'item' && e.position && e.position.distanceTo(centre) < 4 &&
+          (() => { try { return e.getDroppedItem?.()?.name === 'bone_meal' } catch { return false } })())
+        if (drop) {
+          try { await bound(bot.pathfinder.goto(new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), HK_PATH_MS, 'pathfinding', null) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+          await ticks(12)
+        }
+      }
+      const got = countOf('bone_meal') - before
+      if (got <= 0) { uncollected = true; return 'bone meal popped but not confirmed in the bag; extraction stopped' }
+      bonemeal += got
+      return null
+    }
+    const deadline = Date.now() + VISIT_BUDGET_MS
+    let misses = 0
+    for (;;) {
+      check(signal)
+      if (Date.now() > deadline) { stop = 'budget'; break }
+      const room = boneMealRoom(items())
+      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room }) : null
+      const act = fillDecision({ level: composterLevel(at()), room, smallest: next?.n ?? 0 })
+      if (act === 'done') break
+      if (act === 'gone') { stop = 'composter gone'; break }
+      if (act === 'skip_no_room') { noRoom = true; stop = 'no room for the bone meal'; break }
+      if (act === 'ripen') { if (!(await ripen())) { stop = 'did not ripen'; break } continue }
+      if (act === 'harvest') { const why = await harvest(); if (why) { stop = why; break } continue }
+      const stack = next.item
+      if (bot.heldItem?.name !== stack.name || bot.heldItem?.slot !== stack.slot) {
+        try { await bound(bot.equip(stack, 'hand'), HK_AWAIT_MS, 'equip') } catch (e) { if (e?.aborted) throw e; stop = `could not hold ${stack.name}`; break }
+        check(signal)
+        if (bot.heldItem?.name !== stack.name) { stop = `could not hold ${stack.name}`; break }
+      }
+      const before = countOf(stack.name)
+      try { await bound(bot.activateBlock(at()), HK_AWAIT_MS, 'use the composter') } catch (e) { if (e?.aborted) throw e }
+      await ticks(2)
+      let after = countOf(stack.name)
+      if (after >= before) { await ticks(4); after = countOf(stack.name) }
+      if (after < before) { taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0 }
+      else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
+    }
   } finally {
-    await restoreHand()
+    await restoreHand(bot, was, restoreBound)
+    done()
   }
-  await bot.waitForTicks?.(2)
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
-  logEvent({ kind: 'compost', status: n ? 'success' : 'failed', snapshot: snapshot(bot),
-             detail: compostDetail({ slotsBefore, slotsAfter, levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done', built }) })
+  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done' }
   if (n) {
+    row('success', f)
     return { status: 'success',
-             detail: `composted ${n} item(s) (${slotsBefore} -> ${slotsAfter} slots, ${bonemeal} bone meal)${built ? '; built the town composter' : ''}${stop ? `; stopped: ${stop}` : ''}` }
+             detail: `composted ${n} item(s) (${slotsBefore} -> ${slotsAfter} slots, ${bonemeal} bone meal)${stop ? `; stopped: ${stop}` : ''}` }
   }
-  return { status: 'failed', failClass: 'compost_refused', detail: `composted nothing at the composter: ${stop ?? 'nothing left to insert'}` }
+  // NO PENALTY for a visit that could not start: a ripe composter with no room, or no fill that could finish.
+  if (noRoom) return skip(`${stop}: the composter waits for a bot with room`, f)
+  row('failed', f)
+  return { status: 'failed', failClass: uncollected ? 'bonemeal_uncollected' : 'compost_refused',
+           detail: `composted nothing at the composter: ${stop ?? 'nothing left to insert'}` }
 }
 
-/**
- * NO COMPOSTER IN TOWN: build one from wood already held, or say what is missing. Returns { block, built } or
- * { refusal } -- every refusal names something the bot can do from here or a later visit will do for it.
- */
-async function buildComposter (ctx, signal, findComposter) {
+// ------------------------------------------------------ build_composter -----
+async function buildComposter (ctx, _args, signal) {
   const { bot } = ctx
-  const counts = Object.fromEntries(heldCounts(bot.inventory?.items?.() ?? []))
-  const blockName = b => b?.name ?? bot.registry?.blocks?.[b?.type]?.name
-  const tableNear = (counts.crafting_table ?? 0) > 0 ||
-    !!bot.findBlock?.({ matching: b => blockName(b) === 'crafting_table', maxDistance: 32 })
-  const plan = composterBuildPlan(counts, { tableAvailable: tableNear })
+  const items = () => bot.inventory?.items?.() ?? []
+  const skip = why => ({ status: 'no_effect', detail: why })
+  const fail = (failClass, why) => ({ status: 'failed', failClass, detail: why })
+  if (findTownComposter(bot)) return skip('the town already has a composter')
+  const plan = townBuildPlan(bot)
   if (!plan) {
-    return { refusal: 'no composter in town and not enough wood to build one: it takes 7 slabs of one wood -- 3 logs of ' +
-                      'one kind, or 2 with a crafting table at hand -- gather 3 logs and the next town visit builds it' }
+    return skip('no composter in town and not enough wood to build one: it takes 7 slabs of one wood -- 3 logs of ' +
+                'one kind, or 2 with a crafting table at hand -- gather 3 logs and the next town visit builds it')
   }
-  const home = { x: config.world.homeX, z: config.world.homeZ }
-  const peers = Object.values(bot.players ?? {})
-    .filter(p => p?.username && p.username !== bot.username && p.entity?.position &&
-                 Math.hypot(p.entity.position.x - home.x, p.entity.position.z - home.z) <= TOWN_RADIUS)
-    .map(p => p.username)
-  const who = builderDecision({ myName: bot.username ?? '', peers, deferrals: composterDeferrals })
-  if (who.defer && !plan.carried) {
-    composterDeferrals++
-    return { refusal: `no composter in town yet; ${who.to} is at town and builds first (deferral ${composterDeferrals} of ${BUILDER_MAX_DEFERRALS})` }
+  const free = 36 - items().length
+  // NEVER CRAFT INTO A FULL BAG: mineflayer drops crafted output that has no slot.
+  if (free < plan.slotsNeeded) return skip(`building needs ${plan.slotsNeeded} free slots for the craft chain and the bag has ${free}; not started`)
+  const home = homeVec(), read = readCell(bot)
+  const { site, why } = canonicalComposterSite({ home, read })
+  if (!site) return skip(`the town's composter site cannot be determined from here: ${why}`)
+  const centre = new Vec3(site.x + 0.5, site.y + 0.5, site.z + 0.5)
+  const was = handOf(bot.heldItem)
+  const { bound, restoreBound, done } = hkGuards(bot, signal)
+  const approach = async () => {
+    if (bot.entity.position.distanceTo(centre) <= STATION_REACH) return true
+    try { await bound(bot.pathfinder.goto(new goals.GoalNear(site.x, site.y, site.z, 3)), HK_PATH_MS, 'pathfinding', null) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+    return bot.entity.position.distanceTo(centre) <= STATION_REACH
   }
-  composterDeferrals = 0
-  if (!plan.carried) {
-    const again = findComposter()   // RE-CHECK BEFORE SPENDING WOOD: another bot may have just placed one
-    if (again) return { block: again }
-    const steps = [
-      plan.logCrafts ? { item: `${plan.wood}_planks`, count: plan.logCrafts } : null,
-      plan.slabCrafts ? { item: `${plan.wood}_slab`, count: plan.slabCrafts } : null,
-      { item: 'composter', count: 1 },
-    ].filter(Boolean)
-    for (const s of steps) {
-      check(signal)
-      const r = await craft(ctx, s, signal)
-      if (r.status !== 'success') return { refusal: `could not build the town composter: crafting ${s.item} failed -- ${String(r.detail ?? r.failClass).slice(0, 120)}` }
+  try {
+    if (!(await approach())) return fail('composter_unreachable', `could not reach the town's composter site at ${site.x},${site.y},${site.z}`)
+    if (!plan.carried) {
+      const steps = [plan.logCrafts ? { item: `${plan.wood}_planks`, count: plan.logCrafts } : null,
+                     plan.slabCrafts ? { item: `${plan.wood}_slab`, count: plan.slabCrafts } : null].filter(Boolean)
+      for (const s of steps) {
+        check(signal)
+        let r
+        try { r = await bound(craft(ctx, s, signal), HK_CRAFT_MS, 'craft') } catch (e) { if (e?.aborted || signal?.aborted) throw e; r = { detail: String(e?.message ?? e) } }
+        if (r?.status !== 'success') return fail('composter_craft', `could not build the town composter: crafting ${s.item} failed -- ${String(r?.detail ?? r?.failClass).slice(0, 120)}`)
+      }
+      // A BOT THAT LOSES THE RACE KEEPS NOTHING it cannot use: the check runs right before the composter itself.
+      if (findTownComposter(bot)) return skip('another bot built the town composter first; no composter crafted (the planks/slabs stay)')
+      let r
+      try { r = await bound(craft(ctx, { item: 'composter', count: 1 }, signal), HK_CRAFT_MS, 'craft') } catch (e) { if (e?.aborted || signal?.aborted) throw e; r = { detail: String(e?.message ?? e) } }
+      if (r?.status !== 'success' || countItem(bot, 'composter') < 1) return fail('composter_craft', `could not craft the composter: ${String(r?.detail ?? 'none in the bag').slice(0, 120)}`)
     }
-    if (countItem(bot, 'composter') < 1) return { refusal: 'could not build the town composter: the craft reported success and no composter is in the bag' }
+    if (findTownComposter(bot)) return skip('another bot placed the town composter first; this one stays in the bag')
+    if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z}`)
+    // RE-VALIDATED IMMEDIATELY BEFORE PLACING: every container in the clearance volume, read cell by cell.
+    const refusal = siteRefusal(read, site, home)
+    if (refusal) return fail('composter_site', `the composter site ${site.x},${site.y},${site.z} is no longer valid (${refusal}); the composter stays in the bag and the next visit recomputes the site`)
+    const p = bot.entity.position
+    const inColumn = e => e?.position && Math.floor(e.position.x) === site.x && Math.floor(e.position.z) === site.z && Math.abs(Math.floor(e.position.y) - site.y) <= 1
+    if (inColumn(bot.entity) || Object.values(bot.entities ?? {}).some(e => e !== bot.entity && e?.type !== 'object' && e?.name !== 'item' && inColumn(e))) {
+      return skip(`something is standing on the composter site at ${site.x},${site.y},${site.z}; placing waits for another visit`)
+    }
+    let put
+    try { put = await bound(place(ctx, { item: 'composter', x: site.x, y: site.y, z: site.z }, signal), HK_CRAFT_MS, 'place') } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+    if (put?.status !== 'success') return fail('composter_place', `could not place the town composter at ${site.x},${site.y},${site.z}: ${String(put?.detail).slice(0, 120)}`)
+    if (blockNameOf(bot, bot.blockAt(new Vec3(site.x, site.y, site.z))) !== 'composter') return fail('composter_place', `placed, but ${site.x},${site.y},${site.z} does not read composter`)
+    logEvent({ kind: 'composter_built', status: 'success', snapshot: snapshot(bot),
+               detail: `at=${site.x},${site.y},${site.z} wood=${plan.wood ?? 'carried'} free=${free} need=${plan.slotsNeeded} p=${Math.round(p.x)},${Math.round(p.z)}` })
+    return { status: 'success', placed: 1, detail: `built the town composter at ${site.x},${site.y},${site.z}` }
+  } finally {
+    await restoreHand(bot, was, restoreBound)
+    done()
   }
-  const raced = findComposter()   // RE-CHECK BEFORE PLACING: the authoritative one-per-town guard
-  if (raced) return { block: raced }
-  const p = bot.entity?.position
-  if (!p) return { refusal: 'no position to place the composter from' }
-  const origin = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
-  const containers = (bot.findBlocks?.({ matching: b => CONTAINER.test(blockName(b) ?? ''), maxDistance: 16, count: 64 }) ?? [])
-    .map(v => ({ x: v.x, y: v.y, z: v.z }))
-  const occupied = Object.values(bot.entities ?? {})
-    .filter(e => e && e !== bot.entity && e.position && e.position.distanceTo?.(p) < 8)
-    .map(e => ({ x: Math.floor(e.position.x), y: Math.floor(e.position.y), z: Math.floor(e.position.z) }))
-  const read = (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null }
-  const site = chooseComposterSite({ origin, read, containers, home, occupied })
-  if (!site) {
-    return { refusal: 'holding a composter and nowhere within 4 blocks to put it that is 3+ from every chest, off the home ' +
-                      'point and not a path or doorway; it stays in the bag and is placed from another spot on a later visit' }
-  }
-  const put = await place(ctx, { item: 'composter', x: site.x, y: site.y, z: site.z }, signal)
-  if (put.status !== 'success') return { refusal: `could not place the town composter at ${site.x},${site.y},${site.z}: ${String(put.detail).slice(0, 120)}` }
-  const block = bot.blockAt(put.at ?? new Vec3(site.x, site.y, site.z))
-  if (blockName(block) !== 'composter') return { refusal: `placed the composter but ${site.x},${site.y},${site.z} reads ${blockName(block) ?? 'unknown'}` }
-  logEvent({ kind: 'composter_built', status: 'success', snapshot: snapshot(bot),
-             detail: `at=${site.x},${site.y},${site.z} wood=${plan.wood ?? 'carried'} container=${Number.isFinite(site.nearestContainer) ? site.nearestContainer.toFixed(1) : 'none'} peers=${peers.length}` })
-  return { block, built: `${site.x},${site.y},${site.z}` }
 }
 
 // ------------------------------------------------------------- withdraw -----
@@ -6404,6 +6427,8 @@ export const SKILL_CONTRACTS = {
   wear_out: { expects: ['inventory_loss'],        maxMs: 60_000 },
   // Consumes ballast into the town composter; a build visit also crafts and places it, so it gets more time.
   compost:  { expects: ['inventory_loss'],        maxMs: 120_000 },
+  // Crafts and places the town composter: the change it exists for is the block in the world.
+  build_composter: { expects: ['world_change'],   maxMs: 150_000 },
   withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
@@ -7438,8 +7463,9 @@ export const SKILLS = {
   // NEVER OFFERED TO THE MODEL (chatOnly keeps it out of the schema enum and the prompt): issued only as a
   // deterministic work order from cognitive.mjs at TRIGGER_SLOTS, so a model can never choose to break a tool.
   wear_out: { run: wearOut, usage: 'wear_out',                      args: [], chatOnly: true },
-  // Same rule as wear_out: a deterministic order at town at TRIGGER_SLOTS (composter.mjs), never the model's choice.
+  // Same rule as wear_out: deterministic town orders from townOrder (composter.mjs), never the model's choice.
   compost:  { run: compost,  usage: 'compost',                       args: [], chatOnly: true },
+  build_composter: { run: buildComposter, usage: 'build_composter', args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },

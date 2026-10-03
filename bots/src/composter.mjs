@@ -1,32 +1,37 @@
 // INVENTORY HYGIENE, PHASE 2: a composter at town turns ballast into nothing (and a little bone meal).
 //
 // Measured (09-28..10-02, 80 bots): median 35 of 36 slots used, 25/80 bots completely full; a full bot's gather
-// succeeds 4.8% against 52.2% with room; 9 of 12 ore-tunnel attempts on 10-02 were refused for a full bag. The
-// occupants are leaf_litter (54-454 per bot, up to 8 slots), wheat_seeds, flowers, grass. Phase 1 (hygiene.mjs)
-// stopped bots WALKING to that junk; it could not get rid of what they already carry, and the bank chests are full.
+// succeeds 4.8% against 52.2% with room; 9 of 12 ore-tunnel attempts on 10-02 were refused for a full bag. Inflow
+// measured 10-03 (80 bots, 3 h): 1,614 junk items entered bags -- oak_sapling 693 (leaf drops while chopping, auto
+// picked up), bamboo 557, leaf_litter 166, birch_sapling 74, apple 67 -- and bots hold 57-248 saplings while planting
+// needs a handful. Phase 1 (hygiene.mjs) stopped bots WALKING to junk; it could not get rid of what they carry.
 //
 // WHY A COMPOSTER (agreed design, both engines, 09-30). Tossing is out: the server hands any item within ~1 block of
 // a player back to that player after the 2 s pickup delay, and a pile anywhere is collected by the next bot that
 // passes (owner, 09-29). A composter CONSUMES every item inserted at levels 0-6 -- the level only rises by chance --
 // so nothing is left in the world except, every 7 levels, one bone meal, which is worth keeping.
 //
-// DETERMINISTIC, NEVER A TRIP. A work order (cognitive.mjs) runs it only when the bot is ALREADY at town (near home
-// and within sight of town storage) with a bag at TRIGGER_SLOTS or more. It is never offered to the model.
-//
-// Everything that decides is here and pure; skills.mjs `compost` only reads the world and acts.
+// TWO DETERMINISTIC ORDERS, NEVER A TRIP, NEVER THE MODEL'S CHOICE (townOrder below decides both):
+//   build_composter  at town, no composter around home, one wood held, and free slots for the WORST CASE of the
+//                    whole craft chain -- crafted output with no slot is dropped by mineflayer, so it never crafts
+//                    into a full bag. It places only at the town's CANONICAL site: a pure function of home and the
+//                    world, so every bot computes the same cell and a town gets one composter.
+//   compost          at town, bag at TRIGGER_SLOTS+, a composter around home. A full bag only starts a fill it can
+//                    finish (the stack empties before level 7) so it can always take the bone meal out.
 
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
 
 /**
  * VERIFIED COMPOSTING CHANCES, Java 1.21.x -- the probability that ONE inserted item raises the level by one.
  * Source: the vanilla ComposterBlock.COMPOSTABLES table (`ComposterBlock.bootStrap`) as published on
- * https://minecraft.wiki/w/Composter (Java Edition table), read 2026-10-02. minecraft-data 3.112.0 carries the block
- * (state `level`, 0..8) and the recipe, but NOT this table.
+ * https://minecraft.wiki/w/Composter (Java Edition table), read 2026-10-02/03: "Saplings" 30% (every sapling item),
+ * Leaf Litter / seeds / Short Grass / Seagrass 30%, Tall Grass / Vines 50%, Fern / Large Fern / Flowers 65%.
+ * minecraft-data 3.112.0 carries the block (state `level`, 0..8) and the recipe, but NOT this table.
  *
- * Only NEVER_KEEP ballast is listed: a composter consumes whatever it is given, so the allowlist IS the safety.
- * NOT compostable in Java, so absent on purpose (same source: "it is not possible to compost bamboo, dead bushes...";
- * eggs, flint, ink sacs, dripstone and rails are in no tier): egg, brown_egg, blue_egg, flint, ink_sac,
- * glow_ink_sac, pointed_dripstone, dead_bush, rail, bamboo.
+ * The allowlist IS the safety: a composter consumes whatever it is given. NOT compostable in Java, so absent on
+ * purpose (same source: "it is not possible to compost bamboo, dead bushes..."; eggs, flint, ink sacs, dripstone and
+ * rails are in no tier): egg, brown_egg, blue_egg, flint, ink_sac, glow_ink_sac, pointed_dripstone, dead_bush, rail,
+ * bamboo. Apples ARE compostable (65%) and are kept: they are food.
  */
 export const COMPOST_CHANCE = Object.freeze({
   leaf_litter: 0.3,
@@ -35,17 +40,43 @@ export const COMPOST_CHANCE = Object.freeze({
   short_grass: 0.3, seagrass: 0.3, tall_grass: 0.5, fern: 0.65, large_fern: 0.65,
   vine: 0.5,
 })
+/** Every `_sapling` item in 1.21.11 (oak, spruce, birch, jungle, acacia, cherry, dark_oak, pale_oak): 30%. */
+export const SAPLING_CHANCE = 0.3
 
-/** leaf_litter first (it is the biggest occupant), then seeds, flowers, grass, then anything else listed. */
-const RANK = name => name === 'leaf_litter' ? 0 : /_seeds$/.test(name) ? 1 : /^(poppy|dandelion)$/.test(name) ? 2
-  : /(grass|fern)$/.test(name) ? 3 : 4
+/**
+ * SAPLINGS KEPT PER SPECIES. Planting (workorder.mjs plantingOrder) plants only a species held ABOVE its own
+ * PLANT_RESERVE (8), so composting down to 8 would switch planting off. Twice that leaves eight plantable above
+ * planting's floor -- more than an hour of plants at one per ten minutes, and the bots pick up ~230 saplings an hour.
+ */
+export const SAPLING_RESERVE = 16
 
-/** Never composted whatever a table says: planting stock, food, tools, wood, ores, and the product itself. */
-const NEVER_COMPOST = /(_sapling$|_propagule$|^apple$|^bone_meal$|_log$|_wood$|_planks$|_ore$|^raw_|_ingot$|_(pickaxe|axe|shovel|hoe|sword)$)/
+const isSapling = name => typeof name === 'string' && /_sapling$/.test(name)
 
-/** Is this item ballast a composter may consume? NEVER_KEEP (worth nothing to the fleet) AND verified compostable. */
+/** leaf_litter first (it is the biggest occupant), then surplus saplings (the largest inflow), seeds, flowers, grass. */
+const RANK = name => name === 'leaf_litter' ? 0 : isSapling(name) ? 1 : /_seeds$/.test(name) ? 2
+  : /^(poppy|dandelion)$/.test(name) ? 3 : /(grass|fern)$/.test(name) ? 4 : 5
+
+/** Never composted whatever a table says: food, tools, wood, ores, and the product itself. */
+const NEVER_COMPOST = /(_propagule$|^apple$|^bone_meal$|_log$|_wood$|_planks$|_ore$|^raw_|_ingot$|_(pickaxe|axe|shovel|hoe|sword)$)/
+
+/** Is this item ballast a composter may consume WHOLE? NEVER_KEEP (worth nothing to the fleet) AND verified compostable. */
 export function isCompostJunk (name) {
   return typeof name === 'string' && NEVER_KEEP.has(name) && Object.hasOwn(COMPOST_CHANCE, name) && !NEVER_COMPOST.test(name)
+}
+
+/** name -> how many of it may be composted from this bag: all of the junk, saplings only above SAPLING_RESERVE. */
+export function compostAllowance (items = []) {
+  const totals = {}
+  for (const it of (Array.isArray(items) ? items : [])) {
+    if (!it?.name || !(isCompostJunk(it.name) || isSapling(it.name))) continue
+    totals[it.name] = (totals[it.name] ?? 0) + (it.count ?? 0)
+  }
+  const out = {}
+  for (const [name, n] of Object.entries(totals)) {
+    const a = isSapling(name) ? n - SAPLING_RESERVE : n
+    if (a > 0) out[name] = a
+  }
+  return out
 }
 
 /** At most this many items per visit: ~21 leaf_litter fill a composter once, and every insert is a server round trip. */
@@ -54,52 +85,74 @@ export const MAX_ITEMS_PER_VISIT = 160
 export const VISIT_BUDGET_MS = 45_000
 
 /**
- * compostPlan(items) -> { slots, junk, take: [{ name, count }] }
- *   items  mineflayer Item[] as bot.inventory.items() returns (one entry per occupied slot)
- *   take   what to insert, in order, at most `maxItems` in total. Ordered by RANK, then name.
- * Pure. The trigger is NOT here (compostDue owns it): this only answers "what, and how much".
+ * compostPlan(items) -> { slots, junk, take: [{ name, count }] }  -- what could go, in planner order, capped.
+ * Pure. `junk` is what the trigger counts.
  */
 export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
-  const counts = {}
-  for (const it of list) if (isCompostJunk(it.name)) counts[it.name] = (counts[it.name] ?? 0) + (it.count ?? 0)
-  const junk = Object.values(counts).reduce((a, b) => a + b, 0)
+  const allow = compostAllowance(list)
+  const junk = Object.values(allow).reduce((a, b) => a + b, 0)
   let left = Math.max(0, maxItems)
   const take = []
-  for (const name of Object.keys(counts).sort((a, b) => RANK(a) - RANK(b) || a.localeCompare(b))) {
+  for (const name of Object.keys(allow).sort((a, b) => RANK(a) - RANK(b) || a.localeCompare(b))) {
     if (left <= 0) break
-    const n = Math.min(left, counts[name])
-    if (n > 0) { take.push({ name, count: n }); left -= n }
+    const n = Math.min(left, allow[name])
+    take.push({ name, count: n }); left -= n
   }
   return { slots: list.length, junk, take }
 }
 
 /**
- * Which stack of `name` to put in the hand next: the SMALLEST, so each insert brings a slot nearer to empty.
- * 454 leaf_litter is eight stacks; nibbling a full one frees nothing, finishing the partial one frees a slot.
+ * WHICH STACK GOES IN NEXT -> { item, n } | null. Pure, recomputed after every insert (so a reserve can never be crossed).
+ *   room   the bag can take a bone meal now (boneMealRoom)
+ * With room: planner order (leaf_litter, surplus saplings, seeds, flowers, grass), the smallest stack of that kind.
+ * Without room: the SMALLEST stack in the bag that can be emptied completely (a sapling stack only if the surplus
+ * covers all of it), because only an emptied slot can take the bone meal at the end of the fill.
+ * `n` is how many of that stack may go: the whole stack, or a sapling stack down to the reserve.
  */
-export function nextStack (items = [], name) {
-  return (Array.isArray(items) ? items : []).filter(it => it?.name === name && (it.count ?? 0) > 0)
-    .sort((a, b) => (a.count - b.count) || ((b.slot ?? 0) - (a.slot ?? 0)))[0] ?? null
+export function nextInsert (items = [], { room = true } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+  const allow = compostAllowance(list)
+  const stacks = list.filter(it => (allow[it.name] ?? 0) > 0)
+  if (!stacks.length) return null
+  if (room) {
+    const name = Object.keys(allow).sort((a, b) => RANK(a) - RANK(b) || a.localeCompare(b))[0]
+    const item = stacks.filter(s => s.name === name).sort((a, b) => a.count - b.count || (b.slot ?? 0) - (a.slot ?? 0))[0]
+    return { item, n: Math.min(item.count, allow[name]) }
+  }
+  const whole = stacks.filter(s => allow[s.name] >= s.count)
+    .sort((a, b) => a.count - b.count || RANK(a.name) - RANK(b.name) || (b.slot ?? 0) - (a.slot ?? 0))
+  return whole.length ? { item: whole[0], n: whole[0].count } : null
+}
+
+/** Can the bag take one bone meal right now: a free slot, or a bone_meal stack with room. */
+export function boneMealRoom (items = []) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+  return list.length < 36 || list.some(it => it.name === 'bone_meal' && it.count < 64)
+}
+
+/**
+ * WHAT TO DO AT THE COMPOSTER NOW. Pure.
+ *   level     0..8, or null (gone)
+ *   room      boneMealRoom
+ *   smallest  how many items the next insert stack holds (0 = nothing left to insert)
+ * Inserting never fills a slot, so the only way a bot gets stuck is a ripe composter (8) and no room for its bone
+ * meal. From level L at least 7 - L inserts are needed to reach 7 (every one could raise it), so a stack of at most
+ * 7 - L items is guaranteed to have emptied its slot by the time the composter can ripen.
+ */
+export function fillDecision ({ level = null, room = false, smallest = 0 } = {}) {
+  if (!Number.isInteger(level)) return 'gone'
+  if (level === 8) return room ? 'harvest' : 'skip_no_room'
+  if (level === 7) return room ? 'ripen' : 'skip_no_room'
+  if (!(smallest > 0)) return 'done'
+  if (room) return 'insert'
+  return smallest <= 7 - level ? 'insert' : 'skip_no_room'
 }
 
 /** "At town": horizontally this close to home... */
 export const TOWN_RADIUS = 48
 /** ...and town storage (a chest/barrel) in sight this close. */
 export const STORAGE_NEAR = 16
-/** A composter anywhere this close counts as the town's; a builder never places a second one inside it. */
-export const COMPOSTER_RADIUS = 48
-
-/**
- * IS A COMPOSTING VISIT DUE? Pure. Only at town, only under slot pressure, only with something to compost.
- * `storageNear` may be a function: it is a world scan, so it is evaluated LAST and only when everything cheap passed.
- */
-export function compostDue ({ slots = 0, junk = 0, distHome = Infinity, storageNear = false } = {}) {
-  if (!(slots >= TRIGGER_SLOTS)) return false
-  if (!(junk > 0)) return false
-  if (!(distHome <= TOWN_RADIUS)) return false
-  return !!(typeof storageNear === 'function' ? storageNear() : storageNear)
-}
 
 /** The composter's `level` state as a number 0..8 (prismarine-block returns it as a STRING), or null. */
 export function composterLevel (block) {
@@ -124,16 +177,19 @@ export const SLABS_PER_COMPOSTER = 7
 const SLABS_PER_CRAFT = 6, PLANKS_PER_SLAB_CRAFT = 3, PLANKS_PER_LOG = 4, PLANKS_PER_TABLE = 4
 
 /**
- * composterBuildPlan(counts, { tableAvailable }) -> null | { carried: true } | { wood, log, logCrafts, slabCrafts, needTable }
+ * composterBuildPlan(counts, { tableAvailable }) -> null | { carried, slotsNeeded } | { wood, log, logCrafts, slabCrafts, needTable, slotsNeeded }
  *   counts          name -> count held
  *   tableAvailable  a crafting table is carried or already placed within craft's 32-block search
  * The cheapest single-wood route to one composter from what is HELD -- never a gather. Null when nothing held makes
- * one: that is the refusal, and the remedy it names (3 logs of one wood, 2 with a table at hand) is a gather the model
- * can choose anywhere.
+ * one; the remedy (3 logs of one wood, 2 with a table at hand) is a gather the model can choose anywhere.
  * Crafts are counted in OPERATIONS, which is what craft()'s `count` means (bot.craft(recipe, count) runs it count times).
+ *
+ * slotsNeeded: the WORST CASE of new slots the chain occupies at once, assuming no partial stack absorbs anything and
+ * no ingredient slot empties: planks (if any are crafted), a crafting table (if one is made), slabs (if any), and the
+ * composter. A bag with fewer free slots must not start: mineflayer's putAway DROPS crafted output it cannot store.
  */
 export function composterBuildPlan (counts = {}, { tableAvailable = false } = {}) {
-  if ((counts.composter ?? 0) > 0) return { carried: true }
+  if ((counts.composter ?? 0) > 0) return { carried: true, slotsNeeded: 0 }
   let best = null
   for (const wood of WOODS) {
     const slabs = counts[`${wood}_slab`] ?? 0, planks = counts[`${wood}_planks`] ?? 0, logs = counts[logOf(wood)] ?? 0
@@ -141,8 +197,10 @@ export function composterBuildPlan (counts = {}, { tableAvailable = false } = {}
     const planksNeeded = slabCrafts * PLANKS_PER_SLAB_CRAFT + (tableAvailable ? 0 : PLANKS_PER_TABLE)
     const logCrafts = Math.ceil(Math.max(0, planksNeeded - planks) / PLANKS_PER_LOG)
     if (logCrafts > logs) continue
+    const slotsNeeded = Math.ceil(logCrafts * PLANKS_PER_LOG / 64) + (tableAvailable ? 0 : 1) +
+                        Math.ceil(slabCrafts * SLABS_PER_CRAFT / 64) + 1
     const cost = logCrafts * 10 + slabCrafts
-    if (!best || cost < best.cost) best = { wood, log: logOf(wood), logCrafts, slabCrafts, needTable: !tableAvailable, cost }
+    if (!best || cost < best.cost) best = { wood, log: logOf(wood), logCrafts, slabCrafts, needTable: !tableAvailable, slotsNeeded, cost }
   }
   if (!best) return null
   const { cost, ...plan } = best
@@ -153,14 +211,9 @@ export function composterBuildPlan (counts = {}, { tableAvailable = false } = {}
 export const BUILDER_MAX_DEFERRALS = 3
 
 /**
- * ONE BUILDER PER TOWN, WITHOUT A SERVER. Pure.
- *   myName    this bot
- *   peers     names of OTHER players seen within TOWN_RADIUS of home right now
- *   deferrals how many visits this bot has already deferred
- * The lowest name at town builds. A bot that sees a lower name defers -- but only BUILDER_MAX_DEFERRALS times, so a
- * lower-named bot that never builds (no wood, never full) cannot block the town forever. The authoritative guard is
- * the re-scan for a composter immediately before crafting and again before placing (skills.mjs); this only stops
- * two bots that arrive together from both spending wood.
+ * ONE BUILDER PER TOWN, WITHOUT A SERVER. Pure. The lowest name at town builds; a bot that sees a lower name defers,
+ * at most BUILDER_MAX_DEFERRALS visits. The authoritative guards are the canonical site (every bot places on the same
+ * cell) and the re-check for a composter around home immediately before the composter craft and before placing.
  */
 export function builderDecision ({ myName = '', peers = [], deferrals = 0 } = {}) {
   const lower = (Array.isArray(peers) ? peers : []).filter(n => typeof n === 'string' && n && n !== myName && n < myName).sort()
@@ -168,68 +221,209 @@ export function builderDecision ({ myName = '', peers = [], deferrals = 0 } = {}
   return { build: true, defer: false, to: null }
 }
 
-// ---- where to put it ------------------------------------------------------------------------------------------
+// ---- where it goes: the town's canonical site ------------------------------------------------------------------
 
-/** A chest lid must still open and its front stay reachable: nothing within this distance of a container. */
+/** A chest lid must still open, a hopper must not pull the bone meal, a furnace front stays reachable. */
 export const MIN_CONTAINER_DISTANCE = 3
 /** Stay off the home point: every bot's `home` walk ends within 2 blocks of it. */
 export const HOME_CLEARANCE = 3
-const SITE_REACH = 4
+/** Rings searched around home for the canonical site. */
+export const CANONICAL_RADIUS = 12
+const COLUMN_UP = 8, COLUMN_DOWN = 8
+/** Every block that is a container or feeds/pulls one. Matched by NAME over the whole clearance volume, uncapped. */
+export const CLEARANCE_CONTAINER = /^(chest|trapped_chest|ender_chest|barrel|hopper|dropper|dispenser|furnace|blast_furnace|smoker|brewing_stand|(\w+_)?shulker_box)$/
 const PLACEABLE_INTO = new Set(['air', 'cave_air', 'short_grass', 'fern', 'dead_bush'])
 const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column)$/
-const FLOOR_NO = /(^chest$|^trapped_chest$|^barrel$|^composter$|^crafting_table$|furnace$|^smoker$|_leaves$|^dirt_path$|^farmland$|_slab$|_stairs$|_door$|_trapdoor$|^scaffolding$|^ice$)/
-export const CONTAINER = /^(chest|trapped_chest|barrel)$/
+const FLOOR_NO = /(^chest$|^trapped_chest$|^barrel$|^composter$|^crafting_table$|furnace$|^smoker$|_leaves$|^dirt_path$|^farmland$|_slab$|_stairs$|_door$|_trapdoor$|^scaffolding$|^ice$|shulker_box$|^hopper$)/
 
 /**
- * chooseComposterSite({ origin, read, containers, home, occupied }) -> { x, y, z, nearestContainer } | null
- *   origin      the bot's feet cell {x,y,z} (integers)
- *   read        (x,y,z) -> { name, boundingBox } | null   (null = unknown: never chosen)
- *   containers  [{x,y,z}] chests/barrels near the bot
- *   home        {x,z} town centre
- *   occupied    [{x,y,z}] cells an entity stands in
- * Pure. A cell within SITE_REACH of the bot, replaceable, on a solid full floor that is not a container, station,
- * path or slab; >= MIN_CONTAINER_DISTANCE from every container; off the home point; not beside liquid; not a doorway
- * or corridor (solid on both sides along either axis) and not within 2 of a door or gate. Ranked: within 3..6 of
- * storage first (findable from the chests), then nearest the bot, then x/z/y for determinism.
+ * WHY THIS CELL CANNOT HOLD THE TOWN COMPOSTER -> a reason string, or null when it can. Pure.
+ *   read  (x,y,z) -> { name, boundingBox } | null   (null = unknown: never on a guess)
+ * The cell is replaceable on a solid full floor that is not a container, station, path or slab; no liquid beside it;
+ * not a corridor/doorway (solid on both sides along either axis); no door or gate within 2; off the home point; and
+ * NO container of any kind anywhere in the clearance volume (every cell within MIN_CONTAINER_DISTANCE, read one by
+ * one -- there is no list and no count cap to run out). Called for the canonical search AND again right before placing.
  */
-export function chooseComposterSite ({ origin, read, containers = [], home = null, occupied = [] } = {}) {
-  if (!origin || typeof read !== 'function') return null
+export function siteRefusal (read, site, home = null) {
+  if (typeof read !== 'function' || !site) return 'no site'
+  const { x, y, z } = site
   const solid = b => !!b && b.boundingBox === 'block'
-  const occ = new Set((occupied ?? []).map(p => `${p.x},${p.y},${p.z}`))
-  const out = []
-  for (let dx = -SITE_REACH; dx <= SITE_REACH; dx++) {
-    for (let dz = -SITE_REACH; dz <= SITE_REACH; dz++) {
-      if (dx === 0 && dz === 0) continue                      // never the bot's own column
-      if (Math.hypot(dx, dz) > SITE_REACH) continue
-      for (const dy of [0, -1, 1]) {
-        const x = origin.x + dx, y = origin.y + dy, z = origin.z + dz
-        if (occ.has(`${x},${y},${z}`) || occ.has(`${x},${y - 1},${z}`)) continue
-        const cell = read(x, y, z), floor = read(x, y - 1, z)
-        if (!cell || !floor || !PLACEABLE_INTO.has(cell.name)) continue
-        if (!solid(floor) || FLOOR_NO.test(floor.name ?? '')) continue
-        const sides = [read(x + 1, y, z), read(x - 1, y, z), read(x, y, z + 1), read(x, y, z - 1)]
-        if (sides.some(b => !b)) continue                      // unknown neighbour: never on a guess
-        if (sides.some(b => LIQUID.test(b.name ?? ''))) continue
-        if ((solid(sides[0]) && solid(sides[1])) || (solid(sides[2]) && solid(sides[3]))) continue   // corridor / doorway
-        let door = false
-        for (let ax = -2; ax <= 2 && !door; ax++) {
-          for (let az = -2; az <= 2 && !door; az++) {
-            for (const ay of [0, 1]) if (/_door$|_gate$/.test(read(x + ax, y + ay, z + az)?.name ?? '')) door = true
-          }
-        }
-        if (door) continue
-        if (home && Math.hypot(x - home.x, z - home.z) < HOME_CLEARANCE) continue
-        let nearest = Infinity
-        for (const c of containers) nearest = Math.min(nearest, Math.hypot(x - c.x, y - c.y, z - c.z))
-        if (nearest < MIN_CONTAINER_DISTANCE) continue
-        out.push({ x, y, z, nearestContainer: nearest, fromBot: Math.hypot(dx, dy, dz) })
+  if (home && Math.hypot(x - home.x, z - home.z) < HOME_CLEARANCE) return 'home point'
+  const cell = read(x, y, z), floor = read(x, y - 1, z)
+  if (!cell || !floor) return 'unknown'
+  if (!PLACEABLE_INTO.has(cell.name)) return `cell is ${cell.name}`
+  if (!solid(floor) || FLOOR_NO.test(floor.name ?? '')) return `floor is ${floor.name}`
+  const sides = [read(x + 1, y, z), read(x - 1, y, z), read(x, y, z + 1), read(x, y, z - 1)]
+  if (sides.some(b => !b)) return 'unknown'
+  if (sides.some(b => LIQUID.test(b.name ?? ''))) return 'liquid beside'
+  if ((solid(sides[0]) && solid(sides[1])) || (solid(sides[2]) && solid(sides[3]))) return 'corridor'
+  const R = MIN_CONTAINER_DISTANCE
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const near = Math.hypot(dx, dy, dz)
+        const door = Math.max(Math.abs(dx), Math.abs(dz)) <= 2 && dy >= 0 && dy <= 1
+        if (near >= R && !door) continue
+        const b = read(x + dx, y + dy, z + dz)
+        if (!b) return 'unknown'
+        if (near < R && CLEARANCE_CONTAINER.test(b.name ?? '')) return `${b.name} within ${MIN_CONTAINER_DISTANCE}`
+        if (door && /_door$|_gate$/.test(b.name ?? '')) return 'door'
       }
     }
   }
-  const band = n => (n <= 6 ? 0 : 1)
-  out.sort((a, b) => band(a.nearestContainer) - band(b.nearestContainer) || a.fromBot - b.fromBot || a.x - b.x || a.z - b.z || a.y - b.y)
-  const best = out[0]
-  return best ? { x: best.x, y: best.y, z: best.z, nearestContainer: best.nearestContainer } : null
+  return null
+}
+
+/** The fixed spiral: rings HOME_CLEARANCE..CANONICAL_RADIUS around home, each ring in angle order from east. */
+function spiral (home) {
+  const out = []
+  for (let r = HOME_CLEARANCE; r <= CANONICAL_RADIUS; r++) {
+    const ring = []
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r) ring.push([dx, dz])
+    ring.sort((a, b) => Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]) || a[0] - b[0] || a[1] - b[1])
+    for (const [dx, dz] of ring) out.push({ x: home.x + dx, z: home.z + dz })
+  }
+  return out
+}
+
+/**
+ * THE TOWN'S COMPOSTER CELL -> { site, why }. Pure: a function of home and the world only, so every bot that reads
+ * the same world gets the same cell, wherever it stands. Walks the fixed spiral; in each column the surface cell is
+ * the highest replaceable cell on a solid floor between home.y+8 and home.y-8; the first column whose surface passes
+ * siteRefusal wins. Any UNKNOWN read on the way returns no site (an unloaded chunk must not make two bots disagree).
+ */
+export function canonicalComposterSite ({ home, read } = {}) {
+  if (!home || typeof read !== 'function') return { site: null, why: 'no home' }
+  const hy = Math.floor(home.y ?? 64)
+  for (const { x, z } of spiral(home)) {
+    let surface = null
+    for (let y = hy + COLUMN_UP; y >= hy - COLUMN_DOWN; y--) {
+      const cell = read(x, y, z), floor = read(x, y - 1, z)
+      if (!cell || !floor) return { site: null, why: `unknown cell at ${x},${y},${z}` }
+      if (PLACEABLE_INTO.has(cell.name) && floor.boundingBox === 'block') { surface = { x, y, z }; break }
+    }
+    if (!surface) continue
+    const why = siteRefusal(read, surface, home)
+    if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${surface.y},${z}` }
+    if (!why) return { site: surface, why: null }
+  }
+  return { site: null, why: `no valid cell within ${CANONICAL_RADIUS} of home` }
+}
+
+// ---- the scheduler ------------------------------------------------------------------------------------------------
+
+export const COMPOST_COOLDOWN_MS = 3 * 60 * 1000
+export const COMPOST_BACKOFF_MS = 15 * 60 * 1000
+export const BUILD_COOLDOWN_MS = 5 * 60 * 1000
+export const BUILD_BACKOFF_MS = 30 * 60 * 1000
+/** World scans (storage, composter, table) at most this often per bot, however often it decides. */
+export const TOWN_SCAN_MS = 30 * 1000
+export const TOWN_ORDERS = new Set(['compost', 'build_composter'])
+
+const lazy = v => (typeof v === 'function' ? v() : v)
+
+/**
+ * THE TOWN WORK ORDER -> { order, state }. Pure; cognitive.mjs supplies the readings and keeps `state`.
+ *   slots, freeSlots, junk (compostPlan), distHome   cheap, evaluated first
+ *   storageNear, composterAtTown, buildPlan, peers   world scans: values or functions, evaluated lazily and at most
+ *                                                    once per TOWN_SCAN_MS
+ *   state  { lastScanAt, lastCompostAt, compostBackoffUntil, lastBuildAt, buildBackoffUntil, deferrals }
+ * Compost: at town, >= TRIGGER_SLOTS, junk, a composter around home. Build: at town, NO composter around home, a plan
+ * from wood held, and freeSlots >= plan.slotsNeeded -- independent of the compost threshold. Cooldowns are charged
+ * when an order is ISSUED (and a deferral counts as a visit).
+ */
+export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
+                             composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {} } = {}) {
+  const s = { ...state }
+  const none = () => ({ order: null, state: s })
+  if (!(distHome <= TOWN_RADIUS)) return none()
+  const compostReady = slots >= TRIGGER_SLOTS && junk > 0 && now - (s.lastCompostAt ?? -Infinity) >= COMPOST_COOLDOWN_MS &&
+                       now >= (s.compostBackoffUntil ?? 0)
+  const buildReady = now - (s.lastBuildAt ?? -Infinity) >= BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
+  if (!compostReady && !buildReady) return none()
+  if (now - (s.lastScanAt ?? -Infinity) < TOWN_SCAN_MS) return none()
+  s.lastScanAt = now
+  if (!lazy(storageNear)) return none()
+  if (lazy(composterAtTown)) {
+    if (!compostReady) return none()
+    s.lastCompostAt = now
+    return { order: { skill: 'compost', args: {}, why: `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
+  }
+  if (!buildReady) return none()
+  const plan = lazy(buildPlan)
+  if (!plan) return none()
+  if (freeSlots < plan.slotsNeeded) return none()
+  s.lastBuildAt = now
+  const who = builderDecision({ myName, peers: lazy(peers) ?? [], deferrals: s.deferrals ?? 0 })
+  if (who.defer) { s.deferrals = (s.deferrals ?? 0) + 1; return none() }
+  s.deferrals = 0
+  return { order: { skill: 'build_composter', args: {}, why: `at town, no composter, ${plan.carried ? 'carrying one' : `holding ${plan.wood} wood`} and ${freeSlots} free slots` }, state: s }
+}
+
+/** After a town order ran -> the new state. A skip (no_effect) or an interruption costs nothing; a fault backs off. */
+export function townOrderOutcome (skill, status, now = 0, state = {}) {
+  const s = { ...state }
+  if (!TOWN_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted') return s
+  const key = skill === 'compost' ? 'compostBackoffUntil' : 'buildBackoffUntil'
+  s[key] = status === 'success' ? 0 : now + (skill === 'compost' ? COMPOST_BACKOFF_MS : BUILD_BACKOFF_MS)
+  return s
+}
+
+// ---- the hand -------------------------------------------------------------------------------------------------------
+
+const TOOLISH = /(_(pickaxe|axe|shovel|hoe|sword)$|^(cobblestone|cobbled_deepslate|stone|dirt|stick|coal|torch|bone_meal)$)/
+const compostish = name => isCompostJunk(name) || isSapling(name) || /^(apple|.*_seeds|.*_leaves)$/.test(name ?? '')
+const same = (a, b) => !!a && !!b && a.name === b.name && (a.used ?? 0) === (b.used ?? 0)
+
+/**
+ * WHAT TO DO WITH THE HAND -> { action: 'none' | 'select' (index) | 'equip' (item) | 'leave' }. Pure.
+ *   was     { name, used } held when the order began, or null (empty hand)
+ *   held    { name, used } held now, or null
+ *   hotbar  9 entries { name, used } | null, index = quickbar slot
+ *   items   inventory items ({ name, durabilityUsed, slot }) for an equip from the main bag
+ *   mode    'restore' (end of the order) | 'harvest' (at a ripe composter: never a compostable in hand)
+ * Selecting a hotbar slot moves nothing; equip SWAPS (mineflayer moveSlotItem) and never tosses. There is no unequip:
+ * with a full bag mineflayer's unequip has nowhere to put the item and tosses it. An empty starting hand is restored
+ * by selecting an EMPTY hotbar slot -- never the old index, which may now hold the junk equip swapped into it.
+ */
+export function handPlan ({ was = null, held = null, hotbar = [], items = [], mode = 'restore' } = {}) {
+  const hb = Array.from({ length: 9 }, (_, i) => hotbar[i] ?? null)
+  const toWas = () => {
+    if (same(held, was)) return { action: 'none' }
+    let i = hb.findIndex(h => same(h, was)); if (i < 0) i = hb.findIndex(h => h?.name === was.name)
+    if (i >= 0) return { action: 'select', index: i }
+    const list = Array.isArray(items) ? items : []
+    const item = list.find(it => it?.name === was.name && (it.durabilityUsed ?? 0) === (was.used ?? 0) && !(it.slot >= 36)) ??
+                 list.find(it => it?.name === was.name && !(it.slot >= 36))
+    return item ? { action: 'equip', item } : null
+  }
+  if (mode === 'harvest') {
+    if (!held || !compostish(held.name)) return { action: 'none' }
+    if (was && !compostish(was.name)) { const r = toWas(); if (r) return r }
+    let i = hb.findIndex(h => !h); if (i >= 0) return { action: 'select', index: i }
+    i = hb.findIndex(h => h && TOOLISH.test(h.name)); if (i >= 0) return { action: 'select', index: i }
+    const item = (Array.isArray(items) ? items : []).find(it => it && TOOLISH.test(it.name) && !(it.slot >= 36))
+    return item ? { action: 'equip', item } : { action: 'leave' }
+  }
+  if (was) return toWas() ?? { action: 'leave' }
+  if (!held) return { action: 'none' }
+  const i = hb.findIndex(h => !h)
+  return i >= 0 ? { action: 'select', index: i } : { action: 'leave' }
+}
+
+// ---- the composter is never dug by a path ----------------------------------------------------------------------------
+
+/**
+ * Add the composter to a movement profile's blocksCantBreak (mineflayer-pathfinder already lists chest). Called on the
+ * BASE profile before any clone: index.mjs clones with Object.assign, which copies the Set by reference, so every
+ * dig-enabled profile (gather, ascent, descent, water, tunnel, collectblock's) refuses it. Returns the profile.
+ */
+export function protectTownBlocks (movements, registry) {
+  if (!movements) return movements
+  if (!(movements.blocksCantBreak instanceof Set)) movements.blocksCantBreak = new Set(movements.blocksCantBreak ?? [])
+  const id = registry?.blocksByName?.composter?.id
+  if (id != null) movements.blocksCantBreak.add(id)
+  return movements
 }
 
 /**

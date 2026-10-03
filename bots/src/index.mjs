@@ -5,6 +5,7 @@
 // without unrecoverable failure. That is what this file is for.
 
 import { tunnelMovements } from './oretunnel.mjs'
+import { protectTownBlocks } from './composter.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
@@ -300,7 +301,8 @@ function connect() {
     // holder's own multi-leg goto refuses itself. Merging it is a canary, not a cherry-pick.
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
-    const moves = new Movements(bot)
+    // THE TOWN COMPOSTER IS NEVER A PATH'S DIG (composter.mjs): added BEFORE any clone below, which share this Set.
+    const moves = protectTownBlocks(new Movements(bot), bot.registry)
     // canDig=false is deliberate and load-bearing. With digging enabled the
     // pathfinder treats excavation as a normal way to reach a goal, and the bot
     // steadily tunnels downward -- observed descending 68->65 while "walking"
