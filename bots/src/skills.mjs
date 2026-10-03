@@ -30,6 +30,8 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
+import { noteSought, SAPLINGS } from './pickuplog.mjs'
+import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS } from './logpickup.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1072,7 +1074,7 @@ const mustCollectManually = name =>
  * or the item lies on the ground and the inventory delta stays zero -- which is
  * indistinguishable from not having mined it.
  */
-export async function collectManually(bot, block, signal) {
+export async function collectManually(bot, block, signal, { deadline = Infinity } = {}) {
   const p = block.position
   const wanted = block.name
   // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
@@ -1126,7 +1128,8 @@ export async function collectManually(bot, block, signal) {
     pathSaid = 'resolved'
     const stance = reachGoal(goals, p) ?? new goals.GoalNear(p.x, p.y, p.z, 2)
     try {
-      await withTimeout(bot.pathfinder.goto(stance), 15000, bot)
+      // BOUNDED BY THE CALLER'S DEADLINE TOO, and cancelled on abort (Codex P2, second pass).
+      await abortable(withTimeout(bot.pathfinder.goto(stance), clampLeft(15000, deadline), bot), signal, () => haltPath(bot))
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
       pathSaid = e?.name && e.name !== 'Error' ? e.name : String(e?.message ?? e).slice(0, 60)
@@ -1178,7 +1181,8 @@ export async function collectManually(bot, block, signal) {
         let walked
         try {
           await bot.withGatherMovements(() =>
-            withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), APPROACH_WALK_MS, bot, { needsDrop: false }))
+            abortable(withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), clampLeft(APPROACH_WALK_MS, deadline), bot,
+              { needsDrop: false }), signal, () => haltPath(bot)))
           pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
         } catch (e) {
           if (e.aborted || signal?.aborted) {
@@ -1294,10 +1298,21 @@ export async function collectManually(bot, block, signal) {
   // Named `dig` so a dig that never finishes is not filed as a pathing failure,
   // and cleaned up with stopDigging() rather than the pathfinder default --
   // clearing a path goal does nothing for a stuck dig.
-  await withTimeout(bot.dig(block), 20_000, bot, {
-    what: 'dig',
-    onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
-  })
+  // A LOG'S PICKUP IS A TRANSACTION (logpickup.mjs): know which item entities were already lying here, and how
+  // many logs were held, BEFORE the dig -- so the drop of THIS dig can be named and only a bag gain counts.
+  const logDig = LOG_PICKUP.test(wasNamed ?? '')
+  const pre = logDig ? itemIdsNow(bot) : null
+  const heldBefore = logDig ? heldFromBlock(bot, wasNamed) : 0
+  // THE DIG IS BOUNDED BY WHAT IS LEFT OF THE CALLER'S DEADLINE, not an unconditional 20 s, and stopped on abort.
+  // LOOK FIRST, THEN DIG WITH 'ignore' (Codex, third pass): mineflayer's dig() awaits lookAt() BEFORE it installs
+  // the handler stopDigging() reaches, so an abort or deadline during that look stopped nothing and the dig began
+  // after this function had rejected. lookFirst checks the signal and the deadline after the look; nothing awaits
+  // between that check and the dig packet.
+  await lookThenDig(bot, block, signal, deadline, () =>
+    abortable(withTimeout(bot.dig(block, 'ignore'), Math.min(20_000, clampLeft(20_000, deadline)), bot, {
+      what: 'dig',
+      onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+    }), signal, () => { try { bot.stopDigging?.() } catch { /* not digging */ } }))
 
   // THE COMMENT ABOVE USED TO SAY dig() "resolves when the server confirms the
   // break". IT DOES NOT. digging.js contains zero ack handling -- it arms
@@ -1328,7 +1343,178 @@ export async function collectManually(bot, block, signal) {
                detail: `broke ${wasNamed} at ${p.x},${p.y},${p.z} with a ${tool.name} at ${remaining(tool)} use(s)` })
   }
 
+  // A LOG IS GATHERED WHEN IT IS IN THE BAG, NOT WHEN IT BREAKS. The sweep below walks GoalNear(drop, 1), whose
+  // acceptance set is empty for a drop resting on leaves or a trunk stub (27% of 1,866 left-behind log drops,
+  // 10-03), and retires each drop whether or not it was collected. Logs get the bounded pickup transaction
+  // instead; it finishes only on an inventory gain and says why when it does not. Everything else is unchanged.
+  if (logDig) {
+    const pickup = await pickupTransaction(bot, {
+      cell: p, logName: wasNamed, family: dropsOf(bot.registry, wasNamed), pre, heldBefore,
+      held: () => heldFromBlock(bot, wasNamed), signal, deadline,
+    }, pickupIO(bot, dropsOf(bot.registry, wasNamed)))
+    // SAPLINGS STILL COME HOME (Claude review #3): planting needs them, and the old sweep is what fetched them.
+    // Short and small -- 4 blocks, ~3 s, inside the deadline -- and never the log drops the transaction already
+    // judged, so an unreachable log is not re-chased with GoalNear(drop, 1). Its intake is logged.
+    const sweepMs = Math.min(SWEEP_MS, deadline - Date.now())
+    let sweep = null
+    if (sweepMs >= 500 && pickup.verdict !== 'inventory_full') {   // a full bag cannot take a sapling either
+      const t = Date.now(), pursued = []
+      // CREDIT ONLY WHAT THIS BOT COLLECTED OF WHAT IT PURSUED: playerCollect for that entity id, collector = us --
+      // the event pickuplog.mjs already reads (mineflayer emits it with the entity and its metadata still present).
+      const onCollect = (collector, collected) => {
+        try {
+          const me = bot.entity
+          if (!collector || !me || (collector !== me && collector.id !== me.id)) return
+          const rec = pursued.find(r => r.id === collected?.id)
+          if (rec) { rec.got += collected.getDroppedItem?.()?.count ?? 1; rec.outcome = 'collected' }
+        } catch { /* telemetry */ }
+      }
+      bot.on?.('playerCollect', onCollect)
+      try {
+        await pickupNearbyItems(bot, signal, SWEEP_RADIUS, {
+          exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs, pursued,
+          accept: e => sweepWants(e, { items: bot.inventory?.items?.() ?? [], emptySlots: bot.inventory?.emptySlotCount?.() }),
+        })
+      } finally {
+        bot.off?.('playerCollect', onCollect)
+        for (const r of pursued) if (r.outcome === 'walked') r.outcome = 'left'; else if (r.outcome === 'pending') r.outcome = 'aborted'
+        const sum = pred => pursued.filter(r => pred(r.name)).reduce((n, r) => n + r.got, 0)
+        sweep = { attempts: pursued.length, collected: pursued.filter(r => r.outcome === 'collected').length,
+                  saplings: sum(n => SAPLING_SET.has(n)), apples: sum(n => n === 'apple'),
+                  outcomes: pursued.map(r => r.outcome), ms: Date.now() - t }
+        logEvent({ kind: 'pickup_sweep', status: 'success',
+                   detail: `after ${wasNamed}: saplings +${sweep.saplings} apples +${sweep.apples} ` +
+                           `(${sweep.collected}/${sweep.attempts} attempts collected: ${sweep.outcomes.join(',') || 'none'}) ms=${sweep.ms}`,
+                   args: { block: wasNamed, ...sweep, outcomes: sweep.outcomes.join(',') } })
+      }
+    }
+    return { broke: true, pickup, sweep }
+  }
   await pickupNearbyItems(bot, signal)
+  return { broke: true, pickup: null }
+}
+
+/** Logs: the blocks whose pickup is a transaction. */
+const LOG_PICKUP = /_log$/
+/** The bounded sweep after a log's pickup transaction, for saplings and apples. */
+const SWEEP_RADIUS = 4
+const SWEEP_MS = 3000
+const SAPLING_SET = new Set(SAPLINGS)
+function keptDrops (bot) {
+  let saplings = 0, apples = 0
+  try {
+    for (const it of bot.inventory?.items?.() ?? []) {
+      if (SAPLING_SET.has(it.name)) saplings += it.count
+      else if (it.name === 'apple') apples += it.count
+    }
+  } catch { /* telemetry */ }
+  return { saplings, apples }
+}
+
+/**
+ * May this support be broken, from here, now? supportVeto (logpickup.mjs) FAILS CLOSED: no pathfinder
+ * safeToBreak, an unknown neighbour, a waterlogged block, a gravity block or dripstone beside it, lava, or a tool
+ * on its last swing all refuse. Note isSafeToBreak elsewhere fails OPEN when the checker is missing; not here.
+ */
+function supportVetoFor (bot, b) {
+  const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+  return supportVeto({
+    block: b,
+    at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)) ?? null,
+    safeToBreak: typeof m?.safeToBreak === 'function' ? q => m.safeToBreak(q) : null,
+    heldSpent: !!(bot.heldItem && remaining(bot.heldItem) <= HARD_STOP),
+    canDig: !!(bot.canDigBlock && bot.canDigBlock(b)),
+  })
+}
+
+/** How long a look may take before the dig goes ahead without it (a forced lookAt is one packet). */
+const LOOK_MS = 500
+
+/**
+ * Face the block (bounded and abortable), then -- in ONE synchronous step after the look's await returns -- re-check
+ * the abort and the deadline and START the dig. `startDig` must call bot.dig(block, 'ignore') synchronously, so no
+ * other look happens and no microtask can run between the check and the dig packet (Codex pass 4: an abort queued
+ * after an inner check but before the caller resumed let a dig begin after the skill had been aborted). A look that
+ * times out is not fatal -- the dig still targets the block -- but an abort, or a deadline that passed, is.
+ */
+async function lookThenDig (bot, block, signal, deadline, startDig) {
+  check(signal)
+  if (typeof bot.lookAt === 'function' && block?.position) {
+    try {
+      await abortable(withTimeout(Promise.resolve(bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true)),
+        clampLeft(LOOK_MS, deadline), bot, { what: 'look', needsDrop: false, onTimeout: () => {} }), signal, () => {})
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+  // --- synchronous from here to the dig call: no await ---
+  check(signal)
+  if (deadline - Date.now() < 250) {
+    throw Object.assign(new Error(`dig exceeded the deadline before it could start (${block?.name ?? '?'})`), { failClass: 'dig_budget' })
+  }
+  return startDig()
+}
+
+/** `ms`, but never past `deadline` (absolute); at least 1 so withTimeout still fires. */
+function clampLeft (ms, deadline) {
+  return Math.max(1, Math.min(ms, Number.isFinite(deadline) ? deadline - Date.now() : ms))
+}
+
+/** Race `work` against the skill's abort, and CANCEL the in-flight work when the abort wins. */
+function abortable (work, signal, cancel) {
+  if (!signal) return work
+  if (signal.aborted) {
+    Promise.resolve(work).catch(() => {})   // already settling under us: its rejection must not go unhandled
+    try { cancel() } catch { /* best effort */ }
+    return Promise.reject(new Aborted())
+  }
+  let onAbort
+  const gate = new Promise((_, rej) => {
+    onAbort = () => { try { cancel() } catch { /* best effort */ } rej(new Aborted()) }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  return Promise.race([work, gate]).finally(() => signal.removeEventListener('abort', onAbort))
+}
+
+/** The pickup transaction's I/O, bounded the same way as every other walk and dig in this file. */
+function pickupIO (bot, family = []) {
+  const familyIds = family.map(n => bot.registry?.itemsByName?.[n]?.id).filter(id => id != null)
+  return {
+    goals,
+    now: () => Date.now(),
+    sleep: (ms, signal) => sleep(Math.max(0, ms), signal),
+    // The REAL feet height on a node: over a bottom slab it is half a block under node.y (Codex P2).
+    standY: node => node.y - 1 + standHeight(bot.blockAt(new Vec3(node.x, node.y - 1, node.z), false)),
+    // THINK TIME CAPPED: a pickup is worth seconds, not a 5 s A* drain. Restored on every path out.
+    // AND NEVER BUILD WITH THE LOG BEING GATHERED (sandbox: a timed-out pickup walk towered on the gathered logs).
+    // The scaffold list is edited in place for the walk and restored on every path out.
+    walk: async (goal, ms, signal) => {
+      const pf = bot.pathfinder
+      const prev = pf.thinkTimeout
+      const sc = Array.isArray(pf.movements?.scafoldingBlocks) ? pf.movements.scafoldingBlocks : null
+      const saved = sc ? sc.slice() : null
+      pf.thinkTimeout = PICKUP_THINK_MS
+      if (sc) { const keep = scaffoldWithout(saved, familyIds); sc.length = 0; sc.push(...keep) }
+      try { await abortable(withTimeout(pf.goto(goal), ms, bot), signal, () => haltPath(bot)) } finally {
+        pf.thinkTimeout = prev
+        if (sc) { sc.length = 0; sc.push(...saved) }
+      }
+    },
+    // The hole is the point, not the drop: a leaf yields nothing a tool must harvest. Timeout sized by the caller
+    // from digTime, so a bare-handed log support (3 s grounded, 15 s in the air) is not killed half-way.
+    dig: async (b, ms, signal) => {
+      const until = Date.now() + ms
+      // same race as the harvest dig: look, then re-check and START the dig in one synchronous step
+      return lookThenDig(bot, b, signal, until, () =>
+        abortable(withTimeout(bot.dig(b, 'ignore'), clampLeft(ms, until), bot, {
+          what: 'dig', needsDrop: false,
+          onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+        }), signal, () => bot.stopDigging?.()))
+    },
+    digMs: b => (typeof bot.digTime === 'function' ? bot.digTime(b) : NaN),
+    veto: b => supportVetoFor(bot, b),
+    sought: id => noteSought(bot, id, 'pickup'),
+    log: row => logEvent({ kind: 'pickup_reach', status: row.outcome === 'collected' ? 'success' : 'failed',
+                           detail: row.detail, args: row.args }),
+  }
 }
 
 /** Walk over anything on the floor within a few blocks. */
@@ -1357,22 +1543,43 @@ export async function collectManually(bot, block, signal) {
  * The budget is unchanged. What changes is which drop the budget is spent on:
  * a drop that refuses is SKIPPED, not surrendered to.
  */
-export async function pickupNearbyItems(bot, signal, radius = 8) {
+export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = null, budgetMs = Infinity, accept = null, pursued = null } = {}) {
   // Ids that refused us this sweep. Per-sweep, deliberately: a drop unreachable
   // from here may be fine after the next dig moves the bot, and a persistent
   // blacklist of entity ids would outlive the entities.
   const refused = new Set()
+  const sweepEnd = Date.now() + budgetMs
   for (let i = 0; i < 4; i++) {
     check(signal)
+    if (sweepEnd - Date.now() < 250) return
     const drop = bot.nearestEntity?.(e =>
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
+      !exclude?.has(e.id) &&                                          // already judged by the log pickup
+      (!accept || accept(e)) &&                                       // the caller's filter (sweepWants after a log)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
+    // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
+    // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
+    const releaseSought = noteSought(bot, drop.id, 'pickup')
     const walkT0 = Date.now()
+    // WHAT THIS SWEEP PURSUED, for a caller that counts its own intake (pursued: an array it owns). Recorded BEFORE
+    // the walk, so a failed or aborted walk is still an attempt; the outcome is set on every exit below. Whether the
+    // sweep COLLECTED it is not decided here at all -- the caller credits it only from playerCollect for this id
+    // with this bot as the collector (Codex, final pass: disappearance + bag growth credited another player's take).
+    let rec = null
+    if (pursued) {
+      let name = null
+      try { name = drop.getDroppedItem?.()?.name ?? null } catch { /* unnamed */ }
+      rec = { id: drop.id, name, outcome: 'pending', got: 0 }
+      pursued.push(rec)
+    }
     try {
-      await withTimeout(bot.pathfinder.goto(
-        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
+      await abortable(withTimeout(bot.pathfinder.goto(
+        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), Math.max(1, Math.min(6000, sweepEnd - Date.now())), bot),
+      signal, () => haltPath(bot))
     } catch (e) {
+      releaseSought()
+      if (rec) rec.outcome = e.aborted || signal?.aborted ? 'aborted' : 'failed'
       if (e.aborted || signal?.aborted) throw e
       // The walk failed. That is a fact about THIS drop, so retire it and let
       // the next iteration pick the next-nearest -- the old code returned here
@@ -1394,7 +1601,8 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
                          `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
-    await sleep(250, signal)
+    if (rec) rec.outcome = 'walked'
+    try { await sleep(Math.max(0, Math.min(250, sweepEnd - Date.now())), signal) } catch (e) { if (rec) rec.outcome = 'aborted'; throw e } finally { releaseSought() }
     // ONE WALK PER DROP PER SWEEP, whatever happened.
     //
     // The first draft retired a drop only when the bot ended up >= 2 blocks
@@ -1430,6 +1638,7 @@ export function canopyDrop (at, pos, { maxDrop = 3, reach = 40 } = {}) {
 }
 
 async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, signal) {
+  const gatherT0 = Date.now()   // logpickup's collect deadline is what is left of gather's 180 s contract
   maxDistance = Math.min(Number(maxDistance) || 32, 48)   // callers cannot opt back into the blowup
   const { bot } = ctx
   const asked = blockName
@@ -1481,6 +1690,9 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   // on purpose: `viaCover` resets every round, and the question this answers is
   // about the whole run's failure class. See `barrenFailClass`.
   let coverRounds = 0
+  // WHAT THE PICKUP SAID (logpickup.mjs), run-scoped: a log that broke and never reached the bag is not a claim
+  // about a route, and a break no drop ever confirmed is not one either. See `barrenFailClass`.
+  let pickupFailed = 0, unconfirmed = 0, bagFull = false
   // The most recent reachability probe, so the failure can cite what A* said.
   let lastProbe = null
   // Verbatim collectblock failure messages, so a refusal it makes can be read
@@ -1899,7 +2111,12 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // and stays under the 45s stuck reflex so a genuinely wedged bot is still
       // rescued rather than sitting out its whole budget.
       if (mustCollectManually(target.name)) {
-        await collectManually(bot, target, signal)
+        // HARD DEADLINE: whatever is left of gather's contract, less time to report.
+        const got = await collectManually(bot, target, signal, { deadline: gatherT0 + SKILL_CONTRACTS.gather.maxMs - 5000 })
+        const v = got?.pickup?.verdict
+        if (v === 'pickup_failed') pickupFailed++
+        else if (v === 'break_unconfirmed') unconfirmed++
+        else if (v === 'inventory_full') bagFull = true
       } else {
         // ABANDONING A PROMISE DOES NOT STOP THE WORK BEHIND IT.
         //
@@ -1956,6 +2173,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       if (e.aborted) throw e
       // Remember WHY, so the failure below can tell the truth about itself.
       if (/exceeded|timeout/i.test(e.message ?? '')) timedOut++
+      if (e.failClass === 'dig_unconfirmed') unconfirmed++
       // AND SAY IT WHERE ANYONE CAN READ IT.
       //
       // This was a debug log and nothing else, so the ONE fact that explains the
@@ -2028,6 +2246,14 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
                  detail: `${blockName} via foliage cover: ${viaCover} candidate(s), ` +
                          `gained ${gained - collected} this round, run total ${gained}/${count}` })
     }
+    // A FULL BAG ENDS THE RUN AT THE FIRST LOG IT COULD NOT TAKE. Breaking more of them only leaves more on the
+    // ground. Neither class votes (cognitive.mjs), and the remedies can be done from here.
+    if (bagFull && gained === collected) {
+      const why = `no slot for ${blockName}: broke one and could not take it — deposit at a chest, or wear_out spent tools to free a slot`
+      return collected > 0
+        ? { status: 'success', detail: `collected ${collected}/${count} ${blockName}; ${why}` }
+        : { status: 'failed', failClass: 'inventory_full', detail: why }
+    }
     if (gained === collected) {
       barren++
       // A barren round means this target gave nothing even though nothing threw.
@@ -2058,10 +2284,16 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
           ? ` [probe: ${lastProbe.status}, slate ${lastProbe.checked}, ` +
             `${lastProbe.hit ? 'A* reached a candidate' : 'A* reached none'}]`
           : ''
-        const fc = barrenFailClass(timedOut, barren, coverRounds)
+        const fc = barrenFailClass(timedOut, barren, coverRounds, { pickupFailed, unconfirmed })
         const [failClass, why] = fc === 'collect_budget'
           ? ['collect_budget',
              `ran out of time reaching ${blockName} (${timedOut}/${barren} attempts timed out at ${COLLECT_MS / 1000}s)`]
+          : fc === 'pickup_failed'
+          ? [fc, `broke ${pickupFailed} ${blockName} and could not pick up the drop — it rests where no stance ` +
+                 `reaches it; try another tree (this is not a missing route)`]
+          : fc === 'break_unconfirmed'
+          ? [fc, `${unconfirmed} ${blockName} dig(s) were never confirmed by the server (no drop appeared) — ` +
+                 `try again or another tree`]
           : [fc, `${blockName} found but unreachable after ${barren} attempts${probeNote}${errNote}` +
                  (coverRounds > 0
                    ? ` [${coverRounds} round(s) were foliage-covered last resorts, so this is not evidence there is no route]`
@@ -5409,8 +5641,13 @@ export const COVER_EXEMPT_TARGET = /_log$/
  * mistake is teaching a durable lesson from a failure nobody could classify.
  * Refusing to teach costs a re-ask; teaching wrongly costs the tech tree.
  */
-export function barrenFailClass (timedOut, barren, coverRounds = 0) {
+export function barrenFailClass (timedOut, barren, coverRounds = 0, { pickupFailed = 0, unconfirmed = 0 } = {}) {
+  // BLOCKS BROKE, NOTHING ARRIVED: a pickup failure, never a route (logpickup.mjs). 291 of 949 failed log gathers
+  // in 3 h (10-03) were this, and as `no_path` each one taught an avoid rule against `gather oak_log`.
+  // Neither class below is in any EVIDENCE_* set.
+  if (pickupFailed > 0) return 'pickup_failed'
   if (timedOut >= barren) return 'collect_budget'
+  if (unconfirmed > 0) return 'break_unconfirmed'
   return coverRounds > 0 ? 'unreachable' : 'no_path'
 }
 
