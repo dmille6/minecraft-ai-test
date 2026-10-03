@@ -129,6 +129,18 @@ export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK, EVIDENCE_ONLY_IF_HER
  * `null` means "logged, charted, and given no vote" -- the default, and the
  * polarity the allowlist exists to keep.
  */
+/**
+ * THE OUTCOME LINE THE PROMPT RENDERS -> at most OUTCOME_CHARS characters: skill, status, verdict, the skill's detail,
+ * then the evidence. Pure, exported so a test can check what actually reaches the model: whatever a refusal needs the
+ * model to read (its remedy) must sit at the START of its detail, or the cut takes it.
+ */
+export const OUTCOME_CHARS = 220
+export function formatOutcome (skill, r = {}, outcome = null) {
+  const evidence = outcome?.because?.length ? ` [${outcome.because.join('; ')}]` : ''
+  const verdict = outcome?.value ? ` (${outcome.value})` : ''
+  return `${skill} -> ${r?.status}${verdict}: ${r?.detail ?? ''}${evidence}`.slice(0, OUTCOME_CHARS)
+}
+
 export function evidenceScope(failClass) {
   if (EVIDENCE_ABOUT_THE_ACTION.has(failClass)) return 'action'
   if (EVIDENCE_ONLY_IF_STUCK.has(failClass)) return 'situation'
@@ -1001,10 +1013,7 @@ export class CognitiveLoop {
       // harvest from a call that merely returned. `outcome` carries the evidence;
       // this is the string the prompt actually renders, so the evidence has to be
       // in here to reach the model at all.
-      const evidence = outcome?.because?.length ? ` [${outcome.because.join('; ')}]` : ''
-      const verdict = outcome?.value ? ` (${outcome.value})` : ''
-      this.lastOutcome =
-        `${admitted.skill} -> ${r.status}${verdict}: ${r.detail ?? ''}${evidence}`.slice(0, 220)
+      this.lastOutcome = formatOutcome(admitted.skill, r, outcome)
       this.memory.addEvent(this.lastOutcome)
     } else {
       // Flush on rejection too. save() used to live only in the executed-skill

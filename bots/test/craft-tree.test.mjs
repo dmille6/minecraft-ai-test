@@ -100,7 +100,8 @@ function makeCraftBot(inv = {}, { tableNearby = false } = {}) {
   return { bot, bag, placed }
 }
 
-const run = (bot, args) => SKILLS.craft.run({ bot }, args, { aborted: false })
+// The runner passes a real AbortSignal (runner.mjs controller.signal); craft's room and retake steps sleep on it.
+const run = (bot, args) => SKILLS.craft.run({ bot }, args, new AbortController().signal)
 
 // --- the case that was failing 16 times out of 16 -------------------------
 await t('logs + a nearby table -> a wooden pickaxe, walking the whole tree', async () => {

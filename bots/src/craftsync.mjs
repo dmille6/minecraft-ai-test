@@ -121,9 +121,24 @@ export function craftConfirmed ({ before, after, count, perCraft, authoritative 
 const emptySlot = (item) => !(item && item.itemCount > 0)
 
 /**
+ * ADMISSION (opt-in): ask the caller's `admit(items, { source })` about the bag craftsync just resynced -> null (go
+ * ahead) or the refusal { failClass, reason, detail }. Pure. `true` or { ok: true } admits; anything else refuses, and an
+ * admit that THROWS refuses too (fail closed: an unchecked craft is the one that can toss its result).
+ */
+export function admissionRefusal (admit, items, ctx = {}) {
+  let v
+  try { v = admit(items, ctx) } catch (e) { return { failClass: 'craft_room', reason: 'admit_threw', detail: String(e?.message ?? e).slice(0, 80) } }
+  if (v === true || v?.ok === true) return null
+  return { failClass: v?.failClass ?? 'craft_room', reason: v?.reason ?? 'refused_by_admit', detail: v?.detail ?? null }
+}
+
+/**
  * Wrap bot.craft so each craft runs in lockstep and is verified. Call at SPAWN, after mineflayer's plugins load.
  * opts: { log(row), now(), sleep(ms), ...CRAFT_SYNC overrides }. Returns the controller (also bot.craftSync).
- * bot.craft(recipe, count, table, { signal, deadline }): an aborted signal or a passed deadline stops the craft.
+ * bot.craft(recipe, count, table, { signal, deadline, admit }): an aborted signal or a passed deadline stops the craft.
+ * `admit` (optional) is asked AFTER the baseline window-0 resync and BEFORE the first click (admissionRefusal); a
+ * refusal throws CraftSyncError with its failClass/reason and sends no craft click. With `admit` and an UNANSWERED
+ * baseline the craft is refused unasked (craft_room / baseline_unanswered). Without `admit` nothing changes.
  */
 export function installCraftSync (bot, opts = {}) {
   if (bot.craftSync) return bot.craftSync
@@ -401,6 +416,24 @@ export function installCraftSync (bot, opts = {}) {
         st.refused = stopReason(st)
       } else {
         const before = await serverCount(st, () => !!stopReason(st))
+
+        // ADMISSION, on the bag AS THE SERVER HOLDS IT NOW (opt-in). A caller's room check made before bot.craft can be
+        // overtaken by a pickup that lands while the baseline resync is in flight: the result then has no slot and
+        // put-away throws it on the ground (Codex, real mineflayer + fake Paper). Asked here, after the resync answered
+        // and before any craft click, it can still say no.
+        // AN ADMISSION NEEDS A SERVER BAG (Codex review): with the baseline resync unanswered the local bag is the stale
+        // belief the race exploits, and judging it admitted a craft whose result was then thrown. No answer, no craft.
+        const refusal = (typeof options?.admit === 'function' && !stopReason(st))
+          ? (before.source === 'resync'
+              ? admissionRefusal(options.admit, bot.inventory?.items?.() ?? [], { source: before.source })
+              : { failClass: 'craft_room', reason: 'baseline_unanswered', detail: `the baseline resync was not answered (${before.source})` })
+          : null
+        if (refusal) {
+          st.outcome = 'refused'
+          st.refused = `admission: ${refusal.reason}`
+          throw new CraftSyncError(`craft refused before any click: ${refusal.reason}${refusal.detail ? ` (${refusal.detail})` : ''}`,
+            { failClass: refusal.failClass, produced: 0, requested: Number(count ?? 1) * Number(recipe?.result?.count ?? 1), reason: refusal.reason })
+        }
 
         // THE CRAFT, raced against cancellation so an abort while mineflayer awaits windowOpen returns now.
         // ... unless the baseline was itself cut short: a preemption or deadline there must not start the craft.
