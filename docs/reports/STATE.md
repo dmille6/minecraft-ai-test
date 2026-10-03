@@ -69,8 +69,13 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   pushed, NOT deployed): per-bot shortage sharing RESTORE_PICK's arithmetic; replay on 2,768 live snapshots: 62 -> 1,812
   firings, = RESTORE_PICK no_ingredients exactly. Also: the mayor test suite had been RED since ~08:35Z (wall-clock
   eviction vs fixture rows) so mutant kills were unscored. Both reviews CHANGE (tests + scorer biases + revision stamp);
-  builder on it. DEPLOY before ~02:00Z 10-04 (48 h GET_WOOD window before the 10-06 03:18Z decision); record deploy
-  time, sha, first snapshot id per world, GET_WOOD leases at deploy; never pool pre/post GET_WOOD.
+  **DEPLOYED 2026-10-03 18:02:46Z: shadow-mayor 784b71c, MAYOR_REV 2e82cfe81496** (matches the reviewer's independent
+  hash). Both engines: live assignment behaviour unchanged but for the stamp (Codex replayed 13 ticks old vs new);
+  Claude AGREE to deploy; Codex CHANGE items are all in the OFFLINE scorer (retroactive) -- builder fixing before the
+  10-06 read. First snapshot per world = <world>@2026-10-03T18:02:46Z (all 16). GET_WOOD leases at deploy: 0.
+  Pre-deploy records are `unstamped` (111dadc since 03:17:40Z). Backup ~/mcai-mayor.bak-111dadc. Unit limits intact
+  (Nice 10, MemoryMax 512M, CPUQuota 25%). GET_WOOD's 48 h window: 18:02Z 10-03 -> 18:02Z 10-05; never pool pre/post.
+  No cfg flag changes during the trial (composter flag off). Scorer runtime on 15 h live data: 4:54, 57 MB.
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
