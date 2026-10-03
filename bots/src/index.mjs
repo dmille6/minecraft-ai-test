@@ -35,6 +35,7 @@ import { attachPacketWitness } from './packet-witness.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
+import { installCraftSync } from './craftsync.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -254,6 +255,15 @@ function connect() {
   }
 
   bot.once('spawn', () => {
+    // CRAFTS IN LOCKSTEP (craftsync.mjs). Unpatched mineflayer lost 7/40 table crafts on the sandbox while
+    // reporting success: stale-stateId clicks fired as a burst, Paper's refresh landing behind them. Installed
+    // here, not at createBot: the plugins (bot.craft among them) are injected after login, and a wrapper put on
+    // earlier is overwritten without a word -- which is what happened in the sandbox experiment.
+    try {
+      installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
+    } catch (e) {
+      log('warn', 'craftsync not installed', { error: e.message })
+    }
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at

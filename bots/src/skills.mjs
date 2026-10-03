@@ -3169,7 +3169,8 @@ async function craft(ctx, { item, count = 1 }, signal, depth = 0) {
   }
 
   try {
-    await bot.craft(recipe, count, table ?? undefined)
+    // { signal }: craftsync.mjs stops its waits and refuses the next click on abort; mineflayer ignores it.
+    await bot.craft(recipe, count, table ?? undefined, { signal })
     return { status: 'success',
              detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   } catch (e) {
