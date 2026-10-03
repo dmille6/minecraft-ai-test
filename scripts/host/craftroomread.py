@@ -85,6 +85,8 @@ def refusal_kind(d):
     """One _craft_room row with status=refused -> its kind. Templates read from 21e270c (Claude review r2): one
     admission refusal writes TWO rows (admission + 'needs'), a pre-click refusal up to two make-room rows + one 'needs'
     row -- so 'no_room' and 'admission:*' are counted, 'remedy_failed' is reported but never summed in."""
+    if re.search(r'reason=table_out_of_reach', d):   # one row per event, no follow-on 'needs' row (Claude review r4)
+        return 'table_out_of_reach'
     if re.search(r'reason=pickup_pending', d):       # before 'admission': the admission-path copy ends '(seen at admission, ...)'
         return 'pickup_pending'
     if re.match(r'refused \S+ at admission:', d):
@@ -103,6 +105,7 @@ assert refusal_kind('could not check room for stick') == 'unreadable_recipe'
 assert refusal_kind('refused stone_pickaxe: reason=pickup_pending dirt 2.0 blocks away (35/36 slots)') == 'pickup_pending'
 assert refusal_kind("refused stone_pickaxe: reason=pickup_pending dirt 2.0 blocks away (35/36 slots) (seen at admission, after craftsync's resync)") == 'pickup_pending'
 assert refusal_kind('refused stone_pickaxe at admission: source=none verdict=baseline_unanswered (x)') == 'admission:baseline_unanswered'
+assert refusal_kind('refused stone_pickaxe: reason=table_out_of_reach the walk to collect dirt left the crafting_table at 1,64,0 out of reach; walk back to it') == 'table_out_of_reach'
 assert refusal_kind('stone_pickaxe: no spent tool that can be spared (35 -> 35/36 slots)') == 'remedy_failed'
 assert occupancy({'cobblestone': 65, 'stone_pickaxe': 2}) == 4
 
