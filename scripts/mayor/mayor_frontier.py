@@ -23,10 +23,10 @@ current Claude (sonnet-5 family, opus-5 family, fable) and GPT reasoning models 
 KEYS come only from ANTHROPIC_API_KEY / OPENAI_API_KEY. They are put in a request header and
 nowhere else: never logged, never written, never in an exception message.
 
-COST. A hard per-run budget: before every call the WORST case (prompt chars / 3 as tokens at the
-dearest input rate + the full max_tokens at the output rate) is reserved; a call that could take
-spent + reserve over --budget-usd is not made, the run stops, and the summary says budget_hit.
-An unpriced model refuses to run (fail closed) unless --price-in/--price-out are given.
+COST. See Ledger: each attempt reserves an ESTIMATE (bytes/2 + a fixed overhead, plus the full
+max_tokens); the hard stop is on ACTUAL billed usage (spent + next reservation > --budget-usd stops
+the run, summary budget_hit). An unpriced model refuses to run (fail closed) unless
+--price-in/--price-out are given.
 """
 import argparse
 import glob
@@ -82,20 +82,27 @@ class BudgetExceeded(Exception):
     pass
 
 
+SCHEMA_JSON = json.dumps(core.OUTPUT_SCHEMA)
+OVERHEAD_TOKENS = 1000      # per request, on top of the bytes we send: message framing, tool/format scaffolding
+
+
 class Ledger:
-    """Hard budget. EVERY ATTEMPT (retries included) first reserves its worst case: the prompt at
-    one token per 2 UTF-8 bytes (JSON runs ~3-4 bytes a token, so this over-counts ~1.5-2x) at the
-    input rate, plus the full max_tokens at the output rate. An attempt that could take spent +
-    reserve past the budget is not made. A TIMED-OUT or dropped attempt may still have been billed
-    and returns no usage, so it is charged its whole reservation; an HTTP error status is charged 0."""
+    """The budget. The per-attempt RESERVATION is an ESTIMATE, not a bound (tokenizers vary): the
+    request's bytes (system + prompt + output schema) at one token per 2 UTF-8 bytes -- JSON runs ~3-4
+    bytes a token, so ~1.5-2x over -- PLUS OVERHEAD_TOKENS, at the input rate, plus the full max_tokens
+    (thinking included) at the output rate. The HARD STOP is on what was ACTUALLY BILLED: `spent` is
+    the providers' reported usage, and before every attempt (retries included) the run stops if spent
+    + the next reservation would pass the budget. So the overshoot is at most one call's actual cost
+    beyond its own estimate. An attempt that timed out, dropped, or came back without usage (non-JSON
+    200) may still have been billed and is charged its whole reservation; an HTTP error status is 0."""
 
     def __init__(self, budget_usd, price_in, price_out):
         self.budget, self.pin, self.pout = budget_usd, price_in, price_out
         self.spent = self.reserved = 0.0
         self.calls = self.attempts = 0
 
-    def worst(self, prompt_bytes, max_tokens):
-        return (prompt_bytes / 2.0) * self.pin / 1e6 + max_tokens * self.pout / 1e6
+    def worst(self, request_bytes, max_tokens):
+        return (request_bytes / 2.0 + OVERHEAD_TOKENS) * self.pin / 1e6 + max_tokens * self.pout / 1e6
 
     def reserve(self, prompt_bytes, max_tokens):
         w = self.worst(prompt_bytes, max_tokens)
@@ -177,7 +184,7 @@ def _post(url, headers, body, timeout, opener):
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers, method='POST')
     try:
         with opener(req, timeout=timeout) as r:
-            return json.loads(r.read().decode())
+            raw = r.read()
     except urllib.error.HTTPError as e:
         try:
             raw = e.read(4096)
@@ -187,6 +194,13 @@ def _post(url, headers, body, timeout, opener):
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
         reason = getattr(e, 'reason', e)
         raise ProviderError(None, 'timeout' if isinstance(reason, TimeoutError) or 'timed out' in str(reason) else 'error') from None
+    try:
+        out = json.loads(raw.decode('utf-8', 'replace'))
+    except ValueError:
+        out = None
+    if not isinstance(out, dict):
+        raise ProviderError(200, 'non_json')           # billed or not, there is no usage: charged as reserved
+    return out
 
 
 def call_anthropic(model, prompt, key, args, opener=urllib.request.urlopen):
@@ -199,7 +213,9 @@ def call_anthropic(model, prompt, key, args, opener=urllib.request.urlopen):
     r = _post(ANTHROPIC_URL, {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
               body, args.timeout, opener)
     text = ''.join(b.get('text', '') for b in r.get('content') or [] if b.get('type') == 'text')
-    u = r.get('usage') or {}
+    u = r.get('usage')
+    if not isinstance(u, dict):
+        return text, None, None, r.get('stop_reason')
     tin = (u.get('input_tokens') or 0) + (u.get('cache_read_input_tokens') or 0) + (u.get('cache_creation_input_tokens') or 0)
     return text, tin, u.get('output_tokens') or 0, r.get('stop_reason')
 
@@ -215,7 +231,9 @@ def call_openai(model, prompt, key, args, opener=urllib.request.urlopen):
               body, args.timeout, opener)
     text = ''.join(c.get('text', '') for o in r.get('output') or [] if o.get('type') == 'message'
                    for c in o.get('content') or [] if c.get('type') == 'output_text')
-    u = r.get('usage') or {}
+    u = r.get('usage')
+    if not isinstance(u, dict):
+        return text, None, None, r.get('status')
     return text, u.get('input_tokens') or 0, u.get('output_tokens') or 0, r.get('status')
 
 
@@ -248,7 +266,7 @@ def ask(engine, model, snap, prompt, key, args, ledger, opener):
     else:
         fn = call_anthropic if engine == 'claude' else call_openai
         waits = [args.retry_base_s * k for k in (1, 4, 12)][:args.max_retries]
-        nbytes = len((SYSTEM + prompt).encode())
+        nbytes = len((SYSTEM + prompt + SCHEMA_JSON).encode())
         t0, cost = time.time(), 0.0
         for i in range(len(waits) + 1):
             worst = ledger.reserve(nbytes, args.max_tokens)       # every attempt, retries included
@@ -256,31 +274,39 @@ def ask(engine, model, snap, prompt, key, args, ledger, opener):
                 text, tin, tout, stop = fn(model, prompt, key, args, opener)
                 break
             except ProviderError as e:
-                if e.status is None:
-                    cost += ledger.charge(worst)                  # timed out / dropped: may have been billed
+                if e.status is None or e.status == 200:
+                    cost += ledger.charge(worst)                  # timed out / dropped / no usage: may have been billed
                 if i >= len(waits) or (e.status is not None and e.status not in RETRYABLE):
                     raise
                 time.sleep(waits[i])
         latency = round((time.time() - t0) * 1000)
-        cost += ledger.settle(tin, tout)
+        if tin is None:                                           # a 200 without usage: charge the estimate
+            ledger.calls += 1
+            cost += ledger.charge(worst)
+        else:
+            cost += ledger.settle(tin, tout)
     try:
-        parsed = json.loads(text)
-        parse_error = None
+        parsed = json.loads(text) if isinstance(text, str) else None
+        parse_error = None if parsed is not None else 'json: not text'
     except ValueError as e:
         parsed, parse_error = None, 'json: %s' % str(e)[:80]
+    # NORMALISE before anything consumes them: a model may put any type in any field
+    p = parsed if isinstance(parsed, dict) else {}
+    unmet = [u for u in p.get('unmet_needs') if isinstance(u, dict)] if isinstance(p.get('unmet_needs'), list) else []
+    abstain = p.get('abstain') if isinstance(p.get('abstain'), bool) else None
     v = core.validate(snap, parsed) if parsed is not None else {'valid': False, 'accepted': [], 'rejected': [],
                                                                   'errors': [parse_error]}
     if stop not in ('end_turn', 'completed', 'fake'):
         v['errors'] = v['errors'] + ['stop:%s' % stop]
         v['valid'] = False
     return {'valid': v['valid'], 'assignments': v['accepted'], 'rejected': v['rejected'], 'errors': v['errors'],
-            'unmet_needs': (parsed or {}).get('unmet_needs') if isinstance(parsed, dict) else None,
-            'abstain': (parsed or {}).get('abstain') if isinstance(parsed, dict) else None,
+            'unmet_needs': unmet, 'abstain': abstain,
             'usage': {'input_tokens': tin, 'output_tokens': tout}, 'cost_usd': round(cost, 6), 'latency_ms': latency,
             'stop': stop}
 
 
-def load_det(pattern):
+def load_det(pattern, wanted):
+    """The deterministic mayor's answers, for the chosen snapshots only (bounded)."""
     det = {}
     for p in sorted(glob.glob(pattern or '')):
         with open(p) as f:
@@ -289,14 +315,47 @@ def load_det(pattern):
                     r = json.loads(line)
                 except ValueError:
                     continue
-                if r.get('engine') == 'deterministic':
-                    det[r['snap_id']] = r['assignments']
+                if isinstance(r, dict) and r.get('engine') == 'deterministic' and r.get('snap_id') in wanted:
+                    det[r['snap_id']] = r.get('assignments') or []
     return det
 
 
-def select(snaps, n, worlds=None):
-    """A deterministic stride over all snapshots (time-ordered), so a rerun picks the same ones."""
-    pool = sorted((s for s in snaps if not worlds or s['world'] in worlds), key=lambda s: (s['t_ms'], s['world']))
+def index_snapshots(pattern, replay_only, worlds=None):
+    """One streaming pass: (t_ms, world, path, offset) of every usable snapshot, and counts. A line that
+    does not parse (a truncated last line) is skipped and counted. Live and replay are never mixed:
+    replay snapshots are used only with replay_only, and then only they are."""
+    idx, counts = [], {'live': 0, 'replay': 0, 'skipped_lines': 0}
+    for p in sorted(glob.glob(pattern)):
+        off = 0
+        with open(p, 'rb') as f:
+            for line in f:
+                here, off = off, off + len(line)
+                if not line.strip():
+                    continue
+                try:
+                    s = json.loads(line)
+                except ValueError:
+                    counts['skipped_lines'] += 1
+                    continue
+                if not isinstance(s, dict) or s.get('schema') != core.SCHEMA or not isinstance(s.get('t_ms'), int):
+                    counts['skipped_lines'] += 1
+                    continue
+                rep = bool(s.get('replay'))
+                counts['replay' if rep else 'live'] += 1
+                if rep == replay_only and (not worlds or s.get('world') in worlds):
+                    idx.append((s['t_ms'], s.get('world'), s.get('snap_id'), p, here))
+    return idx, counts
+
+
+def load_at(path, offset):
+    with open(path, 'rb') as f:
+        f.seek(offset)
+        return json.loads(f.readline())
+
+
+def select(idx, n):
+    """A deterministic stride over the time-ordered index, so a rerun picks the same snapshots."""
+    pool = sorted(idx)
     if n <= 0 or len(pool) <= n:
         return pool
     step = len(pool) / n
@@ -322,15 +381,15 @@ def run(args, opener=urllib.request.urlopen, env=None):
             print('REFUSING: no price for model %r (fail closed). Add it to PRICES or pass --price-in/--price-out.' % m,
                   file=sys.stderr)
             return 2
-    snaps = []
-    for p in sorted(glob.glob(args.snaps)):
-        with open(p) as f:
-            snaps += [json.loads(l) for l in f if l.strip()]
-    if not snaps:
-        print('no snapshots matched %s' % args.snaps, file=sys.stderr)
+    idx, counts = index_snapshots(args.snaps, args.replay_only, set(args.worlds.split(',')) if args.worlds else None)
+    if not idx:
+        print('REFUSING: no %s snapshots matched %s (%d live, %d replay, %d unreadable lines).%s' % (
+            'replay' if args.replay_only else 'live', args.snaps, counts['live'], counts['replay'], counts['skipped_lines'],
+            '' if args.replay_only else ' Replay snapshots are used only with --replay-only, never mixed with live.'),
+            file=sys.stderr)
         return 2
-    det = load_det(args.det)
-    chosen = select(snaps, args.max_snapshots, set(args.worlds.split(',')) if args.worlds else None)
+    picked = select(idx, args.max_snapshots)
+    det = load_det(args.det, {sid for _, _, sid, _, _ in picked})
     try:
         out_dir = mayor_io.safe_out_dir(args.out_dir, args.allow_out_root)
         mayor_io.make_dir(out_dir)
@@ -344,7 +403,9 @@ def run(args, opener=urllib.request.urlopen, env=None):
         if args.price_in is not None and args.price_out is not None:
             pin, pout = args.price_in, args.price_out
         ledger = Ledger(args.budget_usd, pin, pout)
-        summary = {'engine': e, 'model': model, 'dry_run': bool(args.dry_run), 'snapshots': len(chosen),
+        chosen = (load_at(p, off) for _, _, _, p, off in picked)       # streamed: one snapshot in memory at a time
+        summary = {'engine': e, 'model': model, 'dry_run': bool(args.dry_run), 'snapshots': len(picked),
+                   'replay': bool(args.replay_only), 'skipped_lines': counts['skipped_lines'],
                    'calls': 0, 'invalid': 0, 'errors': 0, 'reasks': 0, 'reask_agree': 0, 'budget_hit': False,
                    'budget_usd': args.budget_usd, 'temperature_sent': sampling_allowed(model) and not args.dry_run}
         try:
@@ -366,6 +427,7 @@ def run(args, opener=urllib.request.urlopen, env=None):
                     summary['calls'] += 1
                     summary['invalid'] += not res['valid']
                     rec = dict(res, schema=core.SCHEMA, engine=e, model=model, dry_run=bool(args.dry_run), mode=mode,
+                               replay=bool(snap.get('replay')),
                                snap_id=snap['snap_id'], world=snap['world'], t=snap['t'],
                                temperature_sent=summary['temperature_sent'],
                                reask_of=snap['snap_id'] if tag else None,
@@ -413,6 +475,7 @@ def parser():
     ap.add_argument('--retry-base-s', type=float, default=5, help='retry waits are base x 1, 4, 12')
     ap.add_argument('--timeout', type=int, default=180)
     ap.add_argument('--dry-run', action='store_true', help='fake model, no key, no network')
+    ap.add_argument('--replay-only', action='store_true', help='use ONLY replay snapshots (never mixed with live)')
     ap.add_argument('--fake-invalid-every', type=int, default=0)
     return ap
 

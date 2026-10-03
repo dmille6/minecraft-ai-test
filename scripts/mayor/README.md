@@ -19,8 +19,10 @@ nice -n 10 python3 scripts/mayor/mayor_shadow.py \
   --logs '/var/log/mcai/*/skill-*.jsonl' --facts-root /var/lib/mcai --out-dir /var/lib/mcai-mayor
 ```
 
-As a unit: `Nice=10`, `MemoryMax=512M`, `CPUQuota=25%`, `Restart=on-failure`, user `mcbot` (read access to
-`/var/log/mcai` and `/var/lib/mcai`, write access to `/var/lib/mcai-mayor` only).
+As a unit: `Nice=10`, `MemoryMax=512M`, `CPUQuota=25%`, `Restart=on-failure`, **`RestartPreventExitStatus=6`**
+(exit 6 is the output cap: restarting would only hit it again, so the unit stays down until someone archives the
+files), user `mcbot` (read access to `/var/log/mcai` and `/var/lib/mcai`, write access to `/var/lib/mcai-mayor`
+only). Exit 3 (RSS over `--max-rss-mb`) is meant to be restarted; exit 2 (refused out dir) is a config error.
 
 Dry run against a copied slice (no clock, no host): `--replay --replay-minutes 30 --logs '<slice>/*/skill-*.jsonl'
 --facts-root <slice-facts> --out-dir <tmp> --allow-out-root <tmp>`, or `--once --now-from-data`.
@@ -30,8 +32,9 @@ Dry run against a copied slice (no clock, no host): `--replay --replay-minutes 3
 (default `/var/lib/mcai-mayor`; add others with `--allow-out-root`, which never re-allows a bot tree). Every file
 is created `O_NOFOLLOW`. The scorer's `--json` and the frontier's `--out-dir` follow the same rule.
 
-**Freshness.** A bot is fresh only if a STATE-BEARING row (position + inventory) is within 5 min; a reflex row
-proves the process is alive, not where the bot is. Rows stamped more than 60 s in the future are rejected
+**Freshness.** A bot is fresh only if a STATE-BEARING row is within 5 min. A state row needs BOTH a valid
+position (numeric x, y, z) and an inventory object; a row with a position and no inventory never stands in for one
+with an empty bag (the scorer applies the same rule). A reflex row proves the process is alive, not where the bot is. Rows stamped more than 60 s in the future are rejected
 (`future_rows` in the tick log).
 
 **Leases** hold a PLACE (`target_key` = `kind@x,y,z`), re-resolved to each tick's R-id, so a new sighting cannot
@@ -49,10 +52,12 @@ released `conflict`, one over a cap `over_cap` (no cooldown); `failed`/`expired`
   `--max-rss-mb 400` exits 3 for the supervisor to restart; `--mem-limit-mb 768` sets `RLIMIT_AS` on Linux;
   `--nice 10`. Rotation: a new inode, a size below the offset, or a changed first-128-bytes fingerprint (a
   copytruncate that regrew past the offset between ticks) resets the offset to 0 and drops any partial line.
-  A file gone for `--evict-file-min` (30) is forgotten; a bot silent for `--evict-bot-h` (6) is dropped; the facts
+  A file gone for `--evict-file-min` (30) is forgotten; a bot silent for `--evict-bot-h` (6) is dropped; a world
+  with no snapshot for `--evict-world-h` (6) is dropped with its leases, cooldowns and bank evidence; the facts
   cache keeps only files used in the current tick.
 - **Output cap**: past `--max-out-mb` (1024) of mayor files the process writes nothing more and exits 6 with
-  "output cap reached ... Archive or remove the files, then restart." (no silent disk fill).
+  "output cap reached ... Archive or remove the files, then restart." (no silent disk fill). `--replay` obeys the
+  same cap.
 - Output growth: ~20 KB per world-snapshot (measured 330 KB for one 16-world tick), ~95 MB/day,
   ~285 MB over the 72 h window; assignment files are ~1/10 of that.
 
@@ -84,23 +89,39 @@ ANTHROPIC_API_KEY=... OPENAI_API_KEY=... python3 scripts/mayor/mayor_frontier.py
 
 The scorer prints positive controls before any rate (global, and per-bot coverage of the snapshot times) and exits
 4 on a zero its detector could not have seen. Its headline executability is **at the next snapshot**, with the
-validator's rejected proposals in the denominator; a bot whose state telemetry has a gap > 5 min is **unobserved**
-(excluded), not failed; the unforced gap needs eligibility at every snapshot through the window; GET_IRON
-shortages are `certainty: unknown-bank` (banked iron is unknown) and are reported apart (`unkb`), never in the gap;
-downstream success is compared with the **random-eligible baseline** (`xrand`).
+validator's rejected proposals in the denominator. **Silence is unknown, never a result:** a window in which the
+bot's state telemetry has a gap > 5 min is **unobserved** and leaves EVERY outcome denominator (concordance,
+downstream, unforced, base rate) whether or not the outcome was seen; a bot missing or stale at the next snapshot
+leaves the executability denominator; a per-bot shortage whose bot is not fresh at +30/+60 leaves persistence. The
+unforced gap needs eligibility at every snapshot through the window; downstream success is compared with the
+**random-eligible baseline** (`xrand`).
+
+**Bank certainty** (`withdraw_verified` in `mayor_core.DEFAULTS`, one switch per item, both `False` today). Rule
+(decision 2026-10-03): a held-stock shortage is `unknown-bank` only once withdraw is verified for that item, because
+until a bot can take an item back out, banked stock cannot relieve the shortage. So GET_WOOD is **definite**.
+GET_IRON stays `unknown-bank` by a separate conservative exception (`bank_unknown_conservative = ('iron',)`), so
+no iron gap is ever claimed from held iron alone; `unknown-bank` shortages are reported apart (`unkb`), never in the
+unforced gap. Flip `withdraw_verified['wood']` to `True` when withdraw of wood is proven on the fleet.
 
 **Replay** (`mayor_shadow.py --replay`) has no lookahead: a row is ingested only once it was WRITTEN (start +
 duration_ms), sightings whose `last` is after the snapshot time are dropped, and every snapshot is marked
 `replay: true`. The scorer refuses replay snapshots (exit 2) unless `--replay-only`, which scores them on their
 own, never mixed with live ones.
 
-The frontier client reserves the worst case before EVERY attempt (retries included; prompt at 1 token per 2 bytes
-+ full `max_tokens`), charges a timed-out attempt its whole reservation, enforces the full output schema (malformed
-answers are invalid, never an exception), and stores HTTP errors as `http_<status>:<sanitised type>` only.
+**Frontier budget, honestly.** Before every attempt (retries included) it reserves an ESTIMATE, not a bound:
+the request bytes (system + prompt + output schema) at 1 token per 2 bytes plus a fixed 1,000-token request
+overhead, at the input rate, plus the full `max_tokens` (thinking included) at the output rate. The HARD STOP is on
+ACTUAL billed tokens as the API reports them: the run stops when spent + the next reservation would pass
+`--budget-usd`, so it can overshoot by at most one call's actual cost beyond its estimate. An attempt that timed
+out, dropped, or returned a 200 without JSON/usage is charged its whole reservation. The client loads snapshots
+streaming with the scorer's replay rule (`--replay-only`, never mixed), skips an unreadable line (counted), counts
+a non-JSON 200 as invalid and carries on, normalises every field before using it, enforces the full output schema
+(malformed answers are invalid, never an exception), and stores HTTP errors as `http_<status>:<sanitised type>`
+only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (53 tests, ~6 s). `test_mutants.py` applies each of 45
+`python3 -m unittest discover -s scripts/mayor/tests -v` (66 tests, ~10 s). `test_mutants.py` applies each of 60
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
 red (an unmutated copy must be green; a missing or non-unique anchor raises). To see which tests kill which mutant:
 `python3 scripts/mayor/tests/test_mutants.py --report`.

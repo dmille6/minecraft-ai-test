@@ -189,6 +189,7 @@ class Shadow:
         except (OSError, ValueError):
             self.states = {}
         self.tails, self.bots, self.worlds_ev, self.cache, self.stats = {}, {}, {}, {}, {}
+        self.world_seen = {}                      # world -> last tick it had a snapshot (restart: grace from now)
 
     def tick(self, now_ms=None):
         a = self.args
@@ -223,7 +224,14 @@ class Shadow:
             now = max((b.last_ms for b in self.bots.values() if b.last_ms), default=wall)
         snaps, self.cache = snapshot_all(self.bots, self.worlds_ev, a.facts_root, now, self.cfg, self.cache, {'mode': 'live'})
         n_assign = emit(self.out, snaps, self.states, self.cfg)
-        self.states = {w: s for w, s in self.states.items() if w in snaps or s.get('leases')}
+        for w in snaps:
+            self.world_seen[w] = now
+        for w in set(self.states) | set(self.worlds_ev):
+            self.world_seen.setdefault(w, now)
+            if w not in snaps and now - self.world_seen[w] > a.evict_world_h * 3.6e6:
+                self.states.pop(w, None)          # absent for hours: its leases and cooldowns go with it
+                self.worlds_ev.pop(w, None)
+                self.world_seen.pop(w, None)
         mayor_io.write_atomic(self.state_path, json.dumps(self.states))
         tick = {'t': core.iso(now), 'files': len(self.tails), 'bytes': nbytes, 'rows': nrows, 'bad_lines': bad,
                 'future_rows': self.stats.get('future', 0), 'bots': len(self.bots), 'worlds': len(snaps),
@@ -317,6 +325,11 @@ def run_replay(args):
                 pass
             nxt = next(stream, None)
         if step >= start + args.warmup_s * 1000:
+            used = mayor_io.dir_bytes(args.out_dir)
+            if used > args.max_out_mb << 20:
+                print('STOPPED: output cap reached: %.1f MB of mayor files in %s > --max-out-mb %d. Archive or remove '
+                      'the files, then rerun.' % (used / 2 ** 20, args.out_dir, args.max_out_mb), file=sys.stderr)
+                return 6
             snaps, cache = snapshot_all(bots, worlds_ev, args.facts_root, step, cfg, cache, meta, replay=True)
             emit(args.out_dir, snaps, states, cfg)
             n_snap += len(snaps)
@@ -344,6 +357,7 @@ def parser():
     ap.add_argument('--max-out-mb', type=int, default=1024, help='stop (exit 6) when the mayor files exceed this')
     ap.add_argument('--evict-file-min', type=int, default=30, help='forget a vanished file after this')
     ap.add_argument('--evict-bot-h', type=float, default=6, help='forget a bot silent this long')
+    ap.add_argument('--evict-world-h', type=float, default=6, help='forget a world (and its leases) absent this long')
     ap.add_argument('--max-rss-mb', type=int, default=400, help='exit 3 above this (let systemd restart)')
     ap.add_argument('--mem-limit-mb', type=int, default=768, help='RLIMIT_AS on Linux (0 = none)')
     ap.add_argument('--nice', type=int, default=10)

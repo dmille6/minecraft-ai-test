@@ -244,14 +244,15 @@ class ScorerTimeline(unittest.TestCase):
     """GET_WOOD short all along. A gathers at +10 (concordant). B is eligible and never gathers
     (unforced) -- unless it is SILENT (unobserved) or trapped in between (not eligible through)."""
 
-    def make(self, d, b_rows=True, b_trapped_at=None, extra=None, iron=False):
+    def make(self, d, b_rows=True, b_trapped_at=None, extra=None, iron=False, a_gap=None, b_stale_at=None):
         log, log2 = log_at(110, 64, 100), log_at(112, 64, 100)
         ironres = log_at(120, 60, 100, kind='iron_ore')
         snaps = []
         for k in range(0, 65, 5):
             pick = checks.tools_pick('stone_pickaxe', 0, 131) if iron else {}
             a = make_bot(core, 'w-A', (100, 64, 100), BARE if k < 10 else dict(BARE, oak_log=1), pick)
-            b = make_bot(core, 'w-B', (105, 64, 100), BARE, pick, trapped_s=10 if b_trapped_at == k else None)
+            b = make_bot(core, 'w-B', (105, 64, 100), BARE, pick, trapped_s=10 if b_trapped_at == k else None,
+                         fresh=b_stale_at != k)
             s = at(snap_of(core, [a, b], [log, log2, ironres]), k * 60)
             snaps.append(s)
         with open(os.path.join(d, 'snap-w.jsonl'), 'w') as f:
@@ -275,7 +276,8 @@ class ScorerTimeline(unittest.TestCase):
                     'skill': {'name': 'gather', 'status': 'success', 'duration_ms': 0}}
         with open(os.path.join(d, 'logs', 'skill-w.jsonl'), 'w') as f:
             for k in range(0, 95, 2):
-                f.write(json.dumps(row('w-A', k, BARE if k < 10 else dict(BARE, oak_log=1), (109, 100))) + '\n')
+                if not (a_gap and a_gap[0] <= k <= a_gap[1]):
+                    f.write(json.dumps(row('w-A', k, BARE if k < 10 else dict(BARE, oak_log=1), (109, 100))) + '\n')
                 if b_rows or k == 0:
                     f.write(json.dumps(row('w-B', k, BARE, (105, 100))) + '\n')
         return snaps

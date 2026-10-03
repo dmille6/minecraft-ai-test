@@ -113,8 +113,8 @@ def load_telemetry(paths, bots, t_from, t_to, cfg, other_bots=()):
                     continue
                 rb = r.get('bot') or {}
                 name = rb.get('name')
-                if name not in bots or 'pos' not in rb:
-                    continue
+                if name not in bots or not core._valid_pos(rb.get('pos')) or not isinstance(rb.get('inventory'), dict):
+                    continue                  # a state row needs a position AND an inventory (no fabricated empty bag)
                 t = core.parse_ts(r.get('@timestamp'))
                 if t is None or t < t_from or t > t_to:
                     continue
@@ -191,6 +191,14 @@ def coverage(seq, times, gap):
 
 
 def need_holds(duty, bot_name, snap):
+    """Does the shortage still hold at `snap`? None = UNKNOWN: for a per-bot duty when that bot is not
+    fresh there; for a world duty when no bot is (shortages are computed from fresh bots only)."""
+    if duty in ('FREE_BAG', 'RESTORE_PICK'):
+        b = next((b for b in snap['bots'] if b['name'] == bot_name), None)
+        if b is None or not b['fresh']:
+            return None
+    elif not any(b['fresh'] for b in snap['bots']):
+        return None
     names = {b['id']: b['name'] for b in snap['bots']}
     return any(s['duty'] == duty and (s['scope'] == 'world' or names.get(s['bot']) == bot_name) for s in snap['shortages'])
 
@@ -260,13 +268,14 @@ def score_world(ws, records, rejected, tel, tel_end, cfg, interval_ms, res, gaps
             ok_now = core.evaluate(duty, bot, s, cfg)[0]
             m['exec_now'] += ok_now
             nxt = next((x for x in ws if interval_ms * 0.5 <= x['t_ms'] - t <= tol), None)
-            if nxt is not None:
-                nb = next((b for b in nxt['bots'] if b['name'] == bot['name']), None)
+            nb = None if nxt is None else next((b for b in nxt['bots'] if b['name'] == bot['name']), None)
+            if nb is not None and nb['fresh']:   # missing or stale at +5 is UNKNOWN, not inexecutable
                 m['exec_n'] += 1
-                m['exec'] += bool(nb) and core.evaluate(duty, nb, nxt, cfg)[0]
+                m['exec'] += core.evaluate(duty, nb, nxt, cfg)[0]
             p30, p60 = snap_at(ws, t + 30 * MIN, tol), snap_at(ws, t + 60 * MIN, tol)
             h30 = None if p30 is None else need_holds(duty, bot['name'], p30)
             h60 = None if p60 is None else need_holds(duty, bot['name'], p60)
+            h30 = None if h30 is None else bool(h30)
             if h30 is not None:
                 m['persist30_n'] += 1
                 m['persist30'] += h30
@@ -279,8 +288,8 @@ def score_world(ws, records, rejected, tel, tel_end, cfg, interval_ms, res, gaps
             seq = tel.get(bot['name'], [])
             seq30 = window(seq, t, t + 30 * MIN)
             done30 = outcome(duty, bot, seq30, cfg)
-            if not done30 and not observed(seq, t, t + 30 * MIN, gap):
-                m['unobserved'] += 1             # a silent bot is unobserved, not failed
+            if not observed(seq, t, t + 30 * MIN, gap):
+                m['unobserved'] += 1             # silence: out of EVERY outcome denominator, done or not
                 continue
             m['concord_n'] += 1
             m['concord'] += done30
@@ -316,9 +325,10 @@ def base_rates(ws, tel, tel_end, cfg, acc):
             if not b['fresh']:
                 continue
             for d in core.DUTIES:
-                if need_holds(d, b['name'], s):
+                seq = tel.get(b['name'], [])
+                if need_holds(d, b['name'], s) and observed(seq, s['t_ms'], s['t_ms'] + 30 * MIN, cfg['stale_s'] * 1000):
                     acc[d][1] += 1
-                    acc[d][0] += outcome(d, b, window(tel.get(b['name'], []), s['t_ms'], s['t_ms'] + 30 * MIN), cfg)
+                    acc[d][0] += outcome(d, b, window(seq, s['t_ms'], s['t_ms'] + 30 * MIN), cfg)
 
 
 def pct(k, n):
@@ -472,12 +482,11 @@ def main(argv=None):
             if m['censored']:
                 print('%-20s   (%d censored: telemetry ends before +30 min)' % ('', m['censored']))
     if args.json:
-        with open(os.path.join(jdir, os.path.basename(args.json)), 'w') as f:
-            json.dump({'controls': {'snapshots': n_snaps, 'rows': n_rows, 'detector_events': det,
+        mayor_io.write_atomic(os.path.join(jdir, os.path.basename(args.json)), json.dumps({'controls': {'snapshots': n_snaps, 'rows': n_rows, 'detector_events': det,
                                     'from': core.iso(t_lo), 'to': core.iso(t_hi), 'replay': args.replay_only,
                                     'coverage': {'bots': len(cov), 'bots_with_rows': with_rows, 'per_bot': cov}},
                        'base': {d: {'k': k, 'n': n} for d, (k, n) in base.items()}, 'world_days': wd, 'days': days,
-                       'invalid_responses': invalid, 'engines': res}, f, indent=1)
+                       'invalid_responses': invalid, 'engines': res}, indent=1))
     if uncontrolled:
         print('\nUNCONTROLLED ZERO (the detector saw no such outcome anywhere, so a 0 could be blindness): %s'
               % '; '.join(uncontrolled))

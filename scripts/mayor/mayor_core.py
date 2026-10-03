@@ -48,7 +48,15 @@ DEFAULTS = dict(
     composter=False,         # FREE_BAG via composting only once the composter ships (flag)
     resource_age_h=24, max_resources=60,
     near_target=16,          # scorer: "near the target"
+    # A shortage of an item is 'unknown-bank' (kept out of the scorer's unforced gap) only once WITHDRAW is
+    # verified for that item: until a bot can take it back out, banked stock cannot relieve the shortage, so
+    # held stock is the honest measure and the shortage is definite. One switch per item.
+    withdraw_verified={'iron': False, 'wood': False},
+    # DECISION 2026-10-03: iron stays unknown-bank anyway (conservative), so no iron gap is claimed from
+    # held iron alone. Remove 'iron' here to apply the rule above strictly.
+    bank_unknown_conservative=('iron',),
 )
+SHORTAGE_ITEM = {'GET_IRON': 'iron', 'GET_WOOD': 'wood'}
 
 TOOL_RE = re.compile(r'_(pickaxe|axe|shovel|hoe|sword)$')
 PICK_TIER = {'wooden_pickaxe': 0, 'golden_pickaxe': 0, 'stone_pickaxe': 1, 'copper_pickaxe': 1,
@@ -278,9 +286,11 @@ def ingest(row, bots, worlds, max_skills=6, now_ms=None, stats=None):
         end = t
     st.last_ms = end if st.last_ms is None else max(st.last_ms, end)
     st.version = (row.get('code') or {}).get('version') or st.version
-    if 'pos' in b and (st.full_ms is None or end >= st.full_ms):
+    # a STATE row needs BOTH a valid position and an inventory object: a row with a position and no
+    # inventory must not stand in for one with an empty bag
+    if _valid_pos(b.get('pos')) and isinstance(b.get('inventory'), dict) and (st.full_ms is None or end >= st.full_ms):
         st.full = {'pos': b.get('pos'), 'health': b.get('health'), 'hunger': b.get('hunger'),
-                   'held': b.get('held'), 'inventory': b.get('inventory') or {}, 'tools': b.get('tools'),
+                   'held': b.get('held'), 'inventory': b['inventory'], 'tools': b.get('tools'),
                    'dimension': (row.get('game') or {}).get('dimension') or 'overworld'}
         st.full_ms = end
     if sk.startswith(TRAP_PREFIXES) and status != 'success' and (st.trap_ms is None or t >= st.trap_ms):
@@ -433,10 +443,22 @@ def shortages(snap, cfg=DEFAULTS):
                     'why': 'held iron %d < %d (%d per live bot; banked iron UNKNOWN)' % (iron, target, cfg['iron_target_per_bot'])})
     for i, s in enumerate(out, 1):
         s['id'] = 'S%d' % i
-        # Banked iron is UNKNOWN (no chest ledger), so "held iron is short" is not a definite shortage:
-        # the scorer keeps it out of the unforced gap. Wood is defined from held wood by the plan itself.
-        s['certainty'] = 'unknown-bank' if s['duty'] == 'GET_IRON' else 'definite'
+        # 'unknown-bank' shortages stay out of the scorer's unforced gap: see withdraw_verified in DEFAULTS
+        s['certainty'] = certainty(s['duty'], cfg)
     return out
+
+
+def certainty(duty, cfg=DEFAULTS):
+    """'unknown-bank' once withdraw is verified for the item (or by the conservative exception), else 'definite'."""
+    item = SHORTAGE_ITEM.get(duty)
+    if item and ((cfg.get('withdraw_verified') or {}).get(item) or item in (cfg.get('bank_unknown_conservative') or ())):
+        return 'unknown-bank'
+    return 'definite'
+
+
+def _valid_pos(p):
+    return isinstance(p, dict) and all(isinstance(p.get(k), (int, float)) and not isinstance(p.get(k), bool)
+                                       for k in ('x', 'y', 'z'))
 
 
 def _blk(code, detail, remedy=None):
