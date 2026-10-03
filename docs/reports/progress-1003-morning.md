@@ -16,7 +16,8 @@ Pickaxes got slightly worse, as expected with no new fix live: the overnight wor
    crafts while reporting success, and over-crafted 7 times ("craft 4 sticks" made 16, "8 planks" used all 5 logs).
    Cause: the bot library fires inventory clicks without waiting for the server. **Fix built (craftsync): 38 of 38
    crafts made, 0 lost, exact counts**, about 1–2 seconds slower per craft. This is probably the single biggest
-   pickaxe fix available.
+   pickaxe fix available. A second and third sandbox round (after review fixes) passed **27 of 27** more crafts,
+   including pickaxes from only logs, mixed oak/birch wood, and an honest "need 1 more log" with nothing wasted.
 2. **Bots chop logs and then fail to pick them up.** 1,866 logs left on the ground in 3 hours vs 2,584 collected, and
    each miss taught the bot "avoid wood". **Fix built (logpickup): collected every log in every sandbox scene, 3–4x
    faster per log**, and a full bag no longer teaches "avoid wood".
@@ -47,4 +48,7 @@ Pickaxes got slightly worse, as expected with no new fix live: the overnight wor
 
 ## Next (automatic unless you change the order)
 - ~5:20 pm: ore tunnel decision; explore-toward starts on its own.
-- craftsync finishes its last planner fixes and a sandbox recheck this morning; then everything above is ready to queue.
+- craftsync is DONE (both engines reviewed it; Codex's last point is a rare plank-mix edge case that fails safe, accepted
+  and documented). Everything in the recommended order is built and reviewed; each needs only its test settings
+  written and its slot on the fleet. One trade-off to watch: bots often ask to craft tools they already hold; with
+  crafting fixed, those now succeed and use materials. A "you already have a usable one" check is a candidate follow-up.
