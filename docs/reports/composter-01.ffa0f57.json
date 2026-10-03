@@ -37,7 +37,7 @@
     "read": "composterread",
     "field": "exposure_ready",
     "min": 1,
-    "note": "Ready = >= 3 canary compost visits AND >= 1 control bot at >= 34 slots holding junk (57 in the dry run 10-04 00:10Z). A composter must be built first in each canary town, so exposure may take hours."
+    "note": "Ready = >= 3 REAL compost visits (status success/failed with n > 0 or bone meal > 0; skips excluded) AND >= 1 control bot at >= 34 slots holding junk."
   },
   "own_lines": [
     {
@@ -65,16 +65,16 @@
       "value": 0,
       "on_fail": "REVERT",
       "evidence": "defect",
-      "note": "C3: more than one composter built in a canary town."
+      "note": "C3: more than one DISTINCT composter cell in a canary town (a same-cell rebuild is reported, not gated)."
     },
     {
       "read": "composterread",
-      "field": "breach_built_without_room",
+      "field": "chain_lost_over_1",
       "op": "<=",
       "value": 0,
       "on_fail": "REVERT",
       "evidence": "defect",
-      "note": "C4: a build row with free < need."
+      "note": "C4: more than ONE composter-chain craft (planks/slabs/table/composter) the server saw lost. The row's free=/need= are not comparable (free after, need before; Claude review 10-04)."
     },
     {
       "read": "composterread",
@@ -121,7 +121,13 @@
   "teardown": {
     "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. A built composter STAYS in the world (bots built it; not an admin edit)."
   },
-  "amendments": [],
+  "amendments": [
+    {
+      "at": "2026-10-04T00:20:00Z",
+      "by": "operator, before launch",
+      "what": "Claude review of the read: C4 replaced (free/need not comparable); visits exclude skips; propagules are not saplings; C3 counts distinct cells."
+    }
+  ],
   "extension": {
     "until_exposure": true,
     "extra_reads": [
