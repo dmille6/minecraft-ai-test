@@ -60,6 +60,12 @@ def skill(r):
     return (r.get('raw') or {}).get('skill') or {}
 
 
+def clicked(a):
+    """A craft that sent clicks: excludes craftsync's refused (admission, canary only) and busy rows, which would
+    dilute the canary's lost rate and its DiD (Claude review r3)."""
+    return int(a.get('clicks') or 0) > 0
+
+
 def lost_on_server(a):
     produced = a.get('produced')
     return (a.get('outcome') == 'unconfirmed' and str(a.get('confirmed')) == 'no' and a.get('verify_source') == 'resync'
@@ -70,6 +76,7 @@ def lost_on_server(a):
 assert lost_on_server({'outcome': 'unconfirmed', 'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 9})
 assert not lost_on_server({'outcome': 'unconfirmed', 'confirmed': 'yes', 'verify_source': 'resync', 'produced': 1, 'clicks': 9})
 assert not lost_on_server({'outcome': 'refused', 'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 0})
+assert not clicked({'outcome': 'refused', 'clicks': 0}) and not clicked({'outcome': 'busy'}) and clicked({'clicks': 3})
 for o in ('aborted', 'deadline', 'error'):      # craftsync writes the same fields on these; they are not a lost craft
     assert not lost_on_server({'outcome': o, 'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 9})
 
@@ -78,7 +85,9 @@ def refusal_kind(d):
     """One _craft_room row with status=refused -> its kind. Templates read from 21e270c (Claude review r2): one
     admission refusal writes TWO rows (admission + 'needs'), a pre-click refusal up to two make-room rows + one 'needs'
     row -- so 'no_room' and 'admission:*' are counted, 'remedy_failed' is reported but never summed in."""
-    if 'at admission' in d:
+    if re.search(r'reason=pickup_pending', d):       # before 'admission': the admission-path copy ends '(seen at admission, ...)'
+        return 'pickup_pending'
+    if re.match(r'refused \S+ at admission:', d):
         m = re.search(r'verdict=(\w+)', d)
         return 'admission:' + (m.group(1) if m else '?')
     if re.match(r'refused \S+: needs \d+ more slot', d):
@@ -91,6 +100,9 @@ def refusal_kind(d):
 assert refusal_kind('refused stone_pickaxe: needs 1 more slot(s) at 35/36; x') == 'no_room'
 assert refusal_kind('refused stone_pickaxe at admission: source=none verdict=no_room_after_resync (x)') == 'admission:no_room_after_resync'
 assert refusal_kind('could not check room for stick') == 'unreadable_recipe'
+assert refusal_kind('refused stone_pickaxe: reason=pickup_pending dirt 2.0 blocks away (35/36 slots)') == 'pickup_pending'
+assert refusal_kind("refused stone_pickaxe: reason=pickup_pending dirt 2.0 blocks away (35/36 slots) (seen at admission, after craftsync's resync)") == 'pickup_pending'
+assert refusal_kind('refused stone_pickaxe at admission: source=none verdict=baseline_unanswered (x)') == 'admission:baseline_unanswered'
 assert refusal_kind('stone_pickaxe: no spent tool that can be spared (35 -> 35/36 slots)') == 'remedy_failed'
 assert occupancy({'cobblestone': 65, 'stone_pickaxe': 2}) == 4
 
@@ -127,7 +139,7 @@ for r in ev.rows:
             retake[st] += 1
     if k == '_craft_sync' and not other:
         a = skill(r).get('args') or {}
-        if str(a.get('item') or '').endswith('_pickaxe'):
+        if str(a.get('item') or '').endswith('_pickaxe') and clicked(a):
             picks[period][arm] += 1
             gone = lost_on_server(a)
             lost[period][arm] += int(gone)
@@ -154,8 +166,10 @@ def usable(arm):
     return g, n
 
 
-execs = room['canary']['success'] + room['canary']['unverified'] + room['canary']['verified_local']
-unans = verdicts['unanswered']
+# A baseline Paper never answered is now a refusal BEFORE any click, not an unanswered execution: count both, or the
+# 5% gate cannot see a server that stopped answering resyncs (Claude review r3).
+execs = room['canary']['success'] + room['canary']['unverified'] + room['canary']['verified_local'] + verdicts['baseline_unanswered']
+unans = verdicts['unanswered'] + verdicts['baseline_unanswered']
 share = unans / execs if execs else float('nan')
 judged = pick_sync['canary'] >= 10
 did = (rate('post', 'canary') - rate('pre', 'canary')) - (rate('post', 'control') - rate('pre', 'control'))
@@ -170,6 +184,7 @@ print('INSTRUMENT   control: %d of %d (positive control, >= 1) | at >= 35 est. s
       % (lost_any['control'], pick_sync['control'], lost_full['control']))
 print('TRIPWIRE     verdict=unanswered %d of %d executions = %.1f%% (> 5%% blocks KEEP) | verified_local %d (must be 0)'
       % (unans, execs, 100 * share if execs else float('nan'), room['canary']['verified_local']))
+print('             of which after the clicks %d, baseline before any click %d' % (verdicts['unanswered'], verdicts['baseline_unanswered']))
 print('REPORTED     lost-pickaxe rate canary %.3f -> %.3f | control %.3f -> %.3f | DiD %+.3f'
       % (rate('pre', 'canary'), rate('post', 'canary'), rate('pre', 'control'), rate('post', 'control'), did))
 print('             refusals %s | table_retaken %s | pickaxe>10 uses: canary %d/%d control %d/%d'
