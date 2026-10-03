@@ -211,7 +211,18 @@ const packetSlot = it => {
  * window on CraftItemEvent with the result still on the cursor, before the put-away click -- a mid-click state.
  * A set_slot for the crafting result cell (slot 0) is about the grid, never the bag, and says nothing.
  */
-export function packetSays (pkt, { resultId, expect = {}, craftWindow = null } = {}) {
+export function packetSays (pkt, ctx = {}) {
+  const per = packetSlots(pkt, ctx)
+  if (!per) return null
+  const v = Object.values(per)
+  return v.includes('denies') ? 'denies' : 'shows'
+}
+
+/**
+ * The same reading PER SLOT -> { [bagSlot]: 'shows' | 'denies' } for every expected slot the packet states, or null
+ * when it says nothing. A set_slot states one slot; a final-state window_items states every expected slot.
+ */
+export function packetSlots (pkt, { resultId, expect = {}, craftWindow = null } = {}) {
   if (!pkt) return null
   const off = pkt.windowId === 0 ? 0 : (craftWindow == null || pkt.windowId === craftWindow ? 1 : null)
   if (off == null) return null
@@ -221,19 +232,19 @@ export function packetSays (pkt, { resultId, expect = {}, craftWindow = null } =
   if (pkt.kind === 'set_slot') {
     const bag = pkt.slot - off
     if (!Object.hasOwn(expect, bag)) return null
-    return holds(pkt.item, expect[bag]) ? 'shows' : 'denies'
+    return { [bag]: holds(pkt.item, expect[bag]) ? 'shows' : 'denies' }
   }
   if (pkt.kind === 'window_items') {
     if (packetSlot(pkt.carriedItem).count > 0) return null
     const gridEnd = pkt.windowId === 0 ? 4 : 9
     for (let i = 1; i <= gridEnd; i++) if (packetSlot(pkt.items?.[i]).count > 0) return null
-    let all = true
+    const out = {}
     for (const b of bags) {
       const it = pkt.items?.[b + off]
       if (it === undefined) return null          // a malformed or truncated window says nothing
-      if (!holds(it, expect[b])) all = false
+      out[b] = holds(it, expect[b]) ? 'shows' : 'denies'
     }
-    return all ? 'shows' : 'denies'
+    return out
   }
   return null
 }
@@ -241,18 +252,27 @@ export function packetSays (pkt, { resultId, expect = {}, craftWindow = null } =
 /**
  * SERVER VERDICT on one craft execution -> 'wait' | 'server' | 'denied' | 'none'. Pure.
  *   seen   packets in arrival order, each with `seq` (arrival order, shared with the clicks) and `t` (ms)
- *   ctx    packetSays' context plus `afterSeq`: the sequence number of the FINAL put-away click
- * Only packets after the final click count (an opening snapshot cannot be an answer to it). The verdict is the LAST
- * packet that says something, once the stream has been quiet for quietMs since the last packet of ANY kind -- the
- * quiet restarts on every packet, so a rejection inside a burst is read, not raced. Nothing said by the deadline is
- * 'none': the caller falls back to the local count.
+ *   ctx    packetSlots' context plus `afterSeq`: the sequence number of the FINAL put-away click
+ * Only packets after the final click count (an opening snapshot cannot be an answer to it). Evidence is kept PER
+ * EXPECTED SLOT, the latest statement for each (review round 4: a denial on one slot is not erased by a confirmation
+ * on another). Nothing is decided until the stream has been quiet for quietMs since the last packet of ANY kind --
+ * the quiet restarts on every packet, so a rejection inside a burst is read, not raced. Then:
+ *   any slot's latest statement denies            -> 'denied'
+ *   every expected slot's latest statement shows  -> 'server'
+ * THE DEADLINE NEVER BYPASSES THE QUIET (review round 4): reached with the burst unsettled, or without every slot
+ * stated, it is 'none' and the caller's local count decides.
  */
 export function serverVerdict (seen = [], ctx = {}, now = 0, startedAt = 0, { quietMs = 250, deadlineMs = 2500 } = {}) {
   const rel = seen.filter(p => p.seq > (ctx.afterSeq ?? -1))
-  const said = rel.map(p => packetSays(p, ctx)).filter(Boolean)
+  const latest = {}
+  for (const p of rel) Object.assign(latest, packetSlots(p, ctx) ?? {})
   const last = rel.length ? rel[rel.length - 1].t : startedAt
-  const due = now - startedAt >= deadlineMs
-  if (said.length && (now - last >= quietMs || due)) return said[said.length - 1] === 'shows' ? 'server' : 'denied'
-  if (due) return 'none'
+  if (now - last >= quietMs) {
+    const states = Object.values(latest)
+    if (states.includes('denies')) return 'denied'
+    const want = Object.keys(ctx.expect ?? {})
+    if (want.length && want.every(b => latest[b] === 'shows')) return 'server'
+  }
+  if (now - startedAt >= deadlineMs) return 'none'
   return 'wait'
 }

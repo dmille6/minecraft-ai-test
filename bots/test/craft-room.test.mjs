@@ -158,6 +158,25 @@ await t('serverVerdict: only packets after the final click; the LAST statement a
   assert.equal(serverVerdict([set(6, 10, 1), set(7, 20, 0)], ctx, 60, 0, o), 'denied', 'the last statement wins')
 })
 
+await t('serverVerdict: the DEADLINE DOES NOT BYPASS QUIET -- a "shows" inside a burst still running at the deadline is none', () => {
+  const R = 882; const ctx = { resultId: R, expect: { 20: 1 }, craftWindow: null, afterSeq: 0 }
+  const o = { quietMs: 30, deadlineMs: 300 }
+  const shows = { seq: 1, t: 290, kind: 'set_slot', windowId: 0, slot: 20, item: { itemId: R, itemCount: 1 } }
+  assert.equal(serverVerdict([shows], ctx, 300, 0, o), 'none', 'confirmed with the burst unsettled')
+  assert.equal(serverVerdict([shows], ctx, 320, 0, o), 'server', 'quiet after the deadline still confirms (the loop has stopped by then)')
+})
+
+await t('serverVerdict: PER-SLOT EVIDENCE -- every expected slot must show its count; a denial on one is not erased by another', () => {
+  const R = 882; const ctx = { resultId: R, expect: { 20: 64, 21: 3 }, craftWindow: null, afterSeq: 0 }
+  const o = { quietMs: 30, deadlineMs: 300 }
+  const set = (seq, t, slot, n) => ({ seq, t, kind: 'set_slot', windowId: 0, slot, item: n ? { itemId: R, itemCount: n } : { itemCount: 0 } })
+  assert.equal(serverVerdict([set(1, 10, 21, 0), set(2, 15, 20, 64)], ctx, 100, 0, o), 'denied', 'deny 21 then show 20')
+  assert.equal(serverVerdict([set(1, 10, 20, 64)], ctx, 100, 0, o), 'wait', 'slot 21 has not been stated')
+  assert.equal(serverVerdict([set(1, 10, 20, 64)], ctx, 300, 0, o), 'none')
+  assert.equal(serverVerdict([set(1, 10, 20, 64), set(2, 12, 21, 3)], ctx, 100, 0, o), 'server')
+  assert.equal(serverVerdict([set(1, 10, 21, 0), set(2, 12, 21, 3), set(3, 14, 20, 64)], ctx, 100, 0, o), 'server', 'the LATEST statement per slot')
+})
+
 await t('wearKeepsSlot: an axe on stone drops nothing; a pickaxe on stone needs a non-full cobblestone stack', () => {
   const drops = ['cobblestone']
   assert.equal(wearKeepsSlot(bagOf(36, []), 'stone_axe', 'stone', drops), true)
@@ -752,6 +771,13 @@ await t('the refusal ADVICE names only dirt/stone-family blocks, never a hazardo
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'inventory_full', r.detail)
   assert.doesNotMatch(r.detail, /placing your \d+ (sand|gravel|magma_block)/)
+})
+
+await t('a "shows" inside a burst still running at the deadline is NOT server-confirmed: the local count decides', async () => {
+  const noise = []; for (let ms = 20; ms <= 420; ms += 20) noise.push(ms)
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], confirmMs: 280, noise })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(r.verification, 'verified_local', 'the deadline bypassed the quiet period')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
