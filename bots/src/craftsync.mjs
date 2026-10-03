@@ -386,9 +386,12 @@ export function installCraftSync (bot, opts = {}) {
         const before = await serverCount(st, () => !!stopReason(st))
 
         // THE CRAFT, raced against cancellation so an abort while mineflayer awaits windowOpen returns now.
+        // ... unless the baseline was itself cut short: a preemption or deadline there must not start the craft.
         let settled = false, runError = null
-        const run = (async () => origCraft.call(bot, recipe, count, craftingTable))()
-        run.then(v => { settled = true; result = v }, e => { settled = true; runError = e })
+        const startWhy = stopReason(st)
+        if (startWhy) { st.refused = startWhy; settled = true }
+        const run = startWhy ? null : (async () => origCraft.call(bot, recipe, count, craftingTable))()
+        run?.then(v => { settled = true; result = v }, e => { settled = true; runError = e })
         while (!settled && !stopReason(st)) await sleep(cfg.pollMs)
         if (!settled) {                                // give a craft that is mid-click its one poll to unwind
           const graceEnd = now() + cfg.quietMs

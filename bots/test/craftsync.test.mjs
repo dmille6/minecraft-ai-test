@@ -231,13 +231,14 @@ await t('abort mid-craft: stops within one click, closes the window, restores ev
 
 // ------------------------------------------------------------------ 6. cancellation while mineflayer awaits windowOpen
 await t('abort while awaiting windowOpen returns promptly; only the fuse stays until the late window is refused', async () => {
+  // 400 ms: after the baseline count (~200 ms here), so mineflayer has asked for the table and is waiting on it
   const ac = new AbortController()
-  setTimeout(() => ac.abort(), 150)
+  setTimeout(() => ac.abort(), 400)
   let mid = null
   const r = await trial({
     openDelayMs: 900, options: { signal: ac.signal },
     during: async ({ bot, orig }) => {
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await new Promise(resolve => setTimeout(resolve, 650))       // after the abort (400), before the table opens (~1100)
       mid = { fuse: bot.clickWindow !== orig.clickWindow, write: bot._client.write === orig.write, putAway: bot.putAway === orig.putAway,
               busy: bot.craftSync.busy() }
       let busyErr = null
@@ -248,7 +249,8 @@ await t('abort while awaiting windowOpen returns promptly; only the fuse stays u
     },
   })
   assert.ok(r.error?.aborted, `got ${r.error?.message}`)
-  assert.ok(r.ms < 150 + CS.CRAFT_SYNC.quietMs + 150, `took ${r.ms} ms to honour an abort at 150 ms`)
+  assert.ok(r.writes.some(w => w.name === 'window_click' && w.params.windowId === 0 && w.params.stateId === -1), 'the baseline did not finish before the abort')
+  assert.ok(r.ms < 400 + CS.CRAFT_SYNC.quietMs + 150, `took ${r.ms} ms to honour an abort at 400 ms`)
   assert.ok(mid.write && mid.putAway, 'wrappers other than the fuse must be gone at once')
   assert.ok(mid.fuse && mid.busy, 'the abandoned craft must be fused and count as busy')
   assert.equal(mid.busyErr, 'craft_busy')
@@ -258,9 +260,9 @@ await t('abort while awaiting windowOpen returns promptly; only the fuse stays u
 })
 
 await t('disconnect while awaiting windowOpen: aborted, promptly', async () => {
-  const r = await trial({ openDelayMs: Infinity, during: async ({ bot }) => { await new Promise(resolve => setTimeout(resolve, 150)); bot.emit('end') } })
+  const r = await trial({ openDelayMs: Infinity, during: async ({ bot }) => { await new Promise(resolve => setTimeout(resolve, 400)); bot.emit('end') } })
   assert.ok(r.error?.aborted && /disconnected/.test(r.error.message), `got ${r.error?.message}`)
-  assert.ok(r.ms < 150 + CS.CRAFT_SYNC.quietMs + 150, `took ${r.ms} ms`)
+  assert.ok(r.ms < 400 + CS.CRAFT_SYNC.quietMs + 150, `took ${r.ms} ms`)
 })
 
 // ------------------------------------------------------------------ 5. other inventory actions preempt
@@ -283,6 +285,17 @@ await t('a reflex equip mid-craft preempts it: the craft unwinds first, the equi
   assert.ok(r.error?.aborted && /preempted by equip/.test(r.error.message), `got ${r.error?.message}`)
   const craftClicksAfter = r.server.writes.slice(seen[0].writes).filter(w => w.name === 'window_click')
   assert.equal(craftClicksAfter.length, 0, 'the craft clicked after the equip began')
+})
+
+await t('an equip during the baseline count stops the craft before mineflayer starts it: no table, no clicks', async () => {
+  const r = await trial({
+    equip: () => async function () {},
+    during: async ({ bot }) => { await new Promise(resolve => setTimeout(resolve, 20)); await bot.equip({ name: 'stone_sword' }, 'hand') },
+  })
+  assert.ok(r.error?.aborted && /preempted by equip/.test(r.error.message), `got ${r.error?.message}`)
+  assert.equal(r.real.length, 0, 'the craft clicked after it was preempted')
+  assert.equal(r.server.nextWindowId, 1, 'the craft opened the table after it was preempted')
+  assert.ok(restored(r))
 })
 
 // ------------------------------------------------------------------ 7. deadline
