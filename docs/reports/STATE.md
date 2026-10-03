@@ -11,7 +11,18 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
-## 10-03 MIDDAY (11:55Z) — CURRENT (supersedes the queue lines below)
+## 10-03 EVENING (22:40Z) — NEW ORDER (OWNER ~22:30Z: "lets do 1 and 2 now and do the bank fix now too")
+- **QUEUE NOW: craftsync (launching after the ore verdict) -> craftroom -> composter -> SPENT-TOOL CLEANUP (new) ->
+  BANK FIX (port of bank-fix 4d76b43) -> logpickup -> explore-toward -> orepack -> cellmem.** Still one canary at a
+  time. WHY: the full bag is the root blocker (census: bag-full is the top reason wood and iron needs go unmet); full
+  bags (59/80 at >= 34) are 40% misc items (bank), 22% tools of which half spent (199 spent: tool cleanup), 14%
+  compostable junk (composter), 10% stone (bank), 7% saplings, 5% wood. Logpickup moved last-but-three because it
+  FILLS bags (more logs kept).
+- logpickup chain (pid 2197785) STOPPED 22:29Z. Craftroom and composter are being REBUILT on ba84fa6 WITHOUT logpickup's
+  gather behaviour (helpers only; gather must be byte-identical to ba84fa6). Tool cleanup: design by both engines
+  (running). Bank fix: port analysis running.
+
+## 10-03 MIDDAY (11:55Z) — superseded queue, kept for history
 - **OWNER 10-03 ~11:20Z: "test each crafting element seperately"; queue per Codex ("i agree with codex"):**
   oretunnel-03 (live, decides ~22:22Z) -> **craftsync-01** -> logpickup -> craftroom -> composter -> explore-toward
   -> orepack -> cellmem (deferred). One change per canary. Explore-toward is no longer next.
