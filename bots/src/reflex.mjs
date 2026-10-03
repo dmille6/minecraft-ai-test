@@ -3005,7 +3005,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     reflexErrors = 0
   }, config.reflex.tickMs)
 
-  return () => clearInterval(timer)
+  const stop = () => clearInterval(timer)
+  // TELEMETRY ONLY (pickuplog.mjs): which reflex arm is driving the body right now, for attributing an item
+  // pickup. Read by nothing that decides; the flags it reads are the arms' own and are not changed here.
+  stop.activeReflex = () => (rescuing ? 'drown_rescue' : escaping ? 'escape' : pocketing ? 'flooded_pocket'
+    : marooned ? 'marooned' : eating ? 'eat' : null)
+  return stop
 }
 
 /** Walls on 3+ sides at head height, and open sky is far above. */

@@ -30,6 +30,7 @@ import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
+import { noteSought } from './pickuplog.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -1369,6 +1370,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
+    noteSought(bot, drop.id, 'pickup')   // TELEMETRY ONLY (pickuplog.mjs): marks a collect of this id 'sought'
     const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
