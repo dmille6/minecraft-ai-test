@@ -32,6 +32,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -39,6 +40,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mayor_core as core  # noqa: E402
+import mayor_io  # noqa: E402
 
 # USD per 1M tokens. Same table and sources as mcai-playground/src/prices.mjs (verified 2026-09-30);
 # claude-sonnet-5-5 from the claude-api model table (cached 2026-09-25). cacheWrite is not used here.
@@ -81,22 +83,35 @@ class BudgetExceeded(Exception):
 
 
 class Ledger:
+    """Hard budget. EVERY ATTEMPT (retries included) first reserves its worst case: the prompt at
+    one token per 2 UTF-8 bytes (JSON runs ~3-4 bytes a token, so this over-counts ~1.5-2x) at the
+    input rate, plus the full max_tokens at the output rate. An attempt that could take spent +
+    reserve past the budget is not made. A TIMED-OUT or dropped attempt may still have been billed
+    and returns no usage, so it is charged its whole reservation; an HTTP error status is charged 0."""
+
     def __init__(self, budget_usd, price_in, price_out):
         self.budget, self.pin, self.pout = budget_usd, price_in, price_out
-        self.spent = 0.0
-        self.calls = 0
+        self.spent = self.reserved = 0.0
+        self.calls = self.attempts = 0
 
-    def reserve(self, prompt_chars, max_tokens):
-        worst = (prompt_chars / 3.0) * self.pin / 1e6 + max_tokens * self.pout / 1e6
-        if self.spent + worst > self.budget:
-            raise BudgetExceeded('spent $%.4f + worst case $%.4f > budget $%.2f' % (self.spent, worst, self.budget))
-        return worst
+    def worst(self, prompt_bytes, max_tokens):
+        return (prompt_bytes / 2.0) * self.pin / 1e6 + max_tokens * self.pout / 1e6
+
+    def reserve(self, prompt_bytes, max_tokens):
+        w = self.worst(prompt_bytes, max_tokens)
+        if self.spent + w > self.budget:
+            raise BudgetExceeded('spent $%.4f + worst case $%.4f > budget $%.2f' % (self.spent, w, self.budget))
+        self.attempts += 1
+        self.reserved += w
+        return w
+
+    def charge(self, usd):
+        self.spent += usd
+        return usd
 
     def settle(self, tokens_in, tokens_out):
-        cost = tokens_in * self.pin / 1e6 + tokens_out * self.pout / 1e6
-        self.spent += cost
         self.calls += 1
-        return cost
+        return self.charge(tokens_in * self.pin / 1e6 + tokens_out * self.pout / 1e6)
 
 
 def sampling_allowed(model):
@@ -139,9 +154,23 @@ def is_reask(snap_id, rate=10):
 # ---------------------------------------------------------------- providers ---------
 
 class ProviderError(Exception):
-    def __init__(self, status, msg):
-        super().__init__(msg)
-        self.status = status
+    """status + a sanitised code ONLY. A provider's error body can echo the prompt or carry account
+    details, so it is never persisted, printed or put in an exception message."""
+
+    def __init__(self, status, code):
+        self.status, self.code = status, code
+        super().__init__(('http_%d:%s' % (status, code)) if status is not None else 'connection:%s' % code)
+
+
+_CODE = re.compile(r'^[a-z_]{1,40}$')
+
+
+def _error_code(raw):
+    try:
+        t = (json.loads(raw.decode('utf-8', 'replace')).get('error') or {}).get('type')
+    except (ValueError, AttributeError):
+        return 'unparsed'
+    return t if isinstance(t, str) and _CODE.match(t) else 'unparsed'
 
 
 def _post(url, headers, body, timeout, opener):
@@ -151,12 +180,13 @@ def _post(url, headers, body, timeout, opener):
             return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         try:
-            detail = e.read().decode()[:300]
+            raw = e.read(4096)
         except Exception:
-            detail = ''
-        raise ProviderError(e.code, 'HTTP %d: %s' % (e.code, detail)) from None
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-        raise ProviderError(None, 'connection: %s' % type(e).__name__) from None
+            raw = b''
+        raise ProviderError(e.code, _error_code(raw)) from None
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+        reason = getattr(e, 'reason', e)
+        raise ProviderError(None, 'timeout' if isinstance(reason, TimeoutError) or 'timed out' in str(reason) else 'error') from None
 
 
 def call_anthropic(model, prompt, key, args, opener=urllib.request.urlopen):
@@ -216,20 +246,23 @@ def ask(engine, model, snap, prompt, key, args, ledger, opener):
         latency, cost = 0, 0.0
         ledger.calls += 1
     else:
-        ledger.reserve(len(SYSTEM) + len(prompt), args.max_tokens)
         fn = call_anthropic if engine == 'claude' else call_openai
-        waits = [5, 20, 60][:args.max_retries]
-        t0 = time.time()
+        waits = [args.retry_base_s * k for k in (1, 4, 12)][:args.max_retries]
+        nbytes = len((SYSTEM + prompt).encode())
+        t0, cost = time.time(), 0.0
         for i in range(len(waits) + 1):
+            worst = ledger.reserve(nbytes, args.max_tokens)       # every attempt, retries included
             try:
                 text, tin, tout, stop = fn(model, prompt, key, args, opener)
                 break
             except ProviderError as e:
+                if e.status is None:
+                    cost += ledger.charge(worst)                  # timed out / dropped: may have been billed
                 if i >= len(waits) or (e.status is not None and e.status not in RETRYABLE):
                     raise
                 time.sleep(waits[i])
         latency = round((time.time() - t0) * 1000)
-        cost = ledger.settle(tin, tout)
+        cost += ledger.settle(tin, tout)
     try:
         parsed = json.loads(text)
         parse_error = None
@@ -298,7 +331,12 @@ def run(args, opener=urllib.request.urlopen, env=None):
         return 2
     det = load_det(args.det)
     chosen = select(snaps, args.max_snapshots, set(args.worlds.split(',')) if args.worlds else None)
-    os.makedirs(args.out_dir, exist_ok=True)
+    try:
+        out_dir = mayor_io.safe_out_dir(args.out_dir, args.allow_out_root)
+        mayor_io.make_dir(out_dir)
+    except (mayor_io.UnsafeOutput, OSError) as e:
+        print('REFUSING: %s' % e, file=sys.stderr)
+        return 2
     rc = 0
     for e in engines:
         model = 'fake' if args.dry_run else models[e]
@@ -333,8 +371,8 @@ def run(args, opener=urllib.request.urlopen, env=None):
                                reask_of=snap['snap_id'] if tag else None,
                                unstaffed=[{'duty': u.get('duty'), 'reason': u.get('reason')} for u in res.get('unmet_needs') or []
                                           if isinstance(u, dict)])
-                    with open(os.path.join(args.out_dir, 'assign-%s-%s.jsonl' % (e, snap['world'])), 'a') as f:
-                        f.write(json.dumps(rec, separators=(',', ':')) + '\n')
+                    mayor_io.append_line(os.path.join(out_dir, 'assign-%s-%s.jsonl' % (e, snap['world'])),
+                                         json.dumps(rec, separators=(',', ':')))
                     ids = sorted((a['candidate_id'], a['target'] or '') for a in res['assignments'])
                     if tag is None:
                         first = ids
@@ -346,19 +384,21 @@ def run(args, opener=urllib.request.urlopen, env=None):
             summary['budget_detail'] = str(b)
             print('BUDGET: %s -- stopping %s' % (b, e), file=sys.stderr)
             rc = 5
-        summary['spent_usd'] = round(ledger.spent, 4)
+        summary['spent_usd'] = round(ledger.spent, 6)
+        summary['reserved_usd'] = round(ledger.reserved, 6)
+        summary['attempts'] = ledger.attempts
         summary['invalid_rate'] = round(summary['invalid'] / summary['calls'], 4) if summary['calls'] else None
-        with open(os.path.join(args.out_dir, 'frontier-run-%s.json' % e), 'w') as f:
-            json.dump(summary, f, indent=1)
+        mayor_io.write_atomic(os.path.join(out_dir, 'frontier-run-%s.json' % e), json.dumps(summary, indent=1))
         print(json.dumps(summary))
     return rc
 
 
-def main(argv=None):
+def parser():
     ap = argparse.ArgumentParser(description='frontier overseer, replay only')
     ap.add_argument('--snaps', default='/var/lib/mcai-mayor/snap-*.jsonl')
     ap.add_argument('--det', default='/var/lib/mcai-mayor/assign-*.jsonl', help="deterministic mayor's answers (anchored half)")
     ap.add_argument('--out-dir', required=True)
+    ap.add_argument('--allow-out-root', action='append', help='allowlisted root for --out-dir (default /var/lib/mcai-mayor)')
     ap.add_argument('--engine', choices=['claude', 'gpt', 'both'], default='both')
     ap.add_argument('--claude-model', default='claude-sonnet-5', help='playground default; current Sonnet is claude-sonnet-5-5')
     ap.add_argument('--gpt-model', default='gpt-6.1-sol', help='playground default')
@@ -370,10 +410,15 @@ def main(argv=None):
     ap.add_argument('--budget-usd', type=float, default=5.0, help='HARD per-run, per-engine cap')
     ap.add_argument('--price-in', type=float), ap.add_argument('--price-out', type=float)
     ap.add_argument('--max-retries', type=int, default=2)
+    ap.add_argument('--retry-base-s', type=float, default=5, help='retry waits are base x 1, 4, 12')
     ap.add_argument('--timeout', type=int, default=180)
     ap.add_argument('--dry-run', action='store_true', help='fake model, no key, no network')
     ap.add_argument('--fake-invalid-every', type=int, default=0)
-    return run(ap.parse_args(argv))
+    return ap
+
+
+def main(argv=None):
+    return run(parser().parse_args(argv))
 
 
 if __name__ == '__main__':

@@ -201,7 +201,7 @@ class Tailer(unittest.TestCase):
             out = os.path.join(d, 'out')
             with redirect_stdout(io.StringIO()):
                 rc = mayor_shadow.main(['--once', '--now-from-data', '--nice', '0', '--logs', os.path.join(d, 'logs', '*', 'skill-*.jsonl'),
-                                        '--facts-root', os.path.join(d, 'lib'), '--out-dir', out])
+                                        '--facts-root', os.path.join(d, 'lib'), '--out-dir', out, '--allow-out-root', d])
             self.assertEqual(rc, 0)
             self.assertEqual(sorted(os.listdir(out)), ['assign-hive-a.jsonl', 'assign-isolated-a.jsonl', 'mayor-state.json',
                                                        'mayor-ticks.jsonl', 'snap-hive-a.jsonl', 'snap-isolated-a.jsonl'])
@@ -265,7 +265,7 @@ class Scorer(unittest.TestCase):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = mayor_score.main(['--snaps', os.path.join(d, 'snap-*.jsonl'), '--assign', os.path.join(d, 'assign-*.jsonl'),
-                                       '--logs', os.path.join(d, 'logs', '*.jsonl'), '--json', js])
+                                       '--logs', os.path.join(d, 'logs', '*.jsonl'), '--json', js, '--allow-out-root', d])
             text = buf.getvalue()
             self.assertEqual(rc, 0, text)
             self.assertLess(text.index('CONTROLS'), text.index('BASE RATE'), 'controls print before any rate')
@@ -299,7 +299,9 @@ class Scorer(unittest.TestCase):
 
     def test_outcome_detectors(self):
         base = {'slots_est': 36, 'logs': 0, 'iron_units': 0, 'pick_state': 'none'}
-        f = lambda **kw: (0, dict(base, **kw))
+
+        def f(slots_est=36, logs=0, iron_units=0, pick_state='none'):     # a compact state row
+            return (0, slots_est, logs, iron_units, pick_state == 'ok', 0, 64, 0)
         cfg = core.DEFAULTS
         self.assertTrue(mayor_score.outcome('FREE_BAG', base, [f(slots_est=33)], cfg))
         self.assertFalse(mayor_score.outcome('FREE_BAG', base, [f(slots_est=35)], cfg))
@@ -323,7 +325,8 @@ class Frontier(unittest.TestCase):
         return os.path.join(d, 'snap-*.jsonl')
 
     def args(self, d, *extra):
-        return ['--snaps', self.snaps_file(d), '--det', os.path.join(d, 'none-*.jsonl'), '--out-dir', os.path.join(d, 'out')] + list(extra)
+        return ['--snaps', self.snaps_file(d), '--det', os.path.join(d, 'none-*.jsonl'), '--out-dir', os.path.join(d, 'out'),
+                '--allow-out-root', d] + list(extra)
 
     def test_dry_run_writes_the_scorer_shape(self):
         d = tempfile.mkdtemp()

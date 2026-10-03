@@ -256,3 +256,56 @@ def check_validator(core):
     assert not r['valid'] and r['rejected'][0]['why'].startswith('infeasible_candidate'), r
     for bad in (None, [], {'assignments': []}, {'assignments': 'x', 'unmet_needs': [], 'abstain': False, 'abstain_reason': ''}):
         assert not core.validate(s, bad)['valid'], bad
+    # each cap on its own: room for both kinds of target, so only the cap can refuse
+    bots5 = [make_bot(core, n, (100 + 3 * i, 64, 100), {'dirt': 1}, tools_pick('stone_pickaxe', 0, 131)) for i, n in enumerate('ABCDE')]
+    res = [log_at(100 + 3 * i, 64, 104) for i in range(5)] + [log_at(100 + 3 * i, 60, 108, kind='iron_ore') for i in range(5)]
+    s3 = snap_of(core, bots5, res)
+    w3 = [c for c in s3['candidates'] if c['duty'] == 'GET_WOOD' and c['feasible']]
+    i3 = [c for c in s3['candidates'] if c['duty'] == 'GET_IRON' and c['feasible']]
+    assert len({c['targets'][0] for c in w3}) == 5 and len({c['targets'][0] for c in i3}) == 5, 'distinct nearest targets'
+
+    def V3(cs):
+        return core.validate(s3, {'assignments': [{'candidate_id': c['id'], 'target': c['targets'][0], 'reason': 'r',
+                                                   'evidence': [c['id']], 'confidence': 0.5} for c in cs],
+                                  'unmet_needs': [], 'abstain': False, 'abstain_reason': ''})
+    r = V3(w3[:3])
+    assert [x['why'] for x in r['rejected']] == ['cap_duty'], ('per-duty cap', r)
+    r = V3([w3[0], w3[1], i3[2], i3[3]])
+    assert [x['why'] for x in r['rejected']] == ['cap_world'], ('world cap', r)
+
+
+def check_per_duty_cap(core):
+    """With room for 5 bots in the world, GET_WOOD still takes at most cap_per_duty (2)."""
+    cfg = dict(core.DEFAULTS, cap_per_world=5)
+    bots = [make_bot(core, n, (100 + 3 * i, 64, 100), {'dirt': 1}, tools_pick('stone_pickaxe', 0, 131), cfg=cfg)
+            for i, n in enumerate('ABCDE')]
+    res = [log_at(100 + 3 * i, 64, 104) for i in range(5)]
+    s = snap_of(core, bots, res, cfg=cfg)
+    assert sum(c['feasible'] for c in s['candidates'] if c['duty'] == 'GET_WOOD') == 5, s['candidates']
+    rec, _ = core.decide(s, None, cfg)
+    wood = [x for x in rec['assignments'] if x['duty'] == 'GET_WOOD']
+    assert len(wood) == cfg['cap_per_duty'], ('per-duty cap', wood)
+
+
+def check_lease_expiry(core):
+    """A lease with no progress ends at 10 min ('expired') and the bot cools down for that duty."""
+    a = make_bot(core, 'A', (100, 64, 100), BARE, {})
+    s1 = snap_of(core, [a], [log_at(130, 64, 100)])
+    _, st = core.decide(s1, None)
+    s2 = snap_of(core, [a], [log_at(130, 64, 100)])
+    s2['t_ms'] += core.DEFAULTS['lease_s'] * 1000
+    s2['snap_id'] = 'w@expiry'
+    r2, st2 = core.decide(s2, st)
+    assert [(x['bot'], x['why']) for x in r2['released']] == [('A', 'expired')], r2['released']
+    assert 'A|GET_WOOD' in st2['cooldowns'], st2
+    assert not any(x['bot_name'] == 'A' for x in r2['assignments']), r2['assignments']
+
+
+def check_nearest_first(core):
+    """One log, two eligible bots: the NEARER one gets it (the far one sorts first by name)."""
+    far = make_bot(core, 'A', (100, 64, 100), BARE, {})
+    near = make_bot(core, 'B', (145, 64, 100), BARE, {})
+    s = snap_of(core, [far, near], [log_at(150, 64, 100)])
+    rec, _ = core.decide(s, None)
+    wood = [x['bot_name'] for x in rec['assignments'] if x['duty'] == 'GET_WOOD']
+    assert wood == ['B'], ('nearest first', rec['assignments'])

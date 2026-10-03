@@ -247,13 +247,22 @@ class WorldEvidence:
         self.deposit_ok_ms = self.chest_full_ms = None
 
 
-def ingest(row, bots, worlds, max_skills=6):
+MAX_SKEW_MS = 60000
+
+
+def ingest(row, bots, worlds, max_skills=6, now_ms=None, stats=None):
     """Fold one telemetry row into the bounded state. Returns the bot name or None.
-    Event kinds live in skill.name, position in bot.pos (CLAUDE.md); a reflex row has no pos."""
+    Event kinds live in skill.name, position in bot.pos (CLAUDE.md); a reflex row has no pos.
+    A row stamped more than MAX_SKEW_MS after `now_ms` is REJECTED (counted in stats['future']):
+    a clock that runs ahead would otherwise keep a bot 'fresh' forever."""
     b = row.get('bot') or {}
     name = b.get('name')
     t = parse_ts(row.get('@timestamp'))
     if not name or t is None:
+        return None
+    if now_ms is not None and t > now_ms + MAX_SKEW_MS:
+        if stats is not None:
+            stats['future'] = stats.get('future', 0) + 1
         return None
     s = row.get('skill') or {}
     sk, status, detail = s.get('name') or '', s.get('status'), s.get('detail') or ''
@@ -311,9 +320,13 @@ def bot_view(st, now_ms, cfg=DEFAULTS):
     """BotState -> the snapshot's view of one bot (without its B-id)."""
     full = st.full or {}
     age = None if st.last_ms is None else round((now_ms - st.last_ms) / 1000)
+    pos_age = None if st.full_ms is None else round((now_ms - st.full_ms) / 1000)
+    # FRESH = a STATE-BEARING row (position + inventory) within stale_s, and not from the future.
+    # A reflex row says the process is alive; it says nothing about where the bot is or what it holds.
     v = {
-        'name': st.name, 'fresh': age is not None and age <= cfg['stale_s'] and st.full is not None,
-        'age_s': age, 'pos_age_s': None if st.full_ms is None else round((now_ms - st.full_ms) / 1000),
+        'name': st.name,
+        'fresh': st.full is not None and pos_age is not None and -MAX_SKEW_MS / 1000 <= pos_age <= cfg['stale_s'],
+        'age_s': age, 'pos_age_s': pos_age,
         'pos': full.get('pos'), 'dimension': full.get('dimension'),
         'health': full.get('health'), 'hunger': full.get('hunger'), 'held': full.get('held'),
         'inventory': full.get('inventory') or {},
@@ -328,9 +341,16 @@ def bot_view(st, now_ms, cfg=DEFAULTS):
 
 # ---------------------------------------------------------------- resources ---------
 
+def res_key(r):
+    """A sighting's STABLE identity: kind and block coordinates. R-ids are renumbered every snapshot."""
+    return '%s@%s,%s,%s' % (r['kind'], r['x'], r['y'], r['z'])
+
+
 def merge_resources(facts_list, now_ms, cfg=DEFAULTS):
     """world-facts `resources` (sightings, not reachability; each file capped at 200) from one or
-    more files -> deduplicated log/iron sightings with age. Isolated worlds pass five files."""
+    more files -> deduplicated log/iron sightings with age. Isolated worlds pass five files.
+    A sighting whose `last` is AFTER now_ms is dropped: in a replay it is lookahead (the facts file
+    is today's), live it is clock skew. Either way the snapshot could not have known it."""
     seen = {}
     for facts in facts_list:
         for r in (facts or {}).get('resources') or []:
@@ -344,11 +364,11 @@ def merge_resources(facts_list, now_ms, cfg=DEFAULTS):
                 seen[key] = r
     out = []
     for (kind, x, y, z), r in seen.items():
-        if not r.get('last'):
+        if not r.get('last') or r['last'] > now_ms:
             continue
         age_h = round((now_ms - r['last']) / 3.6e6, 2)
         if age_h <= cfg['resource_age_h']:
-            out.append({'kind': kind, 'x': x, 'y': y, 'z': z, 'count': r.get('count'), 'age_h': max(0.0, age_h)})
+            out.append({'kind': kind, 'x': x, 'y': y, 'z': z, 'count': r.get('count'), 'age_h': age_h})
     return out
 
 
@@ -378,7 +398,7 @@ def build_snapshot(world, views, resources, now_ms, bank, cfg=DEFAULTS, meta=Non
         'estimates': 'slots_est/free_slots_est are ESTIMATES from item counts and stack sizes (%s); '
                      'bank contents are UNKNOWN, never 0' % _stack_table()[2],
         'bank': bank, 'cfg': {k: cfg[k] for k in sorted(cfg)},
-        'bots': bots, 'resources': [dict(r, id='R%d' % i) for i, r in enumerate(kept, 1)],
+        'bots': bots, 'resources': [dict(r, id='R%d' % i, key=res_key(r)) for i, r in enumerate(kept, 1)],
         'resources_dropped': dropped,
     }
     if meta:
@@ -413,6 +433,9 @@ def shortages(snap, cfg=DEFAULTS):
                     'why': 'held iron %d < %d (%d per live bot; banked iron UNKNOWN)' % (iron, target, cfg['iron_target_per_bot'])})
     for i, s in enumerate(out, 1):
         s['id'] = 'S%d' % i
+        # Banked iron is UNKNOWN (no chest ledger), so "held iron is short" is not a definite shortage:
+        # the scorer keeps it out of the unforced gap. Wood is defined from held wood by the plan itself.
+        s['certainty'] = 'unknown-bank' if s['duty'] == 'GET_IRON' else 'definite'
     return out
 
 
@@ -566,17 +589,23 @@ def decide(snap, state=None, cfg=DEFAULTS):
     cand_by_id = {c['id']: c for c in cands}
     cand_of = {(c['bot_name'], c['duty']): c for c in cands}
     world_needs = {s['duty'] for s in snap['shortages'] if s['scope'] == 'world'}
+    id_of_key = {(r.get('key') or res_key(r)): r['id'] for r in snap['resources']}
+    key_of_id = {v: k for k, v in id_of_key.items()}
     released, assigns = [], []
     taken_bots, taken_targets, per_duty = set(), set(), {}
 
     def release(name, L, why):
         released.append({'bot': name, 'duty': L['duty'], 'why': why, 'held_s': round((now - L['since_ms']) / 1000)})
-        if why != 'done':                    # an abandoned duty cools down before it is offered again
+        # an ABANDONED duty cools down before it is offered again; a lease the mayor itself trimmed
+        # (conflict, over_cap) or that succeeded (done) does not
+        if why in ('failed', 'expired', 'target_lost'):
             cool['%s|%s' % (name, L['duty'])] = now + cfg['cooldown_s'] * 1000
         del leases[name]
 
-    # 1. leases: done / failed / expired, else HELD -- hysteresis: a better-ranked bot does not bump it
-    for name in sorted(leases):
+    # 1. leases, OLDEST first: done / failed / expired / target_lost, then the same uniqueness and caps
+    #    as a new assignment (conflict, over_cap), else HELD -- hysteresis: a better-ranked bot does
+    #    not bump it. The lease holds a PLACE (target_key = kind@x,y,z), re-resolved to this tick's R-id.
+    for name in sorted(leases, key=lambda n: (leases[n].get('since_ms', 0), n)):
         L = leases[name]
         b, c = by_name.get(name), cand_of.get((name, L['duty']))
         if b is not None and b['fresh'] and duty_done(L['duty'], L, b, world_needs, cfg):
@@ -588,9 +617,17 @@ def decide(snap, state=None, cfg=DEFAULTS):
         if now - L['since_ms'] >= cfg['lease_s'] * 1000:
             release(name, L, 'expired')
             continue
-        tgt = L.get('target') if L.get('target') in c['targets'] else next((t for t in c['targets'] if t not in taken_targets), None)
-        if c['targets'] and tgt is None:
-            release(name, L, 'failed')
+        tgt = None
+        if c['targets']:
+            tgt = id_of_key.get(L.get('target_key'))
+            if tgt is None or tgt not in c['targets']:
+                release(name, L, 'target_lost')
+                continue
+            if tgt in taken_targets:
+                release(name, L, 'conflict')
+                continue
+        if len(taken_bots) >= cfg['cap_per_world'] or per_duty.get(c['duty'], 0) >= cfg['cap_per_duty']:
+            release(name, L, 'over_cap')
             continue
         L['target'] = tgt
         taken_bots.add(name)
@@ -627,7 +664,7 @@ def decide(snap, state=None, cfg=DEFAULTS):
             taken_targets.add(tgt)
         per_duty[c['duty']] = per_duty.get(c['duty'], 0) + 1
         staffed.add(c['shortage'])
-        leases[c['bot_name']] = {'duty': c['duty'], 'target': tgt, 'since_ms': now,
+        leases[c['bot_name']] = {'duty': c['duty'], 'target': tgt, 'target_key': key_of_id.get(tgt), 'since_ms': now,
                                  'start_logs': b['logs'], 'start_iron': b['iron_units']}
         assigns.append(_lease_assign(c, c['bot_name'], tgt, 'new', now, _reason(c, b)))
 
@@ -705,27 +742,61 @@ OUTPUT_SCHEMA = {
 ID_RE = re.compile(r'\b([BRSC]\d+)\b')
 
 
+_TYPES = {'object': dict, 'array': list, 'string': str, 'boolean': bool}
+
+
+def schema_errors(v, sch, path='$'):
+    """The JSON-schema subset OUTPUT_SCHEMA uses, enforced in full. Never raises: a model's output
+    is untrusted data, so every shape it can take is an answer, not an exception."""
+    t = sch.get('type')
+    if t == 'number':
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            return ['%s:not_number' % path]
+    elif t in _TYPES:
+        if not isinstance(v, _TYPES[t]):
+            return ['%s:not_%s' % (path, t)]
+    if 'enum' in sch and v not in sch['enum']:
+        return ['%s:not_in_enum' % path]
+    errs = []
+    if t == 'object':
+        props = sch.get('properties', {})
+        errs += ['%s.%s:missing' % (path, k) for k in sch.get('required', []) if k not in v]
+        if sch.get('additionalProperties') is False:
+            errs += ['%s.%s:unexpected' % (path, str(k)[:20]) for k in v if k not in props]
+        for k, sub in props.items():
+            if k in v:
+                errs += schema_errors(v[k], sub, '%s.%s' % (path, k))
+    elif t == 'array' and 'items' in sch:
+        for i, x in enumerate(v):
+            errs += schema_errors(x, sch['items'], '%s[%d]' % (path, i))
+    return errs
+
+
 def validate(snap, out, cfg=DEFAULTS):
-    """A frontier answer -> {'valid', 'accepted', 'rejected', 'errors'}. Rejects unknown ids,
-    invented places (a target or evidence id the snapshot does not hold), infeasible candidates,
-    a bot or a target twice, and broken caps. Any rejection makes the response invalid (a metric)."""
+    """A frontier answer -> {'valid', 'accepted', 'rejected', 'errors'}. The FULL schema is enforced
+    (an assignment that breaks it is rejected; a top level that breaks it accepts nothing), then:
+    unknown ids, invented places (a target or evidence id the snapshot does not hold), infeasible
+    candidates, a bot or a target twice, broken caps. Any rejection makes the response invalid (a
+    metric). Never raises on malformed input."""
     if not isinstance(out, dict):
-        return {'valid': False, 'accepted': [], 'rejected': [], 'errors': ['not_an_object']}
-    errors = ['missing_%s' % k for k in OUTPUT_SCHEMA['required'] if k not in out]
-    if not isinstance(out.get('assignments', []), list) or not isinstance(out.get('unmet_needs', []), list):
-        errors.append('bad_types')
+        return {'valid': False, 'accepted': [], 'rejected': [], 'errors': ['$:not_object']}
+    top = dict(OUTPUT_SCHEMA, properties={k: ({'type': 'array'} if k in ('assignments', 'unmet_needs') else v)
+                                          for k, v in OUTPUT_SCHEMA['properties'].items()})
+    errors = schema_errors(out, top)
     if errors:
-        return {'valid': False, 'accepted': [], 'rejected': [], 'errors': errors}
+        return {'valid': False, 'accepted': [], 'rejected': [], 'errors': errors[:20]}
+    item_schema = OUTPUT_SCHEMA['properties']['assignments']['items']
     known = {b['id'] for b in snap['bots']} | {r['id'] for r in snap['resources']} | \
             {s['id'] for s in snap['shortages']} | {c['id'] for c in snap['candidates']}
     cands = {c['id']: c for c in snap['candidates']}
     accepted, rejected = [], []
     bots_used, targets_used, per_duty = set(), set(), {}
     for a in out['assignments']:
-        if not isinstance(a, dict):
-            rejected.append({'item': a, 'why': 'not_an_object'})
+        bad = schema_errors(a, item_schema, '$.assignments[]')
+        if bad:
+            rejected.append({'item': a if isinstance(a, dict) else str(a)[:80], 'why': 'schema:' + bad[0]})
             continue
-        c = cands.get(a.get('candidate_id'))
+        c = cands.get(a['candidate_id'])
         tgt = a.get('target') or None
         ev = a.get('evidence') if isinstance(a.get('evidence'), list) else None
         cited = set(map(str, ev or [])) | set(ID_RE.findall(str(a.get('reason') or '')))
@@ -763,9 +834,10 @@ def validate(snap, out, cfg=DEFAULTS):
         accepted.append({'candidate_id': c['id'], 'bot': c['bot'], 'bot_name': c['bot_name'], 'duty': c['duty'],
                          'target': tgt, 'reason': str(a.get('reason'))[:500], 'evidence': ev, 'confidence': conf})
     for u in out['unmet_needs']:
-        if not isinstance(u, dict) or u.get('duty') not in DUTIES:
-            errors.append('bad_unmet_need')
-        elif set(map(str, u.get('evidence') or [])) - known:
+        bad = schema_errors(u, OUTPUT_SCHEMA['properties']['unmet_needs']['items'], '$.unmet_needs[]')
+        if bad:
+            errors.append(bad[0])
+        elif set(u['evidence']) - known:
             errors.append('unmet_need_unknown_evidence')
     if out.get('abstain') is True and out['assignments']:
         errors.append('abstain_with_assignments')
