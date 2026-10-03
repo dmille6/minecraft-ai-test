@@ -375,22 +375,46 @@ await t('WIRED: a re-centre through gravel/dirt with no room for them -> the dig
   dug.length = 0; await run(own.bot)
   assert.deepEqual([...new Set(dug)].sort(), ['dirt', 'gravel'], `control: with spare in the SAME items beyond the slack, the same digs are allowed (${dug})`)
 })
-for (const land of [false, true]) {
-  await t(`WIRED: successive unplanned digs at dig time (drop ${land ? 'landed' : 'not yet landed'}) -- the second is refused once the first used the spare`, async () => {
-    const world = { '31,63,0': 'dirt', '29,63,0': 'dirt' }
-    const tried = []
-    const onGoto = async (goal, bot) => {
-      if (goal?.constructor?.name !== 'GoalBlock' || tried.length) return
-      for (const k of Object.keys(world)) {
-        const b = bot.blockAt(new Vec3(...k.split(',').map(Number)))
-        try { await bot.dig(b, true); tried.push('dug') } catch { tried.push('refused') }
-      }
+await t('WIRED: successive unplanned digs, PLAN-TIME -- once the first allowed dirt is gone, the second is vetoed (running count)', async () => {
+  const world = { '31,63,0': 'dirt', '29,63,0': 'dirt' }
+  const seen = []
+  const onGoto = async (goal, bot) => {
+    if (goal?.constructor?.name !== 'GoalBlock' || seen.length) return
+    for (const k of Object.keys(world)) {
+      const b = bot.blockAt(new Vec3(...k.split(',').map(Number)))
+      if (bot.pathfinder.movements.exclusionBreak(b) < 100) { seen.push('allowed'); await bot.dig(b, true) } else seen.push('vetoed')
     }
-    const inv = to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64 - (RETURN_RESERVE + 1)), tool('stone_pickaxe', 131)])
-    const { bot, digs } = tunnelBot(inv, { empty: 0, world, onGoto, land })
-    const r = await run(bot)
-    assert.deepEqual(tried, ['dug', 'refused'], `room for one unplanned dirt: ${tried}`); assert.deepEqual(digs, ['dirt'])
-    assert.match(r.detail, /no room for dirt/)
+  }
+  const inv = to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64 - (RETURN_RESERVE + 1)), tool('stone_pickaxe', 131)])
+  const { bot, digs } = tunnelBot(inv, { empty: 0, world, onGoto })     // the drop never lands: the count must not wait for it
+  const r = await run(bot)
+  assert.deepEqual(seen, ['allowed', 'vetoed'], `room for one unplanned dirt: ${seen}`); assert.deepEqual(digs, ['dirt'])
+  assert.match(r.detail, /no room for dirt/)
+})
+// THE REVERSE REGRESSION (pass 5): tunnel code never touches bot.dig, so a reflex's rescue dig during the walk is never
+// refused by it, and nothing is left installed however the tunnel ends.
+for (const end of ['success', 'walk error', 'abort']) {
+  await t(`WIRED: tunnel ends by ${end} -- bot.dig is the original function, a reflex-style dig mid-walk went through, the veto is gone`, async () => {
+    const ac = { aborted: false, addEventListener () {}, removeEventListener () {} }
+    const world = { '31,64,0': 'dirt' }                                   // an unplanned dirt with NO room (dirt stack full)
+    let reflexDug = null
+    const onGoto = async (goal, bot) => {
+      if (reflexDug === null) { try { await bot.dig(bot.blockAt(new Vec3(31, 64, 0)), true); reflexDug = true } catch { reflexDug = false } }
+      if (end === 'success') { bot.entity.position = ARRIVE.clone(); return }
+      if (end === 'abort') { ac.aborted = true; throw Object.assign(new Error('aborted'), { aborted: true }) }
+      throw new Error('boom')
+    }
+    const inv = to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64), tool('stone_pickaxe', 131)])
+    const { bot, digs } = tunnelBot(inv, { empty: 0, world, onGoto })
+    const originalDig = bot.dig
+    let r = null, threw = null
+    try { r = await tunnelToOre({ bot, runner: null }, ac, { deadlineMs: 150_000 }) } catch (e) { threw = e }
+    if (end === 'abort') assert.ok(threw?.aborted, `abort must propagate (${threw?.message})`)
+    else if (end === 'success') assert.equal(r?.status, 'success', `${r?.failClass}: ${r?.detail}`)
+    else assert.equal(r?.failClass, 'tunnel_incomplete', `${r?.failClass}: ${r?.detail}`)
+    assert.equal(reflexDug, true, 'tunnel code refused a reflex-style dig'); assert.deepEqual(digs, ['dirt'])
+    assert.equal(bot.dig, originalDig, 'bot.dig is not the original function')
+    assert.ok(!bot.tunnelMovements.exclusionAreasBreak.some(f => f.name === 'roomVeto'), 'the veto is still installed')
   })
 }
 
@@ -462,18 +486,21 @@ await t('MUTANT KILLED (pass 4b): letting unplanned digs use empty slots hands d
   })
 })
 
-await t('MUTANT KILLED (pass 4c): without the dig-time check, queued unplanned digs both happen (the plan-time veto alone is not enough)', async () => {
-  await withMutant('skills.mjs', 'bot.dig = async function tunnelDig', 'const notInstalled = async function tunnelDig', async m => {
+await t('MUTANT KILLED (pass 5): without the running count of unplanned allowances the second dirt is allowed too', async () => {
+  await withMutant('skills.mjs', 'spent: spentSoFar()', 'spent: new Map()', async m => {
     const world = { '31,63,0': 'dirt', '29,63,0': 'dirt' }
-    const tried = []
+    const seen = []
     const onGoto = async (goal, bot) => {
-      if (goal?.constructor?.name !== 'GoalBlock' || tried.length) return
-      for (const k of Object.keys(world)) { try { await bot.dig(bot.blockAt(new Vec3(...k.split(',').map(Number))), true); tried.push('dug') } catch { tried.push('refused') } }
+      if (goal?.constructor?.name !== 'GoalBlock' || seen.length) return
+      for (const k of Object.keys(world)) {
+        const b = bot.blockAt(new Vec3(...k.split(',').map(Number)))
+        if (bot.pathfinder.movements.exclusionBreak(b) < 100) { seen.push('allowed'); await bot.dig(b, true) } else seen.push('vetoed')
+      }
     }
     const inv = to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64 - (RETURN_RESERVE + 1)), tool('stone_pickaxe', 131)])
     const { bot } = tunnelBot(inv, { empty: 0, world, onGoto })
     await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
-    assert.deepEqual(tried, ['dug', 'dug'], 'mutant still refused the second dig')
+    assert.deepEqual(seen, ['allowed', 'allowed'], 'mutant still vetoed the second dig')
   })
 })
 

@@ -1526,48 +1526,46 @@ export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   }
 
   const claim = runner?.claimBody?.('stair') ?? null      // the entombment reflex reads a staircase as sealed
-  // UNPLANNED DIGS (Codex passes 3-4): the walk re-plans after its own digs and re-centres when it stalls, and those
+  // UNPLANNED DIGS (Codex passes 3-5): the walk re-plans after its own digs and re-centres when it stalls, and those
   // breaks are not in plan.breaks. A break at a planned position is already paid for. Any other break must fit
-  // unplannedDigFits: same-item spare beyond planned need + slack + earlier unplanned digs, never an empty slot.
-  // Checked TWICE: when the pathfinder plans (a break veto, so routes avoid it) and again at the DIG ITSELF (a wrapper
-  // on bot.dig, which also books the drop in a per-tunnel ledger): the pathfinder digs its queued toBreak entries
-  // later without asking again, so the plan-time check alone let several unplanned breaks pass against one spare.
-  // A refused dig rejects; the pathfinder resets the path ('dig_error'), the re-plan avoids the block, and if no
-  // route remains the walk ends short -- a stall whose detail names the refusal.
+  // unplannedDigFits -- same-item spare beyond planned need + slack + earlier unplanned digs, never an empty slot --
+  // or this tunnel's profile vetoes it and the pathfinder routes around it; with no route left the walk ends short, a
+  // stall whose detail names the refusal.
+  // THE RUNNING COUNT is read from the world, not from a hook: every unplanned position this veto allowed whose block
+  // has since gone counts its drop as taken (landed or not). Nothing global is patched, so a reflex's rescue dig is
+  // never refused by tunnel code, and an abandoned skill leaves nothing installed but this profile entry, which the
+  // finally removes.
+  // RESIDUAL, ACCEPTED (pass 5): the pathfinder digs its queued toBreak entries without asking again, so two unplanned
+  // breaks queued in one search can both happen against one spare. The overflow lands in a free slot or stays on the
+  // ground -- harmless for stone and dirt; whether it ever costs the ore its slot is read on the canary.
   const posKey = p => `${p.x},${p.y},${p.z}`
   const plannedKeys = new Set(plan.breaks.map(posKey))
   const plannedBlocks = plan.breaks.map(named), clusterBlocks = cluster.map(named)
   const plannedTotal = new Map([...needs.need, ['raw_iron', needs.ore]])
   const startItems = held().map(x => ({ ...x }))
-  const spent = new Map()
+  const allowed = new Map()                                   // posKey -> { pos, name } the veto let through
   const stillThere = b => bot.blockAt(b.pos)?.name === b.name
   const remaining = () => {
     const r = tunnelNeeds(plannedBlocks.filter(stillThere), clusterBlocks.filter(stillThere), loot)
     return new Map([...r.need, ['raw_iron', r.ore]])
   }
-  const unplannedFit = b => unplannedDigFits(loot(b?.name), { start: startItems, live: held(), plannedTotal, remaining: remaining(),
-                                                               spent, slack: RETURN_RESERVE, emptySlots: emptyNow() })
+  const spentSoFar = () => {
+    const spent = new Map()
+    for (const b of allowed.values()) if (!stillThere(b)) for (const d of loot(b.name)) spent.set(d.item, (spent.get(d.item) ?? 0) + d.max)
+    return spent
+  }
   const roomVetoes = new Set()
   const roomVeto = function roomVeto (b) {
     if (!b?.position || plannedKeys.has(posKey(b.position))) return 0
-    const fit = unplannedFit(b)
-    if (fit.ok) return 0
-    roomVetoes.add(`${b.name}: ${fit.why}`)
-    return 100
+    const k = posKey(b.position)
+    if (allowed.has(k) && stillThere(allowed.get(k))) return 0
+    const fit = unplannedDigFits(loot(b.name), { start: startItems, live: held(), plannedTotal, remaining: remaining(),
+                                                 spent: spentSoFar(), slack: RETURN_RESERVE, emptySlots: emptyNow() })
+    if (!fit.ok) { roomVetoes.add(`${b.name}: ${fit.why}`); return 100 }
+    allowed.set(k, { pos: b.position.clone?.() ?? b.position, name: b.name })
+    return 0
   }
   moves.exclusionAreasBreak?.push?.(roomVeto)
-  const realDig = bot.dig
-  bot.dig = async function tunnelDig (block, ...rest) {
-    if (block?.position && !plannedKeys.has(posKey(block.position))) {
-      const fit = unplannedFit(block)
-      if (!fit.ok) {
-        roomVetoes.add(`${block.name}: ${fit.why}`)
-        throw Object.assign(new Error(`refused to dig ${block.name}: ${fit.why}`), { failClass: 'no_room_for_drop' })
-      }
-      for (const d of loot(block.name)) spent.set(d.item, (spent.get(d.item) ?? 0) + d.max)
-    }
-    return realDig.call(this, block, ...rest)
-  }
   let reached = false, stopped = null, recentred = 0
   // index.mjs owns setMovements: the walk runs inside its tunnel profile and is restored there, whatever happens.
   const inTunnel = fn => (bot.withTunnelMovements ? bot.withTunnelMovements(fn) : fn())
@@ -1627,7 +1625,6 @@ export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
     else claim?.release?.()
     const i = moves.exclusionAreasBreak?.indexOf?.(roomVeto) ?? -1
     if (i >= 0) moves.exclusionAreasBreak.splice(i, 1)
-    bot.dig = realDig
   }
   if (!reached && roomVetoes.size) stopped = `${stopped ?? 'walk stopped'}; refused to dig: ${[...roomVetoes].slice(0, 2).join(' / ')}`
   const summary = `${plan.breaks.length} planned breaks (${pickBreaks} pick) to ${plan.target.x},${plan.target.y},${plan.target.z}, ` +
