@@ -56,7 +56,7 @@ t('collectManually never awaits a dig without a bound', () => {
   assert.ok(!/await bot\.dig\(block\)(?!\s*,)/.test(b) || /withTimeout\(bot\.dig\(/.test(b),
     'bot.dig() resolves only when the server confirms the break and waits ' +
     'forever when that never comes')
-  assert.match(b, /withTimeout\(bot\.dig\(block\), \d+/,
+  assert.match(b, /withTimeout\(bot\.dig\(block\), (Math\.min\()?\d+/,
     'the dig must be wrapped in withTimeout')
 })
 

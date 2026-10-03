@@ -193,7 +193,7 @@ const ITEM_ID = 120, LOG_ID = 50, FALL_MS = 450
 const SHAPES = { air: [], oak_slab: [[0, 0, 0, 1, 0.5, 1]] }
 function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = false, noDrop = false, mergeInto = false,
                   walkable = n => n.y === 64, jitter = 0, failName = 'NoPath', digTimes = {}, metaDelay = 0,
-                  waterlogged = [], safety = true, heldItem = null, walkMs = 0, items = [] } = {}) {
+                  waterlogged = [], safety = true, heldItem = null, walkMs = 0, items = [], held = {} } = {}) {
   const w = new Map()
   for (let x = -8; x <= 8; x++) for (let z = -8; z <= 8; z++) w.set(K(x, 63, z), 'grass_block')
   for (const [k, v] of Object.entries(blocks)) w.set(k, v)
@@ -207,7 +207,7 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
              boundingBox: solid(q.x, q.y, q.z) ? 'block' : 'empty', diggable: solid(q.x, q.y, q.z),
              shapes: SHAPES[n] ?? [[0, 0, 0, 1, 1, 1]], getProperties: () => ({ waterlogged: wet.has(K(q.x, q.y, q.z)) }) }
   }
-  const inv = new Map([['oak_log', 0]])
+  const inv = new Map([['oak_log', 0], ...Object.entries(held)])
   let nextId = 1000, digCancel = null, walkCancel = null
   const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0 }
   const bot = new EventEmitter()
@@ -288,7 +288,7 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
       },
     },
   })
-  for (const it of items) spawn(it.name, new Vec3(...it.at), it.count ?? 1, Date.now() - 5000)
+  for (const it of items) { const e = spawn(it.name, new Vec3(...it.at), it.count ?? 1, Date.now() - 5000); if (it.meta === false) e.metaAt = Infinity }
   // the server: items fall (seen only when the landing packet arrives), then the pickup check
   const touches = (pp, ip) => ip.x + 0.125 > pp.x - 1.3 && ip.x - 0.125 < pp.x + 1.3 &&
                               ip.z + 0.125 > pp.z - 1.3 && ip.z - 0.125 < pp.z + 1.3 &&
@@ -484,6 +484,107 @@ await ta('ABORT: an abort mid-walk rejects at once and cancels the walk', async 
   assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
   assert.ok(Date.now() - abortedAt < 400, `took ${Date.now() - abortedAt} ms to stop after the abort`)
   assert.ok(bot.seen.halted >= 1, 'the in-flight walk was never cancelled')
+})
+
+console.log('-- second-pass fixes --')
+const it = (name) => ({ getDroppedItem: () => (name ? { name, count: 1 } : null) })
+const inv = (pairs, emptySlots = 10, pad = 0) => ({
+  items: [...pairs.map(([n, c]) => ({ name: n, count: c, stackSize: 64 })), ...Array.from({ length: pad }, (_, i) => ({ name: `junk${i}`, count: 64, stackSize: 64 }))],
+  emptySlots })
+t('the sweep wants saplings below the reserve and apples; never logs, never unidentified', () => {
+  assert.equal(LP.SAPLING_RESERVE, 16)
+  assert.equal(LP.sweepWants(it('oak_sapling'), inv([])), true)
+  assert.equal(LP.sweepWants(it('apple'), inv([])), true)
+  assert.equal(LP.sweepWants(it('oak_log'), inv([])), false, 'another log brings GoalNear(drop,1) back')
+  assert.equal(LP.sweepWants(it(null), inv([])), false, 'unidentified is never chased')
+  assert.equal(LP.sweepWants(it('cobblestone'), inv([])), false)
+})
+t('a sapling is skipped at 16 held of that species, not of another', () => {
+  assert.equal(LP.sweepWants(it('oak_sapling'), inv([['oak_sapling', 16]])), false)
+  assert.equal(LP.sweepWants(it('oak_sapling'), inv([['oak_sapling', 15]])), true)
+  assert.equal(LP.sweepWants(it('birch_sapling'), inv([['oak_sapling', 16]])), true)
+  assert.equal(LP.sweepWants(it('apple'), inv([['apple', 40]])), true, 'apples are food: always')
+})
+t('room: a partial stack, or >= 2 free slots; never at >= 34 used slots', () => {
+  assert.equal(LP.sweepWants(it('apple'), inv([], 1)), false, 'one free slot is not enough')
+  assert.equal(LP.sweepWants(it('apple'), inv([['apple', 3]], 0)), true, 'a partial stack takes it')
+  assert.equal(LP.sweepWants(it('apple'), inv([['apple', 64]], 1)), false)
+  assert.equal(LP.sweepWants(it('apple'), inv([['apple', 3]], 2, 33)), false, '34 used slots: hygiene trigger')
+  assert.equal(LP.sweepWants(it('apple'), inv([], NaN)), false, 'unknown room: skip')
+})
+
+await ta('SWEEP: an earlier dig\'s log drop within 4 blocks is NOT chased', async () => {
+  // an old log on a stone ledge 3 up, inside the 4-block sweep radius; the new log is an open trunk
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log', [K(-1, 64, 0)]: 'stone', [K(-1, 65, 0)]: 'stone', [K(-1, 66, 0)]: 'stone' },
+                      items: [{ name: 'oak_log', at: [-0.5, 67, 0.5] }] })
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(r.pickup.verdict, 'collected')
+  assert.equal(bot.seen.goals.filter(g => g.constructor.name === 'GoalNear').length, 0, 'the sweep chased another log')
+})
+
+await ta('SWEEP: an item with no metadata is NOT chased', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, items: [{ name: 'oak_sapling', at: [-2.5, 64, 0.5], meta: false }] })
+  await run(bot, target(bot, 1, 64, 0))
+  assert.equal(bot.seen.goals.filter(g => g.constructor.name === 'GoalNear').length, 0, 'an unidentified item was chased')
+})
+
+await ta('SWEEP: a sapling is skipped when 16 of that species are held', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, held: { oak_sapling: 16 },
+                      items: [{ name: 'oak_sapling', at: [-2.5, 64, 0.5] }] })
+  await run(bot, target(bot, 1, 64, 0))
+  assert.equal(bot.held('oak_sapling'), 16)
+  assert.equal(bot.seen.goals.filter(g => g.constructor.name === 'GoalNear').length, 0)
+})
+
+await ta('SWEEP ABORT: an abort during the sweep walk rejects at once and cancels it', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, walkMs: 4000, items: [{ name: 'oak_sapling', at: [-2.5, 64, 0.5] }] })
+  const ac = new AbortController()
+  let abortedAt = 0
+  // the log is collected by waiting (no walk); the first walk is the sweep's
+  bot.pathfinder.goto = (orig => async g => { if (!abortedAt) setTimeout(() => { abortedAt = Date.now(); ac.abort() }, 300); return orig(g) })(bot.pathfinder.goto)
+  const { e } = await run(bot, target(bot, 1, 64, 0), { signal: ac.signal })
+  assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
+  assert.ok(Date.now() - abortedAt < 400, `took ${Date.now() - abortedAt} ms after the abort`)
+  assert.ok(bot.seen.halted >= 1, 'the sweep walk was never cancelled')
+})
+
+await ta('INITIAL DIG, DEADLINE: a 3 s dig is clamped to the deadline and stopped', async () => {
+  const bot = world({ digTimes: { oak_log: 3000 }, blocks: { [K(1, 64, 0)]: 'oak_log' } })
+  const t0 = Date.now()
+  const { e } = await run(bot, target(bot, 1, 64, 0), { deadline: Date.now() + 800 })
+  assert.ok(e, 'a dig past the deadline must not report success')
+  assert.ok(Date.now() - t0 < 1300, `ran ${Date.now() - t0} ms past an 800 ms deadline`)
+  assert.deepEqual(bot.seen.digs, [], 'the dig was not stopped')
+})
+
+await ta('INITIAL DIG, ABORT: an abort mid-dig rejects at once and stops the dig', async () => {
+  const bot = world({ digTimes: { oak_log: 3000 }, blocks: { [K(1, 64, 0)]: 'oak_log' } })
+  const ac = new AbortController()
+  let abortedAt = 0
+  setTimeout(() => { abortedAt = Date.now(); ac.abort() }, 400)
+  const { e } = await run(bot, target(bot, 1, 64, 0), { signal: ac.signal })
+  assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
+  assert.ok(Date.now() - abortedAt < 300, `took ${Date.now() - abortedAt} ms after the abort`)
+  assert.deepEqual(bot.seen.digs, [], 'the dig was not stopped')
+})
+
+await ta('WALK BEFORE THE DIG, DEADLINE: a slow approach is clamped to the deadline', async () => {
+  const bot = world({ feet: [-6.5, 64, 0.5], walkMs: 4000, blocks: { [K(1, 64, 0)]: 'oak_log' } })
+  const t0 = Date.now()
+  const { e } = await run(bot, target(bot, 1, 64, 0), { deadline: Date.now() + 800 })
+  assert.ok(e, 'must not report success')
+  assert.ok(Date.now() - t0 < 1300, `ran ${Date.now() - t0} ms past an 800 ms deadline`)
+  assert.ok(bot.seen.halted >= 1, 'the approach walk was never cancelled')
+})
+
+await ta('WALK BEFORE THE DIG, ABORT: an abort mid-approach rejects at once', async () => {
+  const bot = world({ feet: [-6.5, 64, 0.5], walkMs: 4000, blocks: { [K(1, 64, 0)]: 'oak_log' } })
+  const ac = new AbortController()
+  let abortedAt = 0
+  setTimeout(() => { abortedAt = Date.now(); ac.abort() }, 400)
+  const { e } = await run(bot, target(bot, 1, 64, 0), { signal: ac.signal })
+  assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
+  assert.ok(Date.now() - abortedAt < 300, `took ${Date.now() - abortedAt} ms after the abort`)
 })
 
 // ============================================================ wired: gather ===

@@ -50,7 +50,8 @@
  */
 import { Vec3 } from 'vec3'
 import { LAVA_LIKE } from './lavaguard.mjs'
-import { neverPickUp } from './hygiene.mjs'
+import { neverPickUp, TRIGGER_SLOTS } from './hygiene.mjs'
+import { SAPLINGS } from './pickuplog.mjs'
 
 // ---------------------------------------------------------------- the box -----
 
@@ -320,6 +321,37 @@ export function isDropFrom (e, cell, family, pre = new Map()) {
   const had = pre instanceof Map ? pre.get(e.id) : (pre?.has?.(e.id) ? null : undefined)
   if (had === undefined) return true                              // a new entity (identified or not yet)
   return who.kind === 'family' && Number.isFinite(had) && Number.isFinite(who.count) && who.count > had
+}
+
+// ---------------------------------------------------------------- the sweep -----
+
+/**
+ * Saplings kept per species (owner decision, consistent with the composter's SAPLING_RESERVE = 16): planting
+ * needs some, the bag does not need more.
+ */
+export const SAPLING_RESERVE = 16
+/** The sweep never takes the last free slot: below this many, only a partial stack may take the item. */
+export const SWEEP_MIN_FREE = 2
+const SAPLING_NAMES = new Set(SAPLINGS)
+
+/**
+ * Should the bounded sweep after a log's pickup walk to this item? ONLY a metadata-confirmed sapling (while fewer
+ * than SAPLING_RESERVE of that species are held) or an apple (food: always). Never a log -- an earlier dig's drop
+ * would bring GoalNear(drop, 1) and its A* timeout straight back -- and never an unidentified item. And only with
+ * room: a partial stack of it, or >= SWEEP_MIN_FREE free slots, and never at hygiene's TRIGGER_SLOTS used.
+ * Pure over the entity and an inventory snapshot { items, emptySlots }.
+ */
+export function sweepWants (e, { items = [], emptySlots = NaN } = {}) {
+  let name = null
+  try { name = e?.getDroppedItem?.()?.name ?? null } catch { name = null }
+  if (!name) return false
+  const sapling = SAPLING_NAMES.has(name)
+  if (!sapling && name !== 'apple') return false
+  const list = Array.isArray(items) ? items : []
+  if (list.length >= TRIGGER_SLOTS) return false
+  if (sapling && list.filter(i => i?.name === name).reduce((n, i) => n + (i.count ?? 0), 0) >= SAPLING_RESERVE) return false
+  const partial = list.some(i => i?.name === name && (i.count ?? 0) < (i.stackSize ?? 64))
+  return partial || (Number.isFinite(emptySlots) && emptySlots >= SWEEP_MIN_FREE)
 }
 
 // ---------------------------------------------------------------- bounds -----

@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
-import { pickupTransaction, itemIdsNow, supportVeto, standHeight, PICKUP_THINK_MS } from './logpickup.mjs'
+import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, PICKUP_THINK_MS } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -1130,7 +1130,8 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
     pathSaid = 'resolved'
     const stance = reachGoal(goals, p) ?? new goals.GoalNear(p.x, p.y, p.z, 2)
     try {
-      await withTimeout(bot.pathfinder.goto(stance), 15000, bot)
+      // BOUNDED BY THE CALLER'S DEADLINE TOO, and cancelled on abort (Codex P2, second pass).
+      await abortable(withTimeout(bot.pathfinder.goto(stance), clampLeft(15000, deadline), bot), signal, () => haltPath(bot))
     } catch (e) {
       if (e.aborted || signal?.aborted) throw e
       pathSaid = e?.name && e.name !== 'Error' ? e.name : String(e?.message ?? e).slice(0, 60)
@@ -1182,7 +1183,8 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
         let walked
         try {
           await bot.withGatherMovements(() =>
-            withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), APPROACH_WALK_MS, bot, { needsDrop: false }))
+            abortable(withTimeout(bot.pathfinder.goto(reachGoal(goals, p) ?? stance), clampLeft(APPROACH_WALK_MS, deadline), bot,
+              { needsDrop: false }), signal, () => haltPath(bot)))
           pathSaid = `${pathSaid}, then dug ${plan.dig} to approach`
         } catch (e) {
           if (e.aborted || signal?.aborted) {
@@ -1303,10 +1305,14 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
   const logDig = LOG_PICKUP.test(wasNamed ?? '')
   const pre = logDig ? itemIdsNow(bot) : null
   const heldBefore = logDig ? heldFromBlock(bot, wasNamed) : 0
-  await withTimeout(bot.dig(block), 20_000, bot, {
+  // THE DIG IS BOUNDED BY WHAT IS LEFT OF THE CALLER'S DEADLINE, not an unconditional 20 s, and stopped on abort.
+  if (deadline - Date.now() < 250) {
+    throw Object.assign(new Error(`dig exceeded the gather deadline before it could start (${wanted})`), { failClass: 'dig_budget' })
+  }
+  await abortable(withTimeout(bot.dig(block), Math.min(20_000, clampLeft(20_000, deadline)), bot, {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
-  })
+  }), signal, () => { try { bot.stopDigging?.() } catch { /* not digging */ } })
 
   // THE COMMENT ABOVE USED TO SAY dig() "resolves when the server confirms the
   // break". IT DOES NOT. digging.js contains zero ack handling -- it arms
@@ -1352,7 +1358,10 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
     const sweepMs = Math.min(SWEEP_MS, deadline - Date.now())
     if (sweepMs >= 500 && pickup.verdict !== 'inventory_full') {   // a full bag cannot take a sapling either
       const t = Date.now(), before = keptDrops(bot)
-      await pickupNearbyItems(bot, signal, SWEEP_RADIUS, { exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs })
+      await pickupNearbyItems(bot, signal, SWEEP_RADIUS, {
+        exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs,
+        accept: e => sweepWants(e, { items: bot.inventory?.items?.() ?? [], emptySlots: bot.inventory?.emptySlotCount?.() }),
+      })
       const after = keptDrops(bot)
       logEvent({ kind: 'pickup_sweep', status: 'success',
                  detail: `after ${wasNamed}: saplings +${after.saplings - before.saplings} apples +${after.apples - before.apples} ` +
@@ -1399,10 +1408,19 @@ function supportVetoFor (bot, b) {
   })
 }
 
+/** `ms`, but never past `deadline` (absolute); at least 1 so withTimeout still fires. */
+function clampLeft (ms, deadline) {
+  return Math.max(1, Math.min(ms, Number.isFinite(deadline) ? deadline - Date.now() : ms))
+}
+
 /** Race `work` against the skill's abort, and CANCEL the in-flight work when the abort wins. */
 function abortable (work, signal, cancel) {
   if (!signal) return work
-  if (signal.aborted) { try { cancel() } catch { /* best effort */ } return Promise.reject(new Aborted()) }
+  if (signal.aborted) {
+    Promise.resolve(work).catch(() => {})   // already settling under us: its rejection must not go unhandled
+    try { cancel() } catch { /* best effort */ }
+    return Promise.reject(new Aborted())
+  }
   let onAbort
   const gate = new Promise((_, rej) => {
     onAbort = () => { try { cancel() } catch { /* best effort */ } rej(new Aborted()) }
@@ -1466,7 +1484,7 @@ function pickupIO (bot) {
  * The budget is unchanged. What changes is which drop the budget is spent on:
  * a drop that refuses is SKIPPED, not surrendered to.
  */
-export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = null, budgetMs = Infinity } = {}) {
+export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = null, budgetMs = Infinity, accept = null } = {}) {
   // Ids that refused us this sweep. Per-sweep, deliberately: a drop unreachable
   // from here may be fine after the next dig moves the bot, and a persistent
   // blacklist of entity ids would outlive the entities.
@@ -1478,6 +1496,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
     const drop = bot.nearestEntity?.(e =>
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       !exclude?.has(e.id) &&                                          // already judged by the log pickup
+      (!accept || accept(e)) &&                                       // the caller's filter (sweepWants after a log)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
@@ -1485,8 +1504,9 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
     const releaseSought = noteSought(bot, drop.id, 'pickup')
     const walkT0 = Date.now()
     try {
-      await withTimeout(bot.pathfinder.goto(
-        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), Math.max(1, Math.min(6000, sweepEnd - Date.now())), bot)
+      await abortable(withTimeout(bot.pathfinder.goto(
+        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), Math.max(1, Math.min(6000, sweepEnd - Date.now())), bot),
+      signal, () => haltPath(bot))
     } catch (e) {
       releaseSought()
       if (e.aborted || signal?.aborted) throw e
@@ -1510,7 +1530,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
                          `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
-    try { await sleep(250, signal) } finally { releaseSought() }
+    try { await sleep(Math.max(0, Math.min(250, sweepEnd - Date.now())), signal) } finally { releaseSought() }
     // ONE WALK PER DROP PER SWEEP, whatever happened.
     //
     // The first draft retired a drop only when the bot ended up >= 2 blocks
