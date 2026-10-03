@@ -30,6 +30,15 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   deploy script (only instance #1's deploy-harness.sh) and the fleet sha fails it. Now `bots/test/lint-gate.test.mjs`
   runs it in the suite (positive control + mutant killed); the one typeof-guarded `withinBody` is declared global.
   Every cross-base variant: run the no-undef lint, not only the suite.
+- **craftroom on craftsync (cr-on-a40c588 @ f975a52, builder):** craftsync is the ONE verifier (marker removed),
+  count = items, one execution per bot.craft. BOTH reviews CHANGE (14:00Z): [P1, both] room is checked BEFORE craftsync's
+  baseline resync -- Codex reproduced a pickaxe tossed when the last slot fills during the resync; fix = an admission
+  hook inside craftsync after the resync, before the first click (+1 slot margin with an item entity in range);
+  verdict labels from error.reason (unanswered / click_timeout, source=none); executable-remedy refusal. Builder applying.
+  **craftroomread.py REWRITTEN** (Claude review: the old gates were 0 by construction under craftsync): correctness =
+  canary pickaxe crafts the SERVER saw lost with a full bag <= 1; instrument = verdict=unanswered share <= 5%,
+  verified_local = 0. Dry run clean but its positive control (`_craft_sync` lost-pickaxe rows) CANNOT be shown until
+  craftsync-01's canary emits them -- prove it on those rows before chaining craftroom.
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
