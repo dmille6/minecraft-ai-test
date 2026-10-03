@@ -72,6 +72,12 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   Edge: a boat the bot pushes can drift into the chosen table cell (1/3 placement timeout; bounded). Reviews: both
   CHANGE on one item (the avoid-set entry is a no-op; the real hazard is a path node ON TOP of the composter -> an
   exclusionAreasStep) -- builder fixing. Harness re-run on main (650052f).
+  **COMPOSTER FINAL = co-on-b00b22c @ 948bc26 (pushed), both engines AGREE (~21:00Z), Paper re-run 9/9** (compost 6/6
+  bone meal in the bag at the fleet's 20 s stuck limit; build 3/3 exact). The fleet-wide composter exclusion (d9b8b07)
+  was REVERTED to a scoped one: Codex reproduced a drop-down landing on the top that the exclusion did not price
+  (getLandingBlock cells never pass exclusionStep) and measured ~8% slower getNeighbors fleet-wide; now only the compost
+  visit's two walks borrow a profile whose neighbours are filtered by their real landing cell. Shared movement profiles
+  are byte-identical to d2f3629. Queue slot: 4th (after craftsync, logpickup, craftroom).
 - **LATENT IRON BLOCKER (sandbox 19:50Z, verified against the fleet):** the 20 s stuck watchdog killed `smelt 8
   raw_iron` at 20.7 s (8 iron ~ 80 s of furnace time; the bot stands still). Fleet 24 h: 0 of 141 failed/aborted/
   unknown smelts coincide with a _reflex_stuck (positive control: 48 other skill rows do -- goto 26, gather 10,
