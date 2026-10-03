@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision,
-         tunnelRoom, packPlan, isPackRecipe, resultHasRoom, bulkiest } from './oretunnel.mjs'
+         tunnelRoom, tunnelDrops, dropRisk, sameStack, mergePlan, bagOccupants } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1438,41 +1438,91 @@ const TUNNEL_TRIES = 3
 // Reach buried iron the bot already knows about (oretunnel.mjs says why and how). Called by gather in place of
 // the old `mine({y})` escalation, for iron only. Every refusal names a remedy the bot can perform from where it
 // stands and carries a class with no vote; the outcome row is written from the inventory, not the plan.
-const PACK_CRAFT_MS = 4000
+// ------------------------------------------------------------- merge split stacks -----
+const MERGE_BUDGET_MS = 8000
+const MERGE_MAX = 6
+const MERGE_CLICK_MS = 2000
+const SETTLE_TICKS = 2
 /**
- * PACK THE BAG: carry out packPlan through mineflayer's own craft (the path craft() uses), ONE craft at a time, and
- * only while the result has somewhere to go -- mineflayer TOSSES a craft result with no room (owner rule: never drop).
- * Stops as soon as the tunnel has room. Writes one `bag_packed` row when it plans anything. Never throws but on abort.
+ * MERGE SPLIT STACKS (oretunnel.mjs mergePlan): two part-filled stacks of the SAME item become one and a slot comes
+ * free. No craft, no drop -- nothing in this function ever clicks outside the window.
+ *
+ * Each move is: pick up the source stack (its slot is now EMPTY), click the destination (the server merges what fits),
+ * and if anything is left on the cursor, put it back -- in the source slot if it is still empty or the same item,
+ * else in another stack of the same item with room (the plan only pours when the group has room for the whole
+ * source), else an empty slot. Never onto a different item: that click would SWAP and leave a stranger on the cursor.
+ * If the cursor still has no home it is left there, reported as stranded, and merging stops.
+ *
+ * SETTLE: on 1.17+ the server answers a click only when it disagrees with the client's prediction, so a click that
+ * went as predicted produces no event to await. Each click waits two ticks (bounded) and every decision reads the
+ * window afterwards, so a correction the server sent has been applied before the next click is chosen.
+ * ABORT AND BUDGET are checked BETWEEN moves only: a move that has picked a stack up always finishes putting it down.
  */
-async function packBag (bot, signal, room) {
-  const items = () => bot.inventory?.items?.() ?? []
-  const empty = () => bot.inventory?.emptySlotCount?.() ?? 0
-  const plan = packPlan(items(), { emptySlots: empty(), want: room.slotsShort,
-                                   stackSizeOf: n => bot.registry?.itemsByName?.[n]?.stackSize })
-  if (!plan) return { said: 'nothing to pack (or no room for the first result)' }
-  const fromId = bot.registry.itemsByName[plan.from]?.id, toId = bot.registry.itemsByName[plan.to]?.id
-  const recipe = (bot.recipesFor?.(toId, null, 1, null) ?? []).find(r => isPackRecipe(r, fromId, toId, plan))
+export async function mergeStacks (bot, signal, { want = 1, budgetMs = MERGE_BUDGET_MS } = {}) {
+  const inv = bot.inventory
+  const t0 = Date.now()
+  const empty = () => inv?.emptySlotCount?.() ?? 0
+  const cursor = () => inv?.selectedItem ?? null
+  const slotAt = i => inv?.slots?.[i] ?? null
+  const start = inv?.inventoryStart ?? 9, end = inv?.inventoryEnd ?? 45
   const before = empty()
-  let made = 0, stopped = null
-  if (!recipe) stopped = `no ${plan.from}->${plan.to} inventory recipe offered`
-  for (; recipe && made < plan.crafts; made++) {
-    check(signal)
-    if (tunnelRoom(items(), empty()).ok) break
-    if (!resultHasRoom(items(), empty(), plan.to, plan.makes)) { stopped = `no room for the next ${plan.to}`; break }
-    try {
-      await withTimeout(bot.craft(recipe, 1, undefined), PACK_CRAFT_MS, bot, { what: 'craft', needsDrop: false, onTimeout: () => {} })
-    } catch (e) {
-      if (e?.aborted || signal?.aborted) throw e
-      stopped = `craft failed: ${String(e?.message ?? e).slice(0, 50)}`
-      break
-    }
+  let merges = 0, clicks = 0, stranded = false, stopped = null
+  const settle = async () => {
+    try { await withTimeout(Promise.resolve(bot.waitForTicks?.(SETTLE_TICKS)), 1500, bot, { what: 'settle', needsDrop: false, onTimeout: () => {} }) } catch {}
   }
-  const after = empty()
-  const said = `${made}x ${plan.from}->${plan.to}, empty slots ${before}->${after}${stopped ? ` (${stopped})` : ''}`
-  logEvent({ kind: 'bag_packed', status: after > before ? 'success' : 'failed', snapshot: snapshot(bot),
-             detail: (`${said}; planned ${plan.crafts} crafts freeing ${plan.freed} (${plan.slotsBefore}->${plan.slotsAfter} slots); ` +
-                      `short ${room.slotsShort}: ${room.why}`).slice(0, 300) })
-  return { said, made, before, after }
+  const mergeClick = async slot => {
+    clicks++
+    await withTimeout(Promise.resolve(bot.clickWindow(slot, 0, 0)), MERGE_CLICK_MS, bot, { what: 'click', needsDrop: false, onTimeout: () => {} })
+    await settle()
+  }
+  /** A slot that takes the whole cursor with no swap: the source if it can, else a same-item stack with room, else empty. */
+  const homeFor = prefer => {
+    const c = cursor(); if (!c) return null
+    const takes = i => { const s = slotAt(i); return !s || (sameStack(s, c) && s.count < s.stackSize) }
+    if (prefer != null && takes(prefer)) return prefer
+    for (let i = start; i < end; i++) { const s = slotAt(i); if (s && sameStack(s, c) && s.count < s.stackSize) return i }
+    for (let i = start; i < end; i++) if (!slotAt(i)) return i
+    return null
+  }
+  const goHome = async prefer => {
+    for (let i = 0; i < 4 && cursor(); i++) {
+      const home = homeFor(prefer)
+      if (home == null) break
+      await mergeClick(home)
+    }
+    return !cursor()
+  }
+  let src = null
+  try {
+    if (bot.currentWindow) stopped = 'a container window is open'
+    else if (cursor()) stopped = 'the cursor already holds an item'
+    while (!stopped && merges < MERGE_MAX && empty() < before + want) {
+      check(signal)
+      if (Date.now() - t0 >= budgetMs) { stopped = 'out of time'; break }
+      const m = mergePlan(inv.items(), { want: 1 })?.moves?.[0]
+      if (!m) break
+      src = m.src
+      const dst = m.dst
+      const a = slotAt(src), b = slotAt(dst)
+      if (!a || !b || !sameStack(a, b) || b.count >= b.stackSize) { stopped = 'the window changed under the plan'; break }
+      await mergeClick(src)
+      if (cursor()) await mergeClick(dst)
+      if (cursor() && !(await goHome(src))) { stranded = true; stopped = `no home for ${cursor()?.count} ${cursor()?.name} on the cursor`; break }
+      merges++
+      src = null
+    }
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    stopped = `click failed: ${String(e?.message ?? e).slice(0, 40)}`
+    try { if (cursor() && !(await goHome(src))) stranded = true } catch { stranded = !!cursor() }
+  } finally {
+    const said = `${merges} merge${merges === 1 ? '' : 's'} (${clicks} clicks), empty slots ${before}->${empty()}` +
+                 (stopped ? `; stopped: ${stopped}` : '') + (stranded ? '; STRANDED cursor' : '')
+    logEvent({ kind: 'bag_packed', status: empty() > before ? 'success' : 'failed', snapshot: snapshot(bot), detail: said })
+  }
+  check(signal)
+  return { merges, clicks, before, after: empty(), stranded,
+           said: `${merges} merge${merges === 1 ? '' : 's'}, empty ${before}->${empty()}${stopped ? ` (${stopped})` : ''}` }
 }
 
 export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
@@ -1488,24 +1538,32 @@ export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   if (deadlineMs < 30_000) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: 'too little of this gather left to tunnel -- ask for the ore again' }, `refused: ${Math.round(deadlineMs / 1000)} s left`)
   }
-  // ROOM FIRST, BY CAPACITY (oretunnel.mjs tunnelRoom): a tunnel yields ~2.4 cobblestone per block of depth plus the
-  // ore. Spare room in held stone and raw_iron stacks counts; when that is not enough, pack the bag (one lossless
-  // inventory-grid craft, nothing dropped) and look again. "Deposit first" was a remedy the full bank often refused.
+  // ROOM FIRST, BY CAPACITY, PER ITEM (oretunnel.mjs tunnelRoom). The ore's slot is reserved; held stacks count only
+  // for their own item. When short, merge split stacks (nothing crafted, nothing dropped) and look again. "Deposit
+  // first" was a remedy the full bank often refused; this check runs again on the PLAN's real drops below.
+  const held = () => bot.inventory?.items?.() ?? []
   const emptyNow = () => bot.inventory?.emptySlotCount?.() ?? 0
-  let room = tunnelRoom(bot.inventory?.items?.() ?? [], emptyNow())
-  let packSaid = null
-  if (!room.ok) {
-    const packed = await packBag(bot, signal, room)
-    packSaid = packed.said
-    room = tunnelRoom(bot.inventory?.items?.() ?? [], emptyNow())
+  const risk = dropRisk(held(), id => bot.registry?.enchantments?.[id]?.name)
+  const roomOpts = { extraSlots: risk.risky ? 1 : 0, stackSizeOf: n => bot.registry?.itemsByName?.[n]?.stackSize }
+  const mergeBudget = () => Math.max(0, Math.min(MERGE_BUDGET_MS, deadlineMs - (Date.now() - t0) - 30_000))
+  const makeRoom = async (opts) => {
+    let room = tunnelRoom(held(), emptyNow(), opts), said = null
+    if (!room.ok) {
+      said = (await mergeStacks(bot, signal, { want: room.slotsShort, budgetMs: mergeBudget() })).said
+      room = tunnelRoom(held(), emptyNow(), opts)
+    }
+    return { room, said }
   }
-  if (!room.ok) {
-    const bulk = bulkiest(bot.inventory?.items?.() ?? []).map(b => `${b.name} ${b.count} (${b.slots} slot${b.slots === 1 ? '' : 's'})`).join(', ')
+  // THE REFUSAL NAMES THE SHORTFALL AND WHAT FILLS THE BAG, not "deposit": most of what fills it is not bankable.
+  const refuseFull = (room, when, said) => {
+    const occ = bagOccupants(held()).map(b => `${b.name} ${b.count} (${b.slots} slot${b.slots === 1 ? '' : 's'})`).join(', ')
     return out({ status: 'failed', failClass: 'inventory_full',
-                 detail: `no room for what a tunnel yields (${room.why}) — free ${room.slotsShort} slot${room.slotsShort === 1 ? '' : 's'}: ` +
-                         `deposit${bulk ? ` or use up ${bulk}` : ''}` },
-               `refused: inventory full; empty ${room.emptySlots}, stone spare ${room.stoneSpare}, ore spare ${room.oreSpare}; pack: ${packSaid ?? 'none'}`)
+                 detail: `no room for what this tunnel yields (${when}): ${room.why}${risk.why ? ` [${risk.why}]` : ''} — ` +
+                         `${room.slotsShort} more free slot${room.slotsShort === 1 ? '' : 's'} needed; the bag holds ${occ}` },
+               `refused ${when}: short ${room.slotsShort}; merge: ${said ?? 'none needed'}`)
   }
+  const pre = await makeRoom(roomOpts)
+  if (!pre.room.ok) return refuseFull(pre.room, 'before planning', pre.said)
   const ids = IRON_KINDS.map(n => bot.registry.blocksByName[n]?.id).filter(id => id != null)
   const feet = bot.entity.position.floored()
   const at = q => bot.blockAt(q)
@@ -1523,6 +1581,11 @@ export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `no safe tunnel to iron: ${plan.why}` }, `refused: ${plan.why} over ${candidates.length} candidate(s) in ${plan.ms} ms`)
   }
   const cluster = clusterOf(at, plan.target)
+  // RECHECK ON THE PLAN (both reviews): what the planned breaks actually drop, item by item, plus this cluster's ore.
+  // The pre-plan screen guessed; this is the check that decides.
+  const need = tunnelDrops(plan.breaks.map(q => bot.blockAt(q)?.name), b => dropsOf(bot.registry, b))
+  const post = await makeRoom({ ...roomOpts, cluster: cluster.length, need })
+  if (!post.room.ok) return refuseFull(post.room, `${plan.breaks.length} planned breaks, cluster ${cluster.length}`, post.said ?? pre.said)
   const pickBreaks = plan.breaks.filter(q => /pickaxe/.test(bot.blockAt(q)?.material ?? '')).length
   const budget = tripDecision(bot.inventory.items(), { pickBreaks, cluster: cluster.length })
   if (budget.refuse === 'too_long') {
