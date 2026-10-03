@@ -58,6 +58,21 @@ correctness canary; effect needs >= 4 worlds, world-level DiD. A frontier-DIRECT
 beyond its own run-to-run disagreement and < 2% invalid output; otherwise the frontier's job is auditor.
 **Decision date: 72 h after the shadow starts — record KEEP-BUILDING or STOP (no open loop).**
 
+**PRE-REGISTERED AMENDMENT (written 2026-10-03 ~19:00Z, BEFORE any decision-partition data was read; PROPOSED — the
+owner decides which reading counts).** Both review engines found "downstream success >= 1.5x base" biased toward KEEP:
+the mayor re-proposes a bot right after a success and goes quiet ~25 min after a failure (lease expiry + cooldown),
+while the base rate samples every eligible bot every 5 min; and "near the target" exists only on the proposal side.
+The read will report BOTH:
+- ORIGINAL: downstream vs base, as written above.
+- CORRECTED (recommended): concordance xbase of the deterministic mayor >= 1.5x the LEASED-RANDOM baseline's xbase
+  (same lease/cooldown logic, random choice), in partition `2e82cfe81496/<cfg>` only (deployed 2026-10-03 18:02:46Z;
+  GET_WOOD became per-bot then), PASSES only if every start offset of the sensitivity band (0-25 min) is defined and
+  above 1.5x; any undefined offset = INCOMPLETE. Printed for all four duties; FREE_BAG/RESTORE_PICK should read ~1.0
+  by construction (no selection value). GET_IRON cannot pass in any case (its shortage is unknown-bank, so it never
+  enters the unforced gap). The other criteria are unchanged.
+- FROZEN until the read: mayor_core.py, mayor_shadow.py, stack_sizes.json and cfg flags (any change starts a new
+  partition and the 48 h no longer fits). Scorer: shadow-mayor branch, scripts/mayor/mayor_score.py.
+
 ## Not built
 In-bot mayor, SQLite leases, permanent jobs, chest ledger/quartermaster before withdraw works, prompt "advice",
 a frontier call per bot, live frontier calls before the replay result, new telemetry fields.
