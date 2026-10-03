@@ -1188,5 +1188,27 @@ await t('ONCE PER CRAFT LEVEL: a 16-execution batch beside a stream of drops wai
   assert.match(r.detail, /cobblestone 2\.0 blocks away/)
 })
 
+// --- round 4: a 2x2 step of a plan is anchored to the plan's station ---------------------------------
+await t('PLAN table step -> 2x2 step with a pickup -> table step: the 2x2 step\'s pickup is measured from the STATION; no craft out of reach', async () => {
+  // the real plan: wooden_pickaxe[T] (oak) > birch_planks (2x2) > wooden_pickaxe[T] (birch). After the first craft a
+  // cobblestone drop rolls up 2.4 blocks off, up a ledge, on the far side from the table: collecting it would leave the
+  // bot 5.2 blocks from the table for the last step.
+  let dropped = false
+  const made = makeBot(bagOf(36, [item('oak_planks', 3), item('stick', 4), item('birch_log', 1), item('cobblestone', 10)]), { tables: [NEAR],
+    afterCraft: () => { if (!dropped) { dropped = true; DROP(made.bot, -2.9, -1.9, 'cobblestone'); made.bot.entities[77].position = new Vec3(-2.9, 66.5, -1.9) } } })
+  const { bot, crafts } = made
+  bot.entity.position = new Vec3(-0.5, 64, 0.5)
+  const centre = new Vec3(1.5, 64.5, 0.5)
+  const reachAtCraft = []
+  const craft = bot.craft
+  bot.craft = async (r, c, t, o) => { if (t) reachAtCraft.push(bot.entity.position.distanceTo(centre)); return craft(r, c, t, o) }
+  const r = await run(bot, { item: 'wooden_pickaxe', count: 2 })
+  assert.ok(dropped, 'positive control: the first (table) step ran and the drop appeared')
+  assert.ok(reachAtCraft.every(d => d <= 4.5), `bot.craft at a table ${reachAtCraft.map(d => d.toFixed(2))} blocks away`)
+  assert.notEqual(r.failClass, 'no_path', r.detail)
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.match(r.detail, /too far to collect and still craft there/)
+  assert.deepEqual(crafts, [1], 'only the first table step: the 2x2 step refused, the last step never ran')
+})
+
 console.log(`  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

@@ -3506,7 +3506,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   const requested = Math.max(1, Math.floor(Number(count) || 1))
   const tally = (executions, produced) => ({ item, requested, executions, produced })
   let executions = 0, produced = 0
-  const ran = await craftExecutions(ctx, { item, recipe, crafts: craftsFor(count, recipe), table, signal,
+  const ran = await craftExecutions(ctx, { item, recipe, crafts: craftsFor(count, recipe), table, anchor: table, signal,
     deadline: craftDeadline(ctx), rs,
     onVerified: n => { executions++; produced += n; Object.assign(progress, tally(executions, produced)) } })
   if (!ran.ok) return { ...ran.out, ...tally(executions, produced) }
@@ -3541,11 +3541,12 @@ const craftDeadline = ctx => (ctx.runner?.current?.startedAt ?? Date.now()) + co
  * after-resync has already written the server's bag into bot.inventory, so that read is the server's. Without
  * craftsync (its install failed at spawn) the local count is all there is, and a gain is `verified_local`.
  *
+ * `anchor` is the crafting table the craft (or its plan) is using, also for a 2x2 step: the pickup step keeps it in reach.
  * `rs` is the level's room state ({ tries, tableYields, owed(), stationDid }), shared across a plan's steps so a plan
  * gets the same two make-room tries and the same table reserve as one direct craft. `onVerified(n)` is called with the
  * items each verified execution produced -- the ONLY place a produced count is taken, so nothing is counted twice.
  */
-async function craftExecutions(ctx, { item, recipe, crafts, table, signal, deadline, rs, onVerified = () => {} }) {
+async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null, signal, deadline, rs, onVerified = () => {} }) {
   const { bot } = ctx
   const plan = roomRecipe(bot.registry, recipe, item)
   const synced = !!bot.craftSync
@@ -3583,7 +3584,9 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, signal, deadl
       if (!room.pickupOnly) return null
       if (rs.pickupDealt) return refusePickup(bot, item, room, ` (already waited for and tried an item once in this craft)${sofar(done)}`)
       rs.pickupDealt = true
-      const r = await settlePickup(ctx, { plan, owed: reserveFor, table, signal })
+      // THE STATION THIS CRAFT USES, even for a 2x2 step of a plan whose later steps need it (Claude review): the reach
+      // band and the walk-back check are measured from it, or a pickup walk on a 2x2 step strands the next table step.
+      const r = await settlePickup(ctx, { plan, owed: reserveFor, table: anchor ?? table, signal })
       room = r.room
       if (r.lostTable) {
         logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot), detail: `refused ${item}: reason=table_out_of_reach ${r.lostTable}` })
@@ -3843,7 +3846,7 @@ async function runCraftPlan (ctx, plan, { item, count, signal, table, rs, placed
     }
     const root = step.item === item
     const r = await craftExecutions(ctx, { item: step.item, recipe: step.recipe.ref, crafts: step.crafts,
-      table: step.recipe.table ? station : undefined, signal, deadline, rs,
+      table: step.recipe.table ? station : undefined, anchor: station ?? undefined, signal, deadline, rs,
       onVerified: n => { if (root) { executions++; produced += n; Object.assign(progress, tally()) } } })
     if (!r.ok) return { ...r.out, ...tally(), detail: `${r.out.detail}${root ? '' : ` [making ${step.item} for ${item}]`}${after()}` }
     local += r.local
