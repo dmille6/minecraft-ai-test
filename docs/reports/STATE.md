@@ -57,6 +57,12 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   craft does not consume -- e9da587's plain "deposit" would bank the craft's own sticks/cobblestone), remedy-first
   text (Codex: 220-char truncation drops the remedy, twice: skill detail and cognitive.mjs:1037), whole-chain
   ingredient protection for planned crafts.
+- **craftroom FINAL = b00b22c (cr-on-a40c588, pushed), both engines AGREE (~17:40Z):** e9da587 (sandbox-passed) +
+  the backport: deposit advice names one non-ingredient item whose deposit empties a stack (depositTarget), whole-plan
+  ingredient protection, remedy-first refusal text checked through formatOutcome (output-identical, 1,152 cases).
+  The backport changes advice text only, not the crafting mechanics the sandbox measured.
+- **composter on craftroom: co-on-b00b22c @ 1663e06 (pushed);** Claude AGREE, Codex CHANGE on one item (enforce the
+  stand cell before placing the table) -- builder fixing. C4: chain room now simulated (from logs 2 slots, not 4).
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
