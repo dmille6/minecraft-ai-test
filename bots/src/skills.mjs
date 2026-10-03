@@ -1297,8 +1297,17 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   // and cleaned up with stopDigging() rather than the pathfinder default --
   // clearing a path goal does nothing for a stuck dig.
   // The caller's last word, immediately before the swing (craft's table retake revalidates ownership here).
-  beforeDig?.()
-  await withTimeout(bot.dig(block), 20_000, bot, {
+  // mineflayer's dig AWAITS a lookAt before it sends block_dig unless forceLook is 'ignore' (digging.js, 4.37.1), and
+  // a block can change during that look. So with a hook: look first (instant), ask the hook, then dig with 'ignore'
+  // -- no second look, and no await between the last check and the dig packet.
+  let forceLook
+  if (beforeDig) {
+    try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
+    check(signal)
+    beforeDig()
+    forceLook = 'ignore'
+  }
+  await withTimeout(bot.dig(block, forceLook), 20_000, bot, {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
   })
@@ -3220,6 +3229,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   // left standing -- a pickaxe is the measured loss, a table costs one log. Once set, the reserve stays off.
   let tableYields = false
   const reserveFor = () => (tableYields ? 0 : owedNow())
+  let local = 0                 // executions verified only by the local count (no server statement by the deadline)
   for (let rep = 0; rep < reps; rep++) {
     check(signal)
     let room = craftRoomNow(bot, plan, reserveFor())
@@ -3253,6 +3263,13 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       stationDid.push(freed.said)
       room = craftRoomNow(bot, plan, reserveFor())
     }
+    // Both tries made a slot and something refilled it (the server's auto-pickup cannot be refused): if the table's
+    // reserved slot is all that is missing, the craft still goes first.
+    if (!room.ok && room.reason === 'no_room' && reserveFor() > 0 && craftRoomNow(bot, plan, 0).ok) {
+      tableYields = true
+      room = craftRoomNow(bot, plan, 0)
+      stationDid.push('no room to carry the table back as well: the craft goes first')
+    }
     if (!room.ok) return refuseNoRoom(bot, item, plan, room, 'already made room twice in this craft', tally(done))
     const before = bot.inventory.items().map(i => ({ name: i.name, count: i.count, slot: i.slot, durabilityUsed: i.durabilityUsed, maxDurability: i.maxDurability }))
     check(signal)
@@ -3276,44 +3293,64 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
           : `craft ${item} failed: ${e.message.slice(0, 80)}`) + (done ? ` (after ${done} of ${reps} made)` : ''),
       }
     }
-    // READ IT BACK, AFTER THE SERVER HAS SPOKEN. "crafted, but nothing changed" was 44% of stone_pickaxe crafts.
-    // mineflayer applies its clicks to the local window before the server confirms them, so an immediate read shows
-    // the client's PREDICTION. The read waits for an AUTHORITATIVE server update about the result's slot(s)
-    // (set_slot for one of them, or a window_items) and then a continuous quiet period that restarts on every slot
-    // packet (serverVerdict); no such update by the deadline is `unverified`, however the bag looks locally.
-    const shown = bot.inventory.items().filter(i => i.name === plan.result?.name &&
-      !before.some(b => b.slot === i.slot && b.name === i.name && b.count === i.count)).map(i => i.slot)
+    // READ IT BACK, FROM THE SERVER WHEN IT SPEAKS. "crafted, but nothing changed" was 44% of stone_pickaxe crafts.
+    // mineflayer applies its clicks to the local window before the server confirms them, and stashes a window_items
+    // for a window it has already closed without applying it -- so after a table craft bot.inventory can show its own
+    // prediction. The verdict is read from the PACKETS' CONTENT (packetSays), only from packets after the FINAL
+    // put-away click, ignoring mid-click states (result on the cursor, ingredients in the grid), after a quiet period
+    // that restarts on every packet (serverVerdict):
+    //   server   the server shows the result in the bag                    -> verified
+    //   denied   the server shows the slot without it                      -> unverified, stop
+    //   none     the server said nothing about it by the deadline          -> the LOCAL count decides: a gain is
+    //            `verified_local` (the measured failure, a result tossed out of a full bag, still shows locally) and
+    //            the craft goes on; no gain is unverified.
+    // Every execution's source (server | local | none) is on its `_craft_room` row: the canary read alarms if local
+    // fallbacks pass ~1% of crafts.
+    const expect = {}
+    for (const i of bot.inventory.items()) {
+      if (i.name === plan.result?.name && !before.some(b => b.slot === i.slot && b.name === i.name && b.count === i.count)) expect[i.slot] = i.count
+    }
+    const vctx = { resultId: bot.registry?.itemsByName?.[plan.result?.name]?.id ?? recipe?.result?.id, expect,
+                   craftWindow: heard.craftWindow(), afterSeq: heard.lastClickSeq() }
     let verdict = 'wait'
     const t0 = Date.now()
     try {
-      while ((verdict = serverVerdict(heard.seen, shown, Date.now(), t0,
+      while ((verdict = serverVerdict(heard.seen, vctx, Date.now(), t0,
         { quietMs: CRAFT_QUIET_MS, deadlineMs: CRAFT_CONFIRM_MS })) === 'wait') await sleep(10, signal)
     } finally { heard.stop() }
-    const arrived = verdict === 'confirmed' && craftArrived(before, bot.inventory.items(), plan.result)
+    const localGain = craftArrived(before, bot.inventory.items(), plan.result)
+    const source = verdict === 'server' || verdict === 'denied' ? 'server' : localGain ? 'local' : 'none'
+    const ok = verdict === 'server' || (verdict === 'none' && localGain)
     const slots = bot.inventory.items().length
-    if (!arrived) {
+    const facts = `source=${source} verdict=${verdict} (${slots}/${BAG_SLOTS} slots, predicted peak ${room.peak}, ` +
+                  `${heard.seen.length} slot packet(s))`
+    if (!ok) {
       logEvent({ kind: 'craft_room', status: 'unverified', snapshot: snapshot(bot),
                  detail: `unverified ${item} rep ${rep + 1}/${reps}: ` +
-                         (verdict === 'confirmed' ? `the server's slots hold no new ${plan.result?.name ?? item}` : `no server update for the result slot in ${CRAFT_CONFIRM_MS}ms`) +
-                         ` (${slots}/${BAG_SLOTS} slots, predicted peak ${room.peak}, ${heard.seen.length} slot packet(s))` })
-      return { status: 'unknown', failClass: 'unverified', ...tally(done),
+                         (verdict === 'denied' ? `the server shows no new ${plan.result?.name ?? item} in the bag`
+                           : `no server statement and no local gain`) + ` ${facts}` })
+      return { status: 'unknown', failClass: 'unverified', ...tally(done), verification: 'unverified',
                detail: `crafted ${item} but ` +
-                       (verdict === 'confirmed' ? `no new ${plan.result?.name ?? item} arrived in the inventory`
-                         : `the server never confirmed the result slot within ${CRAFT_CONFIRM_MS}ms`) +
+                       (verdict === 'denied' ? `the server shows no new ${plan.result?.name ?? item} in the bag`
+                         : `no new ${plan.result?.name ?? item} arrived (the server said nothing within ${CRAFT_CONFIRM_MS}ms)`) +
                        ` (${slots}/${BAG_SLOTS} slots) — stopped after ${done} of ${reps}` }
     }
     done++
-    logEvent({ kind: 'craft_room', status: 'success', snapshot: snapshot(bot),
-               detail: `verified ${item} rep ${rep + 1}/${reps} (+${plan.result?.count ?? '?'}; ${slots}/${BAG_SLOTS} slots, ` +
-                       `predicted peak ${room.peak})` })
+    if (source === 'local') local++
+    logEvent({ kind: 'craft_room', status: source === 'local' ? 'verified_local' : 'success', snapshot: snapshot(bot),
+               detail: `verified ${item} rep ${rep + 1}/${reps} (+${plan.result?.count ?? '?'}) ${facts}` })
   }
+  // `verification` says how the executions were confirmed: 'server' (every one by a server packet) or 'verified_local'
+  // (at least one only by the local count). The skill's STATUS stays 'success': the runner and cognitive layer only
+  // know success | failed | unknown, and a fourth status would fall through both their branches.
+  const verification = local ? 'verified_local' : 'server'
   if (done < reps) {
     const t = tally(done)
-    return { status: 'success', ...t,
+    return { status: 'success', ...t, verification,
              detail: `crafted ${done} of ${reps} executions (${t.produced} ${t.item}) of ${item}, then the ingredients ran out` +
                      `${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
   }
-  return { status: 'success', ...tally(done),
+  return { status: 'success', ...tally(done), verification,
            detail: `crafted ${count}x ${item}${stationDid.length ? ` (${stationDid.join('; ')})` : ''}` }
 }
 
@@ -3329,19 +3366,41 @@ function craftRoomNow(bot, plan, owedTables) {
 }
 
 /**
- * The slot packets the server sends while and after a craft runs: set_slot and window_items, raw from the protocol
- * client, each stamped on arrival. serverVerdict (craftroom.mjs) decides from them. No client: nothing is ever heard,
- * and the craft reads `unverified` at the deadline -- never a guess.
+ * Everything the protocol client says and sends while a craft runs, in ONE arrival order (`seq`): incoming set_slot
+ * and window_items with their content, the open_window that names the crafting window, and the outgoing window_click
+ * writes -- so the verdict can tell an answer to the FINAL put-away click from an opening snapshot. The write hook
+ * only observes and is removed in stop(). No client: nothing is heard, and the local count decides.
  */
 const CRAFT_QUIET_MS = Math.max(30, Math.min(250, Math.floor(config.skills.defaultTimeoutMs / 10)))
 const CRAFT_CONFIRM_MS = Math.max(300, Math.min(2500, config.skills.defaultTimeoutMs))
 function watchServerSlots(bot) {
   const seen = []
+  let seq = 0
+  let lastClick = -1
+  let opened = null
   const c = bot?._client
-  const onSet = p => seen.push({ t: Date.now(), kind: 'set_slot', windowId: p?.windowId, slot: p?.slot })
-  const onAll = p => seen.push({ t: Date.now(), kind: 'window_items', windowId: p?.windowId })
-  try { c?.on?.('set_slot', onSet); c?.on?.('window_items', onAll) } catch { /* no client: nothing is heard */ }
-  return { seen, stop: () => { try { c?.removeListener?.('set_slot', onSet); c?.removeListener?.('window_items', onAll) } catch {} } }
+  const onSet = p => seen.push({ seq: ++seq, t: Date.now(), kind: 'set_slot', windowId: p?.windowId, slot: p?.slot, item: p?.item })
+  const onAll = p => seen.push({ seq: ++seq, t: Date.now(), kind: 'window_items', windowId: p?.windowId, items: p?.items, carriedItem: p?.carriedItem })
+  const onOpen = p => { opened = p?.windowId ?? opened; seq++ }
+  let write = null
+  try {
+    c?.on?.('set_slot', onSet); c?.on?.('window_items', onAll); c?.on?.('open_window', onOpen)
+    if (typeof c?.write === 'function') {
+      write = c.write
+      c.write = function (name, ...rest) { if (name === 'window_click') lastClick = ++seq; return write.call(this, name, ...rest) }
+    }
+  } catch { /* no client: nothing is heard */ }
+  return {
+    seen,
+    lastClickSeq: () => lastClick,
+    craftWindow: () => opened,
+    stop: () => {
+      try {
+        c?.removeListener?.('set_slot', onSet); c?.removeListener?.('window_items', onAll); c?.removeListener?.('open_window', onOpen)
+        if (write) { c.write = write; write = null }
+      } catch {}
+    },
+  }
 }
 
 /**

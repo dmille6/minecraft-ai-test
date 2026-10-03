@@ -23,7 +23,7 @@ const { Recipe } = require_('prismarine-recipe')('1.21.8')
 
 const { SKILLS } = await import('../src/skills.mjs')
 const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS,
-        confirmsResult, serverVerdict } =
+        packetSays, serverVerdict } =
   await import('../src/craftroom.mjs')
 
 let pass = 0, fail = 0
@@ -122,22 +122,40 @@ await t('bagFill ADVICE never names an ingredient, a non-block, wood or a statio
   assert.deepEqual(f.cheapest, { name: 'dirt', count: 5 })
 })
 
-await t('confirmsResult: the bag slot in either window numbering, or a window_items; never the crafting RESULT cell', () => {
-  assert.equal(confirmsResult({ kind: 'set_slot', windowId: 0, slot: 20 }, [20]), true)
-  assert.equal(confirmsResult({ kind: 'set_slot', windowId: 3, slot: 21 }, [20]), true, 'a 3x3 window\'s bag starts at 10')
-  assert.equal(confirmsResult({ kind: 'set_slot', windowId: 3, slot: 20 }, [20]), false)
-  assert.equal(confirmsResult({ kind: 'set_slot', windowId: 3, slot: 0 }, [20]), false, 'the result cell is about the grid')
-  assert.equal(confirmsResult({ kind: 'window_items', windowId: 0 }, []), true)
+await t('THE MAPPING, verified against prismarine-windows: window 0 bag = slot, a 3x3 crafting window bag = slot - 1', () => {
+  const W = require_('prismarine-windows')('1.21.8')
+  const inv = W.createWindow(0, 'minecraft:inventory', 'Inventory'); const tbl = W.createWindow(1, 'minecraft:crafting', 'Crafting')
+  assert.deepEqual([inv.inventoryStart, inv.inventoryEnd, tbl.inventoryStart, tbl.inventoryEnd], [9, 45, 10, 46])
 })
 
-await t('serverVerdict: confirmed needs an authoritative packet AND quiet since the LAST packet; else timeout', () => {
+await t('packetSays reads the CONTENT: shows/denies for a result bag slot; says nothing for the result cell, other windows, mid-click states', () => {
+  const R = 882; const ctx = { resultId: R, expect: { 20: 1 }, craftWindow: 3 }
+  const it = (id, n = 1) => ({ itemId: id, itemCount: n }); const empty = { itemCount: 0 }
+  assert.equal(packetSays({ kind: 'set_slot', windowId: 0, slot: 20, item: it(R) }, ctx), 'shows')
+  assert.equal(packetSays({ kind: 'set_slot', windowId: 3, slot: 21, item: it(R) }, ctx), 'shows', 'crafting window: bag + 1')
+  assert.equal(packetSays({ kind: 'set_slot', windowId: 3, slot: 21, item: empty }, ctx), 'denies')
+  assert.equal(packetSays({ kind: 'set_slot', windowId: 3, slot: 21, item: it(5) }, ctx), 'denies', 'something else there')
+  assert.equal(packetSays({ kind: 'set_slot', windowId: 3, slot: 0, item: it(R) }, ctx), null, 'the result cell')
+  assert.equal(packetSays({ kind: 'set_slot', windowId: 9, slot: 21, item: empty }, ctx), null, 'another window')
+  const full = (bag, extra = {}) => { const items = Array(46).fill(empty); items[21] = bag; return { kind: 'window_items', windowId: 3, items, carriedItem: empty, ...extra } }
+  assert.equal(packetSays(full(it(R))), null, 'no context, no claim')
+  assert.equal(packetSays(full(it(R)), ctx), 'shows')
+  assert.equal(packetSays(full(empty), ctx), 'denies')
+  assert.equal(packetSays(full(empty, { carriedItem: it(R) }), ctx), null, 'result on the cursor: mid-click')
+  const g = full(empty); g.items = g.items.slice(); g.items[2] = it(5); assert.equal(packetSays(g, ctx), null, 'ingredients in the grid: mid-click')
+})
+
+await t('serverVerdict: only packets after the final click; the LAST statement after a quiet that restarts; none at the deadline', () => {
+  const R = 882; const ctx = { resultId: R, expect: { 20: 1 }, craftWindow: null, afterSeq: 5 }
   const o = { quietMs: 30, deadlineMs: 300 }
-  const auth = { kind: 'set_slot', windowId: 0, slot: 20, t: 10 }
-  assert.equal(serverVerdict([], [20], 100, 0, o), 'wait', 'quiet alone is not confirmation')
-  assert.equal(serverVerdict([], [20], 300, 0, o), 'timeout')
-  assert.equal(serverVerdict([auth], [20], 39, 0, o), 'wait')
-  assert.equal(serverVerdict([auth], [20], 40, 0, o), 'confirmed')
-  assert.equal(serverVerdict([auth, { kind: 'set_slot', windowId: 0, slot: 30, t: 35 }], [20], 50, 0, o), 'wait', 'the quiet restarts')
+  const set = (seq, t, n) => ({ seq, t, kind: 'set_slot', windowId: 0, slot: 20, item: n ? { itemId: R, itemCount: n } : { itemCount: 0 } })
+  assert.equal(serverVerdict([], ctx, 100, 0, o), 'wait', 'silence is not confirmation')
+  assert.equal(serverVerdict([], ctx, 300, 0, o), 'none')
+  assert.equal(serverVerdict([set(3, 1, 0)], ctx, 300, 0, o), 'none', 'before the final click: an opening snapshot')
+  assert.equal(serverVerdict([set(6, 10, 1)], ctx, 39, 0, o), 'wait')
+  assert.equal(serverVerdict([set(6, 10, 1)], ctx, 40, 0, o), 'server')
+  assert.equal(serverVerdict([set(6, 10, 1), { seq: 7, t: 35, kind: 'set_slot', windowId: 0, slot: 30, item: { itemCount: 0 } }], ctx, 50, 0, o), 'wait', 'the quiet restarts')
+  assert.equal(serverVerdict([set(6, 10, 1), set(7, 20, 0)], ctx, 60, 0, o), 'denied', 'the last statement wins')
 })
 
 await t('wearKeepsSlot: an axe on stone drops nothing; a pickaxe on stone needs a non-full cobblestone stack', () => {
@@ -167,12 +185,17 @@ const key = p => `${p.x},${p.y},${p.z}`
  *               restored and a set_slot for the result slot says so (a rejected craft); no confirmation before it
  *   confirmMs   when the server's set_slot for the result slot arrives after a craft (null: never)
  *   noise       [ms...] unrelated set_slot packets (another slot) after each craft
+ *   server      ({ send, full, winId, base, at, resultId, count, restore }) => void: what the SERVER sends after a
+ *               craft, instead of the default confirmation. send(name, packet, ms); full({ cursor, grid, bagAt })
+ *               builds a window_items from the bag as the server holds it (bagAt overrides one bag slot).
+ *   afterDig    hook after each dig has landed (block, { putAway }) -- e.g. the server's auto-pickup of a stray item
+ *   onLook      hook on every lookAt -- including the one mineflayer's dig does itself unless forceLook is 'ignore'
  *   afterCraft  hook after each bot.craft ({ setBlock, world, slots })
  *   onDig       hook before each dig (block) -- e.g. an abort arriving mid-dig
  *   registry    a registry override (an id the bot cannot name)
  */
-function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confirmMs = 10, noise = [], afterCraft = null, onDig = null,
-                            onGoto = null, registry = mc } = {}) {
+function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confirmMs = 10, noise = [], server = null, afterCraft = null,
+                            onDig = null, afterDig = null, onGoto = null, onLook = null, registry = mc } = {}) {
   const slots = Array(36).fill(null)
   stacks.forEach((s, i) => { slots[i] = { ...s } })
   const world = new Map(tables.map(p => [key(p), 'crafting_table']))
@@ -215,7 +238,7 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
     if (n > 0) throw new Error('missing ingredient')
   }
   const have = name => slots.reduce((n, s) => n + (s?.name === name ? s.count : 0), 0)
-  const client = new EventEmitter()
+  const client = Object.assign(new EventEmitter(), { writes: [], write (name, params) { this.writes.push({ name, params, t: Date.now() }) } })
   const bot = Object.assign(new EventEmitter(), {
     _client: client,
     registry,
@@ -246,12 +269,27 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
         for (const d of recipe.delta) if (d.count < 0) take(mc.items[d.id].name, -d.count)
         const name = mc.items[recipe.result.id].name
         const winId = table ? 1 : 0; const base = table ? 10 : 9      // a 3x3 window's inventory starts at 10
-        for (const ms of noise) setTimeout(() => client.emit('set_slot', { windowId: winId, slot: base + 35, item: { itemCount: 0 } }), ms)
-        if (!craftLands) continue
         const before = slots.map(x => x && { ...x })
+        // the window's bag as the server holds it, in that window's numbering (46 slots either way)
+        const full = ({ cursor = null, grid = false, bagAt = null } = {}) => {
+          const items = Array(46).fill(null).map(() => ({ itemCount: 0 }))
+          slots.forEach((x, i) => { if (x) items[base + i] = { itemId: mc.itemsByName[x.name].id, itemCount: x.count } })
+          if (grid) items[1] = { itemId: mc.itemsByName.stick.id, itemCount: 1 }
+          if (bagAt) items[base + bagAt.i] = bagAt.item
+          return { windowId: winId, stateId: 7, items, carriedItem: cursor ?? { itemCount: 0 } }
+        }
+        if (table) { client.emit('open_window', { windowId: 1, inventoryType: 'minecraft:crafting' }); client.emit('window_items', full()) }
+        client.write('window_click', { windowId: winId, slot: base, mode: 0 })            // an ingredient click
+        for (const ms of noise) setTimeout(() => client.emit('set_slot', { windowId: winId, slot: base + 35, item: { itemCount: 0 } }), ms)
+        if (!craftLands) { client.write('window_click', { windowId: winId, slot: 0, mode: 0 }); continue }
         putAway(item(name, recipe.result.count))
+        client.write('window_click', { windowId: winId, slot: base, mode: 0 })            // the FINAL put-away click
         const at = slots.findIndex((x, i) => x && x.name === name && (!before[i] || before[i].count !== x.count))
-        if (rejectMs) {
+        const send = (n, pkt, ms) => setTimeout(() => client.emit(n, pkt), ms)
+        const restore = () => before.forEach((x, i) => { slots[i] = x })
+        if (server) {
+          server({ send, full, winId, base, at, resultId: recipe.result.id, count: slots[at]?.count ?? 0, restore })
+        } else if (rejectMs) {
           // THE SERVER SAYS NO: the client-predicted slots are put back, and the server's set_slot says so
           setTimeout(() => { before.forEach((x, i) => { slots[i] = x }); client.emit('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }) }, rejectMs)
         } else if (confirmMs != null) {
@@ -261,14 +299,16 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
       afterCraft?.({ setBlock, world, slots })
     },
     async equip (it) { bot.heldItem = slots.find(s => s && s.slot === it.slot) ?? null },
-    async lookAt () {},
+    async lookAt (p) { await onLook?.({ p, setBlock, bot }) },
     async waitForTicks () {},
     async placeBlock (ref, face) {
       const at = ref.position.offset(face.x, face.y, face.z)
       const name = bot.heldItem?.name ?? 'crafting_table'   // place() equips what it places
       setBlock(at, name); take(name, 1)
     },
-    async dig (block) {
+    async dig (block, forceLook) {
+      // mineflayer 4.37.1 digging.js: unless forceLook === 'ignore', dig AWAITS a lookAt before it sends block_dig
+      if (forceLook !== 'ignore') await bot.lookAt(block.position.offset(0.5, 0.5, 0.5), forceLook)
       onDig?.(block)
       digs.push({ name: block.name, at: key(block.position), with: bot.heldItem?.name ?? 'hand' })
       setBlock(block.position, 'air')
@@ -282,6 +322,7 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
         : block.name === 'stone' ? (pick ? 'cobblestone' : null) : block.name
       // the server's auto-pickup: into the bag when it fits, else it lies there
       if (drop && !putAway(item(drop, 1))) { tossed.pop(); ground.push(drop) }
+      afterDig?.(block, { putAway })
     },
     pathfinder: { async goto (goal) { await onGoto?.({ goal, setBlock, bot }) }, setGoal () {}, stop () {} },
   })
@@ -471,11 +512,69 @@ await t('full bag, exactly one spent pickaxe and no other tool: it is NOT worn o
   assert.equal(slots.filter(s => s?.name === 'stone_pickaxe').length, 1)
 })
 
-await t('no server update for the result slot at all: unverified at the deadline, however it looks locally', async () => {
+await t('NO PACKET AT ALL: falls back to the local count -> success, verification verified_local, source=local row', async () => {
+  const n = await mark()
   const { bot, have } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], confirmMs: null })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
-  assert.equal(have('stone_pickaxe'), 1, 'the client shows it')
-  assert.equal(r.failClass, 'unverified', `accepted with no server update: ${r.detail}`)
+  assert.equal(have('stone_pickaxe'), 1)
+  assert.equal(r.status, 'success', r.detail); assert.equal(r.verification, 'verified_local', r.detail)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'verified_local' && /source=local/.test(x.detail)))
+})
+
+await t('NO PACKET, and the local count shows no gain either: unverified, source=none', async () => {
+  const n = await mark()
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], craftLands: false })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'unverified', r.detail)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'unverified' && /source=none/.test(x.detail)))
+})
+
+await t('a verified_local execution does NOT stop the craft tree: the recursive pickaxe is still made', async () => {
+  const { bot, have } = makeBot(bagOf(30, [item('oak_log', 3)]), { tables: [NEAR], confirmMs: null })
+  const r = await run(bot, { item: 'wooden_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(have('wooden_pickaxe'), 1)
+  assert.equal(r.verification, 'verified_local')
+})
+
+await t('a SERVER-confirmed craft says so: verification server, source=server row', async () => {
+  const n = await mark()
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(r.verification, 'server')
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'success' && /source=server/.test(x.detail)))
+})
+
+await t('OPENING SNAPSHOT + predicted success + delayed rejection: the snapshot is ignored, the rejection is read', async () => {
+  // the table's window opens with a window_items of the bag before the craft (no result in it: an opening snapshot,
+  // not a denial), the client predicts success, and 150 ms later the server's set_slot empties the result slot
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, winId, base, at, restore }) => {
+    setTimeout(restore, 150); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 150) } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'unverified', r.detail)
+})
+
+await t('a CURSOR snapshot (result on the cursor, not yet put away) confirms nothing: falls back to local', async () => {
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, full, at, resultId }) => {
+    send('window_items', full({ cursor: { itemId: resultId, itemCount: 1 }, bagAt: { i: at, item: { itemCount: 0 } } }), 10) } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(r.verification, 'verified_local', 'a mid-click snapshot was read as the server confirming the bag')
+})
+
+await t('TABLE CRAFT, window_items AFTER CLOSE that DENIES (mineflayer stashes it; the bag still shows the prediction)', async () => {
+  // the server's full state of the crafting window: result slot empty, grid empty, cursor empty -- read from the
+  // packet, because mineflayer does not apply a window_items for a window it has already closed
+  const { bot, have } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, full, at }) => {
+    send('window_items', full({ bagAt: { i: at, item: { itemCount: 0 } } }), 20) } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(have('stone_pickaxe'), 1, 'the local bag still shows the prediction')
+  assert.equal(r.failClass, 'unverified', `read the local prediction over the server: ${r.detail}`)
+})
+
+await t('TABLE CRAFT, window_items AFTER CLOSE that SHOWS the result in the bag: server-verified', async () => {
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, full }) => send('window_items', full(), 20) })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(r.verification, 'server')
 })
 
 await t('a rejection arriving AFTER the quiet window is still caught: quiet alone is not confirmation', async () => {
@@ -486,9 +585,9 @@ await t('a rejection arriving AFTER the quiet window is still caught: quiet alon
 
 await t('the quiet period RESTARTS on every packet: a rejection inside a burst is read, not raced', async () => {
   // confirmation at 10 ms, unrelated packets at 30 and 55, the rejection at 80: never 30 ms of quiet before it
-  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], confirmMs: 10, noise: [30, 55] })
-  const orig = bot.craft.bind(bot)
-  bot.craft = async (...a) => { await orig(...a); setTimeout(() => { const s = bot.inventory.items().find(i => i.name === 'stone_pickaxe'); if (s) { s.count = 0; s.name = 'air' } bot._client.emit('set_slot', { windowId: 1, slot: 0, item: { itemCount: 0 } }) }, 80) }
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], noise: [30, 55], server: ({ send, winId, base, at, resultId, restore }) => {
+    send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: 1 } }, 10)
+    setTimeout(restore, 80); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 80) } })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'unverified', `read inside the burst: ${r.detail}`)
 })
@@ -621,6 +720,38 @@ await t('RECURSIVE PARTIAL: stick x3 from one log reports the retry\'s counts (2
   assert.equal(r.status, 'success', r.detail); assert.equal(have('stick'), 8)
   assert.deepEqual([r.item, r.requested, r.executions, r.produced], ['stick', 3, 2, 8], r.detail)
   assert.match(r.detail, /first made oak_planks/)
+})
+
+await t('OWNERSHIP AT THE DIG: a table replaced DURING THE LOOK is caught (look first, revalidate, then dig without a second look)', async () => {
+  let armed = false
+  const { bot, digs } = makeBot(bagOf(30, [item('stick', 5), item('crafting_table', 1)]), {
+    afterCraft: () => { armed = true },
+    onLook: ({ p, setBlock }) => {
+      if (!armed) return
+      armed = false
+      const c = { x: p.x - 0.5, y: p.y - 0.5, z: p.z - 0.5 }   // the look aims at the block's centre (this fake's cells are not floored)
+      setBlock(c, 'air'); setBlock(c, 'crafting_table')
+    } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(digs.length, 0, 'dug a table replaced while the bot turned to it')
+})
+
+await t('BOTH ROOM TRIES SUCCEED but stray pickups refill them: the craft goes first, the table is left', async () => {
+  // each wear-out frees a slot and the server's auto-pickup hands the bot a stray block into it (it cannot be refused)
+  const strays = ['andesite', 'diorite']
+  const { bot, have, world, digs } = makeBot(bagOf(36, [item('stick', 5), item('crafting_table', 1), spent('stone_axe'), spent('stone_axe'), PICK()]), {
+    afterDig: (b, { putAway }) => { if (b.name === 'stone' && strays.length) putAway(item(strays.shift(), 1)) } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(digs.filter(d => d.name === 'stone').length, 2, 'both tries ran')
+  assert.equal(r.status, 'success', r.detail); assert.equal(have('stone_pickaxe'), 1)
+  assert.ok([...world.values()].includes('crafting_table')); assert.match(r.detail, /craft goes first/)
+})
+
+await t('the refusal ADVICE names only dirt/stone-family blocks, never a hazardous one', async () => {
+  const { bot } = makeBot(bagOf(36, [item('stick', 5), item('sand', 1), item('gravel', 1), item('magma_block', 1)]), { tables: [NEAR] })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail)
+  assert.doesNotMatch(r.detail, /placing your \d+ (sand|gravel|magma_block)/)
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

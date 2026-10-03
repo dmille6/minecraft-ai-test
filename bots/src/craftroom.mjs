@@ -147,14 +147,15 @@ export function craftRoomRemedy (items = [], item = '') {
 export const placeableBlock = (registry, name) =>
   registry?.blocksByName?.[name]?.boundingBox === 'block' && !!registry?.itemsByName?.[name]
 
-// Never NAMED as filler in a refusal's advice (craft itself never places one -- review round 2: a block put down to
-// free a slot can seal a 1x2 tunnel or an escape stair): stations (the craft may need them), wood (the scarce material), and anything the recipe
-// itself consumes.
-const NOT_FILLER = /(^(crafting_table|furnace|blast_furnace|smoker|chest|barrel|trapped_chest)$|_(log|wood|stem|hyphae|planks)$)/
+// What a refusal's ADVICE may name as a block to put down (craft itself never places one -- review round 2: a block
+// put down to free a slot can seal a 1x2 tunnel or an escape stair). An ALLOWLIST of inert dirt/stone-family blocks
+// (review round 3): no sand or gravel (they fall), no magma, TNT or anything else with a behaviour; and never
+// anything the recipe itself consumes.
+const ADVICE_OK = /^(dirt|coarse_dirt|rooted_dirt|cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|tuff|deepslate|calcite|netherrack)$/
 const fillerCandidates = (items, consumes, isPlaceable) => {
   const used = new Set((consumes ?? []).map(c => c.name))
-  return (Array.isArray(items) ? items : []).filter(it => it?.name && !TOOL_RE.test(it.name) && !used.has(it.name) &&
-    !NOT_FILLER.test(it.name) && isPlaceable(it.name))
+  return (Array.isArray(items) ? items : []).filter(it => it?.name && ADVICE_OK.test(it.name) && !used.has(it.name) &&
+    isPlaceable(it.name))
 }
 const ROCK = name => wearRank(name) === 0   // the stone family: every one of them drops nothing without a pickaxe
 /**
@@ -187,34 +188,71 @@ export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
   return { line, cheapest: cheapest && { name: cheapest.name, count: cheapest.count ?? 1 } }
 }
 
-/**
- * WAS THIS SERVER PACKET ABOUT THE RESULT? -> boolean. Pure.
- *   pkt       { kind: 'set_slot' | 'window_items', windowId, slot }
- *   invSlots  the bag slots (player-window numbering, 9..44) the client shows the result in after the craft
- * window_items is the server's full statement of a window: authoritative for every slot in it. A set_slot counts only
- * for one of the result's slots: window 0 is the player window (bag slot = slot); any other window is the 3x3
- * crafting window, whose bag region starts one later (10..45) because its grid has nine cells, not four plus armour.
- * Its slot 0 is the crafting RESULT cell -- a statement about the grid, not about what reached the bag -- and never counts.
- */
-export function confirmsResult (pkt, invSlots = []) {
-  if (!pkt) return false
-  if (pkt.kind === 'window_items') return true
-  if (pkt.kind !== 'set_slot' || !Number.isInteger(pkt.slot)) return false
-  const bagSlot = pkt.windowId === 0 ? pkt.slot : pkt.slot - 1
-  return invSlots.includes(bagSlot)
+// A packet's slot as (id, count): 1.21 sends { itemCount, itemId, ... } (itemCount 0 = empty); older protocols
+// { present, itemId, itemCount }.
+const packetSlot = it => {
+  const n = Number(it?.itemCount ?? 0)
+  return n > 0 && it?.present !== false ? { id: it.itemId, count: n } : { id: null, count: 0 }
 }
 
 /**
- * SERVER VERDICT on a craft -> 'wait' | 'confirmed' | 'timeout'. Pure.
- *   seen   packets in arrival order, each with `t` (ms)
- * Confirmed only when (1) at least one packet confirmsResult AND (2) the stream has then been quiet for quietMs since
- * the LAST packet of any kind -- the quiet period restarts on every packet, so a rejection inside a burst is read,
- * not raced. Neither by the deadline -> 'timeout' (the caller reports unverified).
+ * WHAT DOES THIS SERVER PACKET SAY ABOUT THE RESULT IN THE BAG? -> 'shows' | 'denies' | null (says nothing). Pure.
+ *   pkt          { kind: 'set_slot', windowId, slot, item } | { kind: 'window_items', windowId, items, carriedItem }
+ *   resultId     the result's item id
+ *   expect       { [bagSlot]: count } -- the bag slots (player-window numbering, 9..44) the client predicts the result
+ *                in after the craft, and the count it predicts there
+ *   craftWindow  the id of the crafting window this craft opened (null: the 2x2 grid of window 0, or unknown)
+ * READ FROM THE PACKET'S OWN CONTENT, never from bot.inventory: mineflayer stashes a window_items for a window it has
+ * already closed without applying it (inventory.js), so after a table craft the bag can still show the prediction.
+ * Window -> bag mapping (prismarine-windows): window 0 is the player window, bag slot = slot (9..44); the 3x3
+ * crafting window has nine grid cells where window 0 has four grid cells plus four armour slots, so its bag
+ * region is 10..45 and bag slot = slot - 1. Any other window says nothing.
+ * A window_items is only a FINAL statement when its grid is empty and nothing is on the cursor: Paper sends the whole
+ * window on CraftItemEvent with the result still on the cursor, before the put-away click -- a mid-click state.
+ * A set_slot for the crafting result cell (slot 0) is about the grid, never the bag, and says nothing.
  */
-export function serverVerdict (seen = [], invSlots = [], now = 0, startedAt = 0, { quietMs = 250, deadlineMs = 2500 } = {}) {
-  const auth = seen.some(p => confirmsResult(p, invSlots))
-  const last = seen.length ? seen[seen.length - 1].t : startedAt
-  if (auth && now - last >= quietMs) return 'confirmed'
-  if (now - startedAt >= deadlineMs) return 'timeout'
+export function packetSays (pkt, { resultId, expect = {}, craftWindow = null } = {}) {
+  if (!pkt) return null
+  const off = pkt.windowId === 0 ? 0 : (craftWindow == null || pkt.windowId === craftWindow ? 1 : null)
+  if (off == null) return null
+  const holds = (it, want) => { const s = packetSlot(it); return s.id === resultId && s.count >= want }
+  const bags = Object.keys(expect).map(Number)
+  if (!bags.length) return null
+  if (pkt.kind === 'set_slot') {
+    const bag = pkt.slot - off
+    if (!Object.hasOwn(expect, bag)) return null
+    return holds(pkt.item, expect[bag]) ? 'shows' : 'denies'
+  }
+  if (pkt.kind === 'window_items') {
+    if (packetSlot(pkt.carriedItem).count > 0) return null
+    const gridEnd = pkt.windowId === 0 ? 4 : 9
+    for (let i = 1; i <= gridEnd; i++) if (packetSlot(pkt.items?.[i]).count > 0) return null
+    let all = true
+    for (const b of bags) {
+      const it = pkt.items?.[b + off]
+      if (it === undefined) return null          // a malformed or truncated window says nothing
+      if (!holds(it, expect[b])) all = false
+    }
+    return all ? 'shows' : 'denies'
+  }
+  return null
+}
+
+/**
+ * SERVER VERDICT on one craft execution -> 'wait' | 'server' | 'denied' | 'none'. Pure.
+ *   seen   packets in arrival order, each with `seq` (arrival order, shared with the clicks) and `t` (ms)
+ *   ctx    packetSays' context plus `afterSeq`: the sequence number of the FINAL put-away click
+ * Only packets after the final click count (an opening snapshot cannot be an answer to it). The verdict is the LAST
+ * packet that says something, once the stream has been quiet for quietMs since the last packet of ANY kind -- the
+ * quiet restarts on every packet, so a rejection inside a burst is read, not raced. Nothing said by the deadline is
+ * 'none': the caller falls back to the local count.
+ */
+export function serverVerdict (seen = [], ctx = {}, now = 0, startedAt = 0, { quietMs = 250, deadlineMs = 2500 } = {}) {
+  const rel = seen.filter(p => p.seq > (ctx.afterSeq ?? -1))
+  const said = rel.map(p => packetSays(p, ctx)).filter(Boolean)
+  const last = rel.length ? rel[rel.length - 1].t : startedAt
+  const due = now - startedAt >= deadlineMs
+  if (said.length && (now - last >= quietMs || due)) return said[said.length - 1] === 'shows' ? 'server' : 'denied'
+  if (due) return 'none'
   return 'wait'
 }
