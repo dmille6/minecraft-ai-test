@@ -185,16 +185,20 @@ t('a drop of THIS dig: a new log, or a pre-existing log stack that GREW (merge)'
 
 // ============================================================ the fake world ===
 // Server side, written independently of src/logpickup.mjs: vanilla pickup box, a
-// 500 ms pickup delay, and PACKET-DRIVEN item motion -- a drop spawns mid-air in
-// the broken cell (+0.4) and its position changes only when a "landing packet"
-// arrives 450 ms later (entityMoved), exactly as mineflayer sees other entities.
+// 500 ms pickup delay checked against the TRUE (server) position, and PACKET-DRIVEN
+// item motion as the sandbox measured it (Paper 1.21.8): a drop spawns mid-air in
+// the broken cell (+0.4), falls under gravity on the server, and the client hears
+// about it only in position packets every ~20 ticks (1 s), each carrying onGround
+// (sync_entity_position). mineflayer's own handler sets the position and emits
+// entityMoved; it does not record onGround.
 const K = (x, y, z) => `${x},${y},${z}`
-const ITEM_ID = 120, LOG_ID = 50, FALL_MS = 450
+const ITEM_ID = 120, LOG_ID = 50, GRAVITY = 16
 const SHAPES = { air: [], oak_slab: [[0, 0, 0, 1, 0.5, 1]] }
 function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = false, noDrop = false, mergeInto = false,
                   walkable = n => n.y === 64, jitter = 0, failName = 'NoPath', digTimes = {}, metaDelay = 0,
                   waterlogged = [], safety = true, heldItem = null, walkMs = 0, items = [], held = {},
-                  gateLooksFrom = Infinity, onGatedLook = null } = {}) {
+                  gateLooksFrom = Infinity, onGatedLook = null, updateMs = 1000, noOnGround = false,
+                  emptyResolves = false, onGoto = null } = {}) {
   const w = new Map()
   for (let x = -8; x <= 8; x++) for (let z = -8; z <= 8; z++) w.set(K(x, 63, z), 'grass_block')
   for (const [k, v] of Object.entries(blocks)) w.set(k, v)
@@ -210,15 +214,23 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
   }
   const inv = new Map([['oak_log', 0], ...Object.entries(held)])
   let nextId = 1000, digCancel = null, walkCancel = null
-  const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0, looks: 0, digStarts: 0, lateStarts: 0 }
+  const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0, looks: 0, digStarts: 0, lateStarts: 0, scaffold: [] }
   const bot = new EventEmitter()
-  const restY = e => { let cy = Math.floor(e.position.y - 0.05); while (cy > 40 && !solid(e.position.x, cy, e.position.z)) cy--; return cy + top(e.position.x, cy, e.position.z) }
+  bot._client = new EventEmitter()
+  // mineflayer's handler (entities.js), registered first as in the real plugin load order
+  bot._client.on('sync_entity_position', pk => {
+    const e = bot.entities[pk.entityId]; if (!e) return
+    e.position = new Vec3(pk.x, pk.y, pk.z); bot.emit('entityMoved', e)
+  })
+  const restY = q => { let cy = Math.floor(q.y - 0.05); while (cy > 40 && !solid(q.x, cy, q.z)) cy--; return cy + top(q.x, cy, q.z) }
   const spawn = (n, at, count = 1, born = Date.now()) => {
     const id = nextId++
-    bot.entities[id] = { id, name: 'item', born, metaAt: born + metaDelay, n, count, position: at, landAt: null,
+    bot.entities[id] = { id, name: 'item', born, metaAt: born + metaDelay, n, count, position: at.clone(), truePos: at.clone(),
+                         vy: 0, lastSent: born, sentGround: null,
                          getDroppedItem () { return Date.now() >= this.metaAt ? { name: this.n, count: this.count } : null } }
     return bot.entities[id]
   }
+  bot.give = (n, c = 1) => inv.set(n, (inv.get(n) ?? 0) + c)
   Object.assign(bot, {
     seen,
     entity: { position: new Vec3(...feet), onGround: true, velocity: new Vec3(0, 0, 0) },
@@ -281,11 +293,13 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
   Object.assign(bot, {
     pathfinder: {
       thinkTimeout: 5000,
-      movements: safety ? { safeToBreak: () => true } : {},
+      movements: safety ? { safeToBreak: () => true, scafoldingBlocks: [3, ITEM_ID] } : { scafoldingBlocks: [3, ITEM_ID] },
       setGoal (g) { if (g === null) { seen.halted++; walkCancel?.() } },
       stop () {},
       goto: async goal => {
         seen.gotos.push(goal.constructor.name); seen.goals.push(goal); seen.think.push(bot.pathfinder.thinkTimeout)
+        seen.scaffold.push([...(bot.pathfinder.movements.scafoldingBlocks ?? [])])
+        onGoto?.(goal, bot)
         const nodes = []
         for (let x = -8; x <= 8; x++) for (let y = 60; y <= 72; y++) for (let z = -8; z <= 8; z++) {
           const n = { x, y, z }
@@ -297,7 +311,10 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
             walkCancel = () => { clearTimeout(tm); walkCancel = null; reject(Object.assign(new Error('stopped'), { name: 'PathStopped' })) }
           })
         }
-        if (!nodes.length) throw Object.assign(new Error('no path'), { name: failName })
+        if (!nodes.length) {
+          if (emptyResolves) return            // pathfinder's goto resolves on an EMPTY path (lib/goto.js)
+          throw Object.assign(new Error('no path'), { name: failName })
+        }
         const p = bot.entity.position
         nodes.sort((a, b) => Math.hypot(a.x + 0.5 - p.x, a.z + 0.5 - p.z) - Math.hypot(b.x + 0.5 - p.x, b.z + 0.5 - p.z))
         const n = nodes[0]
@@ -311,17 +328,21 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
                               ip.z + 0.125 > pp.z - 1.3 && ip.z - 0.125 < pp.z + 1.3 &&
                               ip.y + 0.25 > pp.y - 0.5 && ip.y < pp.y + 2.3
   const tick = setInterval(() => {
-    const now = Date.now()
+    const now = Date.now(), dt = 0.025
     for (const e of Object.values(bot.entities)) {
-      const ry = restY(e)
-      if (Math.abs(ry - e.position.y) > 1e-6) {
-        if (e.landAt == null) e.landAt = now + FALL_MS
-        if (now >= e.landAt) { e.position = new Vec3(e.position.x, ry, e.position.z); e.landAt = null; bot.emit('entityMoved', e) }
-        continue
+      const ry = restY(e.truePos)
+      if (e.truePos.y > ry + 1e-6) { e.vy += GRAVITY * dt; e.truePos = new Vec3(e.truePos.x, Math.max(ry, e.truePos.y - e.vy * dt), e.truePos.z) }
+      else e.vy = 0
+      const onGround = e.truePos.y <= ry + 1e-6
+      const moved = e.truePos.distanceTo(e.position) > 1e-6
+      if (now - e.lastSent >= updateMs && (moved || e.sentGround !== onGround)) {
+        e.lastSent = now; e.sentGround = onGround
+        bot._client.emit('sync_entity_position', { entityId: e.id, x: e.truePos.x, y: e.truePos.y, z: e.truePos.z,
+                                                   ...(noOnGround ? {} : { onGround }) })
       }
       const age = now - e.born
       if (thief && age >= 300) { delete bot.entities[e.id]; continue }      // another player took it
-      if (age >= 500 && touches(bot.entity.position, e.position) &&
+      if (age >= 500 && touches(bot.entity.position, e.truePos) &&
           (emptySlots > 0 || ((inv.get(e.n) ?? 0) > 0 && inv.get(e.n) < 64))) {
         delete bot.entities[e.id]; inv.set(e.n, (inv.get(e.n) ?? 0) + e.count)
       }
@@ -337,6 +358,7 @@ const run = async (bot, tgt, { signal = new AbortController().signal, deadline }
   catch (e) { return { e } } finally { bot.close() }
 }
 const CANOPY = { [K(1, 67, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' }
+const STUB = { [K(1, 64, 0)]: 'oak_log', [K(1, 65, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' }
 
 // ============================================================ wired: collectManually ===
 console.log('-- through the real collectManually --')
@@ -484,7 +506,6 @@ await ta('FULL BAG: no slot for the log -> inventory_full, no walking', async ()
   assert.deepEqual(bot.seen.gotos, [])
 })
 
-const STUB = { [K(1, 64, 0)]: 'oak_log', [K(1, 65, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' }
 await ta('HARD DEADLINE: a slow walk is clamped to the deadline and cancelled', async () => {
   const bot = world({ feet: [-2.5, 64, 0.5], walkMs: 4000, blocks: STUB })
   const t0 = Date.now()
@@ -658,6 +679,56 @@ await ta('LOOK HANDOFF: an abort queued as a microtask after the look resolves n
     if (bot.seen.lateStarts) late.push(n)
   }
   assert.deepEqual(late, [], `a dig started after the abort at microtask depth(s) ${late.join(',')}`)
+})
+
+console.log('-- sandbox findings (720d079 vs 93b3892) --')
+const walkedToAir = bot => bot.seen.goals.filter(g => g.constructor.name === 'GoalPickupBox' && g.item.y !== 64).map(g => g.item.y)
+await ta('FALLING DROP: a log broken 5 up lands 3 blocks off; judged only once landed, then walked to', async () => {
+  const bot = world({ feet: [-1.5, 64, 0.5], blocks: { [K(1, 69, 0)]: 'oak_log' } })
+  const { r } = await run(bot, target(bot, 1, 69, 0))
+  const row = r.pickup.rows[0]
+  assert.notEqual(row.args.support, 'air', `judged in the air: ${row.detail}`)
+  assert.deepEqual(walkedToAir(bot), [], `walked to the drop's mid-air position: ${row.detail}`)
+  assert.equal(bot.held(), 1, row.detail)
+})
+
+await ta('NO ONGROUND FLAG: settles on age (1.2 s), and the canopy catch still works', async () => {
+  const bot = world({ blocks: CANOPY, noOnGround: true })
+  const { r } = await run(bot, target(bot, 1, 67, 0))
+  assert.equal(r.pickup.rows[0].args.strategy, 'break_support', r.pickup.rows[0].detail)
+  assert.equal(bot.held(), 1)
+})
+
+await ta('NO PACKET FOR 3 s: a drop still on=air above the feet is never walked to', async () => {
+  const bot = world({ feet: [-1.5, 64, 0.5], blocks: { [K(1, 69, 0)]: 'oak_log' }, updateMs: 3000 })
+  const { r } = await run(bot, target(bot, 1, 69, 0))
+  assert.deepEqual(walkedToAir(bot), [], `walked to an airborne drop: ${r.pickup.rows[0].detail}`)
+  assert.equal(bot.held(), 1, `once the landing packet came, it should be collected: ${r.pickup.rows[0].detail}`)
+})
+
+await ta('PICKUP WALK NEVER SCAFFOLDS WITH THE LOG BEING GATHERED (and the list is restored)', async () => {
+  const bot = world({ feet: [-2.5, 64, 0.5], blocks: STUB })
+  await run(bot, target(bot, 1, 65, 0))
+  const i = bot.seen.gotos.indexOf('GoalPickupBox')
+  assert.ok(i >= 0, 'the scene never walked')
+  assert.deepEqual(bot.seen.scaffold[i], [3], `scaffold during the pickup walk: ${bot.seen.scaffold[i]}`)
+  assert.deepEqual(bot.pathfinder.movements.scafoldingBlocks, [3, 120], 'the scaffold list was not restored')
+})
+
+await ta('LABEL: a walk that resolves on an empty path, no progress, drop not in the box -> unreachable', async () => {
+  const bot = world({ emptyResolves: true,
+                      blocks: { [K(1, 64, 0)]: 'stone', [K(1, 65, 0)]: 'stone', [K(1, 66, 0)]: 'stone', [K(1, 67, 0)]: 'oak_log' } })
+  const { r } = await run(bot, target(bot, 1, 67, 0))
+  assert.equal(r.pickup.rows[0].args.reason, 'unreachable', r.pickup.rows[0].detail)
+})
+
+await ta('SWEEP COUNT: only what the sweep pursued -- a passive sapling during its walk is not counted', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, items: [{ name: 'apple', at: [-2.5, 64, 0.5] }],
+                      onGoto: (g, b) => { if (g.constructor.name === 'GoalNear') b.give('oak_sapling', 1) } })
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(bot.held('apple'), 1)
+  assert.equal(r.sweep?.apples, 1, `sweep row: ${JSON.stringify(r.sweep)}`)
+  assert.equal(r.sweep?.saplings, 0, 'a passive pickup was counted as the sweep\'s')
 })
 
 // ============================================================ wired: gather ===

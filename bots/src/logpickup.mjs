@@ -243,6 +243,15 @@ export function supportLavaFree (at, p) {
   return true
 }
 
+/**
+ * The pickup walk must not build with the log it is gathering. Sandbox: in 2 runs the timed-out walk towered on
+ * the gathered logs (pathfinder's own scaffolding, in control too). Pure: the scaffold ids minus the family's.
+ */
+export function scaffoldWithout (ids, exclude) {
+  const ex = new Set((exclude ?? []).filter(v => v != null))
+  return (Array.isArray(ids) ? ids : []).filter(id => !ex.has(id))
+}
+
 /** Margin on a support dig: digTime is the client's estimate, and a tick or two of lag is normal. */
 export const DIG_MARGIN_MS = 500
 /** Timeout for a support dig of `digMs`, or null when it cannot fit in `leftMs` (then do not start it). */
@@ -357,8 +366,13 @@ export function sweepWants (e, { items = [], emptySlots = NaN } = {}) {
 // ---------------------------------------------------------------- bounds -----
 
 export const PICKUP_WAIT_MS = 600       // pickup delay is 10 ticks (500 ms) from the spawn
-export const SETTLE_MS = 700            // a drop with no position packet yet is trusted after this long
-export const SETTLE_QUIET_MS = 200      // ...or this long after its last position packet
+/**
+ * A drop is judged only once it has LANDED. Sandbox (Paper 1.21.8, 720d079): the server sends an item's position
+ * only every ~20 ticks (1 s), so the old 700 ms / 200 ms-quiet settle judged 15 of ~130 drops mid-air (on=air,
+ * 3-6.6 above the feet). Landed = a position packet said onGround, or two updates with no vertical movement, or
+ * this old -- and even then, a drop still over air above the feet is never walked to.
+ */
+export const SETTLE_MS = 1200
 export const IDENTIFY_MS = 1000         // metadata that has not arrived by then: not pursued
 export const DROP_SEEN_MS = 1000        // how long to wait for the drop entity to appear
 export const DROP_MS = 6000             // per drop
@@ -408,7 +422,7 @@ export async function pickupTransaction (bot, opts, io) {
   const rows = []
   const seen = new Set()
   const queue = []
-  const track = new Map()       // id -> { first, moved, lastMove, pos0 }
+  const track = new Map()       // id -> { first, onGround, ys }
   const scanCells = [cell]
   const scan = () => {
     try {
@@ -416,24 +430,36 @@ export async function pickupTransaction (bot, opts, io) {
         if (seen.has(e?.id)) continue
         if (!scanCells.some(c => isDropFrom(e, c, family, pre))) continue
         seen.add(e.id)
-        track.set(e.id, { first: now(), moved: false, lastMove: null, pos0: posOf(e.position) })
+        track.set(e.id, { first: now(), onGround: null, ys: [] })
         if (seen.size <= MAX_DROPS) queue.push(e.id)
       }
     } catch { /* an unreadable entity table is "no drop seen" */ }
   }
-  // A POSITION PACKET IS THE ONLY THING THAT MOVES ANOTHER ENTITY in mineflayer (entities.js emits entityMoved).
-  const onMoved = e => { const tr = track.get(e?.id); if (tr) { tr.moved = true; tr.lastMove = now() } }
-  const settled = (id, ent) => {
+  // A POSITION PACKET IS THE ONLY THING THAT MOVES ANOTHER ENTITY in mineflayer (entities.js emits entityMoved), and
+  // mineflayer drops the packet's onGround flag -- so it is read here, from the raw packet, for tracked drops only.
+  const onMoved = e => {
+    const tr = track.get(e?.id)
+    if (tr && e.position) { tr.ys.push(e.position.y); if (tr.ys.length > 3) tr.ys.shift() }
+  }
+  const onPacket = pk => {
+    try {
+      const tr = track.get(pk?.entityId)
+      if (tr && typeof pk.onGround === 'boolean') tr.onGround = pk.onGround
+    } catch { /* a malformed packet is "no flag" */ }
+  }
+  const POSITION_PACKETS = ['sync_entity_position', 'rel_entity_move', 'entity_move_look', 'entity_teleport']
+  const settled = id => {
     const tr = track.get(id)
     if (!tr) return true
-    const p = ent?.position
-    if (!tr.moved && p && Math.hypot(p.x - tr.pos0.x, p.y - tr.pos0.y, p.z - tr.pos0.z) > 0.01) { tr.moved = true; tr.lastMove = now() }
-    if (tr.moved) return now() - tr.lastMove >= SETTLE_QUIET_MS
+    if (tr.onGround === true) return true
+    const n = tr.ys.length
+    if (tr.onGround !== false && n >= 2 && Math.abs(tr.ys[n - 1] - tr.ys[n - 2]) < 0.01) return true
     return now() - tr.first >= SETTLE_MS
   }
-  const resettle = (id, ent) => { const tr = track.get(id); if (tr && ent?.position) Object.assign(tr, { first: now(), moved: false, lastMove: null, pos0: posOf(ent.position) }) }
+  const resettle = id => { const tr = track.get(id); if (tr) Object.assign(tr, { first: now(), onGround: null, ys: [] }) }
   const emit = row => { rows.push(row); try { io.log?.(row) } catch { /* telemetry */ } }
-  try { bot.on?.('entityMoved', onMoved) } catch { /* no events: positions are compared instead */ }
+  try { bot.on?.('entityMoved', onMoved) } catch { /* no events: the age cap still settles */ }
+  try { for (const k of POSITION_PACKETS) bot._client?.on?.(k, onPacket) } catch { /* no client: no flag */ }
   try {
     // 1. WHICH DROP CAME FROM THIS DIG. Its appearance is also the only server-side
     //    evidence the break happened: the 250 ms re-read before this reads our own
@@ -458,11 +484,12 @@ export async function pickupTransaction (bot, opts, io) {
       const g0 = gained()
       const strategies = []
       let breaks = 0, steps = 0, off = null, support = null, veto = null, reason = null, walkSaid = null, outside = 0
+      let waiting = null
       while (true) {
         aborted()
         if (gained() > g0) break
         if (left() < MIN_ACT_MS) { reason = 'deadline'; break }
-        if (now() - d0 > DROP_MS) { reason = 'timeout'; break }
+        if (now() - d0 > DROP_MS) { reason = waiting ?? 'timeout'; break }
         if (steps >= MAX_STEPS) { reason = 'steps'; break }
         scan()
         const ent = bot.entities?.[id]
@@ -479,7 +506,7 @@ export async function pickupTransaction (bot, opts, io) {
           await io.sleep(Math.min(100, left()), signal); continue
         }
         // DECIDE FROM A SETTLED POSITION (Claude): a drop read before it has landed sits in the broken cell, over air.
-        if (!settled(id, ent)) { await io.sleep(Math.min(100, left()), signal); continue }
+        if (!settled(id)) { waiting = 'settling'; await io.sleep(Math.min(100, left()), signal); continue }
         const feet = bot.entity?.position
         const pos = ent.position
         if (!feet || !pos) { reason = 'no_position'; break }
@@ -487,6 +514,11 @@ export async function pickupTransaction (bot, opts, io) {
         const sc = supportCellOf(pos)
         let sup = null
         try { sup = bot.blockAt?.(new Vec3(sc.x, sc.y, sc.z)) ?? null } catch { sup = null }
+        // STILL OVER AIR, ABOVE THE FEET: it has not landed whatever the clock says. Never walk to it; wait for the
+        // packet that says where it came down (the server may hand it over first, if it lands in the box).
+        const overAir = !sup || sup.boundingBox === 'empty' || sup.name === 'air'
+        if (overAir && pos.y > feet.y + 0.5) { waiting = 'airborne'; await io.sleep(Math.min(100, left()), signal); continue }
+        waiting = null
         support ??= sup?.name ?? null
         // Never the block the bot is standing on.
         // (feet 64.0 stand on cell 63; feet 64.5 stand on the slab in cell 64)
@@ -515,12 +547,13 @@ export async function pickupTransaction (bot, opts, io) {
           const budget = Math.min(left(), DROP_MS - (now() - d0))
           const ms = supportDigTimeout(Number(io.digMs?.(sup)), budget) ?? budget
           try { await io.dig(sup, ms, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-          resettle(id, ent)                       // the drop falls: decide again only once it has landed
+          resettle(id)                            // the drop falls: decide again only once it has landed
           scanCells.push(sc)                      // a broken log support drops a log of its own
           continue
         }
         // walk
         const from = posOf(pos)
+        const stoodAt = posOf(feet)
         const goal = pickupGoal(io.goals, pos, io.standY ?? null)
         if (!goal) { reason = 'no_goal'; break }
         const release = io.sought?.(id) ?? (() => {})
@@ -533,13 +566,17 @@ export async function pickupTransaction (bot, opts, io) {
           walkSaid = e?.name && e.name !== 'Error' ? e.name : (e?.failClass ?? String(e?.message ?? e).slice(0, 30))
           const at = bot.entities?.[id]?.position
           // UNREACHABLE ONLY FROM A SETTLED POSITION THAT DID NOT MOVE while we tried.
-          if (at && settled(id, bot.entities[id]) && Math.hypot(at.x - from.x, at.y - from.y, at.z - from.z) < 0.5) {
+          if (at && settled(id) && Math.hypot(at.x - from.x, at.y - from.y, at.z - from.z) < 0.5) {
             release(); reason = 'unreachable'; break
           }
         }
         try { await io.sleep(Math.min(150, Math.max(0, left())), signal) } finally { release() }
         // ARRIVAL IS CHECKED, NOT ASSUMED: goto resolves on the goal it computed, and the body must hold the drop.
-        if (walked && !inPickupBox(bot.entity?.position, bot.entities?.[id]?.position ?? pos) && gained() <= g0) {
+        // pathfinder's goto() RESOLVES on an empty path (lib/goto.js): "arrived" without moving is no route at all.
+        const here = bot.entity?.position
+        if (walked && !inPickupBox(here, bot.entities?.[id]?.position ?? pos) && gained() <= g0) {
+          const progress = here ? Math.hypot(here.x - stoodAt.x, here.y - stoodAt.y, here.z - stoodAt.z) : 0
+          if (progress < 0.5) { walkSaid = walkSaid ?? 'resolved_empty'; reason = 'unreachable'; break }
           walkSaid = 'arrived_outside'
           if (++outside >= 2) { reason = 'arrived_outside'; break }
         }
@@ -555,6 +592,7 @@ export async function pickupTransaction (bot, opts, io) {
     return { verdict: transactionVerdict({ gained: g, sawDrop: true, bagFull }), gained: g, drops: seen.size, ids: [...seen], rows }
   } finally {
     try { bot.off?.('entityMoved', onMoved) } catch { /* events */ }
+    try { for (const k of POSITION_PACKETS) bot._client?.off?.(k, onPacket) } catch { /* events */ }
   }
 }
 

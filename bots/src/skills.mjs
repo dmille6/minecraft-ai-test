@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
-import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, PICKUP_THINK_MS } from './logpickup.mjs'
+import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -1353,28 +1353,38 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
     const pickup = await pickupTransaction(bot, {
       cell: p, logName: wasNamed, family: dropsOf(bot.registry, wasNamed), pre, heldBefore,
       held: () => heldFromBlock(bot, wasNamed), signal, deadline,
-    }, pickupIO(bot))
+    }, pickupIO(bot, dropsOf(bot.registry, wasNamed)))
     // SAPLINGS STILL COME HOME (Claude review #3): planting needs them, and the old sweep is what fetched them.
     // Short and small -- 4 blocks, ~3 s, inside the deadline -- and never the log drops the transaction already
     // judged, so an unreachable log is not re-chased with GoalNear(drop, 1). Its intake is logged.
     const sweepMs = Math.min(SWEEP_MS, deadline - Date.now())
+    let sweep = null
     if (sweepMs >= 500 && pickup.verdict !== 'inventory_full') {   // a full bag cannot take a sapling either
-      const t = Date.now(), before = keptDrops(bot)
+      const t = Date.now(), pursued = []
       await pickupNearbyItems(bot, signal, SWEEP_RADIUS, {
-        exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs,
+        exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs, pursued,
         accept: e => sweepWants(e, { items: bot.inventory?.items?.() ?? [], emptySlots: bot.inventory?.emptySlotCount?.() }),
       })
-      const after = keptDrops(bot)
+      const sum = pred => pursued.filter(r => pred(r.name)).reduce((n, r) => n + r.got, 0)
+      sweep = { saplings: sum(n => SAPLING_SET.has(n)), apples: sum(n => n === 'apple'), pursued: pursued.length,
+                ms: Date.now() - t }
       logEvent({ kind: 'pickup_sweep', status: 'success',
-                 detail: `after ${wasNamed}: saplings +${after.saplings - before.saplings} apples +${after.apples - before.apples} ` +
-                         `ms=${Date.now() - t}`,
-                 args: { block: wasNamed, saplings: after.saplings - before.saplings, apples: after.apples - before.apples,
-                         ms: Date.now() - t } })
+                 detail: `after ${wasNamed}: saplings +${sweep.saplings} apples +${sweep.apples} ` +
+                         `(${sweep.pursued} pursued) ms=${sweep.ms}`,
+                 args: { block: wasNamed, ...sweep } })
     }
-    return { broke: true, pickup }
+    return { broke: true, pickup, sweep }
   }
   await pickupNearbyItems(bot, signal)
   return { broke: true, pickup: null }
+}
+
+/** How many of `name` the bag holds (all stacks). */
+function heldItemCount (bot, name) {
+  if (!name) return 0
+  let n = 0
+  try { for (const it of bot.inventory?.items?.() ?? []) if (it.name === name) n += it.count } catch { /* none */ }
+  return n
 }
 
 /** Logs: the blocks whose pickup is a transaction. */
@@ -1458,7 +1468,8 @@ function abortable (work, signal, cancel) {
 }
 
 /** The pickup transaction's I/O, bounded the same way as every other walk and dig in this file. */
-function pickupIO (bot) {
+function pickupIO (bot, family = []) {
+  const familyIds = family.map(n => bot.registry?.itemsByName?.[n]?.id).filter(id => id != null)
   return {
     goals,
     now: () => Date.now(),
@@ -1466,11 +1477,19 @@ function pickupIO (bot) {
     // The REAL feet height on a node: over a bottom slab it is half a block under node.y (Codex P2).
     standY: node => node.y - 1 + standHeight(bot.blockAt(new Vec3(node.x, node.y - 1, node.z), false)),
     // THINK TIME CAPPED: a pickup is worth seconds, not a 5 s A* drain. Restored on every path out.
+    // AND NEVER BUILD WITH THE LOG BEING GATHERED (sandbox: a timed-out pickup walk towered on the gathered logs).
+    // The scaffold list is edited in place for the walk and restored on every path out.
     walk: async (goal, ms, signal) => {
       const pf = bot.pathfinder
       const prev = pf.thinkTimeout
+      const sc = Array.isArray(pf.movements?.scafoldingBlocks) ? pf.movements.scafoldingBlocks : null
+      const saved = sc ? sc.slice() : null
       pf.thinkTimeout = PICKUP_THINK_MS
-      try { await abortable(withTimeout(pf.goto(goal), ms, bot), signal, () => haltPath(bot)) } finally { pf.thinkTimeout = prev }
+      if (sc) { const keep = scaffoldWithout(saved, familyIds); sc.length = 0; sc.push(...keep) }
+      try { await abortable(withTimeout(pf.goto(goal), ms, bot), signal, () => haltPath(bot)) } finally {
+        pf.thinkTimeout = prev
+        if (sc) { sc.length = 0; sc.push(...saved) }
+      }
     },
     // The hole is the point, not the drop: a leaf yields nothing a tool must harvest. Timeout sized by the caller
     // from digTime, so a bare-handed log support (3 s grounded, 15 s in the air) is not killed half-way.
@@ -1517,7 +1536,7 @@ function pickupIO (bot) {
  * The budget is unchanged. What changes is which drop the budget is spent on:
  * a drop that refuses is SKIPPED, not surrendered to.
  */
-export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = null, budgetMs = Infinity, accept = null } = {}) {
+export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = null, budgetMs = Infinity, accept = null, pursued = null } = {}) {
   // Ids that refused us this sweep. Per-sweep, deliberately: a drop unreachable
   // from here may be fine after the next dig moves the bot, and a persistent
   // blacklist of entity ids would outlive the entities.
@@ -1536,6 +1555,14 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
     // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
     const releaseSought = noteSought(bot, drop.id, 'pickup')
     const walkT0 = Date.now()
+    // WHAT THIS SWEEP PURSUED, for a caller that counts its own intake (pursued: an array it owns). Passive pickups
+    // during the window are not this sweep's (sandbox, 720d079): only a drop it walked to, that is gone, and whose
+    // item rose in the bag, bounded by that drop's own stack.
+    let pName = null, pCount = 1, pBefore = 0
+    if (pursued) {
+      try { const it = drop.getDroppedItem?.(); pName = it?.name ?? null; pCount = it?.count ?? 1 } catch { /* unnamed */ }
+      pBefore = heldItemCount(bot, pName)
+    }
     try {
       await abortable(withTimeout(bot.pathfinder.goto(
         new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), Math.max(1, Math.min(6000, sweepEnd - Date.now())), bot),
@@ -1564,6 +1591,10 @@ export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = nul
       continue
     }
     try { await sleep(Math.max(0, Math.min(250, sweepEnd - Date.now())), signal) } finally { releaseSought() }
+    if (pursued && pName) {
+      const d = heldItemCount(bot, pName) - pBefore
+      pursued.push({ name: pName, got: !bot.entities?.[drop.id] && d > 0 ? Math.min(d, pCount) : 0 })
+    }
     // ONE WALK PER DROP PER SWEEP, whatever happened.
     //
     // The first draft retired a drop only when the bot ended up >= 2 blocks
