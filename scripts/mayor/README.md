@@ -112,8 +112,11 @@ own, never mixed with live ones.
 the request bytes (system + prompt + output schema) at 1 token per 2 bytes plus a fixed 1,000-token request
 overhead, at the input rate, plus the full `max_tokens` (thinking included) at the output rate. The HARD STOP is on
 ACTUAL billed tokens as the API reports them: the run stops when spent + the next reservation would pass
-`--budget-usd`, so it can overshoot by at most one call's actual cost beyond its estimate. An attempt that timed
-out, dropped, or returned a 200 without JSON/usage is charged its whole reservation. The client loads snapshots
+`--budget-usd`. An attempt that timed out, dropped, or returned a 200 without valid JSON, a valid envelope or
+numeric usage (`usage: {}` counts as missing, not zero) is charged its reservation -- an estimate. **So when billing
+data is unavailable, the cumulative actual cost is not bounded by the ledger**: the stop is on observed billed
+tokens plus reservations, and only the provider's invoice is ground truth. Malformed envelopes (null or non-dict
+content/output elements, non-string text) are counted invalid, never an exception. The client loads snapshots
 streaming with the scorer's replay rule (`--replay-only`, never mixed), skips an unreadable line (counted), counts
 a non-JSON 200 as invalid and carries on, normalises every field before using it, enforces the full output schema
 (malformed answers are invalid, never an exception), and stores HTTP errors as `http_<status>:<sanitised type>`
@@ -121,7 +124,7 @@ only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (66 tests, ~10 s). `test_mutants.py` applies each of 60
+`python3 -m unittest discover -s scripts/mayor/tests -v` (70 tests, ~13 s). `test_mutants.py` applies each of 66
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
 red (an unmutated copy must be green; a missing or non-unique anchor raises). To see which tests kill which mutant:
 `python3 scripts/mayor/tests/test_mutants.py --report`.

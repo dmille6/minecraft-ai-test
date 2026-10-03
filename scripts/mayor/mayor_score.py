@@ -385,8 +385,8 @@ def main(argv=None):
         for rec in read_jsonl(sorted(glob.glob(pat))):
             if rec.get('reask_of'):
                 continue                          # re-asks measure self-consistency, not the engine
-            if rec.get('engine') == 'deterministic' and bool(rec.get('replay')) != args.replay_only:
-                continue
+            if bool(rec.get('replay')) != args.replay_only:
+                continue                          # EVERY engine: replay records never mix with live scoring
             lab, w = engine_label(rec), world_of(rec)
             for a in rec.get('assignments') or []:
                 if isinstance(a, dict) and a.get('lease') != 'held':

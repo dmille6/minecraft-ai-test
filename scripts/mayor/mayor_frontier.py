@@ -92,9 +92,11 @@ class Ledger:
     bytes a token, so ~1.5-2x over -- PLUS OVERHEAD_TOKENS, at the input rate, plus the full max_tokens
     (thinking included) at the output rate. The HARD STOP is on what was ACTUALLY BILLED: `spent` is
     the providers' reported usage, and before every attempt (retries included) the run stops if spent
-    + the next reservation would pass the budget. So the overshoot is at most one call's actual cost
-    beyond its own estimate. An attempt that timed out, dropped, or came back without usage (non-JSON
-    200) may still have been billed and is charged its whole reservation; an HTTP error status is 0."""
+    + the next reservation would pass the budget. An attempt that timed out, dropped, or came back
+    without valid usage (non-JSON 200, a malformed envelope, usage {} or non-numeric counts) may still
+    have been billed and is charged its RESERVATION -- an estimate. So when billing data is unavailable,
+    the cumulative ACTUAL cost is NOT bounded by this ledger: the stop is on observed billed tokens plus
+    reservations, and only the provider's invoice is ground truth. An HTTP error status is charged 0."""
 
     def __init__(self, budget_usd, price_in, price_out):
         self.budget, self.pin, self.pout = budget_usd, price_in, price_out
@@ -203,6 +205,65 @@ def _post(url, headers, body, timeout, opener):
     return out
 
 
+def _tokens(u, *keys):
+    """A token count is a non-negative int (not a bool). Anything else means the usage is MISSING."""
+    vals = [u.get(k) for k in keys]
+    return vals if all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in vals) else None
+
+
+def _bad(what):
+    return ProviderError(200, 'bad_envelope')     # charged at the reservation, counted invalid
+
+
+def anthropic_parse(r):
+    """(text, tokens_in|None, tokens_out|None, stop) from a Messages API body, validated before use."""
+    content = r.get('content')
+    if not isinstance(content, list):
+        raise _bad('content')
+    parts = []
+    for b in content:
+        if not isinstance(b, dict):
+            raise _bad('content element')
+        if b.get('type') == 'text':
+            if not isinstance(b.get('text'), str):
+                raise _bad('text')
+            parts.append(b['text'])
+    u = r.get('usage')
+    tin = tout = None
+    if isinstance(u, dict):
+        core_t = _tokens(u, 'input_tokens', 'output_tokens')
+        cache = [u.get(k, 0) for k in ('cache_read_input_tokens', 'cache_creation_input_tokens')]
+        if core_t is not None and all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in cache):
+            tin, tout = core_t[0] + sum(cache), core_t[1]
+    return ''.join(parts), tin, tout, r.get('stop_reason')
+
+
+def openai_parse(r):
+    """(text, tokens_in|None, tokens_out|None, status) from a Responses API body, validated before use."""
+    output = r.get('output')
+    if not isinstance(output, list):
+        raise _bad('output')
+    parts = []
+    for o in output:
+        if not isinstance(o, dict):
+            raise _bad('output element')
+        if o.get('type') != 'message':
+            continue
+        content = o.get('content')
+        if not isinstance(content, list):
+            raise _bad('message content')
+        for c in content:
+            if not isinstance(c, dict):
+                raise _bad('content element')
+            if c.get('type') == 'output_text':
+                if not isinstance(c.get('text'), str):
+                    raise _bad('text')
+                parts.append(c['text'])
+    u = r.get('usage')
+    t = _tokens(u, 'input_tokens', 'output_tokens') if isinstance(u, dict) else None
+    return ''.join(parts), (t[0] if t else None), (t[1] if t else None), r.get('status')
+
+
 def call_anthropic(model, prompt, key, args, opener=urllib.request.urlopen):
     body = {'model': model, 'max_tokens': args.max_tokens, 'system': SYSTEM,
             'messages': [{'role': 'user', 'content': prompt}],
@@ -212,12 +273,7 @@ def call_anthropic(model, prompt, key, args, opener=urllib.request.urlopen):
         body['temperature'] = 0
     r = _post(ANTHROPIC_URL, {'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
               body, args.timeout, opener)
-    text = ''.join(b.get('text', '') for b in r.get('content') or [] if b.get('type') == 'text')
-    u = r.get('usage')
-    if not isinstance(u, dict):
-        return text, None, None, r.get('stop_reason')
-    tin = (u.get('input_tokens') or 0) + (u.get('cache_read_input_tokens') or 0) + (u.get('cache_creation_input_tokens') or 0)
-    return text, tin, u.get('output_tokens') or 0, r.get('stop_reason')
+    return anthropic_parse(r)
 
 
 def call_openai(model, prompt, key, args, opener=urllib.request.urlopen):
@@ -229,12 +285,7 @@ def call_openai(model, prompt, key, args, opener=urllib.request.urlopen):
         body['temperature'] = 0
     r = _post(OPENAI_URL, {'authorization': 'Bearer ' + key, 'content-type': 'application/json'},
               body, args.timeout, opener)
-    text = ''.join(c.get('text', '') for o in r.get('output') or [] if o.get('type') == 'message'
-                   for c in o.get('content') or [] if c.get('type') == 'output_text')
-    u = r.get('usage')
-    if not isinstance(u, dict):
-        return text, None, None, r.get('status')
-    return text, u.get('input_tokens') or 0, u.get('output_tokens') or 0, r.get('status')
+    return openai_parse(r)
 
 
 def fake_model(snap, every_invalid=0, counter=[0]):
