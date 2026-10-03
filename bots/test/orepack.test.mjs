@@ -20,7 +20,7 @@ const Block = require('prismarine-block')(registry)
 const Item = require('prismarine-item')(registry)
 const { pathfinder } = require('mineflayer-pathfinder')
 const OT = await import('../src/oretunnel.mjs')
-const { tunnelRoom, tunnelDrops, tunnelNeeds, dropFits, lootFor, toolRisk, plainStack, bagOccupants, STONE_DROPS, STONE_ROOM, CLUSTER_CAP, RETURN_RESERVE,
+const { tunnelRoom, tunnelDrops, tunnelNeeds, unplannedDigFits, lootFor, toolRisk, plainStack, bagOccupants, STONE_DROPS, STONE_ROOM, CLUSTER_CAP, RETURN_RESERVE,
         tunnelMovements, planTunnel } = OT
 const SK = await import('../src/skills.mjs')
 const { tunnelToOre } = SK
@@ -141,15 +141,33 @@ await t('tunnelNeeds: ore = the UNION of the target cluster and iron broken alon
   assert.equal(r.oreBlocks, 4, 'two cluster + two route ores, the shared one once'); assert.equal(r.ore, 4 * ironMax)
   assert.deepEqual(Object.fromEntries(r.need), { cobblestone: 1 }, 'iron is counted as ore, not in the per-item need')
 })
-await t('dropFits (the live check before any dig): a drop needs spare in its own stack, or an empty slot the ore does not need', () => {
-  const inv = [...FILL(33), it('cobblestone', 60), it('raw_iron', 1), it('dirt', 64)]
-  const gravel = loot('gravel'), stone = loot('stone'), dirt = loot('dirt')
-  assert.equal(dropFits(inv, 0, stone, { oreNeed: 2 }).ok, true, 'cobblestone has spare')
-  assert.equal(dropFits(inv, 0, dirt, { oreNeed: 2 }).ok, false, 'dirt stack full, no empty slot')
-  assert.match(dropFits(inv, 0, gravel, { oreNeed: 2 }).why, /no room for (gravel|flint)/)
-  assert.equal(dropFits(inv, 1, gravel, { oreNeed: 2 }).ok, true, 'one empty slot and the ore fits its raw_iron stack')
-  assert.equal(dropFits(inv, 1, gravel, { oreNeed: 64 }).ok, false, 'the one empty slot is reserved for the ore')
-  assert.equal(dropFits(inv, 1, loot('iron_ore'), { oreNeed: 64 }).ok, true, 'iron may use the ore\'s own slot')
+// THE UNPLANNED-DIG RULE (Codex pass 4): a break the plan did not list may use only spare in a stack of the SAME item
+// beyond that item's planned need + slack and beyond what earlier unplanned digs this tunnel already took -- never an
+// empty slot (those are the planned drops' and the ore's).
+const M = o => new Map(Object.entries(o))
+await t('unplannedDigFits: successive digs, drop NOT yet landed -- the second is vetoed once the first used the spare', () => {
+  const start = [...FILL(35), it('dirt', 64 - (RETURN_RESERVE + 1))]          // dirt spare = slack + 1: room for ONE
+  const ctx = spent => ({ start, live: start, plannedTotal: M({}), remaining: M({}), spent: M(spent), slack: RETURN_RESERVE, emptySlots: 0 })
+  assert.equal(unplannedDigFits(loot('dirt'), ctx({})).ok, true, 'the first dig fits')
+  const second = unplannedDigFits(loot('dirt'), ctx({ dirt: 1 }))
+  assert.equal(second.ok, false, 'the inventory has not changed yet; the ledger must still refuse'); assert.match(second.why, /no room for dirt/)
+})
+await t('unplannedDigFits: successive digs, drop LANDED (inventory changed) -- the second is still vetoed', () => {
+  const start = [...FILL(35), it('dirt', 64 - (RETURN_RESERVE + 1))]
+  const live = [...FILL(35), it('dirt', 64 - RETURN_RESERVE)]                  // the first dirt arrived
+  assert.equal(unplannedDigFits(loot('dirt'), { start, live, plannedTotal: M({}), remaining: M({}), spent: M({ dirt: 1 }), slack: RETURN_RESERVE, emptySlots: 0 }).ok, false)
+})
+await t('unplannedDigFits: dirt may NOT take the empty slot that planned cobblestone needs; planned need and slack are kept', () => {
+  const inv = [...FILL(34), it('dirt', 64), it('cobblestone', 64)]           // cobblestone overflow needs the 1 empty slot
+  const base = { start: inv, live: inv, plannedTotal: M({ cobblestone: 30 }), remaining: M({ cobblestone: 30 }), spent: M({}), slack: RETURN_RESERVE }
+  const r = unplannedDigFits(loot('dirt'), { ...base, emptySlots: 1 })
+  assert.equal(r.ok, false, 'an unplanned dirt break took a slot reserved for planned drops'); assert.match(r.why, /no room for dirt/)
+  const cob = [...FILL(35), it('cobblestone', 20)]                            // 44 spare: 30 planned + 5 slack + 9 free
+  const c = { start: cob, live: cob, plannedTotal: M({ cobblestone: 30 }), remaining: M({ cobblestone: 30 }), spent: M({}), slack: RETURN_RESERVE, emptySlots: 0 }
+  assert.equal(unplannedDigFits(loot('stone'), c).ok, true, 'cobblestone beyond planned need + slack is usable')
+  assert.equal(unplannedDigFits(loot('stone'), { ...c, spent: M({ cobblestone: 9 }) }).ok, false, '...but only 9 of it')
+  assert.equal(unplannedDigFits(loot('iron_ore'), { ...c, plannedTotal: M({ raw_iron: 4 }), remaining: M({ raw_iron: 4 }), start: [...cob, it('raw_iron', 60)], live: [...cob, it('raw_iron', 60)] }).ok, false,
+    'an unplanned iron break cannot eat the ore\'s reserve')
 })
 
 // ---- enchanted tools ----
@@ -205,13 +223,18 @@ const ARRIVE = new Vec3(31.5, 54, 6.5)       // face-adjacent to the ore: SideOf
 const wornPick = tool('stone_pickaxe', 12)
 const armed = inv => { assert.ok(FILLER.includes(inv.at(-1).name), 'the last slot must be filler'); return [...inv.slice(0, -1), wornPick] }
 const ok = { aborted: false, addEventListener () {}, removeEventListener () {} }
-function tunnelBot (items, { empty = 0, world = {}, onGoto = null } = {}) {
+function tunnelBot (items, { empty = 0, world = {}, onGoto = null, land = false } = {}) {
   const bot = new EventEmitter()
   Object.assign(bot, { registry, version: VERSION, health: 20, food: 20, currentWindow: null, game: { minY: -64 }, entities: {}, world: { raycast: () => null } })
   bot.entity = { position: new Vec3(30.5, 64, 0.5), effects: {}, onGround: true, velocity: new Vec3(0, 0, 0) }
   bot.inventory = { items: () => items.map(x => x), emptySlotCount: () => empty }
   bot.waitForTicks = async () => { await new Promise(r => setImmediate(r)) }
   bot.clearControlStates = () => {}; bot.setControlState = () => {}; bot.stopDigging = () => {}
+  const digs = []
+  bot.dig = async b => {                       // the server: the block becomes air; the drop may land at once
+    const k = `${b.position.x},${b.position.y},${b.position.z}`; digs.push(b.name); world[k] = 'air'
+    if (land) { const d = loot(b.name)[0]; const s = items.find(x => x.name === d?.item && x.count < x.stackSize); if (s) s.count++ }
+  }
   bot.blockAt = p => {
     const f = p.floored(); if (Math.abs(f.x - 30) > 60 || Math.abs(f.z) > 60) return null
     const name = world[`${f.x},${f.y},${f.z}`] ?? (f.equals(ORE) ? 'iron_ore' : (f.y <= 63 ? 'stone' : 'air'))
@@ -225,7 +248,7 @@ function tunnelBot (items, { empty = 0, world = {}, onGoto = null } = {}) {
   // THE WALK IS STUBBED: by default it arrives beside the ore; onGoto can stand in for the pathfinder instead.
   const walks = []
   bot.pathfinder.goto = async goal => { walks.push(goal?.constructor?.name); if (onGoto) return onGoto(goal, bot); bot.entity.position = ARRIVE.clone() }
-  return { bot, walks }
+  return { bot, walks, digs }
 }
 const run = bot => tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
 // POSITIVE CONTROL for the wired runs: what the real planner digs to this ore, and therefore the cobblestone it yields.
@@ -279,10 +302,14 @@ const assertEnchantedNeed = r => {
   assert.ok(Number.isInteger(r.need?.minUses) && r.need.minUses > 0 && r.need.minUses <= registry.itemsByName.stone_pickaxe.maxDurability, `minUses ${r.need?.minUses}`)
   assert.match(r.need?.because ?? '', /unenchanted/)
 }
-await t('WIRED: a Fortune pickaxe in the bag -> enchanted_tool with a need (an unenchanted stone_pickaxe); no walk', async () => {
+await t('WIRED: a Fortune pickaxe in the bag -> enchanted_tool with a need (an unenchanted stone_pickaxe); no walk; a countable _ore_tunnel row', async () => {
   const { bot, walks } = tunnelBot(roomy([FORTUNE_IRON()]), { empty: 4 })
   const r = await run(bot)
   assertEnchantedNeed(r); assert.match(r.detail, /fortune/); assert.equal(walks.length, 0)
+  await new Promise(res => setTimeout(res, 150))
+  const rows = fs.readFileSync(path.join(LOG_DIR, 'skill-PackBot.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l))
+  assert.ok(rows.some(x => x.skill?.name === '_ore_tunnel' && /^failed\/enchanted_tool: /.test(x.skill?.detail ?? '') && /fortune/.test(x.skill.detail)),
+    'TRIPWIRE: the refusal must be countable from _ore_tunnel rows (failed/enchanted_tool)')
 })
 await t('WIRED: Fortune pickaxe + a fresh plain one -> STILL refused (gather\'s own ore dig ignores enchantments)', async () => {
   const { bot, walks } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 131)]), { empty: 4 })
@@ -341,10 +368,31 @@ await t('WIRED: a re-centre through gravel/dirt with no room for them -> the dig
   assert.deepEqual(dug, [], 'a dig with no room for its drop was allowed')
   assert.equal(r.failClass, 'tunnel_incomplete', `${r.failClass}: ${r.detail}`); assert.match(r.detail, /no room for (gravel|flint|dirt)/)
   assert.ok(!bot.tunnelMovements.exclusionAreasBreak.some(f => f.name === 'roomVeto'), 'the veto is removed after the tunnel')
-  const room1 = tunnelBot(to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64), tool('stone_pickaxe', 131)]).slice(0, 35), { empty: 1, world, onGoto })
-  dug.length = 0; await run(room1.bot)
-  assert.ok(dug.length > 0, 'control: with a spare slot beyond the ore slot, the same digs are allowed')
+  const slot1 = tunnelBot(to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64), tool('stone_pickaxe', 131)]).slice(0, 35), { empty: 1, world, onGoto })
+  dug.length = 0; await run(slot1.bot)
+  assert.deepEqual(dug, [], 'an EMPTY slot is not room for an unplanned dig')
+  const own = tunnelBot(to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 32), it('gravel', 32), it('flint', 32), tool('stone_pickaxe', 131)]), { empty: 0, world, onGoto })
+  dug.length = 0; await run(own.bot)
+  assert.deepEqual([...new Set(dug)].sort(), ['dirt', 'gravel'], `control: with spare in the SAME items beyond the slack, the same digs are allowed (${dug})`)
 })
+for (const land of [false, true]) {
+  await t(`WIRED: successive unplanned digs at dig time (drop ${land ? 'landed' : 'not yet landed'}) -- the second is refused once the first used the spare`, async () => {
+    const world = { '31,63,0': 'dirt', '29,63,0': 'dirt' }
+    const tried = []
+    const onGoto = async (goal, bot) => {
+      if (goal?.constructor?.name !== 'GoalBlock' || tried.length) return
+      for (const k of Object.keys(world)) {
+        const b = bot.blockAt(new Vec3(...k.split(',').map(Number)))
+        try { await bot.dig(b, true); tried.push('dug') } catch { tried.push('refused') }
+      }
+    }
+    const inv = to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64 - (RETURN_RESERVE + 1)), tool('stone_pickaxe', 131)])
+    const { bot, digs } = tunnelBot(inv, { empty: 0, world, onGoto, land })
+    const r = await run(bot)
+    assert.deepEqual(tried, ['dug', 'refused'], `room for one unplanned dirt: ${tried}`); assert.deepEqual(digs, ['dirt'])
+    assert.match(r.detail, /no room for dirt/)
+  })
+}
 
 // ---- MUTANTS: each guard must be SEEN to fail for its intended reason (anchor present and unique) ----
 async function withMutant (file, old, neu, fn) {
@@ -364,7 +412,7 @@ await t('MUTANT KILLED: summing spare across stone types lets andesite hold cobb
     })
 })
 await t('MUTANT KILLED: dropping the post-plan slack lets an exactly-equal tunnel through', async () => {
-  await withMutant('skills.mjs', 'slack: RETURN_RESERVE', 'slack: 0', async m => {
+  await withMutant('skills.mjs', 'need: needs.need, slack: RETURN_RESERVE', 'need: needs.need, slack: 0', async m => {
     const { bot } = tunnelBot(armed(bagWithCobbleSpare(N)))
     const r = await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
     assert.equal(r.failClass, 'pickaxe_short', `the mutant should pass the room check: ${r.failClass}`)
@@ -396,6 +444,36 @@ await t('MUTANT KILLED (fix 3): without the live veto the re-centre digs the gra
     const { bot } = tunnelBot(to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64), tool('stone_pickaxe', 131)]), { empty: 0, world, onGoto })
     await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
     assert.ok(dug.length > 0, 'mutant still refused the dig')
+  })
+})
+
+await t('MUTANT KILLED (pass 4a): without the per-tunnel ledger a second unplanned dig passes before the first drop lands', async () => {
+  await withMutant('oretunnel.mjs', '    const ledger = spareFor(start, item) - planned - slack - used + emptyUsable', '    const ledger = spareFor(start, item) - planned - slack + emptyUsable', async m => {
+    const start = [...FILL(35), it('dirt', 64 - (RETURN_RESERVE + 1))]
+    assert.equal(m.unplannedDigFits(loot('dirt'), { start, live: start, plannedTotal: M({}), remaining: M({}), spent: M({ dirt: 1 }), slack: RETURN_RESERVE, emptySlots: 0 }).ok, true,
+      'mutant still refused the second dig')
+  })
+})
+await t('MUTANT KILLED (pass 4b): letting unplanned digs use empty slots hands dirt the cobblestone-reserved slot', async () => {
+  await withMutant('oretunnel.mjs', '  const emptyUsable = 0', '  const emptyUsable = emptySlots * 64', async m => {
+    const inv = [...FILL(34), it('dirt', 64), it('cobblestone', 64)]
+    assert.equal(m.unplannedDigFits(loot('dirt'), { start: inv, live: inv, plannedTotal: M({ cobblestone: 30 }), remaining: M({ cobblestone: 30 }), spent: M({}), slack: RETURN_RESERVE, emptySlots: 1 }).ok, true,
+      'mutant still refused')
+  })
+})
+
+await t('MUTANT KILLED (pass 4c): without the dig-time check, queued unplanned digs both happen (the plan-time veto alone is not enough)', async () => {
+  await withMutant('skills.mjs', 'bot.dig = async function tunnelDig', 'const notInstalled = async function tunnelDig', async m => {
+    const world = { '31,63,0': 'dirt', '29,63,0': 'dirt' }
+    const tried = []
+    const onGoto = async (goal, bot) => {
+      if (goal?.constructor?.name !== 'GoalBlock' || tried.length) return
+      for (const k of Object.keys(world)) { try { await bot.dig(bot.blockAt(new Vec3(...k.split(',').map(Number))), true); tried.push('dug') } catch { tried.push('refused') } }
+    }
+    const inv = to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64 - (RETURN_RESERVE + 1)), tool('stone_pickaxe', 131)])
+    const { bot } = tunnelBot(inv, { empty: 0, world, onGoto })
+    await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
+    assert.deepEqual(tried, ['dug', 'dug'], 'mutant still refused the second dig')
   })
 })
 

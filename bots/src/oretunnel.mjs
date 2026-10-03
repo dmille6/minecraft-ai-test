@@ -217,18 +217,28 @@ export function tunnelNeeds (breaks = [], cluster = [], lootOf = () => [], { isO
 }
 
 /**
- * dropFits(items, emptySlots, drops, { oreNeed }) -> { ok, why }. THE LIVE CHECK BEFORE A DIG THE PLAN DID NOT LIST
- * (re-centre, stall, re-plan): every item the block can drop needs spare >= its max in its own plain stacks, or an
- * empty slot -- and one empty slot stays reserved for the ore unless held raw_iron already has oreNeed spare. A
- * raw_iron drop may use that reserved slot.
+ * unplannedDigFits(drops, ctx) -> { ok, why }. May the walk dig a block the plan did NOT list (a re-plan's detour, a
+ * re-centre, a stall)? Conservative by design (Codex pass 4): its drop may use only spare in stacks of the SAME item
+ * beyond that item's planned need + slack, and beyond what earlier unplanned digs in this tunnel already took --
+ * NEVER an empty slot: those belong to the planned drops and to every ore slot the plan needs. Both must hold:
+ *   ledger: spare at the walk's START - planned total - slack - unplanned already allowed (covers drops that have
+ *           not landed yet: a dig resolves before its item is picked up)
+ *   now:    spare NOW - planned still undug - slack (covers anything else that filled the stack meanwhile)
+ * ctx: { start, live (items), plannedTotal, remaining, spent (Maps item -> count), slack, emptySlots }.
+ * raw_iron is an item like any other here: the ore's planned total sits in plannedTotal.
  */
-export function dropFits (items = [], emptySlots = 0, drops = [], { oreNeed = CLUSTER_CAP } = {}) {
-  const empty = Math.max(0, Math.floor(Number(emptySlots) || 0))
-  const reserve = spareFor(items, ORE_DROP) >= oreNeed ? 0 : 1
+export function unplannedDigFits (drops = [], { start = [], live = [], plannedTotal = new Map(), remaining = new Map(),
+                                                spent = new Map(), slack = 0, emptySlots = 0 } = {}) {
+  const emptyUsable = 0   // never: every empty slot is reserved (emptySlots is accepted only so this stays explicit)
   for (const { item, max } of drops ?? []) {
-    if (spareFor(items, item) >= max) continue
-    if (item === ORE_DROP ? empty >= 1 : empty - reserve >= 1) continue
-    return { ok: false, why: `no room for ${item} (spare ${spareFor(items, item)} < ${max}; ${empty} empty, ${reserve} kept for the ore)` }
+    const planned = plannedTotal.get(item) ?? 0
+    const used = spent.get(item) ?? 0
+    const ledger = spareFor(start, item) - planned - slack - used + emptyUsable
+    const now = spareFor(live, item) - (remaining.get(item) ?? 0) - slack + emptyUsable
+    if (Math.min(ledger, now) < max) {
+      return { ok: false, why: `no room for ${item} (spare beyond planned ${planned} + reserve ${slack}` +
+                               `${used ? ` + ${used} already dug` : ''} is ${Math.min(ledger, now)} < ${max}; ${emptySlots} empty kept for planned drops)` }
+    }
   }
   return { ok: true, why: null }
 }
