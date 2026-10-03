@@ -11,7 +11,20 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
-## 10-02 EVENING (20:20Z) — CURRENT
+## 10-03 MIDDAY (11:55Z) — CURRENT (supersedes the queue lines below)
+- **OWNER 10-03 ~11:20Z: "test each crafting element seperately"; queue per Codex ("i agree with codex"):**
+  oretunnel-03 (live, decides ~22:22Z) -> **craftsync-01** -> logpickup -> craftroom -> composter -> explore-toward
+  -> orepack -> cellmem (deferred). One change per canary. Explore-toward is no longer next.
+- **craftsync-01 CHAINED** behind oretunnel-03 (chain-after.sh pid 2191467, log ~/chain-craftsync-01.out; the explore chain pid 2073712 was stopped). Variants by
+  fleet sha: 3edf1d6 -> ba84fa6 (cs-on-3edf1d6, 219/219), 8453c09 -> 9794a58 (cs-on-8453c09, 218/218) (each = base + craftsync 93b3892..6660831 + the
+  behaviour-neutral pickup telemetry 3edf1d6..e2b4ebd). Registrations docs/reports/craftsync-01.<fleet>.json; read
+  scripts/host/craftsyncread.py (dry run 10-03: control 100/892 crafts "nothing changed" = the positive control; the
+  UNCHANGED canary pool read 17/101, so the correctness line would have fired on today's code).
+- After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
+  (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
+  build-from-logs sandbox once craftsync is in.
+
+## 10-02 EVENING (20:20Z)
 - **fixes-03 KEPT +360 (11:15Z) and PROMOTED: fleet is `8453c09` on all 80.** Good pickaxes lost 1 (120 canary bot-h) vs
   208 (240 control); spent-pickaxe satisfactions 0/147 vs 283/651; climbs +19% (normal); deaths 3 vs 8.
 - **digsync2-01 (254f208) REVERTED +180 (15:17Z) on its own correctness gate**: 91 silent acks, 61 got AIR in the 3 s

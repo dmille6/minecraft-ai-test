@@ -1,0 +1,108 @@
+{
+  "run_id": "craftsync-01",
+  "sha": "9794a58",
+  "registered_at": "2026-10-03T12:30:00Z",
+  "ladder_change": false,
+  "promotion": "fleet-wide",
+  "notes": "[craftsync-01, 10-03 (OWNER 11:20Z: 'test each crafting element seperately'; queue per Codex, owner 'i agree with codex': craftsync -> logpickup -> craftroom -> composter -> explore-toward -> orepack -> cellmem). Variant for fleet 8453c09, branch cs-on-8453c09 @ 9794a58 = 8453c09 + craftsync (93b3892..6660831) + behaviour-neutral pickup telemetry (3edf1d6..e2b4ebd); npm test green. Launched by chain-after.sh when oretunnel-03 ends, choosing the variant by fleet sha.] LOST TABLE CRAFTS (10-03, sandbox, Paper 1.21.8, real craft skill, RCON oracle): mineflayer 4.37.1 fires window clicks without waiting and keeps ONE global stateId, so the server rejects and resyncs mid-craft; control lost 13 of 29 table crafts while reporting success, over-crafted 7 times ('4 sticks' -> 16) and 4 false failures. Fleet, 3 h 10-03: 118 of 994 craft rows ended 'nothing changed' -- every one a 'crafted Nx <item>' claim (38 stone_pickaxe, 33 wooden_pickaxe, 22 crafting_table). THE FIX (both engines reviewed; Claude AGREE, Codex's rare mixed-plank planning gap accepted as documented and fail-safe): clicks in lockstep with the server (quiet wait per click, one forced resync on opening a container), each craft verified by window-0 resyncs before/after (craft_unconfirmed otherwise), count = ITEMS, whole-tree planner crafts each intermediate once. Sandbox 38/38 + 27/27, 0 lost, exact counts; ~1-2 s slower per craft. Row `_craft_sync` per bot.craft. KNOWN TRADE-OFF (Claude review): bots ask to craft tools they already hold; now those succeed and spend materials -- reported as duplicate_tool_crafts, not gated.",
+  "licence": {
+    "class": "kind",
+    "kind": "_craft_sync",
+    "min_rows": 1,
+    "note": "Written only by this build, once per bot.craft. The baseline has no craftsync module and no such row kind (dry run 10-03: 0 fleet-wide)."
+  },
+  "reads": [
+    "craftsyncread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    180,
+    360
+  ],
+  "deadline_min": 1680,
+  "change_rows": [],
+  "linkage_extra": [],
+  "draw_exposure": {
+    "hours": 3,
+    "require": [
+      {
+        "name": "craft activity (the population this changes)",
+        "kind": "craft",
+        "min": 30
+      }
+    ],
+    "note": "Dry run 10-03 08:42-11:42Z: 994 craft rows on 80 bots (~62 per 5-bot pool)."
+  },
+  "exposure": {
+    "read": "craftsyncread",
+    "field": "exposure_ready",
+    "min": 1,
+    "note": "Ready = >= 10 canary craft rows AND control 'nothing changed' >= 1. Dry run: canary 101 and control 100 of 892 in 3 h."
+  },
+  "own_lines": [
+    {
+      "read": "craftsyncread",
+      "field": "nothing_judged",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "CORRECTNESS: a canary craft claimed success and the runner saw nothing gained ('nothing changed that craft exists to change'). craftsync verifies every craft against the server, so a lost craft must surface as craft_unconfirmed, never as a claimed success. Judged on >= 10 canary crafts. Dry run on UNCHANGED code: 17 of 101 -- this line would have fired."
+    },
+    {
+      "read": "craftsyncread",
+      "field": "sync_rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "craftsyncread",
+      "field": "sync_rows_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "craftsyncread",
+      "field": "nothing_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "POSITIVE CONTROL: the 'nothing changed' query sees a presence (100 of 892 control crafts in the dry run). BLOCKS KEEP."
+    },
+    {
+      "read": "craftsyncread",
+      "field": "nonresync_over_5pct",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "INSTRUMENT: > 5% of canary crafts verified by anything but a server resync means Paper did not answer the window-0 resync this design relies on. Judged on >= 20 rows. BLOCKS KEEP."
+    }
+  ],
+  "primary": {
+    "read": "craftsyncread",
+    "field": "pickaxe_crafts_did_per_bh",
+    "note": "REPORTED, NOT GATED: pickaxe crafts/bot-h DiD, crafts/bot-h DiD, usable pickaxe holders canary vs control, outcomes, click/quiet/resync cap hits, preemptions, duplicate tool crafts. Expect craft COUNTS to fall (lost crafts no longer repeated, no over-crafting) while held pickaxes rise."
+  },
+  "harm": {
+    "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. A craft is ~1-2 s slower; name any click_caps > 0 in the read."
+  },
+  "teardown": {
+    "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+  },
+  "amendments": [],
+  "extension": {
+    "until_exposure": true,
+    "extra_reads": [
+      540,
+      720,
+      1080,
+      1560
+    ],
+    "final_on_zero_exposure": "INCONCLUSIVE",
+    "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+  }
+}
