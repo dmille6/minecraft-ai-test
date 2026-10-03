@@ -545,10 +545,13 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   return { order: { skill: 'build_composter', args: {}, why: `at town, no composter, ${plan.carried ? 'carrying one' : `holding ${plan.wood} wood`} and ${freeSlots} free slots` }, state: s }
 }
 
-/** After a town order ran -> the new state. A skip (no_effect) or an interruption costs nothing; a fault backs off. */
-export function townOrderOutcome (skill, status, now = 0, state = {}) {
+/** The runner declined to start the order (it never ran): a free skip, like no_effect. */
+export const RUNNER_DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held'])
+
+/** After a town order ran -> the new state. A skip (no_effect), an interruption, or a runner refusal costs nothing; a fault backs off. */
+export function townOrderOutcome (skill, status, now = 0, state = {}, failClass = null) {
   const s = { ...state }
-  if (!TOWN_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted') return s
+  if (!TOWN_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
   const key = skill === 'compost' ? 'compostBackoffUntil' : 'buildBackoffUntil'
   s[key] = status === 'success' ? 0 : now + (skill === 'compost' ? COMPOST_BACKOFF_MS : BUILD_BACKOFF_MS)
   return s

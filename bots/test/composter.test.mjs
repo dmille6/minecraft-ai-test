@@ -457,10 +457,20 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
         assert.ok(bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5)) <= 4.5, 'crafted at a table out of reach')
         state.tableUses.push(table.position.clone())
       }
-      for (let i = 0; i < n; i++) {
+      const once = () => {
         for (const d of recipe.delta) if (d.count < 0) take(REG.items[d.id].name, -d.count)
         add(REG.items[recipe.result.id].name, recipe.result.count)
         state.crafted.push(REG.items[recipe.result.id].name)
+      }
+      // THE SERVER'S SLOT UPDATES CAN ARRIVE AFTER bot.craft RESOLVES (sandbox, Paper 1.21.8): with invDelay set,
+      // the inventory changes land 100-500 ms later, as they did there.
+      if (state.invDelay) {
+        const ms = state.invDelay()
+        setTimeout(() => { try { for (let i = 0; i < n; i++) once() } catch (e) { state.craftErrors = [...(state.craftErrors ?? []), e.message] } }, ms)
+        return
+      }
+      for (let i = 0; i < n; i++) {
+        once()
         await state.onCraft?.(REG.items[recipe.result.id].name)
       }
     },
@@ -484,7 +494,7 @@ const run = (name, bot, signal = { aborted: false }) => within(SKILLS[name].run(
 
 await t('both skills are registered, chatOnly, with contracts', () => {
   assert.ok(SKILLS.compost?.run); assert.equal(SKILLS.compost.chatOnly, true)
-  assert.deepEqual(SKILL_CONTRACTS.compost.expects, ['inventory_loss'])
+  assert.deepEqual(SKILL_CONTRACTS.compost.expects, ['inventory_loss', 'inventory_gain'])
   assert.ok(SKILLS.build_composter?.run); assert.equal(SKILLS.build_composter.chatOnly, true)
   assert.deepEqual(SKILL_CONTRACTS.build_composter.expects, ['world_change'])
 })
@@ -1023,6 +1033,45 @@ await t('P4#4 old generations are pruned: only the current and the two before it
   for (let g = 1; g <= 5; g++) assert.equal(C.createSiteGen(dir, 'k', g, { x: g, y: 64, z: 0 }, 'w'), true)
   assert.deepEqual(fsMod.readdirSync(dir).filter(f => f.endsWith('.json')).sort(), ['k.g3.json', 'k.g4.json', 'k.g5.json'])
   assert.deepEqual(C.readTownSite(dir, 'k').site, { x: 5, y: 64, z: 0 })
+})
+
+// ===================================================================================================================
+// SANDBOX DEFECTS (a5f3856 on Paper 1.21.8, 2026-10-03)
+// ===================================================================================================================
+await t('S#1 a build from LOGS succeeds when the server\'s inventory updates land 100-500 ms after bot.craft resolves', async () => {
+  const town = fakeTown({ hand: PICK, composterAt: null, items: [S('oak_log', 3)] })
+  let k = 0
+  town.state.invDelay = () => [100, 500, 300, 250, 400][k++ % 5]
+  const r = await within(SKILLS.build_composter.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'build')
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(composters(town.world).length, 1)
+  assert.deepEqual(town.state.craftErrors ?? [], [], 'crafted on a stale view of the bag')
+  assert.deepEqual(town.state.dropped, [])
+})
+
+await t('S#1 a craft whose result NEVER shows up is still a failure (bounded read-back, not a blind success)', async () => {
+  const town = fakeTown({ hand: PICK, composterAt: null, items: [S('oak_log', 3)] })
+  town.state.invDelay = () => 60_000   // the server never confirms within the window
+  const t0 = Date.now()
+  const r = await within(SKILLS.build_composter.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'build')
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /oak_planks/)
+  assert.ok(Date.now() - t0 < 10_000, 'the read-back is not bounded')
+})
+
+await t('S#2 a HARVEST-ONLY visit (bone meal gained, nothing composted) passes the runner\'s evidence contract', async () => {
+  const { classifyOutcome } = await import('../src/skills.mjs')
+  assert.ok(classifyOutcome('compost', 'success', { inventory: { bone_meal: 1 } }, null).because.length,
+    'a harvest-only success is downgraded to unknown by the evidence gate')
+  assert.ok(classifyOutcome('compost', 'success', { inventory: { leaf_litter: -20 } }, null).because.length)
+  assert.equal(classifyOutcome('compost', 'success', { inventory: {} }, null).because.length, 0, 'a visit that changed nothing is still not evidence')
+})
+
+await t('S#3 a town order the RUNNER refused (paused, busy, body held) is a free skip, not a backoff', () => {
+  for (const fc of ['runner_paused', 'runner_busy', 'body_held']) {
+    assert.equal(C.townOrderOutcome('compost', 'failed', NOW, {}, fc).compostBackoffUntil ?? 0, 0, fc)
+    assert.equal(C.townOrderOutcome('build_composter', 'failed', NOW, {}, fc).buildBackoffUntil ?? 0, 0, fc)
+  }
+  assert.ok(C.townOrderOutcome('compost', 'failed', NOW, {}, 'compost_refused').compostBackoffUntil > NOW, 'a real failure still backs off')
 })
 
 // ---- mutants, in-file (withMutant from climb-escape.test.mjs). Suite-level reds are shown in the commit message. ----

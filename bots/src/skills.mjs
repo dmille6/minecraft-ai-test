@@ -4081,6 +4081,8 @@ const HK_PATH_MS = Math.max(500, Math.min(25_000, Math.floor(config.skills.defau
 const HK_CRAFT_MS = Math.max(1_000, Math.min(60_000, Math.floor(config.skills.defaultTimeoutMs / 3)))
 /** The HARD bound on waiting for outstanding operations after a timeout or abort; past it the order is 'unsettled'. */
 const HK_SETTLE_MS = Math.max(500, Math.min(5_000, Math.floor(config.skills.defaultTimeoutMs / 36)))
+/** How long a crafted result may take to appear in the bag after bot.craft resolves (the server's slot updates). */
+const CRAFT_READBACK_MS = 2_000
 export const HOUSEKEEPING_BOUNDS = Object.freeze({ awaitMs: HK_AWAIT_MS, pathMs: HK_PATH_MS, craftMs: HK_CRAFT_MS, settleMs: HK_SETTLE_MS })
 
 /**
@@ -4329,14 +4331,24 @@ async function buildComposter (ctx, _args, signal) {
       try { signal?.removeEventListener?.('abort', relay) } catch { /* plain-object signal */ }
     }
   }
+  // ONE REPETITION AT A TIME, EACH READ BACK BY POLLING (sandbox, Paper 1.21.8, 2026-10-03): bot.craft resolves before
+  // the server's slot updates arrive, so an immediate read saw 4 logs / 8 planks while the server held 12 planks, and
+  // every build from logs "failed" into a 30-minute backoff. The next repetition's recipe is looked up only after the
+  // previous result is visible, so it never runs on a stale view of the bag.
   const craftTimes = async (item, times, table) => {
-    check(signal)
     const def = bot.registry.itemsByName[item]
-    const recipe = def && (bot.recipesFor(def.id, null, 1, table ?? null) ?? [])[0]
-    if (!recipe) throw hkStop('composter_craft', `no ${item} recipe from what is held${table ? ' at the table' : ''}`)
-    const before = countItem(bot, item)
-    try { await g.bound(bot.craft(recipe, times, table ?? undefined), HK_CRAFT_MS, 'craft') } catch (e) { if (e?.aborted || signal?.aborted) throw e; throw hkStop('composter_craft', `crafting ${item} failed: ${String(e?.message ?? e).slice(0, 80)}`) }
-    if (countItem(bot, item) < before + recipe.result.count * times) throw hkStop('composter_craft', `crafted ${item} but it is not in the bag`)
+    for (let i = 0; i < times; i++) {
+      check(signal)
+      const recipe = def && (bot.recipesFor(def.id, null, 1, table ?? null) ?? [])[0]
+      if (!recipe) throw hkStop('composter_craft', `no ${item} recipe from what is held${table ? ' at the table' : ''}`)
+      const want = countItem(bot, item) + recipe.result.count
+      try { await g.bound(bot.craft(recipe, 1, table ?? undefined), HK_CRAFT_MS, 'craft') } catch (e) { if (e?.aborted || signal?.aborted) throw e; throw hkStop('composter_craft', `crafting ${item} failed: ${String(e?.message ?? e).slice(0, 80)}`) }
+      const deadline = Date.now() + CRAFT_READBACK_MS
+      while (countItem(bot, item) < want && Date.now() < deadline) {
+        await g.bound(new Promise(res => setTimeout(res, 50)), 1_000, 'craft read-back')
+      }
+      if (countItem(bot, item) < want) throw hkStop('composter_craft', `crafted ${item} but the server did not show it in the bag within ${CRAFT_READBACK_MS}ms`)
+    }
   }
   try {
     if (!(await approach())) return fail('composter_unreachable', `could not reach the town's composter site at ${site.x},${site.y},${site.z}`)
@@ -6536,7 +6548,9 @@ export const SKILL_CONTRACTS = {
   // Destroys spent tools by using them: the change it exists for is the loss.
   wear_out: { expects: ['inventory_loss'],        maxMs: 60_000 },
   // Consumes ballast into the town composter; a build visit also crafts and places it, so it gets more time.
-  compost:  { expects: ['inventory_loss'],        maxMs: 120_000 },
+  // A visit LOSES ballast, or -- a harvest-only visit to a ripe composter -- GAINS bone meal. Either is the change it
+  // exists for (sandbox 10-03: harvest-only visits were downgraded to unknown and backed off for 15 minutes).
+  compost:  { expects: ['inventory_loss', 'inventory_gain'], maxMs: 120_000 },
   // Crafts and places the town composter: the change it exists for is the block in the world.
   build_composter: { expects: ['world_change'],   maxMs: 150_000 },
   withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
