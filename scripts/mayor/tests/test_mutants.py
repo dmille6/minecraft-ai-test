@@ -116,7 +116,7 @@ MUTANTS = [
     ('scorer: unknown-bank in the gap', SC, "            if sh.get('certainty', 'definite') != 'definite':", "            if False:"),
     ('scorer: rejections not in exec denominator', SC, "            m['rejected'] += 1\n            m['exec_n'] += 1", "            m['rejected'] += 1"),
     ('scorer: replay not refused', SC, "    if args.replay_only and not n_replay or not args.replay_only and not n_live:", "    if False:"),
-    ('scorer: ratio not against random', SC, "            m['x_random'] = (ds / rr) if ds is not None and rr else None", "            m['x_random'] = ds"),
+    ('scorer: ratio not against random', SC, "            m['x_random'] = (dc / rr) if dc is not None and rr else None", "            m['x_random'] = dc"),
     # frontier
     ('frontier: timeouts not charged', FR, "                    cost += ledger.charge(worst)", "                    pass"),
     ('frontier: truncated line raises', FR, "                except ValueError:\n                    counts['skipped_lines'] += 1\n                    continue",
@@ -149,6 +149,29 @@ MUTANTS = [
      "return [v if isinstance(v, int) else 0 for v in vals]"),
     ('frontier: error body persisted', FR, "        raise ProviderError(e.code, _error_code(raw)) from None",
      "        raise ProviderError(e.code, raw.decode()) from None"),
+    # 10-03 fourth pass: the clock, revisions, GET_WOOD scorer biases
+    ('shadow: data clock in live mode', SH, "        if a.now_from_data:\n            now = max(", "        if True:\n            now = max("),
+    ('revision not content-derived', C, "    return h.hexdigest()[:12]\n", "    return 'fixed0000000'\n"),
+    ('snapshot unstamped', C, "        'mayor_rev': MAYOR_REV,\n", ""),
+    ('assignment record unstamped', C, "'engine': 'deterministic', 'mayor_rev': MAYOR_REV, ", "'engine': 'deterministic', "),
+    ('frontier record unstamped', FR, "                               mayor_rev=snap.get('mayor_rev'),", "                               mayor_rev=None,"),
+    ('scorer: revisions pooled', SC, "    return snap.get('mayor_rev') or 'unstamped'", "    return 'pooled'"),
+    ('scorer: legacy world-scope wood read as true for every bot', SC,
+     "        if any(s['scope'] != 'bot' for s in mine):\n            return None",
+     "        if any(s['scope'] == 'world' for s in mine):\n            return True"),
+    ('scorer: --since ignored', SC, "(since is None or t >= since)", "True"),
+    ('scorer: --until ignored', SC, "(until is None or t <= until)", "True"),
+    ('scorer: x random on uncontested snapshots', SC, "            if contested(s, duty, cfg):\n", "            if True:\n"),
+    ('scorer: base rate not restricted to eligible', SC, "                    if core.evaluate(d, b, s, cfg)[0]:\n", "                    if True:\n"),
+    ('scorer: shortage relief not an outcome', SC,
+     "        return gained(LOGS, base['logs'], seq) >= 1 or any(r[WOOD_SHORT] is False for r in seq)",
+     "        return gained(LOGS, base['logs'], seq) >= 1"),
+    ('scorer: baselines forget their leases', SC, "            rec, state = core.decide(s, state, cfg, order=order)",
+     "            rec, state = core.decide(s, None, cfg, order=order)"),
+    ('scorer: deterministic matched to the stateless baseline', SC,
+     "    return 'random' if eng.split(':')[0] in STATEFUL else 'random-stateless'", "    return 'random-stateless'"),
+    # harness (10-03 Codex review): mutants run only after the unmutated suite is proven green
+    ('mutants: no green-baseline gate', 'tests/test_mutants.py', "    require_green(pkg)\n    out = []\n", "    out = []\n"),
 ]
 
 
@@ -170,12 +193,75 @@ def run_suite(root):
     return p.returncode, broke, p.stderr
 
 
-def mutant_copy(fname, old, new):
+def mutant_copy(fname, old, new, pkg=PKG):
     d = tempfile.mkdtemp()
     root = os.path.join(d, 'mayor')
-    shutil.copytree(PKG, root, ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(pkg, root, ignore=shutil.ignore_patterns('__pycache__'))
     apply(root, fname, old, new)
     return d, root
+
+
+class BaselineRed(Exception):
+    """The UNMUTATED suite is red: every mutant would read as 'killed'. Not an AssertionError on purpose,
+    so it can never be mistaken for an anchor failure or a killed mutant."""
+
+
+def require_green(pkg):
+    """Run the whole suite on an unmutated copy of `pkg`; raise BaselineRed unless it is green."""
+    d = tempfile.mkdtemp()
+    try:
+        root = os.path.join(d, 'mayor')
+        shutil.copytree(pkg, root, ignore=shutil.ignore_patterns('__pycache__'))
+        rc, broke, err = run_suite(root)
+    finally:
+        shutil.rmtree(d)
+    if rc != 0:
+        raise BaselineRed('ABORT: the UNMUTATED suite is red (%s), so every mutant would read as killed. '
+                          'No mutant was run. Make the suite green first.\n%s' % (', '.join(broke) or 'no test named',
+                                                                                  err[-1500:]))
+
+
+def run_mutants(pkg=PKG, mutants=None):
+    """[(name, rc, broken tests)] -- ONLY after the unmutated suite is proven green (BaselineRed otherwise).
+    Each mutant runs in a temp copy that is removed in a finally block."""
+    require_green(pkg)
+    out = []
+    for name, fname, old, new in (MUTANTS if mutants is None else mutants):
+        d, root = mutant_copy(fname, old, new, pkg)
+        try:
+            rc, broke, _ = run_suite(root)
+        finally:
+            shutil.rmtree(d)
+        out.append((name, rc, broke))
+    return out
+
+
+class MutantGate(unittest.TestCase):
+    """Runs INSIDE mutant runs too (cheap: two tiny synthetic suites, never this one, so no recursion),
+    so a mutant that removes the gate is itself killed."""
+
+    def pkg(self, d, want):
+        root = os.path.join(d, 'pkg')
+        os.makedirs(os.path.join(root, 'tests'))
+        with open(os.path.join(root, 'target.py'), 'w') as f:
+            f.write('X = 1\n')
+        with open(os.path.join(root, 'tests', 'test_t.py'), 'w') as f:
+            f.write('import os, sys, unittest\nsys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))\n'
+                    'import target\n\nclass T(unittest.TestCase):\n    def test_x(self):\n'
+                    '        self.assertEqual(target.X, %d)\n' % want)
+        return root
+
+    def test_a_red_suite_aborts_before_any_mutant(self):
+        d = tempfile.mkdtemp()
+        try:
+            mutant = [('x is two', 'target.py', 'X = 1\n', 'X = 2\n')]
+            with self.assertRaises(BaselineRed):
+                run_mutants(self.pkg(os.path.join(d, 'red'), want=2), mutant)    # red unmutated: abort
+            got = run_mutants(self.pkg(os.path.join(d, 'green'), want=1), mutant)
+            self.assertEqual([(n, rc != 0, b) for n, rc, b in got], [('x is two', True, ['test_x'])],
+                             'control: on a green suite the mutant runs and is killed')
+        finally:
+            shutil.rmtree(d)
 
 
 @unittest.skipIf(IN_MUTANT, 'inside a mutant run')
@@ -191,13 +277,8 @@ class Mutants(unittest.TestCase):
             shutil.rmtree(d)
 
     def test_every_mutant_turns_the_suite_red(self):
-        for name, fname, old, new in MUTANTS:
+        for name, rc, broke in run_mutants():                       # raises BaselineRed (ABORT) on a red suite
             with self.subTest(mutant=name):
-                d, root = mutant_copy(fname, old, new)
-                try:
-                    rc, broke, _ = run_suite(root)
-                finally:
-                    shutil.rmtree(d)
                 self.assertNotEqual(rc, 0, 'SURVIVED: %s' % name)
                 self.assertTrue(broke, 'red without a named failing test: %s' % name)
 
@@ -214,16 +295,16 @@ class Mutants(unittest.TestCase):
 
 
 if __name__ == '__main__' and '--report' in sys.argv:
+    try:
+        results = run_mutants()
+    except BaselineRed as e:
+        print(e)
+        sys.exit(2)
     dead = 0
-    for name, fname, old, new in MUTANTS:
-        d, root = mutant_copy(fname, old, new)
-        try:
-            rc, broke, _ = run_suite(root)
-        finally:
-            shutil.rmtree(d)
+    for name, rc, broke in results:
         dead += rc != 0
         print('%-8s %-44s %s' % ('KILLED' if rc else 'SURVIVED', name, ', '.join(broke)))
-    print('%d of %d killed' % (dead, len(MUTANTS)))
-    sys.exit(0 if dead == len(MUTANTS) else 1)
+    print('%d of %d killed (unmutated suite verified green first)' % (dead, len(results)))
+    sys.exit(0 if dead == len(results) else 1)
 elif __name__ == '__main__':
     unittest.main()

@@ -24,6 +24,23 @@ import os
 import re
 
 SCHEMA = 1
+
+
+def rev_of_dir(here):
+    """The MAYOR REVISION: a hash of the code that builds snapshots and decides (this file, the shadow
+    process, the stack table). Content-derived, so it cannot be forgotten at a deploy: any change to the
+    decision code is a new revision, and the scorer never pools two revisions (pre/post-deploy)."""
+    h = hashlib.sha256()
+    for f in ('mayor_core.py', 'mayor_shadow.py', 'stack_sizes.json'):
+        try:
+            with open(os.path.join(here, f), 'rb') as fh:
+                h.update(fh.read())
+        except OSError:
+            h.update(b'missing:' + f.encode())
+    return h.hexdigest()[:12]
+
+
+MAYOR_REV = rev_of_dir(os.path.dirname(os.path.abspath(__file__)))
 DUTIES = ('FREE_BAG', 'RESTORE_PICK', 'GET_WOOD', 'GET_IRON')
 # "rank by bottleneck relief (bag, then pick prerequisites, then iron)" -- the plan's order.
 DUTY_RANK = {'FREE_BAG': 0, 'RESTORE_PICK': 1, 'GET_WOOD': 2, 'GET_IRON': 3}
@@ -433,6 +450,7 @@ def build_snapshot(world, views, resources, now_ms, bank, cfg=DEFAULTS, meta=Non
     kept.sort(key=lambda r: (r['kind'], r['x'], r['y'], r['z']))
     snap = {
         'schema': SCHEMA, 'world': world, 't': iso(now_ms), 't_ms': now_ms,
+        'mayor_rev': MAYOR_REV,
         'snap_id': '%s@%s' % (world, iso(now_ms)),
         'estimates': 'slots_est/free_slots_est are ESTIMATES from item counts and stack sizes (%s); '
                      'bank contents are UNKNOWN, never 0' % _stack_table()[2],
@@ -625,9 +643,12 @@ def _lease_assign(c, name, tgt, lease, since_ms, reason):
             'evidence': [c['shortage'], c['bot']] + ([tgt] if tgt else [])}
 
 
-def decide(snap, state=None, cfg=DEFAULTS):
+def decide(snap, state=None, cfg=DEFAULTS, order=None):
     """The deterministic mayor -> (assign_record, new_state). Pure: state in, state out.
-    state = {'leases': {bot_name: {...}}, 'cooldowns': {'bot|duty': until_ms}}"""
+    state = {'leases': {bot_name: {...}}, 'cooldowns': {'bot|duty': until_ms}}
+    `order` (feasible candidates -> the order new assignments are tried in) replaces the ranking ONLY;
+    leases, cooldowns and caps are the same. The scorer runs its baselines through it so they carry the
+    mayor's lease memory (re-propose after a success, cool down after a failure)."""
     now = snap['t_ms']
     state = json.loads(json.dumps(state or {}))
     leases, cool = state.setdefault('leases', {}), state.setdefault('cooldowns', {})
@@ -690,7 +711,8 @@ def decide(snap, state=None, cfg=DEFAULTS):
     # 2. new assignments over the ranked feasible candidates, under the caps
     skip = {}
     staffed = {cand_by_id[a['candidate_id']]['shortage'] for a in assigns}
-    for c in sorted([c for c in cands if c['feasible']], key=lambda c: rank_key(c, bots)):
+    feasible = [c for c in cands if c['feasible']]
+    for c in (order(feasible) if order else sorted(feasible, key=lambda c: rank_key(c, bots))):
         why, tgt = None, None
         if c['bot_name'] in taken_bots:
             why = 'bot_busy'
@@ -732,7 +754,7 @@ def decide(snap, state=None, cfg=DEFAULTS):
                           'reason': 'passed_over' if any(c['feasible'] for c in mine) else 'no_feasible_candidate',
                           'blockers': hist, 'passed_over': skip.get(s['id'], {}),
                           'remedies': sorted({bl['remedy'] for c in mine for bl in c['blockers']})})
-    rec = {'schema': SCHEMA, 'engine': 'deterministic', 'snap_id': snap['snap_id'], 'world': snap['world'],
+    rec = {'schema': SCHEMA, 'engine': 'deterministic', 'mayor_rev': MAYOR_REV, 'snap_id': snap['snap_id'], 'world': snap['world'],
            't': snap['t'], 'assignments': assigns, 'unstaffed': unstaffed, 'released': released,
            'cooldowns': {k: iso(v) for k, v in sorted(cool.items())}, 'abstain': False}
     return rec, state

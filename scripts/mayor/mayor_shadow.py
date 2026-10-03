@@ -235,7 +235,7 @@ class Shadow:
                 self.worlds_ev.pop(w, None)
                 self.world_seen.pop(w, None)
         mayor_io.write_atomic(self.state_path, json.dumps(self.states))
-        tick = {'t': core.iso(now), 'files': len(self.tails), 'bytes': nbytes, 'rows': nrows, 'bad_lines': bad,
+        tick = {'t': core.iso(now), 'mayor_rev': core.MAYOR_REV, 'files': len(self.tails), 'bytes': nbytes, 'rows': nrows, 'bad_lines': bad,
                 'future_rows': self.stats.get('future', 0), 'bots': len(self.bots), 'worlds': len(snaps),
                 'assignments': n_assign, 'lag_bytes': sum(t.lag for t in self.tails.values()),
                 'rotations': sum(t.rotations for t in self.tails.values()),

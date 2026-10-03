@@ -480,6 +480,7 @@ def run(args, opener=urllib.request.urlopen, env=None):
                     summary['calls'] += 1
                     summary['invalid'] += not res['valid']
                     rec = dict(res, schema=core.SCHEMA, engine=e, model=model, dry_run=bool(args.dry_run), mode=mode,
+                               mayor_rev=snap.get('mayor_rev'),        # the revision that built the snapshot answered
                                replay=bool(snap.get('replay')),
                                snap_id=snap['snap_id'], world=snap['world'], t=snap['t'],
                                temperature_sent=summary['temperature_sent'],

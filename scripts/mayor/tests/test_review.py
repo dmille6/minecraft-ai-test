@@ -345,9 +345,10 @@ class ScorerTimeline(unittest.TestCase):
             self.assertEqual((m['exec'], m['exec_n']), (1, 2), 'one executable at +5; one rejected GET_WOOD proposal')
             self.assertEqual(r['engines']['claude:blind']['?']['rejected'], 1, 'an unknown candidate is a rejected proposal')
             dm = r['engines']['deterministic']['GET_WOOD']
-            rnd = r['engines']['random']['GET_WOOD']
-            rr = rnd['downstream'] / rnd['downstream_n']
-            self.assertAlmostEqual(dm['x_random'], (dm['downstream'] / dm['downstream_n']) / rr if rr else None)
+            # two feasible GET_WOOD candidates, cap 2: never contested, so no x random is claimed (10-03 review)
+            self.assertEqual(dm['downstream_c_n'], 0)
+            self.assertIsNone(dm['x_random'])
+            self.assertEqual(dm['x_random_vs'], 'random', 'the deterministic mayor is matched to the leased baseline')
         finally:
             shutil.rmtree(d)
 

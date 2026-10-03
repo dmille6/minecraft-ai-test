@@ -85,7 +85,9 @@ whose resources are the five per-bot `world-facts-isolated-a-<Bot>.json` files m
 
 ```sh
 python3 scripts/mayor/mayor_score.py --snaps '/var/lib/mcai-mayor/snap-*.jsonl' \
-  --assign '/var/lib/mcai-mayor/assign-*.jsonl' --assign 'replay/assign-*-*.jsonl' --json score.json
+  --assign '/var/lib/mcai-mayor/assign-*.jsonl' --assign 'replay/assign-*-*.jsonl' --json score.json \
+  [--since 2026-10-04T02:00:00Z] [--until ...]
+python3 scripts/mayor/wood_replay.py --snaps '/var/lib/mcai-mayor/snap-*.jsonl'   # current GET_WOOD rule over recorded snapshots
 python3 scripts/mayor/mayor_frontier.py --dry-run --out-dir /tmp/fr        # no key, no network
 ANTHROPIC_API_KEY=... OPENAI_API_KEY=... python3 scripts/mayor/mayor_frontier.py \
   --out-dir replay-<date> --max-snapshots 100 --budget-usd 10              # REAL MONEY: owner approves first
@@ -99,6 +101,27 @@ downstream, unforced, base rate) whether or not the outcome was seen; a bot miss
 leaves the executability denominator; a per-bot shortage whose bot is not fresh at +30/+60 leaves persistence. The
 unforced gap needs eligibility at every snapshot through the window; downstream success is compared with the
 **random-eligible baseline** (`xrand`).
+
+**Revisions are never pooled.** Every snapshot, deterministic record and frontier record carries `mayor_rev`, a hash
+of `mayor_core.py` + `mayor_shadow.py` + `stack_sizes.json` (also in each tick line), so a deploy is a new revision
+without anyone remembering to bump anything. The scorer scores each revision ON ITS OWN -- next-snapshot, +30/+60,
+baselines, base rates and gaps only ever read snapshots of the same revision -- and prints one table per revision;
+files written before stamping score as `unstamped`. The JSON has `revisions`; the flat `engines`/`base` keys appear
+only when exactly one revision was scored. `--since`/`--until` (ISO UTC) select snapshots by time; an unparseable
+bound is refused (exit 2). A legacy world-scope GET_WOOD shortage (before 9cad2ad) is UNKNOWN per bot, never true
+for every bot.
+
+**GET_WOOD biases, corrected.**
+- `xrand` counts only **contested** snapshots (more feasible candidates for the duty than `cap_per_duty`):
+  uncontested, the caps leave no choice and random picks the same bots. `cont` is how many proposals were contested.
+- **Lease timing.** The mayor re-proposes right after a success and goes quiet ~25 min after a failure (lease 10 min
+  + cooldown 15). The `random`/`nearest` baselines now run through the SAME `core.decide` -- leases, cooldowns, caps
+  -- with only the order changed, so the deterministic mayor is compared like for like. The frontier engines are
+  per-snapshot (no memory), so they are compared with `random-stateless`/`nearest-stateless` (greedy per snapshot).
+- `xbase` = downstream rate / base rate of **eligible** short bots (fresh, observed, short AND feasible by the
+  mayor's own `evaluate`); the plain base rate over all short bots is printed beside it.
+- The GET_WOOD outcome is **relief**, as the lease's `duty_done`: a log gained OR no longer `short_of_wood` (planks
+  picked up, a pickaxe obtained; an unknown pickaxe state is never relief). "Logs gained" is printed as its own line.
 
 **Bank certainty** (`withdraw_verified` in `mayor_core.DEFAULTS`, one switch per item, both `False` today). Rule
 (decision 2026-10-03): a held-stock shortage is `unknown-bank` only once withdraw is verified for that item, because
@@ -128,9 +151,11 @@ only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (75 tests, ~15 s). `test_mutants.py` applies each of 72
+`python3 -m unittest discover -s scripts/mayor/tests -v` (89 tests, ~35 s). `test_mutants.py` applies each of 87
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
-red (an unmutated copy must be green; a missing or non-unique anchor raises). To see which tests kill which mutant:
+red (a missing or non-unique anchor raises). **No mutant runs until the unmutated suite is proven green**:
+`run_mutants` (used by both the unittest and `--report`) aborts with `BaselineRed` -- `--report` prints ABORT and
+exits 2 -- because a red suite reads every mutant as "killed". To see which tests kill which mutant:
 `python3 scripts/mayor/tests/test_mutants.py --report`.
 
 ## Decision date (no open loop)
