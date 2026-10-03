@@ -1306,10 +1306,12 @@ export async function collectManually(bot, block, signal, { deadline = Infinity 
   const pre = logDig ? itemIdsNow(bot) : null
   const heldBefore = logDig ? heldFromBlock(bot, wasNamed) : 0
   // THE DIG IS BOUNDED BY WHAT IS LEFT OF THE CALLER'S DEADLINE, not an unconditional 20 s, and stopped on abort.
-  if (deadline - Date.now() < 250) {
-    throw Object.assign(new Error(`dig exceeded the gather deadline before it could start (${wanted})`), { failClass: 'dig_budget' })
-  }
-  await abortable(withTimeout(bot.dig(block), Math.min(20_000, clampLeft(20_000, deadline)), bot, {
+  // LOOK FIRST, THEN DIG WITH 'ignore' (Codex, third pass): mineflayer's dig() awaits lookAt() BEFORE it installs
+  // the handler stopDigging() reaches, so an abort or deadline during that look stopped nothing and the dig began
+  // after this function had rejected. lookFirst checks the signal and the deadline after the look; nothing awaits
+  // between that check and the dig packet.
+  await lookFirst(bot, block, signal, deadline)
+  await abortable(withTimeout(bot.dig(block, 'ignore'), Math.min(20_000, clampLeft(20_000, deadline)), bot, {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
   }), signal, () => { try { bot.stopDigging?.() } catch { /* not digging */ } })
@@ -1408,6 +1410,28 @@ function supportVetoFor (bot, b) {
   })
 }
 
+/** How long a look may take before the dig goes ahead without it (a forced lookAt is one packet). */
+const LOOK_MS = 500
+
+/**
+ * Face the block (bounded and abortable), then re-check the abort and the deadline. The caller digs with
+ * forceLook 'ignore' immediately after, so no await sits between this check and the dig packet. A look that times
+ * out is not fatal -- the dig still targets the block -- but an abort, or a deadline that passed meanwhile, is.
+ */
+async function lookFirst (bot, block, signal, deadline) {
+  check(signal)
+  if (typeof bot.lookAt === 'function' && block?.position) {
+    try {
+      await abortable(withTimeout(Promise.resolve(bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true)),
+        clampLeft(LOOK_MS, deadline), bot, { what: 'look', needsDrop: false, onTimeout: () => {} }), signal, () => {})
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  }
+  check(signal)
+  if (deadline - Date.now() < 250) {
+    throw Object.assign(new Error(`dig exceeded the deadline before it could start (${block?.name ?? '?'})`), { failClass: 'dig_budget' })
+  }
+}
+
 /** `ms`, but never past `deadline` (absolute); at least 1 so withTimeout still fires. */
 function clampLeft (ms, deadline) {
   return Math.max(1, Math.min(ms, Number.isFinite(deadline) ? deadline - Date.now() : ms))
@@ -1446,10 +1470,14 @@ function pickupIO (bot) {
     },
     // The hole is the point, not the drop: a leaf yields nothing a tool must harvest. Timeout sized by the caller
     // from digTime, so a bare-handed log support (3 s grounded, 15 s in the air) is not killed half-way.
-    dig: (b, ms, signal) => abortable(withTimeout(bot.dig(b), ms, bot, {
-      what: 'dig', needsDrop: false,
-      onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
-    }), signal, () => bot.stopDigging?.()),
+    dig: async (b, ms, signal) => {
+      const until = Date.now() + ms
+      await lookFirst(bot, b, signal, until)          // same race as the harvest dig: look, re-check, then 'ignore'
+      return abortable(withTimeout(bot.dig(b, 'ignore'), clampLeft(ms, until), bot, {
+        what: 'dig', needsDrop: false,
+        onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
+      }), signal, () => bot.stopDigging?.())
+    },
     digMs: b => (typeof bot.digTime === 'function' ? bot.digTime(b) : NaN),
     veto: b => supportVetoFor(bot, b),
     sought: id => noteSought(bot, id, 'pickup'),

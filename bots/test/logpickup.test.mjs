@@ -193,7 +193,8 @@ const ITEM_ID = 120, LOG_ID = 50, FALL_MS = 450
 const SHAPES = { air: [], oak_slab: [[0, 0, 0, 1, 0.5, 1]] }
 function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = false, noDrop = false, mergeInto = false,
                   walkable = n => n.y === 64, jitter = 0, failName = 'NoPath', digTimes = {}, metaDelay = 0,
-                  waterlogged = [], safety = true, heldItem = null, walkMs = 0, items = [], held = {} } = {}) {
+                  waterlogged = [], safety = true, heldItem = null, walkMs = 0, items = [], held = {},
+                  gateLooksFrom = Infinity, onGatedLook = null } = {}) {
   const w = new Map()
   for (let x = -8; x <= 8; x++) for (let z = -8; z <= 8; z++) w.set(K(x, 63, z), 'grass_block')
   for (const [k, v] of Object.entries(blocks)) w.set(k, v)
@@ -209,7 +210,7 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
   }
   const inv = new Map([['oak_log', 0], ...Object.entries(held)])
   let nextId = 1000, digCancel = null, walkCancel = null
-  const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0 }
+  const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0, looks: 0, digStarts: 0 }
   const bot = new EventEmitter()
   const restY = e => { let cy = Math.floor(e.position.y - 0.05); while (cy > 40 && !solid(e.position.x, cy, e.position.z)) cy--; return cy + top(e.position.x, cy, e.position.z) }
   const spawn = (n, at, count = 1, born = Date.now()) => {
@@ -246,7 +247,21 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
     stopDigging: () => { digCancel?.() },
     nearestEntity: pred => Object.values(bot.entities).filter(pred)
       .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0] ?? null,
-    dig: b => new Promise((resolve, reject) => {
+    // mineflayer 4.37.1 digging.js: unless forceLook === 'ignore' it AWAITS lookAt first, and only then installs the
+    // handler stopDigging() reaches -- so a stop during that look does nothing and the dig starts afterwards.
+    lookAt: () => {
+      seen.looks++
+      if (seen.looks < gateLooksFrom) return Promise.resolve()
+      return new Promise(resolve => { bot.releaseLook = resolve; onGatedLook?.(bot) })
+    },
+    dig: async (b, forceLook) => {
+      if (forceLook !== 'ignore') await bot.lookAt(b.position.offset(0.5, 0.5, 0.5), forceLook)
+      seen.digStarts++
+      return digNow(b)
+    },
+    digNow: null,
+  })
+  const digNow = b => new Promise((resolve, reject) => {
       const p = b.position, was = name(p.x, p.y, p.z)
       const timer = setTimeout(() => {
         digCancel = null
@@ -261,7 +276,8 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
         resolve()
       }, bot.digTime(b))
       digCancel = () => { clearTimeout(timer); digCancel = null; reject(new Error('Digging aborted')) }
-    }),
+    })
+  Object.assign(bot, {
     pathfinder: {
       thinkTimeout: 5000,
       movements: safety ? { safeToBreak: () => true } : {},
@@ -585,6 +601,41 @@ await ta('WALK BEFORE THE DIG, ABORT: an abort mid-approach rejects at once', as
   const { e } = await run(bot, target(bot, 1, 64, 0), { signal: ac.signal })
   assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
   assert.ok(Date.now() - abortedAt < 300, `took ${Date.now() - abortedAt} ms after the abort`)
+})
+
+console.log('-- the look before the dig (third pass) --')
+const later = ms => new Promise(r => setTimeout(r, ms))
+await ta('LOOK RACE, ABORT: an abort during the look means no dig ever starts', async () => {
+  const ac = new AbortController()
+  const bot = world({ digTimes: { oak_log: 200 }, blocks: { [K(1, 64, 0)]: 'oak_log' }, gateLooksFrom: 1,
+                      onGatedLook: b => { setTimeout(() => ac.abort(), 100); setTimeout(() => b.releaseLook(), 300) } })
+  const { e } = await run(bot, target(bot, 1, 64, 0), { signal: ac.signal })
+  await later(700)                                     // the look is released; a racing dig would start and finish
+  assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
+  assert.equal(bot.seen.digStarts, 0, 'the dig started after collectManually had rejected')
+  assert.deepEqual(bot.seen.digs, [])
+})
+
+await ta('LOOK RACE, DEADLINE: a deadline that expires during the look means no dig ever starts', async () => {
+  const bot = world({ digTimes: { oak_log: 200 }, blocks: { [K(1, 64, 0)]: 'oak_log' }, gateLooksFrom: 1,
+                      onGatedLook: b => setTimeout(() => b.releaseLook(), 900) })
+  const { e } = await run(bot, target(bot, 1, 64, 0), { deadline: Date.now() + 600 })
+  await later(1300)
+  assert.ok(e, 'a dig past the deadline must not report success')
+  assert.equal(bot.seen.digStarts, 0, 'the dig started after the deadline had passed')
+  assert.deepEqual(bot.seen.digs, [])
+})
+
+await ta('LOOK RACE, SUPPORT: an abort during the support\'s look means the leaf is never dug', async () => {
+  const ac = new AbortController()
+  const bot = world({ blocks: CANOPY, gateLooksFrom: 2,
+                      onGatedLook: b => { setTimeout(() => ac.abort(), 100); setTimeout(() => b.releaseLook(), 300) } })
+  const { e } = await run(bot, target(bot, 1, 67, 0), { signal: ac.signal })
+  await later(700)
+  assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
+  assert.equal(bot.seen.looks, 2, 'the support break never reached its look (the scene did not exercise the race)')
+  assert.equal(bot.seen.digStarts, 1, 'the support dig started after the abort')
+  assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0'])
 })
 
 // ============================================================ wired: gather ===
