@@ -31,6 +31,13 @@ function out() {
   return stream
 }
 
+// RECORD TAPS (pickuplog.mjs). Read-only observers of every skill/event record AFTER it is written: telemetry
+// feeding telemetry, never a decision. A tap that throws is ignored; the record is already on disk.
+const taps = new Set()
+/** Subscribe to every record logSkill/logEvent writes. Returns an unsubscribe function. */
+export function tapRecords (fn) { taps.add(fn); return () => { taps.delete(fn) } }
+function notifyTaps (rec) { for (const fn of taps) { try { fn(rec) } catch { /* a tap must not break logging */ } } }
+
 /** Console line for a human watching the process. Not the telemetry path. */
 export function log(level, msg, extra = {}) {
   if ((LEVELS[level] ?? 20) < threshold) return
@@ -88,6 +95,7 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
   } catch (e) {
     console.error('failed to write skill log:', e.message)
   }
+  notifyTaps(rec)
   return rec
 }
 
@@ -99,7 +107,7 @@ export function logSkill({ skill, args, status, detail, startedAt, snapshot, tri
  * Reuses the skill index with a leading underscore on the name (as _death
  * already does), so it lands in the existing strict mapping unchanged.
  */
-export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'success', board = null }) {
+export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'success', board = null, args = null }) {
   const rec = {
     '@timestamp': new Date().toISOString(),
     run_id: config.log.runId,
@@ -120,7 +128,9 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
     bot: { name: config.bot.name, role: config.bot.role, ...(snapshot?.bot ?? {}) },
     game: snapshot?.game ?? {},
     skill: {
-      name: `_${kind}`, args: {}, status,
+      // `args` is `flattened` in the mcai-skill mapping: structured fields a 300-char detail would truncate
+      // (pickuplog.mjs's _junk_pickup rows). Every other event passes nothing and keeps `{}`.
+      name: `_${kind}`, args: args ?? {}, status,
       duration_ms: durationMs, detail: String(detail ?? '').slice(0, 300),
     },
     // THE BOARD LEDGER, STRUCTURED.
@@ -144,6 +154,7 @@ export function logEvent({ kind, detail, snapshot, durationMs = 0, status = 'suc
   }
   try { out().write(JSON.stringify(rec) + '\n') }
   catch (e) { console.error('failed to write event log:', e.message) }
+  notifyTaps(rec)
   return rec
 }
 
