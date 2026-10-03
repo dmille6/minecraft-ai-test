@@ -30,3 +30,26 @@ export function diffTools (before = [], after = []) {
   }
   return out
 }
+
+/**
+ * spentTools(before, after) -> [{ name, spent, from }]: copies that reached EXACTLY 1 use BY USE between two readings
+ * (the liveness row for "spent tools get used up": a copy that is worn, not one that was picked up or crafted spent).
+ * Each 1-use survivor is matched, as above, to the most-worn earlier copy that could have become it; it counts only
+ * when that copy had more than 1 use. `from` is the fewest uses among the matched earlier copies.
+ */
+export function spentTools (before = [], after = []) {
+  const a = copies(before), b = copies(after), out = []
+  for (const [name, now] of b) {
+    const pool = (a.get(name) || []).map(c => c.left).sort((x, y) => x - y)
+    let spent = 0, from = Infinity
+    for (const left of now.map(c => c.left).sort((x, y) => x - y)) {
+      let k = -1
+      for (let i = 0; i < pool.length; i++) if (pool[i] >= left) { k = i; break }
+      if (k < 0) continue
+      const was = pool.splice(k, 1)[0]
+      if (left === 1 && was > 1) { spent++; from = Math.min(from, was) }
+    }
+    if (spent) out.push({ name, spent, from })
+  }
+  return out
+}

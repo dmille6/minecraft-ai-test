@@ -37,10 +37,15 @@ t('the cheapest tier is spent first, and a copy at 0 uses is never chosen', () =
   assert.equal(toolFor(STONE, [item('stone_pickaxe', 0)], { lastSwing: true }).reason, 'none')
 })
 
-t('the option changes nothing when a normal tool exists or the hand can harvest', () => {
+t('the option changes nothing when a normal tool exists or the hand can harvest (off the stone family, or no spent copy)', () => {
+  // ON the stone family a 1-use copy beside a working one IS now spent first (spend_spent, toolfor-spent.test.mjs);
+  // off it, and with no 1-use copy, the harvest dig chooses exactly what any other dig would.
   const healthy = [item('stone_pickaxe', 1), item('stone_pickaxe', 90)]
-  assert.deepEqual(toolFor(STONE, healthy, { lastSwing: true }), toolFor(STONE, healthy))
-  assert.equal(toolFor(STONE, healthy, { lastSwing: true }).item.durabilityUsed, 131 - 90)
+  const COAL = block('coal_ore', [1, 2, 3])
+  assert.deepEqual(toolFor(COAL, healthy, { lastSwing: true }), toolFor(COAL, healthy))
+  assert.equal(toolFor(COAL, healthy, { lastSwing: true }).item.durabilityUsed, 131 - 90)
+  const working = [item('stone_pickaxe', 5), item('stone_pickaxe', 90)]
+  assert.deepEqual(toolFor(STONE, working, { lastSwing: true }), toolFor(STONE, working))
   assert.equal(toolFor(DIRT, [item('stone_pickaxe', 1)], { lastSwing: true }).reason, 'hand', 'dirt: the hand, never a last swing')
 })
 
@@ -57,8 +62,8 @@ t('SCOPE (source, comments stripped): only collectManually opts in, and it logs 
   assert.equal(sites.length, 1, `expected exactly one opt-in, found ${sites.length}`)
   const s = code.indexOf('export async function collectManually('), e = code.indexOf('\nexport async function ', s + 10)
   const body = code.slice(s, e)
-  assert.match(body, /bestTool\(bot, block, \{ lastSwing: true \}\)/)
-  assert.match(body, /kind: 'last_swing'/)
+  assert.match(body, /bestTool\(bot, block, \{ lastSwing: true, decision \}\)/)
+  assert.match(body, /kind: decision\.reason === 'last_swing' \? 'last_swing' : 'spent_swing'/)
 })
 
 t('STONE FAMILY ONLY: a last use is never spent on a block that cannot rebuild a pickaxe', () => {

@@ -73,6 +73,27 @@ export function wearTarget (block) {
 export const wearRank = name => (/^(stone|andesite|diorite|granite|tuff|calcite|netherrack)$/.test(name) ? 0 : /_log$/.test(name) ? 1 : 2)
 
 /**
+ * DIAGNOSIS ONLY (10-03: 82 of 100 failed wear_out orders said just "no safe block within reach"). The per-guard tally
+ * of the cells wear_out refused, most first: `12 cells: not_natural 9, room_liquid 2, occupied 1`. Never a decision.
+ */
+export function wearRefusals (refused = {}, cells = 0) {
+  const parts = Object.entries(refused ?? {}).filter(([, n]) => n > 0)
+    .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([k, n]) => `${k} ${n}`)
+  return `${cells} cells: ${parts.join(', ') || 'none refused'}`
+}
+
+/**
+ * DIAGNOSIS ONLY: what an unconfirmed "<tool> survived the dig" turned out to be, read from the copy's own slot a few
+ * seconds later. 'late_break' the slot emptied (the break's slot update was late); 'confirmed_survivor' the same tool is
+ * still there at 1 use; 'slot_changed' something else is in the slot now; 'unknown' no slot to read.
+ */
+export function survivorVerdict ({ slotKnown = false, item = null, name = '' } = {}) {
+  if (!slotKnown) return 'unknown'
+  if (!item) return 'late_break'
+  return item.name === name && usesLeft(item) === 1 ? 'confirmed_survivor' : 'slot_changed'
+}
+
+/**
  * HOUSEKEEPING: deterministic orders the model can never choose (chatOnly). They are not attempts at the goal (no
  * milestone give-up either way) and never become a "reliable choice" in the prompt. cognitive.mjs asks this, so a
  * new housekeeping order cannot be wired into one of those sites and forgotten at the other.
