@@ -217,11 +217,13 @@ class Shadow:
                     nrows += 1
             if tail.missing_ms is not None and wall - tail.missing_ms > a.evict_file_min * 60000:
                 del self.tails[p]                 # the file is gone: forget its offset and fingerprint
-        for name in [n for n, st in self.bots.items() if st.last_ms is not None and wall - st.last_ms > a.evict_bot_h * 3.6e6]:
-            del self.bots[name]                   # silent for hours: not a member of the world any more
         now = wall
         if a.now_from_data:
             now = max((b.last_ms for b in self.bots.values() if b.last_ms), default=wall)
+        # evict on the SNAPSHOT clock: with --now-from-data the wall clock emptied any copied slice older than
+        # evict_bot_h before it was snapshotted (test_once_over_real_rows went red 6 h after its fixture rows)
+        for name in [n for n, st in self.bots.items() if st.last_ms is not None and now - st.last_ms > a.evict_bot_h * 3.6e6]:
+            del self.bots[name]                   # silent for hours: not a member of the world any more
         snaps, self.cache = snapshot_all(self.bots, self.worlds_ev, a.facts_root, now, self.cfg, self.cache, {'mode': 'live'})
         n_assign = emit(self.out, snaps, self.states, self.cfg)
         for w in snaps:
