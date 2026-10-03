@@ -650,12 +650,27 @@ export function protectTownBlocks (movements, registry) {
   if (!(movements.blocksCantBreak instanceof Set)) movements.blocksCantBreak = new Set(movements.blocksCantBreak ?? [])
   const id = registry?.blocksByName?.composter?.id
   if (id != null) movements.blocksCantBreak.add(id)
-  // NOR A PATH'S NODE (sandbox, Paper 1.21.8: 5 of 6 compost visits left the bone meal in the world). The composter is a
-  // hollow block a path can step INTO -- the walk to collect a popped bone meal ended at its inner floor (y + 0.125), and
-  // the drop was never handed over. blocksToAvoid keeps every node out of its cell.
-  if (!(movements.blocksToAvoid instanceof Set)) movements.blocksToAvoid = new Set(movements.blocksToAvoid ?? [])
-  if (id != null) movements.blocksToAvoid.add(id)
   return movements
+}
+
+/**
+ * NO PATH NODE STANDS ON A COMPOSTER (sandbox, Paper 1.21.8: 5 of 6 compost visits left the bone meal in the world).
+ * Its cell is never a node -- its boundingBox is 'block' -- but the cell ABOVE it is: the floor reads `physical`, so a
+ * walk or a jump-up lands on the top (mineflayer-pathfinder 2.4.5 getMoveJumpUp emits it), and the body falls into the
+ * hollow at y + 0.125. An exclusionAreasStep entry: the pathfinder hands it the destination's cells, and a cell whose
+ * floor is a composter costs COMPOSTER_TOP_COST, past the `cost > 100` that deletes the move. `blockAt(pos)` is the
+ * bot's (extraInfos off: hot path); index.mjs puts it into EACH profile's own array.
+ */
+export const COMPOSTER_TOP_COST = 101
+export function composterTopStep (blockAt, registry) {
+  const id = registry?.blocksByName?.composter?.id
+  return block => {
+    const p = block?.position
+    if (id == null || !p) return 0
+    let below = null
+    try { below = blockAt(p.offset(0, -1, 0)) } catch { below = null }
+    return below?.type === id ? COMPOSTER_TOP_COST : 0
+  }
 }
 
 /**

@@ -8,9 +8,9 @@ const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.rep
 const idx = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
 const once = (s, needle, where) => { const n = s.split(needle).length - 1; assert.equal(n, 1, `${where}: expected exactly one "${needle}", found ${n}`) }
 t('the price is in the shared exclusion array (every land profile copies it) and in the water profile that replaces it', () => {
-  once(idx, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]', 'index')
-  once(idx, 'waterMoves.exclusionAreasStep = [deathSitePenalty]', 'index')
-  assert.ok(idx.indexOf('moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]') < idx.indexOf('Object.assign(gatherMoves, moves)'), 'set before the profiles copy the array')
+  once(idx, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, composterTop]', 'index')
+  once(idx, 'waterMoves.exclusionAreasStep = [deathSitePenalty, composterTop]', 'index')
+  assert.ok(idx.indexOf('moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, composterTop]') < idx.indexOf('Object.assign(gatherMoves, moves)'), 'set before the profiles copy the array')
   once(idx, 'const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block)', 'index')
   once(idx, 'const deathSitesTimer = setInterval(refreshDeathSites, 20_000)', 'index')
   once(idx, "const refreshDeathSites = () => { try { deathSites = worldFacts?.deathSites?.() ?? [] } catch { deathSites = [] } }", 'index')
@@ -23,9 +23,9 @@ t('a death is published to world facts before the cause and peak are cleared, an
   once(idx, "kind: 'death_site_route_crossed'", 'index')
 })
 t('mutant: dropping the price from the shared array is detected', () => {
-  const m = idx.replace('moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]', 'moves.exclusionAreasStep = [waterEntryPenalty]')
+  const m = idx.replace('moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, composterTop]', 'moves.exclusionAreasStep = [waterEntryPenalty, composterTop]')
   assert.notEqual(m, idx, 'MUTATION DID NOT APPLY')
-  assert.throws(() => once(m, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]', 'mutant'), /found 0/)
+  assert.throws(() => once(m, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, composterTop]', 'mutant'), /found 0/)
 })
 t('mutant: MOVING the publication after the clear is detected by the ordering assertion', () => {
   const stmt = 'const site = worldFacts.reportDeath(deathClass(cause), deathPos)'

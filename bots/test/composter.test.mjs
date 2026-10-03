@@ -1251,10 +1251,58 @@ await t('#1 the instrument: a body INSIDE the composter\'s hollow is not handed 
   assert.equal(town.count('bone_meal'), 1, 'positive control: from the cell beside it, the drop is handed over')
 })
 
-await t('#1 protectTownBlocks keeps every path node OUT of a composter cell (blocksToAvoid), and still never digs one', () => {
-  const m = C.protectTownBlocks({ blocksCantBreak: new Set(), blocksToAvoid: new Set([1]) }, REG)
-  assert.ok(m.blocksToAvoid.has(REG.blocksByName.composter.id)); assert.ok(m.blocksToAvoid.has(1), 'the existing avoid set is kept')
-  assert.ok(m.blocksCantBreak.has(REG.blocksByName.composter.id))
+// THE REAL PATHFINDER: mineflayer-pathfinder 2.4.5's Movements + AStar over a one-wide corridor whose only short way
+// on crosses a composter. Positive control: with no exclusion the route stands ON the composter (1,65,0).
+const routeWorld = () => {
+  const req = createRequire(import.meta.url)
+  const reg = req('prismarine-registry')('1.21.8'); const Block = req('prismarine-block')(reg)
+  const { Movements: Mv, goals: G } = req('mineflayer-pathfinder')
+  const AStar = req('mineflayer-pathfinder/lib/astar.js'); const Move = req('mineflayer-pathfinder/lib/move.js')
+  const w = new Map(), k = (x, y, z) => `${x},${y},${z}`
+  for (let x = -3; x <= 6; x++) for (let z = -3; z <= 3; z++) {
+    w.set(k(x, 63, z), 'stone')
+    if (Math.abs(z) >= 1) for (let y = 64; y <= 68; y++) w.set(k(x, y, z), 'bedrock')
+  }
+  w.set(k(1, 64, 0), 'composter')
+  const blockAt = p => {
+    const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
+    const b = Block.fromStateId(reg.blocksByName[w.get(k(x, y, z)) ?? (y < 63 ? 'bedrock' : 'air')].defaultState, 0)
+    b.position = new Vec3(x, y, z); return b
+  }
+  const bot = { registry: reg, version: '1.21.8', game: { minY: -64, height: 384 }, blockAt, entity: { position: new Vec3(0.5, 64, 0.5), effects: {} },
+                entities: {}, inventory: { items: () => [], slots: [] }, pathfinder: { bestHarvestTool: () => null } }
+  const route = m => new AStar(new Move(0, 64, 0, 0, 0), m, new G.GoalBlock(3, 64, 0), 3000, 1000).compute()
+  const onTop = r => r.path.filter(n => blockAt(new Vec3(n.x, n.y - 1, n.z)).name === 'composter')
+  const fresh = () => { const m = C.protectTownBlocks(new Mv(bot), reg); m.canDig = false; return m }
+  return { bot, reg, route, onTop, fresh }
+}
+
+await t('#1 THE REAL PATHFINDER never routes across a composter\'s TOP (composterTopStep); without it, it does', () => {
+  const { bot, reg, route, onTop, fresh } = routeWorld()
+  const plain = route(fresh())
+  assert.equal(plain.status, 'success')
+  assert.deepEqual(onTop(plain).map(n => `${n.x},${n.y},${n.z}`), ['1,65,0'], 'positive control: the unexcluded route stands on the composter')
+  const m = fresh(); m.exclusionAreasStep = [C.composterTopStep(p => bot.blockAt(p), reg)]
+  const r = route(m)
+  assert.equal(r.status, 'success', 'a detour exists')
+  assert.deepEqual(onTop(r), [], `a node stands on the composter: ${r.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')}`)
+  assert.ok(m.blocksCantBreak.has(reg.blocksByName.composter.id), 'and it is still never dug')
+})
+
+await t('#1 a FRESH tunnel profile (no base) carries the composter-top exclusion too; a based one inherits the base\'s', async () => {
+  const { tunnelMovements } = await import('../src/oretunnel.mjs')
+  const { bot, reg, route, onTop } = routeWorld()
+  const m = tunnelMovements(bot, null); m.canDig = false
+  assert.deepEqual(onTop(route(m)), [], 'the fresh tunnel profile routes over the composter')
+  const base = { exclusionAreasStep: [C.composterTopStep(p => bot.blockAt(p), reg)], exclusionAreasBreak: [] }
+  assert.equal(tunnelMovements(bot, Object.assign(Object.create(Object.getPrototypeOf(m)), m, base)).exclusionAreasStep[0], base.exclusionAreasStep[0])
+})
+
+await t('#1 WIRED: index.mjs puts the composter-top exclusion into BOTH its own arrays (the shared base and waterMoves\' replacement)', () => {
+  const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
+  assert.match(src, /const composterTop = composterTopStep\(p => bot\.blockAt\(p, false\), bot\.registry\)/)
+  assert.match(src, /\n\s*moves\.exclusionAreasStep = \[[^\]]*\bcomposterTop\]/)
+  assert.match(src, /\n\s*waterMoves\.exclusionAreasStep = \[[^\]]*\bcomposterTop\]/)
 })
 
 await t('#2 COMPOSED with the fleet\'s 20 s stuck limit: the visit declares a BOUNDED stationary window; the watchdog does not fire inside it, does after', async () => {
@@ -1267,10 +1315,19 @@ await t('#2 COMPOSED with the fleet\'s 20 s stuck limit: the visit declares a BO
   assert.equal(r.status, 'success', r.detail)
   assert.ok(seen, 'the visit declared no stationary window')
   assert.ok(seen - t0 <= C.VISIT_BUDGET_MS + 5_000 + 50, `the window is not bounded by the visit's budget: ${seen - t0} ms`)
-  // a busy bot standing still at the composter: 21 s into the visit -> no fire; past the window -> fires
-  const at = now => stuckDecision({ busy: true, stationaryUntil: seen, now, stillSince: t0, stuckMs: STUCK_MS })
-  assert.equal(at(t0 + 21_000).fire, false, 'the 20 s watchdog cut a visit inside its own budget')
-  assert.equal(at(seen + 1).fire, true, 'the window never expires: a wedged visit would never be caught')
+  // THE REAL SEQUENCE, a reflex tick every 500 ms over a busy bot standing still from the visit's start: inside the
+  // window every tick RESETS stillSince, so once the window expires the watchdog needs a further STUCK_MS of stillness.
+  // Worst case: window end (budget + 5 s) + 20 s -- about 70 s after the visit began.
+  let stillSince = t0, firedAt = null
+  for (let now = t0; now <= t0 + 120_000 && firedAt == null; now += 500) {
+    const d = stuckDecision({ busy: true, stationaryUntil: seen, now, stillSince, stuckMs: STUCK_MS })
+    if (d.reset) stillSince = now
+    if (d.fire) firedAt = now
+  }
+  assert.ok(firedAt != null, 'the window never expires: a wedged visit would never be caught')
+  assert.ok(firedAt > t0 + 21_000, 'the 20 s watchdog cut a visit inside its own budget')
+  assert.ok(firedAt >= seen + STUCK_MS && firedAt <= seen + STUCK_MS + 1_000, `fired at +${firedAt - t0} ms, not window end + 20 s`)
+  assert.ok(firedAt - t0 <= C.VISIT_BUDGET_MS + 5_000 + STUCK_MS + 1_050, `the bound: ${firedAt - t0} ms > budget + 5 s + 20 s`)
   assert.equal(town.bot.stationaryUntil, 0, 'the visit did not clear its window')
   assert.equal(stuckDecision({ busy: true, stationaryUntil: town.bot.stationaryUntil, now: t0 + 21_000, stillSince: t0, stuckMs: STUCK_MS }).fire, true,
     'positive control: without the window, the same stillness fires at 20 s')
@@ -1386,6 +1443,29 @@ await t('#3 another body in the table\'s first-choice cell: the table goes elsew
   const table = [...town.world].find(([, n]) => n === 'crafting_table')?.[0]?.split(',').map(Number)
   assert.ok(table, `no table: ${r.detail}`)
   assert.notDeepEqual({ x: table[0], y: table[1], z: table[2] }, first, 'the table went into another player')
+})
+
+await t('#2 TRUTH TABLE: with no live window, stuckDecision equals the old inline predicate over every busy/digging/moved/danger/elapsed boundary', () => {
+  const STUCK = 20_000, NOW = 1e9
+  // the predicate the reflex loop had inline before stuckDecision (d2f3629's parent)
+  const old = ({ busy, digging, moved, inDanger, stillSince }) => {
+    const reset = !busy || digging || moved
+    const since = reset ? NOW : stillSince
+    return { reset, fire: busy && !digging && !inDanger && NOW - since > STUCK }
+  }
+  let cases = 0
+  for (const busy of [false, true]) for (const digging of [false, true]) for (const moved of [false, true]) for (const inDanger of [false, true]) {
+    for (const elapsed of [0, 1, STUCK - 1, STUCK, STUCK + 1, 10 * STUCK]) {
+      for (const stationaryUntil of [0, undefined, NOW - 1, NOW]) {   // none, or a window already over (NOW is not > NOW)
+        const stillSince = NOW - elapsed
+        const want = old({ busy, digging, moved, inDanger, stillSince })
+        const got = stuckDecision({ busy, digging, moved, inDanger, stationaryUntil, now: NOW, stillSince, stuckMs: STUCK })
+        assert.deepEqual([got.reset, got.fire], [want.reset, want.fire], JSON.stringify({ busy, digging, moved, inDanger, elapsed, stationaryUntil }))
+        cases++
+      }
+    }
+  }
+  assert.equal(cases, 2 * 2 * 2 * 2 * 6 * 4)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

@@ -5,7 +5,7 @@
 // without unrecoverable failure. That is what this file is for.
 
 import { tunnelMovements } from './oretunnel.mjs'
-import { protectTownBlocks, worldIdFromLogin } from './composter.mjs'
+import { protectTownBlocks, worldIdFromLogin, composterTopStep } from './composter.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
@@ -486,7 +486,9 @@ function connect() {
     const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block)
     bot.deathSitesNow = () => deathSites
     bot.refreshDeathSites = refreshDeathSites
-    moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]
+    // NO NODE ON A COMPOSTER'S TOP (composter.mjs composterTopStep): in this shared array AND in waterMoves' own below.
+    const composterTop = composterTopStep(p => bot.blockAt(p, false), bot.registry)
+    moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, composterTop]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
@@ -664,7 +666,7 @@ function connect() {
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.
-    waterMoves.exclusionAreasStep = [deathSitePenalty]   // the water entry price goes; the death price stays (a drowning site is a death site)
+    waterMoves.exclusionAreasStep = [deathSitePenalty, composterTop]   // the water entry price goes; the death price and the composter's top stay
     // Surface swimming is real travel -- about 5.6 m/s sprint-swimming against
     // 4.3 walking -- so a wet step is priced slightly ABOVE a land step rather
     // than as a catastrophe. Not 1: crossing still carries drowning risk that
