@@ -58,7 +58,7 @@ correctness canary; effect needs >= 4 worlds, world-level DiD. A frontier-DIRECT
 beyond its own run-to-run disagreement and < 2% invalid output; otherwise the frontier's job is auditor.
 **Decision date: 72 h after the shadow starts — record KEEP-BUILDING or STOP (no open loop).**
 
-**PRE-REGISTERED AMENDMENT (written 2026-10-03 ~19:00Z, BEFORE any decision-partition data was read; PROPOSED — the
+**PRE-REGISTERED AMENDMENT (written 2026-10-03 18:41Z, BEFORE any decision-partition data was read; PROPOSED — the
 owner decides which reading counts).** Both review engines found "downstream success >= 1.5x base" biased toward KEEP:
 the mayor re-proposes a bot right after a success and goes quiet ~25 min after a failure (lease expiry + cooldown),
 while the base rate samples every eligible bot every 5 min; and "near the target" exists only on the proposal side.
