@@ -33,7 +33,7 @@ import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS, inPickupBox, pickupGoalClass } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
-import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositFreesSlot, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
+import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -3546,7 +3546,7 @@ const craftDeadline = ctx => (ctx.runner?.current?.startedAt ?? Date.now()) + co
  * gets the same two make-room tries and the same table reserve as one direct craft. `onVerified(n)` is called with the
  * items each verified execution produced -- the ONLY place a produced count is taken, so nothing is counted twice.
  */
-async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null, signal, deadline, rs, onVerified = () => {} }) {
+async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null, protect = [], signal, deadline, rs, onVerified = () => {} }) {
   const { bot } = ctx
   const plan = roomRecipe(bot.registry, recipe, item)
   const synced = !!bot.craftSync
@@ -3590,7 +3590,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
       room = r.room
       if (r.lostTable) {
         logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot), detail: `refused ${item}: reason=table_out_of_reach ${r.lostTable}` })
-        return { status: 'unknown', failClass: 'unverified', detail: `not crafted: ${r.lostTable}${sofar(done)}` }
+        return { status: 'unknown', failClass: 'unverified', detail: `${r.lostTable}; not crafted${sofar(done)}` }
       }
       if (r.said) rs.stationDid.push(r.said)
       return room.pickupOnly ? refusePickup(bot, item, room, `${r.tried ? ` (${r.tried})` : ''}${sofar(done)}`) : null
@@ -3610,7 +3610,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
           rs.stationDid.push('no room to carry the table back as well: the craft goes first')
           break
         }
-        return fail(refuseNoRoom(bot, item, plan, craftRoomNow(bot, plan, reserveFor()), freed.said, sofar(done)))
+        return fail(refuseNoRoom(bot, item, plan, craftRoomNow(bot, plan, reserveFor()), freed.said, sofar(done), protect))
       }
       rs.stationDid.push(freed.said)
       room = craftRoomNow(bot, plan, reserveFor())
@@ -3624,7 +3624,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
       room = craftRoomNow(bot, plan, 0)
       rs.stationDid.push('no room to carry the table back as well: the craft goes first')
     }
-    if (!room.ok) return fail(refuseNoRoom(bot, item, plan, room, 'already made room twice in this craft', sofar(done)))
+    if (!room.ok) return fail(refuseNoRoom(bot, item, plan, room, 'already made room twice in this craft', sofar(done), protect))
 
     // ONE EXECUTION, VERIFIED. { signal, deadline }: craftsync stops the craft on abort or at the runner's deadline;
     // mineflayer itself ignores the fourth argument.
@@ -3665,13 +3665,13 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
                          `(${bot.inventory.items().length}/${BAG_SLOTS} slots after the resync, ${now.reserve} held back)` })
       if (v.verdict === 'baseline_unanswered') {
         return fail({ status: 'unknown', failClass: 'unverified',
-                      detail: `not crafted: craftsync's baseline inventory resync was not answered, so the room for ${item} ` +
-                              `could not be checked against the server's bag — nothing was clicked; craft again${sofar(done)}` })
+                      detail: `craft again: craftsync's baseline inventory resync was not answered, so the room for ${item} ` +
+                              `could not be checked against the server's bag; nothing was clicked${sofar(done)}` })
       }
       if (now.pickupOnly) return fail(refusePickup(bot, item, now, ` (seen at admission, after craftsync's resync)${sofar(done)}`))
       if (v.verdict === 'no_room_after_resync') {
         return fail(refuseNoRoom(bot, item, plan, now.ok ? { ...now, short: 1 } : now,
-          'the bag filled while craftsync resynced it, before any click', sofar(done)))
+          'the bag filled while craftsync resynced it, before any click', sofar(done), protect))
       }
       return fail({ status: 'unknown', failClass: 'unverified',
                     detail: `not crafted: the server's bag, resynced by craftsync, lacks an ingredient of ${item} (${error?.message ?? ''})${sofar(done)}` })
@@ -3750,7 +3750,7 @@ async function settlePickup(ctx, { plan, owed, table, signal }) {
     check(signal)
     if (far()) {
       const t = table.position
-      return { room: now(), lostTable: `the walk to collect ${p.name} left the crafting_table at ${t.x},${t.y},${t.z} out of reach; walk back to it` }
+      return { room: now(), lostTable: `walk back to the crafting_table at ${t.x},${t.y},${t.z}: the walk to collect ${p.name} left it out of reach` }
     }
   }
   room = now()
@@ -3766,8 +3766,8 @@ function refusePickup(bot, item, room, note = '') {
   logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
              detail: `refused ${item}: reason=pickup_pending ${what} (${items.length}/${BAG_SLOTS} slots)${note}` })
   return { status: 'failed', failClass: 'inventory_full', gap: 'inventory_space',
-           detail: `no room held for ${item}: the bag is ${items.length}/${BAG_SLOTS}, but ${what} is within pickup range ` +
-                   `and could take the slot the craft needs — step away from it or collect it${note}` }
+           detail: `step away from the ${what} or collect it. No room held for ${item}: the bag is ${items.length}/${BAG_SLOTS}, ` +
+                   `but the ${what} is within pickup range and could take the slot the craft needs${note}` }
 }
 
 /**
@@ -3827,6 +3827,9 @@ async function runCraftPlan (ctx, plan, { item, count, signal, table, rs, placed
   let produced = 0, executions = 0, local = 0, ranOut = false, station = null
   const tally = () => ({ item, requested, executions, produced })
   const after = () => (made.length ? ` [after making ${made.join(', ')}]` : '')
+  // THE WHOLE CHAIN'S INGREDIENTS (Claude review): a refusal at the planks step must not advise depositing the planks or
+  // logs a later step needs. Every step's refusal protects them all.
+  const protect = [...new Set(plan.steps.flatMap(st => (st.recipe.ingredients ?? []).map(i => i.name)))].map(name => ({ name, count: 1 }))
   for (const step of plan.steps) {
     check(signal)
     if (step.recipe.table && !station) {
@@ -3846,7 +3849,7 @@ async function runCraftPlan (ctx, plan, { item, count, signal, table, rs, placed
     }
     const root = step.item === item
     const r = await craftExecutions(ctx, { item: step.item, recipe: step.recipe.ref, crafts: step.crafts,
-      table: step.recipe.table ? station : undefined, anchor: station ?? undefined, signal, deadline, rs,
+      table: step.recipe.table ? station : undefined, anchor: station ?? undefined, protect, signal, deadline, rs,
       onVerified: n => { if (root) { executions++; produced += n; Object.assign(progress, tally()) } } })
     if (!r.ok) return { ...r.out, ...tally(), detail: `${r.out.detail}${root ? '' : ` [making ${step.item} for ${item}]`}${after()}` }
     local += r.local
@@ -3968,25 +3971,35 @@ async function makeCraftRoom(ctx, item, plan, signal) {
   return { ok: worn.ok, said }
 }
 
-/** The refusal: names what fills the bag and a move the bot can make from where it stands. Never deposit, never toss. */
-function refuseNoRoom(bot, item, plan, room, why, sofar = '') {
-  const items = bot.inventory.items()
+/**
+ * WHAT FREES A SLOT FROM HERE -> { fill, remedy, kind }. ONLY A REMEDY WHOSE PRECONDITION HOLDS (roomAdvice): a
+ * placement only where place() itself would find a site, eating only a single food when not full, else
+ * `deposit <item>` (it walks home) for an item the craft does not need whose deposit empties a stack (depositTarget),
+ * else it says nothing can be freed. `keep` -- the step's ingredients plus, for a plan, every step's -- is never
+ * advised away.
+ */
+function slotRemedy(bot, items, keep = []) {
   const isPlaceable = n => placeableBlock(bot.registry, n)
-  const fill = bagFill(items, isPlaceable, plan.consumes)
-  // ONLY A REMEDY WHOSE PRECONDITION HOLDS FROM HERE (roomAdvice): a placement only where place() itself would find a
-  // site, eating only a single food when not full, else deposit (it walks home), else say nothing can be freed.
+  const fill = bagFill(items, isPlaceable, keep)
   let placeSite = false
   try { placeSite = !!fill.cheapest && placeSites(bot).length > 0 } catch { placeSite = false }
-  let depositFrees = false
-  try { depositFrees = depositFreesSlot(items, depositPlan(items, null, { wants: bot.currentWants ?? [] })) } catch { depositFrees = false }
-  const remedy = roomAdvice({ items, consumes: plan.consumes, isPlaceable, placeSite, foodOrder: FOOD_PRIORITY,
-                              hunger: bot.food ?? 20, depositFrees }).text
+  let depositItem = null
+  try { depositItem = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { depositItem = null }
+  const advice = roomAdvice({ items, consumes: keep, isPlaceable, placeSite, foodOrder: FOOD_PRIORITY, hunger: bot.food ?? 20, depositItem })
+  return { fill, remedy: advice.text, kind: advice.kind }
+}
+
+/** The refusal: the remedy first, then what fills the bag. Craft itself never deposits, never tosses. */
+function refuseNoRoom(bot, item, plan, room, why, sofar = '', protect = []) {
+  const items = bot.inventory.items()
+  const { fill, remedy } = slotRemedy(bot, items, [...(plan.consumes ?? []), ...(protect ?? [])])
   const held = heldLine(room)
   logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
              detail: `refused ${item}: needs ${room.short} more slot(s) at ${items.length}/${BAG_SLOTS}${held ? ` (${held})` : ''}; ${why}; bag: ${fill.line}` })
   return { status: 'failed', failClass: 'inventory_full', gap: 'inventory_space',
-           detail: `no room for ${item}: the bag is ${items.length}/${BAG_SLOTS} and the craft needs ${room.short} more ` +
-                   `slot(s)${held ? ` (${held})` : ''} — ${fill.line}; ${why}. ${remedy}${sofar}` }
+           // THE REMEDY FIRST: the prompt keeps 220 characters of the whole outcome (cognitive.mjs formatOutcome).
+           detail: `${remedy}. No room for ${item}: the bag is ${items.length}/${BAG_SLOTS} and the craft needs ${room.short} more ` +
+                   `slot(s)${held ? ` (${held})` : ''} — ${fill.line}; ${why}${sofar}` }
 }
 
 /**

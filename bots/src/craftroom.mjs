@@ -185,26 +185,28 @@ export function heldLine (room = {}) {
  *            place() runs -- the caller passes its answer as `placeSite`)
  *   eat      the food eat() would pick (foodOrder) is a single item, the bot is not full (eat refuses at 20), and the
  *            recipe does not need it
- *   deposit  the deposit plan, as deposit() would run it, empties at least one stack (depositFreesSlot): deposit
- *            walks home to the town chest from anywhere
+ *   deposit  `deposit <item>` for depositTarget's item: not needed by the craft (or its plan), and its deposit, as
+ *            deposit() runs it, empties a stack. deposit walks home to the town chest from anywhere
  *   none     nothing holds -- said plainly, never a remedy that cannot run
+ * THE ACTION COMES FIRST in every text (Codex): the refusal leads with it, and the prompt keeps 220 characters.
  * wear_out is never named: it is not a model action (chatOnly), and craft has already run it itself (makeCraftRoom).
  */
-export function roomAdvice ({ items = [], consumes = [], isPlaceable = () => false, placeSite = false, foodOrder = [], hunger = 20, depositFrees = false } = {}) {
+export function roomAdvice ({ items = [], consumes = [], isPlaceable = () => false, placeSite = false, foodOrder = [], hunger = 20, depositItem = null } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const used = new Set((consumes ?? []).map(c => c.name))
   const fill = bagFill(list, isPlaceable, consumes)
   if (fill.cheapest && placeSite) {
-    return { kind: 'place', text: `placing your one ${fill.cheapest.name} frees its slot (place ${fill.cheapest.name})` }
+    return { kind: 'place', text: `place ${fill.cheapest.name} -- placing your one ${fill.cheapest.name} frees its slot` }
   }
   const food = (foodOrder ?? []).map(n => list.find(i => i.name === n)).find(Boolean)
   if (food && (food.count ?? 1) === 1 && Number(hunger) < 20 && !used.has(food.name)) {
-    return { kind: 'eat', text: `eating your one ${food.name} frees its slot (eat)` }
+    return { kind: 'eat', text: `eat -- eating your one ${food.name} frees its slot` }
   }
-  if (depositFrees === true) {
-    return { kind: 'deposit', text: 'nothing in the bag can be freed from where you stand -- deposit (it walks home to the town chest) frees slots' }
+  if (depositItem && !used.has(depositItem)) {
+    return { kind: 'deposit', item: depositItem,
+             text: `deposit ${depositItem} -- it walks home to the town chest and frees slots; nothing else frees one from where you stand` }
   }
-  return { kind: 'none', text: 'nothing in the bag can be freed from where you stand, and a deposit would empty no stack' }
+  return { kind: 'none', text: 'no slot can be freed from here -- nothing in the bag can be freed from where you stand, and no deposit would empty a stack the craft does not need' }
 }
 
 /** Room for one more of `name` (the table retake): a non-full compatible stack, or a free slot. */
@@ -275,6 +277,21 @@ export function depositFreesSlot (items = [], plan = []) {
     }
   }
   return false
+}
+
+/**
+ * WHICH ITEM TO DEPOSIT -> its name | null. Pure. The first entry of the deposit plan (deposit()'s own order) that the
+ * craft does NOT need -- `keep` is the step's ingredients and, for a plan, every step's -- and whose deposit, run as
+ * deposit() runs it, empties a stack. A plain `deposit` banks the plan whole (the pickaxe's planks, a plan's logs) and a
+ * remedy that spends the craft's own ingredients is the dead end it was meant to break (both reviews).
+ */
+export function depositTarget (items = [], plan = [], keep = []) {
+  const used = new Set((keep ?? []).map(c => c?.name ?? c))
+  for (const e of plan ?? []) {
+    if (!e?.name || used.has(e.name)) continue
+    if (depositFreesSlot(items, [e])) return e.name
+  }
+  return null
 }
 
 /** Does this item name place as a solid block? (wheat names a crop block but the item does not place it.) */
