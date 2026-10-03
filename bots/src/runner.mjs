@@ -248,14 +248,19 @@ export class Runner {
       // two escapes that matter carry their own tags: withTimeout() marks our
       // wall clock with budgetExceeded, and everything else is a genuine bug in
       // the skill, which is its own class rather than an opinion about the world.
+      // A SKILL'S OWN VERIFIED TALLY SURVIVES ITS THROW (craft: executions verified before an abort or a failed
+      // table retake). Only the four tally fields, and only what the skill attached itself -- never inferred here.
+      const v = e?.verified && typeof e.verified === 'object' ? e.verified : null
+      const carried = v ? { item: v.item ?? null, requested: Number(v.requested ?? 0),
+                            executions: Number(v.executions ?? 0), produced: Number(v.produced ?? 0) } : {}
       result = e?.aborted
         ? { status: 'aborted', failClass: 'interrupted',
-            detail: this.interruptedReason ?? 'aborted' }
+            detail: this.interruptedReason ?? 'aborted', ...carried }
         : e?.budgetExceeded
           ? { status: 'unknown', failClass: e.failClass ?? 'path_budget',
-              detail: e?.message ?? String(e) }
+              detail: e?.message ?? String(e), ...carried }
           : { status: 'failed', failClass: e?.failClass ?? 'skill_error',
-              detail: e?.message ?? String(e) }
+              detail: e?.message ?? String(e), ...carried }
     } finally {
       clearTimeout(watchdog)
       if (hardStop) clearTimeout(hardStop)

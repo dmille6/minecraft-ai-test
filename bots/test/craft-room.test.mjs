@@ -287,6 +287,8 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
     inventory: {
       items: () => slots.map((s, i) => (s ? Object.assign(s, { slot: 9 + i }) : null)).filter(Boolean),
       emptySlotCount: () => slots.filter(s => !s).length,
+      // prismarine-windows' updateSlot: what applying a server packet to the bag does
+      updateSlot (slot, it) { if (slot >= 9 && slot <= 44) slots[slot - 9] = it ? item(it.name, it.count) : null },
     },
     recipesFor (id, _meta, min = 1, table = null) {
       return Recipe.find(id).filter(r => (!r.requiresTable || table) &&
@@ -312,9 +314,9 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
         const name = mc.items[recipe.result.id].name
         const winId = table ? 1 : 0; const base = table ? 10 : 9      // a 3x3 window's inventory starts at 10
         // the window's bag as the server holds it, in that window's numbering (46 slots either way)
-        const full = ({ cursor = null, grid = false, bagAt = null } = {}) => {
+        const full = ({ cursor = null, grid = false, bagAt = null, from = slots } = {}) => {
           const items = Array(46).fill(null).map(() => ({ itemCount: 0 }))
-          slots.forEach((x, i) => { if (x) items[base + i] = { itemId: mc.itemsByName[x.name].id, itemCount: x.count } })
+          from.forEach((x, i) => { if (x) items[base + i] = { itemId: mc.itemsByName[x.name].id, itemCount: x.count } })
           if (grid) items[1] = { itemId: mc.itemsByName.stick.id, itemCount: 1 }
           if (bagAt) items[base + bagAt.i] = bagAt.item
           return { windowId: winId, stateId: 7, items, carriedItem: cursor ?? { itemCount: 0 } }
@@ -328,11 +330,18 @@ function makeBot (stacks, { tables = [], craftLands = true, rejectMs = 0, confir
         const at = slots.findIndex((x, i) => x && x.name === name && (!before[i] || before[i].count !== x.count))
         const send = (n, pkt, ms) => setTimeout(() => client.emit(n, pkt), ms)
         const restore = () => before.forEach((x, i) => { slots[i] = x })
+        // THE SERVER SAYS NO. In the player window mineflayer applies the correction: the bag goes back (ingredients
+        // included) and a set_slot empties the result slot. For a 3x3 table craft bot.craft has already CLOSED the
+        // window, and mineflayer drops a packet for a closed window (inventory.js ~729-731): the local bag keeps the
+        // phantom result with the ingredients gone, and only the packet -- the window's full state -- has the truth.
+        const deny = ms => {
+          if (!table) { setTimeout(restore, ms); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, ms) }
+          else send('window_items', full({ from: before }), ms)
+        }
         if (server) {
-          server({ send, full, winId, base, at, resultId: recipe.result.id, count: slots[at]?.count ?? 0, restore })
+          server({ send, full, deny, before, winId, base, at, resultId: recipe.result.id, count: slots[at]?.count ?? 0, restore })
         } else if (rejectMs) {
-          // THE SERVER SAYS NO: the client-predicted slots are put back, and the server's set_slot says so
-          setTimeout(() => { before.forEach((x, i) => { slots[i] = x }); client.emit('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }) }, rejectMs)
+          deny(rejectMs)
         } else if (confirmMs != null) {
           setTimeout(() => client.emit('set_slot', { windowId: winId, slot: base + at, item: { itemId: recipe.result.id, itemCount: slots[at]?.count ?? 0 } }), confirmMs)
         }
@@ -603,8 +612,7 @@ await t('a SERVER-confirmed craft says so: verification server, source=server ro
 await t('OPENING SNAPSHOT + predicted success + delayed rejection: the snapshot is ignored, the rejection is read', async () => {
   // the table's window opens with a window_items of the bag before the craft (no result in it: an opening snapshot,
   // not a denial), the client predicts success, and 150 ms later the server's set_slot empties the result slot
-  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, winId, base, at, restore }) => {
-    setTimeout(restore, 150); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 150) } })
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ deny }) => deny(150) })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'unverified', r.detail)
 })
@@ -617,13 +625,13 @@ await t('a CURSOR snapshot (result on the cursor, not yet put away) confirms not
   assert.equal(r.verification, 'verified_local', 'a mid-click snapshot was read as the server confirming the bag')
 })
 
-await t('TABLE CRAFT, window_items AFTER CLOSE that DENIES (mineflayer stashes it; the bag still shows the prediction)', async () => {
+await t('TABLE CRAFT, window_items AFTER CLOSE that DENIES: read from the packet (mineflayer drops it after close) and written into the bag', async () => {
   // the server's full state of the crafting window: result slot empty, grid empty, cursor empty -- read from the
   // packet, because mineflayer does not apply a window_items for a window it has already closed
   const { bot, have } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, full, at }) => {
     send('window_items', full({ bagAt: { i: at, item: { itemCount: 0 } } }), 20) } })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
-  assert.ok(have('stone_pickaxe') >= 1, 'the local bag still shows the prediction')
+  assert.equal(have('stone_pickaxe'), 0, 'the server\'s word (no pickaxe) was not written into the bag')
   assert.equal(r.failClass, 'unverified', `read the local prediction over the server: ${r.detail}`)
 })
 
@@ -641,9 +649,9 @@ await t('a rejection arriving AFTER the quiet window is still caught: quiet alon
 
 await t('the quiet period RESTARTS on every packet: a rejection inside a burst is read, not raced', async () => {
   // confirmation at 10 ms, unrelated packets at 30 and 55, the rejection at 80: never 30 ms of quiet before it
-  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], noise: [30, 55], server: ({ send, winId, base, at, resultId, restore }) => {
+  const { bot } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], noise: [30, 55], server: ({ send, winId, base, at, resultId, deny }) => {
     send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: 1 } }, 10)
-    setTimeout(restore, 80); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 80) } })
+    deny(80) } })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'unverified', `read inside the burst: ${r.detail}`)
 })
@@ -839,8 +847,8 @@ await t('RUNNER: a replacement (spent copy worn out + new one crafted) keeps the
 await t('RUNNER: the final item DENIED by the server stays unknown, whatever the sub-crafts put in the bag', async () => {
   const deny = mc.itemsByName.wooden_pickaxe.id
   // planks in hand, so the sub-craft (sticks) and the final craft fit inside the suite's 300 ms runner watchdog
-  const { bot, have } = makeBot(bagOf(20, [item('oak_planks', 7)]), { tables: [NEAR], server: ({ send, winId, base, at, resultId, count, restore }) => {
-    if (resultId === deny) { setTimeout(restore, 10); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 10) }
+  const { bot, have } = makeBot(bagOf(20, [item('oak_planks', 7)]), { tables: [NEAR], server: ({ send, winId, base, at, resultId, count, deny: denyIt }) => {
+    if (resultId === deny) denyIt(10)
     else send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: count } }, 10)
   } })
   Object.assign(bot, { health: 20, food: 20, chat () {} })
@@ -894,9 +902,9 @@ await t('WEAR-OUT digs a SIDE block at foot level, never the floor under or besi
 // --- a server denial is retried once ---------------------------------------------
 const denyThen = (pattern) => {
   let n = 0
-  return ({ send, winId, base, at, resultId, count, restore }) => {
+  return ({ send, winId, base, at, resultId, count, deny }) => {
     const say = pattern[Math.min(n++, pattern.length - 1)]
-    if (say === 'deny') { setTimeout(restore, 10); send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 10) }
+    if (say === 'deny') deny(10)
     else send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: count } }, 10)
   }
 }
@@ -924,6 +932,68 @@ await t('NO SERVER STATEMENT is never retried (only a denial is)', async () => {
   const { bot, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], craftLands: false })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.failClass, 'unverified'); assert.deepEqual(crafts, [1])
+})
+
+// --- retry only after reconciliation; the runner keeps a thrown craft's tally ------------
+await t('PHANTOM AFTER CLOSE: the denial is written into the bag from the packet, then retried once', async () => {
+  // table craft: mineflayer dropped the correction, so locally the pickaxe is there and the sticks are gone
+  const { bot, have, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: denyThen(['deny', 'show']) })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.deepEqual(crafts, [1, 1])
+  assert.equal(have('stone_pickaxe'), 1, 'the phantom stayed in the bag'); assert.equal(have('stick'), 3, 'crafted from phantom ingredients')
+  assert.equal(have('cobblestone'), 19 * 64 - 3)
+})
+
+await t('DENIED in the predicted slot but the output is in ANOTHER slot: counted as produced, no retry', async () => {
+  const { bot, have, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, winId, base, at, resultId }) => {
+    send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 10)
+    send('set_slot', { windowId: winId, slot: base + 35, item: { itemId: resultId, itemCount: 1 } }, 12) } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.deepEqual(crafts, [1], 'retried a craft that had produced'); assert.equal(r.status, 'success', r.detail)
+  assert.equal(r.produced, 1); assert.equal(have('stone_pickaxe'), 1)
+})
+
+await t('a CONFIRMATION arriving during the settle is honoured: no retry', async () => {
+  const { bot, have, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, winId, base, at, resultId }) => {
+    send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 10)
+    send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: 1 } }, 60) } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.deepEqual(crafts, [1]); assert.equal(r.status, 'success', r.detail); assert.equal(have('stone_pickaxe'), 1)
+})
+
+await t('denied with the ingredients NOT restored by the server: no retry, unverified', async () => {
+  const { bot, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ send, winId, base, at }) => {
+    send('set_slot', { windowId: winId, slot: base + at, item: { itemCount: 0 } }, 10) } })
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.deepEqual(crafts, [1], 'retried without the ingredients back'); assert.equal(r.failClass, 'unverified', r.detail)
+})
+
+await t('RUNNER: a batch ABORTED after one verified execution still carries crafted +1', async () => {
+  let runner = null; let n = 0
+  const { bot } = makeBot(bagOf(20, [item('stick', 9)]), { tables: [NEAR], server: ({ send, winId, base, at, resultId, count }) => {
+    if (n++ === 1) { runner.interrupt('test: abort between executions'); return }
+    send('set_slot', { windowId: winId, slot: base + at, item: { itemId: resultId, itemCount: count } }, 10) } })
+  Object.assign(bot, { health: 20, food: 20, chat () {} })
+  runner = new Runner(bot)
+  const r = await runner.run('craft', { item: 'stone_pickaxe', count: 2 })
+  assert.match((r.contractEvidence ?? []).join(';'), /crafted: stone_pickaxe \+1/, `${r.status} ${r.detail}`)
+})
+
+await t('RUNNER: a completed craft ABORTED during the table retake still carries crafted +1', async () => {
+  let runner = null
+  const { bot } = makeBot(bagOf(30, [item('stick', 5), item('crafting_table', 1)]), {
+    onDig: b => { if (b.name === 'crafting_table') runner.interrupt('test: abort mid-retake') } })
+  Object.assign(bot, { health: 20, food: 20, chat () {} })
+  runner = new Runner(bot)
+  const r = await runner.run('craft', { item: 'stone_pickaxe', count: 1 })
+  assert.match((r.contractEvidence ?? []).join(';'), /crafted: stone_pickaxe \+1/, `${r.status} ${r.detail}`)
+})
+
+await t('a denial that CANNOT be written into the bag stays unverified: the local read never overrides the server', async () => {
+  const { bot, crafts } = makeBot(bagOf(20, [item('stick', 5)]), { tables: [NEAR], server: ({ deny }) => deny(10) })
+  delete bot.inventory.updateSlot          // no way to apply the dropped packet: the phantom stays locally
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'unverified', r.detail); assert.deepEqual(crafts, [1], 'retried on an unreconciled bag')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

@@ -48,6 +48,7 @@ import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mj
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason } from './bankable.mjs'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
@@ -2781,16 +2782,36 @@ const PLACE_ACK_MS = 3_000
 // 36/36 bag fills the slot the table freed and the retake finds no room (review: the exact population losing tables).
 //
 // An abort during the retake is RETHROWN after the cleanup it interrupted, never swallowed into a success.
+//
+// A THROW CARRIES THE VERIFIED TALLY (review: an abort between executions, or during the retake after a success, made
+// the runner's catch-result lose `produced`, so verified progress vanished). `e.verified` is THIS call's requested
+// item and its verified executions; each level overwrites it on the way up, so a sub-craft's planks never reach a
+// pickaxe's caller.
 async function craft(ctx, args, signal, depth = 0, owed = 0) {
   const placedHere = []
+  const progress = { item: args?.item ?? null, requested: Math.max(1, Math.floor(Number(args?.count ?? 1) || 1)),
+                     executions: 0, produced: 0 }
+  // `from`: this level's own progress, or -- for a throw during the retake, after craftLevel returned -- its result
+  // (a recursive craft's verified executions happened in the retry one level down). A tally already on the error for
+  // the SAME item and at least as much is kept (the deeper retry's); one for another item (a sub-craft's) is replaced.
+  const carry = (e, from = progress) => {
+    if (!e || typeof e !== 'object') return e
+    const mine = { item: from?.item ?? progress.item, requested: Number(from?.requested ?? progress.requested),
+                   executions: Number(from?.executions ?? 0), produced: Number(from?.produced ?? 0) }
+    const prior = e.verified
+    if (!(prior && prior.item === mine.item && Number(prior.produced ?? 0) >= mine.produced)) e.verified = mine
+    return e
+  }
   let out
   let retook = null
   try {
-    out = await craftLevel(ctx, args, signal, depth, placedHere, owed)
+    out = await craftLevel(ctx, args, signal, depth, placedHere, owed, progress)
+  } catch (e) {
+    throw carry(e)
   } finally {
     if (placedHere.length) {
       try { retook = await retakeTables(ctx, placedHere, signal) } catch (e) {
-        if (e?.aborted || signal?.aborted) throw e
+        if (e?.aborted || signal?.aborted) throw carry(e, out?.item === progress.item ? out : progress)
         retook = `could not take the table back: ${String(e?.message ?? e).slice(0, 60)}`
       }
     }
@@ -2798,7 +2819,7 @@ async function craft(ctx, args, signal, depth = 0, owed = 0) {
   return retook ? { ...out, detail: `${out.detail} (${retook})` } : out
 }
 
-async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = [], owed = 0) {
+async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = [], owed = 0, progress = {}) {
   const { bot } = ctx
   const owedNow = () => owed + placedHere.length
   // A stop at a SUB-level is reported as the REQUESTED item with nothing made: its own fields are about the planks.
@@ -3309,7 +3330,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
     const t0 = Date.now()
     try {
       while ((verdict = serverVerdict(heard.seen, vctx, Date.now(), t0,
-        { quietMs: CRAFT_QUIET_MS, deadlineMs: CRAFT_CONFIRM_MS })) === 'wait') await sleep(10, signal)
+        { quietMs: CRAFT_QUIET_MS, deadlineMs: CRAFT_CONFIRM_MS })) === 'wait') { check(signal); await sleep(10, signal) }
     } finally { heard.stop() }
     return { before, heard, verdict }
     }
@@ -3327,25 +3348,38 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
           : `craft ${item} failed: ${e.message.slice(0, 80)}`) + (done ? ` (after ${done} of ${reps} made)` : ''),
       }
     }
-    let attempt = await executeOnce()
-    if (attempt.error) return craftError(attempt.error)
-    // A SERVER DENIAL IS RETRIED ONCE (both engines' root-cause reads of the sandbox's 5 of 12 denied table crafts:
-    // in every denied scene the ingredients were back in the bag). Close any window, let the inventory settle
-    // (bounded: a quiet period, capped -- never an unbounded wait for another window_items), re-check room, craft
-    // again, same verdict. Only a denial: 'none' is no server statement, and nothing to retry on.
-    let retried = 'retried=0'
-    if (attempt.verdict === 'denied') {
-      await settleAfterDenial(bot, signal)
+    // A SERVER DENIAL IS RETRIED ONCE -- ONLY AFTER RECONCILIATION (both engines' reads of the sandbox's 5 of 12
+    // denied table crafts, and both reviews of the first retry):
+    //   1. the denial is WRITTEN INTO THE BAG from the packets: for a table craft bot.craft has already closed the
+    //      window and mineflayer drops the correction (inventory.js ~729-731), so locally the phantom result is there
+    //      and the ingredients are gone;
+    //   2. settle (quiet period, capped -- never an unbounded wait for a packet), still listening, and apply what
+    //      arrives: a late confirmation is honoured;
+    //   3. against THIS attempt's baseline: the output anywhere in the bag is PRODUCED (no retry -- 'denied' only said
+    //      the predicted slots lack it); otherwise retry only if every consumed ingredient is back and there is room.
+    // Never a retry on 'none' (no server statement) and never a third attempt.
+    let attempt
+    let retries = 0
+    let note = ''
+    for (;;) {
+      attempt = await executeOnce()
+      if (attempt.error) return craftError(attempt.error)
+      if (attempt.verdict !== 'denied') break
+      const cw = attempt.heard.craftWindow()
+      const wrote = applyServerSlots(bot, attempt.heard.seen.filter(q => q.seq > attempt.heard.lastClickSeq()), cw)
+      const late = applyServerSlots(bot, await settleAfterDenial(bot, signal), cw)
       check(signal)
+      // A BAG THAT COULD NOT BE RECONCILED proves nothing either way: no count, no retry, the denial stands.
+      if (wrote === null || late === null) { note = ' not_reconciled=cannot_write_the_bag'; break }
+      const now = bot.inventory.items()
+      if (craftArrived(attempt.before, now, plan.result)) { attempt.verdict = 'server'; note = ' reconciled=output_in_bag'; break }
+      if (retries >= 1) break
+      if (!ingredientsBack(attempt.before, now, plan.consumes)) { note = ' not_retried=ingredients_not_restored'; break }
       const again = craftRoomNow(bot, plan, reserveFor())
-      if (!again.ok) retried = `retried=0 (no room after the denial: ${again.reason})`
-      else {
-        const second = await executeOnce()
-        if (second.error) return craftError(second.error)
-        retried = `retried=1 retry=${second.verdict}`
-        attempt = second
-      }
+      if (!again.ok) { note = ` not_retried=${again.reason}`; break }
+      retries++
     }
+    const retried = (retries ? `retried=1 retry=${attempt.verdict}` : 'retried=0') + note
     const { before, heard, verdict } = attempt
     const localGain = craftArrived(before, bot.inventory.items(), plan.result)
     const source = verdict === 'server' || verdict === 'denied' ? 'server' : localGain ? 'local' : 'none'
@@ -3365,6 +3399,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
                        ` (${slots}/${BAG_SLOTS} slots) — stopped after ${done} of ${reps}` }
     }
     done++
+    Object.assign(progress, tally(done))
     if (source === 'local') local++
     logEvent({ kind: 'craft_room', status: source === 'local' ? 'verified_local' : 'success', snapshot: snapshot(bot),
                detail: `verified ${item} rep ${rep + 1}/${reps} (+${plan.result?.count ?? '?'}) ${facts}` })
@@ -3408,9 +3443,50 @@ async function settleAfterDenial(bot, signal) {
     for (;;) {
       const last = w.seen.length ? w.seen[w.seen.length - 1].t : t0
       if (Date.now() - last >= RETRY_QUIET_MS || Date.now() - t0 >= RETRY_SETTLE_MS) break
+      check(signal)                 // sleep() only hears an abort that happens DURING it
       await sleep(10, signal)
     }
   } finally { w.stop() }
+  return w.seen          // what the server said while the bag settled: applied by the caller
+}
+
+/** Every consumed ingredient is back to at least its count before the attempt. */
+function ingredientsBack(before, now, consumes = []) {
+  const n = (list, name) => list.filter(i => i?.name === name).reduce((k, i) => k + (i.count ?? 1), 0)
+  return consumes.every(c => n(now, c.name) >= n(before, c.name))
+}
+
+/**
+ * WRITE THE SERVER'S WORD INTO THE BAG for packets mineflayer did not apply: those addressed to the 3x3 crafting
+ * window, which bot.craft has already closed. Window slot - 1 = bag slot (10..45 -> 9..44, asserted against
+ * prismarine-windows in craft-room.test.mjs). A set_slot writes its slot; a window_items writes the whole bag, but only
+ * when it is a final state (empty grid, nothing on the cursor). Player-window packets mineflayer applied itself.
+ */
+const ITEM_CLASS = new WeakMap()
+function itemClassFor(registry) {
+  if (!registry || typeof registry !== 'object') return null
+  if (!ITEM_CLASS.has(registry)) {
+    try { ITEM_CLASS.set(registry, createRequire(import.meta.url)('prismarine-item')(registry)) } catch { ITEM_CLASS.set(registry, null) }
+  }
+  return ITEM_CLASS.get(registry)
+}
+// -> slots written, or null when the server said something about a closed window and it could NOT be written: then the
+// local bag is not the server's, and nothing may be concluded from it.
+function applyServerSlots(bot, packets = [], craftWindow = null) {
+  const mine = (packets ?? []).filter(p => p && p.windowId !== 0 && (craftWindow == null || p.windowId === craftWindow))
+  if (!mine.length) return 0
+  const Item = itemClassFor(bot.registry)
+  if (!Item || typeof bot.inventory?.updateSlot !== 'function') return null
+  const empty = it => !(Number(it?.itemCount ?? 0) > 0)
+  let wrote = 0
+  const put = (bag, it) => { if (bag >= 9 && bag <= 44) { try { bot.inventory.updateSlot(bag, Item.fromNotch(it)); wrote++ } catch {} } }
+  for (const p of mine) {
+    if (p.kind === 'set_slot') put(p.slot - 1, p.item)
+    else if (p.kind === 'window_items' && Array.isArray(p.items) && empty(p.carriedItem) && p.items.slice(1, 10).every(empty)) {
+      for (let bag = 9; bag <= 44; bag++) put(bag, p.items[bag + 1])
+    }
+  }
+  return wrote
 }
 
 /**
@@ -4502,7 +4578,7 @@ async function wearOutOne(ctx, tool, signal, { cellOk = null, sidesOnly = false 
   // VERIFIED BY COUNT, not by slot: one fewer spent copy of that name (Codex review). AFTER THE SERVER'S SLOT UPDATE
   // (sandbox 46c4836, 3 of 5): two ticks is not enough for the slot to empty -- the pickaxe had broken (RCON: slot
   // gone, _tool_broke row) while this read said it survived. Poll, bounded.
-  for (const until = Date.now() + WEAR_CONFIRM_MS; spentOf(tool.name) !== before - 1 && Date.now() < until;) await sleep(50, signal)
+  for (const until = Date.now() + WEAR_CONFIRM_MS; spentOf(tool.name) !== before - 1 && Date.now() < until;) { check(signal); await sleep(50, signal) }
   if (spentOf(tool.name) !== before - 1) return { ok: false, said: `${tool.name} survived the dig on ${block.name}` }
   return { ok: true, on: block.name }
 }
