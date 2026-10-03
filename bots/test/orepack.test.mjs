@@ -1,10 +1,10 @@
-// ROOM BY CAPACITY + MERGE SPLIT STACKS: the ore tunnel's inventory gate.
+// ROOM BY CAPACITY: the ore tunnel's inventory gate (stack merging was taken out of this change, 10-03).
 //
 // oretunnel-03 (10-02): 9 of 12 tunnel attempts were refused `emptySlotCount() < 2 -> deposit first`; the 3 that ran
 // all reached the ore. The refused bots had 0 empty slots but 176-252 spare room in stone stacks, and the bank chests
 // that "deposit" needs are often full. These tests pin: capacity PER ITEM with the ore's slot reserved; the post-plan
-// recheck on what the planned breaks drop; Fortune/Silk Touch; and the merge remedy driven through a window model
-// that does what the server does with each click -- including a toss, which every test forbids.
+// recheck on what the planned breaks can drop at most, plus RETURN_RESERVE slack; and the enchanted-tool rule
+// (Fortune / Silk Touch / unreadable: use an unenchanted pickaxe that can pay for the trip, or refuse).
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -17,12 +17,13 @@ const { Vec3 } = require('vec3')
 const VERSION = '1.21.11'   // config.mjs MINECRAFT_VERSION default: the fleet's version
 const registry = require('prismarine-registry')(VERSION)
 const Block = require('prismarine-block')(registry)
+const Item = require('prismarine-item')(registry)
 const { pathfinder } = require('mineflayer-pathfinder')
 const OT = await import('../src/oretunnel.mjs')
-const { tunnelRoom, tunnelDrops, dropRisk, sameStack, plainStack, mergePlan, bagOccupants, STONE_DROPS, STONE_ROOM, CLUSTER_CAP,
+const { tunnelRoom, tunnelDrops, lootFor, toolRisk, plainStack, bagOccupants, STONE_DROPS, STONE_ROOM, CLUSTER_CAP, RETURN_RESERVE,
         tunnelMovements, planTunnel } = OT
 const SK = await import('../src/skills.mjs')
-const { tunnelToOre, mergeStacks } = SK
+const { tunnelToOre } = SK
 
 let pass = 0, fail = 0
 const t = async (name, fn) => { try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
@@ -40,18 +41,18 @@ const FILLER = ['netherrack', 'sand', 'sandstone', 'kelp', 'string', 'bone', 'fe
                 'pumpkin_seeds', 'melon_seeds', 'beetroot_seeds', 'dandelion', 'poppy', 'cornflower', 'allium']
 const FILL = n => { assert.ok(n <= FILLER.length); return FILLER.slice(0, n).map(name => it(name, registry.itemsByName[name].stackSize)) }
 const to36 = items => [...items, ...FILL(36 - items.length)]
-const withSlots = items => items.map((x, i) => ({ ...x, slot: 9 + i }))
 const sizeOf = n => registry.itemsByName[n]?.stackSize
-const dropsOf = b => (registry.blocksByName[b]?.drops ?? []).map(d => registry.items[typeof d === 'object' ? (d.drop?.id ?? d.id) : d]?.name).filter(Boolean)
+const loot = lootFor(registry)
 const spareOf = (inv, name) => inv.filter(x => x.name === name).reduce((n, x) => n + x.stackSize - x.count, 0)
 
 // The two measured refusals (oretunnel-03), as the coordinator's read gave them. 0 empty slots each.
-const ALPHA = to36([...stacks('leaf_litter', 221), it('oak_sapling', 5), it('birch_sapling', 3), it('egg', 15), it('raw_iron', 1),
+const ALPHA = to36([...stacks('leaf_litter', 221), it('oak_sapling', 5), it('birch_sapling', 9), it('egg', 15), it('raw_iron', 1),
                     it('cobblestone', 2), it('cobblestone', 2), it('cobbled_deepslate', 12)])                 // stone spare 176
-const DELTA = to36([...stacks('bamboo', 179), it('leaf_litter', 54), it('wheat_seeds', 39), it('cobblestone', 30), it('cobblestone', 10),
+const DELTA = to36([...stacks('bamboo', 179), it('leaf_litter', 54), it('wheat_seeds', 39), it('oak_sapling', 8), it('cobblestone', 30), it('cobblestone', 10),
                     it('dirt', 20), it('andesite', 20), it('tuff', 20), it('granite', 32)])                     // stone spare 252
 const room = (inv, empty, opts = {}) => tunnelRoom(inv, empty, { stackSizeOf: sizeOf, ...opts })   // as the wiring passes it
 const stoneSpare = inv => [...STONE_DROPS].reduce((n, d) => n + spareOf(inv, d), 0)
+
 
 // ---- the fixtures ----
 await t('POSITIVE CONTROL: both measured bags are full (36 stacks) and carry the measured stone spare', () => {
@@ -64,10 +65,11 @@ await t('board-b-Alpha passes the pre-plan screen with 0 empty slots: ore fits i
   const r = room(ALPHA, 0)
   assert.equal(r.ok, true, r.why); assert.equal(r.oreSpare, 63)
 })
-await t('hive-a-Delta is one slot short before merging: no raw_iron stack and no empty slot for the ore', () => {
+await t('hive-a-Delta is refused before planning: no raw_iron stack and no empty slot for the ore (stone is fine)', () => {
   const r = room(DELTA, 0)
   assert.equal(r.ok, false); assert.equal(r.slotsShort, 1); assert.match(r.why, /ore: 9 raw_iron need a slot/)
-  assert.equal(room(DELTA, 1).ok, true, 'one free slot (the ore\'s) is enough: dirt/andesite/tuff each have 44 spare')
+  assert.deepEqual(r.short, [], 'the stone screen passes: the ore slot is the only shortfall')
+  assert.equal(room(DELTA, 1).ok, true, 'one free slot (the ore\'s) is enough')
 })
 await t('PER ITEM: andesite spare cannot hold cobblestone -- a mixed-type bag is refused for a cobblestone tunnel', () => {
   const inv = [...FILL(33), it('andesite', 1), it('diorite', 1), it('granite', 1)]   // 189 spare, none of it cobblestone
@@ -78,160 +80,115 @@ await t('PER ITEM: andesite spare cannot hold cobblestone -- a mixed-type bag is
   assert.equal(room(inv, 2, { cluster: 1, need }).ok, true, 'a second empty slot holds it')
   assert.equal(room([...inv.slice(1), it('cobblestone', 44)], 1, { cluster: 1, need }).ok, true, 'cobblestone spare holds it')
 })
-await t('POST-PLAN: a plan longer than the spare is refused with the specific shortfall', () => {
-  const inv = [...FILL(35), it('cobblestone', 40)]   // 24 spare
-  assert.equal(room(inv, 1, { cluster: 3, need: new Map([['cobblestone', 24]]) }).ok, true)
-  const r = room(inv, 1, { cluster: 3, need: new Map([['cobblestone', 25]]) })
-  assert.equal(r.ok, false); assert.match(r.why, /cobblestone: need 25, spare 24 -> 1 slot/)
+await t(`POST-PLAN SLACK: spare must cover need + ${RETURN_RESERVE} (re-centre digs are not in the plan); exactly-equal now refuses`, () => {
+  const inv = n => [...FILL(35), it('cobblestone', 64 - n)]
+  const need = new Map([['cobblestone', 24]])
+  assert.equal(room(inv(24), 1, { cluster: 3, need }).ok, true, 'control: with no slack, equal fits')
+  const r = room(inv(24), 1, { cluster: 3, need, slack: RETURN_RESERVE })
+  assert.equal(r.ok, false); assert.match(r.why, new RegExp(`cobblestone: need 24\\+${RETURN_RESERVE}, spare 24 -> 1 slot`))
+  assert.equal(room(inv(24 + RETURN_RESERVE), 1, { cluster: 3, need, slack: RETURN_RESERVE }).ok, true)
 })
 await t('the ore needs a COMPATIBLE raw_iron stack: a renamed one (components) does not count, nor one with < cluster spare', () => {
   const named = it('raw_iron', 1, { components: [{ type: 'custom_name', data: 'x' }] })
   assert.equal(room([...FILL(34), it('dirt', 1), named], 0).ok, false)
   assert.equal(room([...FILL(34), it('dirt', 1), it('raw_iron', 64 - CLUSTER_CAP)], 0).ok, true)
   assert.equal(room([...FILL(34), it('dirt', 1), it('raw_iron', 64 - CLUSTER_CAP + 1)], 0).ok, false)
-  assert.equal(plainStack(named), false); assert.equal(plainStack(it('raw_iron', 1)), true)
+})
+await t('plainStack on REAL prismarine-item Items: added components, removed components or NBT each make a stack incompatible', () => {
+  const fresh = () => new Item(registry.itemsByName.raw_iron.id, 3)
+  assert.ok(Array.isArray(fresh().components) && Array.isArray(fresh().removedComponents), 'positive control: 1.21 Items carry both lists')
+  assert.equal(plainStack(fresh()), true)
+  const a = fresh(); a.components = [{ type: 'custom_name', data: 'x' }]; assert.equal(plainStack(a), false)
+  const r = fresh(); r.removedComponents = [{ type: 'max_stack_size' }]; assert.equal(plainStack(r), false)
+  const n = fresh(); n.nbt = { type: 'compound', name: '', value: {} }; assert.equal(plainStack(n), false)
 })
 await t('pre-plan screen: one stone type needs >= STONE_ROOM spare, or a slot beyond the ore\'s; two empty slots always pass', () => {
   assert.equal(room([...FILL(35), it('cobblestone', 64 - STONE_ROOM)], 1).ok, true)
   assert.equal(room([...FILL(35), it('cobblestone', 64 - STONE_ROOM + 1)], 1).ok, false)
   assert.equal(room(FILL(34), 2).ok, true)
-  assert.equal(room([{ name: 'cobblestone', count: 1 }], 1).ok, false, 'no stackSize: never assume 64')
+  assert.equal(tunnelRoom([{ name: 'cobblestone', count: 1 }], 1).ok, false, 'no stackSize: never assume 64')
 })
-await t('tunnelDrops: what each broken block drops, per item; gravel needs room as gravel AND as flint', () => {
-  const need = tunnelDrops(['stone', 'stone', 'deepslate', 'grass_block', 'gravel', 'andesite', null, 'air'], dropsOf)
-  assert.deepEqual(Object.fromEntries(need), { cobblestone: 2, cobbled_deepslate: 1, dirt: 1, gravel: 1, flint: 1, andesite: 1 })
+
+// ---- what the breaks can drop ----
+await t('lootFor: the MAX each block can drop without Silk Touch (vanilla maxima where minecraft-data is low)', () => {
+  const max = (b, item) => loot(b).find(d => d.item === item)?.max
+  assert.deepEqual(loot('stone'), [{ item: 'cobblestone', max: 1 }], 'stone -> cobblestone only (the silk-touch stone entry is not counted)')
+  assert.equal(max('copper_ore', 'raw_copper'), 5); assert.equal(max('deepslate_copper_ore', 'raw_copper'), 5)
+  assert.equal(max('lapis_ore', 'lapis_lazuli'), 9); assert.equal(max('redstone_ore', 'redstone'), 5)
+  assert.ok(max('coal_ore', 'coal') >= 1); assert.ok(max('iron_ore', 'raw_iron') >= 1)
+  assert.deepEqual(loot('gravel').map(d => d.item).sort(), ['flint', 'gravel'])
+  assert.deepEqual(loot('air'), [])
+})
+await t('tunnelDrops: per item, at the max: copper ore needs room for 5 raw_copper; gravel for gravel AND flint', () => {
+  const need = tunnelDrops(['stone', 'stone', 'deepslate', 'grass_block', 'gravel', 'copper_ore', 'andesite', null, 'air'], loot)
+  assert.deepEqual(Object.fromEntries(need), { cobblestone: 2, cobbled_deepslate: 1, dirt: 1, gravel: 1, flint: 1, raw_copper: 5, andesite: 1 })
 })
 await t('STONE_DROPS is what the tunnel\'s blocks drop (registry ' + VERSION + ')', () => {
   for (const b of ['stone', 'deepslate', 'dirt', 'grass_block', 'gravel', 'andesite', 'diorite', 'granite', 'tuff']) {
-    const d = dropsOf(b); assert.ok(d.length > 0, `${b} has no drop`)
-    for (const x of d) assert.ok(STONE_DROPS.has(x), `${b} drops ${x}`)
+    const d = loot(b).map(x => x.item); assert.ok(d.length > 0, `${b} has no drop`)
+    for (const x of d) if (x !== 'flint') assert.ok(STONE_DROPS.has(x), `${b} drops ${x}`)
   }
 })
-await t('dropRisk: Fortune or Silk Touch on any pickaxe (by name or registry id) costs one extra slot; unnamed fails closed', () => {
-  const name = id => registry.enchantments[id]?.name
-  const pk = e => it('stone_pickaxe', 1, { enchants: e })
-  assert.equal(dropRisk([pk([])], name).risky, false)
-  assert.equal(dropRisk([pk([{ name: 'efficiency', lvl: 2 }])], name).risky, false)
-  assert.equal(dropRisk([pk([{ name: 'fortune', lvl: 3 }])], name).risky, true)
-  assert.equal(dropRisk([pk({ enchantments: [{ id: registry.enchantmentsByName.silk_touch.id, level: 1 }] })], name).risky, true)
-  assert.equal(dropRisk([pk([{ id: 9999, level: 1 }])], name).risky, true, 'unknown enchantment')
-  assert.equal(room(ALPHA, 0, { extraSlots: 1 }).ok, false)
-  assert.equal(room(ALPHA, 1, { extraSlots: 1 }).ok, true)
-})
 
-// ---- mergePlan ----
-await t('sameStack: same item merges; different components or metadata do not', () => {
-  assert.equal(sameStack(it('cobblestone', 3), it('cobblestone', 40)), true)
-  assert.equal(sameStack(it('cobblestone', 3), it('cobblestone', 3, { components: [{ type: 'custom_name', data: 'x' }] })), false)
-  assert.equal(sameStack(it('cobblestone', 3), it('cobbled_deepslate', 3)), false)
-})
-await t('mergePlan: Delta\'s cobblestone 30+10 frees one slot (10 poured into 30); Alpha\'s 2+2 too', () => {
-  const d = mergePlan(withSlots(DELTA))
-  assert.ok(d, 'a plan'); assert.equal(d.freed, 1)
-  assert.deepEqual(d.moves.map(m => [m.name, m.n]), [['cobblestone', 10]])
-  assert.deepEqual(mergePlan(withSlots(ALPHA)).moves.map(m => [m.name, m.n]), [['cobblestone', 2]])
-})
-await t('mergePlan: null when nothing can be emptied (one stack; 40+40 has only 24 room); full stacks and other items untouched', () => {
-  assert.equal(mergePlan(withSlots([it('cobblestone', 60), ...FILL(30)])), null)
-  assert.equal(mergePlan(withSlots([it('cobblestone', 40), it('cobblestone', 40)])), null)
-  assert.equal(mergePlan(withSlots([it('cobblestone', 3), it('cobblestone', 3, { components: [{ type: 'custom_name', data: 'x' }] })])), null)
-  const three = mergePlan(withSlots([it('dirt', 40), it('dirt', 40), it('dirt', 40)]))
-  assert.equal(three.freed, 1); assert.equal(three.moves.reduce((n, m) => n + m.n, 0), 40, 'one 40 split across two 24-room stacks')
+// ---- enchanted tools ----
+const enchName = id => registry.enchantments[id]?.name
+const tool = (name, left, enchants) => {
+  const d = registry.itemsByName[name]
+  const x = { ...it(name, 1), maxDurability: d.maxDurability, durabilityUsed: d.maxDurability - left }
+  if (enchants === 'throws') Object.defineProperty(x, 'enchants', { get () { throw new Error('unreadable') }, enumerable: false })
+  else if (enchants !== undefined) x.enchants = enchants
+  return x
+}
+await t('toolRisk: Fortune or Silk Touch on a digging tool (by name or registry id), an unknown id, or an unreadable read', () => {
+  assert.equal(toolRisk(tool('stone_pickaxe', 100), enchName), null)
+  assert.equal(toolRisk(tool('stone_pickaxe', 100, [{ name: 'efficiency', lvl: 2 }]), enchName), null)
+  assert.match(toolRisk(tool('iron_pickaxe', 100, [{ name: 'fortune', lvl: 3 }]), enchName), /fortune/)
+  assert.match(toolRisk(tool('iron_shovel', 100, { enchantments: [{ id: registry.enchantmentsByName.silk_touch.id, level: 1 }] }), enchName), /silk_touch/)
+  assert.match(toolRisk(tool('iron_pickaxe', 100, [{ id: 9999, level: 1 }]), enchName), /unidentified/)
+  assert.match(toolRisk(tool('iron_pickaxe', 100, 'throws'), enchName), /unreadable/)
+  assert.equal(toolRisk(it('cobblestone', 3), enchName), null)
 })
 await t('bagOccupants names what fills the bag', () => {
   assert.deepEqual(bagOccupants(ALPHA, 1).map(x => [x.name, x.slots]), [['leaf_litter', 4]])
   assert.deepEqual(bagOccupants(DELTA, 1).map(x => [x.name, x.slots]), [['bamboo', 3]])
 })
 
-// ---- a window that does what the server does with a left click ----
-// Pick up / put down / merge (same item: as much as fits, the rest stays on the cursor) / swap (different item).
-// Slot -999 throws the cursor on the ground: recorded, and every test asserts it never happens.
-function windowBot (items, { onClick = null } = {}) {
-  const slots = Array(46).fill(null)
-  items.forEach((x, i) => { slots[9 + i] = { ...x, slot: 9 + i } })
-  const tossed = [], clicks = [], swaps = []
-  let cursor = null
-  const bot = new EventEmitter()
-  Object.assign(bot, { registry, version: VERSION, health: 20, food: 20, currentWindow: null })
-  bot.entity = { position: new Vec3(30.5, 64, 0.5), effects: {}, onGround: true, velocity: new Vec3(0, 0, 0) }
-  bot.inventory = {
-    slots, inventoryStart: 9, inventoryEnd: 45,
-    get selectedItem () { return cursor },
-    items: () => slots.slice(9, 45).filter(Boolean).map(x => ({ ...x })),
-    emptySlotCount: () => slots.slice(9, 45).filter(s => !s).length,
+// ---- THE NINE MEASURED REFUSALS through the pre-plan screen ----
+// Counts from the fleet rows (oretunnel-03); layout unknown, so each item is packed into full stacks then one partial.
+// The rows give only the stone-family TOTAL spare; it is split here over as few types as packing allows (63 max each).
+const packedStone = total => { const out = [], kinds = ['cobblestone', 'dirt', 'andesite', 'tuff', 'granite']; let k = 0
+  for (let left = total; left > 0; k++) { const s = Math.min(63, left); out.push(it(kinds[k], 64 - s)); left -= s } return out }
+const MEASURED = [
+  ...[[1, 177, 9], [1, 176, 9], [1, 176, 8], [0, 176, 8], [0, 176, 8]].map(([iron, spare, birch], i) => ({ bot: `board-b-Alpha #${i + 1}`, iron, spare,
+    junk: [...stacks('leaf_litter', 221), it('oak_sapling', 5), it('birch_sapling', birch), it('wheat_seeds', 1), it('egg', 15)] })),
+  ...[[252, 54], [250, 56], [241, 58], [233, 55]].map(([spare, leaf], i) => ({ bot: `hive-a-Delta #${i + 1}`, iron: 0, spare,
+    junk: [...stacks('bamboo', 179), it('leaf_litter', leaf), it('oak_sapling', 8), it('wheat_seeds', 39)] })),
+]
+const verdicts = MEASURED.map(m => {
+  const inv = to36([...m.junk, ...(m.iron ? [it('raw_iron', m.iron)] : []), ...packedStone(m.spare)])
+  return { ...m, slots: inv.length, r: room(inv, 0) }
+})
+await t(`MEASURED 9: ${verdicts.filter(v => v.r.ok).length} of 9 now pass the pre-plan screen (the raw_iron-holding Alphas); the rest are one ore slot short`, () => {
+  for (const v of verdicts) {
+    assert.equal(v.slots, 36, `${v.bot}: 36 slots used`)
+    console.log(`        ${v.bot.padEnd(18)} raw_iron ${v.iron}  stone spare ${String(v.spare).padStart(3)} -> ${v.r.ok ? 'PROCEEDS to planning' : `refused: ${v.r.why}`}`)
+    assert.equal(v.r.ok, v.iron > 0, v.bot)
+    if (!v.r.ok) { assert.equal(v.r.slotsShort, 1); assert.deepEqual(v.r.short, []) }
   }
-  bot.waitForTicks = async () => { await new Promise(r => setImmediate(r)) }
-  bot.clickWindow = async (slot, button, mode) => {
-    assert.equal(button, 0); assert.equal(mode, 0)
-    clicks.push(slot)
-    if (slot === -999) { if (cursor) tossed.push(cursor); cursor = null; return }
-    const at = slots[slot]
-    if (cursor && at && sameStack(cursor, at)) {
-      const k = Math.min(cursor.count, at.stackSize - at.count); at.count += k; cursor.count -= k; if (!cursor.count) cursor = null
-    } else if (cursor || at) {
-      if (cursor && at) swaps.push([cursor.name, at.name])
-      const was = at; slots[slot] = cursor ? { ...cursor, slot } : null; cursor = was ? { ...was } : null
-    }
-    await onClick?.(clicks.length, { slots, setSlot: (i, x) => { slots[i] = x ? { ...x, slot: i } : null } })
-  }
-  return { bot, slots, tossed, clicks, swaps, cursor: () => cursor }
-}
-const totals = slots => { const m = {}; for (const s of slots.slice(9, 45)) if (s) m[s.name] = (m[s.name] ?? 0) + s.count; return m }
-const rows = () => { try { return fs.readFileSync(path.join(LOG_DIR, 'skill-PackBot.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)) } catch { return [] } }
-const settle = () => new Promise(r => setTimeout(r, 150))
-const ok = { aborted: false, addEventListener () {}, removeEventListener () {} }
-
-await t('MERGE, live: a 0-empty bot with split stacks (Delta) gains a slot; nothing tossed, nothing lost, cursor empty, row logged', async () => {
-  const w = windowBot(DELTA)
-  const before = totals(w.slots)
-  const r = await mergeStacks(w.bot, ok, { want: 1, budgetMs: 5000 })
-  assert.equal(w.bot.inventory.emptySlotCount(), 1, `empty after: ${w.bot.inventory.emptySlotCount()}`)
-  assert.equal(r.merges, 1); assert.deepEqual(w.tossed, []); assert.equal(w.cursor(), null)
-  assert.deepEqual(totals(w.slots), before, 'every item still in the bag')
-  assert.ok(!w.clicks.includes(-999))
-  await settle()
-  const row = rows().filter(x => x.skill?.name === '_bag_packed').at(-1)
-  assert.ok(row, 'a _bag_packed row'); assert.match(row.skill.detail, /1 merge.*empty slots 0->1/)
-})
-await t('MERGE, abort mid-move: the move finishes, the cursor is empty, nothing lost or tossed, and the abort propagates', async () => {
-  const ac = { aborted: false, addEventListener () {}, removeEventListener () {} }
-  const w = windowBot(DELTA, { onClick: n => { if (n === 1) ac.aborted = true } })   // abort with the stack in hand
-  const before = totals(w.slots)
-  let threw = null
-  try { await mergeStacks(w.bot, ac, { want: 1, budgetMs: 5000 }) } catch (e) { threw = e }
-  assert.ok(threw?.aborted, `the abort must propagate (got ${threw?.message})`)
-  assert.equal(w.cursor(), null, 'an item was left on the cursor'); assert.deepEqual(w.tossed, [])
-  assert.deepEqual(totals(w.slots), before)
-})
-await t('MERGE, pickup race: a different item lands in the emptied source slot mid-pour -> the remainder goes to a same-item stack; no swap, no toss', async () => {
-  // dirt 20+50+50: the pour into one 50 leaves 6 on the cursor; its source slot is now taken by a feather.
-  const inv = [...FILL(33), it('dirt', 20), it('dirt', 50), it('dirt', 50)]
-  const w = windowBot(inv, { onClick: (n, h) => { if (n === 1) h.setSlot(h.slots.findIndex((s, i) => i >= 9 && !s), it('feather', 1)) } })
-  const before = totals(w.slots)
-  const r = await mergeStacks(w.bot, ok, { want: 1, budgetMs: 5000 })
-  assert.deepEqual(w.tossed, []); assert.ok(!w.clicks.includes(-999)); assert.deepEqual(w.swaps, [], 'a click swapped two different items')
-  assert.equal(w.cursor(), null); assert.equal(r.stranded, false)
-  assert.deepEqual(totals(w.slots), { ...before, feather: before.feather + 1 }, 'all 120 dirt still held, plus the picked-up feather')
-})
-await t('MERGE respects the budget: no time, no clicks', async () => {
-  const w = windowBot(DELTA)
-  const r = await mergeStacks(w.bot, ok, { want: 1, budgetMs: 0 })
-  assert.equal(w.clicks.length, 0); assert.equal(r.merges, 0)
-})
-await t('MERGE stays out of an open container window (its slot numbers are not the inventory\'s)', async () => {
-  const w = windowBot(DELTA); w.bot.currentWindow = { id: 3 }
-  const r = await mergeStacks(w.bot, ok, { want: 1, budgetMs: 5000 })
-  assert.equal(w.clicks.length, 0); assert.equal(r.merges, 0)
 })
 
 // ---- WIRED through the real tunnelToOre, the real planner and pathfinder on a fake world ----
 const ORE = new Vec3(30, 54, 6)
-const wornPick = (() => { const d = registry.itemsByName.stone_pickaxe; return { ...it('stone_pickaxe', 1), maxDurability: d.maxDurability, durabilityUsed: d.maxDurability - 12 } })()
+const ARRIVE = new Vec3(31.5, 54, 6.5)       // face-adjacent to the ore: SideOfBlock accepts it
+const wornPick = tool('stone_pickaxe', 12)
 const armed = inv => { assert.ok(FILLER.includes(inv.at(-1).name), 'the last slot must be filler'); return [...inv.slice(0, -1), wornPick] }
-function tunnelBot (items, opts) {
-  const w = windowBot(items, opts)
-  const bot = w.bot
-  bot.game = { minY: -64 }; bot.entities = {}; bot.world = { raycast: () => null }
+const ok = { aborted: false, addEventListener () {}, removeEventListener () {} }
+function tunnelBot (items, { empty = 0 } = {}) {
+  const bot = new EventEmitter()
+  Object.assign(bot, { registry, version: VERSION, health: 20, food: 20, currentWindow: null, game: { minY: -64 }, entities: {}, world: { raycast: () => null } })
+  bot.entity = { position: new Vec3(30.5, 64, 0.5), effects: {}, onGround: true, velocity: new Vec3(0, 0, 0) }
+  bot.inventory = { items: () => items.map(x => x), emptySlotCount: () => empty }
+  bot.waitForTicks = async () => { await new Promise(r => setImmediate(r)) }
   bot.blockAt = p => {
     const f = p.floored(); if (Math.abs(f.x - 30) > 60 || Math.abs(f.z) > 60) return null
     const name = f.equals(ORE) ? 'iron_ore' : (f.y <= 63 ? 'stone' : 'air')
@@ -239,46 +196,79 @@ function tunnelBot (items, opts) {
   }
   bot.findBlocks = () => [ORE.clone()]
   pathfinder(bot)
-  return w
+  // THE WALK IS STUBBED: it records which tool the pathfinder would dig stone with, then arrives beside the ore.
+  const dugWith = []
+  bot.pathfinder.goto = async () => { dugWith.push(bot.pathfinder.bestHarvestTool(bot.blockAt(new Vec3(30, 60, 3)))?.name ?? null); bot.entity.position = ARRIVE.clone() }
+  return { bot, dugWith }
 }
+const run = bot => tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
 // POSITIVE CONTROL for the wired runs: what the real planner digs to this ore, and therefore the cobblestone it yields.
 const probe = tunnelBot(armed(FILL(36)))
 const plan = await planTunnel(probe.bot, { candidates: [ORE], moves: tunnelMovements(probe.bot, null, { home: { x: 0, z: 0 } }), yieldFn: () => Promise.resolve() })
 const N = plan.ok ? plan.breaks.length : -1
-await t(`POSITIVE CONTROL: the real planner reaches the ore with N planned breaks (N = ${N}), all stone`, () => {
-  assert.equal(plan.ok, true, plan.why); assert.ok(N > 5 && N <= 60)
-  assert.deepEqual(Object.fromEntries(tunnelDrops(plan.breaks.map(q => probe.bot.blockAt(q)?.name), dropsOf)), { cobblestone: N })
+const NEED = N + RETURN_RESERVE
+await t(`POSITIVE CONTROL: the real planner reaches the ore with N planned breaks (N = ${N}), all stone -> ${N} cobblestone`, () => {
+  assert.equal(plan.ok, true, plan.why); assert.ok(N > 5 && N <= 58)
+  assert.deepEqual(Object.fromEntries(tunnelDrops(plan.breaks.map(q => probe.bot.blockAt(q)?.name), loot)), { cobblestone: N })
 })
-await t(`WIRED Delta: merges a slot for the ore, plans, and is refused AFTER planning: ${N} cobblestone > 24 spare (its 1 free slot is the ore's)`, async () => {
-  assert.ok(N > 24, `this world's tunnel is ${N} breaks; the test needs one longer than Delta's 24 cobblestone spare`)
-  const w = tunnelBot(armed(DELTA))
-  const r = await tunnelToOre({ bot: w.bot, runner: null }, ok, { deadlineMs: 150_000 })
-  assert.deepEqual(w.tossed, []); assert.equal(w.cursor(), null)
-  assert.equal(w.bot.inventory.emptySlotCount(), 1, 'the cobblestone merge freed the ore\'s slot')
-  assert.equal(r.failClass, 'inventory_full', r.detail)
-  assert.match(r.detail, new RegExp(`cobblestone: need ${N}, spare 24 -> 1 slot`), r.detail)
-  assert.equal(room(w.bot.inventory.items(), 1, { cluster: 1, need: new Map([['cobblestone', 24]]) }).ok, true,
-    'and the same merged bag passes a tunnel of 24 cobblestone')
+const bagWithCobbleSpare = spare => to36([it('cobblestone', 64 - spare), it('dirt', 20), it('raw_iron', 1), ...stacks('leaf_litter', 221)])
+await t('WIRED Delta: refused BEFORE planning on the ore slot; names the bag; no deposit advice', async () => {
+  const { bot } = tunnelBot(armed(DELTA))
+  const r = await run(bot)
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.match(r.detail, /before planning/)
+  assert.match(r.detail, /ore: 9 raw_iron need a slot/); assert.match(r.detail, /bamboo 179 \(3 slots\)/); assert.doesNotMatch(r.detail, /deposit/)
 })
-await t('WIRED: screen passes but the PLAN does not fit -> refused AFTER planning, naming the item and the bag, no deposit advice', async () => {
-  const inv = to36([it('cobblestone', 64 - (N - 1)), it('dirt', 20), it('raw_iron', 1), ...stacks('leaf_litter', 221)])
-  assert.equal(room(inv, 0).ok, true, 'positive control: the pre-plan screen passes (dirt 44 spare, ore in raw_iron)')
-  const w = tunnelBot(armed(inv))
-  const r = await tunnelToOre({ bot: w.bot, runner: null }, ok, { deadlineMs: 150_000 })
+await t(`WIRED: the screen passes but the plan does not -> refused AFTER planning: cobblestone need ${N}+${RETURN_RESERVE}, spare ${NEED - 1}`, async () => {
+  const inv = bagWithCobbleSpare(NEED - 1)
+  assert.equal(room(inv, 0).ok, true, 'positive control: the pre-plan screen passes')
+  const { bot } = tunnelBot(armed(inv))
+  const r = await run(bot)
   assert.equal(r.failClass, 'inventory_full', r.detail)
-  assert.match(r.detail, new RegExp(`cobblestone: need ${N}, spare ${N - 1}`)); assert.match(r.detail, /leaf_litter 221 \(4 slots\)/)
+  assert.match(r.detail, new RegExp(`cobblestone: need ${N}\\+${RETURN_RESERVE}, spare ${NEED - 1}`)); assert.match(r.detail, /leaf_litter 221 \(4 slots\)/)
   assert.doesNotMatch(r.detail, /deposit/)
 })
-await t('WIRED: the same bag with exactly N cobblestone spare proceeds past the room check (to the pickaxe check)', async () => {
-  const inv = to36([it('cobblestone', 64 - N), it('dirt', 20), it('raw_iron', 1), ...stacks('leaf_litter', 221)])
-  const w = tunnelBot(armed(inv))
-  const r = await tunnelToOre({ bot: w.bot, runner: null }, ok, { deadlineMs: 150_000 })
+await t(`WIRED: EXACTLY N (${N}) cobblestone spare is now refused -- re-centre digs are not in the plan`, async () => {
+  const { bot } = tunnelBot(armed(bagWithCobbleSpare(N)))
+  const r = await run(bot)
+  assert.equal(r.failClass, 'inventory_full', `${r.failClass}: ${r.detail}`)
+})
+await t(`WIRED: N + ${RETURN_RESERVE} spare proceeds past the room check (to the pickaxe check)`, async () => {
+  const { bot } = tunnelBot(armed(bagWithCobbleSpare(NEED)))
+  const r = await run(bot)
   assert.equal(r.failClass, 'pickaxe_short', `${r.failClass}: ${r.detail}`)
 })
-await t('WIRED Alpha: passes both checks with 0 empty slots (ore into raw_iron 1, cobblestone 124 spare), no merge needed', async () => {
-  const w = tunnelBot(armed(ALPHA))
-  const r = await tunnelToOre({ bot: w.bot, runner: null }, ok, { deadlineMs: 150_000 })
-  assert.equal(r.failClass, 'pickaxe_short', `${r.failClass}: ${r.detail}`); assert.equal(w.clicks.length, 0)
+await t('WIRED Alpha: passes both checks with 0 empty slots (ore into raw_iron 1, cobblestone 124 spare)', async () => {
+  const { bot } = tunnelBot(armed(ALPHA))
+  const r = await run(bot)
+  assert.equal(r.failClass, 'pickaxe_short', `${r.failClass}: ${r.detail}`)
+})
+
+// ---- WIRED: enchanted tools ----
+const roomy = tools => [...FILL(30), it('cobblestone', 1), it('raw_iron', 1), ...tools]   // 4 empty slots, plenty of room
+const FORTUNE_IRON = () => tool('iron_pickaxe', 250, [{ name: 'fortune', lvl: 3 }])
+await t('WIRED: only a Fortune pickaxe (plenty of uses) -> refused enchanted_tool, remedy names an unenchanted pickaxe; no walk', async () => {
+  const { bot, dugWith } = tunnelBot(roomy([FORTUNE_IRON()]), { empty: 4 })
+  const r = await run(bot)
+  assert.equal(r.failClass, 'enchanted_tool', `${r.failClass}: ${r.detail}`)
+  assert.match(r.detail, /fortune/); assert.match(r.detail, /unenchanted/); assert.equal(dugWith.length, 0)
+})
+await t('WIRED: an unreadable enchantment fails closed -> enchanted_tool', async () => {
+  const { bot } = tunnelBot(roomy([tool('iron_pickaxe', 250, 'throws')]), { empty: 4 })
+  const r = await run(bot)
+  assert.equal(r.failClass, 'enchanted_tool', `${r.failClass}: ${r.detail}`); assert.match(r.detail, /unreadable/)
+})
+await t('WIRED: Fortune pickaxe + a worn plain one that cannot pay the trip -> enchanted_tool (not pickaxe_short)', async () => {
+  const { bot } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 12)]), { empty: 4 })
+  const r = await run(bot)
+  assert.equal(r.failClass, 'enchanted_tool', `${r.failClass}: ${r.detail}`)
+})
+await t('WIRED: Fortune pickaxe + a fresh plain one -> the tunnel runs, digging with the PLAIN pickaxe; the tool picker is restored', async () => {
+  const { bot, dugWith } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 131)]), { empty: 4 })
+  const picker = bot.pathfinder.bestHarvestTool
+  assert.equal(picker(bot.blockAt(new Vec3(30, 60, 3)))?.name, 'iron_pickaxe', 'positive control: left alone, the pathfinder picks the Fortune pickaxe')
+  const r = await run(bot)
+  assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
+  assert.deepEqual(dugWith, ['stone_pickaxe']); assert.equal(bot.pathfinder.bestHarvestTool, picker, 'the original picker is restored')
 })
 
 // ---- MUTANTS: each guard must be SEEN to fail for its intended reason (anchor present and unique) ----
@@ -298,25 +288,30 @@ await t('MUTANT KILLED: summing spare across stone types lets andesite hold cobb
       assert.equal(m.tunnelRoom(inv, 1, { cluster: 1, need: new Map([['cobblestone', 20]]), stackSizeOf: sizeOf }).ok, true, 'mutant did not change the verdict')
     })
 })
-await t('MUTANT KILLED: checking the abort mid-move leaves the stack on the cursor', async () => {
-  await withMutant('skills.mjs', '      await mergeClick(src)\n', '      await mergeClick(src); check(signal)\n', async m => {
-    const ac = { aborted: false, addEventListener () {}, removeEventListener () {} }
-    const w = windowBot(DELTA, { onClick: n => { if (n === 1) ac.aborted = true } })
-    await m.mergeStacks(w.bot, ac, { want: 1, budgetMs: 5000 }).catch(() => {})
-    assert.notEqual(w.cursor(), null, 'the mutant did not strand the cursor, so the abort test proves nothing')
+await t('MUTANT KILLED: dropping the post-plan slack lets an exactly-equal tunnel through', async () => {
+  await withMutant('skills.mjs', 'slack: RETURN_RESERVE', 'slack: 0', async m => {
+    const { bot } = tunnelBot(armed(bagWithCobbleSpare(N)))
+    const r = await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
+    assert.equal(r.failClass, 'pickaxe_short', `the mutant should pass the room check: ${r.failClass}`)
   })
 })
-await t('MUTANT KILLED: pouring a stack that cannot be emptied (no room check) plans a merge that frees nothing', async () => {
-  await withMutant('oretunnel.mjs', '      if (room < src.count) break', '      if (room < 1) break', async m => {
-    assert.notEqual(m.mergePlan(withSlots([it('cobblestone', 40), it('cobblestone', 40)])), null)
+await t('MUTANT KILLED: counting minecraft-data\'s drop maxima instead of vanilla\'s under-counts lapis', async () => {
+  await withMutant('oretunnel.mjs', 'Math.max(hi, VANILLA_MAX[e.item] ?? 0)', 'hi', async m => {
+    assert.ok(m.lootFor(registry)('lapis_ore').find(d => d.item === 'lapis_lazuli').max < 9, 'mutant did not lower the count')
   })
 })
-await t('MUTANT KILLED: homing the cursor without checking the slot swaps it for whatever landed there', async () => {
-  await withMutant('skills.mjs', 'const home = homeFor(prefer)', 'const home = prefer', async m => {
-    const inv = [...FILL(33), it('dirt', 20), it('dirt', 50), it('dirt', 50)]
-    const w = windowBot(inv, { onClick: (n, h) => { if (n === 1) h.setSlot(h.slots.findIndex((s, i) => i >= 9 && !s), it('feather', 1)) } })
-    await m.mergeStacks(w.bot, ok, { want: 1, budgetMs: 5000 }).catch(() => {})
-    assert.ok(w.swaps.length > 0, 'the mutant never swapped, so the race test proves nothing')
+await t('MUTANT KILLED: not classifying enchanted tools (the reviewer\'s `risky -> 0`) lets the Fortune-only bot tunnel', async () => {
+  await withMutant('skills.mjs', 'const safeItems = held().filter(x => !riskyTool(x))', 'const safeItems = held()', async m => {
+    const { bot } = tunnelBot(roomy([FORTUNE_IRON()]), { empty: 4 })
+    const r = await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
+    assert.notEqual(r.failClass, 'enchanted_tool', 'mutant still refused')
+  })
+})
+await t('MUTANT KILLED: without the tool restriction the walk digs with the Fortune pickaxe', async () => {
+  await withMutant('skills.mjs', 'const restoreTools = keepToolsOut(bot, riskyTool)', 'const restoreTools = () => {}', async m => {
+    const { bot, dugWith } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 131)]), { empty: 4 })
+    await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
+    assert.deepEqual(dugWith, ['iron_pickaxe'], 'mutant still dug with the plain pickaxe')
   })
 })
 

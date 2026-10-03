@@ -143,145 +143,120 @@ export function tripDecision (items = [], { pickBreaks = 0, cluster = 1, reserve
 // are full (CLAUDE.md: a refusal must name a remedy executable from where the bot is).
 //
 // CAPACITY IS PER ITEM (both reviews of 3b17b30): spare in an andesite stack cannot hold cobblestone, and a drop only
-// merges into a stack of the SAME item with no components (a renamed or enchanted stack is a different item). The
-// ore's slot is reserved explicitly. The pre-plan screen is cheap and lenient; the authoritative check runs AFTER
-// planning, on what the planned breaks actually drop.
+// merges into a plain stack of the SAME item (a renamed or enchanted stack is a different item). The ore's slot is
+// reserved explicitly. The pre-plan screen is cheap and lenient; the authoritative check runs AFTER planning, on the
+// most the planned breaks can drop, with RETURN_RESERVE slack for digs the plan does not list.
 /** Pre-plan screen only: one stone type needs this much spare, or a free slot beyond the ore's. Each break yields at
- *  most one item; the canary's tunnels were 3-27 blocks (oretunnel-03, 10-02). */
+ *  most one stone item; the canary's tunnels were 3-27 blocks (oretunnel-03, 10-02). */
 export const STONE_ROOM = 32
 export const ORE_DROP = 'raw_iron'
 /** What the tunnel's own breaks drop, for the screen: stone, deepslate, dirt/grass, gravel, andesite, diorite, granite,
  *  tuff (registry 1.21.x; pinned in the test). */
 export const STONE_DROPS = new Set(['cobblestone', 'cobbled_deepslate', 'dirt', 'gravel', 'andesite', 'diorite', 'granite', 'tuff'])
-/** Drops the registry does not list: gravel drops flint ~10% of the time. */
-export const EXTRA_DROPS = { gravel: ['flint'] }
+/** Vanilla maxima without Fortune where minecraft-data's blockLoot (1.21.11) lists less: it gives lapis 1-2, redstone
+ *  1, copper 1-2. Vanilla: lapis 4-9, redstone 4-5, raw_copper 2-5, nether_gold_ore 2-6 nuggets, clay 4 balls,
+ *  glowstone 2-4 dust. The larger of the two is used, so a wrong entry can only over-reserve. */
+export const VANILLA_MAX = { lapis_lazuli: 9, redstone: 5, raw_copper: 5, gold_nugget: 6, clay_ball: 4, glowstone_dust: 4 }
 
 const json = v => JSON.stringify(v ?? null)
-const comps = it => (Array.isArray(it?.components) ? it.components : [])
-/** A stack a fresh block drop can merge into: no NBT and no components. */
-export const plainStack = it => !!it && (it.nbt == null) && comps(it).length === 0
-/** Would the server merge these two stacks? Same item, metadata, NBT AND components. prismarine-item's Item.equal
- *  (the check mineflayer's own click model uses) compares NBT only, and 1.21 keeps renames/enchants in components. */
-export function sameStack (a, b) {
-  if (!a || !b) return false
-  return (a.type ?? a.name) === (b.type ?? b.name) && a.name === b.name && (a.metadata ?? 0) === (b.metadata ?? 0) &&
-         json(a.nbt) === json(b.nbt) && json(comps(a)) === json(comps(b))
-}
+const list = v => (Array.isArray(v) ? v : [])
+/** A stack a fresh block drop can merge into: no NBT, no added components, no removed components. */
+export const plainStack = it => !!it && (it.nbt == null) && list(it.components).length === 0 && list(it.removedComponents).length === 0
 const spareFor = (items, name) => (items || []).reduce((n, it) =>
   n + (it?.name === name && plainStack(it) && Number.isFinite(it.stackSize) && Number.isFinite(it.count) ? Math.max(0, it.stackSize - it.count) : 0), 0)
 
 /**
- * tunnelDrops(blockNames, dropsOf) -> Map(item -> count). The WORST CASE per break: every item a block can drop is
- * counted (gravel needs room as gravel AND as flint, since either can land). Unknown blocks count as nothing to hold.
+ * lootFor(registry) -> blockName -> [{ item, max }]. Every item the block can drop when NOT mined with Silk Touch
+ * (silk-only entries are skipped: enchanted tools are refused or kept out of the tunnel), each at its maximum count.
+ * Falls back to the registry's plain drop list (max 1); air and unknown blocks drop nothing.
  */
-export function tunnelDrops (blockNames = [], dropsOf = () => []) {
-  const need = new Map()
-  for (const b of blockNames) {
-    if (!b || /^(air|cave_air|void_air)$/.test(b)) continue
-    for (const d of new Set([...(dropsOf(b) ?? []), ...(EXTRA_DROPS[b] ?? [])])) need.set(d, (need.get(d) ?? 0) + 1)
+export function lootFor (registry) {
+  return name => {
+    if (!name || /^(air|cave_air|void_air)$/.test(name)) return []
+    const by = new Map()
+    const entries = registry?.blockLoot?.[name]?.drops
+    if (Array.isArray(entries) && entries.length) {
+      for (const e of entries) {
+        if (e?.silkTouch || !e?.item) continue
+        const hi = Number(e.stackSizeRange?.[1] ?? e.stackSizeRange?.[0] ?? 1) || 1
+        by.set(e.item, Math.max(by.get(e.item) ?? 0, Math.max(hi, VANILLA_MAX[e.item] ?? 0)))
+      }
+    } else {
+      for (const d of registry?.blocksByName?.[name]?.drops ?? []) {
+        const id = (d && typeof d === 'object') ? (d.drop?.id ?? d.drop ?? d.id) : d
+        const item = registry?.items?.[id]?.name
+        if (item) by.set(item, Math.max(by.get(item) ?? 0, VANILLA_MAX[item] ?? 1))
+      }
+    }
+    return [...by].map(([item, max]) => ({ item, max }))
   }
+}
+
+/** tunnelDrops(blockNames, lootOf) -> Map(item -> most it can yield). Every item a block can drop counts at its max. */
+export function tunnelDrops (blockNames = [], lootOf = () => []) {
+  const need = new Map()
+  for (const b of blockNames) for (const { item, max } of lootOf(b) ?? []) need.set(item, (need.get(item) ?? 0) + max)
   return need
 }
 
 /**
- * dropRisk(items, enchantName) -> { risky, why }. A Fortune pickaxe multiplies the ore's drop; a Silk Touch one turns
- * stone into stone and ore into ore -- items no stack here was counted for. The pathfinder picks its own tool, so ANY
- * such pickaxe in the bag is a risk. Enchantment data this cannot name counts as a risk too (fail closed).
+ * toolRisk(item, enchantName) -> null | why. A digging tool with Fortune (more drops than counted) or Silk Touch (stone
+ * stays stone, grass stays grass: items nothing was counted for). An enchantment this cannot NAME, or a read that
+ * throws, is a risk too (fail closed). enchantName maps a registry id to its name.
  */
-export function dropRisk (items = [], enchantName = id => id) {
-  const why = []
-  for (const it of items || []) {
-    if (!/_pickaxe$/.test(it?.name ?? '')) continue
-    let list = []
-    try { list = it.enchants ?? [] } catch { list = [] }
-    if (!Array.isArray(list)) list = Array.isArray(list?.enchantments) ? list.enchantments : [list]
-    for (const e of list) {
-      const n = typeof e?.name === 'string' ? e.name : enchantName(e?.id ?? e?.name)
-      if (n == null || typeof n !== 'string') why.push(`${it.name}: unnamed enchantment`)
-      else if (/silk_touch|fortune/.test(n)) why.push(`${it.name}: ${n.replace(/^minecraft:/, '')}`)
-    }
+export function toolRisk (item, enchantName = () => null) {
+  if (!/_(pickaxe|shovel|axe|hoe)$/.test(item?.name ?? '')) return null
+  let raw
+  try { raw = item.enchants } catch { return `${item.name}: enchantments unreadable` }
+  if (raw == null) return null
+  const entries = Array.isArray(raw) ? raw : (Array.isArray(raw?.enchantments) ? raw.enchantments : null)
+  if (!entries) return `${item.name}: enchantments unreadable`
+  for (const e of entries) {
+    let n = typeof e?.name === 'string' ? e.name : null
+    if (n == null) { try { n = enchantName(e?.id) } catch { n = null } }
+    if (typeof n !== 'string' || !n) return `${item.name}: unidentified enchantment ${json(e?.id ?? e)}`
+    n = n.replace(/^minecraft:/, '')
+    if (n === 'fortune' || n === 'silk_touch') return `${item.name}: ${n}`
   }
-  return { risky: why.length > 0, why: why.join(', ') || null }
+  return null
 }
 
 /**
- * tunnelRoom(items, emptySlots, { cluster, need, extraSlots, stackSizeOf }) ->
+ * tunnelRoom(items, emptySlots, { cluster, need, slack, stackSizeOf }) ->
  *   { ok, slotsNeeded, slotsShort, emptySlots, oreSpare, short: [{ item, need, spare, slots }], why }
- *   ORE: cluster raw_iron fits in held plain raw_iron stacks, else it takes one empty slot (reserved first).
- *   STONE, after planning (`need` = tunnelDrops of the plan): each item must fit in its OWN held plain stacks, or it
- *     takes ceil(overflow / stackSize) empty slots of its own.
- *   STONE, before planning (`need` null): one stone type with >= STONE_ROOM spare, else one more empty slot.
- *   extraSlots: one more slot when a Fortune/Silk Touch pickaxe could change the drops (dropRisk).
+ *   ORE: `cluster` raw_iron fits in held plain raw_iron stacks, else it takes empty slots (reserved first).
+ *   AFTER PLANNING (`need` = tunnelDrops of the plan): each item must fit need + slack in its OWN held plain stacks,
+ *     or it takes ceil(overflow / stackSize) empty slots of its own.
+ *   BEFORE PLANNING (`need` null): one stone type with >= STONE_ROOM spare, else one more empty slot.
  * Stack sizes come from the items (else stackSizeOf); an unknown size counts as 1 per slot, never 64 assumed.
  */
-export function tunnelRoom (items = [], emptySlots = 0, { cluster = CLUSTER_CAP, need = null, extraSlots = 0, stackSizeOf = null } = {}) {
+export function tunnelRoom (items = [], emptySlots = 0, { cluster = CLUSTER_CAP, need = null, slack = 0, stackSizeOf = null } = {}) {
   const empty = Math.max(0, Math.floor(Number(emptySlots) || 0))
   const sizeOf = name => (items || []).find(it => it?.name === name && Number.isFinite(it.stackSize))?.stackSize ?? stackSizeOf?.(name) ?? 1
   const oreSpare = spareFor(items, ORE_DROP)
-  const oreSlots = oreSpare >= cluster ? 0 : Math.ceil((cluster - oreSpare) / Math.max(1, sizeOf(ORE_DROP)))   // 1 for any real cluster
+  const oreSlots = oreSpare >= cluster ? 0 : Math.ceil((cluster - oreSpare) / Math.max(1, sizeOf(ORE_DROP)))
   const short = []
   let stoneSlots = 0
   if (need) {
     for (const [item, n] of need) {
       if (item === ORE_DROP) continue
       const spare = spareFor(items, item)
-      if (spare >= n) continue
-      const slots = Math.ceil((n - spare) / Math.max(1, sizeOf(item)))
+      if (spare >= n + slack) continue
+      const slots = Math.ceil((n + slack - spare) / Math.max(1, sizeOf(item)))
       stoneSlots += slots
-      short.push({ item, need: n, spare, slots })
+      short.push({ item, need: n, slack, spare, slots })
     }
   } else {
     const best = Math.max(0, ...[...STONE_DROPS].map(d => spareFor(items, d)))
-    if (best < STONE_ROOM) { stoneSlots = 1; short.push({ item: 'stone', need: STONE_ROOM, spare: best, slots: 1 }) }
+    if (best < STONE_ROOM) { stoneSlots = 1; short.push({ item: 'stone', need: STONE_ROOM, slack: 0, spare: best, slots: 1 }) }
   }
-  const slotsNeeded = oreSlots + stoneSlots + Math.max(0, extraSlots | 0)
+  const slotsNeeded = oreSlots + stoneSlots
   const slotsShort = Math.max(0, slotsNeeded - empty)
   const parts = []
   if (oreSlots) parts.push(`ore: ${cluster} ${ORE_DROP} need a slot (held ${ORE_DROP} spare ${oreSpare})`)
-  for (const s of short) parts.push(`${s.item}: need ${s.need}, spare ${s.spare} -> ${s.slots} slot${s.slots === 1 ? '' : 's'}`)
-  if (extraSlots) parts.push(`${extraSlots} slot for a Fortune/Silk Touch pickaxe's drops`)
+  for (const s of short) parts.push(`${s.item}: need ${s.need}${s.slack ? `+${s.slack}` : ''}, spare ${s.spare} -> ${s.slots} slot${s.slots === 1 ? '' : 's'}`)
   return { ok: slotsShort === 0, slotsNeeded, slotsShort, emptySlots: empty, oreSpare, short,
            why: slotsShort ? `${parts.join('; ')}; ${empty} empty` : null }
-}
-
-// ---- MERGE SPLIT STACKS ---------------------------------------------------------------------------------------------
-// The remedy the bot can perform anywhere, with nothing crafted and nothing dropped: two part-filled stacks of the SAME
-// item become one, and a slot comes free. (3b17b30 crafted bamboo into sticks; both reviews rejected it -- a craft
-// result with no home is tossed by mineflayer, and it could not run on the measured 0-empty bots anyway.)
-/**
- * mergePlan(items, { want, same }) -> { moves: [{ src, dst, name, n }], freed } | null
- * Within each group of identical stacks: pour the smallest part-filled stack into the fullest one that still has
- * room, until it is empty (a freed slot) or nothing has room. Planned on counts; executed against the live window.
- */
-export function mergePlan (items = [], { want = 1, same = sameStack } = {}) {
-  const live = (items || []).filter(it => it && Number.isInteger(it.slot) && Number.isFinite(it.stackSize) && it.count > 0 && it.count < it.stackSize)
-    .map(it => ({ ...it }))
-  const moves = []
-  let freed = 0
-  const groups = []
-  for (const it of live) { const g = groups.find(g => same(g[0], it)); if (g) g.push(it); else groups.push([it]) }
-  for (const g of groups) {
-    for (;;) {
-      if (freed >= want) break
-      const open = g.filter(x => x.count > 0 && x.count < x.stackSize)
-      if (open.length < 2) break
-      open.sort((a, b) => a.count - b.count)
-      const src = open[0]
-      const room = open.slice(1).reduce((n, x) => n + (x.stackSize - x.count), 0)
-      if (room < src.count) break                  // cannot empty it: pouring would free nothing
-      while (src.count > 0) {
-        const dst = open.slice(1).filter(x => x.count < x.stackSize).sort((a, b) => b.count - a.count)[0]
-        if (!dst) break
-        const n = Math.min(src.count, dst.stackSize - dst.count)
-        moves.push({ src: src.slot, dst: dst.slot, name: src.name, n })
-        src.count -= n; dst.count += n
-      }
-      if (src.count > 0) break
-      freed++
-    }
-    if (freed >= want) break
-  }
-  return moves.length ? { moves, freed } : null
 }
 
 /** What fills the bag, for the refusal: the item names taking the most slots. */
