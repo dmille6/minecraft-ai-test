@@ -108,6 +108,15 @@ For this arena the canonical site is 697 120 699, its standing cell 698 120 699,
 | `compost36` | leaf_litter 64/64/30, wheat_seeds 64/6, beetroot_seeds 5, oak_sapling 64/20, birch_sapling 10, apple 12, bread 8, cooked_beef 4, poppy 3 + rocks = 36/36; a level-0 composter at the site | slots freed, saplings above 16/species only, food kept, bone meal in the bag, nothing on the ground |
 | `compost36-stuck20` | as compost36 with `STUCK_SECONDS=20` (the fleet's value; the sandbox env file says 35) | the same, under the fleet's stuck watchdog |
 | `stand-blocked` | as build30; an oak boat on the standing cell under a stone at y+2 | composter_unreachable before any table goes down |
+| `stand-offcentre` | as build30; the bot is teleported onto the standing cell 0.45 off centre as the order starts | centred (STAND_CENTRE_TOL 0.3) before the table goes down |
+| `build34-fillclick` | as build34-fillmid, the give delayed 300 ms so it lands during the first planks clicks | a put-away toss at a full bag is filed composter_no_room |
+| `compost-then-wedge` | a long visit (3 stacks of leaf_litter, 2 of seeds) with STUCK_SECONDS=20, then `smelt 8 raw_iron` queued as it ends | no stuck interruption inside the visit's declared window; the watchdog fires on the stationary smelt after it |
+
+The driver answers the bot's model calls itself (the queue brain is embedded), so a trial runs two node processes:
+the driver and the bot. `trace.cjs` also records every `block_place` with the bot's feet at that moment (was the
+bot centred when the table went down?) and each change of `bot.stationaryUntil` (the compost visit's declared window).
+An oak boat is NOT a reliable occupant of the standing cell: the bot pushes it (and is pushed by it), so `stand-blocked`
+exercises off-centre and moving bodies more than an occupied stand.
 
 ```bash
 sandbox/craft/coab.sh ../coab-cand ../coab-ctrl 3        # ~70 min: cand 7 scenes, ctrl 5 scenes, 3 reps, alternating order

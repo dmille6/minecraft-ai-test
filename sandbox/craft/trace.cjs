@@ -6,6 +6,8 @@
 //   in  spawn_entity (items only)        when an item entity appears, and where
 //   in  collect                          when the server hands an item entity to a player (pickup)
 //   in  set_slot / set_player_inventory  player-inventory slot changes (window 0 or the open window), name x count
+//   out block_place                      every block placement, with where the bot's feet are at that moment
+//   bot.stationaryUntil                  each change of a skill's declared stationary window (read, never written)
 // Env: CRAFT_TRACE (required) = jsonl path. Refuses any non-sandbox connection.
 'use strict'
 const fs = require('fs')
@@ -34,8 +36,12 @@ mf.createBot = function (opts) {
   c.write = function (name, params) {
     if (name === 'window_click') log({ pkt: 'click', win: params.windowId, slot: params.slot, mode: params.mode, btn: params.mouseButton })
     else if (name === 'close_window') log({ pkt: 'close_window_out', win: params.windowId })
+    else if (name === 'block_place') { const p = bot.entity?.position; log({ pkt: 'block_place', loc: params.location, feet: p && { x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3) } }) }
     return rawWrite(name, params)
   }
+  let lastUntil = 0
+  const poll = setInterval(() => { const u = Number(bot.stationaryUntil) || 0; if (u !== lastUntil) { lastUntil = u; log({ pkt: 'stationary', until: u }) } }, 250)
+  bot.once('end', () => clearInterval(poll))
   log({ pkt: 'traced', user: opts.username })
   return bot
 }

@@ -12,6 +12,7 @@
 // The site record lives in the pool state dir (sandbox/state/_pool-<MEMORY_POOL>), fresh per trial.
 'use strict'
 const { execFileSync, spawn } = require('child_process')
+const http = require('http')
 const fs = require('fs'); const path = require('path')
 const [ARM, BOT_ROOT, REPS_S, SCENES_S, SERVER = 'sandbox'] = process.argv.slice(2)
 if (!ARM || !BOT_ROOT || !SCENES_S) throw new Error('usage: node composter-ab.cjs <arm> <botRoot> <reps> <scenes> [server]')
@@ -56,6 +57,11 @@ const SPEC = {
   // 2c. the refusal path the scheduler never reaches: a 34/36 build, and the moment the order starts two stacks of tuff
   //     arrive (`give`, which only fills empty slots) -- the bag fills mid-chain, as an auto-pickup would
   'build34-fillmid': { ...logs(34), watch: 'build_composter', fillOnStart: ['tuff', 128] },
+  // 2d. the same, the give delayed so it lands DURING the first planks craft's clicks (after craftsync's admission)
+  'build34-fillclick': { ...logs(34), watch: 'build_composter', fillOnStart: ['tuff', 128], fillDelayMs: 300 },
+  // 4b. OFF-CENTRE ON THE STAND, nothing in the way: the moment the order starts the bot is teleported onto the standing
+  //     cell 0.45 off its centre (698.95 120 699.5) -- the build must centre it (bounded nudge) before the table goes down
+  'stand-offcentre': { ...logs(30), watch: 'build_composter', tpOnStart: '698.95 120 699.5' },
   // 3. compost at an existing composter (level 0 at the canonical site), 36/36 of litter/seeds/saplings/food + rocks
   'compost36': { slots: COMPOST_BAG, fill: 36, fillers: ROCKS, composter: true, watch: 'compost' },
   // 3b. the same with the FLEET's stuck watchdog (deploy-harness.sh / bootstrap-mcbots.sh: STUCK_SECONDS=20; the sandbox
@@ -64,6 +70,12 @@ const SPEC = {
   // 4. the standing cell occupied: an oak boat on it under a ceiling block at y+2 -- no bot fits in that cell, while the
   //    block reads standableBeside() does (feet, head, floor) are unchanged, so the stand stays the chosen cell
   'stand-blocked': { ...logs(30), watch: 'build_composter', blockStand: true },
+  // the stuck watchdog AFTER a compost visit's declared window: a long visit (well over 20 s of inserts, fleet stuck
+  // limit), then -- queued the moment it ends -- a smelt of 8 raw_iron, which stands at the furnace ~80 s, busy and
+  // still, without digging. The watchdog must fire on it (the window may not leak past the visit).
+  'compost-then-wedge': { slots: [['leaf_litter', 64], ['leaf_litter', 64], ['leaf_litter', 64], ['wheat_seeds', 64], ['wheat_seeds', 64], ['poppy', 3],
+    ['furnace', 1], ['raw_iron', 8], ['coal', 4]], fill: 36, fillers: ROCKS, composter: true, watch: 'compost', env: { STUCK_SECONDS: 20 },
+    then: { queue: 'smelt 8 raw_iron', watch: 'smelt' } },
 }
 const WINDOW_MS = 100000   // first town scan can wait TOWN_SCAN_MS (30 s) behind a scan made before the chest existed
 
@@ -132,10 +144,29 @@ function skillRows (file) {
 async function waitFor (pred, ms, step = 250) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
 
 let bot = null, brain = null
+// THE QUEUE BRAIN, IN THIS PROCESS (qbrain.mjs's protocol): each decision gets the next unread queue line, else 'status'.
+// Embedded so a trial runs exactly two node processes, this driver and the bot.
+let brainQueue = []; let brainLog = null
+const brainServer = http.createServer((req, res) => {
+  let body = ''; req.on('data', c => { body += c })
+  req.on('end', () => {
+    if (req.url.startsWith('/api/version')) { res.end(JSON.stringify({ version: '0.0.0-sandbox' })); return }
+    if (!req.url.startsWith('/api/chat')) { res.statusCode = 404; res.end('q brain'); return }
+    let msgs = []; try { msgs = JSON.parse(body).messages || [] } catch {}
+    const sentinel = (msgs.map(m => String(m.content || '')).join('\n').match(/END-[A-Z0-9]{4,12}/g) || []).pop() || ''
+    const line = brainQueue.shift() || 'status'
+    const [skill, ...rest] = line.split(/\s+/); const args = {}
+    if (rest.length === 1) args.item = rest[0]
+    else if (rest.length === 2 && /^\d+$/.test(rest[0])) { args.count = +rest[0]; args.item = rest[1] }
+    if (brainLog) fs.appendFileSync(brainLog, `${new Date().toISOString()} decision: ${line}\n`)
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ skill, args, reason: `sandbox queue: ${line}`, saw_end: sentinel }) },
+      done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 }))
+  })
+})
 async function stopBot () {
   try { bot && bot.kill('SIGTERM') } catch {}
-  try { brain && brain.kill('SIGTERM') } catch {}
-  bot = null; brain = null
+  bot = null
   await waitFor(() => /There are 0 of/.test(rcon('list')[0].reply), 30000, 1000)
 }
 
@@ -145,7 +176,6 @@ async function runTrial (scene, k) {
   const logRel = `./sandbox/log/composter-ab/${tag}`
   const skillLog = `${R}/sandbox/log/composter-ab/${tag}/skill-${NAME}.jsonl`
   const botOut = `${OUTDIR}/bot-${tag}.out`; const trace = `${OUTDIR}/trace-${tag}.jsonl`
-  const queue = `${OUTDIR}/queue-${tag}.txt`; fs.writeFileSync(queue, '')
   const envRel = `sandbox/.env.coab-${ARM}`
   let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
@@ -154,8 +184,7 @@ async function runTrial (scene, k) {
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   for (const [key, v] of Object.entries(spec.env || {})) set(key, v)
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
-  brain = spawn('node', [path.join(D, 'qbrain.mjs'), String(BRAIN_PORT)], { env: { ...process.env, QUEUE_FILE: queue }, stdio: ['ignore', fs.openSync(`${OUTDIR}/brain-${tag}.log`, 'a'), 'inherit'] })
-  await sleep(800)
+  brainQueue = []; brainLog = `${OUTDIR}/brain-${tag}.log`
   const bo = fs.openSync(botOut, 'a')
   bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT, NODE_OPTIONS: `--require ${path.join(D, 'trace.cjs')}`, CRAFT_TRACE: trace }, stdio: ['ignore', bo, bo] })
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
@@ -174,9 +203,17 @@ async function runTrial (scene, k) {
   const endPat = new RegExp(`skill ${spec.watch} ->`)
   // the window: an order of the watched kind, then its end; or nothing at all in WINDOW_MS
   const started = await waitFor(() => skillRows(skillLog).some(r => r.name === spec.watch) || lines(botOut).some(l => startPat.test(l)), WINDOW_MS)
-  if (started && spec.fillOnStart) { const t = Date.now(); const g = rcon(`give ${NAME} minecraft:${spec.fillOnStart[0]} ${spec.fillOnStart[1]}`); spec._fill = { atMs: t - t0, reply: g[0]?.reply } }
+  if (started && spec.tpOnStart) { const t = Date.now(); rcon(`tp ${NAME} ${spec.tpOnStart}`); spec._tp = { atMs: t - t0, to: spec.tpOnStart } }
+  if (started && spec.fillOnStart) { if (spec.fillDelayMs) await sleep(spec.fillDelayMs); const t = Date.now(); const g = rcon(`give ${NAME} minecraft:${spec.fillOnStart[0]} ${spec.fillOnStart[1]}`); spec._fill = { atMs: t - t0, reply: g[0]?.reply } }
   let ended = null
   if (started) ended = await waitFor(() => lines(botOut).some(l => endPat.test(l)), 200000)
+  let then = null
+  if (ended && spec.then) {   // the follow-up decision, queued the moment the watched order ended
+    const tq = Date.now(); brainQueue.push(spec.then.queue)
+    const p2 = new RegExp(`skill ${spec.then.watch} ->`)
+    const done = await waitFor(() => lines(botOut).some(l => p2.test(l)), 240000)
+    then = { queued: spec.then.queue, queuedAtMs: tq - t0, ended: !!done, row: (lines(botOut).filter(l => p2.test(l)).pop() || '').slice(0, 400) }
+  }
   await sleep(4000)
   const after = snapshot()
   const tableAt = where('crafting_table'); const composterAt = where('composter')
@@ -188,11 +225,13 @@ async function runTrial (scene, k) {
   const watched = rows.filter(r => r.name === spec.watch).pop() || null
   const firstTablePlace = null
   const r = { id: `${ARM}:${scene}:${k}`, arm: ARM, scene, k, tag, sha: execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(),
-    watched, started: !!started, fill: spec._fill || null, ended: !!ended, windowMs: Date.now() - t0,
+    watched, started: !!started, fill: spec._fill || null, tp: spec._tp || null, then, ended: !!ended, windowMs: Date.now() - t0,
     before: { used: before.used, totals: totals(before), slots: before.slots, ground: before.ground, pos: before.pos, level: before.siteComposterLevel, boat: before.boat },
     after: { used: after.used, totals: totals(after), slots: after.slots, ground: after.ground, pos: after.pos, level: after.siteComposterLevel, boat: after.boat, tableAt, composterAt, ...world },
     rows, lines: lines(botOut).filter(l => /build_composter|compost|decision rejected|town|order/i.test(l)).map(l => l.slice(0, 400)).slice(-40),
-    trace: { clicks: tr.filter(e => e.pkt === 'click').length, pickups: tr.filter(e => e.pkt === 'collect' && e.self).length, spawns: tr.filter(e => e.pkt === 'spawn_item').length } }
+    trace: { clicks: tr.filter(e => e.pkt === 'click').length, pickups: tr.filter(e => e.pkt === 'collect' && e.self).length, spawns: tr.filter(e => e.pkt === 'spawn_item').length,
+      places: tr.filter(e => e.pkt === 'block_place').map(e => ({ t: e.ts - t0, loc: e.loc, feet: e.feet })),
+      stationary: tr.filter(e => e.pkt === 'stationary').map(e => ({ t: e.ts - t0, until: e.until ? e.until - t0 : 0 })) } }
   void firstTablePlace
   fs.appendFileSync(RES, JSON.stringify(r) + '\n')
   const tb = totals(before); const ta = totals(after)
@@ -207,11 +246,13 @@ async function main () {
     if (Date.now() - t > 3600000) throw new Error('sandbox not empty')
     console.log('waiting:', pl.trim()); await sleep(20000)
   }
+  await new Promise((resolve, reject) => { brainServer.once('error', reject); brainServer.listen(BRAIN_PORT, '127.0.0.1', resolve) })
   console.log(`arm=${ARM} root=${BOT_ROOT} server=${SERVER}`)
   for (let k = 0; k < REPS; k++) for (const scene of SCENES) await runTrial(scene, k)
 }
 async function cleanup () {
   await stopBot().catch(() => {})
+  try { brainServer.close() } catch {}
   try { fs.unlinkSync(`${R}/sandbox/.env.coab-${ARM}`) } catch {}
   try { rcon('kill @e[type=!player,x=700,y=120,z=700,distance=..30]', 'fill 690 119 690 710 130 710 minecraft:air', 'fill 690 119 690 710 119 710 minecraft:stone') } catch {}
 }
