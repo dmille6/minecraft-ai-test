@@ -9,6 +9,7 @@
 // cannot express, and that is exactly why the bug survived: the fixture had no
 // way to represent choosing the wrong variant.
 import assert from 'node:assert'
+import { EventEmitter } from 'node:events'
 import { SKILLS } from '../src/skills.mjs'
 
 const V = (x, y, z) => ({ x, y, z,
@@ -46,7 +47,11 @@ const RECIPES = {
 function makeBot(inv = {}, { tableNearby = true } = {}) {
   const bag = { ...inv }
   const placedAt = []
+  // THE SERVER ANSWERS EVERY CRAFT. craft reads a result only after the server's own slot update (window_items) and a
+  // quiet period; a fake that never spoke would read every craft as unverified.
+  const client = new EventEmitter()
   const bot = {
+    _client: client,
     entity: { position: V(0, 64, 0) },
     registry: {
       itemsByName: Object.fromEntries(Object.keys(ID).map(n => [n, { id: ID[n], name: n }])),
@@ -67,6 +72,7 @@ function makeBot(inv = {}, { tableNearby = true } = {}) {
       return { name: p && p.y < 64 ? 'stone' : 'air', position: p, boundingBox: p && p.y < 64 ? 'block' : 'empty' }
     },
     async craft(recipe, count = 1) {
+      setTimeout(() => client.emit('window_items', { windowId: 0, stateId: 1, items: [] }), 5)
       for (const d of recipe.delta) { const n = NAME[d.id]; bag[n] = (bag[n] ?? 0) + d.count * count }
     },
     async equip() {},

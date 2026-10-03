@@ -124,15 +124,16 @@ export function craftArrived (beforeItems = [], afterItems = [], result = null) 
  * Only copies at EXACTLY one use: a 0-use copy is a phantom the server already broke (hygiene.mjs).
  *
  * THE LAST DIGGING TOOL IS NEVER THE PRICE OF A SLOT (Codex review). The craft has not happened yet when the tool is
- * destroyed; if it then fails, a bot underground that wore out its last pickaxe has no way out. So nothing is worn out
- * unless a pickaxe with at least MIN_SURVIVOR_USES uses is still in the bag afterwards -- a real digging tool, not
- * another last swing.
+ * destroyed; if it then fails, a bot underground that wore out its last pickaxe has no way out. So no PICKAXE is worn
+ * out unless another pickaxe with at least MIN_SURVIVOR_USES uses is still in the bag afterwards -- a real digging
+ * tool, not another last swing. A spent axe, shovel or hoe is not an escape and may always go (owner decision,
+ * review round 2).
  */
 export const MIN_SURVIVOR_USES = 2
 export function craftRoomRemedy (items = [], item = '') {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const survives = tool => list.some(it => it !== tool && /_pickaxe$/.test(it.name) && remaining(it) >= MIN_SURVIVOR_USES)
-  const planned = wearOutPlan(list).tools.find(survives)
+  const planned = wearOutPlan(list).tools.find(t => !/_pickaxe$/.test(t.name) || survives(t))
   if (planned) return { tool: planned, why: 'spent' }
   if (/_pickaxe$/.test(String(item))) {
     const spent = list.filter(it => /_pickaxe$/.test(it.name) && remaining(it) === 1 && survives(it))
@@ -146,7 +147,8 @@ export function craftRoomRemedy (items = [], item = '') {
 export const placeableBlock = (registry, name) =>
   registry?.blocksByName?.[name]?.boundingBox === 'block' && !!registry?.itemsByName?.[name]
 
-// Never offered as filler: stations (the craft may need them), wood (the scarce material), and anything the recipe
+// Never NAMED as filler in a refusal's advice (craft itself never places one -- review round 2: a block put down to
+// free a slot can seal a 1x2 tunnel or an escape stair): stations (the craft may need them), wood (the scarce material), and anything the recipe
 // itself consumes.
 const NOT_FILLER = /(^(crafting_table|furnace|blast_furnace|smoker|chest|barrel|trapped_chest)$|_(log|wood|stem|hyphae|planks)$)/
 const fillerCandidates = (items, consumes, isPlaceable) => {
@@ -154,16 +156,6 @@ const fillerCandidates = (items, consumes, isPlaceable) => {
   return (Array.isArray(items) ? items : []).filter(it => it?.name && !TOOL_RE.test(it.name) && !used.has(it.name) &&
     !NOT_FILLER.test(it.name) && isPlaceable(it.name))
 }
-/**
- * A ROOM REMEDY THE CRAFT CAN EXECUTE ITSELF: a stack of exactly ONE solid, placeable, non-ingredient block. One
- * placement empties its slot -- a single move from where the bot stands, so it is done rather than advised.
- * -> { name, count: 1 } | null
- */
-export function placeFiller (items = [], consumes = [], isPlaceable = () => false) {
-  const one = fillerCandidates(items, consumes, isPlaceable).find(it => (it.count ?? 1) === 1)
-  return one ? { name: one.name, count: 1 } : null
-}
-
 const ROCK = name => wearRank(name) === 0   // the stone family: every one of them drops nothing without a pickaxe
 /**
  * Does wearing `toolName` out on `blockName` leave the freed slot free? The tool vanishes, but the BLOCK drops:
@@ -182,7 +174,7 @@ export function wearKeepsSlot (items = [], toolName = '', blockName = '', drops 
 /**
  * WHAT FILLS THE BAG, for a refusal that names it. -> { line, cheapest }
  *   line      "cobblestone 20 slots, dirt 8, stone_pickaxe 3, ..." (most slots first, top 5)
- *   cheapest  the smallest stack the bot could PLACE away (placeFiller's rules, any count): advice, so it names
+ *   cheapest  the smallest stack the bot could PLACE away (the filler rules above, any count): advice, so it names
  *             the move and its size; null when nothing qualifies
  */
 export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
@@ -193,4 +185,36 @@ export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
     .map(([n, k], i) => `${n} ${k}${i === 0 ? (k === 1 ? ' slot' : ' slots') : ''}`).join(', ')
   const cheapest = fillerCandidates(list, consumes, isPlaceable).sort((a, b) => (a.count ?? 1) - (b.count ?? 1))[0] ?? null
   return { line, cheapest: cheapest && { name: cheapest.name, count: cheapest.count ?? 1 } }
+}
+
+/**
+ * WAS THIS SERVER PACKET ABOUT THE RESULT? -> boolean. Pure.
+ *   pkt       { kind: 'set_slot' | 'window_items', windowId, slot }
+ *   invSlots  the bag slots (player-window numbering, 9..44) the client shows the result in after the craft
+ * window_items is the server's full statement of a window: authoritative for every slot in it. A set_slot counts only
+ * for one of the result's slots: window 0 is the player window (bag slot = slot); any other window is the 3x3
+ * crafting window, whose bag region starts one later (10..45) because its grid has nine cells, not four plus armour.
+ * Its slot 0 is the crafting RESULT cell -- a statement about the grid, not about what reached the bag -- and never counts.
+ */
+export function confirmsResult (pkt, invSlots = []) {
+  if (!pkt) return false
+  if (pkt.kind === 'window_items') return true
+  if (pkt.kind !== 'set_slot' || !Number.isInteger(pkt.slot)) return false
+  const bagSlot = pkt.windowId === 0 ? pkt.slot : pkt.slot - 1
+  return invSlots.includes(bagSlot)
+}
+
+/**
+ * SERVER VERDICT on a craft -> 'wait' | 'confirmed' | 'timeout'. Pure.
+ *   seen   packets in arrival order, each with `t` (ms)
+ * Confirmed only when (1) at least one packet confirmsResult AND (2) the stream has then been quiet for quietMs since
+ * the LAST packet of any kind -- the quiet period restarts on every packet, so a rejection inside a burst is read,
+ * not raced. Neither by the deadline -> 'timeout' (the caller reports unverified).
+ */
+export function serverVerdict (seen = [], invSlots = [], now = 0, startedAt = 0, { quietMs = 250, deadlineMs = 2500 } = {}) {
+  const auth = seen.some(p => confirmsResult(p, invSlots))
+  const last = seen.length ? seen[seen.length - 1].t : startedAt
+  if (auth && now - last >= quietMs) return 'confirmed'
+  if (now - startedAt >= deadlineMs) return 'timeout'
+  return 'wait'
 }
