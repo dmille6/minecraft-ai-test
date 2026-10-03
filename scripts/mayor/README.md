@@ -32,6 +32,10 @@ Dry run against a copied slice (no clock, no host): `--replay --replay-minutes 3
 (default `/var/lib/mcai-mayor`; add others with `--allow-out-root`, which never re-allows a bot tree). Every file
 is created `O_NOFOLLOW`. The scorer's `--json` and the frontier's `--out-dir` follow the same rule.
 
+**Shortages.** FREE_BAG, RESTORE_PICK and GET_WOOD are PER BOT (only the short bot is a candidate); GET_IRON is per
+world. GET_WOOD = no usable pickaxe and too little of the bot's OWN wood to craft one, by the same function
+(`pick_ingredients`) that blocks RESTORE_PICK `no_ingredients` -- bots cannot hand each other wood.
+
 **Freshness.** A bot is fresh only if a STATE-BEARING row is within 5 min. A state row needs BOTH a valid
 position (numeric x, y, z) and an inventory object; a row with a position and no inventory never stands in for one
 with an empty bag (the scorer applies the same rule). A reflex row proves the process is alive, not where the bot is. Rows stamped more than 60 s in the future are rejected
@@ -124,7 +128,7 @@ only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (70 tests, ~13 s). `test_mutants.py` applies each of 66
+`python3 -m unittest discover -s scripts/mayor/tests -v` (75 tests, ~15 s). `test_mutants.py` applies each of 72
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
 red (an unmutated copy must be green; a missing or non-unique anchor raises). To see which tests kill which mutant:
 `python3 scripts/mayor/tests/test_mutants.py --report`.

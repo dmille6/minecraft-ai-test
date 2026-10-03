@@ -48,6 +48,13 @@ def codes(c):
 BARE = {'dirt': 10, 'apple': 5}         # no wood, no pickaxe: the 10-02 bot
 
 
+def worn_diamond():
+    """A diamond pickaxe at 61 of 1561 uses (3.9%): pick_state LOW, yet a trip pick (>= 32 uses). The one
+    kit that makes a bot short of wood (GET_WOOD is per bot: no usable pickaxe + no wood of its own)
+    AND eligible for GET_IRON, so the caps and the validator can see both duties on the same bots."""
+    return tools_pick('diamond_pickaxe', 1500, 1561)
+
+
 def check_wood_needs_a_near_log(core):
     """10-02: a bot with no pickaxe and no wood gets GET_WOOD only if a log resource is near."""
     b = make_bot(core, 'A', (100, 64, 100), BARE, {})
@@ -75,12 +82,18 @@ def check_wood_needs_a_near_log(core):
 
 
 def check_trapped_and_stale_are_excluded(core):
-    for kw, code in (({'trapped_s': 60}, 'trapped'), ({'fresh': False}, 'stale')):
-        b = make_bot(core, 'A', (100, 64, 100), BARE, {}, **kw)
-        live = make_bot(core, 'L', (0, 64, 0), BARE, {})     # keeps the world shortage alive
-        s = snap_of(core, [b, live], [log_at(110, 64, 100)])
-        gw = cand(s, 'A', 'GET_WOOD')
-        assert gw is not None and not gw['feasible'] and code in codes(gw), (code, gw)
+    b = make_bot(core, 'A', (100, 64, 100), BARE, {}, trapped_s=60)
+    s = snap_of(core, [b], [log_at(110, 64, 100)])
+    gw = cand(s, 'A', 'GET_WOOD')
+    assert gw is not None and not gw['feasible'] and 'trapped' in codes(gw), gw
+    # stale: its state is unknown, so it has no per-bot shortage and no candidate; the blocker still
+    # refuses it wherever it is evaluated (held leases, the scorer's exec and eligible-through)
+    b = make_bot(core, 'A', (100, 64, 100), BARE, {}, fresh=False)
+    live = make_bot(core, 'L', (0, 64, 0), BARE, {})
+    s = snap_of(core, [b, live], [log_at(110, 64, 100)])
+    assert cand(s, 'A', 'GET_WOOD') is None and cand(s, 'L', 'GET_WOOD') is not None, s['candidates']
+    ok, bl, _, _ = core.evaluate('GET_WOOD', s['bots'][0], s)
+    assert s['bots'][0]['name'] == 'A' and not ok and 'stale' in [x['code'] for x in bl], bl
     b = make_bot(core, 'A', (100, 64, 100), BARE, {}, trapped_s=400)     # trapped 400 s ago: outside 5 min
     s = snap_of(core, [b], [log_at(110, 64, 100)])
     assert cand(s, 'A', 'GET_WOOD')['feasible']
@@ -143,7 +156,7 @@ def check_iron_needs_pick_near_ore_and_room(core):
 
 def five_eligible(core):
     """Five fresh bots, every one eligible for GET_WOOD and GET_IRON, two log sightings."""
-    bots = [make_bot(core, n, (100 + 5 * i, 64, 100), {'dirt': 1}, tools_pick('stone_pickaxe', 0, 131))
+    bots = [make_bot(core, n, (100 + 5 * i, 64, 100), {'dirt': 1}, worn_diamond())
             for i, n in enumerate(['A', 'B', 'C', 'D', 'E'])]
     res = [log_at(110, 64, 105), log_at(120, 64, 105), log_at(130, 60, 100, kind='iron_ore'),
            log_at(140, 60, 100, kind='iron_ore'), log_at(150, 60, 100, kind='iron_ore')]
@@ -165,13 +178,14 @@ def check_caps_and_unique_targets(core):
 
 
 def check_one_log_one_bot(core):
-    bots = [make_bot(core, n, (100 + i, 64, 100), {'dirt': 1}, tools_pick('stone_pickaxe', 0, 131))
-            for i, n in enumerate(['A', 'B'])]
+    bots = [make_bot(core, n, (100 + i, 64, 100), {'dirt': 1}, {}) for i, n in enumerate(['A', 'B'])]
     s = snap_of(core, bots, [log_at(110, 64, 105)])
     rec, _ = core.decide(s, None)
     wood = [x for x in rec['assignments'] if x['duty'] == 'GET_WOOD']
     assert len(wood) == 1, ('no duplicate targets: one sighting, one bot', rec['assignments'])
-    assert rec['unstaffed'] == [] or all(u['duty'] != 'GET_WOOD' for u in rec['unstaffed'])
+    # per bot: the other bot's own shortage is unstaffed, passed over because the only log is taken
+    left = [u for u in rec['unstaffed'] if u['duty'] == 'GET_WOOD']
+    assert len(left) == 1 and left[0]['reason'] == 'passed_over' and left[0]['passed_over'] == {'target_taken': 1}, left
 
 
 def check_hysteresis_and_cooldown(core):
@@ -257,7 +271,7 @@ def check_validator(core):
     for bad in (None, [], {'assignments': []}, {'assignments': 'x', 'unmet_needs': [], 'abstain': False, 'abstain_reason': ''}):
         assert not core.validate(s, bad)['valid'], bad
     # each cap on its own: room for both kinds of target, so only the cap can refuse
-    bots5 = [make_bot(core, n, (100 + 3 * i, 64, 100), {'dirt': 1}, tools_pick('stone_pickaxe', 0, 131)) for i, n in enumerate('ABCDE')]
+    bots5 = [make_bot(core, n, (100 + 3 * i, 64, 100), {'dirt': 1}, worn_diamond()) for i, n in enumerate('ABCDE')]
     res = [log_at(100 + 3 * i, 64, 104) for i in range(5)] + [log_at(100 + 3 * i, 60, 108, kind='iron_ore') for i in range(5)]
     s3 = snap_of(core, bots5, res)
     w3 = [c for c in s3['candidates'] if c['duty'] == 'GET_WOOD' and c['feasible']]
@@ -277,7 +291,7 @@ def check_validator(core):
 def check_per_duty_cap(core):
     """With room for 5 bots in the world, GET_WOOD still takes at most cap_per_duty (2)."""
     cfg = dict(core.DEFAULTS, cap_per_world=5)
-    bots = [make_bot(core, n, (100 + 3 * i, 64, 100), {'dirt': 1}, tools_pick('stone_pickaxe', 0, 131), cfg=cfg)
+    bots = [make_bot(core, n, (100 + 3 * i, 64, 100), {'dirt': 1}, {}, cfg=cfg)
             for i, n in enumerate('ABCDE')]
     res = [log_at(100 + 3 * i, 64, 104) for i in range(5)]
     s = snap_of(core, bots, res, cfg=cfg)

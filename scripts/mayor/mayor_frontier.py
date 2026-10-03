@@ -61,7 +61,9 @@ a TEMPORARY duty for the next 10 minutes, or say that nobody should.
 Duties (the fleet's real bottlenecks):
 - FREE_BAG: a bot's estimated slots >= 34 of 36. Only by a disposal method listed on the candidate.
 - RESTORE_PICK: a bot's best pickaxe <= 10% or none. Only with ingredients the bot already holds.
-- GET_WOOD: the world's held wood is short. Only to an observed log sighting near the bot.
+- GET_WOOD: a bot with no usable pickaxe (none or <= 10%) holds too little wood of its OWN to craft
+  one. Per bot: bots cannot give each other wood, so only that bot can relieve it. Only to an observed
+  log sighting near that bot.
 - GET_IRON: the world's held iron is short. Only with a stone+ pickaxe with trip uses, near iron, with room.
 
 Rules (an answer that breaks one is rejected):

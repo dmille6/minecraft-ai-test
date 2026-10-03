@@ -26,7 +26,9 @@ Per proposal (held leases are not re-scored; a frontier proposal is scored every
   x random    downstream rate / the random-eligible baseline's downstream rate for the same duty.
 
 Outcomes are read from inventory STATE (intent rows are not outcomes): FREE_BAG slots_est < 34 or
-down >= 2; GET_WOOD logs gained >= 1; GET_IRON iron gained >= 1; RESTORE_PICK pickaxe back above 10%.
+down >= 2; GET_WOOD logs gained >= 1 by the short bot itself (GET_WOOD is a PER-BOT shortage: only a bot
+with no usable pickaxe and too little of its own wood to craft one); GET_IRON iron gained >= 1;
+RESTORE_PICK pickaxe back above 10%.
 
 POSITIVE CONTROLS PRINT FIRST, global AND per bot: rows, span, per-bot coverage of the snapshot
 times, and outcome EVENTS of each duty the detector finds. A zero next to a zero control prints as
@@ -193,7 +195,7 @@ def coverage(seq, times, gap):
 def need_holds(duty, bot_name, snap):
     """Does the shortage still hold at `snap`? None = UNKNOWN: for a per-bot duty when that bot is not
     fresh there; for a world duty when no bot is (shortages are computed from fresh bots only)."""
-    if duty in ('FREE_BAG', 'RESTORE_PICK'):
+    if duty in core.BOT_SCOPE:
         b = next((b for b in snap['bots'] if b['name'] == bot_name), None)
         if b is None or not b['fresh']:
             return None

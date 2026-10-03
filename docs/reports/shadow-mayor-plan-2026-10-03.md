@@ -20,7 +20,7 @@ collects snapshots meanwhile). Both engines expect the frontier to add little wh
 | Duty | Shortage | Eligible (executable from where the bot is) |
 |---|---|---|
 | FREE_BAG | est. slots >= 34 | junk it can dispose of (composter when it ships); never "deposit" into chests known full |
-| GET_WOOD | world wood-equivalent < 2 x (bots without a pickaxe) + 1 | an observed log resource within 64 h / 10 v blocks, seen within 6 h; >= 3 free slots; not trapped in last 5 min |
+| GET_WOOD | **per bot** (amended 10-03): no usable pickaxe (none or <= 10%) AND its own wood cannot craft one -- the same arithmetic as RESTORE_PICK's `no_ingredients` (`mayor_core.pick_ingredients`). Was: world wood-equivalent < 2 x (bots without a pickaxe) + 1, which fired in 59 of 2,720 live snapshots because bots cannot share wood | that bot only; an observed log resource within 64 h / 10 v blocks, seen within 6 h; >= 3 free slots; not trapped in last 5 min |
 | RESTORE_PICK | best pickaxe <= 10% or none | ingredients held (or a later verified retrieval); a table in reach or craftable |
 | GET_IRON | iron held+banked short | stone+ pickaxe with trip uses; observed iron_ore within 96 blocks; room (orepack rule) |
 No smelter / quartermaster / delivery duties yet: there is no chest ledger (missing bank contents are UNKNOWN, never 0).

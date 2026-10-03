@@ -57,6 +57,8 @@ DEFAULTS = dict(
     bank_unknown_conservative=('iron',),
 )
 SHORTAGE_ITEM = {'GET_IRON': 'iron', 'GET_WOOD': 'wood'}
+# Per-bot shortages (one per short bot; only that bot is a candidate). GET_IRON alone is world scope.
+BOT_SCOPE = ('FREE_BAG', 'RESTORE_PICK', 'GET_WOOD')
 
 TOOL_RE = re.compile(r'_(pickaxe|axe|shovel|hoe|sword)$')
 PICK_TIER = {'wooden_pickaxe': 0, 'golden_pickaxe': 0, 'stone_pickaxe': 1, 'copper_pickaxe': 1,
@@ -220,6 +222,33 @@ def bot_features(row_bot, cfg=DEFAULTS):
         'bank_slots': sum(math.ceil(c / stack_size(k)) for k, c in inv.items() if k in BANKABLE),
         'ballast_slots': sum(math.ceil(c / stack_size(k)) for k, c in inv.items() if k in NEVER_KEEP),
     }
+
+
+NO_PICK = ('none', 'low')
+
+
+def pick_ingredients(bot):
+    """THE wood arithmetic for one bot's next pickaxe -> (recipe or None, planks_needed, planks_held).
+    One function so RESTORE_PICK's `no_ingredients` blocker and the GET_WOOD shortage can never
+    disagree. Planks only: sticks are made of planks, a table is 4 planks unless one is held ("a table
+    in reach or craftable"), and with >= 3 cobble the head is stone, so only sticks + table need wood.
+    `planks_needed` is for the cheapest recipe the bot's cobble allows."""
+    planks_avail = bot['logs'] * 4 + bot['planks']
+    need_table = 0 if bot['has_table'] else 4      # "a table in reach or craftable": held, or 4 planks
+    need_sticks = 0 if bot['sticks'] >= 2 else 2
+    stone = bot['cobble'] >= 3
+    need = need_sticks + need_table + (0 if stone else 3)
+    if planks_avail >= need:
+        return ('stone_pickaxe' if stone else 'wooden_pickaxe'), need, planks_avail
+    return None, need, planks_avail
+
+
+def short_of_wood(bot):
+    """GET_WOOD is PER BOT: bots cannot hand each other wood, so pooled world wood is the wrong
+    instrument (10-03 shadow: in 1,376 of 2,661 snapshots where the world rule stayed quiet a bot
+    with no usable pickaxe held < 2 log-eq). Short = no usable pickaxe AND too little of its OWN
+    wood to craft one -- exactly when RESTORE_PICK is blocked `no_ingredients`."""
+    return bot['pick_state'] in NO_PICK and pick_ingredients(bot)[0] is None
 
 
 # ---------------------------------------------------------------- telemetry ingest --
@@ -432,11 +461,14 @@ def shortages(snap, cfg=DEFAULTS):
             out.append({'duty': 'RESTORE_PICK', 'scope': 'bot', 'bot': b['id'], 'value': frac,
                         'threshold': cfg['pick_low_frac'], 'why': 'best pickaxe %s' % (
                             'none' if not b['best_pick'] else '%s at %.0f%%' % (b['best_pick']['name'], frac * 100))})
-    no_pick = sum(1 for b in live if b['pick_state'] in ('none', 'low'))
-    wood, need = round(sum(b['log_eq'] for b in live), 2), 2 * no_pick + 1
-    if live and wood < need:
-        out.append({'duty': 'GET_WOOD', 'scope': 'world', 'bot': None, 'value': wood, 'threshold': need,
-                    'why': 'held wood %.2f log-eq < 2 x %d bots without a pickaxe + 1 (banked wood UNKNOWN)' % (wood, no_pick)})
+    for b in live:
+        if short_of_wood(b):
+            _, need, held = pick_ingredients(b)
+            out.append({'duty': 'GET_WOOD', 'scope': 'bot', 'bot': b['id'], 'value': held, 'threshold': need,
+                        'why': 'pickaxe %s; holds %d planks-eq of its own, a %s pickaxe needs %d%s (wood is not '
+                               'shared between bots; banked wood not retrievable)' % (
+                                   b['pick_state'], held, 'stone' if b['cobble'] >= 3 else 'wooden', need,
+                                   '' if b['has_table'] else ' incl. a table')})
     iron, target = sum(b['iron_units'] for b in live), cfg['iron_target_per_bot'] * len(live)
     if live and iron < target:
         out.append({'duty': 'GET_IRON', 'scope': 'world', 'bot': None, 'value': iron, 'threshold': target,
@@ -514,16 +546,12 @@ def evaluate(duty, bot, snap, cfg=DEFAULTS):
         else:
             blockers.append(_blk('no_pos', 'position unknown'))
     elif duty == 'RESTORE_PICK':
-        planks_avail = bot['logs'] * 4 + bot['planks']
-        need_table = 0 if bot['has_table'] else 4      # "a table in reach or craftable": held, or 4 planks
-        need_sticks = 0 if bot['sticks'] >= 2 else 2
-        if bot['cobble'] >= 3 and planks_avail >= need_sticks + need_table:
-            extra['recipe'] = 'stone_pickaxe'
-        elif planks_avail >= 3 + need_sticks + need_table:
-            extra['recipe'] = 'wooden_pickaxe'
+        recipe, need, held = pick_ingredients(bot)      # the SAME arithmetic as the GET_WOOD shortage
+        if recipe:
+            extra['recipe'] = recipe
         else:
-            blockers.append(_blk('no_ingredients', 'short %d planks for a wooden pickaxe%s; banked wood not retrievable '
-                                 '(withdraw unverified)' % (3 + need_sticks + need_table - planks_avail,
+            blockers.append(_blk('no_ingredients', 'short %d planks for a %s pickaxe%s; banked wood not retrievable '
+                                 '(withdraw unverified)' % (need - held, 'stone' if bot['cobble'] >= 3 else 'wooden',
                                                             '' if bot['has_table'] else ' + table'), 'GET_WOOD'))
     elif duty == 'GET_IRON':
         if bot['stone_pick_uses'] < cfg['iron_trip_uses']:
@@ -584,8 +612,8 @@ def duty_done(duty, start, bot, world_needs, cfg=DEFAULTS):
         return bot['slots_est'] < cfg['full_slots']
     if duty == 'RESTORE_PICK':
         return bot['pick_state'] == 'ok'
-    if duty == 'GET_WOOD':
-        return bot['logs'] >= start.get('start_logs', 0) + 1 or 'GET_WOOD' not in world_needs
+    if duty == 'GET_WOOD':                              # per bot: ITS logs, or it can now make its pickaxe
+        return bot['logs'] >= start.get('start_logs', 0) + 1 or not short_of_wood(bot)
     if duty == 'GET_IRON':
         return bot['iron_units'] >= start.get('start_iron', 0) + 1 or 'GET_IRON' not in world_needs
     return False

@@ -18,6 +18,21 @@ PKG = os.path.dirname(HERE)
 IN_MUTANT = os.environ.get('MAYOR_IN_MUTANT') == '1'
 
 C, SH, SC, FR, IO = 'mayor_core.py', 'mayor_shadow.py', 'mayor_score.py', 'mayor_frontier.py', 'mayor_io.py'
+WOOD_PER_BOT = """    for b in live:
+        if short_of_wood(b):
+            _, need, held = pick_ingredients(b)
+            out.append({'duty': 'GET_WOOD', 'scope': 'bot', 'bot': b['id'], 'value': held, 'threshold': need,
+                        'why': 'pickaxe %s; holds %d planks-eq of its own, a %s pickaxe needs %d%s (wood is not '
+                               'shared between bots; banked wood not retrievable)' % (
+                                   b['pick_state'], held, 'stone' if b['cobble'] >= 3 else 'wooden', need,
+                                   '' if b['has_table'] else ' incl. a table')})
+"""
+WOOD_WORLD_111DADC = """    no_pick = sum(1 for b in live if b['pick_state'] in ('none', 'low'))
+    wood, need = round(sum(b['log_eq'] for b in live), 2), 2 * no_pick + 1
+    if live and wood < need:
+        out.append({'duty': 'GET_WOOD', 'scope': 'world', 'bot': None, 'value': wood, 'threshold': need,
+                    'why': 'held wood %.2f log-eq < 2 x %d bots without a pickaxe + 1 (banked wood UNKNOWN)' % (wood, no_pick)})
+"""
 MUTANTS = [
     # eligibility
     ('trapped bots eligible', C, "    if bot.get('trapped'):\n", "    if False:\n"),
@@ -28,6 +43,19 @@ MUTANTS = [
     ('deposit without bank proof', C, "if dep_free > 0 and bank.get('accepts_recently'):", "if dep_free > 0:"),
     ('iron without a trip pick', C, "if bot['stone_pick_uses'] < cfg['iron_trip_uses']:", "if False:"),
     ('no table needed', C, "need_table = 0 if bot['has_table'] else 4", "need_table = 0"),
+    # GET_WOOD is per bot (2026-10-03): the wood must be in the short bot's own bag
+    # the WHOLE per-bot block back to the 111dadc world rule (a partial swap would crash on `held`, not test it)
+    ('GET_WOOD pooled at world scope again', C, WOOD_PER_BOT, WOOD_WORLD_111DADC),
+    ('shared wood threshold off by one', C, "need = need_sticks + need_table + (0 if stone else 3)",
+     "need = need_sticks + need_table + (0 if stone else 2)"),
+    ('GET_WOOD shortage off the shared function', C,
+     "return bot['pick_state'] in NO_PICK and pick_ingredients(bot)[0] is None",
+     "return bot['pick_state'] in NO_PICK and bot['log_eq'] < 2"),
+    ('GET_WOOD done when the world has wood', C,
+     "return bot['logs'] >= start.get('start_logs', 0) + 1 or not short_of_wood(bot)",
+     "return bot['logs'] >= start.get('start_logs', 0) + 1 or 'GET_WOOD' not in world_needs"),
+    ('scorer: GET_WOOD persistence read at world scope', C, "BOT_SCOPE = ('FREE_BAG', 'RESTORE_PICK', 'GET_WOOD')",
+     "BOT_SCOPE = ('FREE_BAG', 'RESTORE_PICK')"),
     # freshness, lookahead, certainty
     ('fresh from any row', C, "'fresh': st.full is not None and pos_age is not None and -MAX_SKEW_MS / 1000 <= pos_age <= cfg['stale_s'],",
      "'fresh': st.full is not None and age is not None and age <= cfg['stale_s'],"),
