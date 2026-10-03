@@ -1,0 +1,136 @@
+{
+  "run_id": "composter-01",
+  "sha": "56db2cd",
+  "registered_at": "2026-10-04T00:10:00Z",
+  "ladder_change": false,
+  "promotion": "fleet-wide",
+  "notes": "[composter-01 (OWNER queue 10-03: craftsync -> craftroom -> COMPOSTER -> tool cleanup -> chest fix -> bamboo -> logpickup). Variant for fleet ffa0f57 (craftroom-01 KEPT+promoted), branch co-on-ffa0f57 @ 56db2cd = ffa0f57 + the composter (both engines approved 948bc26 after 4 rounds; rebuilt without logpickup, both engines AGREE). Launched by chain-after.sh when craftroom-01 ends; STOPs if the fleet is not ffa0f57.] FULL BAGS: 59/80 bots at >= 34/36 slots; 14% of their slots compostable junk + 7% saplings; the mayor's census: bag-full is the top reason wood and iron needs go unmet. THE CHANGE: one town composter, built from logs by a bot at town with room (chain room simulated), through craftroom's executor (room checks + craftsync admission); bots at town with >= 34 slots compost leaf litter/seeds/flowers and saplings above 16, never food/logs/ores/tools, collect the bone meal, drop nothing; the stuck watchdog honours a self-declared stationary window during a visit; the composter's own walks never step on its top. PAPER SANDBOX: build 9/9 exact; compost 6/6 with every bone meal in the bag at the fleet's 20 s stuck limit; never starts a build at 35-36/36.",
+  "licence": {
+    "class": "kind",
+    "kind": "_compost",
+    "min_rows": 1,
+    "note": "Written only by this build (every compost visit, incl. no_effect skips). The fleet has no composter module."
+  },
+  "reads": [
+    "composterread",
+    "immobiledid"
+  ],
+  "read_minutes": [
+    180,
+    360
+  ],
+  "deadline_min": 1680,
+  "change_rows": [],
+  "linkage_extra": [],
+  "draw_exposure": {
+    "hours": 3,
+    "require": [
+      {
+        "name": "town deposit visits (bots reach town)",
+        "kind": "deposit",
+        "min": 10
+      }
+    ],
+    "note": "~1,970 deposit rows per 24 h fleet-wide (10-03); compost runs at town."
+  },
+  "exposure": {
+    "read": "composterread",
+    "field": "exposure_ready",
+    "min": 1,
+    "note": "Ready = >= 3 canary compost visits AND >= 1 control bot at >= 34 slots holding junk (57 in the dry run 10-04 00:10Z). A composter must be built first in each canary town, so exposure may take hours."
+  },
+  "own_lines": [
+    {
+      "read": "composterread",
+      "field": "breach_noncompostable",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "C1: composted something that is not junk or a sapling (food, logs, ores, tools)."
+    },
+    {
+      "read": "composterread",
+      "field": "breach_sapling_reserve",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "C2: composted saplings and ended below the 16 reserve."
+    },
+    {
+      "read": "composterread",
+      "field": "breach_multi_composter",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "C3: more than one composter built in a canary town."
+    },
+    {
+      "read": "composterread",
+      "field": "breach_built_without_room",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "C4: a build row with free < need."
+    },
+    {
+      "read": "composterread",
+      "field": "uncollected_over_1",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "evidence": "defect",
+      "note": "C5: more than one visit left bone meal uncollected (sandbox 0/6)."
+    },
+    {
+      "read": "composterread",
+      "field": "rows_control",
+      "op": "<=",
+      "value": 0,
+      "on_fail": "REVERT",
+      "note": "Arms. BLOCKS KEEP."
+    },
+    {
+      "read": "composterread",
+      "field": "rows_canary",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+    },
+    {
+      "read": "composterread",
+      "field": "instrument_control",
+      "op": ">=",
+      "value": 1,
+      "on_fail": "REVERT",
+      "note": "POSITIVE CONTROL: the population (full bots holding junk) exists on the control. BLOCKS KEEP."
+    }
+  ],
+  "primary": {
+    "read": "composterread",
+    "field": "junk_slots_did",
+    "note": "REPORTED, NOT GATED: compostable-junk slots per bot DiD, share of bots at >= 34 slots DiD, slots freed per compost visit."
+  },
+  "harm": {
+    "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Watch _reflex_stuck during visits (window exempts only the visit)."
+  },
+  "teardown": {
+    "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. A built composter STAYS in the world (bots built it; not an admin edit)."
+  },
+  "amendments": [],
+  "extension": {
+    "until_exposure": true,
+    "extra_reads": [
+      540,
+      720,
+      1080,
+      1560
+    ],
+    "final_on_zero_exposure": "INCONCLUSIVE",
+    "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+  }
+}
