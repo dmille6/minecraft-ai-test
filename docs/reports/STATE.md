@@ -67,6 +67,18 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   bone meal left on the ground 5/6 compost visits; the 20 s stuck watchdog interrupts compost visits (only dig is
   exempt -- guard composition); the stand-cell check passes off-centre and the bot's own body blocks its table cell
   (placement timed out 2/3). Builder fixing; NOT queueable until re-sandboxed. Harness on main (7742265).
+  **Fixes d2f3629 RE-SANDBOXED (~19:50Z): bone meal in the bag 6/6 (0 on the ground) with the fleet's 20 s stuck limit,
+  no interruption; build 6/6 exact; mid-click toss now composter_no_room; table only placed with the bot centred.**
+  Edge: a boat the bot pushes can drift into the chosen table cell (1/3 placement timeout; bounded). Reviews: both
+  CHANGE on one item (the avoid-set entry is a no-op; the real hazard is a path node ON TOP of the composter -> an
+  exclusionAreasStep) -- builder fixing. Harness re-run on main (650052f).
+- **LATENT IRON BLOCKER (sandbox 19:50Z, verified against the fleet):** the 20 s stuck watchdog killed `smelt 8
+  raw_iron` at 20.7 s (8 iron ~ 80 s of furnace time; the bot stands still). Fleet 24 h: 0 of 141 failed/aborted/
+  unknown smelts coincide with a _reflex_stuck (positive control: 48 other skill rows do -- goto 26, gather 10,
+  craft 3), because 72 of 232 smelts had no raw iron and batches are small. It WILL bite once iron flows. Candidate
+  fix (both engines first): exempt live furnace waits the way dig is exempt (or a self-expiring stationary window
+  bounded by the smelt's own budget, as compost now does); same idea as Claude's suggestion to exempt live crafting
+  (craftsync batches can pass 20 s; craftsyncread now REPORTS durations and _reflex_stuck DiD).
 - **MAYOR GET_WOOD was blind (found 17:00Z):** world-pooled wood; in 1,376 of 2,661 quiet snapshots a pickaxe-less bot
   held < 2 log-eq while the richest bot held a median 49% of its world's wood. Fix (shadow-mayor 77c025c + 9cad2ad,
   pushed, NOT deployed): per-bot shortage sharing RESTORE_PICK's arithmetic; replay on 2,768 live snapshots: 62 -> 1,812
