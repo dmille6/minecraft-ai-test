@@ -25,9 +25,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 - **oretunnel-03 +180 (23:27Z): NOT_YET, exposure ready.** 12 tunnels; the 3 that ran ALL reached the ore (3 raw iron;
   control 0); the other 9 were `inventory_full` refusals on 2 bots holding 176-252 spare in stone stacks but no free slot.
   Climbs 8.9 -> 6.7/bh (control 6.7 -> 6.0); deaths 1 vs 6. KEEP possible at +360 (~02:22Z).
-- **STAGED, not registered: orepack** (branch orepack-on-3edf1d6 @ 3b17b30, 215/215, 3 mutants killed; NO reviews yet):
-  room by capacity (`tunnelRoom`) + lossless bag packing (bamboo -> stick, a 2x1 inventory recipe, no table). Needs both
-  reviews + a sandbox run. Limitation: a bot with 0 empty slots cannot pack (a craft result with no room is DROPPED).
+- **READY, not registered: orepack** (branch orepack-on-3edf1d6 @ **f642b17**, 215/215, 43 tests): tunnel room by CAPACITY
+  per item with a reserved ore slot (ore room = route iron + target cluster at max drop + 5 slack), post-plan recheck,
+  enchanted tools refused with a structured need, a plan-time veto on unplanned digs (same-item spare only, never an empty
+  slot). Stack MERGING and bamboo->stick CRAFTING were built and REMOVED (both engines: click races / crafts can toss);
+  a bot.dig wrapper was REMOVED (it could refuse a reflex's rescue dig). Reviews: Claude AGREE, Codex APPROVE (6 rounds).
+  Of tonight's 9 refusals it would let 3 proceed (the 6 others have no slot for the ore at all). Sandbox: on a full bag it
+  passes the room screen where 3edf1d6 refuses; the corpus-iron scene itself is unroutable for BOTH builds (noPath).
+  TO RUN: rebase onto the fleet sha after explore-toward; read = tunnel attempts/refusal classes per bot-h, iron collected,
+  raw iron left on the ground (the documented residual), enchanted_tool count (expect 0).
+
 - **LEAD (unverified):** 163 of 325 pickaxe crafts that "succeeded" in 4 h logged "nothing changed" (inventory gain not
   seen); 62 of them on an estimated-full bag. mineflayer drops a craft result when the bag is full. Worth a read.
 - **WHY IRON IS RARE (10-02 21:00Z, 80 bots, 2-3 h):** iron visible in 77% of scans, but 53/80 bots hold NO pickaxe
