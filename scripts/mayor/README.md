@@ -102,24 +102,33 @@ leaves the executability denominator; a per-bot shortage whose bot is not fresh 
 unforced gap needs eligibility at every snapshot through the window; downstream success is compared with the
 **random-eligible baseline** (`xrand`).
 
-**Revisions are never pooled.** Every snapshot, deterministic record and frontier record carries `mayor_rev`, a hash
-of `mayor_core.py` + `mayor_shadow.py` + `stack_sizes.json` (also in each tick line), so a deploy is a new revision
-without anyone remembering to bump anything. The scorer scores each revision ON ITS OWN -- next-snapshot, +30/+60,
-baselines, base rates and gaps only ever read snapshots of the same revision -- and prints one table per revision;
-files written before stamping score as `unstamped`. The JSON has `revisions`; the flat `engines`/`base` keys appear
-only when exactly one revision was scored. `--since`/`--until` (ISO UTC) select snapshots by time; an unparseable
-bound is refused (exit 2). A legacy world-scope GET_WOOD shortage (before 9cad2ad) is UNKNOWN per bot, never true
-for every bot.
+**Partitions are never pooled; no window crosses an epoch.** Every snapshot, deterministic record and frontier record
+carries `mayor_rev`, a hash of `mayor_core.py` + `mayor_shadow.py` + `stack_sizes.json` (also in each tick line), so a
+deploy is a new revision without anyone remembering to bump anything. The scoring PARTITION is that revision + a hash
+of the canonical effective configuration recorded in the snapshot (`cfg-unrecorded` if none), and it is scored with
+that configuration, not today's defaults. Each world's history is cut into EPOCHS -- contiguous runs of one
+partition, so a rollback A,B,A is three epochs -- and every lookup stays inside its epoch: a window (outcome, base
+rate, persistence, gap) that reaches past a non-final epoch's last snapshot crosses a transition and is censored
+(`censored_epoch`), never credited. One table per partition; the JSON has `partitions` (with `mayor_rev`, `cfg`,
+`epochs`), and the flat `engines`/`base` keys only when exactly one partition was scored. `--since`/`--until` (ISO
+UTC) select which proposals and base windows are scored; an unparseable bound is refused (exit 2). A legacy
+world-scope GET_WOOD shortage (before 9cad2ad) is UNKNOWN per bot, never true for every bot.
 
 **GET_WOOD biases, corrected.**
-- `xrand` counts only **contested** snapshots (more feasible candidates for the duty than `cap_per_duty`):
-  uncontested, the caps leave no choice and random picks the same bots. `cont` is how many proposals were contested.
+- `xrand` counts only **contested** proposals (`contd`): any competition for the duty -- duty cap, world cap, a bot
+  feasible for two duties, or two candidates sharing a target. Without one, every order assigns the same candidates
+  and targets (property-tested against `core.greedy`), so random and the mayor cannot differ there.
 - **Lease timing.** The mayor re-proposes right after a success and goes quiet ~25 min after a failure (lease 10 min
-  + cooldown 15). The `random`/`nearest` baselines now run through the SAME `core.decide` -- leases, cooldowns, caps
-  -- with only the order changed, so the deterministic mayor is compared like for like. The frontier engines are
-  per-snapshot (no memory), so they are compared with `random-stateless`/`nearest-stateless` (greedy per snapshot).
-- `xbase` = downstream rate / base rate of **eligible** short bots (fresh, observed, short AND feasible by the
-  mayor's own `evaluate`); the plain base rate over all short bots is printed beside it.
+  + cooldown 15). The `random`/`nearest` baselines run through the SAME `core.decide` -- leases, cooldowns, caps --
+  with only the order changed, replayed from the FIRST snapshot of each epoch (before `--since`/`--until`) from their
+  own empty state, never the mayor's leases. Their proposals in the first lease + cooldown (25 min) of an epoch are
+  forced by that empty start and excluded (`warmup_excluded`); no engine's `xrand` counts that period. The frontier
+  engines are per-snapshot (no memory), so they are compared with `random-stateless`/`nearest-stateless`.
+- `xbase` = **concordance** / base rate of **eligible** short bots (fresh, observed, short AND feasible by the
+  mayor's own `evaluate`): the same outcome, window and observation rule on both sides. Target-conditioned
+  downstream is NOT used here -- a base bot has no target, and imputing the nearest one would invent an assignment
+  (and not even the mayor's, which avoids duplicate targets). The plain base rate over all short bots is printed
+  beside it.
 - The GET_WOOD outcome is **relief**, as the lease's `duty_done`: a log gained OR no longer `short_of_wood` (planks
   picked up, a pickaxe obtained; an unknown pickaxe state is never relief). "Logs gained" is printed as its own line.
 
@@ -151,7 +160,7 @@ only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (89 tests, ~35 s). `test_mutants.py` applies each of 87
+`python3 -m unittest discover -s scripts/mayor/tests -v` (99 tests, ~45 s). `test_mutants.py` applies each of 99
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
 red (a missing or non-unique anchor raises). **No mutant runs until the unmutated suite is proven green**:
 `run_mutants` (used by both the unittest and `--report`) aborts with `BaselineRed` -- `--report` prints ABORT and

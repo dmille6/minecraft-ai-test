@@ -143,10 +143,12 @@ class Revisions(unittest.TestCase):
 
 # ---------------------------------------------------------------- scorer timelines ---
 
-def timeline(d, bots, logs, rev_at=None, records=True, k_max=60):
+def timeline(d, bots, logs, rev_at=None, records=True, k_max=60, record_ks=(0,), revs=None, cfg_at=None):
     """Snapshots every 5 min (0..k_max), state rows every 2 min to +94. bots = [(name, x, gather_at|None, kind)]
     where kind 'log' gains one oak_log, 'planks' picks up 12 planks (relief without a log).
-    rev_at = (k, rev_before, rev_after) stamps two revisions. The deterministic mayor's own records at k=0."""
+    rev_at = (k, rev_before, rev_after) stamps two revisions; revs = callable k -> rev for any sequence (rollbacks);
+    cfg_at = callable k -> cfg overrides recorded on that snapshot. The deterministic mayor's records (a
+    stateless decide) at each k in record_ks."""
     def inv(kind, k, at):
         if at is None or k < at:
             return BARE
@@ -160,14 +162,19 @@ def timeline(d, bots, logs, rev_at=None, records=True, k_max=60):
         s['snap_id'] = 'w@%s' % s['t']
         if rev_at:
             s['mayor_rev'] = rev_at[1] if k < rev_at[0] else rev_at[2]
+        if revs:
+            s['mayor_rev'] = revs(k)
+        if cfg_at:
+            s['cfg'] = dict(s['cfg'], **cfg_at(k))
         snaps.append(s)
     with open(os.path.join(d, 'snap-w.jsonl'), 'w') as f:
         for s in snaps:
             f.write(json.dumps(s) + '\n')
     with open(os.path.join(d, 'assign-w.jsonl'), 'w') as f:
         if records:
-            rec, _ = core.decide(snaps[0], None)
-            f.write(json.dumps(rec) + '\n')
+            for k in record_ks:
+                rec, _ = core.decide(snaps[k // 5], None)
+                f.write(json.dumps(rec) + '\n')
     os.makedirs(os.path.join(d, 'logs'))
     with open(os.path.join(d, 'logs', 'skill-w.jsonl'), 'w') as f:
         for k in range(0, 95, 2):
@@ -198,7 +205,7 @@ class RevisionScoring(unittest.TestCase):
         try:
             timeline(d, TWO, LOGS2)
             rc, r, _ = score(d)
-            self.assertEqual(list(r['revisions']), [core.MAYOR_REV])
+            self.assertEqual([p['mayor_rev'] for p in r['partitions'].values()], [core.MAYOR_REV])
             m = r['engines']['deterministic']['GET_WOOD']
             self.assertEqual(m['persist30_n'], 2, 'control: one revision, +30 is in the same partition')
         finally:
@@ -207,13 +214,14 @@ class RevisionScoring(unittest.TestCase):
         try:
             timeline(d, TWO, LOGS2, rev_at=(20, 'aaaaaaaaaaaa', 'bbbbbbbbbbbb'))
             rc, r, text = score(d)
-            self.assertEqual(sorted(r['revisions']), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'])
-            self.assertNotIn('engines', r, 'two revisions: no pooled top-level view')
-            self.assertEqual((r['revisions']['aaaaaaaaaaaa']['snapshots'], r['revisions']['bbbbbbbbbbbb']['snapshots']), (4, 9))
-            m = r['revisions']['aaaaaaaaaaaa']['engines']['deterministic']['GET_WOOD']
+            by_rev = {p['mayor_rev']: p for p in r['partitions'].values()}
+            self.assertEqual(sorted(by_rev), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'])
+            self.assertNotIn('engines', r, 'two partitions: no pooled top-level view')
+            self.assertEqual((by_rev['aaaaaaaaaaaa']['snapshots'], by_rev['bbbbbbbbbbbb']['snapshots']), (4, 9))
+            m = by_rev['aaaaaaaaaaaa']['engines']['deterministic']['GET_WOOD']
             self.assertEqual(m['persist30_n'], 0, 'the +30 snapshot belongs to ANOTHER revision: never read')
-            self.assertNotIn('deterministic', r['revisions']['bbbbbbbbbbbb']['engines'], 'the k=0 records stay in their revision')
-            self.assertIn('REVISION aaaaaaaaaaaa', text)
+            self.assertNotIn('deterministic', by_rev['bbbbbbbbbbbb']['engines'], 'the k=0 records stay in their revision')
+            self.assertIn('PARTITION aaaaaaaaaaaa/cfg-', text)
         finally:
             shutil.rmtree(d)
 
@@ -239,9 +247,10 @@ class RevisionScoring(unittest.TestCase):
 class WoodScoringBiases(unittest.TestCase):
     def test_x_random_only_on_contested_snapshots(self):
         d = tempfile.mkdtemp()
-        try:                     # three short bots, cap 2: contested. A and C gather at +10, B never does.
-            three = [('w-A', 100, 10, 'log'), ('w-B', 104, None, 'log'), ('w-C', 108, 10, 'log')]
-            timeline(d, three, [log_at(110, 64, 100), log_at(112, 64, 100), log_at(114, 64, 100)])
+        try:                     # three short bots, cap 2: contested. A and C gather at +35, B never does;
+                                 # the mayor's record is at +30, after the 25-min epoch warm-up
+            three = [('w-A', 100, 35, 'log'), ('w-B', 104, None, 'log'), ('w-C', 108, 35, 'log')]
+            timeline(d, three, [log_at(110, 64, 100), log_at(112, 64, 100), log_at(114, 64, 100)], record_ks=(30,))
             _, r, _ = score(d)
             eng = r['engines']
             m, rnd = eng['deterministic']['GET_WOOD'], eng['random']['GET_WOOD']
@@ -253,8 +262,10 @@ class WoodScoringBiases(unittest.TestCase):
         finally:
             shutil.rmtree(d)
         d = tempfile.mkdtemp()
-        try:                     # two short bots, cap 2: never contested -> no x random at all
-            timeline(d, TWO, LOGS2)
+        try:                     # two short bots, cap 2, own logs: never contested -> no x random at all
+                                 # (recorded at +30, after the warm-up, so only 'contested' can exclude it)
+            timeline(d, [('w-A', 100, 35, 'log'), ('w-B', 260, None, 'log')], [log_at(110, 64, 100), log_at(270, 64, 100)],
+                     record_ks=(30,))
             _, r, _ = score(d)
             m = r['engines']['deterministic']['GET_WOOD']
             self.assertGreater(m['downstream_n'], 0, 'control: there IS a downstream rate')
@@ -306,15 +317,19 @@ class WoodScoringBiases(unittest.TestCase):
         d = tempfile.mkdtemp()
         try:                     # one short bot that never gathers: lease 10 min, expire, cool 15, re-offer
             snaps = timeline(d, [('w-A', 100, None, 'log')], [log_at(110, 64, 100)], records=False)
-            state, want = None, 0
+            state, at = None, []
             for s in snaps:
                 rec, state = core.decide(s, state)
-                want += sum(a['lease'] == 'new' for a in rec['assignments'])
+                at += [(s['t_ms'] - T0) // M for a in rec['assignments'] if a['lease'] == 'new']
+            self.assertEqual(at, [0, 25, 50], 'control: the mayor proposes at 0, 25 and 50')
             _, r, _ = score(d)
             eng = r['engines']
-            self.assertEqual(want, 3, 'control: the mayor proposes at 0, 25 and 50')
-            self.assertEqual(eng['random']['GET_WOOD']['n'], want, 'random runs through the same leases')
-            self.assertEqual(eng['nearest']['GET_WOOD']['n'], want)
+            warm = (core.DEFAULTS['lease_s'] + core.DEFAULTS['cooldown_s']) // 60
+            want = [k for k in at if k >= warm]
+            self.assertEqual(want, [25, 50])
+            self.assertEqual(eng['random']['GET_WOOD']['n'], len(want), 'random runs through the same leases, after warm-up')
+            self.assertEqual(eng['random']['GET_WOOD']['warmup_excluded'], 1, 'the empty-state proposal at 0')
+            self.assertEqual(eng['nearest']['GET_WOOD']['n'], len(want))
             self.assertEqual(eng['random-stateless']['GET_WOOD']['n'], len(snaps), 'the stateless one proposes every tick')
         finally:
             shutil.rmtree(d)
