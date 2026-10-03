@@ -118,12 +118,17 @@ world-scope GET_WOOD shortage (before 9cad2ad) is UNKNOWN per bot, never true fo
 **GET_WOOD biases, corrected.**
 - **The read rule is the GATE RATIO**, for every duty: the deterministic mayor's `xbase` divided by the LEASED-random
   baseline's `xbase` in the same partition, both over the SAME period (proposals before the random run's warm-up
-  deadline are dropped from both sides). Both went through the same lease/cooldown logic, so lease timing cancels
-  (and so does the base rate). The raw `xbase` values print beside it. **Raw `xbase` is not a read**: a bot that keeps
-  failing is re-proposed about every 25 min (lease + cooldown) while the base rate samples it every 5, so raw
-  `xbase` leans KEEP for any leased engine. **FREE_BAG and RESTORE_PICK come out ~1.0 by construction** -- their only
-  candidate is the short bot itself, so the mayor and the leased random baseline make the same proposals: no
-  selection value. That 1.0 is the honest answer, and it is tested (`test_review7`).
+  deadline are dropped from both sides), both run through the same lease/cooldown logic; the base rate cancels.
+  The raw `xbase` values print beside it. **Raw `xbase` is not a read**: a bot that keeps failing is re-proposed
+  about every 25 min (lease + cooldown) while the base rate samples it every 5, so raw `xbase` leans KEEP for any
+  leased engine. **What the ratio does and does not establish:** identical retained proposal streams yield exactly
+  1.0 when defined (tested, `test_review7`: two duties on two bots, nothing contested). Matched periods remove the
+  asymmetric warm-up exclusion, but they do not guarantee identical lease phases or selections, so they do not by
+  themselves establish statistical unbiasedness. One candidate per bot does not remove competition ACROSS bots:
+  with more candidates than the duty cap, mayor and random can select different bots, and FREE_BAG / RESTORE_PICK
+  may then depart from 1.0 for reasons of which bot was chosen (tested, `test_review8`: three RESTORE_PICK bots,
+  cap 2, mayor A/B vs random B/C, ratio 1.5). The gate line reports `stateless_contested`, the number of the
+  mayor's observed proposals in the headline period whose snapshot offered such a choice.
 - **Baseline initialization.** A leased baseline CARRIES its own state (never the mayor's) across an epoch
   transition only where `core.decide()` semantics are identical: the same code revision AND the same
   `DECIDE_CFG` values (`cap_per_world`, `cap_per_duty`, `lease_s`, `cooldown_s`, `full_slots` -- the only keys decide
@@ -185,7 +190,7 @@ only.
 
 ## Tests
 
-`python3 -m unittest discover -s scripts/mayor/tests -v` (113 tests, ~80 s). `test_mutants.py` applies each of 117
+`python3 -m unittest discover -s scripts/mayor/tests -v` (114 tests, ~80 s). `test_mutants.py` applies each of 117
 mutants to a temp copy of the package and runs the WHOLE suite against it in a subprocess; every one must turn it
 red (a missing or non-unique anchor raises). **No mutant runs until the unmutated suite is proven green**:
 `run_mutants` (used by both the unittest and `--report`) aborts with `BaselineRed` -- `--report` prints ABORT and

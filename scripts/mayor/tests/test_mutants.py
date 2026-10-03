@@ -229,6 +229,9 @@ MUTANTS = [
     ('gate period not matched (mayor keeps its warm-up proposals)', SC,
      "                            warm_until=band_warm[o], warm_all=True)",
      "                            warm_until=band_warm[o], warm_all=False)"),
+    # 10-03 round 5 (reporting only)
+    ('gate: stateless-contested proposals not reported', SC, "'stateless_contested': dm0.get('downstream_c_n', 0),",
+     "'stateless_contested': 0,"),
     # harness (10-03 Codex review): mutants run only after the unmutated suite is proven green
     ('mutants: no green-baseline gate', 'tests/test_mutants.py', "    require_green(pkg)\n    out = []\n", "    out = []\n"),
 ]

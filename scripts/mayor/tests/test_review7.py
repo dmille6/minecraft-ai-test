@@ -1,6 +1,7 @@
 """Round-4 review of 5c100e4 (both CHANGE, small), OFFLINE SCORER ONLY: a compatible transition keeps each leased
 run's ABSOLUTE start and warm-up deadline; a band with any undefined offset is INCOMPLETE, never PASSES; and every
-duty has a gate ratio, FREE_BAG / RESTORE_PICK coming out at 1.0 by construction. mayor_core / mayor_shadow /
+duty has a gate ratio, and identical retained proposal streams give exactly 1.0 (uncontested FREE_BAG /
+RESTORE_PICK here; the contested case is test_review8). mayor_core / mayor_shadow /
 stack_sizes.json are byte-identical (MAYOR_REV 2e82cfe81496)."""
 import json
 import os
@@ -90,7 +91,8 @@ def bag_and_pick_world(d):
 
 
 class EveryDutyHasAGate(unittest.TestCase):
-    """3. FREE_BAG / RESTORE_PICK: one candidate per short bot, so the lease-matched ratio is 1.0 by construction."""
+    """3. Uncontested FREE_BAG / RESTORE_PICK (two duties, two bots, caps not binding): mayor and leased random
+    retain identical proposal streams, so the period-matched ratio is exactly 1.0."""
 
     def test_bag_and_pick_gate_is_one(self):
         d = tempfile.mkdtemp()
@@ -106,6 +108,7 @@ class EveryDutyHasAGate(unittest.TestCase):
                 self.assertNotEqual(g['raw_det_xbase'], g['raw_random_xbase'],
                                     'precondition: the raw values differ (the warm-up proposal); the gate matches periods')
                 self.assertIn('%-12s gate   1.00' % duty, text)
+                self.assertEqual(g['stateless_contested'], 0, 'nothing to choose here')
         finally:
             shutil.rmtree(d)
 

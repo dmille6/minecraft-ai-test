@@ -29,9 +29,13 @@ Per proposal (held leases are not re-scored; a frontier proposal is scored every
               (who is held, who cools down) are excluded from it by construction. Deterministic vs the
               leased baselines; frontier engines vs the stateless ones (`*-stateless`).
   GATE RATIO  THE READ RULE, EVERY duty: deterministic x base / LEASED-random x base in the same partition
-              over the SAME period (both lose the random run's warm-up), so lease timing cancels; raw x base
-              values printed beside it. FREE_BAG / RESTORE_PICK come out ~1.0 by construction (one candidate
-              per short bot: no selection value). SENSITIVITY BAND: the leased random baseline rerun from start
+              over the SAME period (both lose the random run's warm-up, both go through the same lease logic); raw x base
+              values printed beside it. Identical retained proposal streams give exactly 1.0 when defined.
+              Matched periods remove the ASYMMETRIC warm-up exclusion; they do not guarantee identical lease
+              phases or selections, so they do not by themselves make the ratio statistically unbiased. With
+              more candidates than the duty cap (one candidate per bot does not remove competition ACROSS bots)
+              mayor and random can pick different bots, and even FREE_BAG / RESTORE_PICK may then depart from
+              1.0 because of which bot was chosen (`stateless_contested` counts such mayor proposals). SENSITIVITY BAND: the leased random baseline rerun from start
               offsets 0/5/10/15/20/25 min after every reset (offset 0 is the headline), min..max; INCOMPLETE if
               any offset is undefined, else 'initialization-dependent' when it straddles 1.5x, else PASSES /
               FAILS. A leased run CARRIES its own state, absolute start and absolute warm-up deadline across a
@@ -307,9 +311,11 @@ def nearest_order(snap):
 # other key leaves decide's output identical; perturbing one of these changes it.
 DECIDE_CFG = ('cap_per_world', 'cap_per_duty', 'lease_s', 'cooldown_s', 'full_slots')
 BAND_OFFSETS_MIN = (0, 5, 10, 15, 20, 25)     # leased-baseline start offsets after a reset (sensitivity band)
-# ALL four duties: FREE_BAG / RESTORE_PICK's raw x base leans KEEP (a failing bot is re-proposed about every
-# 25 min while the base samples it every 5), and only the lease-matched ratio cancels that; with one candidate
-# per short bot their ratio is ~1.0 by construction -- no selection value, which is the honest answer.
+# ALL four duties: raw x base leans KEEP for any leased engine (a failing bot is re-proposed about every 25 min
+# while the base samples it every 5); the lease-matched, period-matched ratio compares like with like on that
+# account. Identical retained proposal streams give exactly 1.0; it is NOT guaranteed otherwise -- matched
+# periods do not equalise lease phases or selections, and with more candidates than the duty cap mayor and
+# random may pick different bots, so FREE_BAG / RESTORE_PICK can depart from 1.0 (test_review8).
 GATE_DUTIES = core.DUTIES
 GATE_THRESHOLD = 1.5
 
@@ -361,9 +367,10 @@ def x_base(m, base_elig):
 
 
 def gate_ratio(det_xbase, random_xbase):
-    """THE READ RULE: the deterministic mayor's x base over the LEASED-random baseline's, same partition. Both
-    went through the same lease logic, so lease timing cancels. Reads x base ONLY -- x random is a diagnostic
-    and never a gate input."""
+    """THE READ RULE: the deterministic mayor's x base over the LEASED-random baseline's, same partition, same
+    period. Both go through the same lease logic; that does not make their lease phases or selections
+    identical, so this is a like-for-like comparison, not a proof of unbiasedness. Reads x base ONLY -- x random
+    is a diagnostic and never a gate input."""
     return det_xbase / random_xbase if det_xbase is not None and random_xbase else None
 
 
@@ -784,7 +791,11 @@ def main(argv=None):
             lo, hi = (min(got), max(got)) if got else (None, None)
             raw = lambda e: (R['res'].get(e, {}).get(d) or {}).get('x_base_elig')
             bm = [R['band'][o].get('random', {}).get(d) or {} for o in BAND_OFFSETS_MIN]
+            dm0 = R['band'][BAND_OFFSETS_MIN[0]].get('deterministic', {}).get(d) or {}
             R['gate'][d] = {'gate_ratio': vals[0], 'det_xbase': per[0][0], 'random_xbase': per[0][1],
+                            # mayor proposals in the headline period whose snapshot offered a choice of bot or
+                            # target: where they exist, mayor and random may have selected differently
+                            'stateless_contested': dm0.get('downstream_c_n', 0),
                             'raw_det_xbase': raw('deterministic'), 'raw_random_xbase': raw('random'),
                             'band': {'offsets_min': list(BAND_OFFSETS_MIN), 'values': vals, 'min': lo, 'max': hi,
                                      'undefined': len(vals) - len(got),
@@ -823,7 +834,8 @@ def main(argv=None):
         for d in core.DUTIES:
             print('  %-12s %s  (%d of %d)   eligible %s  (%d of %d)' % (d, pct(*R['base'][d]), R['base'][d][0], R['base'][d][1],
                                                                    pct(*R['base_elig'][d]), R['base_elig'][d][0], R['base_elig'][d][1]))
-        print('\nGATE RATIO (the read rule): deterministic x base / LEASED-random x base, same partition; threshold %.1fx'
+        print('\nGATE RATIO (the read rule): deterministic x base / LEASED-random x base, same partition, same period; '
+              'threshold %.1fx. Exactly 1.0 only for identical retained proposal streams; not a proof of unbiasedness.'
               % GATE_THRESHOLD)
         for d in GATE_DUTIES:
             g = R['gate'][d]
@@ -834,6 +846,9 @@ def main(argv=None):
                       f(g['raw_random_xbase']),
                       '/'.join(map(str, BAND_OFFSETS_MIN)), f(g['band']['min']), f(g['band']['max']),
                       g['band']['undefined'], g['flag'].upper()))
+            if g['stateless_contested']:
+                print('  %-12s      %d of the mayor\'s observed proposals in this period were stateless-contested: '
+                      'mayor and random may have chosen different bots/targets there' % ('', g['stateless_contested']))
         print('\n%-26s %-12s %4s %4s %7s %7s %7s %7s %5s %7s %5s %6s %6s %8s %8s %4s' % (
             'engine', 'duty', 'n', 'rej', 'exec+5', 'pers30', 'pers60', 'concord', 'unobs', 'downstr', 'stcon', 'xrand',
             'xbase', 'gap h/wd', 'gap h/d', 'unkb'))
