@@ -73,6 +73,25 @@ The read will report BOTH:
 - FROZEN until the read: mayor_core.py, mayor_shadow.py, stack_sizes.json and cfg flags (any change starts a new
   partition and the 48 h no longer fits). Scorer: shadow-mayor branch, scripts/mayor/mayor_score.py.
 
+**ADDENDUM 1 (written 2026-10-03 19:07Z, before any decision-partition OUTCOME was read).** Replaces the CORRECTED
+bullet's details above with what the pinned scorer computes:
+- **Scorer pinned: shadow-mayor @ 48a0932, scripts/mayor/mayor_score.py** (or a later sha named in a dated addendum
+  written before the read). MAYOR_REV stays 2e82cfe81496 (core/shadow/stack_sizes byte-identical since 784b71c).
+- The gate ratio is computed over a **MATCHED PERIOD per start offset**: the deterministic mayor and that leased-random
+  run are scored over the same span, both excluding the random run's warm-up; the headline is offset 0; it prints as
+  "matched-period xbase" with the raw values beside it. PASSES requires **every offset defined and >= 1.5x**; any
+  undefined offset = INCOMPLETE; a band straddling 1.5x = INITIALIZATION-DEPENDENT; neither is a pass.
+- What it does and does not establish: identical retained proposal streams give exactly 1.0; matched periods remove the
+  asymmetric warm-up exclusion but do not by themselves make the ratio unbiased -- with more candidates than the duty
+  cap, the mayor and random can choose different bots, and the gate line reports how many proposals came from such
+  contested snapshots (`stateless_contested`).
+- **Why the scorer changed after the 18:41Z pre-registration:** the matched period (409ccb7, 18:52Z) and the wording
+  (48a0932) were motivated by synthetic tests (identical streams gave a ratio != 1; a contested 3-candidate case) and
+  by review, not by data.
+- **Disclosure:** a scorer RUNTIME test at ~18:23Z (before the pre-registration) printed the decision partition's
+  first 20 minutes: 65 snapshots, GET_WOOD n=2 proposals, no outcome columns populated (windows not yet complete). No
+  decision-partition data has been read since, and none will be until the read.
+
 ## Not built
 In-bot mayor, SQLite leases, permanent jobs, chest ledger/quartermaster before withdraw works, prompt "advice",
 a frontier call per bot, live frontier calls before the replay result, new telemetry fields.
