@@ -111,9 +111,9 @@ export function pickupNearest (feet, entities = {}) {
     if (e?.name !== 'item' || !e.position || !inPickupBox(feet, e.position, -PICKUP_MARGIN, -PICKUP_MARGIN)) continue
     const distance = Math.hypot(e.position.x - feet.x, e.position.y - feet.y, e.position.z - feet.z)
     if (best && best.distance <= distance) continue
-    let name = null
-    try { name = e.getDroppedItem?.()?.name ?? null } catch { /* unnamed */ }
-    best = { id: e.id ?? null, name: name ?? 'an item', distance, position: e.position }
+    let name = null, count = 1
+    try { const d = e.getDroppedItem?.(); name = d?.name ?? null; count = Math.max(1, Number(d?.count) || 1) } catch { /* unnamed */ }
+    best = { id: e.id ?? null, name: name ?? 'an item', count, distance, position: e.position }
   }
   return best
 }
@@ -138,6 +138,33 @@ export function admitRoom (items = [], recipe = {}, { owedTables = 0, pickupNear
   const pickupOnly = !r.ok && r.reason === 'no_room' && held.pickup > 0 &&
     craftRoom(list, recipe, 1, { capacity: capacity - held.table }).ok
   return { ...r, reserve, held, pickup: pickupNear && typeof pickupNear === 'object' ? pickupNear : null, pickupOnly }
+}
+
+/**
+ * MAY THE CRAFT GO AND COLLECT THE ITEM IT IS HOLDING A SLOT FOR? -> { collect, why }. Pure.
+ *   reach band  with a crafting table in use, only an item within stationReach - PICKUP_TABLE_BAND of the table's
+ *               centre: the walk into its pickup box must not carry the bot out of the table's reach (both reviews: a
+ *               craft run 5.02 blocks from its table waits 20 s for windowOpen and is filed as no_path, which votes)
+ *   room        a free slot, or open room in stacks of the same name for the whole drop -- sized by the REGISTRY's
+ *               stackSize for that item (`stackSizeOf`), never an assumed 64 (Codex: dirt x63 takes a dropped dirt)
+ */
+export const PICKUP_TABLE_BAND = 1.5
+export function collectDecision ({ items = [], pickup = null, tableCentre = null, stationReach = 4.5, stackSizeOf = () => null } = {}) {
+  if (!pickup?.position) return { collect: false, why: 'no way to walk to it' }
+  if (tableCentre) {
+    const d = Math.hypot(pickup.position.x - tableCentre.x, pickup.position.y - tableCentre.y, pickup.position.z - tableCentre.z)
+    if (d > stationReach - PICKUP_TABLE_BAND) {
+      return { collect: false, why: `it lies ${d.toFixed(1)} blocks from the crafting_table, too far to collect and still craft there` }
+    }
+  }
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
+  if (list.length < BAG_SLOTS) return { collect: true, why: 'a free slot' }
+  const size = Number(stackSizeOf(pickup.name))
+  if (pickup.name && Number.isFinite(size) && size > 0) {
+    const open = list.filter(i => i.name === pickup.name && !i.nbt).reduce((k, i) => k + Math.max(0, size - (i.count ?? 1)), 0)
+    if (open >= Math.max(1, pickup.count ?? 1)) return { collect: true, why: `it joins the ${pickup.name} stack` }
+  }
+  return { collect: false, why: 'no free slot or open stack to collect it into' }
 }
 
 /** What the held-back slots are for, for a refusal: "1 for the crafting table ..., 1 for dirt on the ground 2.0 ...". */

@@ -27,7 +27,7 @@ const { Recipe } = require_('prismarine-recipe')('1.21.8')
 const { SKILLS } = await import('../src/skills.mjs')
 const { Runner } = await import('../src/runner.mjs')
 const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS,
-        executionVerdict, admitRoom, pickupPending, pickupNearest, heldLine, roomAdvice, placeStackOf, depositFreesSlot, PICKUP_MARGIN } =
+        executionVerdict, admitRoom, pickupPending, pickupNearest, heldLine, collectDecision, PICKUP_TABLE_BAND, roomAdvice, placeStackOf, depositFreesSlot, PICKUP_MARGIN } =
   await import('../src/craftroom.mjs')
 const { depositPlan } = await import('../src/bankable.mjs')
 const { CraftSyncError, admissionRefusal } = await import('../src/craftsync.mjs')
@@ -1024,8 +1024,8 @@ await t('ADMISSION positive control: the same craft with nothing landing is admi
 })
 
 // --- round 2: the pickup hold-back is about the ITEM, never paid for with a tool ---------------
-const DROP = (bot, x, z = 0.5, name = 'dirt') => {
-  bot.entities[77] = { id: 77, name: 'item', drop: name, position: new Vec3(x, 64, z), getDroppedItem: () => ({ name, count: 1 }) }
+const DROP = (bot, x, z = 0.5, name = 'dirt', id = 77) => {
+  bot.entities[id] = { id, name: 'item', drop: name, position: new Vec3(x, 64, z), getDroppedItem: () => ({ name, count: 1 }) }
 }
 const behindAWall = ({ goal }) => { if (goal?.item) throw Object.assign(new Error('no path'), { failClass: 'no_path' }) }
 
@@ -1107,6 +1107,85 @@ await t('DEPOSIT ADVICE only if the plan, as deposit() runs it, empties a stack 
   assert.equal(depositFreesSlot(ctl, depositPlan(ctl, null, { wants: [] })), true, 'positive control: all 10 cobblestone go, a slot frees')
   assert.equal(depositFreesSlot([item('stick', 2), item('stick', 40)], [{ name: 'stick', count: 2 }]), true, 'slot order: the first stack is taken whole')
   assert.equal(depositFreesSlot([item('stick', 40), item('stick', 2)], [{ name: 'stick', count: 2 }]), false, 'the 40 is first: 2 off it frees nothing')
+})
+
+// --- round 3: the pickup step stays within the table's reach, merges, and runs once per craft level --------
+await t('WALK BACK FAILS: the pickup walk leaves the table out of reach and the way back throws -> bot.craft never runs, no no_path', async () => {
+  const n = await mark()
+  let detoured = false
+  const { bot, crafts } = makeBot(bagOf(35, [item('stick', 5)]), { tables: [NEAR], onGoto: ({ goal, bot: b }) => {
+    if (goal?.item) { detoured = true; b.entity.position = new Vec3(9.5, 64, 0.5); throw Object.assign(new Error('a detour'), { failClass: 'no_path' }) }
+    if (detoured) throw Object.assign(new Error('no path back'), { failClass: 'no_path' })
+  } })
+  DROP(bot, 2.5)
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.ok(detoured, 'positive control: the walk did happen')
+  assert.deepEqual(crafts, [], 'bot.craft ran out of the table\'s reach')
+  assert.deepEqual([r.status, r.failClass], ['unknown', 'unverified'], r.detail)
+  assert.notEqual(r.failClass, 'no_path')
+  assert.match(r.detail, /the walk to collect dirt left the crafting_table at 1,64,0 out of reach; walk back to it/)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && /reason=table_out_of_reach/.test(x.detail)))
+})
+
+await t('REACH BAND: an item beyond STATION_REACH - 1.5 of the table is refused WITHOUT walking (reason=pickup_pending)', async () => {
+  const n = await mark()
+  let walks = 0
+  const { bot, crafts, digs } = makeBot(bagOf(35, [item('stick', 5), spent('stone_axe'), PICK()]), { tables: [NEAR],
+    onGoto: ({ goal }) => { if (goal?.item) walks++ } })
+  DROP(bot, -1.9)                                     // 2.4 from the feet (in range), 3.4 from the table centre (out of the band)
+  assert.equal(pickupPending(bot.entity.position, bot.entities), true, 'positive control: the drop is in pickup range')
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(walks, 0, 'walked to an item the craft could not collect and still reach its table')
+  assert.deepEqual(crafts, []); assert.equal(digs.length, 0)
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.match(r.detail, /too far to collect and still craft there/)
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && /reason=pickup_pending dirt/.test(x.detail)))
+})
+
+await t('MERGEABLE PICKUP (Codex): 36/36 with stick x2 + dirt x63 and a dirt x1 two blocks off -> collected into the stack, then crafted', async () => {
+  const { bot, have, crafts, tossed } = makeBot(bagOf(36, [item('stick', 2), item('dirt', 63)]), { tables: [NEAR] })
+  DROP(bot, 2.5)
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(have('dirt'), 64); assert.equal(have('stone_pickaxe'), 1)
+  assert.deepEqual(crafts, [1]); assert.deepEqual(tossed, [])
+})
+
+await t('MERGEABLE PICKUP positive control: the dirt stack is FULL (64) -> no slot, no stack: refused, nothing walked to', async () => {
+  let walks = 0
+  const { bot, crafts } = makeBot(bagOf(36, [item('stick', 2), item('dirt', 64)]), { tables: [NEAR], onGoto: ({ goal }) => { if (goal?.item) walks++ } })
+  DROP(bot, 2.5)
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.match(r.detail, /no free slot or open stack to collect it into/)
+  assert.equal(walks, 0); assert.deepEqual(crafts, [])
+})
+
+await t('collectDecision: stack room is the REGISTRY\'s stackSize (egg 16), never an assumed 64; the reach band is measured from the table', () => {
+  const bag = n => bagOf(36, [item('egg', n)])
+  const sizeOf = name => mc.itemsByName[name]?.stackSize
+  const egg = { name: 'egg', count: 1, position: new Vec3(2.5, 64, 0.5) }
+  assert.equal(mc.itemsByName.egg.stackSize, 16, 'the fixture is a 16-stack')
+  assert.equal(collectDecision({ items: bag(15), pickup: egg, stackSizeOf: sizeOf }).collect, true)
+  assert.equal(collectDecision({ items: bag(16), pickup: egg, stackSizeOf: sizeOf }).collect, false, 'a full 16-stack has no room, whatever 64 says')
+  assert.equal(collectDecision({ items: bag(15), pickup: { ...egg, count: 2 }, stackSizeOf: sizeOf }).collect, false, 'room for the WHOLE drop')
+  assert.equal(collectDecision({ items: bagOf(35, []), pickup: egg }).collect, true, 'a free slot')
+  const centre = new Vec3(1.5, 64.5, 0.5)
+  assert.equal(collectDecision({ items: bagOf(35, []), pickup: { ...egg, position: new Vec3(1.5 + 4.5 - PICKUP_TABLE_BAND - 0.1, 64.5, 0.5) }, tableCentre: centre }).collect, true)
+  assert.equal(collectDecision({ items: bagOf(35, []), pickup: { ...egg, position: new Vec3(1.5 + 4.5 - PICKUP_TABLE_BAND + 0.1, 64.5, 0.5) }, tableCentre: centre }).collect, false)
+})
+
+await t('ONCE PER CRAFT LEVEL: a 16-execution batch beside a stream of drops waits and walks ONCE, then refuses naming the item', async () => {
+  let waits = 0, walks = 0, next = 100
+  const made = makeBot(bagOf(35, [item('oak_log', 16), item('cobblestone', 10)]), {
+    onGoto: ({ goal }) => { if (goal?.item) walks++ },
+    // every craft, another drop rolls up two blocks from wherever the bot now stands
+    afterCraft: () => { const f = made.bot.entity.position; DROP(made.bot, f.x + 2, f.z, 'cobblestone', next++) } })
+  const { bot, crafts } = made
+  bot.waitForTicks = async n => { if (n === 20) waits++ }
+  DROP(bot, 2.5, 0.5, 'cobblestone')
+  const r = await run(bot, { item: 'oak_planks', count: 64 })
+  assert.equal(waits, 1, `waited ${waits} times`); assert.equal(walks, 1, `walked ${walks} times`)
+  assert.ok(crafts.length >= 1, 'positive control: the first execution was made after the one wait/walk')
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.match(r.detail, /already waited for and tried an item once in this craft/)
+  assert.match(r.detail, /cobblestone 2\.0 blocks away/)
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

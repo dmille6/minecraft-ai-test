@@ -33,7 +33,7 @@ import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { pickupTransaction, itemIdsNow, supportVeto, standHeight, sweepWants, scaffoldWithout, PICKUP_THINK_MS, inPickupBox, pickupGoalClass } from './logpickup.mjs'
 import { SAPLINGS } from './pickuplog.mjs'
-import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, placeStackOf, depositFreesSlot, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
+import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositFreesSlot, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -3069,7 +3069,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   const stationDid = []       // what the station branch below did, for the success line
   // THIS LEVEL'S ROOM STATE (craftExecutions): two make-room tries and the table reserve, shared by every execution
   // here and by every step of a whole-tree plan.
-  const rs = { tries: 0, tableYields: false, owed: owedNow, stationDid }
+  const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: owedNow, stationDid }
 
   if (!recipe) {
     const tableBlock = bot.findBlock({
@@ -3576,14 +3576,19 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, signal, deadl
     }
     // AN ITEM ON THE GROUND IS NEVER PAID FOR WITH A TOOL (Claude review). When the craft fits but for the slot held back
     // for a pickup in range (room.pickupOnly), the remedy is about the ITEM: wait for it to land or leave, collect it if
-    // a slot is free to take it, else refuse naming it. Once per execution, and makeCraftRoom is never called for it.
-    let pickupDealt = false
+    // a slot is free to take it, else refuse naming it. ONCE PER CRAFT LEVEL (rs.pickupDealt, like the two make-room
+    // tries): a long batch beside a stream of drops must not wait and walk again for every execution (Claude review).
+    // makeCraftRoom is never called for it.
     const settle = async () => {
       if (!room.pickupOnly) return null
-      if (pickupDealt) return refusePickup(bot, item, room, sofar(done))
-      pickupDealt = true
+      if (rs.pickupDealt) return refusePickup(bot, item, room, ` (already waited for and tried an item once in this craft)${sofar(done)}`)
+      rs.pickupDealt = true
       const r = await settlePickup(ctx, { plan, owed: reserveFor, table, signal })
       room = r.room
+      if (r.lostTable) {
+        logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot), detail: `refused ${item}: reason=table_out_of_reach ${r.lostTable}` })
+        return { status: 'unknown', failClass: 'unverified', detail: `not crafted: ${r.lostTable}${sofar(done)}` }
+      }
       if (r.said) rs.stationDid.push(r.said)
       return room.pickupOnly ? refusePickup(bot, item, room, `${r.tried ? ` (${r.tried})` : ''}${sofar(done)}`) : null
     }
@@ -3713,11 +3718,15 @@ async function settlePickup(ctx, { plan, owed, table, signal }) {
   check(signal)
   let room = now()
   if (!room.pickupOnly) return { room, said: 'waited for an item on the ground to land or leave pickup range' }
-  if (bot.inventory.items().length >= BAG_SLOTS) return { room, tried: 'no free slot to collect it into' }
   const p = room.pickup
   const e = p?.id != null ? bot.entities?.[p.id] : null
   const Goal = pickupGoalClass(goals)
   if (!e?.position || !Goal) return { room, tried: 'no way to walk to it' }
+  const centre = table?.position ? table.position.offset(0.5, 0.5, 0.5) : null
+  // ONLY AN ITEM IT CAN COLLECT AND STILL CRAFT: within the table's reach band, with a free slot or an open stack.
+  const may = collectDecision({ items: bot.inventory.items(), pickup: { ...p, position: e.position }, tableCentre: centre,
+                                stationReach: STATION_REACH, stackSizeOf: n => bot.registry?.itemsByName?.[n]?.stackSize })
+  if (!may.collect) return { room, tried: may.why }
   let tried = ''
   if (!inPickupBox(bot.entity?.position, e.position)) {
     try { await withTimeout(bot.pathfinder.goto(new Goal(e.position)), 8_000, bot) } catch (err) {
@@ -3727,10 +3736,18 @@ async function settlePickup(ctx, { plan, owed, table, signal }) {
   }
   for (let i = 0; i < 12 && bot.entities?.[p.id]; i++) await sleep(100, signal)
   check(signal)
-  // THE WALK MAY HAVE LEFT THE TABLE'S REACH: back to it, bounded, before the craft clicks it.
-  if (table?.position && bot.entity?.position?.distanceTo?.(table.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) {
+  // THE WALK MAY HAVE LEFT THE TABLE'S REACH: back to it, bounded -- and then MEASURED. A craft out of reach waits ~20 s
+  // for windowOpen and is filed as no_path, which teaches an avoid lesson against the craft (both reviews). Still out
+  // of reach: the craft is not attempted, and the result names the table.
+  const far = () => !!centre && !(bot.entity?.position?.distanceTo?.(centre) <= STATION_REACH)
+  if (far()) {
     try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(table.position.x, table.position.y, table.position.z, 1)), 8_000, bot) } catch (err) {
       if (err?.aborted || signal?.aborted) throw err
+    }
+    check(signal)
+    if (far()) {
+      const t = table.position
+      return { room: now(), lostTable: `the walk to collect ${p.name} left the crafting_table at ${t.x},${t.y},${t.z} out of reach; walk back to it` }
     }
   }
   room = now()
