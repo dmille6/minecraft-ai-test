@@ -11,10 +11,12 @@
 # rows (0 by construction now), and its "nothing changed" correctness gate cannot fire once the CONTROL runs craftsync.
 #
 #   LIVENESS     canary `_craft_room` rows from the canary build (>= 1); control 0.
-#   CORRECTNESS  canary pickaxe crafts the SERVER saw lost -- `_craft_sync` confirmed=no, verify_source=resync, produced<=0,
-#                clicks>0 -- with the bag at >= 35 estimated slots after the craft: <= 1 (one residual pickup race once
-#                clicks have started is tolerated; craftsync can detect that toss but not prevent it). Judged on >= 10
-#                canary pickaxe crafts. The control's same count is the positive control (>= 1).
+#   CORRECTNESS  canary pickaxe crafts the SERVER saw lost -- `_craft_sync` outcome=unconfirmed, confirmed=no,
+#                verify_source=resync, produced<=0, clicks>0: <= 1 (one residual pickup race once clicks have started is
+#                tolerated; craftsync detects that toss but cannot prevent it). NOT filtered by bag fullness: the slot
+#                estimate merges split stacks and treats 16-stacks as 64, so a real 36/36 bag often reads < 35 (Claude
+#                review r2); the >= 35 subset is REPORTED. Under craftsync's lockstep, server denials are ~0, so what is
+#                left is tosses. Judged on >= 10 canary pickaxe crafts; the control's count is the positive control.
 #   INSTRUMENT   share of canary execution rows with verdict=unanswered > 5% BLOCKS KEEP (judged on >= 20 rows): the
 #                design relies on Paper answering window-0 resyncs. verified_local on the canary must be 0 (it means
 #                craftsync is not installed on a canary bot).
@@ -60,20 +62,42 @@ def skill(r):
 
 def lost_on_server(a):
     produced = a.get('produced')
-    return (str(a.get('confirmed')) == 'no' and a.get('verify_source') == 'resync'
+    return (a.get('outcome') == 'unconfirmed' and str(a.get('confirmed')) == 'no' and a.get('verify_source') == 'resync'
             and (produced is None or produced <= 0) and int(a.get('clicks') or 0) > 0)
 
 
 # POSITIVE CONTROL for the predicate and the estimator.
-assert lost_on_server({'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 9})
-assert not lost_on_server({'confirmed': 'yes', 'verify_source': 'resync', 'produced': 1, 'clicks': 9})
-assert not lost_on_server({'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 0})    # refused before clicking
+assert lost_on_server({'outcome': 'unconfirmed', 'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 9})
+assert not lost_on_server({'outcome': 'unconfirmed', 'confirmed': 'yes', 'verify_source': 'resync', 'produced': 1, 'clicks': 9})
+assert not lost_on_server({'outcome': 'refused', 'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 0})
+for o in ('aborted', 'deadline', 'error'):      # craftsync writes the same fields on these; they are not a lost craft
+    assert not lost_on_server({'outcome': o, 'confirmed': 'no', 'verify_source': 'resync', 'produced': 0, 'clicks': 9})
+
+
+def refusal_kind(d):
+    """One _craft_room row with status=refused -> its kind. Templates read from 21e270c (Claude review r2): one
+    admission refusal writes TWO rows (admission + 'needs'), a pre-click refusal up to two make-room rows + one 'needs'
+    row -- so 'no_room' and 'admission:*' are counted, 'remedy_failed' is reported but never summed in."""
+    if 'at admission' in d:
+        m = re.search(r'verdict=(\w+)', d)
+        return 'admission:' + (m.group(1) if m else '?')
+    if re.match(r'refused \S+: needs \d+ more slot', d):
+        return 'no_room'
+    if d.startswith('could not check room'):
+        return 'unreadable_recipe'
+    return 'remedy_failed'
+
+
+assert refusal_kind('refused stone_pickaxe: needs 1 more slot(s) at 35/36; x') == 'no_room'
+assert refusal_kind('refused stone_pickaxe at admission: source=none verdict=no_room_after_resync (x)') == 'admission:no_room_after_resync'
+assert refusal_kind('could not check room for stick') == 'unreadable_recipe'
+assert refusal_kind('stone_pickaxe: no spent tool that can be spared (35 -> 35/36 slots)') == 'remedy_failed'
 assert occupancy({'cobblestone': 65, 'stone_pickaxe': 2}) == 4
 
 ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=PRE, until=END)
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev.rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
 room = defaultdict(Counter); verdicts = Counter(); refusals = Counter(); retake = Counter(); offbuild = 0
-pick_sync = Counter(); lost_full = Counter(); lost = defaultdict(Counter); picks = defaultdict(Counter)
+pick_sync = Counter(); lost_full = Counter(); lost_any = Counter(); lost = defaultdict(Counter); picks = defaultdict(Counter)
 botsets = defaultdict(lambda: defaultdict(set)); last = {}
 for r in ev.rows:
     t = r.get('t'); b = (r.get('bot') or {}).get('name')
@@ -97,9 +121,8 @@ for r in ev.rows:
             if arm == 'canary':
                 m = re.search(r'verdict=(\w+)', d)
                 verdicts[m.group(1) if m else ('server' if st == 'success' else st)] += 1
-                m = re.search(r'refus\w*[:=] ?(\w+)', d)
-                if st not in ('success', 'unverified', 'verified_local') and m:
-                    refusals[m.group(1)] += 1
+                if st == 'refused':
+                    refusals[refusal_kind(d)] += 1
         elif arm == 'canary':
             retake[st] += 1
     if k == '_craft_sync' and not other:
@@ -110,6 +133,7 @@ for r in ev.rows:
             lost[period][arm] += int(gone)
             if period == 'post':
                 pick_sync[arm] += 1
+                lost_any[arm] += int(gone)
                 inv = ((r.get('raw') or {}).get('bot') or {}).get('inventory') or (r.get('bot') or {}).get('inventory')
                 if gone and occupancy(inv) >= 35:
                     lost_full[arm] += 1
@@ -140,9 +164,10 @@ print('-' * 78)
 print('LIVENESS     canary _craft_room rows %d (>= 1) | control %d (must be 0) | other build %d'
       % (sum(room['canary'].values()), sum(room['control'].values()), offbuild))
 print('             canary statuses %s | verdicts %s' % (dict(room['canary']), dict(verdicts)))
-print('CORRECTNESS  canary pickaxe crafts lost on the server with a full bag: %d of %d (<= 1; %s)'
-      % (lost_full['canary'], pick_sync['canary'], 'judged' if judged else 'NOT judged: < 10'))
-print('INSTRUMENT   control: %d of %d (positive control, >= 1)' % (lost_full['control'], pick_sync['control']))
+print('CORRECTNESS  canary pickaxe crafts the server saw lost: %d of %d (<= 1; %s) | of them at >= 35 est. slots %d'
+      % (lost_any['canary'], pick_sync['canary'], 'judged' if judged else 'NOT judged: < 10', lost_full['canary']))
+print('INSTRUMENT   control: %d of %d (positive control, >= 1) | at >= 35 est. slots %d'
+      % (lost_any['control'], pick_sync['control'], lost_full['control']))
 print('TRIPWIRE     verdict=unanswered %d of %d executions = %.1f%% (> 5%% blocks KEEP) | verified_local %d (must be 0)'
       % (unans, execs, 100 * share if execs else float('nan'), room['canary']['verified_local']))
 print('REPORTED     lost-pickaxe rate canary %.3f -> %.3f | control %.3f -> %.3f | DiD %+.3f'
@@ -157,15 +182,15 @@ try:
     emit('craftroomread', W, {
         'room_rows_canary': sum(room['canary'].values()), 'room_rows_control': sum(room['control'].values()),
         'offbuild_canary': offbuild,
-        'pick_crafts_canary': pick_sync['canary'], 'lost_full_canary': lost_full['canary'],
-        'lost_full_judged': int(judged and lost_full['canary'] > 1), 'lost_full_control': lost_full['control'],
+        'pick_crafts_canary': pick_sync['canary'], 'lost_canary': lost_any['canary'], 'lost_full_canary': lost_full['canary'],
+        'lost_judged': int(judged and lost_any['canary'] > 1), 'lost_control': lost_any['control'],
         'unanswered_share': None if not execs else round(share, 4),
         'unanswered_over_5pct': int(execs >= 20 and share > 0.05),
         'verified_local_canary': room['canary']['verified_local'],
         'lost_rate_did': None if did != did else round(did, 4),
         'retake_taken': retake['taken'] + retake['success'], 'retake_left': retake['left'],
         'usable_pick_canary': gc, 'bots_canary': nc, 'usable_pick_control': gk, 'bots_control': nk,
-        'exposure_ready': int(judged and lost_full['control'] >= 1),
+        'exposure_ready': int(judged and lost_any['control'] >= 1),
     })
 except Exception as e:
     print('emit failed:', e)
