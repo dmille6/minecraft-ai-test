@@ -61,8 +61,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   the backport: deposit advice names one non-ingredient item whose deposit empties a stack (depositTarget), whole-plan
   ingredient protection, remedy-first refusal text checked through formatOutcome (output-identical, 1,152 cases).
   The backport changes advice text only, not the crafting mechanics the sandbox measured.
-- **composter on craftroom: co-on-b00b22c @ 1663e06 (pushed);** Claude AGREE, Codex CHANGE on one item (enforce the
-  stand cell before placing the table) -- builder fixing. C4: chain room now simulated (from logs 2 slots, not 4).
+- **composter on craftroom FINAL = co-on-b00b22c @ 661c249 (pushed), both engines AGREE (~18:30Z).** Stand cell
+  enforced before the table (composter_unreachable otherwise). C4: chain room simulated (from logs 2 slots, not 4).
+  NEXT: Paper sandbox build-from-logs / no-start-when-full / compost / occupied-stand (agent running).
+- **MAYOR GET_WOOD was blind (found 17:00Z):** world-pooled wood; in 1,376 of 2,661 quiet snapshots a pickaxe-less bot
+  held < 2 log-eq while the richest bot held a median 49% of its world's wood. Fix (shadow-mayor 77c025c + 9cad2ad,
+  pushed, NOT deployed): per-bot shortage sharing RESTORE_PICK's arithmetic; replay on 2,768 live snapshots: 62 -> 1,812
+  firings, = RESTORE_PICK no_ingredients exactly. Also: the mayor test suite had been RED since ~08:35Z (wall-clock
+  eviction vs fixture rows) so mutant kills were unscored. Both reviews CHANGE (tests + scorer biases + revision stamp);
+  builder on it. DEPLOY before ~02:00Z 10-04 (48 h GET_WOOD window before the 10-06 03:18Z decision); record deploy
+  time, sha, first snapshot id per world, GET_WOOD leases at deploy; never pool pre/post GET_WOOD.
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
