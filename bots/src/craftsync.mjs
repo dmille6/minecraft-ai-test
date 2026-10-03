@@ -137,7 +137,8 @@ export function admissionRefusal (admit, items, ctx = {}) {
  * opts: { log(row), now(), sleep(ms), ...CRAFT_SYNC overrides }. Returns the controller (also bot.craftSync).
  * bot.craft(recipe, count, table, { signal, deadline, admit }): an aborted signal or a passed deadline stops the craft.
  * `admit` (optional) is asked AFTER the baseline window-0 resync and BEFORE the first click (admissionRefusal); a
- * refusal throws CraftSyncError with its failClass/reason and sends no craft click. Without `admit` nothing changes.
+ * refusal throws CraftSyncError with its failClass/reason and sends no craft click. With `admit` and an UNANSWERED
+ * baseline the craft is refused unasked (craft_room / baseline_unanswered). Without `admit` nothing changes.
  */
 export function installCraftSync (bot, opts = {}) {
   if (bot.craftSync) return bot.craftSync
@@ -420,8 +421,12 @@ export function installCraftSync (bot, opts = {}) {
         // overtaken by a pickup that lands while the baseline resync is in flight: the result then has no slot and
         // put-away throws it on the ground (Codex, real mineflayer + fake Paper). Asked here, after the resync answered
         // and before any craft click, it can still say no.
+        // AN ADMISSION NEEDS A SERVER BAG (Codex review): with the baseline resync unanswered the local bag is the stale
+        // belief the race exploits, and judging it admitted a craft whose result was then thrown. No answer, no craft.
         const refusal = (typeof options?.admit === 'function' && !stopReason(st))
-          ? admissionRefusal(options.admit, bot.inventory?.items?.() ?? [], { source: before.source })
+          ? (before.source === 'resync'
+              ? admissionRefusal(options.admit, bot.inventory?.items?.() ?? [], { source: before.source })
+              : { failClass: 'craft_room', reason: 'baseline_unanswered', detail: `the baseline resync was not answered (${before.source})` })
           : null
         if (refusal) {
           st.outcome = 'refused'

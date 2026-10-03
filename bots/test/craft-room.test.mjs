@@ -27,8 +27,9 @@ const { Recipe } = require_('prismarine-recipe')('1.21.8')
 const { SKILLS } = await import('../src/skills.mjs')
 const { Runner } = await import('../src/runner.mjs')
 const { craftRoom, roomRecipe, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, roomForOne, BAG_SLOTS,
-        executionVerdict, admitRoom, pickupPending, roomAdvice, PICKUP_MARGIN } =
+        executionVerdict, admitRoom, pickupPending, pickupNearest, heldLine, roomAdvice, placeStackOf, depositFreesSlot, PICKUP_MARGIN } =
   await import('../src/craftroom.mjs')
+const { depositPlan } = await import('../src/bankable.mjs')
 const { CraftSyncError, admissionRefusal } = await import('../src/craftsync.mjs')
 
 let pass = 0, fail = 0
@@ -202,10 +203,10 @@ await t('roomAdvice names ONLY a remedy whose precondition holds here; CONFINED 
     'three breads: one bite frees nothing')
   // CONFINED: every stack full, no expendable tool, no placement site
   const confined = bagOf(36, [item('stick', 64)])
-  const d = roomAdvice({ items: confined, consumes, isPlaceable, placeSite: false, foodOrder: order, hunger: 10, bankable: 2 })
+  const d = roomAdvice({ items: confined, consumes, isPlaceable, placeSite: false, foodOrder: order, hunger: 10, depositFrees: true })
   assert.equal(d.kind, 'deposit'); assert.match(d.text, /nothing in the bag can be freed from where you stand -- deposit/)
-  const n = roomAdvice({ items: confined, consumes, isPlaceable, placeSite: false, foodOrder: order, hunger: 10, bankable: 0 })
-  assert.equal(n.kind, 'none'); assert.match(n.text, /nothing in the bag can be freed from where you stand, and nothing in it is bankable/)
+  const n = roomAdvice({ items: confined, consumes, isPlaceable, placeSite: false, foodOrder: order, hunger: 10, depositFrees: false })
+  assert.equal(n.kind, 'none'); assert.match(n.text, /nothing in the bag can be freed from where you stand, and a deposit would empty no stack/)
   for (const a of [d, n]) assert.doesNotMatch(a.text, /plac|eat|use up|wear/, `an unexecutable remedy was named: ${a.text}`)
 })
 
@@ -1022,11 +1023,90 @@ await t('ADMISSION positive control: the same craft with nothing landing is admi
   assert.equal(r.status, 'success', r.detail); assert.deepEqual(admissions, []); assert.deepEqual(crafts, [1]); assert.equal(have('stone_pickaxe'), 1)
 })
 
-await t('PICKUP MARGIN: an item lying within pickup range holds a slot back -- 35/36 with a drop beside the bot is refused, not risked', async () => {
-  const { bot, crafts, tossed } = makeBot(bagOf(35, [item('stick', 5)]), { tables: [NEAR] })
-  bot.entities[77] = { id: 77, name: 'item', position: new Vec3(1.5, 64, 0.5), getDroppedItem: () => ({ name: 'dirt', count: 1 }) }
+// --- round 2: the pickup hold-back is about the ITEM, never paid for with a tool ---------------
+const DROP = (bot, x, z = 0.5, name = 'dirt') => {
+  bot.entities[77] = { id: 77, name: 'item', drop: name, position: new Vec3(x, 64, z), getDroppedItem: () => ({ name, count: 1 }) }
+}
+const behindAWall = ({ goal }) => { if (goal?.item) throw Object.assign(new Error('no path'), { failClass: 'no_path' }) }
+
+await t('PICKUP HOLD-BACK, WALLED OFF: a drop 2.0 blocks away behind a wall -> no tool worn, the refusal names it and its distance', async () => {
+  const n = await mark()
+  const { bot, crafts, digs, tossed, have } = makeBot(bagOf(35, [item('stick', 5), spent('stone_axe'), PICK()]), { tables: [NEAR], onGoto: behindAWall })
+  DROP(bot, 2.5)
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
-  assert.equal(r.failClass, 'inventory_full', r.detail); assert.deepEqual(crafts, []); assert.deepEqual(tossed, [])
+  assert.equal(digs.length, 0, `wore out a tool to pay for a held-back slot: ${JSON.stringify(digs)}`); assert.equal(have('stone_axe'), 1)
+  assert.deepEqual(crafts, []); assert.deepEqual(tossed, [])
+  assert.equal(r.failClass, 'inventory_full', r.detail)
+  assert.match(r.detail, /dirt 2\.0 blocks away is within pickup range/)
+  assert.match(r.detail, /step away from it or collect it/)
+  assert.doesNotMatch(r.detail, /nothing in the bag can be freed/, 'a slot IS free: the advice must not say otherwise')
+  assert.ok((await rowsSince(n)).some(x => x.kind === '_craft_room' && x.status === 'refused' && /reason=pickup_pending dirt 2\.0/.test(x.detail)))
+})
+
+await t('COMPOSED: ...the bot then steps away from the drop (the refusal\'s remedy) -> the next craft is admitted and made, no tool worn', async () => {
+  const { bot, crafts, digs, have } = makeBot(bagOf(35, [item('stick', 5), spent('stone_axe'), PICK()]), { tables: [NEAR], onGoto: behindAWall })
+  DROP(bot, 2.5)
+  const first = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(first.failClass, 'inventory_full', first.detail)
+  bot.entity.position = new Vec3(0.5, 64, -2.5)          // three blocks off: the drop leaves the grown box, the table stays in reach
+  assert.equal(pickupPending(bot.entity.position, bot.entities), false, 'positive control: the step did take it out of range')
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.deepEqual(crafts, [1]); assert.equal(have('stone_pickaxe'), 1); assert.equal(digs.length, 0)
+})
+
+await t('COMPOSED: a REACHABLE drop is collected first (a slot was free); the bag is then honestly full and room is made the normal way', async () => {
+  // stone beside where the walk ends (the drop's column), so the wear-out has a side block there too
+  const { bot, crafts, digs, have, tossed } = makeBot(bagOf(35, [item('stick', 5), spent('stone_axe'), PICK()]),
+    { tables: [NEAR], walls: [...WALLS, new Vec3(3, 64, 0)] })
+  DROP(bot, 2.5)
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.status, 'success', r.detail); assert.match(r.detail, /collected the dirt that lay within pickup range/)
+  assert.equal(have('dirt'), 1, 'the drop is in the bag'); assert.equal(have('stone_pickaxe'), 1); assert.deepEqual(crafts, [1])
+  assert.equal(digs.length, 1, 'one spent tool for the one slot the collected drop now really takes'); assert.deepEqual(tossed, [])
+})
+
+await t('a REALLY full bag with a drop in range: the refusal says how many slots are held back and why', async () => {
+  const { bot, digs } = makeBot(bagOf(36, [item('stick', 5)]), { tables: [NEAR] })
+  DROP(bot, 2.5)
+  const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
+  assert.equal(r.failClass, 'inventory_full', r.detail); assert.equal(digs.length, 0)
+  assert.match(r.detail, /1 slot\(s\) held back: 1 for dirt on the ground 2\.0 blocks away/)
+})
+
+await t('the hold-back is HELD ONLY while it would bite: admitRoom.pickupOnly, heldLine and pickupNearest say what and why', () => {
+  const pick = roomRecipe(mc, recipeOf('stone_pickaxe', { cobblestone: 1, stick: 1 }), 'stone_pickaxe')
+  const p = pickupNearest(new Vec3(0.5, 64, 0.5), { 9: { id: 9, name: 'item', position: new Vec3(2.5, 64, 0.5), getDroppedItem: () => ({ name: 'dirt' }) } })
+  assert.deepEqual([p.id, p.name, p.distance.toFixed(1)], [9, 'dirt', '2.0'])
+  const r = admitRoom(bagOf(35, [item('stick', 5)]), pick, { pickupNear: p })
+  assert.deepEqual([r.ok, r.pickupOnly, r.held], [false, true, { table: 0, pickup: 1 }])
+  assert.match(heldLine(r), /^1 slot\(s\) held back: 1 for dirt on the ground 2\.0 blocks away/)
+  const both = admitRoom(bagOf(35, [item('stick', 5)]), pick, { pickupNear: p, owedTables: 1 })
+  assert.equal(both.pickupOnly, false, 'short even without the pickup: the table slot is the real shortfall')
+  assert.match(heldLine(both), /1 for the crafting_table this craft will take back, 1 for dirt/)
+  assert.equal(admitRoom(bagOf(36, [item('stick', 5)]), pick, { pickupNear: p }).pickupOnly, false, 'really full: not pickup-only')
+})
+
+await t('PLACEMENT ADVICE uses the stack place() takes: dirt x64 BEFORE dirt x1 -> no "place" advice; x1 first -> advised', () => {
+  const isPlaceable = n => mc.blocksByName[n]?.boundingBox === 'block' && !!mc.itemsByName[n]
+  const consumes = [{ name: 'cobblestone', count: 3 }, { name: 'stick', count: 2 }]
+  const bigFirst = bagOf(36, [item('stick', 5), item('dirt', 64), item('dirt', 1)])
+  assert.equal(placeStackOf(bigFirst, 'dirt').count, 64, 'place() takes the 64')
+  assert.equal(bagFill(bigFirst, isPlaceable, consumes).cheapest, null)
+  assert.notEqual(roomAdvice({ items: bigFirst, consumes, isPlaceable, placeSite: true }).kind, 'place', 'advised a placement that frees nothing')
+  const oneFirst = bagOf(36, [item('stick', 5), item('dirt', 1), item('dirt', 64)])
+  assert.equal(roomAdvice({ items: oneFirst, consumes, isPlaceable, placeSite: true }).kind, 'place', 'positive control')
+})
+
+await t('DEPOSIT ADVICE only if the plan, as deposit() runs it, empties a stack (Codex: 2 of 10 cobblestone + 3 of 5 sticks frees nothing)', () => {
+  const bag = [item('cobblestone', 10), item('stick', 5)]; for (let i = 0; i < 34; i++) bag.push(item('dirt', 64))
+  const plan = depositPlan(bag, null, { wants: [] })
+  assert.deepEqual(plan.map(x => `${x.name}x${x.count}`).sort(), ['cobblestonex2', 'stickx3'], 'the repro plan')
+  assert.equal(depositFreesSlot(bag, plan), false)
+  assert.equal(roomAdvice({ items: bag, consumes: [], depositFrees: depositFreesSlot(bag, plan) }).kind, 'none')
+  const ctl = [item('cobblestone', 10), item('stick', 5)]; for (let i = 0; i < 34; i++) ctl.push(item('andesite', 64))
+  assert.equal(depositFreesSlot(ctl, depositPlan(ctl, null, { wants: [] })), true, 'positive control: all 10 cobblestone go, a slot frees')
+  assert.equal(depositFreesSlot([item('stick', 2), item('stick', 40)], [{ name: 'stick', count: 2 }]), true, 'slot order: the first stack is taken whole')
+  assert.equal(depositFreesSlot([item('stick', 40), item('stick', 2)], [{ name: 'stick', count: 2 }]), false, 'the 40 is first: 2 off it frees nothing')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)

@@ -187,6 +187,48 @@ await t('LIMIT, documented: a pickup landing AFTER the clicks began (on the resu
   assert.deepEqual(server.dropped.map(nameOf), ['stone_pickaxe'])
 })
 
+// ------------------------------------------------------------------ 1c. an UNANSWERED baseline (Codex, round 2: P1)
+// The server's bag fills during the baseline and the client is never told; the baseline resync is never answered.
+// mineflayer's local bag still says 35/36 -- the stale belief admission must not judge.
+function silentPickupAndNoBaselineAnswer (server) {
+  const receive = server.receive.bind(server)
+  let filled = false, swallowed = false
+  server.receive = (name, params) => {
+    if (!filled && name === 'close_window' && params.windowId === 0) {
+      const slot = server.p.findIndex((it, i) => i >= 9 && i <= 44 && !it)
+      if (slot >= 0) { filled = true; server.p[slot] = new Item(registry.itemsByName.dirt.id, 64) }   // no set_slot
+    }
+    if (!swallowed && name === 'window_click' && params.windowId === 0 && params.stateId === -1) { swallowed = true; return }
+    return receive(name, params)
+  }
+  return () => filled && swallowed
+}
+
+await t('UNANSWERED BASELINE, POSITIVE CONTROL: without admission the stale local bag lets the craft run -> the pickaxe is dropped', async () => {
+  const { server, bot } = await setup(RACE())
+  const happened = silentPickupAndNoBaselineAnswer(server)
+  const recipe = recipeFor(bot, server, 'stone_pickaxe', true)
+  await assert.rejects(bot.craft(recipe, 1, { position: new Vec3(1, 64, 0), name: 'crafting_table' }, { deadline: Date.now() + 60_000 }),
+    e => e.failClass === 'craft_unconfirmed')
+  await server.settle(); server.stop()
+  assert.ok(happened(), 'the fixture did not fire')
+  assert.ok(craftClicks(server) > 0)
+  assert.deepEqual(server.dropped.map(nameOf), ['stone_pickaxe'])
+})
+
+await t('UNANSWERED BASELINE through the skill: admission refuses unasked (baseline_unanswered) -> no craft click, nothing dropped', async () => {
+  const { server, bot, rows } = await setup(RACE())
+  const happened = silentPickupAndNoBaselineAnswer(server)
+  const out = await skill(bot, server, 'stone_pickaxe', 1)
+  assert.ok(happened(), 'the fixture did not fire')
+  assert.equal(out.failClass, 'unverified', out.detail); assert.equal(out.status, 'unknown')
+  assert.match(out.detail, /baseline inventory resync was not answered/)
+  assert.equal(craftClicks(server), 0, 'a craft click went out on a stale bag')
+  assert.deepEqual(server.dropped, [])
+  assert.deepEqual([server.count('stick'), server.count('cobblestone'), server.count('stone_pickaxe')], [5, 10, 0])
+  assert.deepEqual(rows.map(r => [r.args.outcome, r.args.stop]), [['refused', 'admission: baseline_unanswered']])
+})
+
 // ------------------------------------------------------------------ 2. never double-counted
 await t('NO DOUBLE COUNT: 8 sticks is two verified executions; produced 8 = the server delta; the runner says +8', async () => {
   const { server, bot, rows } = await setup({ 36: ['oak_planks', 4], 9: ['dirt', 64] }, { table: null })

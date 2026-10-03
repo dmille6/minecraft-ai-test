@@ -103,24 +103,52 @@ export function craftRoom (items = [], recipe = {}, count = 1, { capacity = BAG_
  * just outside it still falls, slides, or meets a bot that sways. Any item counts -- ballast takes a slot like anything.
  */
 export const PICKUP_MARGIN = 1.0
-export function pickupPending (feet, entities = {}) {
-  if (!feet) return false
-  return Object.values(entities ?? {}).some(e => e?.name === 'item' && e.position &&
-    inPickupBox(feet, e.position, -PICKUP_MARGIN, -PICKUP_MARGIN))
+/** The NEAREST such item -> { id, name, distance, position } | null (named so a refusal can say what it is waiting on). */
+export function pickupNearest (feet, entities = {}) {
+  if (!feet) return null
+  let best = null
+  for (const e of Object.values(entities ?? {})) {
+    if (e?.name !== 'item' || !e.position || !inPickupBox(feet, e.position, -PICKUP_MARGIN, -PICKUP_MARGIN)) continue
+    const distance = Math.hypot(e.position.x - feet.x, e.position.y - feet.y, e.position.z - feet.z)
+    if (best && best.distance <= distance) continue
+    let name = null
+    try { name = e.getDroppedItem?.()?.name ?? null } catch { /* unnamed */ }
+    best = { id: e.id ?? null, name: name ?? 'an item', distance, position: e.position }
+  }
+  return best
 }
+export const pickupPending = (feet, entities = {}) => pickupNearest(feet, entities) !== null
 
 /**
  * THE ROOM PREDICATE, one execution -> craftRoom's answer plus `reserve`. Pure. Used twice per execution: before
  * bot.craft (to choose a remedy) and as craftsync's `admit`, on the bag the server holds after the baseline resync.
  *   owedTables  tables this call or a caller placed and will take back: one slot is held for them unless a
  *               crafting_table stack can take them
- *   pickupNear  pickupPending(): ONE more slot is held back for the item that may land during the craft
+ *   pickupNear  pickupNearest()'s item (or true): ONE more slot is held back for what may land during the craft
+ * Returns craftRoom's answer plus `reserve`, `held` ({ table, pickup }: why each slot is held back), `pickup` (the item)
+ * and `pickupOnly`: the craft fits once the pickup slot is not held -- the caller must then deal with the ITEM (wait,
+ * collect, or name it), never pay for the held slot by wearing out a tool (Claude review).
  */
 export function admitRoom (items = [], recipe = {}, { owedTables = 0, pickupNear = false, capacity = BAG_SLOTS } = {}) {
   const list = Array.isArray(items) ? items : []
   const stackRoom = list.some(i => i?.name === 'crafting_table' && (i.count ?? 1) + owedTables <= (i.stackSize ?? DEFAULT_STACK))
-  const reserve = (owedTables > 0 && !stackRoom ? 1 : 0) + (pickupNear ? 1 : 0)
-  return { ...craftRoom(list, recipe, 1, { capacity: capacity - reserve }), reserve }
+  const held = { table: owedTables > 0 && !stackRoom ? 1 : 0, pickup: pickupNear ? 1 : 0 }
+  const reserve = held.table + held.pickup
+  const r = craftRoom(list, recipe, 1, { capacity: capacity - reserve })
+  const pickupOnly = !r.ok && r.reason === 'no_room' && held.pickup > 0 &&
+    craftRoom(list, recipe, 1, { capacity: capacity - held.table }).ok
+  return { ...r, reserve, held, pickup: pickupNear && typeof pickupNear === 'object' ? pickupNear : null, pickupOnly }
+}
+
+/** What the held-back slots are for, for a refusal: "1 for the crafting table ..., 1 for dirt on the ground 2.0 ...". */
+export function heldLine (room = {}) {
+  const parts = []
+  if (room.held?.table) parts.push(`${room.held.table} for the crafting_table this craft will take back`)
+  if (room.held?.pickup) {
+    const p = room.pickup
+    parts.push(`${room.held.pickup} for ${p?.name ?? 'an item'} on the ground${Number.isFinite(p?.distance) ? ` ${p.distance.toFixed(1)} blocks away` : ''} that can land in the bag`)
+  }
+  return parts.length ? `${room.reserve} slot(s) held back: ${parts.join(', ')}` : ''
 }
 
 /**
@@ -130,11 +158,12 @@ export function admitRoom (items = [], recipe = {}, { owedTables = 0, pickupNear
  *            place() runs -- the caller passes its answer as `placeSite`)
  *   eat      the food eat() would pick (foodOrder) is a single item, the bot is not full (eat refuses at 20), and the
  *            recipe does not need it
- *   deposit  the bag holds something bankable: deposit walks home to the town chest from anywhere
+ *   deposit  the deposit plan, as deposit() would run it, empties at least one stack (depositFreesSlot): deposit
+ *            walks home to the town chest from anywhere
  *   none     nothing holds -- said plainly, never a remedy that cannot run
  * wear_out is never named: it is not a model action (chatOnly), and craft has already run it itself (makeCraftRoom).
  */
-export function roomAdvice ({ items = [], consumes = [], isPlaceable = () => false, placeSite = false, foodOrder = [], hunger = 20, bankable = 0 } = {}) {
+export function roomAdvice ({ items = [], consumes = [], isPlaceable = () => false, placeSite = false, foodOrder = [], hunger = 20, depositFrees = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const used = new Set((consumes ?? []).map(c => c.name))
   const fill = bagFill(list, isPlaceable, consumes)
@@ -145,10 +174,10 @@ export function roomAdvice ({ items = [], consumes = [], isPlaceable = () => fal
   if (food && (food.count ?? 1) === 1 && Number(hunger) < 20 && !used.has(food.name)) {
     return { kind: 'eat', text: `eating your one ${food.name} frees its slot (eat)` }
   }
-  if (Number(bankable) > 0) {
+  if (depositFrees === true) {
     return { kind: 'deposit', text: 'nothing in the bag can be freed from where you stand -- deposit (it walks home to the town chest) frees slots' }
   }
-  return { kind: 'none', text: 'nothing in the bag can be freed from where you stand, and nothing in it is bankable' }
+  return { kind: 'none', text: 'nothing in the bag can be freed from where you stand, and a deposit would empty no stack' }
 }
 
 /** Room for one more of `name` (the table retake): a non-full compatible stack, or a free slot. */
@@ -199,6 +228,28 @@ export function craftRoomRemedy (items = [], item = '') {
   return null
 }
 
+/** THE STACK place() PUTS DOWN: the first stack of that name in the bag's slot order. Shared by place() and the advice. */
+export const placeStackOf = (items, name) => (Array.isArray(items) ? items : []).find(i => i?.name === name) ?? null
+
+/**
+ * WOULD THIS DEPOSIT FREE A SLOT? -> true | false. Pure (Codex review: a plan that banks 2 of 10 cobblestone and 3 of 5
+ * sticks leaves both stacks and the bag still full). Walks the plan exactly as deposit() executes it: per entry, the
+ * stacks of that name in slot order, min(left, stack) from each. A stack it takes whole is a freed slot.
+ */
+export function depositFreesSlot (items = [], plan = []) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
+  for (const { name, count } of plan ?? []) {
+    let left = Number(count) || 0
+    for (const it of list.filter(x => x.name === name)) {
+      if (left <= 0) break
+      const n = Math.min(left, it.count ?? 1)
+      if (n >= (it.count ?? 1)) return true
+      left -= n
+    }
+  }
+  return false
+}
+
 /** Does this item name place as a solid block? (wheat names a crop block but the item does not place it.) */
 export const placeableBlock = (registry, name) =>
   registry?.blocksByName?.[name]?.boundingBox === 'block' && !!registry?.itemsByName?.[name]
@@ -241,7 +292,10 @@ export function bagFill (items = [], isPlaceable = () => false, consumes = []) {
   const line = [...by.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 5)
     .map(([n, k], i) => `${n} ${k}${i === 0 ? (k === 1 ? ' slot' : ' slots') : ''}`).join(', ')
   // ONE block: a stack of 64 is 64 placements, not a move from where the bot stands (sandbox: 'placing your 64 diorite').
-  const cheapest = fillerCandidates(list, consumes, isPlaceable).find(it => (it.count ?? 1) === 1) ?? null
+  // And the one block must be THE STACK place() TAKES (placeStackOf): with dirt x64 ahead of dirt x1, `place dirt`
+  // spends the 64 and frees nothing (Codex review).
+  const names = [...new Set(fillerCandidates(list, consumes, isPlaceable).map(it => it.name))]
+  const cheapest = names.map(n => placeStackOf(list, n)).find(it => it && (it.count ?? 1) === 1) ?? null
   return { line, cheapest: cheapest && { name: cheapest.name, count: cheapest.count ?? 1 } }
 }
 
