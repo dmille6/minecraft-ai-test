@@ -1370,12 +1370,15 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
-    noteSought(bot, drop.id, 'pickup')   // TELEMETRY ONLY (pickuplog.mjs): marks a collect of this id 'sought'
+    // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
+    // this pursuit ends on every path -- failed, aborted, or after the settle -- so a drop given up on is not.
+    const releaseSought = noteSought(bot, drop.id, 'pickup')
     const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
         new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
     } catch (e) {
+      releaseSought()
       if (e.aborted || signal?.aborted) throw e
       // The walk failed. That is a fact about THIS drop, so retire it and let
       // the next iteration pick the next-nearest -- the old code returned here
@@ -1397,7 +1400,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
                          `item=${what} d=${off} ms=${Date.now() - walkT0}` })
       continue
     }
-    await sleep(250, signal)
+    try { await sleep(250, signal) } finally { releaseSought() }
     // ONE WALK PER DROP PER SWEEP, whatever happened.
     //
     // The first draft retired a drop only when the bot ended up >= 2 blocks

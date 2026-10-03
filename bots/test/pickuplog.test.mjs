@@ -68,13 +68,13 @@ test('JUNK_ITEMS is NEVER_KEEP + every sapling + bamboo + apple, and nothing a b
 // ------------------------------------------------------------------ attribution -----
 
 test('attribution: running skill with its main arg, else the reflex holding the body, else idle', () => {
-  assert.equal(attributeTo({ skill: 'gather', args: { count: 4, block: 'oak_log' }, reflex: 'escape' }), 'gather:oak_log')
+  assert.equal(attributeTo({ skill: 'gather', args: { count: 4, block: 'oak_log' }, reflex: 'escape' }), 'gather:oak_log', 'a flag does not override a running skill')
   assert.equal(attributeTo({ skill: 'craft', args: { item: 'stick', count: 4 } }), 'craft:stick')
   assert.equal(attributeTo({ skill: 'mine', args: { y: -20 } }), 'mine:y-20')
   assert.equal(attributeTo({ skill: 'explore', args: { blocks: 60 } }), 'explore')
   assert.equal(attributeTo({ skill: 'goto', args: { x: 1, y: 2, z: 3 } }), 'goto')
   assert.equal(attributeTo({ skill: null, reflex: 'drown_rescue' }), 'reflex:drown_rescue')
-  assert.equal(attributeTo({ holder: 'entombed' }), 'reflex:entombed')
+  assert.equal(attributeTo({ holder: 'entombed' }), 'holder:entombed')
   assert.equal(attributeTo({}), 'idle')
   assert.equal(mainArg('gather', null), null)
 })
@@ -106,7 +106,7 @@ test('own non-junk pickups aggregate into ONE _pickups row per flush, count from
   serverCollect(bot, drop(203, 'raw_iron', 1))
   pl.flush()
   assert.equal(junk.length, 0)
-  assert.deepEqual(summaries, ['cobblestone 4 mine:y-20 passive; raw_iron 1 mine:y-20 passive | 5 items in 3 pickups'])
+  assert.deepEqual(summaries, ['cobblestone 4 mine:y-20 passive; raw_iron 1 mine:y-20 passive | 5 items in 3 pickups in 0s'])
   pl.flush()
   assert.equal(summaries.length, 1, 'the aggregate was not cleared')
 })
@@ -140,7 +140,7 @@ test('a throwing resolver, context or sampler never throws out of the handler', 
   assert.doesNotThrow(() => bot3.emit('playerCollect', bot3.entity, undefined))
 })
 
-test('a junk pickup writes ONE _junk_pickup row per event with item, place, skill, owner, recent actions and context', () => {
+test('a junk pickup writes ONE _junk_pickup row per event with item, place, skill, body, recent actions and context', () => {
   const blocks = (x, y, z) => (y === 63 ? 'grass_block' : y === 65 && Math.abs(x - 10) <= 1 ? 'oak_leaves' : x === 12 && y === 64 ? 'short_grass' : 'air')
   const bot = fakeBot({ blocks })
   const ctx = { skill: 'gather', args: { count: 4, block: 'oak_log' }, reflex: null }
@@ -165,7 +165,9 @@ test('a junk pickup writes ONE _junk_pickup row per event with item, place, skil
   assert.ok(detail.startsWith('oak_sapling x2 passive gather:oak_log at 10,64,-4 overworld'), detail)
   assert.equal(args.item, 'oak_sapling'); assert.equal(args.count, 2); assert.equal(args.mode, 'passive')
   assert.deepEqual([args.x, args.y, args.z, args.dim], [10, 64, -4, 'overworld'])
-  assert.equal(args.skill, 'gather:oak_log'); assert.equal(args.source, 'gather:oak_log'); assert.equal(args.owner, null)
+  assert.equal(args.skill, 'gather:oak_log'); assert.equal(args.source, 'gather:oak_log')
+  assert.equal(args.holder, null); assert.equal(args.reflex, null)
+  assert.deepEqual(args.skill_args, { count: 4, block: 'oak_log' })
   // Last 3 in the preceding 30 s: the two digs (collapsed) and the leaf dig are 32 s old, so only _entombed is in.
   assert.deepEqual(args.recent, ['_entombed:failed -2s'])
   assert.equal(args.feet, 'air'); assert.equal(args.below, 'grass_block')
@@ -247,11 +249,12 @@ test('summary: largest groups first; when it does not fit, the smallest go and t
   addPickup(agg, { name: 'oak_log', count: 12, source: 'gather:oak_log', mode: 'sought' })
   addPickup(agg, { name: 'oak_log', count: 1, source: 'gather:oak_log', mode: 'sought' })
   assert.equal(formatPickups(agg), 'cobblestone 30 mine:y-20 passive; oak_log 13 gather:oak_log sought | 43 items in 3 pickups')
+  assert.equal(formatPickups(agg, { windowS: 60, junk: 2 }), 'cobblestone 30 mine:y-20 passive; oak_log 13 gather:oak_log sought | 43 items in 3 pickups in 60s; junk 2 rows')
   for (let i = 0; i < 40; i++) addPickup(agg, { name: `item_${String(i).padStart(2, '0')}`, count: 1, source: 'explore', mode: 'passive' })
   const s = formatPickups(agg, { errors: 2, junk: 4 })
   assert.ok(s.length <= 300, `${s.length}`)
   assert.ok(s.startsWith('cobblestone 30 mine:y-20 passive; oak_log 13 gather:oak_log sought; '), s)
-  assert.match(s, /\| 83 items in 43 pickups; junk 4 pickups in _junk_pickup rows; err=2; \+\d+ groups \(\d+ items\) not shown$/)
+  assert.match(s, /\| 83 items in 43 pickups; junk 4 rows; err=2; \+\d+ groups \(\d+ items\) not shown$/)
   const shown = Number(s.match(/\+(\d+) groups/)[1])
   assert.equal(s.split(' | ')[0].split('; ').length + shown, 42, 'every group is shown or counted')
 })
@@ -259,11 +262,11 @@ test('summary: largest groups first; when it does not fit, the smallest go and t
 test('junk row detail is most-important-first and capped; args keep everything the cap cuts', () => {
   const recent = ['a'.repeat(120), 'b'.repeat(120), 'c'.repeat(120)]
   const { detail, args } = junkRow({ name: 'bamboo', count: 3, mode: 'sought', by: 'pickup', source: 'explore',
-    pos: { x: 1.6, y: 70, z: -0.4 }, dim: 'overworld', skill: 'explore', owner: 'escape', recent,
+    pos: { x: 1.6, y: 70, z: -0.4 }, dim: 'overworld', skill: 'explore', holder: 'air', reflex: 'escape', recent,
     ctx: { feet: 'air', below: 'grass_block', leaves: 0, bamboo: 9, grass: 4, unloaded: 0 } })
   assert.equal(detail.length, 300)
-  assert.ok(detail.startsWith('bamboo x3 sought(pickup) explore at 2,70,0 overworld | feet=air below=grass_block leaves=0 bamboo=9 grass=4 | recent: '), detail)
-  assert.deepEqual(args.recent, recent); assert.equal(args.owner, 'escape'); assert.equal(args.bamboo, 9)
+  assert.ok(detail.startsWith('bamboo x3 sought(pickup) explore at 2,70,0 overworld | holder=air reflex=escape | feet=air below=grass_block leaves=0 bamboo=9 grass=4 | recent: '), detail)
+  assert.deepEqual(args.recent, recent); assert.equal(args.holder, 'air'); assert.equal(args.reflex, 'escape'); assert.equal(args.bamboo, 9)
 })
 
 // ------------------------------------------------------------------ context sampling -----

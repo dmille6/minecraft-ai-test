@@ -13,8 +13,11 @@
 //                 mode, position, dimension, the running skill, the reflex holding the body, the last 3 actions in
 //                 the preceding 30 s, and the blocks around the feet. Structured in skill.args (`flattened` in the
 //                 mcai-skill mapping), with a most-important-first detail under the logger's 300-char cap.
-//   _pickups      everything else, aggregated per (item, source, mode) and flushed at most once a minute, only
-//                 when something was collected, and on shutdown.
+//   _pickups      everything else, aggregated per (item, source, mode), one row per minute WINDOW in which anything
+//                 happened (pickups, junk rows, capped junk, errors) and on shutdown. Every count on it, err=
+//                 included, is that window's, and the row names the window's length.
+//   Bounded: 64 groups a window (the rest fold into other_groups), 64-char fields, 5 junk rows a second (the
+//   excess folds into the summary as junk_capped).
 //
 // HOW AN ITEM IS RESOLVED. The server sends `collect` (take_item_entity: collected id, collector id,
 // pickupItemCount) BEFORE it removes the entity, and mineflayer 4.37.1 turns it into `playerCollect(collector,
@@ -24,8 +27,10 @@
 //
 // SOUGHT vs PASSIVE. 'sought' when the bot was deliberately walking to THAT entity id: pickupNearbyItems
 // registers each drop it walks to (noteSought), and any pathfinder goal that follows an item entity
-// (mineflayer-collectblock's GoalFollow) is registered from `goal_updated`. Everything else is 'passive' --
-// the server's auto-pickup of an item within reach while the bot was doing something else.
+// (mineflayer-collectblock's GoalFollow) is registered from `goal_updated`. A marker lives only while its pursuit
+// does: pickupNearbyItems releases it when the walk fails, aborts or settles, and a replaced or cleared goal
+// releases follow markers; a 15 s ttl is the backstop. Everything else is 'passive' -- the server's auto-pickup of
+// an item within reach while the bot was doing something else.
 
 import { NEVER_KEEP } from './hygiene.mjs'
 
@@ -59,14 +64,44 @@ export function skillLabel (skill, args) {
 }
 
 /**
- * Who the pickup belongs to: the running skill (with its main arg), else the reflex or arbiter owner holding the
- * body, else 'idle'. ctx = { skill, args, reflex, holder } as read at the moment of the pickup.
+ * Who the pickup belongs to. ctx = { skill, args, holder, reflex } as read at the moment of the pickup.
+ *   holder  the arbiter's grant owner: AUTHORITATIVE when present. A holder other than the running skill means a
+ *           reflex took the body from it, so the pickup is the holder's.
+ *   skill   the running skill with its main arg.
+ *   reflex  a reflex arm's own flag: only when nothing above answers. A flag never overrides the holder (Codex).
+ * Else 'idle'. The holder and the flag are also written as SEPARATE fields on the junk row.
  */
 export function attributeTo (ctx = {}) {
+  if (ctx.holder && ctx.holder !== ctx.skill) return `holder:${ctx.holder}`
   const s = skillLabel(ctx.skill, ctx.args)
   if (s) return s
-  const owner = ctx.reflex ?? ctx.holder
-  return owner ? `reflex:${owner}` : 'idle'
+  return ctx.reflex ? `reflex:${ctx.reflex}` : 'idle'
+}
+
+/**
+ * Which reflex arm is driving the body, from the arms' own flags (reflex.mjs reads its closure flags into this).
+ * The body-moving arms first; eating does not move the body, so it names the pickup only when nothing else runs.
+ */
+export function activeReflexOf ({ rescuing = false, escaping = false, pocketing = false, marooned = false, eating = false } = {}) {
+  return rescuing ? 'drown_rescue' : escaping ? 'escape' : pocketing ? 'flooded_pocket' : marooned ? 'marooned'
+    : eating ? 'eat' : null
+}
+
+/**
+ * A bounded copy of a skill's args for the structured row: primitives only (a nested object is not copied), at
+ * most maxKeys keys, strings cut to maxStr. A copy, so a later mutation by the skill cannot reach the row.
+ */
+export function boundArgs (args, { maxKeys = 8, maxStr = 40 } = {}) {
+  if (!args || typeof args !== 'object') return null
+  const out = {}
+  let k = 0
+  for (const [key, v] of Object.entries(args)) {
+    if (k >= maxKeys) break
+    if (v == null || typeof v === 'object' || typeof v === 'function') continue
+    out[String(key).slice(0, maxStr)] = typeof v === 'string' ? v.slice(0, maxStr) : v
+    k++
+  }
+  return out
 }
 
 /** 'sought' when this id was being walked to within ttl, or is the pathfinder's follow target now. */
@@ -94,22 +129,31 @@ export function resolveCollected (entity, packetCount = null) {
 // ---------------------------------------------------------------- action ring -----
 
 /**
- * The last few things the bot did, newest last. Consecutive repeats collapse into one entry with a count, so a
- * mine's twenty `dig:stone` rows do not push everything else out.
+ * The last few things the bot did, newest last. Consecutive repeats collapse into one entry, so a mine's twenty
+ * `dig:stone` rows do not push everything else out. Each entry keeps the TIMES of its repeats (bounded), so a run
+ * that started before the window counts only the repeats inside it (Codex: a refreshed timestamp counted them all).
  */
 export class ActionRing {
-  constructor (max = 12) { this.max = max; this.items = [] }
+  constructor (max = 12, maxRepeats = 64) { this.max = max; this.maxRepeats = maxRepeats; this.items = [] }
   push (label, t) {
     if (!label) return
     const last = this.items[this.items.length - 1]
-    if (last && last.label === label) { last.n++; last.t = t; return }
-    this.items.push({ label, n: 1, t })
+    if (last && last.label === label) {
+      last.times.push(t)
+      if (last.times.length > this.maxRepeats) last.times.shift()
+      return
+    }
+    this.items.push({ label, times: [t] })
     if (this.items.length > this.max) this.items.shift()
   }
-  /** Up to n entries from the last windowMs, oldest first, as `label[ xN] -Ss`. */
+  /** Up to n entries with a repeat in the last windowMs, oldest first, as `label[ xN] -Ss` (N = repeats inside). */
   recent (now, { n = 3, windowMs = 30_000 } = {}) {
-    return this.items.filter(e => now - e.t <= windowMs && e.t <= now).slice(-n)
-      .map(e => `${e.label}${e.n > 1 ? ` x${e.n}` : ''} -${Math.round((now - e.t) / 1000)}s`)
+    const out = []
+    for (const e of this.items) {
+      const inside = e.times.filter(t => t <= now && now - t <= windowMs)
+      if (inside.length) out.push({ label: e.label, n: inside.length, t: inside[inside.length - 1] })
+    }
+    return out.slice(-n).map(e => `${e.label}${e.n > 1 ? ` x${e.n}` : ''} -${Math.round((now - e.t) / 1000)}s`)
   }
 }
 
@@ -173,22 +217,24 @@ export function sampleContext (bot, { r = 3, dyMin = -1, dyMax = 1 } = {}) {
 
 /**
  * One _junk_pickup row: { detail, args }. detail is ordered most-important-first and capped at max; args carries
- * every field structured, so nothing the cap cuts is lost.
+ * every field structured, so nothing the cap cuts is lost. holder (arbiter, authoritative) and reflex (an arm's
+ * flag) are separate fields; skill_args is a bounded copy of the running skill's args.
  */
-export function junkRow ({ name, count, mode, by = null, pos = null, dim = null, source, skill = null, owner = null,
-                          recent = [], ctx = null, sampleUs = null }, max = 300) {
+export function junkRow ({ name, count, mode, by = null, pos = null, dim = null, source, skill = null, skillArgs = null,
+                          holder = null, reflex = null, recent = [], ctx = null, sampleUs = null }, max = 300) {
   const xyz = pos ? [pos.x, pos.y, pos.z].map(v => Math.round(v)) : null
   const at = xyz ? `${xyz.join(',')}${dim ? ` ${dim}` : ''}` : '?'
   const c = ctx ? `feet=${ctx.feet} below=${ctx.below} leaves=${ctx.leaves} bamboo=${ctx.bamboo} grass=${ctx.grass}` +
                   (ctx.unloaded ? ` unloaded=${ctx.unloaded}` : '') : 'ctx=none'
+  const body = [holder ? `holder=${holder}` : null, reflex ? `reflex=${reflex}` : null].filter(Boolean).join(' ')
   const detail = [
     `${name} x${count} ${mode}${by ? `(${by})` : ''} ${source} at ${at}`,
+    body || null,
     c,
     `recent: ${recent.length ? recent.join(', ') : 'none'}`,
-    owner ? `owner=${owner}` : null,
   ].filter(Boolean).join(' | ').slice(0, max)
   const args = {
-    item: name, count, mode, sought_by: by, source, skill, owner,
+    item: name, count, mode, sought_by: by, source, skill, skill_args: skillArgs, holder, reflex,
     x: xyz?.[0] ?? null, y: xyz?.[1] ?? null, z: xyz?.[2] ?? null, dim,
     recent: recent.slice(),
     feet: ctx?.feet ?? null, below: ctx?.below ?? null,
@@ -198,9 +244,18 @@ export function junkRow ({ name, count, mode, by = null, pos = null, dim = null,
   return { detail, args }
 }
 
-/** Fold one non-junk pickup into the minute's aggregate (a Map keyed item/source/mode). */
-export function addPickup (agg, { name, count, source, mode }) {
-  const k = `${name}\t${source}\t${mode}`
+/** Bounds on the minute's aggregate: groups beyond MAX_GROUPS fold into one `other_groups` group (counted). */
+export const MAX_GROUPS = 64
+const MAX_FIELD = 64
+const OVERFLOW = '\u0000overflow'
+
+/** Fold one non-junk pickup into the minute's aggregate (a Map keyed item/source/mode), bounded in groups and bytes. */
+export function addPickup (agg, { name, count, source, mode }, { maxGroups = MAX_GROUPS } = {}) {
+  name = String(name).slice(0, MAX_FIELD); source = String(source).slice(0, MAX_FIELD); mode = String(mode).slice(0, 16)
+  let k = `${name}\t${source}\t${mode}`
+  if (!agg.has(k) && agg.size - (agg.has(OVERFLOW) ? 1 : 0) >= maxGroups) {
+    k = OVERFLOW; name = 'other_groups'; source = 'capped'; mode = '-'
+  }
   const e = agg.get(k) ?? { name, source, mode, count: 0, n: 0 }
   e.count += count; e.n += 1
   agg.set(k, e)
@@ -208,25 +263,33 @@ export function addPickup (agg, { name, count, source, mode }) {
 }
 
 /**
- * The _pickups detail: groups by item count, largest first, then the total (the denominator) and errors.
- * `oak_log 30 gather:oak_log sought; cobblestone 12 mine:y-20 passive | 42 items in 9 pickups`. When the groups do
- * not fit, the smallest are dropped and the tail says how many groups and items are not shown.
+ * The _pickups detail for ONE window: groups by item count, largest first, then the totals for this window (the
+ * denominator), its length, the junk rows written in it, junk over the burst cap, and this window's errors.
+ * `cobblestone 30 mine:y-20 passive; oak_log 6 gather:oak_log sought | 36 items in 2 pickups in 60s; junk 3 rows`.
+ * When the groups do not fit, the smallest are dropped and the tail says how many groups and items are not shown.
+ * Linear: one pass over prefix lengths and suffix sums, and a single join.
  */
-export function formatPickups (agg, { max = 300, errors = 0, junk = 0 } = {}) {
+export function formatPickups (agg, { max = 300, errors = 0, junk = 0, junkCapped = 0, windowS = null } = {}) {
   const groups = [...agg.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name) ||
                                                     a.source.localeCompare(b.source) || a.mode.localeCompare(b.mode))
   const items = groups.reduce((s, g) => s + g.count, 0)
   const n = groups.reduce((s, g) => s + g.n, 0)
   const parts = groups.map(g => `${g.name} ${g.count} ${g.source} ${g.mode}`)
-  const base = `${items} items in ${n} pickups` + (junk ? `; junk ${junk} pickups in _junk_pickup rows` : '') +
+  const base = `${items} items in ${n} pickups` + (windowS != null ? ` in ${windowS}s` : '') +
+               (junk ? `; junk ${junk} rows` : '') + (junkCapped ? `; junk_capped ${junkCapped}` : '') +
                (errors ? `; err=${errors}` : '')
-  for (let k = parts.length; k >= 0; k--) {
-    const hidden = groups.slice(k)
-    const tail = base + (hidden.length ? `; +${hidden.length} groups (${hidden.reduce((s, g) => s + g.count, 0)} items) not shown` : '')
-    const s = (k ? parts.slice(0, k).join('; ') + ' | ' : '') + tail
-    if (s.length <= max) return s
+  // hiddenItems[k] = items in groups k..end; prefixLen[k] = length of parts[0..k) joined with '; '.
+  const hiddenItems = new Array(groups.length + 1).fill(0)
+  for (let k = groups.length - 1; k >= 0; k--) hiddenItems[k] = hiddenItems[k + 1] + groups[k].count
+  const tailFor = k => base + (k < groups.length ? `; +${groups.length - k} groups (${hiddenItems[k]} items) not shown` : '')
+  let best = 0, prefixLen = 0
+  for (let k = 1; k <= parts.length; k++) {
+    prefixLen += parts[k - 1].length + (k > 1 ? 2 : 0)
+    if (prefixLen + 3 + tailFor(k).length <= max) best = k
+    else if (prefixLen > max) break
   }
-  return base.slice(0, max)
+  const s = (best ? parts.slice(0, best).join('; ') + ' | ' : '') + tailFor(best)
+  return s.length <= max ? s : base.slice(0, max)
 }
 
 // ---------------------------------------------------------------- wiring -----
@@ -238,42 +301,68 @@ function seekingOf (bot) {
   return m
 }
 
-/** pickupNearbyItems (or any code path) is about to walk to this item entity. Telemetry only; never throws. */
+/**
+ * pickupNearbyItems (or any code path) is about to walk to this item entity. Returns a release() the caller runs
+ * when that pursuit ends -- arrived, failed, timed out or aborted -- so a drop it gave up on and later collects in
+ * passing reads 'passive' (Codex). The ttl in pickupMode is only the backstop. Telemetry only; never throws.
+ */
 export function noteSought (bot, id, by = 'pickup', now = Date.now()) {
-  try { if (bot && id != null) seekingOf(bot).set(id, { at: now, by }) } catch { /* telemetry */ }
+  try {
+    if (!bot || id == null) return () => {}
+    const m = seekingOf(bot)
+    const mark = { at: now, by }
+    m.set(id, mark)
+    return () => { try { if (m.get(id) === mark) m.delete(id) } catch { /* telemetry */ } }
+  } catch { return () => {} }
 }
 
 /**
  * Attach the pickup log to a bot. Returns { final, flush, ring, stats }.
- *   context()   -> { skill, args, reflex, holder }  read at each pickup (runner.current, the active reflex, arbiter)
+ *   context()   -> { skill, args, holder, reflex }  read at each pickup (runner.current, arbiter holder, reflex flag)
  *   emitSummary(detail)             writes the _pickups row
  *   emitJunk({ detail, args })      writes one _junk_pickup row
  *   tap(fn) -> unsubscribe          feeds every logger record to fn (logger.tapRecords)
  *   resolve(entity, packetCount)    injectable for tests; defaults to resolveCollected
+ *   junkPerSec                      at most this many _junk_pickup rows a second; the excess is folded into the
+ *                                   summary aggregate and counted as junk_capped
  */
 export function attachPickupLog (bot, { context = () => ({}), emitSummary = () => {}, emitJunk = () => {},
   tap = null, resolve = resolveCollected, sample = sampleContext, now = () => Date.now(),
-  flushMs = 60_000, seekTtlMs = SEEK_TTL_MS, timers = true } = {}) {
+  flushMs = 60_000, seekTtlMs = SEEK_TTL_MS, junkPerSec = 5, timers = true } = {}) {
   const agg = new Map()
   const ring = new ActionRing()
   const packetCounts = new Map()
   const seeking = seekingOf(bot)
-  const stats = { errors: 0, junk: 0, other: 0 }
-  let junkSinceFlush = 0
+  const stats = { errors: 0, junk: 0, other: 0, capped: 0 }
+  // THIS WINDOW's counters (Claude): every number on a summary row covers exactly the window it names.
+  let win = { start: now(), junk: 0, capped: 0, errors: 0 }
+  let burst = { sec: -1, n: 0 }
+  let done = false
+  const err = () => { stats.errors++; win.errors++ }
 
   // The raw packet carries pickupItemCount, which playerCollect drops. PREPENDED so it runs before mineflayer's
   // own handler, which emits playerCollect synchronously.
   const onPacket = pk => {
     try {
-      if (pk && pk.collectorEntityId === bot.entity?.id) packetCounts.set(pk.collectedEntityId, pk.pickupItemCount)
-    } catch { stats.errors++ }
+      if (pk && pk.collectorEntityId === bot.entity?.id) {
+        packetCounts.set(pk.collectedEntityId, pk.pickupItemCount)
+        if (packetCounts.size > 256) packetCounts.clear()          // bounded: playerCollect consumes each entry
+      }
+    } catch { err() }
   }
+  // A follow goal on an item marks it sought; ANY goal change (replaced, or setGoal(null)) ends the earlier
+  // follow pursuits (Codex: a cancelled pursuit left a 15 s 'sought' marker behind).
   const onGoal = goal => {
-    try { const e = goal?.entity; if (e && e.name === 'item' && e.id != null) noteSought(bot, e.id, 'follow', now()) } catch { stats.errors++ }
+    try {
+      const e = goal?.entity
+      for (const [id, s] of seeking) if (s.by === 'follow' && id !== e?.id) seeking.delete(id)
+      if (e && e.name === 'item' && e.id != null) noteSought(bot, e.id, 'follow', now())
+    } catch { err() }
   }
-  const onDig = block => { try { ring.push(`dig:${block?.name ?? '?'}`, now()) } catch { stats.errors++ } }
+  const onDig = block => { try { ring.push(`dig:${block?.name ?? '?'}`, now()) } catch { err() } }
 
   const onCollect = (collector, collected) => {
+    if (done) return
     try {
       const me = bot.entity
       if (!collector || !me || !collected || (collector !== me && collector.id !== me.id)) return
@@ -286,10 +375,19 @@ export function attachPickupLog (bot, { context = () => ({}), emitSummary = () =
       const { mode, by } = pickupMode({ id: collected.id, seeking, now: t, ttlMs: seekTtlMs, goalEntityId })
       seeking.delete(collected.id)
       let c = {}
-      try { c = context() ?? {} } catch { stats.errors++ }
+      try { c = context() ?? {} } catch { err() }
       const source = attributeTo(c)
       if (isJunk(name)) {
-        stats.junk++; junkSinceFlush++
+        const sec = Math.floor(t / 1000)
+        if (burst.sec !== sec) burst = { sec, n: 0 }
+        if (burst.n >= junkPerSec) {
+          // Over the burst cap: counted and folded into the summary, not written as a row.
+          stats.capped++; win.capped++
+          addPickup(agg, { name, count, source, mode })
+          return
+        }
+        burst.n++
+        stats.junk++; win.junk++
         const t0 = process.hrtime.bigint()
         const ctx = sample(bot)
         const sampleUs = Number((process.hrtime.bigint() - t0) / 1000n)
@@ -298,24 +396,30 @@ export function attachPickupLog (bot, { context = () => ({}), emitSummary = () =
           name, count, mode, by, source,
           pos: p ? { x: p.x, y: p.y, z: p.z } : null,
           dim: String(bot.game?.dimension ?? '').replace('minecraft:', '') || null,
-          skill: skillLabel(c.skill, c.args), owner: c.reflex ?? c.holder ?? null,
+          skill: skillLabel(c.skill, c.args), skillArgs: boundArgs(c.args),
+          holder: c.holder ?? null, reflex: c.reflex ?? null,
           recent: ring.recent(t), ctx, sampleUs,
         }))
       } else {
         stats.other++
         addPickup(agg, { name, count, source, mode })
       }
-    } catch { stats.errors++ }
+    } catch { err() }
   }
 
+  /** Write this window's summary when ANYTHING happened in it (pickups, junk rows, capped junk or errors). */
   const flush = () => {
+    if (done) return
     try {
       const t = now()
       for (const [id, s] of seeking) if (t - s.at > seekTtlMs) seeking.delete(id)
       packetCounts.clear()
-      if (!agg.size) return
-      const detail = formatPickups(agg, { errors: stats.errors, junk: junkSinceFlush })
-      agg.clear(); junkSinceFlush = 0
+      const w = win
+      win = { start: t, junk: 0, capped: 0, errors: 0 }
+      if (!agg.size && !w.junk && !w.capped && !w.errors) return
+      const detail = formatPickups(agg, { errors: w.errors, junk: w.junk, junkCapped: w.capped,
+                                         windowS: Math.max(0, Math.round((t - w.start) / 1000)) })
+      agg.clear()
       emitSummary(detail)
     } catch { stats.errors++ }
   }
@@ -329,18 +433,23 @@ export function attachPickupLog (bot, { context = () => ({}), emitSummary = () =
   bot.on('goal_updated', onGoal)
   bot.on('diggingCompleted', onDig)
   const untap = typeof tap === 'function'
-    ? tap(rec => { try { ring.push(ringLabel(rec), now()) } catch { stats.errors++ } })
+    ? tap(rec => { try { ring.push(ringLabel(rec), now()) } catch { err() } })
     : null
   const timer = timers ? setInterval(flush, flushMs) : null
   timer?.unref?.()
 
-  let done = false
+  /**
+   * Flush this window (junk-only and error-only windows included), then DETACH everything, so nothing can write a
+   * row after the logs close (Codex). Idempotent; the signal handler calls it before closeLogs().
+   */
   const final = () => {
     if (done) return
-    done = true
     if (timer) clearInterval(timer)
-    try { untap?.() } catch { /* telemetry */ }
     flush()
+    done = true
+    try { untap?.() } catch { /* telemetry */ }
+    try { bot.off?.('playerCollect', onCollect); bot.off?.('goal_updated', onGoal); bot.off?.('diggingCompleted', onDig) } catch { /* telemetry */ }
+    try { client?.off?.('collect', onPacket) } catch { /* telemetry */ }
   }
   return { final, flush, ring, stats }
 }
