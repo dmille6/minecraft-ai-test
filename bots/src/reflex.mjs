@@ -9,6 +9,7 @@
 // mode this layer exists to prevent.
 
 import { haltPath } from './pathhalt.mjs'
+import { activeReflexOf } from './pickuplog.mjs'   // telemetry only: names the arm for the pickup log
 import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
@@ -3005,7 +3006,11 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     reflexErrors = 0
   }, config.reflex.tickMs)
 
-  return () => clearInterval(timer)
+  const stop = () => clearInterval(timer)
+  // TELEMETRY ONLY (pickuplog.mjs): which reflex arm is driving the body right now, for attributing an item
+  // pickup. Read by nothing that decides; the flags it reads are the arms' own and are not changed here.
+  stop.activeReflex = () => activeReflexOf({ rescuing, escaping, pocketing, marooned, eating })
+  return stop
 }
 
 /** Walls on 3+ sides at head height, and open sky is far above. */
