@@ -1173,6 +1173,31 @@ await t('C5: a pickup walk during the PLANKS craft moves the bot; it walks back 
   assert.deepEqual(town.state.dropped, [])
 })
 
+await t('C5 ENFORCED (Codex): the walk BACK to the standing cell fails -> composter_unreachable, remedy first, and NO table is put down', async () => {
+  const items = [S('oak_slab', 1), S('oak_log', 2), S('crafting_table', 1), S('cobblestone', 10), ...filler(30)]
+  const probe = fakeTown({ hand: PICK, composterAt: null, items })
+  const read = (x, y, z) => { const b = probe.bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null }
+  const stand = C.standableBeside(read, probe.site)
+  const town = fakeTown({ hand: PICK, composterAt: null, items, botAt: new Vec3(stand.x + 0.5, stand.y, stand.z + 0.5), storeDir: process.env.POOL_STATE_DIR })
+  const ax = stand.x !== town.site.x
+  town.bot.entities[501] = { id: 501, name: 'item', position: new Vec3(stand.x + 0.5 + (ax ? 0 : 2.4), stand.y, stand.z + 0.5 + (ax ? 2.4 : 0)),
+                             getDroppedItem: () => ({ name: 'cobblestone', count: 1 }) }
+  let walked = null, returnTried = false
+  const goto = town.bot.pathfinder.goto
+  town.bot.pathfinder.goto = async goal => {
+    // the walk back onto the standing cell FAILS (something stands on it): the bot stays where the pickup walk left it
+    if (walked && goal?.x === stand.x && goal?.z === stand.z && !goal?.item) { returnTried = true; throw Object.assign(new Error('no path'), { failClass: 'no_path' }) }
+    return goto(goal)
+  }
+  town.state.onGoto = goal => { if (goal?.item) { walked = town.bot.entity.position.clone(); delete town.bot.entities[501]; town.add('cobblestone', 1) } }
+  const r = await run('build_composter', town.bot)
+  assert.ok(walked && returnTried, 'positive control: the pickup walk happened and the walk back was tried')
+  assert.equal(r.status, 'failed', r.detail); assert.equal(r.failClass, 'composter_unreachable', r.detail)
+  assert.match(r.detail, new RegExp(`^walk to the composter's standing cell at ${stand.x},${stand.y},${stand.z} and clear it`))
+  assert.equal([...town.world.values()].filter(n => n === 'crafting_table').length, 0, 'a table was put down from the displaced feet')
+  assert.equal(evidenceScope(r.failClass), null)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) console.log(`FAILED: ${failed.join(' | ')}`)
 process.exit(fail ? 1 : 0)

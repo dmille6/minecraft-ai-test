@@ -5353,14 +5353,20 @@ async function buildComposter (ctx, _args, signal) {
         // BACK ON THE STANDING CELL FIRST (C5): a pickup walk during the planks or table craft (craftExecutions) may have
         // moved the bot; the table goes within 2 of the composter's standing cell, never beside wherever that walk
         // ended. approach() alone is satisfied anywhere within reach of the site, which is not enough here.
-        const f0 = bot.entity.position.floored()
-        if (stand && (f0.x !== stand.x || f0.y !== stand.y || f0.z !== stand.z)) {
+        // ENFORCED (Codex): a failed walk back is not swallowed -- off the stand, nothing is put down, and the table cell
+        // is chosen from the VERIFIED stand, never from the feet.
+        const onStand = () => { const f = bot.entity.position.floored(); return !!stand && f.x === stand.x && f.y === stand.y && f.z === stand.z }
+        if (stand && !onStand()) {
           try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
           check(signal)
         }
+        if (!onStand()) {
+          const f = bot.entity.position.floored()
+          return fail('composter_unreachable', `walk to the composter's standing cell at ${stand?.x},${stand?.y},${stand?.z} and clear it ` +
+                      `(something may be standing on it): the bot is at ${f.x},${f.y},${f.z}, and the crafting table goes down only from that cell`)
+        }
         if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z} to put the crafting table down`)
-        const feet = bot.entity.position.floored()
-        const cell = tableCellFor({ site, stand: { x: feet.x, y: feet.y, z: feet.z }, read })
+        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read })
         if (!cell) return fail('composter_site', `nowhere within 2 of the composter site's standing cell to put a crafting table`)
         let put
         try { put = await placeWithin({ item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }

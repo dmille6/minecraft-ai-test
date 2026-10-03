@@ -123,14 +123,6 @@ const SKILL_NAMES = Object.keys(SKILLS)
 export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK, EVIDENCE_ONLY_IF_HERE }
 
 /**
- * Which store does this failure class get a vote in, and under what condition?
- *
- * ONE source of truth, pure and exported, so the policy can be asserted
- * directly instead of by reading which of three Sets a name happens to be in.
- * `null` means "logged, charted, and given no vote" -- the default, and the
- * polarity the allowlist exists to keep.
- */
-/**
  * THE OUTCOME LINE THE PROMPT RENDERS -> at most OUTCOME_CHARS characters: skill, status, verdict, the skill's detail,
  * then the evidence. Pure, exported so a test can check what actually reaches the model: whatever a refusal needs the
  * model to read (its remedy) must sit at the START of its detail, or the cut takes it.
@@ -142,6 +134,14 @@ export function formatOutcome (skill, r = {}, outcome = null) {
   return `${skill} -> ${r?.status}${verdict}: ${r?.detail ?? ''}${evidence}`.slice(0, OUTCOME_CHARS)
 }
 
+/**
+ * Which store does this failure class get a vote in, and under what condition?
+ *
+ * ONE source of truth, pure and exported, so the policy can be asserted
+ * directly instead of by reading which of three Sets a name happens to be in.
+ * `null` means "logged, charted, and given no vote" -- the default, and the
+ * polarity the allowlist exists to keep.
+ */
 export function evidenceScope(failClass) {
   if (EVIDENCE_ABOUT_THE_ACTION.has(failClass)) return 'action'
   if (EVIDENCE_ONLY_IF_STUCK.has(failClass)) return 'situation'
