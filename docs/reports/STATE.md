@@ -39,6 +39,14 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   canary pickaxe crafts the SERVER saw lost with a full bag <= 1; instrument = verdict=unanswered share <= 5%,
   verified_local = 0. Dry run clean but its positive control (`_craft_sync` lost-pickaxe rows) CANNOT be shown until
   craftsync-01's canary emits them -- prove it on those rows before chaining craftroom.
+- **craftroom-on-craftsync APPROVED by both engines at e9da587** (branch cr-on-a40c588, pushed; base a40c588 = the
+  logpickup variant for fleet ba84fa6). 5 review rounds, 7 real defects fixed, 30 mutants killed, 222/222: admission
+  inside craftsync after an ANSWERED baseline resync (else refuse before any click); pickup hold-back never wears a
+  tool, collects only within the table's reach band (anchored to the plan's station), re-measures reach after any
+  walk (reason=table_out_of_reach, never no_path); remedies only if executable (placeStackOf, depositFreesSlot);
+  verdict labels unanswered/click_timeout, source=none. Known limit: a pickup after clicks start can still toss.
+  NEXT: sandbox A/B on Paper (agent running; also lands the craft harness from the scratchpad into sandbox/craft/),
+  then registrations once the fleet sha after logpickup is known. Read: scripts/host/craftroomread.py (main c6bd787).
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
