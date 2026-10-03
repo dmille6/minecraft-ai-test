@@ -51,7 +51,11 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   classed no_path (an action-level learned-avoid vote); 1,866 log drops left behind vs 2,584 logs gained in 3 h; the
   pickup walk's GoalNear(drop,1) times out when the drop rests on leaves (27% of left drops 2.3+ above the feet).
   BUILDING (branch logpickup-on-93b3892): pickup-box goal, break the supporting leaves, finish on inventory gain,
-  fail class pickup_failed (no avoid vote). Slot: right after craftroom. 11) **TABLE CRAFTS REJECTED BY PAPER (sandbox 10-03 ~06:00Z, RCON-verified, BOTH builds):** 5 of 12 crafts at a
+  fail class pickup_failed (no avoid vote). Slot: right after craftroom.
+  **SANDBOX 10-03 ~07:00Z (720d079 vs control, 3 reps/scene): wins every scene** — open trunk 15/15 vs 12/15 at
+  1.8 vs 6.7 s/log; canopy branch 18/18 vs 14/18; stub 15/15 vs 12/15; full bag 1 log + inventory_full vs control 3 logs
+  left + no_path + an avoid rule per rep. Defects being fixed: falling drops judged before landing (server sends item
+  positions ~1/s); walk scaffolding with the gathered logs (pre-existing); unreachable label; sweep count. 11) **TABLE CRAFTS REJECTED BY PAPER (sandbox 10-03 ~06:00Z, RCON-verified, BOTH builds):** 5 of 12 crafts at a
   crafting table were rejected by the server (no result, ingredients back in the bag) — mostly the first craft after a
   table is placed — while the fleet's code reports success with a pickaxe that exists only locally. 2x2 grid crafts were
   not rejected. Likely a large share of the fleet's 44% "crafted, nothing changed". Suspect: mineflayer stateId / clicking
