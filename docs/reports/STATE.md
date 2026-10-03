@@ -76,6 +76,11 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   Pre-deploy records are `unstamped` (111dadc since 03:17:40Z). Backup ~/mcai-mayor.bak-111dadc. Unit limits intact
   (Nice 10, MemoryMax 512M, CPUQuota 25%). GET_WOOD's 48 h window: 18:02Z 10-03 -> 18:02Z 10-05; never pool pre/post.
   No cfg flag changes during the trial (composter flag off). Scorer runtime on 15 h live data: 4:54, 57 MB.
+  **FREEZE UNTIL THE 10-06 READ:** no change to mayor_core.py, mayor_shadow.py or stack_sizes.json and no cfg flag
+  change -- any of them starts a new partition and the 48 h GET_WOOD window no longer fits. Scorer-only commits are
+  safe. READ RULE (Claude r3): partition 2e82cfe81496/<cfg>, 18:02:46Z 10-03 -> 03:18Z 10-06 (~56 h after warm-up and
+  censoring); for GET_WOOD/GET_IRON judge xbase AGAINST THE LEASED-RANDOM baseline's xbase (lease timing cancels), raw
+  xbase reported alongside; xrand is a contested-only diagnostic. Deviation from plan: the gate is now target-blind.
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
