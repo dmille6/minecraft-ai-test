@@ -6,7 +6,9 @@
 // prismarine-recipe tables mineflayer uses, and a fake composter that follows the vanilla rules (consume at 0-6,
 // ripen 7->8 after 20 ticks, a use at 8 pops one bone meal on top with a 10-tick pickup delay).
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, unlinkSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, unlinkSync, rmSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { createRequire } from 'node:module'
 import { Vec3 } from 'vec3'
 import { NEVER_KEEP, TRIGGER_SLOTS, isHousekeeping } from '../src/hygiene.mjs'
@@ -303,7 +305,10 @@ await t('the row: key=value, verified n, stop before items so truncation cannot 
 // ===================================================================================================================
 // THE SKILLS, through the real registry and a fake bot
 // ===================================================================================================================
-const { SKILLS, SKILL_CONTRACTS } = await import('../src/skills.mjs')
+const { SKILLS, SKILL_CONTRACTS, HOUSEKEEPING_BOUNDS } = await import('../src/skills.mjs')
+// The per-await bounds scale with SKILL_TIMEOUT_MS; deadlines below are derived from them, so a direct run passes too.
+const BOUNDS = HOUSEKEEPING_BOUNDS ?? { awaitMs: 200, settleMs: 500 }
+const HUNG_MS = BOUNDS.awaitMs + 2 * BOUNDS.settleMs + 1500
 const { evidenceScope } = await import('../src/cognitive.mjs')
 const { config } = await import('../src/config.mjs')
 const HOME = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
@@ -315,11 +320,13 @@ const FLOOR = HOME.y - 1   // the fake town is flat, its surface at home's y
  * slot and is DROPPED when there is none (state.dropped) -- the overflow the build path must never cause.
  */
 function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonical', chests = [], botAt = null, rolls = () => 0.1,
-                    dropFar = false, pickup = true } = {}) {
-  const world = new Map()
+                    dropFar = false, pickup = true, storeDir = null, blocks = {} } = {}) {
+  // Each town its own pool state dir unless two bots are meant to share one.
+  process.env.POOL_STATE_DIR = storeDir ?? mkdtempSync(path.join(tmpdir(), 'composter-store-'))
+  const world = new Map(Object.entries(blocks))
   const key = p => `${p.x},${p.y},${p.z}`
   const state = { level, ripenAt: null, tick: 0, levels: [level], extracted: 0, pending: [], tossed: 0, dropped: [], clicksAt7: 0,
-                  crafted: [], sneakWrites: 0, activations: 0 }
+                  crafted: [], sneakWrites: 0, activations: 0, path: [], halts: 0, gotos: 0, tableUses: [], events: [] }
   const VANILLA = { leaf_litter: 0.3, wheat_seeds: 0.3, poppy: 0.65, short_grass: 0.3, apple: 0.65, oak_sapling: 0.3 }
   const nameAt = v => world.get(key(v)) ?? (v.y <= FLOOR ? 'grass_block' : 'air')
   const blockAt = p => {
@@ -375,6 +382,7 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
     blockAt,
     findBlock: ({ matching, maxDistance, point }) => bot.findBlocks({ matching, maxDistance, point, count: 1 })[0] ? blockAt(bot.findBlocks({ matching, maxDistance, point, count: 1 })[0]) : null,
     findBlocks: ({ matching, maxDistance, point, count: n = 1 }) => {
+      if (point) state.events.push('scan')
       const from = point ?? bot.entity.position
       return [...world.keys()].map(k => new Vec3(...k.split(',').map(Number)))
         .filter(v => v.distanceTo(from) <= maxDistance && matching(blockAt(v)))
@@ -382,7 +390,21 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
     },
     nearestEntity: f => Object.values(bot.entities).find(f) ?? null,
     // A GoalNear of range >= 2 ends beside its target, not on it (as the pathfinder stops once inside the range).
-    pathfinder: { setGoal () {}, stop () {}, goto: async goal => { const off = (goal.rangeSq ?? 0) >= 4 ? 2 : 0; bot.entity.position = new Vec3(Math.floor(goal.x) + off + 0.5, goal.y ?? bot.entity.position.y, Math.floor(goal.z) + 0.5) } },
+    // A goal already satisfied does not move the bot; otherwise it lands on the goal cell, or BESIDE it for a
+    // GoalNear of range >= 2 (the pathfinder stops once inside the range). Every position is recorded.
+    pathfinder: {
+      setGoal (g) { if (g === null) state.halts++ }, stop () {},
+      goto: async goal => {
+        state.gotos++; state.events.push('goto')
+        const here = bot.entity.position.floored()
+        if (!goal.isEnd?.(here)) {
+          const off = (goal.rangeSq ?? 0) >= 4 ? 2 : 0
+          bot.entity.position = new Vec3(Math.floor(goal.x) + off + 0.5, goal.y ?? bot.entity.position.y, Math.floor(goal.z) + 0.5)
+        }
+        state.path.push(bot.entity.position.clone())
+        await state.onGoto?.(goal)
+      },
+    },
     waitForTicks: async n => {
       for (let i = 0; i < n; i++) {
         state.tick++
@@ -417,13 +439,18 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
       const at = ref.position.plus(face); const h = bot.heldItem
       assert.ok(h, 'placing with an empty hand')
       h.count--; if (!h.count) slots[h.slot] = null
-      world.set(key(at), h.name)
+      world.set(key(at), h.name); state.events.push(`place:${h.name}`)
     },
     recipesFor: (id, meta, min = 1, table) => Recipe.find(id, meta).filter(r => (!r.requiresTable || table) &&
       r.delta.every(d => bot.inventory.count(d.id) + d.count * Math.ceil(min / r.result.count) >= 0)),
     recipesAll: (id, meta, table) => Recipe.find(id, meta).filter(r => !r.requiresTable || table),
     craft: async (recipe, n = 1, table) => {
-      if (recipe.requiresTable) assert.ok(table, 'a table recipe crafted without a table')
+      if (recipe.requiresTable) {
+        assert.ok(table, 'a table recipe crafted without a table')
+        assert.equal(nameAt(table.position), 'crafting_table', 'crafted at a block that is not a table')
+        assert.ok(bot.entity.position.distanceTo(table.position.offset(0.5, 0.5, 0.5)) <= 4.5, 'crafted at a table out of reach')
+        state.tableUses.push(table.position.clone())
+      }
       for (let i = 0; i < n; i++) {
         for (const d of recipe.delta) if (d.count < 0) take(REG.items[d.id].name, -d.count)
         add(REG.items[recipe.result.id].name, recipe.result.count)
@@ -437,7 +464,7 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
     { x: HOME.x + 5, y: HOME.y, z: HOME.z + 5 }
   if (composterAt === 'canonical' && site) world.set(key(site), 'composter')
   else if (composterAt && composterAt !== 'canonical') world.set(key(composterAt), 'composter')
-  return { bot, state, world, site, count, slots, key }
+  return { bot, state, world, site, count, slots, key, add }
 }
 const PICK = { name: 'stone_pickaxe', type: REG.itemsByName.stone_pickaxe.id, count: 1, maxDurability: 131, durabilityUsed: 30 }
 const S = (name, count) => ({ name, type: REG.itemsByName[name].id, count })
@@ -541,8 +568,8 @@ await t('#9 a hung equip cannot stall the visit; the hand is still restored', as
   let hung = 0
   bot.equip = (item, d) => (item.name === 'leaf_litter' && !hung++ ? new Promise(() => {}) : real(item, d))
   const t0 = Date.now()
-  const r = await within(SKILLS.compost.run({ bot }, {}, { aborted: false }), 6000, 'compost with a hung equip')
-  assert.ok(Date.now() - t0 < 6000); assert.equal(hung, 1, 'the hung equip was never reached'); assert.ok(r.status)
+  const r = await within(SKILLS.compost.run({ bot }, {}, { aborted: false }), HUNG_MS, 'compost with a hung equip')
+  assert.ok(Date.now() - t0 < HUNG_MS); assert.equal(hung, 1, 'the hung equip was never reached'); assert.ok(r.status)
   assert.equal(bot.heldItem?.name, 'stone_pickaxe')
 })
 
@@ -551,7 +578,7 @@ await t('#9 an abort while an await hangs ends the visit promptly with Aborted, 
   bot.activateBlock = () => new Promise(() => {})
   const ac = new AbortController()
   setTimeout(() => ac.abort(), 100)
-  const err = await within(SKILLS.compost.run({ bot }, {}, ac.signal).then(r => r, e => e), 3000, 'aborted compost')
+  const err = await within(SKILLS.compost.run({ bot }, {}, ac.signal).then(r => r, e => e), HUNG_MS, 'aborted compost')
   assert.ok(err?.aborted, `not aborted: ${JSON.stringify(err)}`)
   assert.equal(bot.heldItem?.name, 'stone_pickaxe')
 })
@@ -566,6 +593,9 @@ await t('#1 WIRED build: 3 logs, no table, room for the chain -> exactly one com
   assert.deepEqual(state.dropped, [], 'crafted output overflowed the bag')
   assert.equal(count('composter'), 0)
   assert.equal(bot.heldItem?.name, 'stone_pickaxe', 'the hand is restored around the WHOLE build')
+  // P2#2: the town is re-scanned AFTER the last movement and before the composter goes down.
+  const ev = state.events, placeAt = ev.indexOf('place:composter')
+  assert.ok(placeAt > 0 && ev.lastIndexOf('scan', placeAt) > ev.lastIndexOf('goto', placeAt), `order: ${ev.join(',')}`)
   const built = (await rows('_composter_built')).at(-1)
   assert.match(built?.skill?.detail ?? '', new RegExp(`^at=${site.x},${site.y},${site.z} wood=oak`))
 })
@@ -605,6 +635,194 @@ await t('#1 build: no composter and too little wood -> nothing crafted, a refusa
   const { bot, state } = fakeTown({ hand: PICK, composterAt: null, items: [S('oak_log', 2)] })
   const r = await run('build_composter', bot)
   assert.equal(r.status, 'no_effect'); assert.match(r.detail, /gather 3 logs/); assert.deepEqual(state.crafted, [])
+})
+
+// ===================================================================================================================
+// SECOND REVIEW PASS (9a859c5)
+// ===================================================================================================================
+const STONE_B = { name: 'stone', boundingBox: 'block' }
+const firstSite = () => C.canonicalComposterSite({ home: HOME0, read: flat() }).site
+
+await t('P2#1 a ONE-WIDE COLUMN top is never the site: a pillar standing on the first spiral cell is passed over', () => {
+  const s0 = firstSite()
+  const pillar = {}
+  for (let y = 64; y <= 66; y++) pillar[`${s0.x},${y},${s0.z}`] = STONE_B
+  const read = flat(pillar)
+  const top = { x: s0.x, y: 67, z: s0.z }
+  assert.ok(C.siteRefusal(read, top, HOME0), 'the pillar top is accepted')
+  const r = C.canonicalComposterSite({ home: HOME0, read })
+  assert.ok(r.site, r.why); assert.notDeepEqual(r.site, top); assert.equal(r.site.y, 64)
+})
+
+await t('P2#1 a WALL TOP (one wide along one axis) is never the site', () => {
+  const s0 = firstSite()
+  const wall = {}
+  for (let dx = -6; dx <= 6; dx++) for (let y = 64; y <= 66; y++) wall[`${s0.x + dx},${y},${s0.z}`] = STONE_B
+  const read = flat(wall)
+  assert.ok(C.siteRefusal(read, { x: s0.x, y: 67, z: s0.z }, HOME0), 'a cell on top of a one-wide wall is accepted')
+})
+
+await t('P2#1 the one-wide floor rule stands on its own: a one-wide strip between two drops is refused even with a cell to stand beside it', () => {
+  // The site's floor has air on BOTH x sides (two one-block drops), so it is one wide along x; the +z neighbour is
+  // ordinary ground, so the standing-cell rule alone would accept it.
+  const s0 = { x: 6, y: 64, z: 0 }
+  const b = { '5,63,0': AIR, '7,63,0': AIR, '5,62,0': AIR, '7,62,0': AIR }
+  const read = flat(b)
+  assert.ok(C.standableBeside(read, s0), 'test setup: there must be a standing cell')
+  assert.equal(C.siteRefusal(read, s0, HOME0), 'one-wide column top')
+})
+
+await t('P2#1 the site needs a STANDABLE cell beside it at its own level (air at feet and head over a solid floor)', () => {
+  const s = { x: 5, y: 64, z: 0 }
+  const roofed = {}
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) roofed[`${5 + dx},65,${dz}`] = STONE_B   // no headroom anywhere beside it
+  assert.ok(C.siteRefusal(flat(roofed), s, HOME0), 'no headroom beside it: nobody can stand there to use it')
+  assert.equal(C.siteRefusal(flat(), s, HOME0), null)
+  const stand = C.standableBeside(flat(), s)
+  assert.ok(stand && stand.y === 64 && Math.abs(stand.x - 5) + Math.abs(stand.z) === 1)
+})
+
+await t('P2#2 first writer wins: a claimed site is adopted by every later claimer and reader', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'composter-claim-'))
+  const file = path.join(dir, 'site.json')
+  assert.equal(C.readSiteRecord(file), null)
+  assert.deepEqual(C.claimSite(file, { x: 4, y: 64, z: 0 }), { x: 4, y: 64, z: 0 })
+  assert.deepEqual(C.claimSite(file, { x: -9, y: 64, z: 3 }), { x: 4, y: 64, z: 0 }, 'a second writer overwrote the first')
+  assert.deepEqual(C.readSiteRecord(file), { x: 4, y: 64, z: 0 })
+  writeFileSync(file, '{"x":1'); assert.equal(C.readSiteRecord(file), null, 'a torn file is not a site')
+  // The race itself: two bots that BOTH read "no record" and both write. Exactly one wins; the record does not move.
+  const race = path.join(dir, 'race.json')
+  assert.equal(C.writeSiteFirst(race, { x: 1, y: 64, z: 1 }), true)
+  assert.equal(C.writeSiteFirst(race, { x: 2, y: 64, z: 2 }), false, 'the second writer also won')
+  assert.deepEqual(C.readSiteRecord(race), { x: 1, y: 64, z: 1 }, 'the second writer moved the site')
+})
+
+await t('P2#2 two bots with DIFFERENT obstruction views converge on one site; the second never places elsewhere', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'composter-shared-'))
+  const a = fakeTown({ hand: PICK, composterAt: null, storeDir, items: [S('oak_log', 3)] })
+  const ra = await run('build_composter', a.bot)
+  assert.equal(ra.status, 'success', ra.detail)
+  const placedA = composters(a.world)
+  // Bot B's world: the same town, but it sees a barrel beside A's cell (so ITS spiral would pick another cell) and does
+  // not see A's composter yet (another view of the world).
+  const sa = a.site
+  const b = fakeTown({ hand: PICK, composterAt: null, storeDir, items: [S('oak_log', 3)],
+                       blocks: { [`${sa.x + 1},${sa.y},${sa.z + 1}`]: 'barrel' } })
+  assert.notDeepEqual(b.site, sa, 'test setup: B\'s own spiral must disagree')
+  const rb = await run('build_composter', b.bot)
+  assert.deepEqual(composters(b.world), [], `B placed at ${composters(b.world)} while the town's site is ${placedA}`)
+  assert.notEqual(rb.status, 'success')
+  assert.deepEqual(b.state.crafted, [], 'B spent wood on a site it cannot use')
+})
+
+await t('P2#2 a composter that appears elsewhere in town DURING the approach wins: nothing is placed', async () => {
+  const town = fakeTown({ hand: PICK, composterAt: null, botAt: new Vec3(HOME.x - 20.5, HOME.y, HOME.z + 0.5), items: [S('composter', 1)] })
+  town.state.onGoto = () => { town.world.set(town.key(new Vec3(HOME.x - 4, HOME.y, HOME.z - 5)), 'composter') }
+  const r = await run('build_composter', town.bot)
+  assert.equal(composters(town.world).length, 1, `placed a second composter: ${composters(town.world)}`)
+  assert.equal(r.status, 'no_effect')
+})
+
+await t('P2#3 an equip that completes AFTER the abort cannot overwrite the restored hand (outstanding ops settle first)', async () => {
+  const { bot, slots } = fakeTown({ hand: PICK, items: [S('leaf_litter', 20), ...filler(33)] })
+  const real = bot.equip
+  bot.equip = (item, d) => (item.name === 'leaf_litter' ? new Promise(res => setTimeout(() => res(real(item, d)), 300)) : real(item, d))
+  const ac = new AbortController(); setTimeout(() => ac.abort(), 100)
+  const err = await within(SKILLS.compost.run({ bot }, {}, ac.signal).then(r => r, e => e), 4000, 'aborted compost')
+  assert.ok(err?.aborted, JSON.stringify(err))
+  await new Promise(r => setTimeout(r, 400))   // anything still outstanding has had time to land
+  assert.equal(bot.heldItem?.name, 'stone_pickaxe', `the late equip left ${bot.heldItem?.name} in hand`)
+  assert.ok(slots.some(s => s?.name === 'leaf_litter'))
+})
+
+await t('P2#3 an equip that completes after its TIMEOUT is waited for before the hand is restored', async () => {
+  const { bot } = fakeTown({ hand: PICK, items: [S('leaf_litter', 20), ...filler(33)] })
+  const real = bot.equip
+  let late = 0
+  bot.equip = (item, d) => (item.name === 'leaf_litter' && !late++ ? new Promise(res => setTimeout(() => res(real(item, d)), BOUNDS.awaitMs + 150)) : real(item, d))
+  await within(SKILLS.compost.run({ bot }, {}, { aborted: false }), 8000, 'compost')
+  await new Promise(r => setTimeout(r, BOUNDS.awaitMs + 300))
+  assert.equal(bot.heldItem?.name, 'stone_pickaxe', `the late equip left ${bot.heldItem?.name} in hand`)
+})
+
+await t('P2#3 an abort during a walk STOPS the pathfinder', async () => {
+  const { bot, state } = fakeTown({ hand: PICK, botAt: new Vec3(HOME.x + 30.5, HOME.y, HOME.z + 30.5), items: [S('leaf_litter', 20), ...filler(33)] })
+  bot.pathfinder.goto = () => new Promise(() => {})
+  const ac = new AbortController(); setTimeout(() => ac.abort(), 100)
+  const err = await within(SKILLS.compost.run({ bot }, {}, ac.signal).then(r => r, e => e), HUNG_MS, 'aborted walk')
+  assert.ok(err?.aborted); assert.ok(state.halts >= 1, 'the pathfinder was left walking')
+})
+
+await t('P2#4 the table is resolved AT the site: a table 20 blocks off is never walked to; one is made beside the site', async () => {
+  const town = fakeTown({ hand: PICK, composterAt: null, items: [S('oak_log', 3)],
+                          blocks: { [`${HOME.x + 20},${HOME.y},${HOME.z + 20}`]: 'crafting_table' } })
+  const r = await run('build_composter', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const far = new Vec3(HOME.x + 20, HOME.y, HOME.z + 20)
+  assert.ok(town.state.tableUses.length > 0)
+  assert.ok(town.state.tableUses.every(p => !p.equals(far)), 'crafted at the far table')
+  assert.ok(town.state.path.every(p => p.distanceTo(far) > 6), 'walked to the far table')
+  const tables = [...town.world].filter(([, n]) => n === 'crafting_table').map(([k]) => new Vec3(...k.split(',').map(Number)))
+  const mine = tables.find(p => !p.equals(far))
+  assert.ok(mine, 'no table was made')
+  assert.ok(Math.max(Math.abs(mine.x - town.site.x), Math.abs(mine.z - town.site.z)) >= 2, `table at ${mine} is on or beside the site ${JSON.stringify(town.site)}`)
+  assert.deepEqual(town.state.dropped, [])
+})
+
+await t('P2#4 ingredients and free slots are re-validated AT the site: a bag that filled on the walk crafts nothing', async () => {
+  const town = fakeTown({ hand: PICK, composterAt: null, botAt: new Vec3(HOME.x - 20.5, HOME.y, HOME.z + 0.5), items: [S('oak_log', 3), ...filler(28)] })
+  town.state.onGoto = () => { for (let i = 0; i < 4; i++) town.add(`dirt`, 64) }   // auto-pickup on the way: 32 -> 36 used
+  const r = await run('build_composter', town.bot)
+  assert.deepEqual(town.state.crafted, [], 'crafted into a bag with no room for the chain')
+  assert.deepEqual(town.state.dropped, []); assert.equal(r.status, 'no_effect')
+})
+
+await t('P2#4 the plan budgets a table unless one is CARRIED (a placed table may not be reachable from the site)', () => {
+  assert.equal(C.composterBuildPlan({ oak_log: 2 }), null)
+  assert.equal(C.composterBuildPlan({ oak_log: 3 }).needTable, true)
+  slotN = 9
+  assert.equal(C.townPlanTableAvailable([it('crafting_table', 1)]), true)
+  assert.equal(C.townPlanTableAvailable([it('oak_log', 3)]), false)
+})
+
+await t('P2#5 a composter beyond 16 of home (a village\'s) is not adopted', async () => {
+  const { bot, state } = fakeTown({ hand: PICK, composterAt: new Vec3(HOME.x + 30, HOME.y, HOME.z), botAt: new Vec3(HOME.x + 28.5, HOME.y, HOME.z + 0.5), items: [S('leaf_litter', 20), ...filler(33)] })
+  const r = await run('compost', bot)
+  assert.equal(state.activations, 0, 'used a composter 30 blocks from home'); assert.equal(r.status, 'no_effect')
+})
+
+await t('P2#5 place()\'s make-room dig never takes a composter', async () => {
+  const dug = []
+  const STN = REG.blocksByName
+  const at = new Map([['1,64,0', 'composter'], ['-1,64,0', 'bedrock'], ['0,64,1', 'bedrock'], ['0,64,-1', 'bedrock']])
+  const bot = {
+    entity: { position: new Vec3(0.5, 64, 0.5), onGround: true }, registry: REG,
+    inventory: { items: () => [{ name: 'crafting_table', count: 1, type: REG.itemsByName.crafting_table.id, slot: 36 }] },
+    blockAt: p => { const n = at.get(`${p.x},${p.y},${p.z}`) ?? (p.y === 64 && p.x === 0 && p.z === 0 ? 'air' : p.y === 65 && p.x === 0 && p.z === 0 ? 'air' : 'stone')
+      return { name: n, type: STN[n].id, boundingBox: STN[n].boundingBox, diggable: STN[n].diggable, position: p } },
+    dig: async b => { dug.push(b.name) }, stopDigging () {}, equip: async () => {}, lookAt: async () => {}, placeBlock: async () => {},
+    pathfinder: { setGoal () {} },
+  }
+  await within(SKILLS.place.run({ bot }, { item: 'crafting_table' }, { aborted: false }), 4000, 'place')
+  assert.ok(!dug.includes('composter'), `dug: ${dug}`)
+})
+
+await t('P2#5 any bot at town with ROOM empties a ripe composter, not only a 34-slot one', async () => {
+  const o = C.townOrder({ ...base, slots: 10, freeSlots: 26, junk: 0, room: true, composterRipe: true })
+  assert.equal(o.order?.skill, 'compost')
+  assert.equal(C.townOrder({ ...base, slots: 10, freeSlots: 26, junk: 0, room: true, composterRipe: false }).order, null)
+  assert.equal(C.townOrder({ ...base, slots: 36, freeSlots: 0, junk: 0, room: false, composterRipe: true }).order, null)
+  const { bot, state, count } = fakeTown({ hand: PICK, level: 8, items: [S('cobblestone', 10)] })
+  const r = await run('compost', bot)
+  assert.equal(r.status, 'success', r.detail); assert.equal(state.extracted, 1); assert.equal(count('bone_meal'), 1)
+})
+
+await t('P2#5 a crafting table is never put on the composter site or beside it', () => {
+  const s = { x: 5, y: 64, z: 0 }
+  const stand = { x: 4, y: 64, z: 0 }
+  const cell = C.tableCellFor({ site: s, stand, read: flat() })
+  assert.ok(cell); assert.ok(Math.max(Math.abs(cell.x - 5), Math.abs(cell.z)) >= 2, JSON.stringify(cell))
+  assert.ok(!(cell.x === 4 && cell.z === 0), 'on the standing cell')
 })
 
 // ---- mutants, in-file (withMutant from climb-escape.test.mjs). Suite-level reds are shown in the commit message. ----

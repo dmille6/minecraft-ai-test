@@ -18,7 +18,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -780,6 +780,8 @@ export class CognitiveLoop {
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
           composterAtTown: () => !!findTownComposter(bot),
+          room: boneMealRoom(items),
+          composterRipe: () => (composterLevel(findTownComposter(bot)) ?? 0) >= 7,
           buildPlan: () => townBuildPlan(bot),
           myName: bot.username ?? '',
           peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&

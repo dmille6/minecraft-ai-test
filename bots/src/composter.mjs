@@ -19,6 +19,8 @@
 //   compost          at town, bag at TRIGGER_SLOTS+, a composter around home. A full bag only starts a fill it can
 //                    finish (the stack empties before level 7) so it can always take the bone meal out.
 
+import fs from 'node:fs'
+import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
 
 /**
@@ -151,6 +153,11 @@ export function fillDecision ({ level = null, room = false, smallest = 0 } = {})
 
 /** "At town": horizontally this close to home... */
 export const TOWN_RADIUS = 48
+/**
+ * A composter is the TOWN'S only within this distance of home. The canonical site is always inside it (CANONICAL_RADIUS
+ * 11 rings: at most 15.6 away), and a village composter 30 blocks off is not ours to fill or to count as "built".
+ */
+export const ADOPT_RADIUS = 16
 /** ...and town storage (a chest/barrel) in sight this close. */
 export const STORAGE_NEAR = 16
 
@@ -227,14 +234,43 @@ export function builderDecision ({ myName = '', peers = [], deferrals = 0 } = {}
 export const MIN_CONTAINER_DISTANCE = 3
 /** Stay off the home point: every bot's `home` walk ends within 2 blocks of it. */
 export const HOME_CLEARANCE = 3
-/** Rings searched around home for the canonical site. */
-export const CANONICAL_RADIUS = 12
+/** Rings searched around home for the canonical site (kept inside ADOPT_RADIUS even on the diagonal). */
+export const CANONICAL_RADIUS = 11
 const COLUMN_UP = 8, COLUMN_DOWN = 8
 /** Every block that is a container or feeds/pulls one. Matched by NAME over the whole clearance volume, uncapped. */
 export const CLEARANCE_CONTAINER = /^(chest|trapped_chest|ender_chest|barrel|hopper|dropper|dispenser|furnace|blast_furnace|smoker|brewing_stand|(\w+_)?shulker_box)$/
 const PLACEABLE_INTO = new Set(['air', 'cave_air', 'short_grass', 'fern', 'dead_bush'])
 const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column)$/
 const FLOOR_NO = /(^chest$|^trapped_chest$|^barrel$|^composter$|^crafting_table$|furnace$|^smoker$|_leaves$|^dirt_path$|^farmland$|_slab$|_stairs$|_door$|_trapdoor$|^scaffolding$|^ice$|shulker_box$|^hopper$)/
+
+const solidAt = b => !!b && b.boundingBox === 'block'
+const passable = b => !!b && b.boundingBox === 'empty' && !LIQUID.test(b.name ?? '')
+
+/**
+ * IS THIS SOLID BLOCK ONE WIDE along either axis? -> true | false | null (unknown). A pillar top (one wide both ways) or
+ * a wall top (one wide one way): a cell on it cannot be walked up to and stood beside, so nothing on it is reachable.
+ */
+export function narrowTop (read, x, y, z) {
+  const xs = [read(x + 1, y, z), read(x - 1, y, z)], zs = [read(x, y, z + 1), read(x, y, z - 1)]
+  if ([...xs, ...zs].some(b => !b)) return null
+  return (!solidAt(xs[0]) && !solidAt(xs[1])) || (!solidAt(zs[0]) && !solidAt(zs[1]))
+}
+
+/**
+ * WHERE A BOT STANDS TO USE THE SITE -> {x,y,z} | null. Pure. A cardinal neighbour at the site's own level with air
+ * (not liquid) at feet and head over a solid floor that is not itself a one-wide top. Fixed order: +x, -x, +z, -z.
+ */
+export function standableBeside (read, site) {
+  if (typeof read !== 'function' || !site) return null
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const x = site.x + dx, z = site.z + dz, y = site.y
+    const feet = read(x, y, z), head = read(x, y + 1, z), floor = read(x, y - 1, z)
+    if (!passable(feet) || !passable(head) || !solidAt(floor)) continue
+    if (narrowTop(read, x, y - 1, z) !== false) continue
+    return { x, y, z }
+  }
+  return null
+}
 
 /**
  * WHY THIS CELL CANNOT HOLD THE TOWN COMPOSTER -> a reason string, or null when it can. Pure.
@@ -253,6 +289,9 @@ export function siteRefusal (read, site, home = null) {
   if (!cell || !floor) return 'unknown'
   if (!PLACEABLE_INTO.has(cell.name)) return `cell is ${cell.name}`
   if (!solid(floor) || FLOOR_NO.test(floor.name ?? '')) return `floor is ${floor.name}`
+  const narrow = narrowTop(read, x, y - 1, z)
+  if (narrow === null) return 'unknown'
+  if (narrow) return 'one-wide column top'
   const sides = [read(x + 1, y, z), read(x - 1, y, z), read(x, y, z + 1), read(x, y, z - 1)]
   if (sides.some(b => !b)) return 'unknown'
   if (sides.some(b => LIQUID.test(b.name ?? ''))) return 'liquid beside'
@@ -271,6 +310,9 @@ export function siteRefusal (read, site, home = null) {
       }
     }
   }
+  // REACHABLE: somewhere beside it, at its level, a bot can stand to use it. Otherwise every bot computes the same
+  // unreachable cell forever.
+  if (!standableBeside(read, site)) return 'nowhere to stand beside it'
   return null
 }
 
@@ -310,6 +352,68 @@ export function canonicalComposterSite ({ home, read } = {}) {
   return { site: null, why: `no valid cell within ${CANONICAL_RADIUS} of home` }
 }
 
+/**
+ * ONE SITE PER TOWN, STICKY AND SHARED. The spiral's answer can change as obstructions come and go, so the first bot
+ * to compute a site WRITES it to the pool state dir and every later bot adopts it, even if an earlier spiral cell has
+ * since become valid. First writer wins atomically: the record is written to a private temp file and hard-linked into
+ * place; link() fails with EEXIST if a record already exists, and then the existing record is read and adopted.
+ */
+export function readSiteRecord (file) {
+  try {
+    const r = JSON.parse(fs.readFileSync(file, 'utf8'))
+    return [r?.x, r?.y, r?.z].every(Number.isInteger) ? { x: r.x, y: r.y, z: r.z } : null
+  } catch { return null }
+}
+/**
+ * THE ATOMIC STEP -> true if this call created the record, false if one already existed (or nothing could be written).
+ * Two bots that both read "no record" both get here; link() lets exactly one of them win. rename() would not: it
+ * replaces, so the second writer would silently move the town's site.
+ */
+export function writeSiteFirst (file, site) {
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify({ x: site.x, y: site.y, z: site.z, at: new Date().toISOString() }))
+    fs.linkSync(tmp, file)
+    return true
+  } catch {
+    return false
+  } finally {
+    try { fs.unlinkSync(tmp) } catch { /* never written */ }
+  }
+}
+export function claimSite (file, site) {
+  const have = readSiteRecord(file)
+  if (have) return have
+  if (writeSiteFirst(file, site)) return { x: site.x, y: site.y, z: site.z }
+  return readSiteRecord(file) ?? site   // lost the race: adopt the winner; no store at all: this bot's own
+}
+
+/** The plan may count on a table only if one is CARRIED: a placed one may be out of reach of the site. */
+export const townPlanTableAvailable = (items = []) => (Array.isArray(items) ? items : []).some(it => it?.name === 'crafting_table' && (it.count ?? 0) > 0)
+
+/**
+ * WHERE THE BUILDER PUTS ITS CRAFTING TABLE -> {x,y,z} | null. Pure. Within 2 of where it stands (so it can craft
+ * without walking), at its own level, replaceable on a solid floor -- and never on the site or any cell touching it
+ * (Chebyshev >= 2): a table beside the site could turn it into a corridor or take the only standing cell.
+ */
+export function tableCellFor ({ site, stand, read } = {}) {
+  if (!site || !stand || typeof read !== 'function') return null
+  const out = []
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      const x = stand.x + dx, z = stand.z + dz, y = stand.y
+      if (dx === 0 && dz === 0) continue
+      if (Math.max(Math.abs(x - site.x), Math.abs(z - site.z)) < 2) continue
+      const cell = read(x, y, z), head = read(x, y + 1, z), floor = read(x, y - 1, z)
+      if (!cell || !PLACEABLE_INTO.has(cell.name) || !solidAt(floor) || !head) continue
+      out.push({ x, y, z, d: Math.abs(dx) + Math.abs(dz) })
+    }
+  }
+  out.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z)
+  return out[0] ? { x: out[0].x, y: out[0].y, z: out[0].z } : null
+}
+
 // ---- the scheduler ------------------------------------------------------------------------------------------------
 
 export const COMPOST_COOLDOWN_MS = 3 * 60 * 1000
@@ -333,21 +437,30 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * when an order is ISSUED (and a deferral counts as a visit).
  */
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
-                             composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {} } = {}) {
+                             composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {},
+                             room = false, composterRipe = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
-  const compostReady = slots >= TRIGGER_SLOTS && junk > 0 && now - (s.lastCompostAt ?? -Infinity) >= COMPOST_COOLDOWN_MS &&
-                       now >= (s.compostBackoffUntil ?? 0)
+  const cooled = now - (s.lastCompostAt ?? -Infinity) >= COMPOST_COOLDOWN_MS && now >= (s.compostBackoffUntil ?? 0)
+  const compostReady = cooled && slots >= TRIGGER_SLOTS && junk > 0
+  // ANY bot at town with room may empty a ripe composter -- a full one cannot, and it would wait for a 34-slot bot.
+  const harvestReady = cooled && !!room
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
-  if (!compostReady && !buildReady) return none()
+  if (!compostReady && !harvestReady && !buildReady) return none()
   if (now - (s.lastScanAt ?? -Infinity) < TOWN_SCAN_MS) return none()
   s.lastScanAt = now
   if (!lazy(storageNear)) return none()
   if (lazy(composterAtTown)) {
-    if (!compostReady) return none()
-    s.lastCompostAt = now
-    return { order: { skill: 'compost', args: {}, why: `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
+    if (compostReady) {
+      s.lastCompostAt = now
+      return { order: { skill: 'compost', args: {}, why: `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
+    }
+    if (harvestReady && lazy(composterRipe)) {
+      s.lastCompostAt = now
+      return { order: { skill: 'compost', args: {}, why: 'at town with room, and the town composter is ripe: take the bone meal out' }, state: s }
+    }
+    return none()
   }
   if (!buildReady) return none()
   const plan = lazy(buildPlan)
