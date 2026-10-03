@@ -200,6 +200,40 @@ export function tunnelDrops (blockNames = [], lootOf = () => []) {
 }
 
 /**
+ * tunnelNeeds(breaks, cluster, lootOf, { isOre }) -> { need, ore, oreBlocks }
+ *   breaks / cluster: [{ pos, name }]. ORE is the UNION of the target cluster and every iron block the route itself
+ *   breaks (a separate vein crossed on the way down), each position once, at its max raw_iron. Everything else the
+ *   route breaks goes into `need`, per item, at its max (tunnelDrops).
+ */
+export function tunnelNeeds (breaks = [], cluster = [], lootOf = () => [], { isOre = n => IRON_KINDS.includes(n) } = {}) {
+  const key = p => `${p.x},${p.y},${p.z}`
+  const ores = new Map()
+  for (const c of cluster) if (c?.pos) ores.set(key(c.pos), c.name)
+  for (const b of breaks) if (isOre(b?.name)) ores.set(key(b.pos), b.name)
+  let ore = 0
+  for (const name of ores.values()) ore += Math.max(1, ...(lootOf(name) ?? []).filter(d => d.item === ORE_DROP).map(d => d.max))
+  const need = tunnelDrops(breaks.filter(b => !isOre(b?.name)).map(b => b?.name), lootOf)
+  return { need, ore, oreBlocks: ores.size }
+}
+
+/**
+ * dropFits(items, emptySlots, drops, { oreNeed }) -> { ok, why }. THE LIVE CHECK BEFORE A DIG THE PLAN DID NOT LIST
+ * (re-centre, stall, re-plan): every item the block can drop needs spare >= its max in its own plain stacks, or an
+ * empty slot -- and one empty slot stays reserved for the ore unless held raw_iron already has oreNeed spare. A
+ * raw_iron drop may use that reserved slot.
+ */
+export function dropFits (items = [], emptySlots = 0, drops = [], { oreNeed = CLUSTER_CAP } = {}) {
+  const empty = Math.max(0, Math.floor(Number(emptySlots) || 0))
+  const reserve = spareFor(items, ORE_DROP) >= oreNeed ? 0 : 1
+  for (const { item, max } of drops ?? []) {
+    if (spareFor(items, item) >= max) continue
+    if (item === ORE_DROP ? empty >= 1 : empty - reserve >= 1) continue
+    return { ok: false, why: `no room for ${item} (spare ${spareFor(items, item)} < ${max}; ${empty} empty, ${reserve} kept for the ore)` }
+  }
+  return { ok: true, why: null }
+}
+
+/**
  * toolRisk(item, enchantName) -> null | why. A digging tool with Fortune (more drops than counted) or Silk Touch (stone
  * stays stone, grass stays grass: items nothing was counted for). An enchantment this cannot NAME, or a read that
  * throws, is a risk too (fail closed). enchantName maps a registry id to its name.
@@ -224,7 +258,8 @@ export function toolRisk (item, enchantName = () => null) {
 /**
  * tunnelRoom(items, emptySlots, { cluster, need, slack, stackSizeOf }) ->
  *   { ok, slotsNeeded, slotsShort, emptySlots, oreSpare, short: [{ item, need, spare, slots }], why }
- *   ORE: `cluster` raw_iron fits in held plain raw_iron stacks, else it takes empty slots (reserved first).
+ *   ORE: `cluster` raw_iron (+ slack after planning) fits in held plain raw_iron stacks, else it takes empty slots
+ *     (reserved first). After planning, `cluster` is tunnelNeeds' ore: the target cluster AND iron along the route.
  *   AFTER PLANNING (`need` = tunnelDrops of the plan): each item must fit need + slack in its OWN held plain stacks,
  *     or it takes ceil(overflow / stackSize) empty slots of its own.
  *   BEFORE PLANNING (`need` null): one stone type with >= STONE_ROOM spare, else one more empty slot.
@@ -234,7 +269,8 @@ export function tunnelRoom (items = [], emptySlots = 0, { cluster = CLUSTER_CAP,
   const empty = Math.max(0, Math.floor(Number(emptySlots) || 0))
   const sizeOf = name => (items || []).find(it => it?.name === name && Number.isFinite(it.stackSize))?.stackSize ?? stackSizeOf?.(name) ?? 1
   const oreSpare = spareFor(items, ORE_DROP)
-  const oreSlots = oreSpare >= cluster ? 0 : Math.ceil((cluster - oreSpare) / Math.max(1, sizeOf(ORE_DROP)))
+  const oreNeed = cluster + (need ? slack : 0)
+  const oreSlots = oreSpare >= oreNeed ? 0 : Math.ceil((oreNeed - oreSpare) / Math.max(1, sizeOf(ORE_DROP)))
   const short = []
   let stoneSlots = 0
   if (need) {
@@ -253,7 +289,7 @@ export function tunnelRoom (items = [], emptySlots = 0, { cluster = CLUSTER_CAP,
   const slotsNeeded = oreSlots + stoneSlots
   const slotsShort = Math.max(0, slotsNeeded - empty)
   const parts = []
-  if (oreSlots) parts.push(`ore: ${cluster} ${ORE_DROP} need a slot (held ${ORE_DROP} spare ${oreSpare})`)
+  if (oreSlots) parts.push(`ore: ${oreNeed} ${ORE_DROP} need a slot (held ${ORE_DROP} spare ${oreSpare})`)
   for (const s of short) parts.push(`${s.item}: need ${s.need}${s.slack ? `+${s.slack}` : ''}, spare ${s.spare} -> ${s.slots} slot${s.slots === 1 ? '' : 's'}`)
   return { ok: slotsShort === 0, slotsNeeded, slotsShort, emptySlots: empty, oreSpare, short,
            why: slotsShort ? `${parts.join('; ')}; ${empty} empty` : null }

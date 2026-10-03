@@ -20,7 +20,7 @@ const Block = require('prismarine-block')(registry)
 const Item = require('prismarine-item')(registry)
 const { pathfinder } = require('mineflayer-pathfinder')
 const OT = await import('../src/oretunnel.mjs')
-const { tunnelRoom, tunnelDrops, lootFor, toolRisk, plainStack, bagOccupants, STONE_DROPS, STONE_ROOM, CLUSTER_CAP, RETURN_RESERVE,
+const { tunnelRoom, tunnelDrops, tunnelNeeds, dropFits, lootFor, toolRisk, plainStack, bagOccupants, STONE_DROPS, STONE_ROOM, CLUSTER_CAP, RETURN_RESERVE,
         tunnelMovements, planTunnel } = OT
 const SK = await import('../src/skills.mjs')
 const { tunnelToOre } = SK
@@ -130,6 +130,28 @@ await t('STONE_DROPS is what the tunnel\'s blocks drop (registry ' + VERSION + '
   }
 })
 
+// ---- iron along the route (fix 2) and the live dig check (fix 3) ----
+const P = (x, y, z) => new Vec3(x, y, z)
+await t('tunnelNeeds: ore = the UNION of the target cluster and iron broken along the route, at max drop; no double counting', () => {
+  const ironMax = loot('iron_ore').find(d => d.item === 'raw_iron').max
+  const cluster = [{ pos: P(0, 50, 0), name: 'iron_ore' }, { pos: P(1, 50, 0), name: 'iron_ore' }]
+  const breaks = [{ pos: P(0, 60, 0), name: 'stone' }, { pos: P(0, 59, 0), name: 'iron_ore' }, { pos: P(0, 58, 0), name: 'deepslate_iron_ore' },
+                  { pos: P(1, 50, 0), name: 'iron_ore' }]     // the last one is ALSO in the cluster
+  const r = tunnelNeeds(breaks, cluster, loot)
+  assert.equal(r.oreBlocks, 4, 'two cluster + two route ores, the shared one once'); assert.equal(r.ore, 4 * ironMax)
+  assert.deepEqual(Object.fromEntries(r.need), { cobblestone: 1 }, 'iron is counted as ore, not in the per-item need')
+})
+await t('dropFits (the live check before any dig): a drop needs spare in its own stack, or an empty slot the ore does not need', () => {
+  const inv = [...FILL(33), it('cobblestone', 60), it('raw_iron', 1), it('dirt', 64)]
+  const gravel = loot('gravel'), stone = loot('stone'), dirt = loot('dirt')
+  assert.equal(dropFits(inv, 0, stone, { oreNeed: 2 }).ok, true, 'cobblestone has spare')
+  assert.equal(dropFits(inv, 0, dirt, { oreNeed: 2 }).ok, false, 'dirt stack full, no empty slot')
+  assert.match(dropFits(inv, 0, gravel, { oreNeed: 2 }).why, /no room for (gravel|flint)/)
+  assert.equal(dropFits(inv, 1, gravel, { oreNeed: 2 }).ok, true, 'one empty slot and the ore fits its raw_iron stack')
+  assert.equal(dropFits(inv, 1, gravel, { oreNeed: 64 }).ok, false, 'the one empty slot is reserved for the ore')
+  assert.equal(dropFits(inv, 1, loot('iron_ore'), { oreNeed: 64 }).ok, true, 'iron may use the ore\'s own slot')
+})
+
 // ---- enchanted tools ----
 const enchName = id => registry.enchantments[id]?.name
 const tool = (name, left, enchants) => {
@@ -183,23 +205,27 @@ const ARRIVE = new Vec3(31.5, 54, 6.5)       // face-adjacent to the ore: SideOf
 const wornPick = tool('stone_pickaxe', 12)
 const armed = inv => { assert.ok(FILLER.includes(inv.at(-1).name), 'the last slot must be filler'); return [...inv.slice(0, -1), wornPick] }
 const ok = { aborted: false, addEventListener () {}, removeEventListener () {} }
-function tunnelBot (items, { empty = 0 } = {}) {
+function tunnelBot (items, { empty = 0, world = {}, onGoto = null } = {}) {
   const bot = new EventEmitter()
   Object.assign(bot, { registry, version: VERSION, health: 20, food: 20, currentWindow: null, game: { minY: -64 }, entities: {}, world: { raycast: () => null } })
   bot.entity = { position: new Vec3(30.5, 64, 0.5), effects: {}, onGround: true, velocity: new Vec3(0, 0, 0) }
   bot.inventory = { items: () => items.map(x => x), emptySlotCount: () => empty }
   bot.waitForTicks = async () => { await new Promise(r => setImmediate(r)) }
+  bot.clearControlStates = () => {}; bot.setControlState = () => {}; bot.stopDigging = () => {}
   bot.blockAt = p => {
     const f = p.floored(); if (Math.abs(f.x - 30) > 60 || Math.abs(f.z) > 60) return null
-    const name = f.equals(ORE) ? 'iron_ore' : (f.y <= 63 ? 'stone' : 'air')
+    const name = world[`${f.x},${f.y},${f.z}`] ?? (f.equals(ORE) ? 'iron_ore' : (f.y <= 63 ? 'stone' : 'air'))
     const b = Block.fromStateId(registry.blocksByName[name].defaultState, 0); b.position = f; return b
   }
   bot.findBlocks = () => [ORE.clone()]
   pathfinder(bot)
-  // THE WALK IS STUBBED: it records which tool the pathfinder would dig stone with, then arrives beside the ore.
-  const dugWith = []
-  bot.pathfinder.goto = async () => { dugWith.push(bot.pathfinder.bestHarvestTool(bot.blockAt(new Vec3(30, 60, 3)))?.name ?? null); bot.entity.position = ARRIVE.clone() }
-  return { bot, dugWith }
+  // index.mjs's tunnel profile and its wrapper, so the walk runs with the movements tunnelToOre configured.
+  bot.tunnelMovements = tunnelMovements(bot, null, { home: { x: 0, z: 0 } })
+  bot.withTunnelMovements = async fn => { bot.pathfinder.setMovements(bot.tunnelMovements); return await fn() }
+  // THE WALK IS STUBBED: by default it arrives beside the ore; onGoto can stand in for the pathfinder instead.
+  const walks = []
+  bot.pathfinder.goto = async goal => { walks.push(goal?.constructor?.name); if (onGoto) return onGoto(goal, bot); bot.entity.position = ARRIVE.clone() }
+  return { bot, walks }
 }
 const run = bot => tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
 // POSITIVE CONTROL for the wired runs: what the real planner digs to this ore, and therefore the cobblestone it yields.
@@ -211,6 +237,7 @@ await t(`POSITIVE CONTROL: the real planner reaches the ore with N planned break
   assert.equal(plan.ok, true, plan.why); assert.ok(N > 5 && N <= 58)
   assert.deepEqual(Object.fromEntries(tunnelDrops(plan.breaks.map(q => probe.bot.blockAt(q)?.name), loot)), { cobblestone: N })
 })
+const COB = Math.max(NEED, STONE_ROOM)   // cobblestone spare that passes both the screen and the plan
 const bagWithCobbleSpare = spare => to36([it('cobblestone', 64 - spare), it('dirt', 20), it('raw_iron', 1), ...stacks('leaf_litter', 221)])
 await t('WIRED Delta: refused BEFORE planning on the ore slot; names the bag; no deposit advice', async () => {
   const { bot } = tunnelBot(armed(DELTA))
@@ -243,32 +270,80 @@ await t('WIRED Alpha: passes both checks with 0 empty slots (ore into raw_iron 1
   assert.equal(r.failClass, 'pickaxe_short', `${r.failClass}: ${r.detail}`)
 })
 
-// ---- WIRED: enchanted tools ----
+// ---- WIRED: enchanted tools (refused outright; the remedy is a structured need the prereq ladder adopts) ----
 const roomy = tools => [...FILL(30), it('cobblestone', 1), it('raw_iron', 1), ...tools]   // 4 empty slots, plenty of room
 const FORTUNE_IRON = () => tool('iron_pickaxe', 250, [{ name: 'fortune', lvl: 3 }])
-await t('WIRED: only a Fortune pickaxe (plenty of uses) -> refused enchanted_tool, remedy names an unenchanted pickaxe; no walk', async () => {
-  const { bot, dugWith } = tunnelBot(roomy([FORTUNE_IRON()]), { empty: 4 })
-  const r = await run(bot)
+const assertEnchantedNeed = r => {
   assert.equal(r.failClass, 'enchanted_tool', `${r.failClass}: ${r.detail}`)
-  assert.match(r.detail, /fortune/); assert.match(r.detail, /unenchanted/); assert.equal(dugWith.length, 0)
-})
-await t('WIRED: an unreadable enchantment fails closed -> enchanted_tool', async () => {
-  const { bot } = tunnelBot(roomy([tool('iron_pickaxe', 250, 'throws')]), { empty: 4 })
+  assert.deepEqual(r.need?.items, ['stone_pickaxe']); assert.equal(r.need?.count, 1)
+  assert.ok(Number.isInteger(r.need?.minUses) && r.need.minUses > 0 && r.need.minUses <= registry.itemsByName.stone_pickaxe.maxDurability, `minUses ${r.need?.minUses}`)
+  assert.match(r.need?.because ?? '', /unenchanted/)
+}
+await t('WIRED: a Fortune pickaxe in the bag -> enchanted_tool with a need (an unenchanted stone_pickaxe); no walk', async () => {
+  const { bot, walks } = tunnelBot(roomy([FORTUNE_IRON()]), { empty: 4 })
   const r = await run(bot)
-  assert.equal(r.failClass, 'enchanted_tool', `${r.failClass}: ${r.detail}`); assert.match(r.detail, /unreadable/)
+  assertEnchantedNeed(r); assert.match(r.detail, /fortune/); assert.equal(walks.length, 0)
 })
-await t('WIRED: Fortune pickaxe + a worn plain one that cannot pay the trip -> enchanted_tool (not pickaxe_short)', async () => {
-  const { bot } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 12)]), { empty: 4 })
-  const r = await run(bot)
-  assert.equal(r.failClass, 'enchanted_tool', `${r.failClass}: ${r.detail}`)
+await t('WIRED: Fortune pickaxe + a fresh plain one -> STILL refused (gather\'s own ore dig ignores enchantments)', async () => {
+  const { bot, walks } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 131)]), { empty: 4 })
+  assertEnchantedNeed(await run(bot)); assert.equal(walks.length, 0)
 })
-await t('WIRED: Fortune pickaxe + a fresh plain one -> the tunnel runs, digging with the PLAIN pickaxe; the tool picker is restored', async () => {
-  const { bot, dugWith } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 131)]), { empty: 4 })
-  const picker = bot.pathfinder.bestHarvestTool
-  assert.equal(picker(bot.blockAt(new Vec3(30, 60, 3)))?.name, 'iron_pickaxe', 'positive control: left alone, the pathfinder picks the Fortune pickaxe')
+await t('WIRED: a Silk Touch shovel or an unreadable enchantment refuses the same way (fail closed)', async () => {
+  const silk = tool('iron_shovel', 200, [{ name: 'silk_touch', lvl: 1 }])
+  assertEnchantedNeed(await run(tunnelBot(roomy([silk, tool('stone_pickaxe', 131)]), { empty: 4 }).bot))
+  const r = await run(tunnelBot(roomy([tool('iron_pickaxe', 250, 'throws')]), { empty: 4 }).bot)
+  assertEnchantedNeed(r); assert.match(r.detail, /unreadable/)
+})
+await t('WIRED control: the same bag with only the plain pickaxe tunnels (arrives)', async () => {
+  const { bot } = tunnelBot(roomy([tool('stone_pickaxe', 131)]), { empty: 4 })
   const r = await run(bot)
   assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
-  assert.deepEqual(dugWith, ['stone_pickaxe']); assert.equal(bot.pathfinder.bestHarvestTool, picker, 'the original picker is restored')
+})
+
+// ---- WIRED: iron along the route (fix 2) ----
+// A one-block-thick iron layer at y=58 that every staircase down to the target (y=54) must cut through. findBlocks
+// still offers only the target; its cluster is that one ore. raw_iron spare covers the target cluster + slack only.
+const layer = {}; for (let x = -30; x <= 90; x++) for (let z = -60; z <= 60; z++) layer[`${x},58,${z}`] = 'iron_ore'
+const ironMax = loot('iron_ore').find(d => d.item === 'raw_iron').max
+// raw_iron spare: enough for the pre-plan screen (CLUSTER_CAP) and for the target cluster + slack, not for more ore.
+const VEIN_SPARE = Math.max(CLUSTER_CAP, ironMax + RETURN_RESERVE)
+const veinBag = () => roomy([tool('stone_pickaxe', 131)]).map(x => x.name === 'raw_iron' ? it('raw_iron', 64 - VEIN_SPARE) : x)
+await t('WIRED: a route crossing a separate iron vein, with raw_iron spare only for the target cluster -> refused', async () => {
+  const empty0 = veinBag()
+  const ctl = await run(tunnelBot(empty0, { empty: 0 }).bot)
+  assert.equal(ctl.status, 'success', `positive control: without the vein the same bag tunnels (${ctl.failClass}: ${ctl.detail})`)
+  const { bot, walks } = tunnelBot(empty0, { empty: 0, world: layer })
+  const r = await run(bot)
+  assert.equal(r.failClass, 'inventory_full', `${r.failClass}: ${r.detail}`)
+  const oreNeed = Number(r.detail.match(/ore: (\d+) raw_iron/)?.[1])
+  assert.ok(oreNeed > VEIN_SPARE, `the route's iron must push the ore need past ${VEIN_SPARE}: ${r.detail}`)
+  assert.match(r.detail, /after|planned breaks/, 'refused at the post-plan check')
+  assert.equal(walks.length, 0)
+})
+
+// ---- WIRED: unplanned digs (fix 3) ----
+// The plan is stone only and fits; the walk ends short, so the tunnel re-centres. The stand-in pathfinder may dig the
+// gravel and dirt beside it only if the tunnel's movements allow that break -- the same exclusion the real one obeys.
+await t('WIRED: a re-centre through gravel/dirt with no room for them -> the dig is NOT made; the tunnel ends as a stall saying why', async () => {
+  const world = { '31,63,0': 'gravel', '29,63,0': 'dirt', '30,63,1': 'gravel' }
+  const dug = []
+  const onGoto = (goal, bot) => {
+    if (goal?.constructor?.name !== 'GoalBlock') return              // the main leg: ends short (no movement)
+    for (const k of Object.keys(world)) {
+      const b = bot.blockAt(new Vec3(...k.split(',').map(Number)))
+      if (bot.pathfinder.movements.exclusionBreak(b) < 100) dug.push(b.name)
+    }
+  }
+  const inv = to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64), tool('stone_pickaxe', 131)])
+  const { bot, walks } = tunnelBot(inv, { empty: 0, world, onGoto })
+  const r = await run(bot)
+  assert.ok(walks.includes('GoalBlock'), `positive control: the tunnel re-centred (${walks}; ${r.failClass}: ${r.detail})`)
+  assert.deepEqual(dug, [], 'a dig with no room for its drop was allowed')
+  assert.equal(r.failClass, 'tunnel_incomplete', `${r.failClass}: ${r.detail}`); assert.match(r.detail, /no room for (gravel|flint|dirt)/)
+  assert.ok(!bot.tunnelMovements.exclusionAreasBreak.some(f => f.name === 'roomVeto'), 'the veto is removed after the tunnel')
+  const room1 = tunnelBot(to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64), tool('stone_pickaxe', 131)]).slice(0, 35), { empty: 1, world, onGoto })
+  dug.length = 0; await run(room1.bot)
+  assert.ok(dug.length > 0, 'control: with a spare slot beyond the ore slot, the same digs are allowed')
 })
 
 // ---- MUTANTS: each guard must be SEEN to fail for its intended reason (anchor present and unique) ----
@@ -300,18 +375,27 @@ await t('MUTANT KILLED: counting minecraft-data\'s drop maxima instead of vanill
     assert.ok(m.lootFor(registry)('lapis_ore').find(d => d.item === 'lapis_lazuli').max < 9, 'mutant did not lower the count')
   })
 })
-await t('MUTANT KILLED: not classifying enchanted tools (the reviewer\'s `risky -> 0`) lets the Fortune-only bot tunnel', async () => {
-  await withMutant('skills.mjs', 'const safeItems = held().filter(x => !riskyTool(x))', 'const safeItems = held()', async m => {
-    const { bot } = tunnelBot(roomy([FORTUNE_IRON()]), { empty: 4 })
+await t('MUTANT KILLED (fix 1): without the enchanted-tool refusal a bag holding a Fortune pickaxe tunnels', async () => {
+  await withMutant('skills.mjs', 'if (risks.length) {', 'if (false) {', async m => {
+    const { bot } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 131)]), { empty: 4 })
     const r = await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
     assert.notEqual(r.failClass, 'enchanted_tool', 'mutant still refused')
   })
 })
-await t('MUTANT KILLED: without the tool restriction the walk digs with the Fortune pickaxe', async () => {
-  await withMutant('skills.mjs', 'const restoreTools = keepToolsOut(bot, riskyTool)', 'const restoreTools = () => {}', async m => {
-    const { bot, dugWith } = tunnelBot(roomy([FORTUNE_IRON(), tool('stone_pickaxe', 131)]), { empty: 4 })
+await t('MUTANT KILLED (fix 2): counting only the target cluster lets the vein route through', async () => {
+  await withMutant('oretunnel.mjs', 'for (const b of breaks) if (isOre(b?.name)) ores.set(key(b.pos), b.name)', '', async m => {
+    const r = m.tunnelNeeds([{ pos: P(0, 59, 0), name: 'iron_ore' }], [{ pos: P(0, 50, 0), name: 'iron_ore' }], loot)
+    assert.equal(r.oreBlocks, 1, 'mutant still counted the route ore')
+  })
+})
+await t('MUTANT KILLED (fix 3): without the live veto the re-centre digs the gravel', async () => {
+  await withMutant('skills.mjs', 'moves.exclusionAreasBreak?.push?.(roomVeto)', 'void roomVeto', async m => {
+    const world = { '31,63,0': 'gravel' }
+    const dug = []
+    const onGoto = (goal, bot) => { if (goal?.constructor?.name === 'GoalBlock') { const b = bot.blockAt(new Vec3(31, 63, 0)); if (bot.pathfinder.movements.exclusionBreak(b) < 100) dug.push(b.name) } }
+    const { bot } = tunnelBot(to36([it('cobblestone', 64 - COB), it('raw_iron', 1), it('dirt', 64), tool('stone_pickaxe', 131)]), { empty: 0, world, onGoto })
     await m.tunnelToOre({ bot, runner: null }, ok, { deadlineMs: 150_000 })
-    assert.deepEqual(dugWith, ['iron_pickaxe'], 'mutant still dug with the plain pickaxe')
+    assert.ok(dug.length > 0, 'mutant still refused the dig')
   })
 })
 

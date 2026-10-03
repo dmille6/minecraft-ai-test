@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision,
-         tunnelRoom, tunnelDrops, lootFor, toolRisk, bagOccupants, RETURN_RESERVE } from './oretunnel.mjs'
+         tunnelRoom, tunnelNeeds, dropFits, lootFor, toolRisk, bagOccupants, RETURN_RESERVE } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1438,32 +1438,6 @@ const TUNNEL_TRIES = 3
 // Reach buried iron the bot already knows about (oretunnel.mjs says why and how). Called by gather in place of
 // the old `mine({y})` escalation, for iron only. Every refusal names a remedy the bot can perform from where it
 // stands and carries a class with no vote; the outcome row is written from the inventory, not the plan.
-/**
- * KEEP RISKY TOOLS OUT OF THE TUNNEL. mineflayer-pathfinder picks its digging tool itself (bestHarvestTool, for the
- * cost model and for the dig), and it prefers the fastest -- often the enchanted one. For the walk, a pick that
- * toolRisk names (Fortune / Silk Touch / unreadable) is swapped for the fastest tool that is not, or bare hands when
- * those are as fast. Returns the restore function; the caller restores in a finally.
- */
-function keepToolsOut (bot, risky) {
-  const pf = bot.pathfinder
-  const original = pf?.bestHarvestTool
-  if (typeof original !== 'function') return () => {}
-  pf.bestHarvestTool = block => {
-    const chosen = original(block)
-    if (!chosen || !risky(chosen)) return chosen
-    const effects = bot.entity?.effects ?? {}
-    const timeOf = id => { try { return block.digTime(id, false, false, false, [], effects) } catch { return Infinity } }
-    let best = null, bestT = timeOf(null)
-    for (const it of bot.inventory?.items?.() ?? []) {
-      if (risky(it)) continue
-      const tt = timeOf(it.type)
-      if (tt < bestT) { best = it; bestT = tt }
-    }
-    return best
-  }
-  return () => { pf.bestHarvestTool = original }
-}
-
 export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   const { bot, runner } = ctx
   const t0 = Date.now()
@@ -1510,30 +1484,35 @@ export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `no safe tunnel to iron: ${plan.why}` }, `refused: ${plan.why} over ${candidates.length} candidate(s) in ${plan.ms} ms`)
   }
   const cluster = clusterOf(at, plan.target)
-  // RECHECK ON THE PLAN (both reviews): the most the planned breaks can drop, item by item, plus this cluster's ore,
-  // with RETURN_RESERVE slack per item for the re-centre and stall digs plan.breaks does not list.
-  const need = tunnelDrops(plan.breaks.map(q => bot.blockAt(q)?.name), loot)
-  const orePer = Math.max(1, ...IRON_KINDS.flatMap(k => loot(k).filter(d => d.item === 'raw_iron').map(d => d.max)))
-  const post = tunnelRoom(held(), emptyNow(), { ...roomOpts, cluster: cluster.length * orePer, need, slack: RETURN_RESERVE })
-  if (!post.ok) return refuseFull(post, `${plan.breaks.length} planned breaks, cluster ${cluster.length}`)
-  // ENCHANTED TOOLS (Codex review): Fortune multiplies drops and Silk Touch changes them, so the room above would be
-  // wrong. The trip is paid only from tools toolRisk does not name, and the walk is kept off the others; if only an
-  // enchanted (or unreadable) tool could pay, refuse and say which pickaxe would.
-  const enchantName = id => bot.registry?.enchantments?.[id]?.name
-  const riskyTool = x => !!toolRisk(x, enchantName)
-  const safeItems = held().filter(x => !riskyTool(x))
-  const risks = held().map(x => toolRisk(x, enchantName)).filter(Boolean)
+  // RECHECK ON THE PLAN (both reviews): the most the planned breaks can drop, item by item, with RETURN_RESERVE slack
+  // per item for digs the plan does not list. ORE is the union of the target cluster and any iron the route itself
+  // cuts through (a separate vein on the way down), each block once (tunnelNeeds).
+  const named = q => ({ pos: q, name: bot.blockAt(q)?.name })
+  const needs = tunnelNeeds(plan.breaks.map(named), cluster.map(named), loot)
+  const post = tunnelRoom(held(), emptyNow(), { ...roomOpts, cluster: needs.ore, need: needs.need, slack: RETURN_RESERVE })
+  if (!post.ok) return refuseFull(post, `${plan.breaks.length} planned breaks, ${needs.oreBlocks} iron (cluster ${cluster.length})`)
   const pickBreaks = plan.breaks.filter(q => /pickaxe/.test(bot.blockAt(q)?.material ?? '')).length
-  const budget = tripDecision(safeItems, { pickBreaks, cluster: cluster.length })
-  if (budget.refuse && risks.length && tripDecision(held(), { pickBreaks, cluster: cluster.length }).refuse === null) {
-    return out({ status: 'failed', failClass: 'enchanted_tool',
-                 detail: `the only pickaxe that can pay this tunnel is enchanted (${risks.join('; ')}): its drops would not fit what ` +
-                         `was counted — hold an unenchanted stone_pickaxe or better with ${budget.minUses ?? budget.need + HARD_STOP} uses` },
-               `refused: ${risks.join('; ')}; unenchanted ${budget.why ?? budget.refuse}; plan ${plan.breaks.length} breaks, cluster ${cluster.length}`)
-  }
+  const budget = tripDecision(held(), { pickBreaks, cluster: cluster.length })
   if (budget.refuse === 'too_long') {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `the nearest iron is ${plan.breaks.length} blocks of digging away, more than one stone pickaxe lasts` },
                `refused: needs ${budget.need} uses > ${ONE_PICK_USES}; plan ${plan.breaks.length} breaks, cluster ${cluster.length}, ${plan.ms} ms`)
+  }
+  // ENCHANTED TOOLS, REFUSED OUTRIGHT (third reviews). Fortune multiplies the ore's drop (up to 4x) and Silk Touch
+  // turns stone into stone and iron_ore into iron_ore -- none of which the room above counted. Keeping them off the
+  // walk was not enough: gather's own collection after arrival picks its tool with bestTool/applyToolPolicy, which
+  // ignore enchantments. This fleet has no enchanting table and no enchanted loot source it uses, so the cost is ~0;
+  // the rule exists so an enchanted tool can never silently break the room arithmetic. An enchantment that cannot be
+  // read or named counts too (fail closed). The remedy is a NEED, as pickaxe_short's is, so gather hands it to the
+  // prereq ladder rather than filing the gather as unreachable.
+  const enchantName = id => bot.registry?.enchantments?.[id]?.name
+  const risks = held().map(x => toolRisk(x, enchantName)).filter(Boolean)
+  if (risks.length) {
+    const minUses = budget.minUses ?? (budget.need + HARD_STOP)
+    return out({ status: 'failed', failClass: 'enchanted_tool',
+                 need: { items: ['stone_pickaxe'], count: 1, minUses,
+                         because: `a tunnel to iron is refused while an enchanted tool could dig it (${risks.join('; ')}); it needs an unenchanted stone_pickaxe with ${minUses} uses, and the enchanted tool put away` },
+                 detail: `an enchanted tool would change what this tunnel drops (${risks.join('; ')}) — put it away and hold an unenchanted stone_pickaxe with ${minUses} uses` },
+               `refused: ${risks.join('; ')}; plan ${plan.breaks.length} breaks, cluster ${cluster.length}`)
   }
   if (budget.refuse === 'pickaxe_short') {
     // PICKAXE FIRST (owner): the remedy is a task the bot adopts, not advice it may ignore.
@@ -1547,7 +1526,18 @@ export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   }
 
   const claim = runner?.claimBody?.('stair') ?? null      // the entombment reflex reads a staircase as sealed
-  const restoreTools = keepToolsOut(bot, riskyTool)
+  // UNPLANNED DIGS ARE CHECKED LIVE (Codex review): the walk re-plans after its own digs and re-centres when it stalls,
+  // and those breaks are not in plan.breaks. While walking, the tunnel profile refuses any break whose drop would not
+  // fit (dropFits: own-item spare, or an empty slot the ore does not need) -- the planner never routes through a
+  // vetoed block, so the dig is not made and the walk ends short, as a stall that says why.
+  const roomVetoes = new Set()
+  const roomVeto = function roomVeto (b) {
+    const fit = dropFits(held(), emptyNow(), loot(b?.name), { oreNeed: needs.ore })
+    if (fit.ok) return 0
+    roomVetoes.add(`${b?.name}: ${fit.why}`)
+    return 100
+  }
+  moves.exclusionAreasBreak?.push?.(roomVeto)
   let reached = false, stopped = null, recentred = 0
   // index.mjs owns setMovements: the walk runs inside its tunnel profile and is restored there, whatever happens.
   const inTunnel = fn => (bot.withTunnelMovements ? bot.withTunnelMovements(fn) : fn())
@@ -1605,8 +1595,10 @@ export async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
     // Runner.CLAIM_STEP_TTL_MS or when this gather run ends (the runner drops claims of a finished run).
     if (reached) claim?.renew?.()
     else claim?.release?.()
-    restoreTools()
+    const i = moves.exclusionAreasBreak?.indexOf?.(roomVeto) ?? -1
+    if (i >= 0) moves.exclusionAreasBreak.splice(i, 1)
   }
+  if (!reached && roomVetoes.size) stopped = `${stopped ?? 'walk stopped'}; refused to dig: ${[...roomVetoes].slice(0, 2).join(' / ')}`
   const summary = `${plan.breaks.length} planned breaks (${pickBreaks} pick) to ${plan.target.x},${plan.target.y},${plan.target.z}, ` +
                   `cluster ${cluster.length}, uses ${budget.haveAll}/${budget.need}, plan ${plan.ms} ms, min y ${plan.minY}; ` +
                   `reached ${reached}, re-centred ${recentred}, ${Math.round((Date.now() - t0) / 1000)} s` + (stopped && !reached ? `; stopped: ${stopped}` : '')
