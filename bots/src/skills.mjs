@@ -31,7 +31,8 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
-import { pickupTransaction, itemIdsNow, supportLavaFree, PICKUP_THINK_MS } from './logpickup.mjs'
+import { pickupTransaction, itemIdsNow, supportVeto, standHeight, PICKUP_THINK_MS } from './logpickup.mjs'
+import { SAPLINGS } from './pickuplog.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -1075,7 +1076,7 @@ const mustCollectManually = name =>
  * or the item lies on the ground and the inventory delta stays zero -- which is
  * indistinguishable from not having mined it.
  */
-export async function collectManually(bot, block, signal) {
+export async function collectManually(bot, block, signal, { deadline = Infinity } = {}) {
   const p = block.position
   const wanted = block.name
   // ASK FOR THE STANCE THE SERVER WILL ACCEPT, AND ONLY IF WE ARE NOT ALREADY IN IT.
@@ -1300,7 +1301,7 @@ export async function collectManually(bot, block, signal) {
   // A LOG'S PICKUP IS A TRANSACTION (logpickup.mjs): know which item entities were already lying here, and how
   // many logs were held, BEFORE the dig -- so the drop of THIS dig can be named and only a bag gain counts.
   const logDig = LOG_PICKUP.test(wasNamed ?? '')
-  const preIds = logDig ? itemIdsNow(bot) : null
+  const pre = logDig ? itemIdsNow(bot) : null
   const heldBefore = logDig ? heldFromBlock(bot, wasNamed) : 0
   await withTimeout(bot.dig(block), 20_000, bot, {
     what: 'dig',
@@ -1342,9 +1343,23 @@ export async function collectManually(bot, block, signal) {
   // instead; it finishes only on an inventory gain and says why when it does not. Everything else is unchanged.
   if (logDig) {
     const pickup = await pickupTransaction(bot, {
-      cell: p, logName: wasNamed, family: dropsOf(bot.registry, wasNamed), preIds, heldBefore,
-      held: () => heldFromBlock(bot, wasNamed), signal,
+      cell: p, logName: wasNamed, family: dropsOf(bot.registry, wasNamed), pre, heldBefore,
+      held: () => heldFromBlock(bot, wasNamed), signal, deadline,
     }, pickupIO(bot))
+    // SAPLINGS STILL COME HOME (Claude review #3): planting needs them, and the old sweep is what fetched them.
+    // Short and small -- 4 blocks, ~3 s, inside the deadline -- and never the log drops the transaction already
+    // judged, so an unreachable log is not re-chased with GoalNear(drop, 1). Its intake is logged.
+    const sweepMs = Math.min(SWEEP_MS, deadline - Date.now())
+    if (sweepMs >= 500 && pickup.verdict !== 'inventory_full') {   // a full bag cannot take a sapling either
+      const t = Date.now(), before = keptDrops(bot)
+      await pickupNearbyItems(bot, signal, SWEEP_RADIUS, { exclude: new Set(pickup.ids ?? []), budgetMs: sweepMs })
+      const after = keptDrops(bot)
+      logEvent({ kind: 'pickup_sweep', status: 'success',
+                 detail: `after ${wasNamed}: saplings +${after.saplings - before.saplings} apples +${after.apples - before.apples} ` +
+                         `ms=${Date.now() - t}`,
+                 args: { block: wasNamed, saplings: after.saplings - before.saplings, apples: after.apples - before.apples,
+                         ms: Date.now() - t } })
+    }
     return { broke: true, pickup }
   }
   await pickupNearbyItems(bot, signal)
@@ -1353,16 +1368,47 @@ export async function collectManually(bot, block, signal) {
 
 /** Logs: the blocks whose pickup is a transaction. */
 const LOG_PICKUP = /_log$/
-
-/** Uses the dig needs to take a support down without spending a last swing (toolfor.HARD_STOP). */
-function supportBreakable (bot, b) {
+/** The bounded sweep after a log's pickup transaction, for saplings and apples. */
+const SWEEP_RADIUS = 4
+const SWEEP_MS = 3000
+const SAPLING_SET = new Set(SAPLINGS)
+function keptDrops (bot) {
+  let saplings = 0, apples = 0
   try {
-    if (!b?.position || !(bot.canDigBlock && bot.canDigBlock(b))) return false
-    if (!isSafeToBreak(bot, b.position)) return false          // liquids and falling blocks: pathfinder's own rule
-    if (!supportLavaFree((x, y, z) => bot.blockAt(new Vec3(x, y, z)), b.position)) return false
-    const h = bot.heldItem
-    return !(h && remaining(h) <= HARD_STOP)                     // a last swing is for a harvest, never for a leaf
-  } catch { return false }
+    for (const it of bot.inventory?.items?.() ?? []) {
+      if (SAPLING_SET.has(it.name)) saplings += it.count
+      else if (it.name === 'apple') apples += it.count
+    }
+  } catch { /* telemetry */ }
+  return { saplings, apples }
+}
+
+/**
+ * May this support be broken, from here, now? supportVeto (logpickup.mjs) FAILS CLOSED: no pathfinder
+ * safeToBreak, an unknown neighbour, a waterlogged block, a gravity block or dripstone beside it, lava, or a tool
+ * on its last swing all refuse. Note isSafeToBreak elsewhere fails OPEN when the checker is missing; not here.
+ */
+function supportVetoFor (bot, b) {
+  const m = bot.collectBlock?.movements ?? bot.pathfinder?.movements
+  return supportVeto({
+    block: b,
+    at: (x, y, z) => bot.blockAt(new Vec3(x, y, z)) ?? null,
+    safeToBreak: typeof m?.safeToBreak === 'function' ? q => m.safeToBreak(q) : null,
+    heldSpent: !!(bot.heldItem && remaining(bot.heldItem) <= HARD_STOP),
+    canDig: !!(bot.canDigBlock && bot.canDigBlock(b)),
+  })
+}
+
+/** Race `work` against the skill's abort, and CANCEL the in-flight work when the abort wins. */
+function abortable (work, signal, cancel) {
+  if (!signal) return work
+  if (signal.aborted) { try { cancel() } catch { /* best effort */ } return Promise.reject(new Aborted()) }
+  let onAbort
+  const gate = new Promise((_, rej) => {
+    onAbort = () => { try { cancel() } catch { /* best effort */ } rej(new Aborted()) }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  return Promise.race([work, gate]).finally(() => signal.removeEventListener('abort', onAbort))
 }
 
 /** The pickup transaction's I/O, bounded the same way as every other walk and dig in this file. */
@@ -1370,20 +1416,24 @@ function pickupIO (bot) {
   return {
     goals,
     now: () => Date.now(),
-    sleep: (ms, signal) => sleep(ms, signal),
+    sleep: (ms, signal) => sleep(Math.max(0, ms), signal),
+    // The REAL feet height on a node: over a bottom slab it is half a block under node.y (Codex P2).
+    standY: node => node.y - 1 + standHeight(bot.blockAt(new Vec3(node.x, node.y - 1, node.z), false)),
     // THINK TIME CAPPED: a pickup is worth seconds, not a 5 s A* drain. Restored on every path out.
-    walk: async (goal, ms) => {
+    walk: async (goal, ms, signal) => {
       const pf = bot.pathfinder
       const prev = pf.thinkTimeout
       pf.thinkTimeout = PICKUP_THINK_MS
-      try { await withTimeout(pf.goto(goal), ms, bot) } finally { pf.thinkTimeout = prev }
+      try { await abortable(withTimeout(pf.goto(goal), ms, bot), signal, () => haltPath(bot)) } finally { pf.thinkTimeout = prev }
     },
-    // The hole is the point, not the drop: a leaf yields nothing a tool must harvest.
-    dig: b => withTimeout(bot.dig(b), 3000, bot, {
+    // The hole is the point, not the drop: a leaf yields nothing a tool must harvest. Timeout sized by the caller
+    // from digTime, so a bare-handed log support (3 s grounded, 15 s in the air) is not killed half-way.
+    dig: (b, ms, signal) => abortable(withTimeout(bot.dig(b), ms, bot, {
       what: 'dig', needsDrop: false,
       onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
-    }),
-    supportOk: b => supportBreakable(bot, b),
+    }), signal, () => bot.stopDigging?.()),
+    digMs: b => (typeof bot.digTime === 'function' ? bot.digTime(b) : NaN),
+    veto: b => supportVetoFor(bot, b),
     sought: id => noteSought(bot, id, 'pickup'),
     log: row => logEvent({ kind: 'pickup_reach', status: row.outcome === 'collected' ? 'success' : 'failed',
                            detail: row.detail, args: row.args }),
@@ -1416,15 +1466,18 @@ function pickupIO (bot) {
  * The budget is unchanged. What changes is which drop the budget is spent on:
  * a drop that refuses is SKIPPED, not surrendered to.
  */
-export async function pickupNearbyItems(bot, signal, radius = 8) {
+export async function pickupNearbyItems(bot, signal, radius = 8, { exclude = null, budgetMs = Infinity } = {}) {
   // Ids that refused us this sweep. Per-sweep, deliberately: a drop unreachable
   // from here may be fine after the next dig moves the bot, and a persistent
   // blacklist of entity ids would outlive the entities.
   const refused = new Set()
+  const sweepEnd = Date.now() + budgetMs
   for (let i = 0; i < 4; i++) {
     check(signal)
+    if (sweepEnd - Date.now() < 250) return
     const drop = bot.nearestEntity?.(e =>
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
+      !exclude?.has(e.id) &&                                          // already judged by the log pickup
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
@@ -1433,7 +1486,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     const walkT0 = Date.now()
     try {
       await withTimeout(bot.pathfinder.goto(
-        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), 6000, bot)
+        new goals.GoalNear(drop.position.x, drop.position.y, drop.position.z, 1)), Math.max(1, Math.min(6000, sweepEnd - Date.now())), bot)
     } catch (e) {
       releaseSought()
       if (e.aborted || signal?.aborted) throw e
@@ -2104,7 +2157,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       // and stays under the 45s stuck reflex so a genuinely wedged bot is still
       // rescued rather than sitting out its whole budget.
       if (mustCollectManually(target.name)) {
-        const got = await collectManually(bot, target, signal)
+        // HARD DEADLINE: whatever is left of gather's contract, less time to report.
+        const got = await collectManually(bot, target, signal, { deadline: gatherT0 + SKILL_CONTRACTS.gather.maxMs - 5000 })
         const v = got?.pickup?.verdict
         if (v === 'pickup_failed') pickupFailed++
         else if (v === 'break_unconfirmed') unconfirmed++

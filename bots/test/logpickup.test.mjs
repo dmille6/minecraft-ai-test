@@ -12,6 +12,7 @@
 // side (item physics, pickup box, pickup delay) is written here independently of
 // the code under test, so a mutant in logpickup.mjs cannot also move the oracle.
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { Vec3 } from 'vec3'
 import pkg from 'mineflayer-pathfinder'
 
@@ -129,30 +130,99 @@ t('neither new class is evidence anywhere: no avoid rule, no situational lesson'
   assert.equal(evidenceScope('no_path'), 'action', 'positive control: the instrument does see a voting class')
 })
 
+console.log('-- review fixes, pure --')
+t('standing height: a bottom slab is half a block, a full block one, unknown one', () => {
+  assert.equal(LP.standHeight({ shapes: [[0, 0, 0, 1, 0.5, 1]] }), 0.5)
+  assert.equal(LP.standHeight({ shapes: [[0, 0, 0, 1, 1, 1]] }), 1)
+  assert.equal(LP.standHeight({ shapes: [] }), 1)
+  assert.equal(LP.standHeight(null), 1)
+})
+t('the goal uses the real feet: a node over a bottom slab sees a floor drop 0.5 down, not 1.0', () => {
+  const onFloor = { x: 1.5, y: 64.0, z: 0.5 }
+  const slabY = n => n.y - 0.5
+  assert.equal(LP.pickupGoal(goals, onFloor, slabY).isEnd({ x: 0, y: 65, z: 0 }), true)
+  assert.equal(LP.pickupGoal(goals, onFloor).isEnd({ x: 0, y: 65, z: 0 }), false, 'control: node.y alone rejects it')
+  const high = { x: 1.5, y: 67.0, z: 0.5 }                         // 2.0 over node.y, 2.5 over the real feet
+  assert.equal(LP.pickupGoal(goals, high).isEnd({ x: 0, y: 65, z: 0 }), true, 'control: node.y alone accepts it')
+  assert.equal(LP.pickupGoal(goals, high, slabY).isEnd({ x: 0, y: 65, z: 0 }), false, 'the slab feet cannot reach 2.5 up')
+})
+const air = () => ({ name: 'air' })
+const leaf = (extra = {}) => ({ name: 'oak_leaves', position: { x: 0, y: 66, z: 0 }, ...extra })
+const V0 = (extra = {}) => LP.supportVeto({ block: leaf(), at: air, safeToBreak: () => true, canDig: true, ...extra })
+t('supportVeto passes a plain leaf', () => assert.equal(V0(), null))
+t('supportVeto FAILS CLOSED: no safety checker, out of reach, unknown neighbour, checker says no', () => {
+  assert.equal(V0({ safeToBreak: null }), 'no_safety_checker')
+  assert.equal(V0({ canDig: false }), 'out_of_reach')
+  assert.equal(V0({ at: (x) => (x === 1 ? null : air()) }), 'unknown_neighbour')
+  assert.equal(V0({ safeToBreak: () => false }), 'unsafe')
+  assert.equal(V0({ safeToBreak: () => { throw new Error('x') } }), 'unsafe')
+})
+t('supportVeto: waterlogged support, water beside, lava, gravity and dripstone, last swing', () => {
+  assert.equal(V0({ block: leaf({ getProperties: () => ({ waterlogged: true }) }) }), 'waterlogged')
+  assert.equal(V0({ at: (x) => (x === 1 ? { name: 'water' } : air()) }), 'water_beside')
+  assert.equal(V0({ at: (x, y) => (x === 1 && y === 66 ? { name: 'lava' } : air()) }), 'lava')
+  assert.equal(V0({ at: (x, y) => (y === 67 ? { name: 'red_concrete_powder' } : air()) }), 'falling_block')
+  assert.equal(V0({ at: (x, y) => (y === 65 ? { name: 'pointed_dripstone' } : air()) }), 'falling_block')
+  assert.equal(V0({ at: (x, y) => (y === 67 ? { name: 'suspicious_sand' } : air()) }), 'falling_block')
+  assert.equal(V0({ heldSpent: true }), 'last_swing')
+})
+t('support dig timeout comes from digTime; a dig that cannot fit is not started', () => {
+  assert.equal(LP.supportDigTimeout(3000, 6000), 4250, 'a bare-handed grounded log (3 s) gets 4.25 s, not 3')
+  assert.equal(LP.supportDigTimeout(15000, 6000), null, 'a bare-handed airborne log (15 s) is skipped')
+  assert.equal(LP.supportDigTimeout(NaN, 6000), null)
+})
+const ent = (id, name, count = 1, at = { x: 1.5, y: 64, z: 0.5 }) => ({ id, name: 'item', position: at,
+  getDroppedItem: () => (name ? { name, count } : null) })
+const FAM = new Set(['oak_log'])
+t('a drop of THIS dig: a new log, or a pre-existing log stack that GREW (merge)', () => {
+  const cell = { x: 1, y: 64, z: 0 }
+  assert.equal(LP.isDropFrom(ent(1, 'oak_log'), cell, FAM, new Map()), true)
+  assert.equal(LP.isDropFrom(ent(1, 'oak_log', 2), cell, FAM, new Map([[1, 1]])), true, 'grew 1 -> 2')
+  assert.equal(LP.isDropFrom(ent(1, 'oak_log', 1), cell, FAM, new Map([[1, 1]])), false, 'unchanged stack is not ours')
+  assert.equal(LP.isDropFrom(ent(2, 'oak_sapling'), cell, FAM, new Map()), false, 'a sapling is not a log')
+  assert.equal(LP.isDropFrom(ent(3, null), cell, FAM, new Map()), true, 'unidentified is TRACKED (acted on only once identified)')
+})
+
 // ============================================================ the fake world ===
-// Server side, written independently of src/logpickup.mjs: vanilla pickup box,
-// 500 ms pickup delay, items fall to the first solid block.
+// Server side, written independently of src/logpickup.mjs: vanilla pickup box, a
+// 500 ms pickup delay, and PACKET-DRIVEN item motion -- a drop spawns mid-air in
+// the broken cell (+0.4) and its position changes only when a "landing packet"
+// arrives 450 ms later (entityMoved), exactly as mineflayer sees other entities.
 const K = (x, y, z) => `${x},${y},${z}`
-const ITEM_ID = 120, LOG_ID = 50
-function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = false, noDrop = false,
-                  walkable = n => n.y === 64, jitter = 0, failName = 'NoPath', logs = 0 } = {}) {
+const ITEM_ID = 120, LOG_ID = 50, FALL_MS = 450
+const SHAPES = { air: [], oak_slab: [[0, 0, 0, 1, 0.5, 1]] }
+function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = false, noDrop = false, mergeInto = false,
+                  walkable = n => n.y === 64, jitter = 0, failName = 'NoPath', digTimes = {}, metaDelay = 0,
+                  waterlogged = [], safety = true, heldItem = null, walkMs = 0, items = [] } = {}) {
   const w = new Map()
   for (let x = -8; x <= 8; x++) for (let z = -8; z <= 8; z++) w.set(K(x, 63, z), 'grass_block')
   for (const [k, v] of Object.entries(blocks)) w.set(k, v)
+  const wet = new Set(waterlogged)
   const name = (x, y, z) => w.get(K(Math.floor(x), Math.floor(y), Math.floor(z))) ?? 'air'
-  const solid = (x, y, z) => name(x, y, z) !== 'air'
+  const solid = (x, y, z) => !['air', 'water', 'lava'].includes(name(x, y, z))
+  const top = (x, y, z) => { const s = SHAPES[name(x, y, z)]; return s ? (s.length ? s[0][4] : 0) : 1 }
   const blockAt = p => {
-    const n = name(p.x, p.y, p.z)
-    return { name: n, type: n === 'oak_log' ? LOG_ID : 0, position: new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)),
-             boundingBox: n === 'air' ? 'empty' : 'block', diggable: n !== 'air' }
+    const n = name(p.x, p.y, p.z), q = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
+    return { name: n, type: n === 'oak_log' ? LOG_ID : 0, position: q, liquid: n === 'water' || n === 'lava',
+             boundingBox: solid(q.x, q.y, q.z) ? 'block' : 'empty', diggable: solid(q.x, q.y, q.z),
+             shapes: SHAPES[n] ?? [[0, 0, 0, 1, 1, 1]], getProperties: () => ({ waterlogged: wet.has(K(q.x, q.y, q.z)) }) }
   }
-  let held = logs, nextId = 1000
-  const seen = { gotos: [], think: [], digs: [], rows: [] }
-  const bot = {
+  const inv = new Map([['oak_log', 0]])
+  let nextId = 1000, digCancel = null, walkCancel = null
+  const seen = { gotos: [], goals: [], think: [], digs: [], halted: 0 }
+  const bot = new EventEmitter()
+  const restY = e => { let cy = Math.floor(e.position.y - 0.05); while (cy > 40 && !solid(e.position.x, cy, e.position.z)) cy--; return cy + top(e.position.x, cy, e.position.z) }
+  const spawn = (n, at, count = 1, born = Date.now()) => {
+    const id = nextId++
+    bot.entities[id] = { id, name: 'item', born, metaAt: born + metaDelay, n, count, position: at, landAt: null,
+                         getDroppedItem () { return Date.now() >= this.metaAt ? { name: this.n, count: this.count } : null } }
+    return bot.entities[id]
+  }
+  Object.assign(bot, {
     seen,
     entity: { position: new Vec3(...feet), onGround: true, velocity: new Vec3(0, 0, 0) },
     entities: {},
-    heldItem: null,
+    heldItem,
     registry: {
       blocksByName: { oak_log: { id: LOG_ID, name: 'oak_log', drops: [ITEM_ID] } },
       blocks: { [LOG_ID]: { name: 'oak_log' } },
@@ -160,93 +230,109 @@ function world ({ blocks = {}, feet = [0.5, 64, 0.5], emptySlots = 10, thief = f
       itemsByName: { oak_log: { id: ITEM_ID, name: 'oak_log', stackSize: 64 } },
     },
     inventory: {
-      items: () => (held > 0 ? [{ name: 'oak_log', count: held, stackSize: 64, slot: 36 }] : []),
+      items: () => [...inv.entries()].filter(([, c]) => c > 0).map(([n, c], i) => ({ name: n, count: c, stackSize: 64, slot: 36 + i })),
       emptySlotCount: () => emptySlots,
     },
     blockAt,
-    canDigBlock: b => !!b && b.name !== 'air' &&
+    canDigBlock: b => !!b && solid(b.position.x, b.position.y, b.position.z) &&
       Math.hypot(b.position.x + 0.5 - bot.entity.position.x, b.position.y + 0.5 - bot.entity.position.y - 1.65,
                  b.position.z + 0.5 - bot.entity.position.z) <= 5.1,
+    digTime: b => digTimes[b.name] ?? (/_leaves$/.test(b.name) ? 50 : 30),
     findBlocks: ({ matching }) => [...w.entries()].filter(([, v]) => v === 'oak_log' && matching === LOG_ID)
       .map(([k]) => new Vec3(...k.split(',').map(Number)))
       .sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position)),
     findBlock: () => null,
     equip: async () => {},
-    stopDigging: () => {},
+    stopDigging: () => { digCancel?.() },
     nearestEntity: pred => Object.values(bot.entities).filter(pred)
       .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0] ?? null,
-    dig: async b => {
+    dig: b => new Promise((resolve, reject) => {
       const p = b.position, was = name(p.x, p.y, p.z)
-      seen.digs.push(`${was}@${p.x},${p.y},${p.z}`)
-      w.delete(K(p.x, p.y, p.z))
-      if (was === 'oak_log' && !noDrop) {
-        const id = nextId++
-        bot.entities[id] = { id, name: 'item', born: Date.now(), position: new Vec3(p.x + 0.5, p.y + 0.25, p.z + 0.5),
-                             getDroppedItem: () => ({ name: 'oak_log', count: 1 }) }
-        settle()
-      }
-    },
+      const timer = setTimeout(() => {
+        digCancel = null
+        seen.digs.push(`${was}@${p.x},${p.y},${p.z}`)
+        w.delete(K(p.x, p.y, p.z))
+        if (was === 'oak_log' && !noDrop) {
+          const near = mergeInto && Object.values(bot.entities).find(e => e.n === 'oak_log' &&
+            Math.abs(e.position.x - (p.x + 0.5)) <= 1.5 && Math.abs(e.position.z - (p.z + 0.5)) <= 1.5)
+          if (near) near.count++
+          else spawn('oak_log', new Vec3(p.x + 0.5, p.y + 0.4, p.z + 0.5))
+        }
+        resolve()
+      }, bot.digTime(b))
+      digCancel = () => { clearTimeout(timer); digCancel = null; reject(new Error('Digging aborted')) }
+    }),
     pathfinder: {
       thinkTimeout: 5000,
-      movements: { safeToBreak: () => true },
-      setGoal () {}, stop () {},
+      movements: safety ? { safeToBreak: () => true } : {},
+      setGoal (g) { if (g === null) { seen.halted++; walkCancel?.() } },
+      stop () {},
       goto: async goal => {
-        seen.gotos.push(goal.constructor.name); seen.think.push(bot.pathfinder.thinkTimeout)
+        seen.gotos.push(goal.constructor.name); seen.goals.push(goal); seen.think.push(bot.pathfinder.thinkTimeout)
         const nodes = []
         for (let x = -8; x <= 8; x++) for (let y = 60; y <= 72; y++) for (let z = -8; z <= 8; z++) {
           const n = { x, y, z }
           if (!solid(x, y, z) && !solid(x, y + 1, z) && solid(x, y - 1, z) && walkable(n) && goal.isEnd(n)) nodes.push(n)
         }
+        if (walkMs) {
+          await new Promise((resolve, reject) => {
+            const tm = setTimeout(resolve, walkMs)
+            walkCancel = () => { clearTimeout(tm); walkCancel = null; reject(Object.assign(new Error('stopped'), { name: 'PathStopped' })) }
+          })
+        }
         if (!nodes.length) throw Object.assign(new Error('no path'), { name: failName })
         const p = bot.entity.position
         nodes.sort((a, b) => Math.hypot(a.x + 0.5 - p.x, a.z + 0.5 - p.z) - Math.hypot(b.x + 0.5 - p.x, b.z + 0.5 - p.z))
-        bot.entity.position = new Vec3(nodes[0].x + 0.5 + jitter, nodes[0].y, nodes[0].z + 0.5)
+        const n = nodes[0]
+        bot.entity.position = new Vec3(n.x + 0.5 + jitter, n.y - 1 + top(n.x, n.y - 1, n.z), n.z + 0.5)
       },
     },
-  }
-  // items fall to the first solid block, then the server's pickup check
-  function settle () {
-    for (const e of Object.values(bot.entities)) {
-      let cy = Math.floor(e.position.y - 0.05)
-      while (cy > 40 && !solid(e.position.x, cy, e.position.z)) cy--
-      e.position = new Vec3(e.position.x, cy + 1, e.position.z)
-    }
-  }
+  })
+  for (const it of items) spawn(it.name, new Vec3(...it.at), it.count ?? 1, Date.now() - 5000)
+  // the server: items fall (seen only when the landing packet arrives), then the pickup check
   const touches = (pp, ip) => ip.x + 0.125 > pp.x - 1.3 && ip.x - 0.125 < pp.x + 1.3 &&
                               ip.z + 0.125 > pp.z - 1.3 && ip.z - 0.125 < pp.z + 1.3 &&
                               ip.y + 0.25 > pp.y - 0.5 && ip.y < pp.y + 2.3
   const tick = setInterval(() => {
-    settle()
+    const now = Date.now()
     for (const e of Object.values(bot.entities)) {
-      const age = Date.now() - e.born
-      if (thief && age >= 300) { delete bot.entities[e.id]; continue }        // another player took it
-      if (age >= 500 && touches(bot.entity.position, e.position) && (emptySlots > 0 || (held > 0 && held < 64))) {
-        delete bot.entities[e.id]; held++
+      const ry = restY(e)
+      if (Math.abs(ry - e.position.y) > 1e-6) {
+        if (e.landAt == null) e.landAt = now + FALL_MS
+        if (now >= e.landAt) { e.position = new Vec3(e.position.x, ry, e.position.z); e.landAt = null; bot.emit('entityMoved', e) }
+        continue
+      }
+      const age = now - e.born
+      if (thief && age >= 300) { delete bot.entities[e.id]; continue }      // another player took it
+      if (age >= 500 && touches(bot.entity.position, e.position) &&
+          (emptySlots > 0 || ((inv.get(e.n) ?? 0) > 0 && inv.get(e.n) < 64))) {
+        delete bot.entities[e.id]; inv.set(e.n, (inv.get(e.n) ?? 0) + e.count)
       }
     }
   }, 25)
   bot.close = () => clearInterval(tick)
-  bot.held = () => held
+  bot.held = (n = 'oak_log') => inv.get(n) ?? 0
   return bot
 }
 const target = (bot, x, y, z) => bot.blockAt(new Vec3(x, y, z))
-const run = async (bot, tgt) => {
-  try { return { r: await collectManually(bot, tgt, new AbortController().signal) } }
-  catch (e) { if (e.aborted) throw e; return { e } } finally { bot.close() }
+const run = async (bot, tgt, { signal = new AbortController().signal, deadline } = {}) => {
+  try { return { r: await collectManually(bot, tgt, signal, deadline ? { deadline } : undefined) } }
+  catch (e) { return { e } } finally { bot.close() }
 }
+const CANOPY = { [K(1, 67, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' }
 
 // ============================================================ wired: collectManually ===
 console.log('-- through the real collectManually --')
 
-await ta('CANOPY CATCH: a drop on leaves 3 up -> break_support -> collected', async () => {
-  const bot = world({ blocks: { [K(1, 67, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' } })
+await ta('CANOPY CATCH (packet-driven): the drop lands on leaves 3 up -> break_support -> collected', async () => {
+  const bot = world({ blocks: CANOPY })
   const { r, e } = await run(bot, target(bot, 1, 67, 0))
   assert.equal(e, undefined, `threw: ${e?.message}`)
-  assert.equal(bot.held(), 1, 'the log never reached the bag')
+  assert.equal(bot.held(), 1, `the log never reached the bag: ${r?.pickup?.rows?.[0]?.detail}`)
   assert.equal(r?.pickup?.verdict, 'collected')
   const row = r.pickup.rows[0]
-  assert.equal(row.args.strategy, 'break_support', `strategy was ${row.args.strategies}`)
-  assert.equal(row.args.outcome, 'collected'); assert.equal(row.args.delta, 1); assert.equal(row.args.dy, 3)
+  assert.equal(row.args.strategy, 'break_support', `strategy was ${row.args.strategies} (${row.detail})`)
+  assert.equal(row.args.dy, 3, 'the decision was made from the LANDED position, not mid-air')
   assert.equal(row.args.support, 'oak_leaves')
   assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0', 'oak_leaves@1,66,0'], 'only the log and the one leaf were broken')
 })
@@ -256,35 +342,104 @@ await ta('OPEN TRUNK: a drop inside the box -> wait -> collected, no walk at all
   const { r, e } = await run(bot, target(bot, 1, 64, 0))
   assert.equal(e, undefined, `threw: ${e?.message}`)
   assert.equal(bot.held(), 1)
-  assert.equal(r.pickup.verdict, 'collected')
   assert.equal(r.pickup.rows[0].args.strategy, 'wait')
   assert.deepEqual(bot.seen.gotos, [], 'a drop already in the box needs no walk')
 })
 
+await ta('SAPLINGS STILL COME HOME: the short sweep after the log takes a sapling 3 blocks off', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'oak_log' }, items: [{ name: 'oak_sapling', at: [-2.5, 64, 0.5] }] })
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(r.pickup.verdict, 'collected')
+  assert.equal(bot.held('oak_sapling'), 1, 'the sapling was left on the ground')
+})
+
+await ta('METADATA LATE: a drop identified 300 ms after it appeared is still collected', async () => {
+  const bot = world({ metaDelay: 300, blocks: { [K(1, 64, 0)]: 'oak_log' } })
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(bot.held(), 1, r?.pickup?.rows?.[0]?.detail)
+})
+
+await ta('UNIDENTIFIED: metadata never arrives -> not pursued, no support broken', async () => {
+  const bot = world({ metaDelay: 1e9, blocks: CANOPY })
+  const { r } = await run(bot, target(bot, 1, 67, 0))
+  assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0'], 'a support was broken for an item nobody identified')
+  assert.equal(r.pickup.rows[0].args.reason, 'unidentified')
+})
+
 await ta('ELEVATED STUB: a drop on a trunk stub -> walk to a pickup-box node -> collected', async () => {
-  // The leaf over the stub makes the stub top unstandable, so GoalNear(drop, 1) has no end at all.
   const bot = world({ feet: [-2.5, 64, 0.5], jitter: -0.3,
                       blocks: { [K(1, 64, 0)]: 'oak_log', [K(1, 65, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' } })
   const { r, e } = await run(bot, target(bot, 1, 65, 0))
   assert.equal(e, undefined, `threw: ${e?.message}`)
   assert.equal(bot.held(), 1, `left behind: ${r?.pickup?.rows?.[0]?.detail}`)
   assert.equal(r.pickup.rows[0].args.strategy, 'walk')
-  assert.deepEqual(bot.seen.gotos, ['GoalPickupBox'])
-  assert.deepEqual(bot.seen.think, [LP.PICKUP_THINK_MS], 'A* think time must be capped for the pickup walk')
+  assert.equal(bot.seen.gotos[0], 'GoalPickupBox')
+  assert.equal(bot.seen.think[0], LP.PICKUP_THINK_MS, 'A* think time must be capped for the pickup walk')
   assert.equal(bot.pathfinder.thinkTimeout, 5000, 'and restored afterwards')
 })
 
-await ta('UNREACHABLE: a drop on a stone ledge 3 up -> left, verdict pickup_failed, quickly', async () => {
-  const bot = world({ blocks: { [K(1, 64, 0)]: 'stone', [K(1, 65, 0)]: 'stone', [K(1, 66, 0)]: 'stone', [K(1, 67, 0)]: 'oak_log' } })
+await ta('BOTTOM SLAB: the only stance is on a slab (feet 0.5 under node.y) -> walk -> collected', async () => {
+  const bot = world({ feet: [-2.5, 64, 0.5], walkable: n => n.x === 0 && n.y === 65 && n.z === 0,
+                      blocks: { [K(1, 64, 0)]: 'oak_log', [K(0, 64, 0)]: 'oak_slab' } })
+  const { r } = await run(bot, target(bot, 1, 64, 0))
+  assert.equal(bot.held(), 1, `left behind: ${r?.pickup?.rows?.[0]?.detail}`)
+  assert.equal(bot.entity.position.y, 64.5, 'the bot stands on the slab')
+})
+
+await ta('UNREACHABLE: a drop on a stone ledge 3 up -> left, pickup_failed; the sweep does not re-chase it', async () => {
+  const bot = world({ blocks: { [K(1, 64, 0)]: 'stone', [K(1, 65, 0)]: 'stone', [K(1, 66, 0)]: 'stone', [K(1, 67, 0)]: 'oak_log' },
+                      items: [{ name: 'oak_sapling', at: [-1.5, 64, 0.5] }] })   // fetching it leaves the log drop inside the sweep radius
   const t0 = Date.now()
   const { r, e } = await run(bot, target(bot, 1, 67, 0))
   assert.equal(e, undefined, `threw: ${e?.message}`)
   assert.equal(bot.held(), 0)
   assert.equal(r.pickup.verdict, 'pickup_failed')
-  assert.equal(r.pickup.rows[0].args.outcome, 'left')
   assert.equal(r.pickup.rows[0].args.reason, 'unreachable')
   assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0'], 'stone is never broken to free a drop')
-  assert.ok(Date.now() - t0 < 3000, `took ${Date.now() - t0} ms`)
+  assert.equal(bot.held('oak_sapling'), 1, 'the sapling sweep still ran')
+  const chasedLog = bot.seen.goals.filter(g => g.constructor.name === 'GoalNear' && g.x === 1 && g.z === 0)
+  assert.equal(chasedLog.length, 0, 'the sweep re-chased the judged log drop with GoalNear')
+  assert.ok(Date.now() - t0 < 4500, `took ${Date.now() - t0} ms`)
+})
+
+await ta('BARE-HAND LOG SUPPORT (3.2 s dig): the support break gets a digTime-sized timeout -> collected', async () => {
+  const bot = world({ digTimes: { oak_log: 3200 }, blocks: { [K(1, 67, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_log' } })
+  const { r } = await run(bot, target(bot, 1, 67, 0))
+  assert.ok(bot.seen.digs.includes('oak_log@1,66,0'), `the support dig was killed: ${r?.pickup?.rows?.[0]?.detail}`)
+  assert.ok(bot.held() >= 1, r?.pickup?.rows?.[0]?.detail)
+})
+
+await ta('A SUPPORT DIG THAT CANNOT FIT (15 s) is not started', async () => {
+  const bot = world({ digTimes: { oak_log: 15000 }, blocks: { [K(1, 67, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_log' } })
+  // the target itself is broken first (slow, as on the fleet); then the support must be refused, not started
+  bot.digTime = b => (b.position.y === 67 ? 30 : 15000)
+  const { r } = await run(bot, target(bot, 1, 67, 0))
+  assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0'])
+  assert.match(String(r.pickup.rows[0].args.veto), /dig_too_slow/)
+})
+
+for (const [label, opts, veto] of [
+  ['LAVA beside the support', { blocks: { ...CANOPY, [K(2, 66, 0)]: 'lava' } }, 'lava'],
+  ['a WATERLOGGED leaf', { blocks: CANOPY, waterlogged: [K(1, 66, 0)] }, 'waterlogged'],
+  ['the held tool at its LAST SWING', { blocks: CANOPY, heldItem: { name: 'iron_axe', maxDurability: 250, durabilityUsed: 249 } }, 'last_swing'],
+  ['NO SAFETY CHECKER', { blocks: CANOPY, safety: false }, 'no_safety_checker'],
+  ['DRIPSTONE hanging under the leaf', { blocks: { ...CANOPY, [K(1, 65, 0)]: 'pointed_dripstone' } }, 'falling_block'],
+]) {
+  await ta(`SAFETY: ${label} -> the support is NOT broken (veto=${veto})`, async () => {
+    const bot = world(opts)
+    const { r, e } = await run(bot, target(bot, 1, 67, 0))
+    assert.equal(e, undefined, `threw: ${e?.message}`)
+    assert.deepEqual(bot.seen.digs, ['oak_log@1,67,0'], 'the support was broken')
+    assert.equal(r.pickup.rows[0].args.veto, veto, r.pickup.rows[0].detail)
+  })
+}
+
+await ta('MERGE: the drop merges into an older log stack on the leaves -> that stack is pursued -> collected', async () => {
+  const bot = world({ mergeInto: true, blocks: { [K(2, 67, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' },
+                      items: [{ name: 'oak_log', at: [1.5, 67, 0.5] }] })
+  const { r } = await run(bot, target(bot, 2, 67, 0))
+  assert.equal(r.pickup.verdict, 'collected', r.pickup.rows[0]?.detail)
+  assert.equal(bot.held(), 2, 'the grown stack (old + new) reached the bag')
 })
 
 await ta('RETIRE IS NOT COMPLETION: a drop taken by someone else -> left, pickup_failed', async () => {
@@ -292,7 +447,6 @@ await ta('RETIRE IS NOT COMPLETION: a drop taken by someone else -> left, pickup
   const { r } = await run(bot, target(bot, 1, 64, 0))
   assert.equal(bot.held(), 0)
   assert.equal(r.pickup.verdict, 'pickup_failed', `verdict ${r.pickup.verdict}`)
-  assert.equal(r.pickup.rows[0].args.outcome, 'left')
   assert.equal(r.pickup.rows[0].args.reason, 'vanished')
 })
 
@@ -308,6 +462,28 @@ await ta('FULL BAG: no slot for the log -> inventory_full, no walking', async ()
   const { r } = await run(bot, target(bot, 1, 64, 0))
   assert.equal(r.pickup.verdict, 'inventory_full')
   assert.deepEqual(bot.seen.gotos, [])
+})
+
+const STUB = { [K(1, 64, 0)]: 'oak_log', [K(1, 65, 0)]: 'oak_log', [K(1, 66, 0)]: 'oak_leaves' }
+await ta('HARD DEADLINE: a slow walk is clamped to the deadline and cancelled', async () => {
+  const bot = world({ feet: [-2.5, 64, 0.5], walkMs: 4000, blocks: STUB })
+  const t0 = Date.now()
+  const { r, e } = await run(bot, target(bot, 1, 65, 0), { deadline: Date.now() + 1500 })
+  assert.equal(e, undefined, `threw: ${e?.message}`)
+  assert.ok(Date.now() - t0 < 2200, `ran ${Date.now() - t0} ms past a 1500 ms deadline`)
+  assert.ok(bot.seen.halted >= 1, 'the in-flight walk was never cancelled')
+  assert.notEqual(r.pickup.verdict, 'collected')
+})
+
+await ta('ABORT: an abort mid-walk rejects at once and cancels the walk', async () => {
+  const bot = world({ feet: [-2.5, 64, 0.5], walkMs: 4000, blocks: STUB })
+  const ac = new AbortController()
+  let abortedAt = 0
+  setTimeout(() => { abortedAt = Date.now(); ac.abort() }, 1200)
+  const { e } = await run(bot, target(bot, 1, 65, 0), { signal: ac.signal })
+  assert.ok(e?.aborted, `did not reject as aborted: ${e?.message}`)
+  assert.ok(Date.now() - abortedAt < 400, `took ${Date.now() - abortedAt} ms to stop after the abort`)
+  assert.ok(bot.seen.halted >= 1, 'the in-flight walk was never cancelled')
 })
 
 // ============================================================ wired: gather ===
@@ -328,9 +504,9 @@ await ta('UNREACHABLE DROPS: the run is pickup_failed, NOT no_path, and gets no 
 })
 
 await ta('control: ROUTE FAILURE is still no_path (logs out of reach, nothing broken)', async () => {
-  const air = {}
-  for (const [x, z] of [[1, 0], [-1, 0], [0, 1]]) air[K(x, 72, z)] = 'oak_log'
-  const bot = world({ blocks: air })
+  const high = {}
+  for (const [x, z] of [[1, 0], [-1, 0], [0, 1]]) high[K(x, 72, z)] = 'oak_log'
+  const bot = world({ blocks: high })
   const r = await gather(bot)
   assert.deepEqual(bot.seen.digs, [], 'nothing was in reach, so nothing broke')
   assert.equal(r.failClass, 'no_path', `${r.failClass}: ${r.detail}`)
