@@ -23,19 +23,83 @@ export const BAMBOO_STICK = Object.freeze({
 const countOf = (items, name) => items.reduce((n, it) => n + (it?.name === name ? (it.count ?? 1) : 0), 0)
 
 /**
+ * THE FOLD AS THE BOT REALLY RUNS IT -> { after, tossed, short, stickSlotsBefore, stickSlotsAfter, steps }. Pure.
+ * One 2x1 craft in the 2x2 grid, repeated `crafts` times over the bag's ACTUAL slots (mineflayer 4.37.1 craft.js +
+ * craftsync.mjs's put-away, window 0, inventory slots 9..44 in order):
+ *   1. pick up the FIRST bamboo stack in slot order (findInventoryItem), whole; right-click one into each grid cell
+ *      (an emptied cursor picks up the next bamboo stack)
+ *   2. put the cursor's leftover away: onto the first NON-FULL bamboo stack in slot order, then the first empty slot,
+ *      else it is thrown -- this is where split stacks CONSOLIDATE: [64,10] bamboo frees a slot after 5 crafts
+ *   3. the stick: onto the first non-full stick stack, then the first empty slot, else it is thrown
+ * craftRoom (craftroom.mjs) takes ingredients off the largest stack and so never sees that consolidation; it stays the
+ * PEAK/safety check. Items without a `slot` are laid out in order from slot 9. `steps` is per craft: the bag's
+ * occupancy and stick slots after it, for a caller scanning batch sizes without re-simulating.
+ */
+export function simulateFold (items = [], crafts = 0, { first = 9, last = 44, stackSize = 64 } = {}) {
+  const slots = new Map()
+  let next = first
+  for (const it of (Array.isArray(items) ? items : []).filter(i => i?.name && (i.count ?? 1) > 0)) {
+    let at = Number.isInteger(it.slot) && it.slot >= first && it.slot <= last && !slots.has(it.slot) ? it.slot : null
+    while (at == null && next <= last) { if (!slots.has(next)) at = next; next++ }
+    if (at == null) continue
+    slots.set(at, { name: it.name, count: it.count ?? 1, size: it.stackSize ?? (it.name === 'bamboo' || it.name === 'stick' ? stackSize : 64) })
+  }
+  const order = () => [...slots.keys()].sort((x, y) => x - y)
+  const firstOf = (name, notFull = false) => order().find(k => slots.get(k).name === name && (!notFull || slots.get(k).count < slots.get(k).size))
+  const firstEmpty = () => { for (let k = first; k <= last; k++) if (!slots.has(k)) return k; return null }
+  const stickSlots = () => [...slots.values()].filter(v => v.name === 'stick').length
+  const put = (name, n) => {          // put-away: non-full stacks of that name in slot order, then the first empty slot
+    let left = n
+    for (let k = firstOf(name, true); left > 0 && k != null; k = firstOf(name, true)) {
+      const v = slots.get(k); const add = Math.min(left, v.size - v.count); v.count += add; left -= add
+    }
+    while (left > 0) {
+      const e = firstEmpty()
+      if (e == null) return left       // thrown on the ground
+      const add = Math.min(left, stackSize); slots.set(e, { name, count: add, size: stackSize }); left -= add
+    }
+    return 0
+  }
+  const out = { after: slots.size, tossed: 0, short: false, stickSlotsBefore: stickSlots(), stickSlotsAfter: stickSlots(), steps: [] }
+  for (let c = 0; c < crafts; c++) {
+    let cursor = 0
+    for (let cell = 0; cell < 2; cell++) {
+      if (cursor === 0) {
+        const src = firstOf('bamboo')
+        if (src == null) { out.short = true; break }
+        cursor = slots.get(src).count; slots.delete(src)
+      }
+      cursor -= 1
+    }
+    if (out.short) break
+    out.tossed += put('bamboo', cursor)
+    out.tossed += put('stick', 1)
+    out.steps.push({ after: slots.size, stickSlots: stickSlots(), tossed: out.tossed })
+  }
+  out.after = slots.size
+  out.stickSlotsAfter = stickSlots()
+  return out
+}
+
+/**
  * bambooPlan(items) -> { crafts, freed, why, before, after, peak }
- *   items  mineflayer Item[] (one entry per occupied slot)
+ *   items  mineflayer Item[] (one entry per occupied slot, with its `slot`)
  * crafts > 0 only when ALL hold:
  *   - the bag is at TRIGGER_SLOTS (34) or more occupied slots -- housekeeping, not a craft on a whim
  *   - at least 2 bamboo
- *   - sticks held + crafts <= STICK_CAP
- *   - the batch FREES a slot: occupied before - occupied after > 0, simulated by craftRoom, and its peak never exceeds
- *     the bag (a batch that needs a temporary slot the bag does not have is refused, not tried)
+ *   - the batch FREES a slot, as the bot really runs it (simulateFold: the actual slot order and the put-away's
+ *     consolidation), and throws nothing
+ *   - the STICK CAP: sticks held + crafts <= STICK_CAP -- or, past it, the fold provably needs no new stick slot (it
+ *     only tops up partial stick stacks)
+ *   - craftRoom's conservative PEAK fits the bag: a batch that needs a temporary slot the bag does not have is refused
  * The SMALLEST such batch is chosen: it frees the slot and spends the least bamboo. Worked cases (both engines):
  *   bamboo [64] + sticks [32]  -> 32 crafts, frees 1 (the bamboo stack empties, the sticks top up to 64)
  *   bamboo [64], no sticks     -> nothing frees (the bamboo slot becomes the sticks' slot)
  *   bamboo [64,64], no sticks  -> 64 crafts frees 1, but needs a temporary slot for the first stick
  *   bamboo [63] + sticks [32]  -> 31 crafts leaves 1 bamboo: nothing frees; an odd remainder never empties a stack
+ *   bamboo [64,10] + sticks [32] (split) -> 5 crafts: the put-away consolidates the bamboo into one stack (Claude)
+ * Fuel (report only): smelting ranks bamboo ahead of planks/logs and sticks last, so a fold moves fuel use onto wood --
+ * same burn time per item, a different item burned.
  */
 export function bambooPlan (items = [], { minSlots = TRIGGER_SLOTS, stickCap = STICK_CAP, capacity = BAG_SLOTS } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
@@ -44,19 +108,43 @@ export function bambooPlan (items = [], { minSlots = TRIGGER_SLOTS, stickCap = S
   if (before < minSlots) return none(`bag at ${before} of ${capacity} slots, below ${minSlots}: nothing to free`)
   const bamboo = countOf(list, 'bamboo'), sticks = countOf(list, 'stick')
   if (bamboo < 2) return none(`${bamboo} bamboo: a stick takes 2`)
-  const maxCrafts = Math.min(Math.floor(bamboo / 2), stickCap - sticks)
-  if (maxCrafts < 1) return none(`already ${sticks} sticks, at the ${stickCap}-stick cap`)
-  let needsRoom = null
-  for (let k = 1; k <= maxCrafts; k++) {
-    const r = craftRoom(list, BAMBOO_STICK, k, { capacity: Infinity })
-    if (!r.ok) continue
-    const freed = before - r.after
+  const maxCrafts = Math.floor(bamboo / 2)
+  const sim = simulateFold(list, maxCrafts)
+  let needsRoom = null, capped = null
+  for (let k = 1; k <= sim.steps.length; k++) {
+    const st = sim.steps[k - 1]
+    const freed = before - st.after
+    if (st.tossed > 0) { needsRoom ??= { k }; break }          // every larger batch passes through this toss too
     if (freed <= 0) continue
-    if (r.peak > capacity) { needsRoom ??= { k, peak: r.peak }; continue }
-    return { crafts: k, freed, why: `${k} craft(s): ${2 * k} bamboo -> ${k} sticks frees ${freed} slot(s)`, before, after: r.after, peak: r.peak }
+    if (!(sticks + k <= stickCap || st.stickSlots <= sim.stickSlotsBefore)) { capped ??= k; continue }
+    const peak = craftRoom(list, BAMBOO_STICK, k, { capacity: Infinity }).peak
+    if (peak > capacity) { needsRoom ??= { k, peak }; continue }
+    return { crafts: k, freed, why: `${k} craft(s): ${2 * k} bamboo -> ${k} sticks frees ${freed} slot(s)`, before, after: st.after, peak }
   }
-  if (needsRoom) return none(`${needsRoom.k} craft(s) would free a slot but need ${needsRoom.peak - capacity} more slot(s) on the way`)
+  if (needsRoom) return none(`${needsRoom.k} craft(s) would need ${needsRoom.peak ? needsRoom.peak - capacity : 1} more slot(s) on the way`)
+  if (capped) return none(`${capped} craft(s) would free a slot but pass the ${stickCap}-stick cap with a new stick slot`)
   return none(`no batch of up to ${maxCrafts} craft(s) frees a slot (${bamboo} bamboo, ${sticks} sticks)`)
+}
+
+/**
+ * THE GATE BEFORE EVERY EXECUTION -> null (go on) | { reason, detail }. Pure. Asked by craftroom's executor before each
+ * execution AND inside craftsync's admission, against the bag the server holds after the baseline resync (Codex: 36
+ * slots, bamboo x2, sticks x63, one stick arriving during the baseline made 65 sticks and freed nothing). The REMAINING
+ * batch must still free a slot as the bot really runs it, throw nothing, and keep to the stick cap; otherwise the
+ * fold stops there and what it already made stays.
+ */
+export function bambooGate (items = [], remaining = 0, { stickCap = STICK_CAP } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
+  if (remaining <= 0) return null
+  const sim = simulateFold(list, remaining)
+  if (sim.short) return { reason: 'gate_short', detail: `fewer than ${2 * remaining} bamboo left for the batch` }
+  if (sim.tossed > 0) return { reason: 'gate_no_room', detail: 'the rest of the batch would throw an item on the ground' }
+  if (list.length - sim.after <= 0) return { reason: 'gate_no_longer_frees', detail: `the remaining ${remaining} craft(s) no longer free a slot` }
+  const sticks = countOf(list, 'stick')
+  if (!(sticks + remaining <= stickCap || sim.stickSlotsAfter <= sim.stickSlotsBefore)) {
+    return { reason: 'gate_stick_cap', detail: `${sticks} sticks + ${remaining} would pass the ${stickCap}-stick cap with a new stick slot` }
+  }
+  return null
 }
 
 /**
@@ -73,6 +161,20 @@ export function bambooStickRecipe (recipes = [], registry) {
 }
 
 // ---- the order ------------------------------------------------------------------------------------------------------
+
+/**
+ * THE HOUSEKEEPING CHAIN'S PRECEDENCE -> the first order. Pure. `first` (the milestone work order) wins; otherwise each
+ * step is asked IN ORDER and only while nothing has been chosen -- a step that charges a cooldown when it issues
+ * (wear_out, bamboo) is never even asked once an earlier one has issued.
+ */
+export function firstOrder (first, ...steps) {
+  let order = first ?? null
+  for (const step of steps) {
+    if (order) break
+    order = step() ?? null
+  }
+  return order
+}
 
 /** One fold order per bot per two minutes at most (like wear_out); a fold that failed backs off half an hour. */
 export const BAMBOO_COOLDOWN_MS = 2 * 60 * 1000
