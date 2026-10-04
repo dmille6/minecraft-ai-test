@@ -197,6 +197,7 @@ export class Runner {
       this.grant = grant
     }
     const invBefore = inventorySummary(this.bot)
+    const slotsBefore = this.bot.inventory?.items?.()?.length ?? null
     const posBefore = this.bot.entity?.position?.clone()
     const hpBefore = this.bot.health
     const foodBefore = this.bot.food
@@ -310,6 +311,8 @@ export class Runner {
       // planks are not evidence about a pickaxe, and a replacement (spent copy out, new copy in) moves no name count.
       crafted: result.item != null && result.item === args?.item ? Number(result.produced ?? 0) : 0,
       craftedItem: result.item ?? null,
+      // OCCUPIED SLOTS before - after, from the bag itself (bamboo_sticks' contract): never the skill's own claim.
+      slotsFreed: slotsBefore === null ? 0 : slotsBefore - (this.bot.inventory?.items?.()?.length ?? slotsBefore),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless

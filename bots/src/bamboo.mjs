@@ -177,6 +177,24 @@ export function firstOrder (first, ...steps) {
 }
 
 /** One fold order per bot per two minutes at most (like wear_out); a fold that failed backs off half an hour. */
+/**
+ * THE FOLD'S DECLARED STATIONARY WINDOW (sandbox 10-04). A fold stands still on purpose, ~1.1 s per craft; the stuck
+ * watchdog (fleet 20 s) cut a 32-craft fold at 15 crafts (freed nothing) and a 64-craft fold can never finish. Like the
+ * compost visit, the fold declares bot.stationaryUntil -- bounded by its OWN budget: crafts x perCraftMs + marginMs,
+ * capped at capMs and at the time the skill has left (leftMs). The fold also runs to that time as its deadline, so the
+ * exemption never outlives the work. -> { ms, fits, maxCrafts }: `fits` false = the batch cannot finish inside the
+ * window, and it is refused rather than started (bambooPlan's batch is already the SMALLEST that frees a slot: a cut
+ * batch would free nothing). Pure.
+ */
+export const FOLD_MS_PER_CRAFT = 1300
+export const FOLD_MARGIN_MS = 5000
+export const FOLD_WINDOW_CAP_MS = 90_000
+export function foldWindow (crafts, { leftMs = Infinity, perCraftMs = FOLD_MS_PER_CRAFT, marginMs = FOLD_MARGIN_MS, capMs = FOLD_WINDOW_CAP_MS } = {}) {
+  const limit = Math.max(0, Math.min(capMs, leftMs))
+  const need = Math.max(0, crafts) * perCraftMs + marginMs
+  return { ms: Math.min(need, limit), fits: crafts > 0 && need <= limit, maxCrafts: Math.max(0, Math.floor((limit - marginMs) / perCraftMs)) }
+}
+
 export const BAMBOO_COOLDOWN_MS = 2 * 60 * 1000
 export const BAMBOO_BACKOFF_MS = 30 * 60 * 1000
 
