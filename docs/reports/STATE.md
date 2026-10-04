@@ -111,6 +111,14 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 17:51Z — COMPOSTER-01 KEPT (+360) and PROMOTED 56db2cd fleet-wide 17:50:43Z; toolclean-01 chained next.
++360: 12 real compost visits, C1-C5 all 0; junk slots/bot canary 5.60 -> 3.50 vs control 4.90 -> 4.96 (DiD -2.16);
+share of bots at >= 34 slots DiD -0.214; 2.00 slots freed per visit. Only board-b built a composter (hive-a visits
+used it? -- check hive-a has one after promotion). Deaths 1 vs control 6 (rate 0.017 vs 0.020/bh).
+craftroom refusals explained (6 h fleet, 3,187 _craft_room rows, 71 bots): 2,534 refused, all at 36/36 slots with
+"no spent tool that can be spared (the last digging pickaxe is kept)"; bags hold leaf_litter, bamboo, saplings, eggs,
+cobble. Remedies queued: composter (now fleet), toolclean (next), bamboo fold, no-junk; eggs have NO exit (owner).
+
 ## 10-04 17:35Z — CRAFTROOM-01 KEPT (+360, 11:22Z) and PROMOTED ffa0f57 fleet-wide 11:32Z. COMPOSTER-01 LIVE @ 56db2cd on
 hive-a,board-b since 11:37:15Z (+180 NOT_YET: 3 real visits, 1 composter, C1-C5 clean, junk slots/bot DiD -0.74);
 toolclean-01 chained behind it. (Session paused ~08:20-17:25Z on API limits; the loop ran unattended.)
