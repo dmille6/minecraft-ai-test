@@ -40,6 +40,17 @@
 // moveSlotItem / toss / tossStack first abort the craft and wait (at most preemptWaitMs) for it to unwind, then
 // proceed: a reflex is never blocked long and never interleaves its clicks with a craft's.
 //
+// THE 2x2 GRID IS NEVER LEFT LOADED (sandbox 10-04: an aborted bamboo fold left 2 bamboo in the grid and 8 on the
+// cursor -- out of the bag while online, on the ground at logout). mineflayer closes a crafting TABLE in its own
+// catch, so the server hands that grid back; it never closes window 0, and the abort path never verified (the only
+// close_window 0 was the verification's). Now: on ANY exit with window-0 clicks after the last close of window 0
+// (abort, preemption, mineflayer's own throw), while craftsync still owns the inventory, it sends close_window 0
+// (Paper returns grid + cursor to the bag), clears mineflayer's LOCAL cursor and grid as a vanilla client does on
+// close, resyncs window 0 on its own budget (gridClearCapMs) and reads slots 1-4 and the cursor off the server's
+// answer: grid_clear on the row. Not on a disconnect (nothing can be sent). The local clear matters on its own:
+// mineflayer never reads a window_items' carriedItem, so a stale cursor belief outlived the close and the NEXT
+// 2x2 craft skipped its pick-up click and failed. The baseline close clears it too.
+//
 // CANCELLATION (signal, deadline, preemption, disconnect) returns promptly even while mineflayer is awaiting
 // windowOpen: the craft is raced against it and every wrapper is restored -- except a one-line FUSE left on
 // bot.clickWindow until the abandoned mineflayer craft settles (its own 20 s windowOpen timeout at worst), so a
@@ -62,6 +73,8 @@ export const CRAFT_SYNC = Object.freeze({
   rewriteStateId: true,  // arm B; false runs arm A alone (the sandbox's A-only arm, and the tests' A-only proof)
   verifyReserveMs: 600,  // clicks stop this long before the deadline so verification fits inside it
   preemptWaitMs: 2000,   // an inventory action waits at most this long for a craft to unwind
+  gridClearCapMs: 1500,  // the grid clear's own budget after an unclean exit (inside preemptWaitMs: a reflex
+                         // waiting on the craft is held at most this long more)
 })
 
 export const GUARDED_INVENTORY_ACTIONS = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack']
@@ -121,6 +134,19 @@ export function craftConfirmed ({ before, after, count, perCraft, authoritative 
 const emptySlot = (item) => !(item && item.itemCount > 0)
 
 /**
+ * After a grid clear: does the server's window-0 window_items show the 2x2 grid (slots 1-4) AND the cursor empty?
+ * -> { clear, residue: ['slot2:<itemId>x1', 'cursor:<itemId>x8', ...] }. No packet is not clear. Pure.
+ */
+export function gridClearVerdict (packet) {
+  if (!packet || !Array.isArray(packet.items)) return { clear: false, residue: ['no window_items'] }
+  const residue = []
+  const say = (where, it) => residue.push(`${where}:${it.itemId ?? '?'}x${it.itemCount}`)
+  for (let i = 1; i <= 4; i++) if (!emptySlot(packet.items[i])) say(`slot${i}`, packet.items[i])
+  if (!emptySlot(packet.carriedItem)) say('cursor', packet.carriedItem)
+  return { clear: residue.length === 0, residue }
+}
+
+/**
  * ADMISSION (opt-in): ask the caller's `admit(items, { source })` about the bag craftsync just resynced -> null (go
  * ahead) or the refusal { failClass, reason, detail }. Pure. `true` or { ok: true } admits; anything else refuses, and an
  * admit that THROWS refuses too (fail closed: an unchecked craft is the one that can toss its result).
@@ -160,6 +186,7 @@ export function installCraftSync (bot, opts = {}) {
   const lastAt = new Map()     // windowId -> ms of the last packet for it ('cursor' for cursor packets)
   const itemsSeen = new Map()  // windowId -> window_items received: the ONLY thing that answers a resync
   const stateIds = new Map()   // windowId -> last stateId
+  const lastItems = new Map()  // windowId -> the last window_items packet (the grid clear reads window 0's)
   const touch = (win) => {
     lastAt.set(win, now())
     if (active?.awaitingSince != null) {
@@ -178,6 +205,7 @@ export function installCraftSync (bot, opts = {}) {
     if (p?.windowId === undefined) return
     touch(p.windowId)
     itemsSeen.set(p.windowId, (itemsSeen.get(p.windowId) ?? 0) + 1)
+    lastItems.set(p.windowId, p)
     if (p.stateId !== undefined) stateIds.set(p.windowId, p.stateId)
     cursorStatement(p.windowId, p.carriedItem)
   })
@@ -230,12 +258,44 @@ export function installCraftSync (bot, opts = {}) {
     return got ? 'answered' : 'unanswered'
   }
 
+  /** What a vanilla client does when its inventory screen closes: the carried stack and the 2x2 grid are gone (the
+   *  server put them back in the bag, or dropped what did not fit). mineflayer never reads carriedItem, so without
+   *  this its cursor belief outlives the close. */
+  function closeInventoryLocally () {
+    const inv = bot.inventory
+    if (!inv) return
+    inv.selectedItem = null
+    for (let i = 0; i <= 4; i++) if (inv.slots?.[i]) inv.updateSlot(i, null)
+  }
+
+  /** The grid clear (see the header). Runs only while `st` owns the inventory; never throws. */
+  async function clearGrid (st) {
+    if (st.w0Clicks === st.w0CloseMark) return                 // no window-0 click since window 0 was last closed
+    if (st.cancelReason === 'disconnected') { st.gridClear = 'skipped_disconnected'; return }
+    if (bot.currentWindow) { st.gridClear = 'skipped_window_open'; return }
+    const end = now() + cfg.gridClearCapMs
+    const until = () => now() >= end || st.cancelReason === 'disconnected'
+    try {
+      bot._client.write('close_window', { windowId: 0 })     // through the hook: marks the close, proves the cursor
+      closeInventoryLocally()
+      const r = await resync(st, 0, until)
+      if (r !== 'answered') { st.gridClear = `unverified_${r}`; return }
+      const v = gridClearVerdict(lastItems.get(0))
+      st.gridClear = v.clear ? 'yes' : 'no'
+      st.gridResidue = v.residue
+    } catch (e) {
+      st.gridClear = 'error'
+      st.gridResidue = [String(e?.message ?? e).slice(0, 60)]
+    }
+  }
+
   /** Window 0 from the server, then the result count. Closing the (inventory) window first makes the cursor
    *  provably empty -- the server hands a carried stack back on close, exactly as when a player shuts the screen. */
   async function serverCount (st, until) {
     let source = 'local'
     if (!bot.currentWindow && !until()) {
       bot._client.write('close_window', { windowId: 0 })   // through the hook: it records the empty-cursor proof
+      closeInventoryLocally()
       if (await resync(st, 0, until) === 'answered') source = 'resync'
     } else {
       await waitQuiet(st, 0, until)
@@ -342,6 +402,7 @@ export function installCraftSync (bot, opts = {}) {
     const write = function (name, params) {
       if (name === 'window_click') {
         st.clicksSent++
+        if (params?.windowId === 0) st.w0Clicks++
         if (cfg.rewriteStateId) {
           const fixed = withWindowStateId(params, stateIds)
           if (fixed !== params) st.rewrites++
@@ -350,6 +411,7 @@ export function installCraftSync (bot, opts = {}) {
       } else if (name === 'close_window') {
         const r = origWrite.call(this, name, params)
         st.proof = { win: 'any', clicks: st.clicksSent }
+        if (params?.windowId === 0) st.w0CloseMark = st.w0Clicks
         return r
       }
       return origWrite.call(this, name, params)
@@ -393,6 +455,7 @@ export function installCraftSync (bot, opts = {}) {
       resynced: new Set(), clicks: 0, clicksSent: 0, proof: null, resyncs: 0, resyncAnswered: 0, resyncSkipped: 0,
       waitMs: 0, quietCaps: 0, clickCaps: 0, resyncCaps: 0, rewrites: 0, restoreConflicts: 0, preemptTimeouts: 0,
       maxAnswerMs: 0, awaitingSince: null, abandoned: false, outcome: null, verify: null,
+      w0Clicks: 0, w0CloseMark: 0, gridClear: null, gridResidue: null,
     }
     const onEnd = () => { st.cancelReason ??= 'disconnected' }
     bot.once?.('end', onEnd)
@@ -460,6 +523,7 @@ export function installCraftSync (bot, opts = {}) {
 
         const cancelled = st.cancelReason ?? (st.signal?.aborted ? 'aborted' : null)
         if (cancelled) {
+          await clearGrid(st)                          // before ownership is released
           unwind(st.abandoned)
           st.outcome = 'aborted'
           throw new CraftSyncError(`craft aborted: ${cancelled}`, { failClass: 'interrupted', aborted: true, reason: cancelled })
@@ -509,6 +573,7 @@ export function installCraftSync (bot, opts = {}) {
       error = e
       throw e
     } finally {
+      if (!restored) await clearGrid(st)               // any other unclean exit; a no-op after a verified close
       unwind(st.abandoned)
       emitRow(st, { recipe, count, craftingTable, error, durationMs: now() - t0 })
     }
@@ -529,6 +594,7 @@ export function installCraftSync (bot, opts = {}) {
         stop: st.refused ?? st.cancelReason ?? null, abandoned: !!st.abandoned,
         restore_conflicts: st.restoreConflicts ?? 0, preempt_timeouts: st.preemptTimeouts ?? 0,
         preempted: /^preempted/.test(st.cancelReason ?? ''),
+        grid_clear: st.gridClear ?? null, grid_residue: st.gridResidue?.length ? st.gridResidue.join(',') : null,
       }
       log({
         kind: 'craft_sync',
@@ -538,6 +604,7 @@ export function installCraftSync (bot, opts = {}) {
                 `(${args.produced ?? '?'}/${args.requested ?? '?'} via ${args.verify_source}); ${args.clicks} clicks, ` +
                 `resync ${args.resync_answered}/${args.resyncs} skipped ${args.resync_skipped}, waited ${args.wait_ms} ms, ` +
                 `max answer ${args.max_answer_ms} ms, caps q${args.quiet_caps} c${args.click_caps} r${args.resync_caps}` +
+                (args.grid_clear ? `; grid clear ${args.grid_clear}${args.grid_residue ? ` (${args.grid_residue})` : ''}` : '') +
                 (error ? `; ${String(error.message ?? error).slice(0, 80)}` : ''),
         args,
       })
