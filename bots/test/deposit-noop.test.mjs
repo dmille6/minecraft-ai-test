@@ -17,7 +17,8 @@ const CODE = SRC.split('\n').filter(l => !l.trim().startsWith('//') && !l.trim()
 
 test('POSITIVE CONTROL: the deposit tail is where we think it is', () => {
   assert.match(CODE, /let eligible = 0/, 'the eligibility count must exist')
-  assert.match(CODE, /if \(moved > 0\) return \{ status: 'success'/)
+  // (2026-10-03, chest-full) the success branch also records the town's room before it returns: a block, not a one-liner.
+  assert.match(CODE, /if \(moved > 0\) \{[\s\S]{0,300}?return \{ status: 'success'/)
 })
 
 test('NOTHING ELIGIBLE is no_effect -- neither a success nor a failure', () => {
