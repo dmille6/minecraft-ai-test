@@ -111,6 +111,19 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 17:35Z — CRAFTROOM-01 KEPT (+360, 11:22Z) and PROMOTED ffa0f57 fleet-wide 11:32Z. COMPOSTER-01 LIVE @ 56db2cd on
+hive-a,board-b since 11:37:15Z (+180 NOT_YET: 3 real visits, 1 composter, C1-C5 clean, junk slots/bot DiD -0.74);
+toolclean-01 chained behind it. (Session paused ~08:20-17:25Z on API limits; the loop ran unattended.)
+craftroom +360: canary pickaxe crafts the server saw lost 0 of 19 vs control 123 of 288 (43%; 91 of them at >= 35 slots);
+unanswered 0/49; one entombed death on board-a-Bravo (1 vs control 6, under the two-death floor). **Watch:** 225 of 274
+canary _craft_room rows are REFUSALS (remedy_failed 112, no_room 111) -- craftroom turned lost pickaxes into refusals;
+the full bag is still the blocker, which is what composter/toolclean/withdraw/no-junk target. A refusal must name an
+executable remedy (CLAUDE.md): remedy_failed is that remedy failing -- analyse after the composter read.
+GRID FIX 55c2bf8: Codex CHANGE (P1: a fence timeout releases ownership while mineflayer still holds a click; the late
+click moves items and the row still says grid_clear=yes; P2 passthrough lets reflex clicks overlap cleanup; P2 null
+grid_clear on many exits). Round 3 sent: adopt withdraw's `inflight` set (one craftsync implementation). Read drafted:
+scripts/host/gridfixread.py (dry run: control positive control 145 unclean 2x2 exits, next craft failed 111/135 = 82%).
+
 ## 10-04 07:50Z — WITHDRAW 98b95c8 (round 3 fixed, pushed): Codex CHANGE (2 P1: survival release closes with a click in
 flight; confirmCursor does not own the inventory while its answer is pending), Claude APPROVE (5 P2). **Paper sandbox
 CONFIRMED confirmCursor** (Paper 1.21.8-60: CLONE + stateId -1 is a no-op, full window_items with the true carried
