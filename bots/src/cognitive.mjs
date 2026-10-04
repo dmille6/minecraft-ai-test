@@ -19,7 +19,7 @@ import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
-import { hasUsablePick, roomPlan, pickTakes } from './withdrawpick.mjs'
+import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -802,7 +802,8 @@ export class CognitiveLoop {
           // THE PICKAXE (withdrawpick.mjs): none usable in the bag; the town's memory of a recent miss; room for one.
           pickNeeded: !hasUsablePick(items),
           pickMiss: () => townPickMiss(bot),
-          pickRoom: () => roomPlan(items, pickTakes()).ok,
+          // The SAME keep as at the chest (withdrawPick): the goal's wants and the stone-pickaxe ingredients.
+          pickRoom: () => roomPlan(items, pickTakes(), { keep: roomKeep(bot.currentWants ?? []) }).ok,
           state: this.townState ?? {},
         })
         this.townState = r.state

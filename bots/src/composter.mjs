@@ -23,7 +23,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
 import { chainPeak } from './craftroom.mjs'
-import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS } from './withdrawpick.mjs'
+import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from './withdrawpick.mjs'
 
 /**
  * VERIFIED COMPOSTING CHANCES, Java 1.21.x -- the probability that ONE inserted item raises the level by one.
@@ -599,6 +599,9 @@ export const RUNNER_DECLINED = new Set(['runner_paused', 'runner_busy', 'body_he
 export function townOrderOutcome (skill, status, now = 0, state = {}, failClass = null) {
   const s = { ...state }
   if (!TOWN_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
+  // NOTHING MOVED, NOTHING WRONG WITH THE TOWN (withdrawpick.mjs): the server's bag could not be read first, or every
+  // chest in sight was full. The cooldown charged at issue is the only wait.
+  if (skill === 'withdraw_pick' && WITHDRAW_NO_BACKOFF.has(failClass)) return s
   const key = skill === 'compost' ? 'compostBackoffUntil' : skill === 'withdraw_pick' ? 'withdrawBackoffUntil' : 'buildBackoffUntil'
   const backoff = skill === 'compost' ? COMPOST_BACKOFF_MS : skill === 'withdraw_pick' ? WITHDRAW_BACKOFF_MS
     : failClass === 'composter_no_room' ? BUILD_NO_ROOM_BACKOFF_MS : BUILD_BACKOFF_MS

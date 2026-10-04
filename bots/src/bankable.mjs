@@ -1,4 +1,5 @@
 import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
+import { remaining, FLOOR } from './toolfor.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -143,9 +144,11 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
                                                  reserveScaffold = 8 } = {}) {
   const want = new Set([...wants, ...STANDING_TARGETS].filter(Boolean))
   const counts = {}
+  const usable = {}   // tool name -> copies above toolfor's FLOOR
   for (const it of items) {
     if (!it?.name) continue
     counts[it.name] = (counts[it.name] ?? 0) + (it.count ?? 0)
+    if (TOOL_RE.test(it.name) && remaining(it) > FLOOR) usable[it.name] = (usable[it.name] ?? 0) + (it.count ?? 1)
   }
 
   // Reserve the single best tool of each family. Banking your only pickaxe
@@ -169,7 +172,11 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     if (NEVER_BANKABLE.has(name)) { junk += n; excluded[name] = 'ballast'; continue }
     let avail = n
     const m = TOOL_RE.exec(name)
-    if (m) avail -= 1                       // keep one of each tool family
+    // KEEP ONE USABLE COPY OF EACH TOOL, whatever copy the transfer picks (both reviews, 10-04): mineflayer's
+    // chest.deposit(type) takes the first copy by slot, so "bank n-1" could bank the good one and keep a spent one.
+    // At most min(n-1, usable-1) copies are bankable -- so at least one usable copy always stays -- and with no
+    // usable copy none are: spent tools never move either way.
+    if (m) avail = Math.min(n - 1, (usable[name] ?? 0) - 1)
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
     const reserved = scaffoldReserve[name] ?? 0
     avail -= reserved

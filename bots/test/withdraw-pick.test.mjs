@@ -43,6 +43,8 @@ const town = (bag, stacks) => { freshPool(); clearWithdrawHolds(); const w = fak
 /** A craftsync stand-in: lockstep runs the clicks; recount answers with `serverBag()` (the truth unless a test says otherwise). */
 const withServer = (w, serverBag = () => w.bot.inventory.items()) => { w.bot.craftSync = { lockstep: fn => fn(), recount: async () => ({ source: 'server', items: serverBag() }) }; return w }
 const junk = n => Array.from({ length: n }, () => stack('bamboo', 64))
+const { updateTownMemory, townKey } = await import('../src/chestfull.mjs')
+const updateMem = fn => updateTownMemory(process.env.POOL_STATE_DIR, townKey({ x: 0, y: 64, z: 0 }), null, fn)
 
 // ---------------------------------------------------------------- which copy ---
 await t('bestToolCopy: never a spent copy; a trip\'s worth of uses first, then tier, then uses left', () => {
@@ -125,16 +127,17 @@ await t('SERVER VERIFICATION: a transfer the server reverted is transfer_unsettl
 })
 
 await t('AT 36/36: a whole bankable stack is deposited in the same window, then the pickaxe taken -- items conserved', async () => {
-  const bag = [...junk(34), stack('cobblestone', 64), stack('oak_log', 20)]
+  // (round 1) the stone, not the logs: logs are a stone-pickaxe ingredient and stay; the reserve sits on the cobblestone
+  const bag = [...junk(34), stack('cobblestone', 64), stack('stone', 20)]
   const w = withServer(town(bag, [tool('stone_pickaxe', 30)]))
   const before = total(w.bag)
   const r = await pick(w.bot)
   assert.equal(r.status, 'success', r.detail)
-  assert.match(r.detail, /banked 20x oak_log to make room/)
-  assert.equal(count(w.bag, 'oak_log'), 0); assert.equal(count(w.bag, 'stone_pickaxe'), 1)
+  assert.match(r.detail, /banked 20x stone to make room/)
+  assert.equal(count(w.bag, 'stone'), 0); assert.equal(count(w.bag, 'stone_pickaxe'), 1)
   assert.equal(total(w.bag), before - 20 + 1)
-  assert.equal(w.containers.get('5,64,0').slots.filter(Boolean).reduce((n, s) => n + (s.name === 'oak_log' ? s.count : 0), 0), 20)
-  assert.match(lastPickRow(), /deposited=oak_log:20/)
+  assert.equal(w.containers.get('5,64,0').slots.filter(Boolean).reduce((n, s) => n + (s.name === 'stone' ? s.count : 0), 0), 20)
+  assert.match(lastPickRow(), /deposited=stone:20/)
 })
 
 await t('AT 36/36 WITH NOTHING BANKABLE: no order is issued, and a forced visit moves nothing', async () => {
@@ -159,16 +162,16 @@ await t('NO PICKAXE IN TOWN: the exact ingredients come out, the miss is remembe
   assert.equal(chest.find(s => s.name === 'stick').count, 29)
   assert.equal(w.dropped.length, 0); assert.equal(w.bot.currentWindow, null)
   assert.match(lastPickRow(), /^outcome=took_ingredients need=cobblestone:3,stick:1 /)
-  assert.equal(townPickMiss(w.bot), true)
+  assert.equal(townPickMiss(w.bot), true, 'its only container is a recent miss: complete coverage')
   const opened = w.spy.opened.length
   const r2 = await pick(w.bot)
-  assert.equal(r2.status, 'no_effect'); assert.match(r2.detail, /last 15 min/)
-  assert.equal(w.spy.opened.length, opened, 'no chest opened again')
+  assert.equal(r2.status, 'no_effect', r2.detail)
+  assert.equal(w.spy.opened.length, opened, 'no chest opened again: the miss is per container, and the ingredients are held')
 })
 
 await t('THE HOLD: what was withdrawn is not handed back by the next deposit (and is after the hold)', () => {
   clearWithdrawHolds()
-  const bag = [stack('stick', 4), stack('cobblestone', 30), tool('stone_pickaxe', 30), tool('stone_pickaxe', 128)]
+  const bag = [stack('stick', 4), stack('cobblestone', 30), tool('stone_pickaxe', 30), tool('stone_pickaxe', 40)]
   assert.ok(depositPlan(bag).some(e => e.name === 'stick'), 'control: without a hold the sticks bank')
   assert.ok(depositPlan(bag).some(e => e.name === 'stone_pickaxe'), 'control: a second pickaxe copy banks')
   setWithdrawHold('stick', 2, Date.now() + 60_000)
@@ -182,9 +185,9 @@ await t('THE HOLD: what was withdrawn is not handed back by the next deposit (an
   clearWithdrawHolds()
 })
 
-await t('the withdraw_pick sets the hold: the good copy it took is not banked beside the spent one it had', async () => {
-  const w = withServer(town([tool('stone_pickaxe', 129), stack('cobblestone', 20)], [tool('stone_pickaxe', 30)]))
-  const r = await pick(w.bot)
+await t('a withdraw sets the hold: the copy it took is not banked beside the one the bag had', async () => {
+  const w = withServer(town([tool('stone_pickaxe', 40), stack('cobblestone', 20)], [tool('stone_pickaxe', 30)]))
+  const r = await withdraw(w.bot, { item: 'stone_pickaxe' })
   assert.equal(r.status, 'success', r.detail)
   assert.equal(count(w.bag, 'stone_pickaxe'), 2)
   assert.ok(!depositPlan(w.bot.inventory.items()).some(e => e.name === 'stone_pickaxe'), 'held')
@@ -194,7 +197,7 @@ await t('the withdraw_pick sets the hold: the good copy it took is not banked be
 
 // ---------------------------------------------------------------- the model's verb ---
 await t('withdraw REQUIRES a named need: admission refuses it bare; the skill too', async () => {
-  const w = town([], [stack('cobblestone', 64)])
+  const w = withServer(town([], [stack('cobblestone', 64)]))
   const a = new AdmissionControl().check({ skill: 'withdraw', args: {} }, w.bot)
   assert.equal(a.ok, false); assert.equal(a.reason, 'withdraw_needs_item')
   const r = await withdraw(w.bot, {})
@@ -242,6 +245,164 @@ await t('transferVerdict: exact gains and losses; the tool by name and wear', ()
   assert.equal(transferVerdict({ before: b, after: a, took: { stick: 3 } }).ok, false)
   assert.equal(transferVerdict({ before: b, after: a, tool: { name: 'stone_pickaxe', used: 31 } }).ok, false, 'another copy')
   assert.equal(transferVerdict({ before: [stack('oak_log', 20)], after: [], gave: { oak_log: 20 } }).ok, true)
+})
+
+// ---------------------------------------------------------------- review round 1 (both engines) ---
+const { allocate, roomCandidates, roomKeep, bagDelta } = W
+const { containerPickMiss } = await import('../src/chestfull.mjs')
+const { WITHDRAW_NO_BACKOFF } = W
+const lastRowOf = verb => RECS.filter(r => r.skill?.name === '_withdraw_pick' && r.skill.detail.includes(`verb=${verb} `)).at(-1)?.skill?.detail ?? ''
+
+await t('R1.1 CODEX REPRO: a full bag, a source slot filled with dirt mid-transfer -> the dirt goes into the CHEST, the cursor is empty before the close, nothing drops; unsettled', async () => {
+  const w = withServer(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]))
+  const click = w.bot.clickWindow.bind(w.bot)
+  let n = 0
+  w.bot.clickWindow = async (slot, button, mode) => { n++; await click(slot, button, mode); if (n === 1) w.containers.get('5,64,0').slots[slot] = stack('dirt', 1) }
+  const r = await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(w.dropped.length, 0, `dropped: ${JSON.stringify(w.dropped)}`)
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.ok(w.containers.get('5,64,0').slots.some(x => x?.name === 'dirt'), 'the dirt went into the chest, the only room left')
+  assert.match(lastRowOf('withdraw'), /cursor=rescued/)
+})
+
+await t('R1.1 AN ABORT mid-transfer: the cursor is settled first, then the abort is rethrown', async () => {
+  const w = withServer(town([], [stack('stick', 40)]))
+  const ac = new AbortController()
+  const click = w.bot.clickWindow.bind(w.bot)
+  w.bot.clickWindow = async (slot, button, mode) => { await click(slot, button, mode); if (w.bot.currentWindow?.selectedItem) ac.abort() }
+  let threw = null
+  try { await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 5 }, ac.signal) } catch (e) { threw = e }
+  assert.ok(threw, 'the abort propagates')
+  assert.equal(w.dropped.length, 0); assert.equal(w.bot.currentWindow, null)
+  assert.equal(total(w.bag) + w.containers.get('5,64,0').slots.filter(Boolean).reduce((k, x) => k + x.count, 0), 40, 'every stick accounted for')
+})
+
+await t('R1.1 THE PICKUP IS CHECKED: a cursor that does not hold the item stops the transfer', async () => {
+  const w = withServer(town([], [stack('stick', 40)]))
+  const click = w.bot.clickWindow.bind(w.bot)
+  let n = 0
+  w.bot.clickWindow = async (slot, button, mode) => { n++; if (n === 1) w.containers.get('5,64,0').slots[slot] = stack('dirt', 1); await click(slot, button, mode) }
+  const r = await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.match(lastRowOf('withdraw'), /err=picked_up_dirt/)
+  assert.equal(count(w.bag, 'stick'), 0, 'no right-click happened with dirt on the cursor')
+})
+
+await t('R1.1 withdraw_pick ALWAYS writes its row: an exception is outcome=error', async () => {
+  const w = withServer(town([], [tool('stone_pickaxe', 30)]))
+  w.bot.findBlock = () => { throw new Error('world gone') }
+  await assert.rejects(pick(w.bot))
+  assert.match(lastPickRow(), /^outcome=error .*err=world_gone/)
+})
+
+await t('R1.2 ONE USABLE COPY ALWAYS STAYS, through the real deposit: [spent, spent, good] banks none; [good, good] banks one', async () => {
+  const run = async bag => {
+    const w = town(bag, [])
+    const r = await SKILLS.deposit.run({ bot: w.bot }, {}, sig())
+    return { w, r, inChest: w.containers.get('5,64,0').slots.filter(x => x?.name === 'stone_pickaxe') }
+  }
+  const a = await run([tool('stone_pickaxe', 129), tool('stone_pickaxe', 125), tool('stone_pickaxe', 30), stack('cobblestone', 30)])
+  assert.equal(a.inChest.length, 0, 'no copy banked: two are spent and the good one is the last usable')
+  assert.equal(a.w.bag.filter(x => x?.name === 'stone_pickaxe' && x.durabilityUsed === 30).length, 1)
+  const b = await run([tool('stone_pickaxe', 30), tool('stone_pickaxe', 40), stack('cobblestone', 30)])
+  assert.equal(b.inChest.length, 1, 'one of two good copies banks')
+  assert.ok(hasUsablePick(b.w.bot.inventory.items()), 'and a usable one stays')
+})
+
+await t('R1.3 MAKE-ROOM IS CHEAPEST FIRST and keeps the goal\'s wants and the ingredients: never the iron', () => {
+  const bag = [...junk(30), stack('iron_ingot', 3), stack('stone', 20), stack('cobblestone', 64), stack('cobblestone', 10), stack('oak_log', 20), stack('stick', 5)]
+  const c = roomCandidates(bag, { keep: roomKeep([]) })
+  assert.equal(c[0].name, 'stone', 'the cheapest bankable stack first')
+  assert.ok(roomCandidates(bag).some(x => /cobblestone|oak_log/.test(x.name)), 'control: unkept, whole cobblestone and log stacks are candidates')
+  assert.ok(!c.some(x => /stick|cobblestone|oak_log/.test(x.name)), 'ingredients are kept')
+  assert.ok(!roomCandidates(bag, { keep: roomKeep(['iron_ingot']) }).some(x => x.name === 'iron_ingot'), 'a wanted item is kept')
+  const onlyIron = [...junk(35), stack('iron_ingot', 3)]
+  assert.equal(roomPlan(onlyIron, pickTakes(), { keep: roomKeep(['iron_ingot']) }).ok, false, 'the next craft\'s iron is never the room')
+})
+
+await t('R1.4 NO SERVER BASELINE (no craftsync): refused before any click, recount_unanswered, and no backoff', async () => {
+  const w = town([stack('cobblestone', 20)], [tool('stone_pickaxe', 30)])   // no craftSync
+  const r = await pick(w.bot)
+  assert.equal(r.failClass, 'recount_unanswered', r.detail)
+  assert.equal(w.spy.clicks.length, 0); assert.equal(count(w.bag, 'stone_pickaxe'), 0)
+  assert.ok(WITHDRAW_NO_BACKOFF.has('recount_unanswered'))
+  assert.equal(townOrderOutcome('withdraw_pick', 'failed', 1e9, {}, 'recount_unanswered').withdrawBackoffUntil, undefined)
+})
+
+await t('R1.5 CODEX REPRO: a spent replacement is not the copy taken -- before [30], after [30, 129], expected 30', () => {
+  const v = transferVerdict({ before: [tool('stone_pickaxe', 30)], after: [tool('stone_pickaxe', 30), tool('stone_pickaxe', 129)], tool: { name: 'stone_pickaxe', used: 30 } })
+  assert.equal(v.ok, false); assert.match(v.why, /gained \[129\]/)
+  assert.equal(transferVerdict({ before: [tool('stone_pickaxe', 30)], after: [tool('stone_pickaxe', 30), tool('stone_pickaxe', 30)], tool: { name: 'stone_pickaxe', used: 30 } }).ok, true)
+})
+
+await t('R1.5 THE SOURCE IS REVALIDATED after the room-making click: a pickaxe swapped for a spent one is not taken', async () => {
+  const w = withServer(town([...junk(34), stack('cobblestone', 64), stack('stone', 20)], [tool('stone_pickaxe', 30)]))
+  const click = w.bot.clickWindow.bind(w.bot)
+  let n = 0
+  w.bot.clickWindow = async (slot, button, mode) => { n++; await click(slot, button, mode); if (n === 1) w.containers.get('5,64,0').slots[0] = tool('stone_pickaxe', 129) }
+  const r = await pick(w.bot)
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.ok(!w.bag.some(x => x?.name === 'stone_pickaxe'), 'nothing taken')
+})
+
+await t('R1.6 CODEX REPRO: 36 slots, two 63-stick stacks, request 2 -> one each; plan and transfer agree', async () => {
+  const bag = [...junk(34), stack('stick', 63), stack('stick', 63)]
+  assert.deepEqual(allocate(bag.map((x, i) => ({ ...x, slot: i })), 'stick', 2, { emptySlots: 0 }), { partial: [{ slot: 34, n: 1 }, { slot: 35, n: 1 }], fresh: 0, leftover: 0 })
+  const w = withServer(town(bag, [stack('stick', 40)]))
+  const r = await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(r.status, 'success', r.detail); assert.equal(count(w.bag, 'stick'), 128)
+})
+
+await t('R1.7 MISSES PER CONTAINER: a container shown empty of pickaxes is skipped; the town-wide miss needs every container', async () => {
+  const w = withServer(town([stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)], [stack('dirt', 5)]))
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [tool('stone_pickaxe', 30)])
+  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 60_000 } })
+  assert.equal(townPickMiss(w.bot), false, 'one of two containers missed: no town-wide miss')
+  const r = await pick(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(!w.spy.opened.includes('5,64,0'), 'the missed container was not opened')
+  assert.equal(count(w.bag, 'stone_pickaxe'), 1)
+})
+
+await t('R1.7 A MISS ENDS WHEN THE CONTAINER TAKES ITEMS (stock changed)', () => {
+  const now = Date.now()
+  const e = { _pick_miss: { '1,2,3': now - 60_000 } }
+  assert.equal(containerPickMiss(e, '1,2,3', now), true)
+  e['1,2,3'] = { o: 'took', at: now - 1000, strikes: [] }
+  assert.equal(containerPickMiss(e, '1,2,3', now), false)
+})
+
+await t('R1.8 A FULL CHEST AND A FULL BAG: the bag stack and the pickaxe TRADE PLACES in three clicks, verified', async () => {
+  const chestStacks = [...Array.from({ length: 26 }, () => stack('cobblestone', 64)), tool('stone_pickaxe', 30)]
+  const w = withServer(town([...junk(34), stack('cobblestone', 64), stack('stone', 20)], chestStacks))
+  const r = await pick(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.match(r.detail, /traded 20x stone to make room/)
+  assert.equal(count(w.bag, 'stone_pickaxe'), 1); assert.equal(count(w.bag, 'stone'), 0)
+  assert.equal(w.containers.get('5,64,0').slots[26]?.name, 'stone', 'the stone took the pickaxe\'s slot')
+  assert.equal(w.dropped.length, 0)
+  assert.match(lastPickRow(), /chest_room=0 /)
+})
+
+await t('R1.8 A FULL CHEST for the ingredients: skipped as chest_no_room, no backoff', async () => {
+  const chestStacks = [...Array.from({ length: 26 }, () => stack('cobblestone', 64)), stack('stick', 30)]
+  const w = withServer(town([...junk(33), stack('cobblestone', 64), stack('stone', 20), stack('crafting_table', 1)], chestStacks))
+  const r = await pick(w.bot)
+  assert.equal(r.failClass, 'chest_no_room', r.detail)
+  assert.equal(townOrderOutcome('withdraw_pick', 'failed', 1e9, {}, 'chest_no_room').withdrawBackoffUntil, undefined)
+  assert.equal(w.spy.clicks.length, 0)
+})
+
+await t('R1.10 THE ROW: cursor, err, chest_room and the server-recounted change, from both verbs', async () => {
+  const w = withServer(town([stack('stick', 3)], [stack('stick', 40), tool('stone_pickaxe', 30)]))
+  await withdraw(w.bot, { item: 'stick', count: 2 })
+  const row = lastRowOf('withdraw')
+  assert.match(row, /^outcome=took need=stick:2 .*verification=server cursor=empty err=- chest_room=25 srv=stick:\+2 /)
+  clearWithdrawHolds()
+  const w2 = withServer(town([], [tool('stone_pickaxe', 30)]))
+  await pick(w2.bot)
+  assert.match(lastRowOf('withdraw_pick'), /srv=stone_pickaxe:\+1 /)
+  assert.equal(bagDelta([stack('stick', 1)], [stack('stick', 3)]), 'stick:+2')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
