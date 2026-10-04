@@ -94,6 +94,14 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   session's output while searching for the old census. Owner asked to rotate it and delete the file (and /tmp/scan.py).
   I do not touch credentials.
 
+- **BAMBOO SANDBOX (Paper, ~03:40Z):** short folds work (B: [64,10]+32 sticks -> 5 crafts, 36->35; E cap kept; C/G no
+  order; planks never burned) BUT (1) folds > the stuck limit are killed by the 20 s watchdog (32-craft fold stops at
+  15, frees nothing; 64 cannot finish; one rep ended fuller) -- no stationary window declared; (2) an ABORTED fold left
+  8 bamboo in the 2x2 crafting grid/cursor, invisible to the bag, dropped at logout -- **checking whether this is a
+  craftsync defect (live canary, KEEP possible ~04:53Z) or bamboo-only**; (3) row crafts off by one on abort; (4) the
+  runner filed the aborted run as success. Harness on main (8ab8a5c). Chest fix 96cfbe0: Claude AGREE; Codex two more
+  edge cases (clamped timeout converted in recovery/sweep; walkFrom aliases a mutable Vec3) -- fixing, then withdraw.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
