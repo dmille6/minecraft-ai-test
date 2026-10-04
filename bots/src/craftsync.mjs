@@ -50,6 +50,13 @@
 // answer: grid_clear on the row. Not on a disconnect (nothing can be sent). The local clear matters on its own:
 // mineflayer never reads a window_items' carriedItem, so a stale cursor belief outlived the close and the NEXT
 // 2x2 craft skipped its pick-up click and failed. The baseline close clears it too.
+// THE FENCE (Codex, reproduced): a click mineflayer is still holding when the craft stops -- its after-a-dig hotbar
+// delay sleeps up to 500 ms BEFORE the write -- would land after the clear (bag 10 -> cursor 10). Once the craft is
+// told to stop, the write hook DROPS every window_click it sees (each is a stale continuation; the cleanup's own
+// resync bypasses the hook), and the cleanup first waits (fenceMs) for such a click to reach its write point, so it
+// is dropped while the hook is still installed rather than sent after. A disconnect is tracked on its own (a
+// preempted craft's cancelReason is already set), and an error/deadline exit takes its verdict from the
+// verification's own close + resync instead of sending another.
 //
 // CANCELLATION (signal, deadline, preemption, disconnect) returns promptly even while mineflayer is awaiting
 // windowOpen: the craft is raced against it and every wrapper is restored -- except a one-line FUSE left on
@@ -73,8 +80,10 @@ export const CRAFT_SYNC = Object.freeze({
   rewriteStateId: true,  // arm B; false runs arm A alone (the sandbox's A-only arm, and the tests' A-only proof)
   verifyReserveMs: 600,  // clicks stop this long before the deadline so verification fits inside it
   preemptWaitMs: 2000,   // an inventory action waits at most this long for a craft to unwind
-  gridClearCapMs: 1500,  // the grid clear's own budget after an unclean exit (inside preemptWaitMs: a reflex
-                         // waiting on the craft is held at most this long more)
+  gridClearCapMs: 1500,  // the grid clear's own budget after an unclean exit; a reflex waiting on the craft
+                         // (preempt) waits through it -- at most fenceMs + gridClearCapMs more
+  fenceMs: 750,          // how long the cleanup waits for a click mineflayer had not yet written when the craft
+                         // stopped (its only pre-write wait is the 500 ms after-a-dig hotbar delay)
 })
 
 export const GUARDED_INVENTORY_ACTIONS = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack']
@@ -268,13 +277,31 @@ export function installCraftSync (bot, opts = {}) {
     for (let i = 0; i <= 4; i++) if (inv.slots?.[i]) inv.updateSlot(i, null)
   }
 
+  /** THE FENCE (see the header): wait, bounded, for a click mineflayer had not yet written when the craft stopped.
+   *  The hook drops it when it comes. */
+  async function quiesce (st) {
+    const rec = st.pending
+    if (!rec || rec.wrote || rec.settled) return
+    const end = now() + cfg.fenceMs
+    while (!rec.wrote && !rec.settled && now() < end && !st.disconnected) await sleep(cfg.pollMs)
+    if (!rec.wrote && !rec.settled) st.fenceTimeouts++
+  }
+
+  /** An unclean exit, while `st` still owns the inventory: the fence, then the grid clear. A reflex waiting on the
+   *  craft (preempt) waits through both. */
+  async function cleanup (st) {
+    st.cleanupUntil = now() + cfg.fenceMs + cfg.gridClearCapMs + 250
+    await quiesce(st)
+    await clearGrid(st)
+  }
+
   /** The grid clear (see the header). Runs only while `st` owns the inventory; never throws. */
   async function clearGrid (st) {
     if (st.w0Clicks === st.w0CloseMark) return                 // no window-0 click since window 0 was last closed
-    if (st.cancelReason === 'disconnected') { st.gridClear = 'skipped_disconnected'; return }
+    if (st.disconnected) { st.gridClear = 'skipped_disconnected'; return }
     if (bot.currentWindow) { st.gridClear = 'skipped_window_open'; return }
     const end = now() + cfg.gridClearCapMs
-    const until = () => now() >= end || st.cancelReason === 'disconnected'
+    const until = () => now() >= end || st.disconnected
     try {
       bot._client.write('close_window', { windowId: 0 })     // through the hook: marks the close, proves the cursor
       closeInventoryLocally()
@@ -294,9 +321,17 @@ export function installCraftSync (bot, opts = {}) {
   async function serverCount (st, until) {
     let source = 'local'
     if (!bot.currentWindow && !until()) {
+      const dirty = st.w0Clicks > st.w0CloseMark            // window-0 craft clicks before this close
       bot._client.write('close_window', { windowId: 0 })   // through the hook: it records the empty-cursor proof
       closeInventoryLocally()
-      if (await resync(st, 0, until) === 'answered') source = 'resync'
+      const r = await resync(st, 0, until)
+      if (r === 'answered') source = 'resync'
+      // the grid verdict of THIS close, used if the craft then exits uncleanly (error, deadline, late abort): no
+      // second close is sent for it
+      if (dirty) {
+        const v = r === 'answered' ? gridClearVerdict(lastItems.get(0)) : null
+        st.closeVerdict = v ? { clear: v.clear ? 'yes' : 'no', residue: v.residue } : { clear: `unverified_${r}`, residue: null }
+      }
     } else {
       await waitQuiet(st, 0, until)
     }
@@ -308,8 +343,9 @@ export function installCraftSync (bot, opts = {}) {
    *  after the craft moved on is swallowed here (an unhandled rejection kills the bot) and changes nothing. */
   async function cappedClick (st, orig, slot, button, mode) {
     let settled = false, failed = false, error = null
+    const rec = st.pending = { wrote: false, settled: false }       // the fence reads this (see the header)
     const p = (async () => orig.call(bot, slot, button, mode))()   // a synchronous throw becomes a rejection
-    p.then(() => { settled = true }, (e) => { settled = true; failed = true; error = e })
+    p.then(() => { settled = true; rec.settled = true }, (e) => { settled = true; rec.settled = true; failed = true; error = e })
     const start = now()
     while (!settled) {
       if (now() - start >= cfg.clickCapMs) {
@@ -329,7 +365,8 @@ export function installCraftSync (bot, opts = {}) {
     if (active !== st) return
     if (!st.cancelReason) st.cancelReason = `preempted by ${name}`
     st.preemptUntil ??= now() + cfg.preemptWaitMs
-    while (active === st && now() < st.preemptUntil) await sleep(cfg.pollMs)
+    // ...and through the bounded cleanup (fence + grid clear), so a slow clear never makes a reflex give up once
+    while (active === st && now() < Math.max(st.preemptUntil, st.cleanupUntil ?? 0)) await sleep(cfg.pollMs)
     if (active === st) st.preemptTimeouts++
   }
 
@@ -401,6 +438,12 @@ export function installCraftSync (bot, opts = {}) {
     // and -- arm B -- gives each click its own window's last stateId. The resync's -1 is deliberate and untouched.
     const write = function (name, params) {
       if (name === 'window_click') {
+        if (st.pending) st.pending.wrote = true
+        if (stopReason(st) && !st.passthrough) {     // THE FENCE: a stale continuation, never sent
+          st.lateClicksDropped++
+          if (params?.windowId === 0) st.w0Clicks++     // mineflayer applied it LOCALLY: the clear must repair that
+          return
+        }
         st.clicksSent++
         if (params?.windowId === 0) st.w0Clicks++
         if (cfg.rewriteStateId) {
@@ -423,7 +466,10 @@ export function installCraftSync (bot, opts = {}) {
       if (!orig[name]) continue
       guards[name] = async function (...args) {
         await preempt(st, name)
-        return orig[name].apply(bot, args)
+        if (active !== st) return orig[name].apply(bot, args)
+        // the wait timed out with the craft still installed: the reflex's own clicks are not stale -- not fenced
+        st.passthrough++
+        try { return await orig[name].apply(bot, args) } finally { st.passthrough-- }
       }
     }
 
@@ -455,9 +501,10 @@ export function installCraftSync (bot, opts = {}) {
       resynced: new Set(), clicks: 0, clicksSent: 0, proof: null, resyncs: 0, resyncAnswered: 0, resyncSkipped: 0,
       waitMs: 0, quietCaps: 0, clickCaps: 0, resyncCaps: 0, rewrites: 0, restoreConflicts: 0, preemptTimeouts: 0,
       maxAnswerMs: 0, awaitingSince: null, abandoned: false, outcome: null, verify: null,
-      w0Clicks: 0, w0CloseMark: 0, gridClear: null, gridResidue: null,
+      w0Clicks: 0, w0CloseMark: 0, gridClear: null, gridResidue: null, closeVerdict: null,
+      pending: null, passthrough: 0, lateClicksDropped: 0, fenceTimeouts: 0, disconnected: false, cleanupUntil: 0,
     }
-    const onEnd = () => { st.cancelReason ??= 'disconnected' }
+    const onEnd = () => { st.disconnected = true; st.cancelReason ??= 'disconnected' }   // seen even after a preemption
     bot.once?.('end', onEnd)
     let restore = null
     let restored = false
@@ -523,7 +570,7 @@ export function installCraftSync (bot, opts = {}) {
 
         const cancelled = st.cancelReason ?? (st.signal?.aborted ? 'aborted' : null)
         if (cancelled) {
-          await clearGrid(st)                          // before ownership is released
+          await cleanup(st)                            // before ownership is released
           unwind(st.abandoned)
           st.outcome = 'aborted'
           throw new CraftSyncError(`craft aborted: ${cancelled}`, { failClass: 'interrupted', aborted: true, reason: cancelled })
@@ -573,7 +620,11 @@ export function installCraftSync (bot, opts = {}) {
       error = e
       throw e
     } finally {
-      if (!restored) await clearGrid(st)               // any other unclean exit; a no-op after a verified close
+      if (!restored) await cleanup(st)                 // any other unclean exit; the clear is a no-op after a close
+      if (st.outcome !== 'ok' && st.gridClear === null && st.closeVerdict) {
+        st.gridClear = st.closeVerdict.clear          // the verification's own close + resync read the grid
+        st.gridResidue = st.closeVerdict.residue
+      }
       unwind(st.abandoned)
       emitRow(st, { recipe, count, craftingTable, error, durationMs: now() - t0 })
     }
@@ -595,6 +646,7 @@ export function installCraftSync (bot, opts = {}) {
         restore_conflicts: st.restoreConflicts ?? 0, preempt_timeouts: st.preemptTimeouts ?? 0,
         preempted: /^preempted/.test(st.cancelReason ?? ''),
         grid_clear: st.gridClear ?? null, grid_residue: st.gridResidue?.length ? st.gridResidue.join(',') : null,
+        late_clicks_dropped: st.lateClicksDropped ?? 0, fence_timeouts: st.fenceTimeouts ?? 0,
       }
       log({
         kind: 'craft_sync',

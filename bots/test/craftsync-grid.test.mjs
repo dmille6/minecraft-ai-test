@@ -27,15 +27,17 @@ const gridOf = (server, table) => (table ? server.grid.table : server.grid[0]).s
  * One craft; `stopAt(n)` fires after the n-th ingredient placement the SERVER applied (a right-click into the grid)
  * and returns 'abort' | 'disconnect' | null. `before({ server, bot })` may change the fake or the bot first.
  */
-async function gridTrial ({ item = 'stick', inv = BAMBOO, table = false, stopAt = () => null, opts = {}, before = null } = {}) {
-  const server = new FakePaper({ inventory: inv })
+async function gridTrial ({ item = 'stick', inv = BAMBOO, table = false, stopAt = () => null, opts = {}, before = null,
+                            signal = true, paper = {}, equip = null } = {}) {
+  const server = new FakePaper({ inventory: inv, ...paper })
   const bot = craftBot(server)
+  if (equip) bot.equip = equip
   await server.sync()
   const rows = []
   CS.installCraftSync(bot, { log: r => rows.push(r), ...opts })
   const recipe = recipeFor(bot, server, item, table)
-  if (before) await before({ server, bot })
   const ac = new AbortController()
+  if (before) await before({ server, bot, abort: () => ac.abort() })
   const recv = server.receive.bind(server)
   let placed = 0, stoppedAtWrite = null, atStop = null
   server.receive = (name, params) => {
@@ -50,12 +52,14 @@ async function gridTrial ({ item = 'stick', inv = BAMBOO, table = false, stopAt 
       }
       if (what === 'abort') ac.abort()
       if (what === 'disconnect') bot.emit('end')
+      if (what === 'preempt') bot.__equipP = bot.equip({ name: 'stone_sword' }, 'hand')
+      if (what === 'preempt+disconnect') { bot.__equipP = bot.equip({ name: 'stone_sword' }, 'hand'); bot.emit('end') }
     }
     return r
   }
   const startWrite = server.writes.length
   let error = null
-  try { await bot.craft(recipe, 1, table ? TABLE : undefined, { signal: ac.signal }) } catch (e) { error = e }
+  try { await bot.craft(recipe, 1, table ? TABLE : undefined, signal ? { signal: ac.signal } : undefined) } catch (e) { error = e }
   await server.settle()
   const next = async () => {
     let e = null
@@ -174,7 +178,7 @@ await t('table craft aborted: unchanged -- mineflayer closes the table, no extra
 })
 
 await t('no signal, clean 2x2 craft: unchanged -- two closes (baseline, verify), two resyncs, grid_clear null', async () => {
-  const r = await gridTrial({})
+  const r = await gridTrial({ signal: false })
   assert.equal(r.error, null, r.error?.message)
   assert.equal(bag(r.server, 'stick'), 1)
   assert.equal(closes0(r.writes), 2)
@@ -188,6 +192,113 @@ await t('the BASELINE close clears a stale local cursor too: a craft after an ol
   const r = await gridTrial({ before: ({ bot }) => { bot.inventory.selectedItem = new Item(id('bamboo'), 8) } })
   assert.equal(r.error, null, `the craft after a stale cursor failed: ${r.error?.message}`)
   assert.equal(bag(r.server, 'stick'), 1)
+})
+
+// ------------------------------------------------------------------ review round (Codex, reproduced; Claude)
+await t('P1 THE FENCE: a click mineflayer still holds (after-a-dig hotbar delay) when the craft stops is dropped, not sent after the clear', async () => {
+  // Codex's repro: slots 9-35 full, bamboo in hotbar slot 36, a recent dig delays mineflayer's pick-up click ~500 ms;
+  // the abort lands inside that delay. Before the fence the clear finished first and the delayed click then picked
+  // the stack up: bag 10 -> 0, cursor 10, with grid_clear already written as yes.
+  const inv = { 36: ['bamboo', 10] }
+  for (let s = 9; s <= 35; s++) inv[s] = ['dirt', 64]
+  let delayedSince = null
+  const r = await gridTrial({
+    inv,
+    before: ({ bot, abort }) => {
+      let armed = false
+      bot._client.on('window_items', (p) => {          // the baseline resync's answer: the pick-up click is next
+        if (armed || p.windowId !== 0) return
+        armed = true
+        bot.lastDigTime = new Date()                     // mineflayer: a hotbar click within 500 ms of a dig waits
+        delayedSince = Date.now()
+        setTimeout(abort, 200)                           // inside the delay, before the click is written
+      })
+    },
+  })
+  await new Promise(resolve => setTimeout(resolve, 700))   // past the delayed click's wake-up
+  await r.server.settle()
+  assert.ok(delayedSince !== null && r.error?.aborted, `got ${r.error?.message}`)
+  assert.equal(r.rows[0].args.late_clicks_dropped, 1, 'POSITIVE CONTROL: the delayed click must have come, and been dropped')
+  assert.equal(r.server.cursor, null, 'the delayed click picked the stack up after the clear')
+  assert.equal(bag(r.server, 'bamboo'), 10)
+  assert.equal(gridOf(r.server, false), 0)
+  assert.equal(r.rows[0].args.grid_clear, 'yes', 'the dropped click was applied locally: the clear must run and verify')
+  assert.equal(r.bot.inventory.selectedItem, null, 'mineflayer applied the dropped click locally; the local cursor must be clear')
+  assert.equal(r.bot.inventory.slots[36]?.name, 'bamboo', 'the local bag must be the server\'s again (slot 36 holds the bamboo)')
+})
+
+await t('P2 a disconnect AFTER a preemption is still seen: nothing is sent after it, grid_clear=skipped_disconnected', async () => {
+  const r = await gridTrial({ stopAt: n => n === 2 ? 'preempt+disconnect' : null, equip: async () => {} })
+  await r.bot.__equipP
+  assert.ok(r.error?.aborted && /preempted by equip/.test(r.error.message), `got ${r.error?.message}`)
+  assert.equal(closes0(r.after), 0, 'a close was written to a dead connection')
+  assert.equal(r.after.filter(w => w.name === 'window_click' && w.params.stateId === -1).length, 0, 'a resync was written to a dead connection')
+  assert.equal(r.rows[0].args.grid_clear, 'skipped_disconnected')
+})
+
+await t('P2 an ERROR exit (a grid click never answered) takes its verdict from the verification\'s own close: grid_clear=yes, no extra close', async () => {
+  let dropNext = false
+  const r = await gridTrial({
+    opts: { clickCapMs: 300 },
+    stopAt: n => { if (n === 1) dropNext = true; return null },
+    before: ({ server }) => {
+      const recv = server.receive.bind(server)
+      server.receive = (name, params) => {
+        // the second ingredient click is lost: the server neither applies nor answers it
+        if (dropNext && name === 'window_click' && params.windowId === 0 && params.slot >= 1 && params.slot <= 4 && params.mouseButton === 1) {
+          dropNext = false; server.writes.push({ t: Date.now(), name, params }); return
+        }
+        return recv(name, params)
+      }
+    },
+  })
+  assert.ok(r.error && !r.error.aborted, `expected an unclean non-abort exit, got ${r.error?.message}`)
+  assert.equal(r.rows[0].args.click_caps, 1, 'the exit must come from the unanswered click')
+  assert.equal(gridOf(r.server, false), 0)
+  assert.equal(r.server.cursor, null)
+  assert.equal(bag(r.server, 'bamboo'), 10)
+  assert.equal(r.rows[0].args.grid_clear, 'yes', `grid_clear=${r.rows[0].args.grid_clear}`)
+  assert.equal(closes0(r.writes), 2, 'baseline + verification only: no extra close for the verdict')
+})
+
+await t('Claude: a preempting reflex waits through a SLOW clear instead of timing out once (preemptWaitMs far below the clear)', async () => {
+  let equipAt = null, busyAtEquip = null
+  const r = await gridTrial({
+    paper: { fallbackMs: 400 },                         // every resync answer takes ~400 ms: the clear is slow
+    opts: { preemptWaitMs: 100 },
+    stopAt: n => n === 2 ? 'preempt' : null,
+    before: ({ bot }) => { bot.equip = async () => { equipAt = Date.now(); busyAtEquip = bot.craftSync.busy() } },
+  })
+  await r.bot.__equipP
+  assert.ok(r.error?.aborted && /preempted by equip/.test(r.error.message), `got ${r.error?.message}`)
+  assert.equal(r.rows[0].args.grid_clear, 'yes')
+  assert.ok(equipAt !== null, 'the equip never ran')
+  assert.equal(busyAtEquip, false, 'the equip ran while the craft still held the inventory')
+  assert.equal(r.rows[0].args.preempt_timeouts, 0)
+})
+
+await t('a reflex whose wait TIMED OUT is not fenced: its own click is sent, not dropped as stale', async () => {
+  // Reachable when the craft cannot unwind at once: a table craft still awaiting windowOpen sits out its grace
+  // before the cleanup starts, and a reflex with a 1 ms wait gives up inside it and runs with the hook installed.
+  let sent = null
+  const r = await gridTrial({
+    table: true,
+    paper: { openDelayMs: 1500 },
+    opts: { preemptWaitMs: 1 },
+    before: ({ bot, server }) => {
+      bot.equip = async () => {                          // mineflayer's equip clicks below bot.clickWindow, as here
+        const before = server.writes.length
+        bot._client.write('window_click', { windowId: 0, stateId: -2, slot: 44, mouseButton: 0, mode: 0, changedSlots: [], cursorItem: { itemCount: 0 } })
+        sent = server.writes.length > before
+      }
+      setTimeout(() => { bot.__equipP = bot.equip({ name: 'stone_sword' }, 'hand') }, 600)   // the table is not open yet
+    },
+  })
+  await r.bot.__equipP
+  await new Promise(resolve => setTimeout(resolve, 1200)); await r.server.settle()   // let the late table open be refused
+  assert.ok(r.error?.aborted && /preempted by equip/.test(r.error.message), `got ${r.error?.message}`)
+  assert.equal(r.rows[0].args.preempt_timeouts, 1, 'POSITIVE CONTROL: the reflex must have run while the craft was still installed')
+  assert.equal(sent, true, 'the reflex\'s click was dropped as a stale craft click')
 })
 
 // ------------------------------------------------------------------ the verdict, pure
