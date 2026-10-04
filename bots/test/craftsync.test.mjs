@@ -344,6 +344,7 @@ await t('repeated crafts stop at the deadline, never past it, and report produce
   assert.equal(r.error.requested, 3)
   assert.ok(r.error.produced < 3)
   assert.equal(r.error.produced, r.server.count('wooden_pickaxe'), 'produced must be the server\'s count')
+  assert.equal(r.error.authoritative, true, 'the error must say its produced is the server\'s count (a caller tallies it)')
   assert.ok(r.ms <= deadlineIn + 30, `the craft ran ${r.ms} ms against a ${deadlineIn} ms deadline`)
   assert.equal(statusFor('craft_deadline'), 'unknown', 'running out of clock is not a failure of the recipe')
 })

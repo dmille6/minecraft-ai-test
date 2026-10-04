@@ -37,7 +37,7 @@ import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, co
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, isCompostInput, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
-import { bambooPlan, bambooStickRecipe, bambooGate } from './bamboo.mjs'
+import { bambooPlan, bambooStickRecipe, bambooGate, foldWindow } from './bamboo.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -3353,6 +3353,10 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
   const sofar = done => (done ? ` (${done} of ${reps} executions already made)` : '')
   let done = 0, produced = 0, local = 0
   const fail = out => ({ ok: false, produced, out })
+  // A CRAFT THE SERVER CONFIRMED WHEN ITS EXECUTION STILL ENDED IN AN ERROR (the deadline, a click cap, mineflayer's
+  // own throw): craftsync's produced is then the server's count. Carried for a caller's tally (bamboo); it is not
+  // counted as a verified execution here.
+  const atStop = e => (e?.authoritative === true && Number(e.produced) > 0 ? Number(e.produced) : 0)
   // WITHOUT craftsync the local bag is the only witness, and the server's slot updates can land after bot.craft
   // resolves (composter build, sandbox Paper 1.21.8: an immediate read saw 4 logs / 8 planks while the server held 12
   // planks). So the local count is read back, bounded, before it decides. Under craftsync this is never consulted.
@@ -3453,7 +3457,14 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
       }
       try { got = await bot.craft(recipe, 1, table ?? undefined, { signal, deadline, admit }) } catch (e) { error = e }
       // AN ABORT IS AN ABORT (craftFailureOutcome): the runner's aborted/interrupted, never a failure.
-      if (error && (error.aborted || signal?.aborted)) throw new Aborted()
+      if (error && (error.aborted || signal?.aborted)) {
+        // AN ABORT DURING craftsync's VERIFICATION can land after the server answered: then the craft WAS made and
+        // its count is the server's own. It travels with the Aborted (producedAtAbort) for the caller's tally; it is
+        // not counted as a verified execution here.
+        const a = new Aborted()
+        if (atStop(error)) a.producedAtAbort = atStop(error)
+        throw a
+      }
       v = executionVerdict({ synced, got, error, perCraft, arrived: !synced && !error && await localArrival(before) })
       if (!v.retry || retries >= 1) break
       // A SERVER DENIAL IS RETRIED ONCE (craftroom: the sandbox's 5 of 12 denied table crafts) -- only when the
@@ -3489,8 +3500,8 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
     }
     if (v.verdict === 'error') {
       const out = craftFailureOutcome(error, { aborted: !!signal?.aborted, item, table })
-      if (out === CRAFT_ABORTED) throw new Aborted()
-      return fail({ ...out, detail: `${out.detail}${sofar(done)}` })
+      if (out === CRAFT_ABORTED) { const a = new Aborted(); if (atStop(error)) a.producedAtAbort = atStop(error); throw a }
+      return fail({ ...out, detail: `${out.detail}${sofar(done)}`, producedAtStop: atStop(error) })
     }
     const retried = (retries ? `retried=1 retry=${v.verdict}` : 'retried=0') + note
     const slots = bot.inventory.items().length
@@ -3505,7 +3516,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
                  detail: `unverified ${item} rep ${rep + 1}/${reps}: ${why} ${facts}` })
       const out = error ? { ...craftFailureOutcome(error, { item, table }), reason: error.reason ?? null }
         : { status: 'unknown', failClass: 'unverified', verification: 'unverified', detail: `crafted ${item} but ${why}` }
-      return fail({ ...out, detail: `${out.detail} (${slots}/${BAG_SLOTS} slots)${sofar(done)}` })
+      return fail({ ...out, detail: `${out.detail} (${slots}/${BAG_SLOTS} slots)${sofar(done)}`, producedAtStop: atStop(error) })
     }
     done++
     produced += v.produced
@@ -4774,6 +4785,12 @@ async function wearOut(ctx, _args, signal) {
  *     no_room|aborted|...; the same in structured args. Failures are bamboo_no_room / bamboo_craft (neither votes).
  *   - Fuel: smelting ranks bamboo ahead of planks/logs and sticks last, so a fold moves fuel use onto wood (same burn
  *     time per item).
+ *   - A DECLARED STATIONARY WINDOW (foldWindow, sandbox 10-04: the 20 s stuck watchdog cut a 32-craft fold at 15): set on
+ *     bot.stationaryUntil for crafts x 1.3 s + 5 s (cap 90 s, and never past the skill's own deadline), used as the
+ *     fold's deadline too, cleared in the finally. A batch that cannot finish inside it is refused (stop=too_long).
+ *   - The tally is the server's: verified executions plus a craft the server confirmed as an abort landed
+ *     (producedAtAbort). An abort is stop=aborted:<the runner's reason>. The contract is slots_freed (the runner's own
+ *     bag count), so an aborted fold that freed nothing stays aborted instead of "inventory_loss ... so it worked".
  */
 async function bambooSticks(ctx, _args, signal) {
   const { bot } = ctx
@@ -4783,9 +4800,17 @@ async function bambooSticks(ctx, _args, signal) {
   const read = () => ({ bamboo: countItem(bot, 'bamboo'), sticks: countItem(bot, 'stick'), planks: planks(), slots: items().length })
   const before = read()
   const plan = bambooPlan(items())
-  let crafts = 0, stop = 'done', status = 'success'
+  let crafts = 0, stop = 'done', status = 'success', stationary = 0, windowMs = 0
   try {
     if (!plan.crafts) { stop = 'no_plan'; status = 'no_effect'; return { status: 'no_effect', detail: plan.why } }
+    // THE DECLARED STATIONARY WINDOW (bamboo.mjs foldWindow): the batch must finish inside it, or it does not start.
+    const skillDeadline = craftDeadline(ctx)
+    const win = foldWindow(plan.crafts, { leftMs: skillDeadline - Date.now() })
+    if (!win.fits) {
+      stop = 'too_long'; status = 'no_effect'
+      return { status: 'no_effect', detail: `a fold of ${plan.crafts} crafts cannot finish inside its ${Math.round(win.ms / 1000)} s window ` +
+                                            `(at most ${win.maxCrafts}); nothing crafted` }
+    }
     let recipe = null
     try { recipe = bambooStickRecipe(bot.recipesFor(bot.registry.itemsByName.stick.id, null, 1, null) ?? [], bot.registry) } catch { recipe = null }
     if (!recipe) {
@@ -4793,9 +4818,13 @@ async function bambooSticks(ctx, _args, signal) {
       return { status: 'failed', failClass: 'bamboo_craft', detail: 'no 2x2 bamboo -> stick recipe from what is held' }
     }
     const rs = { tries: 2, tableYields: true, pickupDealt: true, owed: () => 0, stationDid: [] }
+    windowMs = win.ms
+    stationary = Date.now() + win.ms
+    bot.stationaryUntil = stationary   // self-expiring; cleared in the finally
     const ran = await craftExecutions(ctx, { item: 'stick', recipe, crafts: plan.crafts, table: undefined, anchor: null, signal,
-                                             gate: (bag, remaining) => bambooGate(bag, remaining), deadline: craftDeadline(ctx), rs,
+                                             gate: (bag, remaining) => bambooGate(bag, remaining), deadline: Math.min(skillDeadline, stationary), rs,
                                              onVerified: () => { crafts++ } })
+    if (!ran.ok && Number(ran.out?.producedAtStop) > 0) crafts += Number(ran.out.producedAtStop)   // the server's count
     const tail = ` [folding bamboo into sticks: ${crafts} of ${plan.crafts} made]`
     if (ran.ok) return { status: 'success', detail: `folded ${2 * crafts} bamboo into ${crafts} sticks (${before.slots} -> ${items().length} slots)` }
     // THE BAG CHANGED UNDER THE BATCH (the gate) or AN ITEM LIES WITHIN PICKUP RANGE: not faults -- a skip, so the
@@ -4806,14 +4835,22 @@ async function bambooSticks(ctx, _args, signal) {
     stop = room ? 'no_room' : (ran.out?.failClass ?? 'craft'); status = 'failed'
     return { status: 'failed', failClass: room ? 'bamboo_no_room' : 'bamboo_craft', detail: `${ran.out?.detail ?? 'the fold stopped'}${tail}` }
   } catch (e) {
-    stop = e?.aborted || signal?.aborted ? 'aborted' : 'error'; status = e?.aborted || signal?.aborted ? 'aborted' : 'failed'
+    const aborted = !!(e?.aborted || signal?.aborted)
+    // A CRAFT THE SERVER CONFIRMED AS THE ABORT LANDED counts (craftExecutions' producedAtAbort: the server's own count,
+    // one stick per craft) -- the tally is the server's, not one short of it.
+    if (aborted && Number(e?.producedAtAbort) > 0) crafts += Number(e.producedAtAbort)
+    // WHY it was aborted, on the row: the runner's own reason (stuck, preempted by ..., the hard stop) when it has one.
+    stop = aborted ? `aborted${ctx.runner?.interruptedReason ? `:${String(ctx.runner.interruptedReason).slice(0, 40)}` : ''}` : 'error'
+    status = aborted ? 'aborted' : 'failed'
     throw e
   } finally {
+    if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     // ONE ROW PER RUN, aborts included: before -> after, what was made of what was planned, why it stopped.
     try {
       const after = read()
       const args = { b0: before.bamboo, b1: after.bamboo, s0: before.sticks, s1: after.sticks, p0: before.planks, p1: after.planks,
-                     o0: before.slots, o1: after.slots, crafts, planned: plan.crafts, freed: before.slots - after.slots, stop }
+                     o0: before.slots, o1: after.slots, crafts, planned: plan.crafts, freed: before.slots - after.slots, stop,
+                     window_ms: windowMs }
       logEvent({ kind: 'bamboo_sticks', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, args,
                  detail: `bamboo=${args.b0}->${args.b1} sticks=${args.s0}->${args.s1} planks=${args.p0}->${args.p1} ` +
                          `slots=${args.o0}->${args.o1} crafts=${crafts}/${plan.crafts} freed=${args.freed} stop=${stop}` +
@@ -7477,7 +7514,9 @@ export const SKILL_CONTRACTS = {
   deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
   // Destroys spent tools by using them: the change it exists for is the loss.
   wear_out: { expects: ['inventory_loss'],        maxMs: 60_000 },
-  bamboo_sticks: { expects: ['inventory_loss'],   maxMs: 60_000 },
+  // A fold exists to FREE A SLOT, so that is its evidence -- not the bamboo it spent (sandbox 10-04: a fold the stuck
+  // watchdog cut at 15 of 32 crafts freed nothing, and inventory_loss filed it as "so it worked").
+  bamboo_sticks: { expects: ['slots_freed'],     maxMs: 120_000 },
   // Consumes ballast into the town composter; a build visit also crafts and places it, so it gets more time.
   // A visit LOSES compost inputs, or -- a harvest-only visit to a ripe composter -- GAINS bone meal (sandbox 10-03:
   // harvest-only visits were downgraded to unknown). NOT any gain or loss: an auto-pickup of cobblestone on the walk
@@ -7556,7 +7595,7 @@ export const SKILL_CONTRACTS = {
  * The prefixes are the ones `because.push` writes below; args-sayable style
  * tests keep the two in step.
  */
-export const DURABLE_EVIDENCE = /^(inventory_gain|inventory_loss|world_change|memory_change|crafted):/
+export const DURABLE_EVIDENCE = /^(inventory_gain|inventory_loss|inventory_slots|world_change|memory_change|crafted):/
 
 export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (status === 'failed' || status === 'aborted') return { value: 'failure', because: [] }
@@ -7600,6 +7639,11 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
     if (bm > 0) because.push(`inventory_gain: bone_meal +${bm}`)
     const l = Object.entries(inv).filter(([k, n]) => n < 0 && isCompostInput(k))
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
+  }
+  // OCCUPIED SLOTS FELL (bamboo_sticks): measured by the runner on the bag, before vs after. Durable: the bot still
+  // has the slot afterwards.
+  if (expects.includes('slots_freed') && (delta.slotsFreed ?? 0) > 0) {
+    because.push(`inventory_slots: ${delta.slotsFreed} slot(s) freed`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
     because.push(`position: moved ${Math.round(delta.distance)} blocks`)
