@@ -148,3 +148,26 @@ out with the cobblestone instead of digging -- the pit has a dirt roof at y 122)
 ```bash
 sandbox/craft/tcab.sh ../tc-cand ../tc-ctrl 3
 ```
+
+## Bamboo -> sticks A/B (`bamboo-ab.cjs`, `bbab.sh`)
+
+Derived from `tools-ab.cjs` (one fresh bot per trial, embedded brain, server slots before/after), but nothing is
+queued: `bamboo_sticks` is a deterministic housekeeping order, so the driver WATCHES for it for 150 s. Two extra
+reads per trial: the bag again 6 s after the order ended, and the item entities on the ground AFTER the bot logs out
+(what the server returned or dropped from the 2x2 grid and the cursor -- an interrupted craft leaves items there that
+are in neither the bag slots nor on the ground while the bot is online).
+
+| scene | bag (rock stacks of 64 fill the rest) |
+|---|---|
+| `A` | 36/36: bamboo 64, sticks 32, oak_planks 10 |
+| `B` | 36/36: bamboo 64 + 10 (split), sticks 32, oak_planks 10 |
+| `C` | 36/36: bamboo 64, oak_planks 10, no sticks |
+| `D` | 35/36: bamboo 64 + 64, oak_planks 10, no sticks |
+| `E` | 36/36: bamboo 2, sticks 63, oak_planks 10 |
+| `F` | scene A, and a feather (PickupDelay 600 ticks) summoned beside the bot as the order starts |
+| `G` | scene A's contents at 33/36 (below the 34-slot trigger) |
+| `A20` | scene A with the fleet's STUCK_SECONDS=20 |
+
+```bash
+sandbox/craft/bbab.sh ../bb-cand ../bb-ctrl 3          # ~100 min: the control waits the full window in every scene
+```
