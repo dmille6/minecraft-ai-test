@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module'
+import { inflightTracker } from './inflight.mjs'
 // CRAFTSYNC: clicks in lockstep with the server while bot.craft runs, and VERIFIES what came out.
 //
 // WHAT IS BROKEN (sandbox A/B, RCON-verified, 2026-10-03). With spare ingredients in the bag, unpatched
@@ -198,7 +199,7 @@ export function installCraftSync (bot, opts = {}) {
   // stop, but mineflayer's click goes on; a caller must not click again, or close, until these have settled.
   // NOTE for the grid fix (gf-on-1918bb5), which is changing cappedClick too: this set and inflight()/inflightSettled()
   // are what withdraw relies on -- keep them, or an equivalent, when the two meet.
-  const inflight = new Set()
+  const inflight = inflightTracker()   // inflight.mjs: shared with withdraw and the grid fix
   const stateIds = new Map()   // windowId -> last stateId
   const touch = (win) => {
     lastAt.set(win, now())
@@ -291,9 +292,7 @@ export function installCraftSync (bot, opts = {}) {
     let settled = false, failed = false, error = null
     const p = (async () => orig.call(bot, slot, button, mode))()   // a synchronous throw becomes a rejection
     p.then(() => { settled = true }, (e) => { settled = true; failed = true; error = e })
-    inflight.add(p)
-    const gone = () => { inflight.delete(p) }
-    p.then(gone, gone)
+    inflight.track(p)
     const start = now()
     while (!settled) {
       if (now() - start >= cfg.clickCapMs) {
@@ -641,30 +640,45 @@ export function installCraftSync (bot, opts = {}) {
    * client's cursor too: mineflayer 4.37 never applies carriedItem, so its own view can be wrong in either direction.
    * Never while a craft runs or an underlying click is in flight.
    */
-  async function confirmCursor (win, { deadline = now() + 1500 } = {}) {
-    if (active || zombie) return { answered: false, cursorEmpty: false, carried: null, why: 'busy' }
-    if (inflight.size) return { answered: false, cursorEmpty: false, carried: null, why: 'a click is in flight' }
+  async function confirmCursor (win, { deadline = now() + 1500, cancelled = () => false } = {}) {
+    const no = why => ({ answered: false, cursorEmpty: false, carried: null, decodeFailed: false, why })
+    if (active || zombie) return no('busy')
+    if (inflight.size) return no('a click is in flight')
     const id = win?.id
-    if (id == null || bot.currentWindow !== win) return { answered: false, cursorEmpty: false, carried: null, why: 'not the open window' }
-    const before = itemsSeen.get(id) ?? 0
-    bot._client.write('window_click', { windowId: id, stateId: -1, slot: 0, mouseButton: 2, mode: 3, changedSlots: [],
-                                        cursorItem: { itemCount: 0, components: [], removeComponents: [] } })
-    while ((itemsSeen.get(id) ?? 0) <= before) {
-      if (now() >= deadline || bot.currentWindow !== win) return { answered: false, cursorEmpty: false, carried: null, why: 'unanswered' }
-      await sleep(cfg.pollMs)
-    }
-    const c = lastCarried.get(id)
-    const empty = !(c && (c.itemCount ?? 0) > 0)
+    if (id == null || bot.currentWindow !== win) return no('not the open window')
+    // OWNED FOR THE WHOLE PROBE (Codex round 4): `active` is held from the send to the answer's consumption, so no craft
+    // or lockstep can click in between and make the evidence stale. (Inventory actions outside craftsync -- equip and
+    // the rest -- are refused by the caller's ownership: skills.mjs ownInventory.)
+    const st = active = freshState(deadline, null)
     try {
-      if (empty) win.selectedItem = null
-      else if (!win.selectedItem || win.selectedItem.count !== c.itemCount) win.selectedItem = ItemFor(bot).fromNotch(c)
-    } catch { /* the evidence stands even if the local cursor cannot be rebuilt */ }
-    return { answered: true, cursorEmpty: empty, carried: c ?? null, why: null }
+      const before = itemsSeen.get(id) ?? 0
+      bot._client.write('window_click', { windowId: id, stateId: -1, slot: 0, mouseButton: 2, mode: 3, changedSlots: [],
+                                          cursorItem: { itemCount: 0, components: [], removeComponents: [] } })
+      while ((itemsSeen.get(id) ?? 0) <= before) {
+        if (cancelled()) return no('cancelled')
+        if (now() >= st.deadline || bot.currentWindow !== win) return no('unanswered')
+        await sleep(cfg.pollMs)
+      }
+      if (cancelled()) return no('cancelled')
+      if (bot.currentWindow !== win) return no('the window changed before the answer was used')
+      const c = lastCarried.get(id)
+      const empty = !(c && (c.itemCount ?? 0) > 0)
+      if (empty) { win.selectedItem = null; return { answered: true, cursorEmpty: true, carried: null, decodeFailed: false, why: null } }
+      // THE COMPLETE CARRIED ITEM, ALWAYS (both reviews, round 4): type, count, durability and components -- a same-count
+      // correction to another item was ignored before. A decode that fails, or yields an id this version does not know
+      // (prismarine-item does not throw: it names it 'unknown'), is said plainly.
+      let item = null
+      try { item = ItemFor(bot).fromNotch(c) } catch { item = null }
+      const known = it => !!it?.name && it.name !== 'unknown' && (!bot.registry?.items || !!bot.registry.items[it.type])
+      if (!known(item)) return { answered: true, cursorEmpty: false, carried: c, decodeFailed: true, why: 'the carried item could not be decoded' }
+      win.selectedItem = item
+      return { answered: true, cursorEmpty: false, carried: c, decodeFailed: false, why: null }
+    } finally { active = null }
   }
 
   bot.craft = craft
   const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft, recount, lockstep, confirmCursor,
-                       inflight: () => inflight.size, inflightSettled: () => Promise.allSettled([...inflight]) }
+                       inflight: () => inflight.size, inflightSettled: () => inflight.settled() }
   bot.craftSync = controller
   return controller
 }
