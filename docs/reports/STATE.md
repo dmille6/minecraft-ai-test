@@ -111,6 +111,12 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 18:40Z — DISPOSAL: owner accepts vanilla 5-min despawn as the INTERIM disposal ("fine for now, long term i want
+a better solution"). Designs: Claude "junk well" (1x1, floor 2 down, wooden trapdoor cap, 6 planks/town;
+docs/reports/disposal-design-2026-10-04.md) vs Codex sealed chest->hoppers->dropper chamber (20 iron + redstone/town;
+disposal-design-codex-2026-10-04.md; its merge concern is moot at the measured merge radius 0.5, its admission/
+underground-neighbour concerns stand). Paper sandbox subset running to decide. Long-term open item: a better disposal.
+
 ## 10-04 18:08Z — ONE-TIME CHEST CLEAR DONE (owner approved). 105,053 junk items / 3,473 slots removed from the 16 town
 banks; kept items 92,846 -> 92,846 exactly; full bank containers 233 -> 0; free slots 2,669 -> 6,142. Details in
 chest-clear-manifest-2026-10-04.md. **Fleet-wide world event at 18:07Z, inside toolclean-01 (declared 17:55:31Z):** both
