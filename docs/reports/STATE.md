@@ -111,6 +111,19 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 06:40Z — NO-JUNK DESIGN (both engines; docs/reports/nojunk-design-2026-10-04.md; NOT BUILT, Claude review running)
+**Deposit already refuses almost all of the manifest's junk** (bankable.mjs:143-204: goal-wanted, fixed list, ores,
+spare usable tools only). 24 h, 1.18M rows, 7,051 items in reconciled deposit runs: cobblestone 62%, wood 34%, ores
+2.5%, spent tools 0.7%; ballast/seeds/litter/eggs 0 (positive control: same query finds wood/ores; refusal rows name
+apple 302, dirt 90, leaf_litter 37). The census junk dates from the old every-stack deposit loop (replaced ~09-13).
+So the live inflow is cobble (~7,200/day) and spent tools (~100/day, withdraw branch already stops them).
+**A flat cobble cap is dangerous:** >= 64.6% of banked cobble comes from bots at 34+ slots, for whom it is the bag
+relief. Log/plank/stick caps DROPPED (both engines): 4,096 cap vs 44,701 usable; bags net -2,300 wood/day.
+Proposed canary stonecap-01 (after withdraw promoted, composter+toolclean closed): cobble 256/town refused only on
+evidence (lower bound from chests opened < 6 h, unknown != zero), relief valve at 34+ slots, cap refusal never routes to
+chest-full. Plus a hard never-bank list (zero new bag load). Eggs/flint/ink/scutes/clay have NO exit from a bag
+(150+64+72 slots across 64 full bags) -- owner decision. Admin clear only after stonecap is KEPT and promoted.
+
 ## 10-04 05:15Z — FLEET ba84fa6 (craftsync promoted 05:08Z); CANARY LIVE: craftroom-01 @ ffa0f57 on board-a,hive-b,
 declared 05:12:59Z; exactly two versions (70 ba84fa6, 10 ffa0f57). Reads +180 ~08:13Z, +360 ~11:13Z. Chained: composter-01
 (fleet ffa0f57 -> 56db2cd), toolclean-01 (fleet 56db2cd -> 1918bb5). scoreboard.py now rotation-aware.
