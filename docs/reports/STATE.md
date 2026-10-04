@@ -60,6 +60,14 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   **BAMBOO YIELD IS SMALL (census 00:40Z):** 68/80 bots at >= 34 slots, 29 hold bamboo, only 9 can fold now (1 slot each,
   ~9 slots fleet-wide); 18 "no batch frees a slot". Tell the owner plainly.
 
+- **10-04 01:35Z: toolclean-01 CHAINED** behind composter-01 (fleet 56db2cd -> tc-on-56db2cd @ 1918bb5; both engines
+  AGREE; Paper sandbox 6 scenes x 3 x 2 passed; read /tmp/toolcleanread.py md5 a378d4ad = repo; positive control 87).
+  KNOWN pre-existing (both arms): a pathfinder travel dig can swing a held 1-use shovel when travelTool hands back
+  nothing (1 of 13 sandbox trials) -- candidate for a later fix (empty the hand before a travel dig).
+  **READS NOW ROTATION-AWARE** (logs rotate ~23:59Z; live-only reads dropped the window before it) and the craftsync
+  tripwire counts unanswered resyncs (amendment recorded before the +180 read). craftsync-01 so far: 0 of 96 false
+  successes (control 117/633), Paper answered 46/46 resyncs, many planks crafts lost to full bags (craftroom's job).
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
