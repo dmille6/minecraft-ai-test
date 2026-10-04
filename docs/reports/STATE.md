@@ -111,6 +111,17 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 19:45Z — JUNK WELL SANDBOX (Paper 1.21.8, sandbox3; docs/reports/junk-well-sandbox-2026-10-04.md): control 20/20
+picked up on open ground; accuracy 59/60 (117/118 over two runs; the miss re-collected by the thrower); isolation 0
+pickups (30 s on the trapdoor, 8 rim blocks, 200 passes, open-trapdoor rim); despawn at age ~6000. FOUND: (1) the age
+PAUSES in an unloaded chunk (items wait, still unreachable); (2) pathfinder routes over an OPEN trapdoor (0/12 fell
+in crossing) but a bot whose GOAL is the well cell falls in (2/2) -- admission rule + never target the cell; (3)
+clearance under the cap is 1.8125 not 1.5: a creeper (1.7) fits and the shaft is dark -- fleet is peaceful, but for
+"any world" put the second trapdoor (recipe makes 2) bottom-half on the floor (untested). Run beats reading: the
+well's isolation holds, so Codex's 20-iron feeder is not needed; its admission/underground-neighbour concerns are
+real and go into the build.
+WITHDRAW d490102 (round 4 H-N): 229/229, 79/79 mutants; Codex confirmation running.
+
 ## 10-04 18:40Z — DISPOSAL: owner accepts vanilla 5-min despawn as the INTERIM disposal ("fine for now, long term i want
 a better solution"). Designs: Claude "junk well" (1x1, floor 2 down, wooden trapdoor cap, 6 planks/town;
 docs/reports/disposal-design-2026-10-04.md) vs Codex sealed chest->hoppers->dropper chamber (20 iron + redstone/town;
