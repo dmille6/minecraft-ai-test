@@ -2,48 +2,241 @@
 //
 // Measured over 24 h (1,970 deposits): 90 ended blocked on a full chest, and the bot was CARRYING A CHEST in 75 of
 // them. The recovery crafted a chest unconditionally after the alternate-chest loop and placed one only if that craft
-// succeeded, so a bot with a chest in hand and no planks reported "could not make another chest" (Claude and Codex,
-// independently, 10-03). And the transfer loop swallowed mineflayer's `destination full`, which is thrown AFTER the
-// source stack is lifted onto the cursor (mineflayer 4.37.1 lib/plugins/inventory.js:301 then :323): the window then
-// closed with the stack on the cursor, and vanilla drops a closed window's cursor into the world.
+// succeeded (Claude and Codex, independently, 10-03). The transfer loop also swallowed mineflayer's `destination full`,
+// thrown AFTER the source stack is lifted onto the cursor (mineflayer 4.37.1 inventory.js:301, then :323), and closed
+// the window with the stack still there. What the SERVER does with it then: vanilla 1.21 (Paper 1.21.8
+// AbstractContainerMenu.removed -> dropOrPlaceInInventory) puts a carried stack back into the player's inventory and
+// drops it only when there is no room -- so on these servers the usual cost is a client that disagrees with the server
+// about where the stack is, and a drop only when the bag is full. Either way the stack is put back before the close.
 //
 // The decisions are pure and live here; skills.mjs does the walking, opening and placing.
-//   fullChestNext     place the carried chest, craft one, or refuse -- a carried chest always goes first
-//   chestSiteRefusal  why a cell may not take the new chest (reuses the composter's site checks)
-//   chestCap          at most one new chest per town per TOWN_CHEST_INTERVAL_MS, at most MAX_TOWN_CONTAINERS
-//   bankClosed        after a refusal the bot is told once, and not sent back for the CLOSE_MS that follows
-//   returnCursor      a lifted stack goes back into the bag before the window closes -- never dropped
+//   fullChestNext      defer, refuse (budget) -- or place the CARRIED chest, crafting one only when none is carried
+//   chestBudget        a budget on NEW chests: 10 min apart, 4 per rolling 24 h, 12 standing (pre-existing ones are
+//                      not counted); a persisted, reconciled claim ledger (claimNewChest / reconcileClaims)
+//   containerStatus    per-town memory of each container's last outcome: full / unavailable / unknown / unusable
+//   chestSiteRefusal   why a cell may not take the new chest (reuses the composter's site checks)
+//   bankClosed         after a refusal, deposits pause for this bot -- reopened early when the reason goes away
+//   returnCursor       a lifted stack goes back into the bag, VERIFIED, before the window closes
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { siteRefusal, standableBeside, narrowTop, bodyInCell, createSiteGen, sameWorld, townDistance,
+import { siteRefusal, standableBeside, narrowTop, bodyInCell, tableCellFor, sameWorld, townDistance,
          CLEARANCE_CONTAINER, MIN_CONTAINER_DISTANCE, STORAGE_NEAR } from './composter.mjs'
 
-/** At most one new container per town per this long, across every bot of the pool (the shared claim record). */
-export const TOWN_CHEST_INTERVAL_MS = 10 * 60 * 1000
-/** No new container once this many container BLOCKS (a double chest is two) stand within STORAGE_NEAR of home. */
-export const MAX_TOWN_CONTAINERS = 12
+// ---- the budget on NEW chests ---------------------------------------------------------------------------------------
+
+/** At least this long between two new chests in one town (every bot of the pool). */
+export const NEW_CHEST_INTERVAL_MS = 10 * 60 * 1000
+/** At most this many new chests in one town in any rolling 24 h. */
+export const NEW_CHESTS_PER_DAY = 4
+export const DAY_MS = 24 * 60 * 60 * 1000
+/** At most this many RECOVERY-MADE chests standing in one town (containers that were already there do not count). */
+export const MAX_RECOVERY_CHESTS = 12
+/** A claim whose cell still holds no chest this long after it was made is reconciled as not placed. */
+export const RECONCILE_AFTER_MS = 2 * 60 * 1000
 /** The new chest goes this many rings (Chebyshev) around the full chest at most. */
 export const SITE_RINGS = 4
-/** The sweep of the town's other containers gives up after this long: what it did not reach is UNKNOWN, not full. */
-export const TOWN_SWEEP_MS = 90_000
+/** ONE placement submission per claim (both reviews): a second cell after a miss could become a second chest. */
+export const MAX_SITE_TRIES = 1
 /** After a placement that did not read back, how long a late server ack may take to show the block. */
 export const PLACE_READBACK_MS = 2_000
-/** At most this many cells are tried for one new chest (each failure is read back before the next). */
-export const MAX_SITE_TRIES = 2
+
+/** The town's key (pool dir + home). */
+export const townKey = home => `town-chest-${home.x}_${home.y}_${home.z}`
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * THE CLAIM LEDGER -> [{ n, x, y, z, at, world, state, stateAt }], oldest first. One IMMUTABLE file per claim
+ * (`<key>.c<n>.json`, created with link(), so exactly one bot gets each n) plus an optional state file
+ * (`<key>.c<n>.state.json`: placed | not_placed | gone). Nothing is pruned: unlike the composter's site generations
+ * (composter.mjs pruneSiteGens keeps three), the budget needs every claim of the last 24 h and every standing chest.
+ * A claim with no state file is UNRESOLVED and counts as standing until reconciled. An unreadable claim fails closed:
+ * it is counted, as made now.
+ */
+export function readClaims (dir, key, now = Date.now()) {
+  const out = []
+  let files = []
+  try { files = fs.readdirSync(dir) } catch { return out }
+  const re = new RegExp(`^${esc(key)}\\.c(\\d+)\\.json$`)
+  for (const f of files) {
+    const m = re.exec(f)
+    if (!m) continue
+    const n = Number(m[1])
+    let rec = null
+    try { rec = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { rec = null }
+    const at = Date.parse(rec?.at)
+    const c = Number.isFinite(at) && [rec.x, rec.y, rec.z].every(Number.isInteger)
+      ? { n, x: rec.x, y: rec.y, z: rec.z, at, world: rec.world ?? null, state: 'unresolved', stateAt: null }
+      : { n, x: null, y: null, z: null, at: now, world: null, state: 'unresolved', stateAt: null, malformed: true }
+    try {
+      const s = JSON.parse(fs.readFileSync(path.join(dir, `${key}.c${n}.state.json`), 'utf8'))
+      if (['placed', 'not_placed', 'gone'].includes(s?.state)) { c.state = s.state; c.stateAt = Date.parse(s.at) || null }
+    } catch { /* no state yet: unresolved */ }
+    out.push(c)
+  }
+  return out.sort((a, b) => a.n - b.n)
+}
+
+/** Record a claim's state (a whole-file replace; the newest reconciliation wins). Best effort -> true if written. */
+export function writeClaimState (dir, key, n, state, now = Date.now()) {
+  const file = path.join(dir, `${key}.c${n}.state.json`)
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    fs.writeFileSync(tmp, JSON.stringify({ state, at: new Date(now).toISOString() }))
+    fs.renameSync(tmp, file)
+    return true
+  } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } return false }
+}
+
+/**
+ * THE BUDGET -> { ok, why, until, standing, today }. Pure over the ledger. Claims from another world (a reseed keeps
+ * the pool) are not counted. Interval and day count EVERY claim (a submission that never landed was still spent --
+ * an abort after submission is never refunded); the standing limit counts placed and unresolved claims.
+ */
+export function chestBudget ({ claims = [], now = Date.now(), world = null } = {}) {
+  const mine = claims.filter(c => c.malformed || sameWorld(c.world, world))
+  const standing = mine.filter(c => c.state === 'placed' || c.state === 'unresolved').length
+  const day = mine.filter(c => now - c.at < DAY_MS)
+  const last = mine.reduce((m, c) => Math.max(m, c.at), -Infinity)
+  const base = { standing, today: day.length }
+  const mins = ms => `${Math.max(1, Math.ceil(ms / 60000))} min`
+  if (now - last < NEW_CHEST_INTERVAL_MS) {
+    const until = last + NEW_CHEST_INTERVAL_MS
+    return { ok: false, ...base, until, why: `the town made a new chest ${mins(now - last)} ago; the next may be made in ${mins(until - now)}` }
+  }
+  if (day.length >= NEW_CHESTS_PER_DAY) {
+    const until = Math.min(...day.map(c => c.at)) + DAY_MS
+    return { ok: false, ...base, until, why: `the town has used its new-chest budget (${day.length} in 24 h); the next may be made in ${mins(until - now)}` }
+  }
+  if (standing >= MAX_RECOVERY_CHESTS) {
+    return { ok: false, ...base, until: null, why: `the town has ${standing} chests made for overflow standing, its limit` }
+  }
+  return { ok: true, ...base, until: null, why: null }
+}
+
+/**
+ * CLAIM THE TOWN'S NEXT NEW CHEST -> { ok, n, why, until }. The budget is judged on the ledger this call read, then
+ * claim n = highest + 1 is created with link(), which fails if another bot created it first (that bot wins; this one
+ * refuses). FAILS CLOSED: nothing written, no chest.
+ */
+export function claimNewChest ({ dir, key, site, world = null, now = Date.now() } = {}) {
+  const claims = readClaims(dir, key, now)
+  const b = chestBudget({ claims, now, world })
+  if (!b.ok) return { ok: false, n: null, why: b.why, until: b.until }
+  const n = claims.reduce((m, c) => Math.max(m, c.n), 0) + 1
+  const file = path.join(dir, `${key}.c${n}.json`)
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify({ x: site.x, y: site.y, z: site.z, world: world || null, at: new Date(now).toISOString() }))
+    fs.linkSync(tmp, file)
+    return { ok: true, n, why: null, until: null }
+  } catch (e) {
+    if (e?.code === 'EEXIST') return { ok: false, n: null, why: 'another bot claimed the town\'s next new chest first', until: now + NEW_CHEST_INTERVAL_MS }
+    return { ok: false, n: null, why: 'the town chest ledger could not be written', until: null }
+  } finally {
+    try { fs.unlinkSync(tmp) } catch { /* never written */ }
+  }
+}
+
+/**
+ * RECONCILE THE LEDGER AGAINST THE WORLD -> the claims whose state changed ([{ n, state }]). Pure but for the writes.
+ *   read(x,y,z) -> block name | null (unloaded: left as it is)
+ * A chest at the claim's cell: placed. No chest: a placed claim is gone; an unresolved one older than
+ * RECONCILE_AFTER_MS is not_placed (it stops counting as standing; it stays in the interval and the day).
+ */
+export function reconcileClaims ({ dir, key, claims = [], read, world = null, now = Date.now() } = {}) {
+  const changed = []
+  for (const c of claims) {
+    if (c.malformed || !sameWorld(c.world, world) || !(c.state === 'unresolved' || c.state === 'placed')) continue
+    let name = null
+    try { name = read(c.x, c.y, c.z) } catch { name = null }
+    if (name == null) continue
+    const chest = /^(chest|trapped_chest)$/.test(name)
+    const next = chest ? 'placed' : c.state === 'placed' ? 'gone' : now - c.at > RECONCILE_AFTER_MS ? 'not_placed' : null
+    if (next && next !== c.state && writeClaimState(dir, key, c.n, next, now)) { c.state = next; changed.push({ n: c.n, state: next }) }
+  }
+  return changed
+}
+
+// ---- the town's memory of its containers ----------------------------------------------------------------------------
+
+/** A container found full is not visited again for this long (by any bot of the town). */
+export const FULL_TTL_MS = 30 * 60 * 1000
+/** A verified blocked lid (unsafe to clear, or would not break) makes a container unavailable for this long. */
+export const UNAVAILABLE_TTL_MS = 30 * 60 * 1000
+/** After an open or travel failure, the container is not visited again for this long -- and it still counts as unknown. */
+export const UNKNOWN_BACKOFF_MS = 10 * 60 * 1000
+/** Two unknowns at least UNKNOWN_BACKOFF_MS apart make a container unusable for this long: no longer waited for. */
+export const UNUSABLE_TTL_MS = 6 * 60 * 60 * 1000
+
+/**
+ * WHAT TO DO ABOUT ONE CONTAINER -> 'visit' | 'full' | 'unavailable' | 'unusable' | 'backoff'. Pure.
+ *   entry  { o: 'full'|'took'|'unavailable'|'unknown', at, strikes: [ms...] } | undefined
+ * full, unavailable and unusable are KNOWN (they do not hold expansion back); backoff is UNKNOWN (not visited, and
+ * the deposit defers). Anything stale is visited again.
+ */
+export function containerStatus (entry, now = Date.now()) {
+  if (!entry) return 'visit'
+  const s = entry.strikes ?? []
+  if (s.length >= 2 && s.at(-1) - s[0] >= UNKNOWN_BACKOFF_MS && now - s.at(-1) < UNUSABLE_TTL_MS) return 'unusable'
+  if (entry.o === 'full' && now - entry.at < FULL_TTL_MS) return 'full'
+  if (entry.o === 'unavailable' && now - entry.at < UNAVAILABLE_TTL_MS) return 'unavailable'
+  if (entry.o === 'unknown' && now - entry.at < UNKNOWN_BACKOFF_MS) return 'backoff'
+  return 'visit'
+}
+/** The entry after an outcome. Pure. An unknown adds a strike (the last two kept); a container that opened clears them. */
+export function recordOutcome (entry, outcome, now = Date.now()) {
+  if (outcome === 'unknown') {
+    const strikes = [...(entry?.strikes ?? []).filter(t => now - t < UNUSABLE_TTL_MS), now].slice(-2)
+    return { o: 'unknown', at: now, strikes }
+  }
+  return { o: outcome, at: now, strikes: outcome === 'unavailable' ? (entry?.strikes ?? []) : [] }
+}
+
+const memFile = (dir, key) => path.join(dir, `${key}.containers.json`)
+/** The town's memory -> { 'x,y,z': entry }. Another world's memory reads as empty. */
+export function readTownMemory (dir, key, world = null) {
+  try {
+    const r = JSON.parse(fs.readFileSync(memFile(dir, key), 'utf8'))
+    if (!sameWorld(r?.world, world)) return {}
+    return r?.entries && typeof r.entries === 'object' ? r.entries : {}
+  } catch { return {} }
+}
+/** Read-modify-write (tmp + rename). Advisory: two bots racing lose one outcome, which costs one extra visit. */
+export function updateTownMemory (dir, key, world, mutate) {
+  const entries = readTownMemory(dir, key, world)
+  mutate(entries)
+  const file = memFile(dir, key)
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify({ world: world || null, entries }))
+    fs.renameSync(tmp, file)
+    return true
+  } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } return false }
+}
+/** The last time any container of the town TOOK items (or a new chest went down): the "a town chest gained room" signal. */
+export function townRoomAt (entries = {}) {
+  let t = -Infinity
+  for (const e of Object.values(entries)) if (e?.o === 'took' && e.at > t) t = e.at
+  return t
+}
+
+// ---- what next ------------------------------------------------------------------------------------------------------
 
 /**
  * WHAT THE RECOVERY DOES NEXT -> 'far' | 'defer' | 'refuse_cap' | 'place_carried' | 'craft'. Pure.
- *   nearHome  the bot is within STORAGE_NEAR of home: a new chest is town storage, never a chest in a mine
- *   unknown   containers near home whose room could not be read (an open or travel failure, or the sweep's time ran
- *             out): unknown capacity is not full, so nothing is built -- the deposit defers
- *   cap       chestCap's answer ({ ok })
- *   carried   the bot holds a chest or trapped_chest: it is PLACED; a chest is crafted only when none is carried
+ *   nearHome  within STORAGE_NEAR of home: a new chest is town storage, never a chest in a mine
+ *   unknown   containers near home whose room is UNKNOWN (an open/travel failure in backoff, or not reached in time).
+ *             Full, unavailable (a blocked lid) and unusable containers are known and do not hold expansion back.
+ *   budget    chestBudget's answer ({ ok }) -- judged before anything is placed, so even a carried chest waits for it
+ *   carried   a chest or trapped_chest is in the bag: it is PLACED; a chest is crafted only when none is carried
  */
-export function fullChestNext ({ nearHome = false, unknown = 0, cap = { ok: false }, carried = false } = {}) {
+export function fullChestNext ({ nearHome = false, unknown = 0, budget = { ok: false }, carried = false } = {}) {
   if (!nearHome) return 'far'
   if (unknown > 0) return 'defer'
-  if (!cap?.ok) return 'refuse_cap'
+  if (!budget?.ok) return 'refuse_cap'
   return carried ? 'place_carried' : 'craft'
 }
 
@@ -55,60 +248,19 @@ export function carriedChest (items = []) {
 }
 
 /**
- * THE TOWN'S CAP -> { ok, why, until }. Pure.
- *   containers  container blocks within STORAGE_NEAR of home (each half of a double chest counts)
- *   last        readChestClaims' record ({ gen, at, world, malformed }) -- the newest claim in this town
- *   world       this bot's world id: a claim from another world (a reseed keeps the pool) does not count
- * A malformed record fails CLOSED (an unreadable claim is treated as one made just now).
+ * THE TIME LEFT FOR THIS SKILL -> ms. The runner's WATCHDOG aborts every skill at config.skills.defaultTimeoutMs
+ * (180 s; runner.mjs) -- not at deposit's 240 s contract -- so that is the budget every walk, open and claim is
+ * clamped to. Pure.
  */
-export function chestCap ({ containers = 0, last = null, now = Date.now(), world = null } = {}) {
-  if (!(containers < MAX_TOWN_CONTAINERS)) {
-    return { ok: false, why: `the town is at its chest limit (${containers} containers within ${STORAGE_NEAR} of home, the limit is ${MAX_TOWN_CONTAINERS})`, until: null }
-  }
-  if (last?.malformed) return { ok: false, why: 'the town chest record cannot be read', until: now + TOWN_CHEST_INTERVAL_MS }
-  if (last?.gen > 0 && Number.isFinite(last.at) && sameWorld(last.world, world) && now - last.at < TOWN_CHEST_INTERVAL_MS) {
-    const until = last.at + TOWN_CHEST_INTERVAL_MS
-    return { ok: false, why: `a new town chest was made ${Math.round((now - last.at) / 1000)}s ago (one per ${TOWN_CHEST_INTERVAL_MS / 60000} min)`, until }
-  }
-  return { ok: true, why: null, until: null }
+export function timeLeft ({ startedAt, timeoutMs, now = Date.now() } = {}) {
+  return Math.max(0, startedAt + timeoutMs - now)
 }
-
-/** The claim record's key: one per town (pool dir + home). */
-export const chestClaimKey = home => `town-chest-${home.x}_${home.y}_${home.z}`
-const claimRe = key => new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.g(\\d+)\\.json$`)
-
-/** The newest claim -> { gen, at, world, malformed }. gen 0 = no claim yet (an unreadable directory reads as none;
- *  the claim's own write then fails closed). */
-export function readChestClaims (dir, key) {
-  let gen = 0
-  try {
-    const re = claimRe(key)
-    for (const f of fs.readdirSync(dir)) { const m = re.exec(f); if (m) gen = Math.max(gen, Number(m[1])) }
-  } catch { return { gen: 0, at: null, world: null, malformed: false } }
-  if (!gen) return { gen: 0, at: null, world: null, malformed: false }
-  try {
-    const r = JSON.parse(fs.readFileSync(path.join(dir, `${key}.g${gen}.json`), 'utf8'))
-    const at = Date.parse(r?.at)
-    if (!Number.isFinite(at)) return { gen, at: null, world: null, malformed: true }
-    return { gen, at, world: r.world ?? null, malformed: false }
-  } catch { return { gen, at: null, world: null, malformed: true } }
-}
-
-/**
- * TAKE THE TOWN'S NEXT CHEST CLAIM -> { ok, gen, why, until }. Write-once, compare-and-swap without a lock: generation
- * N+1 is created with link(), which fails if it exists, so of every bot that read generation N exactly one wins
- * (composter.mjs createSiteGen, the composter site's record). The cap is judged on the record this call read, so a bot
- * that saw a stale "no claim" still loses to the one that claimed first. FAILS CLOSED: nothing written, no chest.
- */
-export function claimTownChest ({ dir, key, site, world = null, containers = 0, now = Date.now() } = {}) {
-  const last = readChestClaims(dir, key)
-  const cap = chestCap({ containers, last, now, world })
-  if (!cap.ok) return { ok: false, gen: last.gen, why: cap.why, until: cap.until }
-  if (createSiteGen(dir, key, last.gen + 1, site, world)) return { ok: true, gen: last.gen + 1, why: null, until: null }
-  const won = readChestClaims(dir, key)
-  if (won.gen > last.gen) return { ok: false, gen: won.gen, why: 'another bot claimed the town\'s next chest first', until: now + TOWN_CHEST_INTERVAL_MS }
-  return { ok: false, gen: last.gen, why: 'the town chest record could not be written', until: null }
-}
+/** The recovery's sweep stops this long before the watchdog: what follows (site, walk, claim, place, retry) needs it. */
+export const AFTER_SWEEP_MS = 60_000
+/** A claim is taken only with at least this long left: the placement, its read-back and the retry into the new chest. */
+export const CLAIM_BUDGET_MS = 25_000
+/** The sweep's own cap, whatever the watchdog leaves. */
+export const TOWN_SWEEP_MS = 90_000
 
 // ---- a double chest is one container ---------------------------------------------------------------------------------
 
@@ -116,6 +268,7 @@ export function claimTownChest ({ dir, key, site, world = null, containers = 0, 
 const CW = { north: 'east', east: 'south', south: 'west', west: 'north' }
 const CCW = { north: 'west', west: 'south', south: 'east', east: 'north' }
 const STEP = { north: { x: 0, z: -1 }, south: { x: 0, z: 1 }, east: { x: 1, z: 0 }, west: { x: -1, z: 0 } }
+const CHEST = /^(chest|trapped_chest)$/
 /** Where the other half of a double chest is (vanilla ChestBlock.getConnectedDirection: a LEFT half connects clockwise
  *  of its facing, a RIGHT half counter-clockwise), or null for a single chest or no state. Pure. */
 export function chestPartnerOffset ({ facing, type } = {}) {
@@ -131,13 +284,14 @@ export function isChestPartner (a, b) {
 
 // ---- where the new chest goes ----------------------------------------------------------------------------------------
 
-const CHEST = /^(chest|trapped_chest)$/
 const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column)$/
 const passable = b => !!b && b.boundingBox === 'empty' && !LIQUID.test(b.name ?? '')
 const solidAt = b => !!b && b.boundingBox === 'block'
+/** Blocks a bot must be able to walk up to and use. Containers keep at least one standing cell; a crafting table's
+ *  standing cells are never taken (Codex: protect its access). */
+const TABLE = /^crafting_table$/
 
-/** Every cardinal neighbour of `c`, at its level, where a bot can stand to open it (standableBeside's rules, all four
- *  sides rather than the first). */
+/** Every cardinal neighbour of `c`, at its level, where a bot can stand to use it (standableBeside's rules, all four). */
 export function standingCells (read, c) {
   const out = []
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -154,15 +308,16 @@ export function standingCells (read, c) {
  *   read           (x,y,z) -> { name, boundingBox } | null (null = unknown: never placed on a guess)
  *   home           the town's home point
  *   composterSites the recorded composter site and any composter found. The composter's own siteRefusal refuses a
- *                  container within MIN_CONTAINER_DISTANCE, so a chest there would invalidate the composter's site.
+ *                  container within MIN_CONTAINER_DISTANCE, so a chest there would invalidate the composter's site;
+ *                  and the cell its builder would put a crafting table in (tableCellFor) is reserved.
  *   bodies         { x, y, z, w, h } of every body nearby, the bot's own included
  * THE COMPOSTER'S CHECKS, REUSED rather than copied -- cell, floor (never a container's lid: its FLOOR_NO lists every
  * container), one-wide tops, liquid beside, corridor, doors, the home point, somewhere to stand -- by calling its
  * siteRefusal with containers read as stone everywhere but the floor cell: its container clearance is the one rule a
- * chest among chests must not obey, and masking the NAME keeps every bounding box (so corridor and standing checks see
- * the containers as the solid blocks they are). Then the chest's own rules: inside STORAGE_NEAR of home (the cap counts
- * what is there), the lid free, NO chest beside it (no double-chest merging in this change), >= MIN_CONTAINER_DISTANCE
- * from any composter, never the last standing cell of another container, and no body in the cell.
+ * chest among chests must not obey, and masking the NAME keeps every bounding box. Then the chest's own rules: inside
+ * STORAGE_NEAR of home, the lid free, NO chest beside it (no double-chest merging), >= MIN_CONTAINER_DISTANCE from any
+ * composter and off its reserved table cell, never the last standing cell of another container, never a standing cell
+ * of a crafting table, and no body in the cell.
  */
 export function chestSiteRefusal (read, site, { home = null, composterSites = [], bodies = [] } = {}) {
   if (typeof read !== 'function' || !site) return 'no site'
@@ -184,10 +339,14 @@ export function chestSiteRefusal (read, site, { home = null, composterSites = []
     if (CHEST.test(b.name ?? '')) return `${b.name} beside it (they would join into a double chest)`
   }
   for (const c of composterSites ?? []) {
-    if (c && Math.hypot(x - c.x, y - c.y, z - c.z) < MIN_CONTAINER_DISTANCE) return `the composter site within ${MIN_CONTAINER_DISTANCE}`
+    if (!c) continue
+    if (Math.hypot(x - c.x, y - c.y, z - c.z) < MIN_CONTAINER_DISTANCE) return `the composter site within ${MIN_CONTAINER_DISTANCE}`
+    const stand = standableBeside(read, c)
+    const cell = stand ? tableCellFor({ site: c, stand, read }) : null
+    if (cell && cell.x === x && cell.y === y && cell.z === z) return 'the composter builder\'s crafting-table cell'
   }
-  // Every container whose standing cells this chest could take -- within 2 horizontally, one level either way (the new
-  // chest can be another container's feet cell or head cell) -- must keep one. A composter in range is refused outright.
+  // Every container or crafting table whose standing cells this chest could take -- within 2 horizontally, one level
+  // either way (the chest can be another block's feet cell or head cell).
   const withChest = (qx, qy, qz) => (qx === x && qy === y && qz === z ? { name: 'chest', boundingBox: 'block' } : read(qx, qy, qz))
   for (let dx = -2; dx <= 2; dx++) {
     for (let dz = -2; dz <= 2; dz++) {
@@ -196,8 +355,13 @@ export function chestSiteRefusal (read, site, { home = null, composterSites = []
         const b = read(x + dx, y + dy, z + dz)
         if (!b) return 'unknown'
         if (b.name === 'composter' && Math.hypot(dx, dy, dz) < MIN_CONTAINER_DISTANCE) return `a composter within ${MIN_CONTAINER_DISTANCE}`
-        if (Math.abs(dy) > 1 || !CLEARANCE_CONTAINER.test(b.name ?? '')) continue
+        if (Math.abs(dy) > 1) continue
         const c = { x: x + dx, y: y + dy, z: z + dz }
+        if (TABLE.test(b.name ?? '')) {
+          if (standingCells(read, c).length > standingCells(withChest, c).length) return `a standing cell of the ${b.name} at ${c.x},${c.y},${c.z}`
+          continue
+        }
+        if (!CLEARANCE_CONTAINER.test(b.name ?? '')) continue
         if (standingCells(read, c).length > 0 && standingCells(withChest, c).length === 0) {
           return `the only standing cell of the ${b.name} at ${c.x},${c.y},${c.z}`
         }
@@ -223,9 +387,8 @@ export function chestSiteColumns (anchor, rings = SITE_RINGS) {
 /**
  * THE NEW CHEST'S CELL -> { site, stand, why, refused }. Pure. The first column of chestSiteColumns whose surface cell
  * (the highest replaceable cell on a solid floor within 2 of the anchor's level) passes chestSiteRefusal. An unknown
- * column is skipped, not fatal: unlike the composter, a chest needs no town-wide agreement on its cell -- the claim
- * record (claimTownChest) is what keeps it to one. `refused` counts the reasons, for the row.
- * `skip` lists cells already tried this call (a placement that did not land).
+ * column is skipped, not fatal: a chest needs no town-wide agreement on its cell -- the claim ledger keeps the count.
+ * `skip` lists cells already refused this call.
  */
 export function pickChestSite ({ read, anchor, home = null, composterSites = [], bodies = [], rings = SITE_RINGS, skip = [] } = {}) {
   const refused = {}
@@ -248,28 +411,48 @@ export function pickChestSite ({ read, anchor, home = null, composterSites = [],
   return { site: null, stand: null, why: `no cell within ${rings} of the full chest can take one (${top || 'nothing readable'})`, refused }
 }
 
-// ---- the bank closes for a while ------------------------------------------------------------------------------------
+// ---- the bank pauses for a while ------------------------------------------------------------------------------------
 
-/** How long each refusal keeps this bot from being sent back to deposit. A rate refusal lasts only until the town may
- *  build again; an unknown (defer) is short -- the next visit may open the chest this one could not. */
+/** How long each refusal pauses this bot's deposits at most. A budget refusal lasts only until the budget allows. */
 export const CLOSE_MS = Object.freeze({
   refuse_cap: 30 * 60 * 1000, no_site: 30 * 60 * 1000, craft_failed: 30 * 60 * 1000,
-  place_failed: 10 * 60 * 1000, retry_failed: 10 * 60 * 1000, defer: 10 * 60 * 1000, far: 10 * 60 * 1000,
+  place_failed: 10 * 60 * 1000, retry_failed: 10 * 60 * 1000, defer: UNKNOWN_BACKOFF_MS,
 })
+/** An early reopen waits at least this long after the closure: the cooldown stays a retry throttle. */
+export const REOPEN_THROTTLE_MS = 2 * 60 * 1000
 export function closeMsFor (outcome, { until = null, now = Date.now() } = {}) {
   const base = CLOSE_MS[outcome] ?? 10 * 60 * 1000
   return Number.isFinite(until) && until > now ? Math.min(base, until - now) : base
 }
-/** Closed -> the reason; open -> ''. Per process: a restart reopens it, which costs one deposit attempt. */
+/** Records the closure: the reason, the kind (what reopens it early), and when. Per process: a restart reopens it. */
+export function closeBank (bot, why, ms, now = Date.now(), kind = 'other') {
+  if (bot) bot.bankClosed = { until: now + Math.max(0, Number(ms) || 0), why, kind, at: now }
+}
+// The town's "gained room" signal, read through a reader skills.mjs registers (it knows the pool dir and home).
+let roomReader = () => -Infinity
+export function setTownRoomReader (fn) { roomReader = typeof fn === 'function' ? fn : () => -Infinity }
+/**
+ * Closed -> the reason; open -> ''. REOPENED EARLY (Codex) once REOPEN_THROTTLE_MS has passed, when what closed it has
+ * changed: a closure for want of a chest ends when the bot carries one; any closure ends when a town container has
+ * taken items since (another bot found room, or a new chest went down).
+ */
 export function bankClosed (bot, now = Date.now()) {
   const c = bot?.bankClosed
-  return c && now < c.until ? String(c.why || 'the town chests are full') : ''
-}
-export function closeBank (bot, why, ms, now = Date.now()) {
-  if (bot) bot.bankClosed = { until: now + Math.max(0, Number(ms) || 0), why }
+  if (!c || now >= c.until) return ''
+  if (now - (c.at ?? now) >= REOPEN_THROTTLE_MS) {
+    let items = []
+    try { items = bot.inventory?.items?.() ?? [] } catch { items = [] }
+    if (c.kind === 'craft_failed' && carriedChest(items)) { bot.bankClosed = null; return '' }
+    let room = -Infinity
+    try { room = roomReader() } catch { room = -Infinity }
+    if (room > c.at) { bot.bankClosed = null; return '' }
+  }
+  return String(c.why || 'the town chests are full')
 }
 /** The admission refusal: the action first (the prompt keeps 220 characters of an outcome), doable from anywhere. */
-export const bankClosedDetail = why => `keep working and deposit later -- the town chests take nothing now (${why})`
+export const bankClosedDetail = why => `keep working and deposit later -- the town chests take nothing now (${String(why).slice(0, 100)})`
+/** Craft's room refusal while the bank is closed (Claude): no deposit is named, because none can be made. */
+export const closedRoomText = why => `keep working and craft later -- the town chests take nothing now (${String(why).slice(0, 60)}); nothing in the bag can be freed from where you stand`
 
 // ---- conservation ---------------------------------------------------------------------------------------------------
 
@@ -277,21 +460,28 @@ export const bankClosedDetail = why => `keep working and deposit later -- the to
 export const bagTotal = (items = []) => (Array.isArray(items) ? items : []).reduce((n, it) => n + (Number(it?.count) || 0), 0)
 
 /**
- * RETURN THE STACK THE CURSOR IS HOLDING BEFORE THE WINDOW CLOSES -> { returned, slot?, reason? }.
- * mineflayer's transfer lifts the source stack onto the cursor (inventory.js:301) and throws `destination full`
- * (:323) before putting it back; closing a window with a stack on the cursor drops it into the world. The stack goes to
- * an EMPTY slot of the player range (the one it was lifted from is empty now), chosen with firstEmptySlotRange.
- * mineflayer's own put-back net (inventory.js:665) reads bot.inventory.selectedItem while the cursor lives on the open
- * window, so it is inert here. Ported from bank-fix 4f6ba62.
+ * RETURN THE STACK THE CURSOR IS HOLDING BEFORE THE WINDOW CLOSES -> { returned, slot?, reason? }, VERIFIED.
+ * The stack goes where mineflayer's own putSelectedItemRange would put it: onto a compatible stack in the player range
+ * that is not full, else into an empty slot (the one it was lifted from is empty now); a merge that leaves a remainder
+ * goes round again. `returned` is true only when the window's cursor READS EMPTY afterwards (Codex: a click that
+ * resolves but changes nothing returned true before). Ported from bank-fix 4f6ba62.
  */
+export const RETURN_CLICKS = 4
 export async function returnCursor (bot, window) {
   try {
-    const held = window?.selectedItem ?? bot?.currentWindow?.selectedItem
-    if (!held) return { returned: false, reason: 'cursor empty' }
-    const dest = window.firstEmptySlotRange?.(window.inventoryStart, window.inventoryEnd)
-    if (dest == null) return { returned: false, reason: 'no empty slot to return it to' }
-    await bot.clickWindow(dest, 0, 0)
-    return { returned: true, slot: dest }
+    const w = window ?? bot?.currentWindow
+    if (!w?.selectedItem) return { returned: false, reason: 'cursor empty' }
+    let slot = null
+    for (let i = 0; i < RETURN_CLICKS && w.selectedItem; i++) {
+      const held = w.selectedItem
+      const partial = w.findItemRange?.(w.inventoryStart, w.inventoryEnd, held.type, held.metadata ?? null, true, held.nbt ?? null)
+      const dest = partial && partial.count < (partial.stackSize ?? 64) ? partial.slot : w.firstEmptySlotRange?.(w.inventoryStart, w.inventoryEnd)
+      if (dest == null) return { returned: false, reason: 'no slot in the bag to return it to' }
+      await bot.clickWindow(dest, 0, 0)
+      slot = dest
+    }
+    if (w.selectedItem) return { returned: false, reason: `the cursor still holds ${w.selectedItem.count ?? '?'}x ${w.selectedItem.name ?? '?'}` }
+    return { returned: true, slot }
   } catch (e) {
     return { returned: false, reason: String(e?.message ?? e).slice(0, 60) }
   }

@@ -16,8 +16,9 @@ t('a full cube on the lid blocks it; air, water, a slab, a torch and a stair do 
 })
 t('the deposit looks at the lid, releases sneak, and opens the chest under an 8-second budget with a named class', () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 9000)
-  const lid = f.indexOf('if (isChest && lid && chestLidBlocked(lid)) {'), open = f.indexOf('chest = await withTimeout(bot.openContainer(chestBlock), 8_000')
+  // (2026-10-03, chest-full) the open is clamped to the watchdog's remaining time, with 8 s still the ceiling.
+  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 14000)
+  const lid = f.indexOf('if (isChest && lid && chestLidBlocked(lid)) {'), open = f.indexOf('chest = await withTimeout(bot.openContainer(chestBlock), Math.max(1, msLeft(8_000))')
   assert.ok(lid > 0 && open > lid, 'the lid is checked before the open')
   assert.match(f.slice(lid, open), /setControlState\('sneak', false\)/, 'sneak is released before opening')
   assert.match(f.slice(open, open + 600), /failClass: 'container_open'/, 'a failed open is classified')

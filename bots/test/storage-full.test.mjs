@@ -23,6 +23,8 @@ import path from 'node:path'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-storagefull-logs-'))
 process.env.BOT_NAME = 'StorageBot'
+// The production watchdog (the recovery's clock is config.skills.defaultTimeoutMs; the runner sets 300 ms for tests).
+process.env.SKILL_TIMEOUT_MS = '180000'
 process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
 const freshPool = () => { process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-storagefull-pool-')) }
 freshPool()
