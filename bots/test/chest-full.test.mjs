@@ -9,20 +9,25 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const LOGS = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-chestfull-logs-'))
-process.env.LOG_DIR = LOGS
+process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-chestfull-logs-'))
 process.env.BOT_NAME = 'ChestBot'
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
 process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
+// THE PRODUCTION WATCHDOG, set here on purpose: the recovery's clock IS config.skills.defaultTimeoutMs, and the test
+// runner sets it to 300 ms for every file. These tests are about that clock, so they state it.
+process.env.SKILL_TIMEOUT_MS = '180000'
 const freshPool = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-chestfull-pool-')); process.env.POOL_STATE_DIR = d; return d }
 freshPool()
 
 const CF = await import('../src/chestfull.mjs')
-const { fullChestNext, chestSiteRefusal, chestCap, claimTownChest, chestClaimKey, readChestClaims, returnCursor, bankClosed, closeBank,
-        chestPartnerOffset, isChestPartner, pickChestSite, MAX_TOWN_CONTAINERS, TOWN_CHEST_INTERVAL_MS } = CF
-const { SKILLS, adviseDeposit } = await import('../src/skills.mjs')
+const { fullChestNext, chestSiteRefusal, chestBudget, claimNewChest, readClaims, reconcileClaims, writeClaimState, townKey,
+        containerStatus, recordOutcome, updateTownMemory, returnCursor, bankClosed, closeBank, setTownRoomReader,
+        chestPartnerOffset, isChestPartner, pickChestSite, timeLeft, NEW_CHEST_INTERVAL_MS, NEW_CHESTS_PER_DAY, MAX_RECOVERY_CHESTS,
+        DAY_MS, UNKNOWN_BACKOFF_MS, FULL_TTL_MS, REOPEN_THROTTLE_MS, RECONCILE_AFTER_MS } = CF
+const { SKILLS, adviseDeposit, slotRemedy } = await import('../src/skills.mjs')
 const { AdmissionControl } = await import('../src/admission.mjs')
 const { roomAdvice } = await import('../src/craftroom.mjs')
+const { tapRecords } = await import('../src/logger.mjs')
 const { fakeWorld, stack, total } = await import('./fakeworld.mjs')
 
 let pass = 0, fail = 0
@@ -30,64 +35,99 @@ const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 3).join('\n        ')}`) }
 }
 // Every record as the logger writes it (its file stream is asynchronous; the tap sees each record once written).
-const { tapRecords } = await import('../src/logger.mjs')
 const RECS = []
 tapRecords(r => RECS.push(r))
 const rows = kind => RECS.filter(r => r.skill?.name === `_${kind}`)
-const run = (bot, args = {}) => SKILLS.deposit.run({ bot }, args, new AbortController().signal)
+const lastRow = () => rows('deposit_new_chest').at(-1)?.skill?.detail ?? ''
+const run = (bot, args = {}, runner = undefined) => SKILLS.deposit.run({ bot, runner }, args, new AbortController().signal)
+const HOME = { x: 0, y: 64, z: 0 }
+const KEY = townKey(HOME)
+const town = (bag, at) => { freshPool(); const w = fakeWorld({ bag, at }); w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0); return w }
+const ledger = dir => readClaims(dir, KEY)
+/** A claim file written directly (a claim another bot made earlier). */
+const pastClaim = (dir, n, at, site = { x: 20 + n, y: 64, z: 20 }, state = null) => {
+  fs.writeFileSync(path.join(dir, `${KEY}.c${n}.json`), JSON.stringify({ ...site, world: null, at: new Date(at).toISOString() }))
+  if (state) writeClaimState(dir, KEY, n, state, at)
+}
 
 // ---------------------------------------------------------------- pure: what next ---
-await t('fullChestNext: a carried chest is PLACED; a chest is crafted only when none is carried', () => {
+await t('fullChestNext: unknown defers; the budget comes before ANY placement; a carried chest is placed, else crafted', () => {
   const ok = { ok: true }, no = { ok: false }
   const T = [
-    // nearHome, unknown, cap, carried -> next
-    [false, 0, ok, true, 'far'], [false, 0, ok, false, 'far'], [false, 3, ok, true, 'far'],
-    [true, 1, ok, true, 'defer'], [true, 1, ok, false, 'defer'], [true, 2, no, true, 'defer'],
+    [false, 0, ok, true, 'far'], [false, 3, ok, false, 'far'],
+    [true, 1, ok, true, 'defer'], [true, 2, no, true, 'defer'],
     [true, 0, no, true, 'refuse_cap'], [true, 0, no, false, 'refuse_cap'],
     [true, 0, ok, true, 'place_carried'], [true, 0, ok, false, 'craft'],
   ]
-  for (const [nearHome, unknown, cap, carried, want] of T) {
-    assert.equal(fullChestNext({ nearHome, unknown, cap, carried }), want, JSON.stringify({ nearHome, unknown, cap, carried }))
+  for (const [nearHome, unknown, budget, carried, want] of T) {
+    assert.equal(fullChestNext({ nearHome, unknown, budget, carried }), want, JSON.stringify({ nearHome, unknown, budget, carried }))
   }
-  assert.equal(fullChestNext({}), 'far', 'nothing known: nothing built')
 })
 
-await t('chestCap: the container limit, one chest per town per interval, another world\'s claim ignored, malformed fails closed', () => {
-  const now = 10_000_000
-  assert.equal(chestCap({ containers: 0, last: { gen: 0 }, now }).ok, true)
-  assert.equal(chestCap({ containers: MAX_TOWN_CONTAINERS - 1, last: { gen: 0 }, now }).ok, true)
-  assert.equal(chestCap({ containers: MAX_TOWN_CONTAINERS, last: { gen: 0 }, now }).ok, false)
-  const recent = { gen: 3, at: now - 60_000, world: 'w1' }
-  assert.equal(chestCap({ containers: 1, last: recent, now, world: 'w1' }).ok, false, 'a claim a minute ago')
-  assert.equal(chestCap({ containers: 1, last: recent, now, world: 'w1' }).until, recent.at + TOWN_CHEST_INTERVAL_MS)
-  assert.equal(chestCap({ containers: 1, last: { ...recent, at: now - TOWN_CHEST_INTERVAL_MS }, now, world: 'w1' }).ok, true, 'the interval has passed')
-  assert.equal(chestCap({ containers: 1, last: recent, now, world: 'w2' }).ok, true, 'a claim from another world (a reseed) does not count')
-  assert.equal(chestCap({ containers: 1, last: { gen: 2, malformed: true }, now }).ok, false, 'an unreadable record fails closed')
+// ---------------------------------------------------------------- the budget on NEW chests ---
+await t('chestBudget: 10 min apart, 4 per rolling 24 h, 12 standing; not_placed/gone stop standing; another world ignored; malformed fails closed', () => {
+  const now = 100 * DAY_MS
+  const c = (at, state = 'placed', world = null) => ({ n: 1, at, state, world })
+  assert.equal(chestBudget({ claims: [], now }).ok, true, 'a town with no new chests may make one -- whatever already stands')
+  assert.equal(chestBudget({ claims: [c(now - 60_000)], now }).ok, false, 'one a minute ago')
+  assert.equal(chestBudget({ claims: [c(now - NEW_CHEST_INTERVAL_MS)], now }).ok, true, 'the interval has passed')
+  const four = [1, 2, 3, 4].map(h => c(now - h * 3600_000))
+  const b4 = chestBudget({ claims: four, now })
+  assert.equal(b4.ok, false); assert.match(b4.why, /used its new-chest budget \(4 in 24 h\)/)
+  assert.equal(b4.until, now - 4 * 3600_000 + DAY_MS, 'the next comes when the oldest of the four leaves the window')
+  assert.equal(chestBudget({ claims: [1, 2, 3, 4].map(h => c(now - DAY_MS - h * 3600_000)), now }).ok, true, 'four, but more than a day ago')
+  const twelve = Array.from({ length: MAX_RECOVERY_CHESTS }, (_, i) => c(now - DAY_MS - i * 3600_000))
+  assert.match(String(chestBudget({ claims: twelve, now }).why), /12 chests made for overflow standing/)
+  assert.equal(chestBudget({ claims: twelve.map(x => ({ ...x, state: 'gone' })), now }).ok, true, 'gone chests do not stand')
+  assert.equal(chestBudget({ claims: twelve.map(x => ({ ...x, state: 'not_placed' })), now }).ok, true)
+  assert.equal(chestBudget({ claims: twelve.map(x => ({ ...x, state: 'unresolved' })), now }).ok, false, 'UNRESOLVED counts until reconciled')
+  assert.equal(chestBudget({ claims: [c(now - 60_000, 'placed', 'w1')], now, world: 'w2' }).ok, true, 'a claim from another world')
+  assert.equal(chestBudget({ claims: [{ n: 1, at: now, state: 'unresolved', malformed: true }], now }).ok, false, 'malformed: counted, as made now')
+  assert.equal(NEW_CHESTS_PER_DAY, 4)
 })
 
-await t('claimTownChest: write-once -- the second claim in an interval loses; an unwritable directory fails closed', () => {
-  const dir = freshPool(), key = chestClaimKey({ x: 0, y: 64, z: 0 }), site = { x: 3, y: 64, z: 3 }
-  const now = Date.now()
-  const a = claimTownChest({ dir, key, site, containers: 2, now })
-  assert.equal(a.ok, true, a.why)
-  assert.equal(readChestClaims(dir, key).gen, 1)
-  const b = claimTownChest({ dir, key, site, containers: 2, now: now + 1000 })
-  assert.equal(b.ok, false, 'one chest per town per interval')
+await t('claimNewChest: write-once; the ledger keeps every claim (no pruning); unwritable fails closed', () => {
+  const dir = freshPool()
+  for (let n = 1; n <= 5; n++) pastClaim(dir, n, Date.now() - 2 * DAY_MS - n * 1000, undefined, 'gone')
+  const a = claimNewChest({ dir, key: KEY, site: { x: 3, y: 64, z: 3 } })
+  assert.equal(a.ok, true, a.why); assert.equal(a.n, 6)
+  assert.equal(ledger(dir).length, 6, 'all six claims are still there (composter generations keep three)')
+  assert.equal(claimNewChest({ dir, key: KEY, site: { x: 3, y: 64, z: 3 } }).ok, false, 'one per interval')
   const blocked = path.join(dir, 'a-file'); fs.writeFileSync(blocked, 'x')
-  const c = claimTownChest({ dir: path.join(blocked, 'sub'), key, site, containers: 2, now })
-  assert.equal(c.ok, false, 'nothing written, no chest')
-  assert.match(c.why, /could not be written/)
+  const c = claimNewChest({ dir: path.join(blocked, 'sub'), key: KEY, site: { x: 3, y: 64, z: 3 } })
+  assert.equal(c.ok, false); assert.match(c.why, /could not be written/)
 })
 
-await t('chestPartnerOffset / isChestPartner: vanilla getConnectedDirection (LEFT clockwise of facing)', () => {
-  assert.deepEqual(chestPartnerOffset({ facing: 'north', type: 'left' }), { x: 1, z: 0 })
-  assert.deepEqual(chestPartnerOffset({ facing: 'north', type: 'right' }), { x: -1, z: 0 })
-  assert.deepEqual(chestPartnerOffset({ facing: 'east', type: 'left' }), { x: 0, z: 1 })
-  assert.equal(chestPartnerOffset({ facing: 'north', type: 'single' }), null)
-  const L = { name: 'chest', props: { facing: 'north', type: 'left' } }, R = { name: 'chest', props: { facing: 'north', type: 'right' } }
-  assert.equal(isChestPartner(L, R), true)
-  assert.equal(isChestPartner(L, { ...R, props: { facing: 'south', type: 'right' } }), false, 'another facing is another chest')
-  assert.equal(isChestPartner(L, { ...R, name: 'trapped_chest' }), false)
+await t('reconcileClaims: a chest at the cell is placed; a placed one that is gone is gone; an old unresolved miss is not_placed; unloaded is left', () => {
+  const dir = freshPool(), now = Date.now()
+  pastClaim(dir, 1, now - 5 * 60_000, { x: 1, y: 64, z: 1 })                  // unresolved, chest there
+  pastClaim(dir, 2, now - 5 * 60_000, { x: 2, y: 64, z: 2 }, 'placed')        // placed, gone now
+  pastClaim(dir, 3, now - 5 * 60_000, { x: 3, y: 64, z: 3 })                  // unresolved, nothing there, old
+  pastClaim(dir, 4, now - 30_000, { x: 4, y: 64, z: 4 })                      // unresolved, nothing there, recent
+  pastClaim(dir, 5, now - 5 * 60_000, { x: 5, y: 64, z: 5 })                  // unloaded
+  const read = (x) => (x === 1 ? 'chest' : x === 5 ? null : 'air')
+  const claims = ledger(dir)
+  reconcileClaims({ dir, key: KEY, claims, read, now })
+  const st = Object.fromEntries(ledger(dir).map(c => [c.n, c.state]))
+  assert.deepEqual(st, { 1: 'placed', 2: 'gone', 3: 'not_placed', 4: 'unresolved', 5: 'unresolved' })
+  assert.ok(RECONCILE_AFTER_MS > 30_000)
+})
+
+// ---------------------------------------------------------------- the town's container memory ---
+await t('containerStatus: full and unavailable are known for a while; one unknown is a backoff; two >= 10 min apart are unusable', () => {
+  const now = 10 * DAY_MS
+  assert.equal(containerStatus(undefined, now), 'visit')
+  assert.equal(containerStatus({ o: 'full', at: now - 60_000 }, now), 'full')
+  assert.equal(containerStatus({ o: 'full', at: now - FULL_TTL_MS }, now), 'visit')
+  assert.equal(containerStatus({ o: 'unavailable', at: now - 60_000 }, now), 'unavailable')
+  const one = recordOutcome(undefined, 'unknown', now - 60_000)
+  assert.equal(containerStatus(one, now), 'backoff')
+  assert.equal(containerStatus(one, now + UNKNOWN_BACKOFF_MS), 'visit', 'the backoff ends: visit it again')
+  const two = recordOutcome(recordOutcome(undefined, 'unknown', now - UNKNOWN_BACKOFF_MS - 1), 'unknown', now)
+  assert.equal(containerStatus(two, now), 'unusable')
+  const close = recordOutcome(recordOutcome(undefined, 'unknown', now - 60_000), 'unknown', now)
+  assert.equal(containerStatus(close, now), 'backoff', 'two strikes a minute apart are still only a backoff')
+  assert.deepEqual(recordOutcome(two, 'full', now).strikes, [], 'a container that opened clears its strikes')
 })
 
 // ---------------------------------------------------------------- pure: where ---
@@ -97,7 +137,6 @@ const flat = (extra = {}) => (x, y, z) => {
   return y <= 63 ? { name: 'grass_block', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' }
 }
 const C = { name: 'chest', boundingBox: 'block' }, STONE = { name: 'stone', boundingBox: 'block' }
-const home = { x: 0, y: 64, z: 0 }
 
 await t('chestSiteRefusal: truth table', () => {
   const read = flat({ '5,64,0': C })
@@ -105,187 +144,283 @@ await t('chestSiteRefusal: truth table', () => {
     [{ x: 5, y: 64, z: 2 }, {}, null, 'open ground two from the chest'],
     [{ x: 6, y: 64, z: 0 }, {}, /beside it/, 'beside a chest: it would merge into a double chest'],
     [{ x: 1, y: 64, z: 1 }, {}, /home point/, 'on the home point'],
-    [{ x: 30, y: 64, z: 0 }, {}, /from home/, 'outside STORAGE_NEAR: the cap could not count it'],
+    [{ x: 30, y: 64, z: 0 }, {}, /from home/, 'outside STORAGE_NEAR'],
     [{ x: 8, y: 64, z: 3 }, { composterSites: [{ x: 9, y: 64, z: 4 }] }, /composter site/, 'within 3 of the composter site'],
     [{ x: 8, y: 64, z: 3 }, { bodies: [{ x: 8.5, y: 64, z: 3.5 }] }, /standing in it/, 'a body in the cell'],
   ]
   for (const [site, opts, want, why] of cases) {
-    const r = chestSiteRefusal(read, site, { home, ...opts })
+    const r = chestSiteRefusal(read, site, { home: HOME, ...opts })
     if (want === null) assert.equal(r, null, `${why}: ${r}`)
     else assert.match(String(r), want, `${why}: ${r}`)
   }
-  // NEVER ON A LID: the floor is a chest.
-  assert.match(String(chestSiteRefusal(flat({ '5,63,0': C }), { x: 5, y: 64, z: 0 }, { home })), /floor is chest/)
-  // THE LID MUST STAY FREE: a solid block above the cell.
-  assert.match(String(chestSiteRefusal(flat({ '5,65,2': STONE }), { x: 5, y: 64, z: 2 }, { home })), /lid blocked/)
-  // A COMPOSTER BLOCK within 3, not only the recorded site.
-  assert.match(String(chestSiteRefusal(flat({ '6,64,4': { name: 'composter', boundingBox: 'block' } }), { x: 5, y: 64, z: 2 }, { home })), /composter within 3/)
-  // UNKNOWN is never a yes.
-  assert.equal(chestSiteRefusal((x, y, z) => (x === 5 && z === 3 ? null : flat()(x, y, z)), { x: 5, y: 64, z: 2 }, { home }), 'unknown')
+  assert.match(String(chestSiteRefusal(flat({ '5,63,0': C }), { x: 5, y: 64, z: 0 }, { home: HOME })), /floor is chest/, 'never on a lid')
+  assert.match(String(chestSiteRefusal(flat({ '5,65,2': STONE }), { x: 5, y: 64, z: 2 }, { home: HOME })), /lid blocked/)
+  assert.match(String(chestSiteRefusal(flat({ '6,64,4': { name: 'composter', boundingBox: 'block' } }), { x: 5, y: 64, z: 2 }, { home: HOME })), /composter within 3/)
+  assert.equal(chestSiteRefusal((x, y, z) => (x === 5 && z === 3 ? null : flat()(x, y, z)), { x: 5, y: 64, z: 2 }, { home: HOME }), 'unknown')
 })
 
-await t('chestSiteRefusal: never the ONLY standing cell of an existing container (a barrel walled in on three sides)', () => {
-  // barrel at 5,64,0 with stone on +x, -x and -z: its only standing cell is 5,64,1.
+await t('chestSiteRefusal: never the ONLY standing cell of a container; never ANY standing cell of a crafting table (diagonal is fine)', () => {
   const read = flat({ '5,64,0': { name: 'barrel', boundingBox: 'block' }, '6,64,0': STONE, '4,64,0': STONE, '5,64,-1': STONE })
-  assert.match(String(chestSiteRefusal(read, { x: 5, y: 64, z: 1 }, { home })), /only standing cell of the barrel/)
-  // Control: with a second open side the same cell is allowed (as far as this rule goes).
+  assert.match(String(chestSiteRefusal(read, { x: 5, y: 64, z: 1 }, { home: HOME })), /only standing cell of the barrel/)
   const read2 = flat({ '5,64,0': { name: 'barrel', boundingBox: 'block' }, '6,64,0': STONE, '5,64,-1': STONE })
-  assert.doesNotMatch(String(chestSiteRefusal(read2, { x: 5, y: 64, z: 1 }, { home })), /only standing cell/)
+  assert.doesNotMatch(String(chestSiteRefusal(read2, { x: 5, y: 64, z: 1 }, { home: HOME })), /only standing cell/, 'control: a second side open')
+  const table = flat({ '8,64,5': { name: 'crafting_table', boundingBox: 'block' } })
+  assert.match(String(chestSiteRefusal(table, { x: 8, y: 64, z: 6 }, { home: HOME })), /standing cell of the crafting_table/)
+  assert.equal(chestSiteRefusal(table, { x: 9, y: 64, z: 6 }, { home: HOME }), null, 'diagonal to the table: its access is untouched')
 })
 
-await t('chestSiteRefusal reuses the composter checks but NOT its container clearance (a chest may stand two from a chest)', () => {
+await t('chestSiteRefusal: the composter builder\'s crafting-table cell is reserved', async () => {
+  const { tableCellFor, standableBeside } = await import('../src/composter.mjs')
+  const site = { x: 10, y: 64, z: 10 }, read = flat()
+  const cell = tableCellFor({ site, stand: standableBeside(read, site), read })
+  assert.ok(cell && Math.hypot(cell.x - site.x, cell.z - site.z) >= 2)
+  const r = chestSiteRefusal(read, cell, { home: HOME, composterSites: [site] })
+  assert.ok(r, `the reserved table cell must be refused (it is ${Math.hypot(cell.x - site.x, cell.z - site.z).toFixed(2)} from the site)`)
+})
+
+await t('chestSiteRefusal reuses the composter checks but NOT its container clearance', async () => {
   const read = flat({ '5,64,0': C, '3,64,0': C })
-  assert.equal(chestSiteRefusal(read, { x: 4, y: 64, z: 2 }, { home }), null)
-  // and the composter's own rule still refuses that cell, which is the point of the mask
-  return import('../src/composter.mjs').then(({ siteRefusal }) => assert.match(String(siteRefusal(read, { x: 4, y: 64, z: 2 }, home)), /chest within 3/))
+  assert.equal(chestSiteRefusal(read, { x: 4, y: 64, z: 2 }, { home: HOME }), null)
+  const { siteRefusal } = await import('../src/composter.mjs')
+  assert.match(String(siteRefusal(read, { x: 4, y: 64, z: 2 }, HOME)), /chest within 3/, 'control: the composter rule does refuse it')
+})
+
+await t('chestPartnerOffset / isChestPartner: vanilla getConnectedDirection (LEFT clockwise of facing)', () => {
+  assert.deepEqual(chestPartnerOffset({ facing: 'north', type: 'left' }), { x: 1, z: 0 })
+  assert.deepEqual(chestPartnerOffset({ facing: 'north', type: 'right' }), { x: -1, z: 0 })
+  assert.equal(chestPartnerOffset({ facing: 'north', type: 'single' }), null)
+  const L = { name: 'chest', props: { facing: 'north', type: 'left' } }, R = { name: 'chest', props: { facing: 'north', type: 'right' } }
+  assert.equal(isChestPartner(L, R), true)
+  assert.equal(isChestPartner(L, { ...R, props: { facing: 'south', type: 'right' } }), false)
 })
 
 await t('pickChestSite: rings around the full chest; the first acceptable cell, with where to stand', () => {
-  const r = pickChestSite({ read: flat({ '5,64,0': C }), anchor: { x: 5, y: 64, z: 0 }, home })
-  assert.ok(r.site, r.why)
-  assert.ok(Math.max(Math.abs(r.site.x - 5), Math.abs(r.site.z)) <= 4)
-  assert.equal(chestSiteRefusal(flat({ '5,64,0': C }), r.site, { home }), null)
-  assert.ok(r.stand)
-  const none = pickChestSite({ read: () => STONE, anchor: { x: 5, y: 64, z: 0 }, home })
-  assert.equal(none.site, null)
+  const r = pickChestSite({ read: flat({ '5,64,0': C }), anchor: { x: 5, y: 64, z: 0 }, home: HOME })
+  assert.ok(r.site && r.stand, r.why)
+  assert.equal(pickChestSite({ read: () => STONE, anchor: { x: 5, y: 64, z: 0 }, home: HOME }).site, null)
+})
+
+await t('timeLeft: the watchdog\'s clock', () => {
+  assert.equal(timeLeft({ startedAt: 0, timeoutMs: 180_000, now: 150_000 }), 30_000)
+  assert.equal(timeLeft({ startedAt: 0, timeoutMs: 180_000, now: 200_000 }), 0)
 })
 
 // ---------------------------------------------------------------- returnCursor ---
-await t('returnCursor puts a lifted stack back in the bag; nothing is dropped on close', async () => {
-  const w = fakeWorld({ bag: [stack('cobblestone', 64)] })
-  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0)
-  const win = await w.bot.openContainer(w.bot.blockAt({ x: 5, y: 64, z: 0 }))
-  await assert.rejects(win.deposit(w.bag[0].type, null, 64), /destination full/)
-  assert.ok(win.selectedItem, 'the fake behaves as mineflayer does: the stack is on the cursor')
-  const r = await returnCursor(w.bot, win)
-  assert.equal(r.returned, true)
-  win.close()
-  assert.equal(w.dropped.length, 0)
-  assert.equal(total(w.bag), 64)
-  // Control: without the rescue the close drops it -- the instrument can see a drop.
-  const w2 = fakeWorld({ bag: [stack('cobblestone', 64)] })
-  w2.set(5, 64, 0, 'chest'); w2.fill(5, 64, 0)
-  const win2 = await w2.bot.openContainer(w2.bot.blockAt({ x: 5, y: 64, z: 0 }))
-  await assert.rejects(win2.deposit(w2.bag[0].type, null, 64))
-  win2.close()
-  assert.equal(w2.dropped.length, 1, 'positive control: the fake drops a cursor stack on close')
+const cursorWindow = ({ effective = true, partial = null } = {}) => {
+  const bag = []
+  const w = { inventoryStart: 27, inventoryEnd: 63, selectedItem: { name: 'cobblestone', type: 8, count: 40 },
+              findItemRange: () => partial, firstEmptySlotRange: () => 27 + bag.length }
+  const bot = {
+    clicks: [],
+    async clickWindow (slot) {
+      bot.clicks.push(slot)
+      if (!effective) return
+      if (partial && slot === partial.slot) {
+        const mv = Math.min(64 - partial.count, w.selectedItem.count); partial.count += mv; w.selectedItem.count -= mv
+        if (!w.selectedItem.count) w.selectedItem = null
+      } else { bag.push(w.selectedItem); w.selectedItem = null }
+    },
+  }
+  return { w, bot, bag }
+}
+await t('returnCursor: VERIFIED -- returned only when the cursor reads empty; a compatible partial stack is filled first', async () => {
+  const a = cursorWindow()
+  assert.deepEqual(await returnCursor(a.bot, a.w), { returned: true, slot: 27 })
+  const b = cursorWindow({ effective: false })
+  const rb = await returnCursor(b.bot, b.w)
+  assert.equal(rb.returned, false, 'a click that resolved and changed nothing is NOT a return')
+  assert.match(rb.reason, /still holds 40x cobblestone/)
+  const c = cursorWindow({ partial: { slot: 40, count: 50, stackSize: 64 } })
+  const rc = await returnCursor(c.bot, c.w)
+  assert.equal(rc.returned, true, JSON.stringify(rc))
+  assert.deepEqual(c.bot.clicks, [40, 27], 'the partial stack first (14 fit), then an empty slot for the other 26')
+})
+
+await t('a stack that cannot be put back is a TRANSFER FAILURE, not a full chest: nothing else is tried, nothing placed', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.bot.clickWindow = async () => {}   // resolves, changes nothing
+  const r = await run(w.bot)
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.equal(w.spy.placed.length, 0)
+  assert.equal(bankClosed(w.bot), '', 'no bank closure: this is not capacity')
 })
 
 // ---------------------------------------------------------------- THE CHAIN ---
 await t('THE CHAIN: room advice names deposit -> admitted -> full chest throws -> cursor returned -> no other container has room -> the CARRIED chest is placed -> the retry banks; craft never called, items conserved', async () => {
-  freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('oak_log', 30), stack('chest', 1), stack('apple', 5)] })
-  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0)
+  const w = town([stack('cobblestone', 64), stack('oak_log', 30), stack('chest', 1), stack('apple', 5)])
   const items = w.bot.inventory.items()
-  // 1. craft's room refusal: the deposit it names
   const item = adviseDeposit(w.bot, items, [{ name: 'stick' }])
   const advice = roomAdvice({ items, consumes: [{ name: 'stick' }], depositItem: item })
   assert.equal(advice.kind, 'deposit', advice.text)
-  // 2. admitted (near the chest, the bank open)
   const adm = new AdmissionControl().check({ skill: 'deposit', args: { item } }, w.bot)
   assert.equal(adm.ok, true, JSON.stringify(adm))
-  // 3. the deposit, driven through the real skill
-  const before = total(w.bag), chestsBefore = w.bag.find(i => i.name === 'chest').count
+  const before = total(w.bag)
   const r = await run(w.bot, { item })
   assert.equal(r.status, 'success', r.detail)
   assert.equal(w.spy.recipesFor + w.spy.craft, 0, 'craft was never called: the carried chest was placed')
-  assert.equal(w.spy.placed.length, 1, 'exactly one chest went down')
-  assert.equal(w.nameAt(...w.spy.placed[0].split(',').map(Number)), 'chest')
-  assert.equal(w.dropped.length, 0, 'nothing dropped at the full chest')
-  assert.equal(w.bag.find(i => i.name === 'chest')?.count ?? 0, chestsBefore - 1, 'the carried chest is the one placed')
-  const newChest = w.containers.get(w.spy.placed[0])
-  const banked = newChest.slots.filter(Boolean).reduce((n, s) => n + s.count, 0)
+  assert.equal(w.spy.placed.length, 1)
+  assert.equal(w.dropped.length, 0, 'nothing left on the cursor at the full chest')
+  assert.equal(w.bag.find(i => i.name === 'chest')?.count ?? 0, 0, 'the carried chest is the one placed')
+  const banked = w.containers.get(w.spy.placed[0]).slots.filter(Boolean).reduce((n, s) => n + s.count, 0)
   assert.ok(banked > 0, 'the retry banked into the NEW chest')
   assert.equal(total(w.bag), before - banked - 1, 'conservation: the bag fell by what was banked plus the chest placed')
-  // 4. the row a read can count
-  const row = rows('deposit_new_chest').at(-1)
-  assert.ok(row, 'a deposit_new_chest row')
-  assert.match(row.skill.detail, /^decision=place_carried /)
-  assert.match(row.skill.detail, /source=carried/)
-  assert.match(row.skill.detail, new RegExp(`bag=${before}->${before - banked - 1}`))
-  assert.match(row.skill.detail, /tried=\[5,64,0:full\]/)
-  assert.equal(rows('deposit_cursor_rescue').filter(x => x.skill.status === 'success').length > 0, true, 'the cursor rescue ran on the full chest')
+  const d = lastRow()
+  assert.match(d, /^decision=place_carried /); assert.match(d, /source=carried/); assert.match(d, /claim=1/)
+  assert.match(d, new RegExp(`bag=${before}->${before - banked - 1}`))
+  assert.equal(ledger(process.env.POOL_STATE_DIR)[0].state, 'placed')
+  assert.ok(rows('deposit_cursor_rescue').some(x => x.skill.status === 'success'))
 })
 
-await t('another container in town WITH ROOM is used before anything is placed', async () => {
-  freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)] })
-  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0)
-  w.set(-5, 64, 0, 'barrel')
+await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not count; the second, inside 10 min, is refused plainly', async () => {
+  const w = town([stack('cobblestone', 64), stack('oak_log', 64), stack('chest', 2)])
+  for (let i = 0; i < 15; i++) { const x = -9 + (i % 5) * 3, z = i < 5 ? 8 : i < 10 ? -8 : -12; w.set(x, 64, z, 'chest'); w.fill(x, 64, z) }
+  const r1 = await run(w.bot)
+  assert.equal(r1.status, 'success', r1.detail)
+  assert.equal(w.spy.placed.length, 1, 'one new chest in a town of 16')
+  assert.match(lastRow(), /containers=16 /)
+  // The new chest is filled by someone else; the bot comes back with more.
+  w.fill(...w.spy.placed[0].split(',').map(Number))
+  w.bag.push(stack('cobblestone', 64))
+  w.bot.bankClosed = null
+  const r2 = await run(w.bot)
+  assert.equal(r2.failClass, 'storage_full')
+  assert.match(r2.detail, /^keep working; the town is at its chest limit -- the chests are full and the town made a new chest/)
+  assert.equal(w.spy.placed.length, 1, 'still one: 10 min between new chests')
+  assert.equal(w.bag.find(i => i.name === 'chest').count, 1, 'the second chest stays in the bag')
+})
+
+await t('the day\'s budget: four new chests in 24 h and no fifth, said plainly', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  for (let n = 1; n <= 4; n++) pastClaim(process.env.POOL_STATE_DIR, n, Date.now() - n * 3600_000)
+  const r = await run(w.bot)
+  assert.match(r.detail, /used its new-chest budget \(4 in 24 h\)/)
+  assert.equal(w.spy.placed.length, 0)
+})
+
+await t('another container in town WITH ROOM is used before anything is placed; a container found full is not re-opened for 30 min', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'barrel'); w.set(-5, 64, 5, 'chest'); w.fill(-5, 64, 5)
+  updateTownMemory(process.env.POOL_STATE_DIR, KEY, null, e => { e['-5,64,5'] = recordOutcome(undefined, 'full', Date.now() - 60_000) })
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
-  assert.equal(w.spy.placed.length, 0, 'no new chest while a town container has room')
-  assert.ok(w.containers.get('-5,64,0').slots.some(Boolean))
+  assert.equal(w.spy.placed.length, 0)
+  assert.ok(!w.spy.opened.includes('-5,64,5'), 'the chest the town found full a minute ago was not opened')
 })
 
-await t('UNKNOWN capacity defers: a town container that will not open means nothing is built, and the bank closes', async () => {
-  freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)] })
-  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0)
+await t('UNKNOWN: an open failure defers ONCE (nothing built, bank paused); the same failure 10+ min later makes it unusable and the town expands', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const open = w.bot.openContainer
   w.bot.openContainer = async b => { if (b.position.x === -5) throw new Error('windowOpen did not fire'); return open(b) }
   const r = await run(w.bot)
-  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'storage_full')
-  assert.match(r.detail, /^keep working/)
+  assert.equal(r.failClass, 'storage_full'); assert.match(r.detail, /^keep working/)
   assert.equal(w.spy.placed.length, 0)
-  assert.ok(bankClosed(w.bot), 'closed after the refusal')
-  assert.match(rows('deposit_new_chest').at(-1).skill.detail, /^decision=defer .*unknown=1/)
-})
-
-await t('THE CAP: a town at its container limit gets no new chest; the bank closes with a refusal the bot can act on from anywhere', async () => {
-  freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('oak_log', 30), stack('chest', 1)] })
-  // Positive control for the advice check below: with the bank open, the room advice names a deposit.
-  assert.equal(adviseDeposit(w.bot, w.bot.inventory.items(), []), 'oak_log')
-  for (let i = 0; i < MAX_TOWN_CONTAINERS; i++) { const x = -6 + (i % 6) * 2, z = i < 6 ? 6 : -6; w.set(x, 64, z, 'chest'); w.fill(x, 64, z) }
-  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0)
-  const r = await run(w.bot)
-  assert.equal(r.failClass, 'storage_full')
-  assert.match(r.detail, /^keep working; the town is at its chest limit/)
-  assert.equal(w.spy.placed.length, 0)
-  assert.equal(w.bag.find(i => i.name === 'chest').count, 1, 'the chest stays in the bag')
-  const adm = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
-  assert.equal(adm.ok, false); assert.equal(adm.reason, 'bank_closed')
-  assert.match(adm.detail, /^keep working/)
-  assert.equal(adviseDeposit(w.bot, w.bot.inventory.items(), []), null, 'craft\'s room advice stops naming a deposit while the bank is closed')
-})
-
-await t('THE CAP, by time: a second full-chest recovery in the same town inside the interval places nothing', async () => {
-  const dir = freshPool()
-  const key = chestClaimKey({ x: 0, y: 64, z: 0 })
-  assert.equal(claimTownChest({ dir, key, site: { x: 9, y: 64, z: 9 }, containers: 1 }).ok, true)
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)] })
-  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0)
-  const r = await run(w.bot)
-  assert.match(r.detail, /made \d+s ago/)
-  assert.equal(w.spy.placed.length, 0)
-})
-
-await t('NO CHEST CARRIED and none can be crafted: storage_full, nothing placed, the bank closes -- and the craft\'s own advice is not quoted', async () => {
-  freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64)] })
-  w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0)
-  const r = await run(w.bot)
-  assert.equal(r.failClass, 'storage_full')
-  assert.ok(w.spy.recipesFor > 0, 'the craft was tried: no chest was carried')
-  assert.equal(w.spy.placed.length, 0)
-  assert.doesNotMatch(r.detail, /walks home to the town chest/, `no circular "deposit X" remedy inside a deposit refusal: ${r.detail}`)
   assert.ok(bankClosed(w.bot))
+  assert.match(lastRow(), /^decision=defer .*unknown=1/)
+  // Ten minutes later (its strike moved back in the town's memory), the barrel fails again.
+  updateTownMemory(process.env.POOL_STATE_DIR, KEY, null, e => { e['-5,64,0'] = recordOutcome(undefined, 'unknown', Date.now() - UNKNOWN_BACKOFF_MS - 1000) })
+  w.bot.bankClosed = null
+  const r2 = await run(w.bot)
+  assert.equal(r2.status, 'success', r2.detail)
+  assert.equal(w.spy.placed.length, 1, 'two unknowns >= 10 min apart: unusable, no longer waited for')
+  assert.match(lastRow(), /-5,64,0:unusable/)
 })
 
-await t('FAR FROM HOME: never a new chest in a mine', async () => {
+await t('a VERIFIED BLOCKED LID is unavailable, not unknown: the sweep goes on and the town may expand -- also when it is the FIRST chest', async () => {
+  // first chest: stone on its lid, water beside the lid (unsafe to break)
+  freshPool()
+  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)] })
+  w.set(5, 64, 0, 'chest'); w.set(5, 65, 0, 'stone'); w.set(6, 65, 0, 'water')
+  w.set(-5, 64, 0, 'chest'); w.fill(-5, 64, 0)
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1)
+  assert.match(lastRow(), /5,64,0:unavailable/)
+  assert.match(lastRow(), /unknown=0/)
+})
+
+await t('a blocked lid found IN THE SWEEP is unavailable too: the town expands past it', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'chest'); w.set(-5, 65, 0, 'stone'); w.set(-4, 65, 0, 'water')
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1)
+  assert.match(lastRow(), /-5,64,0:unavailable/)
+})
+
+await t('a scan that throws DEFERS -- it is never "no containers"', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.bot.findBlocks = () => { throw new Error('chunk not loaded') }
+  const r = await run(w.bot)
+  assert.match(r.detail, /could not be listed/)
+  assert.equal(w.spy.placed.length, 0)
+  assert.match(lastRow(), /^decision=defer .*scan=failed/)
+})
+
+await t('THE WATCHDOG\'S CLOCK (180 s, not the 240 s contract): 150 s in, an untried container is not reached and nothing is built', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'barrel')
+  const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 150_000 } })
+  assert.equal(r.failClass, 'storage_full', r.detail)
+  assert.match(lastRow(), /-5,64,0:unknown:time/)
+  assert.equal(w.spy.placed.length, 0)
+})
+
+await t('ONE SUBMISSION PER CLAIM: a placement that never lands is tried once and stays UNRESOLVED in the ledger (no refund)', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 2)])
+  let calls = 0
+  w.bot.placeBlock = async () => { calls++; throw new Error('Event blockUpdate did not fire') }
+  const r = await run(w.bot)
+  assert.equal(calls, 1)
+  assert.match(r.detail, /could not be put down/)
+  const l = ledger(process.env.POOL_STATE_DIR)
+  assert.equal(l.length, 1); assert.equal(l[0].state, 'unresolved')
+})
+
+await t('FAR FROM HOME: never a new chest, town storage is NOT closed, and the far chest is skipped next time', async () => {
   freshPool()
   const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)], at: [101.5, 64, 0.5] })
   w.set(100, 64, 0, 'chest'); w.fill(100, 64, 0)
   const r = await run(w.bot)
   assert.equal(r.failClass, 'storage_full')
+  assert.match(r.detail, /^deposit at the town chest/)
   assert.equal(w.spy.placed.length, 0)
-  assert.match(rows('deposit_new_chest').at(-1).skill.detail, /^decision=far /)
+  assert.equal(bankClosed(w.bot), '', 'a far full chest does not close town storage')
+  assert.ok(w.bot.skipContainers.get('100,64,0') > Date.now())
+})
+
+await t('THE CAP\'S REFUSAL pauses deposits; admission says to keep working; craft\'s room advice names NO deposit while closed', async () => {
+  const w = town([stack('cobblestone', 64), stack('oak_log', 30), stack('chest', 1)])
+  assert.equal(adviseDeposit(w.bot, w.bot.inventory.items(), []), 'oak_log', 'control: with the bank open the advice names a deposit')
+  pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - 60_000)
+  await run(w.bot)
+  const adm = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
+  assert.equal(adm.ok, false); assert.equal(adm.reason, 'bank_closed'); assert.match(adm.detail, /^keep working/)
+  const { remedy, kind } = slotRemedy(w.bot, w.bot.inventory.items(), [{ name: 'stick' }])
+  assert.equal(kind, 'closed', remedy)
+  assert.match(remedy, /^keep working and craft later/)
+  assert.doesNotMatch(remedy, /deposit/, 'no deposit named')
+  assert.doesNotMatch(remedy, /no deposit would/)
+  assert.ok(`craft -> failed: ${remedy}`.length <= 220, `fits formatOutcome's 220 characters (${remedy.length})`)
+})
+
+await t('THE BANK REOPENS EARLY when its reason goes away -- after the throttle, never before', () => {
+  const items = []
+  const bot = { inventory: { items: () => items } }
+  closeBank(bot, 'no chest could be crafted', 30 * 60_000, 0, 'craft_failed')
+  items.push({ name: 'chest', count: 1 })
+  assert.ok(bankClosed(bot, REOPEN_THROTTLE_MS - 1), 'inside the throttle: still closed')
+  assert.equal(bankClosed(bot, REOPEN_THROTTLE_MS), '', 'carrying a chest now: reopened')
+  const bot2 = { inventory: { items: () => [] } }
+  closeBank(bot2, 'full', 30 * 60_000, 0, 'refuse_cap')
+  setTownRoomReader(() => 1000)
+  assert.equal(bankClosed(bot2, REOPEN_THROTTLE_MS), '', 'a town container took items after the closure: reopened')
+  const bot3 = { inventory: { items: () => [] } }
+  closeBank(bot3, 'full', 30 * 60_000, 5000, 'refuse_cap')
+  assert.ok(bankClosed(bot3, 5000 + REOPEN_THROTTLE_MS), 'room seen BEFORE the closure does not reopen it')
 })
 
 await t('THE LID FILTER: place() with no coordinates never puts a block on a chest, and refuses explicit coordinates there', async () => {
-  // A bot boxed in by stone whose ONLY open cell sits on a chest's lid.
   const w = fakeWorld({ bag: [stack('cobblestone', 10)], at: [0.5, 64, 0.5] })
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
     if (dx || dz) { w.set(dx, 64, dz, 'stone'); w.set(dx, 65, dz, 'stone') }
@@ -293,20 +428,12 @@ await t('THE LID FILTER: place() with no coordinates never puts a block on a che
   w.set(1, 64, 0, 'air'); w.set(1, 63, 0, 'chest')
   const r = await SKILLS.place.run({ bot: w.bot }, { item: 'cobblestone' }, new AbortController().signal)
   assert.equal(r.status, 'failed', `placed on the lid: ${r.detail}`)
-  assert.equal(w.nameAt(1, 64, 0), 'air', 'the lid is still clear')
+  assert.equal(w.nameAt(1, 64, 0), 'air')
   const r2 = await SKILLS.place.run({ bot: w.bot }, { item: 'cobblestone', x: 1, y: 64, z: 0 }, new AbortController().signal)
   assert.equal(r2.status, 'failed'); assert.match(r2.detail, /on top of a container/)
-  // Control: the same cell with dirt under it is used.
   w.set(1, 63, 0, 'dirt')
   const r3 = await SKILLS.place.run({ bot: w.bot }, { item: 'cobblestone' }, new AbortController().signal)
-  assert.equal(r3.status, 'success', r3.detail)
-})
-
-await t('closeBank / bankClosed: closes for the given time, then reopens', () => {
-  const bot = {}
-  closeBank(bot, 'x', 1000, 0)
-  assert.equal(bankClosed(bot, 500), 'x')
-  assert.equal(bankClosed(bot, 1000), '')
+  assert.equal(r3.status, 'success', `control: ${r3.detail}`)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

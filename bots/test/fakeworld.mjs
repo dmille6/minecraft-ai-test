@@ -3,11 +3,15 @@
 // Flat: grass_block at y <= 63, air above, unless a cell is set. Containers hold real slot arrays, and a container
 // window's deposit() behaves as mineflayer 4.37.1's transfer does where it matters here: it LIFTS the source stack onto
 // the cursor (inventory.js:301) and throws `destination full` (:323) with the stack still on the cursor when no slot
-// takes it. close() drops whatever is on the cursor into `dropped` -- the never-drop check reads it.
+// takes it. close() puts whatever is still on the cursor into `dropped`. THAT IS A CHOSEN, WORST-CASE BEHAVIOUR, NOT
+// VANILLA: Paper 1.21.8 (AbstractContainerMenu.removed -> dropOrPlaceInInventory) returns a carried stack to the
+// player's inventory on close and drops it only when there is no room. The fake drops always, so a stack left on the
+// cursor is visible to the test however full the bag is; on the server the same mistake is usually a client/server
+// disagreement about the bag rather than an item on the ground.
 import { Vec3 } from 'vec3'
 
-export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple']
-const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks'])
+export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table']
+const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/
 const key = (x, y, z) => `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`
 
