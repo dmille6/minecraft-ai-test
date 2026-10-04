@@ -1,0 +1,5138 @@
+{
+ "worlds": {
+  "board-a": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 33,
+     "slots_used": 789,
+     "slots_total": 891,
+     "items": 16995,
+     "full_containers": 28,
+     "full_stacks": 206,
+     "by_item": {
+      "cobblestone": 6414,
+      "stone_bricks": 1,
+      "stone_pickaxe": 202,
+      "oak_log": 2207,
+      "chest": 55,
+      "bamboo": 1124,
+      "leaf_litter": 820,
+      "dried_kelp": 10,
+      "crafting_table": 116,
+      "lapis_lazuli": 5,
+      "wooden_pickaxe": 86,
+      "iron_ingot": 40,
+      "furnace": 40,
+      "stone_sword": 5,
+      "pointed_dripstone": 13,
+      "glass": 18,
+      "bucket": 6,
+      "torch": 138,
+      "wooden_sword": 4,
+      "dirt": 844,
+      "granite": 76,
+      "raw_copper": 323,
+      "coal": 242,
+      "sand": 303,
+      "andesite": 114,
+      "oak_planks": 621,
+      "raw_iron": 25,
+      "stick": 763,
+      "wheat_seeds": 140,
+      "oak_sapling": 439,
+      "dandelion": 3,
+      "brown_egg": 105,
+      "firefly_bush": 1,
+      "birch_log": 1031,
+      "iron_pickaxe": 2,
+      "glow_ink_sac": 1,
+      "kelp": 12,
+      "apple": 77,
+      "wooden_shovel": 4,
+      "melon_slice": 29,
+      "copper_ingot": 31,
+      "wooden_axe": 4,
+      "stone_shovel": 6,
+      "birch_planks": 7,
+      "ladder": 9,
+      "cocoa_beans": 3,
+      "stone_axe": 3,
+      "egg": 61,
+      "red_terracotta": 1,
+      "cracked_stone_bricks": 1,
+      "diorite": 37,
+      "ink_sac": 10,
+      "jungle_sapling": 3,
+      "birch_sapling": 107,
+      "moss_block": 2,
+      "mutton": 3,
+      "wheat": 6,
+      "melon_seeds": 1,
+      "bamboo_block": 1,
+      "white_wool": 1,
+      "dripstone_block": 9,
+      "armadillo_scute": 41,
+      "clay_ball": 96,
+      "red_mushroom": 4,
+      "flint": 32,
+      "gravel": 16,
+      "brown_mushroom": 3,
+      "salmon": 3,
+      "oak_button": 3,
+      "amethyst_shard": 6,
+      "tropical_fish": 1,
+      "red_bed": 1,
+      "jungle_log": 17,
+      "sugar_cane": 1,
+      "wildflowers": 4,
+      "stone": 1,
+      "brown_wool": 1
+     },
+     "positions": [
+      [
+       326,
+       64,
+       169,
+       "chest",
+       2
+      ],
+      [
+       344,
+       66,
+       144,
+       "chest",
+       27
+      ],
+      [
+       348,
+       70,
+       145,
+       "chest",
+       5
+      ],
+      [
+       345,
+       65,
+       145,
+       "chest",
+       27
+      ],
+      [
+       356,
+       76,
+       138,
+       "chest",
+       27
+      ],
+      [
+       355,
+       76,
+       137,
+       "chest",
+       27
+      ],
+      [
+       356,
+       76,
+       137,
+       "chest",
+       11
+      ],
+      [
+       357,
+       74,
+       139,
+       "chest",
+       27
+      ],
+      [
+       357,
+       74,
+       140,
+       "chest",
+       27
+      ],
+      [
+       356,
+       73,
+       140,
+       "chest",
+       27
+      ],
+      [
+       357,
+       75,
+       138,
+       "chest",
+       27
+      ],
+      [
+       356,
+       74,
+       139,
+       "chest",
+       27
+      ],
+      [
+       359,
+       73,
+       148,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       148,
+       "chest",
+       5
+      ],
+      [
+       358,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       360,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       360,
+       72,
+       145,
+       "chest",
+       10
+      ],
+      [
+       359,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       360,
+       72,
+       148,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 3,
+     "slots_used": 67,
+     "slots_total": 81,
+     "items": 1466,
+     "full_containers": 2,
+     "full_stacks": 18,
+     "by_item": {
+      "brown_egg": 17,
+      "dirt": 16,
+      "cobbled_deepslate": 15,
+      "cobblestone": 769,
+      "wooden_pickaxe": 2,
+      "stone_pickaxe": 26,
+      "raw_copper": 105,
+      "oak_log": 258,
+      "oak_planks": 64,
+      "lapis_lazuli": 28,
+      "coal": 26,
+      "birch_log": 2,
+      "lead": 1,
+      "oak_sapling": 28,
+      "apple": 6,
+      "wheat_seeds": 13,
+      "egg": 2,
+      "stick": 63,
+      "chest": 3,
+      "flint": 5,
+      "furnace": 5,
+      "iron_ingot": 12
+     },
+     "positions": [
+      [
+       315,
+       65,
+       169,
+       "chest",
+       27
+      ],
+      [
+       313,
+       69,
+       169,
+       "chest",
+       27
+      ],
+      [
+       349,
+       67,
+       190,
+       "chest",
+       13
+      ]
+     ]
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 47,
+     "slots_total": 108,
+     "items": 129,
+     "full_containers": 1,
+     "full_stacks": 1,
+     "by_item": {
+      "gunpowder": 10,
+      "stone_pickaxe": 10,
+      "leather": 5,
+      "string": 4,
+      "beetroot_seeds": 4,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 3,
+      "iron_ingot": 3,
+      "bone": 14,
+      "cobblestone": 64,
+      "coal": 5,
+      "stone_shovel": 2,
+      "rotten_flesh": 2,
+      "enchanted_book": 1
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       20
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       27
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       0
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "board-b": {
+   "home": [
+    -249,
+    65,
+    144
+   ],
+   "bands": {
+    "core": {
+     "containers": 24,
+     "slots_used": 248,
+     "slots_total": 648,
+     "items": 7442,
+     "full_containers": 3,
+     "full_stacks": 90,
+     "by_item": {
+      "oak_log": 2495,
+      "cobblestone": 3004,
+      "oak_planks": 395,
+      "wooden_pickaxe": 20,
+      "coal": 46,
+      "stone_pickaxe": 55,
+      "torch": 128,
+      "birch_log": 762,
+      "raw_copper": 93,
+      "iron_ingot": 14,
+      "stick": 383,
+      "stone_shovel": 1,
+      "wooden_axe": 2,
+      "cobbled_deepslate": 43,
+      "raw_iron": 1
+     },
+     "positions": [
+      [
+       -247,
+       68,
+       125,
+       "chest",
+       13
+      ],
+      [
+       -245,
+       68,
+       125,
+       "chest",
+       1
+      ],
+      [
+       -243,
+       68,
+       125,
+       "chest",
+       12
+      ],
+      [
+       -244,
+       65,
+       150,
+       "chest",
+       1
+      ],
+      [
+       -250,
+       64,
+       144,
+       "chest",
+       27
+      ],
+      [
+       -249,
+       64,
+       144,
+       "chest",
+       27
+      ],
+      [
+       -248,
+       64,
+       144,
+       "chest",
+       27
+      ],
+      [
+       -246,
+       64,
+       148,
+       "chest",
+       0
+      ],
+      [
+       -246,
+       64,
+       149,
+       "chest",
+       2
+      ],
+      [
+       -244,
+       64,
+       147,
+       "chest",
+       9
+      ],
+      [
+       -246,
+       64,
+       147,
+       "chest",
+       5
+      ],
+      [
+       -243,
+       64,
+       149,
+       "chest",
+       8
+      ],
+      [
+       -244,
+       64,
+       150,
+       "chest",
+       1
+      ],
+      [
+       -241,
+       64,
+       148,
+       "chest",
+       17
+      ],
+      [
+       -246,
+       64,
+       150,
+       "chest",
+       9
+      ],
+      [
+       -244,
+       64,
+       148,
+       "chest",
+       1
+      ],
+      [
+       -242,
+       64,
+       150,
+       "chest",
+       19
+      ],
+      [
+       -241,
+       64,
+       150,
+       "chest",
+       4
+      ],
+      [
+       -240,
+       64,
+       150,
+       "chest",
+       11
+      ],
+      [
+       -239,
+       64,
+       149,
+       "chest",
+       0
+      ],
+      [
+       -237,
+       64,
+       148,
+       "chest",
+       26
+      ],
+      [
+       -240,
+       64,
+       148,
+       "chest",
+       4
+      ],
+      [
+       -239,
+       64,
+       148,
+       "chest",
+       8
+      ],
+      [
+       -239,
+       64,
+       151,
+       "chest",
+       16
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 19,
+     "slots_used": 0,
+     "slots_total": 513,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": [
+      [
+       -290,
+       -19,
+       151,
+       "barrel",
+       0
+      ],
+      [
+       -276,
+       -31,
+       117,
+       "barrel",
+       0
+      ],
+      [
+       -273,
+       -15,
+       138,
+       "chest",
+       0
+      ],
+      [
+       -288,
+       -37,
+       141,
+       "barrel",
+       0
+      ],
+      [
+       -279,
+       -37,
+       141,
+       "barrel",
+       0
+      ],
+      [
+       -283,
+       -45,
+       137,
+       "chest",
+       0
+      ],
+      [
+       -278,
+       -35,
+       150,
+       "barrel",
+       0
+      ],
+      [
+       -276,
+       -25,
+       155,
+       "chest",
+       0
+      ],
+      [
+       -286,
+       -45,
+       145,
+       "chest",
+       0
+      ],
+      [
+       -278,
+       -30,
+       153,
+       "chest",
+       0
+      ],
+      [
+       -273,
+       -15,
+       153,
+       "chest",
+       0
+      ],
+      [
+       -276,
+       -25,
+       154,
+       "chest",
+       0
+      ],
+      [
+       -272,
+       -16,
+       129,
+       "barrel",
+       0
+      ],
+      [
+       -265,
+       -26,
+       132,
+       "barrel",
+       0
+      ],
+      [
+       -270,
+       -35,
+       159,
+       "barrel",
+       0
+      ],
+      [
+       -270,
+       -35,
+       168,
+       "barrel",
+       0
+      ],
+      [
+       -252,
+       -11,
+       118,
+       "barrel",
+       0
+      ],
+      [
+       -241,
+       -41,
+       150,
+       "barrel",
+       0
+      ],
+      [
+       -255,
+       -19,
+       170,
+       "barrel",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "board-c": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 34,
+     "slots_used": 809,
+     "slots_total": 918,
+     "items": 17586,
+     "full_containers": 27,
+     "full_stacks": 222,
+     "by_item": {
+      "cobblestone": 7357,
+      "lapis_lazuli": 9,
+      "stone_pickaxe": 188,
+      "stone_shovel": 4,
+      "wooden_pickaxe": 119,
+      "stick": 1446,
+      "stone_axe": 3,
+      "raw_iron": 12,
+      "oak_log": 2392,
+      "wooden_axe": 9,
+      "oak_planks": 856,
+      "copper_ingot": 75,
+      "raw_copper": 371,
+      "wooden_shovel": 4,
+      "dirt": 961,
+      "wheat_seeds": 112,
+      "bamboo": 1257,
+      "crafting_table": 106,
+      "furnace": 26,
+      "diorite": 34,
+      "coal": 166,
+      "sand": 127,
+      "andesite": 111,
+      "iron_ingot": 38,
+      "cobbled_deepslate": 123,
+      "birch_log": 248,
+      "leaf_litter": 473,
+      "torch": 149,
+      "bucket": 5,
+      "oak_sapling": 449,
+      "flint": 9,
+      "glass": 15,
+      "brown_egg": 55,
+      "ladder": 27,
+      "kelp": 52,
+      "pointed_dripstone": 16,
+      "armadillo_scute": 9,
+      "moss_block": 1,
+      "tropical_fish": 2,
+      "egg": 30,
+      "clay_ball": 20,
+      "birch_sapling": 17,
+      "wooden_sword": 4,
+      "ink_sac": 13,
+      "apple": 10,
+      "stone_sword": 7,
+      "mutton": 5,
+      "light_gray_wool": 1,
+      "chest": 8,
+      "birch_planks": 1,
+      "granite": 20,
+      "stone_bricks": 1,
+      "glow_ink_sac": 8,
+      "rail": 2,
+      "charcoal": 1,
+      "oak_pressure_plate": 1,
+      "jungle_log": 1,
+      "magma_block": 1,
+      "poppy": 2,
+      "gravel": 1,
+      "melon_slice": 6,
+      "wheat": 5,
+      "red_mushroom": 1,
+      "brown_mushroom": 1,
+      "cooked_porkchop": 1,
+      "melon_seeds": 2
+     },
+     "positions": [
+      [
+       351,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       354,
+       73,
+       148,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       146,
+       "chest",
+       24
+      ],
+      [
+       352,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       146,
+       "chest",
+       13
+      ],
+      [
+       358,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       148,
+       "chest",
+       22
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       152,
+       "chest",
+       27
+      ],
+      [
+       359,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       359,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       151,
+       "chest",
+       2
+      ],
+      [
+       354,
+       72,
+       153,
+       "chest",
+       11
+      ],
+      [
+       356,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       151,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       152,
+       "chest",
+       27
+      ],
+      [
+       359,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       360,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       153,
+       "chest",
+       27
+      ],
+      [
+       364,
+       68,
+       150,
+       "chest",
+       27
+      ],
+      [
+       371,
+       62,
+       163,
+       "chest",
+       0
+      ],
+      [
+       371,
+       62,
+       164,
+       "chest",
+       8
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 8,
+     "slots_used": 66,
+     "slots_total": 216,
+     "items": 744,
+     "full_containers": 0,
+     "full_stacks": 6,
+     "by_item": {
+      "gunpowder": 10,
+      "oak_log": 285,
+      "leather": 5,
+      "string": 4,
+      "beetroot_seeds": 4,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 3,
+      "iron_ingot": 3,
+      "bone": 14,
+      "stick": 24,
+      "coal": 5,
+      "rotten_flesh": 2,
+      "enchanted_book": 1,
+      "cobblestone": 345,
+      "oak_planks": 23,
+      "stone_pickaxe": 14
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       18
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       18
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       0
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       0
+      ],
+      [
+       373,
+       58,
+       159,
+       "chest",
+       12
+      ],
+      [
+       373,
+       60,
+       159,
+       "chest",
+       0
+      ],
+      [
+       373,
+       59,
+       159,
+       "chest",
+       3
+      ],
+      [
+       372,
+       59,
+       160,
+       "chest",
+       15
+      ]
+     ]
+    }
+   }
+  },
+  "board-d": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 30,
+     "slots_used": 733,
+     "slots_total": 810,
+     "items": 16561,
+     "full_containers": 26,
+     "full_stacks": 207,
+     "by_item": {
+      "dirt": 787,
+      "cooked_mutton": 1,
+      "wheat_seeds": 84,
+      "cobblestone": 6791,
+      "stone": 3,
+      "sand": 226,
+      "leaf_litter": 498,
+      "furnace": 37,
+      "stone_pickaxe": 194,
+      "oak_sapling": 539,
+      "ink_sac": 9,
+      "poppy": 2,
+      "crafting_table": 93,
+      "wooden_pickaxe": 112,
+      "bamboo": 432,
+      "stick": 1333,
+      "oak_log": 3390,
+      "iron_ingot": 28,
+      "granite": 47,
+      "oak_planks": 619,
+      "torch": 178,
+      "brown_egg": 75,
+      "birch_log": 46,
+      "raw_iron": 15,
+      "wooden_axe": 4,
+      "wooden_shovel": 3,
+      "coal": 150,
+      "stone_shovel": 1,
+      "copper_ingot": 32,
+      "raw_copper": 322,
+      "stone_sword": 4,
+      "chest": 7,
+      "pointed_dripstone": 23,
+      "stone_axe": 3,
+      "glass": 5,
+      "egg": 72,
+      "bucket": 5,
+      "cobbled_deepslate": 51,
+      "brown_wool": 1,
+      "apple": 73,
+      "andesite": 53,
+      "flint": 14,
+      "armadillo_scute": 32,
+      "oak_button": 5,
+      "brown_mushroom": 4,
+      "birch_sapling": 43,
+      "white_wool": 1,
+      "wildflowers": 8,
+      "moss_block": 4,
+      "rail": 3,
+      "kelp": 45,
+      "jungle_log": 8,
+      "ladder": 11,
+      "dried_kelp": 2,
+      "gravel": 29,
+      "dandelion": 1,
+      "wooden_sword": 1,
+      "diorite": 2
+     },
+     "positions": [
+      [
+       351,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       351,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       356,
+       73,
+       148,
+       "chest",
+       27
+      ],
+      [
+       358,
+       73,
+       152,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       146,
+       "chest",
+       20
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       150,
+       "chest",
+       1
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       149,
+       "chest",
+       8
+      ],
+      [
+       352,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       359,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       360,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       359,
+       72,
+       146,
+       "chest",
+       2
+      ],
+      [
+       359,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       150,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 44,
+     "slots_total": 108,
+     "items": 214,
+     "full_containers": 1,
+     "full_stacks": 1,
+     "by_item": {
+      "gunpowder": 10,
+      "leather": 5,
+      "string": 4,
+      "beetroot_seeds": 4,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 3,
+      "iron_ingot": 7,
+      "bone": 14,
+      "oak_log": 10,
+      "coal": 5,
+      "stick": 1,
+      "rotten_flesh": 2,
+      "cobbled_deepslate": 15,
+      "cobblestone": 121,
+      "wooden_pickaxe": 1,
+      "stone_pickaxe": 2,
+      "redstone": 4,
+      "enchanted_book": 1,
+      "raw_copper": 3
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       17
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       27
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       0
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "hive-a": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 24,
+     "slots_used": 515,
+     "slots_total": 648,
+     "items": 16497,
+     "full_containers": 17,
+     "full_stacks": 213,
+     "by_item": {
+      "leaf_litter": 704,
+      "cobblestone": 8190,
+      "bamboo": 908,
+      "stick": 643,
+      "oak_button": 2,
+      "raw_copper": 545,
+      "coal": 288,
+      "andesite": 289,
+      "flint": 57,
+      "sand": 222,
+      "dripstone_block": 12,
+      "bucket": 10,
+      "gravel": 40,
+      "furnace": 40,
+      "chest": 19,
+      "dirt": 643,
+      "oak_log": 1847,
+      "oak_planks": 500,
+      "stone_pickaxe": 60,
+      "iron_ingot": 48,
+      "oak_sapling": 290,
+      "stone_sword": 1,
+      "wooden_pickaxe": 41,
+      "egg": 47,
+      "wheat_seeds": 142,
+      "pointed_dripstone": 15,
+      "copper_ingot": 9,
+      "torch": 141,
+      "lapis_lazuli": 40,
+      "poppy": 4,
+      "pumpkin": 1,
+      "wooden_axe": 1,
+      "stone_shovel": 3,
+      "brown_egg": 68,
+      "diorite": 103,
+      "jungle_planks": 1,
+      "birch_sapling": 2,
+      "crafting_table": 81,
+      "birch_planks": 11,
+      "iron_pickaxe": 2,
+      "birch_log": 48,
+      "apple": 38,
+      "amethyst_shard": 2,
+      "dandelion": 4,
+      "stone_bricks": 1,
+      "granite": 150,
+      "armadillo_scute": 23,
+      "sandstone": 40,
+      "kelp": 18,
+      "jungle_log": 29,
+      "clay_ball": 12,
+      "azure_bluet": 1,
+      "tuff": 2,
+      "ink_sac": 30,
+      "cocoa_beans": 12,
+      "bamboo_block": 5,
+      "jungle_sapling": 2,
+      "raw_iron": 10
+     },
+     "positions": [
+      [
+       351,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       349,
+       72,
+       150,
+       "chest",
+       6
+      ],
+      [
+       348,
+       71,
+       150,
+       "chest",
+       2
+      ],
+      [
+       351,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       350,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       350,
+       72,
+       152,
+       "chest",
+       7
+      ],
+      [
+       350,
+       72,
+       150,
+       "chest",
+       0
+      ],
+      [
+       350,
+       72,
+       151,
+       "chest",
+       18
+      ],
+      [
+       353,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       144,
+       "chest",
+       15
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       151,
+       "chest",
+       8
+      ],
+      [
+       356,
+       72,
+       151,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       151,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       152,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 27,
+     "slots_total": 108,
+     "items": 67,
+     "full_containers": 1,
+     "full_stacks": 0,
+     "by_item": {
+      "gunpowder": 10,
+      "stick": 2,
+      "leather": 5,
+      "string": 4,
+      "oak_log": 24,
+      "beetroot_seeds": 4,
+      "coal": 4,
+      "egg": 1,
+      "dripstone_block": 3,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 1,
+      "oak_sapling": 3,
+      "wooden_pickaxe": 1,
+      "red_bed": 1,
+      "furnace": 1,
+      "stone_shovel": 1
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       27
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       0
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       0
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "hive-b": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 11,
+     "slots_used": 212,
+     "slots_total": 297,
+     "items": 6195,
+     "full_containers": 6,
+     "full_stacks": 71,
+     "by_item": {
+      "oak_planks": 176,
+      "oak_sapling": 138,
+      "oak_log": 657,
+      "dirt": 413,
+      "iron_ingot": 10,
+      "coal": 96,
+      "stick": 408,
+      "cobblestone": 2283,
+      "copper_ingot": 11,
+      "raw_copper": 209,
+      "birch_log": 42,
+      "lapis_lazuli": 39,
+      "stone_pickaxe": 13,
+      "bamboo": 256,
+      "raw_iron": 3,
+      "egg": 30,
+      "brown_egg": 56,
+      "leaf_litter": 510,
+      "wheat_seeds": 110,
+      "diorite": 69,
+      "andesite": 85,
+      "sand": 122,
+      "granite": 80,
+      "wooden_pickaxe": 23,
+      "brown_mushroom": 4,
+      "furnace": 6,
+      "salmon": 2,
+      "jungle_log": 16,
+      "acacia_log": 1,
+      "sandstone": 36,
+      "cobbled_deepslate": 64,
+      "apple": 3,
+      "jungle_sapling": 1,
+      "bucket": 2,
+      "feather": 1,
+      "birch_sapling": 1,
+      "oak_button": 1,
+      "lead": 1,
+      "kelp": 19,
+      "clay_ball": 4,
+      "poppy": 3,
+      "torch": 134,
+      "armadillo_scute": 10,
+      "flint": 23,
+      "red_mushroom": 5,
+      "wildflowers": 15,
+      "oak_door": 1,
+      "mossy_cobblestone": 1,
+      "bell": 1,
+      "chest": 1
+     },
+     "positions": [
+      [
+       351,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       149,
+       "chest",
+       11
+      ],
+      [
+       353,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       148,
+       "chest",
+       8
+      ],
+      [
+       356,
+       72,
+       148,
+       "chest",
+       12
+      ],
+      [
+       355,
+       72,
+       149,
+       "chest",
+       5
+      ],
+      [
+       356,
+       72,
+       149,
+       "chest",
+       14
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 35,
+     "slots_total": 108,
+     "items": 101,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {
+      "gunpowder": 10,
+      "stick": 48,
+      "leather": 5,
+      "string": 4,
+      "beetroot_seeds": 4,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 3,
+      "iron_ingot": 3,
+      "bone": 14,
+      "coal": 5,
+      "rotten_flesh": 2,
+      "enchanted_book": 1
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       18
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       17
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       0
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "hive-c": {
+   "home": [
+    -68,
+    68,
+    -68
+   ],
+   "bands": {
+    "core": {
+     "containers": 35,
+     "slots_used": 290,
+     "slots_total": 945,
+     "items": 9935,
+     "full_containers": 4,
+     "full_stacks": 126,
+     "by_item": {
+      "oak_log": 3615,
+      "birch_log": 189,
+      "oak_planks": 583,
+      "stick": 457,
+      "cobblestone": 4585,
+      "stone_pickaxe": 44,
+      "raw_copper": 165,
+      "coal": 49,
+      "wooden_pickaxe": 32,
+      "cobbled_deepslate": 8,
+      "stone": 4,
+      "lapis_lazuli": 44,
+      "iron_ingot": 22,
+      "raw_iron": 3,
+      "copper_ingot": 5,
+      "torch": 128,
+      "redstone": 2
+     },
+     "positions": [
+      [
+       -65,
+       62,
+       -73,
+       "chest",
+       1
+      ],
+      [
+       -66,
+       61,
+       -75,
+       "chest",
+       27
+      ],
+      [
+       -67,
+       67,
+       -68,
+       "chest",
+       27
+      ],
+      [
+       -66,
+       61,
+       -74,
+       "chest",
+       21
+      ],
+      [
+       -68,
+       67,
+       -68,
+       "chest",
+       27
+      ],
+      [
+       -69,
+       67,
+       -68,
+       "chest",
+       27
+      ],
+      [
+       -67,
+       68,
+       -58,
+       "chest",
+       1
+      ],
+      [
+       -66,
+       68,
+       -59,
+       "chest",
+       8
+      ],
+      [
+       -68,
+       68,
+       -58,
+       "chest",
+       6
+      ],
+      [
+       -66,
+       68,
+       -60,
+       "chest",
+       0
+      ],
+      [
+       -67,
+       68,
+       -60,
+       "chest",
+       0
+      ],
+      [
+       -68,
+       70,
+       -58,
+       "chest",
+       1
+      ],
+      [
+       -67,
+       70,
+       -60,
+       "chest",
+       0
+      ],
+      [
+       -75,
+       68,
+       -61,
+       "chest",
+       6
+      ],
+      [
+       -75,
+       68,
+       -62,
+       "chest",
+       0
+      ],
+      [
+       -76,
+       68,
+       -61,
+       "chest",
+       13
+      ],
+      [
+       -75,
+       68,
+       -63,
+       "chest",
+       0
+      ],
+      [
+       -66,
+       69,
+       -56,
+       "chest",
+       0
+      ],
+      [
+       -67,
+       69,
+       -56,
+       "chest",
+       24
+      ],
+      [
+       -66,
+       69,
+       -57,
+       "chest",
+       1
+      ],
+      [
+       -68,
+       69,
+       -56,
+       "chest",
+       15
+      ],
+      [
+       -67,
+       69,
+       -57,
+       "chest",
+       0
+      ],
+      [
+       -66,
+       69,
+       -58,
+       "chest",
+       8
+      ],
+      [
+       -68,
+       69,
+       -57,
+       "chest",
+       4
+      ],
+      [
+       -66,
+       71,
+       -58,
+       "chest",
+       1
+      ],
+      [
+       -68,
+       69,
+       -59,
+       "chest",
+       9
+      ],
+      [
+       -75,
+       67,
+       -64,
+       "chest",
+       1
+      ],
+      [
+       -75,
+       69,
+       -62,
+       "chest",
+       1
+      ],
+      [
+       -76,
+       67,
+       -64,
+       "chest",
+       0
+      ],
+      [
+       -77,
+       69,
+       -62,
+       "chest",
+       14
+      ],
+      [
+       -65,
+       68,
+       -58,
+       "chest",
+       22
+      ],
+      [
+       -65,
+       68,
+       -59,
+       "chest",
+       5
+      ],
+      [
+       -64,
+       62,
+       -74,
+       "chest",
+       2
+      ],
+      [
+       -64,
+       62,
+       -73,
+       "chest",
+       12
+      ],
+      [
+       -64,
+       62,
+       -75,
+       "chest",
+       6
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    }
+   }
+  },
+  "hive-d": {
+   "home": [
+    68,
+    65,
+    68
+   ],
+   "bands": {
+    "core": {
+     "containers": 13,
+     "slots_used": 302,
+     "slots_total": 351,
+     "items": 9257,
+     "full_containers": 10,
+     "full_stacks": 133,
+     "by_item": {
+      "cobblestone": 8245,
+      "wooden_pickaxe": 55,
+      "copper_ingot": 9,
+      "raw_copper": 184,
+      "stick": 311,
+      "iron_ingot": 19,
+      "stone_pickaxe": 68,
+      "torch": 128,
+      "coal": 130,
+      "stone": 3,
+      "lapis_lazuli": 11,
+      "oak_log": 89,
+      "stone_shovel": 2,
+      "raw_iron": 1,
+      "oak_planks": 2
+     },
+     "positions": [
+      [
+       66,
+       64,
+       66,
+       "chest",
+       17
+      ],
+      [
+       65,
+       64,
+       67,
+       "chest",
+       27
+      ],
+      [
+       67,
+       64,
+       68,
+       "chest",
+       27
+      ],
+      [
+       67,
+       64,
+       67,
+       "chest",
+       27
+      ],
+      [
+       65,
+       64,
+       69,
+       "chest",
+       9
+      ],
+      [
+       69,
+       64,
+       68,
+       "chest",
+       27
+      ],
+      [
+       68,
+       64,
+       68,
+       "chest",
+       27
+      ],
+      [
+       67,
+       64,
+       69,
+       "chest",
+       27
+      ],
+      [
+       69,
+       64,
+       70,
+       "chest",
+       27
+      ],
+      [
+       70,
+       64,
+       68,
+       "chest",
+       27
+      ],
+      [
+       69,
+       64,
+       69,
+       "chest",
+       27
+      ],
+      [
+       71,
+       64,
+       70,
+       "chest",
+       27
+      ],
+      [
+       70,
+       64,
+       70,
+       "chest",
+       6
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    }
+   }
+  },
+  "isolated-a": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 25,
+     "slots_used": 588,
+     "slots_total": 675,
+     "items": 17219,
+     "full_containers": 20,
+     "full_stacks": 216,
+     "by_item": {
+      "dirt": 477,
+      "cobblestone": 7591,
+      "birch_log": 576,
+      "raw_iron": 12,
+      "sand": 271,
+      "orange_terracotta": 4,
+      "leaf_litter": 716,
+      "bamboo": 762,
+      "flint": 40,
+      "stick": 930,
+      "wooden_pickaxe": 50,
+      "crafting_table": 143,
+      "stone_pickaxe": 110,
+      "iron_ingot": 31,
+      "wheat_seeds": 109,
+      "oak_log": 2984,
+      "raw_copper": 585,
+      "gravel": 35,
+      "andesite": 39,
+      "oak_planks": 319,
+      "coal": 229,
+      "stone_shovel": 1,
+      "egg": 58,
+      "jungle_sapling": 1,
+      "bucket": 5,
+      "pointed_dripstone": 21,
+      "oak_sapling": 452,
+      "granite": 22,
+      "diorite": 84,
+      "iron_pickaxe": 2,
+      "lapis_lazuli": 83,
+      "oak_pressure_plate": 1,
+      "jungle_log": 3,
+      "copper_ingot": 63,
+      "kelp": 26,
+      "lead": 2,
+      "brown_egg": 72,
+      "moss_carpet": 1,
+      "armadillo_scute": 45,
+      "moss_block": 9,
+      "clay_ball": 40,
+      "dripstone_block": 8,
+      "furnace": 17,
+      "poppy": 4,
+      "birch_sapling": 25,
+      "ink_sac": 26,
+      "glass": 2,
+      "apple": 11,
+      "brown_mushroom": 2,
+      "torch": 73,
+      "chest": 4,
+      "salmon": 2,
+      "glow_ink_sac": 2,
+      "cod": 1,
+      "mossy_stone_brick_slab": 1,
+      "peony": 1,
+      "wildflowers": 18,
+      "oak_button": 6,
+      "mutton": 3,
+      "dark_oak_sapling": 1,
+      "porkchop": 1,
+      "ladder": 6,
+      "stone_axe": 1
+     },
+     "positions": [
+      [
+       351,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       343,
+       68,
+       149,
+       "chest",
+       27
+      ],
+      [
+       361,
+       62,
+       117,
+       "chest",
+       7
+      ],
+      [
+       357,
+       61,
+       122,
+       "chest",
+       27
+      ],
+      [
+       360,
+       62,
+       116,
+       "chest",
+       8
+      ],
+      [
+       362,
+       71,
+       147,
+       "chest",
+       19
+      ],
+      [
+       362,
+       71,
+       146,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       145,
+       "chest",
+       2
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       356,
+       74,
+       148,
+       "chest",
+       12
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       357,
+       74,
+       148,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       360,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       151,
+       "chest",
+       27
+      ],
+      [
+       361,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       150,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 64,
+     "slots_total": 108,
+     "items": 382,
+     "full_containers": 1,
+     "full_stacks": 2,
+     "by_item": {
+      "gunpowder": 12,
+      "sand": 27,
+      "leather": 6,
+      "string": 14,
+      "oak_log": 159,
+      "beetroot_seeds": 10,
+      "stick": 8,
+      "jungle_log": 1,
+      "cobblestone": 99,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 1,
+      "beef": 2,
+      "wooden_pickaxe": 2,
+      "jungle_sapling": 1,
+      "sandstone": 1,
+      "kelp": 1,
+      "rotten_flesh": 10,
+      "music_disc_cat": 2,
+      "gold_ingot": 1,
+      "oak_planks": 10,
+      "coal": 7,
+      "golden_apple": 1,
+      "enchanted_book": 1,
+      "bone": 4
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       27
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       0
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       16
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       21
+      ]
+     ]
+    }
+   }
+  },
+  "isolated-b": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 19,
+     "slots_used": 471,
+     "slots_total": 513,
+     "items": 14721,
+     "full_containers": 17,
+     "full_stacks": 191,
+     "by_item": {
+      "oak_log": 3144,
+      "cobblestone": 5290,
+      "wooden_pickaxe": 21,
+      "stone_axe": 2,
+      "stone_pickaxe": 77,
+      "stick": 1137,
+      "stone_shovel": 2,
+      "coal": 213,
+      "oak_planks": 286,
+      "chest": 16,
+      "dirt": 393,
+      "oak_sapling": 622,
+      "diamond": 1,
+      "wheat_seeds": 97,
+      "cooked_mutton": 1,
+      "stone_sword": 1,
+      "bamboo": 344,
+      "leaf_litter": 998,
+      "flint": 25,
+      "torch": 72,
+      "birch_sapling": 83,
+      "armadillo_scute": 105,
+      "brown_egg": 144,
+      "egg": 83,
+      "sand": 181,
+      "sandstone": 2,
+      "raw_iron": 21,
+      "furnace": 13,
+      "birch_log": 322,
+      "wildflowers": 21,
+      "jungle_log": 16,
+      "ink_sac": 29,
+      "raw_copper": 412,
+      "iron_ingot": 36,
+      "copper_ingot": 16,
+      "lapis_lazuli": 28,
+      "stone_bricks": 2,
+      "gravel": 19,
+      "apple": 41,
+      "wheat": 2,
+      "andesite": 63,
+      "kelp": 67,
+      "crafting_table": 69,
+      "diorite": 38,
+      "poppy": 5,
+      "wooden_sword": 1,
+      "bucket": 3,
+      "prismarine_crystals": 3,
+      "birch_button": 1,
+      "melon_slice": 6,
+      "red_terracotta": 1,
+      "potion": 1,
+      "stone": 1,
+      "ladder": 6,
+      "jungle_sapling": 2,
+      "glow_berries": 1,
+      "clay_ball": 92,
+      "tnt": 2,
+      "salmon": 1,
+      "moss_block": 28,
+      "cooked_cod": 4,
+      "cocoa_beans": 3,
+      "pointed_dripstone": 2,
+      "granite": 1,
+      "brown_mushroom": 1,
+      "dandelion": 1
+     },
+     "positions": [
+      [
+       352,
+       73,
+       147,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       147,
+       "chest",
+       6
+      ],
+      [
+       355,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       152,
+       "chest",
+       6
+      ],
+      [
+       354,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       151,
+       "chest",
+       27
+      ],
+      [
+       360,
+       72,
+       149,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 54,
+     "slots_total": 108,
+     "items": 320,
+     "full_containers": 2,
+     "full_stacks": 3,
+     "by_item": {
+      "gunpowder": 10,
+      "wheat_seeds": 6,
+      "leather": 5,
+      "string": 4,
+      "acacia_log": 1,
+      "beetroot_seeds": 4,
+      "apple": 1,
+      "egg": 8,
+      "bamboo": 7,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 3,
+      "brown_egg": 6,
+      "oak_sapling": 64,
+      "leaf_litter": 9,
+      "coal": 10,
+      "furnace": 2,
+      "iron_ingot": 4,
+      "bone": 14,
+      "cobblestone": 128,
+      "wooden_pickaxe": 1,
+      "rotten_flesh": 2,
+      "stick": 14,
+      "birch_log": 2,
+      "crafting_table": 5,
+      "enchanted_book": 1,
+      "ladder": 6,
+      "stone_pickaxe": 1
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       27
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       27
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       0
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "isolated-c": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 16,
+     "slots_used": 395,
+     "slots_total": 432,
+     "items": 12810,
+     "full_containers": 14,
+     "full_stacks": 168,
+     "by_item": {
+      "dirt": 279,
+      "leaf_litter": 665,
+      "sand": 173,
+      "wheat_seeds": 115,
+      "cobblestone": 5414,
+      "raw_copper": 434,
+      "wooden_pickaxe": 36,
+      "oak_log": 2779,
+      "stone_pickaxe": 53,
+      "stick": 815,
+      "chest": 7,
+      "oak_sapling": 372,
+      "raw_iron": 10,
+      "iron_ingot": 28,
+      "diorite": 44,
+      "coal": 207,
+      "bucket": 4,
+      "furnace": 70,
+      "egg": 56,
+      "flint": 31,
+      "pointed_dripstone": 3,
+      "bamboo": 130,
+      "copper_ingot": 22,
+      "cobbled_deepslate": 114,
+      "oak_planks": 243,
+      "crafting_table": 14,
+      "brown_wool": 2,
+      "brown_mushroom": 4,
+      "glass": 3,
+      "apple": 18,
+      "lead": 1,
+      "poppy": 1,
+      "ladder": 12,
+      "armadillo_scute": 27,
+      "birch_sapling": 42,
+      "brown_egg": 25,
+      "dark_oak_sapling": 2,
+      "kelp": 18,
+      "oak_button": 3,
+      "dried_kelp": 1,
+      "wooden_axe": 3,
+      "birch_log": 154,
+      "clay_ball": 4,
+      "gravel": 39,
+      "jungle_log": 42,
+      "feather": 1,
+      "dandelion": 2,
+      "melon_slice": 6,
+      "red_terracotta": 1,
+      "torch": 132,
+      "rose_bush": 2,
+      "magma_block": 1,
+      "lapis_lazuli": 39,
+      "glow_ink_sac": 4,
+      "wheat": 1,
+      "white_wool": 2,
+      "mutton": 4,
+      "stone_bricks": 7,
+      "wooden_sword": 1,
+      "redstone": 6,
+      "andesite": 54,
+      "granite": 27,
+      "dripstone_block": 1
+     },
+     "positions": [
+      [
+       364,
+       70,
+       141,
+       "chest",
+       27
+      ],
+      [
+       363,
+       70,
+       140,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       144,
+       "chest",
+       17
+      ],
+      [
+       353,
+       72,
+       144,
+       "chest",
+       0
+      ],
+      [
+       357,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       358,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       147,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 68,
+     "slots_total": 108,
+     "items": 265,
+     "full_containers": 1,
+     "full_stacks": 1,
+     "by_item": {
+      "gunpowder": 12,
+      "wooden_pickaxe": 1,
+      "leather": 5,
+      "string": 14,
+      "sand": 7,
+      "beetroot_seeds": 10,
+      "oak_planks": 5,
+      "stick": 5,
+      "brown_egg": 2,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 1,
+      "chest": 1,
+      "oak_sapling": 2,
+      "leaf_litter": 45,
+      "armadillo_scute": 10,
+      "bamboo": 1,
+      "rotten_flesh": 10,
+      "music_disc_cat": 2,
+      "iron_ingot": 2,
+      "raw_iron": 2,
+      "cobblestone": 113,
+      "stone_pickaxe": 4,
+      "gold_ingot": 1,
+      "coal": 2,
+      "golden_apple": 1,
+      "enchanted_book": 1,
+      "bone": 4
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       27
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       0
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       19
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       22
+      ]
+     ]
+    }
+   }
+  },
+  "isolated-d": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 15,
+     "slots_used": 376,
+     "slots_total": 405,
+     "items": 9668,
+     "full_containers": 12,
+     "full_stacks": 119,
+     "by_item": {
+      "oak_log": 1499,
+      "oak_planks": 315,
+      "stone_pickaxe": 78,
+      "wooden_pickaxe": 45,
+      "birch_log": 90,
+      "stick": 1004,
+      "cobblestone": 3797,
+      "dirt": 404,
+      "wheat_seeds": 70,
+      "raw_iron": 11,
+      "coal": 183,
+      "raw_copper": 672,
+      "chest": 11,
+      "crafting_table": 81,
+      "stone_sword": 1,
+      "leaf_litter": 379,
+      "wildflowers": 27,
+      "apple": 32,
+      "birch_sapling": 11,
+      "sand": 113,
+      "iron_ingot": 27,
+      "bucket": 6,
+      "amethyst_block": 3,
+      "flint": 23,
+      "bamboo": 176,
+      "smooth_basalt": 3,
+      "poppy": 2,
+      "kelp": 9,
+      "calcite": 9,
+      "ladder": 6,
+      "oak_sapling": 237,
+      "andesite": 20,
+      "clay_ball": 4,
+      "egg": 17,
+      "birch_planks": 1,
+      "brown_egg": 31,
+      "dark_oak_fence": 1,
+      "cocoa_beans": 3,
+      "pointed_dripstone": 39,
+      "stone": 1,
+      "beef": 2,
+      "copper_ingot": 38,
+      "sugar_cane": 3,
+      "dripstone_block": 6,
+      "sandstone": 5,
+      "torch": 104,
+      "furnace": 12,
+      "ink_sac": 24,
+      "armadillo_scute": 11,
+      "lapis_lazuli": 10,
+      "diorite": 11,
+      "granite": 1
+     },
+     "positions": [
+      [
+       357,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       356,
+       73,
+       147,
+       "chest",
+       7
+      ],
+      [
+       358,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       145,
+       "chest",
+       26
+      ],
+      [
+       353,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       359,
+       72,
+       148,
+       "chest",
+       19
+      ],
+      [
+       356,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       151,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 4,
+     "slots_used": 34,
+     "slots_total": 108,
+     "items": 53,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {
+      "gunpowder": 10,
+      "leather": 5,
+      "string": 4,
+      "beetroot_seeds": 4,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 3,
+      "iron_ingot": 3,
+      "bone": 14,
+      "coal": 5,
+      "rotten_flesh": 2,
+      "enchanted_book": 1
+     },
+     "positions": [
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       17
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       17
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       0
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "placebo-a": {
+   "home": [
+    249,
+    75,
+    -144
+   ],
+   "bands": {
+    "core": {
+     "containers": 17,
+     "slots_used": 268,
+     "slots_total": 459,
+     "items": 5796,
+     "full_containers": 6,
+     "full_stacks": 64,
+     "by_item": {
+      "iron_ingot": 7,
+      "stick": 1417,
+      "stone_pickaxe": 55,
+      "wooden_pickaxe": 71,
+      "oak_log": 1863,
+      "oak_planks": 484,
+      "birch_log": 137,
+      "coal": 65,
+      "birch_sapling": 24,
+      "cobblestone": 1455,
+      "wooden_axe": 6,
+      "leaf_litter": 5,
+      "copper_ingot": 4,
+      "raw_copper": 55,
+      "wooden_shovel": 4,
+      "stone_shovel": 1,
+      "torch": 128,
+      "raw_iron": 11,
+      "stone_axe": 2,
+      "cobbled_deepslate": 1,
+      "wooden_sword": 1
+     },
+     "positions": [
+      [
+       251,
+       74,
+       -148,
+       "chest",
+       10
+      ],
+      [
+       253,
+       74,
+       -148,
+       "chest",
+       9
+      ],
+      [
+       250,
+       74,
+       -145,
+       "chest",
+       10
+      ],
+      [
+       252,
+       74,
+       -148,
+       "chest",
+       8
+      ],
+      [
+       252,
+       74,
+       -145,
+       "chest",
+       26
+      ],
+      [
+       253,
+       74,
+       -146,
+       "chest",
+       4
+      ],
+      [
+       253,
+       74,
+       -147,
+       "chest",
+       6
+      ],
+      [
+       247,
+       74,
+       -144,
+       "chest",
+       27
+      ],
+      [
+       246,
+       74,
+       -143,
+       "chest",
+       0
+      ],
+      [
+       245,
+       74,
+       -143,
+       "chest",
+       15
+      ],
+      [
+       247,
+       74,
+       -142,
+       "chest",
+       27
+      ],
+      [
+       249,
+       75,
+       -144,
+       "chest",
+       3
+      ],
+      [
+       248,
+       74,
+       -144,
+       "chest",
+       27
+      ],
+      [
+       247,
+       74,
+       -143,
+       "chest",
+       27
+      ],
+      [
+       249,
+       73,
+       -143,
+       "chest",
+       15
+      ],
+      [
+       248,
+       74,
+       -142,
+       "chest",
+       27
+      ],
+      [
+       250,
+       74,
+       -141,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 2,
+     "slots_used": 41,
+     "slots_total": 54,
+     "items": 208,
+     "full_containers": 0,
+     "full_stacks": 1,
+     "by_item": {
+      "oak_log": 44,
+      "gunpowder": 13,
+      "music_disc_13": 1,
+      "birch_log": 25,
+      "oak_planks": 7,
+      "music_disc_cat": 2,
+      "pumpkin_seeds": 3,
+      "stick": 9,
+      "string": 8,
+      "cobblestone": 64,
+      "stone_pickaxe": 3,
+      "gold_ingot": 1,
+      "wooden_pickaxe": 1,
+      "coal": 10,
+      "raw_copper": 9,
+      "melon_seeds": 2,
+      "iron_ingot": 3,
+      "bread": 1,
+      "bone": 2
+     },
+     "positions": [
+      [
+       223,
+       -9,
+       -129,
+       "chest",
+       26
+      ],
+      [
+       225,
+       -9,
+       -129,
+       "chest",
+       15
+      ]
+     ]
+    }
+   }
+  },
+  "placebo-b": {
+   "home": [
+    282,
+    65,
+    -388
+   ],
+   "bands": {
+    "core": {
+     "containers": 30,
+     "slots_used": 334,
+     "slots_total": 810,
+     "items": 8879,
+     "full_containers": 7,
+     "full_stacks": 112,
+     "by_item": {
+      "oak_log": 3264,
+      "stick": 1684,
+      "wooden_pickaxe": 50,
+      "raw_copper": 189,
+      "oak_planks": 768,
+      "leaf_litter": 64,
+      "wooden_axe": 2,
+      "wooden_sword": 2,
+      "cobblestone": 2162,
+      "iron_ingot": 13,
+      "coal": 84,
+      "stone_pickaxe": 83,
+      "birch_log": 365,
+      "lapis_lazuli": 16,
+      "torch": 128,
+      "iron_pickaxe": 1,
+      "raw_iron": 3,
+      "copper_ingot": 1
+     },
+     "positions": [
+      [
+       285,
+       64,
+       -386,
+       "chest",
+       4
+      ],
+      [
+       285,
+       64,
+       -389,
+       "chest",
+       8
+      ],
+      [
+       285,
+       65,
+       -387,
+       "chest",
+       1
+      ],
+      [
+       284,
+       64,
+       -387,
+       "chest",
+       12
+      ],
+      [
+       284,
+       64,
+       -390,
+       "chest",
+       6
+      ],
+      [
+       284,
+       65,
+       -389,
+       "chest",
+       5
+      ],
+      [
+       282,
+       64,
+       -388,
+       "chest",
+       27
+      ],
+      [
+       283,
+       64,
+       -388,
+       "chest",
+       27
+      ],
+      [
+       281,
+       64,
+       -388,
+       "chest",
+       27
+      ],
+      [
+       278,
+       64,
+       -379,
+       "chest",
+       13
+      ],
+      [
+       280,
+       64,
+       -378,
+       "chest",
+       6
+      ],
+      [
+       280,
+       63,
+       -378,
+       "chest",
+       15
+      ],
+      [
+       278,
+       62,
+       -377,
+       "chest",
+       22
+      ],
+      [
+       279,
+       63,
+       -379,
+       "chest",
+       27
+      ],
+      [
+       278,
+       62,
+       -379,
+       "chest",
+       27
+      ],
+      [
+       277,
+       63,
+       -377,
+       "chest",
+       9
+      ],
+      [
+       280,
+       64,
+       -379,
+       "chest",
+       8
+      ],
+      [
+       283,
+       53,
+       -378,
+       "chest",
+       9
+      ],
+      [
+       279,
+       62,
+       -377,
+       "chest",
+       27
+      ],
+      [
+       280,
+       62,
+       -377,
+       "chest",
+       27
+      ],
+      [
+       292,
+       64,
+       -378,
+       "chest",
+       2
+      ],
+      [
+       291,
+       62,
+       -378,
+       "chest",
+       1
+      ],
+      [
+       293,
+       64,
+       -378,
+       "chest",
+       4
+      ],
+      [
+       291,
+       62,
+       -375,
+       "chest",
+       4
+      ],
+      [
+       293,
+       63,
+       -376,
+       "chest",
+       7
+      ],
+      [
+       292,
+       62,
+       -376,
+       "chest",
+       0
+      ],
+      [
+       292,
+       62,
+       -378,
+       "chest",
+       1
+      ],
+      [
+       291,
+       62,
+       -377,
+       "chest",
+       3
+      ],
+      [
+       293,
+       63,
+       -377,
+       "chest",
+       5
+      ],
+      [
+       291,
+       62,
+       -376,
+       "chest",
+       0
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 5,
+     "slots_used": 0,
+     "slots_total": 135,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": [
+      [
+       251,
+       -20,
+       -435,
+       "chest",
+       0
+      ],
+      [
+       253,
+       -20,
+       -433,
+       "chest",
+       0
+      ],
+      [
+       252,
+       -19,
+       -355,
+       "chest",
+       0
+      ],
+      [
+       252,
+       -19,
+       -354,
+       "chest",
+       0
+      ],
+      [
+       302,
+       -41,
+       -341,
+       "chest",
+       0
+      ]
+     ]
+    }
+   }
+  },
+  "placebo-c": {
+   "home": [
+    355,
+    73,
+    147
+   ],
+   "bands": {
+    "core": {
+     "containers": 31,
+     "slots_used": 638,
+     "slots_total": 837,
+     "items": 16823,
+     "full_containers": 19,
+     "full_stacks": 208,
+     "by_item": {
+      "oak_log": 3912,
+      "stick": 1116,
+      "iron_ingot": 27,
+      "cobblestone": 6706,
+      "wooden_pickaxe": 62,
+      "stone_pickaxe": 145,
+      "birch_log": 293,
+      "coal": 189,
+      "oak_planks": 726,
+      "wooden_axe": 2,
+      "stone_axe": 2,
+      "birch_sapling": 30,
+      "jungle_log": 24,
+      "raw_copper": 352,
+      "copper_ingot": 30,
+      "lapis_lazuli": 38,
+      "stone_shovel": 4,
+      "dirt": 463,
+      "chest": 37,
+      "brown_egg": 97,
+      "wheat_seeds": 95,
+      "kelp": 120,
+      "furnace": 46,
+      "crafting_table": 80,
+      "oak_sapling": 399,
+      "leaf_litter": 675,
+      "brown_mushroom": 1,
+      "pointed_dripstone": 40,
+      "bamboo": 669,
+      "egg": 61,
+      "bucket": 8,
+      "sand": 10,
+      "stone_sword": 1,
+      "raw_iron": 23,
+      "apple": 5,
+      "flint": 27,
+      "porkchop": 4,
+      "oak_button": 2,
+      "pufferfish": 1,
+      "ladder": 12,
+      "armadillo_scute": 1,
+      "clay_ball": 4,
+      "oak_pressure_plate": 2,
+      "torch": 161,
+      "granite": 45,
+      "black_wool": 1,
+      "mutton": 1,
+      "salmon": 2,
+      "andesite": 29,
+      "white_wool": 1,
+      "dried_kelp": 12,
+      "cooked_porkchop": 2,
+      "cooked_mutton": 2,
+      "cocoa_beans": 6,
+      "glass": 3,
+      "birch_planks": 8,
+      "poppy": 1,
+      "tropical_fish": 2,
+      "melon_slice": 3,
+      "red_mushroom": 2,
+      "iron_pickaxe": 1
+     },
+     "positions": [
+      [
+       332,
+       72,
+       123,
+       "chest",
+       2
+      ],
+      [
+       332,
+       72,
+       122,
+       "chest",
+       8
+      ],
+      [
+       333,
+       68,
+       177,
+       "chest",
+       16
+      ],
+      [
+       333,
+       70,
+       177,
+       "chest",
+       2
+      ],
+      [
+       333,
+       69,
+       177,
+       "chest",
+       6
+      ],
+      [
+       342,
+       70,
+       140,
+       "chest",
+       15
+      ],
+      [
+       353,
+       73,
+       143,
+       "chest",
+       20
+      ],
+      [
+       356,
+       72,
+       143,
+       "chest",
+       10
+      ],
+      [
+       358,
+       73,
+       143,
+       "chest",
+       14
+      ],
+      [
+       355,
+       71,
+       146,
+       "chest",
+       27
+      ],
+      [
+       355,
+       71,
+       149,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       355,
+       74,
+       144,
+       "chest",
+       4
+      ],
+      [
+       353,
+       72,
+       144,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       149,
+       "chest",
+       15
+      ],
+      [
+       356,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       357,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       353,
+       72,
+       150,
+       "chest",
+       13
+      ],
+      [
+       358,
+       72,
+       145,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       146,
+       "chest",
+       27
+      ],
+      [
+       352,
+       72,
+       149,
+       "chest",
+       27
+      ],
+      [
+       354,
+       72,
+       147,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       150,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       151,
+       "chest",
+       27
+      ],
+      [
+       356,
+       72,
+       148,
+       "chest",
+       27
+      ],
+      [
+       355,
+       72,
+       149,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    },
+    "deep": {
+     "containers": 7,
+     "slots_used": 72,
+     "slots_total": 189,
+     "items": 870,
+     "full_containers": 0,
+     "full_stacks": 7,
+     "by_item": {
+      "cobblestone": 640,
+      "stone_pickaxe": 1,
+      "oak_log": 55,
+      "stick": 49,
+      "stone_shovel": 4,
+      "raw_copper": 52,
+      "iron_ingot": 1,
+      "wooden_pickaxe": 3,
+      "gunpowder": 12,
+      "leather": 5,
+      "string": 14,
+      "beetroot_seeds": 10,
+      "bucket": 1,
+      "bread": 1,
+      "wheat": 1,
+      "rotten_flesh": 10,
+      "music_disc_cat": 2,
+      "gold_ingot": 1,
+      "coal": 2,
+      "golden_apple": 1,
+      "enchanted_book": 1,
+      "bone": 4
+     },
+     "positions": [
+      [
+       359,
+       39,
+       167,
+       "chest",
+       16
+      ],
+      [
+       359,
+       -1,
+       172,
+       "chest",
+       17
+      ],
+      [
+       360,
+       -1,
+       172,
+       "chest",
+       0
+      ],
+      [
+       359,
+       38,
+       167,
+       "chest",
+       1
+      ],
+      [
+       359,
+       37,
+       167,
+       "chest",
+       7
+      ],
+      [
+       365,
+       15,
+       184,
+       "chest",
+       15
+      ],
+      [
+       367,
+       15,
+       181,
+       "chest",
+       16
+      ]
+     ]
+    }
+   }
+  },
+  "placebo-d": {
+   "home": [
+    177,
+    75,
+    73
+   ],
+   "bands": {
+    "core": {
+     "containers": 13,
+     "slots_used": 304,
+     "slots_total": 351,
+     "items": 8887,
+     "full_containers": 9,
+     "full_stacks": 120,
+     "by_item": {
+      "torch": 128,
+      "raw_iron": 8,
+      "birch_log": 3441,
+      "cobblestone": 4336,
+      "wooden_pickaxe": 32,
+      "oak_log": 110,
+      "stone_axe": 2,
+      "coal": 120,
+      "oak_planks": 3,
+      "stick": 271,
+      "stone_pickaxe": 93,
+      "raw_copper": 175,
+      "iron_ingot": 22,
+      "lapis_lazuli": 75,
+      "iron_pickaxe": 1,
+      "cobbled_deepslate": 63,
+      "copper_ingot": 6,
+      "stone": 1
+     },
+     "positions": [
+      [
+       176,
+       74,
+       73,
+       "chest",
+       27
+      ],
+      [
+       178,
+       74,
+       73,
+       "chest",
+       27
+      ],
+      [
+       176,
+       74,
+       74,
+       "chest",
+       27
+      ],
+      [
+       177,
+       74,
+       73,
+       "chest",
+       27
+      ],
+      [
+       178,
+       74,
+       75,
+       "chest",
+       27
+      ],
+      [
+       178,
+       74,
+       74,
+       "chest",
+       27
+      ],
+      [
+       186,
+       75,
+       78,
+       "chest",
+       24
+      ],
+      [
+       188,
+       75,
+       78,
+       "chest",
+       27
+      ],
+      [
+       188,
+       75,
+       80,
+       "chest",
+       0
+      ],
+      [
+       187,
+       75,
+       81,
+       "chest",
+       19
+      ],
+      [
+       189,
+       74,
+       80,
+       "chest",
+       27
+      ],
+      [
+       189,
+       76,
+       81,
+       "chest",
+       18
+      ],
+      [
+       186,
+       75,
+       80,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "ring": {
+     "containers": 2,
+     "slots_used": 46,
+     "slots_total": 54,
+     "items": 1126,
+     "full_containers": 1,
+     "full_stacks": 15,
+     "by_item": {
+      "cobblestone": 760,
+      "birch_log": 290,
+      "stick": 34,
+      "oak_planks": 6,
+      "stone_pickaxe": 17,
+      "iron_ingot": 8,
+      "oak_log": 3,
+      "wooden_pickaxe": 5,
+      "wooden_sword": 1,
+      "copper_ingot": 2
+     },
+     "positions": [
+      [
+       137,
+       69,
+       77,
+       "chest",
+       19
+      ],
+      [
+       136,
+       68,
+       77,
+       "chest",
+       27
+      ]
+     ]
+    },
+    "deep": {
+     "containers": 0,
+     "slots_used": 0,
+     "slots_total": 0,
+     "items": 0,
+     "full_containers": 0,
+     "full_stacks": 0,
+     "by_item": {},
+     "positions": []
+    }
+   }
+  }
+ },
+ "fleet_by_item": {
+  "core": {
+   "cobblestone": 83620,
+   "oak_log": 36247,
+   "stick": 14118,
+   "birch_log": 7744,
+   "oak_planks": 6896,
+   "leaf_litter": 6507,
+   "bamboo": 6058,
+   "dirt": 5664,
+   "raw_copper": 5086,
+   "oak_sapling": 3937,
+   "coal": 2457,
+   "torch": 2050,
+   "sand": 1748,
+   "stone_pickaxe": 1518,
+   "wheat_seeds": 1074,
+   "andesite": 857,
+   "wooden_pickaxe": 855,
+   "crafting_table": 783,
+   "brown_egg": 728,
+   "egg": 515,
+   "granite": 469,
+   "cobbled_deepslate": 467,
+   "lapis_lazuli": 437,
+   "diorite": 422,
+   "iron_ingot": 410,
+   "kelp": 386,
+   "birch_sapling": 385,
+   "copper_ingot": 352,
+   "apple": 308,
+   "furnace": 307,
+   "armadillo_scute": 304,
+   "flint": 281,
+   "clay_ball": 276,
+   "gravel": 179,
+   "pointed_dripstone": 172,
+   "raw_iron": 169,
+   "chest": 165,
+   "jungle_log": 156,
+   "ink_sac": 141,
+   "wildflowers": 93,
+   "ladder": 89,
+   "sandstone": 83,
+   "bucket": 54,
+   "melon_slice": 50,
+   "glass": 46,
+   "moss_block": 44,
+   "dripstone_block": 36,
+   "wooden_axe": 33,
+   "birch_planks": 28,
+   "cocoa_beans": 27,
+   "dried_kelp": 25,
+   "stone_shovel": 25,
+   "poppy": 24,
+   "oak_button": 22,
+   "stone_sword": 20,
+   "brown_mushroom": 20,
+   "stone_axe": 18,
+   "mutton": 16,
+   "glow_ink_sac": 15,
+   "wooden_shovel": 15,
+   "wooden_sword": 14,
+   "wheat": 14,
+   "stone": 14,
+   "stone_bricks": 12,
+   "red_mushroom": 12,
+   "dandelion": 11,
+   "salmon": 10,
+   "iron_pickaxe": 9,
+   "jungle_sapling": 9,
+   "calcite": 9,
+   "amethyst_shard": 8,
+   "redstone": 8,
+   "bamboo_block": 6,
+   "white_wool": 5,
+   "tropical_fish": 5,
+   "rail": 5,
+   "porkchop": 5,
+   "sugar_cane": 4,
+   "brown_wool": 4,
+   "oak_pressure_plate": 4,
+   "cooked_mutton": 4,
+   "lead": 4,
+   "orange_terracotta": 4,
+   "cooked_cod": 4,
+   "red_terracotta": 3,
+   "melon_seeds": 3,
+   "cooked_porkchop": 3,
+   "dark_oak_sapling": 3,
+   "prismarine_crystals": 3,
+   "amethyst_block": 3,
+   "smooth_basalt": 3,
+   "magma_block": 2,
+   "tuff": 2,
+   "feather": 2,
+   "tnt": 2,
+   "rose_bush": 2,
+   "beef": 2,
+   "firefly_bush": 1,
+   "cracked_stone_bricks": 1,
+   "red_bed": 1,
+   "light_gray_wool": 1,
+   "charcoal": 1,
+   "pumpkin": 1,
+   "jungle_planks": 1,
+   "azure_bluet": 1,
+   "acacia_log": 1,
+   "oak_door": 1,
+   "mossy_cobblestone": 1,
+   "bell": 1,
+   "moss_carpet": 1,
+   "cod": 1,
+   "mossy_stone_brick_slab": 1,
+   "peony": 1,
+   "diamond": 1,
+   "birch_button": 1,
+   "potion": 1,
+   "glow_berries": 1,
+   "dark_oak_fence": 1,
+   "pufferfish": 1,
+   "black_wool": 1
+  },
+  "ring": {
+   "cobblestone": 1529,
+   "birch_log": 292,
+   "oak_log": 261,
+   "raw_copper": 105,
+   "stick": 97,
+   "oak_planks": 70,
+   "stone_pickaxe": 43,
+   "lapis_lazuli": 28,
+   "oak_sapling": 28,
+   "coal": 26,
+   "iron_ingot": 20,
+   "brown_egg": 17,
+   "dirt": 16,
+   "cobbled_deepslate": 15,
+   "wheat_seeds": 13,
+   "wooden_pickaxe": 7,
+   "apple": 6,
+   "flint": 5,
+   "furnace": 5,
+   "chest": 3,
+   "egg": 2,
+   "copper_ingot": 2,
+   "lead": 1,
+   "wooden_sword": 1
+  },
+  "deep": {
+   "cobblestone": 1574,
+   "oak_log": 577,
+   "stick": 160,
+   "gunpowder": 119,
+   "bone": 98,
+   "string": 78,
+   "oak_sapling": 69,
+   "raw_copper": 64,
+   "coal": 60,
+   "beetroot_seeds": 58,
+   "leaf_litter": 54,
+   "leather": 51,
+   "oak_planks": 45,
+   "rotten_flesh": 42,
+   "stone_pickaxe": 35,
+   "sand": 34,
+   "iron_ingot": 29,
+   "birch_log": 27,
+   "wheat": 22,
+   "cobbled_deepslate": 15,
+   "bread": 11,
+   "bucket": 10,
+   "wooden_pickaxe": 10,
+   "armadillo_scute": 10,
+   "enchanted_book": 9,
+   "egg": 9,
+   "music_disc_cat": 8,
+   "bamboo": 8,
+   "brown_egg": 8,
+   "stone_shovel": 7,
+   "wheat_seeds": 6,
+   "ladder": 6,
+   "crafting_table": 5,
+   "redstone": 4,
+   "gold_ingot": 4,
+   "dripstone_block": 3,
+   "furnace": 3,
+   "golden_apple": 3,
+   "pumpkin_seeds": 3,
+   "beef": 2,
+   "raw_iron": 2,
+   "melon_seeds": 2,
+   "red_bed": 1,
+   "jungle_log": 1,
+   "jungle_sapling": 1,
+   "sandstone": 1,
+   "kelp": 1,
+   "acacia_log": 1,
+   "apple": 1,
+   "chest": 1,
+   "music_disc_13": 1
+  }
+ },
+ "categories": {
+  "core": {
+   "stone_material": 84087,
+   "other_misc": 124,
+   "tool_usable": 1365,
+   "tool_spent": 1142,
+   "V_wood": 71255,
+   "V_utility": 3448,
+   "J_plant_litter": 8167,
+   "V_food": 449,
+   "V_ores_gems_fuel": 8159,
+   "V_ingots": 762,
+   "J_ballast": 9705,
+   "V_saplings": 4334,
+   "J?_unused_drops": 2273,
+   "J_bad_food": 1
+  },
+  "ring": {
+   "J?_unused_drops": 24,
+   "J_ballast": 16,
+   "stone_material": 1544,
+   "tool_usable": 37,
+   "V_ores_gems_fuel": 159,
+   "V_wood": 720,
+   "other_misc": 1,
+   "V_saplings": 28,
+   "V_food": 6,
+   "J_plant_litter": 13,
+   "V_utility": 8,
+   "V_ingots": 22,
+   "tool_spent": 14
+  },
+  "deep": {
+   "J?_unused_drops": 373,
+   "tool_usable": 30,
+   "J_plant_litter": 124,
+   "V_utility": 25,
+   "V_food": 39,
+   "V_ingots": 33,
+   "stone_material": 1589,
+   "V_ores_gems_fuel": 130,
+   "tool_spent": 22,
+   "J_bad_food": 42,
+   "other_misc": 19,
+   "V_wood": 819,
+   "J_ballast": 38,
+   "V_saplings": 70
+  }
+ },
+ "tools": {
+  "ring|wooden_pickaxe": {
+   "usable": 2,
+   "unworn": 1,
+   "spent": 5
+  },
+  "ring|stone_pickaxe": {
+   "usable": 34,
+   "unworn": 2,
+   "spent": 9
+  },
+  "core|stone_pickaxe": {
+   "usable": 863,
+   "unworn": 85,
+   "spent": 655
+  },
+  "core|wooden_pickaxe": {
+   "usable": 436,
+   "unworn": 86,
+   "spent": 419
+  },
+  "core|stone_sword": {
+   "spent": 1,
+   "unworn": 4,
+   "usable": 19
+  },
+  "core|wooden_sword": {
+   "spent": 3,
+   "unworn": 5,
+   "usable": 11
+  },
+  "core|iron_pickaxe": {
+   "usable": 8,
+   "unworn": 2,
+   "spent": 1
+  },
+  "core|wooden_shovel": {
+   "spent": 13,
+   "unworn": 0,
+   "usable": 2
+  },
+  "core|wooden_axe": {
+   "spent": 19,
+   "unworn": 3,
+   "usable": 14
+  },
+  "core|stone_shovel": {
+   "spent": 21,
+   "unworn": 0,
+   "usable": 4
+  },
+  "core|stone_axe": {
+   "usable": 8,
+   "unworn": 1,
+   "spent": 10
+  },
+  "deep|stone_pickaxe": {
+   "usable": 22,
+   "unworn": 3,
+   "spent": 13
+  },
+  "deep|stone_shovel": {
+   "spent": 6,
+   "unworn": 0,
+   "usable": 1
+  },
+  "deep|wooden_pickaxe": {
+   "usable": 7,
+   "unworn": 2,
+   "spent": 3
+  },
+  "ring|wooden_sword": {
+   "usable": 1,
+   "unworn": 1
+  }
+ },
+ "stone_material_by_town": {
+  "board-a": 7198,
+  "board-b": 3047,
+  "board-c": 7480,
+  "board-d": 6842,
+  "hive-a": 8190,
+  "hive-b": 2347,
+  "hive-c": 4593,
+  "hive-d": 8245,
+  "isolated-a": 7591,
+  "isolated-b": 5290,
+  "isolated-c": 5528,
+  "isolated-d": 3797,
+  "placebo-a": 1456,
+  "placebo-b": 2162,
+  "placebo-c": 6706,
+  "placebo-d": 5159
+ },
+ "reserve": 256,
+ "stone_excess": 81535
+}

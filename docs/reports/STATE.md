@@ -84,6 +84,16 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   no-junk fix is live, with the exact list shown to the owner first. 09-27 chests: 124,894 items, 42% cobblestone,
   but 16k logs, 6.8k sticks, 865 stone pickaxes while 45/80 bots lack a usable pickaxe.
 
+- **CHEST CENSUS 10-04 02:52Z (read-only, every slot answered; docs/reports/census/):** bank = 375 containers near
+  the 16 homes, 197,863 items, 228/375 full, 73% of slots used. Valuable: 897 usable stone pickaxes (640 > half), 438
+  wooden, 8 iron; iron ingots 430; logs 44,701; sticks 14,215; chests 168 -- while 45/80 bots lack a usable pickaxe.
+  Junk (proposed): 100,593 items / 3,125 slots (42%): cobblestone above 256/town 81,535; spent tools 1,156; ballast
+  9,721; seeds/litter 8,180. Manifest for the owner: docs/reports/chest-clear-manifest-2026-10-04.md (NOT RUN; after
+  the no-junk fix; owner decides eggs/scutes/flint/clay/ink 2,297 and decorations 125).
+  **SECURITY:** /tmp/scan2.py on 10.0.0.31 holds hive-b's RCON password in plain text and it was printed into this
+  session's output while searching for the old census. Owner asked to rotate it and delete the file (and /tmp/scan.py).
+  I do not touch credentials.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
