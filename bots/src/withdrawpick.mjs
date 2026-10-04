@@ -201,13 +201,14 @@ export const WITHDRAW_NO_BACKOFF = new Set(['recount_unanswered', 'chest_no_room
 export const HOLD_MS = 10 * 60 * 1000
 
 /** The withdraw row (`_withdraw_pick`, from the order AND the model's verb): key=value, outcome first, the containers
- *  last (logEvent cuts at 300 characters). srv= is the server-recounted change of the bag. */
-export function withdrawRow ({ outcome, need, uses = null, verification = 'none', cursor = '-', err = null, chestRoom = null, srv = '-',
+ *  last (logEvent cuts at 300 characters). srv= is the server-recounted change of the bag; plan= the names planned to
+ *  LEAVE it (room-making deposits and trades) -- a read can flag a server-counted fall of any name not in plan=. */
+export function withdrawRow ({ outcome, need, uses = null, verification = 'none', cursor = '-', err = null, chestRoom = null, srv = '-', plan = '-',
                                bagBefore = 0, bagAfter = 0, deposited = [], took = {}, verb = 'withdraw_pick', tried = [] } = {}) {
   const dep = deposited.map(d => `${d.name}:${d.count}`).join(',') || '-'
   const tk = Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   const clean = v => String(v ?? '-').replace(/\s+/g, '_').slice(0, 40)
   return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} cursor=${clean(cursor)} err=${clean(err)} ` +
-          `chest_room=${chestRoom ?? '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} verb=${verb} ` +
+          `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} verb=${verb} ` +
           `tried=[${tried.join(';')}]`).slice(0, 300)
 }

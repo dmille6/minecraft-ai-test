@@ -301,6 +301,9 @@ await t('R1.2 ONE USABLE COPY ALWAYS STAYS, through the real deposit: [spent, sp
     const r = await SKILLS.deposit.run({ bot: w.bot }, {}, sig())
     return { w, r, inChest: w.containers.get('5,64,0').slots.filter(x => x?.name === 'stone_pickaxe') }
   }
+  // the allowance itself (what admission, the prompt and the plan count), and then the transfer
+  assert.ok(!depositPlan([tool('stone_pickaxe', 129), tool('stone_pickaxe', 125), tool('stone_pickaxe', 30)]).some(e => e.name === 'stone_pickaxe'), 'allowance 0')
+  assert.equal(depositPlan([tool('stone_pickaxe', 30), tool('stone_pickaxe', 40)]).find(e => e.name === 'stone_pickaxe')?.count, 1, 'allowance 1')
   const a = await run([tool('stone_pickaxe', 129), tool('stone_pickaxe', 125), tool('stone_pickaxe', 30), stack('cobblestone', 30)])
   assert.equal(a.inChest.length, 0, 'no copy banked: two are spent and the good one is the last usable')
   assert.equal(a.w.bag.filter(x => x?.name === 'stone_pickaxe' && x.durabilityUsed === 30).length, 1)
@@ -397,12 +400,121 @@ await t('R1.10 THE ROW: cursor, err, chest_room and the server-recounted change,
   const w = withServer(town([stack('stick', 3)], [stack('stick', 40), tool('stone_pickaxe', 30)]))
   await withdraw(w.bot, { item: 'stick', count: 2 })
   const row = lastRowOf('withdraw')
-  assert.match(row, /^outcome=took need=stick:2 .*verification=server cursor=empty err=- chest_room=25 srv=stick:\+2 /)
+  assert.match(row, /^outcome=took need=stick:2 .*verification=server cursor=empty err=- chest_room=25 plan=- srv=stick:\+2 /)
   clearWithdrawHolds()
   const w2 = withServer(town([], [tool('stone_pickaxe', 30)]))
   await pick(w2.bot)
   assert.match(lastRowOf('withdraw_pick'), /srv=stone_pickaxe:\+1 /)
   assert.equal(bagDelta([stack('stick', 1)], [stack('stick', 3)]), 'stick:+2')
+})
+
+// ---------------------------------------------------------------- review round 2 ---
+const fullChestWithPick = () => [...Array.from({ length: 26 }, () => stack('cobblestone', 64)), tool('stone_pickaxe', 30)]
+const fullBag = () => [...junk(34), stack('cobblestone', 64), stack('stone', 20)]
+const stopHold = bot => { try { bot.inventoryUnsettled?.stop?.() } catch {} }
+const wait = ms => new Promise(r => setTimeout(r, ms))
+/** Wrap the fake's clicks: `hook(n, slot, button, mode, w)` runs AFTER click n (1-based). */
+const afterClick = (w, hook) => { const click = w.bot.clickWindow.bind(w.bot); let n = 0; w.bot.clickWindow = async (slot, button, mode) => { n++; await click(slot, button, mode); hook(n, slot, button, mode) } }
+
+await t('R2.1 CODEX REPRO: an auto-pickup fills the emptied bag slot before click 3 -- no blind swap, nothing dropped, the window held open', async () => {
+  const w = withServer(town(fullBag(), fullChestWithPick()))
+  afterClick(w, (n, slot) => { if (n === 1) w._bagSlot = slot; if (n === 2) w.bag[w._bagSlot - 27] = stack('dirt', 64) })
+  const r = await pick(w.bot)
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.equal(w.dropped.length, 0, 'nothing dropped')
+  assert.ok(w.bot.inventoryUnsettled, 'the bot is marked: nowhere to put the pickaxe, so the window stays open')
+  assert.ok(w.bot.currentWindow, 'never a loaded close')
+  assert.equal(count(w.bag, 'dirt'), 64, 'the dirt was not swapped off its slot')
+  const adm = new AdmissionControl().check({ skill: 'explore', args: {} }, w.bot)
+  assert.equal(adm.ok, false); assert.equal(adm.reason, 'inventory_unsettled')
+  stopHold(w.bot)
+})
+
+await t('R2.1 the same, with room in the chest: the pickaxe goes into an empty chest slot; cursor empty; unsettled', async () => {
+  const w = withServer(town(fullBag(), [...Array.from({ length: 25 }, () => stack('cobblestone', 64)), tool('stone_pickaxe', 30)]))
+  // 26 stacks + 1 empty: the plan banks the stone into the empty slot (no trade) -- force the trade path with a full chest
+  w.stock(5, 64, 0, fullChestWithPick())
+  afterClick(w, (n, slot) => { if (n === 1) w._bagSlot = slot; if (n === 2) { w.bag[w._bagSlot - 27] = stack('dirt', 64); w.containers.get('5,64,0').slots[3] = null } })
+  const r = await pick(w.bot)
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.equal(w.dropped.length, 0); assert.equal(w.bot.inventoryUnsettled ?? null, null); assert.equal(w.bot.currentWindow, null)
+  assert.equal(w.containers.get('5,64,0').slots[3]?.name, 'stone_pickaxe', 'the pickaxe went into the free chest slot')
+})
+
+await t('R2.2 CODEX REPRO: a recovery click that stalls past the budget -- no loaded close, no late second click; the window closes once the cursor is empty', async () => {
+  const w = withServer(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]))
+  const click = w.bot.clickWindow.bind(w.bot)
+  let first = true, stalled = 0
+  w.bot.clickWindow = async (slot, button, mode) => {
+    if (button === 1 && first) { first = false; throw new Error('injected: the right-click failed') }
+    // every click into the chest with a loaded cursor stalls 4.5 s: longer than the 3-s budget AND the 1-s retry tick
+    if (slot < 27 && button === 0 && w.bot.currentWindow?.selectedItem && !first) { stalled++; await wait(4500) }
+    return click(slot, button, mode)
+  }
+  const r = await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.equal(w.dropped.length, 0, 'no close with 38 sticks on the cursor')
+  assert.ok(w.bot.inventoryUnsettled && w.bot.currentWindow, 'held open while the click is pending')
+  await wait(3500)
+  assert.equal(stalled, 1, 'no second click while the first is pending')
+  assert.equal(w.bot.inventoryUnsettled ?? null, null, 'cleared once the cursor is empty')
+  assert.equal(w.bot.currentWindow, null, 'and the window closed')
+  assert.equal(w.dropped.length, 0)
+  assert.equal(count(w.bag, 'stick') + w.containers.get('5,64,0').slots.filter(Boolean).reduce((k, x) => k + (x.name === 'stick' ? x.count : 0), 0), 102, 'every stick accounted for')
+})
+
+for (const [label, replace, expectOk] of [
+  ['emptied', () => null, false],
+  ['refilled with the same copy', () => tool('stone_pickaxe', 30), true],
+  ['refilled with something else', () => stack('dirt', 1), false],
+]) {
+  await t(`R2.3 / 8 THE TRADE'S SOURCE CHANGES AFTER THE PICKUP (${label}): the stack goes back, nothing is put into the wrong slot, nothing dropped`, async () => {
+    const w = withServer(town(fullBag(), fullChestWithPick()))
+    afterClick(w, n => { if (n === 1) w.containers.get('5,64,0').slots[26] = replace() })
+    const r = await pick(w.bot)
+    assert.equal(w.dropped.length, 0); assert.equal(w.bot.currentWindow, null)
+    if (expectOk) { assert.equal(r.status, 'success', r.detail); return }
+    assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+    assert.equal(count(w.bag, 'stone'), 20, 'the stone is back in the bag')
+    assert.ok(!w.containers.get('5,64,0').slots.some(x => x?.name === 'stone'), 'and not in the chest')
+  })
+}
+
+await t('R2.4 CODEX REPRO: an ordinary deposit with wear [129, 30, 40] banks the WORST USABLE copy (40), never the spent one', async () => {
+  const w = town([tool('stone_pickaxe', 129), tool('stone_pickaxe', 30), tool('stone_pickaxe', 40), stack('cobblestone', 30)], [])
+  await SKILLS.deposit.run({ bot: w.bot }, {}, sig())
+  const inChest = w.containers.get('5,64,0').slots.filter(x => x?.name === 'stone_pickaxe')
+  assert.deepEqual(inChest.map(x => x.durabilityUsed), [40])
+  assert.deepEqual(w.bag.filter(x => x?.name === 'stone_pickaxe').map(x => x.durabilityUsed).sort((a, b) => a - b), [30, 129])
+})
+
+await t('R2.5 / 6 AN ABORT AFTER THE PICKUP: the model verb writes its row, with THIS transfer\'s cursor and plan', async () => {
+  const w = withServer(town([], [stack('stick', 40)]))
+  const ac = new AbortController()
+  afterClick(w, (n) => { if (n === 1) ac.abort() })
+  await assert.rejects(SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 5 }, ac.signal))
+  const row = lastRowOf('withdraw')
+  assert.match(row, /^outcome=aborted need=stick:5 /)
+  assert.match(row, /cursor=rescued /)
+  assert.equal(w.dropped.length, 0)
+})
+
+await t('R2.6 withdraw_pick\'s abort row reports the transfer that was aborted (plan, cursor), not an earlier visit', async () => {
+  const w = withServer(town(fullBag(), fullChestWithPick()))
+  const ac = new AbortController()
+  afterClick(w, (n) => { if (n === 1) ac.abort() })
+  await assert.rejects(SKILLS.withdraw_pick.run({ bot: w.bot }, {}, ac.signal))
+  const row = lastPickRow()
+  assert.match(row, /^outcome=aborted /)
+  assert.match(row, /chest_room=0 plan=stone /)
+  assert.match(row, /cursor=rescued /)
+  assert.equal(w.dropped.length, 0); assert.equal(count(w.bag, 'stone'), 20)
+})
+
+await t('R2.7 the row names what was planned to leave the bag', async () => {
+  const w = withServer(town(fullBag(), fullChestWithPick()))
+  await pick(w.bot)
+  assert.match(lastPickRow(), /plan=stone srv=/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

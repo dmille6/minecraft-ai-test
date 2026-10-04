@@ -317,6 +317,12 @@ export class AdmissionControl {
       }
     }
 
+    // A CURSOR THAT COULD NOT BE EMPTIED holds the chest window open (skills.mjs holdUnsettled, withdraw): nothing may
+    // run -- any inventory click would land past it, and a close would drop it -- until it settles.
+    if (bot?.inventoryUnsettled) {
+      return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
+    }
+
     // A WITHDRAW NAMES WHAT IT NEEDS (withdrawpick.mjs, Codex): the old bare form took the most plentiful item -- the
     // town's cobblestone -- into a bag that was already full.
     if (skill === 'withdraw') {
