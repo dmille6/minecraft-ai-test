@@ -93,7 +93,7 @@ await t('a tool that SURVIVES the dig is reported, not claimed', async () => {
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot } = fakeBot({ inv, toolBreaks: false })
   const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
-  assert.equal(r.status, 'failed'); assert.match(r.detail, /survived/)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /not confirmed destroyed/); assert.doesNotMatch(r.detail, /survived/, 'an unconfirmed dig is not a survivor')
 })
 
 const ground = (bot, { above = 'air', below = 'block' } = {}) => {
@@ -153,6 +153,32 @@ await t('no safe block beside the bot: nothing is dug, the failure says why', as
   const { bot, dug } = fakeBot({ inv, solidAround: false })
   const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'failed'); assert.equal(dug.length, 0); assert.match(r.detail, /no safe block/)
+})
+
+await t('DIAGNOSIS (logging only): "no safe block" carries a per-guard tally of why each cell was refused', async () => {
+  for (const [label, setup, want] of [
+    ['open air', bot => { bot.blockAt = p => ({ name: 'air', hardness: 0, boundingBox: 'empty', position: p }) }, /\[12 cells: not_natural 12\]/],
+    ['sapling', bot => { ground(bot, { above: 'oak_sapling' }); bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) } }, /above_not_air 4/],
+    ['cave', bot => { ground(bot, { below: 'empty' }); bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) } }, /no_support 4/],
+  ]) {
+    const inv = filled(36, [tool('stone_axe', 1)])
+    const { bot, dug } = fakeBot({ inv }); setup(bot)
+    const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+    assert.equal(dug.length, 0, label); assert.match(r.detail, /no safe block within reach \[12 cells: /, label); assert.match(r.detail, want, `${label}: ${r.detail}`)
+  }
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot } = fakeBot({ inv }); ground(bot)
+  bot.entity.position = { ...V(0.75, 64, 0.5), floored: () => V(0, 64, 0) }   // straddling onto x=1: its ground cell is the footprint
+  bot.entities = Object.fromEntries([[-1, 0], [0, 1], [0, -1]].map(([x, z], i) => [i, { position: V(x + 0.5, 63, z + 0.5) }]))
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+  assert.match(r.detail, /footprint 1/, r.detail); assert.match(r.detail, /occupied 3/, r.detail)
+})
+
+await t('DIAGNOSIS: an unconfirmed wear-out is reported as UNCONFIRMED with what its slot held, not as a survivor', async () => {
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot } = fakeBot({ inv, toolBreaks: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /not confirmed destroyed after the dig on dirt \(unconfirmed at \d+ ms, not a survivor: slot \d+ /)
 })
 
 await t('WIRING (source, comments stripped): the order precedes planting, is cooldown-gated, and pickup filters ballast; nothing tosses', () => {

@@ -30,7 +30,7 @@ import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool } from './toolfor.mjs'
-import { diffTools } from './toolwatch.mjs'
+import { diffTools, spentTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
@@ -286,6 +286,11 @@ function connect() {
         try {
           for (const d of diffTools(toolItemsBefore, now)) {
             logEvent({ kind: d.broke ? 'tool_broke' : 'tool_gone', status: 'no_effect', detail: `${d.name} x${d.lost}; the lost copy had ${d.least === Infinity ? '?' : d.least} of ${d.max ?? '?'} uses left`, snapshot: snapshot(bot) })
+          }
+          // THE LIVENESS ROW for spent tools being used up: a copy that reached 1 use BY USE. An axe/shovel/hoe goes on
+          // to break in use (toolfor.mjs hardStopFor) and logs tool_broke above; a pickaxe is kept for last_swing.
+          for (const d of spentTools(toolItemsBefore, now)) {
+            logEvent({ kind: 'tool_spent', status: 'no_effect', detail: `${d.name} x${d.spent}; reached 1 use (from ${d.from === Infinity ? '?' : d.from})`, snapshot: snapshot(bot) })
           }
         } catch {}
         toolItemsBefore = now
