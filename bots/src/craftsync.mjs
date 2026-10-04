@@ -64,6 +64,7 @@ export const CRAFT_SYNC = Object.freeze({
   rewriteStateId: true,  // arm B; false runs arm A alone (the sandbox's A-only arm, and the tests' A-only proof)
   verifyReserveMs: 600,  // clicks stop this long before the deadline so verification fits inside it
   preemptWaitMs: 2000,   // an inventory action waits at most this long for a craft to unwind
+  repairWaitMs: 3000,    // after a dropped click: how long the local-state repair waits for clicks/craft to clear
 })
 
 export const GUARDED_INVENTORY_ACTIONS = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack']
@@ -80,6 +81,8 @@ export async function confirmCursor (bot, win, opts = {}) {
 }
 /** How many underlying clicks are still in flight (craftsync's, across its own cap and teardown). */
 export const clicksInFlight = bot => (typeof bot?.craftSync?.inflight === 'function' ? bot.craftSync.inflight() : 0)
+/** Every click issued before now is dropped at its send (inflight.mjs invalidate); -> live tickets touched, or 0. */
+export const invalidateClicks = (bot, reason) => (typeof bot?.craftSync?.invalidate === 'function' ? bot.craftSync.invalidate(reason) : 0)
 
 /**
  * THE SERVER'S BAG for a caller outside a craft -> { source, items } (controller.recount). Without craftsync (its install
@@ -231,6 +234,26 @@ export function installCraftSync (bot, opts = {}) {
   })
   bot._client.on('set_cursor_item', (p) => { touch('cursor'); cursorStatement('any', p?.contents) })
   bot._client.on('set_player_inventory', () => touch(0))
+
+  // THE WINDOW-BOUND SEND (withdraw round 5, Codex P1): every click craftsync dispatches carries a ticket naming the
+  // window it was issued for (inflight.mjs). A window_click whose window is not that one, or whose ticket was
+  // invalidated (a release, a cancel, a visit's end), is DROPPED here -- below every lockstep wrapper, so it is the last
+  // word before the wire -- and the local state mineflayer already changed for it is repaired from the server.
+  const baseWrite = bot._client.write
+  let dropped = 0
+  const filterWrite = function (name, params) {
+    if (name === 'window_click') {
+      const v = inflight.admit(params)
+      if (!v.ok) {
+        dropped++
+        log({ event: 'click_dropped', slot: params?.slot, windowId: params?.windowId, why: v.why })
+        scheduleRepair(v.why)
+        return undefined
+      }
+    }
+    return baseWrite.call(this, name, params)
+  }
+  bot._client.write = filterWrite
   const lastPacketAt = (win) => Math.max(lastAt.get(win) ?? 0, lastAt.get(0) ?? 0, lastAt.get('cursor') ?? 0)
 
   /** Why should this craft stop clicking? null = keep going. */
@@ -286,13 +309,68 @@ export function installCraftSync (bot, opts = {}) {
     return { count, source }
   }
 
+  /** mineflayer 4.37.1's own dig-cooldown wait, verbatim (inventory.js clickWindow). Its clock mismatch is copied too
+   *  (lastDigTime is performance.now(), compared with new Date()), so mineflayer never sleeps after this has returned. */
+  async function digCooldown (slot) {
+    if (!(slot >= bot.QUICK_BAR_START && bot.lastDigTime != null)) return
+    let since
+    while ((since = new Date() - bot.lastDigTime) < 500) await sleep(500 - since)
+  }
+
+  /** After a dropped click: mineflayer already applied it locally, so take the window back from the server --
+   *  a clone probe on the open window (full window_items and the cursor), or, with none open, the window-0 recount
+   *  and the server's cursor for it. Coalesced; bounded; logged. */
+  let repairing = null
+  function scheduleRepair (why) {
+    if (repairing) { repairing.again = true; return }
+    const job = repairing = { again: false }
+    ;(async () => {
+      do {
+        job.again = false
+        await inflight.waitSettled(cfg.repairWaitMs)
+        const until = now() + cfg.repairWaitMs
+        while ((active || zombie) && now() < until) await sleep(cfg.pollMs)
+        const win = bot.currentWindow
+        let how = 'busy'
+        if (!active && !zombie && !inflight.size) {
+          if (win) {
+            const r = await confirmCursor(win, { deadline: now() + 1500 })
+            how = r.answered ? 'window_probe' : `window_probe_${r.why}`
+          } else {
+            const r = await recount({ deadline: now() + 3000 })
+            if (r.source === 'server') {
+              const c = lastCarried.get(0)
+              let item = null
+              if (c && (c.itemCount ?? 0) > 0) { try { item = ItemFor(bot).fromNotch(c) } catch { item = null } }
+              if (bot.inventory) bot.inventory.selectedItem = item?.name && item.name !== 'unknown' ? item : null
+            }
+            how = `recount_${r.source}`
+          }
+        }
+        log({ event: 'click_drop_repair', how, why })
+      } while (job.again)
+    })().catch(() => {}).finally(() => { if (repairing === job) repairing = null })
+  }
+
   /** mineflayer's click, never waited on longer than clickCapMs -- and a cap REJECTS. A rejection that arrives
    *  after the craft moved on is swallowed here (an unhandled rejection kills the bot) and changes nothing. */
-  async function cappedClick (st, orig, slot, button, mode) {
+  async function cappedClick (st, orig, slot, button, mode, bound = {}) {
     let settled = false, failed = false, error = null
-    const p = (async () => orig.call(bot, slot, button, mode))()   // a synchronous throw becomes a rejection
+    const ticket = inflight.bind({ windowId: bound.windowId ?? (bot.currentWindow || bot.inventory)?.id ?? 0, slot, button, mode, epoch: bound.epoch })
+    const p = (async () => {
+      // mineflayer 4.37.1 sleeps out a dig cooldown BEFORE it reads the window. That sleep happens here instead, with
+      // the same expression, so that inside mineflayer the read and the write are synchronous -- inside dispatch(),
+      // where the write hook can tell this click's packet from anyone else's.
+      await digCooldown(slot)
+      const q = inflight.dispatch(ticket, () => orig.call(bot, slot, button, mode))
+      if (ticket.dropped) {
+        Promise.resolve(q).catch(() => {})
+        throw Object.assign(new Error(`craftsync: click on slot ${slot} dropped: ${ticket.dropped}`), { clickDropped: true })
+      }
+      return q
+    })()
     p.then(() => { settled = true }, (e) => { settled = true; failed = true; error = e })
-    inflight.track(p)
+    inflight.track(p, ticket)
     const start = now()
     while (!settled) {
       if (now() - start >= cfg.clickCapMs) {
@@ -332,6 +410,7 @@ export function installCraftSync (bot, opts = {}) {
       const why = stopReason(st)
       if (why) { st.refused = why; throw new Error(`craftsync: ${why}`) }
       const win = (bot.currentWindow || bot.inventory)?.id ?? 0
+      const issuedIn = inflight.epoch   // the click is FOR this window, as of now (an invalidation during the resync counts)
       if (win !== 0 && !st.resynced.has(win)) {
         st.resynced.add(win)
         await resync(st, win, clickPhase)          // written below the hook: not counted, not rewritten
@@ -340,7 +419,7 @@ export function installCraftSync (bot, opts = {}) {
       }
       st.clicks++
       st.awaitingSince = now()
-      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)
+      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode, { windowId: win, epoch: issuedIn })
       await waitQuiet(st, win, clickPhase)
     }
 
@@ -678,7 +757,8 @@ export function installCraftSync (bot, opts = {}) {
 
   bot.craft = craft
   const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft, recount, lockstep, confirmCursor,
-                       inflight: () => inflight.size, inflightSettled: () => inflight.settled() }
+                       inflight: () => inflight.size, inflightSettled: () => inflight.settled(),
+                       invalidate: reason => inflight.invalidate(reason), dropped: () => dropped, tracker: inflight }
   bot.craftSync = controller
   return controller
 }

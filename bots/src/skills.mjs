@@ -47,7 +47,7 @@ import { STORAGE_NEAR, townDistance } from './composter.mjs'
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS } from './withdrawpick.mjs'
 import { setWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
-import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight } from './craftsync.mjs'
+import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
 import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
@@ -5978,12 +5978,21 @@ async function settleCursor (bot, win, { budgetMs = CURSOR_SETTLE_MS, cancelled 
 const GUARDED = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack', 'closeWindow']
 function ownInventory (bot, win) {
   const orig = {}, mine = {}
-  const refuse = name => async () => { throw Object.assign(new Error(`inventory held: a withdraw owns the inventory (${name} refused)`), { inventoryHeld: true }) }
+  let restored = false
+  // A guard that outlives its restore PASSES THROUGH (round 5): a release during a lockstep finds craftsync's wrappers
+  // layered on top of these, so restore() cannot unhook them, and the lockstep's own restore later puts THESE back.
+  // Without the pass-through, equip would stay refused for good after a survival release.
+  const refuse = name => async function (...args) {
+    if (restored) return orig[name].apply(bot, args)
+    throw Object.assign(new Error(`inventory held: a withdraw owns the inventory (${name} refused)`), { inventoryHeld: true })
+  }
   for (const k of GUARDED) if (typeof bot[k] === 'function') { orig[k] = bot[k]; bot[k] = mine[k] = refuse(k) }
   const origClose = win.close?.bind(win)
-  const lockedClose = () => { throw Object.assign(new Error('inventory held: the window may not close while a withdraw owns it'), { inventoryHeld: true }) }
+  const lockedClose = (...args) => {
+    if (restored) return origClose?.(...args)
+    throw Object.assign(new Error('inventory held: the window may not close while a withdraw owns it'), { inventoryHeld: true })
+  }
   win.close = lockedClose
-  let restored = false
   return {
     close () { try { origClose?.() } catch { /* already closed */ } },
     restore () {
@@ -6026,16 +6035,17 @@ async function junkSwap (bot, win, cancelled) {
  * it is never closed on: a close with a loaded cursor drops it unless the bag has room. The hold takes over the visit's
  * inventory ownership (ownInventory). While held:
  *   B/H  a survival reflex calls bot.inventoryUnsettled.release('reflex:<name>'): the window CLOSES AT ONCE -- no settle,
- *        no recount first; a loaded stack is never worth a death. The retry stops (it checks `done` after every await),
- *        the ownership lock stays until every in-flight click has settled (bounded by drainMs, logged if not), and the
- *        row is written afterwards, with the server's recount. A late click lands on a dead window id; nothing here
- *        re-issues it.
+ *        no recount first; a loaded stack is never worth a death. Then every in-flight click is INVALIDATED (craftsync
+ *        drops its send: a late click must not land in window 0 or a replacement window -- round 5, Codex P1), and the
+ *        inventory is unlocked at once, so the reflex can equip and eat. The retry stops (it checks `done` after every
+ *        await); the row is written afterwards, with the server's recount (drain_timeout logged if clicks outlive
+ *        drainMs). Nothing here re-issues a click.
  *   D    every retry hears cancellation after every await and before every click; the end listener is removed.
  *   E    the SERVER closing the window (moved away, chest broken, death) ends the hold: how=server_closed.
  *   L    ANY hold older than interventionMs raises intervention_needed (and a no-capacity hold at once), every interval.
  *   N    a no-capacity hold older than loadedMs applies loadedMode(): hold (default) | close | junkswap.
  * Rows: `_withdraw_settled` how=settled | released | server_closed | intervention_needed | closed_loaded | junkswapped |
- * disconnected | ownership_timeout. srv=bag=N is the server's recount (the truth); carried_local= is the client's view.
+ * disconnected | drain_timeout. srv=bag=N is the server's recount (the truth); carried_local= is the client's view.
  */
 function holdUnsettled (bot, win, u, own) {
   const since = Date.now()
@@ -6052,7 +6062,9 @@ function holdUnsettled (bot, win, u, own) {
     })().catch(() => {})
   }
   const onEnd = () => { finish('disconnected', { close: false }) }
-  // THE END, at once: the close is synchronous; ownership and the mark go when every in-flight click has settled.
+  // THE END, at once (round 5, Codex P1): close -> invalidate every in-flight click (craftsync drops its send, so
+  // nothing stale can land in this window, window 0 or a later one) -> unlock -> then, async, the recount and the row.
+  // A survival reflex reaches equip/consume the moment release() returns.
   function finish (how, { close = true, extra = '' } = {}) {
     if (done) return
     done = true
@@ -6060,13 +6072,15 @@ function holdUnsettled (bot, win, u, own) {
     bot.removeListener?.('end', onEnd)
     const held = carriedLocal()   // the client's view as the hold ended -- read BEFORE the close
     if (close && bot.currentWindow === win) own.close()
+    invalidateClicks(bot, `withdraw ${how}`)
+    own.restore()
+    bot.inventoryUnsettled = null
     ;(async () => {
+      // The recount waits (bounded) for the invalidated clicks to settle, so it counts what the server holds after them.
       if (!(await waitClicks(bot, HOLD_TIMING.drainMs))) {
         logEvent({ kind: 'withdraw_settled', status: 'failed', snapshot: snapshot(bot),
-                   detail: `how=ownership_timeout after_ms=${Date.now() - since} a click was still in flight ${HOLD_TIMING.drainMs} ms after the close` })
+                   detail: `how=drain_timeout after_ms=${Date.now() - since} a click was still in flight ${HOLD_TIMING.drainMs} ms after the close (invalidated: its send is dropped)` })
       }
-      own.restore()
-      bot.inventoryUnsettled = null
       writeRow(how, how === 'settled' ? 'success' : 'no_effect', how !== 'disconnected', held, extra)
     })().catch(() => {})
   }
@@ -6275,7 +6289,7 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
     if (unresolved) holdUnsettled(bot, win, unresolved, own)
     else {
       own.close()
-      await waitClicks(bot, HOLD_TIMING.drainMs)
+      invalidateClicks(bot, 'withdraw visit end')   // a late click is dropped at its send, so the unlock need not wait
       own.restore()
     }
   }

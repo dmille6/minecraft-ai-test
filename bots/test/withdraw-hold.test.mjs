@@ -21,7 +21,7 @@ freshPool()
 const { SKILLS, loadedMode, HOLD_TIMING } = await import('../src/skills.mjs')
 const { survivalRelease } = await import('../src/withdrawpick.mjs')
 const { clearWithdrawHolds } = await import('../src/bankable.mjs')
-const { installCraftSync } = await import('../src/craftsync.mjs')
+const { installCraftSync, lockstepClicks } = await import('../src/craftsync.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
 const { fakeWorld, stack, tool, total } = await import('./fakeworld.mjs')
 
@@ -45,10 +45,13 @@ const withServer = w => {
   return w
 }
 /** The REAL craftsync over a stub client that answers resyncs and clone probes with the fake's own truth. */
-const withRealCraftSync = (w, opts = {}) => {
+const withRealCraftSync = (w, opts = {}, { silentProbe = false } = {}) => {
   const c = new EventEmitter()
+  w.sent = []   // every ordinary window_click that reached the "server" (craftsync's write filter is in front of this)
   c.write = (name, p) => {
+    if (name === 'window_click' && p.stateId !== -1) w.sent.push(p)
     if (name !== 'window_click' || p.stateId !== -1) return
+    if (silentProbe && p.mode === 3) return
     const win = p.windowId === 0 ? null : w.bot.currentWindow
     const sel = win?.selectedItem
     setTimeout(() => c.emit('window_items', { windowId: p.windowId, stateId: 9, items: [], carriedItem: sel ? { itemCount: sel.count } : { itemCount: 0 } }), 20)
@@ -126,7 +129,7 @@ await t('B/H/M. A SURVIVAL RELEASE closes AT ONCE; the row follows, with the ser
   assert.match(row, /released_by_reflex:lava/)
 })
 
-await t('H. A RELEASE WITH A CLICK STILL IN FLIGHT: closed now, ownership kept until the click settles, no click re-issued', async () => {
+await t('H/P1-b. A RELEASE WITH A CLICK STILL IN FLIGHT: closed now, UNLOCKED now, no click re-issued, one end row', async () => {
   const w = withServer(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]))
   const click = w.bot.clickWindow.bind(w.bot)
   let first = true, calls = 0
@@ -134,31 +137,26 @@ await t('H. A RELEASE WITH A CLICK STILL IN FLIGHT: closed now, ownership kept u
     calls++
     if (button === 1 && first) { first = false; throw new Error('injected: the right-click failed') }
     if (slot < 27 && button === 0 && w.bot.currentWindow?.selectedItem && !first) { await wait(6_000) }   // run returns at ~3 s; release at ~4.2 s
-    return click(slot, button, mode)   // after the close the fake's click lands on no window: a dead window id
+    return click(slot, button, mode)
   }
   const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
   assert.equal(r.failClass, 'transfer_unsettled', r.detail)
   assert.ok(w.bot.inventoryUnsettled)
   await wait(1_200)                                  // a retry tick is now running, blocked on the in-flight click
-  await w.bot.inventoryUnsettled.release('reflex:fall')
-  assert.equal(w.bot.currentWindow, null, 'closed at once')
-  const after = calls
-  await wait(300)
-  await assert.rejects(w.bot.equip(w.bag.find(Boolean), 'hand'), /inventory held/, 'ownership kept while the click is in flight')
-  assert.ok(w.bot.inventoryUnsettled, 'the mark stays with the ownership')
-  for (let i = 0; i < 80 && w.bot.inventoryUnsettled; i++) await wait(100)
-  assert.equal(w.bot.inventoryUnsettled ?? null, null, 'released once the click settled')
   const rowsAt = settledRows().length
-  await wait(1_500)                                  // past where a retry tick would have clicked again
+  await w.bot.inventoryUnsettled.release('reflex:damage')
+  assert.equal(w.bot.currentWindow, null, 'closed at once')
+  assert.equal(w.bot.inventoryUnsettled ?? null, null, 'the mark is gone at once')
+  await w.bot.equip(w.bag.find(Boolean), 'hand')     // the reflex can equip (and eat) the moment release() returns
+  const after = calls
+  await wait(3_500)                                  // past the click's settling and where a retry tick would click again
   assert.equal(calls, after, 'no click re-issued after the release')
-  await wait(300)
-  const ends = settledRows().slice(rowsAt - 1).filter(d => !/^how=intervention_needed /.test(d))
+  const ends = settledRows().slice(rowsAt).filter(d => !/^how=intervention_needed /.test(d))
   assert.deepEqual(ends.map(d => d.split(' ')[0]), ['how=released'], 'one end, and the retry did not go on to end it again')
-  await w.bot.equip(w.bag.find(Boolean), 'hand')
-  assert.match(settledRows().at(-1), /^how=released /)
+  assert.match(ends[0], /released_by_reflex:damage/)
 })
 
-await t('H. A CLICK THAT NEVER SETTLES: the ownership goes at the bounded deadline, and that is logged (ownership_timeout)', async () => {
+await t('H. A CLICK THAT NEVER SETTLES: the unlock does not wait for it; the row waits (bounded) and says so (drain_timeout)', async () => {
   const keep = HOLD_TIMING.drainMs
   HOLD_TIMING.drainMs = 500
   try {
@@ -173,12 +171,70 @@ await t('H. A CLICK THAT NEVER SETTLES: the ownership goes at the bounded deadli
     const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
     assert.equal(r.failClass, 'transfer_unsettled', r.detail)
     await w.bot.inventoryUnsettled.release('reflex:fall')
-    await assert.rejects(w.bot.equip(w.bag.find(Boolean), 'hand'), /inventory held/, 'held until the deadline')
+    await w.bot.equip(w.bag.find(Boolean), 'hand')   // unlocked at once
     await wait(1_200)
-    assert.ok(settledRows().some(d => /^how=ownership_timeout /.test(d)), 'the timeout is logged')
-    assert.equal(w.bot.inventoryUnsettled ?? null, null)
-    await w.bot.equip(w.bag.find(Boolean), 'hand')   // bounded: the bot is not locked forever by a lost click
+    assert.ok(settledRows().some(d => /^how=drain_timeout /.test(d)), 'the drain timeout is logged')
+    assert.match(settledRows().at(-1), /^how=released /, 'and the row still follows')
   } finally { HOLD_TIMING.drainMs = keep }
+})
+
+/** mineflayer 4.37.1's click path, minimal: the dig cooldown, THEN the window read, THEN the send. The fake applies a
+ *  click only if it was sent (craftsync's write filter sits in front of the stub server). */
+const mineflayerClicks = w => {
+  const apply = w.bot.clickWindow.bind(w.bot)
+  w.bot.QUICK_BAR_START = 36
+  w.bot.clickWindow = async (slot, button, mode) => {
+    if (slot >= w.bot.QUICK_BAR_START && w.bot.lastDigTime != null) { let s; while ((s = new Date() - w.bot.lastDigTime) < 500) await wait(500 - s) }
+    const win = w.bot.currentWindow || w.bot.inventory
+    const n = w.sent.length
+    w.bot._client.write('window_click', { windowId: win?.id ?? 0, stateId: 1, slot, mouseButton: button, mode })
+    if (w.sent.length === n) return undefined
+    return apply(slot, button, mode)
+  }
+  return w
+}
+await t('P1-b. REAL CRAFTSYNC: a late click in mineflayer\'s cooldown at the release is DROPPED, not sent; equip works at once and stays working', async () => {
+  const w = mineflayerClicks(withRealCraftSync(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]), {}, { silentProbe: true }))
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
+  assert.equal(r.failClass, 'transfer_unsettled', `held for want of server evidence: ${r.detail}`)
+  assert.ok(w.sent.length > 0, 'positive control: the transfer\'s clicks were sent through the same path')
+  const before = { sent: w.sent.length, bag: JSON.stringify(w.bag.map(x => x && `${x.name}:${x.count}`)) }
+  w.bot.lastDigTime = new Date()
+  const late = lockstepClicks(w.bot, c => c(40, 0, 0))   // issued for the chest, now waiting out the cooldown
+  late.catch(() => {})
+  await wait(100)
+  await w.bot.inventoryUnsettled.release('reflex:damage')
+  const t0 = Date.now()
+  await w.bot.equip(w.bag.find(Boolean), 'hand')
+  assert.ok(Date.now() - t0 < 300, `equip at once (${Date.now() - t0} ms)`)
+  await late.catch(() => {})                          // the equip preempts the lockstep: it stops WAITING; the click goes on
+  for (let i = 0; i < 100 && w.bot.craftSync.inflight() > 0; i++) await wait(20)
+  assert.equal(w.bot.craftSync.inflight(), 0, 'the underlying click has settled')
+  assert.equal(w.bot.craftSync.dropped(), 1, 'it was dropped at its send')
+  assert.equal(w.sent.length, before.sent, 'the late click never reached the server')
+  assert.equal(JSON.stringify(w.bag.map(x => x && `${x.name}:${x.count}`)), before.bag, 'and moved nothing')
+  await wait(200)
+  await w.bot.equip(w.bag.find(Boolean), 'hand')     // still working after the lockstep unwound (no guard left behind)
+})
+
+await t('P1-b. THE RELEASE INVALIDATES: a late click is dropped even when the next window REUSES the id (Paper wraps ids mod 100)', async () => {
+  const w = mineflayerClicks(withRealCraftSync(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]), {}, { silentProbe: true }))
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  const sent = w.sent.length
+  w.bot.lastDigTime = new Date()
+  const late = lockstepClicks(w.bot, c => c(40, 0, 0))
+  late.catch(() => {})
+  await wait(100)
+  await w.bot.inventoryUnsettled.release('reflex:damage')
+  const again = await w.bot.openContainer(w.bot.blockAt({ x: 5, y: 64, z: 0 }))   // a new window, same id
+  assert.equal(again.id, 1, 'positive control: the id is reused, so the window binding alone cannot tell')
+  const bag = JSON.stringify(w.bag.map(x => x && `${x.name}:${x.count}`))
+  await late.catch(() => {})
+  for (let i = 0; i < 100 && w.bot.craftSync.inflight() > 0; i++) await wait(20)
+  assert.equal(w.sent.length, sent, 'the late click never reached the server')
+  assert.equal(JSON.stringify(w.bag.map(x => x && `${x.name}:${x.count}`)), bag)
+  assert.equal(w.bot.craftSync.dropped(), 1)
 })
 
 await t('I. AN EQUIP RACING THE CURSOR PROBE on an ordinary successful transfer is refused (real craftsync)', async () => {

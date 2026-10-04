@@ -21,6 +21,9 @@ export async function trial (mod, { wrap = true, opts = {}, item = 'wooden_picka
                  write: bot._client.write, equip: bot.equip }
   const rows = []
   if (wrap) mod.installCraftSync(bot, { log: r => rows.push(r), ...opts })
+  // The install's own send filter (round 5: the window-bound send, below every craft wrapper) is permanent by design;
+  // "restored" means the CRAFT's wrappers are gone, so the write it is compared with is the one after the install.
+  orig.write = bot._client.write
   const recipe = recipeFor(bot, server, item, table)
   if (before) await before({ server, bot })
   const startWrite = server.writes.length
