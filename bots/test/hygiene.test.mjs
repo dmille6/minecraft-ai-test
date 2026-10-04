@@ -181,6 +181,40 @@ await t('DIAGNOSIS: an unconfirmed wear-out is reported as UNCONFIRMED with what
   assert.equal(r.status, 'failed'); assert.match(r.detail, /not confirmed destroyed after the dig on dirt \(unconfirmed at \d+ ms, not a survivor: slot \d+ /)
 })
 
+// THE LATE LOOK (logging only): what the slot SHOWS a few hundred ms later in the suite (5 s in production); a bot that
+// DIED or ended inside the window reports `unknown`, never an empty slot (a death empties the bag).
+const { tapRecords } = await import('../src/logger.mjs')
+const lateRows = []
+tapRecords(r => { if (r?.skill?.name === '_wear_out_late') lateRows.push(r.skill.detail.split(':')[0]) })
+async function lateLook (after) {
+  await new Promise(res => setTimeout(res, 800))   // drain the late looks of earlier tests' unconfirmed digs
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot } = fakeBot({ inv, toolBreaks: false })
+  const listeners = {}
+  bot.once = (ev, fn) => { (listeners[ev] ??= []).push(fn) }
+  bot.removeListener = (ev, fn) => { listeners[ev] = (listeners[ev] ?? []).filter(f => f !== fn) }
+  bot.health = 20
+  const slots = []; for (const x of inv) slots[x.slot] = x
+  bot.inventory.slots = slots
+  lateRows.length = 0
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+  after(bot, listeners, slots)
+  await new Promise(res => setTimeout(res, 800))
+  return { r, rows: [...lateRows] }
+}
+await t('LATE LOOK: the slot is observed, not interpreted -- same_name_at_one_use / slot_empty', async () => {
+  const still = await lateLook(() => {})
+  assert.match(still.r.detail, /not confirmed destroyed/); assert.deepEqual(still.rows, ['same_name_at_one_use'])
+  const gone = await lateLook((bot, l, slots) => { slots.length = 0 })
+  assert.deepEqual(gone.rows, ['slot_empty'])
+})
+await t('LATE LOOK: a bot that DIED (or ended) inside the window reports unknown, not slot_empty', async () => {
+  const dead = await lateLook((bot, l, slots) => { slots.length = 0; for (const fn of l.death ?? []) fn() })
+  assert.deepEqual(dead.rows, ['unknown'])
+  const ended = await lateLook((bot, l, slots) => { slots.length = 0; for (const fn of l.end ?? []) fn() })
+  assert.deepEqual(ended.rows, ['unknown'])
+})
+
 await t('WIRING (source, comments stripped): the order precedes planting, is cooldown-gated, and pickup filters ballast; nothing tosses', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const cog = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))

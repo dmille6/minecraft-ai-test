@@ -1286,7 +1286,12 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   if (lastSwing) {
     const outcome = spentEquipOutcome({ chosen, held: bot.heldItem, handOk: handHarvests(block) })
     if (outcome === 'hand') {
-      await emptyHand(bot)
+      const heldWas = bot.heldItem ? `${bot.heldItem.name} at ${remaining(bot.heldItem)} use(s)` : 'nothing'
+      const how = await emptyHand(bot)
+      // ITS FREQUENCY IS THE POINT (Claude review): how often a chosen spent copy did not reach the hand.
+      logEvent({ kind: 'spent_equip_fallback', status: DIG_TOOL_RE.test(bot.heldItem?.name ?? '') ? 'failed' : 'success', snapshot: snapshot(bot),
+                 detail: `${block.name}: chose ${chosen.name} at ${chosen.left} use(s), hand held ${heldWas} after the equip; ` +
+                         `emptied the hand (${how}), digging bare-handed` })
       if (DIG_TOOL_RE.test(bot.heldItem?.name ?? '')) {
         throw Object.assign(new Error(`equip_failed: could not hold the spent ${tool.name} nor empty the hand for ${block.name}`), { failClass: 'equip_failed' })
       }
@@ -4768,7 +4773,8 @@ async function wearOut(ctx, _args, signal) {
  */
 const WEAR_CONFIRM_MS = Math.max(300, Math.min(1500, config.skills.defaultTimeoutMs))
 /** When the late look at an unconfirmed survivor happens (logging only; not on the skill's clock). */
-const WEAR_LATE_MS = 5_000
+// Production 5 s; scaled down with the suite's skill budget (SKILL_TIMEOUT_MS=300) so the late look is testable.
+const WEAR_LATE_MS = Math.max(300, Math.min(5_000, config.skills.defaultTimeoutMs))
 async function wearOutOne(ctx, tool, signal, { cellOk = null, sidesOnly = false } = {}) {
   const { bot } = ctx
   const spentOf = name => (bot.inventory?.items?.() ?? []).filter(i => i.name === name && remaining(i) === 1).length
@@ -4838,14 +4844,17 @@ async function wearOutOne(ctx, tool, signal, { cellOk = null, sidesOnly = false 
     // slot SHOWS then (slotObservation) and whether the block is still there; the read decides what it means.
     const nowSlot = Number.isInteger(heldSlot) ? bot.inventory?.slots?.[heldSlot] : undefined
     const was = block.name, at = block.position
-    let ended = false
-    const onEnd = () => { ended = true }
+    // A bot that ended or DIED inside the window: its slot says nothing about the dig (a death empties the bag).
+    let ended = false, died = false
+    const onEnd = () => { ended = true }, onDeath = () => { died = true }
     bot.once?.('end', onEnd)
+    bot.once?.('death', onDeath)
     const late = setTimeout(() => {
       try {
         bot.removeListener?.('end', onEnd)
+        bot.removeListener?.('death', onDeath)
         const it = Number.isInteger(heldSlot) ? bot.inventory?.slots?.[heldSlot] : undefined
-        const alive = !ended && !!bot.entity && !(Number.isFinite(bot.health) && bot.health <= 0)
+        const alive = !ended && !died && !!bot.entity && !(Number.isFinite(bot.health) && bot.health <= 0)
         const seen = slotObservation({ slotKnown: Number.isInteger(heldSlot) && Array.isArray(bot.inventory?.slots), item: it, name: tool.name, alive })
         const blockNow = at ? bot.blockAt?.(at)?.name ?? '?' : '?'
         logEvent({ kind: 'wear_out_late', status: 'no_effect', snapshot: snapshot(bot),

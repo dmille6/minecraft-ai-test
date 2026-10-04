@@ -220,7 +220,11 @@ process.env.LOG_DIR = `/tmp/mcbot-test-logs-toolfor-spent-${process.pid}`; proce
 const { collectManually } = await import('../src/skills.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
 const rows = []
-tapRecords(r => { if (/^_(last_swing|spent_swing)$/.test(r?.skill?.name ?? '')) rows.push(`${r.skill.name.slice(1)}:${r.skill.detail.match(/with a (\S+ at \d+)/)?.[1]}`) })
+tapRecords(r => {
+  const k = r?.skill?.name ?? ''
+  if (/^_(last_swing|spent_swing)$/.test(k)) rows.push(`${k.slice(1)}:${r.skill.detail.match(/with a (\S+ at \d+)/)?.[1]}`)
+  if (k === '_spent_equip_fallback') rows.push(`spent_equip_fallback:${r.skill.status}:${r.skill.detail.match(/chose (\S+ at \d+)/)?.[1]}`)
+})
 const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c), distanceTo: o => Math.hypot(x - o.x, y - o.y, z - o.z), floored: () => V(Math.floor(x), Math.floor(y), Math.floor(z)) })
 // A server that wears the held tool one use per broken block and removes it at 0 -- AFTER deciding the drop, as vanilla
 // does. Cells of `name` in a row beside the bot; each dig turns its cell to air. `equipTakes(it)` false = the server
@@ -305,7 +309,7 @@ async function chain (name, tools, digs, opts) {
     await t('EQUIP REJECTED (pickaxe): the 100-use copy in hand is NOT used; equip_failed, nothing dug, no spent_swing row', () => {
       assert.deepEqual(r.bot.swings, [], `dug with ${r.bot.swings}`)
       assert.deepEqual(r.errs, ['equip_failed'])
-      assert.equal(remaining(healthy), 100); assert.deepEqual(r.rows, [])
+      assert.equal(remaining(healthy), 100); assert.deepEqual(r.rows, [], 'a refused pickaxe is not a fallback')
     })
   }
   {
@@ -314,7 +318,8 @@ async function chain (name, tools, digs, opts) {
     await t('EQUIP REJECTED (axe): falls back to the HAND -- the 100-use axe is taken out and not worn; no equip_failed, no spent_swing', () => {
       assert.deepEqual(r.bot.swings, ['hand'])
       assert.deepEqual(r.errs, [])
-      assert.equal(remaining(healthy), 100); assert.equal(remaining(spent), 1); assert.deepEqual(r.rows, [])
+      assert.equal(remaining(healthy), 100); assert.equal(remaining(spent), 1)
+      assert.deepEqual(r.rows, ['spent_equip_fallback:success:stone_axe at 1'], 'the fallback is counted (one row), and no spent_swing')
     })
   }
 }
