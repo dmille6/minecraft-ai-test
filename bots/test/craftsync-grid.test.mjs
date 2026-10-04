@@ -174,7 +174,10 @@ await t('table craft aborted: unchanged -- mineflayer closes the table, no extra
   assert.equal(bag(r.server, 'bamboo'), 10)
   assert.equal(closes0(r.writes), 1, 'only the baseline closes window 0')
   assert.ok(r.writes.some(w => w.name === 'close_window' && w.params.windowId !== 0), 'mineflayer closes the table')
-  assert.equal(r.rows[0].args.grid_clear, null)
+  // the table grid click's wait died with the table (mineflayer drops a closed window's packets): released, not sat out
+  assert.equal(r.rows[0].args.dead_waits_released, 1, 'POSITIVE CONTROL: the table click must have been left waiting')
+  assert.equal(r.rows[0].args.inflight_wait_expired, false)
+  assert.equal(r.rows[0].args.grid_clear, 'na_no_clicks')
 })
 
 await t('no signal, clean 2x2 craft: unchanged -- two closes (baseline, verify), two resyncs, grid_clear null', async () => {
@@ -183,7 +186,7 @@ await t('no signal, clean 2x2 craft: unchanged -- two closes (baseline, verify),
   assert.equal(bag(r.server, 'stick'), 1)
   assert.equal(closes0(r.writes), 2)
   assert.equal(r.writes.filter(w => w.name === 'window_click' && w.params.stateId === -1).length, 2)
-  assert.equal(r.rows[0].args.grid_clear, null)
+  assert.equal(r.rows[0].args.grid_clear, 'na_clean')
   assert.equal(r.rows[0].args.confirmed, 'yes')
 })
 
@@ -195,36 +198,71 @@ await t('the BASELINE close clears a stale local cursor too: a craft after an ol
 })
 
 // ------------------------------------------------------------------ review round (Codex, reproduced; Claude)
-await t('P1 THE FENCE: a click mineflayer still holds (after-a-dig hotbar delay) when the craft stops is dropped, not sent after the clear', async () => {
-  // Codex's repro: slots 9-35 full, bamboo in hotbar slot 36, a recent dig delays mineflayer's pick-up click ~500 ms;
-  // the abort lands inside that delay. Before the fence the clear finished first and the delayed click then picked
-  // the stack up: bag 10 -> 0, cursor 10, with grid_clear already written as yes.
-  const inv = { 36: ['bamboo', 10] }
-  for (let s = 9; s <= 35; s++) inv[s] = ['dirt', 64]
-  let delayedSince = null
+const fillHotbarCase = () => { const inv = { 36: ['bamboo', 10] }; for (let s = 9; s <= 35; s++) inv[s] = ['dirt', 64]; return inv }
+
+await t('P1 A CLICK HELD BY THE AFTER-DIG DELAY WHEN THE CRAFT STOPS IS NEVER ISSUED (craftsync waits the delay out itself)', async () => {
+  // Codex's repro: slots 9-35 full, bamboo in hotbar slot 36, a recent dig delays the pick-up click ~500 ms; the
+  // abort lands inside that delay. The click must never reach mineflayer: no write, no local application.
   const r = await gridTrial({
-    inv,
+    inv: fillHotbarCase(),
     before: ({ bot, abort }) => {
       let armed = false
       bot._client.on('window_items', (p) => {          // the baseline resync's answer: the pick-up click is next
         if (armed || p.windowId !== 0) return
         armed = true
         bot.lastDigTime = new Date()                     // mineflayer: a hotbar click within 500 ms of a dig waits
-        delayedSince = Date.now()
-        setTimeout(abort, 200)                           // inside the delay, before the click is written
+        setTimeout(abort, 200)                           // inside the delay
       })
     },
   })
-  await new Promise(resolve => setTimeout(resolve, 700))   // past the delayed click's wake-up
+  await new Promise(resolve => setTimeout(resolve, 700))   // past the delay
   await r.server.settle()
-  assert.ok(delayedSince !== null && r.error?.aborted, `got ${r.error?.message}`)
-  assert.equal(r.rows[0].args.late_clicks_dropped, 1, 'POSITIVE CONTROL: the delayed click must have come, and been dropped')
-  assert.equal(r.server.cursor, null, 'the delayed click picked the stack up after the clear')
-  assert.equal(bag(r.server, 'bamboo'), 10)
+  const a = r.rows[0].args
+  assert.ok(r.error?.aborted, `got ${r.error?.message}`)
+  assert.ok(a.dig_delays > 0 && a.held_cancelled === 1, `POSITIVE CONTROL: the click must have been held, then cancelled (${a.dig_delays}, ${a.held_cancelled})`)
+  assert.equal(a.late_clicks_dropped, 0, 'nothing was issued, so nothing had to be dropped')
+  assert.equal(r.server.cursor, null); assert.equal(bag(r.server, 'bamboo'), 10); assert.equal(gridOf(r.server, false), 0)
+  assert.equal(r.bot.inventory.selectedItem, null); assert.equal(r.bot.inventory.slots[36]?.name, 'bamboo')
+  assert.equal(a.grid_clear, 'na_no_clicks', 'no window-0 click went out')
+  assert.equal(a.inflight_at_release, 0)
+})
+
+await t('P1 CODEX ROUND 3: the SECOND hotbar click held past the cleanup\'s inflight bound is never issued -- not by the hook, not after teardown', async () => {
+  // Both ingredients in the grid, 8 bamboo on the cursor; the put-away into hotbar slot 36 is then held by digs that
+  // keep re-arming the delay for 2.5 s -- longer than inflightWaitMs (1.5 s). Before: the hook dropped it at the
+  // bound while mineflayer had applied it locally (local cursor 10, row yes), or the restored writer sent it after
+  // the cleanup (server cursor 10, row still yes).
+  let rearm = null
+  const r = await gridTrial({
+    inv: fillHotbarCase(),
+    stopAt: (n, bot) => null,
+    before: ({ server, bot, abort }) => {
+      const recv = server.receive.bind(server)
+      let placed = 0, armed = false
+      server.receive = (name, params) => {
+        const out = recv(name, params)
+        if (!armed && name === 'window_click' && params.windowId === 0 && params.slot >= 1 && params.slot <= 4 && params.mouseButton === 1 && ++placed === 2) {
+          armed = true
+          const t0 = Date.now()
+          bot.lastDigTime = new Date()
+          rearm = setInterval(() => { if (Date.now() - t0 < 2500) bot.lastDigTime = new Date(); else clearInterval(rearm) }, 100)
+          setTimeout(abort, 200)
+        }
+        return out
+      }
+    },
+  })
+  await new Promise(resolve => setTimeout(resolve, 3000))   // past the re-arming and any late write
+  clearInterval(rearm)
+  await r.server.settle()
+  const a = r.rows[0].args
+  assert.ok(r.error?.aborted, `got ${r.error?.message}`)
+  assert.ok(a.held_cancelled === 1, `POSITIVE CONTROL: the put-away click must have been held, then cancelled (${a.held_cancelled})`)
+  assert.equal(r.server.cursor, null, 'the held click was written after all'); assert.equal(bag(r.server, 'bamboo'), 10)
   assert.equal(gridOf(r.server, false), 0)
-  assert.equal(r.rows[0].args.grid_clear, 'yes', 'the dropped click was applied locally: the clear must run and verify')
-  assert.equal(r.bot.inventory.selectedItem, null, 'mineflayer applied the dropped click locally; the local cursor must be clear')
-  assert.equal(r.bot.inventory.slots[36]?.name, 'bamboo', 'the local bag must be the server\'s again (slot 36 holds the bamboo)')
+  assert.equal(r.bot.inventory.selectedItem, null, 'mineflayer applied the held click locally')
+  assert.equal(a.grid_clear, 'yes'); assert.equal(a.inflight_at_release, 0); assert.equal(a.late_clicks_dropped, 0)
+  assert.equal(r.bot.craftSync.inflight(), 0)
 })
 
 await t('P2 a disconnect AFTER a preemption is still seen: nothing is sent after it, grid_clear=skipped_disconnected', async () => {
@@ -257,6 +295,8 @@ await t('P2 an ERROR exit (a grid click never answered) takes its verdict from t
   assert.equal(gridOf(r.server, false), 0)
   assert.equal(r.server.cursor, null)
   assert.equal(bag(r.server, 'bamboo'), 10)
+  // the lost grid click's own wait (slot 0's update) is answered by the verification's resync: nothing left in flight
+  assert.equal(r.rows[0].args.inflight_at_release, 0)
   assert.equal(r.rows[0].args.grid_clear, 'yes', `grid_clear=${r.rows[0].args.grid_clear}`)
   assert.equal(closes0(r.writes), 2, 'baseline + verification only: no extra close for the verdict')
 })
@@ -277,28 +317,157 @@ await t('Claude: a preempting reflex waits through a SLOW clear instead of timin
   assert.equal(r.rows[0].args.preempt_timeouts, 0)
 })
 
-await t('a reflex whose wait TIMED OUT is not fenced: its own click is sent, not dropped as stale', async () => {
-  // Reachable when the craft cannot unwind at once: a table craft still awaiting windowOpen sits out its grace
-  // before the cleanup starts, and a reflex with a 1 ms wait gives up inside it and runs with the hook installed.
-  let sent = null
+await t('P1 A CLICK THAT WRITES INSIDE THE BOUND is waited for before the close, dropped by the hook, and repaired locally: yes', async () => {
+  // The pick-up click (slot 36) is issued but writes 200 ms later (a pre-write wait craftsync does not own); the craft
+  // stops 50 ms after issuing it. No close may go out before it writes; when it does, the hook drops it and mineflayer
+  // has applied it locally -- the clear must then repair the local cursor.
+  const r = await gridTrial({
+    inv: fillHotbarCase(),
+    before: ({ bot, abort }) => {
+      const real = bot.clickWindow
+      let n = 0
+      bot.clickWindow = function (slot, b, m) {
+        if (++n === 1) {
+          setTimeout(abort, 50)
+          return new Promise(resolve => setTimeout(resolve, 200)).then(() => real.call(bot, slot, b, m))
+        }
+        return real.call(bot, slot, b, m)
+      }
+    },
+  })
+  const a = r.rows[0].args
+  assert.ok(r.error?.aborted, `got ${r.error?.message}`)
+  assert.equal(a.deferred_writes, 1, 'POSITIVE CONTROL: the click must have been issued without writing')
+  assert.equal(a.late_clicks_dropped, 1, 'POSITIVE CONTROL: the late write must have reached the hook and been dropped')
+  assert.equal(r.server.cursor, null); assert.equal(bag(r.server, 'bamboo'), 10)
+  assert.equal(r.bot.inventory.selectedItem, null, 'the dropped click was applied locally and never repaired')
+  assert.equal(r.bot.inventory.slots[36]?.name, 'bamboo')
+  assert.equal(a.grid_clear, 'yes', `grid_clear=${a.grid_clear}`)
+})
+
+await t('P1 A CLICK STILL UNWRITTEN AT THE RELEASE BOUND (a pre-write wait craftsync does not own) says unverified_inflight, never yes', async () => {
+  // The known pre-write wait is owned (above). For anything else, the release is bounded and the row is honest.
+  const r = await gridTrial({
+    opts: { inflightWaitMs: 300 },
+    before: ({ bot, abort }) => {
+      const real = bot.clickWindow
+      let n = 0
+      bot.clickWindow = function (slot, b, m) {          // the 2nd underlying click waits 2 s before mineflayer runs it
+        if (++n === 2) {
+          setTimeout(abort, 100)                         // the craft stops while that click is still unwritten
+          return new Promise(resolve => setTimeout(resolve, 2000)).then(() => real.call(bot, slot, b, m))
+        }
+        return real.call(bot, slot, b, m)
+      }
+    },
+  })
+  const a = r.rows[0].args
+  assert.ok(r.error?.aborted, `got ${r.error?.message}`)
+  assert.equal(a.deferred_writes, 1, 'POSITIVE CONTROL: one click must have been issued without writing')
+  assert.equal(a.inflight_wait_expired, true)
+  assert.equal(a.inflight_at_release, 1)
+  assert.equal(a.grid_clear, 'unverified_inflight')
+  await new Promise(resolve => setTimeout(resolve, 2200))   // let the deferred click land before the next test
+})
+
+await t('P1 A LOST WINDOW-0 GRID CLICK IS WAITED FOR, never released by fiat: the wait expires, the clear runs, unverified_inflight', async () => {
+  // The second grid click reaches the server but is never applied or answered; the craft is aborted right there.
+  // mineflayer's click waits for slot 0's update -- a window that is still open, so the wait is real, not dead.
+  let drop = false
+  const r = await gridTrial({
+    opts: { inflightWaitMs: 300 },
+    stopAt: n => { if (n === 1) drop = true; return null },
+    before: ({ server, abort }) => {
+      const recv = server.receive.bind(server)
+      server.receive = (name, params) => {
+        if (drop && name === 'window_click' && params.windowId === 0 && params.slot >= 1 && params.slot <= 4 && params.mouseButton === 1) {
+          drop = false; server.writes.push({ t: Date.now(), name, params }); abort(); return
+        }
+        return recv(name, params)
+      }
+    },
+  })
+  const a = r.rows[0].args
+  assert.ok(r.error?.aborted, `got ${r.error?.message}`)
+  assert.equal(a.dead_waits_released, 0, 'a window-0 wait is never released by fiat')
+  assert.equal(a.inflight_wait_expired, true, 'POSITIVE CONTROL: the lost click must have held the wait to its bound')
+  assert.equal(a.grid_clear, 'unverified_inflight')
+  assert.equal(gridOf(r.server, false), 0, 'the clear still ran after the bound'); assert.equal(bag(r.server, 'bamboo'), 10)
+})
+
+await t('P2 A REFLEX NEVER CLICKS WHILE THE CRAFT HOLDS THE INVENTORY: past even the release bound it fails busy instead', async () => {
+  // Codex: a reflex that ran on a timed-out wait clicked during the cleanup (grid ended with 10 bamboo). The table
+  // craft awaiting windowOpen sits out its 100 ms grace; every bound here is ~1 ms, so the release cannot come in time.
+  let ran = false
+  const r = await gridTrial({
+    table: true,
+    paper: { openDelayMs: 1500 },
+    opts: { preemptWaitMs: 1, inflightWaitMs: 1, gridClearCapMs: 1, quietCapMs: 1, resyncCapMs: 1 },
+    before: ({ bot }) => {
+      bot.equip = async () => { ran = true }
+      setTimeout(() => { bot.__equipP = bot.equip({ name: 'stone_sword' }, 'hand').then(() => null, e => e) }, 600)
+    },
+  })
+  const e = await r.bot.__equipP
+  await new Promise(resolve => setTimeout(resolve, 1200)); await r.server.settle()
+  assert.equal(r.rows[0].args.preempt_timeouts, 1, 'POSITIVE CONTROL: the release bound must have passed')
+  assert.equal(ran, false, 'the reflex clicked while the craft still held the inventory')
+  assert.equal(e?.failClass, 'craft_busy', `the reflex should fail busy, got ${e?.message}`)
+})
+
+await t('P2 ...and with the default release bound the same reflex simply waits: it runs after the release', async () => {
+  let busyAtRun = null
   const r = await gridTrial({
     table: true,
     paper: { openDelayMs: 1500 },
     opts: { preemptWaitMs: 1 },
-    before: ({ bot, server }) => {
-      bot.equip = async () => {                          // mineflayer's equip clicks below bot.clickWindow, as here
-        const before = server.writes.length
-        bot._client.write('window_click', { windowId: 0, stateId: -2, slot: 44, mouseButton: 0, mode: 0, changedSlots: [], cursorItem: { itemCount: 0 } })
-        sent = server.writes.length > before
-      }
-      setTimeout(() => { bot.__equipP = bot.equip({ name: 'stone_sword' }, 'hand') }, 600)   // the table is not open yet
+    before: ({ bot }) => {
+      bot.equip = async () => { busyAtRun = bot.craftSync.active() !== null }
+      setTimeout(() => { bot.__equipP = bot.equip({ name: 'stone_sword' }, 'hand') }, 600)
     },
   })
   await r.bot.__equipP
-  await new Promise(resolve => setTimeout(resolve, 1200)); await r.server.settle()   // let the late table open be refused
-  assert.ok(r.error?.aborted && /preempted by equip/.test(r.error.message), `got ${r.error?.message}`)
-  assert.equal(r.rows[0].args.preempt_timeouts, 1, 'POSITIVE CONTROL: the reflex must have run while the craft was still installed')
-  assert.equal(sent, true, 'the reflex\'s click was dropped as a stale craft click')
+  await new Promise(resolve => setTimeout(resolve, 1200)); await r.server.settle()
+  assert.equal(busyAtRun, false); assert.equal(r.rows[0].args.preempt_timeouts, 0)
+})
+
+await t('EVERY EXIT HAS A VERDICT: busy, an entry abort, an entry deadline, an admission refusal, a table craft, a 2x2 craft', async () => {
+  const seen = {}
+  const r = await gridTrial({ signal: false })                                 // a 2x2 success
+  seen.ok2x2 = r.rows[0].args.grid_clear
+  const { bot, recipe, rows } = r
+  const ac = new AbortController(); ac.abort()
+  const go = async (opts) => { try { await bot.craft(recipe, 1, undefined, opts) } catch {} ; return rows.at(-1).args.grid_clear }
+  seen.entryAbort = await go({ signal: ac.signal })
+  seen.entryDeadline = await go({ deadline: Date.now() - 1 })
+  seen.admission = await go({ admit: () => ({ ok: false, reason: 'test' }) })
+  const p1 = bot.craft(recipe, 1, undefined, {}).catch(() => {}); seen.busy = await go({}); await p1
+  const t = await gridTrial({ table: true, signal: false }); seen.table = t.rows[0].args.grid_clear
+  assert.deepEqual(seen, { ok2x2: 'na_clean', entryAbort: 'na_no_clicks', entryDeadline: 'na_no_clicks', admission: 'na_no_clicks',
+                           busy: 'na_no_clicks', table: 'na_no_clicks' })
+})
+
+await t('gridExitVerdict: the precedence the read gates on', () => {
+  const V = CS.gridExitVerdict
+  assert.equal(V({ outcome: 'aborted', w0Clicks: 3, disconnected: true, cleared: 'skipped_disconnected', inflightAtRelease: 1 }), 'skipped_disconnected')
+  assert.equal(V({ outcome: 'aborted', w0Clicks: 3, cleared: 'yes', inflightAtRelease: 1 }), 'unverified_inflight', 'in flight beats a yes')
+  assert.equal(V({ outcome: 'aborted', w0Clicks: 3, cleared: 'yes', lateAfterClear: 1 }), 'unverified_inflight', 'a drop after the clear beats a yes')
+  assert.equal(V({ outcome: 'aborted', w0Clicks: 3, cleared: 'yes', inflightWaitExpired: true }), 'unverified_inflight', 'an expired wait beats a later yes')
+  assert.equal(V({ outcome: 'aborted', w0Clicks: 3, cleared: 'yes' }), 'yes')
+  assert.equal(V({ outcome: 'ok', w0Clicks: 6, closeVerdict: { clear: 'no' } }), 'no', 'residue is never hidden, even on success')
+  assert.equal(V({ outcome: 'deadline', w0Clicks: 3, closeVerdict: { clear: 'yes' } }), 'yes')
+  assert.equal(V({ outcome: 'ok', w0Clicks: 6, closeVerdict: { clear: 'yes' } }), 'na_clean')
+  assert.equal(V({ outcome: 'refused', w0Clicks: 0 }), 'na_no_clicks')
+  assert.equal(V({ outcome: 'aborted', w0Clicks: 2 }), 'unverified_noverdict', 'clicks with no verdict are never n/a')
+  assert.equal(V({}), 'na_no_clicks')
+})
+
+await t('digDelayLeft is mineflayer\'s predicate: hotbar only, within 500 ms of a Date stamp; a performance.now() stamp never waits', () => {
+  const now = new Date(1_000_000)
+  assert.equal(CS.digDelayLeft({ slot: 36, lastDigTime: new Date(999_800), nowDate: now }), 300)
+  assert.equal(CS.digDelayLeft({ slot: 35, lastDigTime: new Date(999_800), nowDate: now }), 0, 'not a hotbar slot')
+  assert.equal(CS.digDelayLeft({ slot: 36, lastDigTime: null, nowDate: now }), 0)
+  assert.equal(CS.digDelayLeft({ slot: 36, lastDigTime: 12_345.6, nowDate: now }), 0, 'mineflayer 4.37.1 stamps performance.now(): new Date() - that is huge')
 })
 
 // ------------------------------------------------------------------ the verdict, pure
