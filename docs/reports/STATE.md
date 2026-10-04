@@ -111,6 +111,15 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 04:58Z — craftsync-01 KEPT (+360); promotion to the fleet (ba84fa6) in progress; craftroom-01 chained next
+- 0 of 215 canary crafts "nothing changed" vs control 236 of 1,337 (18%); Paper answered 82/82 resyncs; 0 confirmed
+  without a resync; craft p50 1.6 s / max 4.3 s; _reflex_stuck DiD -0.138/bh; deaths 1 (0.017/bh) vs 7 (0.023/bh).
+  58 crafts unconfirmed = full-bag losses, now honest (craftroom's job). Known: aborted 2x2 crafts strand the grid
+  (2 of 94) -> grid fix queued after toolclean.
+- In review: grid fix (Claude AGREE, Codex CHANGE: in-flight click after cleanup, disconnect tracking, error-path
+  verdict) -- fixing; withdraw 18b36d4 round 2 (Claude CHANGE small: abort rows, plan= field, swap failure tests;
+  Codex pending); chest fix 6c9a8fb approved (Codex AGREE r5, Claude AGREE r3); bamboo fixes in mutant runs.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
