@@ -37,6 +37,7 @@ import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, co
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, isCompostInput, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
+import { bambooPlan, bambooStickRecipe } from './bamboo.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -4745,6 +4746,51 @@ async function wearOut(ctx, _args, signal) {
     : { status: 'failed', failClass: 'wear_out_failed', detail: `wore out nothing at ${plan.slots} slots: ${stopped ?? 'unknown'}` }
 }
 
+// ---------------------------------------------------------- bamboo_sticks -----
+/**
+ * BAMBOO -> STICKS (bamboo.mjs decides; this acts). A deterministic housekeeping order, issued right after wear_out at
+ * 34+ slots when bambooPlan finds the smallest batch that frees a slot.
+ *   - NEVER craft('stick'): it takes recipesFor()[0] and may spend planks. bambooStickRecipe picks the recipe whose only
+ *     ingredient is bamboo, and that recipe alone runs through craftroom's executor (craftExecutions): the room check
+ *     before every execution, craftsync's admission after its baseline resync, the item-on-the-ground hold-back, and
+ *     craftsync's verdict.
+ *   - No make-room and no pickup walk: this order IS a remedy for the bag, so it never wears a tool to make room for
+ *     itself, and it runs where the bot stands. Both budgets are spent before it starts (rs), so a shortfall refuses.
+ *   - Every run is one `_bamboo_sticks` row: before -> after bamboo, sticks, planks and occupied slots, crafts made of
+ *     planned, slots freed. Failures are bamboo_no_room / bamboo_craft, neither of which votes.
+ */
+async function bambooSticks(ctx, _args, signal) {
+  const { bot } = ctx
+  const items = () => bot.inventory?.items?.() ?? []
+  const planks = () => items().reduce((n, i) => n + (/_planks$/.test(i.name) ? (i.count ?? 1) : 0), 0)
+  const read = () => ({ bamboo: countItem(bot, 'bamboo'), sticks: countItem(bot, 'stick'), planks: planks(), slots: items().length })
+  const before = read()
+  const plan = bambooPlan(items())
+  const row = (status, after, crafts, extra = '') => logEvent({ kind: 'bamboo_sticks', status, snapshot: snapshot(bot),
+    detail: `bamboo=${before.bamboo}->${after.bamboo} sticks=${before.sticks}->${after.sticks} planks=${before.planks}->${after.planks} ` +
+            `slots=${before.slots}->${after.slots} crafts=${crafts}/${plan.crafts} freed=${before.slots - after.slots}${extra}` })
+  if (!plan.crafts) { row('no_effect', before, 0, ` why=${plan.why}`); return { status: 'no_effect', detail: plan.why } }
+  let recipe = null
+  try { recipe = bambooStickRecipe(bot.recipesFor(bot.registry.itemsByName.stick.id, null, 1, null) ?? [], bot.registry) } catch { recipe = null }
+  if (!recipe) {
+    row('failed', before, 0, ' stop=no_bamboo_recipe')
+    return { status: 'failed', failClass: 'bamboo_craft', detail: 'no 2x2 bamboo -> stick recipe from what is held' }
+  }
+  const rs = { tries: 2, tableYields: true, pickupDealt: true, owed: () => 0, stationDid: [] }
+  let crafts = 0
+  const ran = await craftExecutions(ctx, { item: 'stick', recipe, crafts: plan.crafts, table: undefined, anchor: null, signal,
+                                           deadline: craftDeadline(ctx), rs, onVerified: () => { crafts++ } })
+  const after = read()
+  if (!ran.ok) {
+    const room = ran.out?.failClass === 'inventory_full'
+    row('failed', after, crafts, ` stop=${room ? 'no_room' : (ran.out?.failClass ?? 'craft')}`)
+    return { status: 'failed', failClass: room ? 'bamboo_no_room' : 'bamboo_craft',
+             detail: `${ran.out?.detail ?? 'the fold stopped'} [folding bamboo into sticks: ${crafts} of ${plan.crafts} made]` }
+  }
+  row('success', after, crafts)
+  return { status: 'success', detail: `folded ${2 * crafts} bamboo into ${crafts} sticks (${before.slots} -> ${after.slots} slots)` }
+}
+
 /**
  * ONE spent tool, destroyed by one dig -> { ok, on, said }. The body of wear_out's loop, shared with craft's
  * make-room step (craftroom.mjs). `cellOk(block, tool)` narrows the blocks further: craft passes wearKeepsSlot, so
@@ -7400,6 +7446,7 @@ export const SKILL_CONTRACTS = {
   deposit:  { expects: ['inventory_loss'],        maxMs: 240_000 },
   // Destroys spent tools by using them: the change it exists for is the loss.
   wear_out: { expects: ['inventory_loss'],        maxMs: 60_000 },
+  bamboo_sticks: { expects: ['inventory_loss'],   maxMs: 60_000 },
   // Consumes ballast into the town composter; a build visit also crafts and places it, so it gets more time.
   // A visit LOSES compost inputs, or -- a harvest-only visit to a ripe composter -- GAINS bone meal (sandbox 10-03:
   // harvest-only visits were downgraded to unknown). NOT any gain or loss: an auto-pickup of cobblestone on the walk
@@ -8455,6 +8502,9 @@ export const SKILLS = {
   // NEVER OFFERED TO THE MODEL (chatOnly keeps it out of the schema enum and the prompt): issued only as a
   // deterministic work order from cognitive.mjs at TRIGGER_SLOTS, so a model can never choose to break a tool.
   wear_out: { run: wearOut, usage: 'wear_out',                      args: [], chatOnly: true },
+  // NEVER OFFERED TO THE MODEL either: a deterministic work order (bamboo.mjs bambooOrder) that folds a full bag's
+  // bamboo into sticks when that frees a slot.
+  bamboo_sticks: { run: bambooSticks, usage: 'bamboo_sticks',        args: [], chatOnly: true },
   // Same rule as wear_out: deterministic town orders from townOrder (composter.mjs), never the model's choice.
   compost:  { run: compost,  usage: 'compost',                       args: [], chatOnly: true },
   build_composter: { run: buildComposter, usage: 'build_composter', args: [], chatOnly: true },
