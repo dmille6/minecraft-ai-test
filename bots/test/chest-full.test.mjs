@@ -420,6 +420,86 @@ await t('THE BANK REOPENS EARLY when its reason goes away -- after the throttle,
   assert.ok(bankClosed(bot3, 5000 + REOPEN_THROTTLE_MS), 'room seen BEFORE the closure does not reopen it')
 })
 
+// ---------------------------------------------------------------- round 2 (Codex's probes as regressions) ---
+await t('R2.1 STANDING-CAP BYPASS: twelve claimed cells holding chests, one dismissed as not_placed -> reconciled back to placed; no thirteenth', () => {
+  const dir = freshPool(), now = Date.now()
+  for (let n = 1; n <= 12; n++) pastClaim(dir, n, now - 2 * DAY_MS - n * 1000, { x: n, y: 64, z: 30 }, n === 7 ? 'not_placed' : 'placed')
+  assert.equal(chestBudget({ claims: ledger(dir), now }).standing, 11, 'the probe: the dismissed claim had released one')
+  const claims = ledger(dir)
+  reconcileClaims({ dir, key: KEY, claims, read: () => 'chest', now })
+  const b = chestBudget({ claims: ledger(dir), now })
+  assert.equal(b.standing, 12); assert.equal(b.ok, false)
+  assert.equal(claimNewChest({ dir, key: KEY, site: { x: 3, y: 64, z: 3 }, now }).ok, false, 'and the claim itself is refused')
+})
+
+await t('R2.1 MONOTONIC: an older observation never overwrites a newer one; placed becomes gone only on a fresh read', () => {
+  const dir = freshPool()
+  pastClaim(dir, 1, 1000, { x: 1, y: 64, z: 1 })
+  writeClaimState(dir, KEY, 1, 'placed', 5000)
+  writeClaimState(dir, KEY, 1, 'not_placed', 4000)            // a stale observation written late
+  assert.equal(ledger(dir)[0].state, 'placed')
+  writeClaimState(dir, KEY, 1, 'gone', 5000)                  // a tie: the capacity-holding side wins
+  assert.equal(ledger(dir)[0].state, 'placed')
+  reconcileClaims({ dir, key: KEY, claims: ledger(dir), read: () => null, now: 9000 })
+  assert.equal(ledger(dir)[0].state, 'placed', 'unloaded: no fresh read, no change')
+  reconcileClaims({ dir, key: KEY, claims: ledger(dir), read: () => 'air', now: 9000 })
+  assert.equal(ledger(dir)[0].state, 'gone', 'a fresh read showing no chest')
+})
+
+await t('R2.2 STRIKES ARE STICKY: failures at 0, 600001 and 600002 ms leave it unusable (keeping only two used to undo it)', () => {
+  let e = recordOutcome(undefined, 'unknown', 0)
+  e = recordOutcome(e, 'unknown', 600_001)
+  assert.equal(containerStatus(e, 600_001), 'unusable')
+  e = recordOutcome(e, 'unknown', 600_002)
+  assert.equal(containerStatus(e, 600_003), 'unusable')
+  assert.equal(containerStatus(recordOutcome(e, 'full', 600_004), 600_005), 'full', 'a container that opened is usable again')
+})
+
+await t('R2.2 THE FIRST CHEST BY THE TOWN\'S MEMORY: one found full a minute ago is neither walked to nor opened', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'barrel')
+  updateTownMemory(process.env.POOL_STATE_DIR, KEY, null, e => { e['5,64,0'] = recordOutcome(undefined, 'full', Date.now() - 60_000) })
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(!w.spy.opened.includes('5,64,0'), 'not opened')
+  assert.ok(!w.spy.gotos.some(g => g.x === 5 && g.z === 0), 'not walked to')
+  assert.ok(w.containers.get('-5,64,0').slots.some(Boolean))
+})
+
+await t('R2.3 AN UNREACHABLE FIRST CHEST goes on to the town\'s other containers (it was a dead end)', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'barrel')
+  const goto = w.bot.pathfinder.goto
+  w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(w.containers.get('-5,64,0').slots.some(Boolean), 'the barrel took it')
+  const mem = JSON.parse(fs.readFileSync(path.join(process.env.POOL_STATE_DIR, `${KEY}.containers.json`), 'utf8')).entries
+  assert.equal(mem['5,64,0'].o, 'unknown', 'the unreachable chest has a strike')
+})
+
+await t('R2.4 THE FIRST OPEN IS CLAMPED TO THE WATCHDOG: with 1 s left a hung open costs about 1 s, not 8', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.bot.openContainer = () => new Promise(() => {})
+  const t0 = Date.now()
+  const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 179_000 } })
+  const ms = Date.now() - t0
+  assert.ok(ms < 3000, `took ${ms} ms`)
+  assert.equal(w.spy.placed.length, 0, r.detail)
+})
+
+await t('R2.5 transfer_unsettled AT THE NEW CHEST is returned unchanged', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const place = w.bot.placeBlock, click = w.bot.clickWindow, open = w.bot.openContainer
+  let at = null
+  w.bot.placeBlock = async (ref, face) => { await place(ref, face); w.fill(...w.spy.placed.at(-1).split(',').map(Number)) }
+  w.bot.openContainer = async b => { at = `${b.position.x},${b.position.y},${b.position.z}`; return open(b) }
+  w.bot.clickWindow = async slot => { if (at === w.spy.placed[0]) return; return click(slot) }
+  const r = await run(w.bot)
+  assert.equal(w.spy.placed.length, 1)
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+})
+
 await t('THE LID FILTER: place() with no coordinates never puts a block on a chest, and refuses explicit coordinates there', async () => {
   const w = fakeWorld({ bag: [stack('cobblestone', 10)], at: [0.5, 64, 0.5] })
   for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
