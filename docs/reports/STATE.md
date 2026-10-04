@@ -111,6 +111,15 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 07:50Z — WITHDRAW 98b95c8 (round 3 fixed, pushed): Codex CHANGE (2 P1: survival release closes with a click in
+flight; confirmCursor does not own the inventory while its answer is pending), Claude APPROVE (5 P2). **Paper sandbox
+CONFIRMED confirmCursor** (Paper 1.21.8-60: CLONE + stateId -1 is a no-op, full window_items with the true carried
+item, every case). Round 4 = items H-N sent to the builder. **Owner decision sharpened:** "keep holding" cannot keep
+its promise -- with a full bag the server drops the stack at the next close/disconnect/death/restart, so holding only
+freezes the bot until then. Options built as a switch: hold (default) | close after 30 s | junkswap (swap the cursor
+onto a never-bank junk slot, confirm, close: only junk drops). Survival release (air/lava/fire/fall/damage) closes at
+once and can drop the held stack on a full bag -- dying would drop everything.
+
 ## 10-04 07:30Z — NO-JUNK: ledger DROPPED by both engines; cobble banks only when the transfer empties a bag slot (design file SYNTHESIS)
 
 ## 10-04 06:40Z — NO-JUNK DESIGN (both engines; docs/reports/nojunk-design-2026-10-04.md; NOT BUILT, Claude review running)
