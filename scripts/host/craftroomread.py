@@ -52,6 +52,30 @@ def occupancy(inv):
     return sum(c if UN.search(n) else -(-c // 64) for n, c in (inv or {}).items() if isinstance(c, (int, float)))
 
 
+def load_window(since, until):
+    """Rotation-aware (oretunnelread's pattern): skill logs rotate daily at ~23:59Z (copytruncate), so day D's rows live
+    in skill-*.jsonl-<D+1>.gz and the live file starts at ~23:59Z. Reading only the live files silently drops every row
+    before the last rotation -- found 10-04 01:08Z when a 6 h window walked 58k rows instead of ~290k."""
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=since, until=until)
+    key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+    out, seen = [], set()
+    for r in ev.rows:
+        if key(r) not in seen:
+            out.append(r); seen.add(key(r))
+    import glob as _glob
+    for k in range(0, (until.date() - since.date()).days + 1):
+        tag = (since.date() + dt.timedelta(days=k + 1)).strftime('%Y%m%d')
+        for g in _glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % tag):
+            try:
+                e2 = Events.load(paths=g, since=since, until=until, allow_zero=True)
+            except TypeError:
+                e2 = Events.load(paths=g, since=since, until=until)
+            for r in e2.rows:
+                if key(r) not in seen:
+                    out.append(r); seen.add(key(r))
+    return out
+
+
 def pool_of(bot):
     return '-'.join((bot or '').split('-')[:2])
 
@@ -109,7 +133,8 @@ assert refusal_kind('refused stone_pickaxe: reason=table_out_of_reach the walk t
 assert refusal_kind('stone_pickaxe: no spent tool that can be spared (35 -> 35/36 slots)') == 'remedy_failed'
 assert occupancy({'cobblestone': 65, 'stone_pickaxe': 2}) == 4
 
-ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=PRE, until=END)
+class _EV: pass
+ev = _EV(); ev.rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev.rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
 room = defaultdict(Counter); verdicts = Counter(); refusals = Counter(); retake = Counter(); offbuild = 0
 pick_sync = Counter(); lost_full = Counter(); lost_any = Counter(); lost = defaultdict(Counter); picks = defaultdict(Counter)

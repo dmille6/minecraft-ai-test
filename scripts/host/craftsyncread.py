@@ -11,8 +11,12 @@
 #   LIVENESS     canary `_craft_sync` rows from the canary build (>= 1); control 0.
 #   CORRECTNESS  canary crafts the runner called done that gained nothing ("nothing changed that craft exists to change"):
 #                0, judged on >= 10 canary crafts. The control's same rows are the positive control.
-#   INSTRUMENT   share of canary _craft_sync rows verified by something other than a server resync > 5% BLOCKS KEEP
-#                (the verification depends on Paper answering the window-0 resync).
+#   INSTRUMENT   share of canary window-0 resyncs that Paper did NOT answer (resync_answered < resyncs, over rows that sent
+#                one) > 5% BLOCKS KEEP -- the verification depends on Paper answering them. AMENDED 10-04 01:15Z before
+#                the first read: the original line counted every row whose verify_source != 'resync', which also counts
+#                unconfirmed crafts where the resync was deliberately SKIPPED after an unanswered click (verify_source
+#                'local (before unanswered)', reported honestly as unconfirmed) and aborts; it measured the wrong thing.
+#                The old share is still printed. A craft CONFIRMED by anything but a resync (must be 0) is a separate line.
 # REPORTED: outcomes, click/quiet/resync cap hits, preemptions, crafts and pickaxe crafts per bot-hour (DiD), duplicate
 # tool crafts (the bot already held a usable copy -- now they succeed and spend materials; Claude review), usable
 # pickaxe holders canary vs control.
@@ -45,6 +49,30 @@ PRE = CUT - dt.timedelta(minutes=W)
 NOTHING = 'nothing changed that craft exists to change'
 
 
+def load_window(since, until):
+    """Rotation-aware (oretunnelread's pattern): skill logs rotate daily at ~23:59Z (copytruncate), so day D's rows live
+    in skill-*.jsonl-<D+1>.gz and the live file starts at ~23:59Z. Reading only the live files silently drops every row
+    before the last rotation -- found 10-04 01:08Z when a 6 h window walked 58k rows instead of ~290k."""
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=since, until=until)
+    key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+    out, seen = [], set()
+    for r in ev.rows:
+        if key(r) not in seen:
+            out.append(r); seen.add(key(r))
+    import glob as _glob
+    for k in range(0, (until.date() - since.date()).days + 1):
+        tag = (since.date() + dt.timedelta(days=k + 1)).strftime('%Y%m%d')
+        for g in _glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % tag):
+            try:
+                e2 = Events.load(paths=g, since=since, until=until, allow_zero=True)
+            except TypeError:
+                e2 = Events.load(paths=g, since=since, until=until)
+            for r in e2.rows:
+                if key(r) not in seen:
+                    out.append(r); seen.add(key(r))
+    return out
+
+
 def pool_of(bot):
     return '-'.join((bot or '').split('-')[:2])
 
@@ -53,7 +81,8 @@ def skill(r):
     return (r.get('raw') or {}).get('skill') or {}
 
 
-ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=PRE, until=END)
+class _EV: pass
+ev = _EV(); ev.rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev.rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
 sync = defaultdict(Counter); outcomes = Counter(); src = Counter(); caps = Counter(); offbuild = 0
 crafts = defaultdict(Counter); picks = defaultdict(Counter); nothing = Counter(); judged_n = Counter(); dup = 0
@@ -80,6 +109,12 @@ for r in ev.rows:
         if arm == 'canary':
             outcomes[str(a.get('outcome'))] += 1
             src[str(a.get('verify_source'))] += 1
+            sent = int(a.get('resyncs') or 0); got = int(a.get('resync_answered') or 0)
+            if sent > 0:
+                caps['resync_rows'] += 1
+                caps['resync_unanswered_rows'] += int(got < sent)
+            if str(a.get('confirmed')) == 'yes' and a.get('verify_source') != 'resync':
+                caps['confirmed_locally'] += 1
             for c in ('click_caps', 'quiet_caps', 'resync_caps'):
                 caps[c] += int(a.get(c) or 0)
             caps['preempted'] += int(bool(a.get('preempted')))
@@ -127,14 +162,18 @@ def usable(arm):
 
 rows = sum(src.values())
 nonresync = rows - src['resync']
-share = nonresync / rows if rows else float('nan')
+old_share = nonresync / rows if rows else float('nan')
+rrows = caps['resync_rows']; unans = caps['resync_unanswered_rows']
+share = unans / rrows if rrows else float('nan')
 judged = judged_n['canary'] >= 10
 gc, nc = usable('canary'); gk, nk = usable('control')
 print('-' * 78)
 print('LIVENESS     canary _craft_sync rows %d (>= 1) | control %d (must be 0) | other build %d' % (sync['canary']['rows'], sync['control']['rows'], offbuild))
 print('CORRECTNESS  canary crafts with "nothing changed": %d of %d (0; %s)' % (nothing['canary'], judged_n['canary'], 'judged' if judged else 'NOT judged: < 10'))
 print('INSTRUMENT   control crafts with "nothing changed": %d of %d (positive control, >= 1)' % (nothing['control'], judged_n['control']))
-print('TRIPWIRE     verified by something other than a server resync: %d of %d = %.1f%% (> 5%% blocks KEEP)' % (nonresync, rows, 100 * share if rows else float('nan')))
+print('TRIPWIRE     resyncs Paper did not answer: %d of %d rows that sent one = %.1f%% (> 5%% blocks KEEP) | crafts confirmed without a resync %d (must be 0)'
+      % (unans, rrows, 100 * share if rrows else float('nan'), caps['confirmed_locally']))
+print('             (pre-amendment measure, reported only: rows not verified by a resync %d of %d = %.1f%%)' % (nonresync, rows, 100 * old_share if rows else float('nan')))
 print('REPORTED     outcomes %s | caps %s | crafts/bot-h DiD %+.2f | pickaxe crafts/bot-h DiD %+.3f | duplicate tool crafts %d'
       % (dict(outcomes), dict(caps), did(crafts), did(picks), dup))
 print('             usable pickaxe holders: canary %d/%d control %d/%d' % (gc, nc, gk, nk))
@@ -150,7 +189,8 @@ try:
         'sync_rows_canary': sync['canary']['rows'], 'sync_rows_control': sync['control']['rows'], 'offbuild_canary': offbuild,
         'crafts_canary': judged_n['canary'], 'nothing_canary': nothing['canary'],
         'nothing_judged': int(judged and nothing['canary'] > 0), 'nothing_control': nothing['control'],
-        'nonresync_share': None if not rows else round(share, 4), 'nonresync_over_5pct': int(rows >= 20 and share > 0.05),
+        'nonresync_share': None if not rrows else round(share, 4), 'nonresync_over_5pct': int(rrows >= 20 and share > 0.05),
+        'confirmed_locally': caps['confirmed_locally'], 'old_nonresync_share': None if not rows else round(old_share, 4),
         'click_caps': caps['click_caps'], 'preempted': caps['preempted'], 'duplicate_tool_crafts': dup,
         'crafts_did_per_bh': round(did(crafts), 3), 'pickaxe_crafts_did_per_bh': round(did(picks), 4),
         'usable_pick_canary': gc, 'bots_canary': nc, 'usable_pick_control': gk, 'bots_control': nk,

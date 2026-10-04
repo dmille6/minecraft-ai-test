@@ -93,7 +93,12 @@
   "teardown": {
     "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
   },
-  "amendments": [],
+  "amendments": [
+    {
+      "at": "2026-10-04T01:15:00Z",
+      "what": "craftsyncread rotation-aware load + tripwire counts unanswered resyncs (registered intent); old share reported; confirmed_locally must be 0. Correctness gate unchanged."
+    }
+  ],
   "extension": {
     "until_exposure": true,
     "extra_reads": [
