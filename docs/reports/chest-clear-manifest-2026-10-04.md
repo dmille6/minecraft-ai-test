@@ -1,6 +1,17 @@
 # Town chest clear — proposed manifest (for the owner's approval)
 
-**Status: PROPOSED, NOT RUN.** One-time admin clear under the owner's 09-28 permission. Junk only; tools that work, ingots, ores, wood, food and stations are kept. It runs only after the "no junk in chests" fix is live, so the chests cannot refill. The exact list is regenerated from a fresh census right before the run, and checked again afterwards.
+**Status: RUN 2026-10-04 18:07Z (owner approved ~18:10Z local thread: "lets run it now"; eggs/scutes/flint/clay/ink and
+decorations "yes").** Fresh census 18:06:41Z -> plan -> read-only predicate validation (96/96 planned slots matched;
+32/32 spent tools matched the spent predicate; 20/20 usable tools did NOT and did match by id) -> one trial slot ->
+scripts/host/cc_clear.py run: one `execute if items ... run item replace ... with air` per slot (a slot a bot changed
+since the census is left alone). **Removed 105,053 items / 3,473 slots** (stone above 256/town 83,557 in 1,368 slots;
+spent tools 1,175; ballast 9,719; plant litter 8,180; unused drops 2,297; decorations 124; spoiled food 1). 0 errors,
+1 slot skipped (the trial). Re-census 18:07:50Z: kept items 92,846 -> 92,846 (usable tools 1,422, ingots 806, wood
+67,854, saplings 4,362, chests 168, ores/coal 7,963 -- all unchanged); stone 4,096 = 256 x 16 towns; full bank
+containers 233 -> 0; free bank slots 2,669 -> 6,142. Files: docs/reports/census/{census-before-clear,census-after-clear,
+clear-plan,clear-result}-2026-10-04*. Not touched: deep containers, beyond 48 blocks, region-file-only chests.
+
+~~Status: PROPOSED, NOT RUN.~~ One-time admin clear under the owner's 09-28 permission. Junk only; tools that work, ingots, ores, wood, food and stations are kept. It runs only after the "no junk in chests" fix is live, so the chests cannot refill. The exact list is regenerated from a fresh census right before the run, and checked again afterwards.
 
 Source: read-only census, 2026-10-04 02:52Z. 448 containers within 48 blocks of the 16 town homes; every slot was answered (`docs/reports/census/`).
 

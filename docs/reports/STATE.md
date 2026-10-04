@@ -111,6 +111,14 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 18:08Z — ONE-TIME CHEST CLEAR DONE (owner approved). 105,053 junk items / 3,473 slots removed from the 16 town
+banks; kept items 92,846 -> 92,846 exactly; full bank containers 233 -> 0; free slots 2,669 -> 6,142. Details in
+chest-clear-manifest-2026-10-04.md. **Fleet-wide world event at 18:07Z, inside toolclean-01 (declared 17:55:31Z):** both
+arms see it, so DiD absorbs the level shift; note it in the toolclean read. Owner also decided (10-04 ~18:10Z): RCON
+rotation later (not major); eggs/flint/clay/ink/scutes have no use -> cleared; cobble: keep 256/town reserve, bank only
+when it frees a slot (both-engine no-ledger design); withdraw no-room: junk swap ONLY once a disposal exists, hold
+until then. Disposal design (both engines + external search) running. toolclean-01 live: 60 bots 56db2cd, 20 on 1918bb5.
+
 ## 10-04 17:51Z — COMPOSTER-01 KEPT (+360) and PROMOTED 56db2cd fleet-wide 17:50:43Z; toolclean-01 chained next.
 +360: 12 real compost visits, C1-C5 all 0; junk slots/bot canary 5.60 -> 3.50 vs control 4.90 -> 4.96 (DiD -2.16);
 share of bots at >= 34 slots DiD -0.214; 2.00 slots freed per visit. Only board-b built a composter (hive-a visits
