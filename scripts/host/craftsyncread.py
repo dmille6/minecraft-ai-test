@@ -118,7 +118,7 @@ for r in ev.rows:
             for c in ('click_caps', 'quiet_caps', 'resync_caps'):
                 caps[c] += int(a.get(c) or 0)
             caps['preempted'] += int(bool(a.get('preempted')))
-            dm = skill(r).get('durationMs') or (r.get('raw') or {}).get('durationMs')
+            dm = skill(r).get('duration_ms') or skill(r).get('durationMs')   # rows carry skill.duration_ms
             if isinstance(dm, (int, float)):
                 durs.append(dm)
             aborted += int(a.get('outcome') == 'aborted')
