@@ -55,7 +55,10 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   recovery-created standing, pre-existing not counted; unavailable vs unknown containers with per-town memory;
   MAX_SITE_TRIES=1; verified cursor rescue; 180 s real deadline; truthful closed-bank advice; table access) -- fixing.
   BAMBOO d5736f0 -- Codex CHANGE (re-check the stick cap at execution admission: 63 sticks + 1 picked up during the
-  baseline -> 65, slot not freed); Claude review pending.
+  baseline -> 65, slot not freed); Claude CHANGE (pickup refusal must not back off 30 min; split stacks consolidate on
+  the real server so the freed decision is too pessimistic; wiring-test mutants survive; row in a finally) -- fixing.
+  **BAMBOO YIELD IS SMALL (census 00:40Z):** 68/80 bots at >= 34 slots, 29 hold bamboo, only 9 can fold now (1 slot each,
+  ~9 slots fleet-wide); 18 "no batch frees a slot". Tell the owner plainly.
 
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
