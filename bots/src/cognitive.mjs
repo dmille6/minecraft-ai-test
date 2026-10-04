@@ -18,6 +18,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
+import { bambooOrder, bambooOrderOutcome } from './bamboo.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
@@ -777,6 +778,16 @@ export class CognitiveLoop {
         }
       } catch { /* an inventory read must never break the decision loop */ }
     }
+    // BAMBOO -> STICKS, right after wear_out (bamboo.mjs bambooOrder decides; this keeps the state): at 34+ slots, a
+    // batch of the bamboo recipe that frees a slot. Deterministic, chatOnly, anywhere -- no table, no walk.
+    if (!order) {
+      try {
+        const r = bambooOrder({ items: this.bot.inventory?.items?.() ?? [], now: Date.now(), lastAt: this.lastBambooAt ?? 0,
+                                backoffUntil: this.bambooBackoffUntil ?? 0 })
+        this.lastBambooAt = r.lastAt
+        if (r.order) order = r.order
+      } catch { /* an inventory read must never break the decision loop */ }
+    }
     // THE TOWN ORDERS (composter.mjs townOrder decides; this only supplies readings and keeps the state): compost at
     // town at 34+ slots, or build the town's composter when there is none and the bag has room for the craft chain.
     // Never a trip. Every world scan is lazy and rate-limited inside townOrder.
@@ -890,6 +901,7 @@ export class CognitiveLoop {
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
+      if (admitted.skill === 'bamboo_sticks') this.bambooBackoffUntil = bambooOrderOutcome(r.status, Date.now())
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
@@ -991,7 +1003,7 @@ export class CognitiveLoop {
         // false, whichever milestone happened to be current. There is no longer
         // a `neutral` branch calling recordSuccess -- there is one call, and it
         // cannot be made without the measurement in hand.
-        // Housekeeping (wear_out, compost, build_composter) is never the model's choice, nor a "reliable choice" in its prompt.
+        // Housekeeping (wear_out, compost, build_composter, bamboo_sticks) is never the model's choice, nor a "reliable choice" in its prompt.
         if (!isHousekeeping(admitted.skill)) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
 
         // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
