@@ -1,118 +1,128 @@
 {
-  "run_id": "toolclean-01",
-  "sha": "1918bb5",
-  "registered_at": "2026-10-04T01:30:00Z",
-  "ladder_change": false,
-  "promotion": "fleet-wide",
-  "notes": "[toolclean-01 (OWNER queue 10-03: craftsync -> craftroom -> composter -> SPENT-TOOL CLEANUP -> chest fix -> bamboo -> logpickup). Variant for fleet 56db2cd (composter-01 KEPT+promoted), branch tc-on-56db2cd @ 1918bb5. Launched by chain-after.sh when composter-01 ends; STOPs if the fleet is not 56db2cd.] SPENT TOOLS FILL BAGS: full bags (59/80 at >= 34 slots) held 191 spent dig-tool copies; ~118-170 at 2-10 uses, mostly SOLE axes (74) and shovels (53) that toolFor's 10-use reserve never released (no block needs an axe/shovel, so the hand won). THE CHANGE (designed by both engines from that data; both engines AGREE after two rounds + the rebuild): no reserve for axes/shovels/hoes; the most-worn same-name copy first; a 1-use axe/shovel/hoe is swung on HARVEST digs and breaks (drop lands); travel/reflex digs keep a 1-use hard stop; a spent axe/shovel/hoe beats the hand when strictly faster; on stone-family harvest digs a 1-use pickaxe is swung only while another pickaxe with > 10 uses is held. PAPER SANDBOX (6 scenes x 3 reps x 2 arms): candidate wore spent tools first in every scene, 20 of 21 broken-tool drops reached the bag (the miss also happens on control); control never touched a spent tool. KNOWN (pre-existing, both arms): a pathfinder travel dig can swing a held 1-use shovel when travelTool finds nothing else to hand back (1 of 13).",
-  "licence": {
-    "class": "kind",
-    "kind": "_spent_swing",
-    "min_rows": 1,
-    "note": "New kind written only by this build (harvest swing of a spent tool)."
-  },
-  "reads": [
-    "toolcleanread",
-    "immobiledid"
+ "run_id": "toolclean-01",
+ "sha": "1918bb5",
+ "registered_at": "2026-10-04T01:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[toolclean-01 (OWNER queue 10-03: craftsync -> craftroom -> composter -> SPENT-TOOL CLEANUP -> chest fix -> bamboo -> logpickup). Variant for fleet 56db2cd (composter-01 KEPT+promoted), branch tc-on-56db2cd @ 1918bb5. Launched by chain-after.sh when composter-01 ends; STOPs if the fleet is not 56db2cd.] SPENT TOOLS FILL BAGS: full bags (59/80 at >= 34 slots) held 191 spent dig-tool copies; ~118-170 at 2-10 uses, mostly SOLE axes (74) and shovels (53) that toolFor's 10-use reserve never released (no block needs an axe/shovel, so the hand won). THE CHANGE (designed by both engines from that data; both engines AGREE after two rounds + the rebuild): no reserve for axes/shovels/hoes; the most-worn same-name copy first; a 1-use axe/shovel/hoe is swung on HARVEST digs and breaks (drop lands); travel/reflex digs keep a 1-use hard stop; a spent axe/shovel/hoe beats the hand when strictly faster; on stone-family harvest digs a 1-use pickaxe is swung only while another pickaxe with > 10 uses is held. PAPER SANDBOX (6 scenes x 3 reps x 2 arms): candidate wore spent tools first in every scene, 20 of 21 broken-tool drops reached the bag (the miss also happens on control); control never touched a spent tool. KNOWN (pre-existing, both arms): a pathfinder travel dig can swing a held 1-use shovel when travelTool finds nothing else to hand back (1 of 13).",
+ "licence": {
+  "class": "kind",
+  "kind": "_spent_swing",
+  "min_rows": 1,
+  "note": "New kind written only by this build (harvest swing of a spent tool)."
+ },
+ "reads": [
+  "toolcleanread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "gather activity (harvest digs are where spent tools get swung)",
+    "kind": "gather",
+    "min": 30
+   }
   ],
-  "read_minutes": [
-    180,
-    360
-  ],
-  "deadline_min": 1680,
-  "change_rows": [],
-  "linkage_extra": [],
-  "draw_exposure": {
-    "hours": 3,
-    "require": [
-      {
-        "name": "gather activity (harvest digs are where spent tools get swung)",
-        "kind": "gather",
-        "min": 30
-      }
-    ],
-    "note": "~6,600 log gathers per 10 h fleet-wide."
+  "note": "~6,600 log gathers per 10 h fleet-wide."
+ },
+ "exposure": {
+  "read": "toolcleanread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 5 canary axe/shovel/hoe spent swings AND control _last_swing + pickaxe _tool_broke >= 1 (87 in the dry run 10-04)."
+ },
+ "own_lines": [
+  {
+   "read": "toolcleanread",
+   "field": "g1_no_backup",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a spend_spent swing whose own snapshot shows no other pickaxe with > 10 uses."
   },
-  "exposure": {
-    "read": "toolcleanread",
-    "field": "exposure_ready",
-    "min": 1,
-    "note": "Ready = >= 5 canary axe/shovel/hoe spent swings AND control _last_swing + pickaxe _tool_broke >= 1 (87 in the dry run 10-04)."
+  {
+   "read": "toolcleanread",
+   "field": "g2_backup_lost",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: pickaxes with > 10 uses go from >= 1 to 0 within 10 s after a spend_spent swing."
   },
-  "own_lines": [
-    {
-      "read": "toolcleanread",
-      "field": "g1_no_backup",
-      "op": "<=",
-      "value": 0,
-      "on_fail": "REVERT",
-      "evidence": "defect",
-      "note": "G1: a spend_spent swing whose own snapshot shows no other pickaxe with > 10 uses."
-    },
-    {
-      "read": "toolcleanread",
-      "field": "g2_backup_lost",
-      "op": "<=",
-      "value": 0,
-      "on_fail": "REVERT",
-      "evidence": "defect",
-      "note": "G2: pickaxes with > 10 uses go from >= 1 to 0 within 10 s after a spend_spent swing."
-    },
-    {
-      "read": "toolcleanread",
-      "field": "g3_good_tool_gone",
-      "op": "<=",
-      "value": 0,
-      "on_fail": "REVERT",
-      "evidence": "defect",
-      "note": "G3: a tool with > 10 uses left gone outside a death or deposit (+-5 s)."
-    },
-    {
-      "read": "toolcleanread",
-      "field": "new_rows_control",
-      "op": "<=",
-      "value": 0,
-      "on_fail": "REVERT",
-      "note": "Arms. BLOCKS KEEP."
-    },
-    {
-      "read": "toolcleanread",
-      "field": "soft_swings_canary",
-      "op": ">=",
-      "value": 1,
-      "on_fail": "REVERT",
-      "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
-    },
-    {
-      "read": "toolcleanread",
-      "field": "instrument_control",
-      "op": ">=",
-      "value": 1,
-      "on_fail": "REVERT",
-      "note": "POSITIVE CONTROL: the tool rows are visible to this query. BLOCKS KEEP."
-    }
-  ],
-  "primary": {
-    "read": "toolcleanread",
-    "field": "spent_soft_did",
-    "note": "REPORTED, NOT GATED: spent (<= 10 uses) axe/shovel/hoe copies per bot DiD; 1-use pickaxes per bot DiD; equip-fallback failures."
+  {
+   "read": "toolcleanread",
+   "field": "g3_good_tool_gone",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3: a tool with > 10 uses left gone outside a death or deposit (+-5 s)."
   },
-  "harm": {
-    "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+  {
+   "read": "toolcleanread",
+   "field": "new_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
   },
-  "teardown": {
-    "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+  {
+   "read": "toolcleanread",
+   "field": "soft_swings_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
   },
-  "amendments": [],
-  "extension": {
-    "until_exposure": true,
-    "extra_reads": [
-      540,
-      720,
-      1080,
-      1560
-    ],
-    "final_on_zero_exposure": "INCONCLUSIVE",
-    "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+  {
+   "read": "toolcleanread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the tool rows are visible to this query. BLOCKS KEEP."
   }
+ ],
+ "primary": {
+  "read": "toolcleanread",
+  "field": "spent_soft_did",
+  "note": "REPORTED, NOT GATED: spent (<= 10 uses) axe/shovel/hoe copies per bot DiD; 1-use pickaxes per bot DiD; equip-fallback failures."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [
+  {
+   "at": "2026-10-04T19:35Z",
+   "before_read": "+180 (due ~20:55Z)",
+   "field": "g3_good_tool_gone",
+   "change": "deposit association window from |t_tool_gone - t_deposit| <= 5 s to t_deposit - 5 s <= t_tool_gone <= t_deposit + deposit.duration_ms + 5 s",
+   "why": "deposit rows are stamped at START and deposits run 0.3-24 s; at +85 min G3 read 2 canary breaches (hive-c-Comet 19 s after a 18.9 s deposit of 127 items, hive-c-Delta 15 s after a 15.0 s deposit). ALL 10 good-tool _tool_gone rows in the window (pre+post, canary+control: canary 1 pre/2 post, control 4 pre/3 post) sit inside the amended window; none is explained by toolclean. Spare usable pickaxes are bankable (bankable.mjs), so a deposit removing one is intended. Threshold unchanged (<= 0, REVERT).",
+   "evidence": "/tmp/g3look.py output in the session; amended read dry run: G3 0, G1 0, G2 0, instrument 54",
+   "backup": "/tmp/toolcleanread.py.bak-g3 on 10.0.0.31"
+  }
+ ],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
 }

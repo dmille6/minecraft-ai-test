@@ -14,7 +14,7 @@
 #   CORRECTNESS  G1: a `spend_spent` swing whose own snapshot shows NO other pickaxe with > 10 uses;
 #                G2: a bot whose pickaxes with > 10 uses go from >= 1 to 0 within 10 s after a `spend_spent` swing (the
 #                backup lost); G3: a `_tool_gone` with > 10 uses left outside a death or deposit (+-5 s) -- a good tool
-#                lost early. All 0.
+#                lost early. All 0. (G3's deposit window AMENDED 10-04 ~19:35Z: [t - 5 s, t + duration + 5 s]; see below.)
 #   INSTRUMENT   control `_last_swing` + pickaxe `_tool_broke` rows >= 1 (the tool rows are visible to this query).
 #   PRIMARY      spent (<= 10 uses) axe/shovel/hoe copies per bot (latest snapshot per bot), DiD vs the pre-window;
 #                secondary 1-use pickaxes per bot. REPORTED.
@@ -116,7 +116,8 @@ for r in rows:
     if k == '_death':
         deaths[b].append(t)
     if k == 'deposit':
-        deposits[b].append(t)
+        dm = ((r.get('raw') or {}).get('skill') or {}).get('duration_ms')
+        deposits[b].append((t, (dm if isinstance(dm, (int, float)) else 0) / 1000.0))
     if period != 'post':
         continue
     if k in ('_spent_swing', '_tool_spent', '_spent_equip_fallback') and other:
@@ -148,7 +149,11 @@ for r in rows:
         m = LOST.search(d)
         if m and m.group(2) != '?' and int(m.group(2)) > 10:
             near = lambda xs: any(abs((x - t).total_seconds()) <= 5 for x in xs)
-            if not near(deaths[b]) and not near(deposits[b]):
+            # AMENDED 10-04 ~19:35Z before the +180 read: a deposit row is stamped at its START and a deposit runs 0.3-24 s,
+            # so the tool leaves the bag up to `duration` after the row. The +-5 s window missed every long deposit: all 10
+            # good-tool _tool_gone rows (both arms, pre and post) sit inside [deposit t - 5 s, t + duration + 5 s].
+            in_deposit = lambda xs: any(-5 <= (t - x).total_seconds() <= d + 5 for x, d in xs)
+            if not near(deaths[b]) and not in_deposit(deposits[b]):
                 g3.append((b, d[:100]))
 
 g2 = []
