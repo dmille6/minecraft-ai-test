@@ -437,8 +437,9 @@ await t('the craft SKILL throws Aborted when its signal is aborted mid-craft (ru
 })
 
 // ------------------------------------------------------------------ caps
-await t('caps bound every wait at the DEFAULTS: a silent server costs 3 x (quiet + resync 1 s + quiet) + click 4 s', async () => {
-  assert.deepEqual([CS.CRAFT_SYNC.quietMs, CS.CRAFT_SYNC.quietCapMs, CS.CRAFT_SYNC.clickCapMs, CS.CRAFT_SYNC.resyncCapMs], [100, 1000, 4000, 1000])
+await t('caps bound every wait at the DEFAULTS: a silent server costs 3 x (quiet + resync 1 s + quiet) + click 4 s + the in-flight wait 1.5 s', async () => {
+  assert.deepEqual([CS.CRAFT_SYNC.quietMs, CS.CRAFT_SYNC.quietCapMs, CS.CRAFT_SYNC.clickCapMs, CS.CRAFT_SYNC.resyncCapMs, CS.CRAFT_SYNC.inflightWaitMs],
+    [100, 1000, 4000, 1000, 1500])
   const { bot } = stubBot({ resyncAnswerMs: Infinity })
   const rows = []
   CS.installCraftSync(bot, { log: r => rows.push(r) })
@@ -446,10 +447,14 @@ await t('caps bound every wait at the DEFAULTS: a silent server costs 3 x (quiet
   let err = null
   try { await bot.craft(STUB_RECIPE, 1) } catch (e) { err = e }
   const ms = Date.now() - t0
-  assert.ok(ms >= 7500 && ms < 8500, `silent craft took ${ms} ms`)
+  // the stub's click never writes and never settles: an issued, unwritten click -- the release waits inflightWaitMs
+  // for it, then says so (a real mineflayer click writes inside the call and is not waited for here)
+  assert.ok(ms >= 9000 && ms < 10000, `silent craft took ${ms} ms`)
   assert.equal(err?.failClass, 'craft_unconfirmed')
   assert.equal(rows[0].args.resync_caps, 3)
   assert.equal(rows[0].args.click_caps, 1, 'click_caps is the tripwire on the row')
+  assert.equal(rows[0].args.deferred_writes, 1)
+  assert.equal(rows[0].args.grid_clear, 'unverified_inflight')
 })
 
 await t('caps bound the quiet wait when the window never goes quiet', async () => {
