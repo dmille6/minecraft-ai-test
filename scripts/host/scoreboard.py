@@ -29,7 +29,32 @@ def occupancy(inv):
     return sum(c if UN.search(n) else -(-c // 64) for n, c in (inv or {}).items() if isinstance(c, (int, float)))
 
 
-ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=START, until=END)
+def load_window(since, until):
+    """Rotation-aware (oretunnelread's pattern): skill logs rotate daily at ~23:59Z (copytruncate), so day D's rows live
+    in skill-*.jsonl-<D+1>.gz and the live file starts at ~23:59Z. Reading only the live files silently drops every row
+    before the last rotation -- found 10-04 01:08Z when a 6 h window walked 58k rows instead of ~290k."""
+    ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=since, until=until)
+    key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+    out, seen = [], set()
+    for r in ev.rows:
+        if key(r) not in seen:
+            out.append(r); seen.add(key(r))
+    import glob as _glob
+    for k in range(0, (until.date() - since.date()).days + 1):
+        tag = (since.date() + dt.timedelta(days=k + 1)).strftime('%Y%m%d')
+        for g in _glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % tag):
+            try:
+                e2 = Events.load(paths=g, since=since, until=until, allow_zero=True)
+            except TypeError:
+                e2 = Events.load(paths=g, since=since, until=until)
+            for r in e2.rows:
+                if key(r) not in seen:
+                    out.append(r); seen.add(key(r))
+    return out
+
+
+class _EV: pass
+ev = _EV(); ev.rows = load_window(START, END)   # rotation-aware (logs rotate ~23:59Z)
 last = {}; logs = Counter(); iron = 0; picks = 0
 for r in ev.rows:
     raw = r.get('raw') or {}; sk = raw.get('skill') or {}; bot = raw.get('bot') or {}

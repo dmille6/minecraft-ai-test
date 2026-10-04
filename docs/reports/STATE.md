@@ -111,7 +111,11 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
-## 10-04 04:58Z — craftsync-01 KEPT (+360); promotion to the fleet (ba84fa6) in progress; craftroom-01 chained next
+## 10-04 05:15Z — FLEET ba84fa6 (craftsync promoted 05:08Z); CANARY LIVE: craftroom-01 @ ffa0f57 on board-a,hive-b,
+declared 05:12:59Z; exactly two versions (70 ba84fa6, 10 ffa0f57). Reads +180 ~08:13Z, +360 ~11:13Z. Chained: composter-01
+(fleet ffa0f57 -> 56db2cd), toolclean-01 (fleet 56db2cd -> 1918bb5). scoreboard.py now rotation-aware.
+
+## 10-04 04:58Z — craftsync-01 KEPT (+360); promotion to the fleet (ba84fa6) done 05:08Z
 - 0 of 215 canary crafts "nothing changed" vs control 236 of 1,337 (18%); Paper answered 82/82 resyncs; 0 confirmed
   without a resync; craft p50 1.6 s / max 4.3 s; _reflex_stuck DiD -0.138/bh; deaths 1 (0.017/bh) vs 7 (0.023/bh).
   58 crafts unconfirmed = full-bag losses, now honest (craftroom's job). Known: aborted 2x2 crafts strand the grid
