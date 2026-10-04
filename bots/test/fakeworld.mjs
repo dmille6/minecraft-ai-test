@@ -8,9 +8,15 @@
 // player's inventory on close and drops it only when there is no room. The fake drops always, so a stack left on the
 // cursor is visible to the test however full the bag is; on the server the same mistake is usually a client/server
 // disagreement about the bag rather than an item on the ground.
+//
+// CLICKS (withdraw, 10-04): a window's slots are the container's then the bag's (bag index i is window slot
+// inventoryStart + i, empty entries allowed), and clickWindow plays vanilla's click modes on them -- left click picks
+// up / puts down / merges / swaps, right click puts ONE down, shift-click (mode 1) moves a stack to the other side
+// (merging into partial stacks first; with no room it stays where it was), slot -999 drops the cursor.
 import { Vec3 } from 'vec3'
 
-export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table']
+export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table',
+  'stick', 'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'stone_axe', 'cobbled_deepslate', 'birch_planks', 'bamboo', 'leaf_litter', 'torch']
 const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/
 const key = (x, y, z) => `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`
@@ -20,7 +26,7 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
   const props = new Map()       // key -> block state properties
   const containers = new Map()  // key -> { slots }
   const dropped = []
-  const spy = { recipesFor: 0, craft: 0, placed: [], opened: [], gotos: [] }
+  const spy = { recipesFor: 0, craft: 0, placed: [], opened: [], gotos: [], clicks: [] }
   const nameAt = (x, y, z) => cells.get(key(x, y, z)) ?? (y <= 63 ? 'grass_block' : 'air')
   const block = p => {
     const v = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
@@ -76,13 +82,23 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
       const c = containers.get(key(b.position.x, b.position.y, b.position.z))
       if (!c) throw new Error('not a container')
       spy.opened.push(key(b.position.x, b.position.y, b.position.z))
+      const size = c.slots.length
       const w = {
-        inventoryStart: c.slots.length, inventoryEnd: c.slots.length + 36, selectedItem: null,
-        containerItems: () => c.slots.filter(Boolean),
-        items: () => items(),
+        inventoryStart: size, inventoryEnd: size + 36, selectedItem: null,
+        get (s) { return s < size ? (c.slots[s] ?? null) : (bag[s - size] ?? null) },
+        put (s, v) { if (s < size) c.slots[s] = v; else bag[s - size] = v },
+        containerItems: () => c.slots.map((x, i) => { if (x) x.slot = i; return x }).filter(Boolean),
+        items: () => bag.map((x, i) => { if (x) x.slot = size + i; return x }).filter(Boolean),
         firstEmptySlotRange (start, end) {
-          if (start >= w.inventoryStart) return items().length < 36 ? w.inventoryStart + items().length : null
-          const i = c.slots.findIndex(s => !s); return i >= 0 && i >= start && i < end ? i : null
+          for (let s = start; s < end; s++) if (!w.get(s)) return s
+          return null
+        },
+        findItemRange (start, end, type, _meta, notFull) {
+          for (let s = start; s < end; s++) {
+            const x = w.get(s)
+            if (x && x.type === type && (!notFull || x.count < (x.stackSize ?? 64))) { x.slot = s; return x }
+          }
+          return null
         },
         async deposit (type, _meta, count) {
           let left = count
@@ -109,9 +125,41 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
       bot.currentWindow = w
       return w
     },
-    async clickWindow (slot) {
+    async clickWindow (slot, button = 0, mode = 0) {
       const w = bot.currentWindow
-      if (w?.selectedItem && slot >= w.inventoryStart) { bag.push(w.selectedItem); w.selectedItem = null }
+      if (!w) return
+      spy.clicks.push([slot, button, mode])
+      const tool = x => !!x?.maxDurability
+      if (slot === -999) { if (w.selectedItem) { dropped.push(w.selectedItem); w.selectedItem = null } return }
+      const it = w.get(slot)
+      if (mode === 1) {                                   // shift-click: to the other side, partial stacks first
+        if (!it) return
+        const [a, b] = slot < w.inventoryStart ? [w.inventoryStart, w.inventoryEnd] : [0, w.inventoryStart]
+        if (!tool(it)) {
+          for (let s = a; s < b && it.count > 0; s++) {
+            const x = w.get(s)
+            if (x && x.name === it.name && x.count < 64) { const mv = Math.min(64 - x.count, it.count); x.count += mv; it.count -= mv }
+          }
+        }
+        if (it.count > 0) { const d = w.firstEmptySlotRange(a, b); if (d != null) { w.put(d, it); w.put(slot, null) } }
+        else w.put(slot, null)
+        return
+      }
+      const sel = w.selectedItem
+      if (button === 0) {
+        if (!sel) { if (it) { w.selectedItem = it; w.put(slot, null) } return }
+        if (!it) { w.put(slot, sel); w.selectedItem = null; return }
+        if (it.name === sel.name && !tool(it)) { const mv = Math.min(64 - it.count, sel.count); it.count += mv; sel.count -= mv; if (!sel.count) w.selectedItem = null; return }
+        w.put(slot, sel); w.selectedItem = it
+        return
+      }
+      if (button === 1 && sel) {
+        if (!it) w.put(slot, { ...sel, count: 1 })
+        else if (it.name === sel.name && it.count < 64 && !tool(it)) it.count++
+        else return
+        sel.count--
+        if (!sel.count) w.selectedItem = null
+      }
     },
     async equip (it) { bot.heldItem = it },
     async lookAt () {},
@@ -128,8 +176,13 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
     async craft () { spy.craft++; throw new Error('the fake cannot craft') },
     setControlState () {}, on () {}, off () {}, once () {}, removeListener () {}, waitForTicks: async () => {}, chat () {},
   }
-  return { bot, set, fill, cells, containers, dropped, spy, bag, nameAt, key }
+  /** Put exactly these stacks into the container at x,y,z (slot order). */
+  const stock = (x, y, z, stacks) => { const c = containers.get(key(x, y, z)); c.slots = Array(c.slots.length).fill(null); stacks.forEach((s, i) => { c.slots[i] = s }) }
+  return { bot, set, fill, stock, cells, containers, dropped, spy, bag, nameAt, key }
 }
 
 export const stack = (name, count) => ({ name, type: NAMES.indexOf(name), count })
+/** A tool copy: max durability and wear, as prismarine-item reports them. */
+export const tool = (name, used = 0, max = { wooden: 59, stone: 131, iron: 250, golden: 32 }[name.split('_')[0]] ?? 131) =>
+  ({ name, type: NAMES.indexOf(name), count: 1, maxDurability: max, durabilityUsed: used })
 export const total = bag => bag.filter(Boolean).reduce((n, it) => n + it.count, 0)

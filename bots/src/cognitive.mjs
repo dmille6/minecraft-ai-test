@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -19,6 +19,7 @@ import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
+import { hasUsablePick, roomPlan, pickTakes } from './withdrawpick.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -798,6 +799,10 @@ export class CognitiveLoop {
           myName: bot.username ?? '',
           peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
             Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
+          // THE PICKAXE (withdrawpick.mjs): none usable in the bag; the town's memory of a recent miss; room for one.
+          pickNeeded: !hasUsablePick(items),
+          pickMiss: () => townPickMiss(bot),
+          pickRoom: () => roomPlan(items, pickTakes()).ok,
           state: this.townState ?? {},
         })
         this.townState = r.state

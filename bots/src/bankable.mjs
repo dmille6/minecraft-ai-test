@@ -115,6 +115,7 @@ export function scaffoldKeep (counts = {}, reserveScaffold = 8) {
  * sentence for that reason too -- a long item name must not push it past the truncation.
  */
 export const EXCLUSION_PHRASE = Object.freeze({
+  withdraw_hold: 'just withdrawn',
   ballast: 'ballast',
   not_wanted: 'no goal wants it',
   scaffold_reserve: 'scaffold reserve',
@@ -157,6 +158,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   }
 
   const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
+  const hold = withdrawHolds()
   const detail = {}
   // name -> the rule that removed it, recorded HERE so no second route can disagree with the
   // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
@@ -171,8 +173,12 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
     const reserved = scaffoldReserve[name] ?? 0
     avail -= reserved
+    // JUST WITHDRAWN (withdrawpick.mjs): held back like a reserve, so the next deposit cannot hand it straight back.
+    const held = Math.min(Math.max(0, avail), hold[name] ?? 0)
+    avail -= held
     if (avail <= 0) {
-      excluded[name] = reserved >= n ? 'scaffold_reserve'
+      excluded[name] = held > 0 ? 'withdraw_hold'
+        : reserved >= n ? 'scaffold_reserve'
         : m ? 'last_of_tool_family'
         : KEEP_ONE.has(name) ? 'the_only_station'
         : 'scaffold_reserve'
@@ -189,6 +195,23 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   }
   return { count: bankable, junk, detail, excluded }
 }
+
+/**
+ * WHAT WAS JUST WITHDRAWN, held back from deposit -> { name: count }. One bot per process, so module state is this
+ * bot's. setWithdrawHold adds to a name's hold and restarts its clock; an expired hold is gone.
+ */
+let HOLDS = {}
+export function setWithdrawHold (name, count, until) {
+  if (!name || !(count > 0)) return
+  const cur = HOLDS[name] && HOLDS[name].until > Date.now() ? HOLDS[name].count : 0
+  HOLDS[name] = { count: cur + count, until }
+}
+export function withdrawHolds (now = Date.now()) {
+  const out = {}
+  for (const [name, h] of Object.entries(HOLDS)) if (h.until > now) out[name] = h.count
+  return out
+}
+export function clearWithdrawHolds () { HOLDS = {} }
 
 /**
  * Should this bot deposit NOW?

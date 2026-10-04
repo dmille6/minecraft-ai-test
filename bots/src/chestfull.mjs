@@ -250,6 +250,16 @@ export function updateTownMemory (dir, key, world, mutate) {
     return true
   } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } return false }
 }
+/**
+ * NO USABLE PICKAXE IN TOWN, recently (withdrawpick.mjs): a withdraw_pick that looked in its containers and found none
+ * writes this, and no bot of the town walks those containers for one again for PICK_MISS_TTL_MS. Kept in the same
+ * memory file under a key no container can have.
+ */
+export const PICK_MISS_KEY = '_no_usable_pick'
+export const PICK_MISS_TTL_MS = 15 * 60 * 1000
+export const pickMissRecent = (entries = {}, now = Date.now()) => { const e = entries?.[PICK_MISS_KEY]; return !!e && Number.isFinite(e.at) && now - e.at < PICK_MISS_TTL_MS }
+export const notePickMiss = (entries, now = Date.now()) => { entries[PICK_MISS_KEY] = { o: 'miss', at: now } }
+
 /** The last time any container of the town TOOK items (or a new chest went down): the "a town chest gained room" signal. */
 export function townRoomAt (entries = {}) {
   let t = -Infinity

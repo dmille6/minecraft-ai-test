@@ -43,6 +43,11 @@ import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, wr
          pickChestSite, chestSiteRefusal, closeMsFor, closeBank, bankClosed, closedRoomText, bagTotal, returnCursor,
          chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES } from './chestfull.mjs'
 import { STORAGE_NEAR, townDistance } from './composter.mjs'
+// Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
+import { bestToolCopy, roomPlan, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, withdrawRow, HOLD_MS } from './withdrawpick.mjs'
+import { setWithdrawHold } from './bankable.mjs'
+import { pickMissRecent, notePickMiss } from './chestfull.mjs'
+import { serverRecount, lockstepClicks } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -5739,71 +5744,373 @@ async function buildComposter (ctx, _args, signal) {
 
 // ------------------------------------------------------------- withdraw -----
 //
-// The inverse of deposit, and its absence was structural.
+// The inverse of deposit, and its absence was structural: the town chests hold 124,894 items (09-27) -- 16,383
+// oak_log, 6,859 sticks, 865 stone_pickaxe -- while 45 of 80 bots carry no usable pickaxe. Withdraw moved 48 items a
+// day: the model's verb alone, one container in sight, the MOST PLENTIFUL item when none was named (cobblestone), the
+// first copy by slot from a bank where worn tools go, and a transfer believed from mineflayer's optimistic window.
 //
-// `deposit` has existed since the storage work; `withdraw` never did. A bot
-// could put items into a chest and no bot could ever take them out, so the
-// shared chests were a one-way sink. Measured tonight: the two scouts held 25
-// and 59 oak_log between them and are never told to craft, while Miner01 -- the
-// one whose milestone chain IS planks -> sticks -> table -> pickaxe -- held five
-// dirt. The materials and the job were in different bots with no path between
-// them.
-//
-// Same shape as the rest of tonight's bugs: something could be added but never
-// removed, a guard could trip with no way back. A colony needs both directions.
-async function withdraw(ctx, { item = null, count = 16 }, signal) {
-  const { bot } = ctx
-  const chestBlock = bot.findBlock({
-    matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name),
-    maxDistance: 48,
-  })
-  if (!chestBlock) return { status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks' }
+// REWRITTEN (Claude + Codex, 10-04), on bank-fix's skeleton (3da782a..353d89e): walk home then rescan (the model's
+// verb only -- the town order never starts a trip), the lid looked at and the open bounded with a late window closed,
+// up to three containers with a double chest's halves counted once, misses that do not vote (container_short,
+// chest_unreachable). THE TRANSFER IS NEW: tools by SHIFT-CLICK of the source slot (no cursor stack; with no room the
+// server leaves it in the chest), ingredients one click at a time in craftsync's lockstep (pick up, right-click n
+// times into one bag slot, put the rest back, the cursor checked empty before the close), and the bag VERIFIED
+// against the SERVER (craftsync serverRecount: the window closed, window 0 resynced, an answered window_items) --
+// success only if the server's bag changed by exactly what was moved. Anything else is transfer_unsettled and ends
+// the visit. Room is made only by banking whole stacks deposit itself would bank (withdrawpick.mjs roomPlan); what
+// was taken is held back from deposit for HOLD_MS (bankable.mjs setWithdrawHold), so the next deposit cannot hand it
+// back. Never a spent tool, either way.
+const WITHDRAW_CONTAINERS = 3
+const WITHDRAW_ALT_RADIUS = 24
+const WITHDRAW_WALK_MS = 30_000
+const RECOUNT_MS = 3_000
+const TOOLISH = /_(pickaxe|axe|shovel|hoe|sword)$/
 
-  check(signal)
-  try {
-    await withTimeout(bot.pathfinder.goto(
-      new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2)), 20000, bot)
-  } catch {
-    return { status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${chestBlock.position.x},${chestBlock.position.z}` }
-  }
-  check(signal)
-
-  const chest = await bot.openContainer(chestBlock)
-  try {
-    const items = chest.containerItems()
-    if (!items.length) {
-      return { status: 'no_effect', detail: 'the chest is empty' }
+/** One container opened to take from: the lid looked at, the open bounded, a window that arrives late closed. */
+async function openForWithdraw (bot, chestBlock, signal, msLeft) {
+  const cp = chestBlock.position
+  const lid = bot.blockAt(cp.offset(0, 1, 0))
+  const isChest = ['chest', 'trapped_chest'].includes(blockNameOf(bot, chestBlock))   // barrels open under anything
+  if (isChest && lid && chestLidBlocked(lid)) {
+    if (!lidSafeToBreak(bot, lid.position)) {
+      return { fail: { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${cp.x},${cp.y},${cp.z} has ${lid.name} on its lid and it is not safe to break` } }
     }
-    // No item named -> take whatever is most plentiful. A bot that knows it
-    // needs something specific should say so; one that just needs materials
-    // should not have to guess what is in there.
-    const want = item
-      ? items.filter(i => i.name === item)
-      : [items.slice().sort((a, b) => b.count - a.count)[0]]
-    if (!want.length) {
-      return {
-        status: 'failed', failClass: 'nothing_found',
-        detail: `no ${item} in the chest — it holds ${items.slice(0, 4).map(i => `${i.count}x ${i.name}`).join(', ')}`,
+    try { await withTimeout(bot.dig(lid), Math.max(1, msLeft(10_000)), bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
+    catch (e) {
+      if (e?.aborted || signal?.aborted) throw e
+      return { fail: { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${cp.x},${cp.y},${cp.z} has ${lid.name} on its lid and it would not break` } }
+    }
+    check(signal)
+  }
+  try { bot.setControlState('sneak', false) } catch {}
+  try { await bot.lookAt?.(cp.offset(0.5, 0.5, 0.5), true) } catch {}
+  // A WINDOW THAT ARRIVES AFTER THE TIMEOUT HAS NO OWNER (bank-fix, Codex): it is closed when it comes.
+  let abandoned = false
+  const opening = Promise.resolve().then(() => bot.openContainer(chestBlock))
+  opening.then(w => { if (abandoned) { try { w.close() } catch {} } }, () => {})
+  let chest
+  try {
+    chest = await withTimeout(opening, Math.max(1, msLeft(8_000)), bot, { what: 'open the chest', onTimeout: () => { abandoned = true }, needsDrop: false })
+  } catch (e) {
+    abandoned = true
+    if (e?.aborted || signal?.aborted) throw e
+    return { fail: { status: 'failed', failClass: 'container_open', detail: `could not open the chest at ${cp.x},${cp.y},${cp.z} (${String(e?.message ?? e).slice(0, 50)})` } }
+  }
+  if (signal?.aborted) { try { chest.close() } catch {} check(signal) }
+  // THE WINDOW MUST BE THIS CHEST'S: openBlock resolves with whatever window opens next (bank-fix, both reviews).
+  if (bot.currentWindow && bot.currentWindow !== chest) {
+    try { chest.close() } catch {}
+    return { fail: { status: 'failed', failClass: 'container_open', detail: `the window that opened is not the chest at ${cp.x},${cp.y},${cp.z}` } }
+  }
+  return { chest }
+}
+
+/** A bag as plain records (name, count, wear), frozen when read: the server's word, before anything else moves it. */
+const bagSnapshot = items => (Array.isArray(items) ? items : []).filter(it => it?.name).map(it => ({ name: it.name, count: it.count ?? 0, durabilityUsed: it.durabilityUsed ?? 0 }))
+/** The server's bag (craftsync serverRecount) -> { source: 'server' | 'none' | 'unanswered' | ..., bag }. 'none' means
+ *  craftsync is not installed (its install failed at spawn): the local bag is all there is, and the row says so. */
+async function recountBag (bot, msLeft) {
+  let r
+  try { r = await serverRecount(bot, { deadline: Date.now() + Math.max(1, msLeft(RECOUNT_MS)) }) } catch (e) { r = { source: `error:${String(e?.message ?? e).slice(0, 30)}`, items: null } }
+  return { source: r?.source ?? 'none', bag: r?.items ? bagSnapshot(r.items) : null }
+}
+
+/**
+ * THE TRANSFER, inside ONE open window: the room-making deposits (whole stacks, shift-clicked), then the takes -- a tool
+ * by shift-click, or a count of an ingredient by single clicks -- all through craftsync's lockstep. Returns
+ * { took: { name: n }, gave: { name: n }, tool: { name, used, left } | null, cursor: 'empty' | why }. Every source is
+ * captured BEFORE its click: prismarine-windows moves the Item object and rewrites its `.slot` (bank-fix, sandbox).
+ */
+async function transferIn (bot, win, { deposit = [], tool = null, takes = [] }, { deadline, signal }) {
+  const took = {}, gave = {}
+  let toolTaken = null
+  await lockstepClicks(bot, async click => {
+    for (const d of deposit) {
+      check(signal)
+      const it = (win.items?.() ?? []).find(x => x?.name === d.name && (x.count ?? 0) === d.count)   // window numbering
+      if (!it) continue
+      const from = it.slot
+      await click(from, 0, 1)
+      gave[d.name] = (gave[d.name] ?? 0) + d.count
+    }
+    if (tool) {
+      check(signal)
+      if (win.firstEmptySlotRange?.(win.inventoryStart, win.inventoryEnd) == null) return
+      const src = { slot: tool.slot, name: tool.name, used: tool.durabilityUsed ?? 0, left: remaining(tool) }
+      await click(src.slot, 0, 1)
+      toolTaken = src
+    }
+    for (const take of takes) {
+      let left = take.count
+      const sources = (win.containerItems?.() ?? []).filter(x => x?.name === take.name)
+        .map(x => ({ slot: x.slot, name: x.name, count: x.count ?? 0 })).sort((a, b) => b.count - a.count)
+      for (const src of sources) {
+        if (left <= 0) break
+        check(signal)
+        const m = Math.min(left, src.count)
+        const partial = (win.items?.() ?? []).find(x => x?.name === take.name && (x.count ?? 0) + m <= (x.stackSize ?? 64))
+        const dest = partial?.slot ?? win.firstEmptySlotRange?.(win.inventoryStart, win.inventoryEnd)
+        if (dest == null) break
+        await click(src.slot, 0, 0)                          // the whole stack onto the cursor
+        for (let i = 0; i < m; i++) await click(dest, 1, 0)  // one at a time into the one bag slot
+        if (win.selectedItem) await click(src.slot, 0, 0)    // the rest back where it came from
+        took[take.name] = (took[take.name] ?? 0) + m
+        left -= m
       }
     }
-    let took = 0
-    for (const it of want) {
-      check(signal)
-      const n = Math.min(it.count, Math.max(1, Number(count) || 16) - took)
-      if (n <= 0) break
-      await chest.withdraw(it.type, null, n)
-      took += n
-      if (took >= (Number(count) || 16)) break
-    }
-    return took > 0
-      ? { status: 'success', detail: `withdrew ${took}x ${want[0].name} from the chest` }
-      : { status: 'no_effect', detail: 'nothing withdrawn' }
-  } catch (e) {
-    return { status: 'failed', failClass: 'other',
-             detail: `withdraw failed: ${e.message.slice(0, 70)}` }
-  } finally {
-    try { chest.close() } catch { /* already closed */ }
+  }, { deadline, signal })
+  // NOTHING LEAVES ON THE CURSOR: whatever is still held goes back into the bag before the close (chestfull.mjs). A
+  // rescue that had to act means the window did not follow the plan (the source slot was taken meanwhile, a click was
+  // reverted): nothing is dropped, but the visit is not a clean success either.
+  let cursor = 'empty'
+  if (win.selectedItem) {
+    const back = await returnCursor(bot, win)
+    cursor = back.returned ? 'rescued into the bag' : back.reason
   }
+  return { took, gave, tool: toolTaken, cursor }
+}
+
+/**
+ * ONE VISIT: reach, read the server's bag, open, look, maybe act, close, verify -> { result, saw, double }.
+ *   decide(containerItems, bagItems) -> null (nothing to do here) | { noRoom } | { deposit, tool, takes }
+ * `result` is null when the container had nothing to act on (`saw` is what it held); otherwise the visit's outcome.
+ */
+async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline) {
+  const { bot } = ctx
+  const cp = chestBlock.position
+  try {
+    await withTimeout(bot.pathfinder.goto(new goals.GoalNear(cp.x, cp.y, cp.z, 2)), Math.max(1, msLeft(WITHDRAW_WALK_MS)), bot)
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    // NOT no_path (bank-fix, Claude review): every visit reaches for the same town chests, and no_path votes against the
+    // verb with no position in the key. It is a fact about this chest, with no vote.
+    return { result: { status: 'failed', failClass: 'chest_unreachable', detail: `could not reach the chest at ${cp.x},${cp.y},${cp.z}` } }
+  }
+  check(signal)
+  const before = await recountBag(bot, msLeft)
+  const opened = await openForWithdraw(bot, chestBlock, signal, msLeft)
+  if (opened.fail) return { result: opened.fail }
+  const win = opened.chest
+  const double = (win.inventoryStart ?? 27) >= 54
+  let saw = [], plan = null, moved = null
+  try {
+    saw = (win.containerItems?.() ?? []).map(it => ({ name: it.name, count: it.count ?? 0, slot: it.slot,
+                                                      durabilityUsed: it.durabilityUsed ?? 0, maxDurability: it.maxDurability }))
+    plan = decide(win.containerItems?.() ?? [], bot.inventory.items())
+    if (plan?.noRoom) return { result: plan.noRoom, double, saw }
+    // NO BASELINE, NO TRANSFER: without the server's bag before, nothing afterwards could be verified.
+    if (plan && !(before.source === 'server' || before.source === 'none')) {
+      return { result: { status: 'failed', failClass: 'transfer_unsettled', verification: before.source,
+                         detail: `nothing taken from the chest at ${cp.x},${cp.y},${cp.z}: the server's bag could not be read first (${before.source})` }, double, saw }
+    }
+    if (plan) moved = await transferIn(bot, win, plan, { deadline, signal })
+  } finally {
+    try { win.close() } catch { /* already closed */ }
+  }
+  if (!plan) return { result: null, double, saw }
+  const after = await recountBag(bot, msLeft)
+  const verification = before.source === 'server' && after.source === 'server' ? 'server'
+    : before.source === 'none' && after.source === 'none' ? 'none' : `after:${after.source}`
+  let verdict = verification === 'server' || verification === 'none'
+    ? transferVerdict({ before: before.bag, after: after.bag, took: moved.took, gave: moved.gave, tool: moved.tool })
+    : { ok: false, why: `the server's bag could not be read after the transfer (${after.source})` }
+  if (moved.cursor !== 'empty') verdict = { ok: false, why: `the cursor kept a stack (${moved.cursor})` }
+  // WHAT WAS TAKEN IS HELD BACK FROM DEPOSIT (bankable.mjs), verified or not: an unsettled take may still have landed.
+  const until = Date.now() + HOLD_MS
+  for (const [name, n] of Object.entries(moved.took)) setWithdrawHold(name, n, until)
+  if (moved.tool) setWithdrawHold(moved.tool.name, 1, until)
+  const nothing = !moved.tool && !Object.keys(moved.took).length
+  const what = moved.tool ? `1x ${moved.tool.name} with ${Number.isFinite(moved.tool.left) ? moved.tool.left : '?'} uses left`
+    : Object.entries(moved.took).map(([k, n]) => `${n}x ${k}`).join(', ')
+  const gaveS = Object.entries(moved.gave).map(([k, n]) => `${n}x ${k}`).join(', ')
+  const result = !verdict.ok
+    ? { status: 'failed', failClass: 'transfer_unsettled', verification,
+        detail: `the transfer at the chest at ${cp.x},${cp.y},${cp.z} could not be confirmed: ${verdict.why}; stopped until the bag settles` }
+    : nothing
+      ? { status: 'failed', failClass: 'inventory_full', verification,
+          detail: `no room in the bag at the chest at ${cp.x},${cp.y},${cp.z}: nothing could be taken` }
+      : { status: 'success', verification,
+          detail: `withdrew ${what} from the chest at ${cp.x},${cp.y},${cp.z}${gaveS ? ` (banked ${gaveS} to make room)` : ''}` }
+  return { result, double, saw, moved, verification }
+}
+
+/** The containers to look in: up to WITHDRAW_CONTAINERS, nearest first, a double chest's other half never counted twice,
+ *  and none the town's memory knows is unusable or has a blocked lid (chestfull.mjs containerStatus). */
+function withdrawSweep (bot) {
+  const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
+  const tried = new Set()
+  let mem = {}
+  try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) } catch { mem = {} }
+  const skip = q => { const st = containerStatus(mem[posKey(q)]); return st === 'unusable' || st === 'unavailable' }
+  return {
+    next (radius) {
+      return bot.findBlock({ matching: b => isContainer(b) && (!b.position || (!tried.has(posKey(b.position)) && !skip(b.position))), maxDistance: radius })
+    },
+    mark (q, double) {
+      tried.add(posKey(q))
+      if (double) { const p = chestPartner(bot, q); if (p) tried.add(posKey(p)) }
+    },
+    count: () => tried.size,
+  }
+}
+
+/** The watchdog's clock for a withdraw (config.skills.defaultTimeoutMs from the skill's start), as deposit keeps it. */
+function withdrawClock (ctx) {
+  const startedAt = ctx.runner?.current?.startedAt ?? Date.now()
+  const deadline = startedAt + config.skills.defaultTimeoutMs
+  return { deadline, msLeft: cap => Math.max(0, Math.min(cap, deadline - Date.now())) }
+}
+
+/** The decision for one named item in a window -> null | { noRoom } | { deposit, tool | takes }. Pure over its inputs. */
+function decideNamed (name, count, inChest, bag) {
+  if (TOOLISH.test(name)) {
+    const best = bestToolCopy(inChest.filter(it => it?.name === name))
+    if (!best) return null
+    const room = roomPlan(bag, [{ tool: true, name }])
+    if (!room.ok) return { noRoom: noRoomResult(name) }
+    return { deposit: room.deposit, tool: best }
+  }
+  const have = inChest.reduce((n, it) => n + (it?.name === name ? (it.count ?? 0) : 0), 0)
+  if (!have) return null
+  const m = Math.min(have, Math.max(1, Math.min(64, Math.floor(Number(count) || 16))))
+  const room = roomPlan(bag, [{ name, count: m }])
+  if (!room.ok) return { noRoom: noRoomResult(name) }
+  return { deposit: room.deposit, takes: [{ name, count: m }] }
+}
+/** No room, and nothing deposit would bank can make it: said plainly, with no remedy that cannot be performed. */
+const noRoomResult = name => ({ status: 'failed', failClass: 'inventory_full',
+  detail: `no room for ${name}: the bag is full and nothing in it is banked by a deposit to make room -- keep working; spent tools and compostable junk are cleared at town` })
+
+/**
+ * withdraw <item> [count] -- the model's verb. A NAMED NEED IS REQUIRED (admission refuses it bare; Codex: the old
+ * default took the most plentiful item, which is cobblestone). A tool is taken as ONE copy, the best usable one
+ * (withdrawpick.mjs bestToolCopy: never a spent copy); anything else up to `count` (at most 64).
+ */
+async function withdraw (ctx, { item = null, count = 16 }, signal) {
+  if (item == null || ['', 'none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(String(item).trim().toLowerCase())) {
+    return { status: 'failed', failClass: 'bad_args', detail: 'withdraw needs the item you need, e.g. withdraw stone_pickaxe or withdraw stick 2' }
+  }
+  const { bot } = ctx
+  const { deadline, msLeft } = withdrawClock(ctx)
+  const sweep = withdrawSweep(bot)
+  let chestBlock = sweep.next(48)
+  if (!chestBlock) {
+    // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
+    const walked = await home(ctx, {}, signal)
+    check(signal)
+    chestBlock = sweep.next(48)
+    if (!chestBlock && walked.status === 'failed') return { ...walked, detail: `no chest nearby; walking home to the town chest failed: ${walked.detail}` }
+  }
+  if (!chestBlock) return { status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks, even at home' }
+  const held = []
+  let lastFailure = null
+  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
+    check(signal)
+    const v = await withdrawVisit(ctx, chestBlock, (inChest, bag) => decideNamed(item, count, inChest, bag), signal, msLeft, deadline - 2_000)
+    sweep.mark(chestBlock.position, v.double)
+    if (v.result && v.result.status === 'success') return v.result
+    if (v.result && ['transfer_unsettled', 'inventory_full', 'container_open'].includes(v.result.failClass)) return v.result
+    if (v.result) lastFailure = v.result
+    else held.push(`${chestBlock.position.x},${chestBlock.position.z}: ${v.saw.slice().sort((a, b) => b.count - a.count).slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'}`)
+    chestBlock = sweep.next(WITHDRAW_ALT_RADIUS)
+  }
+  if (held.length) {
+    // Deliberately no "no ... within" in this sentence: state.mjs's prose classifier reads that pair as nothing_found.
+    return { status: 'failed', failClass: 'container_short',
+             detail: `${item}${TOOLISH.test(item) ? ' (a usable copy)' : ''} is not in the ${held.length} container(s) tried here -- they hold ${held.join('; ').slice(0, 160)}` }
+  }
+  return lastFailure ?? { status: 'failed', failClass: 'other', detail: 'withdraw tried no container' }
+}
+
+/** Has the town found no usable pickaxe in its chests in the last 15 min (chestfull.mjs, shared)? For townOrder. */
+export function townPickMiss (bot) {
+  try { return pickMissRecent(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null)) } catch { return false }
+}
+
+/**
+ * withdraw_pick -- the town order (composter.mjs townOrder; chatOnly, housekeeping). The bag holds no usable pickaxe:
+ *   1. up to three containers are looked in for ONE pickaxe -- the best usable copy (bestToolCopy) -- and it is taken
+ *      where found, room made first by banking whole stacks deposit would bank (roomPlan);
+ *   2. only if none was found: the town remembers the miss for 15 min, and the deficits for ONE stone pickaxe
+ *      (stonePickDeficits: cobblestone, sticks, and planks only for a table that is neither carried nor in reach) are
+ *      taken from the container that holds the most of them; the pickaxe rung's own work order then crafts it.
+ * Never a trip: it acts only on containers in sight. One `_withdraw_pick` row per order.
+ */
+async function withdrawPick (ctx, _args, signal) {
+  const { bot } = ctx
+  const { deadline, msLeft } = withdrawClock(ctx)
+  const bagBefore = bagTotal(bot.inventory.items())
+  const tried = []
+  let need = 'pickaxe', uses = null, verification = 'none', deposited = [], took = {}
+  const finish = (r, outcome) => {
+    logEvent({ kind: 'withdraw_pick', status: r.status, snapshot: snapshot(bot),
+               detail: withdrawRow({ outcome, need, uses, verification: r.verification ?? verification, bagBefore, bagAfter: bagTotal(bot.inventory.items()), deposited, took, tried }) })
+    return r
+  }
+  if (hasUsablePick(bot.inventory.items())) return finish({ status: 'no_effect', detail: 'already carrying a usable pickaxe' }, 'has_pick')
+  if (townPickMiss(bot)) return finish({ status: 'no_effect', detail: 'the town found no usable pickaxe in its chests in the last 15 min' }, 'recent_miss')
+  const sweep = withdrawSweep(bot)
+  const seen = []
+  let chestBlock = sweep.next(STORAGE_NEAR)
+  if (!chestBlock) return finish({ status: 'no_effect', detail: 'no chest or barrel in sight' }, 'no_container')
+  const record = (v, cb) => {
+    tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? (v.moved ? 'acted' : 'none')}`)
+    if (v.moved) { deposited = Object.entries(v.moved.gave).map(([name, count]) => ({ name, count })); took = { ...v.moved.took, ...(v.moved.tool ? { [v.moved.tool.name]: 1 } : {}) } }
+  }
+  const pickDecision = (inChest, bag) => {
+    const best = bestToolCopy(inChest.filter(it => PICK_RE.test(it?.name ?? '')))
+    if (!best) return null
+    uses = Number.isFinite(remaining(best)) ? remaining(best) : 'full'
+    const room = roomPlan(bag, pickTakes())
+    if (!room.ok) return { noRoom: noRoomResult(best.name) }
+    return { deposit: room.deposit, tool: best }
+  }
+  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
+    check(signal)
+    const v = await withdrawVisit(ctx, chestBlock, pickDecision, signal, msLeft, deadline - 2_000)
+    sweep.mark(chestBlock.position, v.double)
+    record(v, chestBlock)
+    if (v.result) {
+      if (v.result.status === 'success') return finish(v.result, 'took_pick')
+      if (['transfer_unsettled', 'inventory_full', 'container_open'].includes(v.result.failClass)) return finish(v.result, v.result.failClass)
+    } else seen.push({ block: chestBlock, saw: v.saw })
+    chestBlock = sweep.next(STORAGE_NEAR)
+  }
+  // NO USABLE PICKAXE in what was looked at: the town remembers it, so no bot walks these chests for one again soon.
+  if (seen.length) updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => notePickMiss(e))
+  const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
+  const deficits = stonePickDeficits(bot.inventory.items(), { tableNear })
+  need = deficits.length ? deficits.map(d => `${d.need}:${d.count}`).join(',') : 'none'
+  if (!deficits.length) return finish({ status: 'no_effect', detail: 'no usable pickaxe in the town chests, and the bag already holds what one stone pickaxe takes' }, 'has_ingredients')
+  // THE CONTAINER THAT COVERS MOST OF IT, from what the sweep saw; then the ingredients, re-planned on the live window.
+  const pickName = (d, inChest) => {
+    const names = NEEDS[d.need].prefer.length ? NEEDS[d.need].prefer : [...new Set(inChest.filter(it => NEEDS[d.need].match(it.name)).map(it => it.name))]
+    const have = name => inChest.reduce((k, it) => k + (it?.name === name ? (it.count ?? 0) : 0), 0)
+    return names.filter(have).sort((a, b) => have(b) - have(a))[0] ?? null
+  }
+  const coverage = saw => deficits.reduce((k, d) => k + Math.min(d.count, saw.filter(it => NEEDS[d.need].match(it.name)).reduce((a, it) => a + it.count, 0)), 0)
+  const best = seen.slice().sort((a, b) => coverage(b.saw) - coverage(a.saw))[0]
+  if (!best || coverage(best.saw) === 0) {
+    return finish({ status: 'failed', failClass: 'container_short', detail: `no usable pickaxe and none of ${need} in the ${tried.length} container(s) tried here` }, 'short')
+  }
+  const ingredientDecision = (inChest, bag) => {
+    const takes = []
+    for (const d of deficits) {
+      const name = pickName(d, inChest)
+      if (!name) continue
+      const have = inChest.reduce((k, it) => k + (it?.name === name ? (it.count ?? 0) : 0), 0)
+      takes.push({ name, count: Math.min(d.count, have), need: d.need })
+    }
+    if (!takes.length) return null
+    // EVERY stone-pickaxe ingredient stays (Codex: a room-making deposit must not bank what the craft will spend).
+    const room = roomPlan(bag, takes, { keep: [NEEDS.cobblestone.match, NEEDS.stick.match, NEEDS.planks.match, n => /_(log|stem)$/.test(n), 'crafting_table'] })
+    if (!room.ok) return { noRoom: noRoomResult(takes.map(t => t.name).join(' and ')) }
+    return { deposit: room.deposit, takes: takes.map(({ name, count }) => ({ name, count })) }
+  }
+  const v = await withdrawVisit(ctx, best.block, ingredientDecision, signal, msLeft, deadline - 2_000)
+  record(v, best.block)
+  if (!v.result) return finish({ status: 'failed', failClass: 'container_short', detail: `the chest at ${posKey(best.block.position)} no longer holds ${need}` }, 'short')
+  return finish(v.result, v.result.status === 'success' ? 'took_ingredients' : v.result.failClass ?? v.result.status)
 }
 
 // --------------------------------------------------------------- smelt -----
@@ -7887,7 +8194,10 @@ export const SKILL_CONTRACTS = {
   compost:  { expects: ['compost_effect'],        maxMs: 120_000 },
   // Crafts and places the town composter: the change it exists for is the block in the world.
   build_composter: { expects: ['world_change'],   maxMs: 150_000 },
-  withdraw: { expects: ['inventory_gain'],        maxMs: 60_000 },
+  // Walk home (the model's verb) plus up to three containers: deposit's budget. The runner's watchdog (180 s) is the clock.
+  withdraw: { expects: ['inventory_gain'],        maxMs: 240_000 },
+  // The town order: containers in sight only, never a trip.
+  withdraw_pick: { expects: ['inventory_gain'],   maxMs: 120_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },
@@ -8938,6 +9248,7 @@ export const SKILLS = {
   // Same rule as wear_out: deterministic town orders from townOrder (composter.mjs), never the model's choice.
   compost:  { run: compost,  usage: 'compost',                       args: [], chatOnly: true },
   build_composter: { run: buildComposter, usage: 'build_composter', args: [], chatOnly: true },
+  withdraw_pick: { run: withdrawPick, usage: 'withdraw_pick', args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },

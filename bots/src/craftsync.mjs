@@ -66,6 +66,26 @@ export const CRAFT_SYNC = Object.freeze({
 
 export const GUARDED_INVENTORY_ACTIONS = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack']
 
+/**
+ * THE SERVER'S BAG for a caller outside a craft -> { source, items } (controller.recount). Without craftsync (its install
+ * failed at spawn, or a test double) the source is 'none' and the items are the local bag -- the caller must say so.
+ */
+export async function serverRecount (bot, opts = {}) {
+  const c = bot?.craftSync
+  if (typeof c?.recount !== 'function') return { source: 'none', items: bot?.inventory?.items?.() ?? [] }
+  return c.recount(opts)
+}
+/**
+ * fn(click) with every click in craftsync's lockstep (controller.lockstep). Without craftsync each click is followed by
+ * one tick, the closest the plain client can come.
+ */
+export async function lockstepClicks (bot, fn, opts = {}) {
+  const c = bot?.craftSync
+  const click = (slot, button, mode) => bot.clickWindow(slot, button, mode)
+  if (typeof c?.lockstep !== 'function') return fn(async (slot, button, mode) => { await click(slot, button, mode); await bot.waitForTicks?.(1) })
+  return c.lockstep(() => fn(click), opts)
+}
+
 /** Every refusal/failure craftsync raises itself. failClass is the skill's; `aborted` marks an interruption. */
 export class CraftSyncError extends Error {
   constructor (message, { failClass, aborted = false, produced = null, requested = null, reason = null } = {}) {
@@ -544,8 +564,53 @@ export function installCraftSync (bot, opts = {}) {
     } catch { /* telemetry never breaks a craft */ }
   }
 
+  /** A bare state for work that is not a craft (recount, lockstep): the same counters craft() keeps. */
+  const freshState = (deadline, signal) => ({
+    id: ++craftSeq, signal, deadline, clickDeadline: deadline, resultId: null, cancelReason: null, refused: null,
+    clickTimedOut: null, resynced: new Set(), clicks: 0, clicksSent: 0, proof: null, resyncs: 0, resyncAnswered: 0,
+    resyncSkipped: 0, waitMs: 0, quietCaps: 0, clickCaps: 0, resyncCaps: 0, rewrites: 0, restoreConflicts: 0,
+    preemptTimeouts: 0, maxAnswerMs: 0, awaitingSince: null, abandoned: false, outcome: null, verify: null,
+  })
+
+  /**
+   * THE SERVER'S BAG, NOW (withdraw, 10-04) -> { source: 'server' | 'unanswered' | 'skipped' | 'busy' | 'window_open',
+   * items }. serverCount's own steps outside a craft: window 0 closed (the server hands a carried stack back, so the
+   * cursor is provably empty), resynced, and the items read only from an ANSWERED window_items. Never while a craft
+   * runs or a container window is open.
+   */
+  async function recount ({ deadline = now() + 3000 } = {}) {
+    if (active || zombie) return { source: 'busy', items: null }
+    if (bot.currentWindow) return { source: 'window_open', items: null }
+    const st = active = freshState(deadline, null)
+    st.origWrite = bot._client.write
+    try {
+      const until = () => now() >= st.deadline
+      st.origWrite.call(bot._client, 'close_window', { windowId: 0 })
+      st.proof = { win: 'any', clicks: st.clicksSent }
+      const r = await resync(st, 0, until)
+      return { source: r === 'answered' ? 'server' : r, items: r === 'answered' ? (bot.inventory?.items?.() ?? []) : null }
+    } finally { active = null }
+  }
+
+  /**
+   * CLICKS IN LOCKSTEP outside a craft (withdraw, 10-04): fn() runs with craft()'s own click wrappers installed -- each
+   * click waits for its window to go quiet before the next, the first click in a container is preceded by a resync when
+   * that is provably a no-op, stateIds per window (arm B) -- and with every other inventory action held off.
+   */
+  async function lockstep (fn, { deadline = now() + 30_000, signal = null } = {}) {
+    if (active || zombie) throw new CraftSyncError('inventory busy: a craft is running', { failClass: 'craft_busy' })
+    const st = active = freshState(deadline, signal)
+    let restore = null
+    try {
+      restore = install(st)
+      return await fn()
+    } finally {
+      try { restore?.() } finally { active = null }
+    }
+  }
+
   bot.craft = craft
-  const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft }
+  const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft, recount, lockstep }
   bot.craftSync = controller
   return controller
 }

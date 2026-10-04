@@ -220,7 +220,7 @@ export function buildSystemPrompt(skillNames) {
     '  gather  args: {"block": "<block id e.g. oak_log>", "count": <integer>}',
     '  goto    args: {"x": <int>, "y": <int>, "z": <int>}',
     '  deposit args: {"item": "<item id>"}   (walks home to the town chest if none nearby; omit item to deposit everything)',
-    '  withdraw args: {"item": "<item id>", "count": <integer>}  (takes from a chest or barrel within 48 blocks)',
+    '  withdraw args: {"item": "<item id>", "count": <integer>}  (the item is required; takes it from the town chests, walking home first; a tool comes as its best usable copy)',
     '  home    args: {}',
     '  status  args: {}',
     '  eat     args: {}                       (eats food from inventory)',
