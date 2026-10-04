@@ -2537,7 +2537,10 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // its own terms is UNKNOWN -- a strike -- and goes on to the town's other containers, but only when it began in town
   // with STRIKE_WALK_MIN_MS to spare; otherwise it is the travel failure it always was. A failed recovery walk throws,
   // and the sweep reads it as unknown.
-  const walkFrom = bot.entity.position
+  // WHERE THE WALK BEGAN, judged NOW (Codex round 4): bot.entity.position is a live Vec3 that the walk mutates, so a
+  // reference read after a failed goto saw where the bot ended up -- in town -- and struck the chest.
+  const hv = homeVec()
+  const walkBeganInTown = Math.hypot(bot.entity.position.x - hv.x, bot.entity.position.z - hv.z) <= STORAGE_NEAR
   const wb = bounded(noRecovery ? RECOVERY_WALK_MS : FIRST_WALK_MS)
   const toChest = bot.pathfinder.goto(new goals.GoalNear(cp.x, cp.y, cp.z, 2))
   try {
@@ -2547,8 +2550,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     if (e?.budgetExceeded && wb.clamped) return outOfTime('reaching')
     if (noRecovery) throw e
     const res = { status: 'failed', failClass: e?.failClass ?? 'no_path', detail: `could not reach the chest at ${cp.x},${cp.y},${cp.z}: ${String(e?.message ?? e).slice(0, 60)}` }
-    const h = homeVec()
-    const inTown = Math.hypot(walkFrom.x - h.x, walkFrom.z - h.z) <= STORAGE_NEAR && wb.left >= STRIKE_WALK_MIN_MS
+    const inTown = walkBeganInTown && wb.left >= STRIKE_WALK_MIN_MS
     return inTown ? viaRecovery(res, 'unknown') : res
   }
   check(signal)
@@ -2805,7 +2807,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const markWith = (q, m, room) => { mark(q, room); if (m?.double) mark(chestPartner(bot, q), `${room}_double`) }
   const triedList = () => [...tried.values()].map(v => v.at)
   const bag = () => bagTotal(bot.inventory?.items?.() ?? [])
-  let containers = null, unknown = 0, budget = null
+  let containers = null, unknown = 0, unknownTime = 0, budget = null
   const remember = (q, outcome) => { const e = rememberTown(bot, q, outcome); if (e) mem[posKey(q)] = e; return e }
   // An UNKNOWN outcome is a strike in the town's memory; the second >= 10 min after the first makes it unusable.
   const strike = q => {
@@ -2852,7 +2854,8 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     if (posKey(opened) !== posKey(at)) mark(at, 'gone')   // deposit fell back to another container: `at` is not one now
     if (again.status === 'success') { markWith(opened, m, `took_${again.moved ?? '?'}`); return again }
     if (again.status === 'no_effect' || again.failClass === 'transfer_unsettled') return again
-    if (again.failClass === 'path_budget' && again.status === 'unknown') { mark(at, 'unknown:time'); unknown++; return null }   // our clock: no strike
+    // OUR CLOCK, NOT THE CONTAINER: returned unchanged, before any decision that could pause banking (Codex round 4).
+    if (again.failClass === 'path_budget' && again.status === 'unknown') { mark(at, 'unknown:time'); return again }
     if (again.failClass === 'storage_full') { markWith(opened, m, 'full'); remember(opened, 'full'); return null }
     if (again.failClass === 'container_blocked') { mark(at, 'unavailable'); remember(at, 'unavailable'); return null }
     mark(at, `unknown:${again.failClass ?? again.status}`); strike(at)
@@ -2896,7 +2899,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     const st = containerStatus(mem[posKey(at)])
     if (st === 'full' || st === 'unavailable' || st === 'unusable') { mark(at, `${st}:memory`); continue }
     if (st === 'backoff') { mark(at, 'unknown:backoff'); unknown++; continue }
-    if (Date.now() > deadline) { mark(at, 'unknown:time'); unknown++; continue }   // not reached in time: no strike
+    if (Date.now() > deadline) { mark(at, 'unknown:time'); unknown++; unknownTime++; continue }   // not reached in time: no strike
     mark(at, 'pending')
     const done = await attempt(at, deadline)
     if (done) return done.status === 'success' ? { ...done, detail: `${done.detail} (the first chest was full; used another one in town)` } : done
@@ -2909,6 +2912,13 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   budget = chestBudget({ claims, world })
   const carried = carriedChest(bot.inventory.items())
   const next = fullChestNext({ nearHome, unknown, budget, carried: !!carried })
+  // TIME ALONE IS NOT A REASON TO PAUSE BANKING (Codex round 4): when every unknown is a container the watchdog left
+  // unvisited, the answer is the clamped timeout's own -- deposit again -- with no closure.
+  if (next === 'defer' && unknown === unknownTime) {
+    row('out_of_time', 'no_effect')
+    return { status: 'unknown', failClass: 'path_budget',
+             detail: `deposit again: this attempt ran out of time before reaching ${unknownTime} more container(s) in town [bag ${bagBefore}->${bag()} items]` }
+  }
   if (next === 'defer') {
     const why = `${unknown} container(s) in town could not be opened, reached or read in time, so their room is unknown and no chest is built`
     shut('defer', why)
@@ -3021,6 +3031,8 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   }
   const extra = { ...where, moved: again.moved ?? 0, placed: 1 }
   if (again.status === 'no_effect') { row(next, 'no_effect', extra); return again }   // nothing was left to hand over
+  // OUR CLOCK ran out at the new chest (Codex round 4): returned unchanged -- the chest is down, nothing is paused.
+  if (again.failClass === 'path_budget' && again.status === 'unknown') { row(next, 'no_effect', { ...extra, out_of_time: 1 }); return again }
   // A STACK STILL ON THE CURSOR is a transfer failure, propagated unchanged (Codex round 2), as the sweep does.
   if (again.failClass === 'transfer_unsettled') { row(next, 'failed', { ...extra, unsettled: 1 }); return again }
   if (again.status === 'success') {

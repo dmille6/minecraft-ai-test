@@ -363,9 +363,11 @@ await t('THE WATCHDOG\'S CLOCK (180 s, not the 240 s contract): 150 s in, an unt
   const w = town([stack('cobblestone', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 150_000 } })
-  assert.equal(r.failClass, 'storage_full', r.detail)
-  assert.match(lastRow(), /-5,64,0:unknown:time/)
+  // (Codex round 4) time alone is the clamped timeout's own answer: deposit again, nothing paused.
+  assert.equal(r.status, 'unknown', r.detail); assert.equal(r.failClass, 'path_budget')
+  assert.match(lastRow(), /^decision=out_of_time .*-5,64,0:unknown:time/)
   assert.equal(w.spy.placed.length, 0)
+  assert.equal(bankClosed(w.bot), '')
 })
 
 await t('ONE SUBMISSION PER CLAIM: a placement that never lands is tried once and stays UNRESOLVED in the ledger (no refund)', async () => {
@@ -548,6 +550,44 @@ await t('R3.2 PRUNING KEEPS THE WINNER: one placed and four gone at the same tim
   for (let i = 0; i < 4; i++) writeClaimState(dir, KEY, 1, 'gone', 5000)
   assert.equal(ledger(dir)[0].state, 'placed')
   assert.ok(fs.readdirSync(dir).filter(f => f.startsWith(`${KEY}.c1.o`)).length <= 4, 'and it did prune')
+})
+
+// ---------------------------------------------------------------- round 4 (Codex's probes as regressions) ---
+await t('R4.1 A CLAMPED OPEN AT THE NEW CHEST is returned unchanged: no storage_full, no bank pause', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const runner = { current: { startedAt: Date.now() } }
+  const place = w.bot.placeBlock, open = w.bot.openContainer
+  // The placement uses the clock up: when it lands the watchdog has ~2 s left, and the new chest never opens.
+  w.bot.placeBlock = async (ref, face) => { await place(ref, face); runner.current.startedAt = Date.now() - 178_000 }
+  w.bot.openContainer = b => (w.spy.placed.includes(`${b.position.x},${b.position.y},${b.position.z}`) ? new Promise(() => {}) : open(b))
+  const r = await run(w.bot, {}, runner)
+  assert.equal(w.spy.placed.length, 1)
+  assert.equal(r.status, 'unknown', r.detail); assert.equal(r.failClass, 'path_budget')
+  assert.equal(bankClosed(w.bot), '', 'nothing paused')
+  assert.match(lastRow(), /out_of_time=1/)
+})
+
+await t('R4.1 A CLAMPED OPEN IN THE SWEEP is returned unchanged: no strike, no bank pause', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'barrel')
+  const open = w.bot.openContainer
+  w.bot.openContainer = b => (b.position.x === -5 ? new Promise(() => {}) : open(b))
+  const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 118_000 } })
+  assert.equal(r.status, 'unknown', r.detail); assert.equal(r.failClass, 'path_budget')
+  assert.equal(memEntry('-5,64,0'), undefined, 'the barrel is not struck')
+  assert.equal(bankClosed(w.bot), '')
+  assert.equal(w.spy.placed.length, 0)
+})
+
+await t('R4.2 WHERE THE WALK BEGAN is read before the walk: a live position that moves into town does not strike', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)], [40.5, 64, 0.5])
+  w.bot.pathfinder.goto = async g => {
+    if (g.x === 5 && g.z === 0) { w.bot.entity.position.x = 6.5; throw new Error('No path to the goal!') }   // mutated IN PLACE
+  }
+  const r = await run(w.bot)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /could not reach the chest at 5,64,0/)
+  assert.equal(memEntry('5,64,0'), undefined, 'no strike')
+  assert.equal(bankClosed(w.bot), '')
 })
 
 await t('THE LID FILTER: place() with no coordinates never puts a block on a chest, and refuses explicit coordinates there', async () => {
