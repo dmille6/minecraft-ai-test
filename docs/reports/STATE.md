@@ -68,6 +68,15 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   tripwire counts unanswered resyncs (amendment recorded before the +180 read). craftsync-01 so far: 0 of 96 false
   successes (control 117/633), Paper answered 46/46 resyncs, many planks crafts lost to full bags (craftroom's job).
 
+- **10-04 ~02:00Z:** BAMBOO d26eedc both engines AGREE (planner stress-tested on ~25k random bags; live census 19 of
+  29 full bamboo holders eligible); Paper sandbox running; read scripts/host/bambooread.py (positive control 27).
+  CHEST fix rebased onto the line (chest-on-1918bb5 @ 3be9307, patch-identical, 225/225, 20 mutants): Claude AGREE on
+  round 2; Codex CHANGE with 5 reproduced items (standing-cap bypass via dismissed claims, first chest ignores memory,
+  unreachable first chest, first attempt not clamped, transfer_unsettled lost on retry) -- builder fixing.
+  **OWNER-LEVEL WARNING (Claude):** at <= 4 new chests/day and <= 12 standing, a town whose bank only receives (125k in,
+  48 out/day on 09-28) fills its expansion budget in ~3 days; then refusals are honest but permanent. The lasting fix
+  is withdrawals or ballast disposal; the chest read should report the refuse_cap share so that point is visible.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
