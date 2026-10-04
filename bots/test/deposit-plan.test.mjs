@@ -42,7 +42,8 @@ t('ores are banked whether or not they are standing targets, and the wants admis
 })
 t('the deposit skill hands over the plan (source anchor) and a mutant that deposits the raw inventory is caught', () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  const s = c.indexOf('async function deposit('); const f = c.slice(s, s + 6000)
+  // (2026-10-03, chest-full) the whole function, to its closing brace: a fixed-length window ran out as it grew.
+  const s = c.indexOf('async function deposit('); const f = c.slice(s, c.indexOf('\n}\n', s))
   // THE ANCHOR MOVED 2026-09-23 and the invariant did not. The snapshot is taken
   // one line earlier (`planItems`) so the refusal sentence and the transfer read
   // the SAME inventory -- computing bankability twice is what got the previous

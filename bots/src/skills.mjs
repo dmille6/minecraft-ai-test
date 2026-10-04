@@ -2528,16 +2528,32 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     }
   }
 
+  // A CLAMPED TIMEOUT IS OUR CLOCK, NOT THE CHEST (Claude round 3). Every bounded step (the walk, the lid dig, the open)
+  // records whether the watchdog cut its budget; a timeout while cut says nothing about the chest -- the walk home may
+  // have used most of the 180 s -- so it strikes nothing, starts no recovery and closes nothing: deposit again.
+  const cp = chestBlock.position
+  const bounded = cap => { const left = msLeft(cap); return { ms: Math.max(1, left), clamped: left < cap, left } }
+  const outOfTime = what => ({ status: 'unknown', failClass: 'path_budget',
+                               detail: `deposit again: this attempt ran out of time before ${what} the chest at ${cp.x},${cp.y},${cp.z}` })
+
   // EVERY walk to a chest is bounded (Codex round 2: an unreachable first chest was a dead end): the recovery's own
-  // attempts by RECOVERY_WALK_MS, the first by FIRST_WALK_MS, both clamped to the watchdog. A failed first walk is
-  // UNKNOWN and goes on to the town's other containers; a failed recovery walk throws, and the sweep reads it as unknown.
-  const toChest = bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
+  // attempts by RECOVERY_WALK_MS, the first by FIRST_WALK_MS, both clamped to the watchdog. A first walk that fails on
+  // its own terms is UNKNOWN -- a strike -- and goes on to the town's other containers, but only when it began in town
+  // with STRIKE_WALK_MIN_MS to spare; otherwise it is the travel failure it always was. A failed recovery walk throws,
+  // and the sweep reads it as unknown.
+  const walkFrom = bot.entity.position
+  const wb = bounded(noRecovery ? RECOVERY_WALK_MS : FIRST_WALK_MS)
+  const toChest = bot.pathfinder.goto(new goals.GoalNear(cp.x, cp.y, cp.z, 2))
   try {
-    await withTimeout(toChest, Math.max(1, msLeft(noRecovery ? RECOVERY_WALK_MS : FIRST_WALK_MS)), bot)
+    await withTimeout(toChest, wb.ms, bot)
   } catch (e) {
-    if (e?.aborted || signal?.aborted || noRecovery) throw e
-    const p = chestBlock.position
-    return viaRecovery({ status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${p.x},${p.y},${p.z}: ${String(e?.message ?? e).slice(0, 60)}` }, 'unknown')
+    if (e?.aborted || signal?.aborted) throw e
+    if (e?.budgetExceeded && wb.clamped) return outOfTime('reaching')
+    if (noRecovery) throw e
+    const res = { status: 'failed', failClass: e?.failClass ?? 'no_path', detail: `could not reach the chest at ${cp.x},${cp.y},${cp.z}: ${String(e?.message ?? e).slice(0, 60)}` }
+    const h = homeVec()
+    const inTown = Math.hypot(walkFrom.x - h.x, walkFrom.z - h.z) <= STORAGE_NEAR && wb.left >= STRIKE_WALK_MIN_MS
+    return inTown ? viaRecovery(res, 'unknown') : res
   }
   check(signal)
 
@@ -2552,9 +2568,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const isChest = ['chest', 'trapped_chest'].includes(bot.registry.blocks[chestBlock.type]?.name)   // barrels open under anything
   if (isChest && lid && chestLidBlocked(lid)) {
     if (lidSafeToBreak(bot, lid.position)) {
-      try { await withTimeout(bot.dig(lid), Math.max(1, msLeft(10_000)), bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
+      const db = bounded(10_000)
+      try { await withTimeout(bot.dig(lid), db.ms, bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
       catch (e) {
         if (e?.aborted || signal?.aborted) throw e
+        if (e?.budgetExceeded && db.clamped) return outOfTime('opening')
         return viaRecovery({ status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it would not break: ${String(e?.message ?? e).slice(0, 60)}` }, 'unavailable')
       }
       check(signal)
@@ -2565,10 +2583,12 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   try { bot.setControlState('sneak', false) } catch {}
   try { await bot.lookAt?.(chestBlock.position.offset(0.5, 0.5, 0.5), true) } catch {}   // face the chest; optional on test doubles
   let chest
+  const ob = bounded(8_000)
   try {
-    chest = await withTimeout(bot.openContainer(chestBlock), Math.max(1, msLeft(8_000)), bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
+    chest = await withTimeout(bot.openContainer(chestBlock), ob.ms, bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
+    if (e?.budgetExceeded && ob.clamped) return outOfTime('opening')
     return viaRecovery({ status: 'failed', failClass: 'container_open',
              detail: `could not open the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} (${String(e?.message ?? e).slice(0, 50)}); lid ${lid?.name ?? '?'}, ${Math.round(eyeToBlock(bot.entity.position.offset(0, 1.62, 0), chestBlock.position) * 10) / 10} blocks from the eyes` }, 'unknown')
   }
@@ -2699,6 +2719,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
 const RECOVERY_WALK_MS = 30_000
 /** The bound on a deposit's first walk to its chest (it was unbounded; the watchdog was its only end). */
 const FIRST_WALK_MS = 60_000
+/** A failed first walk strikes its chest only if it had at least this long (and began in town). */
+const STRIKE_WALK_MIN_MS = 30_000
 /** The town's memory of the container at `q` -> containerStatus, or null when it is not a town container. */
 function townStatus (bot, q) {
   try {
@@ -2834,6 +2856,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     if (posKey(opened) !== posKey(at)) mark(at, 'gone')   // deposit fell back to another container: `at` is not one now
     if (again.status === 'success') { markWith(opened, m, `took_${again.moved ?? '?'}`); return again }
     if (again.status === 'no_effect' || again.failClass === 'transfer_unsettled') return again
+    if (again.failClass === 'path_budget' && again.status === 'unknown') { mark(at, 'unknown:time'); unknown++; return null }   // our clock: no strike
     if (again.failClass === 'storage_full') { markWith(opened, m, 'full'); remember(opened, 'full'); return null }
     if (again.failClass === 'container_blocked') { mark(at, 'unavailable'); remember(at, 'unavailable'); return null }
     mark(at, `unknown:${again.failClass ?? again.status}`); strike(at)

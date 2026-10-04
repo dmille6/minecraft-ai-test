@@ -44,6 +44,8 @@ const HOME = { x: 0, y: 64, z: 0 }
 const KEY = townKey(HOME)
 const town = (bag, at) => { freshPool(); const w = fakeWorld({ bag, at }); w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0); return w }
 const ledger = dir => readClaims(dir, KEY)
+/** The town's memory entry for a container, or undefined (no file, or no entry). */
+const memEntry = k => { try { return JSON.parse(fs.readFileSync(path.join(process.env.POOL_STATE_DIR, `${KEY}.containers.json`), 'utf8')).entries[k] } catch { return undefined } }
 /** A claim file written directly (a claim another bot made earlier). */
 const pastClaim = (dir, n, at, site = { x: 20 + n, y: 64, z: 20 }, state = null) => {
   fs.writeFileSync(path.join(dir, `${KEY}.c${n}.json`), JSON.stringify({ ...site, world: null, at: new Date(at).toISOString() }))
@@ -486,6 +488,10 @@ await t('R2.4 THE FIRST OPEN IS CLAMPED TO THE WATCHDOG: with 1 s left a hung op
   const ms = Date.now() - t0
   assert.ok(ms < 3000, `took ${ms} ms`)
   assert.equal(w.spy.placed.length, 0, r.detail)
+  // and a timeout of OUR clock strikes nothing (Claude round 3)
+  assert.equal(r.status, 'unknown'); assert.equal(r.failClass, 'path_budget'); assert.match(r.detail, /^deposit again/)
+  assert.equal(memEntry('5,64,0'), undefined, 'no strike in the town\'s memory')
+  assert.equal(bankClosed(w.bot), '')
 })
 
 await t('R2.5 transfer_unsettled AT THE NEW CHEST is returned unchanged', async () => {
@@ -498,6 +504,50 @@ await t('R2.5 transfer_unsettled AT THE NEW CHEST is returned unchanged', async 
   const r = await run(w.bot)
   assert.equal(w.spy.placed.length, 1)
   assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+})
+
+// ---------------------------------------------------------------- round 3 (Codex's probes as regressions) ---
+await t('R3.C A LONG TRIP HOME LEAVING 3 s: the walk to the chest times out on OUR clock -- no strike, no recovery, bank open', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'barrel')
+  const goto = w.bot.pathfinder.goto
+  w.bot.pathfinder.goto = g => (g.x === 5 && g.z === 0 ? new Promise(() => {}) : goto(g))
+  const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 177_000 } })
+  assert.equal(r.status, 'unknown', r.detail); assert.equal(r.failClass, 'path_budget')
+  assert.match(r.detail, /^deposit again: this attempt ran out of time before reaching the chest at 5,64,0/)
+  assert.equal(memEntry('5,64,0'), undefined, 'a good chest is not struck for our clock')
+  assert.equal(bankClosed(w.bot), '')
+  assert.ok(!w.spy.opened.includes('-5,64,0'), 'no recovery sweep')
+  assert.equal(w.spy.placed.length, 0)
+})
+
+await t('R3.C A NO-PATH WALK THAT BEGAN OUTSIDE TOWN strikes nothing: the travel failure, as before', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)], [40.5, 64, 0.5])
+  const goto = w.bot.pathfinder.goto
+  w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
+  const r = await run(w.bot)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /could not reach the chest at 5,64,0/)
+  assert.equal(memEntry('5,64,0'), undefined)
+  assert.equal(w.spy.placed.length, 0)
+})
+
+await t('R3.1 A CONFIRMING READ IS WRITTEN: 12 placed, a fresh read sees 12 chests, then a DELAYED OLDER absence arrives -> still 12, no claim 13', () => {
+  const dir = freshPool(), now = Date.now()
+  for (let n = 1; n <= 12; n++) pastClaim(dir, n, now - 2 * DAY_MS - n * 1000, { x: n, y: 64, z: 30 }, 'placed')
+  reconcileClaims({ dir, key: KEY, claims: ledger(dir), read: () => 'chest', now })
+  writeClaimState(dir, KEY, 7, 'gone', now - 60_000)          // an observation made a minute ago, written only now
+  const b = chestBudget({ claims: ledger(dir), now })
+  assert.equal(b.standing, 12); assert.equal(b.ok, false)
+  assert.equal(claimNewChest({ dir, key: KEY, site: { x: 3, y: 64, z: 3 }, now }).ok, false)
+})
+
+await t('R3.2 PRUNING KEEPS THE WINNER: one placed and four gone at the same time -> still placed', () => {
+  const dir = freshPool()
+  pastClaim(dir, 1, 1000, { x: 1, y: 64, z: 1 })
+  writeClaimState(dir, KEY, 1, 'placed', 5000)
+  for (let i = 0; i < 4; i++) writeClaimState(dir, KEY, 1, 'gone', 5000)
+  assert.equal(ledger(dir)[0].state, 'placed')
+  assert.ok(fs.readdirSync(dir).filter(f => f.startsWith(`${KEY}.c1.o`)).length <= 4, 'and it did prune')
 })
 
 await t('THE LID FILTER: place() with no coordinates never puts a block on a chest, and refuses explicit coordinates there', async () => {

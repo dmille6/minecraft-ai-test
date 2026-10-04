@@ -56,6 +56,9 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * An unreadable claim fails closed: it is counted, as made now.
  */
 const OBS_RANK = { placed: 3, gone: 2, not_placed: 1 }
+/** THE ONE ORDER of a claim's observations, used both to choose its state and to prune (Codex round 3: pruning by time
+ *  alone deleted a `placed` that won its tie): newest first, and at equal times placed > gone > not_placed. */
+export const obsOrder = (a, b) => (b.at - a.at) || (OBS_RANK[b.state] - OBS_RANK[a.state])
 export function readClaims (dir, key, now = Date.now()) {
   const out = []
   let files = []
@@ -68,7 +71,7 @@ export function readClaims (dir, key, now = Date.now()) {
     if (!o) continue
     const n = Number(o[1]), at = Number(o[2]), state = o[3]
     const cur = newest.get(n)
-    if (!cur || at > cur.at || (at === cur.at && OBS_RANK[state] > OBS_RANK[cur.state])) newest.set(n, { at, state })
+    if (!cur || obsOrder({ at, state }, cur) < 0) newest.set(n, { at, state })
   }
   for (const f of files) {
     const m = re.exec(f)
@@ -87,15 +90,19 @@ export function readClaims (dir, key, now = Date.now()) {
   return out.sort((a, b) => a.n - b.n)
 }
 
+/** Observations kept per claim; the rest are removed, oldest (in obsOrder) first. */
+export const KEEP_OBSERVATIONS = 4
 /** Record an OBSERVATION of a claim, stamped with when the cell was read (a new file, never a rewrite; the newest
  *  wins in readClaims). Older observations of the claim beyond the newest few are removed. Best effort -> true if written. */
 export function writeClaimState (dir, key, n, state, now = Date.now()) {
   const name = `${key}.c${n}.o${Math.floor(now)}-${state}-${process.pid}${Math.random().toString(36).slice(2, 8)}`
   try { fs.writeFileSync(path.join(dir, name), '', { flag: 'wx' }) } catch { return false }
   try {
-    const re = new RegExp(`^${esc(key)}\\.c${n}\\.o(\\d+)-`)
-    const mine = fs.readdirSync(dir).map(f => [f, re.exec(f)]).filter(([, m]) => m).sort((a, b) => Number(b[1][1]) - Number(a[1][1]))
-    for (const [f] of mine.slice(4)) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* another bot pruned it */ } }
+    // Pruned in readClaims' own order (obsOrder), so the first entry -- the current winner -- is never deleted.
+    const re = new RegExp(`^${esc(key)}\\.c${n}\\.o(\\d+)-(placed|not_placed|gone)-`)
+    const mine = fs.readdirSync(dir).map(f => ({ f, m: re.exec(f) })).filter(e => e.m)
+      .map(e => ({ f: e.f, at: Number(e.m[1]), state: e.m[2] })).sort(obsOrder)
+    for (const { f } of mine.slice(KEEP_OBSERVATIONS)) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* another bot pruned it */ } }
   } catch { /* pruning is housekeeping */ }
   return true
 }
@@ -156,8 +163,10 @@ export function claimNewChest ({ dir, key, site, world = null, now = Date.now() 
  *   read(x,y,z) -> block name | null (unloaded: left as it is)
  * EVERY claim of this world is read again, dismissed ones too (Codex round 2: a claim dismissed as not_placed or gone
  * was never looked at again, so a chest that was there all along stopped counting). A chest at the claim's cell:
- * placed, whatever it was. No chest: a placed claim is gone (only on this fresh read); an unresolved one older than
- * RECONCILE_AFTER_MS is not_placed (it stops counting as standing; it stays in the interval and the day).
+ * placed, whatever it was. No chest: a placed or gone claim is gone (only on this fresh read); an unresolved or
+ * not_placed one older than RECONCILE_AFTER_MS is not_placed (it stops counting as standing; it stays in the interval
+ * and the day). EVERY CONCLUSIVE READ IS WRITTEN, also when it only confirms the state (Codex round 3: a confirming
+ * read wrote nothing, so a delayed older observation could still win) -- the newest real read always decides.
  */
 export function reconcileClaims ({ dir, key, claims = [], read, world = null, now = Date.now() } = {}) {
   const changed = []
@@ -167,8 +176,10 @@ export function reconcileClaims ({ dir, key, claims = [], read, world = null, no
     try { name = read(c.x, c.y, c.z) } catch { name = null }
     if (name == null) continue
     const chest = /^(chest|trapped_chest)$/.test(name)
-    const next = chest ? 'placed' : c.state === 'placed' ? 'gone' : now - c.at > RECONCILE_AFTER_MS ? 'not_placed' : null
-    if (next && next !== c.state && writeClaimState(dir, key, c.n, next, now)) { c.state = next; changed.push({ n: c.n, state: next }) }
+    const next = chest ? 'placed' : (c.state === 'placed' || c.state === 'gone') ? 'gone' : now - c.at > RECONCILE_AFTER_MS ? 'not_placed' : null
+    if (!next || !writeClaimState(dir, key, c.n, next, now)) continue
+    if (next !== c.state) changed.push({ n: c.n, state: next })
+    c.state = next; c.stateAt = now
   }
   return changed
 }
