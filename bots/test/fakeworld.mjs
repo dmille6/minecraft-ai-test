@@ -14,6 +14,7 @@
 // up / puts down / merges / swaps, right click puts ONE down, shift-click (mode 1) moves a stack to the other side
 // (merging into partial stacks first; with no room it stays where it was), slot -999 drops the cursor.
 import { Vec3 } from 'vec3'
+import { EventEmitter } from 'node:events'
 
 export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table',
   'stick', 'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'stone_axe', 'cobbled_deepslate', 'birch_planks', 'bamboo', 'leaf_litter', 'torch']
@@ -27,6 +28,7 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
   const containers = new Map()  // key -> { slots }
   const dropped = []
   const spy = { recipesFor: 0, craft: 0, placed: [], opened: [], gotos: [], clicks: [] }
+  const events = new EventEmitter()
   const nameAt = (x, y, z) => cells.get(key(x, y, z)) ?? (y <= 63 ? 'grass_block' : 'air')
   const block = p => {
     const v = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
@@ -84,6 +86,7 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
       spy.opened.push(key(b.position.x, b.position.y, b.position.z))
       const size = c.slots.length
       const w = {
+        id: 1,
         inventoryStart: size, inventoryEnd: size + 36, selectedItem: null,
         get (s) { return s < size ? (c.slots[s] ?? null) : (bag[s - size] ?? null) },
         put (s, v) { if (s < size) c.slots[s] = v; else bag[s - size] = v },
@@ -174,7 +177,10 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
     },
     recipesFor () { spy.recipesFor++; return [] },
     async craft () { spy.craft++; throw new Error('the fake cannot craft') },
-    setControlState () {}, on () {}, off () {}, once () {}, removeListener () {}, waitForTicks: async () => {}, chat () {},
+    setControlState () {}, waitForTicks: async () => {}, chat () {},
+    // real events (a disconnect, 'end', must reach the listeners that wait for it)
+    on: (...a) => events.on(...a), off: (...a) => events.off(...a), once: (...a) => events.once(...a),
+    removeListener: (...a) => events.removeListener(...a), emit: (...a) => events.emit(...a), listenerCount: n => events.listenerCount(n),
   }
   /** Put exactly these stacks into the container at x,y,z (slot order). */
   const stock = (x, y, z, stacks) => { const c = containers.get(key(x, y, z)); c.slots = Array(c.slots.length).fill(null); stacks.forEach((s, i) => { c.slots[i] = s }) }

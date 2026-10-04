@@ -44,10 +44,10 @@ import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, wr
          chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES } from './chestfull.mjs'
 import { STORAGE_NEAR, townDistance } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
-import { bestToolCopy, roomPlan, roomKeep, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS } from './withdrawpick.mjs'
+import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS } from './withdrawpick.mjs'
 import { setWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
-import { serverRecount, lockstepClicks } from './craftsync.mjs'
+import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight } from './craftsync.mjs'
 import { FLOOR } from './toolfor.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
@@ -5837,77 +5837,199 @@ async function recountBag (bot, msLeft) {
 
 /** How long the cursor's recovery may take, whatever happened to the transfer (its own budget, not the aborted one's). */
 const CURSOR_SETTLE_MS = 3_000
+/** The hold's last resort when nothing can take the cursor (G): OFF by default -- keep holding, never drop. */
+const LOADED_CLOSE_MS = 30_000
+/** The last-resort switch (owner decision pending) -> ms after which a loaded hold may close, or null (the default). */
+export const loadedClosePolicy = (env = process.env) => (env.WITHDRAW_CLOSE_LOADED === '1' ? LOADED_CLOSE_MS : null)
 const TIMED_OUT = Symbol('timed out')
 const within = (p, ms) => { let t; return Promise.race([p, new Promise(r => { t = setTimeout(() => r(TIMED_OUT), Math.max(0, ms)) })]).finally(() => clearTimeout(t)) }
-/**
- * AN EMPTY CURSOR, SYNCHRONISED, BEFORE ANY CLOSE -> { state: 'empty' | 'rescued' | 'unresolved', why, pending }.
- * Whatever the cursor holds goes onto a compatible partial stack or into an empty slot of the BAG, failing that of the
- * CONTAINER (Codex: a bag-only rescue failed and the close dropped the dirt), never onto a slot holding something else.
- * The clicks run in craftsync's LOCKSTEP -- each waits for the window to go quiet, so a server correction of the cursor
- * has landed before the next decision (Codex round 2: a budget that only bounded the WAITING let the caller close with
- * 38 sticks on the cursor while a stalled click was still pending). A click not answered inside CURSOR_SETTLE_MS, or a
- * cursor nothing can take, is UNRESOLVED: the caller must not close the window (holdUnsettled).
- */
-async function settleCursor (bot, win, budgetMs = CURSOR_SETTLE_MS) {
-  if (!win?.selectedItem) return { state: 'empty', why: null, pending: null }
-  const until = Date.now() + budgetMs
-  let pending = null, acted = false, why = null
-  try {
-    await lockstepClicks(bot, async click => {
-      for (let i = 0; i < 6 && win.selectedItem; i++) {
-        if (Date.now() >= until) throw stop('the recovery ran out of time')
-        const held = win.selectedItem
-        const partial = (a, b) => (held.maxDurability ? null : win.findItemRange?.(a, b, held.type, held.metadata ?? null, true, held.nbt ?? null))
-        const fits = it => it && it.count < (it.stackSize ?? 64)
-        const p1 = partial(win.inventoryStart, win.inventoryEnd)
-        let dest = fits(p1) ? p1.slot : win.firstEmptySlotRange?.(win.inventoryStart, win.inventoryEnd)
-        if (dest == null) { const p2 = partial(0, win.inventoryStart); dest = fits(p2) ? p2.slot : win.firstEmptySlotRange?.(0, win.inventoryStart) }
-        if (dest == null) throw stop(`no slot anywhere for ${held.count ?? '?'}x ${held.name ?? '?'}`)
-        const p = Promise.resolve().then(() => click(dest, 0, 0))
-        pending = p
-        p.catch(() => {})
-        if (await within(p, until - Date.now()) === TIMED_OUT) throw stop('a recovery click is unanswered')
-        pending = null
-        acted = true
-      }
-    }, { deadline: until })
-  } catch (e) { why = String(e?.message ?? e).slice(0, 80) }
-  if (!win.selectedItem && !pending) return { state: acted ? 'rescued' : 'empty', why: null, pending: null }
-  return { state: 'unresolved', why: why ?? `still holding ${win.selectedItem?.count ?? '?'}x ${win.selectedItem?.name ?? '?'}`, pending }
+
+/** Clicks this module started that have not settled (withdraw's own; craftsync keeps its underlying ones). */
+const ownClicks = bot => (bot._withdrawClicks ??= new Set())
+/** A click that is remembered until it settles, whatever the caller does in the meantime (Codex round 3). */
+function trackedClick (bot, click, slot, button, mode) {
+  const p = Promise.resolve().then(() => click(slot, button, mode))
+  const set = ownClicks(bot)
+  set.add(p)
+  const gone = () => { set.delete(p) }
+  p.then(gone, gone)
+  return p
+}
+/** Are ALL clicks settled -- ours, and craftsync's underlying ones that outlived its cap or teardown? */
+const clicksSettled = bot => ownClicks(bot).size === 0 && clicksInFlight(bot) === 0
+/** Wait, bounded, for every click to settle -> true when they have. Cancellation ends the wait. */
+async function waitClicks (bot, ms, cancelled = () => false) {
+  const until = Date.now() + Math.max(0, ms)
+  while (!clicksSettled(bot)) {
+    if (cancelled() || Date.now() >= until) return false
+    await sleep(25)
+  }
+  return true
 }
 
 /**
- * THE UNRESOLVED HANDOFF (Codex round 2): a cursor that could not be emptied is never closed on -- a close with a
- * loaded cursor drops it (vanilla returns it to the bag only when there is room) -- and no other inventory action may
- * click past it. The window stays open, the bot is marked `inventoryUnsettled` (admission refuses every skill while it
- * holds), and the recovery is retried every second, after any pending click has settled, until the cursor is empty --
- * then the window closes and the mark clears -- or the bot disconnects.
+ * A FREE SLOT FOR THE CURSOR, MADE BY BANKING (F) -> the bag stack to shift-click into the container, or null. Only a
+ * stack deposit itself would bank whole (roomCandidates: never junk, never a tool, never `keep`), and only into
+ * COMPATIBLE capacity the container already has (partial stacks of the same item take all of it -- no arbitrary swaps).
  */
+function rearrangeFor (win, keep) {
+  const inChest = win.containerItems?.() ?? []
+  for (const c of roomCandidates(win.items?.() ?? [], { keep })) {
+    if (allocate(inChest, c.name, c.count, { emptySlots: 0 }).leftover === 0) return c
+  }
+  return null
+}
+
+/**
+ * AN EMPTY CURSOR, WITH THE SERVER'S WORD FOR IT -> { state: 'empty' | 'rescued' | 'unresolved' | 'gone' | 'cancelled',
+ * why, noCapacity }. Rules (Codex and Claude, rounds 2-3):
+ *   A  no click while ANY click is still in flight -- ours or craftsync's underlying one past its cap -- and none after
+ *      the budget: an unsettled click is unresolved, never "done";
+ *   C  the end is the SERVER's evidence (craftsync confirmCursor: a no-op clone click answered by the window's full state)
+ *      -- a quiet window or a local empty cursor is not confirmation; no evidence is unresolved;
+ *   E  no click unless the open window is still this one (a chest-layout slot is never clicked into another window);
+ *   F  with no slot for the cursor anywhere, one bounded rearrangement: a bankable bag stack into compatible capacity.
+ * Destinations: a compatible partial stack or an empty slot of the BAG, then of the CONTAINER, never a slot holding
+ * something else. Every click in craftsync's lockstep.
+ */
+async function settleCursor (bot, win, { budgetMs = CURSOR_SETTLE_MS, cancelled = () => false, keep = null } = {}) {
+  const until = Date.now() + budgetMs
+  const left = () => until - Date.now()
+  const here = () => bot.currentWindow === win
+  const verdict = (state, why = null, extra = {}) => ({ state, why, noCapacity: false, ...extra })
+  let acted = false, rearranged = false
+  for (let i = 0; i < 8; i++) {
+    if (cancelled()) return verdict('cancelled')
+    if (!here()) return verdict('gone', 'the window is no longer open')
+    if (!(await waitClicks(bot, left(), cancelled))) return verdict(cancelled() ? 'cancelled' : 'unresolved', 'a click is still in flight')
+    if (cancelled()) return verdict('cancelled')
+    if (!here()) return verdict('gone', 'the window is no longer open')
+    if (!win.selectedItem) break
+    if (left() <= 0) return verdict('unresolved', 'the recovery ran out of time')
+    const held = win.selectedItem
+    const partial = (a, b) => (held.maxDurability ? null : win.findItemRange?.(a, b, held.type, held.metadata ?? null, true, held.nbt ?? null))
+    const fits = it => it && it.count < (it.stackSize ?? 64)
+    const p1 = partial(win.inventoryStart, win.inventoryEnd)
+    let dest = fits(p1) ? p1.slot : win.firstEmptySlotRange?.(win.inventoryStart, win.inventoryEnd)
+    if (dest == null) { const p2 = partial(0, win.inventoryStart); dest = fits(p2) ? p2.slot : win.firstEmptySlotRange?.(0, win.inventoryStart) }
+    let click = [dest, 0, 0]
+    if (dest == null) {
+      const r = !rearranged && rearrangeFor(win, keep ?? roomKeep(bot.currentWants ?? []))
+      if (!r) return verdict('unresolved', `no slot anywhere for ${held.count ?? '?'}x ${held.name ?? '?'}`, { noCapacity: true })
+      const it = (win.items?.() ?? []).find(x => x?.name === r.name && (x.count ?? 0) === r.count)
+      if (!it) return verdict('unresolved', `the ${r.name} stack to bank is gone`, { noCapacity: true })
+      click = [it.slot, 0, 1]
+      rearranged = true
+    }
+    try {
+      await lockstepClicks(bot, async raw => {
+        if (cancelled() || !here()) throw stop('cancelled or the window changed')
+        const p = trackedClick(bot, raw, ...click)
+        p.catch(() => {})
+        // Bounded wait only: an unanswered click is caught by the in-flight check at the top of the next pass (A), which
+        // also refuses any further click until it settles.
+        await within(p, left())
+      }, { deadline: until })
+    } catch (e) {
+      if (cancelled()) return verdict('cancelled')
+      if (!clicksSettled(bot)) return verdict('unresolved', String(e?.message ?? e).slice(0, 80))
+    }
+    acted = true
+  }
+  if (cancelled()) return verdict('cancelled')
+  if (!here()) return verdict('gone', 'the window is no longer open')
+  if (!(await waitClicks(bot, left(), cancelled))) return verdict('unresolved', 'a click is still in flight')
+  // C: THE SERVER'S WORD. Without it, unresolved; with a loaded cursor in it, unresolved (and the local cursor now
+  // says so, for the next attempt).
+  const ev = await confirmCursor(bot, win, { deadline: Date.now() + Math.max(250, Math.min(1500, left())) })
+  if (!ev.answered) return verdict('unresolved', `no server evidence of an empty cursor (${ev.why})`)
+  if (!ev.cursorEmpty) return verdict('unresolved', `the server says the cursor holds ${ev.carried?.itemCount ?? '?'} item(s)`)
+  return verdict(acted ? 'rescued' : 'empty')
+}
+
+/**
+ * THE UNRESOLVED HANDOFF (Codex and Claude, rounds 2-3). A cursor that could not be emptied with the server's word for
+ * it is never closed on: a close with a loaded cursor drops it unless the bag has room. While held:
+ *   B  EXCLUSIVE OWNERSHIP, below admission: equip / unequip / moveSlotItem / toss / tossStack / closeWindow and the
+ *      window's own close() refuse (a reflex's equip would click past the cursor); admission also refuses every skill.
+ *      Movement-only reflexes still run. A survival reflex calls bot.inventoryUnsettled.release('reflex:<name>'): one
+ *      last settle, then the close -- a loaded stack is never worth a death -- with a row and a server recount.
+ *   D  every retry hears cancellation after every await and before every click; the end listener is removed.
+ *   E  the SERVER closing the window (moved away, chest broken, death) ends the hold: how=server_closed.
+ *   G  nothing can take the cursor: keep holding, never drop; how=intervention_needed every minute; survival release
+ *      stays available. WITHDRAW_CLOSE_LOADED=1 (default off) closes after LOADED_CLOSE_MS instead: the server returns
+ *      the stack to the bag and drops only what has no room.
+ * Rows: `_withdraw_settled` how=settled | released | server_closed | intervention_needed | closed_loaded | disconnected.
+ */
+const GUARDED = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack', 'closeWindow']
 function holdUnsettled (bot, win, u) {
   const since = Date.now()
-  let busy = false, done = false
-  const finish = how => {
+  let busy = false, done = false, lastIntervention = 0
+  const origClose = win.close?.bind(win)
+  const orig = {}
+  const refuse = name => async () => { throw Object.assign(new Error(`inventory held: a stack is still on the cursor (${name} refused)`), { inventoryHeld: true }) }
+  for (const k of GUARDED) if (typeof bot[k] === 'function') { orig[k] = bot[k]; bot[k] = refuse(k) }
+  win.close = () => { throw Object.assign(new Error('inventory held: the window may not close with a loaded cursor'), { inventoryHeld: true }) }
+  const restore = () => {
+    for (const k of Object.keys(orig)) bot[k] = orig[k]
+    win.close = origClose
+  }
+  const carried = () => (win.selectedItem ? `${win.selectedItem.name}:${win.selectedItem.count ?? 1}` : '-')
+  const row = async (how, status, recount = false, held = carried()) => {
+    let srv = '-'
+    if (recount) {
+      try { const r = await serverRecount(bot, { deadline: Date.now() + RECOUNT_MS }); srv = r?.source === 'server' ? `bag=${bagTotal(r.items)}` : r?.source } catch { srv = 'error' }
+    }
+    logEvent({ kind: 'withdraw_settled', status, snapshot: snapshot(bot),
+               detail: `how=${how} after_ms=${Date.now() - since} carried=${held} srv=${srv} why=${String(u.why ?? '').replace(/\s+/g, '_').slice(0, 80)}` })
+  }
+  const onEnd = () => { finish('disconnected', false).catch(() => {}) }
+  async function finish (how, close = true) {
     if (done) return
     done = true
     clearInterval(iv)
+    bot.removeListener?.('end', onEnd)
+    restore()
     bot.inventoryUnsettled = null
-    if (how === 'settled') { try { win.close() } catch { /* already closed */ } }
-    logEvent({ kind: 'withdraw_settled', status: how === 'settled' ? 'success' : 'no_effect', snapshot: snapshot(bot),
-               detail: `${how} after ${Date.now() - since} ms: ${String(u.why ?? '').slice(0, 80)}` })
+    const held = carried()   // what the cursor held as the hold ended -- read BEFORE the close
+    if (close && bot.currentWindow === win) { try { origClose?.() } catch { /* already closed */ } }
+    await row(how, how === 'settled' ? 'success' : 'no_effect', how !== 'disconnected', held)
+  }
+  const tick = async () => {
+    if (done) return
+    const s = await settleCursor(bot, win, { cancelled: () => done })   // 'gone' first if the server closed the window
+    if (done) return
+    if (s.state === 'gone') return finish('server_closed', false)
+    if (s.state === 'empty' || s.state === 'rescued') return finish('settled')
+    u = { ...u, why: s.why }
+    if (s.noCapacity) {
+      const closeAfter = loadedClosePolicy()
+      if (closeAfter != null && Date.now() - since >= closeAfter) return finish('closed_loaded')
+      if (Date.now() - lastIntervention >= 60_000) {
+        lastIntervention = Date.now()
+        bot.inventoryUnsettled && (bot.inventoryUnsettled.interventionNeeded = true)
+        await row('intervention_needed', 'failed')
+      }
+    }
   }
   const iv = setInterval(() => {
     if (busy || done) return
     busy = true
-    ;(async () => {
-      try { if (u.pending) await within(u.pending, 2_000) } catch { /* a rejected click settles too */ }
-      const s = await settleCursor(bot, win)
-      if (s.state !== 'unresolved') finish('settled')
-      else u = s
-    })().catch(() => {}).finally(() => { busy = false })
+    tick().catch(() => {}).finally(() => { busy = false })
   }, 1_000)
   iv.unref?.()
-  bot.inventoryUnsettled = { since, why: u.why, stop: () => finish('stopped') }
-  bot.once?.('end', () => finish('disconnected'))
+  bot.once?.('end', onEnd)
+  bot.inventoryUnsettled = {
+    since, why: u.why, interventionNeeded: false,
+    stop: () => finish('stopped', false),
+    // A SURVIVAL REFLEX FIRST: one last settle (short, bounded), then the close whatever the cursor holds.
+    release: async (reason = 'reflex') => {
+      if (done) return
+      u = { ...u, why: `released by ${reason}` }
+      try { await settleCursor(bot, win, { budgetMs: 1_000, cancelled: () => done }) } catch { /* the close follows anyway */ }
+      await finish('released')
+    },
+  }
 }
 
 /** A click on a chest slot whose content must still be what the plan saw (name and wear): the source is revalidated
@@ -6008,7 +6130,8 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
   }
   // EVERY EXIT: an empty cursor, synchronised, before the caller closes the window -- or the unresolved handoff.
   const settled = await settleCursor(bot, win)
-  const state = { took, gave, tool: toolTaken, cursor: settled.state === 'unresolved' ? `unresolved:${settled.why}` : settled.state,
+  const bad = settled.state !== 'empty' && settled.state !== 'rescued'
+  const state = { took, gave, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
                   unresolved: settled.state === 'unresolved' ? settled : null, err: err ? String(err.message ?? err).slice(0, 80) : null }
   // AN ABORT CARRIES WHAT HAPPENED (Claude round 2), so both verbs' rows report THIS transfer, not an earlier visit.
   if (err && (err.aborted || signal?.aborted)) { err.withdrawState = state; throw err }

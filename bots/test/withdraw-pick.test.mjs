@@ -41,7 +41,14 @@ const count = (bag, name) => bag.filter(Boolean).reduce((n, it) => n + (it.name 
 /** A town: the bot at 6.5,64,0.5 beside a chest at 5,64,0 holding `stacks`. */
 const town = (bag, stacks) => { freshPool(); clearWithdrawHolds(); const w = fakeWorld({ bag }); w.set(5, 64, 0, 'chest'); w.stock(5, 64, 0, stacks); return w }
 /** A craftsync stand-in: lockstep runs the clicks; recount answers with `serverBag()` (the truth unless a test says otherwise). */
-const withServer = (w, serverBag = () => w.bot.inventory.items()) => { w.bot.craftSync = { lockstep: fn => fn(), recount: async () => ({ source: 'server', items: serverBag() }) }; return w }
+const withServer = (w, serverBag = () => w.bot.inventory.items()) => {
+  w.bot.craftSync = {
+    lockstep: fn => fn(), recount: async () => ({ source: 'server', items: serverBag() }), inflight: () => 0,
+    // the fake's window IS the server's: its cursor is the evidence (w.cursorEvidence may override, for a correction)
+    confirmCursor: async win => { const c = w.cursorEvidence ? w.cursorEvidence(win) : win.selectedItem; return { answered: true, cursorEmpty: !c, carried: c ? { itemCount: c.count } : null } },
+  }
+  return w
+}
 const junk = n => Array.from({ length: n }, () => stack('bamboo', 64))
 const { updateTownMemory, townKey } = await import('../src/chestfull.mjs')
 const updateMem = fn => updateTownMemory(process.env.POOL_STATE_DIR, townKey({ x: 0, y: 64, z: 0 }), null, fn)

@@ -192,6 +192,23 @@ export function bagDelta (before = [], after = []) {
     .map(([k, d]) => `${k}:${d > 0 ? '+' : ''}${d}`).join(',') || '-'
 }
 
+/**
+ * MUST A HELD CURSOR BE RELEASED FOR SURVIVAL? -> 'reflex:<name>' | null. Pure (Claude, round 3). A cursor held over a
+ * chest (skills.mjs holdUnsettled) is never worth a death: air (the head in water or inside a block), lava or fire at the
+ * feet, burning, falling, or damage taken since the last tick (or health at the flee line) release it -- one last settle,
+ * then the close. Hunger is not here: eating needs an equip, which the hold refuses, and hunger is never this urgent.
+ */
+const HOT = /^(lava|flowing_lava|fire|soul_fire|campfire|soul_campfire|magma_block)$/
+export function survivalRelease ({ head = null, feet = null, below = null, onFire = false, velocityY = 0, onGround = true,
+                                   health = 20, lastHealth = null, fleeBelow = 8 } = {}) {
+  if (head && (/water/.test(head.name ?? '') || head.boundingBox === 'block')) return 'reflex:air'
+  if (HOT.test(feet?.name ?? '') || HOT.test(below?.name ?? '')) return /lava/.test(`${feet?.name} ${below?.name}`) ? 'reflex:lava' : 'reflex:fire'
+  if (onFire) return 'reflex:fire'
+  if (!onGround && velocityY < -0.6) return 'reflex:fall'
+  if ((lastHealth != null && health < lastHealth) || health <= fleeBelow) return 'reflex:damage'
+  return null
+}
+
 /** Per-bot cooldown and backoff of the order (townOrder state), and the town-wide miss memory's lifetime. */
 export const WITHDRAW_COOLDOWN_MS = 5 * 60 * 1000
 export const WITHDRAW_BACKOFF_MS = 15 * 60 * 1000

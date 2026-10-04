@@ -39,6 +39,7 @@ import { escapedFrom } from './recovery.mjs'
 import { holdForwardSafe, lavaStandOff } from './lavaguard.mjs'
 import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
+import { survivalRelease } from './withdrawpick.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1394,10 +1395,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let lastRefusalPos = null    // ...and WHERE, so the streak means one hole
   let reflexErrors = 0
 
+  let healthBeforeTick = null   // for the held-cursor release: damage taken since the last tick
   const timer = setInterval(async () => {
     if (!bot.entity) return
 
     try {
+      // --- a cursor held over a chest is never worth a death (withdraw, skills.mjs holdUnsettled) -------------------
+      // While held, equip and the rest refuse; a survival situation releases the hold first: one last settle, then the
+      // close, with a row. Movement-only reflexes below run either way.
+      if (bot.inventoryUnsettled?.release) {
+        const at = bot.entity.position
+        const why = survivalRelease({ head: bot.blockAt(at.offset(0, 1.62, 0)), feet: bot.blockAt(at), below: bot.blockAt(at.offset(0, -1, 0)),
+                                      onFire: !!((bot.entity.metadata?.[0] ?? 0) & 0x01), velocityY: bot.entity.velocity?.y ?? 0,
+                                      onGround: bot.entity.onGround !== false, health: bot.health ?? 20, lastHealth: healthBeforeTick,
+                                      fleeBelow: config.reflex.fleeBelowHealth })
+        if (why) { try { await bot.inventoryUnsettled.release(why) } catch { /* the reflexes below still run */ } }
+      }
+      healthBeforeTick = bot.health ?? null
+
       // --- survey: remember where the good things are ----------------------
       // The fleet's memory was entirely negative -- hazard sites and failed
       // actions, both with coordinates, and nothing about where anything useful

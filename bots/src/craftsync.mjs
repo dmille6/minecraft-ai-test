@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 // CRAFTSYNC: clicks in lockstep with the server while bot.craft runs, and VERIFIES what came out.
 //
 // WHAT IS BROKEN (sandbox A/B, RCON-verified, 2026-10-03). With spare ingredients in the bag, unpatched
@@ -65,6 +66,19 @@ export const CRAFT_SYNC = Object.freeze({
 })
 
 export const GUARDED_INVENTORY_ACTIONS = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack']
+
+const require_ = createRequire(import.meta.url)
+let itemCache = null
+/** prismarine-item for this bot's version (cached): rebuilding the cursor from the server's carriedItem. */
+const ItemFor = bot => (itemCache?.v === bot.version ? itemCache.I : (itemCache = { v: bot.version, I: require_('prismarine-item')(bot.registry ?? bot.version) }).I)
+/** Server evidence of the cursor (controller.confirmCursor); without craftsync there is none. */
+export async function confirmCursor (bot, win, opts = {}) {
+  const c = bot?.craftSync
+  if (typeof c?.confirmCursor !== 'function') return { answered: false, cursorEmpty: false, carried: null, why: 'no craftsync' }
+  return c.confirmCursor(win, opts)
+}
+/** How many underlying clicks are still in flight (craftsync's, across its own cap and teardown). */
+export const clicksInFlight = bot => (typeof bot?.craftSync?.inflight === 'function' ? bot.craftSync.inflight() : 0)
 
 /**
  * THE SERVER'S BAG for a caller outside a craft -> { source, items } (controller.recount). Without craftsync (its install
@@ -179,6 +193,12 @@ export function installCraftSync (bot, opts = {}) {
   // Inbound window traffic, always tracked (a Map write per packet).
   const lastAt = new Map()     // windowId -> ms of the last packet for it ('cursor' for cursor packets)
   const itemsSeen = new Map()  // windowId -> window_items received: the ONLY thing that answers a resync
+  const lastCarried = new Map() // windowId -> the carriedItem of its last window_items
+  // EVERY UNDERLYING CLICK STILL IN FLIGHT (withdraw, 10-04, Codex round 3): cappedClick stops WAITING at its cap or at a
+  // stop, but mineflayer's click goes on; a caller must not click again, or close, until these have settled.
+  // NOTE for the grid fix (gf-on-1918bb5), which is changing cappedClick too: this set and inflight()/inflightSettled()
+  // are what withdraw relies on -- keep them, or an equivalent, when the two meet.
+  const inflight = new Set()
   const stateIds = new Map()   // windowId -> last stateId
   const touch = (win) => {
     lastAt.set(win, now())
@@ -198,6 +218,7 @@ export function installCraftSync (bot, opts = {}) {
     if (p?.windowId === undefined) return
     touch(p.windowId)
     itemsSeen.set(p.windowId, (itemsSeen.get(p.windowId) ?? 0) + 1)
+    lastCarried.set(p.windowId, p.carriedItem ?? null)   // the server's word on the cursor (mineflayer 4.37 ignores it)
     if (p.stateId !== undefined) stateIds.set(p.windowId, p.stateId)
     cursorStatement(p.windowId, p.carriedItem)
   })
@@ -270,6 +291,9 @@ export function installCraftSync (bot, opts = {}) {
     let settled = false, failed = false, error = null
     const p = (async () => orig.call(bot, slot, button, mode))()   // a synchronous throw becomes a rejection
     p.then(() => { settled = true }, (e) => { settled = true; failed = true; error = e })
+    inflight.add(p)
+    const gone = () => { inflight.delete(p) }
+    p.then(gone, gone)
     const start = now()
     while (!settled) {
       if (now() - start >= cfg.clickCapMs) {
@@ -609,8 +633,38 @@ export function installCraftSync (bot, opts = {}) {
     }
   }
 
+  /**
+   * SERVER EVIDENCE OF THE CURSOR (withdraw, Codex round 3: a quiet window is not confirmation) -> { answered, cursorEmpty,
+   * carried, why }. A CLONE click (mode 3) with stateId -1: in survival vanilla does nothing for it (clone needs infinite
+   * materials), and the stale stateId makes the server send the window's full state, carriedItem included -- so it is
+   * safe whatever the cursor holds, unlike the -999 resync, which would DROP a loaded cursor. The answer becomes the
+   * client's cursor too: mineflayer 4.37 never applies carriedItem, so its own view can be wrong in either direction.
+   * Never while a craft runs or an underlying click is in flight.
+   */
+  async function confirmCursor (win, { deadline = now() + 1500 } = {}) {
+    if (active || zombie) return { answered: false, cursorEmpty: false, carried: null, why: 'busy' }
+    if (inflight.size) return { answered: false, cursorEmpty: false, carried: null, why: 'a click is in flight' }
+    const id = win?.id
+    if (id == null || bot.currentWindow !== win) return { answered: false, cursorEmpty: false, carried: null, why: 'not the open window' }
+    const before = itemsSeen.get(id) ?? 0
+    bot._client.write('window_click', { windowId: id, stateId: -1, slot: 0, mouseButton: 2, mode: 3, changedSlots: [],
+                                        cursorItem: { itemCount: 0, components: [], removeComponents: [] } })
+    while ((itemsSeen.get(id) ?? 0) <= before) {
+      if (now() >= deadline || bot.currentWindow !== win) return { answered: false, cursorEmpty: false, carried: null, why: 'unanswered' }
+      await sleep(cfg.pollMs)
+    }
+    const c = lastCarried.get(id)
+    const empty = !(c && (c.itemCount ?? 0) > 0)
+    try {
+      if (empty) win.selectedItem = null
+      else if (!win.selectedItem || win.selectedItem.count !== c.itemCount) win.selectedItem = ItemFor(bot).fromNotch(c)
+    } catch { /* the evidence stands even if the local cursor cannot be rebuilt */ }
+    return { answered: true, cursorEmpty: empty, carried: c ?? null, why: null }
+  }
+
   bot.craft = craft
-  const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft, recount, lockstep }
+  const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft, recount, lockstep, confirmCursor,
+                       inflight: () => inflight.size, inflightSettled: () => Promise.allSettled([...inflight]) }
   bot.craftSync = controller
   return controller
 }
