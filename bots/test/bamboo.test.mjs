@@ -32,11 +32,14 @@ await t('bamboo [64] + sticks [32] at 36/36 -> 32 crafts free 1 slot (the bamboo
 })
 await t('bamboo [64] with NO sticks -> nothing frees (the bamboo slot becomes the sticks\' slot): do nothing', () => {
   const p = B.bambooPlan([S('bamboo', 64), ...fill(35)])
-  assert.deepEqual([p.crafts, p.freed], [0, 0]); assert.match(p.why, /no batch .* frees a slot/)
+  assert.deepEqual([p.crafts, p.freed], [0, 0])
+  assert.match(p.why, /would need 1 more slot/, 'at 36/36 the first stick has no slot at all (the real fold would throw it)')
+  const roomy = B.bambooPlan([S('bamboo', 64), ...fill(34)])
+  assert.equal(roomy.crafts, 0); assert.match(roomy.why, /no batch .* frees a slot/, 'at 35/36: the bamboo slot becomes the sticks\' slot')
 })
 await t('bamboo [64,64] with no sticks -> 64 crafts free 1, but need a temporary slot: refused at 36/36, planned at 35/36', () => {
   const full = B.bambooPlan([S('bamboo', 64), S('bamboo', 64), ...fill(34)])
-  assert.equal(full.crafts, 0); assert.match(full.why, /64 craft\(s\) would free a slot but need 1 more slot/)
+  assert.equal(full.crafts, 0); assert.match(full.why, /would need 1 more slot/)
   const roomy = B.bambooPlan([S('bamboo', 64), S('bamboo', 64), ...fill(33)])
   assert.deepEqual([roomy.crafts, roomy.freed, roomy.peak], [64, 1, 36])
 })
@@ -48,16 +51,42 @@ await t('the SMALLEST batch that frees a slot: bamboo [10] + sticks [32] -> 5 cr
   const p = B.bambooPlan([S('bamboo', 10), S('stick', 32), ...fill(34)])
   assert.deepEqual([p.crafts, p.freed], [5, 1])
 })
-await t('STICK CAP: never past 64 sticks -- bamboo [64] + sticks [40] would need 32 crafts (72 sticks): nothing', () => {
-  const p = B.bambooPlan([S('bamboo', 64), S('stick', 40), ...fill(34)])
-  assert.equal(p.crafts, 0)
-  assert.equal(B.bambooPlan([S('bamboo', 64), S('stick', 64), ...fill(34)]).crafts, 0, 'already at the cap')
-  // where the cap ALONE decides: two partial stick stacks (40 + 30) take all 32 sticks, so an uncapped fold frees the
-  // bamboo slot -- but 70 sticks are already past the cap
-  const two = [S('bamboo', 64), S('stick', 40), S('stick', 30), ...fill(33)]
-  assert.equal(B.bambooPlan(two).crafts, 0, 'folded past the 64-stick cap')
-  const uncapped = B.bambooPlan(two, { stickCap: 1000 })
-  assert.deepEqual([uncapped.crafts, uncapped.freed], [32, 1], 'positive control: without the cap the same bag would fold')
+await t('STICK CAP: no fold past 64 sticks that needs a NEW stick slot -- bamboo [64,64] + sticks [60] at 35/36', () => {
+  const bag = [S('bamboo', 64), S('bamboo', 64), S('stick', 60), ...fill(32)]
+  assert.equal(B.bambooPlan(bag).crafts, 0, 'folded past the cap into a new stick slot')
+  const uncapped = B.bambooPlan(bag, { stickCap: 1000 })
+  assert.deepEqual([uncapped.crafts, uncapped.freed], [64, 1], 'positive control: without the cap the same bag would fold')
+  assert.equal(B.bambooPlan([S('bamboo', 64), S('stick', 64), ...fill(34)]).crafts, 0, 'a full stick stack and nowhere to top up')
+})
+await t('PAST THE CAP ONLY TO TOP UP (#6): sticks [64,30] + bamboo [10] -> 5 crafts, no new stick slot', () => {
+  const p = B.bambooPlan([S('stick', 64), S('stick', 30), S('bamboo', 10), ...fill(33)])
+  assert.deepEqual([p.crafts, p.freed], [5, 1])
+})
+await t('SPLIT STACKS (#2): the put-away consolidates -- bamboo [64,10] + sticks [32] at 36/36 frees a slot in 5 crafts, either order', () => {
+  for (const bag of [[S('bamboo', 64), S('bamboo', 10), S('stick', 32), ...fill(33)], [S('bamboo', 10), S('bamboo', 64), S('stick', 32), ...fill(33)]]) {
+    const p = B.bambooPlan(bag)
+    assert.deepEqual([p.crafts, p.freed], [5, 1], JSON.stringify(bag.slice(0, 2)))
+  }
+  const sim = B.simulateFold([S('bamboo', 64, 9), S('bamboo', 10, 10), S('stick', 32, 11)], 5)
+  assert.deepEqual([sim.after, sim.tossed], [2, 0], 'the 64 is picked up first; its leftover tops the 10 up to 64 and the rest goes back')
+})
+await t('the PLAN AGREES WITH THE EXECUTOR: a fold the slot-order simulation accepts but whose first execution craftRoom refuses is not ordered (it would only fail and back off)', () => {
+  // bamboo 1 + 1 ahead of a 57 at 36/36: as the bot runs it, the two singles empty and the stick takes one of their
+  // slots -- but craftroom's executor checks each execution with craftRoom (the largest stack first), which predicts
+  // no room for the first stick and refuses. Ordering it would buy a bamboo_no_room and a 30-minute backoff.
+  const bag = [...fill(1), S('bamboo', 1, 10), S('bamboo', 1, 11), ...Array.from({ length: 17 }, (_, i) => S('cobblestone', 64, 12 + i)),
+               S('bamboo', 57, 29), ...Array.from({ length: 15 }, (_, i) => S('cobblestone', 64, 30 + i))]
+  bag[0].slot = 9
+  assert.equal(bag.length, 36)
+  const sim = B.simulateFold(bag, 1)
+  assert.deepEqual([sim.after, sim.tossed], [35, 0], 'positive control: as the bot runs it, one craft frees a slot')
+  assert.equal(B.bambooPlan(bag).crafts, 0, 'ordered a fold the executor would refuse')
+})
+
+await t('the GATE (#1): the rest of the batch must still free a slot and keep to the cap on the bag as it is NOW', () => {
+  assert.equal(B.bambooGate([S('bamboo', 2), S('stick', 63), ...fill(34)], 1), null, 'positive control: as planned it frees')
+  assert.equal(B.bambooGate([S('bamboo', 2), S('stick', 64), ...fill(34)], 1).reason, 'gate_no_longer_frees', 'a stick arrived: 65 sticks, nothing freed')
+  assert.equal(B.bambooGate([S('bamboo', 1), S('stick', 10), ...fill(34)], 1).reason, 'gate_short')
 })
 await t('BELOW 34 SLOTS nothing is planned, whatever the bamboo', () => {
   assert.equal(B.bambooPlan([S('bamboo', 64), S('stick', 32), ...fill(31)]).crafts, 0)
@@ -90,11 +119,34 @@ await t('registered chatOnly, housekeeping, with a loss contract; its failure cl
   for (const fc of ['bamboo_no_room', 'bamboo_craft']) assert.equal(evidenceScope(fc), null, fc)
 })
 
-await t('WIRED (structural): cognitive.mjs issues the order right after wear_out and before the town orders, and backs a failure off', () => {
+await t('PRECEDENCE (firstOrder): the milestone work order, then wear_out, then bamboo -- a later step is never asked once one issued', () => {
+  const asked = []
+  const step = (name, out) => () => { asked.push(name); return out }
+  assert.equal(B.firstOrder({ skill: 'gather' }, step('wear', { skill: 'wear_out' }), step('bamboo', { skill: 'bamboo_sticks' })).skill, 'gather')
+  assert.deepEqual(asked, [], 'a housekeeping step was asked under a milestone order')
+  assert.equal(B.firstOrder(null, step('wear', { skill: 'wear_out' }), step('bamboo', { skill: 'bamboo_sticks' })).skill, 'wear_out')
+  assert.deepEqual(asked, ['wear'], 'bamboo was asked (and its cooldown charged) although wear_out issued')
+  assert.equal(B.firstOrder(null, step('wear', null), step('bamboo', { skill: 'bamboo_sticks' })).skill, 'bamboo_sticks')
+  assert.equal(B.firstOrder(null, step('wear', null), step('bamboo', null)), null)
+})
+
+await t('THE STEPS (CognitiveLoop): bambooOrderStep charges its cooldown only when it issues, and respects it and the backoff', async () => {
+  const { CognitiveLoop } = await import('../src/cognitive.mjs')
+  const full = [S('bamboo', 64), S('stick', 32), ...fill(34)]
+  const me = { bot: { inventory: { items: () => full } }, lastBambooAt: 0, bambooBackoffUntil: 0 }
+  const o = CognitiveLoop.prototype.bambooOrderStep.call(me)
+  assert.equal(o?.skill, 'bamboo_sticks'); assert.ok(me.lastBambooAt > 0, 'issued without charging the cooldown')
+  assert.equal(CognitiveLoop.prototype.bambooOrderStep.call(me), null, 'issued again inside the cooldown')
+  const idle = { bot: { inventory: { items: () => fill(20) } }, lastBambooAt: 0, bambooBackoffUntil: 0 }
+  assert.equal(CognitiveLoop.prototype.bambooOrderStep.call(idle), null); assert.equal(idle.lastBambooAt, 0, 'charged for nothing')
+  const backed = { bot: { inventory: { items: () => full } }, lastBambooAt: 0, bambooBackoffUntil: Date.now() + 60_000 }
+  assert.equal(CognitiveLoop.prototype.bambooOrderStep.call(backed), null, 'issued during a backoff')
+})
+
+await t('WIRED (structural): the decision chain is firstOrder(order, wear_out step, bamboo step), and a failed fold backs off', () => {
   const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
-  const wear = src.indexOf("order = { skill: 'wear_out'"), bamboo = src.indexOf('const r = bambooOrder({ items: this.bot.inventory'), town = src.indexOf('const r = townOrder({')
-  assert.ok(wear > 0 && bamboo > wear && town > bamboo, `order: wear_out@${wear} bamboo@${bamboo} town@${town}`)
-  assert.match(src.slice(bamboo, town), /if \(r\.order\) order = r\.order/)
+  assert.match(src, /order = firstOrder\(order, \(\) => this\.wearOutOrderStep\(\), \(\) => this\.bambooOrderStep\(\)\)/)
+  assert.ok(src.indexOf('order = firstOrder(order,') < src.indexOf('const r = townOrder({'), 'the town orders come after')
   assert.match(src, /if \(admitted\.skill === 'bamboo_sticks'\) this\.bambooBackoffUntil = bambooOrderOutcome\(r\.status, Date\.now\(\)\)/)
 })
 
@@ -154,7 +206,7 @@ await t('STICK CAP through the skill: bamboo [64] + sticks [40] at 36/36 -> noth
   assert.equal(out.status, 'no_effect'); assert.equal(craftClicks(server), 0); assert.equal(server.count('stick'), 40)
 })
 
-await t('THE CHAIN WITH A PICKUP RACE: at 35/36 the first stick needs the last slot; pickups fill it during craftsync\'s baseline -> admission refuses: bamboo_no_room, nothing dropped', async () => {
+await t('THE CHAIN WITH A PICKUP RACE: at 35/36 the first stick needs the last slot; pickups fill it during craftsync\'s baseline -> the gate refuses at admission (a skip), nothing dropped', async () => {
   const { server, bot, rows } = await setup(bag({ 36: ['bamboo', 64], 37: ['bamboo', 64] }, 35))
   const receive = server.receive.bind(server)
   let fired = false
@@ -171,11 +223,78 @@ await t('THE CHAIN WITH A PICKUP RACE: at 35/36 the first stick needs the last s
   }
   const out = await fold(bot, server)
   assert.ok(fired, 'the pickup never happened')
-  assert.equal(out.status, 'failed'); assert.equal(out.failClass, 'bamboo_no_room', out.detail)
-  assert.equal(evidenceScope(out.failClass), null)
+  // the bag filled under the fold: the gate (asked first in craftsync's admission, on the resynced bag) sees the first
+  // stick would be thrown -- a skip with the 2-minute cooldown, like any change of the bag under the batch
+  assert.equal(out.status, 'no_effect', out.detail); assert.equal(B.bambooOrderOutcome(out.status, 0), 0)
   assert.equal(craftClicks(server), 0, 'a craft click went out after the admission refused')
   assert.deepEqual(server.dropped, []); assert.equal(server.count('bamboo'), 128); assert.equal(server.count('stick'), 0)
-  assert.deepEqual(rows.map(r => [r.args.outcome, r.args.stop]), [['refused', 'admission: no_room_after_resync']])
+  assert.deepEqual(rows.map(r => [r.args.outcome, r.args.stop]), [['refused', 'admission: gate_no_room']])
+})
+
+const rowAt = () => rowsOf('_bamboo_sticks').at(-1)?.skill
+
+await t('#6 an executor failure that would VOTE (a window error -> no_path) is filed bamboo_craft, which does not', async () => {
+  const { server, bot } = await setup(bag({ 36: ['bamboo', 64], 37: ['stick', 32] }, 36))
+  bot.craft = async () => { throw new Error('Event windowOpen did not fire within timeout of 20000ms') }
+  delete bot.craftSync
+  const out = await fold(bot, server)
+  assert.equal(out.status, 'failed'); assert.equal(out.failClass, 'bamboo_craft', out.detail)
+  assert.equal(evidenceScope(out.failClass), null)
+  assert.equal(evidenceScope('no_path'), 'action', 'positive control: the executor\'s own class here would vote')
+})
+
+await t('#1 CODEX: 36 slots, bamboo x2, sticks x63; a stick arrives during the baseline -> the gate refuses on the resynced bag: no 65th stick, a skip', async () => {
+  const { server, bot, rows } = await setup(bag({ 36: ['bamboo', 2], 37: ['stick', 63] }, 36))
+  assert.equal(B.bambooPlan(bot.inventory.items()).crafts, 1, 'positive control: as planned, 1 craft frees the bamboo slot')
+  const receive = server.receive.bind(server)
+  let fired = false
+  server.receive = (name, params) => {
+    if (!fired && name === 'close_window' && params.windowId === 0) {
+      fired = true
+      server.p[37].count = 64; server.sid[0]++
+      server.send([['set_slot', { windowId: 0, stateId: server.sid[0], slot: 37, item: Item.toNotch(server.p[37]) }]])
+    }
+    return receive(name, params)
+  }
+  const out = await fold(bot, server)
+  assert.ok(fired)
+  assert.equal(out.status, 'no_effect', out.detail); assert.equal(B.bambooOrderOutcome(out.status, 0), 0, 'a skip must not back off')
+  assert.deepEqual([server.count('stick'), server.count('bamboo')], [64, 2], 'crafted the 65th stick')
+  assert.equal(craftClicks(server), 0); assert.deepEqual(server.dropped, [])
+  assert.deepEqual(rows.map(r => [r.args.outcome, r.args.stop]), [['refused', 'admission: gate_no_longer_frees']])
+  await new Promise(r => setTimeout(r, 100))
+  assert.equal(rowAt()?.args?.stop, 'gate_no_longer_frees')
+})
+
+await t('#2 SPLIT STACKS through REAL craftsync: bamboo [64,10] + sticks [32] at 36/36 -> 5 crafts, 35/36, nothing dropped', async () => {
+  const { server, bot, rows } = await setup(bag({ 36: ['bamboo', 64], 37: ['bamboo', 10], 38: ['stick', 32] }, 36))
+  const out = await fold(bot, server)
+  assert.equal(out.status, 'success', out.detail)
+  assert.equal(used(server), 35); assert.deepEqual([server.count('bamboo'), server.count('stick')], [64, 37]); assert.deepEqual(server.dropped, [])
+  assert.equal(rows.length, 5)
+})
+
+await t('#3 a PICKUP HOLD-BACK at 36/36 is a skip (no_effect, 2-min cooldown), its row stop=pickup_pending, never stop=no_room', async () => {
+  const { server, bot } = await setup(bag({ 36: ['bamboo', 64], 37: ['stick', 32] }, 36))
+  const { Vec3 } = await import('vec3')
+  bot.entities[9] = { id: 9, name: 'item', position: new Vec3(1.5, 64, 0.5), getDroppedItem: () => ({ name: 'dirt', count: 1 }) }
+  const out = await fold(bot, server)
+  assert.equal(out.status, 'no_effect', out.detail); assert.equal(B.bambooOrderOutcome(out.status, 0), 0)
+  assert.equal(craftClicks(server), 0)
+  await new Promise(r => setTimeout(r, 100))
+  assert.equal(rowAt()?.args?.stop, 'pickup_pending')
+})
+
+await t('#5 the row is written in a FINALLY with durationMs and structured args -- an abort leaves one too', async () => {
+  const { server, bot } = await setup(bag({ 36: ['bamboo', 64], 37: ['stick', 32] }, 36))
+  const ac = new AbortController(); ac.abort()
+  await assert.rejects(SKILLS.bamboo_sticks.run({ bot }, {}, ac.signal), e => e?.aborted === true)
+  await server.settle(); server.stop()
+  await new Promise(r => setTimeout(r, 100))
+  const row = rowAt()
+  assert.equal(row?.args?.stop, 'aborted')
+  for (const k of ['b0', 'b1', 's0', 's1', 'p0', 'p1', 'o0', 'o1', 'crafts', 'planned', 'freed', 'stop']) assert.ok(k in (row?.args ?? {}), `args.${k} missing`)
+  assert.equal(typeof row?.duration_ms, 'number')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

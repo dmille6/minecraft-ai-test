@@ -37,7 +37,7 @@ import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, co
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, isCompostInput, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
-import { bambooPlan, bambooStickRecipe } from './bamboo.mjs'
+import { bambooPlan, bambooStickRecipe, bambooGate } from './bamboo.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -3332,12 +3332,14 @@ const craftDeadline = ctx => (ctx.runner?.current?.startedAt ?? Date.now()) + co
  * after-resync has already written the server's bag into bot.inventory, so that read is the server's. Without
  * craftsync (its install failed at spawn) the local count is all there is, and a gain is `verified_local`.
  *
+ * `gate(items, remaining)` (optional, bamboo_sticks) is asked before every execution and inside craftsync's admission on
+ * the resynced bag; a refusal { reason, detail } stops the batch there as failClass 'gate' (what was made stays).
  * `anchor` is the crafting table the craft (or its plan) is using, also for a 2x2 step: the pickup step keeps it in reach.
  * `rs` is the level's room state ({ tries, tableYields, owed(), stationDid }), shared across a plan's steps so a plan
  * gets the same two make-room tries and the same table reserve as one direct craft. `onVerified(n)` is called with the
  * items each verified execution produced -- the ONLY place a produced count is taken, so nothing is counted twice.
  */
-async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null, protect = [], signal, deadline, rs, onVerified = () => {} }) {
+async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null, protect = [], gate = null, signal, deadline, rs, onVerified = () => {} }) {
   const { bot } = ctx
   const plan = roomRecipe(bot.registry, recipe, item)
   const synced = !!bot.craftSync
@@ -3364,6 +3366,8 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
   }
   for (let rep = 0; rep < reps; rep++) {
     check(signal)
+    const gated = gate?.(bot.inventory.items(), reps - done)
+    if (gated) return fail({ status: 'failed', failClass: 'gate', reason: gated.reason, detail: `${gated.detail}${sofar(done)}` })
     let room = craftRoomNow(bot, plan, reserveFor())
     // The recipe was granted for the whole count; ingredients running out part-way is the end of the batch, not a
     // failure of what was already made.
@@ -3440,6 +3444,8 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
       // holds once craftsync has resynced it, before any craft click -- a pickup that landed while the resync was in
       // flight would otherwise leave the result no slot. Without craftsync the option is ignored (mineflayer).
       const admit = items => {
+        const gated = gate?.(items, reps - done)
+        if (gated) return { ok: false, failClass: 'craft_room', reason: gated.reason, detail: gated.detail }
         const r = craftRoomNow(bot, plan, reserveFor(), items)
         if (r.ok) return true
         return { ok: false, failClass: 'craft_room', reason: r.reason === 'no_room' ? 'no_room_after_resync' : 'ingredients_after_resync',
@@ -3456,6 +3462,10 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
       const again = craftRoomNow(bot, plan, reserveFor())
       if (!again.ok) { note = ` not_retried=${again.reason}`; break }
       retries++
+    }
+    if (v.refused && String(v.verdict).startsWith('gate_')) {
+      // the caller's gate said no on the bag craftsync just resynced: nothing was clicked, the batch stops here
+      return fail({ status: 'failed', failClass: 'gate', reason: v.verdict, detail: `${String(error?.message ?? v.verdict).slice(0, 160)}${sofar(done)}` })
     }
     if (v.refused) {
       // craftsync's admission said no after its resync: nothing was clicked. A bag that filled is the full-bag refusal;
@@ -3566,7 +3576,7 @@ function refusePickup(bot, item, room, note = '') {
   const what = `${p?.name ?? 'an item'} ${Number.isFinite(p?.distance) ? `${p.distance.toFixed(1)} blocks away` : 'nearby'}`
   logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
              detail: `refused ${item}: reason=pickup_pending ${what} (${items.length}/${BAG_SLOTS} slots)${note}` })
-  return { status: 'failed', failClass: 'inventory_full', gap: 'inventory_space',
+  return { status: 'failed', failClass: 'inventory_full', gap: 'inventory_space', reason: 'pickup_pending',
            detail: `step away from the ${what} or collect it. No room held for ${item}: the bag is ${items.length}/${BAG_SLOTS}, ` +
                    `but the ${what} is within pickup range and could take the slot the craft needs${note}` }
 }
@@ -4756,39 +4766,60 @@ async function wearOut(ctx, _args, signal) {
  *     craftsync's verdict.
  *   - No make-room and no pickup walk: this order IS a remedy for the bag, so it never wears a tool to make room for
  *     itself, and it runs where the bot stands. Both budgets are spent before it starts (rs), so a shortfall refuses.
- *   - Every run is one `_bamboo_sticks` row: before -> after bamboo, sticks, planks and occupied slots, crafts made of
- *     planned, slots freed. Failures are bamboo_no_room / bamboo_craft, neither of which votes.
+ *   - bambooGate is asked before every execution and inside craftsync's admission: the REST of the batch must still free
+ *     a slot (as the bot really runs it) and keep to the stick cap on the bag as it is now; otherwise it stops, and
+ *     what it made stays. A gate stop or a pickup hold-back is a skip (no_effect: the 2-minute cooldown), not a fault.
+ *   - Every run, aborts included, is one `_bamboo_sticks` row (written in a finally): before -> after bamboo, sticks,
+ *     planks and occupied slots, crafts made of planned, slots freed, and stop=done|no_plan|gate_*|pickup_pending|
+ *     no_room|aborted|...; the same in structured args. Failures are bamboo_no_room / bamboo_craft (neither votes).
+ *   - Fuel: smelting ranks bamboo ahead of planks/logs and sticks last, so a fold moves fuel use onto wood (same burn
+ *     time per item).
  */
 async function bambooSticks(ctx, _args, signal) {
   const { bot } = ctx
+  const t0 = Date.now()
   const items = () => bot.inventory?.items?.() ?? []
   const planks = () => items().reduce((n, i) => n + (/_planks$/.test(i.name) ? (i.count ?? 1) : 0), 0)
   const read = () => ({ bamboo: countItem(bot, 'bamboo'), sticks: countItem(bot, 'stick'), planks: planks(), slots: items().length })
   const before = read()
   const plan = bambooPlan(items())
-  const row = (status, after, crafts, extra = '') => logEvent({ kind: 'bamboo_sticks', status, snapshot: snapshot(bot),
-    detail: `bamboo=${before.bamboo}->${after.bamboo} sticks=${before.sticks}->${after.sticks} planks=${before.planks}->${after.planks} ` +
-            `slots=${before.slots}->${after.slots} crafts=${crafts}/${plan.crafts} freed=${before.slots - after.slots}${extra}` })
-  if (!plan.crafts) { row('no_effect', before, 0, ` why=${plan.why}`); return { status: 'no_effect', detail: plan.why } }
-  let recipe = null
-  try { recipe = bambooStickRecipe(bot.recipesFor(bot.registry.itemsByName.stick.id, null, 1, null) ?? [], bot.registry) } catch { recipe = null }
-  if (!recipe) {
-    row('failed', before, 0, ' stop=no_bamboo_recipe')
-    return { status: 'failed', failClass: 'bamboo_craft', detail: 'no 2x2 bamboo -> stick recipe from what is held' }
-  }
-  const rs = { tries: 2, tableYields: true, pickupDealt: true, owed: () => 0, stationDid: [] }
-  let crafts = 0
-  const ran = await craftExecutions(ctx, { item: 'stick', recipe, crafts: plan.crafts, table: undefined, anchor: null, signal,
-                                           deadline: craftDeadline(ctx), rs, onVerified: () => { crafts++ } })
-  const after = read()
-  if (!ran.ok) {
+  let crafts = 0, stop = 'done', status = 'success'
+  try {
+    if (!plan.crafts) { stop = 'no_plan'; status = 'no_effect'; return { status: 'no_effect', detail: plan.why } }
+    let recipe = null
+    try { recipe = bambooStickRecipe(bot.recipesFor(bot.registry.itemsByName.stick.id, null, 1, null) ?? [], bot.registry) } catch { recipe = null }
+    if (!recipe) {
+      stop = 'no_bamboo_recipe'; status = 'failed'
+      return { status: 'failed', failClass: 'bamboo_craft', detail: 'no 2x2 bamboo -> stick recipe from what is held' }
+    }
+    const rs = { tries: 2, tableYields: true, pickupDealt: true, owed: () => 0, stationDid: [] }
+    const ran = await craftExecutions(ctx, { item: 'stick', recipe, crafts: plan.crafts, table: undefined, anchor: null, signal,
+                                             gate: (bag, remaining) => bambooGate(bag, remaining), deadline: craftDeadline(ctx), rs,
+                                             onVerified: () => { crafts++ } })
+    const tail = ` [folding bamboo into sticks: ${crafts} of ${plan.crafts} made]`
+    if (ran.ok) return { status: 'success', detail: `folded ${2 * crafts} bamboo into ${crafts} sticks (${before.slots} -> ${items().length} slots)` }
+    // THE BAG CHANGED UNDER THE BATCH (the gate) or AN ITEM LIES WITHIN PICKUP RANGE: not faults -- a skip, so the
+    // order comes back after its 2-minute cooldown rather than a 30-minute backoff (a full bot stands next to drops).
+    if (ran.out?.failClass === 'gate') { stop = ran.out.reason ?? 'gate'; status = 'no_effect'; return { status: 'no_effect', detail: `${ran.out.detail}${tail}` } }
+    if (ran.out?.reason === 'pickup_pending') { stop = 'pickup_pending'; status = 'no_effect'; return { status: 'no_effect', detail: `${ran.out.detail}${tail}` } }
     const room = ran.out?.failClass === 'inventory_full'
-    row('failed', after, crafts, ` stop=${room ? 'no_room' : (ran.out?.failClass ?? 'craft')}`)
-    return { status: 'failed', failClass: room ? 'bamboo_no_room' : 'bamboo_craft',
-             detail: `${ran.out?.detail ?? 'the fold stopped'} [folding bamboo into sticks: ${crafts} of ${plan.crafts} made]` }
+    stop = room ? 'no_room' : (ran.out?.failClass ?? 'craft'); status = 'failed'
+    return { status: 'failed', failClass: room ? 'bamboo_no_room' : 'bamboo_craft', detail: `${ran.out?.detail ?? 'the fold stopped'}${tail}` }
+  } catch (e) {
+    stop = e?.aborted || signal?.aborted ? 'aborted' : 'error'; status = e?.aborted || signal?.aborted ? 'aborted' : 'failed'
+    throw e
+  } finally {
+    // ONE ROW PER RUN, aborts included: before -> after, what was made of what was planned, why it stopped.
+    try {
+      const after = read()
+      const args = { b0: before.bamboo, b1: after.bamboo, s0: before.sticks, s1: after.sticks, p0: before.planks, p1: after.planks,
+                     o0: before.slots, o1: after.slots, crafts, planned: plan.crafts, freed: before.slots - after.slots, stop }
+      logEvent({ kind: 'bamboo_sticks', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, args,
+                 detail: `bamboo=${args.b0}->${args.b1} sticks=${args.s0}->${args.s1} planks=${args.p0}->${args.p1} ` +
+                         `slots=${args.o0}->${args.o1} crafts=${crafts}/${plan.crafts} freed=${args.freed} stop=${stop}` +
+                         (stop === 'no_plan' ? ` why=${plan.why}` : '') })
+    } catch { /* telemetry never breaks the order */ }
   }
-  row('success', after, crafts)
-  return { status: 'success', detail: `folded ${2 * crafts} bamboo into ${crafts} sticks (${before.slots} -> ${after.slots} slots)` }
 }
 
 /**

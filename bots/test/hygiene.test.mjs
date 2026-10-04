@@ -158,9 +158,11 @@ await t('no safe block beside the bot: nothing is dug, the failure says why', as
 await t('WIRING (source, comments stripped): the order precedes planting, is cooldown-gated, and pickup filters ballast; nothing tosses', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const cog = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
-  const order = cog.indexOf("order = { skill: 'wear_out'"), plant = cog.indexOf('plantingOrder({')
+  // the decision chain asks wear_out (cognitive.mjs wearOutOrderStep, through bamboo.mjs firstOrder) before planting
+  const order = cog.indexOf('order = firstOrder(order, () => this.wearOutOrderStep()'), plant = cog.indexOf('plantingOrder({')
   assert.ok(order > 0 && plant > order, 'the wear-out order precedes the planting order')
-  assert.match(cog.slice(order - 500, order), /WEAR_OUT_COOLDOWN_MS/)
+  const step = cog.indexOf('wearOutOrderStep () {')
+  assert.ok(step > 0); assert.match(cog.slice(step, step + 300), /WEAR_OUT_COOLDOWN_MS/)
   const sk = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.match(sk, /e\.name === 'item' && !refused\.has\(e\.id\) && !neverPickUp\(e\)/)
   assert.ok(!/\.tossStack\(|bot\.toss\(/.test(sk), 'no skill tosses items')
