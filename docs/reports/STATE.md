@@ -77,6 +77,13 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   48 out/day on 09-28) fills its expansion budget in ~3 days; then refusals are honest but permanent. The lasting fix
   is withdrawals or ballast disposal; the chest read should report the refuse_cap share so that point is visible.
 
+- **OWNER 10-04 ~02:50Z: bots WITHDRAW from chests; NEVER deposit junk; existing junk comes OUT. "use both engines to
+  formulate, implement ... deploy ... monitor and test ... if not effective revaluate make changes and deploy changes."**
+  Running: read-only RCON chest census (slot by slot, tool durability, proposed junk list); both engines designing
+  withdraw + no-junk deposit + clear + queue order. The one-time admin clear (09-28 permission) runs only after the
+  no-junk fix is live, with the exact list shown to the owner first. 09-27 chests: 124,894 items, 42% cobblestone,
+  but 16k logs, 6.8k sticks, 865 stone pickaxes while 45/80 bots lack a usable pickaxe.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
