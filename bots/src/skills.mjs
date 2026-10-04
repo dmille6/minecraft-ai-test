@@ -2443,10 +2443,12 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const { bot } = ctx
   // The bag's item total when the skill began: the full-chest recovery's row compares it with the end (chestfull.mjs).
   const bagBefore = bagTotal(bot.inventory?.items?.() ?? [])
-  // THE RUNNER'S WATCHDOG is the clock (config.skills.defaultTimeoutMs, runner.mjs), not the contract: the recovery's
-  // walks, opens and claim are clamped to what it leaves. `until` bounds a recovery attempt (noRecovery) from outside.
+  // THE RUNNER'S WATCHDOG is the clock (config.skills.defaultTimeoutMs, runner.mjs), not the contract, for EVERY deposit
+  // -- the first one too (Codex round 2: with 1 s left the first open still got 8 s). `until` (a recovery attempt's
+  // bound from outside) can only shorten it.
   const startedAt = ctx.runner?.current?.startedAt ?? Date.now()
-  const msLeft = (cap) => Math.max(0, Math.min(cap, until != null ? until - Date.now() : cap))
+  const deadline = Math.min(startedAt + config.skills.defaultTimeoutMs, until ?? Infinity)
+  const msLeft = (cap) => Math.max(0, Math.min(cap, deadline - Date.now()))
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
     .includes(bot.registry.blocks[b.type]?.name)
   const skip = new Set(exclude.map(q => `${q.x},${q.y},${q.z}`))
@@ -2503,20 +2505,37 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
              detail: 'no chest or barrel within 48 blocks, even at home' }
   }
 
-  // The full-chest recovery's own attempts (noRecovery) walk under a bound: its sweep visits every container near home,
-  // and one walk that never ends would hold the whole sweep. A timeout throws, and the sweep reads it as UNKNOWN.
-  const toChest = bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
-  await (noRecovery ? withTimeout(toChest, Math.max(1, msLeft(RECOVERY_WALK_MS)), bot) : toChest)
-  check(signal)
-  // A FIRST CHEST THAT CANNOT BE OPENED goes to the same handling as a full one (both reviews): its lid is UNAVAILABLE
-  // (verified blocked), its open UNKNOWN (transient). Only with something to hand over -- otherwise the result stands.
-  const viaRecovery = (res, outcome) => {
+  // A FIRST CHEST THAT CANNOT BE USED goes to the same handling as a full one (both reviews): its lid is UNAVAILABLE
+  // (verified blocked); a failed open or walk is UNKNOWN (transient); and the town's memory of it is read BEFORE any
+  // walk (Codex round 2): one found full in the last 30 min, in its backoff, or unusable is not visited again. Only with
+  // something to hand over -- otherwise the result stands.
+  const viaRecovery = (res, outcome, firstStatus = null) => {
     if (noRecovery) return res
     const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
     if (!plan.length) return res
-    return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstOutcome: outcome, firstFail: res, exclude,
+    return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstOutcome: outcome, firstStatus, firstFail: res, exclude,
                                     eligible: plan.reduce((n, e) => n + e.count, 0), bagBefore, startedAt })
   }
+  if (!noRecovery) {
+    const st = townStatus(bot, chestBlock.position)
+    if (st && st !== 'visit' && depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }).length) {
+      const p = chestBlock.position
+      return viaRecovery({ status: 'failed', failClass: 'storage_full', detail: `the town remembers the chest at ${p.x},${p.y},${p.z} as ${st}` }, 'memory', st)
+    }
+  }
+
+  // EVERY walk to a chest is bounded (Codex round 2: an unreachable first chest was a dead end): the recovery's own
+  // attempts by RECOVERY_WALK_MS, the first by FIRST_WALK_MS, both clamped to the watchdog. A failed first walk is
+  // UNKNOWN and goes on to the town's other containers; a failed recovery walk throws, and the sweep reads it as unknown.
+  const toChest = bot.pathfinder.goto(new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2))
+  try {
+    await withTimeout(toChest, Math.max(1, msLeft(noRecovery ? RECOVERY_WALK_MS : FIRST_WALK_MS)), bot)
+  } catch (e) {
+    if (e?.aborted || signal?.aborted || noRecovery) throw e
+    const p = chestBlock.position
+    return viaRecovery({ status: 'failed', failClass: 'no_path', detail: `could not reach the chest at ${p.x},${p.y},${p.z}: ${String(e?.message ?? e).slice(0, 60)}` }, 'unknown')
+  }
+  check(signal)
 
   // A CHEST UNDER A SOLID BLOCK DOES NOT OPEN, and mineflayer only says
   // "Event windowOpen did not fire within timeout of 20000ms" twenty seconds
@@ -2674,6 +2693,16 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
 
 /** The bound on one walk to a container during the full-chest recovery (deposit's noRecovery attempts). */
 const RECOVERY_WALK_MS = 30_000
+/** The bound on a deposit's first walk to its chest (it was unbounded; the watchdog was its only end). */
+const FIRST_WALK_MS = 60_000
+/** The town's memory of the container at `q` -> containerStatus, or null when it is not a town container. */
+function townStatus (bot, q) {
+  try {
+    const home = homeVec()
+    if (!q || Math.hypot(q.x - home.x, q.z - home.z) > STORAGE_NEAR) return null
+    return containerStatus(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null)[posKey(q)])
+  } catch { return null }
+}
 /** A far chest found full is skipped by this bot's deposits for this long (it walks home past it). */
 const FAR_SKIP_MS = 30 * 60 * 1000
 /** How many of the chest's items the open window's CONTAINER range holds (the client window: mineflayer applies
@@ -2736,7 +2765,7 @@ setTownRoomReader(() => {
  * Every refusal near home pauses deposits for this bot (bankClosed, reopened early when its reason goes away), and
  * writes one `deposit_new_chest` row.
  */
-async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, firstOutcome = 'full', firstFail = null, exclude = [],
+async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, firstOutcome = 'full', firstStatus = null, firstFail = null, exclude = [],
                                          eligible = 0, bagBefore = 0, startedAt = Date.now() }) {
   const { bot } = ctx
   const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
@@ -2745,7 +2774,9 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const dir = townDir(), key = townKey(home)
   const here = () => bot.entity.position
   const left = () => timeLeft({ startedAt, timeoutMs: config.skills.defaultTimeoutMs })
-  const nearHome = Math.hypot(here().x - home.x, here().z - home.z) <= STORAGE_NEAR
+  // THE TOWN IS WHERE ITS CONTAINERS ARE: a first chest within STORAGE_NEAR of home is town storage, whether or not the
+  // bot reached it (a remembered or unreachable first chest is handled before any walk).
+  const nearHome = Math.hypot(first.position.x - home.x, first.position.z - home.z) <= STORAGE_NEAR
   const mem = readTownMemory(dir, key, world)
   const tried = new Map(exclude.map(q => [posKey(q), { at: q, room: 'excluded' }]))
   const mark = (q, room) => { if (q) tried.set(posKey(q), { at: q, room }) }
@@ -2771,8 +2802,11 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const shut = (outcome, why, until = null) => closeBank(bot, why, closeMsFor(outcome, { until }), Date.now(), outcome)
   const refuse = detail => ({ status: 'failed', failClass: 'storage_full', detail: `${detail} [bag ${bagBefore}->${bag()} items]` })
 
-  // THE FIRST CONTAINER, as found.
-  if (firstOutcome === 'unknown') {
+  // THE FIRST CONTAINER, as found -- or as the town remembers it (not visited: no new outcome is recorded).
+  if (firstOutcome === 'memory') {
+    mark(first.position, `${firstStatus}:memory`)
+    if (firstStatus === 'backoff') unknown++
+  } else if (firstOutcome === 'unknown') {
     if (nearHome) strike(first.position); else unknown++
     if (!tried.has(posKey(first.position))) mark(first.position, `unknown:${firstFail?.failClass ?? 'open'}`)
   } else {
@@ -2964,6 +2998,8 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   }
   const extra = { ...where, moved: again.moved ?? 0, placed: 1 }
   if (again.status === 'no_effect') { row(next, 'no_effect', extra); return again }   // nothing was left to hand over
+  // A STACK STILL ON THE CURSOR is a transfer failure, propagated unchanged (Codex round 2), as the sweep does.
+  if (again.failClass === 'transfer_unsettled') { row(next, 'failed', { ...extra, unsettled: 1 }); return again }
   if (again.status === 'success') {
     row(next, 'success', extra)
     return { ...again, detail: `${again.detail} (the town chests were full, so it ${source === 'carried' ? `placed the ${name} it carried` : 'crafted and placed a chest'} at ${posKey(placedAt)}) [bag ${bagBefore}->${bag()} items]` }

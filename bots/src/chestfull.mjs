@@ -47,17 +47,29 @@ const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
  * THE CLAIM LEDGER -> [{ n, x, y, z, at, world, state, stateAt }], oldest first. One IMMUTABLE file per claim
- * (`<key>.c<n>.json`, created with link(), so exactly one bot gets each n) plus an optional state file
- * (`<key>.c<n>.state.json`: placed | not_placed | gone). Nothing is pruned: unlike the composter's site generations
- * (composter.mjs pruneSiteGens keeps three), the budget needs every claim of the last 24 h and every standing chest.
- * A claim with no state file is UNRESOLVED and counts as standing until reconciled. An unreadable claim fails closed:
- * it is counted, as made now.
+ * (`<key>.c<n>.json`, created with link(), so exactly one bot gets each n) plus OBSERVATIONS of it, one file each
+ * (`<key>.c<n>.o<ms>-<state>-<rand>`: placed | not_placed | gone). Nothing about a claim is ever overwritten: its state
+ * is its NEWEST observation (Codex round 2: a rewritten state file let an older observation replace a newer `placed`,
+ * releasing standing capacity), and at equal times `placed` wins, the side that keeps capacity held. Claims are never
+ * pruned: unlike the composter's site generations (composter.mjs pruneSiteGens keeps three), the budget needs every
+ * claim of the last 24 h and every standing chest. A claim with no observation is UNRESOLVED and counts as standing.
+ * An unreadable claim fails closed: it is counted, as made now.
  */
+const OBS_RANK = { placed: 3, gone: 2, not_placed: 1 }
 export function readClaims (dir, key, now = Date.now()) {
   const out = []
   let files = []
   try { files = fs.readdirSync(dir) } catch { return out }
   const re = new RegExp(`^${esc(key)}\\.c(\\d+)\\.json$`)
+  const obsRe = new RegExp(`^${esc(key)}\\.c(\\d+)\\.o(\\d+)-(placed|not_placed|gone)-`)
+  const newest = new Map()   // n -> { at, state }
+  for (const f of files) {
+    const o = obsRe.exec(f)
+    if (!o) continue
+    const n = Number(o[1]), at = Number(o[2]), state = o[3]
+    const cur = newest.get(n)
+    if (!cur || at > cur.at || (at === cur.at && OBS_RANK[state] > OBS_RANK[cur.state])) newest.set(n, { at, state })
+  }
   for (const f of files) {
     const m = re.exec(f)
     if (!m) continue
@@ -68,24 +80,24 @@ export function readClaims (dir, key, now = Date.now()) {
     const c = Number.isFinite(at) && [rec.x, rec.y, rec.z].every(Number.isInteger)
       ? { n, x: rec.x, y: rec.y, z: rec.z, at, world: rec.world ?? null, state: 'unresolved', stateAt: null }
       : { n, x: null, y: null, z: null, at: now, world: null, state: 'unresolved', stateAt: null, malformed: true }
-    try {
-      const s = JSON.parse(fs.readFileSync(path.join(dir, `${key}.c${n}.state.json`), 'utf8'))
-      if (['placed', 'not_placed', 'gone'].includes(s?.state)) { c.state = s.state; c.stateAt = Date.parse(s.at) || null }
-    } catch { /* no state yet: unresolved */ }
+    const ob = newest.get(n)
+    if (ob) { c.state = ob.state; c.stateAt = ob.at }
     out.push(c)
   }
   return out.sort((a, b) => a.n - b.n)
 }
 
-/** Record a claim's state (a whole-file replace; the newest reconciliation wins). Best effort -> true if written. */
+/** Record an OBSERVATION of a claim, stamped with when the cell was read (a new file, never a rewrite; the newest
+ *  wins in readClaims). Older observations of the claim beyond the newest few are removed. Best effort -> true if written. */
 export function writeClaimState (dir, key, n, state, now = Date.now()) {
-  const file = path.join(dir, `${key}.c${n}.state.json`)
-  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  const name = `${key}.c${n}.o${Math.floor(now)}-${state}-${process.pid}${Math.random().toString(36).slice(2, 8)}`
+  try { fs.writeFileSync(path.join(dir, name), '', { flag: 'wx' }) } catch { return false }
   try {
-    fs.writeFileSync(tmp, JSON.stringify({ state, at: new Date(now).toISOString() }))
-    fs.renameSync(tmp, file)
-    return true
-  } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } return false }
+    const re = new RegExp(`^${esc(key)}\\.c${n}\\.o(\\d+)-`)
+    const mine = fs.readdirSync(dir).map(f => [f, re.exec(f)]).filter(([, m]) => m).sort((a, b) => Number(b[1][1]) - Number(a[1][1]))
+    for (const [f] of mine.slice(4)) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* another bot pruned it */ } }
+  } catch { /* pruning is housekeeping */ }
+  return true
 }
 
 /**
@@ -142,13 +154,15 @@ export function claimNewChest ({ dir, key, site, world = null, now = Date.now() 
 /**
  * RECONCILE THE LEDGER AGAINST THE WORLD -> the claims whose state changed ([{ n, state }]). Pure but for the writes.
  *   read(x,y,z) -> block name | null (unloaded: left as it is)
- * A chest at the claim's cell: placed. No chest: a placed claim is gone; an unresolved one older than
+ * EVERY claim of this world is read again, dismissed ones too (Codex round 2: a claim dismissed as not_placed or gone
+ * was never looked at again, so a chest that was there all along stopped counting). A chest at the claim's cell:
+ * placed, whatever it was. No chest: a placed claim is gone (only on this fresh read); an unresolved one older than
  * RECONCILE_AFTER_MS is not_placed (it stops counting as standing; it stays in the interval and the day).
  */
 export function reconcileClaims ({ dir, key, claims = [], read, world = null, now = Date.now() } = {}) {
   const changed = []
   for (const c of claims) {
-    if (c.malformed || !sameWorld(c.world, world) || !(c.state === 'unresolved' || c.state === 'placed')) continue
+    if (c.malformed || !sameWorld(c.world, world)) continue
     let name = null
     try { name = read(c.x, c.y, c.z) } catch { name = null }
     if (name == null) continue
@@ -178,20 +192,29 @@ export const UNUSABLE_TTL_MS = 6 * 60 * 60 * 1000
  */
 export function containerStatus (entry, now = Date.now()) {
   if (!entry) return 'visit'
-  const s = entry.strikes ?? []
-  if (s.length >= 2 && s.at(-1) - s[0] >= UNKNOWN_BACKOFF_MS && now - s.at(-1) < UNUSABLE_TTL_MS) return 'unusable'
+  if (Number.isFinite(entry.unusableUntil) && now < entry.unusableUntil) return 'unusable'
   if (entry.o === 'full' && now - entry.at < FULL_TTL_MS) return 'full'
   if (entry.o === 'unavailable' && now - entry.at < UNAVAILABLE_TTL_MS) return 'unavailable'
   if (entry.o === 'unknown' && now - entry.at < UNKNOWN_BACKOFF_MS) return 'backoff'
   return 'visit'
 }
-/** The entry after an outcome. Pure. An unknown adds a strike (the last two kept); a container that opened clears them. */
+/**
+ * The entry after an outcome. Pure. An unknown adds a strike; when any earlier strike is at least UNKNOWN_BACKOFF_MS
+ * older, the container is UNUSABLE until an explicit `unusableUntil` -- which later failures never shorten (Codex
+ * round 2: keeping only the last two strikes let failures at 0, 600001 and 600002 ms turn unusable back into a
+ * backoff). A container that opened (full or took) clears the strikes and the mark; a blocked lid keeps them.
+ */
 export function recordOutcome (entry, outcome, now = Date.now()) {
   if (outcome === 'unknown') {
-    const strikes = [...(entry?.strikes ?? []).filter(t => now - t < UNUSABLE_TTL_MS), now].slice(-2)
-    return { o: 'unknown', at: now, strikes }
+    const prior = (entry?.strikes ?? []).filter(t => now - t < UNUSABLE_TTL_MS)
+    const qualifies = prior.some(t => now - t >= UNKNOWN_BACKOFF_MS)
+    const unusableUntil = Math.max(entry?.unusableUntil ?? -Infinity, qualifies ? now + UNUSABLE_TTL_MS : -Infinity)
+    return { o: 'unknown', at: now, strikes: [...prior, now].slice(-8), ...(Number.isFinite(unusableUntil) ? { unusableUntil } : {}) }
   }
-  return { o: outcome, at: now, strikes: outcome === 'unavailable' ? (entry?.strikes ?? []) : [] }
+  if (outcome === 'unavailable') {
+    return { o: outcome, at: now, strikes: entry?.strikes ?? [], ...(Number.isFinite(entry?.unusableUntil) ? { unusableUntil: entry.unusableUntil } : {}) }
+  }
+  return { o: outcome, at: now, strikes: [] }
 }
 
 const memFile = (dir, key) => path.join(dir, `${key}.containers.json`)
