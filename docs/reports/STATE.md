@@ -111,6 +111,8 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-04 07:30Z — NO-JUNK: ledger DROPPED by both engines; cobble banks only when the transfer empties a bag slot (design file SYNTHESIS)
+
 ## 10-04 06:40Z — NO-JUNK DESIGN (both engines; docs/reports/nojunk-design-2026-10-04.md; NOT BUILT, Claude review running)
 **Deposit already refuses almost all of the manifest's junk** (bankable.mjs:143-204: goal-wanted, fixed list, ores,
 spare usable tools only). 24 h, 1.18M rows, 7,051 items in reconciled deposit runs: cobblestone 62%, wood 34%, ores

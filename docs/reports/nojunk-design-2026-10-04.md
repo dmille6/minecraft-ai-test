@@ -330,3 +330,27 @@ reaches the cap.
 
 Review status: Codex design done, independently. CLAUDE.md asks for a separate Claude review before build, and that
 review has not happened. Nothing was built, committed or deployed. No RCON was used and no world was touched.
+
+---
+## SYNTHESIS 10-04 ~07:30Z (Claude review CHANGE + Codex adjudication "NEITHER as written; prefer the review's no-ledger direction")
+Files: nojunk-review-claude-2026-10-04.md, nojunk-adjudication-codex-2026-10-04.md.
+
+**Both engines now agree:** drop the per-town 256 ledger (lost updates in the unlocked town file, recordOutcome
+rebuilds entries, isolated bots have per-bot town dirs, and an old observation is not a current lower bound). Instead:
+**cobblestone / cobbled_deepslate enter existing storage ONLY when that cobble transfer itself empties a bag slot**,
+overriding `wants`, preserving reserves and withdraw holds. Never-bank list kept, written as a literal list (not
+derived from NEVER_KEEP, which would silently settle the eggs/flint/ink question). No log/plank/stick caps.
+
+Required for correctness (both): reject an empty requested plan BEFORE walking (depositDue is true at 36 slots with
+bankable 0); no relief-driven chest craft/place/bank-closure (bounded search of existing storage only); preflight room
+for the whole qualifying transfer (partial transfers bank cobble without freeing the slot); per-name confirmed-transfer
+rows (walk scaffold currently reads as banked); a bounded relief-unavailable state so deposit_surplus/craftroom advice
+cannot loop; reuse craftroom's depositTarget predicate with matching stack order.
+
+Canary stonecap-01 = MECHANISM canary: two whole five-bot towns, deterministic gates, INCONCLUSIVE without observed
+refusal AND relief exposure (~3-6 banking opportunities in 360 min); then a multi-day bag check (slots, cobble stacks,
+inventory-full failures, withdraw shortages, vs control) before promotion. Neither policy keeps a 256 floor, and
+neither is a disposal path for a full bag with no legal destination -- stated, not hidden.
+
+Owner decisions: (1) is surplus cobble junk outright (then no relief at all), or is slot-freeing relief acceptable?
+(2) eggs/scutes/flint/clay/ink: no exit from a bag today. Build waits behind withdraw (it edits bankable.mjs).
