@@ -123,3 +123,28 @@ sandbox/craft/coab.sh ../coab-cand ../coab-ctrl 3        # ~70 min: cand 7 scene
 python3 sandbox/craft/summarize-composter.py sandbox/log/composter-ab/results-cand.jsonl sandbox/log/composter-ab/results-ctrl.jsonl
 python3 sandbox/craft/summarize-composter.py --rows sandbox/log/composter-ab/results-cand.jsonl compost36
 ```
+
+## Spent-tool A/B (`tools-ab.cjs`, `tcab.sh`)
+
+One fresh bot per trial, ONE queued decision (`gather N block` or `goto x y z`; the brain is embedded, so a trial is
+two node processes), the server's slots read with their `damage` before and after, item entities on the ground, and
+from `trace.cjs` every dig start/finish with the item held at that moment (name, durability used, slot). The arena
+floor is SMOOTH_STONE (no gather targets it), the blocks to dig are a row at y 120 from x 703 east.
+
+| scene | bag | command |
+|---|---|---|
+| `axe5` | the sole stone_axe at 5 uses | gather 6 oak_log (row of 6) |
+| `shovel4` | the sole wooden_shovel at 4 uses | gather 5 dirt (row of 5) |
+| `axes90-3` | stone_axes at 90 and 3 uses | gather 6 oak_log |
+| `picks1x3-50` | three 1-use stone_pickaxes + one at 50 uses | gather 5 stone |
+| `pick1-only` | only a 1-use stone_pickaxe | gather 5 stone |
+| `travel-shovel1` / `-filler` | a 1-use wooden_shovel (held), with/without a cobblestone stack | goto 711 120 700 from a dirt pit with a roof |
+
+Two world traps found on the first run, both handled by the driver now: **stone outside the arena** (the floating
+platform's own stone at the edge: gather took it and the bot fell 51 blocks into the void -- stone scenes replace every
+stone block within ~24 of the stand with smooth_stone first), and **an open pit top** (the dig-capable profile towered
+out with the cobblestone instead of digging -- the pit has a dirt roof at y 122).
+
+```bash
+sandbox/craft/tcab.sh ../tc-cand ../tc-ctrl 3
+```
