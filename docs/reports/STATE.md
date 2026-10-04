@@ -102,6 +102,15 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   runner filed the aborted run as success. Harness on main (8ab8a5c). Chest fix 96cfbe0: Claude AGREE; Codex two more
   edge cases (clamped timeout converted in recovery/sweep; walkFrom aliases a mutable Vec3) -- fixing, then withdraw.
 
+- **CRAFTSYNC GRID DEFECT CONFIRMED (10-04 03:25Z, builder repro with real craftsync + mineflayer + fake Paper):** an
+  ABORTED 2x2 inventory craft (stuck watchdog, interrupt, preempt) after the first click leaves the grid + cursor
+  loaded (craftsync never sends close_window 0 on the cancel path); items return on the next craftsync craft's baseline
+  close, that next craft fails once, and a logout/restart before it drops them. Table crafts are clean. The control
+  cannot be aborted, so this exposure is NEW. Live canary: 2 of 82 crafts in 4.5 h (oak_planks 2x2). **DECISION:**
+  craftsync-01 proceeds to its +360 read (the 19% false-success fix outweighs this narrow, mostly self-healing defect);
+  the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
+  no-junk -> admin clear -> bamboo -> logpickup.
+
 ## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
 - Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
   vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
