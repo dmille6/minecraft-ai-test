@@ -1,0 +1,76 @@
+#!/usr/bin/env python3
+"""Stage C1 series: arms x matched starts in a randomized (blocked) order, one run at a time, GPU held throughout.
+
+    nohup python3 cl_series.py --arms arms.json --starts 3 --bots 8 --minutes 90 > results/series.log 2>&1 &
+
+arms.json: [{"arm": "q25-7b", "model": "qwen2.5:7b-instruct", "think": "none"},
+            {"arm": "gemma4-mlx8", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"}, ...]
+An arm with "lms_key" runs through LM Studio: the Studio's LM Studio server loads the key (--parallel = bots), the
+translating proxy (ollama2openai.py) runs on the Studio, and an ssh tunnel on this Mac mini exposes it to the bots
+host at 10.0.0.70:11501. Each block = every arm once, order shuffled per block (seeded). The GPU reservation is
+kept between runs and released at the end; LM Studio and the proxy are torn down after each LM Studio run.
+"""
+import argparse, json, os, random, subprocess, sys, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+STUDIO = 'mike@ai.ticrcorp.com'
+
+
+def ssh(cmd, check=False):
+    return subprocess.run(['ssh', '-o', 'BatchMode=yes', STUDIO, cmd], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=check).stdout
+
+
+def lms_up(key, bots):
+    ssh('echo cl-series > ~/mbench/out/GPU_RESERVED')
+    while ssh("pgrep -f '[r]un_bench.py|[t]hroughput.py|[s]erving.py|[l]ms_factor.sh' || true").strip():
+        time.sleep(60)          # the Stage A queue finishes its current model first
+    ssh('for m in $(cat ~/mbench/out/.loaded 2>/dev/null); do '
+        '/Applications/Ollama.app/Contents/Resources/ollama stop "$m"; done; L=~/.lmstudio/bin/lms; $L server start --port 1234; '
+        '$L unload --all; $L load "%s" -y --context-length 16384 --parallel %d --identifier bench; '
+        'cd ~/mbench && (nohup python3 ollama2openai.py --listen 127.0.0.1:11501 > out/proxy.log 2>&1 &)' % (key, bots))
+    subprocess.run(['scp', '-q', os.path.join(HERE, 'ollama2openai.py'), STUDIO + ':mbench/'], check=False)
+    tun = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-g', '-N', '-L',
+                            '11501:127.0.0.1:11501', STUDIO], stdin=subprocess.DEVNULL)
+    time.sleep(5)
+    return tun
+
+
+def lms_down(tun):
+    if tun:
+        tun.terminate()
+    ssh('pkill -f ollama2openai.py; L=~/.lmstudio/bin/lms; $L unload --all; $L server stop')
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--arms', required=True); ap.add_argument('--starts', type=int, default=3)
+    ap.add_argument('--bots', type=int, default=8); ap.add_argument('--minutes', type=float, default=90)
+    ap.add_argument('--server', default='sandbox4'); ap.add_argument('--seed', type=int, default=1006)
+    a = ap.parse_args()
+    arms = json.load(open(a.arms))
+    rng = random.Random(a.seed)
+    order = []
+    for b in range(a.starts):
+        blk = list(arms); rng.shuffle(blk)
+        order += [(b, x) for x in blk]
+    print('ORDER', [(b, x['arm']) for b, x in order], flush=True)
+    for i, (b, arm) in enumerate(order):
+        tun = None
+        endpoint = 'http://ai.ticrcorp.com:11434'
+        if arm.get('lms_key'):
+            tun = lms_up(arm['lms_key'], a.bots)
+            endpoint = 'http://10.0.0.70:11501'
+        try:
+            subprocess.run([sys.executable, os.path.join(HERE, 'cl_run.py'), '--arm', arm['arm'], '--model', arm['model'],
+                            '--think', arm.get('think', 'none'), '--server', a.server, '--bots', str(a.bots),
+                            '--minutes', str(a.minutes), '--endpoint', endpoint, '--tag', 'b%d' % b, '--keep-reservation'],
+                           check=False)
+        finally:
+            if tun:
+                lms_down(tun)
+    ssh('rm -f ~/mbench/out/GPU_RESERVED')
+    print('SERIES DONE', flush=True)
+
+
+if __name__ == '__main__':
+    main()

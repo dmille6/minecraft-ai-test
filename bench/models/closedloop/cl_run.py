@@ -121,7 +121,7 @@ def main():
         # Reserve the GPU: the Stage A/B queue checks this marker before starting its next model; then wait
         # for the model it is running now to finish (arms must never share the GPU with a benchmark).
         sh(STUDIO, 'echo %s > ~/mbench/out/GPU_RESERVED' % run_id)
-        while sh(STUDIO, "pgrep -f 'run_bench.py|throughput.py|serving.py' || true", check=False).strip():
+        while sh(STUDIO, "pgrep -f '[r]un_bench.py|[t]hroughput.py|[s]erving.py|[l]ms_factor.sh' || true", check=False).strip():
             log('waiting for the Studio benchmark queue to finish its current model')
             time.sleep(60)
     log('run %s: %d bots, %s (think=%s) on %s for %.0f min' % (run_id, a.bots, a.model, a.think, a.server, a.minutes))

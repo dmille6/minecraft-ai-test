@@ -7,7 +7,8 @@
 # the model (recorded in the output); --think/--overseer-think strings are passed as reasoning_effort.
 set -u
 cd "$(dirname "$0")"
-KEY=$1; LABEL=$2; PAR=${3:-4}; CTX=${4:-16384}; BT=${5:-none}; ST=${6:-none}; set --
+KEY=$1; LABEL=$2; PAR=${3:-4}; CTX=${4:-16384}; BT=${5:-none}; ST=${6:-none}; MODE=${7:-screen}; set --
+SEL="--ids-file data/screen_ids.txt"; [ "$MODE" = full ] && SEL="--extra mbench-sample-x.jsonl" 
 LMS=~/.lmstudio/bin/lms
 echo "lms-$LABEL" > out/GPU_RESERVED
 while pgrep -f "run_bench.py|throughput.py|serving.py" >/dev/null; do sleep 30; done
@@ -18,9 +19,9 @@ $LMS unload --all >> out/$LABEL.log 2>&1
 $LMS load "$KEY" -y --context-length "$CTX" --parallel "$PAR" --identifier bench >> out/$LABEL.log 2>&1
 $LMS ps >> out/$LABEL.log 2>&1
 R="--engine openai --url http://127.0.0.1:1234 --model bench --label $LABEL --concurrency 4"
-python3 run_bench.py $R --sets brain --ids-file data/screen_ids.txt --think $BT >> out/$LABEL.log 2>&1
-python3 throughput.py --engine openai --url http://127.0.0.1:1234 --model bench --label $LABEL --think $BT >> out/$LABEL.log 2>&1
-python3 run_bench.py $R --sets stuck,overseer --ids-file data/screen_ids.txt --overseer-think $ST >> out/$LABEL.log 2>&1
+python3 run_bench.py $R --sets brain $SEL --think $BT >> out/$LABEL.log 2>&1
+[ "$MODE" = full ] || python3 throughput.py --engine openai --url http://127.0.0.1:1234 --model bench --label $LABEL --think $BT >> out/$LABEL.log 2>&1
+python3 run_bench.py $R --sets stuck,overseer $([ "$MODE" = full ] || echo --ids-file data/screen_ids.txt) --overseer-think $ST >> out/$LABEL.log 2>&1
 python3 run_bench.py $R --sets b4 --think $BT >> out/$LABEL.log 2>&1
 python3 run_bench.py $R --sets b2,b3 --overseer-think $ST >> out/$LABEL.log 2>&1
 $LMS unload --all >> out/$LABEL.log 2>&1

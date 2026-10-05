@@ -1,0 +1,3 @@
+[{"arm": "q25-7b", "model": "qwen2.5:7b-instruct", "think": "none"},
+ {"arm": "gemma4-26b", "model": "gemma4:26b", "think": "false"},
+ {"arm": "gemma4-26b-mlx8", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"}]
