@@ -9,20 +9,25 @@ cd "$(dirname "$0")"
 ENGINE=$1; MODEL=$2; LABEL=$3; BT=$4; ST=$5; shift 5
 MODE=full; case "${1:-}" in screen|slowonly) MODE=$1; shift;; esac
 OLLAMA=/Applications/Ollama.app/Contents/Resources/ollama
+# A Stage C closed-loop run holds the GPU: wait for its reservation to clear before starting a model.
+while [ -e out/GPU_RESERVED ]; do sleep 30; done
 echo "=== $(date -u +%FT%TZ) $LABEL ($ENGINE $MODEL) mode=$MODE brain-think=$BT slow-think=$ST" | tee -a out/driver.log
 if [ "$ENGINE" = ollama ]; then
   for m in $(cat out/.loaded 2>/dev/null); do [ "$m" != "$MODEL" ] && $OLLAMA stop "$m" 2>/dev/null; done
   echo "$MODEL" > out/.loaded
   $OLLAMA show "$MODEL" 2>/dev/null | sed -n '1,25p' > out/info-$LABEL.txt
 fi
+# Unload the model before each phase. Measured 10-05 (twice): a request with a different num_ctx for a model
+# that is already loaded wedged Ollama 0.33.3's scheduler -- every request hung until the server was restarted.
+unload() { [ "$ENGINE" = ollama ] && $OLLAMA stop "$MODEL" >/dev/null 2>&1; sleep 3; return 0; }
 IDS=(); [ "$MODE" != full ] && IDS=(--ids-file data/screen_ids.txt)
 if [ "$MODE" != slowonly ]; then
   python3 run_bench.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --sets brain --think "$BT" --concurrency 4 ${IDS[@]+"${IDS[@]}"} "$@" >> out/$LABEL.log 2>&1
   [ "$MODE" = full ] && python3 throughput.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --think "$BT" >> out/$LABEL.log 2>&1
 fi
-python3 run_bench.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --sets stuck,overseer --overseer-think "$ST" --concurrency 4 ${IDS[@]+"${IDS[@]}"} "$@" >> out/$LABEL.log 2>&1
+unload; python3 run_bench.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --sets stuck,overseer --overseer-think "$ST" --concurrency 4 ${IDS[@]+"${IDS[@]}"} "$@" >> out/$LABEL.log 2>&1
 # Stage B suites (all their items in every mode: they are small): b4 = brain role, b2/b3 = slow role.
-[ "$MODE" != slowonly ] && python3 run_bench.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --sets b4 --think "$BT" --concurrency 4 "$@" >> out/$LABEL.log 2>&1
-python3 run_bench.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --sets b2,b3 --overseer-think "$ST" --concurrency 4 "$@" >> out/$LABEL.log 2>&1
+[ "$MODE" != slowonly ] && unload && python3 run_bench.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --sets b4 --think "$BT" --concurrency 4 "$@" >> out/$LABEL.log 2>&1
+unload; python3 run_bench.py --engine "$ENGINE" --model "$MODEL" --label "$LABEL" --sets b2,b3 --overseer-think "$ST" --concurrency 4 "$@" >> out/$LABEL.log 2>&1
 [ "$ENGINE" = ollama ] && $OLLAMA ps >> out/$LABEL.log
 echo "=== $(date -u +%FT%TZ) $LABEL done" | tee -a out/driver.log

@@ -59,6 +59,8 @@ case "$CMD" in
     stopit; sudo cp -p $D/server.properties.mbench-orig $D/server.properties; sudo truncate -s0 $D/logs/latest.log || true
     sudo systemctl start $U; waitdone
     sudo grep -E "^(level-name|max-players)" $D/server.properties;;
+  census)    # terminal ground truth: each named player's inventory as the SERVER holds it (not the bot's log)
+    shift 2; for b in "$@"; do rcon "data get entity $b Inventory"; done;;
   status)
     systemctl is-active $U; sudo grep -E "^(level-name|max-players|difficulty)" $D/server.properties; rcon "list";;
   *) echo "unknown $CMD"; exit 2;;

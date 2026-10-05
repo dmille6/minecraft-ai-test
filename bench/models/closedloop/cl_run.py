@@ -83,6 +83,23 @@ def env_for(a, run_id, i):
     return name, e
 
 
+def parse_census(text):
+    """`data get entity <bot> Inventory` lines -> {bot: {item: count}} (1.21 SNBT: {count: 12, id: "minecraft:oak_log"})."""
+    import re
+    out = {}
+    for line in text.splitlines():
+        m = re.match(r'data get entity (\S+) Inventory -> (.*)', line)
+        if not m:
+            continue
+        inv = {}
+        for c, i in re.findall(r'count:\s*(\d+)[^}]*?id:\s*"minecraft:([a-z0-9_]+)"', m.group(2)):
+            inv[i] = inv.get(i, 0) + int(c)
+        for i, c in re.findall(r'id:\s*"minecraft:([a-z0-9_]+)"[^}]*?count:\s*(\d+)', m.group(2)):
+            inv.setdefault(i, int(c))
+        out[m.group(1)] = inv
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--arm', required=True)
@@ -93,13 +110,18 @@ def main():
     ap.add_argument('--minutes', type=float, default=120)
     ap.add_argument('--timeout-ms', type=int, default=45000)
     ap.add_argument('--allow-contention', action='store_true')
+    ap.add_argument('--keep-reservation', action='store_true', help='leave the GPU reserved for the next run (a series)')
     ap.add_argument('--tag', default='')
     a = ap.parse_args()
     run_id = 'cl-%s-%s-%s%s' % (a.arm, a.server, datetime.now(timezone.utc).strftime('%m%dT%H%M'), ('-' + a.tag) if a.tag else '')
     log = lambda m: print('[%s] %s' % (now(), m), flush=True)
-    busy = sh(STUDIO, "pgrep -fl 'run_bench.py|throughput.py' || true", check=False).strip()
-    if busy and not a.allow_contention:
-        raise SystemExit('refusing: a benchmark is running on the Studio:\n' + busy)
+    if not a.allow_contention:
+        # Reserve the GPU: the Stage A/B queue checks this marker before starting its next model; then wait
+        # for the model it is running now to finish (arms must never share the GPU with a benchmark).
+        sh(STUDIO, 'echo %s > ~/mbench/out/GPU_RESERVED' % run_id)
+        while sh(STUDIO, "pgrep -f 'run_bench.py|throughput.py|serving.py' || true", check=False).strip():
+            log('waiting for the Studio benchmark queue to finish its current model')
+            time.sleep(60)
     log('run %s: %d bots, %s (think=%s) on %s for %.0f min' % (run_id, a.bots, a.model, a.think, a.server, a.minutes))
     warm = {'model': a.model, 'messages': [{'role': 'user', 'content': 'ok'}], 'stream': False, 'keep_alive': '30m',
             'options': {'num_ctx': 8192, 'num_predict': 4}}
@@ -123,7 +145,9 @@ def main():
            % (envf, body, envf, run_id, name, run_id, name))
         log('started %s' % name)
         time.sleep(12)
-    meta = {'run_id': run_id, 'arm': a.arm, 'model': a.model, 'think': a.think, 'server': a.server, 'bots': a.bots,
+    digest = sh(STUDIO, "/Applications/Ollama.app/Contents/Resources/ollama list | awk '$1==\"%s\"{print $2}'" % a.model, check=False).strip()
+    meta = {'run_id': run_id, 'arm': a.arm, 'model': a.model, 'model_digest': digest, 'bot_code': 'bench-closedloop@8e80080',
+            'think': a.think, 'server': a.server, 'bots': a.bots,
             'minutes': a.minutes, 'timeout_ms': a.timeout_ms, 'start': t_start, 'names': names}
     sh(BOTS_HOST, 'cat > ~/mbench-cl/runs/%s/meta.json <<"EOF"\n%s\nEOF' % (run_id, json.dumps(meta)))
     end_at = time.time() + a.minutes * 60
@@ -132,6 +156,8 @@ def main():
         alive = sh(BOTS_HOST, 'for p in ~/mbench-cl/runs/%s/*.pid; do kill -0 $(cat $p) 2>/dev/null && echo up || echo DOWN; done | sort | uniq -c' % run_id, check=False)
         log('bots: ' + ' '.join(alive.split()))
     t_end = now()
+    census = sh(WORLDS_HOST, 'bash /tmp/mbench-cl_world.sh %s census %s' % (a.server, ' '.join(names)), check=False, timeout=300)
+    meta['census'] = parse_census(census)
     sh(BOTS_HOST, 'for p in ~/mbench-cl/runs/%s/*.pid; do kill -- -$(cat $p) 2>/dev/null || kill $(cat $p) 2>/dev/null; done; sleep 3; pkill -f "mbench-cl/runs/%s/" || true' % (run_id, run_id), check=False)
     log('stopped; computing metrics')
     out = sh(BOTS_HOST, 'python3 ~/mbench-cl/cl_metrics.py ~/mbench-cl/runs/%s --start %s --end %s' % (run_id, t_start, t_end), timeout=900)
@@ -143,6 +169,8 @@ def main():
     s = {k: m.get(k) for k in ('team_output_per_h', 'mean_output_per_bot_h', 'milestone_bots', 'pickless_share',
                                'stuck_min_per_bot', 'loops_per_bot_h', 'deaths', 'decisions_per_bot_h', 'latency_p50_med')}
     log('RESULT %s %s' % (run_id, json.dumps(s)))
+    if not a.allow_contention and not a.keep_reservation:
+        sh(STUDIO, 'rm -f ~/mbench/out/GPU_RESERVED', check=False)
 
 
 if __name__ == '__main__':

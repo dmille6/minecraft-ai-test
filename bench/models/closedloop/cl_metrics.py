@@ -21,13 +21,14 @@ Per bot and per run (the RUN is the independent unit):
 import argparse, collections, glob, json, math, os, statistics, sys
 from datetime import datetime
 
-VALUE = {
-    'log': 1.0, 'planks': 0.25, 'stick': 0.125, 'crafting_table': 1.0, 'wooden_pickaxe': 1.6, 'wooden_axe': 1.6,
-    'wooden_sword': 1.0, 'wooden_shovel': 0.6, 'cobblestone': 0.5, 'stone_pickaxe': 1.8, 'stone_axe': 1.8,
-    'stone_sword': 1.1, 'stone_shovel': 0.7, 'furnace': 4.0, 'coal': 2.0, 'charcoal': 1.5, 'raw_iron': 4.0,
-    'iron_ingot': 5.0, 'iron_pickaxe': 15.5, 'iron_axe': 15.5, 'iron_sword': 10.5, 'iron_shovel': 5.5, 'torch': 0.6,
-    'chest': 2.0, 'raw_copper': 1.0, 'copper_ingot': 1.5, 'bucket': 15.0, 'ladder': 0.3, 'diamond': 20.0,
-    'sapling': 0.2, 'apple': 0.2,
+VALUE = {   # every crafted item is priced at its INPUTS (Claude review, 10-05): crafting never creates value;
+            # smelting raw_iron (4) -> iron_ingot (5) does, as it should
+    'log': 1.0, 'planks': 0.25, 'stick': 0.125, 'crafting_table': 1.0, 'wooden_pickaxe': 1.0, 'wooden_axe': 1.0,
+    'wooden_sword': 0.625, 'wooden_shovel': 0.5, 'cobblestone': 0.5, 'stone_pickaxe': 1.75, 'stone_axe': 1.75,
+    'stone_sword': 1.125, 'stone_shovel': 0.625, 'furnace': 4.0, 'coal': 2.0, 'charcoal': 1.5, 'raw_iron': 4.0,
+    'iron_ingot': 5.0, 'iron_pickaxe': 15.25, 'iron_axe': 15.25, 'iron_sword': 10.125, 'iron_shovel': 5.25,
+    'torch': 0.53, 'chest': 2.0, 'raw_copper': 1.0, 'copper_ingot': 1.5, 'bucket': 15.0, 'ladder': 0.29,
+    'diamond': 20.0, 'sapling': 0.2, 'apple': 0.2,
 }
 MILESTONES = ['crafting_table', 'wooden_pickaxe', 'stone_pickaxe', 'furnace', 'raw_iron', 'iron_ingot', 'iron_pickaxe']
 
@@ -90,6 +91,13 @@ def bot_metrics(d, t0, t1):
             if t0 and not (t0 <= ts(r['@timestamp']) <= t1):
                 continue
             deposited += sum(item_value(k, -v) for k, v in s['inventory_delta'].items() if isinstance(v, (int, float)) and v < 0)
+    withdrawn = 0.0     # items taken OUT of chests were credited when deposited: count them once
+    for r in sk:
+        s_ = r.get('skill') or {}
+        if s_.get('name') == 'withdraw' and s_.get('status') == 'success' and isinstance(s_.get('inventory_delta'), dict):
+            if t0 and not (t0 <= ts(r['@timestamp']) <= t1):
+                continue
+            withdrawn += sum(item_value(k, v) for k, v in s_['inventory_delta'].items() if isinstance(v, (int, float)) and v > 0)
     final_inv = snaps[-1][1] if snaps else {}
     pickless = 0.0
     for (ta, inv), (tb, _) in zip(snaps, snaps[1:] + [(end, None)]):
@@ -115,7 +123,8 @@ def bot_metrics(d, t0, t1):
     errs = sum(1 for r in llm if (r.get('llm') or {}).get('error'))
     err_kinds = collections.Counter(str((r.get('llm') or {}).get('error'))[:40] for r in llm if (r.get('llm') or {}).get('error'))
     return {'bot': name, 'rows': len(rows), 'hours': round(hours, 3), 'snapshots': len(snaps),
-            'output': round(inv_value(final_inv) + deposited, 2), 'output_per_h': round((inv_value(final_inv) + deposited) / hours, 2),
+            'output': round(inv_value(final_inv) + deposited - withdrawn, 2), 'output_per_h': round((inv_value(final_inv) + deposited - withdrawn) / hours, 2),
+            'withdrawn_value': round(withdrawn, 2),
             'deposited_value': round(deposited, 2), 'final_inventory': final_inv,
             'milestones_min': first, 'pickless_share': round(pickless / max(1e-6, end - start), 3),
             'stuck_min': round(stuck / 60, 1), 'loops_per_h': round(loops / hours, 1), 'deaths': deaths,
@@ -134,6 +143,12 @@ def main():
     t1 = ts(a.end) if a.end else None
     bots = [bot_metrics(d, t0, t1) for d in sorted(glob.glob(os.path.join(a.run_dir, '*/'))) if not d.rstrip('/').endswith('state')]
     bots = [b for b in bots if not b['bot'].endswith('-state')]
+    mp = os.path.join(a.run_dir, 'meta.json')
+    if os.path.exists(mp):            # EXPECTED ROSTER: a bot that never logged is a 0, not a missing row
+        have = {b['bot'] for b in bots}
+        for n in json.load(open(mp)).get('names', []):
+            if n not in have:
+                bots.append({'bot': n, 'rows': 0, 'output': 0.0, 'missing': True})
     ctl = {'bots': len(bots), 'rows': sum(b['rows'] for b in bots), 'snapshots': sum(b.get('snapshots', 0) for b in bots),
            'decisions': sum(b.get('decisions', 0) for b in bots)}
     print('POSITIVE CONTROL', json.dumps(ctl), file=sys.stderr)
@@ -143,7 +158,8 @@ def main():
     run = {'control': ctl, 'bots': bots}
     if live:
         run['team_output_per_h'] = round(sum(b['output'] for b in live) / max(b['hours'] for b in live), 2)
-        run['mean_output_per_bot_h'] = round(statistics.mean(b['output_per_h'] for b in live), 2)
+        # PRIMARY = team output; a bot that never logged counts as 0 (it is part of the arm)
+        run['mean_output_per_bot_h'] = round(sum(b.get('output', 0) for b in bots) / len(bots) / max(b['hours'] for b in live), 2)
         run['milestone_bots'] = {m: sum(1 for b in live if m in b['milestones_min']) for m in MILESTONES}
         run['first_team_min'] = {m: min((b['milestones_min'][m] for b in live if m in b['milestones_min']), default=None) for m in MILESTONES}
         run['pickless_share'] = round(statistics.mean(b['pickless_share'] for b in live), 3)
