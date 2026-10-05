@@ -454,6 +454,24 @@ await t('SCENE D: a SUBMERGED bot still digs up through its ceiling (pillarOut)'
   assert.strictEqual(bot.digs[0]?.cell, '0,2,0')
 })
 
+await t('SCENE D ON THE RAMP: a SUBMERGED bot breaches its OWN ceiling under water -- no sidestep away from the way out', async () => {
+  const bot = makeBot(TOMB({ '0,0,0': 'water', '0,1,0': 'water', '0,3,0': 'water' }))
+  const r = await escapeStairUp(bot, { maxSteps: 1, budgetMs: 20_000 })
+  assert.ok(bot.digs.some(d => d.cell === '0,2,0'), `the submerged bot did not breach its ceiling: ${JSON.stringify(bot.digs)} (${r.stopped})`)
+  assert.strictEqual(r.sidestepped, 0, 'it stepped sideways instead of taking the exempt ceiling')
+  assert.strictEqual(r.flood, null)
+})
+
+await t('THE BODY\'S OWN CELL IS DUG EVEN BESIDE WATER: suffocation is never traded for a flood check (unburyDigFor)', async () => {
+  // gravel in the bot's head cell, water beside that cell, a dry overhead: the wrapper must dig the head cell
+  const bot = makeBot(TOMB({ '0,1,0': 'gravel', '1,1,0': 'water' }))
+  const digWithin = async b => { await bot.dig(b); return null }
+  const digChecked = async (b, caller) => (targetFloodRisk(bot, b, caller).reason ? { flood: 'refused' } : digWithin(b))
+  const u = await unburySelf(bot, { digWithin: unburyDigFor(bot, { digChecked, digWithin }) })
+  assert.deepStrictEqual(bot.digs.map(d => d.cell), ['0,1,0'], `the buried head cell was not dug: ${u.stopped}`)
+  assert.strictEqual(u.stopped, null)
+})
+
 await t('SCENE E: lava above refuses on every path, submerged or not', async () => {
   for (const wet of [false, true]) {
     const base = wet ? { '0,0,0': 'water', '0,1,0': 'water' } : {}
