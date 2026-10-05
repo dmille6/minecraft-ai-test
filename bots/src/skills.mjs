@@ -5913,16 +5913,22 @@ function wellAvoid (bot) {
     const bank = bot.findBlocks?.({ point: homeVec(), matching: b => /^(chest|trapped_chest|barrel)$/.test(blockNameOf(bot, b) ?? ''), maxDistance: ADOPT_RADIUS + r + 1, count: 64 }) ?? []
     for (const p of bank) out.push({ x: p.x, z: p.z, r, what: 'a bank container' })
   } catch { /* none */ }
-  // A NEW CHEST BEING PLACED (chest-full's claim ledger) is a bank container already (Codex, chestfull-02 on 911d792
-  // round 1): its claim is written before the placement's equip/look/submit awaits, so a well site computed in that
-  // interval keeps its distance from the cell too. Only while it is IN FLIGHT -- unresolved and younger than
-  // RECONCILE_AFTER_MS (the placement and its read-back take <= CLAIM_BUDGET_MS): a chest that landed is found by the
-  // block scan above, and a claim nobody reconciled must not keep the well out forever.
+  // A NEW CHEST BEING PLACED OR PLACED (chest-full's claim ledger) is a bank container already (Codex, chestfull-02 on
+  // 911d792 rounds 1-3): its claim is written before the placement's equip/look/submit awaits, so a well site computed in
+  // that interval keeps its distance too; and a placed chest in a chunk this bot has not loaded is invisible to the block
+  // scan above. So a claim counts unless its cell is READ here and holds no chest -- then only while it is still in
+  // flight (unresolved, younger than RECONCILE_AFTER_MS; the placement and read-back take <= CLAIM_BUDGET_MS). An
+  // unreadable cell never establishes absence; a claim read back as gone or not placed counts for nothing; and an
+  // abandoned claim over loaded air cannot keep the well out forever.
   try {
     const now = Date.now()
     for (const c of readClaims(townDir(), homeTownKey())) {
-      if (c.malformed || !sameWorld(c.world, bot.worldId ?? null) || c.state !== 'unresolved' || !(now - c.at < RECONCILE_AFTER_MS)) continue
-      out.push({ x: c.x, z: c.z, r, what: 'a new chest being placed' })
+      if (c.malformed || !sameWorld(c.world, bot.worldId ?? null) || c.state === 'gone' || c.state === 'not_placed') continue
+      let name = null
+      try { const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); name = b ? blockNameOf(bot, b) : null } catch { name = null }
+      const absent = name != null && !/^(chest|trapped_chest)$/.test(name)
+      if (absent && !(c.state === 'unresolved' && now - c.at < RECONCILE_AFTER_MS)) continue
+      out.push({ x: c.x, z: c.z, r, what: 'a new chest (claimed)' })
     }
   } catch { /* no ledger */ }
   return out
