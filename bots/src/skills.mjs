@@ -5280,7 +5280,10 @@ async function townDeposit (ctx, _args, signal) {
   const held = list => { const c = {}; for (const it of list) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0); return c }
   const heldBefore = held(before)
   const planned = townDepositPlan(before, { wanted }).steps.length
-  const banked = {}, tried = [], tools = []
+  // `attempted` is what this visit MOVED (the client's clicks) and spends the cap; `banked` is what the server showed in
+  // a chest on the re-open. A stack another bot takes out before the re-open is attempted but not banked -- and must
+  // still count against the visit's 64 (Codex round 3).
+  const banked = {}, attempted = {}, tried = [], tools = []
   let stacks = 0, unsettled = 0, stop = null, clicked = 0, unverified = 0, serverBag = null
   // THE BAG'S LOSS over the banked names, from the SERVER's copy of the bag on the last re-open (the client bag after a
   // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
@@ -5315,11 +5318,12 @@ async function townDeposit (ctx, _args, signal) {
       if (!win) { tried.push({ at, result: 'unopenable' }); stop = 'open timeout'; break }
       let r = { done: [], full: false, unsettled: 0 }
       try {
-        r = await bankInto(bot, win, wanted, banked, deadline, signal)
+        r = await bankInto(bot, win, wanted, attempted, deadline, signal)
       } finally {
         try { win.close() } catch { /* already closed */ }
       }
       clicked += r.done.length; unsettled += r.unsettled
+      for (const { step } of r.done) attempted[step.name] = (attempted[step.name] ?? 0) + step.count
       const v = await verifyTown(bot, block, r.done, openMs())
       if (!v.ok) unverified += r.done.length
       if (v.bag) serverBag = v.bag
@@ -5330,7 +5334,7 @@ async function townDeposit (ctx, _args, signal) {
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       if (r.unsettled) { stop = 'cursor'; break }
       if (!v.ok) { stop = 'unverified'; break }
-      if (!townDepositPlan(items(), { wanted, already: banked }).steps.length) break
+      if (!townDepositPlan(items(), { wanted, already: attempted }).steps.length) break
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
@@ -5341,9 +5345,11 @@ async function townDeposit (ctx, _args, signal) {
     row('success')
     return { status: 'success', detail: `banked ${n} item(s) in ${stacks} whole stack(s) at the town chest, read back from the server (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
   }
+  // NOT `unknown`: the runner promotes an unknown with an inventory loss to success, and the loss here is mineflayer's own
+  // prediction copied into the bag at the close -- exactly what could not be confirmed (Codex round 3). Failed: backs off.
   if (unverified) {
-    row('unknown')
-    return { status: 'unknown', failClass: 'town_deposit_unverified', detail: 'moved stacks into the town chest but could not open it again to confirm them' }
+    row('failed')
+    return { status: 'failed', failClass: 'town_deposit_unverified', detail: 'moved stacks into the town chest but could not open it again to confirm them; the town deposit waits' }
   }
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
