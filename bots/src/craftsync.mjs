@@ -318,7 +318,9 @@ export function installCraftSync (bot, opts = {}) {
       if (!v.ok) {
         dropped++
         repairPending = v.why
-        log({ event: 'click_dropped', slot: params?.slot, windowId: params?.windowId, why: v.why })
+        log({ kind: 'click_dropped', status: 'failed', detail: `slot ${params?.slot} window ${params?.windowId}: ${v.why}`,
+              args: { slot: params?.slot, windowId: params?.windowId, why: v.why },
+              event: 'click_dropped', slot: params?.slot, windowId: params?.windowId, why: v.why })
         return undefined
       }
     }
@@ -523,7 +525,8 @@ export function installCraftSync (bot, opts = {}) {
       how = `recount_${r === 'answered' ? 'server' : r}`
     }
     if (how === 'window_probe' || how === 'recount_server') repairPending = null
-    log({ event: 'click_drop_repair', how, why })
+    log({ kind: 'click_drop_repair', status: repairPending ? 'failed' : 'success', detail: `${how}: ${why}`, args: { how, why },
+          event: 'click_drop_repair', how, why })
   }
 
   /** mineflayer's click, never waited on longer than clickCapMs -- and a cap REJECTS. A rejection that arrives
@@ -542,7 +545,8 @@ export function installCraftSync (bot, opts = {}) {
       if (!v.ok) {
         ticket.dropped = v.why
         dropped++
-        log({ event: 'click_refused', slot, windowId: ticket.windowId, why: v.why })
+        log({ kind: 'click_refused', status: 'failed', detail: `slot ${slot} window ${ticket.windowId}: ${v.why}`,
+              args: { slot, windowId: ticket.windowId, why: v.why }, event: 'click_refused', slot, windowId: ticket.windowId, why: v.why })
         throw Object.assign(new Error(`craftsync: click on slot ${slot} dropped: ${v.why}`), { clickDropped: true })
       }
       const q = inflight.dispatch(ticket, () => orig.call(bot, slot, button, mode))
@@ -930,7 +934,8 @@ export function installCraftSync (bot, opts = {}) {
       const r = await resync(st, 0, until)
       if (r === 'answered' && repairPending) {   // the slots were just answered; the cursor is the server's too
         applyCarried(bot.inventory, 0)
-        log({ event: 'click_drop_repair', how: 'recount_server', why: repairPending })
+        log({ kind: 'click_drop_repair', status: 'success', detail: `recount_server: ${repairPending}`,
+              args: { how: 'recount_server', why: repairPending }, event: 'click_drop_repair', how: 'recount_server', why: repairPending })
         repairPending = null
       }
       return { source: r === 'answered' ? 'server' : r, items: r === 'answered' ? (bot.inventory?.items?.() ?? []) : null }

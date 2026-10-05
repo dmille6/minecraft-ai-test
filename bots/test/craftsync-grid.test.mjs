@@ -70,6 +70,8 @@ async function gridTrial ({ item = 'stick', inv = BAMBOO, table = false, stopAt 
   return { server, bot, rows, error, recipe, next, atStop, writes: server.writes.slice(startWrite),
            after: stoppedAtWrite === null ? [] : server.writes.slice(stoppedAtWrite) }
 }
+// a log row lands on the fleet as skill.name = `_${kind}` with skill.detail (logger.mjs logEvent): both must be there
+const landsAs = (e, kind) => { assert.equal(e?.kind, kind, `row ${JSON.stringify(e)} would land as _${e?.kind}`); assert.ok(String(e.detail ?? '').length > 0, `row ${kind} has no detail`) }
 const crow = (r) => r.rows.find(x => x.kind === 'craft_sync')?.args   // the craft's row (drop events share the log)
 const closes0 = (writes) => writes.filter(w => w.name === 'close_window' && w.params.windowId === 0).length
 
@@ -244,6 +246,7 @@ await t('P1 A CLICK HELD BY THE AFTER-DIG DELAY WHEN THE CRAFT STOPS NEVER REACH
   assert.ok(r.error?.aborted, `got ${r.error?.message}`)
   assert.equal(a.pre_invoke_refusals, 1, 'POSITIVE CONTROL: the held click must have been refused before mineflayer ran')
   assert.equal(r.rows.filter(e => e.event === 'click_refused').length, 1)
+  landsAs(r.rows.find(e => e.event === 'click_refused'), 'click_refused')
   assert.equal(a.late_clicks_dropped, 0, 'nothing was issued, so nothing had to be dropped')
   assert.equal(r.server.cursor, null); assert.equal(bag(r.server, 'bamboo'), 10); assert.equal(gridOf(r.server, false), 0)
   assert.equal(r.bot.inventory.selectedItem, null); assert.equal(r.bot.inventory.slots[36]?.name, 'bamboo')
@@ -607,8 +610,31 @@ await t('R4 HOOK: a dispatched click written to another window than its ticket\'
   const rc = await CS.serverRecount(r.bot)
   assert.equal(rc.source, 'server')
   assert.ok(r.rows.some(e => e.event === 'click_drop_repair' && e.how === 'recount_server'), JSON.stringify(r.rows.filter(e => e.event)))
+  landsAs(r.rows.find(e => e.event === 'click_dropped'), 'click_dropped')
+  landsAs(r.rows.find(e => e.event === 'click_drop_repair'), 'click_drop_repair')
   assert.equal(r.bot.craftSync.repairPending(), null)
   assert.equal(r.bot.inventory.selectedItem ?? null, null, 'the local cursor is the server\'s')
+})
+
+await t('R4 HOOK, repaired by the next LOCKSTEP (repairInside, before its first click): the repair row lands as _click_drop_repair', async () => {
+  const r = await gridTrial({
+    table: true, inv: TABLE_CASE(), signal: false,
+    before: ({ server, bot }) => {
+      let n = 0
+      const real = bot.clickWindow
+      bot.clickWindow = function (slot, b, m) {
+        if (++n === 1) closeTable(server, bot)          // mineflayer will now read window 0: the wire drops it
+        return real.call(bot, slot, b, m)
+      }
+    },
+  })
+  await r.server.settle()
+  assert.ok(r.bot.craftSync.repairPending(), 'POSITIVE CONTROL: the drop must leave a repair pending')
+  await CS.lockstepClicks(r.bot, async () => {})
+  const rep = r.rows.find(e => e.event === 'click_drop_repair')
+  landsAs(rep, 'click_drop_repair')
+  assert.equal(rep.how, 'recount_server'); assert.equal(rep.status, 'success')
+  assert.equal(r.bot.craftSync.repairPending(), null)
 })
 
 // ------------------------------------------------------------------ the verdict, pure
