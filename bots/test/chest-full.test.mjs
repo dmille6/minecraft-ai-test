@@ -851,21 +851,35 @@ await t('C2 FAR RECOVERY: an alternate in this bot\'s backoff is not tried; a TO
   assert.equal(townTries, 1, 'control: the town alternate was tried')
   assert.ok(b.bot.skipContainers.get('20,64,0') > Date.now(), 'the far full chest is skipped')
   assert.equal(b.bot.skipContainers.get('10,64,0'), undefined, 'the town chest is not')
+  assert.equal(memEntry('10,64,0'), undefined, 'and a walk from OUTSIDE town strikes no town chest (round 2)')
+  const r2 = await run(b.bot)   // THE NEXT DEPOSIT WALKS (to the town chest), it does not refuse in place on a backoff
+  assert.equal(townTries, 2, r2.detail)
+  assert.match(r2.detail, /could not reach the chest at 10,64,0/)
 })
 
-await t('C2 THE REFUSAL CHAIN: craft\'s room advice names a deposit only where admission would take it -- never for a deep chest far out', async () => {
-  for (const [y, deep] of [[30, true], [60, false]]) {
-    freshPool()
-    const w = fakeWorld({ bag: [stack('oak_log', 30), stack('apple', 20), stack('cobblestone', 40)], at: [150.5, y, 0.5] })
-    w.set(150, y, 5, 'chest')
-    const items = w.bot.inventory.items()
-    const adm = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
-    const item = adviseDeposit(w.bot, items, [])
-    assert.equal(item != null, adm.ok, `${deep ? 'deep' : 'control'}: advice ${item} vs admission ${JSON.stringify(adm)}`)
-    assert.equal(item, deep ? null : 'oak_log')
-    const { kind } = slotRemedy(w.bot, items, [])
-    assert.notEqual(kind === 'deposit', deep, `room advice kind=${kind}`)
-  }
+await t('C2 THE REFUSAL CHAIN: far out with a full bag and only a DEEP chest, craft\'s room advice is `home` (admitted), and at home the deposit is advised and admitted', async () => {
+  freshPool()
+  const bag = [...Array(18).fill(0).map(() => stack('oak_log', 64)), ...Array(18).fill(0).map(() => stack('oak_planks', 64))]
+  const w = fakeWorld({ bag, at: [150.5, 30, 0.5] })
+  w.set(150, 30, 5, 'chest')                   // 34 below home: deep, not storage
+  const items = w.bot.inventory.items()
+  assert.equal(items.length, 36)
+  assert.equal(new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot).reason, 'deposit_not_worth_it', 'deposit is refused out here')
+  assert.equal(adviseDeposit(w.bot, items, []), null, 'so no deposit is advised')
+  const far = slotRemedy(w.bot, items, [])
+  assert.equal(far.kind, 'home', far.remedy)
+  assert.match(far.remedy, /^home -- then deposit oak_(log|planks)/)
+  assert.ok(`craft -> failed: ${far.remedy}`.length <= 220, `fits formatOutcome (${far.remedy.length})`)
+  assert.equal(new AdmissionControl().check({ skill: 'home', args: {} }, w.bot).ok, true, 'the remedy is admitted')
+  // ...and home: a town chest in reach, the deposit is advised and admitted
+  w.set(5, 64, 0, 'chest'); w.bot.entity.position.x = 6.5; w.bot.entity.position.y = 64; w.bot.entity.position.z = 0.5
+  const home = slotRemedy(w.bot, items, [])
+  assert.equal(home.kind, 'deposit', home.remedy)
+  assert.equal(new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot).ok, true)
+  // control: the same bag beside a NON-deep chest far out is advised a deposit directly
+  freshPool()
+  const c = fakeWorld({ bag: [...bag], at: [150.5, 60, 0.5] }); c.set(150, 60, 5, 'chest')
+  assert.equal(slotRemedy(c.bot, c.bot.inventory.items(), []).kind, 'deposit')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
