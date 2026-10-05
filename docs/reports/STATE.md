@@ -111,6 +111,16 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-05 00:05Z — TOOLCLEAN-01 KEPT (+360); promotion of 1918bb5 fleet-wide follows (chain). Spent axe/shovel/hoe
+copies per bot canary 2.25 -> 0.05 vs control 2.27 -> 2.22 (DiD -2.15); G1/G2/G3 0 (G3 amended 19:35Z before the
++180 read: the deposit window covers the whole deposit -- all 10 good-tool losses in the window, both arms, were spare
+pickaxes banked during long deposits); instrument 220; 1-use pickaxes/bot DiD +0.13 (reported). Death gate HELD:
+6 canary deaths / 120 bot-h vs 7 / 240 (1.71x, lower bound 0.58x); all 6 are idle drownings, none within 90 s of a
+spent-tool event; the drawn pools drowned more before the canary too (4 vs 9 in the 6 h pre-window).
+NEXT (owner: bags and chests first): bamboo-01 (rebasing onto 1918bb5 + sandbox + registration with change_rows) ->
+junk well (building) -> withdraw (round 6) -> cobble rule -> chest-full -> grid fix (round 4, adopting withdraw's
+window binding). Session paused twice on Claude limits (10-04 ~20:00-23:55Z).
+
 ## 10-04 19:45Z — JUNK WELL SANDBOX (Paper 1.21.8, sandbox3; docs/reports/junk-well-sandbox-2026-10-04.md): control 20/20
 picked up on open ground; accuracy 59/60 (117/118 over two runs; the miss re-collected by the thrower); isolation 0
 pickups (30 s on the trapdoor, 8 rim blocks, 200 passes, open-trapdoor rim); despawn at age ~6000. FOUND: (1) the age
