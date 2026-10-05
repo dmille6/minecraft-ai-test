@@ -55,6 +55,8 @@ export const TD_OPEN_MS = 8 * 1000
 export const TD_SETTLE_MS = 5 * 1000
 export const TD_MAX_CONTAINERS = 2
 
+/** depositPlan's creditCap (bankable.mjs bankableInventory default): the most of one name a VISIT banks. */
+export const CREDIT_CAP = 64
 /** Kept as totals by the stockpile rungs (milestones.mjs STOCKPILE_MAX). */
 export const STOCKPILE_KEEP = 64
 /** The gatherer chain's held counts for items that are never bankable anyway (asserted against the chain). */
@@ -145,8 +147,9 @@ export function townDepositPlan (items = [], { wanted = [], already = {} } = {})
   const { keep, why } = townKeeps(counts, { wanted })
   // ONE ALLOWANCE PER VISIT (Codex review 1): the plan is recomputed for a second container, and creditCap must cap the
   // VISIT -- what an earlier container of this run already took (`already`, name -> items) is spent.
+  // depositPlan already judges the REDUCED bag, so the visit's spend comes off the cap, not off that count (Codex round 2).
   const allowance = Object.fromEntries(depositPlan(list, null, { wants: [] })
-    .map(({ name, count }) => [name, Math.max(0, count - Math.max(0, Number(already?.[name]) || 0))]))
+    .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
   for (const name of Object.keys(allowance).sort()) {
     const copies = list.filter(it => it.name === name)
@@ -255,10 +258,13 @@ export function townDepositOutcome (status, failClass = null, now = 0, state = {
 }
 
 /** The run's row: slots, what moved, the containers, why it stopped, the cursor. Under the logger's 300-char cap. */
-export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [] } = {}) {
+export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [], clicked = null, unverified = 0 } = {}) {
   const moved = Object.entries(banked).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const t = tried.map(c => `${c.at}=${c.result}`).join(';') || '-'
   // THE TOOLS GO FIRST after the counts: the read's spent-tool gate parses `tools name@uses,...` and must never lose it
   // to the 300-char cut; the containers and the stop reason are the ones that may be truncated.
-  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''} containers ${t}`.slice(0, 300)
+  // `stacks` = stacks the SERVER showed in the chest on a re-open; `clicked` = stacks the client moved; bagdelta = the
+  // bag's loss over the banked names in the SERVER's copy of the bag on that re-open (bagdelta > banked = items that left
+  // the bag and are not in the chest).
+  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} clicked ${clicked ?? stacks} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}${unverified ? ` unverified ${unverified}` : ''} containers ${t}`.slice(0, 300)
 }
