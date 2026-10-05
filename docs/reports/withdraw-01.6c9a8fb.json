@@ -1,0 +1,131 @@
+{
+ "run_id": "withdraw-01",
+ "sha": "2691727",
+ "registered_at": "2026-10-05T02:10:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[withdraw-01 (OWNER 10-04 ~02:50Z: bots WITHDRAW from chests; never drop items; WITHDRAW_LOADED_MODE=hold -- junkswap only once a disposal exists; a survival release may close loaded as an emergency). Variant for fleet 6c9a8fb, branch wd-on-6c9a8fb @ 2691727 = ce0ec4a..2691727 (withdraw, six review rounds) ON TOP OF the chest-full fix (chest-on-1918bb5 @ 6c9a8fb, both engines approved). BASE: withdraw imports chest-full's town container memory (chestfull.mjs), so it cannot run before chest-full without a port. ONE-VARIABLE LINE: bamboo-01 (chained on 1918bb5) -> chest-full-01 (rebased onto the fleet bamboo leaves) -> withdraw-01 rebased onto chest-full's promoted sha; on that rebase this file is renamed withdraw-01.<that sha>.json and `sha` set to the rebased tip -- read, gates and change rows are base-independent. NOT CHAINED.] MOTIVE (census 10-04 02:52Z): 897 usable stone pickaxes in the town banks while 45 of 80 bots carried none; the old verb took the first copy by slot. THE CHANGE: a deterministic withdraw_pick town order at town (<= 48 of home) for a bag with no usable pickaxe (> 10 uses): ONE best usable copy from up to three containers, else the exact ingredients of one stone pickaxe; room only by banking a whole stack deposit would bank; with a FULL chest a 3-click trade of that stack for the pickaxe; every transfer verified on the server's bag (craftsync recount); withdrawn items held from deposit 10 min; a cursor that cannot be emptied is held (never a loaded close) with intervention_needed rows; survival release closes at once; craftsync clicks window-bound with a pre-invoke validate (inflight.mjs). PAPER SANDBOX (10-05, sandbox 25599, 1.21.8, fresh bot per trial, server slots of bag + chest + ground; cand 2691727 vs ctrl 1918bb5): (a) pick 2/2 took the 111-use pickaxe, nothing else moved; (b) ingredients 2/2 exactly cobblestone 3, stick 2, oak_planks 4; (c) full bag + full chest 2/2: stone x64 traded for the pickaxe, totals conserved, ground empty; (d) spent copies (6 and 7 uses) never taken 2/2, ingredients instead; (e) the withdrawn sticks/planks stayed through a deposit 2/2 and admission counted only the coal as bankable (5, not 11) -- the control also kept 2 sticks through its deposit, so the scene alone does not discriminate; (f) a held cursor (feather pickup race into the emptied slot) held 70 s with intervention_needed, then settled by itself when a slot freed (ground empty); a survival release (damage 2) with a full bag dropped the pickaxe (the accepted emergency); a KICK right after the first click dropped the cursor stack (stone x64) 2/2 although its bag slot was free -- vanilla AbstractContainerMenu.removed drops the carried stack when the player has disconnected; after the reconnect the bot withdrew the pickaxe in a new order. FOUND: a hold begun after the connection had already ended never ends (probes the dead client every 2 s, intervention_needed at 61 s, carried_local=-). Control: no order ever; the old verb took the SPENT stone pickaxe (6 uses) and reported success, and failed 'inventory is full' on every full bag. CLAUDE REVIEW of 98b95c8..2691727 (10-05): no P1; no regression found for ordinary crafting (the send filter judges only packets inside a ticketed dispatch; validate refuses only on a window mismatch or after an invalidate, which only withdraw issues). P2-A: craftsync's click_refused / click_dropped / click_drop_repair rows are logged with event: not kind:, so logEvent files them as `_undefined` with an empty detail (the read counts `_undefined`, 0 on the baseline). P2-B: the dead-connection hold above (holdUnsettled registers once('end') after the end; needs an ended-client check at entry and per tick). P2-C (design, pre-existing class): a disconnect drops whatever the cursor holds; the trade could use the hotbar-swap click (mode 2) so the cursor is never loaded.",
+ "licence": {
+  "class": "kind",
+  "kind": "_withdraw_pick",
+  "min_rows": 1,
+  "note": "Written only by this build (one row per withdraw_pick order and per model withdraw). 0 _withdraw_pick, 0 _withdraw_settled, 0 _undefined lines in the live logs 10-05 ~01:10Z (positive control: 109 _craft_sync lines by the same grep)."
+ },
+ "reads": [
+  "withdrawread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "withdraw_pick",
+  "withdraw_settled"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "bots that need a pickaxe (craft rows naming stone_pickaxe)",
+    "kind": "craft",
+    "detail_contains": "stone_pickaxe",
+    "min": 10
+   }
+  ],
+  "note": "10-04 21:00-24:00Z per pool: board-c 55, placebo-c 54, isolated-a 43, hive-b 39, isolated-b/c 35, isolated-d 32, placebo-b 31, hive-d 30, board-a 29, board-b 23, hive-a 22, placebo-a 19, board-d 14, hive-c 10, placebo-d 9."
+ },
+ "exposure": {
+  "read": "withdrawread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 5 canary withdraw_pick orders AND >= 1 control bot at town with no usable pickaxe (22 in the dry run 10-05, 88 min; 42 over 180 min 10-04)."
+ },
+ "own_lines": [
+  {
+   "read": "withdrawread",
+   "field": "g1_unplanned_loss",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a server-verified _withdraw_pick row whose srv= shows a fall of a name not in plan= (a stack lost). A death within 60 s is excused and reported. BLIND to a disconnect mid-transfer (srv=-): reported as unsettled_unanswered."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g2_spent_taken",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: a row whose took= names a tool with uses= <= 10 (a spent tool withdrawn)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g3_unconfirmed_success",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3: status=success with verification != server."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g4_closed_loaded",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G4: _withdraw_settled how=closed_loaded or junkswapped -- the canary runs WITHDRAW_LOADED_MODE=hold (owner)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "new_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "withdrawread",
+   "field": "orders_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the population (control bots at town without a usable pickaxe) exists and this query sees it. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "withdrawread",
+  "field": "town_nopick_time_did",
+  "note": "REPORTED, NOT GATED: share of bot-time AT TOWN without a usable pickaxe, DiD (time-weighted, gaps capped 120 s); all bot-time without one; holders share DiD; confirmed stone_pickaxe crafts/bot-h. NULL SCALE (dry runs on identical code, hive-a,board-b as the 'canary'): town DiD -0.073 (88 min) and +0.132 (180 min) -- a single read inside +-0.15 is not a result. Also reported: intervention_needed rows/bots/longest hold, loaded closes (survival/server/disconnect), unsettled_unanswered, drain_timeout, click rows (_undefined), withdrawn pickaxe gone within 10 min."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. A held cursor freezes the bot (admission refuses every skill): watch intervention_bots and _reflex_stuck."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. A restart DROPS any stack a held cursor carries (sandbox: disconnect drops the cursor whatever the room) -- check intervention rows before the restart and name any held bot."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

@@ -174,3 +174,31 @@ are in neither the bag slots nor on the ground while the bot is online).
 ```bash
 sandbox/craft/bbab.sh ../bb-cand ../bb-ctrl 3          # ~100 min: the control waits the full window in every scene
 ```
+
+## Withdraw A/B (`withdraw-ab.cjs`)
+
+`withdraw_pick` is a deterministic town order (composter.mjs `townOrder`): the driver sets the scene and WATCHES for it
+(100 s); the control build has no such order, so after a 60 s window it queues the model's old verb (`cmd`) instead.
+One fresh bot per trial; the server's bag slots (with damage), the chest's 27 slots and the ground are read before,
+right after the order, after any follow-up, and after logout. The bot stands at home (700.5 120 700.5); ONE single chest
+at 702 120 700 goes down LAST, filled in the same RCON batch (an order that scans an empty chest records a 15-min town
+miss and never comes back).
+
+| scene | bag | chest | asks |
+|---|---|---|---|
+| `pick` | 20 andesite stacks | ingredients + stone_pickaxe (111 uses) | the pickaxe, nothing else moved |
+| `ingred` | as pick | cobblestone 64, stick 16, oak_planks 16 | exactly 3 + 2 + 4 |
+| `swap` | 20 stone + 16 andesite = 36/36 | 26 diorite + the pickaxe = 27/27 | the 3-click trade, totals conserved |
+| `spent` | as pick | stone_pickaxe 6 uses, wooden 7 uses + ingredients | a spent copy never taken |
+| `holdwin` | as pick + coal 64 | ingredients | then `deposit`: what was withdrawn stays (control: `withdraw 2 stick`, deposit) |
+| `kick` / `kicklong` | as swap | as swap | RCON kick right after the first chest click; `kicklong` watches 75 s after the reconnect |
+| `holdroom` / `holdfull` | as swap + 3 feathers at the feet | as swap | the feather is picked up into the slot click 1 empties, so the pickaxe has nowhere to go: a HELD cursor; after 70 s one slot is freed (`holdroom`) or `damage 2` forces the survival release (`holdfull`) |
+
+```bash
+node sandbox/craft/withdraw-ab.cjs cand ../wd-cand 1 pick,ingred,swap,spent,holdwin,kick,holdroom,holdfull
+node sandbox/craft/withdraw-ab.cjs ctrl ../wd-ctrl 1 pick,ingred,swap,spent,holdwin,kick,holdroom,holdfull
+```
+
+Found on Paper 1.21.8 (10-05): a disconnect while a stack is on the cursor DROPS it whatever the room
+(`AbstractContainerMenu.removed` drops the carried stack once the player has disconnected) -- the kick dropped 64 stone
+in 2/2 trials although the slot it came from was empty.
