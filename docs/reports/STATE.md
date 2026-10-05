@@ -125,6 +125,16 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 10:07Z — CANARY LIVE: junkwell-01 @ 911d792 on placebo-a,board-b (10 bots), declared 10:05:20Z; exactly two
+versions (70 on 1918bb5, 10 on 911d792). Reads +180 ~13:05Z, +360 ~16:05Z (extensions to 1560, deadline 1680). Both
+engines APPROVE (Codex AGREE after 8 rounds; independent Claude review CHANGE -> APPROVE at 8f73e80; later fixes:
+unloaded neighbour = "decide later", snow-raised aim, C4 = stuck inside >= 2 min). Paper: 432/432 items into the shaft,
+0 off-list, 0 pickups by a walker, admission refusal, escape from inside in 7 s, creeper clearance 0 spawns.
+Expected exposure ~7-12 dispose orders per 6 h once each town builds its well. CONDITION for the chest-full rebase:
+chestSiteRefusal must refuse wellReservedCells.
+OTHER WORK: withdraw ed0d856 (code done, waits for chest2); chest-full round 6 (chest2-on-1918bb5, evidence + walk fix);
+grid fix 8c9239d (Codex APPROVE; Claude review + Paper + registration in progress); bamboo waits for the grid fix.
+
 ## 10-05 03:17Z — CHESTFULL-01 REVERTED by the death gate at +30 min (3 canary deaths / 15 bots vs 0 / 65 in 25 min;
 randomization p = 0.0018); torn down 03:22Z; fleet 80/80 on 1918bb5 (verified 05:58Z). Deaths: board-a-Bravo drowned
 sealed in a flooded pocket at y=45 after entombment; placebo-d-Bravo drowned gathering birch; board-a-Alpha fell 73
