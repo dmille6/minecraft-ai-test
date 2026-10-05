@@ -497,6 +497,20 @@ await t('R7 A PART smaller than half: half on the cursor (not the whole stack), 
   assert.equal(count(w.bag, 'stick'), 2); assert.equal(w.containers.get('5,64,0').slots[0]?.count, 38)
 })
 
+await t('R7 A HELD CURSOR (a part of a stack with nowhere to go) blocks admission: nothing else starts while the window is held', async () => {
+  // withdraw stick 2: the right-click picks up 20 of 40; then the source is refilled with something else and an
+  // auto-pickup fills the one empty bag slot -- the placement is refused and the 20 have nowhere to go.
+  const w = withServer(town([...junk(34), stack('stick', 64)], [stack('stick', 40), ...Array.from({ length: 26 }, () => stack('cobblestone', 64))]))
+  afterClick(w, n => { if (n === 1) { w.containers.get('5,64,0').slots[0] = stack('cobblestone', 64); w.bag[35] = stack('dirt', 64) } })
+  const r = await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.ok(w.bot.inventoryUnsettled && w.bot.currentWindow, 'positive control: held, never a loaded close')
+  assert.equal(w.dropped.length, 0)
+  const adm = new AdmissionControl().check({ skill: 'explore', args: {} }, w.bot)
+  assert.equal(adm.ok, false); assert.equal(adm.reason, 'inventory_unsettled')
+  stopHold(w.bot)
+})
+
 await t('R2.2 CODEX REPRO: a recovery click that stalls past the budget -- no loaded close, no late second click; the window closes once the cursor is empty', async () => {
   const w = withServer(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]))
   const click = w.bot.clickWindow.bind(w.bot)
