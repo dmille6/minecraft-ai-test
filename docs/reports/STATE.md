@@ -125,6 +125,14 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 ~19:30Z — OWNER: add a frontier STRATEGIST ("god" layer, Claude/GPT via API, hourly-daily: world goals, role
+targets, cross-world lessons, proposed blueprints/rules/skills through the same sandbox + canary gate) to the queue
+"further down, its not a rush". Architecture agreed: strategist (frontier) -> overseer (large local) -> bot brain
+(fast local) -> reflexes (code), with a deterministic validation layer on every order. Order: model selection ->
+overseer first real job (stock record + assembler orders) -> strategist in SHADOW (one plan/day scored against
+outcomes) -> authority over overseer targets once it proves out. Needs owner-placed API keys on the host (I never
+handle credentials). Not started.
+
 ## 10-05 ~19:00Z — OWNER: build a BLUEPRINT BUILDER skill (both engines + GitHub prior art), proven first on a TREE FARM
 by town; then a town WORKSHOP and a SAFE MINESHAFT (cobble-lined, ladder exit). Queued BELOW the current queue (after the
 cobble rule). Designing/building now on bp-on-1918bb5 (not launched). Bone meal on saplings: a separate switch, default
