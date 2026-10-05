@@ -423,23 +423,40 @@ await t('W8 NO DEAD END: when the live well\'s keep-out covers every ring around
   assert.equal(w.bot.bankClosed ?? null, null, 'the bank stays open')
 })
 
-await t('W9 THE WELL KEEPS ITS DISTANCE FROM A NEW CHEST BEING PLACED (a live claim in the ledger); a claim read back as gone, or unresolved past the reconcile window, does not count', async () => {
+await t('W9 THE WELL KEEPS ITS DISTANCE FROM A CLAIMED CHEST it cannot see: in flight, or placed in a cell this bot has not loaded; never from a claim whose cell reads empty past the window, or one read back as gone', async () => {
   const { townWellSite } = await import('../src/skills.mjs')
-  const at = { x: -5, y: 64, z: 1 }
+  // 5 from the well's first site (-7,63,-1) but outside the cells that site's own checks read (+-2 around its rim), so an
+  // unloaded claim cell does not make that site 'unknown' by itself
+  const at = { x: -4, y: 64, z: 3 }
+  const near = s => !!s && Math.hypot(s.x - at.x, s.z - at.z) < WELL_HOME_CLEARANCE
   const c0 = town([])
   const base = townWellSite(c0.bot)
-  assert.ok(base.site && Math.hypot(base.site.x - at.x, base.site.z - at.z) < WELL_HOME_CLEARANCE, `control: without a claim the well goes ${JSON.stringify(base.site)}`)
+  assert.ok(near(base.site), `control: without a claim the well goes ${JSON.stringify(base.site)}, inside the claimed cell's clearance`)
+  // IN FLIGHT: claimed a moment ago, nothing there yet.
   const w = town([])
   pastClaim(process.env.POOL_STATE_DIR, 1, Date.now(), at)
   const r = townWellSite(w.bot)
-  assert.ok(r.site, r.why)
-  assert.ok(Math.hypot(r.site.x - at.x, r.site.z - at.z) >= WELL_HOME_CLEARANCE, `the well site ${JSON.stringify(r.site)} is inside the claimed cell's clearance`)
-  const g = town([])
+  assert.ok(r.site && !near(r.site), `in flight: the well site ${JSON.stringify(r.site)}`)
+  // PLACED, IN A CELL THIS BOT HAS NOT LOADED (Codex round 3): the block scan cannot see it, the claim still counts.
+  const u = town([])
+  pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - 10 * 60_000, at, 'placed')
+  const blockAt = u.bot.blockAt
+  u.bot.blockAt = p => (Math.floor(p.x) === at.x && Math.floor(p.y) === at.y && Math.floor(p.z) === at.z ? null : blockAt(p))
+  const ru = townWellSite(u.bot)
+  assert.ok(!near(ru.site), `placed but unloaded: the well site ${JSON.stringify(ru.site)}`)
+  assert.notDeepEqual(ru.site, base.site)
+  // CONTROLS: the same placed claim over LOADED AIR (abandoned: no chest) keeps nothing out; so does an unresolved claim
+  // past the reconcile window over loaded air, and one read back as gone.
+  for (const [age, state, why] of [[10 * 60_000, 'placed', 'placed, but the cell reads air'], [RECONCILE_AFTER_MS + 1_000, null, 'unresolved past the window, the cell reads air'], [60_000, 'gone', 'read back as gone']]) {
+    const g = town([])
+    pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - age, at, state)
+    assert.deepEqual(townWellSite(g.bot).site, base.site, why)
+  }
+  const gu = town([])
   pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - 60_000, at, 'gone')
-  assert.deepEqual(townWellSite(g.bot).site, base.site, 'a claim whose chest is gone keeps nothing out')
-  const old = town([])
-  pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - RECONCILE_AFTER_MS - 1_000, at)
-  assert.deepEqual(townWellSite(old.bot).site, base.site, 'an unresolved claim older than the reconcile window keeps nothing out (no chest landed)')
+  const gBlockAt = gu.bot.blockAt
+  gu.bot.blockAt = p => (Math.floor(p.x) === at.x && Math.floor(p.y) === at.y && Math.floor(p.z) === at.z ? null : gBlockAt(p))
+  assert.deepEqual(townWellSite(gu.bot).site, base.site, 'read back as gone, now unloaded: still nothing')
 })
 
 await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not count; the second, inside 10 min, is refused plainly', async () => {
