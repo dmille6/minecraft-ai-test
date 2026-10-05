@@ -10,7 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townFarmPlan } from './skills.mjs'
+import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -18,7 +19,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, RUNNER_DECLINED } from './composter.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -804,6 +805,20 @@ export class CognitiveLoop {
         if (r.order) order = r.order
       } catch { /* an inventory or world read must never break the decision loop */ }
     }
+    // THE TOWN TREE FARM (treefarm.mjs farmOrder decides; this supplies readings and keeps the state): tend the farm --
+    // replant, restore soil, clear leftover logs, torches -- when at town and the farm has work this bot can do. After the
+    // composter, before the planting obligation. The plan's world reads are lazy and at most every FARM_SCAN_MS.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = farmOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+                              plan: () => townFarmPlan(bot), state: this.farmState ?? {}, enabled: farmEnabled(process.env) })
+        this.farmState = r.state
+        if (r.order) order = r.order
+      } catch { /* a world read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -892,6 +907,7 @@ export class CognitiveLoop {
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
+      if (FARM_ORDERS.has(admitted.skill)) this.farmState = farmOrderOutcome(admitted.skill, r.status, Date.now(), this.farmState ?? {}, r.failClass ?? null, RUNNER_DECLINED)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

@@ -9,6 +9,8 @@ import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSaf
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
+import { farmBreakCost, farmPlaceCost, emptyFarmIndex } from './treefarm.mjs'
+import { knownFarmIndex } from './skills.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
@@ -492,6 +494,21 @@ function connect() {
     bot.deathSitesNow = () => deathSites
     bot.refreshDeathSites = refreshDeathSites
     moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]
+    // THE TOWN TREE FARM'S CELLS (treefarm.mjs farmIndex): no path scaffolds into a plot column or a torch cell, and no
+    // path, gather or tunnel digs a plot's soil or a torch's floor. NEW arrays on the base BEFORE any clone below, so
+    // every profile shares them by reference (the tunnel spreads them into its own). Walking through a farm, and
+    // harvesting its trees, stay open: the logs are wood. The index comes from the shared record on a 20 s cache --
+    // never a file read inside an A* step.
+    let farmCells = emptyFarmIndex()
+    const refreshFarm = () => { try { farmCells = knownFarmIndex(bot) } catch { farmCells = emptyFarmIndex() } }
+    const farmTimer = setInterval(refreshFarm, 20_000); farmTimer.unref?.()
+    refreshFarm()
+    const farmFirst = setTimeout(refreshFarm, 5_000); farmFirst.unref?.()
+    bot.once('end', () => { clearInterval(farmTimer); clearTimeout(farmFirst) })
+    bot.farmIndexNow = () => farmCells
+    bot.refreshFarm = refreshFarm
+    moves.exclusionAreasBreak = [(block) => farmBreakCost(farmCells, block)]
+    moves.exclusionAreasPlace = [(block) => farmPlaceCost(farmCells, block)]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
