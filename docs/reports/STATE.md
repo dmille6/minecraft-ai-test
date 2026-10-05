@@ -125,6 +125,21 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 ~10:30Z — CHESTFULL-01 REVERT INVESTIGATED: no mechanism found. 0 of 7 canary deposits had a watchDigging stop
+(fleet nav profile canDig=false); the y=15 chest was targeted 14x in the 3 h BEFORE the deploy on the fleet base (so not
+this diff); bank closure never triggered (0 _deposit_new_chest, 0 bank_closed of 201 rejections). The mining rise is
+milestone timing: 57 of 71 canary mine decisions were in gather_iron_ore_3 (entered before the deploy); mines per
+iron-milestone decision 0.57 vs 0.56 pre (control 0.47 vs 0.51). The deaths were in iron mining, wood gathering and
+a goto home after iron. The revert stands as recorded (the gate did its job); the re-run is chestfull-02 with real
+fixes Paper found: a bot sealed in a 1-block pocket got "arrived" 17-18 blocks short, struck the good town chest and
+CLOSED THE BANK (6c9a8fb 2/2; new 0/2); a deep chest 20 below home was banked into (old 1/1, new 0/3); the chest walk no
+longer watches digs; one town boundary (16 h / 12 v); only a truly closed bank closes. chest2-on-1918bb5 @ 47110e8,
+Codex APPROVE (round 3), registration chestfull-02.1918bb5.json on main 25c543a. GRID FIX: independent Claude review
+APPROVE (Paper: control stranded the grid 12/12, candidate 0/11; bamboo interrupted fold clean 2/2 on the fix);
+registration gridfix-01.1918bb5.json (main 483f2b0); a variant on the junk-well base (911d792) is being built so the
+chain launches whichever way junkwell-01 ends. QUEUE: junkwell (live) -> gridfix -> chestfull-02 (must add
+wellReservedCells to chestSiteRefusal if the well is kept) -> withdraw (rebase onto chest2) -> bamboo (on the grid fix).
+
 ## 10-05 10:07Z — CANARY LIVE: junkwell-01 @ 911d792 on placebo-a,board-b (10 bots), declared 10:05:20Z; exactly two
 versions (70 on 1918bb5, 10 on 911d792). Reads +180 ~13:05Z, +360 ~16:05Z (extensions to 1560, deadline 1680). Both
 engines APPROVE (Codex AGREE after 8 rounds; independent Claude review CHANGE -> APPROVE at 8f73e80; later fixes:
