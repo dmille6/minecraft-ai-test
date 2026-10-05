@@ -34,9 +34,12 @@
 // Nothing here is ever the model's choice: three deterministic town orders (wellOrder), never a trip.
 
 import { TRIGGER_SLOTS } from './hygiene.mjs'
-import { isCompostJunk, spiral, townDistance, ADOPT_RADIUS, TOWN_RADIUS, HOME_CLEARANCE, CLEARANCE_CONTAINER,
+import { isCompostJunk, townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER,
          builderDecision, RUNNER_DECLINED } from './composter.mjs'
 import { chainPeak } from './craftroom.mjs'
+
+/** The admission radius, needed by the site search above its definition (see ADMISSION_RADIUS). */
+const ADMISSION_RADIUS_FOR_SITE = 5
 
 // ---- what goes in ---------------------------------------------------------------------------------------------------
 
@@ -114,6 +117,46 @@ export function standForFacing (cap, facing) {
 }
 
 /**
+ * EVERY CELL A THROWER MAY USE, best first -> [{ x, y, z, side }]. Pure. The facing side, then the two sides along the
+ * flap (Claude review P2-2: one unreserved stand made a chest, a sapling or a scaffold block on it the end of the well).
+ * Never the hinge side: the open flap stands on that edge, between the thrower and the opening.
+ */
+export function standCandidates (cap, facing) {
+  const f = FACING[facing]
+  if (!f) return []
+  const side = [{ x: f.z, z: f.x }, { x: -f.z, z: -f.x }]
+  return [{ x: cap.x + f.x, y: cap.y + 1, z: cap.z + f.z, side: 'front' },
+          ...side.map((d, i) => ({ x: cap.x + d.x, y: cap.y + 1, z: cap.z + d.z, side: i ? 'left' : 'right' }))]
+}
+
+/** The stand cells a bot can stand in right now (feet and head open, full solid floor), in candidate order. Pure. */
+export function usableStands (read, cap, facing) {
+  if (typeof read !== 'function') return []
+  return standCandidates(cap, facing).filter(c => {
+    const feet = read(c.x, c.y, c.z), head = read(c.x, c.y + 1, c.z), under = read(c.x, c.y - 1, c.z)
+    return passable(feet) && passable(head) && ground(under) && !NOT_FULL.test(under.name ?? '')
+  })
+}
+
+/**
+ * THE CELLS THE WELL NEEDS LEFT EMPTY: its column above the cap and every stand. Other town builders (chest-full's
+ * chestSiteRefusal, the composter's siteRefusal, planting) should refuse them; until they do, a blocked set of stands
+ * is a breach and the town builds a new well (wellBreach).
+ */
+export const wellReservedCells = (cap, facing) => [{ x: cap.x, y: cap.y + 1, z: cap.z }, ...standCandidates(cap, facing).map(({ x, y, z }) => ({ x, y, z }))]
+
+/**
+ * IS THIS BUILT WELL STILL A WELL? -> reason | null. Pure. Its shaft is sealed (containmentRefusal) and at least one
+ * stand is usable. Either failure makes the town build a new one; the old one stays excluded from every path.
+ */
+export function wellBreach (read, cap, facing) {
+  const c = containmentRefusal(read, cap)
+  if (c) return c
+  if (!usableStands(read, cap, facing).length) return 'every throwing stand is blocked'
+  return null
+}
+
+/**
  * IS THIS A WELL? -> { ok, open, facing, floor }. Pure. The marker is the cap: a wooden trapdoor, TOP half, over a shaft
  * that is either the floor trapdoor (bottom half) or open air, over solid ground. Towns have no other trapdoors.
  */
@@ -183,7 +226,7 @@ export const WELL_CONTAINER_DISTANCE = 3
 export function wellSiteRefusal (read, cap, home = null, { avoid = [] } = {}) {
   if (typeof read !== 'function' || !cap) return 'no site'
   const { x, y: g, z } = cap
-  if (home && Math.hypot(x - home.x, z - home.z) < HOME_CLEARANCE) return 'home point'
+  if (home && Math.hypot(x - home.x, z - home.z) < WELL_HOME_CLEARANCE) return 'too near home (bots idle there)'
   const a1 = read(x, g + 1, z), a2 = read(x, g + 2, z), f = read(x, g - 2, z)
   if (!a1 || !a2 || !f) return 'unknown'
   if (!passable(a1) || !passable(a2)) return 'not open above'
@@ -212,7 +255,8 @@ export function wellSiteRefusal (read, cap, home = null, { avoid = [] } = {}) {
     }
   }
   for (const a of (Array.isArray(avoid) ? avoid : [])) {
-    if (a && Number.isFinite(a.x) && Math.hypot(a.x - x, a.z - z) < WELL_CONTAINER_DISTANCE) return 'the composter site is within 3'
+    const r = Number.isFinite(a?.r) ? a.r : WELL_CONTAINER_DISTANCE
+    if (a && Number.isFinite(a.x) && Math.hypot(a.x - x, a.z - z) < r) return `${a.what ?? 'the composter site'} is within ${r}`
   }
   if (!wellStand(read, cap)) return 'nowhere to stand beside it'
   return null
@@ -265,14 +309,34 @@ export function containmentRefusal (read, cap) {
 
 const COLUMN_UP = 8, COLUMN_DOWN = 8
 /**
- * THE TOWN'S WELL CELL -> { site, why }. Pure: a function of home and the world only (composter.mjs's spiral), so every
- * bot that reads the same world gets the same cap cell. In each column the ground under the highest open cell on a solid
- * floor; the first that passes wellSiteRefusal wins. Any UNKNOWN read returns no site.
+ * OFF THE PLACES BOTS STAND (Claude review P2-3: in a flat town the cap landed 2.55 from home, so one bot idling on the
+ * home point refused every disposal at ADMISSION_RADIUS 5). The cap is at least this far, horizontally, from home and
+ * from every bank container and the composter, so a bot using them is outside the admission radius.
+ */
+export const WELL_HOME_CLEARANCE = ADMISSION_RADIUS_FOR_SITE + 2
+/** Rings searched for the well: WELL_HOME_CLEARANCE out to here (townDistance <= ADOPT_RADIUS still applies). */
+export const WELL_SEARCH_RADIUS = 14
+/** The fixed ring order composter.mjs uses, starting further out. */
+function wellSpiral (home) {
+  const out = []
+  for (let r = WELL_HOME_CLEARANCE; r <= WELL_SEARCH_RADIUS; r++) {
+    const ring = []
+    for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) if (Math.max(Math.abs(dx), Math.abs(dz)) === r) ring.push([dx, dz])
+    ring.sort((a, b) => Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]) || a[0] - b[0] || a[1] - b[1])
+    for (const [dx, dz] of ring) out.push({ x: home.x + dx, z: home.z + dz })
+  }
+  return out
+}
+/**
+ * THE TOWN'S WELL CELL -> { site, why }. Pure: a function of home and the world only, so every bot that reads the same
+ * world gets the same cap cell. In each column the ground under the highest open cell on a solid floor; the first that
+ * passes wellSiteRefusal wins. Any UNKNOWN read returns no site.
+ *   avoid  [{ x, z, r? }]: places bots stand (the composter, bank containers); the cap stays r (default 3) away
  */
 export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
   if (!home || typeof read !== 'function') return { site: null, why: 'no home' }
   const hy = Math.floor(home.y ?? 64)
-  for (const { x, z } of spiral(home)) {
+  for (const { x, z } of wellSpiral(home)) {
     let cap = null
     for (let y = hy + COLUMN_UP; y >= hy - COLUMN_DOWN; y--) {
       const cell = read(x, y, z), under = read(x, y - 1, z)
@@ -339,12 +403,18 @@ const VY_W = VY.reduce((a, b) => a + b.w, 0)
 const KICK = []
 for (let j = 0; j < 8; j++) for (let i = 0; i < 4; i++) { const a = 2 * Math.PI * (j + 0.5) / 8, m = TOSS.hNoise * (i + 0.5) / 4; KICK.push({ x: Math.cos(a) * m, z: Math.sin(a) * m }) }
 
-/** The share of throws from feet `from` at `pitchDeg`, aimed at the cap's centre, that pass through the opening. Pure. */
+/** Where a throw is aimed: the centre of the usable opening (the cell's centre when there is no flap). Pure. */
+export function aimTarget (cap, facing = null) {
+  const o = wellOpening(cap, facing)
+  return { x: (o.x0 + o.x1) / 2, z: (o.z0 + o.z1) / 2 }
+}
+
+/** The share of throws from feet `from` at `pitchDeg`, aimed at the opening's centre, that pass through the opening. Pure. */
 export function tossHitRate ({ from, cap, facing = null, pitchDeg }) {
-  const cx = cap.x + 0.5, cz = cap.z + 0.5
-  const h = Math.hypot(cx - from.x, cz - from.z)
+  const t = aimTarget(cap, facing)
+  const h = Math.hypot(t.x - from.x, t.z - from.z)
   if (!(h > 1e-6)) return 0
-  const ux = (cx - from.x) / h, uz = (cz - from.z) / h
+  const ux = (t.x - from.x) / h, uz = (t.z - from.z) / h
   const o = wellOpening(cap, facing)
   let hit = 0
   for (const { v, w } of VY) {
@@ -374,8 +444,9 @@ export const MIN_HIT_RATE = 0.9
 export function wellAim ({ from, cap, facing = null }) {
   const dist = Math.hypot(cap.x + 0.5 - from.x, cap.z + 0.5 - from.z)
   if (!(dist >= MIN_TOSS_DIST - 1e-9 && dist <= MAX_TOSS_DIST + 1e-9)) return { pitch: null, rate: 0, dist, ok: false, why: `${dist.toFixed(2)} from the well's centre (must be ${MIN_TOSS_DIST}-${MAX_TOSS_DIST})` }
-  const o = wellOpening(cap, facing), mx = (o.x0 + o.x1) / 2, mz = (o.z0 + o.z1) / 2
-  const ux = (cap.x + 0.5 - from.x) / dist, uz = (cap.z + 0.5 - from.z) / dist
+  const { x: mx, z: mz } = aimTarget(cap, facing)
+  const th = Math.hypot(mx - from.x, mz - from.z) || 1
+  const ux = (mx - from.x) / th, uz = (mz - from.z) / th
   let best = null
   for (let p = 20; p <= 85; p += 0.5) {
     const rate = tossHitRate({ from, cap, facing, pitchDeg: p })
@@ -387,9 +458,9 @@ export function wellAim ({ from, cap, facing = null }) {
   return { pitch: best.pitch, rate: best.rate, dist, ok, why: ok ? null : `predicted hit rate ${best.rate.toFixed(3)} below ${MIN_HIT_RATE}` }
 }
 
-/** The point to look at so the eye's ray points at the cap's centre, `pitchDeg` below the horizontal. Pure. */
-export function aimPoint ({ eye, cap, pitchDeg }) {
-  const cx = cap.x + 0.5, cz = cap.z + 0.5
+/** The point to look at so the eye's ray points at the opening's centre, `pitchDeg` below the horizontal. Pure. */
+export function aimPoint ({ eye, cap, pitchDeg, facing = null }) {
+  const { x: cx, z: cz } = aimTarget(cap, facing)
   const h = Math.hypot(cx - eye.x, cz - eye.z) || 1
   const ux = (cx - eye.x) / h, uz = (cz - eye.z) / h, p = pitchDeg * Math.PI / 180
   return { x: eye.x + ux * Math.cos(p) * 5, y: eye.y - Math.sin(p) * 5, z: eye.z + uz * Math.cos(p) * 5 }
@@ -410,10 +481,26 @@ export function tossOutcome ({ items = [], cap }) {
   return { inWell, missed }
 }
 
+/**
+ * WHAT WAS THROWN, AS THE SERVER SAYS -> { names: {name: count}, offlist, offlistItems, unnamed }. Pure. `thrown` is
+ * [{ name, count }] read from each spawned item entity's metadata (the server's own item stack), name null when none
+ * arrived. offlist counts ENTITIES whose item is not on the list: the C3 quantity, independent of the bag plan.
+ */
+export function thrownNames (thrown = []) {
+  const names = {}, offlistItems = {}
+  let offlist = 0, unnamed = 0
+  for (const t of (Array.isArray(thrown) ? thrown : [])) {
+    if (!t?.name) { unnamed++; continue }
+    names[t.name] = (names[t.name] ?? 0) + (t.count ?? 1)
+    if (!isWellJunk(t.name)) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
+  }
+  return { names, offlist, offlistItems, unnamed }
+}
+
 // ---- admission --------------------------------------------------------------------------------------------------------
 
 /** No other player within this of the well while it is open (sandbox: a bot stopping on an open trapdoor falls in). */
-export const ADMISSION_RADIUS = 5
+export const ADMISSION_RADIUS = ADMISSION_RADIUS_FOR_SITE
 
 /**
  * MAY THE WELL OPEN NOW? -> null (yes) | { reason, who, dist }. Pure. `players` are the OTHER players' entity feet
@@ -527,11 +614,14 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * build when the town has none. Cooldowns are charged when an order is ISSUED.
  */
 export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, distHome = Infinity, well = null,
-                             buildPlan = null, myName = '', peers = [], state = {} } = {}) {
+                             buildPlan = null, myName = '', peers = [], state = {}, inside = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
-  const closeReady = now - (s.lastCloseAt ?? -Infinity) >= CLOSE_COOLDOWN_MS
+  // A BODY INSIDE A WELL GETS NO WELL ORDER (Claude review P2-1: close_well sealed a bot in over its own head). Its way
+  // out is the movement profiles, which exempt its own column.
+  if (lazy(inside)) return none()
+  const closeReady = now - (s.lastCloseAt ?? -Infinity) >= CLOSE_COOLDOWN_MS && now >= (s.closeBackoffUntil ?? 0)
   const disposeReady = now - (s.lastDisposeAt ?? -Infinity) >= DISPOSE_COOLDOWN_MS && now >= (s.disposeBackoffUntil ?? 0) &&
                        slots >= TRIGGER_SLOTS && junkStacks > 0
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= WELL_BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
@@ -567,9 +657,21 @@ export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, 
 }
 
 /** After a well order ran -> the new state. A skip, an interruption or a runner refusal costs nothing; a fault backs off. */
+/** Failed closes in a row before close_well backs off, and for how long (Claude review P2-5). */
+export const CLOSE_FAILS_BEFORE_BACKOFF = 2
+export const CLOSE_BACKOFF_MS = 5 * 60 * 1000
+
 export function wellOrderOutcome (skill, status, now = 0, state = {}, failClass = null) {
   const s = { ...state }
-  if (!WELL_ORDERS.has(skill) || skill === 'close_well' || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
+  if (skill === 'close_well') {
+    // A CLOSE THAT KEEPS FAILING (stand unreachable, out of reach) would retry a walk of up to 25 s every 30 s forever.
+    if (status === 'success') { s.closeFails = 0; s.closeBackoffUntil = 0 } else if (status === 'failed' && !RUNNER_DECLINED.has(failClass)) {
+      s.closeFails = (s.closeFails ?? 0) + 1
+      if (s.closeFails >= CLOSE_FAILS_BEFORE_BACKOFF) { s.closeBackoffUntil = now + CLOSE_BACKOFF_MS; s.closeFails = 0 }
+    }
+    return s
+  }
+  if (!WELL_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
   const key = skill === 'dispose_well' ? 'disposeBackoffUntil' : 'buildBackoffUntil'
   // room and someone-at-the-site are a matter of the next visit (a cooldown), not a fault (the long backoff)
   const backoff = skill === 'dispose_well' ? DISPOSE_BACKOFF_MS : ['well_no_room', 'well_attended'].includes(failClass) ? WELL_BUILD_COOLDOWN_MS : WELL_BUILD_BACKOFF_MS
@@ -590,22 +692,29 @@ export const WELL_COLUMN_UP = 10
  * WELL_STEP_COST, so no node of any profile ever stands on, in or above a well -- whether the trapdoor is open or not,
  * and whatever the goal. Hot path: `cols` is a small cached array (one entry per town), no allocation.
  */
-export function wellStepCost (cols, block) {
+export function wellStepCost (cols, block, skip = null) {
   const p = block?.position
   if (!p || !cols || !cols.length) return 0
   for (let i = 0; i < cols.length; i++) {
     const c = cols[i]
-    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST
+    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) {
+      // THE BOT'S OWN WELL (Claude review P2-1): from inside, every way out passes through the shaft's cells -- so those
+      // (cap level and below) are exempt. NEVER the cells above the cap (Codex round 5: a path planned from inside went
+      // shaft -> beside -> onto the open cap); the escape tunnels out through a wall instead.
+      if (c === skip && p.y <= c.y) continue
+      return WELL_STEP_COST
+    }
   }
   return 0
 }
 
 /** exclusionAreasBreak entry: the cap, shaft, floor, walls and the underground ring are never a path's (or gather's) dig. */
-export function wellBreakCost (cols, block) {
+export function wellBreakCost (cols, block, skip = null) {
   const p = block?.position
   if (!p || !cols || !cols.length) return 0
   for (let i = 0; i < cols.length; i++) {
     const c = cols[i]
+    if (c === skip) continue   // a body inside may dig out through the walls: it breaches the well, and the town rebuilds
     if (Math.abs(p.x - c.x) <= UNDERGROUND_RING && Math.abs(p.z - c.z) <= UNDERGROUND_RING && p.y >= c.y - 3 && p.y <= c.y) return 100
   }
   return 0
@@ -639,16 +748,22 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
 
 /**
  * THE _well_dispose ROW, key=value (the read parses fields, not prose); stop= before items= (the row is cut at 300).
+ *   offlist    THROWN item entities whose item -- as the SERVER names it in the entity's metadata -- is NOT on the list
+ *              (the read's C3 gate; Claude review P1-1: the old nonlisted= was 0 by construction). unnamed: no metadata seen
  *   n          listed items the SERVER's bag lost (resync before and after), never the number of clicks
  *   nonlisted  items NOT on the list in a slot this visit CLICKED (from the server's before-snapshot; must be 0)
  *   misses     our throws that did not land in the shaft; retaken: how many of those came back to the bag
  *   recollected  our throws this body collected back OUT OF the shaft (must be 0)
+ *   cap_end    the cap as read back when the visit ended: closed | open (the read pairs a left-open row only with cap_end=closed)
  *   other_loss   every other non-listed decrease of the bag meanwhile (eating, planting): a diagnostic, never a throw
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
-                                     source = 'local', closedOpen = false, stop = 'done', at = null } = {}) {
+                                     source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
-  return (`slots=${slotsBefore}->${slotsAfter} freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
+  // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+          `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
+          `${capEnd ? ` cap_end=${capEnd}` : ''}` +
           `${at ? ` at=${at.x},${at.y},${at.z}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list(items)}`).slice(0, 300)
 }

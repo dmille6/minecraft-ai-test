@@ -39,7 +39,7 @@ import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, co
 import { poolStateDir } from './worldfacts.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
-         containmentRefusal, trapdoorsNeeded, MAX_STACKS_PER_VISIT } from './well.mjs'
+         trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -5363,28 +5363,38 @@ const readWellCell = bot => (x, y, z) => {
  * still sealed (well.mjs containmentRefusal). -> { cap, open, facing, floor, breach } | null; `breach` names why a well
  * found is no longer sealed (a wall dug out), and such a well is never thrown into.
  */
-export function findTownWell (bot) {
+export function findTownWells (bot) {
+  const out = []
   try {
     const read = readWellCell(bot)
     const ps = bot.findBlocks?.({ point: homeVec(), matching: b => WOODEN_TRAPDOOR.test(blockNameOf(bot, b) ?? ''), maxDistance: ADOPT_RADIUS, count: 16 }) ?? []
-    let breached = null
     for (const p of ps) {
       const cap = { x: p.x, y: p.y, z: p.z }
       const id = wellIdentity(read, cap)
       if (!id.ok) continue
-      const breach = containmentRefusal(read, cap)
-      if (!breach) return { cap, ...id, breach: null }
-      breached ??= { cap, ...id, breach }
+      // BREACHED = the shaft is no longer sealed, or every throwing stand is blocked (Claude review P2-2)
+      out.push({ cap, ...id, breach: wellBreach(read, cap, id.facing) })
     }
-    return breached
   } catch { /* a world read never breaks a caller */ }
-  return null
+  return out
 }
-/** Other town sites the well keeps away from: the composter's record and the composter itself. */
+export function findTownWell (bot) {
+  const all = findTownWells(bot)
+  return all.find(w => !w.breach) ?? all[0] ?? null
+}
+/**
+ * PLACES BOTS STAND, which the well keeps WELL_HOME_CLEARANCE away from (Claude review P2-3: a bot using them would be
+ * inside the admission radius and refuse every disposal): the composter's record and block, and the bank containers.
+ */
 function wellAvoid (bot) {
   const out = []
-  try { const r = readTownSite(poolStateDir(config.memory.pool), townSiteKey()); if (r.site) out.push(r.site) } catch { /* no record */ }
-  try { const c = findTownComposter(bot); if (c?.position) out.push({ x: c.position.x, z: c.position.z }) } catch { /* none */ }
+  const r = WELL_HOME_CLEARANCE
+  try { const t = readTownSite(poolStateDir(config.memory.pool), townSiteKey()); if (t.site) out.push({ x: t.site.x, z: t.site.z, r, what: 'the composter site' }) } catch { /* no record */ }
+  try { const c = findTownComposter(bot); if (c?.position) out.push({ x: c.position.x, z: c.position.z, r, what: 'the composter' }) } catch { /* none */ }
+  try {
+    const bank = bot.findBlocks?.({ point: homeVec(), matching: b => /^(chest|trapped_chest|barrel)$/.test(blockNameOf(bot, b) ?? ''), maxDistance: ADOPT_RADIUS + r + 1, count: 64 }) ?? []
+    for (const p of bank) out.push({ x: p.x, z: p.z, r, what: 'a bank container' })
+  } catch { /* none */ }
   return out
 }
 /** The town's well cap cell from the shared generation record (composter.mjs resolveTownSite, its own key). */
@@ -5411,8 +5421,7 @@ function recordedWellSite (bot) {
  */
 export function knownWellCells (bot) {
   const cols = []
-  const w = findTownWell(bot)
-  if (w) cols.push(w.cap)
+  for (const w of findTownWells(bot)) cols.push(w.cap)   // breached ones too (Claude review P3): until filled, a hole
   const r = recordedWellSite(bot)
   if (r && !cols.some(c => c.x === r.x && c.y === r.y && c.z === r.z)) cols.push({ x: r.x, y: r.y, z: r.z })
   return cols
@@ -5430,6 +5439,10 @@ export function townWellBuildPlan (bot) {
 /** The other players this bot can see, as feet positions (well.mjs wellAdmission). */
 const playersSeen = bot => Object.values(bot.players ?? {}).filter(p => p?.username && p.username !== bot.username && p.entity?.position)
   .map(p => ({ username: p.username, x: p.entity.position.x, y: p.entity.position.y, z: p.entity.position.z }))
+/** Is this bot's body inside a well column below the rim? (the cached columns when index.mjs keeps them) */
+export function insideTownWell (bot) {
+  try { return !!bodyInWell(bot.wellCellsNow?.() ?? knownWellCells(bot), bot.entity?.position) } catch { return false }
+}
 /** The town well for the scheduler: open? someone at it? sealed? (cognitive.mjs: any visitor closes an open one.) */
 export function townWellState (bot) {
   const w = findTownWell(bot)
@@ -5583,13 +5596,15 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       const feet = bot.entity.position
       const aim = wellAim({ from: feet, cap, facing })
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
-      const p = aimPoint({ eye: { x: feet.x, y: feet.y + 1.62, z: feet.z }, cap, pitchDeg: aim.pitch })
+      const p = aimPoint({ eye: { x: feet.x, y: feet.y + 1.62, z: feet.z }, cap, pitchDeg: aim.pitch, facing })
       await bound(bot.lookAt(new Vec3(p.x, p.y, p.z), true), HK_AWAIT_MS, 'aim')
       await waitTick(); await waitTick()
       const sinceDig = bot.lastDigTime != null ? Date.now() - bot.lastDigTime : Infinity
       if (sinceDig < DIG_CLICK_GAP_MS) await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)
       check(signal)
-      // ---- synchronous from here to the click: nothing can move the slot between this read and the packet ----
+      // ---- from here to the click nothing of OURS awaits (mineflayer's own dig-click gap aside, below). mineflayer's clickWindow may still await its dig-click gap if a
+      // reflex dug in the last 550 ms (inventory.js); a slot change in that gap is a reflex click sent before ours on the same
+      // connection, which the server applies first -- the THROW then drops what the server holds, and offlist= says so ----
       const it = bot.inventory?.slots?.[st.slot]
       if (!it || it.name !== st.name || !isWellJunk(it.name) || bot.currentWindow || bot.inventory?.selectedItem) continue
       acc.clicked.push({ slot: st.slot, name: it.name, count: it.count })
@@ -5604,6 +5619,8 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
 
 /** How long a cleanup waits for a requested OPEN's block update before it reports it unresolved (2 s; Paper answers in < 0.3 s). */
 const WELL_OPEN_WAIT_TICKS = 40
+/** A thrown item reaches the shaft floor in ~10 ticks (spawned 1.32 above the rim, falling ~2.1): the least settle. */
+const WELL_FLOOR_TICKS = 10
 /** Throws settle (an item reaches the floor in ~10 ticks) before the cap closes: a closing cap must not catch one. */
 const WELL_SETTLE_TICKS = 25
 /** mineflayer hears an item's position about every 20 ticks: wait that long again before judging where it lies. */
@@ -5691,6 +5708,10 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
     try {
       release = holdInventory(bot)
       for (let i = 0; i < 3; i++) await tick()                     // anything already in flight lands first
+      // NOTHING IN THE 2x2 GRID OR ON THE CURSOR (Claude review P2-6): the resync's close_window returns them to the bag,
+      // and at 34+ slots what does not fit is DROPPED beside the well. An aborted craft's leftovers wait for the next craft.
+      const grid = [1, 2, 3, 4].map(i => bot.inventory?.slots?.[i]).filter(Boolean)
+      if (grid.length || bot.inventory?.selectedItem) { out.refused = 'grid_loaded'; out.stop = `${grid.length} grid slot(s)${bot.inventory?.selectedItem ? ' and the cursor' : ''} hold items`; return out }
       before = await serverBag(bot, tick)
       out.slotsBefore = before.used
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
@@ -5698,11 +5719,19 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       if (!pit) {
         if (wellIdentity(read, cap).open) out.closedOpen = await setWellOpen(bot, cap, false, g.bound, tick)
+        // THE ADMISSION AGAIN, IMMEDIATELY BEFORE THE OPEN (Claude review P2-8): the hold and the resync took up to ~23 ticks.
+        const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
+        if (near) { out.refused = 'player_near'; out.stop = `${near.who} came within ${near.dist.toFixed(1)} before the cap opened`; return out }
         if (!(await setWellOpen(bot, cap, true, g.bound, tick, pending))) { out.stop = 'the trapdoor did not open'; return out }
       }
       await throwStacks(bot, { cap, facing: pit ? null : facing, stacks: plan.stacks, bound: g.bound, waitTick: tick, signal, acc: out.acc })
       out.stop = out.acc.stop
-      for (let i = 0; i < WELL_SETTLE_TICKS; i++) await tick()
+      // THE SETTLE ENDS EARLY when someone comes within the admission radius (sandbox race 10-05: a player arriving during
+      // the settle saw the cap open ~1.4 s): once the last throw has had WELL_FLOOR_TICKS to reach the floor, the cap closes.
+      for (let i = 0; i < WELL_SETTLE_TICKS; i++) {
+        await tick()
+        if (!pit && i + 1 >= WELL_FLOOR_TICKS && wellAdmission({ players: playersSeen(bot), cap, me: bot.username })) { out.earlyClose = true; break }
+      }
     } catch (e) {
       // EVERY EXCEPTION ENDS IN AN ACCOUNT: an abort is reported to the caller; anything else (a bounded click or look
       // that timed out) is this phase's failure -- the cap is closed below either way.
@@ -5742,6 +5771,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
         if (!out.aborted) for (let i = 0; i < WELL_SEEN_TICKS; i++) await tickNA()
         const res = throwResults({ spawned: out.acc.spawned, got, present: id => !!bot.entities?.[id], cap })
         out.misses = res.misses; out.recollected = res.recollected
+        out.thrown = thrownNames(out.acc.spawned.map(spawnedItem))
         if (res.missed.length && !out.aborted) await retakeMisses(bot, { cap, missed: res.missed, got, bound: g.restoreBound, waitTick: tickNA, signal })
         out.retaken = res.all.filter(m => got.has(m.id)).length
       }
@@ -5751,15 +5781,21 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
   if (before?.source === 'resync' && out.acc.tossed) {
     try { after = await serverBag(bot, tickNA) } catch (e) { after = null; out.stop = `${out.stop ? `${out.stop};` : ''}error_after: ${String(e?.message ?? e).slice(0, 50)}` }
   }
+  out.thrown ??= thrownNames(out.acc.spawned.map(spawnedItem))
   out.source = after?.source === 'resync' ? 'resync' : 'local'
   out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked })
   out.slotsAfter = after?.used ?? bot.inventory?.items?.()?.length ?? null
   return out
 }
-const phaseDetail = (ph, cap, stop) => wellDisposeDetail({ slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, items: ph.account.lost, tossed: ph.acc.tossed,
+/** A thrown entity's item AS THE SERVER NAMES IT (its metadata item stack), or { name: null } when none arrived. */
+const spawnedItem = e => { try { const d = e?.getDroppedItem?.(); return { name: d?.name ?? null, count: d?.count ?? 1 } } catch { return { name: null, count: 1 } } }
+/** The cap as read back now: 'closed' | 'open' | null (no well there). The read pairs left-open rows with this, never with status. */
+const capEndOf = (bot, cap) => { try { const id = wellIdentity(readWellCell(bot), cap); return id.ok ? (id.open ? 'open' : 'closed') : null } catch { return null } }
+const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd, slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, items: ph.account.lost, tossed: ph.acc.tossed,
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
-  source: ph.source, closedOpen: ph.closedOpen, stop, at: cap })
+  source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0 })
 
+const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
@@ -5769,10 +5805,13 @@ async function disposeWell (ctx, _args, signal) {
   const well = findTownWell(bot)
   if (!well) return skip('no_well', 'no junk well in town yet: the next town visit with 2 logs (or 6 planks) of one wood builds one')
   const { cap, facing } = well
-  // A WELL WHOSE SHAFT IS NO LONGER SEALED IS NEVER THROWN INTO (Codex review): the scheduler builds a new one instead.
-  if (well.breach) return skip('breached', `the town junk well at ${cap.x},${cap.y},${cap.z} is no longer sealed (${well.breach}); nothing is thrown into it, and the next town visit with wood builds a new one`)
-  const stand = standForFacing(cap, facing)
-  if (!stand) return skip('no_facing', `the town well at ${cap.x},${cap.y},${cap.z} has no readable facing`)
+  if (insideTownWell(bot)) return skip('inside', 'this bot is inside a junk well; it climbs out before any well order')
+  // A WELL WHOSE SHAFT IS NO LONGER SEALED, OR WITH EVERY STAND BLOCKED, IS NEVER THROWN INTO: the town builds a new one.
+  if (well.breach) return skip('breached', `at=${cap.x},${cap.y},${cap.z} the town junk well is no longer usable (${well.breach}); nothing is thrown into it, and the next town visit with wood builds a new one`)
+  if (!FACING_OK(facing)) return skip('no_facing', `the town well at ${cap.x},${cap.y},${cap.z} has no readable facing`)
+  // THE FIRST USABLE STAND (front, then the sides along the flap): one blocked cell does not end the well.
+  const stands = usableStands(readWellCell(bot), cap, facing)
+  const stand = stands.find(c => { const f = bot.entity.position.floored(); return f.x === c.x && f.y === c.y && f.z === c.z }) ?? stands[0]
   if (bot.craftSync?.busy?.()) return skip('craft_busy', 'a craft is in flight; the well waits for the next town visit')
   if (bot.currentWindow) return skip('window_open', 'a container window is open; the well waits for the next town visit')
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
@@ -5809,15 +5848,17 @@ async function disposeWell (ctx, _args, signal) {
     await settleAndRestore(bot, was, g, 'dispose_well')
   }
   if (ph.refused === 'server_unanswered') return fail('well_unverified', 'server_unanswered', 'the server did not answer the inventory resync; nothing is thrown on a bag it has not confirmed, and the next town visit tries again')
+  if (ph.refused === 'player_near') return skip('player_near', `wait: ${ph.stop}; the cap never opened, and the next town visit disposes`)
+  if (ph.refused === 'grid_loaded') return skip('grid_loaded', `the next craft returns what an aborted craft left in the 2x2 grid (${ph.stop}); nothing is thrown until then, because closing the inventory now would drop what does not fit beside the well`)
   if (ph.refused === 'nothing_listed') {
     if (closedOnly) {
-      logEvent({ kind: 'well_dispose', status: 'success', snapshot: snapshot(bot), detail: wellDisposeDetail({ slotsBefore, slotsAfter: items().length, closedOpen: true, stop: 'closed_only', at: cap }) })
+      logEvent({ kind: 'well_dispose', status: 'success', snapshot: snapshot(bot), detail: wellDisposeDetail({ slotsBefore, slotsAfter: items().length, closedOpen: true, stop: 'closed_only', at: cap, capEnd: capEndOf(bot, cap) }) })
       return { status: 'success', placed: 1, detail: 'found the town junk well open and closed it' }
     }
     return skip('nothing_listed', 'the server\'s bag holds nothing on the junk list')
   }
   const stop = ph.stop ?? 'done'
-  const detail = phaseDetail(ph, cap, stop)
+  const detail = phaseDetail(ph, cap, stop, capEndOf(bot, cap))
   if (ph.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail }); throw ph.aborted }
   const n = ph.account.n
   if (n > 0 && !/^error: /.test(stop)) {
@@ -5833,9 +5874,10 @@ async function closeWell (ctx, _args, signal) {
   const { bot } = ctx
   const well = findTownWell(bot)
   if (!well || !well.open) return { status: 'no_effect', detail: 'the town junk well is not open' }
+  if (insideTownWell(bot)) return { status: 'no_effect', detail: 'this bot is inside a junk well; it never closes a cap over itself' }
   const attended = () => !!wellAdmission({ players: playersSeen(bot), cap: well.cap, me: bot.username })
   if (attended()) return { status: 'no_effect', detail: 'someone is at the town junk well; it is theirs to close' }
-  const stand = standForFacing(well.cap, well.facing)
+  const stand = usableStands(readWellCell(bot), well.cap, well.facing)[0] ?? standForFacing(well.cap, well.facing)
   const g = hkGuards(bot, signal)
   const tickNA = () => g.restoreBound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
   let shut = false, theirs = false
@@ -5844,13 +5886,14 @@ async function closeWell (ctx, _args, signal) {
     if (stand && bot.entity.position.distanceTo(centre) > STATION_REACH - 0.5) {
       try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     }
-    // AGAIN, IMMEDIATELY BEFORE THE CLICK (Codex review): someone may have arrived to throw while this bot walked here.
-    if (attended()) theirs = true
+    // AGAIN, IMMEDIATELY BEFORE THE CLICK (Codex review): someone may have arrived to throw while this bot walked here --
+    // or this bot itself ended inside (it never closes a cap over itself).
+    if (attended() || insideTownWell(bot)) theirs = true
     else shut = await setWellOpen(bot, well.cap, false, g.restoreBound, tickNA)
   } finally { await settleAndRestore(bot, null, g, 'close_well') }
   if (theirs) return { status: 'no_effect', detail: 'someone reached the town junk well first; it is theirs to close' }
   logEvent({ kind: 'well_dispose', status: shut ? 'success' : 'failed', snapshot: snapshot(bot),
-             detail: wellDisposeDetail({ slotsBefore: bot.inventory?.items?.()?.length, slotsAfter: bot.inventory?.items?.()?.length, closedOpen: shut, stop: shut ? 'closed_only' : 'could_not_close', at: well.cap }) })
+             detail: wellDisposeDetail({ slotsBefore: bot.inventory?.items?.()?.length, slotsAfter: bot.inventory?.items?.()?.length, closedOpen: shut, stop: shut ? 'closed_only' : 'could_not_close', at: well.cap, capEnd: capEndOf(bot, well.cap) }) })
   return shut ? { status: 'success', placed: 1, detail: 'closed the open town junk well' }
               : { status: 'failed', failClass: 'well_unreachable', detail: `could not close the town junk well at ${well.cap.x},${well.cap.y},${well.cap.z}` }
 }
@@ -5880,8 +5923,13 @@ async function buildWell (ctx, _args, signal) {
   const free = () => 36 - items().length
   const skip = (reason, why) => { wellRefused(bot, 'build', reason, why); return { status: 'no_effect', detail: why } }
   const fail = (failClass, why) => { wellRefused(bot, 'build', failClass, why); return { status: 'failed', failClass, detail: why } }
+  if (insideTownWell(bot)) return skip('inside', 'this bot is inside a junk well; it climbs out before any well order')
   const existing = findTownWell(bot)
   if (existing && !existing.breach) return skip('exists', 'the town already has a junk well')
+  // A BREACHED WELL IS RETIRED, SAID SO (Codex round 5): the read counts active wells, not wells ever built.
+  for (const w of findTownWells(bot).filter(w => w.breach)) {
+    logEvent({ kind: 'well_retired', status: 'success', snapshot: snapshot(bot), detail: `at=${w.cap.x},${w.cap.y},${w.cap.z} why=${String(w.breach).replace(/\s+/g, '_').slice(0, 80)}` })
+  }
   const pre = townWellBuildPlan(bot)
   if (!pre) return skip('no_wood', WELL_WOOD_REMEDY)
   const room0 = wellBuildRoom({ free: free(), slotsNeeded: pre.slotsNeeded, junkStacks: disposePlan(items()).junkStacks })
@@ -6018,7 +6066,7 @@ async function buildWell (ctx, _args, signal) {
       await digShaft()
       pit = await throwPhase(bot, { cap: site, facing: null, pit: true, maxStacks: room.toss, g, tick, tickNA, signal })
       if (pit.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail: phaseDetail(pit, site, 'pit_first_aborted') }); throw pit.aborted }
-      if (pit.refused) throw hkStop(pit.refused === 'server_unanswered' ? 'well_unverified' : 'well_no_room', `the pit-first throw was refused (${pit.refused}); the open shaft is finished by the next visit`)
+      if (pit.refused) throw hkStop(pit.refused === 'server_unanswered' ? 'well_unverified' : pit.refused === 'player_near' ? 'well_attended' : 'well_no_room', `the pit-first throw was refused (${pit.refused}${pit.stop ? `: ${pit.stop}` : ''}); the open shaft is finished by the next visit`)
       pitItems += pit.account.n; pitTossed += pit.acc.tossed
       logEvent({ kind: 'well_dispose', status: pit.account.n ? 'success' : 'failed', snapshot: snapshot(bot), detail: phaseDetail(pit, site, pit.stop ? `pit_first_${pit.stop}` : 'pit_first') })
       if (pit.stop) throw hkStop('well_no_room', `the pit-first throw stopped: ${pit.stop}; the open shaft is finished by the next visit`)
@@ -6074,6 +6122,11 @@ async function buildWell (ctx, _args, signal) {
     throw e
   } finally {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    // AN UNCAPPED PIT LEFT BEHIND (Claude review P3) is a row the read can count; the site record keeps it excluded.
+    try {
+      const st = stage()
+      if (['half_dug', 'dug', 'floored'].includes(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st}` })
+    } catch { /* a read never breaks the cleanup */ }
     await settleAndRestore(bot, was, g, 'build_well')
   }
 }

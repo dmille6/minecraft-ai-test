@@ -19,12 +19,21 @@
 #   _well_open_unresolved  an OPEN asked for and not seen within 2 s at cleanup (TRIPWIRE: reported, not gated; close_well
 #                       closes any well found open with nobody at it)
 #
+#   _well_pit_open     an interrupted build left its shaft uncapped (TRIPWIRE: reported; the record keeps it excluded)
+#   NOTE (registration): a build digs 1-2 blocks (the shaft) whose drops fall into the shaft and despawn with the junk.
+#
 #   LIVENESS     canary well rows from the canary build (>= 1); control 0 (control runs the base code).
 #   CORRECTNESS  (each judged; any breach REVERTS) -- C1 recollected: _well_recollected rows + recollected= > 0;
-#                C2 left open: _well_left_open rows; C3 non-listed thrown: items= naming anything off the list, or
-#                nonlisted= > 0 (a CLICKED slot that held a non-listed item, from the server's before-snapshot; other_loss=
-#                is eating/planting meanwhile and is reported, never gated); C4 bots inside a well: _well_inside rows; C5 misses left out:
-#                sum(misses) - sum(retaken) on completed visits; C6 more than one distinct well cell built per pool.
+#                C2 left open: a _well_left_open / _well_open_unresolved at a (pool, cell) that no later row of the same
+#                pool shows CLOSED (cap_end=closed, the cap read back) within OPEN_GRACE (2 min) -- a transient row a
+#                visitor fixed is reported, not gated (Claude review P2-4); a visit's status is never taken as a close;
+#                C3 non-listed thrown: offlist= > 0 (thrown item entities the SERVER names off the list -- Claude review
+#                P1-1: the old nonlisted= was 0 by construction), items= naming anything off the list, or nonlisted= > 0; C4 bots inside a well: _well_inside rows; C5 misses left out:
+#                sum(misses) - sum(retaken) on completed visits (a miss another bot took counts as left out); C6 more than
+#                one ACTIVE well per pool (built minus breached/_well_retired: a designed rebuild is not a breach).
+#   TRIPWIRES    (reported, named) closed_open=1 visits (a cap found open: a crash or a lost close), other_loss= (bag
+#                losses during a held phase), unnamed= (thrown entities with no metadata), _well_pit_open, misses on
+#                aborted visits, deaths within 3 of a well, refusals per dispose order by reason, no_site per pool.
 #                Deaths follow the two-death floor (canary-report.py) -- named here, never a verdict.
 #   INSTRUMENT   control bots at >= 34 est. slots holding listed junk (>= 1): the population this changes exists.
 #   PRIMARY      listed-junk slots per bot (latest snapshot per bot) and the share of bots at >= 34 slots, DiD vs the
@@ -62,7 +71,8 @@ ST16 = re.compile(r'^(egg|brown_egg|blue_egg|snowball|ender_pearl|armor_stand|bu
 
 def stack_of(n):
     return 16 if ST16.search(n) else 64
-WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside', '_well_open_unresolved')
+WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside', '_well_open_unresolved', '_well_pit_open', '_well_retired')
+OPEN_GRACE = dt.timedelta(minutes=2)   # C2: a cap left open that no visit closed within this long
 
 
 def load_window(since, until):
@@ -127,11 +137,51 @@ assert kv('at=-12,70,3 facing=north floor=1 wood=oak pit_first=1 pit_tossed=2 pi
 assert set(_p['items']) <= LISTED and not ({'cobblestone': 1}.keys() <= LISTED)
 assert stack_of('egg') == 16 and stack_of('flint') == 64 and -(-576 // stack_of('egg')) == 36   # 576 eggs are 36 slots, not 9
 
+def c3_breach(f):
+    """C3 for one _well_dispose row's fields -> the off-list evidence, or None."""
+    off = [n for n in f['items'] if n not in LISTED]
+    if num(f, 'offlist') or off or num(f, 'nonlisted'):
+        return {'offlist': num(f, 'offlist'), 'offlist_items': f.get('offlist_items'), 'items_off': off, 'nonlisted': num(f, 'nonlisted')}
+    return None
+
+
+def open_breaches(opens, closes, end):
+    """C2: opens [(t, (pool, at), bot)] with no close [(t, (pool, at))] -- a row whose cap READ BACK closed -- of the same
+    pool and cell within OPEN_GRACE -> (breaches, pending)."""
+    br, pend = [], []
+    for t, key, b in opens:
+        if any(c_key == key and t <= c_t <= t + OPEN_GRACE for c_t, c_key in closes):
+            continue
+        (pend if t + OPEN_GRACE > end else br).append((b, key, str(t)))
+    return br, pend
+
+
+def is_close(f):
+    """A row that PROVES the cap closed: its own read-back (cap_end=closed). Never the visit's status (Codex round 5)."""
+    return f.get('cap_end') == 'closed'
+
+
+# POSITIVE CONTROLS for the gates (each must be able to fire): the row the fake server's iron substitution writes
+# (bots/test/well.test.mjs 'C3 FIRES'), and a left-open cap nobody closed vs one a visitor closed 30 s later.
+assert (c3_breach(kv('slots=35->32 offlist=1 offlist_items=iron_ingot:5 unnamed=0 freed=3 tossed=3 n=80 misses=0 retaken=0 recollected=0 nonlisted=0 other_loss=5 server=resync closed_open=0 stop=done items=egg:16,flint:64')) or {}).get('offlist') == 1, 'C3 must fire on a server-named off-list throw'
+assert c3_breach(kv('slots=35->32 offlist=0 offlist_items=- unnamed=0 freed=3 tossed=3 n=83 nonlisted=0 server=resync stop=done items=egg:16,flint:64,rail:3')) is None
+_t0 = dt.datetime(2026, 10, 5, tzinfo=dt.timezone.utc)
+_k = ('hive-a', '1,2,3')
+assert open_breaches([(_t0, _k, 'a')], [], _t0 + dt.timedelta(minutes=10))[0]
+assert not open_breaches([(_t0, _k, 'a')], [(_t0 + dt.timedelta(seconds=30), _k)], _t0 + dt.timedelta(minutes=10))[0]
+assert open_breaches([(_t0, _k, 'a')], [], _t0 + dt.timedelta(seconds=30))[1]   # too recent to judge: pending
+assert open_breaches([(_t0, _k, 'a')], [(_t0 + dt.timedelta(seconds=30), ('board-b', '1,2,3'))], _t0 + dt.timedelta(minutes=10))[0], 'another pool\'s cell is not this close'
+# the visit that LEFT it open still ends "success" (junk went down): its cap_end=open row is no close
+assert not is_close(kv('slots=36->33 offlist=0 freed=3 tossed=3 n=144 server=resync closed_open=0 cap_end=open at=1,2,3 stop=done items=egg:16'))
+assert is_close(kv('slots=36->36 offlist=0 freed=0 tossed=0 n=0 server=local closed_open=1 cap_end=closed at=1,2,3 stop=closed_only items=-'))
+
 ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev_rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
 rows = Counter(); kinds = Counter(); offbuild = 0
-c1 = []; c2 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter)
+c1 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter); breached = defaultdict(set)
 visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
+opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0
+orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set()
 botsets = defaultdict(lambda: defaultdict(set)); last = defaultdict(dict); totals = Counter()
 for r in ev_rows:
     t = r.get('t'); b = (r.get('bot') or {}).get('name')
@@ -148,6 +198,11 @@ for r in ev_rows:
         last[period][b] = inv
     if k == '_death' and period == 'post':
         deaths[arm] += 1
+        pos = ((r.get('raw') or {}).get('bot') or {}).get('pos') or (r.get('bot') or {}).get('pos')
+        if isinstance(pos, dict):
+            death_pos.append((arm, b, pos))
+    if k == '_work_order' and period == 'post' and arm == 'canary' and d.startswith('dispose_well'):
+        orders[pool_of(b)] += 1
     if k not in WELL_KINDS or period != 'post':
         continue
     if other:
@@ -156,27 +211,45 @@ for r in ev_rows:
     rows[arm] += 1; kinds[(arm, k)] += 1
     st = ((r.get('raw') or {}).get('skill') or {}).get('status') or r.get('status')
     f = kv(d)
-    if k == '_well_left_open':
-        c2.append((b, d[:100]))
+    if f.get('at'):
+        well_cells.add(f['at'])
+    if k in ('_well_left_open', '_well_open_unresolved'):
+        opens.append((t, (pool_of(b), f.get('at', '?')), b))
+        unresolved += k == '_well_open_unresolved'
     elif k == '_well_recollected':
         c1.append((b, d[:100]))
     elif k == '_well_inside':
         c4.append((b, d[:100]))
-    elif k == '_well_open_unresolved':
-        unresolved += 1
+    elif k == '_well_pit_open':
+        pit_open.append((b, f.get('at'), f.get('stage')))
     elif k == '_well_refused':
         refused[f.get('reason', '?')] += 1
+        if arm == 'canary':
+            refused_pool[pool_of(b)][f.get('reason', '?')] += 1
+        if f.get('reason') == 'breached' and f.get('at'):
+            breached[pool_of(b)].add(f['at'])
+    elif k == '_well_retired':
+        if f.get('at'):
+            breached[pool_of(b)].add(f['at'])
     elif k == '_well_built':
         built[pool_of(b)][f.get('at', '?')] += 1
         pit += num(f, 'pit_first')
     elif k == '_well_dispose':
         if num(f, 'recollected'):
             c1.append((b, 'recollected=%d %s' % (num(f, 'recollected'), d[:80])))
-        off = [n for n in f['items'] if n not in LISTED]
-        if off or num(f, 'nonlisted'):
-            c3.append((b, off or 'nonlisted=%d' % num(f, 'nonlisted'), d[:100]))
+        why = c3_breach(f)
+        if why:
+            c3.append((b, why, d[:100]))
+        other_loss += num(f, 'other_loss'); unnamed += num(f, 'unnamed')
+        if num(f, 'closed_open'):
+            closed_open.append((b, f.get('at')))
+        # A CLOSE: only a row whose cap was READ BACK closed (Codex round 5: status is not evidence)
+        if f.get('at') and is_close(f):
+            closes.append((t, (pool_of(b), f['at'])))
         if st in ('success', 'failed') and f.get('stop') != 'aborted':
             misses += num(f, 'misses'); retaken += num(f, 'retaken')
+        elif f.get('stop') == 'aborted':
+            aborted_misses += num(f, 'misses')
         n = num(f, 'n')
         if n > 0:
             visits += 1; items_out += n; freed.append(num(f, 'freed')); resynced += int(f.get('server') == 'resync')
@@ -195,18 +268,45 @@ full = lambda inv: float(occupancy(inv) >= 34)
 v = {(p, a, nm): per_bot(p, a, fn) for p in ('pre', 'post') for a in ('canary', 'control') for nm, fn in (('junk', junk_slots), ('full', full))}
 did = lambda nm: (v[('post', 'canary', nm)] - v[('pre', 'canary', nm)]) - (v[('post', 'control', nm)] - v[('pre', 'control', nm)])
 inst = sum(1 for b, inv in last['post'].items() if pool_of(b) not in CANS and occupancy(inv) >= 34 and junk_slots(inv) > 0)
-c6 = {p: len(cells) for p, cells in built.items() if len(cells) > 1}
+def active_wells(built_cells, retired_cells):
+    return set(built_cells) - set(retired_cells)
+
+
+assert active_wells({'1,2,3', '9,2,3'}, {'1,2,3'}) == {'9,2,3'}             # the designed rebuild: one active well
+assert len(active_wells({'1,2,3', '9,2,3'}, set())) == 2                       # two live wells in one pool: C6 fires
+active = {p: active_wells(cells, breached[p]) for p, cells in built.items()}
+c6 = {p: len(cells) for p, cells in active.items() if len(cells) > 1}
 c5 = max(0, misses - retaken)
+c2, c2_pending = open_breaches(opens, closes, END)
+
+
+def near_well(pos):
+    for at in well_cells:
+        try:
+            x, y, z = (int(v) for v in at.split(','))
+        except ValueError:
+            continue
+        if abs(pos.get('x', 1e9) - (x + 0.5)) <= 3 and abs(pos.get('z', 1e9) - (z + 0.5)) <= 3 and abs(pos.get('y', 1e9) - (y + 1)) <= 3:
+            return at
+    return None
+
+
+deaths_near = [(a, b, near_well(p)) for a, b, p in death_pos if near_well(p)]
+refusal_rate = {p: {r_: '%d/%d' % (n, orders[p]) for r_, n in c.items()} for p, c in refused_pool.items()}
 print('-' * 78)
 print('DENOMINATORS rows post canary %d / control %d | bots post canary %d / control %d | snapshots pre %d post %d'
       % (totals[('post', 'canary')], totals[('post', 'control')], len(botsets['post']['canary']), len(botsets['post']['control']),
          len(last['pre']), len(last['post'])))
 print('LIVENESS     canary well rows %d (>= 1) | control %d (must be 0) | other build %d | by kind %s'
       % (rows['canary'], rows['control'], offbuild, dict((k2, n) for (a, k2), n in kinds.items() if a == 'canary')))
-print('CORRECTNESS  C1 recollected %d | C2 left open %d | C3 non-listed thrown %d | C4 bots inside a well %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 well %s'
-      % (len(c1), len(c2), len(c3), len(c4), c5, misses, retaken, c6 or 0))
-print('             wells built %s | pit-first builds %d | disposal visits %d (server-resynced %d) | refusals %s | open unresolved %d (tripwire)'
-      % ({p: dict(c) for p, c in built.items()}, pit, visits, resynced, dict(refused), unresolved))
+print('CORRECTNESS  C1 recollected %d | C2 left open > 2 min %d (pending %d) | C3 non-listed thrown %d | C4 bots inside a well %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 ACTIVE well %s'
+      % (len(c1), len(c2), len(c2_pending), len(c3), len(c4), c5, misses, retaken, c6 or 0))
+print('             wells built %s | breached %s | pit-first builds %d | disposal visits %d (server-resynced %d) | refusals %s'
+      % ({p: dict(c) for p, c in built.items()}, {p: sorted(c) for p, c in breached.items() if c}, pit, visits, resynced, dict(refused)))
+print('TRIPWIRES    caps found open (closed_open=1) %d %s | open rows %d (unresolved %d) | other_loss %d | unnamed thrown %d | pits left open %d %s | aborted-visit misses %d'
+      % (len(closed_open), closed_open[:3], len(opens), unresolved, other_loss, unnamed, len(pit_open), pit_open[:3], aborted_misses))
+print('             refusals per dispose order (canary) %s | no_site per pool %s | deaths within 3 of a well %s'
+      % (refusal_rate or '-', {p: c['no_site'] for p, c in refused_pool.items() if c.get('no_site')} or '-', deaths_near or '-'))
 print('             deaths canary %d control %d (two-death floor: canary-report.py decides; one death is named, not a verdict)' % (deaths['canary'], deaths['control']))
 print('INSTRUMENT   control bots at >= 34 slots holding listed junk: %d (>= 1)' % inst)
 print('PRIMARY      listed-junk slots/bot canary %.2f -> %.2f control %.2f -> %.2f DiD %+.2f | share at >= 34 DiD %+.3f | items out %d | slots freed/visit %s'
@@ -222,7 +322,8 @@ try:
     emit('wellread', W, {
         'rows_canary': rows['canary'], 'rows_control': rows['control'], 'offbuild_canary': offbuild,
         'breach_recollected': len(c1), 'breach_left_open': len(c2), 'breach_nonlisted': len(c3), 'breach_inside': len(c4),
-        'breach_misses_left': c5, 'breach_multi_well': len(c6), 'open_unresolved': unresolved,
+        'breach_misses_left': c5, 'breach_multi_well': len(c6), 'open_unresolved': unresolved, 'open_pending': len(c2_pending),
+        'caps_found_open': len(closed_open), 'other_loss': other_loss, 'pits_left_open': len(pit_open), 'deaths_near_well': len(deaths_near),
         'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
         'full_share_did': None if did('full') != did('full') else round(did('full'), 4),

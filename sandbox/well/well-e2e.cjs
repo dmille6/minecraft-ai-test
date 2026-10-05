@@ -333,6 +333,64 @@ scenes.creeper = async () => {
   result({ scene: 'creeper', setup: setup.map(x => x.reply.slice(0, 80)), wellCreepers: n(q[0]?.reply), controlCreepers: n(q[1]?.reply), allTagged: n(q[2]?.reply), cleanup: cleanup.map(x => x.reply.slice(0, 60)) })
 }
 
+// ESCAPE FROM INSIDE (Claude review P2-1): the bot is put in the shaft of the OPEN well (as a fall through an open cap
+// would leave it). It must never close the cap over itself, and must get itself out (its own column exempt from its own
+// exclusions). The brain wanders (status/goto) so it has somewhere to go. Samples: cap state and the bot's feet.
+scenes.escape = async () => {
+  if (!CAP) throw new Error('no well')
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const files = await startBot('escape', fill([['egg', 16], ['cobblestone', 64]], 20))
+  rcon(`setblock ${CAP.x} ${CAP.y} ${CAP.z} minecraft:oak_trapdoor[half=top,open=true,facing=${FACING}]`, `tp ${NAME} ${CAP.x + 0.5} ${CAP.y - 1 + 0.2} ${CAP.z + 0.5}`)
+  const t0 = Date.now(); const samples = []
+  let out = null
+  while (Date.now() - t0 < 300000) {
+    const r = rcon(`data get entity ${NAME} Pos`, `execute if block ${CAP.x} ${CAP.y} ${CAP.z} #minecraft:wooden_trapdoors[open=true]`)
+    const m = /\[([-\d.]+)d, ([-\d.]+)d, ([-\d.]+)d\]/.exec(r[0]?.reply || '')
+    const pos = m ? { x: +m[1], y: +m[2], z: +m[3] } : null
+    const inside = pos && Math.floor(pos.x) === CAP.x && Math.floor(pos.z) === CAP.z && pos.y < CAP.y + 0.75
+    samples.push({ t: Date.now() - t0, inside, open: passed(r[1]?.reply), pos })
+    if (pos && !inside && samples.some(x => x.inside)) { out = { afterS: Math.round((Date.now() - t0) / 1000), pos }; break }
+    await sleep(1000)
+  }
+  await sleep(2000)
+  const rows = rowsOf(files.skillLog).filter(r => /well|marooned|escape|surface|pillar/.test(r.name))
+  const closedOverSelf = samples.some((x, i) => i && x.inside && samples[i - 1].open && !x.open)
+  const cap = wellBlocks(CAP, FACING)
+  await stopBot(); BRAIN_WANDER = false
+  result({ scene: 'escape', out, closedOverSelf, insideSamples: samples.filter(x => x.inside).length, openWhileInside: samples.filter(x => x.inside && x.open).length,
+    capNow: cap, rows: rows.map(r => `${r.name} ${r.status} ${r.detail.slice(0, 160)}`).slice(0, 30) })
+}
+
+// ADMISSION RACE (Claude review P2-8): a second player arrives 0 / 1.5 / 2.5 s after the dispose order starts -- during the
+// walk, the hold, or the resync. The cap must never be open while that player is within 5. A fresh bot per trial.
+scenes.race = async () => {
+  if (!CAP) throw new Error('no well')
+  await walkerJoin()
+  const trials = []
+  for (const delay of [0, 1500, 2500]) {
+    rcon(`kill ${ARENA_SEL}`, `clear ${WALKER}`, `setblock ${CAP.x} ${CAP.y} ${CAP.z} minecraft:oak_trapdoor[half=top,open=false,facing=${FACING}]`)
+    await tpWalker(CAP.x + 12.5, G + 1, CAP.z + 12.5)
+    const files = await startBot(`race${delay}`, fill([['egg', 16], ['flint', 64], ['clay_ball', 64], ['cobblestone', 64]]))
+    const order = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_work_order' && /dispose_well/.test(r.detail)), 120000, 100)
+    const t0 = Date.now()
+    if (order) { if (delay) await sleep(delay); rcon(`tp ${WALKER} ${CAP.x + 0.5 + 2.5} ${G + 1} ${CAP.z + 0.5}`) }
+    const tArrive = Date.now() - t0
+    const samples = []
+    for (const tEnd = Date.now() + 20000; Date.now() < tEnd;) {
+      samples.push(passed(r1(`execute if block ${CAP.x} ${CAP.y} ${CAP.z} #minecraft:wooden_trapdoors[open=true]`)))
+      await sleep(200)
+    }
+    const rows = rowsOf(files.skillLog).filter(r => /^_well_(refused|dispose)$|^dispose_well$/.test(r.name))
+    const tr = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    await stopBot()
+    trials.push({ delay, ordered: !!order, arrivedAfterMs: tArrive, openSamplesWhileNear: samples.filter(Boolean).length, samples: samples.length,
+      resyncs: tr.filter(e => e.pkt === 'click' && e.slot === -999).length, throws: tr.filter(e => e.pkt === 'click' && e.mode === 4).length,
+      rows: rows.map(r => `${r.name} ${r.status} ${r.detail.slice(0, 150)}`) })
+  }
+  result({ scene: 'race', trials })
+}
+
 async function main () {
   W = await import(path.join(BOT_ROOT, 'bots/src/well.mjs'))
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)

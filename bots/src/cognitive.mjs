@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townWellState, townWellBuildPlan } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townWellState, townWellBuildPlan, insideTownWell } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -819,6 +819,7 @@ export class CognitiveLoop {
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           well: () => townWellState(bot),
           buildPlan: () => townWellBuildPlan(bot),
+          inside: () => insideTownWell(bot),
           myName: bot.username ?? '',
           peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
             Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
