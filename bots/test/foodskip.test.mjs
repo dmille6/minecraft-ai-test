@@ -104,22 +104,29 @@ test('NOT peaceful (auto): food is chased exactly as before, nearest first', asy
   }
 })
 
-test('auto follows the world: a difficulty change between sweeps changes the next sweep, with one row per change', async () => {
+test('auto follows the world: a change between sweeps changes the next sweep, with EXACTLY one row per change', async () => {
   const rows = []
-  const untap = tapRecords(r => { if (r?.skill?.name === '_food_skip' || r?.kind === '_food_skip') rows.push(r) })
+  const untap = tapRecords(r => { if (r?.skill?.name === '_food_skip') rows.push(r) })
+  const step = (bot, difficulty, active, added, why) => {
+    const n = rows.length
+    bot.game.difficulty = difficulty
+    assert.equal(foodSkipNow(bot).active, active, why)
+    assert.equal(rows.length - n, added, `${why}: ${added} row(s)`)
+  }
   try {
-    const { bot } = botWith([], 'peaceful')
-    assert.equal(foodSkipNow(bot).active, true)
-    assert.equal(foodSkipNow(bot).active, true)
-    bot.game.difficulty = 'normal'
-    assert.equal(foodSkipNow(bot).active, false)
-    bot.game.difficulty = 'peaceful'
-    assert.equal(foodSkipNow(bot).active, true)
+    const { bot } = botWith([], 'hard')
+    step(bot, 'hard', false, 1, 'a new (decision, difficulty) writes its row')
+    step(bot, 'hard', false, 0, 'the same again writes nothing')
+    step(bot, 'peaceful', true, 1, 'peaceful turns it on')
+    step(bot, 'peaceful', true, 0, 'unchanged')
+    step(bot, 'easy', false, 1, 'off again')
+    step(bot, 'normal', false, 1, 'a difficulty change alone is recorded too')
+    step(bot, undefined, false, 1, 'no packet yet: unknown, food is picked up')
   } finally { untap() }
-  assert.ok(rows.length >= 2, `a _food_skip row per change of decision (got ${rows.length})`)
-  const text = rows.map(r => JSON.stringify(r)).join('\n')
+  const text = rows.map(r => r.skill.detail).join('\n')
   assert.match(text, /food skip ON: mode=auto difficulty=peaceful active=1/)
-  assert.match(text, /food skip off: mode=auto difficulty=normal active=0/)
+  assert.match(text, /food skip off: mode=auto difficulty=easy active=0/)
+  assert.match(text, /food skip off: mode=auto difficulty=unknown active=0/)
 })
 
 // THE SWITCH, END TO END: FOOD_SKIP is read when skills.mjs loads, so each mode runs the real sweep in its own process.
