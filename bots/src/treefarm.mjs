@@ -379,11 +379,13 @@ export function farmPlaceRefusal (idx, x, y, z, item = '') {
   return null
 }
 
-/** pathfinder exclusionAreasPlace entry: no scaffold into a plot column or torch cell. Hot path: Map/Set lookups only. */
+/** pathfinder exclusionAreasPlace entry: no scaffold into a plot column, a torch cell, or a MISSING soil cell (a cobble
+ *  scaffold there would make the plot soil_foreign for good -- Codex r2). Hot path: Map/Set lookups only. */
 export function farmPlaceCost (idx, block) {
   const p = block?.position
-  if (!p || !idx || (!idx.column.size && !idx.torch.size)) return 0
-  return (inPlotColumn(idx, p.x, p.y, p.z) || idx.torch.has(cellKey(p.x, p.y, p.z))) ? 100 : 0
+  if (!p || !idx || (!idx.column.size && !idx.torch.size && !idx.soil.size)) return 0
+  const k = cellKey(p.x, p.y, p.z)
+  return (inPlotColumn(idx, p.x, p.y, p.z) || idx.torch.has(k) || idx.soil.has(k)) ? 100 : 0
 }
 /** pathfinder exclusionAreasBreak entry: never dig a plot's soil or a torch's floor. */
 export function farmBreakCost (idx, block) {

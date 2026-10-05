@@ -5592,6 +5592,11 @@ async function tendFarm (ctx, _args, signal) {
     if (!block) return done(a, 'not_a_log_after_walk')
     const pick = toolFor(block, items())
     if (pick.item) { try { await g.bound(bot.equip(pick.item, 'hand'), HK_AWAIT_MS, 'equip') } catch (e) { if (e?.aborted) throw e } } else if (pick.hand) { try { await g.bound(emptyHand(bot), HK_AWAIT_MS, 'empty hand') } catch (e) { if (e?.aborted) throw e } } else return done(a, 'no_tool')
+    check(signal)
+    // THE HAND IS WHAT toolFor CHOSE, CHECKED, NOT ASSUMED (Codex r2): a swap that did not take must not let a protected
+    // pickaxe (or any tool) swing at a log. Wrong hand: no dig.
+    const held = bot.heldItem
+    if (pick.item ? (held?.name !== pick.item.name || (held?.durabilityUsed ?? 0) !== (pick.item.durabilityUsed ?? 0)) : (held && DIG_TOOL_RE.test(held.name))) return done(a, `hand_${held?.name ?? 'empty'}`)
     if (!fence()) return null
     block = logNow()
     if (!block) return done(a, 'not_a_log_before_dig')

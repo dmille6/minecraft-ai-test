@@ -304,6 +304,7 @@ await t('farmIndex + farmPlaceRefusal: a plot column takes only the farm\'s sapl
   const pos = (x, y, z) => ({ position: { x, y, z } })
   assert.equal(TF.farmPlaceCost(idx, pos(10, 66, 10)), 100)
   assert.equal(TF.farmPlaceCost(idx, pos(11, 66, 10)), 0)
+  assert.equal(TF.farmPlaceCost(idx, pos(10, 63, 10)), 100, 'no scaffold into a missing soil cell (Codex r2)')
   assert.equal(TF.farmBreakCost(idx, pos(10, 63, 10)), 100)
   assert.equal(TF.farmBreakCost(idx, pos(12, 63, 12)), 100, 'a torch floor')
   assert.equal(TF.farmBreakCost(idx, pos(10, 65, 10)), 0, 'a farm tree\'s log is wood: harvest stays open')
@@ -387,6 +388,8 @@ function fakeTown ({ items = [], over = {}, name = 'b-Alpha', worldId = 'w1', mo
     inventory: { slots, items: () => slots.slice(9, 45).filter(s => s && s.count > 0) },
     setQuickBarSlot (n) { bot.quickBarSlot = n },
     equip: async item => {
+      await state.onEquip?.(item)
+      if (state.equipFails?.(item)) throw new Error('equip rejected')
       if (!item || slots[item.slot] !== item) throw new Error('not in inventory')
       if (item.slot >= 36) { bot.quickBarSlot = item.slot - 36; return }
       const d = [36, 37, 38, 39, 40, 41, 42, 43, 44].find(i => !slots[i]) ?? 36
@@ -595,6 +598,54 @@ await t('SKILL tend_farm: a farm record replaced mid-visit fences the visit off 
   assert.match((await rows('farm_tend')).at(-1).skill.detail, /stop=farm_record_replaced/)
 })
 
+await t('SKILL tend_farm: a log swapped for a chest while the bot changes its hand is NOT dug (the post-equip re-read: Codex r2)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-swap2-'))
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await tend(first.bot)
+  const rec = BP.readRecord(storeDir, 'treefarm-0_64_0').record
+  const p = TF.plotsOf(rec)[0]
+  const over = {}
+  for (const c of TF.plotsOf(rec)) over[K(c.x, c.y, c.z)] = 'oak_sapling'
+  over[K(p.x, p.y, p.z)] = 'air'; over[K(p.x, p.y + 2, p.z)] = 'oak_log'
+  const town = fakeTown({ items: [S('stone_axe', 1)], over, storeDir })
+  town.state.onEquip = async () => { town.w.set(p.x, p.y + 2, p.z, 'chest') }
+  await tend(town.bot)
+  assert.equal(town.state.digs.length, 0)
+})
+
+await t('SKILL tend_farm: a rejected equip never lets another held tool dig a log (Codex r2)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-hand-'))
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await tend(first.bot)
+  const rec = BP.readRecord(storeDir, 'treefarm-0_64_0').record
+  const p = TF.plotsOf(rec)[0]
+  const over = {}
+  for (const c of TF.plotsOf(rec)) over[K(c.x, c.y, c.z)] = 'oak_sapling'
+  over[K(p.x, p.y, p.z)] = 'air'; over[K(p.x, p.y + 2, p.z)] = 'oak_log'
+  const town = fakeTown({ items: [S('stone_axe', 1), S('stone_pickaxe', 1)], over, storeDir })
+  await town.bot.equip(town.slots.find(x => x?.name === 'stone_pickaxe'))
+  assert.equal(town.bot.heldItem.name, 'stone_pickaxe')
+  town.state.equipFails = it => it?.name === 'stone_axe'
+  await tend(town.bot)
+  assert.equal(town.state.digs.length, 0, 'the pickaxe swung at the log after the axe swap failed')
+  assert.match((await rows('farm_place')).filter(r => /leftover_log/.test(r.skill.detail)).at(-1).skill.detail, /verdict=hand_stone_pickaxe/)
+})
+
+await t('a bot refused the lease never replaces the farm record of the bot that holds it (Codex r2)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-contender-'))
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await tend(first.bot)
+  const before = BP.readRecord(storeDir, 'treefarm-0_64_0')
+  const held = BP.takeLease(storeDir, 'treefarm-0_64_0', 'b-Holder')
+  assert.equal(held.ok, true)
+  const over = {}
+  for (const c of TF.plotsOf(before.record)) over[K(c.x, c.y, c.z)] = 'cobblestone'
+  const contender = fakeTown({ items: [S('oak_sapling', 9)], over, storeDir, name: 'b-Contender' })
+  const r = await tend(contender.bot)
+  assert.equal(r.status, 'no_effect'); assert.match(r.detail, /b-Holder/)
+  assert.equal(BP.readRecord(storeDir, 'treefarm-0_64_0').gen, before.gen, 'the contender wrote a new farm generation')
+})
+
 await t('record generations are never pruned (a pruned number could be re-created by a slow writer: Codex r1)', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'bp-keep-'))
   const rec = n => ({ blueprint: 'x', version: 1, anchor: { x: n, y: 64, z: 0 }, cells: [{ x: n, y: 64, z: 0 }] })
@@ -619,8 +670,14 @@ await t('townFarmPlan: a recorded farm that is no longer a farm schedules its ow
   const now = BP.readRecord(storeDir, 'treefarm-0_64_0')
   assert.equal(now.gen, 2, 'a new generation')
   assert.ok(TF.plotsOf(now.record).every(p => !TF.plotsOf(rec).some(q => q.x === p.x && q.z === p.z && q.y === p.y)), 'away from the cobbled plots')
-  const noSap = fakeTown({ items: [S('oak_sapling', 2)], over, storeDir: mkdtempSync(path.join(tmpdir(), 'treefarm-refound2-')) })
-  void noSap
+  const second = mkdtempSync(path.join(tmpdir(), 'treefarm-refound2-'))
+  const seed = fakeTown({ items: [S('oak_sapling', 9)], storeDir: second })
+  await tend(seed.bot)
+  const rec2 = BP.readRecord(second, 'treefarm-0_64_0').record
+  const over2 = {}
+  for (const c of TF.plotsOf(rec2)) over2[K(c.x, c.y, c.z)] = 'cobblestone'
+  const poor = fakeTown({ items: [S('oak_sapling', 2)], over: over2, storeDir: second })
+  assert.equal(SK.townFarmPlan(poor.bot), null, 'a dead farm and too few saplings to found another: no order')
 })
 
 await t('place make-room never digs a farm plot column to set a station there (Codex r1)', async () => {
