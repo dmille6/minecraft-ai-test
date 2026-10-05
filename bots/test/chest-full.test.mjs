@@ -443,7 +443,7 @@ await t('W9 THE WELL KEEPS ITS DISTANCE FROM A CLAIMED CHEST it cannot see: in f
   const blockAt = u.bot.blockAt
   u.bot.blockAt = p => (Math.floor(p.x) === at.x && Math.floor(p.y) === at.y && Math.floor(p.z) === at.z ? null : blockAt(p))
   const ru = townWellSite(u.bot)
-  assert.ok(!near(ru.site), `placed but unloaded: the well site ${JSON.stringify(ru.site)}`)
+  assert.ok(ru.site && !near(ru.site), `placed but unloaded: the well site ${JSON.stringify(ru.site)} (a site, and clear of the claim)`)
   assert.notDeepEqual(ru.site, base.site)
   // CONTROLS: the same placed claim over LOADED AIR (abandoned: no chest) keeps nothing out; so does an unresolved claim
   // past the reconcile window over loaded air, and one read back as gone.
