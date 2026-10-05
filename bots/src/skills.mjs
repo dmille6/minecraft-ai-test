@@ -5667,7 +5667,9 @@ async function tendFarm (ctx, _args, signal) {
   const did = f.planted + f.soil + f.cleared + f.torches + f.bonemeal
   if (did) {
     row('success')
-    return { status: 'success', placed: f.planted + f.soil + f.torches,
+    // EVERY server-confirmed change counts toward world_change -- a visit that only cleared leftover logs changed the
+    // world too (Paper run 2: counting placements alone scored it `unknown`, which the order backs off as a failure).
+    return { status: 'success', placed: did,
              detail: `tended the town tree farm: planted ${f.planted}, soil ${f.soil}, cleared ${f.cleared} leftover log(s), torches ${f.torches}, bone meal ${f.bonemeal}${f.failed ? `; ${f.failed} refused or unanswered` : ''}${stop ? `; stopped: ${stop}` : ''}` }
   }
   if (stop === 'lease lost' || stop === 'farm record replaced') return skip(`${stop === 'lease lost' ? 'another bot took over the town tree farm' : 'the town tree farm was replaced'} mid-visit; nothing placed`)

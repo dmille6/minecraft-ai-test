@@ -558,6 +558,9 @@ await t('SKILL tend_farm: leftover logs come out of a column only on the server\
   assert.equal(r.status, 'success', r.detail)
   const row = (await rows('farm_tend')).at(-1).skill.detail
   assert.equal(field(row, 'cleared'), '2'); assert.equal(field(row, 'failed'), '1')
+  assert.equal(r.placed, 2, 'a clearing-only visit is a world change (the runner scores world_change from placed)')
+  assert.equal(SK.classifyOutcome('tend_farm', 'success', { placed: r.placed }).value, 'valuable')
+  assert.equal(SK.classifyOutcome('tend_farm', 'success', { placed: 0 }).value, 'neutral', 'positive control: placed 0 scores neutral (run 2 logged it unknown)')
   assert.deepEqual(town.state.digs.map(d => d.at), [`${p.x},${p.y + 3},${p.z}`, `${p.x},${p.y + 4},${p.z}`, ghostAt], 'lowest first, only column logs')
 })
 
