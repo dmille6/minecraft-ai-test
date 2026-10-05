@@ -399,3 +399,56 @@ a thin translating proxy (bench only, never the fleet path).
   errors next to gpt-oss-120b: 8 errors at 14:03Z, re-run.
 - **Deployment consequence:** with the co-tenants resident (about 32 GB), a 120B-class overseer plus a worker does
   not fit the ~107 GiB Metal budget.
+
+### A2 selection (1,008 real decisions from 10-04 and 10-05) and the runtime comparison (as of 22:50Z)
+
+**A2: paired comparison on all 1,008 decisions (Ollama 0.35.1, thinking off).** In brackets: the 95%
+cluster-bootstrap interval of the difference against the 7B.
+
+| model | detected hard-infeasible | repeats the action that really failed (n=648) | repeats the 4x loop (n=144) | same skill as a logged success (n=216) |
+|---|---|---|---|---|
+| qwen2.5:7b (fleet today) | 13.3% | 73.5% | 90.3% | 75.9% |
+| **gemma4:26b** | **1.3%** [-15,-10] | **21.1%** [-57,-48] | **27.8%** [-70,-54] | 54.6% |
+| qwen3.6:35b-a3b | 2.9% [-13,-8] | 27.5% [-50,-42] | 33.3% [-66,-48] | 34.7% |
+
+- **gemma4:26b beats qwen3.6 head-to-head** on the same items, with intervals excluding 0:
+  - infeasible: -1.6 points;
+  - repeating the failed action: -6.3 points;
+  - repeating the exact failed action: -2.9 points.
+- The 7B's 76% agreement with logged successes is partly **self-agreement**: those actions were the 7B's own.
+- nemotron-3.5-lightning repeats the 4x loop 65% of the time on the screen and is out of the running for the
+  brain.
+
+**Runtime: the same model through Ollama and through LM Studio.** Screen items (120). Time and throughput are
+measured with 1 and 8 simultaneous decisions on the same real prompts.
+
+| model | runtime / artifact | valid | hard-infeasible | repeats failed | repeats 4x loop | 1 bot | 8 bots | decisions/min at 8 |
+|---|---|---|---|---|---|---|---|---|
+| gemma4:26b | Ollama 0.35.1, GGUF Q4_K_M | 100% | 0% | 13% | 18% | 2.4 s | 17.1 s | 25 |
+| gemma4:26b | LM Studio 1.1.7, MLX **8-bit** | 100% | 0% | 16% | 24% | 1.9 s | **8.8 s** | **43** |
+| gemma4:26b | LM Studio, MLX 4-bit | 97% | 2% | 16% | 24% | 1.7 s | 8.8 s | 38 |
+| qwen3.6:35b-a3b | Ollama 0.35.1, GGUF Q4_K_M | 100% | 4% | 25% | 24% | 2.2 s | 9.4 s | 29 |
+| qwen3.6:35b-a3b | LM Studio, MLX 4-bit | 98% | 2% | 31% | 47% | 2.0 s | 10.4 s | 39 |
+| qwen2.5:7b | Ollama 0.35.1 | 100% | 15% | 64% | 88% | 2.3 s | 15.4 s | 26 |
+
+**What the runtime comparison shows**
+- **LM Studio serves 8 bots about twice as fast as Ollama.** With 8 simultaneous decisions it answers in 9-10 s
+  against 15-17 s, at 38-43 decisions/min against 25-29. Ollama is effectively serial on this machine with
+  NUM_PARALLEL=4.
+- **Thinking OFF works in LM Studio now.** With qwen3.6 MLX, via `chat_template_kwargs.enable_thinking=false` +
+  `reasoning_effort: none`, it gave 0 reasoning characters and no "Thinking Process" leak. The 10-02 finding
+  ("cannot be made not to think") does not hold on this version with these parameters.
+- **LM Studio's JSON-schema enforcement held:**
+  - 97-100% valid on the fleet schema, against 100% on Ollama;
+  - the few invalid answers on MLX 4-bit were cut-off strings.
+- **The 8-bit MLX gemma behaves most like the Ollama build.** The 4-bit MLX one drifted: 19% agreement with
+  logged successes against 62-69%.
+- **gpt-oss-120b as the per-bot brain is broken on Ollama in both versions**, though for different reasons:
+
+  | Ollama version | what happens | invalid answers |
+  |---|---|---|
+  | 0.33.3 | 23-28% of answers come back empty after reasoning | 32% |
+  | 0.35.1 | the grammar is no longer enforced: it answers `{"action": ...}` or plain text | 79% |
+
+  The same model is **100% valid as the overseer** on both versions, so this is the fleet schema with a reasoning
+  model, not gpt-oss in general. Its LM Studio MLX run and a native-tool-call run are queued.
