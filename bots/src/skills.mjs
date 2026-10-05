@@ -3046,7 +3046,21 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const skip = []
   // THE JUNK WELL'S CELLS AND CLEARANCE (chestfull.mjs wellKeepout), read afresh at every pick and on arrival: a well
   // recorded while this bot walked must move the chest, not be found later as a breach.
-  const pickAt = () => pickChestSite({ read, anchor, home, composterSites, bodies: bodiesAround(bot), wells: chestWellKeepouts(bot), skip })
+  // WHEN THE WELL'S KEEP-OUT COVERS THE RINGS AROUND THE FULL CHEST (Codex, chestfull-02 on 911d792 round 1): a bounded
+  // wider search before any refusal -- the rings around every other full town container, then around home -- so the
+  // well never turns "the chest is full" into a closed bank while the town has room for a chest. Only then: without a
+  // well in the way, the search is exactly the reviewed one.
+  const fallbackAnchors = () => [...fullNear.filter(a => a !== anchor), { x: home.x, y: home.y, z: home.z }]
+  const pickAt = () => {
+    const wells = chestWellKeepouts(bot), bodies = bodiesAround(bot)
+    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, skip })
+    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first
+    for (const a of fallbackAnchors()) {
+      const p = pickChestSite({ read, anchor: a, home, composterSites, bodies, wells, skip })
+      if (p.site) return p
+    }
+    return first
+  }
   let pick = pickAt()
   if (!pick.site) {
     shut('no_site', pick.why)
@@ -5961,16 +5975,27 @@ function wellAvoid (bot) {
     const bank = bot.findBlocks?.({ point: homeVec(), matching: b => /^(chest|trapped_chest|barrel)$/.test(blockNameOf(bot, b) ?? ''), maxDistance: ADOPT_RADIUS + r + 1, count: 64 }) ?? []
     for (const p of bank) out.push({ x: p.x, z: p.z, r, what: 'a bank container' })
   } catch { /* none */ }
+  // A NEW CHEST BEING PLACED (chest-full's claim ledger: claimed, not yet read back as gone or not placed) is a bank
+  // container already (Codex, chestfull-02 on 911d792 round 1): its claim is written before the placement's equip/look/
+  // submit awaits, so a well site computed in that interval keeps its distance from the cell too.
+  try {
+    for (const c of readClaims(townDir(), homeTownKey())) {
+      if (c.malformed || !sameWorld(c.world, bot.worldId ?? null) || !['unresolved', 'placed'].includes(c.state)) continue
+      out.push({ x: c.x, z: c.z, r, what: 'a new chest being placed' })
+    }
+  } catch { /* no ledger */ }
   return out
 }
 /**
- * EVERY WELL A NEW CHEST MUST KEEP CLEAR OF (chestfull.mjs wellKeepout) -> [{ cap, facing }]: each town well found in the
- * world (breached ones too: until it is filled it is a hole, and its stands stay its own), and the recorded site, whose
- * facing is not known until it is built (all four sides reserved). A world read never breaks the deposit.
+ * EVERY WELL A NEW CHEST MUST KEEP CLEAR OF (chestfull.mjs wellKeepout) -> [{ cap, facing }]: each live town well found
+ * in the world (not a breached, retired one), and the recorded site, whose facing is not known until it is built (all
+ * four sides reserved). A world read never breaks the deposit.
  */
 export function chestWellKeepouts (bot) {
   const out = []
-  try { for (const w of findTownWells(bot)) out.push({ cap: w.cap, facing: w.facing ?? null }) } catch { /* none found */ }
+  // A BREACHED WELL IS RETIRED (build_well builds a new one): it keeps nothing out (Codex round 1 -- retired wells
+  // accumulating keep-outs could cover a town). An UNSURE one (a cell not loaded) is still a well.
+  try { for (const w of findTownWells(bot)) if (!w.breach) out.push({ cap: w.cap, facing: w.facing ?? null }) } catch { /* none found */ }
   try {
     const r = recordedWellSite(bot)
     if (r && !out.some(w => w.cap.x === r.x && w.cap.y === r.y && w.cap.z === r.z)) out.push({ cap: { x: r.x, y: r.y, z: r.z }, facing: null })
