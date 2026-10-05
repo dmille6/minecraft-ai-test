@@ -343,3 +343,59 @@ allocation arithmetic left to code where possible.
 **Judge reliability caveat.** The swap and repeat copies sat inside the same packet, so both judges matched them
 100%. They saw the identical observation twice, which means this does not measure self-consistency. The
 slow-role packets will put the copies in a separate session.
+
+### Runtime: Ollama upgraded, LM Studio made first-class (owner, 10-05 ~17:30Z)
+
+**Ollama upgrade.** 0.33.3 → **0.35.1**, done at 18:00Z between two models (`bench/models/upgrade_ollama.sh`).
+- The old app bundle is kept, so the upgrade can be rolled back.
+- The digest of the official zip was verified.
+- Server config after the upgrade: NUM_PARALLEL 4 (the LCIA env agent), keep-alive per request. Both co-tenants
+  still work after the upgrade: the LCIA keep-warm re-pinned qwen2.5-coder:7b, and qwen3.8:27b (the fleet
+  analyst's model) answered.
+- **Every record now carries its runtime version.**
+- Runs before 18:00Z are on 0.33.3. The A2 runs and gpt-oss are being **re-run on 0.35.1 under `-o35` labels**,
+  so the A2 comparisons share one version and the upgrade's own effect is measured.
+
+**Concurrency is still not what NUM_PARALLEL=4 suggests.** qwen2.5:7b on Ollama 0.33.3, as one, four or eight
+simultaneous decisions (still under measurement on 0.35.1):
+
+| simultaneous decisions | 1 | 4 | 8 |
+|---|---|---|---|
+| time each | 2.4 s | 9.3 s | 15.7 s |
+| throughput | 25/min | 25/min | 26/min |
+
+- **Slots exist, but the work is effectively serial.**
+- Ollama's scheduler also forces one-at-a-time for the qwen3.5/3.6/3.8 and Nemotron-H architectures. It says so
+  in its own log: "model architecture does not currently support parallel requests".
+- gemma4:26b through LM Studio MLX 4-bit:
+
+  | simultaneous decisions | 1 | 4 | 8 |
+  |---|---|---|---|
+  | time each | 1.7 s | 4.9 s | 8.8 s |
+  | throughput | about 38/min at every level | | |
+
+**LM Studio runtime comparison (queued).** Same model on both runtimes:
+
+| model | LM Studio artifact | compared against |
+|---|---|---|
+| qwen3.6-35b-a3b | MLX 4-bit | Ollama Q4_K_M |
+| gemma4-26b | MLX 4-bit and 8-bit | Ollama Q4_K_M |
+| gpt-oss-120b | MLX (download resuming) | Ollama |
+
+- Measured on each: validity under the fleet's JSON schema (`response_format` json_schema vs Ollama `format`),
+  whether thinking really switches off (reasoning chars, and "Thinking Process" leaking into the answer),
+  latency, concurrency at 1/4/8, and a 15-min sustained load.
+
+**Stage C with LM Studio.** The bots' brain speaks only Ollama's `/api/chat`. So `closedloop/ollama2openai.py` is
+a thin translating proxy (bench only, never the fleet path).
+- The route: proxy on the Studio, then an ssh tunnel on the mini, then 10.0.0.70:11501 for the bots on 10.0.0.31.
+- The path was tested end to end at 17:5xZ.
+- The bench runner admits only the Studio's Ollama or this proxy as a model endpoint.
+
+**Co-tenants (left running, worked around).**
+- The LCIA keep-warm restarts Ollama if `/api/version` stalls. The benchmark never routes through the LCIA
+  caching proxy on :11435.
+- The fleet analyst's half-hourly qwen3.8:27b call evicted the benchmark's model at least once, and caused GPU OOM
+  errors next to gpt-oss-120b: 8 errors at 14:03Z, re-run.
+- **Deployment consequence:** with the co-tenants resident (about 32 GB), a 120B-class overseer plus a worker does
+  not fit the ~107 GiB Metal budget.
