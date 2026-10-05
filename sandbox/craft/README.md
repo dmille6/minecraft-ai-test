@@ -257,3 +257,28 @@ node sandbox/craft/grid-ab.cjs ctrl ../gf-ctrl 1 int,stuck,kick,pre,full,fullp,o
 Found 10-05: a +1.5 s abort lands AFTER an execution's six clicks (both arms clean: not a strand test); +0.3 s lands in
 the verification resync (candidate: `unverified_skipped`, bag conserved); only the stuck watchdog and the preempting
 reflex land mid-click. Fleet aborted 2x2 rows (30 h): 38 of 44 mid-click, 2 in the verification resync.
+
+## Climb-flood A/B (`climbflood-ab.cjs`, `summarize-climbflood.py`)
+
+climbflood-01 (underground-safety design 4.1, cf-on-1918bb5): does the escape climb break into a water/lava pocket?
+NO decision is queued -- the entombed reflex acts on its own (the embedded brain answers `status`). One fresh bot per
+trial (`sandbox-Flood`), spectator while the arena is built, then survival in a 1x1 stone cell: feet 700 40 700, head
+41, ceiling 42, solid stone 692..708 x 30..52 x 692..708. Kit: stone_pickaxe at 100 uses, 64 cobblestone, an empty
+bucket. The WORLD is read back over RCON every 2 s (water/lava in the bot's own two cells, the ceiling block, Air,
+Health, Pos) and every dig location comes from `trace.cjs`; the bot's rows only explain what the world shows.
+
+| scene | setup | control (expected) | candidate (required) |
+|---|---|---|---|
+| A | 2x2x2 water pocket at 700..701, 43..44, 700..701 | floods >= 4 of 5 (else the fixture is wrong) | no flood; exits dry (sidestep, then ramp) |
+| B | one water source at 701 42 700 (beside the ceiling) | floods | no flood; exits dry |
+| C | 3x3x2 pocket at 699..701, 43..44, 699..701 (every side column wet), 240 s | floods | dry and alive; a refusal per back-off; no prerequisite; no spin |
+| D | the bot's two cells water, dry air pocket above the ceiling | -- | still digs up (submerged exemption) |
+| E | lava source at 700 43 700 | -- | never breaks the ceiling under the lava |
+| F | dry; a 5x5x3 air room at 44..46 | climbs out | climbs out identically |
+| G | gravel at 700 43 700, water at 700 44 700 | floods | refuses the gravel and ceiling digs |
+
+```bash
+CRAFT_REPO=$PWD node sandbox/craft/climbflood-ab.cjs ctrl ../cf-ctrl 5 A,B,C,G sandbox
+CRAFT_REPO=$PWD node sandbox/craft/climbflood-ab.cjs cand ../cf-cand 5 A,B,C,G sandbox
+python3 sandbox/craft/summarize-climbflood.py sandbox/log/climbflood-ab/results-ctrl.jsonl sandbox/log/climbflood-ab/results-cand.jsonl
+```
