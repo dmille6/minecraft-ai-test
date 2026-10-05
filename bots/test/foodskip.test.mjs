@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { foodSkipMode, foodSkipActive, isFoodName, skipFoodDrop, foodSkipDetail, FOOD_SKIP_MODES } from '../src/foodskip.mjs'
 import { pickupNearbyItems, foodSkipNow } from '../src/skills.mjs'
@@ -158,4 +159,45 @@ test('FOOD_SKIP=on: food is skipped even on a hard world', () => {
 test('FOOD_SKIP=bogus: behaves as auto (skips on peaceful, chases on normal)', () => {
   assert.equal(sweepIn('bogus', 'peaceful'), 'oak_log')
   assert.equal(sweepIn('bogus', 'normal'), 'apple,oak_log')
+})
+
+// ---- THE DIFFICULTY, AS THE SERVER ACTUALLY SENDS IT (found on the Paper sandbox 10-05) -------------------------------
+// Every candidate row on Paper 1.21.8 said `difficulty=unknown active=0` in a peaceful world: the tests above set
+// bot.game.difficulty by hand, which mineflayer itself never manages to do on 1.21.8. These run the REAL protocol codec
+// and the REAL mineflayer game plugin.
+const { normalizeDifficulty, attachDifficulty, difficultyOf } = await import('../src/foodskip.mjs')
+const { EventEmitter } = await import('node:events')
+const mcp = require_('minecraft-protocol')
+
+test('THE CAUSE: 1.21.8 decodes the difficulty to a NAME, and mineflayer 4.37.1 then reads undefined', () => {
+  const ser = mcp.createSerializer({ state: 'play', isServer: true, version: '1.21.8' })
+  const des = mcp.createDeserializer({ state: 'play', isServer: false, version: '1.21.8' })
+  const wire = des.parsePacketBuffer(ser.createPacketBuffer({ name: 'difficulty', params: { difficulty: 0, difficultyLocked: false } })).data.params
+  assert.equal(wire.difficulty, 'peaceful', 'the codec maps varint 0 to the name')
+  const bot = new EventEmitter(); bot._client = new EventEmitter(); bot._client.registerChannel = () => {}
+  bot.registry = mcData; bot.supportFeature = f => f === 'customChannelIdentifier'
+  require_('mineflayer/lib/plugins/game.js')(bot, { version: '1.21.8', brand: 'vanilla' })
+  attachDifficulty(bot)
+  bot._client.emit('difficulty', wire)
+  assert.equal(bot.game.difficulty, undefined, 'mineflayer indexes its name table with a name: undefined (if this starts passing, mineflayer fixed it)')
+  assert.equal(bot.serverDifficulty, 'peaceful', 'our own reading of the same packet')
+  assert.equal(difficultyOf(bot), 'peaceful')
+  assert.equal(foodSkipActive('auto', difficultyOf(bot)), true, 'so auto is ON in a peaceful world')
+  bot._client.emit('difficulty', { difficulty: 'hard', difficultyLocked: false })
+  assert.equal(foodSkipActive('auto', difficultyOf(bot)), false, 'and OFF again when the world turns hard')
+})
+
+test('normalizeDifficulty: names (any case) and the older 0..3; anything else is unknown', () => {
+  assert.equal(normalizeDifficulty('peaceful'), 'peaceful'); assert.equal(normalizeDifficulty('HARD'), 'hard')
+  assert.equal(normalizeDifficulty(0), 'peaceful'); assert.equal(normalizeDifficulty(2), 'normal')
+  for (const v of [undefined, null, 4, -1, 1.5, 'weird', {}]) assert.equal(normalizeDifficulty(v), null, String(v))
+  assert.equal(difficultyOf({ game: { difficulty: 'easy' } }), 'easy', 'mineflayer\'s value is still used if it is ever right')
+  assert.equal(difficultyOf({ serverDifficulty: 'peaceful', game: { difficulty: undefined } }), 'peaceful')
+  assert.equal(difficultyOf({}), null)
+})
+
+test('WIRED: index.mjs attaches the difficulty reader right after createBot', () => {
+  const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.match(src, /\n\s*attachDifficulty\(bot\)\n/)
+  assert.match(src, /import \{ attachDifficulty \} from '\.\/foodskip\.mjs'/)
 })

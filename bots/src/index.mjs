@@ -24,6 +24,7 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
+import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { installAirTrace } from './air-trace.mjs'
@@ -170,6 +171,8 @@ function connect() {
   // THE WORLD'S IDENTITY (the login packet's hashed seed): the town composter's shared site record carries it, so a
   // reseed that keeps pool and home starts a new record instead of building on the old world's cell (composter.mjs).
   bot._client.on('login', packet => { bot.worldId = worldIdFromLogin(packet) })
+  // THE SERVER'S DIFFICULTY (foodskip.mjs): mineflayer's bot.game.difficulty is always undefined on 1.21.8, so read the packet.
+  attachDifficulty(bot)
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer
   // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
