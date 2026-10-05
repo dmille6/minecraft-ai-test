@@ -790,10 +790,12 @@ export class CognitiveLoop {
     // The cooldown is charged when the order is ISSUED, not when it succeeds, so a
     // spot that cannot be planted costs one decision every ten minutes rather than
     // every decision.
+    let order = orderFor(readyFor(this.bot, milestone))
     // THE TOWN DEPOSIT GOES FIRST (towndeposit.mjs; owner 10-05 "add automatic town deposit"): a bag at 34+ at town
     // banks its surplus before other work. AHEAD of the milestone order on purpose: a craft-ready rung re-issues its
-    // craft every decision, craftroom refuses it at 36/36, and an order placed after it would never get a turn.
-    let order = this.#townDepositOrder(milestone) ?? orderFor(readyFor(this.bot, milestone))
+    // craft every decision, craftroom refuses it at 36/36, and an order placed after it would never get a turn
+    // (test/towndeposit.test.mjs CHAIN drives this through the real loop).
+    order = this.#townDepositOrder(milestone) ?? order
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.

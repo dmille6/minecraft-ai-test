@@ -24,7 +24,7 @@ const mcData = require_('minecraft-data')('1.21.8')
 const { Vec3 } = require_('vec3')
 
 const TD = await import('../src/towndeposit.mjs')
-const { townDepositPlan, townKeeps, toolSlotsToBank, fitToContainer, townDepositOrder, townDepositOutcome, inTown,
+const { townDepositPlan, townKeeps, toolSlotsToBank, fitToContainer, townDepositOrder, townDepositOutcome, inTown, chestPartner, townWalkMovements,
         TD_TRIGGER_SLOTS, TD_COOLDOWN_MS, TD_BACKOFF_MS, TD_SCAN_MS, TD_REARM_OUTSIDE_MS, TD_STAY_REARM_MS,
         STOCKPILE_KEEP, HELD_TARGETS, IRON_LADDER, LOGS, PLANKS, COBBLE } = TD
 const MS = await import('../src/milestones.mjs')
@@ -171,16 +171,41 @@ test('PROPERTY: over 400 random full bags, no gatherer or SUSTAINING rung change
 })
 
 // ---- the container fit --------------------------------------------------------------------------------------------
-test('fit: a full container takes nothing; partial stacks first; a stack that does not fit WHOLE is skipped', () => {
-  const size = n => mcData.itemsByName[n].stackSize
+test('fit: EMPTY slots only, one per stack, in order; a full container takes nothing', () => {
   const full = Array.from({ length: 27 }, () => item('dirt', 64))
-  assert.deepEqual(fitToContainer([{ slot: 9, name: 'cobblestone', count: 20 }], full, size), [])
+  assert.deepEqual(fitToContainer([{ slot: 9, name: 'cobblestone', count: 20 }], full), [])
   const partial = [item('cobblestone', 50), ...Array.from({ length: 26 }, () => item('dirt', 64))]
-  assert.deepEqual(fitToContainer([{ slot: 9, name: 'cobblestone', count: 14 }], partial, size).length, 1, '14 merges into the 50')
-  assert.deepEqual(fitToContainer([{ slot: 9, name: 'cobblestone', count: 15 }], partial, size).length, 0, '15 does not fit whole')
-  const oneEmpty = [null, ...Array.from({ length: 26 }, () => item('dirt', 64))]
-  const out = fitToContainer([{ slot: 9, name: 'oak_log', count: 64 }, { slot: 10, name: 'stone_pickaxe', count: 1 }], oneEmpty, size)
-  assert.deepEqual(out.map(s => s.name), ['oak_log'], 'the empty slot is used once')
+  assert.deepEqual(fitToContainer([{ slot: 9, name: 'cobblestone', count: 14 }], partial), [], 'never merged into a partial stack')
+  const twoEmpty = [null, item('dirt', 64), null, ...Array.from({ length: 24 }, () => item('dirt', 64))]
+  const out = fitToContainer([{ slot: 9, name: 'oak_log', count: 64 }, { slot: 10, name: 'stone_pickaxe', count: 1 }, { slot: 11, name: 'raw_copper', count: 3 }], twoEmpty)
+  assert.deepEqual(out.map(s => [s.name, s.dest]), [['oak_log', 0], ['stone_pickaxe', 2]])
+})
+
+test('the visit\'s allowance: what an earlier container took is spent (creditCap caps the VISIT)', () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ...filler(30)])
+  assert.deepEqual(townDepositPlan(items).steps.map(s => s.count), [10], 'cap 64: the 10 only (the next 64 passes the cap)')
+  const after10 = items.filter(i => !(i.name === 'oak_log' && i.count === 10))
+  assert.deepEqual(townDepositPlan(after10).steps.map(s => s.count), [64], 'a fresh plan would take 64 more...')
+  assert.deepEqual(townDepositPlan(after10, { already: { oak_log: 10 } }).steps, [], '...the visit has 54 left: no whole stack fits')
+})
+
+test('double chests: two halves name each other (vanilla getConnectedDirection); a single beside a single is two chests', () => {
+  const p = { x: 5, y: 70, z: 5 }
+  assert.deepEqual(chestPartner(p, { type: 'left', facing: 'north' }), { x: 6, y: 70, z: 5 })
+  assert.deepEqual(chestPartner(p, { type: 'right', facing: 'north' }), { x: 4, y: 70, z: 5 })
+  assert.deepEqual(chestPartner(p, { type: 'left', facing: 'east' }), { x: 5, y: 70, z: 6 })
+  assert.deepEqual(chestPartner(p, { type: 'right', facing: 'south' }), { x: 6, y: 70, z: 5 })
+  assert.equal(chestPartner(p, { type: 'single', facing: 'north' }), null)
+  assert.equal(chestPartner(p, {}), null)
+})
+
+test('the walk never digs, towers or bridges; the shared profile is untouched', () => {
+  const proto = { getNeighbors () { return [] } }
+  const base = Object.assign(Object.create(proto), { canDig: true, allow1by1towers: true, scafoldingBlocks: [1, 2], allowParkour: true })
+  const m = townWalkMovements(base)
+  assert.equal(m.canDig, false); assert.equal(m.allow1by1towers, false); assert.deepEqual(m.scafoldingBlocks, [])
+  assert.equal(m.allowParkour, true, 'everything else is the walk profile'); assert.equal(Object.getPrototypeOf(m), proto)
+  assert.equal(base.canDig, true); assert.equal(base.allow1by1towers, true); assert.deepEqual(base.scafoldingBlocks, [1, 2])
 })
 
 // ---- the order ------------------------------------------------------------------------------------------------------
@@ -237,21 +262,28 @@ test('registered: a chatOnly housekeeping skill with an inventory_loss contract'
 
 // ---- the skill, against a fake chest window ---------------------------------------------------------------------
 /**
- * A world with town containers. The window's slots ARE the bag while it is open (as on a real server); close() writes
- * the bag back and, if the cursor is loaded, returns it to the bag when there is room (vanilla removed()), else counts
- * a DROP. transfer() follows mineflayer 4.37's semantics for a whole-stack count: fill partial same-name stacks, then
- * empty slots; out of room -> throws "destination full" with the rest on the cursor.
+ * A world with town containers. The window's slots ARE the bag while it is open (as on a real server); close() copies
+ * the bag back (mineflayer closeWindow -> copyInventory) and, if the cursor is loaded, returns it to the bag when there
+ * is room (vanilla removed() -> placeItemBackInInventory), else counts a DROP. clickWindow(slot, 0, 0) is a vanilla
+ * left click: pick up a whole stack; put the whole cursor into an empty slot; merge into the same item; swap otherwise.
+ *   failDest(item)   the click on the destination throws before anything moves (the cursor stays loaded)
+ *   refuse(item)     the server refuses the move: the next waitForTicks puts it back where it came from
+ *   cursorStuck      a click on an empty bag slot does nothing (the put-back cannot happen)
+ *   openNever        openContainer never resolves until `release()`; then it resolves with the window
  */
-function world ({ items, containers, botAt = new Vec3(3, 70, 0), throwOn = null, cursorStuck = false }) {
+function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false }) {
   const bagSlots = Array(46).fill(null)
   for (const it of items) bagSlots[it.slot] = { ...it }
-  const st = { opened: [], dropped: 0, transfers: 0, closes: 0, loadedCloses: 0 }
+  const st = { opened: [], dropped: 0, clicks: 0, closes: 0, loadedCloses: 0, late: null, walks: [] }
   const contAt = p => containers.find(c => c.pos.x === p.x && c.pos.y === p.y && c.pos.z === p.z)
-  const blk = (c) => ({ name: c.type ?? 'chest', type: mcData.blocksByName[c.type ?? 'chest'].id, position: c.pos, boundingBox: 'block' })
+  const blk = c => ({ name: c.type ?? 'chest', type: mcData.blocksByName[c.type ?? 'chest'].id, position: c.pos, boundingBox: 'block',
+                      getProperties: () => c.props ?? { type: 'single', facing: 'north' } })
+  const pending = []
   const bot = {
     entity: { position: botAt, velocity: { x: 0, y: 0, z: 0 } },
     registry: mcData,
     controlState: {},
+    currentWindow: null,
     inventory: { inventoryStart: 9, items: () => bagSlots.slice(9, 45).filter(Boolean) },
     findBlocks: ({ maxDistance }) => containers.map(c => c.pos).filter(p => bot.entity.position.distanceTo(p) <= maxDistance),
     blockAt: p => {
@@ -260,14 +292,17 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), throwOn = null,
       if (under && under.lid) return { name: under.lid, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] }
       return { name: 'air', boundingBox: 'empty' }
     },
-    pathfinder: { goto: async () => {}, setGoal: () => {} },
-    setControlState: () => {}, lookAt: async () => {}, waitForTicks: async () => {},
-    openContainer: async (b) => {
+    pathfinder: { goto: async g => { st.walks.push(g) }, setGoal: () => {} },
+    setControlState: () => {}, lookAt: async () => {},
+    waitForTicks: async () => {
+      for (const { win, from, to } of pending.splice(0)) { win.slots[from] = { ...win.slots[to], slot: from }; win.slots[to] = null }
+    },
+    openContainer: (b) => {
       const c = contAt(b.position)
       st.opened.push(`${c.pos.x},${c.pos.y},${c.pos.z}`)
-      if (c.unopenable) throw new Error('windowOpen did not fire')
+      if (c.unopenable) return Promise.reject(new Error('windowOpen did not fire'))
       const n = c.size ?? 27
-      const win = { id: 1, inventoryStart: n, inventoryEnd: n + 36, selectedItem: null, slots: Array(n + 36).fill(null) }
+      const win = { id: st.opened.length, inventoryStart: n, inventoryEnd: n + 36, selectedItem: null, slots: Array(n + 36).fill(null) }
       for (let i = 0; i < n; i++) win.slots[i] = c.items[i] ? { ...c.items[i], slot: i } : null
       for (let s = 9; s < 45; s++) win.slots[s - 9 + n] = bagSlots[s] ? { ...bagSlots[s], slot: s - 9 + n } : null
       win.close = () => {
@@ -281,119 +316,163 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), throwOn = null,
           else st.dropped += win.selectedItem.count
           win.selectedItem = null
         }
+        if (bot.currentWindow === win) bot.currentWindow = null
       }
-      return win
+      if (openNever) return new Promise(res => { st.late = () => { bot.currentWindow = win; res(win) } })
+      bot.currentWindow = win
+      return Promise.resolve(win)
     },
-    clickWindow: async (slot) => {
-      const win = bot._win
-      if (win && win.selectedItem && !win.slots[slot] && !cursorStuck) { win.slots[slot] = { ...win.selectedItem, slot }; win.selectedItem = null }
-    },
-    transfer: async ({ window: win, sourceStart, sourceEnd, destStart, destEnd, count }) => {
-      bot._win = win
-      st.transfers++
-      assert.equal(sourceEnd, sourceStart + 1, 'slot-precise: one source slot')
-      const src = win.slots[sourceStart]
-      if (!src) throw new Error("Can't find item")
-      win.selectedItem = { ...src }; win.slots[sourceStart] = null   // picked up onto the cursor
-      if (throwOn && throwOn(src)) throw new Error('simulated click failure')
-      const size = mcData.itemsByName[src.name].stackSize
-      let left = Math.min(count, win.selectedItem.count)
-      for (let i = destStart; i < destEnd && left > 0; i++) { const d = win.slots[i]; if (d && d.name === src.name && d.count < size) { const m = Math.min(size - d.count, left); d.count += m; left -= m } }
-      for (let i = destStart; i < destEnd && left > 0; i++) if (!win.slots[i]) { const m = Math.min(size, left); win.slots[i] = { ...src, count: m, slot: i }; left -= m }
-      if (left > 0) { win.selectedItem.count = left; throw new Error('destination full') }
-      win.selectedItem = null
+    clickWindow: async (slot, btn, mode) => {
+      const win = bot.currentWindow
+      assert.equal(btn, 0); assert.equal(mode, 0, 'left clicks only')
+      st.clicks++
+      if (onClick) onClick(slot, win)
+      const at = win.slots[slot], cur = win.selectedItem
+      if (!cur) { if (at) { win.selectedItem = { ...at }; win.slots[slot] = null; win.lastFrom = slot } return }
+      if (slot < win.inventoryStart && failDest && failDest(cur)) throw new Error('simulated click failure')
+      if (!at) {
+        if (slot >= win.inventoryStart && cursorStuck) return
+        win.slots[slot] = { ...cur, slot }; win.selectedItem = null
+        if (slot < win.inventoryStart && refuse && refuse(cur)) pending.push({ win, from: win.lastFrom, to: slot })
+        return
+      }
+      if (at.name === cur.name) { const size = mcData.itemsByName[cur.name].stackSize; const m = Math.min(size - at.count, cur.count); at.count += m; cur.count -= m; if (!cur.count) win.selectedItem = null; return }
+      win.slots[slot] = { ...cur, slot }; win.selectedItem = { ...at }
     },
   }
   return { bot, st, bagSlots }
 }
 const sumOf = (list, n) => list.filter(i => i?.name === n).reduce((a, i) => a + i.count, 0)
+const total = l => l.reduce((a, i) => a + (i?.count ?? 0), 0)
 const chestAt = (x, y = 70, z = 0, extra = {}) => ({ pos: new Vec3(x, y, z), items: Array(27).fill(null), ...extra })
+const filledChest = (x, empty = 0, extra = {}) => chestAt(x, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < empty ? null : item('dirt', 64))), ...extra })
 const fullBag = () => bag([['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20],
   ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['apple', 45], ['raw_iron', 5], ['coal', 9], ['dirt', 30], ['raw_copper', 7], ...filler(22)])
 const run = (bot, signal = null) => SKILLS.town_deposit.run({ bot }, {}, signal)
+const rowsOf = async fn => {
+  const rows = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_town_deposit') rows.push(r) })
+  try { return { out: await fn(), rows } } finally { untap() }
+}
 
 test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, the iron, the best and the spent pickaxe; one row', async () => {
   const items = fullBag(); assert.equal(items.length, 36)
   const c = chestAt(2)
   const { bot, st } = world({ items, containers: [c] })
-  const rows = []
-  const untap = tapRecords(r => { if (r?.skill?.name === '_town_deposit') rows.push(r) })
-  let r
-  try { r = await run(bot) } finally { untap() }
+  const { out: r, rows } = await rowsOf(() => run(bot))
   assert.equal(r.status, 'success', r.detail)
   const now = bot.inventory.items()
-  assert.ok(now.length <= 32, `slots ${now.length}`)
+  assert.equal(now.length, 32)
   assert.equal(sumOf(now, 'cobblestone'), 128); assert.equal(sumOf(now, 'oak_log'), 128)
   assert.equal(sumOf(now, 'raw_iron'), 5); assert.equal(sumOf(now, 'apple'), 45); assert.equal(sumOf(now, 'dirt'), 30)
   const picks = now.filter(i => i.name === 'stone_pickaxe').map(i => 131 - i.durabilityUsed).sort((a, b) => a - b)
   assert.deepEqual(picks, [1, 120], 'the spent copy and the best copy stay; the 60-use copy is banked')
   assert.equal(sumOf(c.items, 'stone_pickaxe'), 1); assert.equal(sumOf(c.items, 'raw_copper'), 7)
-  const total = l => l.reduce((a, i) => a + (i?.count ?? 0), 0)
   assert.equal(total(now) + total(c.items), total(items), 'nothing lost')
   assert.equal(st.dropped, 0); assert.equal(st.loadedCloses, 0)
+  assert.equal(st.clicks, 8, 'two left clicks per stack')
   assert.equal(rows.length, 1)
-  assert.match(rows[0].skill.detail, /^slots 36->3\d stacks \d+\/\d+ banked .*stone_pickaxe:1/)
+  assert.match(rows[0].skill.detail, /^slots 36->32 stacks 4\/4 bagdelta 38 tools stone_pickaxe@60 banked .*stone_pickaxe:1/)
 })
 
-test('SKILL: a full chest takes nothing -- no transfer, no cursor, no drop; then the second container takes it', async () => {
-  const fullChest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) })
-  const { bot, st } = world({ items: fullBag(), containers: [fullChest] })
+test('SKILL: a full chest takes nothing -- no click, no cursor, no drop; the second container takes it', async () => {
+  const { bot, st } = world({ items: fullBag(), containers: [filledChest(2)] })
   const r = await run(bot)
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'town_storage_full')
   assert.match(r.detail, /deposit \(no item\)/, 'the remedy names a verb the bot can run from here')
-  assert.equal(st.transfers, 0); assert.equal(st.dropped, 0)
-  const two = world({ items: fullBag(), containers: [chestAt(2, 70, 0, { items: Array.from({ length: 27 }, () => item('dirt', 64)) }), chestAt(-4)] })
+  assert.equal(st.clicks, 0); assert.equal(st.dropped, 0)
+  const two = world({ items: fullBag(), containers: [filledChest(2), chestAt(-4)] })
   const r2 = await run(two.bot)
   assert.equal(r2.status, 'success', r2.detail)
   assert.deepEqual(two.st.opened, ['2,70,0', '-4,70,0'])
 })
 
-test('SKILL: a click that fails with the stack on the cursor puts it back; nothing is dropped or lost', async () => {
+test('SKILL: two containers share ONE visit allowance: the first takes 2 stacks, the second the rest, the cap holds', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['raw_copper', 5], ['raw_gold', 3], ...filler(30)])
+  const a = filledChest(2, 2), b = chestAt(-4)
+  const { bot } = world({ items, containers: [a, b] })
+  const r = await run(bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(sumOf([...a.items, ...b.items], 'oak_log'), 10, 'logs: 10 in this visit (64 more would pass the 64 cap)')
+  assert.equal(sumOf([...a.items, ...b.items], 'raw_copper') + sumOf([...a.items, ...b.items], 'raw_gold'), 8)
+  assert.equal(a.items.filter(x => x && x.name !== 'dirt').length, 2, 'the first chest took two stacks')
+})
+
+test('SKILL: a click that fails with the stack on the cursor puts it back and stops; nothing is dropped or lost', async () => {
   const items = fullBag()
   const c = chestAt(2)
-  const { bot, st } = world({ items, containers: [c], throwOn: src => src.name === 'oak_log' })
+  const { bot, st } = world({ items, containers: [c], failDest: cur => cur.name === 'oak_log' })
   await run(bot)
-  const total = l => l.reduce((a, i) => a + (i?.count ?? 0), 0)
   assert.equal(total(bot.inventory.items()) + total(c.items), total(items))
   assert.equal(st.dropped, 0); assert.equal(st.loadedCloses, 0)
-  assert.equal(sumOf(bot.inventory.items(), 'oak_log'), 138, 'the failed stacks are back in the bag')
+  assert.equal(sumOf(bot.inventory.items(), 'oak_log'), 138, 'the log stack is back in the bag')
 })
 
-test('SKILL: a cursor that cannot be put back stops the run and says so (the read gates on it)', async () => {
-  const { bot, st } = world({ items: fullBag(), containers: [chestAt(2)], throwOn: src => src.name === 'cobblestone', cursorStuck: true })
-  const rows = []
-  const untap = tapRecords(r => { if (r?.skill?.name === '_town_deposit') rows.push(r) })
-  try { await run(bot) } finally { untap() }
+test('SKILL: a cursor that cannot be put back stops the run, says so, and the bag is whole (vanilla close returns it)', async () => {
+  const { bot, st } = world({ items: fullBag(), containers: [chestAt(2)], failDest: cur => cur.name === 'cobblestone', cursorStuck: true })
+  const { rows } = await rowsOf(() => run(bot))
   assert.match(rows[0].skill.detail, /stop cursor cursor_unsettled 1/)
-  assert.equal(st.dropped, 0, 'vanilla close returns it to the bag: the source slot is free')
+  assert.equal(st.dropped, 0)
+  assert.equal(sumOf(bot.inventory.items(), 'cobblestone'), 148)
 })
 
-test('SKILL: never a mine chest, a lidded chest, or the other half of a double chest; never walks home', async () => {
-  const deep = chestAt(1, 50, 0), lidded = chestAt(2, 70, 0, { lid: 'stone' }), half1 = chestAt(-3), half2 = chestAt(-3, 70, 1)
-  const { bot, st } = world({ items: fullBag(), containers: [deep, lidded, half1, half2] })
-  let walkedHome = false
-  bot.pathfinder.goto = async g => { if (Math.abs(g.x) + Math.abs(g.z) === 0) walkedHome = true }
-  bot.inventory.items()   // unchanged
-  const fullHalf = Array.from({ length: 27 }, () => item('dirt', 64))
-  half1.items = fullHalf.map(x => ({ ...x }))
-  half2.items = fullHalf.map(x => ({ ...x }))
+test('SKILL: a move the SERVER refuses is not counted: the bag decides, never the clicks', async () => {
+  const items = fullBag()
+  const c = chestAt(2)
+  const { bot } = world({ items, containers: [c], refuse: cur => cur.name === 'raw_copper' })
+  const { out: r, rows } = await rowsOf(() => run(bot))
+  assert.equal(r.status, 'success')
+  assert.equal(sumOf(bot.inventory.items(), 'raw_copper'), 7, 'refused: still in the bag')
+  assert.ok(!/raw_copper/.test(rows[0].skill.detail), 'and not claimed')
+  assert.match(rows[0].skill.detail, /stacks 3\/4 bagdelta 31 /)
+  const all = world({ items: bag([['raw_copper', 7], ...filler(34)]), containers: [chestAt(2)], refuse: () => true })
+  const r2 = await run(all.bot)
+  assert.equal(r2.status, 'failed', 'every move refused: no success')
+})
+
+test('SKILL: never a mine chest, a lidded chest, or the other half of a double chest; a single beside a single is tried', async () => {
+  const deep = chestAt(1, 50, 0), lidded = chestAt(2, 70, 0, { lid: 'stone' })
+  const half1 = filledChest(-3, 0, { props: { type: 'left', facing: 'north' } }), half2 = { ...filledChest(-2, 0, { props: { type: 'right', facing: 'north' } }) }
+  const { bot, st } = world({ items: fullBag(), containers: [deep, lidded, half1, half2, chestAt(-6)] })
   const r = await run(bot)
-  assert.deepEqual(st.opened, ['-3,70,0'], `opened ${st.opened}`)
-  assert.equal(r.failClass, 'town_storage_full')
-  assert.equal(walkedHome, false)
+  assert.deepEqual(st.opened, ['-2,70,0', '-6,70,0'], `opened ${st.opened}: the double chest once, then the next container`)
+  assert.equal(r.status, 'success')
+  const singles = world({ items: fullBag(), containers: [filledChest(-2), chestAt(-3)] })
+  const r3 = await run(singles.bot)
+  assert.deepEqual(singles.st.opened, ['-2,70,0', '-3,70,0'], 'a full single, then the single beside it (not its other half)')
+  assert.equal(r3.status, 'success')
   const none = world({ items: fullBag(), containers: [deep] })
   const r2 = await run(none.bot)
   assert.equal(r2.status, 'no_effect'); assert.equal(none.st.opened.length, 0)
+})
+
+test('SKILL: the walk borrows the no-dig, no-place profile; never walks home', async () => {
+  const { bot, st } = world({ items: fullBag(), containers: [chestAt(12)], botAt: new Vec3(0, 70, 0) })
+  const profiles = []
+  bot.withTownDepositWalk = async fn => { profiles.push('town_deposit_walk'); return fn() }
+  await run(bot)
+  assert.deepEqual(profiles, ['town_deposit_walk'])
+  assert.equal(st.walks.length, 1); assert.equal(st.walks[0].x, 12, 'to the chest, not home')
+})
+
+test('SKILL: an open that times out ends the run (no second open), and the late window is closed when it comes', async () => {
+  const { bot, st } = world({ items: fullBag(), containers: [chestAt(2), chestAt(-4)], openNever: true })
+  const { TD_OPEN_MS } = TD
+  const t0 = Date.now()
+  const r = await run(bot)
+  assert.ok(Date.now() - t0 >= Math.min(TD_OPEN_MS, 1000) - 50)
+  assert.equal(r.status, 'failed'); assert.deepEqual(st.opened, ['2,70,0'], 'no second open while one is pending')
+  st.late(); await new Promise(res => setTimeout(res, 10))
+  assert.equal(st.closes, 1, 'the late window was closed'); assert.equal(bot.currentWindow, null)
 })
 
 test('SKILL: an abort mid-run closes the window and throws; nothing dropped', async () => {
   const ac = new AbortController()
   const items = fullBag()
   const c = chestAt(2)
-  const { bot, st } = world({ items, containers: [c], throwOn: () => { ac.abort(); return false } })
+  const { bot, st } = world({ items, containers: [c], onClick: () => { if (st.clicks === 3) ac.abort() } })
   await assert.rejects(run(bot, ac.signal), e => e?.aborted)
   assert.equal(st.closes, 1); assert.equal(st.dropped, 0)
-  const total = l => l.reduce((a, i) => a + (i?.count ?? 0), 0)
   assert.equal(total(bot.inventory.items()) + total(c.items), total(items))
 })
 
@@ -412,11 +491,11 @@ let lseq = 0
 const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.json`)); L.data.avoid = {}; L.data.worked = {}; return L }
 
 /** A bot whose active rung is the stone pickaxe (craft-ready), at 36/36, standing in town beside a chest. */
-function chainBot ({ at = new Vec3(3, 70, 0) } = {}) {
+function chainBot ({ at = new Vec3(3, 70, 0), chest = chestAt(2) } = {}) {
   const items = bag([['dirt', 16], ['oak_log', 64], ['oak_log', 64], ['sand', 8], ['cobblestone', 64], ['cobblestone', 20], ['crafting_table', 1],
     ['wooden_pickaxe', 1, 50], ['stick', 8], ['furnace', 1], ['raw_copper', 5], ...filler(25)])
   assert.equal(items.length, 36)
-  const { bot } = world({ items, containers: [chestAt(2)], botAt: at })
+  const { bot } = world({ items, containers: [chest], botAt: at })
   Object.assign(bot, {
     health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
     recipesFor: id => (id === mcData.itemsByName.stone_pickaxe.id ? [{ delta: [] }] : []), recipesAll: () => [],
@@ -424,28 +503,46 @@ function chainBot ({ at = new Vec3(3, 70, 0) } = {}) {
   })
   return bot
 }
+/** n real decisions. The town deposit RUNS (the real skill against the fake window); any other skill is recorded with the
+ *  bag's slot count at the moment it was dispatched, and succeeds. */
 async function decisions (bot, n) {
   const ran = []
-  const runner = { isBusy: () => false, run: async (skill) => { ran.push(skill); return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] } } }
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    const slots = bot.inventory.items().length
+    if (skill === 'town_deposit') { const r = await SKILLS.town_deposit.run({ bot }, args ?? {}, null); ran.push({ skill, slots, status: r.status }); return r }
+    ran.push({ skill, slots, status: 'success' })
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+  } }
   const loop = new CognitiveLoop(bot, runner, freshLessons(), null)
   loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
   loop.milestones.cycle = 540
   loop.start()
-  for (let i = 0; i < 100 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
+  for (let i = 0; i < 200 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
   loop.stop()
   return { ran, loop }
 }
 
-test('CHAIN: a full bag at town with a craft-ready rung deposits FIRST, then the craft order runs', async () => {
+test('CHAIN: a full bag at town with a craft-ready rung deposits FIRST, and the craft is dispatched with room made', async () => {
   const bot = chainBot()
   const { ran, loop } = await decisions(bot, 2)
   assert.equal(loop.milestones.current()?.id?.includes('stone_pickaxe'), true, `active rung ${loop.milestones.current()?.id}`)
-  assert.equal(ran[0], 'town_deposit', `first: ${ran}`)
-  assert.equal(ran[1], 'craft', `then the craft the deposit made room for: ${ran}`)
+  assert.deepEqual(ran.map(x => x.skill), ['town_deposit', 'craft'], JSON.stringify(ran))
+  assert.equal(ran[0].status, 'success'); assert.equal(ran[0].slots, 36)
+  assert.equal(ran[1].slots, 33, 'the craft order runs on a bag the deposit emptied three slots of (one log stack, cobble 20, copper)')
+  assert.equal(sumOf(bot.inventory.items(), 'oak_log'), 64); assert.equal(sumOf(bot.inventory.items(), 'cobblestone'), 64)
+  assert.equal(sumOf(bot.inventory.items(), 'stick'), 8, 'the rung\'s means stay')
+})
+
+test('CHAIN, FULL BANK: the deposit fails once, then the bot goes on (the craft order, then the model) -- no deposit loop', async () => {
+  const bot = chainBot({ chest: filledChest(2) })
+  const { ran } = await decisions(bot, 5)
+  assert.equal(ran[0].skill, 'town_deposit'); assert.equal(ran[0].status, 'failed')
+  assert.equal(ran.filter(x => x.skill === 'town_deposit').length, 1, `one attempt per stay and a 15 min backoff: ${JSON.stringify(ran)}`)
+  assert.equal(ran[1].skill, 'craft', 'the remedy chain continues exactly as on the base (craftroom owns a full-bag craft)')
 })
 
 test('CHAIN CONTROL: the same bot out of town runs the craft order first (the deposit never fires away from town)', async () => {
   const bot = chainBot({ at: new Vec3(40, 70, 0) })
   const { ran } = await decisions(bot, 1)
-  assert.equal(ran[0], 'craft', `first: ${ran}`)
+  assert.equal(ran[0].skill, 'craft', `first: ${JSON.stringify(ran)}`)
 })
