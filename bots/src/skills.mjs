@@ -7929,12 +7929,15 @@ export async function shaftAscend(bot, targetY, signal,
       // pickaxe's deadline, nor hide a real "needs a pickaxe".
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
       // THE FLOOD CHECK AGAIN, AFTER THE HAND CHANGE (climbflood-01, Codex r2): the equip is a server round trip.
+      // Anchored on `head` ITSELF (Codex r3), so a bot that drifted a cell during the equip cannot approve a dry
+      // neighbour and break the original target.
+      const q = bot.entity.position
+      const wetNow = isWaterCell(bot.blockAt(q.offset(0, 1, 0))) && isWaterCell(bot.blockAt(q))
       {
-        const q = bot.entity.position
-        const wetNow = isWaterCell(bot.blockAt(q.offset(0, 1, 0))) && isWaterCell(bot.blockAt(q))
-        const again = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(q.offset(dx, 2 + dy, dz)), submerged: wetNow })
+        const cell = head.position ?? p.offset(0, 2, 0)
+        const again = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(cell.offset(dx, dy, dz)), submerged: wetNow })
         if (again) {
-          logFloodGuard(bot, { caller: 'shaft_ascend', reason: again, cell: q.offset(0, 2, 0), submerged: wetNow })
+          logFloodGuard(bot, { caller: 'shaft_ascend', reason: again, cell, submerged: wetNow })
           return { gained: q.y - startY, stopped: again }
         }
       }
@@ -7952,7 +7955,7 @@ export async function shaftAscend(bot, targetY, signal,
           // affordable bare-handed; the harvest watchdog must not overrule it.
           needsDrop: false,
         })
-        watchClimbDig(bot, { caller: 'shaft_ascend', cell: head.position ?? p.offset(0, 2, 0), submerged, before: head.name })
+        watchClimbDig(bot, { caller: 'shaft_ascend', cell: head.position ?? p.offset(0, 2, 0), submerged: wetNow, before: head.name })
       } catch (e) {
         // NAME THE FAILURE. This swallowed the error and reported a bare "dig
         // failed on <block>", which `climbAdvice` then turned into "this stone

@@ -20,7 +20,8 @@ import { createRequire } from 'node:module'
 import { overheadBreakRisk, isWaterCell, isLavaCell, headroomBreach, stairUpStep, floodSidestep,
          chooseFloodSidestep } from '../src/scaffold.mjs'
 import { pillarOut, digStraightUp, escapeStairUp, upwardDigFloodRisk, refusalEscalation,
-         climbNeedAbove, floodBranch, ceilingFloodRisk, shaftCapNeedsTool } from '../src/reflex.mjs'
+         climbNeedAbove, floodBranch, ceilingFloodRisk, shaftCapNeedsTool, targetFloodRisk, unburyDigFor,
+         unburySelf } from '../src/reflex.mjs'
 import { FLOOD_RISK, FLOOD_REMEDY, climbOutcomeRoute, floodChainStep, watchClimbDig } from '../src/climbflood.mjs'
 import { tapRecords } from '../src/logger.mjs'
 import { shaftAscend } from '../src/skills.mjs'
@@ -111,19 +112,19 @@ const PICK = (left = 100) => ({ name: 'stone_pickaxe', count: 1, type: 101, maxD
 const BUCKET = { name: 'bucket', count: 1, type: 900 }
 
 /** A bot that digs, pillars (a placed block lifts it one), and walks a ramp step when the geometry allows. */
-function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = null, onHand = null } = {}) {
-  const digs = [], placed = []
+function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = null, onHand = null, onLook = null } = {}) {
+  const digs = [], placed = [], controls = []
   let yaw = 0
   const rel = p => ({ x: Math.floor(p.x), y: Math.floor(p.y) - y, z: Math.floor(p.z) })
   const bot = {
-    digs, placed, world: w, pendingPrereq: undefined,
+    digs, placed, controls, world: w, pendingPrereq: undefined,
     entity: { position: V(0, y, 0), get yaw () { return yaw }, onGround: true, isInWater: false },
     health: 20,
     heldItem: held,
     inventory: { items: () => inv.filter(i => i.count > 0), emptySlotCount: () => 36 - inv.length },
     blockAt (p) { const r = rel(p); return blk(w.get(r.x, r.y, r.z), V(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))) },
-    async unequip () { bot.heldItem = null; onHand?.(w) },
-    async equip (item) { bot.heldItem = item; onHand?.(w) },
+    async unequip () { bot.heldItem = null; onHand?.(w, bot) },
+    async equip (item) { bot.heldItem = item; onHand?.(w, bot) },
     async dig (b) {
       const r = rel(b.position)
       digs.push({ cell: `${r.x},${r.y},${r.z}`, name: b.name, held: bot.heldItem?.name ?? null })
@@ -140,9 +141,10 @@ function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = n
       const p = bot.entity.position
       bot.entity.position = V(p.x, p.y + 1, p.z)
     },
-    stopDigging () {}, clearControlStates () {},
-    async look (a) { yaw = a }, async lookAt () {},
+    stopDigging () {}, clearControlStates () { controls.push('clear') },
+    async look (a) { yaw = a; onLook?.(w, bot) }, async lookAt () {},
     setControlState (name, on) {
+      controls.push(`${name}:${on}`)
       if (name !== 'forward' || !on) return
       const bear = [{ x: 0, z: -1 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 1, z: 0 }][((Math.round(yaw / (Math.PI / 2)) % 4) + 4) % 4]
       const p = rel(bot.entity.position)
@@ -622,7 +624,7 @@ function assertEntombedWired (code) {
   assert.ok(b, 'the entombed handler has no flood branch: flood_risk falls into the failure counter and the pickaxe ask')
   assert.match(b, /await floodBranch\(bot, \{ handler: 'entombed'/, 'the flood branch does not run floodBranch')
   assert.match(b, /lastEscapeAt = Date\.now\(\) \+ fb\.backoffMs/, 'no back-off: the branch would spin')
-  assert.match(b, /else if \(!fb\.preempted\)/, 'a preempted ramp is backed off as if refused')
+  assert.match(b, /if \(fb\.preempted\) \{[^}]*\}\s*else if \(fb\.progressed\)/, 'preemption must be decided before progress (a preempted ramp resets nothing)')
   assert.doesNotMatch(b, /pendingPrereq/, 'the flood branch asks the goal layer for an item')
   assert.doesNotMatch(b, /escapeFailures\+\+/, 'the flood branch feeds the failure counter (four of those ask for a pickaxe)')
   assert.ok(code.indexOf(ENT_FLOOD) < code.indexOf("isEntombed(bot))) escapeFailures++"),
@@ -656,10 +658,17 @@ await t('MUTANT KILLED: unwiring the marooned flood branch is caught', () => {
 })
 await t('MUTANT KILLED: a prerequisite ask inside the entombed flood branch is caught', () => {
   const src = readFileSync(REFLEX_PATH, 'utf8')
-  const A = '            else if (!fb.preempted) { escapeFailures = 0; lastEscapeAt = Date.now() + fb.backoffMs }'
+  const A = '            else { escapeFailures = 0; lastEscapeAt = Date.now() + fb.backoffMs }'
   assert.ok(src.includes(A), 'ANCHOR MISSING'); assert.strictEqual(src.split(A).length, 2, 'anchor not unique')
   const mutated = strip(src.replace(A, A + "\n            bot.pendingPrereq = { items: ['stone_pickaxe'], count: 2 }"))
   assert.throws(() => assertEntombedWired(mutated), /asks the goal layer/)
+})
+await t('MUTANT KILLED: progress decided before preemption in the entombed caller is caught', () => {
+  const src = readFileSync(REFLEX_PATH, 'utf8')
+  const P = '            if (fb.preempted) { /* the drowning rescue took the body: not this branch\'s outcome (Codex r3) */ }\n            else if (fb.progressed) {'
+  assert.ok(src.includes(P), 'ANCHOR MISSING'); assert.strictEqual(src.split(P).length, 2, 'anchor not unique')
+  const mutated = strip(src.replace(P, '            if (false) { }\n            else if (fb.progressed) {'))
+  assert.throws(() => assertEntombedWired(mutated), /preemption must be decided before progress/)
 })
 await t('MUTANT KILLED: the give-up arm without the wet-ceiling skip is caught', () => {
   const src = readFileSync(REFLEX_PATH, 'utf8')
@@ -743,9 +752,9 @@ await t('MUTANT KILLED: ramp step digs without the flood check', async () => {
 })
 
 const M_PILLAR = "      if (upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK\n      const opened"
-const M_PILLAR2 = "      // must still be true at the swing, read with the submerged state as it is now.\n      if (upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK"
+const M_PILLAR2 = "      const atSwing = targetFloodRisk(bot, head, 'pillar_out')\n      if (atSwing.reason) return FLOOD_RISK"
 await t('MUTANT KILLED: pillarOut\'s two in-loop checks removed -> the marooned climb digs into the pocket', async () => {
-  await withMutants(REFLEX_PATH, [[M_PILLAR, '      const opened'], [M_PILLAR2, '      // (mutant)']], async mod => {
+  await withMutants(REFLEX_PATH, [[M_PILLAR, '      const opened'], [M_PILLAR2, '      const atSwing = { reason: null, submerged: false }']], async mod => {
     const w = TOMB({ '0,2,0': 'air', '0,3,0': 'air', '0,5,0': 'water' })
     const bot = makeBot(w, { inv: [COBBLE(64), PICK()] })
     await mod.pillarOut(bot, 6)
@@ -760,7 +769,7 @@ await t('THE SECOND CHECK IS LOAD BEARING: water arriving during the hand change
   const dry = makeBot(TOMB(), { inv: [COBBLE(64), PICK()], held: PICK() })
   await pillarOut(dry, 3)
   assert.strictEqual(dry.digs[0]?.cell, '0,2,0', 'POSITIVE CONTROL: no water, the same hand change digs')
-  await withMutant(REFLEX_PATH, M_PILLAR2, '      // (mutant)', async mod => {
+  await withMutant(REFLEX_PATH, M_PILLAR2, '      const atSwing = { reason: null, submerged: false }', async mod => {
     const m = makeBot(TOMB(), { inv: [COBBLE(64), PICK()], held: PICK(), onHand: flood })
     await mod.pillarOut(m, 3)
     assert.strictEqual(m.digs[0]?.cell, '0,2,0', 'the mutant still refused: the second check is not what stops it')
@@ -784,9 +793,9 @@ await t('MUTANT KILLED: digStraightUp\'s pre-check removed -> the wrong remedy (
 })
 
 const M_DSU_LOOP = "      if (upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK\n      const opened"
-const M_DSU_LOOP2 = "      if (upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK   // again after the hand change (Codex r2)"
+const M_DSU_LOOP2 = "      const atSwing = targetFloodRisk(bot, above, 'dig_straight_up')   // again after the hand change, of `above` itself (Codex r2/r3)"
 await t('MUTANT KILLED: digStraightUp\'s two in-loop checks removed -> it digs into the pocket', async () => {
-  await withMutants(REFLEX_PATH, [[M_DSU_LOOP, '      const opened'], [M_DSU_LOOP2, '']], async mod => {
+  await withMutants(REFLEX_PATH, [[M_DSU_LOOP, '      const opened'], [M_DSU_LOOP2, '      const atSwing = { reason: null, submerged: false }']], async mod => {
     const w = TOMB({ '0,2,0': 'air', '0,4,0': 'water' })
     const bot = makeBot(w, { inv: [PICK(), PICK(), COBBLE(10)] })
     await mod.digStraightUp(bot, Y0, 4)
@@ -798,7 +807,7 @@ await t('THE SECOND CHECK IS LOAD BEARING in digStraightUp: water during the equ
   const bot = makeBot(TOMB(), { inv: [PICK(), PICK()], onHand: flood })
   assert.strictEqual(await digStraightUp(bot, Y0, 1), FLOOD_RISK)
   assert.deepStrictEqual(bot.digs, [])
-  await withMutant(REFLEX_PATH, M_DSU_LOOP2, '', async mod => {
+  await withMutant(REFLEX_PATH, M_DSU_LOOP2, '      const atSwing = { reason: null, submerged: false }', async mod => {
     const m = makeBot(TOMB(), { inv: [PICK(), PICK()], onHand: flood })
     await mod.digStraightUp(m, Y0, 1)
     assert.strictEqual(m.digs[0]?.cell, '0,2,0')
@@ -829,26 +838,89 @@ await t('MUTANT KILLED: a flood step that asks for a pickaxe is caught', async (
 })
 
 const M_SHAFT = '    const flood = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, 2 + dy, dz)), submerged })'
-const M_SHAFT2 = '        const again = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(q.offset(dx, 2 + dy, dz)), submerged: wetNow })'
+const M_SHAFT2 = '        const again = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(cell.offset(dx, dy, dz)), submerged: wetNow })'
 const BLIND = "(dy === 1 && !dx && !dz ? { name: 'stone', boundingBox: 'block' } : bot.blockAt(%.offset(dx, 2 + dy, dz)))"
 await t('MUTANT KILLED: shaftAscend asking about the wrong cell (no p+3), both checks -> digs into the pocket', async () => {
   await withMutants(SKILLS_PATH, [
     [M_SHAFT, `    const flood = overheadBreakRisk({ at: (dx, dy, dz) => ${BLIND.replace('%', 'p')}, submerged })`],
-    [M_SHAFT2, `        const again = overheadBreakRisk({ at: (dx, dy, dz) => ${BLIND.replace('%', 'q')}, submerged: wetNow })`],
+    [M_SHAFT2, `        const again = overheadBreakRisk({ at: (dx, dy, dz) => (dy === 1 && !dx && !dz ? { name: 'stone', boundingBox: 'block' } : bot.blockAt(cell.offset(dx, dy, dz))), submerged: wetNow })`],
   ], async mod => {
     const bot = shaftBot(SHAFT({ '0,3,0': 'water' }))
     await mod.shaftAscend(bot, Y0 + 20, new AbortController().signal, { deadline: Date.now() + 4000 })
     assert.ok(bot.digs.some(d => d.cell === '0,2,0'), JSON.stringify(bot.digs))
   })
 })
-await t('THE SECOND CHECK IS LOAD BEARING in shaftAscend: water during the equip stops the dig', async () => {
+function shaftEquipBot (onPick) {
   const bot = shaftBot(SHAFT())
   bot.inventory.items = () => [COBBLE(24), PICK()]
   const realEquip = bot.equip
-  bot.equip = async (item) => { await realEquip(item); if (/pickaxe/.test(item?.name)) bot.world.set(0, 3, 0, 'water') }
+  bot.equip = async (item) => { await realEquip(item); if (/pickaxe/.test(item?.name)) onPick(bot) }
+  return bot
+}
+await t('THE SECOND CHECK IS LOAD BEARING in shaftAscend: water during the equip stops the dig (and its own mutant digs)', async () => {
+  const flood = b => b.world.set(0, 3, 0, 'water')
+  const bot = shaftEquipBot(flood)
   const r = await shaftAscend(bot, Y0 + 20, new AbortController().signal, { deadline: Date.now() + 4000 })
   assert.match(String(r.stopped), /liquid above/)
   assert.deepStrictEqual(bot.digs, [])
+  await withMutant(SKILLS_PATH, '        if (again) {', '        if (false) {', async mod => {
+    const m = shaftEquipBot(flood)
+    await mod.shaftAscend(m, Y0 + 20, new AbortController().signal, { deadline: Date.now() + 4000 })
+    assert.strictEqual(m.digs[0]?.cell, '0,2,0', 'the second check is not what stopped it')
+  })
+})
+
+await t('THE SWING\'S OWN TARGET: a bot that drifts a cell during the hand change cannot approve a dry neighbour (Codex r3)', async () => {
+  // pillarOut: during the unequip/equip the bot slides one cell east (open there) while water arrives over the
+  // ORIGINAL target. Asked of the bot's new position the overhead is dry; asked of the target, it is not.
+  const drift = (ww, b) => { if (!b._drifted) { b._drifted = true; ww.set(1, 0, 0, 'air'); ww.set(1, 1, 0, 'air'); ww.set(0, 3, 0, 'water'); b.entity.position = V(1, Y0, 0) } }
+  const bot = makeBot(TOMB(), { inv: [COBBLE(64), PICK()], held: PICK(), onHand: drift })
+  assert.strictEqual(await pillarOut(bot, 3), FLOOD_RISK)
+  assert.ok(!bot.digs.some(d => d.cell === '0,2,0'), 'it broke the original, now-wet target')
+  await withMutant(REFLEX_PATH, M_PILLAR2, "      const atSwing = { reason: upwardDigFloodRisk(bot, 'pillar_out'), submerged: false }\n      if (atSwing.reason) return FLOOD_RISK", async mod => {
+    const m = makeBot(TOMB(), { inv: [COBBLE(64), PICK()], held: PICK(), onHand: drift })
+    await mod.pillarOut(m, 3)
+    assert.ok(m.digs.some(d => d.cell === '0,2,0'), `the position-anchored mutant did not dig the wet target: ${JSON.stringify(m.digs)}`)
+  })
+})
+
+await t('SIDESTEP: a takeover during the look -> no stroke, and the new owner\'s controls are not cleared (Codex r3)', async () => {
+  let taken = false
+  const bot = makeBot(TOMB(WET_POCKET), { onLook: () => { taken = true } })
+  const r = await escapeStairUp(bot, { maxSteps: 2, budgetMs: 20_000, yieldTo: () => (taken ? 'drowning' : null) })
+  assert.strictEqual(r.yielded, 'drowning')
+  const after = bot.controls.slice(bot.controls.findIndex(c => c === 'clear') + 1)
+  assert.ok(!bot.controls.includes('forward:true'), `it stroked forward under the new owner: ${bot.controls}`)
+  assert.deepStrictEqual(after.filter(c => c === 'clear' || c === 'forward:false'), [], `it cleared the new owner's controls: ${bot.controls}`)
+  assert.deepStrictEqual([bot.entity.position.x, bot.entity.position.z], [0, 0], 'it moved')
+})
+
+await t('SIDESTEP: the side cell flooding during the look -> no step into it', async () => {
+  const bot = makeBot(TOMB(WET_POCKET), { onLook: (ww, b) => { if (!b._f) { b._f = true; ww.set(-1, 1, 0, 'water'); ww.set(0, 1, -1, 'water'); ww.set(0, 1, 1, 'water'); ww.set(1, 1, 0, 'water') } } })
+  const r = await escapeStairUp(bot, { maxSteps: 2, budgetMs: 20_000 })
+  assert.match(String(r.stopped), /side cell changed/)
+  assert.deepStrictEqual([bot.entity.position.x, bot.entity.position.z], [0, 0], 'it walked into the flooded side cell')
+})
+
+await t('BURIED UNDER A WET COLUMN: a refused overhead dig still lets the bot dig its OWN head cell out (Codex r3)', async () => {
+  // A gravel column has landed in the bot's head cell and at feet+2, with water above it. unburySelf (the real one)
+  // takes feet+2 first: the flood check refuses it; the head cell must still be dug, and feet+2 never.
+  const w = TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water' })
+  const bot = makeBot(w)
+  let flooded = null
+  const digWithin = async b => { await bot.dig(b); return null }
+  const digChecked = async (b, caller) => (targetFloodRisk(bot, b, caller).reason ? { flood: 'refused' } : digWithin(b))
+  const u = await unburySelf(bot, { digWithin: unburyDigFor(bot, { digChecked, digWithin, onFlood: f => { flooded = f } }) })
+  const cells = bot.digs.map(d => d.cell)
+  assert.ok(cells.includes('0,1,0'), `the bot did not dig its own head cell out: ${cells} (${u.stopped})`)
+  assert.ok(!cells.includes('0,2,0'), `the wet gravel overhead was dug: ${cells}`)
+  assert.strictEqual(flooded, 'refused')
+  assert.match(String(u.stopped), /flood risk/, 'the overhead refusal must still be reported once the body is clear')
+  // POSITIVE CONTROL: the same column with a DRY top is dug top down, overhead included
+  const dry = makeBot(TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel' }))
+  const dw = async b => { await dry.dig(b); return null }
+  await unburySelf(dry, { digWithin: unburyDigFor(dry, { digChecked: async (b, c) => (targetFloodRisk(dry, b, c).reason ? { flood: 'x' } : dw(b)), digWithin: dw }) })
+  assert.deepStrictEqual(dry.digs.map(d => d.cell), ['0,2,0', '0,1,0'])
 })
 
 const M_WLSOLID = "  const solid = target.name !== 'air' && target.boundingBox !== 'empty'\n  if (!solid) return null"
@@ -896,6 +968,18 @@ const M_CAP = '  if (ceilingFloodRisk(bot, cap.dy)) return null'
 await t('MUTANT KILLED: a wet cap reported as needing a pickaxe', async () => {
   await withMutant(REFLEX_PATH, M_CAP, '', async mod => {
     assert.ok(mod.shaftCapNeedsTool(makeBot(TOMB({ '0,2,0': 'air', '0,4,0': 'water' }), { inv: [] })))
+  })
+})
+
+const M_UNBURY_OWN = "    for (const dy of [1, 0]) {\n      const own = bot.blockAt(bot.entity.position.offset(0, dy, 0))\n      if (own && isFallingBlock(own) && !bodyPassable(own)) return digWithin(own)\n    }"
+await t('MUTANT KILLED: a refused overhead dig that blocks the body\'s own unburying', async () => {
+  await withMutant(REFLEX_PATH, M_UNBURY_OWN, '', async mod => {
+    const w = TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water' })
+    const bot = makeBot(w)
+    const digWithin = async b => { await bot.dig(b); return null }
+    const digChecked = async (b, caller) => (mod.targetFloodRisk(bot, b, caller).reason ? { flood: 'refused' } : digWithin(b))
+    await mod.unburySelf(bot, { digWithin: mod.unburyDigFor(bot, { digChecked, digWithin }) })
+    assert.ok(!bot.digs.some(d => d.cell === '0,1,0'), 'the mutant still dug the head cell')
   })
 })
 
