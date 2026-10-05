@@ -125,6 +125,18 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 ~18:35Z — OWNER: food no-pickup in peaceful worlds (switch auto|on|off from server difficulty) and an AUTOMATIC
+TOWN DEPOSIT for full bags -- both being designed (both engines) and built as separate canaries (towndeposit-01,
+foodskip-01). Evidence: docs/reports/bag-creep-analysis-2026-10-05.md (fleet average flat ~33.2 slots; ~11-12
+slots/bot have no exit; 715 full-bag town stays carried bankable items, 231 tried a deposit; 35% of model deposit
+proposals asked to bank apples; scoreboard undercounts ~0.8 slot -- eggs stack 16). Underground safety:
+docs/reports/underground-safety-design-2026-10-05.md (every drowning a sealed pocket; the escape climb digs into
+water unchecked = 28% of drownings) -> climbflood-01 being built. Studio co-tenants identified (com.lcia.* launch
+agents: keepwarm watchdog restarts Ollama + pins qwen2.5-coder:7b; NUM_PARALLEL=4; caching proxy :11435) -- owner
+investigating; Ollama upgrade approved. Model screen A1: gemma4:26b leads (infeasible 1%, repeats failed 14%, overseer
+valid 88% vs the fleet 7B 14% / 71% / 17%). QUEUE: chestfull-02 (live) -> withdraw -> climbflood -> towndeposit ->
+foodskip -> grid fix -> bamboo -> junk well re-run -> cobble rule.
+
 ## 10-05 17:15Z — JUNKWELL-01 REVERTED by the death gate (15:13Z): 6 canary deaths / 51.1 bot-h vs 11 / 358.2 (3.83x,
 lower bound 1.40x, randomization p = 0.033). All 6 were 80-173 blocks from the well, deep underground: 4 drownings in
 sealed water pockets (y 36-60), 2 lava (y -1, -55); none within 2 min of well activity. MECHANISM (measured): canary
