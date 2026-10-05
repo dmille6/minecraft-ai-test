@@ -31,6 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
+import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail } from './foodskip.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -1401,6 +1402,26 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   await pickupNearbyItems(bot, signal)
 }
 
+/** FOOD_SKIP, read once per process (like PLANT_ENABLED): an env change needs a restart, which a deploy is. */
+const FOOD_SKIP = foodSkipMode(process.env)
+let foodSkipSaid = null
+/**
+ * The skip's decision for this bot NOW -> { active, foodsByName }, for skipFoodDrop. auto reads the server's difficulty
+ * (mineflayer bot.game.difficulty) every call, so a world switched away from peaceful starts picking food up again
+ * without a restart. ONE `_food_skip` row per process per change of (decision, difficulty): the canary's liveness row,
+ * and the record of which mode a bot ran in.
+ */
+export function foodSkipNow (bot) {
+  const difficulty = bot?.game?.difficulty ?? null
+  const active = foodSkipActive(FOOD_SKIP.mode, difficulty)
+  const said = `${active}|${difficulty}`
+  if (said !== foodSkipSaid) {
+    foodSkipSaid = said
+    try { logEvent({ kind: 'food_skip', status: 'success', detail: foodSkipDetail({ ...FOOD_SKIP, difficulty, active }) }) } catch { /* a row must never break a pickup */ }
+  }
+  return { active, foodsByName: bot?.registry?.foodsByName ?? null }
+}
+
 /** Walk over anything on the floor within a few blocks. */
 /**
  * ONE UNREACHABLE DROP MUST NOT ABANDON THE OTHERS.
@@ -1432,10 +1453,14 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
   // from here may be fine after the next dig moves the bot, and a persistent
   // blacklist of entity ids would outlive the entities.
   const refused = new Set()
+  // FOOD IS NOT CHASED IN A PEACEFUL WORLD (foodskip.mjs; FOOD_SKIP=auto|on|off). Read once per sweep. This governs the
+  // WALK only: the server still hands over food that lands within ~1 block of the bot.
+  const food = foodSkipNow(bot)
   for (let i = 0; i < 4; i++) {
     check(signal)
     const drop = bot.nearestEntity?.(e =>
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
+      !skipFoodDrop(e, food) &&                                        // nor food while the skip is active (foodskip.mjs)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
