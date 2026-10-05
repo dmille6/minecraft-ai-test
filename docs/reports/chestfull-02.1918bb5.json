@@ -1,0 +1,128 @@
+{
+ "run_id": "chestfull-02",
+ "sha": "47110e8",
+ "registered_at": "2026-10-05T08:57:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[chestfull-02: the chest-full fix after chestfull-01 (6c9a8fb) was REVERTED by the death gate at +30 min on 10-05 (3 canary deaths / 15 bots vs 0 / 65). Branch chest2-on-1918bb5 @ 47110e8 on fleet 1918bb5 (6c9a8fb + three commits). NOT LAUNCHED by this registration; the death gate is unchanged (two-death floor).] POST-MORTEM (fleet rows 02:46:55-03:22Z vs the 3 h before, rotation-aware Events.load, rows sorted by t; positive control 193,638 rows / 80 bots): NO changed code path connects to the deaths or the mining rise. (a) watchDigging: 0 of the 7 canary deposits had a watch stop; the 4 canary watch stops (skills.mjs:193 on 6c9a8fb) were all at the end of goto/gather walks (unchanged code; control 3 at :187); the fleet navigation profile is canDig=false, so a deposit walk never plans a dig. (b) the deep chest 365,15,184 (58 below board-a's home) was targeted by board-a-Comet 3x on 6c9a8fb -- and 14x in the 3 h before on 1918bb5/56db2cd and 1x after the teardown: pre-existing; Comet did not die. (c) bank closure never activated: 0 _deposit_new_chest rows, 0 bank_closed among 201 'decision rejected' lines in the 15 canary journals. Deaths: board-a-Bravo drowned mining in gather_iron_ore_3 (entered 02:45:31, before the deploy, on 1918bb5); placebo-d-Bravo drowned gathering birch in stockpile_wood (entered 02:26); board-a-Alpha fell 73 on the goto home after completing gather_iron_ore_3 (entered 02:58:38 via crafting_table). No deposit/chest row within 150 s of any death. MINING RISE = iron-milestone occupancy: 57 of 71 canary mine decisions post were in gather_iron_ore_3 (four bots); mines per iron-milestone decision 0.57 post vs 0.56 in the 3 h before (control 0.47 vs 0.51); non-iron mining fell. E:167 vs E:178 reconciled: 167 counts deaths in the 3 h before (control 9, canary 1; live files only, missing 23:46:55-24:00 which held no deaths), 178 is per bot over the 30 min before (control 1/65 = 0.02). THE CHANGE (Codex APPROVE r3 on 47110e8): chestWalk -- the walk to a chest and to a new chest's cell runs withTimeout with needsDrop:false (no watchDigging) and clears the goal on timeout only if it is still the walk's own; A RESOLVED WALK IS NOT AN ARRIVAL (eyes > 5.5 from the chest after goto resolved = no path; mineflayer-pathfinder resolves an empty noPath); ONE town boundary inTown (16 horizontal AND 12 vertical) for memory read/write, walk start, nearHome, sweep and site; DEEP containers (|dy| > 12) are never deposit targets and not 'storage' to admission, the prompt's CARRYING line or deposit_surplus.done(); closesBank -- only refuse_cap/no_site/craft_failed/place_failed/retry_failed (a new chest that OPENED and took nothing) close the bank, a defer closes nothing and backs the container off in the town memory; an interrupted walk strikes/backs off nothing and ends the attempt; a failed walk to a chest OUTSIDE town backs it off for that bot 10 min (never a town chest); a sweep walk from outside town strikes no town chest; craft's room advice names a deposit only where admission would take it, else 'home -- then deposit X'. Banking reminders and the return milestone are unchanged unless the bank is truly closed. TESTS: 225/225 files (node scripts/run-tests.mjs) on 47110e8; chest-full.test.mjs 60/60 (18 new C2 behaviour tests); 23/23 mutants killed by the named test, every anchor asserted present and unique; eslint clean on the five changed src files (the only error tree-wide is the pre-existing guarded withinBody in reflex.mjs). PAPER (sandbox/craft/chest-ab.cjs, 10-05 06:41-08:00Z, server oracle): deep -- control 6c9a8fb 1/1 banked 96 into the chest 20 below home, candidate 3/3 (1 on 741d897, 2 on 47110e8) left it untouched (walked for the town chest; failed no_path from the sealed pit); one-cell pocket mid-walk (no legal move) -- control 2/2 'arrived' 17-18 short, the open timed out, it struck the good town chest and CLOSED THE BANK; candidate 2/2 no_path in 2.2 s, no strike, no closure; a 7-cell sealed tunnel -- both arms 4/4 no_path, nothing struck; watchDigging fired in 0 trials of either arm (no concurrent dig occurred inside a deposit window); carried 1/1 placed the carried chest 5.7 from home, craft 1/1 crafted+placed, budget 1/1 refuse_cap + the bank_closed chain, roomy 1/1, site 1/1 (3.0 from home, 7.2 from the composter), far 1/1 decision=far; nothing dropped and everything conserved in every trial (those six on 741d897; the round-2 delta touches neither path). WHAT A KEEP CAN MEAN: as for chestfull-01 -- a placement on the fleet is ~0 per 6 h after the 10-04 clear, so the read gates DEFECTS and the ordinary deposit; also report _deposit_new_chest decision=defer count (no longer a closure) and deposits whose detail says 'the walk ended N blocks'.",
+ "licence": {
+  "class": "kind",
+  "kind": "_deposit_new_chest",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per full-chest recovery decision (far, defer, out_of_time, refuse_cap, place_carried, craft). The fleet (1918bb5) has no such row: 0 _deposit_* event rows of any kind in 8.1 h after the 10-04 clear (positive control: 427,304 rows, 80 bots, 733 deposit rows by the same walk)."
+ },
+ "reads": [
+  "chestread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 780,
+ "change_rows": [
+  "deposit_new_chest",
+  "deposit_cursor_rescue"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "deposit activity (the recovery is entered from a deposit)",
+    "kind": "deposit",
+    "min": 8
+   }
+  ],
+  "note": "10-04 18:12Z..10-05 02:18Z (8.1 h) deposits per pool: board-a 91, board-b 69, board-c 32, board-d 71, hive-a 32, hive-b 16, hive-c 119, hive-d 87, placebo-a 21, placebo-b 24, placebo-d 69 (isolated-* and placebo-c are never drawn). No pool can be drawn for FULL chests: there is 1 storage_full deposit fleet-wide since the clear."
+ },
+ "exposure": {
+  "read": "chestread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 20 canary-build deposit rows (the new deposit code ran: bounded first walk, town memory, the recovery on an unusable first chest) AND >= 1 control deposit whose first chest was unusable (full / open failed / lid / used another; 43-44 in the 6 h dry run 10-05). NOT a placement count: after the 10-04 18:07Z clear (full bank containers 233 -> 0) a placement on 10 bots is ~0 per 6 h, so the placement path is proven on Paper (sandbox/craft/chest-ab.cjs), not here."
+ },
+ "own_lines": [
+  {
+   "read": "chestread",
+   "field": "c1_offsite",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a placement (placed=1) with home_d > 16 or composter_d < 3 -- chestSiteRefusal forbids both."
+  },
+  {
+   "read": "chestread",
+   "field": "c2_over_budget",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: the town CLAIM LEDGER the bots write (/var/lib/mcai/_pool-<pool>/town-chest-*.c<n>.json + observations): two claims < 10 min apart, > 4 in any rolling 24 h, or > 12 standing, where a claim made after the cutoff is involved. Read from the file the budget itself reads, not from row times (rows stamp the end of the retry deposit)."
+  },
+  {
+   "read": "chestread",
+   "field": "c3_over_1",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: more than one unsettled-transfer EVENT (a failed _deposit_cursor_rescue and the transfer_unsettled deposit it ends are one event: the deposit row is stamped at its START and the rescue inside its span)."
+  },
+  {
+   "read": "chestread",
+   "field": "c4_craft_while_carrying",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4 (the root cause): a decision=craft row whose END snapshot holds more chests/trapped chests than the decision explains (1 when a crafted chest was not placed, else 0)."
+  },
+  {
+   "read": "chestread",
+   "field": "arms_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: control _deposit_new_chest + _deposit_cursor_rescue rows + control pools with a claim after the cutoff. BLOCKS KEEP."
+  },
+  {
+   "read": "chestread",
+   "field": "deposits_canary_build",
+   "op": ">=",
+   "value": 20,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary deposit rows on the canary build (restart-lag rows excluded). 88 and 28 in the two 6 h dry runs on the baseline. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "chestread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control deposits whose first chest was unusable are visible to this query (44 and 102 in the dry runs). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "chestread",
+  "field": "success_did",
+  "note": "REPORTED, NOT GATED: successful deposits per bot-hour DiD (the ordinary path: bounded 60 s first walk, a closed bank after a refusal). NULL SPREAD MEASURED: the identical-code dry run (board-a,hive-c as 'canary', 10-04 20:30Z +/-360 min) read -0.73/bot-h and the pre-clear one (hive-a,placebo-d, 12:00Z) -0.34 -- a gate here would revert on noise. Also reported: storage_full DiD, decision shares, refuse_cap share (budget saturation), placements, defer count, the old bug on control."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The claim ledgers and container memory in /var/lib/mcai/_pool-<pool> are bot state and stay (a promotion reads them)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29). Exposure is the ordinary deposit path, so +360 should normally decide; the placement path cannot be exposed on the fleet after the 10-04 clear and is NOT waited for."
+ }
+}

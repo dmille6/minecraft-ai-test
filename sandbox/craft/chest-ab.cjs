@@ -73,6 +73,22 @@ const SPEC = {
     composter: { x: 706, y: 120, z: 701 }, table: { x: 701, y: 120, z: 696 } },
   // (e2) off-site: the bot 40 blocks from home beside a FULL far chest, carrying a chest AND planks: never a chest there
   'far': { bag: [...BANKABLE, ['chest', 1], ['oak_planks', 16]], chests: [[A, FULL], [B, FULL], [F, FULL]], stand: { x: 740.5, y: 120, z: 700.5 } },
+  // (f, chestfull-02) A DIG THE HELD TOOL CANNOT HARVEST, DURING THE WALK TO THE CHEST. The fleet's navigation profile
+  //     has canDig=false (index.mjs), so the walk itself never digs (pilot 10-05: a chest boxed in stone was "reached"
+  //     by an empty noPath, which mineflayer-pathfinder's goto resolves, and opened through the wall). The dig that
+  //     withTimeout's default watchDigging can kill is a CONCURRENT one: 2.5 s into a 37-block walk the bot is sealed in
+  //     stone with no pickaxe, so its escape digs stone by hand (canHarvest falsy) while the deposit's walk may still wait.
+  'entombwalk': { bag: [...BANKABLE], chests: [[A, ROOMY]], stand: { x: 740.5, y: 120, z: 700.5 }, entombAfterMs: 2500 },
+  // (f2) the same, sealed 0.8 s into the walk (the bot is still within a few blocks of the stand)
+  'entombwalk2': { bag: [...BANKABLE], chests: [[A, ROOMY]], stand: { x: 740.5, y: 120, z: 700.5 }, entombAfterMs: 800 },
+  // (f3) A ONE-CELL POCKET mid-walk (the bot held still for the instant it takes to seal it): no legal move at all, which
+  //     mineflayer-pathfinder reports as an EMPTY noPath that goto RESOLVES (pilot 10-05 ctrl 2/2: "arrived" 17 short).
+  'pocketwalk': { bag: [...BANKABLE], chests: [[A, ROOMY]], stand: { x: 740.5, y: 120, z: 700.5 }, entombAfterMs: 2500, pocket: true },
+  // (g, chestfull-02) A DEEP CHEST (20 below home) is never a target: the bot stands beside it at the bottom of an open
+  //     pit 37 out from home, nearer to it than to the town chest with room; chestfull-01 banked into it.
+  'deep': { bag: [...BANKABLE], chests: [[A, ROOMY], [{ x: 740, y: 100, z: 700 }, ROOMY]],
+    pre: ['fill 737 99 697 743 118 703 minecraft:stone', 'fill 738 100 698 742 119 702 minecraft:air'],
+    moveTo: { x: 740.5, y: 100, z: 702.5 } },
 }
 // EVERY scene has a town composter (here unless the scene places its own): without one, composter.mjs's build_composter
 // town order runs first and turns the bag's planks into slabs (pilot 10-05: both arms, the craft and far scenes).
@@ -80,19 +96,22 @@ const COMPOSTER = { x: 693, y: 120, z: 694 }
 const WINDOW_MS = 200000   // the deposit's watchdog is 180 s
 function arenaCmds () {
   return ['kill @e[type=!player,x=718,y=120,z=700,distance=..45]',
-    'fill 688 120 688 748 130 712 minecraft:air', 'fill 688 119 688 748 119 712 minecraft:stone']
+    'fill 688 120 688 748 130 712 minecraft:air', 'fill 688 119 688 748 119 712 minecraft:stone',
+    'fill 737 99 697 743 118 703 minecraft:stone']   // the deep scene's pit and chest, gone before every trial (pilot 10-05)
 }
 const itemArg = (id, dmg) => `minecraft:${id}${dmg != null ? `[damage=${dmg}]` : ''}`
 function sceneCmds (spec) {
   const c = []
   if (spec.paths) { const p = spec.paths; c.push(`fill ${p.x0} 119 ${p.z0} ${p.x1} 119 ${p.z1} minecraft:dirt_path`) }
+  for (const cmd of spec.pre ?? []) c.push(cmd)   // terrain first (a hollow fill would clear a chest set before it)
   c.push(`setblock ${P(spec.composter ?? COMPOSTER)} minecraft:composter`)
   if (spec.table) c.push(`setblock ${P(spec.table)} minecraft:crafting_table`)
   // chests last, each on a stone floor and filled in the same batch
   for (const [q, items] of spec.chests) {
-    c.push(`setblock ${q.x} 119 ${q.z} minecraft:stone`, `setblock ${P(q)} minecraft:chest[facing=west]`)
+    c.push(`setblock ${q.x} ${q.y - 1} ${q.z} minecraft:stone`, `setblock ${P(q)} minecraft:chest[facing=west]`)
     items.forEach(([id, n, dmg], s) => c.push(`item replace block ${P(q)} container.${s} with ${itemArg(id, dmg)} ${n}`))
   }
+  if (spec.moveTo) c.push(`tp ${NAME} ${P(spec.moveTo)}`)   // after the terrain exists (a tp into stone suffocates)
   return c
 }
 function bagCmds (spec) {
@@ -241,6 +260,19 @@ async function runTrial (scene, k) {
   const t0 = Date.now()
   const marks = {}
   brainQueue.push('deposit')
+  if (spec.entombAfterMs) {
+    await sleep(spec.entombAfterMs)
+    if (spec.pocket) rcon(`effect give ${NAME} minecraft:slowness 2 255 true`)   // hold it still while the pocket closes
+    const pr = rcon(`data get entity ${NAME} Pos`)[0]?.reply || ''
+    const [px, py, pz] = ((pr.match(/\[([^\]]+)\]/) || [])[1] || '').replace(/d/g, '').split(',').map(v => Math.floor(Number(v)))
+    if ([px, py, pz].every(Number.isFinite)) {
+      // A SEALED TUNNEL around where the bot is and the 6 cells ahead of it (it walks -x at up to ~7 blocks/s and RCON takes
+      // ~0.5 s: pilot 10-05, a 1-cell pocket at the read position missed a moving bot 2/2).
+      if (spec.pocket) rcon(`fill ${px - 1} ${py} ${pz - 1} ${px + 1} ${py + 2} ${pz + 1} minecraft:stone`, `fill ${px} ${py} ${pz} ${px} ${py + 1} ${pz} minecraft:air`, `effect clear ${NAME}`)
+      else rcon(`fill ${px - 7} ${py} ${pz - 1} ${px + 1} ${py + 2} ${pz + 1} minecraft:stone`, `fill ${px - 6} ${py} ${pz} ${px} ${py + 1} ${pz} minecraft:air`)
+      marks.entombed = { atMs: Date.now() - t0, at: `${px},${py},${pz}` }
+    } else marks.entombed = { failed: pr.slice(0, 80) }
+  }
   await waitFor(() => endedCount(botOut, 'deposit') >= 1, WINDOW_MS)
   marks.deposit1Ms = Date.now() - t0
   await sleep(1500)
@@ -273,7 +305,7 @@ async function runTrial (scene, k) {
     marks, windowMs: Date.now() - t0, before: { ...before, totals: tb }, mid: { ...mid, totals: totals(mid) }, after: { ...after, totals: ta },
     afterLogout: { ground: afterLogout.ground, totals: { chests: tl.chests, ground: tl.ground } }, newChests, ledger,
     conserved: diff(all(tb), all(ta)) || 'yes',
-    rows: rows.filter(x => /deposit|chest|craft|place|_town|unsettled|_pickups|_death|reflex|_stuck|_admission|reject|goto/.test(x.name)),
+    rows: rows.filter(x => /deposit|chest|craft|place|_town|unsettled|_pickups|_death|reflex|_stuck|_admission|reject|goto|_dig_collision|_entombed|_marooned|_scaffold|_inventory_mutation/.test(x.name)),
     trace: { places: tr.filter(e => e.pkt === 'block_place').map(e => ({ t: e.ts - t0, loc: e.loc, feet: e.feet })),
       spawns: tr.filter(e => e.pkt === 'spawn_item').map(e => ({ t: e.ts - t0, x: e.x, y: e.y, z: e.z })) },
     out: lines(botOut).filter(l => /deposit|rejected|chest|bank|spawned/i.test(l)).map(l => l.slice(0, 300)).slice(-40) }
