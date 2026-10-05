@@ -15,7 +15,7 @@ import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
-import { bankClosed, bankClosedDetail } from './chestfull.mjs'
+import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
@@ -342,9 +342,11 @@ export class AdmissionControl {
       const due = depositDue({
         bankable: bank.count,
         distHome: horizontalDistanceFromSpawn(bot.entity.position),
+        // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
         storageWithin48: !!bot.findBlock?.({
           matching: b => ['chest','barrel','trapped_chest']
-            .includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: 48 }),
+            .includes(bot.registry?.blocks?.[b.type]?.name) &&
+            depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
         onDepositMilestone,
         occupiedSlots: items.length,
       })
