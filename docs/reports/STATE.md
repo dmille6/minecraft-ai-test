@@ -125,6 +125,12 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 ~19:00Z — OWNER: build a BLUEPRINT BUILDER skill (both engines + GitHub prior art), proven first on a TREE FARM
+by town; then a town WORKSHOP and a SAFE MINESHAFT (cobble-lined, ladder exit). Queued BELOW the current queue (after the
+cobble rule). Designing/building now on bp-on-1918bb5 (not launched). Bone meal on saplings: a separate switch, default
+OFF, until the owner decides. Also discussed (no build yet): overseer roles -- town stock record -> Assembler orders
+(806 iron ingots ~= 260 iron pickaxes) -> stock-driven priorities -> Rescuer (big model) -> Builder.
+
 ## 10-05 ~18:35Z — OWNER: food no-pickup in peaceful worlds (switch auto|on|off from server difficulty) and an AUTOMATIC
 TOWN DEPOSIT for full bags -- both being designed (both engines) and built as separate canaries (towndeposit-01,
 foodskip-01). Evidence: docs/reports/bag-creep-analysis-2026-10-05.md (fleet average flat ~33.2 slots; ~11-12
