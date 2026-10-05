@@ -233,6 +233,18 @@ await t('canonicalFarm: an unloaded cell anywhere on the way means no farm (neve
   assert.equal(r.record, null); assert.match(r.why, /unknown/)
 })
 
+await t('fitFarm: an unloaded cell in any plot column (not only the anchor\'s) means decide later', () => {
+  const anchor = { x: 15, y: 64, z: 0 }
+  const ok = TF.fitFarm({ read: world().read, anchor, home: HOME })
+  assert.ok(ok.record, ok.why)
+  assert.equal(TF.plotsOf(ok.record).length, 9)
+  const p = TF.plotOffsets()[0]
+  const un = new Set([K(anchor.x + p.dx, 66, anchor.z + p.dz)])
+  assert.equal(TF.fitFarm({ read: world({}, { unloaded: un }).read, anchor, home: HOME }).why, 'unknown')
+  const un2 = new Set(); for (let y = 58; y <= 70; y++) un2.add(K(anchor.x + p.dx, y, anchor.z + p.dz))
+  assert.equal(TF.fitFarm({ read: world({}, { unloaded: un2 }).read, anchor, home: HOME }).why, 'unknown', 'a whole plot column unloaded')
+})
+
 await t('canonicalFarm: a pond inside the first fit costs plots; too few and the search moves on', () => {
   const over = {}
   for (let x = 4; x <= 15; x++) for (let z = -5; z <= 5; z++) over[K(x, 63, z)] = 'water'
@@ -279,6 +291,9 @@ await t('tendPlan: soil, then leftover logs (lowest first), then saplings it HOL
   const on = TF.tendPlan({ states, torches, held, bonemeal: true })
   assert.deepEqual(on.actions.filter(a => a.kind === 'bonemeal').map(a => a.cell.x), [16])
   assert.equal(TF.tendPlan({ states, torches, held, max: 2 }).actions.length, 2)
+  const high = TF.tendPlan({ states: [{ plot: pl(0), state: 'logs_above', logs: [{ x: 0, y: 70, z: 0 }, { x: 0, y: 71, z: 0 }] }], held: {} })
+  assert.deepEqual(high.actions.map(a => a.cell.y), [70], 'a log 7 above the plot is out of dig reach: never an action')
+  assert.equal(high.counts.logs_high, 1)
   assert.equal(TF.tendPlan({ states: [{ plot: pl(0), state: 'ready', species: ['oak_sapling'] }], held: {} }).actions.length, 0)
 })
 
@@ -321,7 +336,11 @@ await t('farmOrder: only at town, only with work, cooldown charged when ISSUED, 
   const a = TF.farmOrder({ now: 1e6, distHome: 10, plan: lazyPlan })
   assert.equal(a.order.skill, 'tend_farm'); assert.match(a.order.why, /2 plant, 1 torch/)
   const b = TF.farmOrder({ now: 1e6 + 1000, distHome: 10, plan: lazyPlan, state: a.state })
-  assert.equal(b.order, null, 'cooldown')
+  assert.equal(b.order, null, 'scan rate')
+  const b2 = TF.farmOrder({ now: 1e6 + TF.FARM_SCAN_MS + 1000, distHome: 10, plan: lazyPlan, state: a.state })
+  assert.equal(b2.order, null, 'cooldown: past the scan limit, inside the 5-minute cooldown')
+  const b3 = TF.farmOrder({ now: 1e6 + TF.TEND_COOLDOWN_MS + 1000, distHome: 10, plan: lazyPlan, state: a.state })
+  assert.equal(b3.order?.skill, 'tend_farm', 'and after it, the next order')
   const none = TF.farmOrder({ now: 1e6, distHome: 10, plan: () => ({ actions: [] }) })
   assert.equal(none.order, null)
   const c = TF.farmOrder({ now: 1e6 + 1000, distHome: 10, plan: lazyPlan, state: none.state })
