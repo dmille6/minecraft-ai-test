@@ -9,7 +9,7 @@
 # 5, throws whole listed stacks from <= 1.15 aimed at the opening, closes it in a finally, and retakes any miss. Vanilla
 # despawn (6000 ticking ticks) deletes what lies in the well; nobody can reach it (item 1.8125 below the rim's feet).
 # Rows (key=value details):
-#   _well_dispose      "slots=a->b freed=N tossed=N n=N misses=N retaken=N recollected=N nonlisted=N server=resync|local
+#   _well_dispose      "slots=a->b freed=N tossed=N n=N misses=N retaken=N recollected=N nonlisted=N other_loss=N server=resync|local
 #                       closed_open=0|1 at=x,y,z stop=... items=k:v,..."   (n and items = the SERVER bag's loss)
 #   _well_built        "at=x,y,z facing=.. floor=1 wood=.. pit_first=0|1 pit_tossed=N pit_items=N free=N"
 #   _well_refused      "order=dispose|build reason=..."
@@ -20,7 +20,8 @@
 #   LIVENESS     canary well rows from the canary build (>= 1); control 0 (control runs the base code).
 #   CORRECTNESS  (each judged; any breach REVERTS) -- C1 recollected: _well_recollected rows + recollected= > 0;
 #                C2 left open: _well_left_open rows; C3 non-listed thrown: items= naming anything off the list, or
-#                nonlisted= > 0 on a server-resynced row; C4 bots inside a well: _well_inside rows; C5 misses left out:
+#                nonlisted= > 0 (a CLICKED slot that held a non-listed item, from the server's before-snapshot; other_loss=
+#                is eating/planting meanwhile and is reported, never gated); C4 bots inside a well: _well_inside rows; C5 misses left out:
 #                sum(misses) - sum(retaken) on completed visits; C6 more than one distinct well cell built per pool.
 #                Deaths follow the two-death floor (canary-report.py) -- named here, never a verdict.
 #   INSTRUMENT   control bots at >= 34 est. slots holding listed junk (>= 1): the population this changes exists.
@@ -53,6 +54,12 @@ PRE = CUT - dt.timedelta(minutes=W)
 LISTED = {'egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute',
           'dead_bush', 'pointed_dripstone', 'rail'}
 UN = re.compile(r'(_pickaxe|_axe|_shovel|_sword|_hoe|_helmet|_chestplate|_leggings|_boots|bucket|shears|flint_and_steel|bow|fishing_rod)$')
+# STACK SIZES that are not 64 (Codex review: eggs stack to 16; dividing them by 64 undercounted egg slots fourfold).
+ST16 = re.compile(r'^(egg|brown_egg|blue_egg|snowball|ender_pearl|armor_stand|bucket|honey_bottle|.*_sign|.*_hanging_sign|.*_banner)$')
+
+
+def stack_of(n):
+    return 16 if ST16.search(n) else 64
 WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside')
 
 
@@ -84,7 +91,8 @@ def pool_of(bot):
 
 
 def occupancy(inv):
-    return sum(c if UN.search(n) else -(-c // 64) for n, c in (inv or {}).items() if isinstance(c, (int, float)))
+    # a LOWER BOUND on slots from aggregated counts (a split stack cannot be seen in a name -> count map)
+    return sum(c if UN.search(n) else -(-c // stack_of(n)) for n, c in (inv or {}).items() if isinstance(c, (int, float)))
 
 
 def kv(d):
@@ -109,12 +117,13 @@ def num(f, k):
 
 
 # POSITIVE CONTROL for the parser: well.mjs wellDisposeDetail's own shape (bots/test/well.test.mjs reads the same fields).
-_p = kv('slots=36->32 freed=4 tossed=4 n=110 misses=1 retaken=1 recollected=0 nonlisted=0 server=resync closed_open=0 at=5,63,0 stop=done items=egg:16,flint:64,ink_sac:10,clay_ball:20')
+_p = kv('slots=36->32 freed=4 tossed=4 n=110 misses=1 retaken=1 recollected=0 nonlisted=0 other_loss=1 server=resync closed_open=0 at=5,63,0 stop=done items=egg:16,flint:64,ink_sac:10,clay_ball:20')
 assert num(_p, 'freed') == 4 and num(_p, 'misses') == 1 and _p['server'] == 'resync' and _p['items'] == {'egg': 16, 'flint': 64, 'ink_sac': 10, 'clay_ball': 20}
 assert _p['at'] == '5,63,0' and _p['stop'] == 'done'
 assert kv('slots=36->36 freed=0 tossed=0 n=0 misses=0 retaken=0 recollected=0 nonlisted=0 server=local closed_open=0 stop=nothing_listed items=-')['items'] == {}
 assert kv('at=-12,70,3 facing=north floor=1 wood=oak pit_first=1 pit_tossed=2 pit_items=32 free=3')['at'] == '-12,70,3'
 assert set(_p['items']) <= LISTED and not ({'cobblestone': 1}.keys() <= LISTED)
+assert stack_of('egg') == 16 and stack_of('flint') == 64 and -(-576 // stack_of('egg')) == 36   # 576 eggs are 36 slots, not 9
 
 ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev_rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
@@ -160,7 +169,7 @@ for r in ev_rows:
         if num(f, 'recollected'):
             c1.append((b, 'recollected=%d %s' % (num(f, 'recollected'), d[:80])))
         off = [n for n in f['items'] if n not in LISTED]
-        if off or (f.get('server') == 'resync' and num(f, 'nonlisted')):
+        if off or num(f, 'nonlisted'):
             c3.append((b, off or 'nonlisted=%d' % num(f, 'nonlisted'), d[:100]))
         if st in ('success', 'failed') and f.get('stop') != 'aborted':
             misses += num(f, 'misses'); retaken += num(f, 'retaken')
@@ -170,7 +179,7 @@ for r in ev_rows:
 
 
 def junk_slots(inv):
-    return sum(-(-c // 64) for n, c in inv.items() if n in LISTED and isinstance(c, (int, float)))
+    return sum(-(-c // stack_of(n)) for n, c in inv.items() if n in LISTED and isinstance(c, (int, float)))
 
 
 def per_bot(period, arm, fn):

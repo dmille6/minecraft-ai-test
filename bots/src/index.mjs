@@ -502,7 +502,10 @@ function connect() {
     const wellWatch = installWellWatch(bot, () => wellCols)
     const refreshWells = () => { try { wellCols = knownWellCells(bot) } catch { wellCols = [] } wellWatch.checkInside() }
     const wellsTimer = setInterval(refreshWells, 20_000); wellsTimer.unref?.()
-    bot.once('end', () => { clearInterval(wellsTimer); wellWatch.stop() })
+    // FILLED BEFORE THE FIRST WALK, not 20 s after it (Codex review), and once more when the town's chunks have arrived.
+    refreshWells()
+    const wellsFirst = setTimeout(refreshWells, 5_000); wellsFirst.unref?.()
+    bot.once('end', () => { clearInterval(wellsTimer); clearTimeout(wellsFirst); wellWatch.stop() })
     bot.wellCellsNow = () => wellCols
     bot.refreshWells = refreshWells
     const wellPenalty = (block) => wellStepCost(wellCols, block)

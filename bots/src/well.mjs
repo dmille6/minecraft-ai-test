@@ -90,7 +90,13 @@ export const MAX_DIG_HARDNESS = 2
 const solid = b => !!b && b.boundingBox === 'block'
 const passable = b => !!b && b.boundingBox === 'empty' && !LIQUID.test(b.name ?? '')
 const isTrap = (b, half = null) => !!b && WOODEN_TRAPDOOR.test(b.name ?? '') && (!half || b.props?.half === half)
-const ground = b => solid(b) && !NOT_GROUND.test(b.name ?? '') && !LIQUID.test(b.name ?? '')
+/**
+ * A FULL COLLISION CUBE (Codex review): boundingBox 'block' also covers iron bars, panes, walls and fences, whose gaps a
+ * body can stand in. Containment counts only a block whose collision shape is exactly the unit cube.
+ */
+export const fullCube = b => solid(b) && Array.isArray(b.shapes) && b.shapes.length === 1 &&
+  b.shapes[0].length === 6 && b.shapes[0].every((v, i) => Math.abs(v - (i < 3 ? 0 : 1)) < 1e-9)
+const ground = b => fullCube(b) && !NOT_GROUND.test(b.name ?? '') && !LIQUID.test(b.name ?? '')
 const diggable = b => ground(b) && Number.isFinite(b.hardness) && b.hardness >= 0 && b.hardness <= MAX_DIG_HARDNESS
 
 /** The well's cells from its CAP (the trapdoor's cell, at ground level g). */
@@ -154,7 +160,7 @@ export function wellStand (read, cap) {
     const stand = { x: cap.x + f.x, y: cap.y + 1, z: cap.z + f.z }
     const feet = read(stand.x, stand.y, stand.z), head = read(stand.x, stand.y + 1, stand.z), under = read(stand.x, cap.y, stand.z)
     const hinge = { x: cap.x - f.x, y: cap.y, z: cap.z - f.z }
-    if (!passable(feet) || !passable(head) || !ground(under) || NOT_FULL.test(under.name ?? '')) continue
+    if (!passable(feet) || !passable(head) || !ground(under) || NOT_FULL.test(under.name ?? '')) continue   // ground() is a full cube
     if (!ground(read(hinge.x, hinge.y, hinge.z))) continue
     return { stand, hinge, face: { x: f.x, y: 0, z: f.z }, facing }
   }
@@ -189,6 +195,37 @@ export function wellSiteRefusal (read, cap, home = null, { avoid = [] } = {}) {
     return `column is ${c.name}/${s.name}`
   }
   if (!ground(f)) return `floor is ${f.name}`
+  const breach = containmentRefusal(read, cap)
+  if (breach) return breach
+  // CONTAINERS AND THE COMPOSTER keep their distance (around the rim cell, where bots stand to use them); doors within 2.
+  for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -2; dz <= 2; dz++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const near = Math.hypot(dx, dy, dz)
+        const door = dy >= 0 && dy <= 1
+        if (near >= WELL_CONTAINER_DISTANCE && !door) continue
+        const b = read(x + dx, g + 1 + dy, z + dz)
+        if (!b) return 'unknown'
+        if (near < WELL_CONTAINER_DISTANCE && (CLEARANCE_CONTAINER.test(b.name ?? '') || b.name === 'composter')) return `${b.name} within ${WELL_CONTAINER_DISTANCE}`
+        if (door && /_door$|_gate$/.test(b.name ?? '')) return 'door'
+      }
+    }
+  }
+  for (const a of (Array.isArray(avoid) ? avoid : [])) {
+    if (a && Number.isFinite(a.x) && Math.hypot(a.x - x, a.z - z) < WELL_CONTAINER_DISTANCE) return 'the composter site is within 3'
+  }
+  if (!wellStand(read, cap)) return 'nowhere to stand beside it'
+  return null
+}
+
+/**
+ * IS THE SHAFT STILL SEALED? -> reason | null. Pure. The walls (the 8 neighbours at g and g-1: full cubes of solid,
+ * non-falling ground), the underground ring and the liquid clearance -- asked of a SITE before it is built and of a BUILT
+ * well before every disposal (Codex review: a wall dug out after the build lets a body stand beside the items).
+ */
+export function containmentRefusal (read, cap) {
+  if (typeof read !== 'function' || !cap) return 'no site'
+  const { x, y: g, z } = cap
   // THE WALLS: the 8 neighbours at g and g-1 are solid ground (nothing falls into the shaft, nothing stands beside it).
   for (let dy = 0; dy >= -1; dy--) {
     for (let dx = -1; dx <= 1; dx++) {
@@ -209,7 +246,7 @@ export function wellSiteRefusal (read, cap, home = null, { avoid = [] } = {}) {
         if (!dx && !dz) continue
         const b = read(x + dx, g + dy, z + dz)
         if (!b) return 'unknown'
-        if (!solid(b) || LIQUID.test(b.name ?? '')) return `underground ${b.name} beside the shaft`
+        if (!fullCube(b) || LIQUID.test(b.name ?? '')) return `underground ${b.name} beside the shaft`
       }
     }
   }
@@ -223,24 +260,6 @@ export function wellSiteRefusal (read, cap, home = null, { avoid = [] } = {}) {
       }
     }
   }
-  // CONTAINERS AND THE COMPOSTER keep their distance (around the rim cell, where bots stand to use them); doors within 2.
-  for (let dx = -2; dx <= 2; dx++) {
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let dy = -2; dy <= 2; dy++) {
-        const near = Math.hypot(dx, dy, dz)
-        const door = dy >= 0 && dy <= 1
-        if (near >= WELL_CONTAINER_DISTANCE && !door) continue
-        const b = read(x + dx, g + 1 + dy, z + dz)
-        if (!b) return 'unknown'
-        if (near < WELL_CONTAINER_DISTANCE && (CLEARANCE_CONTAINER.test(b.name ?? '') || b.name === 'composter')) return `${b.name} within ${WELL_CONTAINER_DISTANCE}`
-        if (door && /_door$|_gate$/.test(b.name ?? '')) return 'door'
-      }
-    }
-  }
-  for (const a of (Array.isArray(avoid) ? avoid : [])) {
-    if (a && Number.isFinite(a.x) && Math.hypot(a.x - x, a.z - z) < WELL_CONTAINER_DISTANCE) return 'the composter site is within 3'
-  }
-  if (!wellStand(read, cap)) return 'nowhere to stand beside it'
   return null
 }
 
@@ -427,9 +446,9 @@ const PLANKS_PER_LOG = 4, PLANKS_PER_TABLE = 4
  * from what is HELD -- never a gather. slotsNeeded is SIMULATED with craftroom's chainPeak when the bag's stacks are given
  * (the planks stack the trapdoor craft empties counts), else the worst case.
  */
-export function wellBuildPlan (counts = {}, { tableAvailable = false, items = null } = {}) {
+export function wellBuildPlan (counts = {}, { tableAvailable = false, items = null, need = 2 } = {}) {
   const carried = Object.entries(counts).filter(([n]) => WOODEN_TRAPDOOR.test(n)).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-  if (carried.reduce((a, [, c]) => a + c, 0) >= 2) return { carried: true, trapdoor: carried[0][0], slotsNeeded: 0 }
+  if (carried.reduce((a, [, c]) => a + c, 0) >= Math.max(1, need)) return { carried: true, trapdoor: carried[0][0], slotsNeeded: 0, need }
   let best = null
   for (const wood of WOODS) {
     const planks = counts[`${wood}_planks`] ?? 0, logs = counts[logOf(wood)] ?? 0
@@ -438,7 +457,7 @@ export function wellBuildPlan (counts = {}, { tableAvailable = false, items = nu
     if (logCrafts > logs) continue
     const slotsNeeded = Math.ceil(logCrafts * PLANKS_PER_LOG / 64) + (tableAvailable ? 0 : 1) + 1
     const cost = logCrafts
-    if (!best || cost < best.cost) best = { wood, log: logOf(wood), logCrafts, needTable: !tableAvailable, trapdoor: `${wood}_trapdoor`, slotsNeeded, cost }
+    if (!best || cost < best.cost) best = { wood, log: logOf(wood), logCrafts, needTable: !tableAvailable, trapdoor: `${wood}_trapdoor`, slotsNeeded, cost, need }
   }
   if (!best) return null
   const { cost, ...plan } = best
@@ -448,6 +467,12 @@ export function wellBuildPlan (counts = {}, { tableAvailable = false, items = nu
   }
   return plan
 }
+
+/**
+ * HOW MANY TRAPDOORS THE BUILD STILL NEEDS at this stage (Codex review: a floored pit needs only its cap, and a bot
+ * carrying that one must be able to finish it). Pure.
+ */
+export const trapdoorsNeeded = stage => (stage === 'floored' ? 1 : stage === 'built' ? 0 : 2)
 
 /** The build's crafts as craftroom steps, in order (the table is crafted and PUT DOWN when the plan needs one). Pure. */
 export function wellChainSteps (plan) {
@@ -514,7 +539,7 @@ export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, 
   if (now - (s.lastScanAt ?? -Infinity) < WELL_SCAN_MS) return none()
   s.lastScanAt = now
   const w = lazy(well)
-  if (w) {
+  if (w && !w.breached) {
     if (w.open && !w.attended && closeReady) {
       s.lastCloseAt = now
       return { order: { skill: 'close_well', args: {}, why: 'the town junk well is open and nobody is at it: close it' }, state: s }
@@ -524,6 +549,10 @@ export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, 
       return { order: { skill: 'dispose_well', args: {}, why: `at town with ${slots} of 36 slots used; ${junkStacks} stack(s) of junk with no use` }, state: s }
     }
     return none()
+  }
+  if (w?.open && !w.attended && closeReady) {   // a breached well that stands open is still closed
+    s.lastCloseAt = now
+    return { order: { skill: 'close_well', args: {}, why: 'the town junk well is open and nobody is at it: close it' }, state: s }
   }
   if (!buildReady) return none()
   const plan = lazy(buildPlan)
@@ -610,14 +639,15 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
 /**
  * THE _well_dispose ROW, key=value (the read parses fields, not prose); stop= before items= (the row is cut at 300).
  *   n          listed items the SERVER's bag lost (resync before and after), never the number of clicks
- *   nonlisted  items NOT on the list the server's bag lost meanwhile (must be 0)
+ *   nonlisted  items NOT on the list in a slot this visit CLICKED (from the server's before-snapshot; must be 0)
  *   misses     our throws that did not land in the shaft; retaken: how many of those came back to the bag
  *   recollected  our throws this body collected back OUT OF the shaft (must be 0)
+ *   other_loss   every other non-listed decrease of the bag meanwhile (eating, planting): a diagnostic, never a throw
  */
-export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0,
+export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   return (`slots=${slotsBefore}->${slotsAfter} freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
-          `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} server=${source} closed_open=${closedOpen ? 1 : 0}` +
+          `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${at ? ` at=${at.x},${at.y},${at.z}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list(items)}`).slice(0, 300)
 }
