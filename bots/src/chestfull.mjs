@@ -20,7 +20,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { siteRefusal, standableBeside, narrowTop, bodyInCell, tableCellFor, sameWorld, townDistance,
+import { siteRefusal, standableBeside, narrowTop, bodyInCell, tableCellFor, sameWorld,
          CLEARANCE_CONTAINER, MIN_CONTAINER_DISTANCE, STORAGE_NEAR } from './composter.mjs'
 
 // ---- the budget on NEW chests ---------------------------------------------------------------------------------------
@@ -43,6 +43,65 @@ export const PLACE_READBACK_MS = 2_000
 
 /** The town's key (pool dir + home). */
 export const townKey = home => `town-chest-${home.x}_${home.y}_${home.z}`
+
+// ---- the town's boundary, and what is never a deposit target (chestfull-02) -----------------------------------------
+
+/** A container more than this far above or below home is DEEP: the chest census's 'deep' band (|dy| > 12), which mixes
+ *  natural loot chests in caves and mineshafts with mine stashes. Never a deposit target, never town storage. */
+export const TOWN_DY = 12
+/** findBlocks around home must reach every cell inTown accepts: the corner of the cylinder is hypot(16, 12) = 20 away. */
+export const TOWN_SCAN_RADIUS = Math.ceil(Math.hypot(STORAGE_NEAR, TOWN_DY))
+const homeLevel = home => Math.floor(Number(home?.y))
+/**
+ * THE ONE TOWN BOUNDARY -> true when `q` (a container, a site, or where a walk began) is in town: within STORAGE_NEAR
+ * of home HORIZONTALLY and within TOWN_DY of home's level. Pure. chestfull-01 judged "town" two ways -- horizontally for
+ * the town's memory read, the walk's start and the recovery's nearHome, in 3-D (townDistance) for the memory write --
+ * so a chest far below home was town storage to the recovery and not to its own backoff (Codex, 10-05). Every town
+ * decision in the deposit asks this one.
+ */
+export function inTown (home, q) {
+  if (!home || !q || ![q.x, q.y, q.z].every(Number.isFinite)) return false
+  return Math.hypot(q.x - home.x, q.z - home.z) <= STORAGE_NEAR && Math.abs(Math.floor(q.y) - homeLevel(home)) <= TOWN_DY
+}
+/**
+ * MAY A DEPOSIT USE THE CONTAINER AT `q`? -> false only for a DEEP one (|dy| > TOWN_DY from home). Pure. A null
+ * position is true: mineflayer's findBlock asks matchers about palette blocks with no position first.
+ * Measured 10-05: board-a-Comet's deposits targeted a chest at 365,15,184 (58 below home) 18 times in 3.5 h, every one
+ * "No path to the goal!" -- on 1918bb5 and 56db2cd as well as on the canary. The same predicate gates the deposit's
+ * search, admission's "storage in reach", the prompt's CARRYING line and deposit_surplus.done(), so none of them can
+ * send a bot to a chest the deposit will not use.
+ */
+export function depositTargetOk (home, q) {
+  if (!q || !Number.isFinite(Number(q.y)) || !home || !Number.isFinite(homeLevel(home))) return true
+  return Math.abs(Math.floor(q.y) - homeLevel(home)) <= TOWN_DY
+}
+
+/**
+ * WHY A WALK TO A CHEST FAILED -> 'interrupted' | 'no_path' | 'timeout' | 'other'. Pure over the error.
+ *   interrupted  someone else took the pathfinder (a reflex's goal, a stop): says nothing about the chest
+ *   no_path      the pathfinder found no route (or the route needs a block nothing held can break)
+ *   timeout      our own budget ran out, unclamped (the walk had its full time)
+ */
+export function walkFailure (e) {
+  const m = String(e?.message ?? e ?? '')
+  if (e?.aborted || /goal was changed|was stopped|interrupted/i.test(m)) return 'interrupted'
+  if (e?.failClass === 'no_path' || e?.failClass === 'undiggable_en_route' || /no path/i.test(m)) return 'no_path'
+  if (e?.budgetExceeded || /exceeded \d+ms|took to long/i.test(m)) return 'timeout'
+  return 'other'
+}
+/** A failed walk to a chest OUTSIDE town backs that chest off for this bot (deposit's skipContainers) this long. */
+export const TARGET_BACKOFF_MS = 10 * 60 * 1000
+/** Does a failed walk back its target off? Only a real travel failure, and only for a chest outside town (a town chest
+ *  is struck in the town's memory instead -- never hidden from one bot's next walk home). Pure. */
+export const backsOffTarget = ({ kind, targetInTown }) => !targetInTown && (kind === 'no_path' || kind === 'timeout')
+
+/**
+ * WHEN OUR CLOCK ENDS A WALK TO A CHEST -> 'halt' | 'leave'. Pure. Halt (clear the goal) only while the pathfinder's goal
+ * is still the one this walk set; a reflex that has taken the pathfinder since (an escape, a rescue) keeps it. The walk
+ * itself never watches digs (chestfull-02): a travel dig wants the HOLE, and watchDigging's stop() + stopDigging() on a
+ * block the held tool cannot HARVEST interrupted traversal and any escape dig in flight.
+ */
+export const travelTimeoutAction = ({ ours, current }) => (ours != null && current === ours ? 'halt' : 'leave')
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /**
@@ -356,7 +415,7 @@ export function standingCells (read, c) {
 export function chestSiteRefusal (read, site, { home = null, composterSites = [], bodies = [] } = {}) {
   if (typeof read !== 'function' || !site) return 'no site'
   const { x, y, z } = site
-  if (home && townDistance(home, site) > STORAGE_NEAR) return `more than ${STORAGE_NEAR} from home`
+  if (home && !inTown(home, site)) return `outside town (more than ${STORAGE_NEAR} from home, or ${TOWN_DY} above or below it)`
   const masked = (qx, qy, qz) => {
     const b = read(qx, qy, qz)
     if (!b || (qx === x && qy === y - 1 && qz === z)) return b
@@ -450,8 +509,16 @@ export function pickChestSite ({ read, anchor, home = null, composterSites = [],
 /** How long each refusal pauses this bot's deposits at most. A budget refusal lasts only until the budget allows. */
 export const CLOSE_MS = Object.freeze({
   refuse_cap: 30 * 60 * 1000, no_site: 30 * 60 * 1000, craft_failed: 30 * 60 * 1000,
-  place_failed: 10 * 60 * 1000, retry_failed: 10 * 60 * 1000, defer: UNKNOWN_BACKOFF_MS,
+  place_failed: 10 * 60 * 1000, retry_failed: 10 * 60 * 1000,
 })
+/**
+ * DOES THIS REFUSAL CLOSE THE BANK? -> true only when the bank is TRULY closed: every town container it could judge is
+ * known full (or unavailable/unusable) AND no new chest can go in now (the budget, no cell, no chest to place, a
+ * placement that missed, a new chest that took nothing). Pure. A 'defer' -- some container's room is UNKNOWN: an open
+ * or walk failure, a scan that threw, too little of the clock left -- closes nothing (chestfull-02): the failed
+ * container is backed off in the town's memory and the bot's banking reminders and next deposit stay as they were.
+ */
+export const closesBank = outcome => Object.prototype.hasOwnProperty.call(CLOSE_MS, outcome)
 /** An early reopen waits at least this long after the closure: the cooldown stays a retry throttle. */
 export const REOPEN_THROTTLE_MS = 2 * 60 * 1000
 export function closeMsFor (outcome, { until = null, now = Date.now() } = {}) {

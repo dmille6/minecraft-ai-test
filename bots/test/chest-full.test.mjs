@@ -23,8 +23,11 @@ const CF = await import('../src/chestfull.mjs')
 const { fullChestNext, chestSiteRefusal, chestBudget, claimNewChest, readClaims, reconcileClaims, writeClaimState, townKey,
         containerStatus, recordOutcome, updateTownMemory, returnCursor, bankClosed, closeBank, setTownRoomReader,
         chestPartnerOffset, isChestPartner, pickChestSite, timeLeft, NEW_CHEST_INTERVAL_MS, NEW_CHESTS_PER_DAY, MAX_RECOVERY_CHESTS,
-        DAY_MS, UNKNOWN_BACKOFF_MS, FULL_TTL_MS, REOPEN_THROTTLE_MS, RECONCILE_AFTER_MS } = CF
-const { SKILLS, adviseDeposit, slotRemedy } = await import('../src/skills.mjs')
+        DAY_MS, UNKNOWN_BACKOFF_MS, FULL_TTL_MS, REOPEN_THROTTLE_MS, RECONCILE_AFTER_MS,
+        inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutAction, closesBank, TOWN_DY, TOWN_SCAN_RADIUS } = CF
+const { SKILLS, adviseDeposit, slotRemedy, withTimeout } = await import('../src/skills.mjs')
+const { SUSTAINING } = await import('../src/milestones.mjs')
+const { depositSituation } = await import('../src/prompt.mjs')
 const { AdmissionControl } = await import('../src/admission.mjs')
 const { roomAdvice } = await import('../src/craftroom.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
@@ -309,16 +312,23 @@ await t('another container in town WITH ROOM is used before anything is placed; 
   assert.ok(!w.spy.opened.includes('-5,64,5'), 'the chest the town found full a minute ago was not opened')
 })
 
-await t('UNKNOWN: an open failure defers ONCE (nothing built, bank paused); the same failure 10+ min later makes it unusable and the town expands', async () => {
+await t('UNKNOWN: an open failure defers ONCE (nothing built, the BANK STAYS OPEN, the barrel is backed off); the same failure 10+ min later makes it unusable and the town expands', async () => {
   const w = town([stack('cobblestone', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const open = w.bot.openContainer
   w.bot.openContainer = async b => { if (b.position.x === -5) throw new Error('windowOpen did not fire'); return open(b) }
   const r = await run(w.bot)
-  assert.equal(r.failClass, 'storage_full'); assert.match(r.detail, /^keep working/)
+  assert.equal(r.failClass, 'storage_full'); assert.match(r.detail, /^deposit again later -- 1 container/)
   assert.equal(w.spy.placed.length, 0)
-  assert.ok(bankClosed(w.bot))
+  // chestfull-02: a defer closes nothing -- the failed target is backed off in the town's memory instead.
+  assert.equal(bankClosed(w.bot), '', 'a defer does not close the bank')
+  assert.equal(new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot).reason !== 'bank_closed', true)
+  assert.equal(memEntry('-5,64,0')?.o, 'unknown', 'the barrel carries the strike: its backoff')
   assert.match(lastRow(), /^decision=defer .*unknown=1/)
+  const opens = w.spy.opened.filter(k => k === '-5,64,0').length
+  await run(w.bot)
+  assert.equal(w.spy.opened.filter(k => k === '-5,64,0').length, opens, 'inside its backoff the barrel is not tried again')
+  assert.equal(bankClosed(w.bot), '')
   // Ten minutes later (its strike moved back in the town's memory), the barrel fails again.
   updateTownMemory(process.env.POOL_STATE_DIR, KEY, null, e => { e['-5,64,0'] = recordOutcome(undefined, 'unknown', Date.now() - UNKNOWN_BACKOFF_MS - 1000) })
   w.bot.bankClosed = null
@@ -357,6 +367,7 @@ await t('a scan that throws DEFERS -- it is never "no containers"', async () => 
   assert.match(r.detail, /could not be listed/)
   assert.equal(w.spy.placed.length, 0)
   assert.match(lastRow(), /^decision=defer .*scan=failed/)
+  assert.equal(bankClosed(w.bot), '', 'a scan that throws closes nothing (chestfull-02)')
 })
 
 await t('THE WATCHDOG\'S CLOCK (180 s, not the 240 s contract): 150 s in, an untried container is not reached and nothing is built', async () => {
@@ -531,6 +542,7 @@ await t('R3.C A NO-PATH WALK THAT BEGAN OUTSIDE TOWN strikes nothing: the travel
   assert.equal(r.status, 'failed'); assert.match(r.detail, /could not reach the chest at 5,64,0/)
   assert.equal(memEntry('5,64,0'), undefined)
   assert.equal(w.spy.placed.length, 0)
+  assert.equal(w.bot.skipContainers?.get?.('5,64,0'), undefined, 'a TOWN chest is never hidden from this bot\'s next walk home')
 })
 
 await t('R3.1 A CONFIRMING READ IS WRITTEN: 12 placed, a fresh read sees 12 chests, then a DELAYED OLDER absence arrives -> still 12, no claim 13', () => {
@@ -604,6 +616,176 @@ await t('THE LID FILTER: place() with no coordinates never puts a block on a che
   w.set(1, 63, 0, 'dirt')
   const r3 = await SKILLS.place.run({ bot: w.bot }, { item: 'cobblestone' }, new AbortController().signal)
   assert.equal(r3.status, 'success', `control: ${r3.detail}`)
+})
+
+// ---------------------------------------------------------------- chestfull-02 (the 10-05 revert's mechanisms) ---
+await t('C2 inTown: ONE boundary -- 16 horizontally AND 12 above or below home; the old 3-D memory boundary disagreed', () => {
+  const T = [
+    [{ x: 16, y: 64, z: 0 }, true], [{ x: 17, y: 64, z: 0 }, false],
+    [{ x: 0, y: 76, z: 0 }, true], [{ x: 0, y: 77, z: 0 }, false], [{ x: 0, y: 52, z: 0 }, true], [{ x: 0, y: 51, z: 0 }, false],
+    [{ x: 15, y: 74, z: 0 }, true],    // 3-D distance 18 (townDistance said NOT town for the memory write)
+    [{ x: 10, y: 50, z: 0 }, false],   // 10 out, 14 below: horizontally "town" to chestfull-01's recovery
+    [{ x: 0.5, y: 64.9, z: 0.5 }, true], [null, false], [{ x: NaN, y: 64, z: 0 }, false],
+  ]
+  for (const [q, want] of T) assert.equal(inTown(HOME, q), want, JSON.stringify(q))
+  assert.equal(TOWN_DY, 12); assert.equal(TOWN_SCAN_RADIUS, 20, 'the scan sphere reaches the cylinder\'s corner')
+})
+
+await t('C2 depositTargetOk: a DEEP container (|dy| > 12 from home) is never a target, however far out; a palette block (no position) passes', () => {
+  const T = [[{ x: 0, y: 44, z: 20 }, false], [{ x: 0, y: 52, z: 0 }, true], [{ x: 0, y: 76, z: 0 }, true], [{ x: 0, y: 77, z: 0 }, false],
+             [{ x: 500, y: 64, z: 0 }, true], [{ x: 500, y: 6, z: 0 }, false], [null, true]]
+  for (const [q, want] of T) assert.equal(depositTargetOk(HOME, q), want, JSON.stringify(q))
+  assert.equal(depositTargetOk({ x: 355, y: 73, z: 147 }, { x: 365, y: 15, z: 184 }), false, 'the 10-05 chest: 58 below board-a\'s home')
+})
+
+await t('C2 closesBank: only a TRULY closed bank pauses deposits -- a defer never does', () => {
+  for (const k of ['refuse_cap', 'no_site', 'craft_failed', 'place_failed', 'retry_failed']) assert.equal(closesBank(k), true, k)
+  for (const k of ['defer', 'far', 'out_of_time', 'other', undefined]) assert.equal(closesBank(k), false, String(k))
+})
+
+await t('C2 walkFailure / backsOffTarget / travelTimeoutAction: truth tables', () => {
+  assert.equal(walkFailure(new Error('The goal was changed before it could be completed!')), 'interrupted')
+  assert.equal(walkFailure(new Error('path to 1,2 was stopped')), 'interrupted')
+  assert.equal(walkFailure(new Error('No path to the goal!')), 'no_path')
+  assert.equal(walkFailure(Object.assign(new Error('cannot break obsidian on the way there'), { failClass: 'undiggable_en_route' })), 'no_path')
+  assert.equal(walkFailure(Object.assign(new Error('pathfinding exceeded 60000ms'), { budgetExceeded: true })), 'timeout')
+  assert.equal(walkFailure(new Error('something else')), 'other')
+  const B = [['no_path', false, true], ['timeout', false, true], ['interrupted', false, false], ['other', false, false],
+             ['no_path', true, false], ['timeout', true, false]]
+  for (const [kind, targetInTown, want] of B) assert.equal(backsOffTarget({ kind, targetInTown }), want, `${kind} ${targetInTown}`)
+  const g = {}, h = {}
+  assert.equal(travelTimeoutAction({ ours: g, current: g }), 'halt')
+  assert.equal(travelTimeoutAction({ ours: g, current: h }), 'leave', 'a reflex took the pathfinder')
+  assert.equal(travelTimeoutAction({ ours: g, current: null }), 'leave')
+  assert.equal(travelTimeoutAction({ ours: null, current: null }), 'leave')
+})
+
+// A held tool that cannot HARVEST what is being dug -- the state watchDigging cancels. `slowWalks` holds each walk
+// 1.3 s, past watchDigging's first 1000 ms poll.
+const undiggableDig = w => {
+  const calls = { stopDigging: 0, stop: 0 }
+  w.bot.targetDigBlock = { name: 'obsidian', canHarvest: () => false }
+  w.bot.stopDigging = () => { calls.stopDigging++ }
+  w.bot.pathfinder.stop = () => { calls.stop++ }
+  return calls
+}
+const slowWalks = w => { const goto = w.bot.pathfinder.goto; w.bot.pathfinder.goto = async g => { await new Promise(r => setTimeout(r, 1300)); return goto(g) } }
+await t('C2 THE WALK NEVER WATCHES DIGS: a dig the held tool cannot harvest is not stopped by the walk to the chest, nor by the walk to the new chest\'s cell', async () => {
+  // POSITIVE CONTROL: the same fake, under withTimeout's default (what chestfull-01's walk used), IS stopped.
+  const c = fakeWorld({ bag: [] }); const cc = undiggableDig(c)
+  await withTimeout(new Promise(r => setTimeout(r, 1300)), 5000, c.bot)
+  assert.ok(cc.stopDigging >= 1 && cc.stop >= 1, `control: the default watches digs (${JSON.stringify(cc)})`)
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const calls = undiggableDig(w); slowWalks(w)
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1, 'the recovery walked to the new chest\'s cell and placed it')
+  assert.deepEqual(calls, { stopDigging: 0, stop: 0 }, 'nothing stopped the dig or the path')
+})
+
+await t('C2 OUR CLOCK LEAVES A REFLEX\'S GOAL ALONE: a walk that times out clears the goal only while it is still the walk\'s own', async () => {
+  for (const reflexTookIt of [false, true]) {
+    const w = town([stack('cobblestone', 64), stack('chest', 1)])
+    const set = []
+    w.bot.pathfinder.setGoal = g => { set.push(g); w.bot.pathfinder.goal = g }
+    const other = { reflex: true }
+    w.bot.pathfinder.goto = g => { w.bot.pathfinder.goal = g; if (reflexTookIt) setTimeout(() => { w.bot.pathfinder.goal = other }, 200); return new Promise(() => {}) }
+    const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 178_500 } })
+    assert.equal(r.status, 'unknown', r.detail); assert.equal(r.failClass, 'path_budget')
+    if (reflexTookIt) {
+      assert.deepEqual(set, [], 'the reflex keeps the pathfinder')
+      assert.equal(w.bot.pathfinder.goal, other)
+    } else assert.deepEqual(set, [null], 'control: its own goal is cleared')
+  }
+})
+
+await t('C2 A DEEP CONTAINER IS NEVER A TARGET: from a mine, the chest 20 below home is passed over for the town chest', async () => {
+  for (const deepY of [44, 56]) {   // 44: deep (dy -20); 56: the control (dy -8), nearest, and used
+    freshPool()
+    const w = fakeWorld({ bag: [stack('oak_log', 30)], at: [0.5, deepY, 21.5] })
+    w.set(5, 64, 0, 'chest'); w.set(0, deepY, 20, 'chest')
+    w.set(1, deepY, 20, 'air'); w.set(1, deepY + 1, 20, 'air'); w.set(0, deepY + 1, 20, 'air')   // a mined pocket: room to stand, a free lid
+    const r = await run(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    const near = `0,${deepY},20`
+    if (deepY === 44) {
+      assert.ok(!w.spy.opened.includes(near) && !w.spy.gotos.some(g => g.y === 44), 'never walked to or opened')
+      assert.ok(w.spy.opened.includes('5,64,0'), 'the town chest took it')
+    } else assert.deepEqual(w.spy.opened, [near], 'control: the nearest non-deep chest is the one used')
+  }
+})
+
+await t('C2 A DEEP CHEST IS NOT STORAGE ANYWHERE: admission, deposit_surplus.done(), the prompt and the deposit agree (no bot sent to a chest the deposit skips)', async () => {
+  const surplus = SUSTAINING.find(m => m.id === 'deposit_surplus')
+  for (const [y, deep] of [[30, true], [60, false]]) {
+    freshPool()
+    const w = fakeWorld({ bag: [stack('oak_log', 30), stack('apple', 20)], at: [150.5, y, 0.5] })
+    w.set(150, y, 5, 'chest')
+    const adm = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
+    assert.equal(adm.ok, !deep, `${deep ? 'deep' : 'control'}: ${JSON.stringify(adm)}`)
+    if (deep) assert.equal(adm.reason, 'deposit_not_worth_it')
+    assert.equal(surplus.done(w.bot), deep, deep ? 'beside only a deep chest: nothing to do here; `return` follows' : 'control: a usable chest in reach')
+    const line = depositSituation(w.bot, {})
+    if (deep) assert.equal(line, '', `the prompt does not advertise the deep chest: ${line}`)
+    else assert.match(line, /^CARRYING: \d+ items worth banking and storage is \d+ blocks away/, 'control')
+  }
+})
+
+await t('C2 THE TOWN SWEEP SKIPS A DEEP CONTAINER under home: the full town expands instead of banking 14 below', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(3, 50, 0, 'chest')    // 3 out, 14 below: inside chestfull-01's horizontal "town", with room
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(!w.spy.opened.includes('3,50,0'), 'the deep chest was not opened')
+  assert.equal(w.spy.placed.length, 1, 'the town placed its carried chest')
+})
+
+await t('C2 ONE BOUNDARY FOR READ AND WRITE: a town chest 10 above home and 15 out, found full, is REMEMBERED (3-D distance 18 refused the write)', async () => {
+  freshPool()
+  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)], at: [14.5, 74, 1.5] })
+  w.set(15, 74, 0, 'chest'); w.fill(15, 74, 0)
+  w.set(-5, 64, 0, 'barrel')
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(memEntry('15,74,0')?.o, 'full', 'its backoff is written, so the next deposit does not walk to it')
+  assert.equal(memEntry('-5,64,0')?.o, 'took')
+})
+
+await t('C2 A WALK THAT BEGINS DEEP UNDER TOWN is not a town walk: a no-path strikes nothing (the same boundary as the chest\'s)', async () => {
+  for (const [y, strikes] of [[44, false], [64, true]]) {   // 20 below home, under the town; control: in town
+    const w = town([stack('cobblestone', 64), stack('chest', 1)], [3.5, y, 0.5])
+    const goto = w.bot.pathfinder.goto
+    w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
+    await run(w.bot)
+    assert.equal(memEntry('5,64,0')?.o, strikes ? 'unknown' : undefined, `began at y=${y}`)
+  }
+})
+
+await t('C2 A FAILED WALK TO A FAR CHEST backs THAT chest off for this bot (no path); an interrupted walk backs off nothing', async () => {
+  for (const [msg, backs] of [['No path to the goal!', true], ['The goal was changed before it could be completed!', false]]) {
+    freshPool()
+    const w = fakeWorld({ bag: [stack('oak_log', 30)], at: [101.5, 64, 0.5] })
+    w.set(100, 64, 5, 'chest')
+    w.bot.pathfinder.goto = async () => { throw new Error(msg) }
+    const r = await run(w.bot)
+    assert.equal(r.status, 'failed', r.detail)
+    const until = w.bot.skipContainers?.get?.('100,64,5')
+    if (backs) assert.ok(until > Date.now() + 9 * 60_000, 'backed off ~10 min')
+    else assert.equal(until, undefined, 'an interruption says nothing about the chest')
+    assert.equal(bankClosed(w.bot), '')
+  }
+})
+
+await t('C2 AN INTERRUPTED WALK TO A TOWN CHEST strikes nothing and sweeps nothing: someone else has the pathfinder', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  w.set(-5, 64, 0, 'barrel')
+  const goto = w.bot.pathfinder.goto
+  w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('The goal was changed before it could be completed!'); return goto(g) }
+  const r = await run(w.bot)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'path_interrupted', r.detail)
+  assert.equal(memEntry('5,64,0'), undefined, 'no strike')
+  assert.ok(!w.spy.opened.includes('-5,64,0'), 'no sweep')
+  assert.equal(bankClosed(w.bot), '')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

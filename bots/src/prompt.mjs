@@ -17,7 +17,7 @@ import { mineTargetHint } from './mining.mjs'
 import { isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
-import { bankClosed } from './chestfull.mjs'
+import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
 
 const MAX_EVENTS = 12
@@ -596,7 +596,7 @@ function smeltableNow (bot) {
 // So the same treatment. Shown only when a deposit is actually WORTH making --
 // the same predicate the admission gate uses -- because a line urging a bot to
 // bank from 800 blocks out would be advice it should not take.
-function depositSituation (bot, memory) {
+export function depositSituation (bot, memory) {
   try {
     const items = bot.inventory?.items?.() ?? []
     if (!items.length) return ''
@@ -610,7 +610,8 @@ function depositSituation (bot, memory) {
       : Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z)
     const storage = bot.findBlock?.({
       matching: b => ['chest', 'barrel', 'trapped_chest']
-        .includes(bot.registry?.blocks?.[b.type]?.name),
+        .includes(bot.registry?.blocks?.[b.type]?.name) &&
+        depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position),   // a DEEP container is not storage (chestfull-02)
       maxDistance: 48,
     })
     if (!depositDue({ bankable: bank.count, distHome, storageWithin48: !!storage,

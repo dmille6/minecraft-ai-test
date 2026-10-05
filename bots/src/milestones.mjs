@@ -16,7 +16,7 @@
 
 import { equivalentTools } from './skills.mjs'
 import { bankableInventory } from './bankable.mjs'
-import { bankClosed } from './chestfull.mjs'
+import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
 import { config } from './config.mjs'
@@ -805,9 +805,12 @@ export const SUSTAINING = [
     done: b => {
       if (bankableInventory(b.inventory?.items?.() ?? []).count < 4) return true
       if (bankClosed(b)) return true   // the bank is closed for this bot (chestfull.mjs): nothing to do here, as with no chest
+      // A DEEP container (chestfull-02, depositTargetOk) is not "storage in reach": the deposit will not use it, so a
+      // bot beside one is vacuously done here and goes on to `return`, as with no chest.
       const chest = b.findBlock?.({
         matching: blk => ['chest', 'barrel', 'trapped_chest']
-          .includes(b.registry?.blocks?.[blk.type]?.name),
+          .includes(b.registry?.blocks?.[blk.type]?.name) &&
+          depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, blk.position),
         maxDistance: 48,
       })
       return !chest
