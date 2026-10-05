@@ -125,6 +125,17 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 17:15Z — JUNKWELL-01 REVERTED by the death gate (15:13Z): 6 canary deaths / 51.1 bot-h vs 11 / 358.2 (3.83x,
+lower bound 1.40x, randomization p = 0.033). All 6 were 80-173 blocks from the well, deep underground: 4 drownings in
+sealed water pockets (y 36-60), 2 lava (y -1, -55); none within 2 min of well activity. MECHANISM (measured): canary
+mine actions/bot 15.9 -> 48.9 vs control 34.8 -> 33.5 (DiD +34.3) -- unique among 7 canaries (others -8.2..+5.0), so
+NOT a restart effect: freeing bag space sent bots back to iron mining (GET_IRON was blocked on no_room), into the
+fleet's existing sealed-pocket and lava weaknesses. The well worked (+180: 154 items disposed, C1-C6 0, junk slots
+DiD -1.30). OWNER 17:10Z: work on UNDERGROUND SAFETY next (design with both engines running), and analyse why bags
+creep back up (45 at >= 34 slots in 07:01-17:01Z vs 38 overnight; analysis running). The junk well returns after
+underground safety. CANARY LIVE: chestfull-02 @ 47110e8 on board-a,board-c,board-d,placebo-d (20 bots) since 15:24Z;
+reads ~18:24Z / ~21:24Z. Scoreboard 07:01-17:01Z: no pickaxe 2/80, no usable 12, trip 35, raw iron 167, wood 55.1%.
+
 ## 10-05 ~14:30Z — CHAIN: junkwell-01 (live; +180 NOT_YET 13:10Z: 2 wells built, 6 disposals / 154 items, C1-C6 0,
 listed-junk slots/bot DiD -1.30, deaths 1 vs 6 same rate) -> chestfull-02 CHAINED on the host (variants 911d792 ->
 chest2-on-911d792 @ 7ee230f, which also changes the well's site picker to respect claimed chests; 1918bb5 ->
