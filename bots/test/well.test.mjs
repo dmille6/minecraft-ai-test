@@ -16,6 +16,7 @@ import { inPickupBox } from '../src/pickupbox.mjs'
 
 const LOG_DIR = `/tmp/mcbot-test-logs-well-${process.pid}`
 process.env.LOG_DIR = LOG_DIR; process.env.BOT_NAME = 'TestBot'
+process.env.WELL_RECORD_SETTLE_MS = '300'   // production 25 s (every peer's 20 s cache refresh); the suite cannot wait that long
 const W = await import('../src/well.mjs')
 const require = createRequire(import.meta.url)
 const REG = require('minecraft-data')('1.21.11')
@@ -408,7 +409,7 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
   const world = new Map(Object.entries(blocks).map(([k, v]) => [k, typeof v === 'string' ? { name: v } : v]))
   const key = p => `${p.x},${p.y},${p.z}`
   const state = { tick: 0, clicks: [], goals: [], activations: [], events: [], dropped: [], pending: [], lookPitch: null, lookDir: null, digs: [], places: [], nextId: 1000,
-                  missNext: 0, refuseClose: false, onClick: null, writes: [], placeLagTicks: 0, lagged: [], serverSilent: false, onResync: null, activateLagTicks: 0 }
+                  missNext: 0, refuseClose: false, onClick: null, writes: [], placeLagTicks: 0, lagged: [], serverSilent: false, onResync: null, activateLagTicks: 0, tickThrows: false }
   const cell = v => world.get(key(v)) ?? { name: v.y > G0 ? 'air' : v.y === G0 ? 'grass_block' : 'dirt' }
   const blockAt = p => {
     const v = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
@@ -520,6 +521,7 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
       },
     },
     waitForTicks: async n => {
+      if (state.tickThrows) throw new Error('tick wait exploded')
       for (let i = 0; i < (n ?? 1); i++) {
         state.tick++
         for (const l of [...state.lagged]) if (state.tick >= l.at) { l.fn(); state.lagged.splice(state.lagged.indexOf(l), 1) }
@@ -540,12 +542,12 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
       assert.ok(bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5)) <= 4.5, 'used from out of reach')
       const c = world.get(key(b.position)); assert.ok(c?.props && /_trapdoor$/.test(c.name), `activated ${c?.name}`)
       if (c.props.open && state.refuseClose) return
-      const flip = () => { c.props.open = !c.props.open; state.events.push(c.props.open ? 'open' : 'close') }
+      const flip = () => { c.props.open = !c.props.open; state.events.push(c.props.open ? 'open' : 'close'); if (!c.props.open) state.onClosed?.() }
       if (state.activateLagTicks) { const lag = state.activateLagTicks; state.activateLagTicks = 0; state.lagged.push({ at: state.tick + lag, fn: flip }); await state.onActivate?.(); return }
       flip()
     },
     clickWindow: async (slot, button, mode) => {
-      state.clicks.push({ slot, button, mode, name: slots[slot]?.name, count: slots[slot]?.count, open: wellAt ? !!world.get(key(wellAt))?.props?.open : null })
+      state.clicks.push({ slot, button, mode, name: slots[slot]?.name, count: slots[slot]?.count, open: wellAt ? !!world.get(key(wellAt))?.props?.open : null, at: bot.entity.position.floored() })
       assert.equal(mode, 4, 'a throw is a THROW click'); assert.equal(button, 1, 'the whole stack')
       const it = slots[slot]; if (!it) return
       slots[slot] = null
@@ -963,7 +965,7 @@ await t('CODEX #3 AN OPEN STILL IN FLIGHT AT THE ABORT: the cleanup waits for it
   assert.ok(town.state.events.includes('open'), 'positive control: the late open did land')
 })
 await t('MUTANT (skills): without waiting for a requested open, the late update leaves the well open', async () => {
-  await withMutant(SP, '        for (let i = 0; pending.open && !open && i < 10; i++)', '        for (let i = 0; false && pending.open && !open && i < 10; i++)', async m => {
+  await withMutant(SP, '        for (let i = 0; pending.open && !open && i < WELL_OPEN_WAIT_TICKS; i++)', '        for (let i = 0; false && pending.open && !open && i < WELL_OPEN_WAIT_TICKS; i++)', async m => {
     const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)] })
     const signal = { aborted: false }
     town.state.activateLagTicks = 6; town.state.onActivate = async () => { signal.aborted = true }
@@ -1034,6 +1036,8 @@ await t('CODEX #8 PIT-FIRST throws share the disposal\'s accounting: server-resy
   assert.equal(pits.length, 2, 'the retaken miss refilled its slot: a second pit phase makes the room again')
   assert.ok(pits.every(x => field(x.skill.detail, 'server') === 'resync' && field(x.skill.detail, 'nonlisted') === '0'))
   assert.equal(field(pits[0].skill.detail, 'misses'), '1'); assert.equal(field(pits[0].skill.detail, 'retaken'), '1')
+  const stand = W.wellStand(flatRead({}, G0), CAP).stand
+  assert.ok(town.state.clicks.every(c => c.at.x === stand.x && c.at.y === stand.y && c.at.z === stand.z), `a pit throw from off the stand: ${town.state.clicks.map(c => String(c.at)).join(' ')}`)
 })
 
 await t('CODEX #9/#11 an exception after a throw keeps that throw\'s evidence; eating bread meanwhile is other_loss, never nonlisted', async () => {
@@ -1086,6 +1090,62 @@ await t('MUTANT (skills): throwing into a breached well (#6 killed)', async () =
     await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
     assert.ok(town.state.clicks.length > 0, 'mutant inert')
   })
+})
+
+// ---- Codex round 2 -------------------------------------------------------------------------------------------------------
+await t('R2 A LATE OPEN (15 ticks, past the old 10-tick wait) is seen and closed; one that never lands in 40 ticks is a _well_open_unresolved row, and the scheduler then closes', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)] })
+  const signal = { aborted: false }
+  town.state.activateLagTicks = 15; town.state.onActivate = async () => { signal.aborted = true }
+  await assert.rejects(run('dispose_well', town.bot, signal), e => e?.aborted === true)
+  for (let i = 0; i < 20; i++) await town.bot.waitForTicks(1)
+  assert.equal(town.world.get(town.key(CAP)).props.open, false); assert.ok(town.state.events.includes('open'))
+  const t2 = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)] })
+  const sig2 = { aborted: false }
+  t2.state.activateLagTicks = 200; t2.state.onActivate = async () => { sig2.aborted = true }
+  const n0 = (await rows('_well_open_unresolved')).length
+  await assert.rejects(run('dispose_well', t2.bot, sig2), e => e?.aborted === true)
+  assert.equal((await rows('_well_open_unresolved')).length, n0 + 1, 'the unresolved open was not reported')
+  for (let i = 0; i < 200; i++) await t2.bot.waitForTicks(1)       // the late update lands: the well is open now
+  assert.equal(t2.world.get(t2.key(CAP)).props.open, true, 'positive control: the late open landed')
+  const { townWellState } = await import('../src/skills.mjs')
+  assert.equal(W.wellOrder({ now: NOW, distHome: 3, slots: 10, well: () => townWellState(t2.bot) }).order?.skill, 'close_well')
+  assert.equal((await run('close_well', t2.bot)).status, 'success'); assert.equal(t2.world.get(t2.key(CAP)).props.open, false)
+})
+
+await t('R2 B someone arriving DURING the record wait stops the dig (well_attended, a cooldown only); the settle is fixed, not the skill budget', async () => {
+  const { WELL_RECORD_SETTLE_MS } = await import('../src/skills.mjs')
+  assert.equal(WELL_RECORD_SETTLE_MS, 300, 'the suite override')
+  const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+  const C = await import('../src/composter.mjs')
+  const key = `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`
+  assert.ok(C.createSiteGen(dir, key, 1, CAP, null))
+  const fresh = Date.now() + 600
+  fsMod.utimesSync(path.join(dir, `${key}.g1.json`), fresh / 1000, fresh / 1000)
+  const town = fakeTown({ items: [S('oak_trapdoor', 2)], storeDir: dir })
+  const timer = setTimeout(() => { town.bot.players['b-Late'] = { username: 'b-Late', entity: { position: new Vec3(CAP.x + 2.5, CAP.y + 1, CAP.z + 0.5) } } }, 300)
+  const r = await run('build_well', town.bot)
+  clearTimeout(timer)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'well_attended'); assert.equal(town.state.digs.length, 0)
+  assert.equal(W.wellOrderOutcome('build_well', 'failed', NOW, {}, 'well_attended').buildBackoffUntil, NOW + W.WELL_BUILD_COOLDOWN_MS)
+})
+
+await t('R2 C an exception AFTER the throws (a tick wait failing while judging misses) still writes the account row', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)] })
+  town.state.onClosed = () => { town.state.tickThrows = true }
+  const r = await run('dispose_well', town.bot)
+  assert.ok(['failed', 'success'].includes(r.status))
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(field(row.skill.detail, 'tossed'), '2'); assert.match(row.skill.detail, /error_after:/)
+  assert.equal(town.world.get(town.key(CAP)).props.open, false)
+})
+
+await t('R2 E a visitor with nothing listed closes an open well and reports it (success, closed_open=1)', async () => {
+  const town = fakeTown({ wellAt: CAP, wellOpen: true, items: [S('dirt', 5), ...filler(33)] })
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail); assert.equal(r.placed, 1)
+  assert.equal(town.world.get(town.key(CAP)).props.open, false); assert.equal(town.state.clicks.length, 0)
+  assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'closed_open'), '1')
 })
 
 // ===================================================================================================================
@@ -1174,7 +1234,7 @@ await t('MUTANT: no flap in the opening is caught by the registry shapes', async
   })
 })
 await t('MUTANT (skills): without the finally close an aborted visit leaves the well open', async () => {
-  await withMutant(SP, '        if (open) {\n          try { await setWellOpen(bot, cap, false, g.restoreBound, tickNA) }', '        if (false) {\n          try { await setWellOpen(bot, cap, false, g.restoreBound, tickNA) }', async m => {
+  await withMutant(SP, '        if (open) {\n          sawOpen = true\n          try { await setWellOpen(bot, cap, false, g.restoreBound, tickNA) }', '        if (false) {\n          sawOpen = true\n          try { await setWellOpen(bot, cap, false, g.restoreBound, tickNA) }', async m => {
     const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)] })
     const signal = { aborted: false }
     town.state.onClick = async () => { signal.aborted = true }
