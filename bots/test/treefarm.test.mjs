@@ -226,6 +226,15 @@ await t('canonicalFarm: deterministic, keeps off home and the composter, every p
   assert.equal(TF.torchesOf(a.record).length, 4)
 })
 
+await t('canonicalFarm: a reservation predicate (the world border, in tend_farm) keeps every plot on its side', () => {
+  const inside = c => Math.hypot(c.x, c.z) > 14
+  const r = TF.canonicalFarm({ home: HOME, read: world().read, reserved: inside })
+  assert.ok(r.record, r.why)
+  for (const p of TF.plotsOf(r.record)) assert.ok(Math.hypot(p.x, p.z) <= 14, `plot ${p.x},${p.z} past the line`)
+  const free = TF.canonicalFarm({ home: HOME, read: world().read })
+  assert.ok(TF.plotsOf(free.record).some(p => Math.hypot(p.x, p.z) > 14), 'positive control: without the line the farm reaches past it')
+})
+
 await t('canonicalFarm: an unloaded cell anywhere on the way means no farm (never a private answer)', () => {
   const first = TF.farmSpiral(HOME)[0]
   const un = new Set(); for (let y = 58; y <= 72; y++) un.add(K(first.x, y, first.z))

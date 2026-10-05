@@ -5431,7 +5431,8 @@ export function townFarm (bot) {
   const read = farmRead(bot, { memo })
   return resolveRecord({
     dir: farmDir(), key: farmKey(), world: bot.worldId ?? null,
-    compute: () => canonicalFarm({ home, read, avoid: farmAvoid() }),
+    // NEVER OUTSIDE THE WORLD BORDER the other skills keep to (gather and goto refuse past it: Paper sandbox run 1)
+    compute: () => canonicalFarm({ home, read, avoid: farmAvoid(), reserved: c => horizontalDistanceFromSpawn(c) > config.world.borderRadius }),
     refuse: rec => farmRecordRefusal(read, rec),
   })
 }

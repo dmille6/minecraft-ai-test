@@ -89,7 +89,7 @@ function surfaceAt (read, x, z, y0, dy) {
 export function plotRefusal (read, plot, { reserved = null } = {}) {
   const cell = read(plot.x, plot.y, plot.z), soil = read(plot.x, plot.y - 1, plot.z)
   if (!cell || !soil) return 'unknown'
-  if (reserved && reserved(plot)) return 'reserved by another town structure'
+  if (reserved && reserved(plot)) return 'reserved (another town structure, or past the world border)'
   if (!PLANTABLE_SOIL.has(soil.name)) return `soil is ${soil.name}`
   if (!REPLACEABLE.has(cell.name)) return `cell is ${cell.name}`
   for (let k = 1; k <= CLEAR_ABOVE; k++) {
