@@ -125,6 +125,13 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 21:43Z — CHESTFULL-02 KEPT (+360) and PROMOTED: FLEET 47110e8. C1-C4 0, rescues 16 ok, instrument 43; deaths 4/120
+bot-h vs 9/240 (0.89x). WATCH: canary successful deposits 37 -> 18 vs control 96 -> 94 (DiD -0.153/bot-h, harm watch,
+small n) -- the coming towndeposit makes deposits deterministic. NEXT: withdraw (rebasing onto 47110e8) and climbflood
+(rebasing onto 47110e8 as cf-on-47110e8; registered as a FIX per the owner's 09-29 rule: deterministic gates decide,
+effect reported; read defects fixed after Codex CHANGE x3 -> APPROVE; Paper: control flooded 17/17 eligible, candidate
+0/20) -- whichever is launch-ready first. towndeposit/foodskip and the blueprint builder also need rebases onto 47110e8.
+
 ## 10-05 ~19:30Z — OWNER: add a frontier STRATEGIST ("god" layer, Claude/GPT via API, hourly-daily: world goals, role
 targets, cross-world lessons, proposed blueprints/rules/skills through the same sandbox + canary gate) to the queue
 "further down, its not a rush". Architecture agreed: strategist (frontier) -> overseer (large local) -> bot brain
