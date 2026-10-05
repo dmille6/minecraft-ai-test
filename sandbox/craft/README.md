@@ -227,3 +227,33 @@ each new chest (dirt_path?), and the item entities on the ground before logout a
 node sandbox/craft/chest-ab.cjs cand ../chest-cand 1 carried,craft,budget,roomy,site,far
 node sandbox/craft/chest-ab.cjs ctrl ../chest-ctrl 1 carried,craft,budget,roomy,site,far
 ```
+
+## Grid-clear A/B (`grid-ab.cjs`)
+
+The craftsync grid fix (gf-on-1918bb5 @ 8c9239d): does an ABORTED 2x2 craft leave the grid (window-0 slots 1-4) or the
+cursor loaded? `craft` is the model's verb, so the driver QUEUES `craft 64 stick` (16 executions of the 2x2 recipe, one
+bot.craft each) and fires the abort at a measured moment: the first craft click seen in `trace.cjs`, plus an offset.
+One fresh bot per trial (`sandbox-Grid`). **The grid and the cursor are not in the Inventory NBT**, so the oracle is
+(1) conservation in planks units (planks + sticks/2) before vs 6 s after the craft row: a deficit is what the grid or
+cursor holds, and (2) the item entities after LOGOUT: Paper drops a disconnected player's grid + cursor, so the ground
+after logout is exactly what was stranded. The sandbox runs PEACEFUL, where food never drops: `pre` sets
+`difficulty easy` for its trial and restores peaceful after it.
+
+| scene | bag | abort |
+|---|---|---|
+| `int` / `int3` | planks 64 + rocks = 20/36 | `damage 14` (low_health interrupt) 1.5 s / 0.3 s after the first click |
+| `stuck` | as int, `STUCK_SECONDS=5` | the stuck watchdog (lands mid-click: 2-3 clicks into an execution) |
+| `kick` / `kick3` / `kickst` | as int / int3 / stuck | then RCON `kick` as the craft row lands; the ground 2 s later, the bag after the reconnect |
+| `pre` | as int + bread 16, no saturation | `hunger` (easy) -> the hunger reflex's `equip(bread)` PREEMPTS the craft (preempted=true) |
+| `full` / `full3` / `fullst` | planks 64 + stick 4 + rocks = 36/36 | as int / int3 / stuck |
+| `fullp` / `fullpst` | as full + 3 feathers (PickupDelay 0) at the first click | as int / stuck |
+| `ok` | planks 64 + stick 16, a table at 702 120 700 | none: 5 2x2 and 5 table crafts in one session |
+
+```bash
+node sandbox/craft/grid-ab.cjs cand ../gf-cand 1 int,stuck,kick,pre,full,fullp,ok
+node sandbox/craft/grid-ab.cjs ctrl ../gf-ctrl 1 int,stuck,kick,pre,full,fullp,ok
+```
+
+Found 10-05: a +1.5 s abort lands AFTER an execution's six clicks (both arms clean: not a strand test); +0.3 s lands in
+the verification resync (candidate: `unverified_skipped`, bag conserved); only the stuck watchdog and the preempting
+reflex land mid-click. Fleet aborted 2x2 rows (30 h): 38 of 44 mid-click, 2 in the verification resync.
