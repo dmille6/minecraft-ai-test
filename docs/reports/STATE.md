@@ -125,6 +125,14 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 02:47Z — CANARY LIVE: chestfull-01 @ 6c9a8fb on board-c,board-a,placebo-d (15 bots), declared 02:46:55Z;
+exactly two versions (65 on 1918bb5, 15 on 6c9a8fb). Reads +180 ~05:47Z, +360 ~08:47Z, extensions 540/720, deadline
+780 min. After the 10-04 clear a placement is ~0 per 6 h on the canary (1 full-chest failure fleet-wide in 8.1 h vs 52
+in the 12 h before), so a KEEP means "C1-C4 defect gates 0 and ordinary deposits unharmed"; placement itself is proven
+on Paper (sandbox/craft/chest-ab.cjs: carried chest placed 2/2 where the control failed 2/2; nothing dropped in any
+trial). The licence kind row does not gate the verdict (verdict.py has no min_rows); exposure = >= 20 canary deposit
+rows + the control positive control. Withdraw (registered on 6c9a8fb) chains after this.
+
 ## 10-05 ~02:30Z — BAMBOO-01 READY BUT HELD (bb-on-1918bb5 @ 33384ad; registration on main 33b5a27; staged on the host,
 NOT launched). Paper round 2: the stuck-watchdog and tally defects are fixed (32-fold 3/3, 64-fold 3/3 in its window,
 planks never burned 26/26, control 6/6 no change) BUT an interrupted fold (low-health reflex) strands up to 46 bamboo in
