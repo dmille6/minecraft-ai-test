@@ -8,7 +8,18 @@
 set -u
 cd "$(dirname "$0")"
 # LM Studio lines: "lmstudio <model-key> <label> <bt> <st> [parallel] [ctx]" -> the A4 runtime factor script
-if [ "${1:-}" = lmstudio ]; then exec ./lms_factor.sh "$2" "$3" "${6:-4}" "${7:-16384}"; fi
+if [ "${1:-}" = lmstudio ]; then exec ./lms_factor.sh "$2" "$3" "${6:-4}" "${7:-16384}" "$4" "$5"; fi
+# A5 serving lines: "serve <worker-model> <label> <worker-think> <overseer-think> [overseer-model] [bots] [minutes]"
+if [ "${1:-}" = serve ]; then
+  while [ -e out/GPU_RESERVED ]; do sleep 30; done
+  echo "=== $(date -u +%FT%TZ) $3 (serve $2 + ${6:-none}) bots=${7:-8}" | tee -a out/driver.log
+  for m in $(cat out/.loaded 2>/dev/null); do /Applications/Ollama.app/Contents/Resources/ollama stop "$m" 2>/dev/null; done
+  echo "$2 ${6:-}" > out/.loaded
+  OV=(); [ -n "${6:-}" ] && [ "${6:-}" != none ] && OV=(--overseer "$6" --overseer-think "$5" --escalate-every 180)
+  python3 serving.py --worker "$2" --worker-think "$4" --bots "${7:-8}" --minutes "${8:-15}" --label "$3" ${OV[@]+"${OV[@]}"} >> out/$3.log 2>&1
+  echo "=== $(date -u +%FT%TZ) $3 done" | tee -a out/driver.log
+  exit 0
+fi
 ENGINE=$1; MODEL=$2; LABEL=$3; BT=$4; ST=$5; shift 5
 MODE=full; case "${1:-}" in screen|slowonly|brainonly) MODE=$1; shift;; esac
 OLLAMA=/Applications/Ollama.app/Contents/Resources/ollama

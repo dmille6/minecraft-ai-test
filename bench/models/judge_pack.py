@@ -174,7 +174,9 @@ def cmd_pack(a):
             order = list(reversed(Ls)) if kind == 'swap' else Ls
             cid = '%s~%s%d' % (it['set'][0], kind, len(key))
             key[cid] = {'of': it['id'], 'kind': kind, 'map': {chr(65 + j): L for j, L in enumerate(order)}}
-            packets[it['set']].append({'id': cid, 'context': ctx, 'candidates': {chr(65 + j): cands[L] for j, L in enumerate(order)}})
+            # copies go to a SEPARATE packet, judged in a separate session: inside one packet a judge sees the
+            # identical observation twice and simply matches itself (measured 10-05: 100% on both judges)
+            packets[it['set'] + '-copies'].append({'id': cid, 'context': ctx, 'candidates': {chr(65 + j): cands[L] for j, L in enumerate(order)}})
     for s in packets:
         rng.shuffle(packets[s])
     for s, pk in packets.items():
@@ -182,8 +184,8 @@ def cmd_pack(a):
             fh.write('# Judge packet: %s (%d items)\n\n%s\n\nReturn ONE JSON line per item, nothing else:\n'
                      '{"id": "<item id>", "scores": {"A": {"score": 1-5, "executable": true|false, "why": "<= 20 words"}, ...}}\n'
                      'Score every letter. Judge each candidate on its own merits; several may deserve the same score.\n\n'
-                     % (s, len(pk), RUBRIC[s]))
-            if s in ('brain', 'stuck'):
+                     % (s, len(pk), RUBRIC[s.replace('-copies', '')]))
+            if s.replace('-copies', '') in ('brain', 'stuck'):
                 sp = json.load(open(os.path.join(HERE, 'data', 'system_prompts.json')))['4245ef45b42e430b']['template']
                 fh.write('## SKILLS: the bot\'s own system prompt (what each skill does)\n\n' + sp + '\n')
             for p in pk:

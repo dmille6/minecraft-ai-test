@@ -75,7 +75,7 @@ def env_for(a, run_id, i):
         'VIEWER_ENABLED': 'false', 'VIEWER_FIRST_PERSON': 'false', 'VIEWER_PORT': '0', 'LOG_LEVEL': 'info',
         'CODE_VERSION': 'bench-closedloop', 'RUN_ID': run_id,
         'HOME_X': '355', 'HOME_Y': '73', 'HOME_Z': '147', 'BOARD_X': '358', 'BOARD_Y': '72', 'BOARD_Z': '147',
-        'OLLAMA_BASE_URL': 'http://ai.ticrcorp.com:11434', 'OLLAMA_BASE_URLS': 'http://ai.ticrcorp.com:11434',
+        'OLLAMA_BASE_URL': a.endpoint, 'OLLAMA_BASE_URLS': a.endpoint,
         'LOG_DIR': '%s/%s' % (base, name), 'STATE_DIR': '%s/%s-state' % (base, name),
     }
     if a.think not in ('none', ''):
@@ -112,6 +112,8 @@ def main():
     ap.add_argument('--allow-contention', action='store_true')
     ap.add_argument('--keep-reservation', action='store_true', help='leave the GPU reserved for the next run (a series)')
     ap.add_argument('--tag', default='')
+    ap.add_argument('--endpoint', default='http://ai.ticrcorp.com:11434',
+                    help='or http://10.0.0.70:11501 = LM Studio via the translating proxy (start it first)')
     a = ap.parse_args()
     run_id = 'cl-%s-%s-%s%s' % (a.arm, a.server, datetime.now(timezone.utc).strftime('%m%dT%H%M'), ('-' + a.tag) if a.tag else '')
     log = lambda m: print('[%s] %s' % (now(), m), flush=True)
@@ -127,7 +129,8 @@ def main():
             'options': {'num_ctx': 8192, 'num_predict': 4}}
     if a.think not in ('none', ''):
         warm['think'] = {'true': True, 'false': False}.get(a.think, a.think)
-    sh(STUDIO, "curl -s -m 600 localhost:11434/api/chat -d %s >/dev/null" % shlex.quote(json.dumps(warm)), check=False, timeout=700)
+    if 'ticrcorp' in a.endpoint:
+        sh(STUDIO, "curl -s -m 600 localhost:11434/api/chat -d %s >/dev/null" % shlex.quote(json.dumps(warm)), check=False, timeout=700)
     subprocess.run(['scp', '-q', os.path.join(HERE, 'cl_world.sh'), WORLDS_HOST + ':/tmp/mbench-cl_world.sh'], check=True)
     with sandbox_lock('model-selection agent: %s world reset for %s' % (a.server, run_id)):
         log(sh(WORLDS_HOST, 'bash /tmp/mbench-cl_world.sh %s reset' % a.server, timeout=900).strip()[-300:])

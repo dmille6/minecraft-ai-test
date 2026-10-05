@@ -159,6 +159,12 @@ def call_openai(a, msgs, schema, num_ctx, num_predict, think):
             'response_format': {'type': 'json_schema', 'json_schema': {'name': 'answer', 'strict': True, 'schema': schema}}}
     if isinstance(think, str):
         body['reasoning_effort'] = think
+    elif isinstance(think, bool):
+        # LM Studio: thinking on/off for Qwen-style templates goes through the chat template; whether the engine
+        # honours it is MEASURED (reasoning chars in the answer), not assumed.
+        body['chat_template_kwargs'] = {'enable_thinking': think}
+        if not think:
+            body['reasoning_effort'] = 'none'
     req = urllib.request.Request(a.url.rstrip('/') + '/v1/chat/completions', data=json.dumps(body).encode(),
                                  headers={'Content-Type': 'application/json'}, method='POST')
     with urllib.request.urlopen(req, timeout=a.timeout) as r:
@@ -167,7 +173,11 @@ def call_openai(a, msgs, schema, num_ctx, num_predict, think):
     m = ch.get('message') or {}
     u = d.get('usage') or {}
     st = d.get('stats') or {}
-    return {'content': m.get('content') or '', 'thinking_chars': len(m.get('reasoning_content') or m.get('reasoning') or ''),
+    content = m.get('content') or ''
+    # thinking that leaked INTO the answer (LM Studio's Qwen3.6 MLX "Thinking Process:" finding, 10-02)
+    leaked = len(content.split('</think>')[0]) if '</think>' in content else (len(content) if content.lstrip().lower().startswith(('thinking process', '<think>')) else 0)
+    return {'content': content, 'thinking_chars': len(m.get('reasoning_content') or m.get('reasoning') or ''),
+            'thinking_leaked_chars': leaked,
             'served_model': d.get('model'), 'done_reason': ch.get('finish_reason'),
             'prompt_tokens': u.get('prompt_tokens'), 'gen_tokens': u.get('completion_tokens'),
             'ttft_s': st.get('time_to_first_token'), 'gen_tps': st.get('tokens_per_second')}
@@ -226,6 +236,18 @@ def main():
         items = keep
     items = [i for i in items if i['id'] not in done]
     fn = call_ollama if a.engine == 'ollama' else call_openai
+    # RUNTIME VERSION on every record: runs span an Ollama upgrade (0.33.3 -> 0.35.1, owner-approved 10-05)
+    try:
+        if a.engine == 'ollama':
+            runtime = 'ollama ' + json.loads(urllib.request.urlopen(a.url.rstrip('/') + '/api/version', timeout=10).read()).get('version', '?')
+        else:
+            import subprocess
+            v = subprocess.run(['defaults', 'read', '/Applications/Bionic.app/Contents/Info.plist', 'CFBundleShortVersionString'],
+                               capture_output=True, text=True).stdout.strip()
+            eng = sorted(os.listdir(os.path.expanduser('~/.lmstudio/extensions/backends')))
+            runtime = 'lmstudio %s (%s)' % (v or '?', ','.join(e.split('-mac')[0] + e.rsplit('-', 1)[-1] for e in eng if e.startswith(('mlx-llm', 'llama.cpp'))))
+    except Exception as e:
+        runtime = '%s ?' % a.engine
     lock = threading.Lock()
     fh = open(out, 'a')
     print('%s: %d items to run (%d already done) -> %s' % (a.label, len(items), len(done), out), flush=True)
@@ -253,7 +275,7 @@ def main():
             # pads JSON with endless whitespace (legal in the grammar) run for 15 minutes: measured on
             # qwen2.5:7b stuck items, 900 s timeouts. 1024 is ~3x the longest valid overseer answer.
             npred = 1024
-        rec = {'id': item['id'], 'set': s, 'label': a.label, 'model': a.model, 'engine': a.engine,
+        rec = {'id': item['id'], 'set': s, 'label': a.label, 'model': a.model, 'engine': a.engine, 'runtime': runtime,
                'think': think, 'concurrency': a.concurrency, 't_start': time.time()}
         try:
             try:
