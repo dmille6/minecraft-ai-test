@@ -445,13 +445,14 @@ export function farmOrderOutcome (skill, status, now = 0, state = {}, failClass 
  *   failed     mutations the server refused or never answered;  offplan  mutations at a cell not in the record (must be 0)
  *   lost       non-farm items the bag lost during the visit (must be 0)
  *   census     the plots as this visit read them before acting: tree, sapling, ready, logs_above, ...
+ *   t0         the visit's start (epoch ms): with the row's own time, the span the read checks for two builders at once
  */
 export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, torches = 0, bonemeal = 0, failed = 0, offplan = 0, lost = 0,
-                                  lease = '-', stop = 'done', census = {}, species = {}, at = null } = {}) {
+                                  lease = '-', stop = 'done', census = {}, species = {}, at = null, t0 = 0 } = {}) {
   const c = Object.entries(census).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const sp = Object.entries(species).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} failed=${failed} ` +
-          `offplan=${offplan} lost=${lost} lease=${lease}${at ? ` at=${at.x},${at.y},${at.z}` : ''} ` +
+          `offplan=${offplan} lost=${lost} lease=${lease}${at ? ` at=${at.x},${at.y},${at.z}` : ''} t0=${Math.round(t0) || 0} ` +
           `stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} census=${c} species=${sp}`).slice(0, 300)
 }
 

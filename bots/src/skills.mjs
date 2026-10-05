@@ -5473,8 +5473,9 @@ async function tendFarm (ctx, _args, signal) {
   const me = bot.username ?? '?'
   const f = { planted: 0, soil: 0, cleared: 0, torches: 0, bonemeal: 0, failed: 0, offplan: 0, lost: 0, species: {} }
   let census = {}, gen = 0, leaseNote = '-', stop = null
+  const t0 = Date.now()
   const row = status => logEvent({ kind: 'farm_tend', status, snapshot: snapshot(bot),
-                                   detail: farmTendDetail({ gen, ...f, lease: leaseNote, stop: stop ?? 'done', census }) })
+                                   detail: farmTendDetail({ gen, ...f, lease: leaseNote, stop: stop ?? 'done', census, t0 }) })
   const skip = why => { stop = why; row('no_effect'); return { status: 'no_effect', detail: why } }
   if (!farmEnabled(process.env)) return skip('the town tree farm is switched off here (TREEFARM_ENABLED); nothing to do')
   const dir = farmDir(), key = farmKey()
