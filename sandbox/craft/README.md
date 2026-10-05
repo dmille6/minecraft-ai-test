@@ -282,3 +282,25 @@ CRAFT_REPO=$PWD node sandbox/craft/climbflood-ab.cjs ctrl ../cf-ctrl 5 A,B,C,G s
 CRAFT_REPO=$PWD node sandbox/craft/climbflood-ab.cjs cand ../cf-cand 5 A,B,C,G sandbox
 python3 sandbox/craft/summarize-climbflood.py sandbox/log/climbflood-ab/results-ctrl.jsonl sandbox/log/climbflood-ab/results-cand.jsonl
 ```
+## Town deposit A/B (`towndeposit-ab.cjs`, 10-05)
+
+`town_deposit` is a deterministic town order (towndeposit.mjs `townDepositOrder`), so the driver queues nothing for it:
+it sets a scene and WATCHES (100 s, then 40 s more to see that a second order does not come in the same stay), then
+reads the server: every bag slot with damage, every slot of chest A (702 120 700) and B (697 120 700), the ground. A
+composter stands at 696 120 696 in every scene (without it the base build_composter order fires on the freed slots).
+The control gets the same scene; `full` then queues the model's `deposit` verb for contrast.
+Note: trace `block_place` counts include container OPENS (mineflayer's activateBlock sends a use-item-on packet).
+
+| scene | bag | expects (candidate) |
+|---|---|---|
+| `full` | 3 stone pickaxes (1 / 120 / 60 uses), cobblestone 64+64+20, oak_log 64+64+10, apple 45, raw_iron 5, coal 9, dirt 30, raw_copper 7, 22 wool = 36 | the 60-use pickaxe, cobblestone 20, oak_log 10, raw_copper 7 banked; everything else kept |
+| `kept` | cobblestone 64, oak_log 64, dirt 16, sand 8, one pickaxe, raw_iron 20, apple 30, wool = 36 | no order |
+| `fullchest` | as `full`, chest A 27/27 | one failed run, no click, nothing moved |
+| `below` | `full` cut to 33 slots | no order |
+| `twochests` | 3x64+10 oak_log, copper 5, gold 3, pickaxes 120/81 uses; chest A has 2 empty slots, B empty | A takes 2 stacks, B the rest; logs capped at 10 for the visit |
+
+## Food-skip A/B (`foodskip-ab.cjs`, 10-05)
+
+The world must be peaceful (asserted). An oak_log block beside the bot; an apple, a bread and a cobblestone lying 4-6
+blocks away (PickupDelay 0). `gather 1 oak_log` is queued; after the dig the sweep runs. Candidate (FOOD_SKIP unset =
+auto): the food stays on the ground, the cobblestone is collected; `food_off` (FOOD_SKIP=off): food is chased again.
