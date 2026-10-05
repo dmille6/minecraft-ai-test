@@ -24,8 +24,8 @@ async function withMutant (old, neu, fn) {
 }
 
 await t('MUTANT KILLED: no quiet wait after a click -> the A-only craft bursts and is lost again', async () => {
-  await withMutant('      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)\n      await waitQuiet(st, win, clickPhase)\n',
-    '      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)\n', async mod => {
+  await withMutant('      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode, { windowId: win, epoch: issuedIn })\n      await waitQuiet(st, win, clickPhase)\n',
+    '      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode, { windowId: win, epoch: issuedIn })\n', async mod => {
       const r = await trialWith(mod, { opts: { rewriteStateId: false } })
       assert.ok(r.minGap < CS.CRAFT_SYNC.quietMs, 'the mutant still waits between clicks')
       assert.equal(r.server.count('wooden_pickaxe'), 0, 'the mutant kept the craft, so the lockstep test proves nothing')
