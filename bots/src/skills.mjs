@@ -6221,17 +6221,23 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           if (left <= 0) break
           check(signal)
           if (!liveSource(win, src)) continue
+          // THE LIVE COUNT, NOT THE SNAPSHOT'S (Codex round 8): a source refilled since the plan read it (8 -> 64) must not
+          // be shift-clicked whole on the old count -- that took 72 for a need of 10. Everything below uses `have`.
+          const live = slotAt(win, src.slot)
+          const have = live?.name === take.name ? (live.count ?? 0) : 0
+          if (have <= 0) continue
           const empties = []
           for (let s = win.inventoryStart; s < win.inventoryEnd; s++) if (!slotAt(win, s)) empties.push(s)
-          const want = Math.min(left, src.count)
+          const want = Math.min(left, have)
           const a = allocate(win.items?.() ?? [], take.name, want, { emptySlots: empties.length })
           const m = want - a.leftover
           if (m <= 0) break
-          if (m === src.count) {
-            // A WHOLE SOURCE STACK: shift-click, so the cursor is never loaded. It counts only what actually left the slot.
+          if (m === have) {
+            // A WHOLE SOURCE STACK (its live count is no more than the need, and it all fits): shift-click, so the cursor is
+            // never loaded. It counts only what actually left the slot.
             await click(src.slot, 0, 1)
             const rest = slotAt(win, src.slot)
-            const moved = src.count - (rest?.name === take.name ? (rest.count ?? 0) : 0)
+            const moved = have - (rest?.name === take.name ? (rest.count ?? 0) : 0)
             took[take.name] = (took[take.name] ?? 0) + moved
             left -= moved
             if (moved < m) throw stop(`only ${moved} of the ${m} ${take.name} moved`)
@@ -6240,7 +6246,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           // A PART OF A STACK needs the cursor. As little as possible on it, for as few clicks as possible: a right-click
           // picks up HALF (rounded up) when that covers m; the exact amount goes in with ONE left-click when one slot
           // takes it all; otherwise one at a time.
-          const half = Math.ceil(src.count / 2)
+          const half = Math.ceil(have / 2)
           await click(src.slot, m <= half ? 1 : 0, 0)
           if (win.selectedItem?.name !== take.name) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${take.name}`)
           let placed = 0

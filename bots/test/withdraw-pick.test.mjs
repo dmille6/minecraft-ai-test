@@ -476,6 +476,17 @@ await t('R7 A WHOLE SOURCE STACK of an ingredient goes by shift-click: no cursor
   assert.equal(count(w.bag, 'stick'), 2)
 })
 
+await t('R8 CODEX REPRO: a source refilled during the first click (2 -> 64) is not shift-clicked whole on its old count -- 10 taken, not 72', async () => {
+  const w = withServer(town([], [stack('stick', 8), stack('stick', 2)]))
+  afterClick(w, n => { if (n === 1) w.containers.get('5,64,0').slots[1] = stack('stick', 64) })   // refilled meanwhile
+  const r = await withdraw(w.bot, { item: 'stick', count: 10 })
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count(w.bag, 'stick'), 10, 'exactly the need')
+  assert.equal(w.containers.get('5,64,0').slots[1]?.count, 62, 'the refilled stack gave 2, by the cursor path')
+  assert.deepEqual(w.spy.clicks[0], [0, 0, 1], 'positive control: the 8 still went whole, by shift-click')
+  assert.ok(!w.spy.clicks.slice(1).some(c => c[2] === 1), 'no shift-click on the refilled stack')
+})
+
 await t('R7 A PART of a stack: right-click picks up HALF; when that is exactly the need, ONE left-click places it -- 2 cursor clicks', async () => {
   const w = withServer(town([], [stack('stick', 8)]))
   const cursor = watchCursor(w)
