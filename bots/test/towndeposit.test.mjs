@@ -335,7 +335,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
         }
         win.selectedItem = null; win.server.selectedItem = null
         if (bot.currentWindow === win) bot.currentWindow = null
-        if (stealOnClose) for (let i = 0; i < n; i++) if (c.items[i] && c.items[i].name !== 'dirt') c.items[i] = null   // another bot empties what was put in
+        if (stealOnClose && st.closes === 1) for (let i = 0; i < n; i++) if (c.items[i] && c.items[i].name !== 'dirt') c.items[i] = null   // another bot empties what was put in (the first chest only)
       }
       if (openNever) return new Promise(res => { st.late = () => { bot.currentWindow = win; res(win) } })
       bot.currentWindow = win
@@ -475,17 +475,17 @@ test('SKILL + REAL RUNNER: a refused move whose re-open fails is FAILED, never p
 })
 
 test('SKILL: the visit cap counts what was MOVED, not what the re-open found (another bot emptied the first chest)', async () => {
-  const items = bag([['raw_copper', 32], ['raw_copper', 32], ['raw_copper', 32], ['raw_copper', 32], ...filler(32)])
+  const items = bag([['raw_copper', 32], ['raw_copper', 32], ['raw_copper', 32], ['raw_copper', 32], ['raw_gold', 3], ...filler(31)])
   const a = filledChest(2, 2), b = chestAt(-4)
   const w = world({ items, containers: [a, b], stealOnClose: true })
   const r = await run(w.bot)
-  assert.equal(r.status, 'failed', 'nothing confirmed in a chest')
-  assert.equal(sumOf(serverBag(w), 'raw_copper'), 64, 'two stacks moved, then the cap stopped the visit (not 128)')
-  assert.deepEqual(w.st.opened, ['2,70,0', '2,70,0'], 'chest B was never opened: the 64 were spent')
+  assert.equal(r.status, 'success', 'the gold is confirmed in chest B')
+  assert.equal(sumOf(serverBag(w), 'raw_copper'), 64, 'two copper stacks moved, then the cap held for the rest of the visit (not 128)')
+  assert.equal(sumOf(b.items, 'raw_gold'), 3); assert.equal(sumOf(b.items, 'raw_copper'), 0, 'chest B got the gold and no copper')
 })
 
 test('SKILL: never a mine chest, a lidded chest, or the other half of a double chest; a single beside a single is tried', async () => {
-  const deep = chestAt(1, 50, 0), lidded = chestAt(2, 70, 0, { lid: 'stone' })
+  const deep = chestAt(1, 57, 0), lidded = chestAt(2, 70, 0, { lid: 'stone' })
   const half1 = filledChest(-3, 0, { props: { type: 'left', facing: 'north' } }), half2 = filledChest(-2, 0, { props: { type: 'right', facing: 'north' } })
   const { bot, st } = world({ items: fullBag(), containers: [deep, lidded, half1, half2, chestAt(-6)] })
   const r = await run(bot)
