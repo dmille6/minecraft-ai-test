@@ -3376,8 +3376,9 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
   const fail = out => ({ ok: false, produced, out })
   // A CRAFT THE SERVER CONFIRMED WHEN ITS EXECUTION STILL ENDED IN AN ERROR (the deadline, a click cap, mineflayer's
   // own throw): craftsync's produced is then the server's count. Carried for a caller's tally (bamboo); it is not
-  // counted as a verified execution here.
-  const atStop = e => (e?.authoritative === true && Number(e.produced) > 0 ? Number(e.produced) : 0)
+  // counted as a verified execution here. AT MOST ONE EXECUTION'S YIELD (Codex 10-05): craftsync's produced is the
+  // server's bag DELTA over the craft, so a pickup of the same item inside it would otherwise be credited as crafts.
+  const atStop = e => (e?.authoritative === true && Number(e.produced) > 0 ? Math.min(Number(e.produced), perCraft) : 0)
   // WITHOUT craftsync the local bag is the only witness, and the server's slot updates can land after bot.craft
   // resolves (composter build, sandbox Paper 1.21.8: an immediate read saw 4 logs / 8 planks while the server held 12
   // planks). So the local count is read back, bounded, before it decides. Under craftsync this is never consulted.

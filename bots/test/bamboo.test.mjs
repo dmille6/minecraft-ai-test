@@ -383,6 +383,25 @@ await t('2c an execution that ENDS IN AN ERROR after the server confirmed its cr
   assert.equal(row?.args?.crafts, 3, `row crafts=${row?.args?.crafts}, server +3`)
 })
 
+await t('2c A STOPPED EXECUTION IS CREDITED AT MOST ONE EXECUTION\'S YIELD (Codex 10-05: produced is the server\'s DELTA, a pickup inflates it)', async () => {
+  // The 3rd execution's real craft runs (+1 stick), then craftsync reports the deadline with an authoritative delta of 3
+  // -- as if two sticks had been picked up inside that craft's verification. The tally may take ONE craft from it.
+  const { server, bot } = await setup(bag({ 36: ['bamboo', 64], 37: ['bamboo', 10], 38: ['stick', 32] }, 36))
+  const real = bot.craft
+  let n = 0
+  bot.craft = async (...a) => {
+    const got = await real(...a)
+    if (++n === 3) throw new CS.CraftSyncError('craft stopped at the deadline: 3 of 1 made', { failClass: 'craft_deadline', produced: 3, requested: 1, reason: 'deadline', authoritative: true })
+    return got
+  }
+  await fold(bot, server)
+  await new Promise(r => setTimeout(r, 100))
+  const row = rowsOf('_bamboo_sticks').at(-1)?.skill
+  assert.equal(server.count('stick') - 32, 3, 'POSITIVE CONTROL: three real crafts were made')
+  assert.equal(row?.args?.crafts, 3, `row crafts=${row?.args?.crafts}: 2 verified + at most 1 for the stopped execution`)
+  assert.ok(row.args.crafts <= row.args.planned)
+})
+
 await t('2c THE TALLY IS THE SERVER\'S: an abort that lands after the server answered the 3rd craft\'s verification counts it', async () => {
   const { server, bot } = await setup(bag({ 36: ['bamboo', 64], 37: ['stick', 32] }, 36))
   const ac = new AbortController()
