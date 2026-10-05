@@ -1,25 +1,25 @@
 {
  "run_id": "climbflood-01",
  "sha": "2aad303",
- "registered_at": "2026-10-05T21:18:00Z",
+ "registered_at": "2026-10-05T21:45:00Z",
  "ladder_change": false,
  "promotion": "fleet-wide",
- "notes": "[climbflood-01: canary 1 of the underground-safety plan (docs/reports/underground-safety-design-2026-10-05.md 4.1, both engines). Variant for fleet 1918bb5, branch cf-on-1918bb5 @ 2aad303. NOT LAUNCHED by this registration; rebase onto the fleet sha when its turn comes (a new registration file per variant).] bots/src identical to 828f4db (2aad303 adds two behaviour tests only). THE CHANGE (design 4.1): ONE flood check (scaffold.mjs overheadBreakRisk, `at` relative to the block to be broken: the block, the cell ABOVE it, its 4 sides, water in any form incl. waterlogged/kelp/bubble column, lava in any form, unknown = refuse, a falling column read one further; submerged exemption for water only) asked immediately before EVERY upward escape dig, at the swing and of the swing's own target: pillarOut (before the block count, in the loop, again after the hand change), digStraightUp (before the last-pickaxe rule, again after the equip), the escape ramp (ceiling breach, gravel settle, step digs, re-cuts, unbury overhead -- each re-checked against the live cell), shaftAscend (again after the equip). A refusal is flood_risk and never falls through to another dig. Entombed AND marooned handlers route it to floodBranch: the ramp, which (when the refused cell is its own ceiling) first steps ONE cell sideways into a column whose own ceiling the check allows (dry tread, dry cells, no lava face, re-planned after the digs and after the look), digs the bot's own head/feet cell out if buried, and never re-breaches the refused cell; if nothing moved the bot: one _climb_flood_refused row per back-off on the existing curve (15/30/45/60 s...), NO prerequisite, the legal move named, failure counter cleared; a ramp the drowning rescue preempted is preemption (no refusal, no back-off, controls left to the new owner). The give-up arm skips its pickaxe ask under a wet ceiling; a wet shaft cap is not need_pickaxe. TESTS: 225/225 files (node scripts/run-tests.mjs on 828f4db and on 2aad303); climb-flood.test.mjs 84/84 tests, incl. the chain pillarOut -> route -> floodBranch on scene A/C worlds, dynamic terrain mid-step, water arriving during the hand change, drift during the hand change, takeover during the sidestep look and during an aborted sidestep dig, buried under a wet column; 35 in-file anchored mutants (each anchor asserted present and unique), all killed; external mutant run (each mutant applied to a COPY of src, killed only when a behaviour test fails): 37/39 killed, 2 equivalent (redundant by design: the post-dig sidestep re-plan is subsumed by the post-look re-plan; the own-cell early return is subsumed by the refusal fallback that digs own cells). Four existing test files moved to the predicate's new shape; one assertion inverted on the design's evidence (water above a DRY bot's ceiling now refuses; the submerged exemption is asserted in its place). eslint: only the pre-existing withinBody. CODEX: CHANGE r1-r4 (all items fixed or answered: flooded-pocket rung digs excluded as canary 2's subject; need_scaffold/unstick/lattice composition argued and accepted), APPROVE r5 on 828f4db. PAPER (sandbox 25599, sandbox/craft/climbflood-ab.cjs, world read back by RCON every 2 s, digs from the packet trace; control 1918bb5 vs candidate 828f4db; 1x1 stone cell, feet y 40, ceiling 42; kit stone_pickaxe 100 uses + 64 cobblestone + bucket): A pocket above -- control flooded 5/5 (4 died), candidate 0/5 flooded, 0 died, refused ceiling never dug, 5/5 stepped sideways (4/5 then breached the dry side ceiling and climbed until a route existed; 1/5 hit the ramp's 60 s bare-hand budget in the side column -- progress, the next firing continues dry); B water beside -- control 5/5 flooded, candidate 0/5, 5/5 sidestep (2/5 climbed, 3/5 budget); C every side wet (240 s) -- control 5/5 flooded and died, candidate 0/5 flooded, 5/5 alive, exactly 4 refusal rows each (back-off 15/30/45/60 s), 0 prerequisites, no spin; in 4/5 the existing livelock escape later tunnelled out sideways; D submerged -- both arms dig the ceiling (exemption works) and both drown 3/3 (the rescue's problem, canary 2); E lava above -- control 3/3 burned, candidate 0/3, never dug, 3 refusals each; F dry -- both 3/3 climb out identically; G gravel over water -- control 5/5 flooded (3 died), candidate 0/5, 5/5 sidestep then out. Setup-phase prereq rows (bot parked at y 60 in spectator before the kit) excluded in both arms. CALIBRATION WARNING FOR THE OWNER BEFORE LAUNCH (identical-code dry runs of this read on 10-05, 20 bots vs 60): the design's effect metric (water entry within 5 min of a climb opportunity) has a control rate of ~2.3-2.9 per 100 opportunities, so EXPECTED at +24 h on 20 bots is ~49 (not the design's 'about 10'); KEEP at observed <= 2 then needs a ~96% reduction of ALL water entries near escapes, most of which this change does not touch. The design's 'about 10' matches the 72 h analysis's 20 s climb window (REPORTED variant 'fast': expected 8.6-9.3 per 24 h on 20 bots). The two harm lines also sit inside their null spread: stranded-minute ratio DiD read +131% (6 h), +32% and -51% (24 h); mining ratio DiD -39% (6 h), -4% and -33% (24 h) on identical code. As registered, a KEEP is improbable regardless of effect and an INCONCLUSIVE would count toward nothing; decide (both engines) whether to amend before launch: e.g. the 'fast' window as the effect metric with KEEP at observed <= 2 of >= 8 expected, and support-p (randomization) instead of raw thresholds for the harm lines. Launch (when climbflood-01's turn comes and the fleet is 1918bb5): ~/chain-after.sh <run before it> climbflood-01 1918bb5=/home/mike/mcai-analysis/climbflood-01.1918bb5.json -- a different fleet sha STOPs the chain (rebase and register a new variant).",
+ "notes": "[climbflood-01, registered as a FIX (owner 09-29: deterministic correctness gate only; reads +180/+360, extended until exposure; KEEP from +360), after Codex's CHANGE on the earlier effect-gated registration (10-05). Variant for fleet 1918bb5, branch cf-on-1918bb5 @ 2aad303 (bots/src identical to 828f4db, the commit Codex APPROVED in round 5 and the one run on Paper). NOT LAUNCHED by this registration.] THE CHANGE: one flood check (scaffold.mjs overheadBreakRisk: the block, the cell above it, its four sides, water in any form, lava in any form, unknown = refuse, a falling column read one further; submerged exemption for water only) asked immediately before every upward escape dig, at the swing and of the swing's own target -- pillarOut, digStraightUp, the escape ramp (breach, settle, steps, re-cuts, unbury overhead), shaftAscend. A refusal is flood_risk and never falls through. The entombed and marooned handlers route it to floodBranch: the ramp (one sidestep into a dry column when the refused cell is its own ceiling; the bot's own buried cells dug first; the refused cell never re-breached); if nothing moved the bot, one _climb_flood_refused row per back-off (15/30/45/60 s...), no prerequisite, the legal move named; drowning-rescue preemption is not a refusal. BENEFIT, PROVEN ON PAPER (sandbox/craft/climbflood-ab.cjs, world read back by RCON every 2 s, digs from the packet trace; control 1918bb5 vs candidate 828f4db): water above the ceiling -- control flooded 5/5 with 4 deaths, candidate 0/5; water beside 5/5 vs 0/5; every side column wet 5/5 flooded and dead vs 0/5 (4 refusal rows each, no ask, no spin); gravel over water 5/5 (3 deaths) vs 0/5; lava above 3/3 burned vs 0/3; dry geometry 3/3 climbed out in both arms; already submerged: both arms dig up (exemption) and both drown 3/3 (the rescue's problem, canary 2). TESTS: 225/225 files; climb-flood.test.mjs 84/84 with 35 anchored mutants killed; external mutants 37/39 killed, 2 equivalent (redundant checks). Codex: CHANGE r1-r4, APPROVE r5. THE READ (scripts/host/climbfloodread.py; tests scripts/host/test_climbfloodread.py, synthetic rows for every case Codex raised, 7 anchored mutants killed): gates are deterministic defect lines that BLOCK KEEP (none reverts on its own; reverts come only from the unchanged death gate); positive controls include the real Paper floods fed through the read's own endpoint (control 17/17 eligible detected, candidate 0/20). The 20 s endpoint, the 5-min design metric, the refusal-chain follow-up and the stranded/mining ratio-DiDs with whole-pool randomization p are REPORTED ONLY. HARM HERE MEANS 'NOT DETECTED', NOT 'PROVEN ACCEPTABLE'. Dry run 10-05 (identical code, 20 bots, +360): R_E 1.01 (E0 7.9, observed 8, p 0.59 over 330 assignments), R_S 0.79 (p 0.69), R_M 0.53 (p 0.07) -- i.e. the null itself swings that far, which is why none of them gates. Launch (its turn, fleet 1918bb5): ~/chain-after.sh <run before it> climbflood-01 1918bb5=/home/mike/mcai-analysis/climbflood-01.1918bb5.json -- any other fleet sha STOPs the chain (rebase and register a new variant).",
  "licence": {
   "class": "kind",
   "kind": "_climb_flood_guard",
   "min_rows": 1,
-  "note": "Written only by this build: one row per refusal of the shared flood check at an upward escape dig (caller pillar_out | dig_straight_up | ramp_breach | ramp_step | shaft_ascend). The fleet (1918bb5) has no _climb_flood_* row of any kind (dry runs 10-05: 0 in 628,090 rows / 6 h and 0 in 2,438,914 rows / 48 h, 80 bots)."
+  "note": "Written only by this build: one row per refusal of the shared flood check at an upward escape dig. The fleet (1918bb5) is silent on it (licencecheck 10-05: 0 in 312,497 rows / 6 h, 80 bots)."
  },
  "reads": [
   "climbfloodread",
   "immobiledid"
  ],
  "read_minutes": [
-  360,
-  1440
+  180,
+  360
  ],
- "deadline_min": 2940,
+ "deadline_min": 1680,
  "change_rows": [
   "climb_flood_guard",
   "climb_flood_ramp",
@@ -31,18 +31,18 @@
   "hours": 6,
   "require": [
    {
-    "name": "climb opportunities (entombed escapes; the canary's guard fires from these)",
+    "name": "climb opportunities (entombed escapes; the guard is asked from these)",
     "kind": "entombed",
     "min": 20
    }
   ],
-  "note": "A 20-bot (4-pool) draw is the design's effect read: 'A 20-bot canary (4 pools) is needed for the effect read; that is still one canary.' drawrec.sh targets 4 pools; with fewer, expected events scale down and the +24 h read says so (exposure_ready needs >= 8 expected). Opportunities per 20 bots per 6 h in the dry runs: 369-466."
+  "note": "10-05 19:36Z: every drawable pool qualified (69-305 entombed rows per pool in 6 h)."
  },
  "exposure": {
   "read": "climbfloodread",
-  "field": "exposure_ready",
-  "min": 1,
-  "note": "Ready = the read window is >= 1440 min (NO KEEP before +24 h -- the +6 h read is mechanism and harm only) AND expected breaches at the control rate >= 8 AND the instrument (control climb rows and control opportunities) >= 1. Expected = control post rate x canary post opportunities."
+  "field": "guarded_opp_canary",
+  "min": 100,
+  "note": "Canary-build eligible escape opportunities that REACHED THE GUARD (a dig attempt or a _climb_flood_guard row inside the opportunity). Dry runs 10-05 (identical code, the same count on control rows): 10 bots at +180 -> 107, 119, 129, 141; 20 bots at +360 -> 412. N = 100 is met by +360 in every draw seen (by +180 on 10 bots in all four); the extension runs until it is."
  },
  "own_lines": [
   {
@@ -51,7 +51,39 @@
    "op": "<=",
    "value": 0,
    "on_fail": "REVERT",
-   "note": "CORRECTNESS: 0 upward escape digs into water or lava by the canary -- _climb_flood_breach rows (a dig whose promise resolved, by the same live body, whose opened cell held water or lava 1.6 s later), excluding the submerged-water exemption. BLOCKS KEEP and triggers an investigation of each row; deliberately NOT evidence=defect (Codex r2): the row shows liquid in the cell later, not which action let it in, and mineflayer resolves a dig locally, so one row cannot license a REVERT on its own."
+   "note": "CORRECTNESS: 0 canary upward digs into water or lava at the guarded call sites (_climb_flood_breach outside the submerged-water exemption). BLOCKS KEEP and triggers a look at each row; not a one-row REVERT (Codex r2: the row shows liquid in the cell later, not which action let it in)."
+  },
+  {
+   "read": "climbfloodread",
+   "field": "guard_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary-build _climb_flood_guard (refusal) rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "climbfloodread",
+   "field": "chain_prereq",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "CHAIN: no pickaxe/blocks ask from the escape path (_entombed_needs_*, _entombed_unrecoverable, _marooned_needs_pickaxe, an escape-reflex _prereq_adopted) within 120 s and 3 blocks after a _climb_flood_refused row. BLOCKS KEEP."
+  },
+  {
+   "read": "climbfloodread",
+   "field": "chain_spin",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "CHAIN: no _climb_flood_refused row re-fired (same bot, handler and place) before the previous row's own backoff_s ran out (2 s tolerance). BLOCKS KEEP."
+  },
+  {
+   "read": "climbfloodread",
+   "field": "chain_wet",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "CHAIN: no _climb_flood_refused row written with dry=0 (the bot's own reading of its two cells). BLOCKS KEEP."
   },
   {
    "read": "climbfloodread",
@@ -63,52 +95,44 @@
   },
   {
    "read": "climbfloodread",
-   "field": "guard_rows_canary",
-   "op": ">=",
-   "value": 1,
-   "on_fail": "REVERT",
-   "note": "LIVENESS: canary-build _climb_flood_guard rows (restart-lag rows excluded). BLOCKS KEEP (INCONCLUSIVE)."
-  },
-  {
-   "read": "climbfloodread",
    "field": "instrument_control",
    "op": ">=",
    "value": 1,
    "on_fail": "REVERT",
-   "note": "POSITIVE CONTROL: control escape-climb rows (_scaffold_pick pillar_out/dig_straight_up) AND control climb opportunities are visible to this query (dry runs: 11,045 climb rows + 1,942 opportunities in 6 h; 40,065 + 6,603 in 24 h). BLOCKS KEEP."
+   "note": "POSITIVE CONTROL (fleet): control-build dig evidence AND control climb opportunities are visible (dry run 10-05 6 h: 11,550 pillar steps, 1,528 entombed digs, 19 ramps, 173 shaft climbs; 1,773 opportunities). BLOCKS KEEP."
   },
   {
    "read": "climbfloodread",
-   "field": "effect_ok",
+   "field": "paper_ctrl_detected",
    "op": ">=",
-   "value": 1,
+   "value": 17,
    "on_fail": "REVERT",
-   "note": "EFFECT (design 4.1): observed canary breaches <= 2 (water entry within 5 min of a climb opportunity, the bot dry in the 60 s before). Decides only at the +24 h effect read with exposure (expected >= 8); a failure BLOCKS KEEP (INCONCLUSIVE), and an exposed failure is recorded as FLAT for the stopping rule (effect_flat). Not a KEEP threshold: zero observed."
+   "note": "POSITIVE CONTROL (Paper, end to end): the REAL control floods from sandbox/craft/climbflood-ab.cjs (control 1918bb5, scenes A/B/C/G; ~/mcai-analysis/climbflood-paper/ctrl) fed through this read's own endpoint code: 17 of 17 eligible detected (3 of 20 started wet from the previous trial and are ineligible). BLOCKS KEEP."
   },
   {
    "read": "climbfloodread",
-   "field": "stranded_ok",
-   "op": ">=",
-   "value": 1,
+   "field": "paper_cand_detected",
+   "op": "<=",
+   "value": 0,
    "on_fail": "REVERT",
-   "note": "HARM (design 4.1): stranded minutes per bot-hour ratio DiD <= +25% (trapped-bots definition: >= 10 min within 8 blocks with failure evidence). BLOCKS KEEP."
+   "note": "NEGATIVE CONTROL (Paper): the candidate's trials of the same scenes through the same code: 0 detected. BLOCKS KEEP."
   },
   {
    "read": "climbfloodread",
-   "field": "mining_ok",
+   "field": "paper_cand_eligible",
    "op": ">=",
-   "value": 1,
+   "value": 20,
    "on_fail": "REVERT",
-   "note": "HARM (design 4.1): mining actions (mine skill rows + _ore_tunnel) per bot-hour ratio DiD >= -20%, so safety does not come from inactivity. BLOCKS KEEP."
+   "note": "The negative control must be PRESENT: 20 of 20 candidate flood-scene trials eligible (Codex r6: missing candidate logs would otherwise pass the 0-detected line). BLOCKS KEEP."
   }
  ],
  "primary": {
   "read": "climbfloodread",
-  "field": "breach_rate_did",
-  "note": "REPORTED (the decision is effect_ok + exposure): breaches per 100 opportunities DiD, expected vs observed, reduction; the two reported variants (entry within 8 blocks of the escape; the 72 h analysis's 20 s window); guard firings per 100 canary opportunities by caller and reason class; refusal-chain outcomes (out dry by ramp / stayed dry / later wet within 5 min); refusal rows and back-off; raw iron per bot-hour DiD; deaths by cause per arm."
+  "field": "fast_R_E",
+  "note": "REPORTED, NOT GATING (a fix: the benefit is proven on Paper). The 20 s endpoint (an escape-associated water proxy anchored on dig evidence both builds write; see the read's header): R_E = (r_T,post / r_T,pre) / (r_C,post / r_C,pre) per eligible opportunity, E0 = N_T,post * r_T,pre * r_C,post / r_C,pre from a FIXED 48 h pre-deploy baseline, observed count, one-sided whole-pool randomization p (favourable) with the assignment count and the minimum attainable p; undefined ratios are reported as null, never pseudocounted. Also the 5-min design metric R_D and the refusal-chain 5-min follow-up (out dry by ramp / wet after ramp / ramp dig then wet within 20 s / refused stayed dry / refused later wet / preempted)."
  },
  "harm": {
-  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. One canary death is reported and named, not a verdict. Stranded minutes and mining throughput are own lines above (they BLOCK KEEP; they cannot REVERT on a typed threshold)."
+  "note": "GATING: unchanged -- the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. REPORTED, NOT GATING: stranded minutes (R_S) and mining actions (R_M) per bot-hour as ratio-DiDs with a one-sided whole-pool randomization p (adverse direction). HARM HERE MEANS 'NOT DETECTED', NOT 'PROVEN ACCEPTABLE' (Codex 10-05): a large p is not evidence of no harm, and these lines cannot pass or fail the canary. The randomization enumerates every assignment of the drawn pool count among the drawable pools present; it does NOT reproduce the draw's band/exposure filters."
  },
  "teardown": {
   "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
@@ -117,11 +141,12 @@
  "extension": {
   "until_exposure": true,
   "extra_reads": [
+   540,
    720,
    1080,
-   2880
+   1560
   ],
   "final_on_zero_exposure": "INCONCLUSIVE",
-  "note": "Design 4.1: +6 h instrument and harm only; reads at +12 h and +18 h are harm reads (verdict NOT_YET before +24 h); the effect read is +24 h; if exposure is short at +24 h, ONE extension to +48 h, then INCONCLUSIVE (which under the stopping rule is not 'flat' but closes the loop)."
+  "note": "SHORT CANARY for a fix (owner 2026-09-29): KEEP from +360 when every gate holds and exposure is met; otherwise the reads continue until it is."
  }
 }
