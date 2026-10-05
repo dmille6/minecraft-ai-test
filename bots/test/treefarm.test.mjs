@@ -233,6 +233,13 @@ await t('canonicalFarm: a reservation predicate (the world border, in tend_farm)
   for (const p of TF.plotsOf(r.record)) assert.ok(Math.hypot(p.x, p.z) <= 14, `plot ${p.x},${p.z} past the line`)
   const free = TF.canonicalFarm({ home: HOME, read: world().read })
   assert.ok(TF.plotsOf(free.record).some(p => Math.hypot(p.x, p.z) > 14), 'positive control: without the line the farm reaches past it')
+  // a RECORDED farm laid out before the line moved: refused once too few of its plots are inside (Codex r4)
+  const inPlots = TF.plotsOf(free.record).filter(p => Math.hypot(p.x, p.z) <= 14).length
+  assert.equal(TF.farmRecordRefusal(world().read, free.record), null)
+  const verdict = TF.farmRecordRefusal(world().read, free.record, { reserved: inside })
+  assert.equal(verdict === null, inPlots >= TF.MIN_PLOTS, `${inPlots} plots inside: ${verdict}`)
+  assert.equal(TF.farmRecordRefusal(world().read, free.record, { reserved: () => true }), '0 of 9 plots still usable')
+  for (const t of TF.torchesOf(r.record)) assert.ok(Math.hypot(t.x, t.z) <= 14, 'torches stay on its side too')
 })
 
 await t('canonicalFarm: an unloaded cell anywhere on the way means no farm (never a private answer)', () => {

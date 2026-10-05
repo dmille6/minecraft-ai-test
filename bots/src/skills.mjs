@@ -5424,6 +5424,8 @@ function farmAvoid () {
   return out
 }
 
+/** A cell past the world border the other skills keep to (gather, goto and place refuse beyond it). */
+const pastBorder = c => horizontalDistanceFromSpawn(c) > config.world.borderRadius
 /** The town's farm: the shared record if this view accepts it, else a new generation from this bot's own search. */
 export function townFarm (bot) {
   const home = homeVec()
@@ -5431,9 +5433,10 @@ export function townFarm (bot) {
   const read = farmRead(bot, { memo })
   return resolveRecord({
     dir: farmDir(), key: farmKey(), world: bot.worldId ?? null,
-    // NEVER OUTSIDE THE WORLD BORDER the other skills keep to (gather and goto refuse past it: Paper sandbox run 1)
-    compute: () => canonicalFarm({ home, read, avoid: farmAvoid(), reserved: c => horizontalDistanceFromSpawn(c) > config.world.borderRadius }),
-    refuse: rec => farmRecordRefusal(read, rec),
+    // NEVER OUTSIDE THE WORLD BORDER the other skills keep to (gather and goto refuse past it: Paper sandbox run 1) -- for a
+    // new farm AND for a recorded one (a border can shrink: Codex r4)
+    compute: () => canonicalFarm({ home, read, avoid: farmAvoid(), reserved: pastBorder }),
+    refuse: rec => farmRecordRefusal(read, rec, { reserved: pastBorder }),
   })
 }
 
@@ -5453,7 +5456,7 @@ export function townFarmPlan (bot) {
   const read = readCell(bot)
   // A RECORDED FARM THAT IS NO LONGER A FARM (Codex review) must still be able to schedule its own replacement: the site
   // search runs inside the skill, under the lease; here only the cheap verdict and the founding prerequisite.
-  const why = farmRecordRefusal(read, rec)
+  const why = farmRecordRefusal(read, rec, { reserved: pastBorder })
   if (why && why !== 'unknown') {
     const saplings = FARM_SPECIES.reduce((a, s) => a + (held[s] ?? 0), 0)
     return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'refound' }], counts: {}, materials: null } : null

@@ -146,7 +146,7 @@ export function fitFarm ({ read, anchor, home, avoid = [], reserved = null, grid
   for (const off of placeAt(torchOffsets(grid, spacing), anchor)) {
     const s = surfaceAt(read, off.x, off.z, anchor.y, PLOT_DY)
     if (s === 'unknown') return { record: null, why: 'unknown' }
-    if (!s || plotKeys.has(keyOf(s)) || near(s) || flat(home, s) < FARM_HOME_CLEARANCE) continue
+    if (!s || plotKeys.has(keyOf(s)) || near(s) || flat(home, s) < FARM_HOME_CLEARANCE || (reserved && reserved(s))) continue
     const floor = read(s.x, s.y - 1, s.z)
     if (!floor || !solid(floor) || CONTAINER.test(floor.name ?? '')) continue
     torches.push(s)
@@ -241,12 +241,13 @@ export function plotState (read, plot) {
  * the farm repairs those). A record of another blueprint or an older layout is refused, so the town starts a fresh
  * generation; unknown plots that could decide it defer.
  */
-export function farmRecordRefusal (read, record) {
+export function farmRecordRefusal (read, record, { reserved = null } = {}) {
   if (!record || record.blueprint !== FARM_BLUEPRINT) return 'not a tree farm record'
   if (record.version !== FARM_VERSION) return `an older farm layout (v${record.version})`
   const plots = plotsOf(record)
   let viable = 0, unknown = 0
   for (const p of plots) {
+    if (reserved && reserved(p)) continue   // past the world border now (or reserved by another structure): not usable (Codex r4)
     const s = plotState(read, p).state
     if (s === 'unknown') { unknown++; continue }
     if (!/foreign/.test(s)) viable++
