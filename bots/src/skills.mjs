@@ -42,7 +42,7 @@ import { poolStateDir } from './worldfacts.mjs'
 import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, writeClaimState, reconcileClaims, townKey,
          containerStatus, recordOutcome, readTownMemory, updateTownMemory, townRoomAt, setTownRoomReader, timeLeft,
          pickChestSite, chestSiteRefusal, closeMsFor, closeBank, bankClosed, closedRoomText, bagTotal, returnCursor,
-         chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES } from './chestfull.mjs'
+         chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES, RECONCILE_AFTER_MS } from './chestfull.mjs'
 // chestfull-02: one town boundary, no deep targets, a walk that never watches digs, closure only when truly closed.
 import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutAction, closesBank, TARGET_BACKOFF_MS,
          TOWN_SCAN_RADIUS } from './chestfull.mjs'
@@ -5975,12 +5975,15 @@ function wellAvoid (bot) {
     const bank = bot.findBlocks?.({ point: homeVec(), matching: b => /^(chest|trapped_chest|barrel)$/.test(blockNameOf(bot, b) ?? ''), maxDistance: ADOPT_RADIUS + r + 1, count: 64 }) ?? []
     for (const p of bank) out.push({ x: p.x, z: p.z, r, what: 'a bank container' })
   } catch { /* none */ }
-  // A NEW CHEST BEING PLACED (chest-full's claim ledger: claimed, not yet read back as gone or not placed) is a bank
-  // container already (Codex, chestfull-02 on 911d792 round 1): its claim is written before the placement's equip/look/
-  // submit awaits, so a well site computed in that interval keeps its distance from the cell too.
+  // A NEW CHEST BEING PLACED (chest-full's claim ledger) is a bank container already (Codex, chestfull-02 on 911d792
+  // round 1): its claim is written before the placement's equip/look/submit awaits, so a well site computed in that
+  // interval keeps its distance from the cell too. Only while it is IN FLIGHT -- unresolved and younger than
+  // RECONCILE_AFTER_MS (the placement and its read-back take <= CLAIM_BUDGET_MS): a chest that landed is found by the
+  // block scan above, and a claim nobody reconciled must not keep the well out forever.
   try {
+    const now = Date.now()
     for (const c of readClaims(townDir(), homeTownKey())) {
-      if (c.malformed || !sameWorld(c.world, bot.worldId ?? null) || !['unresolved', 'placed'].includes(c.state)) continue
+      if (c.malformed || !sameWorld(c.world, bot.worldId ?? null) || c.state !== 'unresolved' || !(now - c.at < RECONCILE_AFTER_MS)) continue
       out.push({ x: c.x, z: c.z, r, what: 'a new chest being placed' })
     }
   } catch { /* no ledger */ }
