@@ -15,6 +15,7 @@
 //                      not counted); a persisted, reconciled claim ledger (claimNewChest / reconcileClaims)
 //   containerStatus    per-town memory of each container's last outcome: full / unavailable / unknown / unusable
 //   chestSiteRefusal   why a cell may not take the new chest (reuses the composter's site checks)
+//   wellKeepout        never the junk well's column or throwing stands, never inside its clearance (well.mjs geometry)
 //   bankClosed         after a refusal, deposits pause for this bot -- reopened early when the reason goes away
 //   returnCursor       a lifted stack goes back into the bag, VERIFIED, before the window closes
 
@@ -22,6 +23,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { siteRefusal, standableBeside, narrowTop, bodyInCell, tableCellFor, sameWorld,
          CLEARANCE_CONTAINER, MIN_CONTAINER_DISTANCE, STORAGE_NEAR } from './composter.mjs'
+import { wellReservedCells, FACING, WELL_HOME_CLEARANCE } from './well.mjs'
 
 // ---- the budget on NEW chests ---------------------------------------------------------------------------------------
 
@@ -404,6 +406,8 @@ export function standingCells (read, c) {
  *                  container within MIN_CONTAINER_DISTANCE, so a chest there would invalidate the composter's site;
  *                  and the cell its builder would put a crafting table in (tableCellFor) is reserved.
  *   bodies         { x, y, z, w, h } of every body nearby, the bot's own included
+ *   wells          every town junk well and the recorded well site (wellKeepout): never its cells, never within its
+ *                  clearance
  * THE COMPOSTER'S CHECKS, REUSED rather than copied -- cell, floor (never a container's lid: its FLOOR_NO lists every
  * container), one-wide tops, liquid beside, corridor, doors, the home point, somewhere to stand -- by calling its
  * siteRefusal with containers read as stone everywhere but the floor cell: its container clearance is the one rule a
@@ -412,10 +416,12 @@ export function standingCells (read, c) {
  * composter and off its reserved table cell, never the last standing cell of another container, never a standing cell
  * of a crafting table, and no body in the cell.
  */
-export function chestSiteRefusal (read, site, { home = null, composterSites = [], bodies = [] } = {}) {
+export function chestSiteRefusal (read, site, { home = null, composterSites = [], bodies = [], wells = [] } = {}) {
   if (typeof read !== 'function' || !site) return 'no site'
   const { x, y, z } = site
   if (home && !inTown(home, site)) return `outside town (more than ${STORAGE_NEAR} from home, or ${TOWN_DY} above or below it)`
+  const well = wellKeepout(site, wells)
+  if (well) return well
   const masked = (qx, qy, qz) => {
     const b = read(qx, qy, qz)
     if (!b || (qx === x && qy === y - 1 && qz === z)) return b
@@ -465,6 +471,34 @@ export function chestSiteRefusal (read, site, { home = null, composterSites = []
   return null
 }
 
+/**
+ * WHY THE TOWN JUNK WELL REFUSES THIS CELL FOR A NEW CHEST -> a reason, or null. Pure. Composed from the well's own rules
+ * (well.mjs), so the two town builders agree on one geometry:
+ *   - its RESERVED CELLS (wellReservedCells: the column above the cap and every throwing stand) -- a chest on a stand
+ *     is a breach (wellBreach: every stand blocked) and the town builds a new well. A well whose facing is not known
+ *     yet (a recorded site, still being built) reserves all four sides: any of them may become the stand.
+ *   - its CLEARANCE: the well keeps WELL_HOME_CLEARANCE (horizontally) from every bank container (skills.mjs wellAvoid),
+ *     so a new chest closer than that would (a) refuse a recorded site that is not built yet -- the town moves the well
+ *     and leaves the pit -- and (b) put depositing bots inside the well's admission radius, so every disposal waits.
+ *     The same distance in the other direction keeps the two from ever invalidating each other.
+ *   wells  [{ cap: {x,y,z}, facing: 'north'|'south'|'west'|'east'|null }]: every town well found and the recorded site
+ */
+export function wellKeepout (site, wells = []) {
+  for (const w of (Array.isArray(wells) ? wells : [])) {
+    const cap = w?.cap
+    if (!cap || !Number.isFinite(cap.x) || !Number.isFinite(cap.y) || !Number.isFinite(cap.z)) continue
+    const facings = FACING[w.facing] ? [w.facing] : Object.keys(FACING)
+    const reserved = facings.flatMap(f => wellReservedCells(cap, f))
+    if (reserved.some(c => c.x === site.x && c.y === site.y && c.z === site.z)) {
+      return `a cell the junk well needs left empty (its column or a throwing stand) at ${cap.x},${cap.y},${cap.z}`
+    }
+    if (Math.hypot(site.x - cap.x, site.z - cap.z) < WELL_HOME_CLEARANCE) {
+      return `within ${WELL_HOME_CLEARANCE} of the junk well (bots at a chest there would hold off its disposals) at ${cap.x},${cap.y},${cap.z}`
+    }
+  }
+  return null
+}
+
 /** The rings around the full chest, nearest first, each in angle order from east (deterministic). */
 export function chestSiteColumns (anchor, rings = SITE_RINGS) {
   const out = []
@@ -483,7 +517,7 @@ export function chestSiteColumns (anchor, rings = SITE_RINGS) {
  * column is skipped, not fatal: a chest needs no town-wide agreement on its cell -- the claim ledger keeps the count.
  * `skip` lists cells already refused this call.
  */
-export function pickChestSite ({ read, anchor, home = null, composterSites = [], bodies = [], rings = SITE_RINGS, skip = [] } = {}) {
+export function pickChestSite ({ read, anchor, home = null, composterSites = [], bodies = [], wells = [], rings = SITE_RINGS, skip = [] } = {}) {
   const refused = {}
   const bump = k => { refused[k] = (refused[k] ?? 0) + 1 }
   if (typeof read !== 'function' || !anchor) return { site: null, stand: null, why: 'no anchor', refused }
@@ -496,7 +530,7 @@ export function pickChestSite ({ read, anchor, home = null, composterSites = [],
     }
     if (!surface) { bump('no surface'); continue }
     if ((skip ?? []).some(q => q.x === surface.x && q.y === surface.y && q.z === surface.z)) { bump('tried'); continue }
-    const why = chestSiteRefusal(read, surface, { home, composterSites, bodies })
+    const why = chestSiteRefusal(read, surface, { home, composterSites, bodies, wells })
     if (!why) return { site: surface, stand: standableBeside(read, surface), why: null, refused }
     bump(why.replace(/ at -?\d+,-?\d+,-?\d+$/, ''))
   }

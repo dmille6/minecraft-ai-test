@@ -2989,7 +2989,9 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   const anchor = fullNear.sort((a, b) => here().distanceTo(a) - here().distanceTo(b))[0] ?? first.position
   const composterSites = [readTownSite(dir, townSiteKey()).site, findTownComposter(bot)?.position].filter(Boolean)
   const skip = []
-  const pickAt = () => pickChestSite({ read, anchor, home, composterSites, bodies: bodiesAround(bot), skip })
+  // THE JUNK WELL'S CELLS AND CLEARANCE (chestfull.mjs wellKeepout), read afresh at every pick and on arrival: a well
+  // recorded while this bot walked must move the chest, not be found later as a breach.
+  const pickAt = () => pickChestSite({ read, anchor, home, composterSites, bodies: bodiesAround(bot), wells: chestWellKeepouts(bot), skip })
   let pick = pickAt()
   if (!pick.site) {
     shut('no_site', pick.why)
@@ -3036,7 +3038,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
       }
     }
     check(signal)
-    if (!chestSiteRefusal(read, pick.site, { home, composterSites, bodies: bodiesAround(bot) })) { site = pick.site; break }
+    if (!chestSiteRefusal(read, pick.site, { home, composterSites, bodies: bodiesAround(bot), wells: chestWellKeepouts(bot) })) { site = pick.site; break }
     pick = pickAt()
   }
   if (!site) {
@@ -5897,6 +5899,20 @@ function wellAvoid (bot) {
     const bank = bot.findBlocks?.({ point: homeVec(), matching: b => /^(chest|trapped_chest|barrel)$/.test(blockNameOf(bot, b) ?? ''), maxDistance: ADOPT_RADIUS + r + 1, count: 64 }) ?? []
     for (const p of bank) out.push({ x: p.x, z: p.z, r, what: 'a bank container' })
   } catch { /* none */ }
+  return out
+}
+/**
+ * EVERY WELL A NEW CHEST MUST KEEP CLEAR OF (chestfull.mjs wellKeepout) -> [{ cap, facing }]: each town well found in the
+ * world (breached ones too: until it is filled it is a hole, and its stands stay its own), and the recorded site, whose
+ * facing is not known until it is built (all four sides reserved). A world read never breaks the deposit.
+ */
+export function chestWellKeepouts (bot) {
+  const out = []
+  try { for (const w of findTownWells(bot)) out.push({ cap: w.cap, facing: w.facing ?? null }) } catch { /* none found */ }
+  try {
+    const r = recordedWellSite(bot)
+    if (r && !out.some(w => w.cap.x === r.x && w.cap.y === r.y && w.cap.z === r.z)) out.push({ cap: { x: r.x, y: r.y, z: r.z }, facing: null })
+  } catch { /* no record */ }
   return out
 }
 /** The town's well cap cell from the shared generation record (composter.mjs resolveTownSite, its own key). */

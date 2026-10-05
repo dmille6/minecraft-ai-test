@@ -205,6 +205,51 @@ await t('pickChestSite: rings around the full chest; the first acceptable cell, 
   assert.equal(pickChestSite({ read: () => STONE, anchor: { x: 5, y: 64, z: 0 }, home: HOME }).site, null)
 })
 
+// ---------------------------------------------------------------- the junk well (composition) ---
+// THE WELL'S OWN GEOMETRY decides: its reserved cells come from well.mjs wellReservedCells, its clearance is
+// WELL_HOME_CLEARANCE (the distance the well keeps from every bank container). A chest on a throwing stand is a breach;
+// a chest inside the clearance moves a recorded site and holds off disposals.
+const { wellReservedCells, WELL_HOME_CLEARANCE } = await import('../src/well.mjs')
+const WCAP = { x: 10, y: 63, z: 0 }
+
+await t('W1 chestSiteRefusal: never a junk well\'s throwing stand or column (its own wellReservedCells); an ordinary site is accepted', () => {
+  const read = flat()
+  const wells = [{ cap: WCAP, facing: 'north' }]
+  const reserved = wellReservedCells(WCAP, 'north')
+  assert.equal(reserved.length, 4, 'the column and three stands')
+  for (const c of reserved) {
+    assert.equal(chestSiteRefusal(read, c, { home: HOME }), null, `control: ${c.x},${c.y},${c.z} is an ordinary cell without the well`)
+    assert.match(String(chestSiteRefusal(read, c, { home: HOME, wells })), /junk well needs left empty/, `${c.x},${c.y},${c.z}`)
+  }
+  // A RECORDED SITE (facing not known yet) reserves all four sides: the south cell is a stand only for a south-facing cap.
+  assert.match(String(chestSiteRefusal(read, { x: 10, y: 64, z: 1 }, { home: HOME, wells: [{ cap: WCAP, facing: null }] })), /junk well needs left empty/)
+  assert.doesNotMatch(String(chestSiteRefusal(read, { x: 10, y: 64, z: 1 }, { home: HOME, wells })), /junk well needs left empty/, 'north-facing: the hinge side is no stand')
+  // POSITIVE CONTROL: an ordinary site, well clear of the well, is accepted with the well known.
+  const far = { x: 3, y: 64, z: 5 }
+  assert.ok(Math.hypot(far.x - WCAP.x, far.z - WCAP.z) >= WELL_HOME_CLEARANCE)
+  assert.equal(chestSiteRefusal(read, far, { home: HOME, wells }), null)
+})
+
+await t('W2 chestSiteRefusal: nothing within the well\'s clearance (the distance the well keeps from bank containers)', () => {
+  const read = flat(), wells = [{ cap: WCAP, facing: 'north' }]
+  const near = { x: 10, y: 64, z: 4 }          // 4 from the cap, on no reserved cell
+  assert.ok(!wellReservedCells(WCAP, 'north').some(c => c.x === near.x && c.y === near.y && c.z === near.z))
+  assert.equal(chestSiteRefusal(read, near, { home: HOME }), null, 'control: accepted without the well')
+  assert.match(String(chestSiteRefusal(read, near, { home: HOME, wells })), new RegExp(`within ${WELL_HOME_CLEARANCE} of the junk well`))
+  const edge = { x: WCAP.x - WELL_HOME_CLEARANCE, y: 64, z: 0 }
+  assert.equal(chestSiteRefusal(read, edge, { home: HOME, wells }), null, 'exactly the clearance away is allowed (the well\'s own rule is < r)')
+})
+
+await t('W3 pickChestSite: the well moves the pick out of its clearance (control: without it, the pick is inside)', () => {
+  const read = flat({ '5,64,0': C })
+  const cap = { x: 2, y: 63, z: -3 }
+  const without = pickChestSite({ read, anchor: { x: 5, y: 64, z: 0 }, home: HOME })
+  assert.ok(without.site && Math.hypot(without.site.x - cap.x, without.site.z - cap.z) < WELL_HOME_CLEARANCE, `control: ${JSON.stringify(without.site)}`)
+  const r = pickChestSite({ read, anchor: { x: 5, y: 64, z: 0 }, home: HOME, wells: [{ cap, facing: 'north' }] })
+  assert.ok(r.site, r.why)
+  assert.ok(Math.hypot(r.site.x - cap.x, r.site.z - cap.z) >= WELL_HOME_CLEARANCE, JSON.stringify(r.site))
+})
+
 await t('timeLeft: the watchdog\'s clock', () => {
   assert.equal(timeLeft({ startedAt: 0, timeoutMs: 180_000, now: 150_000 }), 30_000)
   assert.equal(timeLeft({ startedAt: 0, timeoutMs: 180_000, now: 200_000 }), 0)
@@ -274,6 +319,57 @@ await t('THE CHAIN: room advice names deposit -> admitted -> full chest throws -
   assert.match(d, new RegExp(`bag=${before}->${before - banked - 1}`))
   assert.equal(ledger(process.env.POOL_STATE_DIR)[0].state, 'placed')
   assert.ok(rows('deposit_cursor_rescue').some(x => x.skill.status === 'success'))
+})
+
+// THE DEPOSIT, THROUGH THE REAL SKILL CODE, WITH A JUNK WELL IN TOWN. Without one, this town's new chest goes at 4,64,-1
+// (the control in each test); the well's cap at 2,63,-3 is 2.8 from that cell.
+const WELL_CAP = { x: 2, y: 63, z: -3 }
+const wellRecord = async (dir, cap = WELL_CAP) => {
+  const { createSiteGen } = await import('../src/composter.mjs')
+  assert.ok(createSiteGen(dir, 'junkwell-site-0_64_0', 1, cap, null), 'the well site record was written')
+}
+const builtWell = (w, cap = WELL_CAP) => {
+  w.set(cap.x, cap.y, cap.z, 'oak_trapdoor', { half: 'top', facing: 'north', open: false })
+  w.set(cap.x, cap.y - 1, cap.z, 'air')
+}
+const clearOfWell = (placed, cap = WELL_CAP) => {
+  const [x, y, z] = placed.split(',').map(Number)
+  return Math.hypot(x - cap.x, z - cap.z) >= WELL_HOME_CLEARANCE && !wellReservedCells(cap, 'north').some(c => c.x === x && c.y === y && c.z === z)
+}
+await t('W4 a NEW CHEST keeps clear of a BUILT junk well (found in the world); control: no well -> the cell beside it', async () => {
+  const c = town([stack('cobblestone', 64), stack('chest', 1)])
+  assert.equal((await run(c.bot)).status, 'success')
+  assert.deepEqual(c.spy.placed, ['4,64,-1'], 'control: without a well the chest goes 2.8 from where the well will be')
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  builtWell(w)
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1)
+  assert.ok(clearOfWell(w.spy.placed[0]), `placed at ${w.spy.placed[0]}, inside the well's keep-out`)
+})
+
+await t('W5 a NEW CHEST keeps clear of the RECORDED well site (a build in progress has no cap yet)', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  await wellRecord(process.env.POOL_STATE_DIR)
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1)
+  assert.ok(clearOfWell(w.spy.placed[0]), `placed at ${w.spy.placed[0]}, inside the recorded site's keep-out`)
+})
+
+await t('W6 a well site RECORDED WHILE THE BOT WALKS to the new chest\'s cell moves the chest on arrival', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const goto = w.bot.pathfinder.goto
+  let recorded = false
+  w.bot.pathfinder.goto = async goal => {
+    if (!recorded && goal.constructor?.name === 'GoalBlock') { recorded = true; await wellRecord(process.env.POOL_STATE_DIR) }
+    return goto(goal)
+  }
+  const r = await run(w.bot)
+  assert.ok(recorded, 'the record was written during the walk to the standing cell')
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1)
+  assert.ok(clearOfWell(w.spy.placed[0]), `placed at ${w.spy.placed[0]}: the arrival check did not see the new record`)
 })
 
 await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not count; the second, inside 10 min, is refused plainly', async () => {

@@ -10,7 +10,7 @@
 // disagreement about the bag rather than an item on the ground.
 import { Vec3 } from 'vec3'
 
-export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table']
+export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table', 'oak_trapdoor']
 const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/
 const key = (x, y, z) => `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`
