@@ -1,0 +1,128 @@
+{
+ "run_id": "chestfull-01",
+ "sha": "6c9a8fb",
+ "registered_at": "2026-10-05T02:37:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[chestfull-01 (OWNER 10-03 ~23:10Z: fix the chest full problem, use claude and codex ... implement it and deploy it). Variant for fleet 1918bb5 (toolclean-01 KEPT+promoted 00:14Z 10-05), branch chest-on-1918bb5 @ 6c9a8fb (both engines APPROVE: Codex AGREE r5, Claude AGREE r3). Launched by chain-after.sh; STOPs if the fleet is not 1918bb5.] MOTIVE (10-03, 24 h, 1,970 deposits): 90 blocked by a full chest, 75 of them by bots CARRYING a chest while the recovery tried to CRAFT one (skills.mjs crafted unconditionally; placed only after a successful craft); the transfer loop also closed the window with a lifted stack on the cursor. THE CHANGE: a full or unusable first chest -> sweep the town containers (<= 16 of home) with a shared per-town memory (full/unavailable/unknown/unusable); then the CARRIED chest is placed before any craft; a budget on NEW chests per town (>= 10 min apart, <= 4 per rolling 24 h, <= 12 recovery-made standing; a persisted claim ledger, reconciled against the world); a safe site (rings 1-4 of the full chest, <= 16 from home, >= 3 from the composter, no lid, no adjacent chest, no table standing cell, never a dirt_path floor); never far from town; a lifted stack goes back VERIFIED (returnCursor) before the close; every walk bounded (first walk 60 s) on the 180 s watchdog clock; a refusal pauses this bot deposits (bankClosed) with an executable remedy (keep working and deposit later), and the prompt stops advertising a deposit. Suite 225/225 on 6c9a8fb (10-05 02:40Z), eslint: only the known withinBody. EXPOSURE, MEASURED 10-05 02:20Z: since the 10-04 18:07Z bank clear (full containers 233 -> 0) the fleet logged ONE storage_full deposit in 8.1 h (isolated-a, never drawn; 52 in the 12 h before the clear), 13 first-chest-full successes via another chest, 62 container_open failures. So a PLACEMENT on 10 bots is ~0 per 6 h (and the banks have ~6,100 free slots); the canary exercises the ordinary deposit (bounded first walk, town memory) and the recovery entered from an open/walk failure (sweep, defer, bank closure). This read gates DEFECTS deterministically and reports the ordinary-path harm watch; the placement path is proven on PAPER. PAPER SANDBOX (1.21.8, sandbox/craft/chest-ab.cjs, server oracle: bag slots, every chest slot, every chest block within 5 rings, floor under a new chest, ground before and after logout; 10-05 02:24-02:36Z): carried 2/2 placed the carried chest beside the bank (696,120,704; 5.7 from home), 96 items banked, ground 0 -- CONTROL 2/2 could not make another chest while carrying one (the 10-03 bug, reproduced); craft 4/5 crafted a chest (+table, taken back) within budget, placed, banked 96; 1/5 refused before any click (craftsync baseline_unanswered: nothing moved, bank paused) -- control 1/1 failed short 3x oak_log while the server held its 16 planks (the control client lost them after a destination-full throw: the cursor defect this fixes); budget 2/2 refuse_cap (4 in 24 h), the chain: two more deposits refused at ADMISSION (bank_closed, no walk), goto ran, 20 s idle with no deposit, the prompt dropped Use deposit -- control re-walked and failed all three and kept advertising deposit; roomy 2/2 = control 2/2 (96 banked, nothing built, the chest kept); site 2/2 placed off every dirt_path cell, 7.2 from the composter, off the table standing cells, 3.0 from home; far 2/2 decision=far, nothing placed 42 blocks out. Nothing dropped in any trial of either arm. KNOWN: the placement ring sits around the NEAREST full chest, so a new chest can be 3 from the home point (HOME_CLEARANCE 3) -- by design. OWNER-LEVEL WARNING (Claude review): at <= 4/day and <= 12 standing a receive-only bank fills its budget in ~3 days; the lasting fix is withdraw (next, built on this sha) -- refuse_cap share is reported.",
+ "licence": {
+  "class": "kind",
+  "kind": "_deposit_new_chest",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per full-chest recovery decision (far, defer, out_of_time, refuse_cap, place_carried, craft). The fleet (1918bb5) has no such row: 0 _deposit_* event rows of any kind in 8.1 h after the 10-04 clear (positive control: 427,304 rows, 80 bots, 733 deposit rows by the same walk)."
+ },
+ "reads": [
+  "chestread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 780,
+ "change_rows": [
+  "deposit_new_chest",
+  "deposit_cursor_rescue"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "deposit activity (the recovery is entered from a deposit)",
+    "kind": "deposit",
+    "min": 8
+   }
+  ],
+  "note": "10-04 18:12Z..10-05 02:18Z (8.1 h) deposits per pool: board-a 91, board-b 69, board-c 32, board-d 71, hive-a 32, hive-b 16, hive-c 119, hive-d 87, placebo-a 21, placebo-b 24, placebo-d 69 (isolated-* and placebo-c are never drawn). No pool can be drawn for FULL chests: there is 1 storage_full deposit fleet-wide since the clear."
+ },
+ "exposure": {
+  "read": "chestread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 20 canary-build deposit rows (the new deposit code ran: bounded first walk, town memory, the recovery on an unusable first chest) AND >= 1 control deposit whose first chest was unusable (full / open failed / lid / used another; 43-44 in the 6 h dry run 10-05). NOT a placement count: after the 10-04 18:07Z clear (full bank containers 233 -> 0) a placement on 10 bots is ~0 per 6 h, so the placement path is proven on Paper (sandbox/craft/chest-ab.cjs), not here."
+ },
+ "own_lines": [
+  {
+   "read": "chestread",
+   "field": "c1_offsite",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a placement (placed=1) with home_d > 16 or composter_d < 3 -- chestSiteRefusal forbids both."
+  },
+  {
+   "read": "chestread",
+   "field": "c2_over_budget",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: the town CLAIM LEDGER the bots write (/var/lib/mcai/_pool-<pool>/town-chest-*.c<n>.json + observations): two claims < 10 min apart, > 4 in any rolling 24 h, or > 12 standing, where a claim made after the cutoff is involved. Read from the file the budget itself reads, not from row times (rows stamp the end of the retry deposit)."
+  },
+  {
+   "read": "chestread",
+   "field": "c3_over_1",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: more than one unsettled-transfer EVENT (a failed _deposit_cursor_rescue and the transfer_unsettled deposit it ends are one event: the deposit row is stamped at its START and the rescue inside its span)."
+  },
+  {
+   "read": "chestread",
+   "field": "c4_craft_while_carrying",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4 (the root cause): a decision=craft row whose END snapshot holds more chests/trapped chests than the decision explains (1 when a crafted chest was not placed, else 0)."
+  },
+  {
+   "read": "chestread",
+   "field": "arms_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: control _deposit_new_chest + _deposit_cursor_rescue rows + control pools with a claim after the cutoff. BLOCKS KEEP."
+  },
+  {
+   "read": "chestread",
+   "field": "deposits_canary_build",
+   "op": ">=",
+   "value": 20,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary deposit rows on the canary build (restart-lag rows excluded). 88 and 28 in the two 6 h dry runs on the baseline. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "chestread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control deposits whose first chest was unusable are visible to this query (44 and 102 in the dry runs). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "chestread",
+  "field": "success_did",
+  "note": "REPORTED, NOT GATED: successful deposits per bot-hour DiD (the ordinary path: bounded 60 s first walk, a closed bank after a refusal). NULL SPREAD MEASURED: the identical-code dry run (board-a,hive-c as 'canary', 10-04 20:30Z +/-360 min) read -0.73/bot-h and the pre-clear one (hive-a,placebo-d, 12:00Z) -0.34 -- a gate here would revert on noise. Also reported: storage_full DiD, decision shares, refuse_cap share (budget saturation), placements, defer count, the old bug on control."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The claim ledgers and container memory in /var/lib/mcai/_pool-<pool> are bot state and stay (a promotion reads them)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29). Exposure is the ordinary deposit path, so +360 should normally decide; the placement path cannot be exposed on the fleet after the 10-04 clear and is NOT waited for."
+ }
+}

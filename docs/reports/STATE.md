@@ -111,6 +111,20 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-05 ~02:45Z — CHESTFULL-01 READY, NOT LAUNCHED (chest-on-1918bb5 @ 6c9a8fb; registration on main
+docs/reports/chestfull-01.1918bb5.json; staged on 10.0.0.31: ~/mcai-analysis/chestfull-01.1918bb5.json, /tmp/chestread.py =
+repo md5 0b936388, old read backed up /tmp/chestread.py.bak-20261005T024025Z). Suite 225/225, eslint only withinBody.
+Launch: `~/chain-after.sh toolclean-01 chestfull-01 1918bb5=/home/mike/mcai-analysis/chestfull-01.1918bb5.json`.
+**EXPOSURE AFTER THE CLEAR IS ~0 FOR PLACEMENTS:** 1 storage_full deposit fleet-wide in 8.1 h after 18:07Z (52 in the 12 h
+before). The read therefore gates DEFECTS deterministically (C1 off-site, C2 from the bots' own claim ledger in
+/var/lib/mcai/_pool-*, C3 unsettled EVENTS, C4 craft-while-carrying from the END snapshot net of a crafted-unplaced chest)
+with exposure = the ordinary deposit path (>= 20 canary-build deposits + a control positive control); success DiD is
+REPORTED only (identical-code null -0.73/bot-h). The placement path is proven on PAPER (sandbox/craft/chest-ab.cjs, both
+arms): carried 2/2 placed + banked (control 2/2 "could not make another chest" while carrying one), craft 4/5 (1 safe
+refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission refuses, no walk, prompt stops advertising
+deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
+chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
+
 ## 10-05 ~02:30Z — BAMBOO-01 READY BUT HELD (bb-on-1918bb5 @ 33384ad; registration on main 33b5a27; staged on the host,
 NOT launched). Paper round 2: the stuck-watchdog and tally defects are fixed (32-fold 3/3, 64-fold 3/3 in its window,
 planks never burned 26/26, control 6/6 no change) BUT an interrupted fold (low-health reflex) strands up to 46 bamboo in

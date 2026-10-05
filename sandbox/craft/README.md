@@ -202,3 +202,28 @@ node sandbox/craft/withdraw-ab.cjs ctrl ../wd-ctrl 1 pick,ingred,swap,spent,hold
 Found on Paper 1.21.8 (10-05): a disconnect while a stack is on the cursor DROPS it whatever the room
 (`AbstractContainerMenu.removed` drops the carried stack once the player has disconnected) -- the kick dropped 64 stone
 in 2/2 trials although the slot it came from was empty.
+
+## Chest-full A/B (`chest-ab.cjs`)
+
+`deposit` is the model's verb, so the driver QUEUES it (embedded brain) once the scene is set, then reads the server.
+One fresh bot per trial, a fresh `STATE_DIR`/`MEMORY_POOL` (so a fresh town container memory and claim ledger). Home is
+the stand (700 120 700); town chests A 703 120 700 and B 697 120 705 (not adjacent: no double chest). "Full" = 27 x 64
+diorite (never bankable); the bag's bankables are coal 64 x2 + raw_iron 32. Every scene has a town composter
+(693 120 694, or the scene's own): without one, `build_composter` runs first and turns the bag's planks into slabs.
+The oracle reads every bag slot, every slot of every chest in the scene, and every chest/trapped_chest block within five
+rings of the scene's chests and four of the bot (a new chest is found in the WORLD, never from the row), the floor under
+each new chest (dirt_path?), and the item entities on the ground before logout and after it.
+
+| scene | bag | world | asks |
+|---|---|---|---|
+| `carried` | bankables + 1 chest, no wood | A, B full | place the CARRIED chest next to the bank, deposit, nothing dropped |
+| `craft` | bankables + 16 oak_planks | A, B full | craft one chest within the budget, place it, deposit |
+| `budget` | bankables + 1 chest | A, B full; the claim ledger pre-seeded with 4 claims in 24 h | refuse_cap with a remedy; then the CHAIN: `deposit`, `deposit coal` (admission must refuse, no walk), `goto`, 20 s idle |
+| `roomy` | bankables + 1 chest | A with room, B full | the ordinary deposit, nothing built |
+| `site` | bankables + 1 chest | A full and the only chest; dirt_path floor 5x5 around A, composter 3 east of A, crafting table 4 south of A | never on a path, >= 3 from the composter, off the table's standing cells, within 16 of home |
+| `far` | bankables + 1 chest + 16 oak_planks | A, B full; the bot at 740 120 700 beside a FULL far chest F (42 from home) | never a chest off-site |
+
+```bash
+node sandbox/craft/chest-ab.cjs cand ../chest-cand 1 carried,craft,budget,roomy,site,far
+node sandbox/craft/chest-ab.cjs ctrl ../chest-ctrl 1 carried,craft,budget,roomy,site,far
+```
