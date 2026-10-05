@@ -5720,47 +5720,82 @@ async function settleCursor (bot, win, sourceSlot) {
 }
 
 /**
- * Bank the plan into one OPEN container. -> { banked: {name: n}, stacks, full, unsettled, tools }. Each step is one whole
- * stack, revalidated against the window right before it moves: a left click on its slot (the cursor must then hold
- * exactly that stack), a left click on its EMPTY destination (the cursor must then be empty). Anything else puts the
- * cursor back where it came from and stops. After the last click the run waits a few ticks for the server to correct
- * anything it refused, and counts only the steps whose source is still empty and whose destination still holds them.
+ * OPEN A CONTAINER, BOUNDED, AND NEVER LEAVE AN OPEN BEHIND -> the window, or null. mineflayer's open waits for the next
+ * `windowOpen` for up to 20 s (promise_utils once), and two pending opens resolve with the SAME window (Codex review 2).
+ * So a timed-out open is DRAINED before this returns: the run waits for that pending open to settle (bounded by
+ * mineflayer's own 20 s) and closes the window if it came, so no later open -- this run's or the next skill's -- can be
+ * handed it.
+ */
+async function openTown (bot, block, ms) {
+  const opening = Promise.resolve().then(() => bot.openContainer(block))
+  let timer
+  const won = await Promise.race([opening.then(w => ({ w }), e => ({ e })), new Promise(res => { timer = setTimeout(() => res({ late: true }), ms) })])
+  clearTimeout(timer)
+  if (won.w) return won.w
+  if (won.late) {
+    let drain
+    const w = await Promise.race([opening.catch(() => null), new Promise(res => { drain = setTimeout(() => res(null), 21_000) })])
+    clearTimeout(drain)
+    try { if (w && bot.currentWindow === w) w.close() } catch { /* gone */ }
+  }
+  return null
+}
+
+/**
+ * Bank the plan into one OPEN container. -> { done: [{ step, it, dest }], full, unsettled }. Each step is one whole stack,
+ * revalidated against the window right before it moves: a left click on its slot (the cursor must then hold exactly
+ * that stack), then -- the destination re-read AFTER the pickup, since mineflayer may wait up to 500 ms before a click
+ * and another bot can fill the slot meanwhile (Codex review 2) -- a left click on an EMPTY container slot (the cursor
+ * must then be empty). Anything else puts the cursor back where it came from and stops. These are the CLIENT's
+ * predictions: nothing is credited here (verifyTown reads the server).
  */
 async function bankInto (bot, win, wanted, already, deadline, signal) {
-  const banked = {}, tools = []
-  let stacks = 0, unsettled = 0
   const bag = windowBag(bot, win)
   const plan = townDepositPlan(bag, { wanted, already })
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
-  const full = plan.steps.length > steps.length
+  let full = plan.steps.length > steps.length
+  let unsettled = 0
   const done = []
+  const emptyDest = () => { for (let i = 0; i < win.inventoryStart; i++) if (!win.slots[i] && !done.some(x => x.dest === i)) return i; return null }
   for (const step of steps) {
     check(signal)
     if (Date.now() > deadline - TD_SETTLE_MS) break
     const it = bag.find(b => b.slot === step.slot)
     const now = it ? win.slots[it.wslot] : null
-    if (!now || now.name !== step.name || now.count !== step.count || win.slots[step.dest] || win.selectedItem) continue   // the bag or the chest moved under the plan
+    if (!now || now.name !== step.name || now.count !== step.count || win.selectedItem) continue   // the bag moved under the plan
     try { await bot.clickWindow(it.wslot, 0, 0) } catch { /* judged below */ }
     if (!win.selectedItem || win.selectedItem.name !== step.name || win.selectedItem.count !== step.count) {
       if (win.selectedItem && !(await settleCursor(bot, win, it.wslot))) { unsettled++; break }
       continue
     }
-    try { await bot.clickWindow(step.dest, 0, 0) } catch { /* judged below */ }
+    const dest = !win.slots[step.dest] ? step.dest : emptyDest()
+    if (dest == null) { full = true; if (!(await settleCursor(bot, win, it.wslot))) unsettled++; break }
+    try { await bot.clickWindow(dest, 0, 0) } catch { /* judged below */ }
     if (win.selectedItem) {
       if (!(await settleCursor(bot, win, it.wslot))) unsettled++
       break
     }
-    done.push({ step, it })
+    done.push({ step, it, dest })
   }
-  // THE SERVER'S WORD: a click it refused comes back as a slot update within a tick or two.
-  try { await bot.waitForTicks?.(4) } catch { /* a test double */ }
-  for (const { step, it } of done) {
-    const d = win.slots[step.dest]
-    if (win.slots[it.wslot] || !d || d.name !== step.name || d.count !== step.count) continue
-    banked[step.name] = (banked[step.name] ?? 0) + step.count; stacks++
-    if (it.maxDurability) tools.push(`${step.name}@${it.maxDurability - (it.durabilityUsed ?? 0)}`)
-  }
-  return { banked, stacks, full, unsettled, tools }
+  return { done, full, unsettled }
+}
+
+/**
+ * THE SERVER'S WORD (Codex review 2: a 1.21 click is a client prediction, and closeWindow copies that prediction into
+ * bot.inventory, so neither the window nor the bag after a close is evidence). The container is opened AGAIN: an open
+ * is answered with the server's own contents (mineflayer emits windowOpen only after the slot data), so a step counts
+ * only when its destination slot holds that stack in the server's copy. -> { verified: [{ step, it }], ok } where ok is
+ * false when the re-open did not come back (then nothing is credited and the run says unverified).
+ */
+async function verifyTown (bot, block, done, ms) {
+  if (!done.length) return { verified: [], ok: true, bag: null }
+  const win = await openTown(bot, block, ms)
+  if (!win) return { verified: [], ok: false, bag: null }
+  try {
+    const bag = {}
+    for (const it of windowBag(bot, win)) bag[it.name] = (bag[it.name] ?? 0) + (it.count ?? 0)
+    return { ok: true, bag, verified: done.filter(({ step, dest }) => { const d = win.slots[dest]; return !!d && d.name === step.name && d.count === step.count }) }
+  } finally { try { win.close() } catch { /* already closed */ } }
 }
 
 async function townDeposit (ctx, _args, signal) {
@@ -5774,16 +5809,19 @@ async function townDeposit (ctx, _args, signal) {
   const heldBefore = held(before)
   const planned = townDepositPlan(before, { wanted }).steps.length
   const banked = {}, tried = [], tools = []
-  let stacks = 0, unsettled = 0, stop = null
-  const bagDelta = () => { const after = held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
+  let stacks = 0, unsettled = 0, stop = null, clicked = 0, unverified = 0, serverBag = null
+  // THE BAG'S LOSS over the banked names, from the SERVER's copy of the bag on the last re-open (the client bag after a
+  // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
+  const bagDelta = () => { const after = serverBag ?? held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
   const row = (status, extra = {}) => logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
-    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, ...extra }) })
+    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, ...extra }) })
   if (!planned) { stop = 'nothing to bank above the keeps'; row('no_effect'); return { status: 'no_effect', detail: 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' } }
   if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
   const containers = townContainers(bot)
   if (!containers.length) { stop = 'no town container'; row('no_effect'); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
   const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
   const left = () => deadline - TD_SETTLE_MS - Date.now()
+  const openMs = () => Math.max(1000, Math.min(TD_OPEN_MS, left()))
   const stationary = deadline + TD_SETTLE_MS
   bot.stationaryUntil = stationary
   try {
@@ -5801,40 +5839,39 @@ async function townDeposit (ctx, _args, signal) {
       if (!block || !isTownContainer(bot, block)) { tried.push({ at, result: 'gone' }); continue }
       try { bot.setControlState('sneak', false) } catch { /* a test double */ }
       try { await bot.lookAt?.(c.position.offset(0.5, 0.5, 0.5), true) } catch { /* optional on test doubles */ }
-      let win
-      const opening = bot.openContainer(block)
-      try {
-        win = await withTimeout(opening, Math.max(1000, Math.min(TD_OPEN_MS, left())), bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
-      } catch (e) {
-        // A LATE WINDOW IS CLOSED WHEN IT ARRIVES, and nothing else is opened in this run: mineflayer's open waits on the
-        // NEXT windowOpen, so a second open now could be handed this chest's late window (Codex review 1).
-        Promise.resolve(opening).then(w => { try { if (w && bot.currentWindow === w) w.close() } catch { /* gone */ } }, () => {})
-        if (e?.aborted || signal?.aborted) throw e
-        tried.push({ at, result: 'unopenable' }); stop = 'open timeout'; break
-      }
-      let r = { banked: {}, stacks: 0, full: false, unsettled: 0, tools: [] }
+      const win = await openTown(bot, block, openMs())
+      if (!win) { tried.push({ at, result: 'unopenable' }); stop = 'open timeout'; break }
+      let r = { done: [], full: false, unsettled: 0 }
       try {
         r = await bankInto(bot, win, wanted, banked, deadline, signal)
       } finally {
         try { win.close() } catch { /* already closed */ }
       }
-      for (const [n, k] of Object.entries(r.banked)) banked[n] = (banked[n] ?? 0) + k
-      stacks += r.stacks; unsettled += r.unsettled; tools.push(...r.tools)
-      tried.push({ at, result: r.stacks ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
+      clicked += r.done.length; unsettled += r.unsettled
+      const v = await verifyTown(bot, block, r.done, openMs())
+      if (!v.ok) unverified += r.done.length
+      if (v.bag) serverBag = v.bag
+      for (const { step, it } of v.verified) {
+        banked[step.name] = (banked[step.name] ?? 0) + step.count; stacks++
+        if (it.maxDurability) tools.push(`${step.name}@${it.maxDurability - (it.durabilityUsed ?? 0)}`)
+      }
+      tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       if (r.unsettled) { stop = 'cursor'; break }
+      if (!v.ok) { stop = 'unverified'; break }
       if (!townDepositPlan(items(), { wanted, already: banked }).steps.length) break
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
   }
-  // READ THE BAG BACK after the close: the success is what LEFT THE BAG, never the clicks.
-  try { await bot.waitForTicks?.(4) } catch { /* a test double */ }
   const n = Object.values(banked).reduce((a, b) => a + b, 0)
-  const gone = bagDelta()
   const slotsAfter = items().length
-  if (n > 0 && gone > 0) {
+  if (n > 0) {
     row('success')
-    return { status: 'success', detail: `banked ${gone} item(s) in ${stacks} whole stack(s) at the town chest (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
+    return { status: 'success', detail: `banked ${n} item(s) in ${stacks} whole stack(s) at the town chest, read back from the server (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
+  }
+  if (unverified) {
+    row('unknown')
+    return { status: 'unknown', failClass: 'town_deposit_unverified', detail: 'moved stacks into the town chest but could not open it again to confirm them' }
   }
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
@@ -5842,7 +5879,7 @@ async function townDeposit (ctx, _args, signal) {
     return { status: 'failed', failClass: 'town_storage_full',
              detail: 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
   }
-  stop = stop ?? (n > 0 ? 'clicks not confirmed by the bag' : 'nothing moved')
+  stop = stop ?? (clicked ? 'not confirmed by the server' : 'nothing moved')
   row('failed')
   return { status: 'failed', failClass: 'town_deposit_failed',
            detail: `banked nothing at the town chests (${tried.map(t => t.result).join(', ') || 'none tried'}); deposit (no item) walks to the chest and tries others` }
