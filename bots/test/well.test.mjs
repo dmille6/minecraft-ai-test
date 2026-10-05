@@ -407,15 +407,17 @@ const G0 = HOME.y - 1   // the fake town is flat: grass at G0, dirt below, feet 
  * mineflayer hears an item's resting position 20 ticks after it spawns; the server hands an item to a body whose box
  * holds it once the pickup delay (40 ticks for a throw, 10 for a dig) has passed and the bag has room.
  */
-function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, wellAt = null, wellOpen = false, wellFacing = 'north', players = {}, botAt = null } = {}) {
+function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, wellAt = null, wellOpen = false, wellFacing = 'north', players = {}, botAt = null, unloaded = [] } = {}) {
   process.env.POOL_STATE_DIR = storeDir ?? mkdtempSync(path.join(tmpdir(), 'well-store-'))
   const world = new Map(Object.entries(blocks).map(([k, v]) => [k, typeof v === 'string' ? { name: v } : v]))
   const key = p => `${p.x},${p.y},${p.z}`
   const state = { tick: 0, clicks: [], goals: [], activations: [], events: [], dropped: [], pending: [], lookPitch: null, lookDir: null, digs: [], places: [], nextId: 1000,
                   missNext: 0, refuseClose: false, onClick: null, writes: [], placeLagTicks: 0, lagged: [], serverSilent: false, onResync: null, activateLagTicks: 0, tickThrows: false, serverSubstitute: null }
   const cell = v => world.get(key(v)) ?? { name: v.y > G0 ? 'air' : v.y === G0 ? 'grass_block' : 'dirt' }
+  const gone = new Set(unloaded)   // cells in a chunk not yet sent: blockAt answers null, as mineflayer does
   const blockAt = p => {
     const v = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
+    if (gone.has(key(v))) return null
     const c = cell(v), def = REG.blocksByName[c.name]
     const b = { name: c.name, type: def.id, position: v, boundingBox: def.boundingBox, hardness: def.hardness, diggable: def.diggable, shapes: /_trapdoor$/.test(c.name) ? [] : shapesOf(c.name) }
     if (c.props) b.getProperties = () => ({ ...c.props })
@@ -639,7 +641,7 @@ const rows = async kind => {
 }
 const field = (detail, k) => { const m = new RegExp(`(?:^| )${k}=(\\S+)`).exec(detail ?? ''); return m ? m[1] : null }
 const run = (name, bot, signal = { aborted: false }) => within(SKILLS[name].run({ bot }, {}, signal), 15000, name)
-const homeRead = town => (x, y, z) => { const b = town.bot.blockAt(new Vec3(x, y, z)); let props = null; try { props = b.getProperties?.() ?? null } catch {} return { name: b.name, boundingBox: b.boundingBox, hardness: b.hardness, props } }
+const homeRead = town => (x, y, z) => { const b = town.bot.blockAt(new Vec3(x, y, z)); let props = null; try { props = b.getProperties?.() ?? null } catch {} return { name: b.name, boundingBox: b.boundingBox, shapes: b.shapes, hardness: b.hardness, props } }
 const CAP = W.canonicalWellSite({ home: HOME, read: flatRead({}, G0) }).site
 const goalInColumn = (state, cap) => state.goals.filter(g => Number.isFinite(g?.x) && !g.item && Math.floor(g.x) === cap.x && Math.floor(g.z) === cap.z)
 
@@ -1432,6 +1434,58 @@ await t('MUTANT: without the step exemption a body in a breached-floor shaft can
     const { cols, profile, route } = escapeWorld({ cap: 'pit', deep: true })
     const p = profile(cols[0]); p.exclusionAreasStep = [b => m.wellStepCost(cols, b, cols[0])]
     assert.equal(route(p).status, 'noPath', 'mutant inert')
+  })
+})
+
+// ---- the approval round's minor finding (8f73e80) ----------------------------------------------------------------------
+await t('8f73e80 AN UNLOADED NEIGHBOUR IS "DECIDE LATER": not breached, not retired, not rebuilt, never thrown into', async () => {
+  const ring = `${CAP.x + 2},${CAP.y - 2},${CAP.z}`, stand = W.standCandidates(CAP, 'north').map(c => `${c.x},${c.y},${c.z}`)
+  const baseRead = homeRead(fakeTown({ wellAt: CAP }))
+  const readGone = (gone) => (x, y, z) => (gone.includes(`${x},${y},${z}`) ? null : baseRead(x, y, z))
+  assert.equal(W.wellBreach(readGone([ring]), CAP, 'north'), 'unknown')
+  assert.equal(W.wellBreach(readGone(stand), CAP, 'north'), 'unknown', 'unloaded stands are not blocked stands')
+  const { townWellState } = await import('../src/skills.mjs')
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('oak_trapdoor', 2), ...filler(33)], unloaded: [ring] })
+  assert.equal(townWellState(town.bot).breached, false)
+  assert.equal(W.wellOrder({ now: NOW, distHome: 3, slots: 36, junkStacks: 1, well: () => townWellState(town.bot), buildPlan: { carried: true, slotsNeeded: 0 } }).order?.skill, 'dispose_well', 'treated as a breach -> it would order a rebuild')
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'no_effect'); assert.match(r.detail, /not loaded yet/); assert.equal(town.state.clicks.length, 0); assert.equal(town.state.activations.length, 0)
+  const n0 = (await rows('_well_retired')).length
+  const rb = await run('build_well', town.bot)
+  assert.equal(rb.status, 'no_effect'); assert.match(rb.detail, /already has a junk well/)
+  assert.equal((await rows('_well_retired')).length, n0, 'an unloaded well was retired')
+  // positive control: a well with that ring cell really dug out IS breached
+  const dug = fakeTown({ wellAt: CAP, items: [S('dirt', 1)], blocks: { [ring]: 'air' } })
+  assert.equal(townWellState(dug.bot).breached, true)
+})
+await t('MUTANT (skills): reading "unknown" as a breach retires a well whose chunk is still loading', async () => {
+  await withMutant(SP, "      out.push({ cap, ...id, breach: b === 'unknown' ? null : b, unsure: b === 'unknown' })", "      out.push({ cap, ...id, breach: b, unsure: false })", async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('oak_trapdoor', 2)], unloaded: [`${CAP.x + 2},${CAP.y - 2},${CAP.z}`] })
+    const n0 = (await rows('_well_retired')).length
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok((await rows('_well_retired')).length > n0, 'mutant inert')
+  })
+})
+
+await t('8f73e80 SNOW: a snow layer (any height) on every stand leaves the well usable; a thrower raised by 2-8 layers is aimed for it', () => {
+  const PB = require('prismarine-block')('1.21.11')
+  const snow = layers => { const d = REG.blocksByName.snow; for (let id = d.minStateId; id <= d.maxStateId; id++) { const b = PB.fromStateId(id, 0); if (String(b.getProperties().layers) === String(layers)) return { name: 'snow', boundingBox: d.boundingBox, shapes: b.shapes, hardness: d.hardness, props: b.getProperties() } } }
+  const baseRead = homeRead(fakeTown({ wellAt: CAP }))
+  for (const layers of [1, 2, 8]) {
+    const extra = {}; for (const c of W.standCandidates(CAP, 'north')) extra[`${c.x},${c.y},${c.z}`] = snow(layers)
+    const read = (x, y, z) => extra[`${x},${y},${z}`] ?? baseRead(x, y, z)
+    assert.equal(W.usableStands(read, CAP, 'north').length, 3, `${layers} layer(s) of snow blocked the stands`)
+    assert.equal(W.wellBreach(read, CAP, 'north'), null)
+  }
+  const from = { x: CAP.x + 0.5, z: CAP.z - 0.5 }
+  const flat = W.wellAim({ from, cap: CAP, facing: 'north' }), raised = W.wellAim({ from, cap: CAP, facing: 'north', rise: 0.875 })
+  assert.ok(raised.ok && raised.rate >= 0.95, `raised ${raised.rate}`); assert.notEqual(raised.pitch, flat.pitch, 'the rise changed nothing')
+  assert.ok(W.tossHitRate({ from, cap: CAP, facing: 'north', pitchDeg: flat.pitch, rise: 0.875 }) < raised.rate, 'positive control: the flat aim from 0.875 higher is worse')
+})
+await t('MUTANT: an aim that ignores the thrower\'s rise throws from a snow layer as if from the rim', async () => {
+  await withMutant(WP, '  let x = 0, z = 0, y = TOSS.spawnUp + Math.max(0, rise)', '  let x = 0, z = 0, y = TOSS.spawnUp', async m => {
+    const from = { x: CAP.x + 0.5, z: CAP.z - 0.5 }
+    assert.equal(m.wellAim({ from, cap: CAP, facing: 'north', rise: 0.875 }).pitch, m.wellAim({ from, cap: CAP, facing: 'north' }).pitch, 'mutant inert')
   })
 })
 

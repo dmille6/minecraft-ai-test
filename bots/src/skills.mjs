@@ -5372,8 +5372,11 @@ export function findTownWells (bot) {
       const cap = { x: p.x, y: p.y, z: p.z }
       const id = wellIdentity(read, cap)
       if (!id.ok) continue
-      // BREACHED = the shaft is no longer sealed, or every throwing stand is blocked (Claude review P2-2)
-      out.push({ cap, ...id, breach: wellBreach(read, cap, id.facing) })
+      // BREACHED = the shaft is no longer sealed, or every throwing stand is blocked (Claude review P2-2). An UNLOADED cell is
+      // neither (review 8f73e80: right after login a neighbouring chunk read as a breach, was retired and rebuilt): `unsure`
+      // -- still a well, still excluded, never thrown into, never retired, until the cells arrive.
+      const b = wellBreach(read, cap, id.facing)
+      out.push({ cap, ...id, breach: b === 'unknown' ? null : b, unsure: b === 'unknown' })
     }
   } catch { /* a world read never breaks a caller */ }
   return out
@@ -5594,7 +5597,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       if (near) { acc.stop = `${near.who} came within ${near.dist.toFixed(1)} of the well`; break }
       if (!isWellJunk(bot.inventory?.slots?.[st.slot]?.name)) continue
       const feet = bot.entity.position
-      const aim = wellAim({ from: feet, cap, facing })
+      const aim = wellAim({ from: feet, cap, facing, rise: feet.y - (cap.y + 1) })   // a thrower on a snow layer stands higher
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
       const p = aimPoint({ eye: { x: feet.x, y: feet.y + 1.62, z: feet.z }, cap, pitchDeg: aim.pitch, facing })
       await bound(bot.lookAt(new Vec3(p.x, p.y, p.z), true), HK_AWAIT_MS, 'aim')
@@ -5808,6 +5811,7 @@ async function disposeWell (ctx, _args, signal) {
   if (insideTownWell(bot)) return skip('inside', 'this bot is inside a junk well; it climbs out before any well order')
   // A WELL WHOSE SHAFT IS NO LONGER SEALED, OR WITH EVERY STAND BLOCKED, IS NEVER THROWN INTO: the town builds a new one.
   if (well.breach) return skip('breached', `at=${cap.x},${cap.y},${cap.z} the town junk well is no longer usable (${well.breach}); nothing is thrown into it, and the next town visit with wood builds a new one`)
+  if (well.unsure) return skip('unknown', `a cell around the town junk well at ${cap.x},${cap.y},${cap.z} is not loaded yet; nothing is thrown until the shaft can be seen sealed, and the next town visit tries again`)
   if (!FACING_OK(facing)) return skip('no_facing', `the town well at ${cap.x},${cap.y},${cap.z} has no readable facing`)
   // THE FIRST USABLE STAND (front, then the sides along the flap): one blocked cell does not end the well.
   const stands = usableStands(readWellCell(bot), cap, facing)
@@ -5837,7 +5841,7 @@ async function disposeWell (ctx, _args, signal) {
     if (near2) return skip('player_near', `wait for ${near2.who} to move off the town junk well (${near2.dist.toFixed(1)} blocks): it opens only with nobody within 5`)
     stationary = Date.now() + VISIT_BUDGET_MS
     bot.stationaryUntil = stationary
-    const aim = wellAim({ from: q(), cap, facing })
+    const aim = wellAim({ from: q(), cap, facing, rise: q().y - (cap.y + 1) })
     if (!aim.ok) return fail('well_off_stand', 'off_stand', `the throw was refused from here: ${aim.why}; the next visit stands again`)
     ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.

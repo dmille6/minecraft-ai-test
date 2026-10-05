@@ -151,8 +151,12 @@ export const wellReservedCells = (cap, facing) => [{ x: cap.x, y: cap.y + 1, z: 
  */
 export function wellBreach (read, cap, facing) {
   const c = containmentRefusal(read, cap)
-  if (c) return c
-  if (!usableStands(read, cap, facing).length) return 'every throwing stand is blocked'
+  if (c) return c   // 'unknown' when a cell is not loaded: the CALLER decides later, never "breached" (review 8f73e80)
+  if (!usableStands(read, cap, facing).length) {
+    // AN UNLOADED STAND IS NOT A BLOCKED STAND: right after login a neighbouring chunk may still be on its way
+    const unread = standCandidates(cap, facing).some(st => [st.y, st.y + 1, st.y - 1].some(y => !read(st.x, y, st.z)))
+    return unread ? 'unknown' : 'every throwing stand is blocked'
+  }
   return null
 }
 
@@ -363,12 +367,15 @@ export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
 export const TOSS = Object.freeze({ spawnUp: 1.32, speed: 0.3, lift: 0.1, vyNoise: 0.1, hNoise: 0.02, gravity: 0.04, drag: 0.98,
                                     flap: 0.1875, itemHalf: 0.125 })
 
-/** Where a throw crosses the rim plane (feet level) -> { x, z } horizontal offset from the feet, or null. Pure. */
-export function tossCrossing ({ ux, uz, pitchDeg, dvy = 0, dvx = 0, dvz = 0 }) {
+/**
+ * Where a throw crosses the rim plane -> { x, z } horizontal offset from the feet, or null. Pure. `rise` is how far the
+ * feet stand ABOVE the rim (a snow layer of 2-8 has collision: up to 0.875); the item spawns that much higher.
+ */
+export function tossCrossing ({ ux, uz, pitchDeg, dvy = 0, dvx = 0, dvz = 0, rise = 0 }) {
   const p = pitchDeg * Math.PI / 180
   let vx = ux * Math.cos(p) * TOSS.speed + dvx, vz = uz * Math.cos(p) * TOSS.speed + dvz
   let vy = -Math.sin(p) * TOSS.speed + TOSS.lift + dvy
-  let x = 0, z = 0, y = TOSS.spawnUp
+  let x = 0, z = 0, y = TOSS.spawnUp + Math.max(0, rise)
   for (let t = 0; t < 400; t++) {
     vy -= TOSS.gravity
     const nx = x + vx, ny = y + vy, nz = z + vz
@@ -410,7 +417,7 @@ export function aimTarget (cap, facing = null) {
 }
 
 /** The share of throws from feet `from` at `pitchDeg`, aimed at the opening's centre, that pass through the opening. Pure. */
-export function tossHitRate ({ from, cap, facing = null, pitchDeg }) {
+export function tossHitRate ({ from, cap, facing = null, pitchDeg, rise = 0 }) {
   const t = aimTarget(cap, facing)
   const h = Math.hypot(t.x - from.x, t.z - from.z)
   if (!(h > 1e-6)) return 0
@@ -420,7 +427,7 @@ export function tossHitRate ({ from, cap, facing = null, pitchDeg }) {
   for (const { v, w } of VY) {
     let n = 0
     for (const k of KICK) {
-      const c = tossCrossing({ ux, uz, pitchDeg, dvy: v, dvx: k.x, dvz: k.z })
+      const c = tossCrossing({ ux, uz, pitchDeg, dvy: v, dvx: k.x, dvz: k.z, rise })
       if (!c) continue
       const X = from.x + c.x, Z = from.z + c.z
       if (X >= o.x0 && X <= o.x1 && Z >= o.z0 && Z <= o.z1) n++
@@ -441,7 +448,7 @@ export const MIN_HIT_RATE = 0.9
  * THE AIM -> { pitch, rate, dist, ok, why }. Pure and deterministic. The pitch (degrees DOWN) with the highest predicted
  * rate on a 0.5-degree grid; ties go to the pitch whose noise-free crossing is nearest the opening's centre.
  */
-export function wellAim ({ from, cap, facing = null }) {
+export function wellAim ({ from, cap, facing = null, rise = 0 }) {
   const dist = Math.hypot(cap.x + 0.5 - from.x, cap.z + 0.5 - from.z)
   if (!(dist >= MIN_TOSS_DIST - 1e-9 && dist <= MAX_TOSS_DIST + 1e-9)) return { pitch: null, rate: 0, dist, ok: false, why: `${dist.toFixed(2)} from the well's centre (must be ${MIN_TOSS_DIST}-${MAX_TOSS_DIST})` }
   const { x: mx, z: mz } = aimTarget(cap, facing)
@@ -449,8 +456,8 @@ export function wellAim ({ from, cap, facing = null }) {
   const ux = (mx - from.x) / th, uz = (mz - from.z) / th
   let best = null
   for (let p = 20; p <= 85; p += 0.5) {
-    const rate = tossHitRate({ from, cap, facing, pitchDeg: p })
-    const c = tossCrossing({ ux, uz, pitchDeg: p })
+    const rate = tossHitRate({ from, cap, facing, pitchDeg: p, rise })
+    const c = tossCrossing({ ux, uz, pitchDeg: p, rise })
     const off = c ? Math.hypot(from.x + c.x - mx, from.z + c.z - mz) : Infinity
     if (!best || rate > best.rate + 1e-9 || (Math.abs(rate - best.rate) <= 1e-9 && off < best.off)) best = { pitch: p, rate, off }
   }
