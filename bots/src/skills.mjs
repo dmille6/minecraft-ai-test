@@ -57,6 +57,7 @@ import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
+import { townDepositPlan, fitToContainer, townDepositDetail, inTown, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS } from './towndeposit.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -5691,6 +5692,171 @@ async function compost(ctx, _args, signal) {
            detail: `composted nothing at the composter: ${stop ?? 'nothing left to insert'}` }
 }
 
+// --------------------------------------------------------- town_deposit -----
+// THE TOWN DEPOSIT (towndeposit.mjs has the measurement and every rule): a bot at town with a bag at 34+ banks whole
+// stacks of surplus into a town container, slot by slot. Its OWN chest loop, not `deposit`'s: the model's deposit verb
+// is unchanged (it walks home, digs lids, crafts chests on a full bank); this never walks home, never digs, never
+// crafts or places a chest, never tries more than two containers, and never moves a stack the container cannot take
+// whole -- mineflayer's "destination full" leaves the stack on the cursor, and a loaded close is a drop.
+
+const isTownContainer = (bot, b) => ['chest', 'barrel', 'trapped_chest'].includes(blockNameOf(bot, b))
+/**
+ * The town containers this bot can bank into from where it stands -> Block[], nearest first (then x, y, z), at most
+ * TD_MAX_CONTAINERS: within STORAGE_REACH of the bot, inside the town (16 h / 12 v of home), not under a solid lid,
+ * and never the second half of a double chest already listed (both halves open the same 54 slots).
+ */
+export function townContainers (bot, max = TD_MAX_CONTAINERS) {
+  try {
+    const me = bot.entity?.position
+    if (!me) return []
+    const home = homeVec()
+    const found = (bot.findBlocks?.({ matching: b => isTownContainer(bot, b), maxDistance: STORAGE_REACH, count: 32 }) ?? [])
+      .filter(p => inTown(p, home) && me.distanceTo(p) <= STORAGE_REACH)
+      .sort((a, b) => me.distanceTo(a) - me.distanceTo(b) || a.x - b.x || a.y - b.y || a.z - b.z)
+    const out = []
+    for (const p of found) {
+      if (out.length >= max) break
+      const b = bot.blockAt(p)
+      if (!b || !isTownContainer(bot, b)) continue
+      const chestLike = blockNameOf(bot, b) !== 'barrel'
+      if (chestLike && chestLidBlocked(bot.blockAt(p.offset(0, 1, 0)))) continue
+      if (chestLike && out.some(o => o.position.y === p.y && Math.abs(o.position.x - p.x) + Math.abs(o.position.z - p.z) === 1 && blockNameOf(bot, o) === blockNameOf(bot, b))) continue
+      out.push(b)
+    }
+    return out
+  } catch { return [] }
+}
+
+/** The window's own copy of the bag, numbered as INVENTORY slots (plan) with the window slot kept (transfer). */
+function windowBag (bot, win) {
+  const off = (bot.inventory?.inventoryStart ?? 9) - win.inventoryStart
+  const out = []
+  for (let s = win.inventoryStart; s < win.inventoryEnd; s++) {
+    const it = win.slots[s]
+    if (it) out.push({ name: it.name, count: it.count, type: it.type, maxDurability: it.maxDurability, durabilityUsed: it.durabilityUsed, nbt: it.nbt, slot: s + off, wslot: s })
+  }
+  return out
+}
+
+/** Put a loaded cursor back into the bag: its source slot when empty, else any empty bag slot. -> true when emptied. */
+async function settleCursor (bot, win, sourceSlot) {
+  if (!win.selectedItem) return true
+  const empty = s => s != null && s >= win.inventoryStart && s < win.inventoryEnd && !win.slots[s]
+  let target = empty(sourceSlot) ? sourceSlot : null
+  for (let s = win.inventoryStart; target == null && s < win.inventoryEnd; s++) if (!win.slots[s]) target = s
+  if (target == null) return false
+  try { await bot.clickWindow(target, 0, 0) } catch { /* read back below */ }
+  return !win.selectedItem
+}
+
+/**
+ * Bank the plan into one OPEN container. -> { banked: {name: n}, stacks, full, unsettled }. Each step is one whole
+ * stack, revalidated against the window right before its transfer, sent with sourceStart = its window slot and
+ * sourceEnd = slot + 1 (so the copy that moves is the planned one), and counted only when that slot reads empty after.
+ */
+async function bankInto (bot, win, wanted, deadline, signal) {
+  const banked = {}
+  let stacks = 0, unsettled = 0
+  const bag = windowBag(bot, win)
+  const plan = townDepositPlan(bag, { wanted })
+  const stackSizeOf = n => bot.registry?.itemsByName?.[n]?.stackSize ?? (/_(pickaxe|axe|shovel|sword|hoe)$/.test(n) ? 1 : 64)
+  const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart), stackSizeOf)
+  const full = plan.steps.length > 0 && steps.length < plan.steps.length
+  for (const step of steps) {
+    check(signal)
+    if (Date.now() > deadline - TD_SETTLE_MS) break
+    const it = bag.find(b => b.slot === step.slot)
+    const now = it ? win.slots[it.wslot] : null
+    if (!now || now.name !== step.name || now.count !== step.count) continue   // the bag moved under the plan: skip it
+    try {
+      await bot.transfer({ window: win, itemType: now.type, metadata: null, count: now.count,
+                           sourceStart: it.wslot, sourceEnd: it.wslot + 1, destStart: 0, destEnd: win.inventoryStart })
+    } catch { /* judged by the slot and the cursor below */ }
+    if (win.selectedItem && !(await settleCursor(bot, win, it.wslot))) { unsettled++; break }
+    if (!win.slots[it.wslot]) { banked[step.name] = (banked[step.name] ?? 0) + step.count; stacks++ }
+  }
+  return { banked, stacks, full, unsettled }
+}
+
+async function townDeposit (ctx, _args, signal) {
+  const { bot } = ctx
+  const items = () => bot.inventory?.items?.() ?? []
+  const deadline = Date.now() + TD_BUDGET_MS
+  const wanted = Array.isArray(bot.townDepositWanted) ? bot.townDepositWanted : []
+  const before = items()
+  const slotsBefore = before.length
+  const held = list => { const c = {}; for (const it of list) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0); return c }
+  const heldBefore = held(before)
+  const planned = townDepositPlan(before, { wanted }).steps.length
+  const banked = {}, tried = []
+  let stacks = 0, unsettled = 0, stop = null
+  const row = (status, extra = {}) => {
+    const after = held(items())
+    const delta = Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0)
+    logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
+               detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: delta, planned, ...extra }) })
+  }
+  if (!planned) { stop = 'nothing to bank above the keeps'; row('no_effect'); return { status: 'no_effect', detail: 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' } }
+  if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
+  const containers = townContainers(bot)
+  if (!containers.length) { stop = 'no town container'; row('no_effect'); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
+  const stationary = deadline + TD_SETTLE_MS
+  bot.stationaryUntil = stationary
+  try {
+    for (const c of containers) {
+      const at = `${c.position.x},${c.position.y},${c.position.z}`
+      if (Date.now() > deadline - TD_SETTLE_MS) { stop = 'budget'; break }
+      check(signal)
+      if (bot.entity.position.distanceTo(c.position.offset(0.5, 0.5, 0.5)) > STATION_REACH) {
+        try {
+          await withTimeout(bot.pathfinder.goto(new goals.GoalNear(c.position.x, c.position.y, c.position.z, 2)),
+                            Math.max(1000, Math.min(TD_WALK_MS, deadline - TD_SETTLE_MS - Date.now())), bot)
+        } catch (e) { if (e?.aborted || signal?.aborted) throw e; tried.push({ at, result: 'unreachable' }); continue }
+        check(signal)
+      }
+      const block = bot.blockAt(c.position)
+      if (!block || !isTownContainer(bot, block)) { tried.push({ at, result: 'gone' }); continue }
+      try { bot.setControlState('sneak', false) } catch { /* a test double */ }
+      try { await bot.lookAt?.(c.position.offset(0.5, 0.5, 0.5), true) } catch { /* optional on test doubles */ }
+      let win
+      try {
+        win = await withTimeout(bot.openContainer(block), TD_OPEN_MS, bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false })
+      } catch (e) { if (e?.aborted || signal?.aborted) throw e; tried.push({ at, result: 'unopenable' }); continue }
+      let r = { banked: {}, stacks: 0, full: false, unsettled: 0 }
+      try {
+        r = await bankInto(bot, win, wanted, deadline, signal)
+      } finally {
+        try { win.close() } catch { /* already closed */ }
+      }
+      for (const [n, k] of Object.entries(r.banked)) banked[n] = (banked[n] ?? 0) + k
+      stacks += r.stacks; unsettled += r.unsettled
+      tried.push({ at, result: r.stacks ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
+      if (r.unsettled) { stop = 'cursor'; break }
+      if (!townDepositPlan(items(), { wanted }).steps.length) break
+    }
+  } finally {
+    if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+  }
+  // READ THE BAG BACK after the close: the server's inventory is the record, not the window's optimistic copy.
+  try { await bot.waitForTicks?.(4) } catch { /* a test double */ }
+  const n = Object.values(banked).reduce((a, b) => a + b, 0)
+  const slotsAfter = items().length
+  if (n > 0) {
+    row('success')
+    return { status: 'success', detail: `banked ${n} item(s) in ${stacks} whole stack(s) at the town chest (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
+  }
+  if (tried.length && tried.every(t => t.result === 'full')) {
+    stop = stop ?? 'full'
+    row('failed')
+    return { status: 'failed', failClass: 'town_storage_full',
+             detail: 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
+  }
+  stop = stop ?? 'nothing moved'
+  row('failed')
+  return { status: 'failed', failClass: 'town_deposit_failed',
+           detail: `banked nothing at the town chests (${tried.map(t => t.result).join(', ') || 'none tried'}); deposit (no item) walks to the chest and tries others` }
+}
+
 // ------------------------------------------------------ build_composter -----
 /** "On the stand" means the feet within this of the standing cell's centre, horizontally (the body is 0.6 wide). */
 export const STAND_CENTRE_TOL = 0.3
@@ -8889,6 +9055,8 @@ export const SKILL_CONTRACTS = {
   withdraw: { expects: ['inventory_gain'],        maxMs: 240_000 },
   // The town order: containers in sight only, never a trip.
   withdraw_pick: { expects: ['inventory_gain'],   maxMs: 120_000 },
+  // Banks whole stacks into a town container: the change it exists for is the loss from the bag.
+  town_deposit: { expects: ['inventory_loss'],    maxMs: 60_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },
@@ -9956,6 +10124,8 @@ export const SKILLS = {
   compost:  { run: compost,  usage: 'compost',                       args: [], chatOnly: true },
   build_composter: { run: buildComposter, usage: 'build_composter', args: [], chatOnly: true },
   withdraw_pick: { run: withdrawPick, usage: 'withdraw_pick', args: [], chatOnly: true },
+  // Same rule: the deterministic town deposit (towndeposit.mjs townDepositOrder), never the model's choice.
+  town_deposit: { run: townDeposit, usage: 'town_deposit', args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },

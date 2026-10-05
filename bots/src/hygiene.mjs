@@ -99,5 +99,5 @@ export function slotObservation ({ slotKnown = false, item = null, name = '', al
  * milestone give-up either way) and never become a "reliable choice" in the prompt. cognitive.mjs asks this, so a
  * new housekeeping order cannot be wired into one of those sites and forgotten at the other.
  */
-export const HOUSEKEEPING = new Set(['wear_out', 'compost', 'build_composter', 'withdraw_pick'])
+export const HOUSEKEEPING = new Set(['wear_out', 'compost', 'build_composter', 'withdraw_pick', 'town_deposit'])
 export const isHousekeeping = skill => HOUSEKEEPING.has(skill)
