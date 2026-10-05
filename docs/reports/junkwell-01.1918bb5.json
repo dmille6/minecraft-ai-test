@@ -1,0 +1,151 @@
+{
+ "run_id": "junkwell-01",
+ "sha": "911d792",
+ "registered_at": "2026-10-05T10:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[junkwell-01. Variant for fleet 1918bb5 (toolclean-01), branch jw-on-1918bb5 @ 911d792 (bots/src identical to fd3044b; 911d792 changes only scripts/host/wellread.py). Launch: ~/chain-after.sh toolclean-01 junkwell-01 1918bb5=/home/mike/mcai-analysis/junkwell-01.1918bb5.json -- STOPs if the fleet is not 1918bb5; if toolclean-01 is REVERTED the well is rebased onto 56db2cd and re-registered.] OWNER 10-04: vanilla 5-minute despawn accepted as the INTERIM disposal; the listed junk has no use: egg, brown_egg, blue_egg, flint, clay_ball, ink_sac, glow_ink_sac, armadillo_scute (+ dead_bush, pointed_dripstone, rail). NEVER cobblestone, ballast, tools, food, wood, saplings, ores, or anything the composter takes; never tossed anywhere but into the well; no admin world edits (the bot builds it in survival). THE CHANGE: one town junk well (bots/src/well.mjs): a 1x1 shaft two deep at a canonical site >= 7 from home, bank containers and the composter; a wooden trapdoor bottom-half on the floor and a second top-half as a flush cap (clear height 1.625 < creeper 1.7; items 1.8125 below a rim player's feet, out of the 0.75 pickup reach). Deterministic town orders only (never the model): build_well (pit-first when a full bag holds junk: dig, throw junk down the open pit to make the craft's room), dispose_well (at town, >= 34 slots, listed junk; no other player within 5, re-checked immediately before the open; whole stacks by single container THROW clicks from <= 1.15 on the front or a side stand, aimed with vanilla drop ballistics; the bag held and server-resynced; the cap closed in a finally; misses retaken), close_well (any visitor closes an open well nobody is at). Every movement profile excludes the well column (cap-1 .. cap+10) from steps and the walls/floor/ring from breaks, except a body INSIDE its own well (break ring + steps at cap level and below). REVIEWS: Codex 9 rounds (final AGREE fd3044b); independent Claude review CHANGE -> all FIXED, approved 8f73e80; the approval round's minor finding (an unloaded neighbour read as a breach) fixed in fd3044b. PAPER SANDBOX 1.21.8 (sandbox/well/well-e2e.cjs): build pit-first from a 36/36 bag of logs + junk (cap top/closed/facing, floor trapdoor, 18 items in the shaft, 0 outside); dispose 9 stacks / 432 items all in the shaft at +1.5 s and +30 s, non-listed untouched, server-resynced; walker isolation 60 passes + 20 s on the cap with the positive-control egg collected: 0 picked from the well; admission: refused with a player at 3.0 blocks, cap never opened, then disposed 198 s after the player left; creeper spawner A/B: control shaft without the floor trapdoor 1, the well 0; escape from inside an open well: out in 6-7 s by digging a wall, never sealed in; race: an arrival after the cap opened sees it close ~1.1 s after the last throw. KNOWN / REGISTRATION NOTES: (1) the death gate is unchanged (two-death floor); (2) a build digs 1-2 shaft blocks whose drops fall into the shaft and despawn with the junk; (3) the SIDE-stand throw rate (1.0) was checked only in the ballistic model, never on Paper (Paper threw from the front stand); (4) despawn pauses in an unloaded chunk (items stay contained); (5) the fleet is peaceful, so the mob geometry is for 'any world'; (6) raw reflex digs (entombment, pillarOut) ignore the break exclusion -- the worst case is a breached well, which is never thrown into and is rebuilt; (7) chest-full's chestSiteRefusal does not yet reserve the stands (wellReservedCells exported for the rebase) -- a chest on all three stands = breach = rebuild; (8) dispose-first withdraw integration is the NEXT canary, not this one; (9) a well must be BUILT before any disposal: the first build needs a bot at town with 2-3 logs of one wood (or 6 planks/2 trapdoors) and room or junk to make room.",
+ "licence": {
+  "class": "kind",
+  "kind": "_well_dispose",
+  "min_rows": 1,
+  "note": "Written only by this build (one row per disposal visit, pit-first phase and visitor close). The fleet (1918bb5) has no _well_* row of any kind and no well in any world (no code builds one)."
+ },
+ "reads": [
+  "wellread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "well_built",
+  "well_dispose",
+  "well_inside",
+  "well_pit_open",
+  "well_retired"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "full bots at town (compost runs pass the same at-town, >= 34-slot, 3-min-cooldown gate a dispose order uses)",
+    "kind": "compost",
+    "min": 8
+   }
+  ],
+  "note": "min 8 ROWS = ~4 compost runs: drawexposure counts both the compost skill row and its _compost event (board-b 14 rows = 7 runs). drawexposure 10-05 09:57Z with min 8: eligible board-b 14, board-c 8, board-d 8, hive-b 8, hive-c 14, placebo-a 32, placebo-b 10 (not board-a 4, hive-a 2, hive-d 0, placebo-d 0). 10-05 ~03:50Z..09:50Z compost runs per pool (6 h): board-a 2, board-b 7, board-c 4, board-d 4, hive-a 1, hive-b 5, hive-c 7, hive-d 0, isolated-a 19, isolated-b 3, isolated-c 13, isolated-d 8, placebo-a 16, placebo-b 5, placebo-c 6, placebo-d 0. Fleet 12.6 compost orders per 10 bots per 6 h; 58% of control bots at >= 34 slots hold listed junk (40-46 of ~70 in the dry runs)."
+ },
+ "exposure": {
+  "read": "wellread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary disposal visits that the server bag confirms (n > 0) AND the positive control >= 1 (control bots at >= 34 slots holding listed junk: 40-46 in the dry runs 10-05). Expected: a well must first be built (one per drawn town); then ~7-12 dispose orders per 6 h on 10 bots (the compost gate's 12.6 per 10 bots per 6 h, times the listed-junk share among full bots), minus player_near refusals (reported per order)."
+ },
+ "own_lines": [
+  {
+   "read": "wellread",
+   "field": "breach_recollected",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a bot collected an item lying in a well's shaft (_well_recollected, or recollected= > 0 on a visit)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_left_open",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: a cap left open (_well_left_open / _well_open_unresolved) that no row of the same pool showed READ BACK closed (cap_end=closed) within 2 min. A transient row a visitor fixed is reported, not gated."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_nonlisted",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: a thrown item entity the SERVER names off the list (offlist= > 0), an off-list name in items=, or nonlisted= > 0. Positive control asserted in the read; the fake server's iron-for-rail substitution fires it (bots/test/well.test.mjs)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_inside",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4: a bot STUCK inside a well -- its _well_inside rows at one cell spanning >= 2 min (no escape). A single inside row (a fall it dug out of; Paper: out in 6-7 s) is a named tripwire."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_misses_left",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C5: thrown misses not retaken on completed visits (a miss another bot took counts as left out). Junk thrown anywhere but the well is the owner's line."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_multi_well",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C6: more than one ACTIVE well in a pool (built minus breached/_well_retired; a designed rebuild is not a breach)."
+  },
+  {
+   "read": "wellread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: control runs the base code and writes no _well_* row. BLOCKS KEEP."
+  },
+  {
+   "read": "wellread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _well_* rows from the canary build. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "wellread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control bots at >= 34 slots holding listed junk are visible to this query (40-46 in the dry runs). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "wellread",
+  "field": "junk_slots_did",
+  "note": "REPORTED, NOT GATED: listed-junk slots per bot DiD (eggs stack to 16), share of bots at >= 34 slots DiD (noisy between pools: -0.34..+0.31 in no-change dry runs), items out, slots freed per visit, refusals per dispose order by reason, no_site per pool, tripwires (inside rows, caps found open, other_loss, unnamed, pits left open, aborted-visit misses, deaths within 3 of a well)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. A death within 3 of a well is named in wellread, never a verdict."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Wells and any open pits stay in the world after a REVERT: closed caps are inert; base code has no exclusion, and a 2-deep pit is an ordinary hole base bots can tower or dig out of."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29). Exposure waits on the first build in each drawn town."
+ }
+}
