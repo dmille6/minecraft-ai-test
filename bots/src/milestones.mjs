@@ -132,7 +132,7 @@ function countMySightings(worldFacts, minDist) {
 // would have failed to start. A `const` is hoisted into the temporal dead zone,
 // not initialised, so the error surfaces at import and not at first use.
 // Nothing in the literal depends on anything above it, so the move is safe.
-const LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
+export const LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log',
               'dark_oak_log', 'mangrove_log', 'cherry_log']
 
 const M = {
@@ -438,9 +438,9 @@ const SKIP_RETRY_MAX_MS  = 6 * 60 * 60 * 1000    // backs off, never past six ho
 //     every other rung relies on.
 //
 // Ordered cheapest-first so a toolless bot is asked for wood before iron.
-const PLANKS = ['oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
+export const PLANKS = ['oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
                 'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks']
-const COBBLE = ['cobblestone', 'cobbled_deepslate', 'blackstone', 'stone',
+export const COBBLE = ['cobblestone', 'cobbled_deepslate', 'blackstone', 'stone',
                 'andesite', 'diorite', 'granite', 'tuff']
 // What a furnace will burn, restricted to what a Block-2 bot plausibly holds.
 // Only ever used to decide whether the iron rung is ACTIONABLE; smelting.mjs

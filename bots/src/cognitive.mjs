@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townContainers } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -20,6 +20,7 @@ import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS }
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
+import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -652,6 +653,31 @@ export class CognitiveLoop {
     return task
   }
 
+  /**
+   * THE TOWN DEPOSIT ORDER, or null (towndeposit.mjs townDepositOrder decides; this supplies readings and keeps the
+   * state). The plan keeps the active rung's wants, handed to the skill through the bot like admission's currentWants.
+   * Every read is guarded: a town deposit must never cost the bot its decision.
+   */
+  #townDepositOrder(milestone) {
+    try {
+      const bot = this.bot
+      const items = bot.inventory?.items?.() ?? []
+      let wanted = null
+      const plan = () => {
+        wanted = [...(this.#wantedItems(milestone) ?? [])]
+        return townDepositPlan(items, { wanted })
+      }
+      const r = townDepositOrder({
+        now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
+        home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
+        plan, container: () => townContainers(bot).length > 0, state: this.townDepositState ?? {},
+      })
+      this.townDepositState = r.state
+      if (r.order) bot.townDepositWanted = wanted ?? []
+      return r.order
+    } catch { return null }
+  }
+
   #wantedItems(milestone) {
     // A GOAL THAT ACCEPTS ANY LOG MUST NOT CALL BIRCH OFF-TARGET.
     //
@@ -764,7 +790,10 @@ export class CognitiveLoop {
     // The cooldown is charged when the order is ISSUED, not when it succeeds, so a
     // spot that cannot be planted costs one decision every ten minutes rather than
     // every decision.
-    let order = orderFor(readyFor(this.bot, milestone))
+    // THE TOWN DEPOSIT GOES FIRST (towndeposit.mjs; owner 10-05 "add automatic town deposit"): a bag at 34+ at town
+    // banks its surplus before other work. AHEAD of the milestone order on purpose: a craft-ready rung re-issues its
+    // craft every decision, craftroom refuses it at 36/36, and an order placed after it would never get a turn.
+    let order = this.#townDepositOrder(milestone) ?? orderFor(readyFor(this.bot, milestone))
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -900,6 +929,7 @@ export class CognitiveLoop {
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
+      if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
