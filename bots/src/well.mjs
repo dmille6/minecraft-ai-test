@@ -571,7 +571,8 @@ export function wellOrderOutcome (skill, status, now = 0, state = {}, failClass 
   const s = { ...state }
   if (!WELL_ORDERS.has(skill) || skill === 'close_well' || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
   const key = skill === 'dispose_well' ? 'disposeBackoffUntil' : 'buildBackoffUntil'
-  const backoff = skill === 'dispose_well' ? DISPOSE_BACKOFF_MS : failClass === 'well_no_room' ? WELL_BUILD_COOLDOWN_MS : WELL_BUILD_BACKOFF_MS
+  // room and someone-at-the-site are a matter of the next visit (a cooldown), not a fault (the long backoff)
+  const backoff = skill === 'dispose_well' ? DISPOSE_BACKOFF_MS : ['well_no_room', 'well_attended'].includes(failClass) ? WELL_BUILD_COOLDOWN_MS : WELL_BUILD_BACKOFF_MS
   s[key] = status === 'success' ? 0 : now + backoff
   return s
 }

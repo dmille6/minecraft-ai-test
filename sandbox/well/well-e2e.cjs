@@ -43,7 +43,7 @@ const G = 119
 const arenaRead = (x, y, z) => {
   const inside = x >= A.x0 && x <= A.x1 && z >= A.z0 && z <= A.z1
   const name = inside && y >= 113 && y <= G ? 'dirt' : 'air'
-  return { name, boundingBox: name === 'air' ? 'empty' : 'block', hardness: name === 'air' ? 0 : 0.5, props: null }
+  return { name, boundingBox: name === 'air' ? 'empty' : 'block', shapes: name === 'air' ? [] : [[0, 0, 0, 1, 1, 1]], hardness: name === 'air' ? 0 : 0.5, props: null }
 }
 function buildArena () {
   const c = [`kill @e[type=!player,x=${A.x0},y=100,z=${A.z0},dx=${A.x1 - A.x0},dy=40,dz=${A.z1 - A.z0}]`,
@@ -96,6 +96,8 @@ const rowsOf = file => lines(file).map(l => { try { return JSON.parse(l) } catch
   .map(r => ({ ts: Date.parse(r['@timestamp']), name: r.skill.name, status: r.skill.status, detail: String(r.skill.detail || '') }))
 async function waitFor (pred, ms, step = 250) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
 
+let BRAIN_WANDER = false, brainN = 0
+const WANDER = [{ x: 1322, y: 120, z: 1322 }, { x: 1324, y: 120, z: 1322 }]
 const brain = http.createServer((req, res) => {
   let body = ''; req.on('data', c => { body += c })
   req.on('end', () => {
@@ -103,8 +105,13 @@ const brain = http.createServer((req, res) => {
     if (!req.url.startsWith('/api/chat')) { res.statusCode = 404; res.end('brain'); return }
     let msgs = []; try { msgs = JSON.parse(body).messages || [] } catch {}
     const sentinel = (msgs.map(m => String(m.content || '')).join('\n').match(/END-[A-Z0-9]{4,12}/g) || []).pop() || ''
+    // 'status' for ever trips the fleet's livelock breaker (repeat_loop rejections -> a 58-block relocation off the arena,
+    // sandbox 10-05 r4); BRAIN_WANDER alternates two short walks on the arena, away from the well, instead.
+    let decision = { skill: 'status', args: {} }
+    // the repeat-loop key buckets nearby gotos together (r5: two cells 2 apart read as 'identical 4x'): status and goto alternate
+    if (BRAIN_WANDER && brainN++ % 2) { const c = WANDER[(brainN >> 1) % 2]; decision = { skill: 'goto', args: { x: c.x, y: c.y, z: c.z } } }
     res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ skill: 'status', args: {}, reason: 'sandbox: idle', saw_end: sentinel }) },
+    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ ...decision, reason: 'sandbox: idle', saw_end: sentinel }) },
       done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 }))
   })
 })
@@ -114,7 +121,9 @@ async function stopBot () {
   bot = null
   await waitFor(() => !new RegExp(NAME).test(r1('list')), 30000, 1000)
 }
-async function startBot (tag, slotsSpec, { pool = 'sbxwell' } = {}) {
+const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
+async function startBot (scene, slotsSpec, { pool = `sbxwell-${RUN}` } = {}) {
+  const tag = `${RUN}-${scene}`
   const logRel = `./sandbox/log/well-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/well-e2e/${tag}/skill-${NAME}.jsonl`
   const botOut = `${OUT}/bot-${tag}.out`; const trace = `${OUT}/trace-${tag}.jsonl`
@@ -272,7 +281,8 @@ scenes.isolation = async () => {
 }
 
 scenes.admission = async () => {
-  if (!CAP) throw new Error('no well')
+  if (!CAP) throw new Error('no well (run build first)')
+  BRAIN_WANDER = true
   await walkerJoin()
   rcon(`kill ${ARENA_SEL}`, `clear ${WALKER}`)
   const st = { x: CAP.x + 0.5 + 2.5 * (FACING === 'east' || FACING === 'west' ? 0 : 1), z: CAP.z + 0.5 + 2.5 * (FACING === 'east' || FACING === 'west' ? 1 : 0) }

@@ -5602,6 +5602,8 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
   return acc
 }
 
+/** How long a cleanup waits for a requested OPEN's block update before it reports it unresolved (2 s; Paper answers in < 0.3 s). */
+const WELL_OPEN_WAIT_TICKS = 40
 /** Throws settle (an item reaches the floor in ~10 ticks) before the cap closes: a closing cap must not catch one. */
 const WELL_SETTLE_TICKS = 25
 /** mineflayer hears an item's position about every 20 ticks: wait that long again before judging where it lies. */
@@ -5710,13 +5712,22 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
         // CLOSED IN A FINALLY, whatever happened: outstanding operations settle first (an OPEN still in flight lands),
         // a requested open gets its block update, then a non-abortable close with read-back; still open = a row.
         try { await g.settle() } catch { /* bounded */ }
-        let open = false
+        let open = false, sawOpen = false
         try { open = wellIdentity(read, cap).open } catch { open = false }
-        for (let i = 0; pending.open && !open && i < 10; i++) { try { await tickNA() } catch { break } try { open = wellIdentity(read, cap).open } catch { /* keep */ } }
+        for (let i = 0; pending.open && !open && i < WELL_OPEN_WAIT_TICKS; i++) { try { await tickNA() } catch { break } try { open = wellIdentity(read, cap).open } catch { /* keep */ } }
+        if (pending.open && !open) {
+          // AN OPEN WAS ASKED FOR AND NEVER SEEN (Codex round 2): it may still land. Said so in a row; the scheduler's
+          // close_well (any visitor, this bot included, every 30 s) closes a well it finds open with nobody at it.
+          logEvent({ kind: 'well_open_unresolved', status: 'failed', snapshot: snapshot(bot),
+                     detail: `at=${cap.x},${cap.y},${cap.z} waited=${WELL_OPEN_WAIT_TICKS}t stop=${String(out.stop ?? 'unknown').replace(/\s+/g, '_')}` })
+        }
         if (open) {
+          sawOpen = true
           try { await setWellOpen(bot, cap, false, g.restoreBound, tickNA) } catch { /* reads below */ }
           try { open = wellIdentity(read, cap).open } catch { /* keep */ }
         }
+        // A CAP THIS PHASE DID NOT OPEN, found open and closed here, is the visitor's close (Codex round 2: reported).
+        if (sawOpen && !open && !pending.open) out.closedOpen = true
         if (open) {
           logEvent({ kind: 'well_left_open', status: 'failed', snapshot: snapshot(bot),
                      detail: `at=${cap.x},${cap.y},${cap.z} stop=${String(out.stop ?? 'unknown').replace(/\s+/g, '_')} bot=${bot.entity?.position?.x?.toFixed?.(2)},${bot.entity?.position?.y?.toFixed?.(2)},${bot.entity?.position?.z?.toFixed?.(2)}` })
@@ -5725,23 +5736,24 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       try { release?.() } catch { /* restored */ }
     }
     // WHERE THE THROWS WENT, once mineflayer has heard where they lie; misses are retaken with the cap closed.
-    if (out.acc.tossed) {
-      if (!out.aborted) for (let i = 0; i < WELL_SEEN_TICKS; i++) await tickNA()
-      const res = throwResults({ spawned: out.acc.spawned, got, present: id => !!bot.entities?.[id], cap })
-      out.misses = res.misses; out.recollected = res.recollected
-      if (res.missed.length && !out.aborted) await retakeMisses(bot, { cap, missed: res.missed, got, bound: g.restoreBound, waitTick: tickNA, signal })
-      out.retaken = res.all.filter(m => got.has(m.id)).length
-    }
+    // An exception here (a tick or walk timeout) still ends in an account (Codex round 2): stop says so.
+    try {
+      if (out.acc.tossed) {
+        if (!out.aborted) for (let i = 0; i < WELL_SEEN_TICKS; i++) await tickNA()
+        const res = throwResults({ spawned: out.acc.spawned, got, present: id => !!bot.entities?.[id], cap })
+        out.misses = res.misses; out.recollected = res.recollected
+        if (res.missed.length && !out.aborted) await retakeMisses(bot, { cap, missed: res.missed, got, bound: g.restoreBound, waitTick: tickNA, signal })
+        out.retaken = res.all.filter(m => got.has(m.id)).length
+      }
+    } catch (e) { out.stop = `${out.stop ? `${out.stop};` : ''}error_after: ${String(e?.message ?? e).slice(0, 50)}` }
   } finally { bot.removeListener?.('playerCollect', onCollect) }
+  let after = null
   if (before?.source === 'resync' && out.acc.tossed) {
-    const after = await serverBag(bot, tickNA)
-    out.source = after.source === 'resync' ? 'resync' : 'local'
-    out.account = throwAccount({ before, after, clicked: out.acc.clicked })
-    out.slotsAfter = after.used
-  } else {
-    out.account = throwAccount({ before, after: null, clicked: out.acc.clicked })
-    out.slotsAfter = bot.inventory?.items?.()?.length ?? null
+    try { after = await serverBag(bot, tickNA) } catch (e) { after = null; out.stop = `${out.stop ? `${out.stop};` : ''}error_after: ${String(e?.message ?? e).slice(0, 50)}` }
   }
+  out.source = after?.source === 'resync' ? 'resync' : 'local'
+  out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked })
+  out.slotsAfter = after?.used ?? bot.inventory?.items?.()?.length ?? null
   return out
 }
 const phaseDetail = (ph, cap, stop) => wellDisposeDetail({ slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, items: ph.account.lost, tossed: ph.acc.tossed,
@@ -5791,6 +5803,7 @@ async function disposeWell (ctx, _args, signal) {
     ph = await throwPhase(bot, { cap, facing, g, tick, tickNA, signal })
     // THE VISITOR'S DUTY without junk to throw: a well found open is closed.
     if (ph.refused === 'nothing_listed' && wellIdentity(read, cap).open) closedOnly = await setWellOpen(bot, cap, false, g.restoreBound, tickNA)
+    if (ph.refused === 'nothing_listed' && ph.closedOpen) closedOnly = true
   } finally {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     await settleAndRestore(bot, was, g, 'dispose_well')
@@ -5854,11 +5867,11 @@ const WELL_BUILD_STATIONARY_MS = 90_000
  * every 20 s (index.mjs), so the builder digs only once the record is this old -- by then every bot of the pool has read
  * it and prices the pit's column. Scaled from the skill budget like the other housekeeping bounds (production: 25 s).
  */
-export const WELL_RECORD_SETTLE_MS = Math.max(0, Math.min(25_000, Math.floor(config.skills.defaultTimeoutMs / 7)))
+export const WELL_RECORD_SETTLE_MS = Number.isFinite(Number(process.env.WELL_RECORD_SETTLE_MS)) ? Number(process.env.WELL_RECORD_SETTLE_MS) : 25_000   // NOT scaled from the skill budget (Codex round 2): the peers' 20 s refresh is fixed
 const wellChainConsumes = plan => (plan?.wood ? [plan.log, `${plan.wood}_planks`].map(name => ({ name, count: 1 })) : [])
-/** How old the current record generation is, in ms (its file's mtime), or Infinity when it cannot be read. */
+/** How old the current record generation is, in ms (its file's mtime), or null when it cannot be read (then nothing is dug). */
 function wellRecordAgeMs (gen) {
-  try { return Date.now() - fs.statSync(path.join(poolStateDir(config.memory.pool), `${wellSiteKey()}.g${gen}.json`)).mtimeMs } catch { return Infinity }
+  try { return Date.now() - fs.statSync(path.join(poolStateDir(config.memory.pool), `${wellSiteKey()}.g${gen}.json`)).mtimeMs } catch { return null }
 }
 
 async function buildWell (ctx, _args, signal) {
@@ -5904,8 +5917,20 @@ async function buildWell (ctx, _args, signal) {
   }
   const stage = () => wellStage(read, site)
   const solidAtCell = p => bot.blockAt(new Vec3(p.x, p.y, p.z))?.boundingBox === 'block'
-  const settleRecord = async () => {   // every peer has read the record before the first dig
-    for (let age = wellRecordAgeMs(gen); age < WELL_RECORD_SETTLE_MS; age = wellRecordAgeMs(gen)) await sleep(Math.min(1_000, WELL_RECORD_SETTLE_MS - age + 10), signal)
+  // EVERY PEER HAS READ THE RECORD BEFORE THE FIRST DIG -- and, after the wait, the site, the fence and the admission are
+  // asked again (Codex round 2: someone may have arrived, or the record moved, during it). An unreadable record: no dig.
+  const settleRecord = async () => {
+    for (let age = wellRecordAgeMs(gen); ; age = wellRecordAgeMs(gen)) {
+      if (age === null) throw hkStop('well_site', `the junk well site record (generation ${gen}) cannot be read; nothing is dug without it`)
+      if (age >= WELL_RECORD_SETTLE_MS) break
+      await sleep(Math.min(1_000, WELL_RECORD_SETTLE_MS - age + 10), signal)
+    }
+    const cur = readTownSite(poolStateDir(config.memory.pool), wellSiteKey())
+    if (cur.gen !== gen || !cur.site || cur.site.x !== site.x || cur.site.y !== site.y || cur.site.z !== site.z) throw hkStop('well_site', `the junk well site moved (generation ${gen} -> ${cur.gen}) while the build waited; nothing dug`)
+    const why2 = wellSiteRefusal(read, site, home, { avoid: wellAvoid(bot) })
+    if (why2) throw hkStop('well_site', `the junk well site ${site.x},${site.y},${site.z} is no longer valid (${why2}); nothing dug`)
+    const near4 = wellAdmission({ players: playersSeen(bot), cap: site, me: bot.username })
+    if (near4) throw hkStop('well_attended', `${near4.who} came within ${near4.dist.toFixed(1)} of the junk well site while the build waited; nothing dug, the next visit digs`)
   }
   const digCell = async p => {
     const b = bot.blockAt(new Vec3(p.x, p.y, p.z))
@@ -5986,6 +6011,10 @@ async function buildWell (ctx, _args, signal) {
       return wellBuildRoom({ free: free(), slotsNeeded: p?.carried ? 0 : (p?.slotsNeeded ?? pre.slotsNeeded), junkStacks: disposePlan(items()).junkStacks })
     }
     for (let phase = 0, room = roomNow(); room.pitFirst && carried() < need && phase < WELL_PIT_PHASES; phase++, room = roomNow()) {
+      // BACK ON THE STAND FIRST (Codex round 2): a retake walk may have ended out of throwing range.
+      if (!(await toStand())) return fail('well_unreachable', `could not get back to the junk well's standing cell at ${stand.x},${stand.y},${stand.z} to throw`)
+      const nearP = wellAdmission({ players: playersSeen(bot), cap: site, me: bot.username })
+      if (nearP) throw hkStop('well_attended', `${nearP.who} came within ${nearP.dist.toFixed(1)} of the open junk well pit; the next visit finishes it`)
       await digShaft()
       pit = await throwPhase(bot, { cap: site, facing: null, pit: true, maxStacks: room.toss, g, tick, tickNA, signal })
       if (pit.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail: phaseDetail(pit, site, 'pit_first_aborted') }); throw pit.aborted }
