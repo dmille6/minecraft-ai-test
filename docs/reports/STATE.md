@@ -125,6 +125,11 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 23:03Z — CANARY LIVE: climbflood-01 @ f590430 (cf-on-47110e8) on hive-d,hive-b (10 bots; the draw gave 2 pools,
+not the design's 20 bots -- exposure needs >= 100 canary escape opportunities, dry runs gave 107-163 at +180 on 10 bots),
+declared 23:01:19Z; exactly two versions (70 on 47110e8, 10 on f590430). Reads +180 ~02:01Z, +360 ~05:01Z 10-06,
+extensions to 1560. Withdraw (rebasing onto 47110e8) goes next and will need a quick re-rebase if climbflood is kept.
+
 ## 10-05 21:43Z — CHESTFULL-02 KEPT (+360) and PROMOTED: FLEET 47110e8. C1-C4 0, rescues 16 ok, instrument 43; deaths 4/120
 bot-h vs 9/240 (0.89x). WATCH: canary successful deposits 37 -> 18 vs control 96 -> 94 (DiD -0.153/bot-h, harm watch,
 small n) -- the coming towndeposit makes deposits deterministic. NEXT: withdraw (rebasing onto 47110e8) and climbflood
