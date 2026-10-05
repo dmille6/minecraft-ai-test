@@ -112,7 +112,8 @@ const PICK = (left = 100) => ({ name: 'stone_pickaxe', count: 1, type: 101, maxD
 const BUCKET = { name: 'bucket', count: 1, type: 900 }
 
 /** A bot that digs, pillars (a placed block lifts it one), and walks a ramp step when the geometry allows. */
-function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = null, onHand = null, onLook = null } = {}) {
+function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = null, onHand = null, onLook = null,
+                         digThrows = null } = {}) {
   const digs = [], placed = [], controls = []
   let yaw = 0
   const rel = p => ({ x: Math.floor(p.x), y: Math.floor(p.y) - y, z: Math.floor(p.z) })
@@ -127,6 +128,7 @@ function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = n
     async equip (item) { bot.heldItem = item; onHand?.(w, bot) },
     async dig (b) {
       const r = rel(b.position)
+      if (digThrows?.(`${r.x},${r.y},${r.z}`, bot)) throw new Error('Digging aborted')
       digs.push({ cell: `${r.x},${r.y},${r.z}`, name: b.name, held: bot.heldItem?.name ?? null })
       w.set(r.x, r.y, r.z, 'air')
       onDig?.(`${r.x},${r.y},${r.z}`, w)
@@ -968,6 +970,52 @@ const M_CAP = '  if (ceilingFloodRisk(bot, cap.dy)) return null'
 await t('MUTANT KILLED: a wet cap reported as needing a pickaxe', async () => {
   await withMutant(REFLEX_PATH, M_CAP, '', async mod => {
     assert.ok(mod.shaftCapNeedsTool(makeBot(TOMB({ '0,2,0': 'air', '0,4,0': 'water' }), { inv: [] })))
+  })
+})
+
+await t('BURIED UNDER A WET COLUMN, THROUGH THE REAL RAMP AND BRANCH, every side wet: the head cell is dug before the refusal (Codex r4)', async () => {
+  const w = TOMB({ ...WET_ALL, '0,1,0': 'gravel', '0,2,0': 'gravel' })
+  const bot = makeBot(w, { inv: [PICK(), COBBLE(64)] })
+  const f = await floodBranch(bot, { handler: 'entombed', refusals: 0 })
+  const cells = bot.digs.map(d => d.cell)
+  assert.ok(cells.includes('0,1,0'), `the buried head cell was left: ${cells} (${f.stair.stopped})`)
+  assert.ok(!cells.includes('0,2,0'), 'the wet overhead was dug')
+  assert.strictEqual(f.stair.flood, 'ramp_breach')
+  assert.strictEqual(f.progressed, false); assert.strictEqual(f.prereq, null)
+  // POSITIVE CONTROL: the same buried bot under a DRY column breaches normally (the head cell is the ramp's own business there)
+  const dry = makeBot(TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel' }))
+  await escapeStairUp(dry, { maxSteps: 1, budgetMs: 20_000 })
+  assert.ok(dry.digs.some(d => d.cell === '0,2,0'), 'POSITIVE CONTROL: a dry overhead is taken')
+})
+
+const M_UNBURY_FIRST = "        if ([1, 0].some(dy => { const own = at(0, dy, 0); return own && isFallingBlock(own) && !bodyPassable(own) })) {"
+await t('MUTANT KILLED: the flood refusal exit without unburying the body first', async () => {
+  await withMutant(REFLEX_PATH, M_UNBURY_FIRST, '        if (false) {', async mod => {
+    const bot = makeBot(TOMB({ ...WET_ALL, '0,1,0': 'gravel', '0,2,0': 'gravel' }))
+    await mod.escapeStairUp(bot, { maxSteps: 1, budgetMs: 20_000 })
+    assert.ok(!bot.digs.some(d => d.cell === '0,1,0'), 'the mutant still dug the head cell')
+  })
+})
+
+await t('SIDESTEP: a takeover that ABORTS a sidestep dig is preemption -- no refusal, no back-off, the new owner\'s controls untouched (Codex r4)', async () => {
+  let taken = false
+  const bot = makeBot(TOMB(WET_POCKET), { digThrows: (c, b) => { if (!taken) b._takenAt = b.controls.length; taken = true; return true } })
+  const f = await floodBranch(bot, { handler: 'entombed', refusals: 2, yieldTo: () => (taken ? 'drowning' : null) })
+  assert.strictEqual(f.preempted, true, JSON.stringify(f.stair))
+  assert.strictEqual(f.refusals, 2); assert.strictEqual(f.backoffMs, 0)
+  const after = bot.controls.slice(bot._takenAt)
+  assert.ok(Number.isInteger(bot._takenAt), 'the takeover was never injected')
+  assert.ok(!after.includes('clear') && !after.includes('forward:false'), `it cleared the new owner's controls: ${after}`)
+})
+
+const M_SIDE_DIG_YIELD = "      if ((yielded = yieldTo())) return `yielded the body to ${yielded}`   // before any failure is handled (Codex r4)"
+const M_FINISH_YIELD = '    if (!yielded) yielded = yieldTo() || null'
+await t('MUTANT KILLED: without the ownership checks after the dig and at finish(), an aborted dig clears the new owner', async () => {
+  await withMutants(REFLEX_PATH, [[M_SIDE_DIG_YIELD, ''], [M_FINISH_YIELD, '']], async mod => {
+    let taken = false
+    const bot = makeBot(TOMB(WET_POCKET), { digThrows: (c, b) => { if (!taken) b._takenAt = b.controls.length; taken = true; return true } })
+    const f = await mod.floodBranch(bot, { handler: 'entombed', refusals: 2, yieldTo: () => (taken ? 'drowning' : null) })
+    assert.ok(!f.preempted || bot.controls.slice(bot._takenAt).includes('clear'), 'the mutant still recognised the takeover and kept its hands off')
   })
 })
 
