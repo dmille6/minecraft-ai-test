@@ -4259,6 +4259,9 @@ export async function escapeStairUp (bot, {
   // the stroke it wants, and `clearControlStates()` on the way out is exactly
   // the wipe this is here to prevent.
   const finish = () => {
+    // THE OWNER IS ASKED AGAIN ON THE WAY OUT (climbflood-01, Codex r4): a stop reached after an awaited dig or
+    // settle must not clear the controls of a reflex that took the body during that await.
+    if (!yielded) yielded = yieldTo() || null
     if (!yielded) bot.clearControlStates()
     return {
       steps,
@@ -4328,6 +4331,7 @@ export async function escapeStairUp (bot, {
       const b = bot.blockAt(p.offset(dx, dy, dz))
       if (!b) return 'terrain not loaded'
       const r = await digChecked(b, 'ramp_sidestep')
+      if ((yielded = yieldTo())) return `yielded the body to ${yielded}`   // before any failure is handled (Codex r4)
       if (r) return typeof r === 'string' ? r : `flood risk: ${r.flood}`
     }
     if (side.dig.length) await sleep(FALLING_SETTLE_MS)
@@ -4399,6 +4403,13 @@ export async function escapeStairUp (bot, {
       stopped = plan.reason
       if (plan.flood) {
         logFloodGuard(bot, { caller: 'ramp_breach', reason: plan.reason, cell: p.offset(...(plan.cell ?? [0, 2, 0])), submerged })
+        // A BURIED BODY FIRST (Codex r4): a falling block in the bot's own head or feet cell is dug out before this
+        // refusal can end the ramp -- the overhead stays refused (unburyDigFor never breaks it), but suffocation is
+        // not left untreated behind a flood refusal.
+        if ([1, 0].some(dy => { const own = at(0, dy, 0); return own && isFallingBlock(own) && !bodyPassable(own) })) {
+          await unburySelf(bot, { deadline, digWithin: unburyDigFor(bot, { digChecked, digWithin }) })
+          if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
+        }
         // THE REFUSED CEILING IS NEVER RE-BREACHED; THE BOT LEAVES FROM UNDER IT.
         // One step sideways into a column whose own ceiling the same check
         // allows, then the breach is planned again from there (scene A/B). If
