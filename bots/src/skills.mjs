@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
-import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail } from './foodskip.mjs'
+import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf } from './foodskip.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -1385,12 +1385,12 @@ const FOOD_SKIP = foodSkipMode(process.env)
 let foodSkipSaid = null
 /**
  * The skip's decision for this bot NOW -> { active, foodsByName }, for skipFoodDrop. auto reads the server's difficulty
- * (mineflayer bot.game.difficulty) every call, so a world switched away from peaceful starts picking food up again
+ * (foodskip.mjs difficultyOf: the packet as index.mjs recorded it) every call, so a world switched away from peaceful starts picking food up again
  * without a restart. ONE `_food_skip` row per process per change of (decision, difficulty): the canary's liveness row,
  * and the record of which mode a bot ran in.
  */
 export function foodSkipNow (bot) {
-  const difficulty = bot?.game?.difficulty ?? null
+  const difficulty = difficultyOf(bot)
   const active = foodSkipActive(FOOD_SKIP.mode, difficulty)
   const said = `${active}|${difficulty}`
   if (said !== foodSkipSaid) {
