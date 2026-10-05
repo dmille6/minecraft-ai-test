@@ -567,6 +567,9 @@ export function installCraftSync (bot, opts = {}) {
     while (!settled) {
       if (now() - start >= cfg.clickCapMs) {
         st.clickCaps++
+        // THE CAP IS A STOP TOO (Codex on da2a923): the click it gives up on may still be held in the cooldown, with a
+        // valid ticket -- invalidate BEFORE the throw, so its own validate() refuses it when it wakes
+        stopIssued(st, 'click_timeout')
         st.clickTimedOut = slot
         throw new Error(`craftsync: click on slot ${slot} not answered in ${cfg.clickCapMs} ms`)
       }

@@ -293,6 +293,37 @@ await t('P1 CODEX ROUND 3: the SECOND hotbar click held PAST the cleanup\'s infl
   assert.equal(r.bot.craftSync.inflight(), 0)
 })
 
+await t('P1 CODEX ON da2a923: a click held past the CLICK CAP (default caps, cooldown re-armed for 7 s) never writes -- the cap invalidates it', async () => {
+  // The pick-up click on hotbar slot 36 is held by digs re-arming the cooldown for 7 s; the 4 s click cap gives up on
+  // it, the craft releases (click_timeout, unverified_inflight). Before: the ticket stayed valid and at ~7 s the click
+  // went out -- all 10 bamboo onto the cursor, after the release.
+  let rearm = null, capAt = null
+  const r = await gridTrial({
+    inv: fillHotbarCase(), signal: false,
+    before: ({ bot }) => {
+      let armed = false
+      bot._client.on('window_items', (p) => {          // the baseline resync's answer: the pick-up click is next
+        if (armed || p.windowId !== 0) return
+        armed = true
+        const t0 = Date.now()
+        bot.lastDigTime = new Date()
+        rearm = setInterval(() => { if (Date.now() - t0 < 7000) bot.lastDigTime = new Date(); else clearInterval(rearm) }, 100)
+      })
+    },
+  })
+  capAt = r.server.writes.length
+  await new Promise(resolve => setTimeout(resolve, 3500))   // past the 7 s re-arming, and the held click's wake
+  clearInterval(rearm)
+  await r.server.settle()
+  const a = crow(r)
+  assert.equal(a.click_caps, 1, `POSITIVE CONTROL: the click cap must have expired (${r.error?.message})`)
+  assert.equal(r.rows.filter(e => e.event === 'click_refused').length, 1, 'POSITIVE CONTROL: the held click must have woken, and been refused')
+  assert.deepEqual(r.server.writes.slice(capAt).filter(w => w.name === 'window_click' && w.params.stateId !== -1), [], 'a late click was sent')
+  assert.equal(r.server.cursor, null, 'the bamboo is on the server cursor'); assert.equal(bag(r.server, 'bamboo'), 10)
+  assert.equal(r.bot.inventory.selectedItem ?? null, null, 'mineflayer applied the late click locally')
+  assert.equal(r.bot.craftSync.inflight(), 0)
+})
+
 await t('P2 a disconnect AFTER a preemption is still seen: nothing is sent after it, grid_clear=skipped_disconnected', async () => {
   const r = await gridTrial({ stopAt: n => n === 2 ? 'preempt+disconnect' : null, equip: async () => {} })
   await r.bot.__equipP
