@@ -133,16 +133,20 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  * THE PLAN -> { steps: [{ slot, name, count }], freed, slots, keep, why, banked: {name: n} }. Pure over mineflayer
  * Items ({ name, count, slot, maxDurability, durabilityUsed }). `wanted` is the active rung's wanted set.
  *   allowance  depositPlan(items, null, { wants: [] }): the fleet's bankable rules and creditCap 64, unchanged -- so a
- *              future change to what deposit may bank (withdraw's hold, its usable-tool rule) applies here too.
+ *              future change to what deposit may bank (withdraw's hold, its usable-tool rule) applies here too --
+ *              less `already`, what this visit has already banked by name.
  *   keeps      townKeeps; the iron ladder never moves.
  *   steps      WHOLE stacks, smallest first, while what remains >= the keep and the allowance lasts. One step = one
  *              slot emptied, so freed = steps.length.
  */
-export function townDepositPlan (items = [], { wanted = [] } = {}) {
+export function townDepositPlan (items = [], { wanted = [], already = {} } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
-  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [] }).map(({ name, count }) => [name, count]))
+  // ONE ALLOWANCE PER VISIT (Codex review 1): the plan is recomputed for a second container, and creditCap must cap the
+  // VISIT -- what an earlier container of this run already took (`already`, name -> items) is spent.
+  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [] })
+    .map(({ name, count }) => [name, Math.max(0, count - Math.max(0, Number(already?.[name]) || 0))]))
   const steps = [], banked = {}
   for (const name of Object.keys(allowance).sort()) {
     const copies = list.filter(it => it.name === name)
@@ -164,27 +168,46 @@ export function townDepositPlan (items = [], { wanted = [] } = {}) {
 }
 
 /**
- * WHAT A CONTAINER CAN TAKE, step by step -> the steps that fit WHOLE, in order. Pure. A step that would not fit
- * entirely is skipped, never split: mineflayer's transfer throws "destination full" with the stack on the cursor, and a
- * loaded cursor at close is the drop this order must never cause. Partial stacks of the same name (and no components)
- * are filled first, as mineflayer does; then empty slots.
+ * WHERE EACH STACK GOES -> the steps that fit, in order, each with `dest` (a container slot). Pure. EMPTY SLOTS ONLY,
+ * one per step, so the move is two left clicks (pick the stack up, put it down) whose result the client can predict
+ * exactly: an empty slot takes any whole stack, components and all. Merging into a partial stack is deliberately not
+ * done (Codex review 1, P1): a stack whose components differ swaps instead of merging on the server while the client
+ * believes it merged, and a stack that does not fit leaves the rest on the cursor -- a loaded close is a drop.
  *   containerSlots  the window's slots [0, inventoryStart): Item | null
- *   stackSizeOf     name -> stack size (registry); 1 for tools
  */
-export function fitToContainer (steps = [], containerSlots = [], stackSizeOf = () => 64) {
-  const slots = containerSlots.map(it => (it ? { name: it.name, count: it.count ?? 0, plain: !it.nbt } : null))
-  const out = []
-  for (const s of steps) {
-    const size = Math.max(1, Number(stackSizeOf(s.name)) || 1)
-    const sim = slots.map(x => (x ? { ...x } : null))
-    let left = s.count
-    if (size > 1) for (const x of sim) { if (left <= 0) break; if (x && x.name === s.name && x.plain && x.count < size) { const m = Math.min(size - x.count, left); x.count += m; left -= m } }
-    for (let i = 0; i < sim.length && left > 0; i++) if (!sim[i]) { const m = Math.min(size, left); sim[i] = { name: s.name, count: m, plain: true }; left -= m }
-    if (left > 0) continue
-    for (let i = 0; i < sim.length; i++) slots[i] = sim[i]
-    out.push(s)
-  }
-  return out
+export function fitToContainer (steps = [], containerSlots = []) {
+  const free = []
+  for (let i = 0; i < containerSlots.length; i++) if (!containerSlots[i]) free.push(i)
+  return steps.slice(0, free.length).map((s, k) => ({ ...s, dest: free[k] }))
+}
+
+/**
+ * THE OTHER HALF OF A DOUBLE CHEST -> its position, or null for a single chest / a barrel. Pure over the block state's
+ * properties ({ type: single|left|right, facing }). Vanilla ChestBlock.getConnectedDirection: LEFT -> facing turned
+ * clockwise, RIGHT -> counter-clockwise. Two adjacent chests are one container only when they name each other.
+ */
+const CW = { north: 'east', east: 'south', south: 'west', west: 'north' }
+const CCW = { north: 'west', west: 'south', south: 'east', east: 'north' }
+const STEP = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] }
+export function chestPartner (pos, props = {}) {
+  const t = props?.type, f = props?.facing
+  if (!pos || !STEP[f] || (t !== 'left' && t !== 'right')) return null
+  const [dx, dz] = STEP[t === 'left' ? CW[f] : CCW[f]]
+  return { x: pos.x + dx, y: pos.y, z: pos.z + dz }
+}
+
+/**
+ * THE WALK TO A TOWN CHEST: the shared walk profile, cloned, that never digs, towers or bridges (Codex review 1: the
+ * walk profile enables 1x1 towers and scaffold, so a chest one block up or across a gap would cost blocks the keeps
+ * exist to protect, and "never place" would be false). Pure: the base profile is not touched.
+ */
+export function townWalkMovements (base) {
+  if (!base) return base
+  const m = Object.assign(Object.create(Object.getPrototypeOf(base)), base)
+  m.canDig = false
+  m.allow1by1towers = false
+  m.scafoldingBlocks = []
+  return m
 }
 
 const lazy = v => (typeof v === 'function' ? v() : v)
@@ -232,8 +255,10 @@ export function townDepositOutcome (status, failClass = null, now = 0, state = {
 }
 
 /** The run's row: slots, what moved, the containers, why it stopped, the cursor. Under the logger's 300-char cap. */
-export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0 } = {}) {
+export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [] } = {}) {
   const moved = Object.entries(banked).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const t = tried.map(c => `${c.at}=${c.result}`).join(';') || '-'
-  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} banked ${moved} bagdelta ${bagDelta ?? '?'} containers ${t} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}`.slice(0, 300)
+  // THE TOOLS GO FIRST after the counts: the read's spent-tool gate parses `tools name@uses,...` and must never lose it
+  // to the 300-char cut; the containers and the stop reason are the ones that may be truncated.
+  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''} containers ${t}`.slice(0, 300)
 }
