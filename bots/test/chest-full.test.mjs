@@ -372,16 +372,22 @@ await t('W6 a well site RECORDED WHILE THE BOT WALKS to the new chest\'s cell mo
   assert.ok(clearOfWell(w.spy.placed[0]), `placed at ${w.spy.placed[0]}: the arrival check did not see the new record`)
 })
 
-await t('W6b a well site recorded INSIDE THE PLACEMENT (equip/look) loses to the chest: the well\'s next site decision moves it (the build digs only after a 25 s settle re-check)', async () => {
+await t('W6b a well site recorded INSIDE THE PLACEMENT (equip/look) loses to the chest: the well\'s next site decision moves it (the build digs only after a 25 s settle re-check by the same rule)', async () => {
+  // A VALID record (Codex round 2): 7.07 from home, 8.06 from the full chest, 6.7 from the cell the new chest takes.
+  const cap = { x: 1, y: 63, z: -7 }
+  const { townWellSite } = await import('../src/skills.mjs')
+  const c = town([stack('cobblestone', 64), stack('chest', 1)])
+  await wellRecord(process.env.POOL_STATE_DIR, cap)
+  const kept = townWellSite(c.bot)
+  assert.deepEqual([kept.site, kept.gen], [cap, 1], `control: with no new chest the record stands: ${JSON.stringify(kept)}`)
   const w = town([stack('cobblestone', 64), stack('chest', 1)])
   const equip = w.bot.equip
   let recorded = false
-  w.bot.equip = async it => { if (!recorded && it?.name === 'chest') { recorded = true; await wellRecord(process.env.POOL_STATE_DIR) } return equip(it) }
+  w.bot.equip = async it => { if (!recorded && it?.name === 'chest') { recorded = true; await wellRecord(process.env.POOL_STATE_DIR, cap) } return equip(it) }
   const r = await run(w.bot)
   assert.ok(recorded, 'the record was written while the chest was being placed')
   assert.equal(r.status, 'success', r.detail)
-  assert.deepEqual(w.spy.placed, ['4,64,-1'], 'the race is lost by the chest: it was checked before the record existed')
-  const { townWellSite } = await import('../src/skills.mjs')
+  assert.deepEqual(w.spy.placed, ['4,64,-1'], 'the race is lost by the well: the chest was checked before the record existed')
   const next = townWellSite(w.bot)
   assert.ok(next.site && next.gen === 2, `the well's next decision replaces the record: ${JSON.stringify(next)}`)
   assert.ok(Math.hypot(next.site.x - 4, next.site.z + 1) >= WELL_HOME_CLEARANCE, JSON.stringify(next.site))
@@ -417,7 +423,7 @@ await t('W8 NO DEAD END: when the live well\'s keep-out covers every ring around
   assert.equal(w.bot.bankClosed ?? null, null, 'the bank stays open')
 })
 
-await t('W9 THE WELL KEEPS ITS DISTANCE FROM A NEW CHEST BEING PLACED (a live claim in the ledger); a claim read back as gone does not count', async () => {
+await t('W9 THE WELL KEEPS ITS DISTANCE FROM A NEW CHEST BEING PLACED (a live claim in the ledger); a claim read back as gone, or unresolved past the reconcile window, does not count', async () => {
   const { townWellSite } = await import('../src/skills.mjs')
   const at = { x: -5, y: 64, z: 1 }
   const c0 = town([])
@@ -431,6 +437,9 @@ await t('W9 THE WELL KEEPS ITS DISTANCE FROM A NEW CHEST BEING PLACED (a live cl
   const g = town([])
   pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - 60_000, at, 'gone')
   assert.deepEqual(townWellSite(g.bot).site, base.site, 'a claim whose chest is gone keeps nothing out')
+  const old = town([])
+  pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - RECONCILE_AFTER_MS - 1_000, at)
+  assert.deepEqual(townWellSite(old.bot).site, base.site, 'an unresolved claim older than the reconcile window keeps nothing out (no chest landed)')
 })
 
 await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not count; the second, inside 10 min, is refused plainly', async () => {
