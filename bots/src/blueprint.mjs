@@ -174,16 +174,20 @@ function readGen (dir, key, kind, gen) {
   try { return JSON.parse(fs.readFileSync(genFile(dir, key, kind, gen), 'utf8')) } catch { return null }
 }
 
-/** Create generation `gen` of `kind` atomically -> true when THIS call created it. Keeps the newest KEEP_GENS. */
+/**
+ * Create generation `gen` of `kind` atomically -> true when THIS call created it. `prune` keeps only the newest KEEP_GENS
+ * of that kind -- which lets a slow writer RE-CREATE a pruned number (Codex review), so it is used only for the lease,
+ * whose taker verifies after creating that its generation is the current one; a record generation is never pruned.
+ */
 const KEEP_GENS = 3
-function createGen (dir, key, kind, gen, body) {
+function createGen (dir, key, kind, gen, body, { prune = false } = {}) {
   const file = genFile(dir, key, kind, gen)
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
   try {
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(tmp, JSON.stringify(body))
     fs.linkSync(tmp, file)
-    try {
+    if (prune) try {
       const re = GEN(key, kind)
       for (const f of fs.readdirSync(dir)) { const m = re.exec(f); if (m && Number(m[1]) <= gen - KEEP_GENS) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* pruned by another */ } } }
     } catch { /* best effort */ }
@@ -231,7 +235,9 @@ export function resolveRecord ({ dir, key, world = null, compute, refuse }) {
   const next = compute()
   if (!next?.record) return { record: null, gen: cur.gen, why: next?.why ?? 'no site', defer: true, replaced: null }
   const rec = { ...next.record, world: world || null }
-  if (createRecordGen(dir, key, cur.gen + 1, rec)) return { record: readRecord(dir, key).record ?? rec, gen: cur.gen + 1, why: null, defer: false, replaced: cur.record, created: true }
+  // A MATCHED PAIR (Codex review): the record this call wrote and the generation it wrote it as -- never a later read,
+  // which could be another writer's generation. A later generation is caught by the caller's fence.
+  if (createRecordGen(dir, key, cur.gen + 1, rec)) return { record: rec, gen: cur.gen + 1, why: null, defer: false, replaced: cur.record, created: true }
   const won = readRecord(dir, key)
   if (won.gen > cur.gen && won.record && sameWorld(won.record.world, world)) {
     const why = refuse(won.record)
@@ -276,7 +282,10 @@ export function takeLease (dir, key, me, now = Date.now(), ms = LEASE_MS) {
   if (!d.ok) return { ok: false, gen: cur.gen, holder: d.holder, until: d.until }
   if (cur.gen > 0 && !cur.lease) return { ok: false, gen: cur.gen, holder: '?', until: now + ms }   // torn/unreadable: wait
   const until = now + ms
-  if (createGen(dir, key, 'lease', cur.gen + 1, { holder: me, until, at: new Date(now).toISOString() })) return { ok: true, gen: cur.gen + 1, holder: me, until }
+  if (createGen(dir, key, 'lease', cur.gen + 1, { holder: me, until, at: new Date(now).toISOString() }, { prune: true })) {
+    // VERIFIED: the generation created must be the current one (a pruned number re-created by a slow writer is not).
+    if (holdsLease(dir, key, me, cur.gen + 1)) return { ok: true, gen: cur.gen + 1, holder: me, until }
+  }
   const won = readLease(dir, key)
   return { ok: false, gen: won.gen, holder: won.lease?.holder ?? '?', until: won.lease?.until ?? until }
 }
@@ -290,7 +299,7 @@ export function holdsLease (dir, key, me, gen) {
 /** Release a lease this bot holds at `gen` (a new generation marked released). Best effort -> boolean. */
 export function releaseLease (dir, key, me, gen, now = Date.now()) {
   if (!holdsLease(dir, key, me, gen)) return false
-  return createGen(dir, key, 'lease', gen + 1, { holder: me, until: now, released: true, at: new Date(now).toISOString() })
+  return createGen(dir, key, 'lease', gen + 1, { holder: me, until: now, released: true, at: new Date(now).toISOString() }, { prune: true })
 }
 
 // ---- server witness (pure part) -------------------------------------------------------------------------------------

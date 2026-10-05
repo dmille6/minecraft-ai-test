@@ -327,7 +327,8 @@ await t('farmOrder: only at town, only with work, cooldown charged when ISSUED, 
   assert.equal(c.order, null, 'scan rate limit after an empty scan')
   assert.equal(TF.farmOrder({ now: 1e6, distHome: 10, plan: lazyPlan, enabled: false }).order, null)
   const failedOnce = TF.farmOrderOutcome('tend_farm', 'failed', 5e6, {}, 'farm_unconfirmed')
-  assert.ok(failedOnce.backoffUntil > 5e6)
+  assert.equal(failedOnce.backoffUntil, 5e6 + TF.TEND_BACKOFF_MS)
+  assert.equal(TF.farmOrderOutcome('tend_farm', 'failed', 5e6, {}, 'farm_no_site').backoffUntil, 5e6 + TF.NO_SITE_BACKOFF_MS, 'no site anywhere: a long backoff')
   assert.deepEqual(TF.farmOrderOutcome('tend_farm', 'no_effect', 5e6, {}, null), {})
   assert.deepEqual(TF.farmOrderOutcome('tend_farm', 'failed', 5e6, {}, 'runner_busy', new Set(['runner_busy'])), {})
 })
@@ -561,6 +562,88 @@ await t('REFUSAL CHAIN: no saplings -> no order at all (never a loop); with a fa
   const r = await tend(after.bot)
   assert.equal(r.status, 'no_effect')
   assert.match(r.detail, /gather birch_log or oak_log/, 'the remedy is a gather, which a bot at town can do')
+})
+
+await t('SKILL tend_farm: a log that turned into something else while the bot walked is NOT dug (Codex r1)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-swap-'))
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await tend(first.bot)
+  const rec = BP.readRecord(storeDir, 'treefarm-0_64_0').record
+  const p = TF.plotsOf(rec)[0]
+  const over = {}
+  for (const c of TF.plotsOf(rec)) over[K(c.x, c.y, c.z)] = 'oak_sapling'
+  over[K(p.x, p.y, p.z)] = 'air'; over[K(p.x, p.y + 2, p.z)] = 'oak_log'
+  const town = fakeTown({ items: [S('oak_sapling', 1)], over, storeDir })
+  town.state.onGoto = async () => { town.w.set(p.x, p.y + 2, p.z, 'chest') }
+  await tend(town.bot)
+  assert.equal(town.state.digs.length, 0, 'the chest that replaced the log was dug')
+  assert.equal(town.w.nameAt(p.x, p.y + 2, p.z), 'chest')
+})
+
+await t('SKILL tend_farm: a farm record replaced mid-visit fences the visit off before its next mutation (Codex r1)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-regen-'))
+  const { bot, state } = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  let bumped = false
+  state.onPlace = async () => {
+    if (bumped) return
+    bumped = true
+    const cur = BP.readRecord(storeDir, 'treefarm-0_64_0')
+    assert.equal(BP.createRecordGen(storeDir, 'treefarm-0_64_0', cur.gen + 1, { ...cur.record, anchor: { ...cur.record.anchor, x: cur.record.anchor.x + 1 } }), true)
+  }
+  await tend(bot)
+  assert.equal(state.places.length, 1)
+  assert.match((await rows('farm_tend')).at(-1).skill.detail, /stop=farm_record_replaced/)
+})
+
+await t('record generations are never pruned (a pruned number could be re-created by a slow writer: Codex r1)', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'bp-keep-'))
+  const rec = n => ({ blueprint: 'x', version: 1, anchor: { x: n, y: 64, z: 0 }, cells: [{ x: n, y: 64, z: 0 }] })
+  for (let g = 1; g <= 6; g++) assert.equal(BP.createRecordGen(dir, 'k', g, rec(g)), true)
+  assert.equal(BP.createRecordGen(dir, 'k', 1, rec(99)), false, 'generation 1 can never be written twice')
+  assert.equal(readdirSync(dir).filter(f => /^k\.g\d+\.json$/.test(f)).length, 6)
+  rmSync(dir, { recursive: true, force: true })
+})
+
+await t('townFarmPlan: a recorded farm that is no longer a farm schedules its own replacement (Codex r1)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-refound-'))
+  const first = fakeTown({ items: [S('oak_sapling', 9)], storeDir })
+  await tend(first.bot)
+  const rec = BP.readRecord(storeDir, 'treefarm-0_64_0').record
+  const over = {}
+  for (const c of TF.plotsOf(rec)) over[K(c.x, c.y, c.z)] = 'cobblestone'
+  const town = fakeTown({ items: [S('oak_sapling', 8)], over, storeDir })
+  const plan = SK.townFarmPlan(town.bot)
+  assert.deepEqual(plan.actions.map(a => a.role), ['refound'])
+  const r = await tend(town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const now = BP.readRecord(storeDir, 'treefarm-0_64_0')
+  assert.equal(now.gen, 2, 'a new generation')
+  assert.ok(TF.plotsOf(now.record).every(p => !TF.plotsOf(rec).some(q => q.x === p.x && q.z === p.z && q.y === p.y)), 'away from the cobbled plots')
+  const noSap = fakeTown({ items: [S('oak_sapling', 2)], over, storeDir: mkdtempSync(path.join(tmpdir(), 'treefarm-refound2-')) })
+  void noSap
+})
+
+await t('place make-room never digs a farm plot column to set a station there (Codex r1)', async () => {
+  const idx = TF.farmIndex({ cells: [{ x: 1, y: 64, z: 0, role: 'plot' }] })
+  const over = {}
+  for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let y = 62; y <= 66; y++) if (!(dx === 0 && dz === 0 && (y === 64 || y === 65))) over[K(dx, y, dz)] = 'stone'
+  over[K(1, 64, 0)] = 'oak_log'
+  const town = fakeTown({ items: [S('crafting_table', 1)], over })
+  town.bot.entity.position = new Vec3(0.5, 64, 0.5)
+  town.bot.farmIndexNow = () => idx
+  const r = await SK.SKILLS.place.run({ bot: town.bot }, { item: 'crafting_table' }, new AbortController().signal)
+  assert.equal(town.w.nameAt(1, 64, 0), 'oak_log', `the farm trunk was dug (${r.status}: ${r.detail})`)
+  assert.ok(!town.state.digs.some(d => d.at === '1,64,0'))
+})
+
+await t('SKILL tend_farm: a town where no farm fits fails once with farm_no_site (a long backoff), never a silent retry loop', async () => {
+  const over = {}
+  for (let x = -30; x <= 30; x++) for (let z = -30; z <= 30; z++) over[K(x, 63, z)] = 'stone'
+  const { bot, state } = fakeTown({ items: [S('oak_sapling', 9)], over })
+  const r = await tend(bot)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'farm_no_site')
+  assert.equal(state.places.length, 0)
+  assert.equal(BP.readLease(process.env.POOL_STATE_DIR, 'treefarm-0_64_0').lease.released, true, 'the lease is released on the way out')
 })
 
 // ================================================================ the guards other code asks ==================================

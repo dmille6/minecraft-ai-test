@@ -396,6 +396,8 @@ export function farmBreakCost (idx, block) {
 
 export const TEND_COOLDOWN_MS = 5 * 60 * 1000
 export const TEND_BACKOFF_MS = 20 * 60 * 1000
+/** No farm fits near this town (a definitive search, not an unloaded cell): try again much later, not every visit. */
+export const NO_SITE_BACKOFF_MS = 2 * 60 * 60 * 1000
 /** Something else holds the farm (another bot's lease) or the bag changed: the next visit, not a fault. */
 export const TEND_SOFT_FAILS = new Set(['farm_leased', 'farm_unknown'])
 export const FARM_SCAN_MS = 30 * 1000
@@ -433,7 +435,7 @@ export function farmOrder ({ now = 0, distHome = Infinity, plan = null, state = 
 export function farmOrderOutcome (skill, status, now = 0, state = {}, failClass = null, declined = new Set()) {
   const s = { ...state }
   if (!FARM_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || declined.has(failClass) || TEND_SOFT_FAILS.has(failClass)) return s
-  s.backoffUntil = status === 'success' ? 0 : now + TEND_BACKOFF_MS
+  s.backoffUntil = status === 'success' ? 0 : now + (failClass === 'farm_no_site' ? NO_SITE_BACKOFF_MS : TEND_BACKOFF_MS)
   return s
 }
 

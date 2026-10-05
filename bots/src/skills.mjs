@@ -4286,6 +4286,8 @@ async function place(ctx, { item, x, y, z }, signal) {
       // Never the town composter either (composter.mjs): it is not a station this bot carries, but it is one the town uses.
       if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || cell.name === 'composter' || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
+      // NOR A CELL THE STATION MAY NOT GO INTO (a tree-farm plot column: digging its trunk and setting a table there kills the plot)
+      if (farmPlaceRefusal(farmIdx(bot), cellPos.x, cellPos.y, cellPos.z, item)) continue
       check(signal)
       // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
       // its budget is cancelled here -- withTimeout's default only stops the
@@ -5448,6 +5450,13 @@ export function townFarmPlan (bot) {
     return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'found' }], counts: {}, materials: null } : null
   }
   const read = readCell(bot)
+  // A RECORDED FARM THAT IS NO LONGER A FARM (Codex review) must still be able to schedule its own replacement: the site
+  // search runs inside the skill, under the lease; here only the cheap verdict and the founding prerequisite.
+  const why = farmRecordRefusal(read, rec)
+  if (why && why !== 'unknown') {
+    const saplings = FARM_SPECIES.reduce((a, s) => a + (held[s] ?? 0), 0)
+    return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'refound' }], counts: {}, materials: null } : null
+  }
   const states = plotsOf(rec).map(p => ({ plot: p, ...plotState(read, p) }))
   if (states.some(s => s.state === 'unknown')) return null
   const torches = torchesOf(rec).map(c => ({ cell: c, state: torchState(read, c) }))
@@ -5479,18 +5488,30 @@ async function tendFarm (ctx, _args, signal) {
   const skip = why => { stop = why; row('no_effect'); return { status: 'no_effect', detail: why } }
   if (!farmEnabled(process.env)) return skip('the town tree farm is switched off here (TREEFARM_ENABLED); nothing to do')
   const dir = farmDir(), key = farmKey()
-  const farm = townFarm(bot)
-  if (!farm.record) return skip(`the town tree farm cannot be settled from here (${farm.why}); the next town visit looks again`)
+  // ONE BUILDER PER TOWN, AND THE RECORD IS ONLY EVER WRITTEN UNDER IT (Codex review): the lease comes first, so a bot that
+  // would be refused the lease can never replace the farm out from under the bot that holds it. Held: a free skip.
+  let lease = takeLease(dir, key, me)
+  if (!lease.ok) { leaseNote = `held:${lease.holder}`; return skip(`another bot (${lease.holder}) is tending the town tree farm; nothing for this bot to do there now`) }
+  leaseNote = `g${lease.gen}`
+  const release = () => { try { releaseLease(dir, key, me, lease.gen) } catch { /* expires by itself */ } }
+  let farm
+  try { farm = townFarm(bot) } catch (e) { release(); throw e }
+  if (!farm.record) {
+    release()
+    // NO SITE AT ALL around this town (not merely an unloaded cell): a failure with its own long backoff, so a town where
+    // no farm fits does not repeat the whole search every five minutes (farmOrderOutcome farm_no_site).
+    if (/^no farm site within/.test(farm.why ?? '')) {
+      stop = 'no site'; row('failed')
+      return { status: 'failed', failClass: 'farm_no_site', detail: `no place for a tree farm near home (${farm.why}); nothing to do about it from here -- the search is retried in two hours` }
+    }
+    return skip(`the town tree farm cannot be settled from here (${farm.why}); the next town visit looks again`)
+  }
   gen = farm.gen
   try { bot.refreshFarm?.() } catch { /* the 20 s timer refreshes the path exclusions anyway */ }
   if (farm.created) {
     logEvent({ kind: 'farm_site', status: 'success', snapshot: snapshot(bot),
                detail: `gen=${gen} anchor=${farm.record.anchor.x},${farm.record.anchor.y},${farm.record.anchor.z} plots=${plotsOf(farm.record).length} torches=${torchesOf(farm.record).length}${farm.replaced ? ` replaced=${farm.replaced.anchor?.x},${farm.replaced.anchor?.y},${farm.replaced.anchor?.z}` : ''}` })
   }
-  // ONE BUILDER PER TOWN: the lease. Held by another bot: a free skip -- the farm is being tended.
-  let lease = takeLease(dir, key, me)
-  if (!lease.ok) { leaseNote = `held:${lease.holder}`; return skip(`another bot (${lease.holder}) is tending the town tree farm; nothing for this bot to do there now`) }
-  leaseNote = `g${lease.gen}`
   const rec = farm.record
   const idx = farmIndex(rec)
   const was = handOf(bot.heldItem)
@@ -5499,11 +5520,14 @@ async function tendFarm (ctx, _args, signal) {
   const before = Object.fromEntries(heldCounts(items()))
   const deadline = Date.now() + FARM_VISIT_MS
   const ticks = n => g.bound(bot.waitForTicks?.(n) ?? sleep(n * 50, signal), n * 50 + HK_AWAIT_MS, 'tick wait')
+  // THE FENCE before every mutation: this bot still holds the lease, AND the farm record is still the generation this
+  // visit read (a replaced farm's cells are not this visit's to touch).
   const fence = () => {
-    if (!holdsLease(dir, key, me, lease.gen)) return false
+    if (!holdsLease(dir, key, me, lease.gen)) { stop = 'lease lost'; return false }
+    if (readRecord(dir, key).gen !== gen) { stop = 'farm record replaced'; return false }
     if (lease.until - Date.now() < LEASE_RENEW_MS) {
       const r = takeLease(dir, key, me)
-      if (!r.ok) return false
+      if (!r.ok) { stop = 'lease lost'; return false }
       lease = r; leaseNote = `g${r.gen}`
     }
     return true
@@ -5545,7 +5569,7 @@ async function tendFarm (ctx, _args, signal) {
     if (!(await approach(a.cell, a.cell))) return done(a, 'unreachable')
     if (a.role === 'soil' && bodiesAround(bot).some(b => bpBodyInCell(b, a.cell))) return done(a, 'body_in_cell')
     if (!(await holdItem(a.item))) return done(a, 'not_held')
-    if (!fence()) { stop = 'lease lost'; return null }
+    if (!fence()) return null
     const refBlock = bot.blockAt(new Vec3(rf.ref.x, rf.ref.y, rf.ref.z))
     if (!refBlock) return done(a, 'ref_unloaded')
     try { await bot.lookAt(new Vec3(rf.ref.x + 0.5 + rf.face.x * 0.5, rf.ref.y + 0.5 + rf.face.y * 0.5, rf.ref.z + 0.5 + rf.face.z * 0.5), true) } catch { /* not fatal */ }
@@ -5562,11 +5586,15 @@ async function tendFarm (ctx, _args, signal) {
     const b = read(a.cell.x, a.cell.y, a.cell.z)
     if (!b || !/_log$/.test(b.name)) return done(a, `cell_now_${b?.name ?? 'unknown'}`)
     if (!(await approach(a.plot, a.cell, { allowTarget: true, reach: BP_DIG_REACH }))) return done(a, 'unreachable')
-    const block = bot.blockAt(new Vec3(a.cell.x, a.cell.y, a.cell.z))
-    if (!block) return done(a, 'unloaded')
+    // RE-READ AFTER THE WALK (Codex review): only a log is ever dug -- a block that replaced it meanwhile is not ours.
+    const logNow = () => { const b2 = bot.blockAt(new Vec3(a.cell.x, a.cell.y, a.cell.z)); return b2 && /_log$/.test(blockNameOf(bot, b2) ?? '') ? b2 : null }
+    let block = logNow()
+    if (!block) return done(a, 'not_a_log_after_walk')
     const pick = toolFor(block, items())
     if (pick.item) { try { await g.bound(bot.equip(pick.item, 'hand'), HK_AWAIT_MS, 'equip') } catch (e) { if (e?.aborted) throw e } } else if (pick.hand) { try { await g.bound(emptyHand(bot), HK_AWAIT_MS, 'empty hand') } catch (e) { if (e?.aborted) throw e } } else return done(a, 'no_tool')
-    if (!fence()) { stop = 'lease lost'; return null }
+    if (!fence()) return null
+    block = logNow()
+    if (!block) return done(a, 'not_a_log_before_dig')
     witness.watch(a.cell)
     try { await g.bound(bot.dig(block, true), 12_000, 'digging', { controller: { abort: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     const v = await witness.until(a.cell, n => n === 'air' || n === 'cave_air', FARM_ACK_MS)
@@ -5581,7 +5609,7 @@ async function tendFarm (ctx, _args, signal) {
     if (!b || !/_sapling$/.test(b.name)) return done(a, `cell_now_${b?.name ?? 'unknown'}`)
     if (!(await approach(a.cell, a.cell))) return done(a, 'unreachable')
     if (!(await holdItem('bone_meal'))) return done(a, 'not_held')
-    if (!fence()) { stop = 'lease lost'; return null }
+    if (!fence()) return null
     const n0 = countItem(bot, 'bone_meal')
     witness.watch(a.cell)
     try { await g.bound(bot.activateBlock(bot.blockAt(new Vec3(a.cell.x, a.cell.y, a.cell.z)), new Vec3(0, 1, 0)), HK_AWAIT_MS, 'bone meal') } catch (e) { if (e?.aborted) throw e }
@@ -5624,7 +5652,7 @@ async function tendFarm (ctx, _args, signal) {
     }
   } finally {
     witness.stop()
-    try { releaseLease(dir, key, me, lease.gen) } catch { /* expires by itself */ }
+    release()
     await settleAndRestore(bot, was, g, 'tend_farm')
   }
   // LOST: anything the bag holds less of that a farm visit neither plants, places, digs nor gets from a tree.
@@ -5636,7 +5664,7 @@ async function tendFarm (ctx, _args, signal) {
     return { status: 'success', placed: f.planted + f.soil + f.torches,
              detail: `tended the town tree farm: planted ${f.planted}, soil ${f.soil}, cleared ${f.cleared} leftover log(s), torches ${f.torches}, bone meal ${f.bonemeal}${f.failed ? `; ${f.failed} refused or unanswered` : ''}${stop ? `; stopped: ${stop}` : ''}` }
   }
-  if (stop === 'lease lost') return skip('another bot took over the town tree farm mid-visit; nothing placed')
+  if (stop === 'lease lost' || stop === 'farm record replaced') return skip(`${stop === 'lease lost' ? 'another bot took over the town tree farm' : 'the town tree farm was replaced'} mid-visit; nothing placed`)
   stop = stop ?? 'nothing confirmed'
   row('failed')
   return { status: 'failed', failClass: 'farm_unconfirmed',
