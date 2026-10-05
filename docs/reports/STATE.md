@@ -125,6 +125,17 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 03:17Z — CHESTFULL-01 REVERTED by the death gate at +30 min (3 canary deaths / 15 bots vs 0 / 65 in 25 min;
+randomization p = 0.0018); torn down 03:22Z; fleet 80/80 on 1918bb5 (verified 05:58Z). Deaths: board-a-Bravo drowned
+sealed in a flooded pocket at y=45 after entombment; placebo-d-Bravo drowned gathering birch; board-a-Alpha fell 73
+blocks during goto. None had a deposit/chest row in the 150 s before death. RESTART EFFECT RULED OUT: over 15 canaries
+since 09-27 (8.9M rows, 408 deaths) canary deaths in the first 45 min after deploy 0.023/bot-h vs 0.019 later (excl.
+this run); control 0.026 vs 0.028 -- so 3 early deaths (~0.25 expected) is a real outlier. Behaviour shift in the 30 min
+(15 bots, small n): canary mine/bot 1.73 -> 4.33 (control 2.85 -> 2.75), _entombed 2.87 -> 4.67 (2.11 -> 2.86), deposits
+0.67 -> 0.47 (0.71 -> 0.77); 3 deposits tried a chest at 365,15,184 (y=15, a deep container) "No path". Evidence:
+docs/reports/chestfull-01-revert-evidence.txt. Codex causal review running; NO re-run until a mechanism is found or
+ruled out. Grid fix (Codex APPROVED 8c9239d) is being prepared for the slot (Claude review + Paper + registration).
+
 ## 10-05 02:47Z — CANARY LIVE: chestfull-01 @ 6c9a8fb on board-c,board-a,placebo-d (15 bots), declared 02:46:55Z;
 exactly two versions (65 on 1918bb5, 15 on 6c9a8fb). Reads +180 ~05:47Z, +360 ~08:47Z, extensions 540/720, deadline
 780 min. After the 10-04 clear a placement is ~0 per 6 h on the canary (1 full-chest failure fleet-wide in 8.1 h vs 52

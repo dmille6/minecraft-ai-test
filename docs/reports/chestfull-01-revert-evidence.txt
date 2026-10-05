@@ -1,0 +1,203 @@
+## canary board-a-Bravo 03:08:25 6c9a8fb drowned; idle at the moment of death | leading up: goto->unknown, mine->success, gather->success, goto->unknown, mine->failed, place->success | hp 1->0 over 3s | dropped: cobblestone x184, oak_log x67
+   - 149s _reach_probe               no_effect cobblestone slate=4 status=partial hit=none moved_to_front=no visited=534 nearest=10.6 ms=121
+   - 141s _pickups                   success  cobblestone 5 gather:cobblestone sought | 5 items in 5 pickups in 60s
+   - 137s _path_reset                success  place_error
+   - 126s _path_reset                success  goal_updated
+   - 126s _pickup_skipped            success  drop 485112 refused the walk; retired it and kept sweeping (1 retired, attempt 1/4) err=path_budget item=cobblestone d=0
+   - 126s _path_reset                success  place_error
+   - 126s _path_reset                success  block_updated
+   - 126s _reach_probe               success  cobblestone slate=4 status=success hit=416,44,211 moved_to_front=yes visited=0 nearest=1.2 ms=0
+   - 125s _entombed                  failed   walled in at y=45
+   - 117s _scaffold_pick             success  pillar_out: andesite instead of oak_log
+   - 112s _scaffold_pick             success  pillar_out: andesite instead of oak_log
+   - 104s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   - 103s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=12.3
+   - 103s _water_surface_out         success  afloat and unowned — surface_out (head water, health 20)
+   -  95s _air_drowning_observed     success  oxygen 8, head block water, health 20
+   -  93s _oxygen_critical_state     failed   air fell to 25% (5/20); rescuing=false swimming=false health 20
+   -  93s _drowning_route            success  sealed dist=-1 at 417,48,211 scoop=no
+   -  93s _drowning_up               success  phase up
+   -  92s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  92s _water_surface_out_ended   failed   held 10.8s; head started SUBMERGED, ended SUBMERGED; dAir -14; dHealth 0; lowest air 5/20 — DIPPED CRITICAL while held; 
+   -  92s goto                       unknown  arrived at 417,48,211 — but nothing changed that goto exists to change (expected position); cannot tell whether it worke
+   -  91s _water_travel_uninterrupted success  crossing with 11.5s air, air unknown away — not seizing
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 1ms
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 0ms
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 0ms
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 0ms
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 0ms
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 0ms
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 0ms
+   -  91s _path_no_legal_move        failed   sealed_in_liquid status=noPath visited=1 startLiquid=true h=3.0
+   -  91s _path_noPath               success  noPath after 1 nodes, 0ms
+   -  82s _path_failure_shapes       failed   sealed_in_liquid=9(100%) total=9
+   -  81s _chunks_evicted            success  sweep 20: evicted 0 beyond 10 chunks, holding 329; arrayBuffers now 23MB, rss 185MB
+   -  73s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen -1, health 20) — sealed, no route up or out
+   -  73s _drowning_route            success  sealed dist=-1 at 417,48,211 scoop=no
+   -  73s _drowning_up               success  phase up
+   -  72s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  58s mine                       failed   stopped at y=48: water beside the ceiling cell ahead — opening it would let it in
+   -  58s _mine_bearing_turned       success  stair bearing (0,1) instead of the facing (0,-1): 1 dry steps ahead vs 0
+   -  52s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen 0, health 17.333335876464844) — sealed, no route up or out
+   -  52s _drowning_rescue_yielded   success  2 ceilings expired here with no air and no harm (health 17.333335876464844, still sealed in) — yielding the body to the 
+   -  51s _drowning_route            success  sealed dist=-1 at 417,48,211 scoop=no
+   -  51s _drowning_up               success  phase up
+   -  51s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  37s _inventory_mutation        success  cause=entombed_escape andesite -1, cobblestone -2
+   -  31s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen 0, health 10.333337783813477) — sealed, no route up or out
+   -  31s _flooded_pocket_rung       no_effect refused: no air to start with
+   -  30s _drowning_route            success  sealed dist=-1 at 417,48,211 scoop=no
+   -  30s _drowning_up               success  phase up
+   -  28s _plant_spot                success  found at=416,47,209 item=oak_sapling sap=22 kinds=3 ordered=1
+   -  28s _work_order                success  place {"item":"oak_sapling","x":416,"y":47,"z":209} — holding 12 oak_sapling on plantable ground; the fleet takes 3,605 
+   -  28s place                      success  placed oak_sapling at (416, 47, 209)
+   -  10s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen -1, health 3.666668176651001) — sealed, no route up or out
+   -  10s _drowning_rescue_yielded   success  4 ceilings expired here with no air and no harm (health 3.666668176651001, still sealed in) — yielding the body to the e
+   -  10s _reflex_low_health         success  health 3.7
+   -   9s _drowning_route            success  sealed dist=-1 at 417,48,211 scoop=no
+   -   9s _drowning_up               success  phase up
+   -   0s _death_site_recorded       success  death:drowning x1 at 417,48,211 (5 sites on file)
+   -   0s _death                     failed   drowned; idle at the moment of death | leading up: goto->unknown, mine->success, gather->success, goto->unknown, mine->f
+## canary placebo-d-Bravo 03:12:25 6c9a8fb drowned; was running gather | leading up: explore->success, gather->failed, explore->success, gather->success, place->success, gather->failed | hp 1.7->0 over 3s | dropped: wildflowers x104, kelp x31,
+   - 149s _water_float_ended         success  held 0.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (hea
+   - 149s _water_float               success  afloat and unowned — float (head air, health 20)
+   - 146s _water_float_ended         success  held 2.5s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (hea
+   - 146s _water_float               success  afloat and unowned — float (head air, health 20)
+   - 129s _death_site_route_crossed  no_effect death:drowning x1 at 62,58,79; the planned route passes 66,63,83 (2 nodes)
+   - 126s _water_float_ended         success  held 19.5s; head started in air, ended in air, went under mid-hold; dAir 0; dHealth 0; lowest air 20/20; ended because n
+   - 126s _water_float               success  afloat and unowned — float (head air, health 20)
+   - 125s _water_float_ended         success  held 1.0s; head started in air, ended in air; dAir 0; dHealth 0; lowest air 20/20; ended because no longer in water (hea
+   - 124s _path_timeout              success  timeout after 18216 nodes, 5007ms
+   - 124s _pickup_skipped            success  drop 1066836 refused the walk; retired it and kept sweeping (1 retired, attempt 1/4) err=Timeout item=birch_log d=-0.6,0
+   - 124s _path_reset                success  goal_updated
+   - 123s _death_site_route_crossed  no_effect death:drowning x1 at 62,58,79; the planned route passes 64.5,62,83.5 (2 nodes)
+   - 122s _water_float               success  afloat and unowned — float (head air, health 20)
+   - 121s _reach_probe               success  birch_log slate=4 status=success hit=64,64,81 moved_to_front=yes visited=0 nearest=2.8 ms=0
+   - 118s _path_timeout              success  timeout after 17272 nodes, 5000ms
+   - 117s _water_float_ended         failed   held 4.6s; head started in air, ended SUBMERGED, went under mid-hold; dAir -2; dHealth 0; lowest air 19/20; ended becaus
+   - 110s _air_drowning_observed     success  oxygen 8, head block water, health 20
+   - 107s _oxygen_critical_state     failed   air fell to 25% (5/20); rescuing=false swimming=false health 20
+   - 107s _dig_collision             failed   dig of birch_log@64,64,81 cancelled — stopDigging called from digging.js:187 <- reflex.mjs:1019 <- reflex.mjs:2130
+   - 107s _drowning_route            success  up dist=1 at 62,61,81 scoop=no
+   - 107s _drowning_up               success  phase up
+   - 107s _death_site_route_crossed  no_effect death:drowning x1 at 62,58,79; the planned route passes 61.5,61,81.5 (1 nodes)
+   - 107s _water_travel_uninterrupted success  crossing with 15.0s air, air 1b away — not seizing
+   - 106s _reach_probe               success  birch_log slate=4 status=success hit=64,64,81 moved_to_front=yes visited=0 nearest=3.6 ms=0
+   - 105s _path_reset                success  block_updated
+   - 105s _path_reset                success  block_updated
+   -  93s _air_drowning_observed     success  oxygen 8, head block water, health 20
+   -  91s _oxygen_critical_state     failed   air fell to 25% (5/20); rescuing=true swimming=false health 20
+   -  87s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen 0, health 20) — sealed, no route up or out
+   -  87s _drowning_route            success  unscanned dist=-1 at 63,58,80 scoop=no
+   -  87s _drowning_up               success  phase up
+   -  78s _path_failure_shapes       failed   budget=2(100%) total=2
+   -  78s _pickups                   success  birch_log 1 gather:birch_log sought | 1 items in 1 pickups in 60s
+   -  67s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen 0, health 18) — sealed, no route up or out
+   -  67s _drowning_rescue_yielded   success  2 ceilings expired here with no air and no harm (health 18, moved on) — yielding the body to the escape handlers
+   -  67s _flooded_pocket_rung       no_effect refused: need 11 placeable block(s), have 2
+   -  67s _water_no_air_route        success  afloat and unowned — no_air_route (head water, health 20)
+   -  49s _drowning_route            success  unscanned dist=-1 at 62,58,81 scoop=no
+   -  49s _drowning_up               success  phase up
+   -  49s _water_no_air_route_ended  failed   held 18.2s; head started SUBMERGED, ended SUBMERGED; dAir 0; dHealth -1.9999923706054688; lowest air -1/20 — DIPPED CRIT
+   -  29s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen -1, health 11.000004768371582) — sealed, no route up or out
+   -  29s _drowning_rescue_yielded   success  3 ceilings expired here with no air and no harm (health 11.000004768371582, moved on) — yielding the body to the escape 
+   -  29s _water_no_air_route        success  afloat and unowned — no_air_route (head water, health 11.333337783813477)
+   -  28s _drowning_route            success  unscanned dist=-1 at 63,58,80 scoop=no
+   -  28s _drowning_up               success  phase up
+   -  28s _water_no_air_route_ended  failed   held 1.0s; head started SUBMERGED, ended SUBMERGED; dAir 0; dHealth -0.33333396911621094; lowest air -1/20 — DIPPED CRIT
+   -  22s gather                     aborted  stuck
+   -  22s _reach_probe               no_effect birch_log slate=4 status=noPath hit=none moved_to_front=no visited=9 nearest=6.0 ms=2
+   -  18s _path_failure_shapes       failed   disconnected=1(100%) total=1
+   -   8s _drowning_ceiling_no_air   failed   held 20s and never reached air (oxygen -1, health 4.000003337860107) — sealed, no route up or out
+   -   8s _reflex_low_health         success  health 4
+   -   7s _water_no_air_route        success  afloat and unowned — no_air_route (head water, health 2.33333683013916)
+   -   7s _drowning_route            success  unscanned dist=-1 at 63,58,80 scoop=no
+   -   7s _drowning_up               success  phase up
+   -   7s _water_no_air_route_ended  failed   held 0.5s; head started SUBMERGED, ended SUBMERGED; dAir -1; dHealth 1.3333332538604736; lowest air 0/20 — DIPPED CRITIC
+   -   0s _death_site_recorded       success  death:drowning x2 at 62,58,79 (5 sites on file)
+   -   0s _death                     failed   drowned; was running gather | leading up: explore->success, gather->failed, explore->success, gather->success, place->su
+## canary board-a-Alpha 03:12:03 6c9a8fb fell from a high place after falling 73 blocks; was running goto | leading up: gather->failed, goto->failed, place->success, gather->failed, goto->failed, mine->success | hp 14->0 over 1363s | dropped
+   - 126s _pickups                   success  cobblestone 16 mine:y47 passive | 16 items in 16 pickups in 60s
+   - 101s _milestone_complete        success  completed gather_iron_ore_3#2306; now return#2306
+   - 101s _marooned                  failed   no path can start from y=48 with an open column above -- climbing out
+   - 101s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  91s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  86s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  85s _inventory_mutation        success  cause=maroon_escape cobblestone -1
+   -  85s _entombed                  failed   walled in at y=50
+   -  78s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  72s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  68s goto                       aborted  low_health
+   -  68s _path_no_legal_move        failed   no_legal_move status=noPath visited=1 startLiquid=false h=47.2
+   -  68s _path_noPath               success  noPath after 1 nodes, 1ms
+   -  68s _scaffold_pick             success  pillar_out: cobblestone instead of oak_log
+   -  67s _path_reset                success  block_updated
+   -  66s _path_reset                success  block_updated
+   -  66s _path_failure_shapes       failed   no_legal_move=1(100%) total=1
+   -  66s _pickups                   success  cobblestone 1 goto passive; cobblestone 1 reflex:marooned passive | 2 items in 2 pickups in 60s
+   -  65s _path_reset                success  block_updated
+   -  62s _inventory_mutation        success  cause=entombed_escape cobblestone +1
+   -  52s _goto_dig_retry            success  moved 46.3 blocks dy=-4.0 wet=false->false from 559.3,51.0,419.5 in 16043ms budget=25000ms plan=grounded planned_dig=0ms
+   -  40s _path_reset                success  stuck
+   -  37s _path_reset                success  stuck
+   -  33s _path_reset                success  stuck
+   -  30s _path_reset                success  stuck
+   -  27s _path_reset                success  goal_updated
+   -  24s _path_reset                success  stuck
+   -  20s _path_reset                success  stuck
+   -   8s _path_reset                success  block_updated
+   -   6s _path_reset                success  block_updated
+   -   6s _path_reset                success  block_updated
+   -   5s _path_reset                success  block_updated
+   -   4s _path_reset                success  block_updated
+   -   4s _path_reset                success  block_updated
+   -   3s _path_reset                success  block_updated
+   -   2s _path_reset                success  goal_updated
+   -   0s _fall_path                 no_effect candidate damage: fell 73, hp -20; descent 2s ago: path ACTIVE; path 0s old, still active (success 45n walk mdd=6 liqdro
+   -   0s _fall_path                 failed   death (fall): fell 73; descent: path unknown; path 0s old, still active (success 45n walk mdd=6 liqdrop=true): max 0, 0>
+   -   0s _death_site_recorded       success  death:fall x1 at 503,-21,341 (after a 73-block fall; 6 sites on file)
+   -   0s _death                     failed   fell from a high place after falling 73 blocks; was running goto | leading up: gather->failed, goto->failed, place->succ
+{('pre', 'control'): 9, ('post', 'canary'): 3, ('pre', 'canary'): 1}
+======
+rows 52446 {('pre', 'can'): 15, ('post', 'can'): 15, ('pre', 'ctl'): 65, ('post', 'ctl'): 65}
+deposit              {('post', 'can'): 0.47, ('post', 'ctl'): 0.77, ('pre', 'can'): 0.67, ('pre', 'ctl'): 0.71}
+_deposit_new_chest   {('post', 'can'): 0.0, ('post', 'ctl'): 0.0, ('pre', 'can'): 0.0, ('pre', 'ctl'): 0.0}
+mine                 {('post', 'can'): 4.33, ('post', 'ctl'): 2.75, ('pre', 'can'): 1.73, ('pre', 'ctl'): 2.85}
+_drowning_route      {('post', 'can'): 0.67, ('post', 'ctl'): 0.86, ('pre', 'can'): 0.0, ('pre', 'ctl'): 0.88}
+_entombed            {('post', 'can'): 4.67, ('post', 'ctl'): 2.86, ('pre', 'can'): 2.87, ('pre', 'ctl'): 2.11}
+_marooned            {('post', 'can'): 1.93, ('post', 'ctl'): 1.75, ('pre', 'can'): 1.07, ('pre', 'ctl'): 1.63}
+goto                 {('post', 'can'): 5.0, ('post', 'ctl'): 4.4, ('pre', 'can'): 3.73, ('pre', 'ctl'): 4.17}
+gather               {('post', 'can'): 9.67, ('post', 'ctl'): 8.63, ('pre', 'can'): 9.4, ('pre', 'ctl'): 8.37}
+_death               {('post', 'can'): 0.2, ('post', 'ctl'): 0.0, ('pre', 'can'): 0.0, ('pre', 'ctl'): 0.02}
+median y {('pre', 'can'): 67, ('post', 'can'): 63.4, ('pre', 'ctl'): 62.8, ('post', 'ctl'): 60} share y<55 {('pre', 'can'): 0.08, ('post', 'can'): 0.25, ('pre', 'ctl'): 0.27, ('post', 'ctl'): 0.35}
+3 deposit could not reach the chest at 365,15,184: No path to the goal!
+1 deposit deposited 132 items
+1 deposit The goal was changed before it could be completed!
+1 deposit deposited 106 items
+1 deposit not a banking target (scaffold reserve): you are carrying cobblestone — nothing to deposit
+======
+rows walked 8923782 deaths 408
+toolkeeper-01    pools 4  hrs 26.2 | canary early 1 late 7 | control early 1 late 38
+deathfix-01      pools 2  hrs 3.1 | canary early 0 late 0 | control early 0 late 1
+lastswing-01     pools 2  hrs 6.2 | canary early 0 late 0 | control early 0 late 9
+hygiene-01       pools 2  hrs 6.2 | canary early 0 late 2 | control early 2 late 8
+fixes-01         pools 4  hrs 3.2 | canary early 0 late 0 | control early 1 late 0
+idlegap-01       pools 2  hrs 6.3 | canary early 0 late 0 | control early 3 late 11
+fixes-02         pools 2  hrs 3.3 | canary early 1 late 1 | control early 4 late 4
+fixes-03         pools 4  hrs 6.4 | canary early 1 late 3 | control early 1 late 9
+digsync2-01      pools 2  hrs 3.1 | canary early 0 late 1 | control early 1 late 4
+oretunnel-03     pools 2  hrs 26.4 | canary early 0 late 5 | control early 0 late 64
+craftsync-01     pools 2  hrs 6.2 | canary early 0 late 1 | control early 1 late 12
+craftroom-01     pools 2  hrs 6.3 | canary early 0 late 1 | control early 2 late 9
+composter-01     pools 2  hrs 6.2 | canary early 0 late 1 | control early 0 late 12
+toolclean-01     pools 4  hrs 6.3 | canary early 0 late 6 | control early 3 late 12
+chestfull-01     pools 3  hrs 0.6 | canary early 3 late 0 | control early 0 late 0
+can early (first 45 min after deploy) 0.042/bot-h (6/144)  late 0.019/bot-h (28/1443)
+ctl early (first 45 min after deploy) 0.026/bot-h (19/743)  late 0.028/bot-h (193/6968)
