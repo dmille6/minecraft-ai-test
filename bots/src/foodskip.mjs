@@ -37,6 +37,35 @@ export function foodSkipMode (env = {}) {
 }
 
 /**
+ * THE SERVER'S DIFFICULTY, READ OURSELVES -- because mineflayer's own reading is always undefined on 1.21.8.
+ *
+ * Found on the Paper sandbox (10-05, foodskip-ab.cjs): every candidate row said `difficulty=unknown active=0` in a
+ * peaceful world. minecraft-data 1.21.8 declares the `difficulty` packet's field as a MAPPER (varint -> 'peaceful' |
+ * 'easy' | 'normal' | 'hard'), so node-minecraft-protocol already hands over the NAME, and mineflayer 4.37.1 then
+ * indexes its own name table with it (game.js: `difficultyNames[packet.difficulty]`) -> undefined. The login packet
+ * no longer carries a difficulty. So auto would never have switched on: the unit tests set bot.game.difficulty by
+ * hand and could not see it.
+ *
+ * normalizeDifficulty accepts either shape (a name, or the older numeric 0..3) and anything else is null (unknown).
+ */
+const DIFFICULTY_NAMES = ['peaceful', 'easy', 'normal', 'hard']
+export function normalizeDifficulty (v) {
+  if (typeof v === 'string') return DIFFICULTY_NAMES.includes(v.toLowerCase()) ? v.toLowerCase() : null
+  if (Number.isInteger(v) && v >= 0 && v < DIFFICULTY_NAMES.length) return DIFFICULTY_NAMES[v]
+  return null
+}
+/** Record the server's difficulty from the raw packet onto bot.serverDifficulty. Call once, right after createBot. */
+export function attachDifficulty (bot) {
+  try {
+    bot?._client?.on?.('difficulty', p => { const d = normalizeDifficulty(p?.difficulty); if (d) bot.serverDifficulty = d })
+  } catch { /* a test double without a client */ }
+}
+/** The difficulty this bot is in: our own reading of the packet first, mineflayer's (if it ever works) second; else null. */
+export function difficultyOf (bot) {
+  return normalizeDifficulty(bot?.serverDifficulty) ?? normalizeDifficulty(bot?.game?.difficulty)
+}
+
+/**
  * IS THE SKIP ACTIVE? Pure. `difficulty` is mineflayer's bot.game.difficulty: 'peaceful' | 'easy' | 'normal' |
  * 'hard', or undefined before the server's difficulty packet. Only `auto` reads it, and only 'peaceful' skips.
  */
