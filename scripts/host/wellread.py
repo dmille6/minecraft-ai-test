@@ -16,6 +16,8 @@
 #   _well_left_open    a visit that could not close the cap                                    (must never happen)
 #   _well_recollected  a bot collected an item lying in a well's shaft (self-reported)          (must never happen)
 #   _well_inside       a bot's feet inside a well column below the rim (self-reported, 1/min)   (must never happen)
+#   _well_open_unresolved  an OPEN asked for and not seen within 2 s at cleanup (TRIPWIRE: reported, not gated; close_well
+#                       closes any well found open with nobody at it)
 #
 #   LIVENESS     canary well rows from the canary build (>= 1); control 0 (control runs the base code).
 #   CORRECTNESS  (each judged; any breach REVERTS) -- C1 recollected: _well_recollected rows + recollected= > 0;
@@ -60,7 +62,7 @@ ST16 = re.compile(r'^(egg|brown_egg|blue_egg|snowball|ender_pearl|armor_stand|bu
 
 def stack_of(n):
     return 16 if ST16.search(n) else 64
-WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside')
+WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside', '_well_open_unresolved')
 
 
 def load_window(since, until):
@@ -129,7 +131,7 @@ ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev_rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
 rows = Counter(); kinds = Counter(); offbuild = 0
 c1 = []; c2 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter)
-visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter()
+visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
 botsets = defaultdict(lambda: defaultdict(set)); last = defaultdict(dict); totals = Counter()
 for r in ev_rows:
     t = r.get('t'); b = (r.get('bot') or {}).get('name')
@@ -160,6 +162,8 @@ for r in ev_rows:
         c1.append((b, d[:100]))
     elif k == '_well_inside':
         c4.append((b, d[:100]))
+    elif k == '_well_open_unresolved':
+        unresolved += 1
     elif k == '_well_refused':
         refused[f.get('reason', '?')] += 1
     elif k == '_well_built':
@@ -201,8 +205,8 @@ print('LIVENESS     canary well rows %d (>= 1) | control %d (must be 0) | other 
       % (rows['canary'], rows['control'], offbuild, dict((k2, n) for (a, k2), n in kinds.items() if a == 'canary')))
 print('CORRECTNESS  C1 recollected %d | C2 left open %d | C3 non-listed thrown %d | C4 bots inside a well %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 well %s'
       % (len(c1), len(c2), len(c3), len(c4), c5, misses, retaken, c6 or 0))
-print('             wells built %s | pit-first builds %d | disposal visits %d (server-resynced %d) | refusals %s'
-      % ({p: dict(c) for p, c in built.items()}, pit, visits, resynced, dict(refused)))
+print('             wells built %s | pit-first builds %d | disposal visits %d (server-resynced %d) | refusals %s | open unresolved %d (tripwire)'
+      % ({p: dict(c) for p, c in built.items()}, pit, visits, resynced, dict(refused), unresolved))
 print('             deaths canary %d control %d (two-death floor: canary-report.py decides; one death is named, not a verdict)' % (deaths['canary'], deaths['control']))
 print('INSTRUMENT   control bots at >= 34 slots holding listed junk: %d (>= 1)' % inst)
 print('PRIMARY      listed-junk slots/bot canary %.2f -> %.2f control %.2f -> %.2f DiD %+.2f | share at >= 34 DiD %+.3f | items out %d | slots freed/visit %s'
@@ -218,7 +222,7 @@ try:
     emit('wellread', W, {
         'rows_canary': rows['canary'], 'rows_control': rows['control'], 'offbuild_canary': offbuild,
         'breach_recollected': len(c1), 'breach_left_open': len(c2), 'breach_nonlisted': len(c3), 'breach_inside': len(c4),
-        'breach_misses_left': c5, 'breach_multi_well': len(c6),
+        'breach_misses_left': c5, 'breach_multi_well': len(c6), 'open_unresolved': unresolved,
         'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
         'full_share_did': None if did('full') != did('full') else round(did('full'), 4),
