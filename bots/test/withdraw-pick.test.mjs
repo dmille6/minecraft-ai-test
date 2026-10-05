@@ -21,7 +21,8 @@ const W = await import('../src/withdrawpick.mjs')
 const { bestToolCopy, stonePickDeficits, roomPlan, pickTakes, hasUsablePick, transferVerdict } = W
 const { depositPlan, depositNoopReason, setWithdrawHold, clearWithdrawHolds } = await import('../src/bankable.mjs')
 const { townOrder, townOrderOutcome } = await import('../src/composter.mjs')
-const { SKILLS, townPickMiss } = await import('../src/skills.mjs')
+const { SKILLS, townPickMiss, townIngredientMiss } = await import('../src/skills.mjs')
+const { townIngredientMissComplete, noteIngredientMisses, ingredientNeedsAbsent, INGREDIENT_MISS_TTL_MS } = await import('../src/withdrawpick.mjs')
 const { AdmissionControl } = await import('../src/admission.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
 const { FLOOR } = await import('../src/toolfor.mjs')
@@ -103,7 +104,11 @@ await t('townOrder: withdraw_pick only at town, with no usable pickaxe, no recen
   assert.equal(r.order?.skill, 'withdraw_pick')
   assert.equal(townOrder({ ...base, distHome: 200 }).order, null, 'never a trip')
   assert.equal(townOrder({ ...base, pickNeeded: false }).order, null)
-  assert.equal(townOrder({ ...base, pickMiss: true }).order, null, 'the town found none recently')
+  assert.equal(townOrder({ ...base, pickMiss: true, ingredientMiss: true }).order, null, 'no pickaxe and no ingredient anywhere recently: no order')
+  // THE BUG (withdraw-habit review): a pickaxe-only miss blocked the whole order -- the ingredient fallback too
+  assert.equal(townOrder({ ...base, pickMiss: true, ingredientMiss: false }).order?.skill, 'withdraw_pick', 'a pickaxe-only miss still sends the bot for the ingredients')
+  assert.match(townOrder({ ...base, pickMiss: true }).order?.why ?? '', /showed none recently, but may hold what one stone pickaxe is made from/)
+  assert.equal(townOrder({ ...base, pickMiss: false, ingredientMiss: true }).order?.skill, 'withdraw_pick', 'an ingredient miss alone does not block the pickaxe branch')
   assert.equal(townOrder({ ...base, pickRoom: false }).order, null, 'no room can be made: no order')
   assert.equal(townOrder({ ...base, slots: 36, freeSlots: 0, junk: 40 }).order?.skill, 'compost', 'compost frees slots first')
   assert.equal(townOrder({ ...base, now: 1e9 + 60_000, state: r.state }).order, null, 'cooldown charged on issue')
@@ -361,6 +366,61 @@ await t('R1.6 CODEX REPRO: 36 slots, two 63-stick stacks, request 2 -> one each;
   const w = withServer(town(bag, [stack('stick', 40)]))
   const r = await withdraw(w.bot, { item: 'stick', count: 2 })
   assert.equal(r.status, 'success', r.detail); assert.equal(count(w.bag, 'stick'), 128)
+})
+
+await t('INGREDIENT EVIDENCE (pure): per container and per need, complete coverage, nothing needed is futile, a deposit since clears it', () => {
+  const now = 1e12
+  const e = {}
+  noteIngredientMisses(e, ['a'], ingredientNeedsAbsent([stack('dirt', 5)]), now - 1000)            // a: none of anything
+  noteIngredientMisses(e, ['b'], ingredientNeedsAbsent([stack('cobblestone', 9)]), now - 1000)     // b: has cobblestone
+  assert.deepEqual(ingredientNeedsAbsent([stack('cobblestone', 9)]).sort(), ['planks', 'stick'])
+  assert.equal(townIngredientMissComplete(e, ['a', 'b'], ['stick'], now), true, 'no stick anywhere')
+  assert.equal(townIngredientMissComplete(e, ['a', 'b'], ['cobblestone', 'stick'], now), false, 'b holds cobblestone: worth the trip')
+  assert.equal(townIngredientMissComplete(e, ['a', 'b', 'c'], ['stick'], now), false, 'c was never looked in: no complete coverage')
+  assert.equal(townIngredientMissComplete(e, [], ['stick'], now), false, 'no containers known: not a miss')
+  assert.equal(townIngredientMissComplete(e, ['a'], [], now), true, 'nothing needed: the branch is futile')
+  assert.equal(townIngredientMissComplete({}, [], [], now), true, 'nothing needed is futile even with no container known')
+  assert.equal(townIngredientMissComplete(e, ['a', 'b'], ['stick'], now + INGREDIENT_MISS_TTL_MS), false, 'expired')
+  e.b = { o: 'took', at: now - 10 }                                                                  // something was deposited into b
+  assert.equal(townIngredientMissComplete(e, ['a', 'b'], ['stick'], now), false, 'a deposit since may have brought some')
+})
+
+await t('ROUND 9 REPRO: every chest a recent PICKAXE miss, the ingredients still there -- the order still runs and takes them', async () => {
+  const w = withServer(town([stack('crafting_table', 1)], [stack('cobblestone', 64), stack('stick', 30), tool('stone_pickaxe', 127)]))
+  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 60_000 } })            // another bot looked: no usable pickaxe
+  assert.equal(townPickMiss(w.bot), true, 'positive control: the pickaxe branch is ruled out town-wide')
+  assert.equal(townIngredientMiss(w.bot), false, 'nothing rules the ingredients out')
+  const base = { now: 1e9, slots: 2, freeSlots: 34, junk: 0, distHome: 5, storageNear: true, composterAtTown: false, pickNeeded: true,
+                 pickRoom: true, pickMiss: () => townPickMiss(w.bot), ingredientMiss: () => townIngredientMiss(w.bot), state: {} }
+  assert.equal(townOrder(base).order?.skill, 'withdraw_pick', 'the order is issued')
+  const r = await pick(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count(w.bag, 'cobblestone'), 3); assert.equal(count(w.bag, 'stick'), 2)
+  assert.match(lastPickRow(), /^outcome=took_ingredients /)
+  assert.equal(townOrder({ ...base, now: 1e9 + 1e7, state: {} }).order, null, 'and once they are held, nothing more to fetch: no order')
+})
+
+await t('ROUND 9: a chest with no pickaxe AND no ingredient is remembered as both -- the next order is not issued; a deposit there reopens it', async () => {
+  const w = withServer(town([stack('crafting_table', 1)], [stack('dirt', 5)]))
+  const r = await pick(w.bot)
+  assert.equal(r.failClass, 'container_short', r.detail)
+  assert.equal(townPickMiss(w.bot), true); assert.equal(townIngredientMiss(w.bot), true, 'its own evidence: none of cobblestone or stick here')
+  const base = { now: 1e9, slots: 2, freeSlots: 34, junk: 0, distHome: 5, storageNear: true, composterAtTown: false, pickNeeded: true,
+                 pickRoom: true, pickMiss: () => townPickMiss(w.bot), ingredientMiss: () => townIngredientMiss(w.bot), state: {} }
+  assert.equal(townOrder(base).order, null, 'nothing anywhere: no futile order')
+  updateMem(e => { e['5,64,0'] = { ...(e['5,64,0'] ?? {}), o: 'took', at: Date.now() + 1 } })   // a deposit into the chest
+  assert.equal(townIngredientMiss(w.bot), false)
+  assert.equal(townOrder({ ...base, now: 1e9 + 1e7 }).order?.skill, 'withdraw_pick', 'it may hold some now')
+})
+
+await t('ROUND 9: the INGREDIENT pass records its own evidence -- the chest was a known pickaxe miss, opened only for ingredients, and held none', async () => {
+  const w = withServer(town([stack('crafting_table', 1)], [stack('dirt', 5)]))
+  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 60_000 } })
+  assert.equal(townIngredientMiss(w.bot), false, 'positive control: not yet known')
+  const r = await pick(w.bot)
+  assert.equal(r.failClass, 'container_short', r.detail)
+  assert.equal(w.spy.opened.length, 1, 'opened once, by the ingredient pass (the pickaxe pass skipped the known miss)')
+  assert.equal(townIngredientMiss(w.bot), true, 'that visit is remembered')
 })
 
 await t('R1.7 MISSES PER CONTAINER: a container shown empty of pickaxes is skipped; the town-wide miss needs every container', async () => {

@@ -552,7 +552,8 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  */
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
                              composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {},
-                             room = false, composterRipe = false, pickNeeded = false, pickMiss = false, pickRoom = false } = {}) {
+                             room = false, composterRipe = false, pickNeeded = false, pickMiss = false, pickRoom = false,
+                             ingredientMiss = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -577,9 +578,16 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
       return { order: { skill: 'compost', args: {}, why: 'at town with room, and the town composter is ripe: take the bone meal out' }, state: s }
     }
   }
-  if (withdrawReady && !lazy(pickMiss) && lazy(pickRoom)) {
-    s.lastWithdrawAt = now
-    return { order: { skill: 'withdraw_pick', args: {}, why: 'at town with no usable pickaxe; the town chests may hold one' }, state: s }
+  // A PICKAXE-ONLY MISS BLOCKS ONLY THE PICKAXE BRANCH (withdraw-habit review): with no pickaxe in town the order still
+  // runs for the ingredients, unless they too are ruled out everywhere (ingredientMiss: their own evidence).
+  if (withdrawReady && lazy(pickRoom)) {
+    const pickRuledOut = !!lazy(pickMiss)
+    if (!pickRuledOut || !lazy(ingredientMiss)) {
+      s.lastWithdrawAt = now
+      return { order: { skill: 'withdraw_pick', args: {}, why: pickRuledOut
+        ? 'at town with no usable pickaxe; the town chests showed none recently, but may hold what one stone pickaxe is made from'
+        : 'at town with no usable pickaxe; the town chests may hold one' }, state: s }
+    }
   }
   if (composterHere || !buildReady) return none()
   const plan = lazy(buildPlan)

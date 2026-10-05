@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -802,6 +802,8 @@ export class CognitiveLoop {
           // THE PICKAXE (withdrawpick.mjs): none usable in the bag; the town's memory of a recent miss; room for one.
           pickNeeded: !hasUsablePick(items),
           pickMiss: () => townPickMiss(bot),
+          // ...and the ingredients' own: nothing needed, or every container recently held none of every need.
+          ingredientMiss: () => townIngredientMiss(bot),
           // The SAME keep as at the chest (withdrawPick): the goal's wants and the stone-pickaxe ingredients.
           pickRoom: () => roomPlan(items, pickTakes(), { keep: roomKeep(bot.currentWants ?? []) }).ok,
           state: this.townState ?? {},

@@ -44,7 +44,8 @@ import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, wr
          chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES } from './chestfull.mjs'
 import { STORAGE_NEAR, townDistance } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
-import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS } from './withdrawpick.mjs'
+import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
+  ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete } from './withdrawpick.mjs'
 import { setWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
@@ -6541,6 +6542,19 @@ export function townPickMiss (bot) {
   } catch { return false }
 }
 
+/** Is the ingredient branch futile here (withdrawpick.mjs townIngredientMissComplete)? Nothing this bag needs for one
+ *  stone pickaxe, or every town container recently held none of every need it has. For townOrder. */
+export function townIngredientMiss (bot) {
+  try {
+    const home = homeVec()
+    const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
+    const keys = (bot.findBlocks?.({ point: home, matching: isContainer, maxDistance: STORAGE_NEAR, count: 64 }) ?? []).map(posKey)
+    const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
+    const needs = stonePickDeficits(bot.inventory.items(), { tableNear }).map(d => d.need)
+    return townIngredientMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), keys, needs)
+  } catch { return false }
+}
+
 /**
  * withdraw_pick -- the town order (composter.mjs townOrder; chatOnly, housekeeping). The bag holds no usable pickaxe:
  *   1. containers in sight that have not shown "no usable pickaxe" in the last 15 min are looked in, up to three, for
@@ -6595,9 +6609,10 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
       if (v.result.status === 'success') return finish(v.result, 'took_pick')
       if (['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered'].includes(v.result.failClass)) return finish(v.result, v.result.failClass)
     } else if (!v.skip) {
-      // NO USABLE PICKAXE HERE: remembered for this container (both halves of a double chest), not for the town.
+      // NO USABLE PICKAXE HERE: remembered for this container (both halves of a double chest), not for the town -- and
+      // so is every ingredient it held none of (the ingredient branch's own evidence).
       const keys = sweep.halves(chestBlock.position, v.double)
-      updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => notePickMisses(e, keys))
+      updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { notePickMisses(e, keys); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
       seen.push({ block: chestBlock, saw: v.saw })
     }
     chestBlock = sweep.next(STORAGE_NEAR)
@@ -6635,6 +6650,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     record(v, cb)
     if (v.result) return finish(v.result, v.result.status === 'success' ? 'took_ingredients' : v.result.failClass ?? v.result.status)
     if (v.skip) fullChests++
+    else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, ingSweep.halves(cb.position, v.double), ingredientNeedsAbsent(v.saw)))
   }
   if (fullChests) return finish({ status: 'failed', failClass: 'chest_no_room', detail: `no usable pickaxe in town, and the chest(s) holding ${st.need} are full while the bag needs room made first` }, 'chest_no_room')
   return finish({ status: 'failed', failClass: 'container_short', detail: `no usable pickaxe and none of ${st.need} in the ${tried.length} container(s) tried here` }, 'short')

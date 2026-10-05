@@ -66,6 +66,41 @@ export function stonePickDeficits (items = [], { tableNear = false } = {}) {
   return out
 }
 
+/**
+ * THE INGREDIENT BRANCH'S OWN NEGATIVE EVIDENCE (withdraw-habit review: a town with no pickaxe is exactly when the
+ * ingredients matter, and the whole order used to be blocked by the pickaxe misses). Per container and per NEED
+ * (cobblestone / stick / planks): "held none of it", seen at `at`, valid INGREDIENT_MISS_TTL_MS -- unless the container
+ * has TAKEN items since (a deposit may have brought some), the same rule as a pickaxe miss. Kept in the town's memory
+ * under a key no container can have: { 'x,y,z': { need: at } }.
+ */
+export const INGREDIENT_MISS_KEY = '_ingredient_miss'
+export const INGREDIENT_MISS_TTL_MS = 15 * 60 * 1000
+/** The needs a container's contents (`saw`, [{ name, count }]) held NONE of. */
+export const ingredientNeedsAbsent = (saw = []) => Object.keys(NEEDS).filter(n => held(saw, NEEDS[n].match) === 0)
+export function containerIngredientMiss (entries = {}, k, need, now = Date.now()) {
+  const at = entries?.[INGREDIENT_MISS_KEY]?.[k]?.[need]
+  if (!Number.isFinite(at) || now - at >= INGREDIENT_MISS_TTL_MS) return false
+  const e = entries?.[k]
+  return !(e?.o === 'took' && e.at > at)
+}
+/** Record what these containers (both halves of a double chest) were seen to hold none of; expired entries pruned. */
+export function noteIngredientMisses (entries, keys = [], needs = [], now = Date.now()) {
+  const m = {}
+  for (const [k, v] of Object.entries(entries[INGREDIENT_MISS_KEY] ?? {})) m[k] = { ...v }
+  for (const k of keys) { m[k] ??= {}; for (const n of needs) m[k][n] = now }
+  for (const [k, v] of Object.entries(m)) {
+    for (const [n, at] of Object.entries(v)) if (!(now - at < INGREDIENT_MISS_TTL_MS)) delete v[n]
+    if (!Object.keys(v).length) delete m[k]
+  }
+  entries[INGREDIENT_MISS_KEY] = m
+}
+/**
+ * IS THE INGREDIENT BRANCH FUTILE HERE? -> true when nothing is needed (`needs` empty), or when EVERY container listed
+ * (complete coverage) recently held none of EVERY need -- one container with one need not ruled out is worth the trip.
+ */
+export const townIngredientMissComplete = (entries = {}, keys = [], needs = [], now = Date.now()) =>
+  needs.length === 0 || (keys.length > 0 && keys.every(k => needs.every(n => containerIngredientMiss(entries, k, n, now))))
+
 /** Everything one stone pickaxe is made from -- kept by every room-making deposit on both paths (both reviews). */
 export const INGREDIENT_KEEP = Object.freeze([NEEDS.cobblestone.match, NEEDS.stick.match, NEEDS.planks.match,
                                               n => /_(log|stem)$/.test(n), n => n === 'crafting_table'])
