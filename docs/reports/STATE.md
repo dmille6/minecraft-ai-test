@@ -125,6 +125,16 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 ~13:00Z — OWNER DIRECTION: 4-8 really smart bots are fine (80 not needed); a larger model as OVERSEER and for STUCK
+escalation; find the best model(s) with both engines, an "extensive and exhaustive" test, all public sources. The M4 Studio
+(ai.ticrcorp.com) is DEDICATED to this; model downloads there are authorized; never 10.0.0.72. Running: Codex research
+(docs/reports/model-research-codex-2026-10-05.md: worker qwen3.6:35b-a3b / Nemotron-3.5-Lightning-30B-A3B / qwen3.8:27b /
+Gemma 4 26B-A4B; overseer qwen3.5:122b-a10b / gpt-oss:120b / Nemotron-3-Super-120B-A12B; control Hermes-4.3-36B);
+Codex test-plan design; Claude research + staged benchmark (A replay of real decisions, B ground-truth scenario suites,
+C closed-loop sandbox bots driven by finalists, D blind two-vendor judging) -> docs/reports/model-selection-2026-10-05.md.
+Also delivered: trapped-bots-analysis (11-15% real stranding; 4 bots stuck all day; 74% of bot-time outside any skill)
+and withdraw-habit-design (bots never learn chest contents; withdraw proposed 10 of 158,821 decisions/24 h).
+
 ## 10-05 ~10:30Z — CHESTFULL-01 REVERT INVESTIGATED: no mechanism found. 0 of 7 canary deposits had a watchDigging stop
 (fleet nav profile canDig=false); the y=15 chest was targeted 14x in the 3 h BEFORE the deploy on the fleet base (so not
 this diff); bank closure never triggered (0 _deposit_new_chest, 0 bank_closed of 201 rejections). The mining rise is
