@@ -47,12 +47,13 @@ export function climbOutcomeRoute (outcome) {
  * `refusals` is the lifetime count of flood refusals that gained nothing, INCLUDING this one when the ramp gained
  * nothing; it drives the same escalating back-off curve the material refusals use (`refusalEscalation`'s
  * `backoffMs`: refusals/4 minutes, capped at 10), so a bot pinned under a wet ceiling is retried less and less
- * often and never spins. A ramp that cut a step is progress: no row, no back-off, the counters reset.
+ * often and never spins. A ramp that cut a step, or a sidestep taken, is progress: no back-off, counters reset.
  *
  * `prereq` is ALWAYS null. That is the point of the branch, and a test holds it there.
  */
 export function floodChainStep ({ refusals = 1, stair = null, every = 4, capMs = 10 * 60_000 } = {}) {
-  const progressed = !!stair && stair.steps > 0
+  // A sidestep into a dry column is progress too: the bot has left the refused cell (scaffold.mjs floodSidestep).
+  const progressed = !!stair && ((stair.steps ?? 0) > 0 || (stair.sidestepped ?? 0) > 0)
   if (progressed) return { progressed: true, refused: false, backoffMs: 0, prereq: null, remedy: null }
   const n = Math.max(1, refusals)
   return {
@@ -93,20 +94,24 @@ export function logFloodGuard (bot, { caller, reason, cell = null, submerged = f
  *
  * The correctness line of the read is "0 upward digs into water or lava by the canary". A guard cannot report
  * the digs it failed to refuse, so this OBSERVES the outcome of every dig it allowed: water reaches an opened
- * cell in 5 ticks, lava in 30 (1.5 s), so 1.6 s sees either. A water breach by a submerged bot is the exemption
- * working as designed and is labelled, not counted.
+ * cell in 5 ticks, lava in 30 (1.5 s), so 1.6 s sees either. Scheduled by callers ONLY after a dig that completed
+ * (the server confirmed the break), and it records nothing if the bot is no longer the same live body -- a death,
+ * respawn or reconnect in between replaces `bot.entity` and the cell is no longer this dig's evidence (Codex r1).
+ * A water breach by a submerged bot is the exemption working as designed: labelled `exempt=1`, never counted.
  */
-export function watchClimbDig (bot, { caller, cell, submerged = false, delayMs = 1600 }) {
+export function watchClimbDig (bot, { caller, cell, submerged = false, before = '?', delayMs = 1600 }) {
   if (!cell) return
   const at = { x: cell.x, y: cell.y, z: cell.z }
+  const body = bot.entity
   const t = setTimeout(() => {
     try {
+      if (bot.entity !== body || !(bot.health > 0)) return
       const b = bot.blockAt(cell)
       const lava = isLavaCell(b)
       const water = isWaterCell(b)
       if (!lava && !water) return
       logEvent({ kind: 'climb_flood_breach', status: 'failed',
-                 detail: `caller=${caller} cell=${cellText(at)} liquid=${b.name} submerged=${submerged ? 1 : 0} ` +
+                 detail: `caller=${caller} cell=${cellText(at)} before=${before} liquid=${b.name} submerged=${submerged ? 1 : 0} ` +
                          `exempt=${water && !lava && submerged ? 1 : 0}`,
                  snapshot: snapshot(bot) })
     } catch { /* a disconnected bot has nothing to report */ }

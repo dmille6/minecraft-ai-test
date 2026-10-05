@@ -280,7 +280,10 @@ export function overheadBreakRisk ({ at = () => null, submerged = false } = {}) 
   // LAVA STILL REFUSES, ALWAYS. Breaking into lava from water is a NEW harm --
   // the two meet, and the bot is standing where they meet.
   if (isLavaCell(target) || wet(target)) return `liquid overhead (${target.name})`
-  const solid = target.name !== 'air' && target.boundingBox !== 'empty' && !isWaterCell(target)
+  // A WATERLOGGED BLOCK IS STILL A BLOCK (Codex r1): it is broken, so its
+  // neighbours are read like any other -- a submerged bot breaking waterlogged
+  // stairs beside lava must be refused for the lava.
+  const solid = target.name !== 'air' && target.boundingBox !== 'empty'
   if (!solid) return null                 // nothing will be broken; nothing can flood
   const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]]
   const faces = [[0, 1, 0, 'above'], ...SIDES.map(([x, z]) => [x, 0, z, 'beside'])]
@@ -549,7 +552,7 @@ export function stairUpStep ({
     // that a 20 s breach window cannot see. Only a cell this step BREAKS is
     // asked: water IN a step is passable and swum through, never a refusal.
     const risk = overheadBreakRisk({ at: (x, y, z) => at(bx + x, dy + y, bz + z), submerged })
-    if (risk) return { ok: false, reason: `flood risk in the ${what}: ${risk}`, flood: true }
+    if (risk) return { ok: false, reason: `flood risk in the ${what}: ${risk}`, flood: true, cell: [bx, dy, bz] }
     dig.push([bx, dy, bz])
   }
   return { ok: true, dig }
@@ -766,7 +769,7 @@ export function headroomBreach ({
       return { ok: false, reason: `cannot clear the ${above.name} resting on the ceiling by hand` }
     }
     const risk = floodAt(3)
-    if (risk) return { ok: false, reason: `flood risk: ${risk}`, flood: true }
+    if (risk) return { ok: false, reason: `flood risk: ${risk}`, flood: true, cell: [0, 3, 0] }
     return { ok: true, dig: [[0, 3, 0]], settling: true }
   }
 
@@ -775,6 +778,72 @@ export function headroomBreach ({
   // function, that refuses them inside the ramp.
   if (!canBreak(over)) return { ok: false, reason: `cannot clear ${over.name} overhead by hand` }
   const risk = floodAt(2)
-  if (risk) return { ok: false, reason: `flood risk: ${risk}`, flood: true }
+  if (risk) return { ok: false, reason: `flood risk: ${risk}`, flood: true, cell: [0, 2, 0] }
   return { ok: true, dig: [[0, 2, 0]] }
+}
+
+/**
+ * LEAVE THE CELL SIDEWAYS, SO THE RAMP HAS A DRY CEILING TO START UNDER. (climbflood-01, Codex r1)
+ *
+ * The escape ramp's first move is a jump, and a jump needs the bot's OWN ceiling open: `stairUpStep` refuses without
+ * `at(0,2,0)` and `headroomBreach` exists to take it. When the flood check refuses that ceiling -- a pocket of water
+ * over it, the design's scene A -- every bearing is unreachable from here, so "else ramp" was no move at all and the
+ * bot could only wait. The design's own scene table expects A to exit dry by ramp and reserves "stays dry" for C,
+ * where every bearing is wet; this is the one cell of control flow between the two.
+ *
+ * ONE STEP SIDEWAYS, ONLY TO A COLUMN THE SAME CHECK ALREADY ALLOWS. The step is taken only when:
+ *   - the tread under the new cell is a solid, dry block (no fall, never a liquid floor);
+ *   - the two cells the bot walks into are loaded, dry, and have no lava on any face;
+ *   - each of them that must be dug passes `canBreak` and the shared flood check, read for THAT cell;
+ *   - the new column's own ceiling is open and dry, or would itself pass the flood check -- otherwise the step only
+ *     moves the refusal one cell over (scene C: the whole column above is wet, so no bearing qualifies and the bot
+ *     stays where it is, dry).
+ * Water is never walked into here: this exists to keep a dry bot dry, not to swim.
+ *
+ * @param at   (dx,dy,dz) -> block, relative to the bot's FEET
+ * @param bear {x,z} unit cardinal
+ * @returns {{ok: true, dig: number[][]}} (cells to break, top first) | {{ok: false, reason, flood?}}
+ */
+export function floodSidestep ({ at = () => null, bear = { x: 0, z: 0 }, canBreak = () => true, submerged = false } = {}) {
+  const bx = bear?.x ?? 0, bz = bear?.z ?? 0
+  if (!bx && !bz) return { ok: false, reason: 'no bearing' }
+  const tread = at(bx, -1, bz), feet = at(bx, 0, bz), head = at(bx, 1, bz), ceil = at(bx, 2, bz)
+  if (!tread || !feet || !head || !ceil) return { ok: false, reason: 'terrain not loaded' }
+  if (tread.boundingBox !== 'block' || isWaterCell(tread) || isLavaCell(tread)) {
+    return { ok: false, reason: `no dry floor to step onto (${tread.name})` }
+  }
+  const FACES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
+  const dig = []
+  for (const [cell, dy, what] of [[head, 1, 'head'], [feet, 0, 'feet']]) {
+    if (isWaterCell(cell) && cell.boundingBox === 'empty') return { ok: false, reason: `water in the ${what} cell (${cell.name})` }
+    if (isLavaCell(cell)) return { ok: false, reason: `lava in the ${what} cell` }
+    for (const [nx, ny, nz] of FACES) {
+      const n = at(bx + nx, dy + ny, bz + nz)
+      if (isLavaCell(n)) return { ok: false, reason: `lava against the ${what} cell (${n.name})` }
+    }
+    if (bodyPassable(cell)) continue
+    if (!canBreak(cell)) return { ok: false, reason: `cannot clear ${cell.name} in the ${what} cell by hand` }
+    const risk = overheadBreakRisk({ at: (x, y, z) => at(bx + x, dy + y, bz + z), submerged })
+    if (risk) return { ok: false, reason: `flood risk in the ${what} cell: ${risk}`, flood: true }
+    dig.push([bx, dy, bz])
+  }
+  // THE NEW COLUMN MUST BE ONE THE RAMP CAN START UNDER.
+  if (isWaterCell(ceil) || isLavaCell(ceil)) return { ok: false, reason: `liquid over the side cell (${ceil.name})`, flood: true }
+  if (!bodyPassable(ceil)) {
+    if (!canBreak(ceil)) return { ok: false, reason: `cannot clear ${ceil.name} over the side cell by hand` }
+    const risk = overheadBreakRisk({ at: (x, y, z) => at(bx + x, 2 + y, bz + z), submerged })
+    if (risk) return { ok: false, reason: `the side column floods too: ${risk}`, flood: true }
+  }
+  return { ok: true, dig }
+}
+
+/** The first bearing (in the caller's preference order) `floodSidestep` allows, or why none did. */
+export function chooseFloodSidestep ({ at = () => null, bearings = [], ...opts } = {}) {
+  const why = []
+  for (const bear of bearings) {
+    const r = floodSidestep({ at, bear, ...opts })
+    if (r.ok) return { ok: true, bear, dig: r.dig }
+    why.push(r)
+  }
+  return { ok: false, reason: why.map(r => r.reason).join('; ') || 'no bearing', flood: why.some(r => r.flood) }
 }
