@@ -10,7 +10,9 @@
 #   LIVENESS     canary success rows with crafts > 0 and freed >= 1 (>= 1); control rows 0.
 #   CORRECTNESS  (checks no pickup can fake; any breach REVERTS) G1 p1 >= p0; G2 s1 - s0 >= crafts; G3 b0 - b1 <= 2*crafts;
 #                G4 crafts <= planned; G5 s0 + planned <= 64 or o1 <= o0; G6 no unconfirmed stick _craft_sync inside a
-#                bamboo run; G7 no SUCCESS row with o1 > o0.
+#                bamboo run whose resyncs the server did not answer; G7 no SUCCESS row with o1 > o0. G1-G3 and G7 are
+#                EXCUSED (reported by cause, not counted) when the bot died inside the run, G7 also on a pickup inside it.
+#                Emitted per gate (g1_planks .. g7_success_grew) for the registration's own_lines.
 #   INSTRUMENT   control bots at >= 34 est. slots holding >= 2 bamboo (>= 1) -- the population exists.
 #   REPORTED     exact-identity share, o1 > o0 rows by stop, skips per bot-hour, duration p95, freed per canary bot-hour,
 #                estimated occupancy DiD on a cohort fixed in the pre-window.
@@ -92,10 +94,37 @@ def breaches(a, st):
     return g
 
 
+# A DEATH OR A PICKUP IS NOT A DEFECT OF THE FOLD (registration review 10-05). A bot that dies inside a run respawns
+# with an empty bag, so the row's after-reading fakes G1/G2/G3 (planks, sticks and bamboo all "gone") and G7 cannot
+# grow; an item the server auto-picks up while the fold stands still (leaf decay, another bot's drop) can add a slot
+# and fake G7. Those breaches are EXCUSED and reported by cause, never counted. G4 (overcraft) and G5 (cap) do not
+# depend on the after-bag and are always counted.
+DEATH_EXCUSES = {'G1_planks', 'G2_sticks', 'G3_bamboo', 'G7_success_grew'}
+
+
+def gate_row(a, st, died=False, picked=False):
+    """-> (counted gate names, excused [(gate, cause)]). Pure."""
+    counted, excused = [], []
+    for g in breaches(a, st):
+        if died and g in DEATH_EXCUSES:
+            excused.append((g, 'died_in_run'))
+        elif picked and g == 'G7_success_grew':
+            excused.append((g, 'pickup_in_run'))
+        else:
+            counted.append(g)
+    return counted, excused
+
+
 # POSITIVE CONTROL for the gate function.
 assert breaches({'p0': 10, 'p1': 10, 's0': 32, 's1': 64, 'b0': 64, 'b1': 0, 'o0': 36, 'o1': 35, 'crafts': 32, 'planned': 32}, 'success') == []
 assert breaches({'p0': 10, 'p1': 6, 's0': 32, 's1': 64, 'b0': 64, 'b1': 0, 'o0': 36, 'o1': 35, 'crafts': 32, 'planned': 32}, 'success') == ['G1_planks']
 assert breaches({'p0': 0, 'p1': 0, 's0': 0, 's1': 1, 'b0': 4, 'b1': 2, 'o0': 35, 'o1': 36, 'crafts': 1, 'planned': 2}, 'success') == ['G7_success_grew']
+_dead = {'p0': 10, 'p1': 0, 's0': 32, 's1': 0, 'b0': 64, 'b1': 0, 'o0': 36, 'o1': 0, 'crafts': 15, 'planned': 32}
+assert gate_row(_dead, 'aborted') == (['G1_planks', 'G2_sticks', 'G3_bamboo'], [])
+assert gate_row(_dead, 'aborted', died=True) == ([], [('G1_planks', 'died_in_run'), ('G2_sticks', 'died_in_run'), ('G3_bamboo', 'died_in_run')])
+_grew = {'p0': 0, 'p1': 0, 's0': 0, 's1': 1, 'b0': 4, 'b1': 2, 'o0': 35, 'o1': 36, 'crafts': 1, 'planned': 2}
+assert gate_row(_grew, 'success', picked=True) == ([], [('G7_success_grew', 'pickup_in_run')])
+assert gate_row({**_grew, 'crafts': 3}, 'success', picked=True, died=True)[0] == ['G4_overcraft']
 
 rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
@@ -103,6 +132,7 @@ live = 0; ctrl = 0; offbuild = 0; br = Counter(); ex = []; exact = Counter(); gr
 runs = defaultdict(list); freed_sum = 0; durs = []; skips = 0
 cohort = set(); last = defaultdict(dict); sync_bad = []
 botsets = defaultdict(set)
+deaths = defaultdict(list); junkp = defaultdict(list); sump = defaultdict(list); brows = []; excused = Counter()
 for r in rows:
     t = r['t']; b = (r.get('bot') or {}).get('name')
     if not b:
@@ -121,8 +151,18 @@ for r in rows:
         botsets[arm].add(b)
     if k == '_craft_sync' and period == 'post' and arm == 'canary' and not other:
         a = sk.get('args') or {}
-        if a.get('item') == 'stick' and str(a.get('confirmed')) == 'no' and a.get('outcome') == 'unconfirmed':
+        # UNKNOWN, not denied (Codex 10-05): a craft the server answered both resyncs for (verify_source 'resync') is a
+        # KNOWN outcome -- a denial craftExecutions retries -- not an unconfirmed craft. Only an unanswered one counts.
+        if (a.get('item') == 'stick' and str(a.get('confirmed')) == 'no' and a.get('outcome') == 'unconfirmed'
+                and str(a.get('verify_source')) != 'resync'):
             sync_bad.append((b, t))
+    if arm == 'canary' and period == 'post':
+        if k == '_death':
+            deaths[b].append(t)
+        elif k == '_junk_pickup':
+            junkp[b].append(t)
+        elif k == '_pickups':
+            sump[b].append(t)
     if k != '_bamboo_sticks' or period != 'post':
         continue
     if other:
@@ -139,15 +179,25 @@ for r in rows:
         skips += 1
     if st == 'success' and c > 0 and fr >= 1:
         live += 1; freed_sum += fr
-    for g in breaches(a, st):
-        br[g] += 1
-        if len(ex) < 5: ex.append((b, g, a))
+    brows.append((b, t, a, st, dm if isinstance(dm, (int, float)) else 0))
     if st == 'success' and c > 0:
         s0, s1, b0, b1 = (num(a, x) for x in ('s0', 's1', 'b0', 'b1'))
         exact['exact' if (s1 - s0 == c and b0 - b1 == 2 * c) else 'off'] += 1
     o0, o1 = num(a, 'o0'), num(a, 'o1')
     if None not in (o0, o1) and o1 > o0:
         grew[stop] += 1
+# THE GATES, once every death and pickup in the window is known (rows stamp the END of a run; start = end - duration).
+S1, S2, S10, S65 = (dt.timedelta(seconds=x) for x in (1, 2, 10, 65))
+for b, t, a, st, dm in brows:
+    t0 = t - dt.timedelta(milliseconds=dm)
+    died = any(t0 - S1 <= d <= t + S10 for d in deaths[b])
+    picked = any(t0 <= p <= t + S2 for p in junkp[b]) or any(t0 <= p <= t + S65 for p in sump[b])
+    counted, exc = gate_row(a, st, died=died, picked=picked)
+    for g in counted:
+        br[g] += 1
+        if len(ex) < 5: ex.append((b, g, a))
+    for g, why in exc:
+        excused['%s:%s' % (g, why)] += 1
 g6 = sum(1 for (b, t) in sync_bad if any(s <= t <= e for (s, e) in runs[b]))
 if g6:
     br['G6_unconfirmed_stick_in_run'] = g6
@@ -164,7 +214,7 @@ bh = len(botsets['canary']) * W / 60 if botsets['canary'] else float('nan')
 p95 = (sorted(durs)[int(.95 * (len(durs) - 1))] / 1000) if durs else float('nan')
 print('-' * 78)
 print('LIVENESS     canary folds that freed a slot %d (>= 1) | control rows %d (must be 0) | other build %d' % (live, ctrl, offbuild))
-print('CORRECTNESS  breaches %s (all must be 0)' % (dict(br) or 0))
+print('CORRECTNESS  breaches %s (all must be 0) | excused (death/pickup inside a run, reported) %s' % (dict(br) or 0, dict(excused) or 0))
 print('INSTRUMENT   control bots at >= 34 slots holding >= 2 bamboo: %d (>= 1)' % inst)
 print('REPORTED     exact identity %s | rows that grew o1 > o0 by stop %s | stops %s' % (dict(exact), dict(grew), dict(stops)))
 print('             skips/bot-h %.2f | duration p95 %.1f s | slots freed/canary bot-h %.2f | cohort occupancy DiD %+.2f (cohort %d)'
@@ -179,6 +229,10 @@ try:
     emit('bambooread', W, {
         'folds_freed_canary': live, 'rows_control': ctrl, 'offbuild_canary': offbuild,
         'breaches': sum(br.values()), 'instrument_control': inst,
+        # ONE FIELD PER GATE, so the registration's own_lines name each defect (bamboo-01 registration, 10-05)
+        'g1_planks': br['G1_planks'], 'g2_sticks': br['G2_sticks'], 'g3_bamboo': br['G3_bamboo'],
+        'g4_overcraft': br['G4_overcraft'], 'g5_cap': br['G5_cap'], 'g6_unconfirmed': br['G6_unconfirmed_stick_in_run'],
+        'g7_success_grew': br['G7_success_grew'], 'excused': sum(excused.values()),
         'freed_per_bh': None if not (bh == bh and bh) else round(freed_sum / bh, 3),
         'cohort_occupancy_did': None if did != did else round(did, 3),
         'exposure_ready': int(live >= 3 and inst >= 1),

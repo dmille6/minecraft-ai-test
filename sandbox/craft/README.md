@@ -167,6 +167,9 @@ are in neither the bag slots nor on the ground while the bot is online).
 | `F` | scene A, and a feather (PickupDelay 600 ticks) summoned beside the bot as the order starts |
 | `G` | scene A's contents at 33/36 (below the 34-slot trigger) |
 | `A20` | scene A with the fleet's STUCK_SECONDS=20 |
+| `B20`..`G20` | scenes B..G with the fleet's STUCK_SECONDS=20 (round 2, 10-05: the declared stationary window) |
+| `D20` | the 64-craft fold (128 bamboo -> 64 sticks frees 1 slot; window 88.2 s, inside the 90 s cap) |
+| `K20` | scene A20 ABORTED mid-fold: `damage` 14 (health 20 -> 6, FLEE_BELOW_HEALTH 8) 10 s after the order starts, so the low_health reflex interrupts the skill; the ground after logout shows what the 2x2 grid/cursor held |
 
 ```bash
 sandbox/craft/bbab.sh ../bb-cand ../bb-ctrl 3          # ~100 min: the control waits the full window in every scene

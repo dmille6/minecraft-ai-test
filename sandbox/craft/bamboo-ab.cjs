@@ -53,6 +53,18 @@ const SPEC = {
   G: bag(33, [['bamboo', 64], ['stick', 32], PL]),
   // A20: scene A under the FLEET's stuck limit (STUCK_SECONDS=20; the sandbox env file says 35)
   A20: { ...bag(36, [['bamboo', 64], ['stick', 32], PL]), env: { STUCK_SECONDS: 20 } },
+  // ---- sandbox round 2 (10-04, the declared stationary window): every scene under the FLEET's stuck limit
+  B20: { ...bag(36, [['bamboo', 64], ['bamboo', 10], ['stick', 32], PL]), env: { STUCK_SECONDS: 20 } },
+  C20: { ...bag(36, [['bamboo', 64], PL]), env: { STUCK_SECONDS: 20 } },
+  // D20: the 64-craft fold (128 bamboo -> 64 sticks frees 1 slot; window 64 x 1.3 s + 5 s = 88.2 s, inside the 90 s cap)
+  D20: { ...bag(35, [['bamboo', 64], ['bamboo', 64], PL]), env: { STUCK_SECONDS: 20 } },
+  E20: { ...bag(36, [['bamboo', 2], ['stick', 63], PL]), env: { STUCK_SECONDS: 20 } },
+  F20: { ...bag(36, [['bamboo', 64], ['stick', 32], PL]), dropOnStart: '701.0 120.1 700.5', env: { STUCK_SECONDS: 20 } },
+  G20: { ...bag(33, [['bamboo', 64], ['stick', 32], PL]), env: { STUCK_SECONDS: 20 } },
+  // K20: scene A20 ABORTED mid-fold -- `damage` takes health 20 -> 6 (FLEE_BELOW_HEALTH 8) 10 s after the order starts,
+  // so the low_health reflex interrupts the skill (runner.interrupt('low_health')). The bag, the ground and the
+  // ground AFTER LOGOUT (what the server returns/drops from the 2x2 grid and cursor) are the oracle.
+  K20: { ...bag(36, [['bamboo', 64], ['stick', 32], PL]), damageAfterMs: 10000, env: { STUCK_SECONDS: 20 } },
 }
 function arenaCmds (spec) {
   const c = ['kill @e[type=!player,x=700,y=120,z=700,distance=..30]',
@@ -165,6 +177,12 @@ async function runTrial (scene, k) {
   const startPat = /LLM -> bamboo_sticks|bamboo_sticks/
   const started = await waitFor(() => lines(botOut).some(l => startPat.test(l)) ? Date.now() : null, WINDOW_MS)
   let drop = null
+  let hurt = null
+  if (started && spec.damageAfterMs) {
+    await sleep(spec.damageAfterMs)
+    const t = Date.now(); const g = rcon(`damage ${NAME} 14 minecraft:generic`, `data get entity ${NAME} Health`)
+    hurt = { atMs: t - t0, reply: g.map(x => (x.reply || '').trim()).join(' | ') }
+  }
   if (started && spec.dropOnStart) { const t = Date.now(); const g = rcon(`summon minecraft:item ${spec.dropOnStart} {Item:{id:"minecraft:feather",count:1},PickupDelay:600s}`); drop = { atMs: t - t0, reply: (g[0]?.reply || '').trim() } }
   const endPat = /skill bamboo_sticks ->/
   const ended = started ? await waitFor(() => lines(botOut).some(l => endPat.test(l)), 120000) : null
@@ -183,7 +201,7 @@ async function runTrial (scene, k) {
   const watched = rows.filter(r => r.name === 'bamboo_sticks').pop() || null
   const fold = rows.filter(r => r.name === '_bamboo_sticks')
   const r = { id: `${ARM}:${scene}:${k}`, arm: ARM, scene, k, tag, sha: execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(),
-    started: started ? started - t0 : null, ended: !!ended, watched, fold, drop,
+    started: started ? started - t0 : null, ended: !!ended, watched, fold, drop, hurt,
     decisions: lines(botOut).filter(l => /LLM -> /.test(l)).map(l => l.replace(/^\S+\s+/, '').slice(0, 140)).slice(0, 12),
     before: { used: before.used, totals: totals(before), slots: before.slots, tools: toolsOf(before), ground: before.ground, pos: before.pos },
     after: { used: after.used, totals: totals(after), slots: after.slots, tools: toolsOf(after), ground: after.ground, pos: after.pos },
