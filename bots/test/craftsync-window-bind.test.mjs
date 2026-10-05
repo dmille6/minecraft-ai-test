@@ -18,6 +18,8 @@ import { FakePaper, craftBot, registry, id } from './helpers/fake-paper-craft.mj
 const injectSimpleInventory = createRequire(import.meta.url)('mineflayer/lib/plugins/simple_inventory.js')
 
 process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-test-winbind-'))
+process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'   // logger.mjs -> config.mjs (the ROWS test runs a row through the real logger)
+process.env.BOT_NAME ??= 'WinBindBot'
 let pass = 0, fail = 0
 const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 3).join('\n        ')}`) }
@@ -46,8 +48,8 @@ const lateClick = bot => {
   p.catch(() => {})
   return p
 }
-const refusedBeforeMineflayer = events => events.some(e => e.event === 'click_refused')
-const noBackgroundRepair = events => !events.some(e => e.event === 'click_drop_repair')
+const refusedBeforeMineflayer = events => events.some(e => e.kind === 'click_refused')
+const noBackgroundRepair = events => !events.some(e => e.kind === 'click_drop_repair')
 const serverCloses = (server, bot, win) => { server.onClose({ windowId: win.id }); bot._client.emit('close_window', { windowId: win.id }) }
 
 await t('P1-a. THE TABLE CLOSES during the cooldown: the click is not sent to window 0, and the local inventory is repaired', async () => {
@@ -108,7 +110,26 @@ await t('P1-a. NO RACE, NO DROP: an ordinary click with no cooldown is sent and 
   const t0 = Date.now()
   await CS.lockstepClicks(bot, click => click(37, 0, 0))
   assert.equal(clicksSent(server, t0).length, 1)
-  assert.equal(events.filter(e => e.event === 'click_dropped').length, 0)
+  assert.equal(events.filter(e => e.kind === 'click_dropped').length, 0)
+  await server.settle(); server.stop()
+})
+
+await t('ROWS (round 7): a refusal reaches the fleet logger as _click_refused with its fields in detail -- not _undefined', async () => {
+  const { tapRecords, logEvent } = await import('../src/logger.mjs')
+  const recs = []
+  tapRecords(r => recs.push(r))
+  const { server, bot, events, table } = await setup()
+  const p = lateClick(bot)
+  await wait(100)
+  serverCloses(server, bot, table)
+  await p.catch(() => {})
+  const row = events.find(e => e.kind === 'click_refused')
+  assert.ok(row, 'positive control: the refusal was logged')
+  logEvent(row)                                   // what index.mjs does with every craftsync row
+  const r = recs.find(x => x.skill?.name === '_click_refused')
+  assert.ok(r, `landed as ${recs.map(x => x.skill?.name).join(',')}`)
+  assert.match(r.skill.detail, /^slot=37 window=1 why=bound_to_window_1,_written_to_window_0$/)
+  assert.equal(recs.filter(x => x.skill?.name === '_undefined').length, 0)
   await server.settle(); server.stop()
 })
 
@@ -175,7 +196,7 @@ await t('BACKSTOP, no window: the wire drops it; NOTHING runs in the background;
   assert.equal(r.source, 'server')
   assert.equal(desc(bot.inventory.slots[37]), 'gold_ingot:10'); assert.equal(bot.inventory.selectedItem ?? null, null)
   assert.equal(bot.craftSync.repairPending(), null)
-  assert.ok(events.some(e => e.event === 'click_drop_repair' && e.how === 'recount_server'))
+  assert.ok(events.some(e => e.kind === 'click_drop_repair' && e.how === 'recount_server'))
   await server.settle(); server.stop()
 })
 
@@ -185,7 +206,7 @@ await t('BACKSTOP, window open: the next lockstep repairs the window (clone prob
   let seenInside = null
   await CS.lockstepClicks(bot, async () => { seenInside = desc(bot.currentWindow.slots[37]) + ' ' + desc(bot.currentWindow.selectedItem) })
   assert.equal(seenInside, 'diamond:5 -', 'repaired before fn ran')
-  assert.ok(events.some(e => e.event === 'click_drop_repair' && e.how === 'window_probe'))
+  assert.ok(events.some(e => e.kind === 'click_drop_repair' && e.how === 'window_probe'))
   assert.equal(bot.craftSync.repairPending(), null)
   await server.settle(); server.stop()
 })

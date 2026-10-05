@@ -6086,8 +6086,10 @@ function holdUnsettled (bot, win, u, own) {
   }
   const tick = async () => {
     if (done) return
+    if (clientEnded(bot)) return finish('disconnected', { close: false })
     const s = await settleCursor(bot, win, { cancelled: () => done })   // 'gone' first if the server closed the window
     if (done) return
+    if (clientEnded(bot)) return finish('disconnected', { close: false })
     if (s.state === 'gone') return finish('server_closed', { close: false })
     if (s.state === 'empty' || s.state === 'rescued') return finish('settled')
     u = { ...u, why: s.why }
@@ -6126,7 +6128,13 @@ function holdUnsettled (bot, win, u, own) {
       return Promise.resolve()
     },
   }
+  // ALREADY GONE (round 7, Paper-proven): a hold that begins after the connection ended never hears its 'end' (it fired
+  // before the listener existed) -- it probed a dead client every 2 s and wrote intervention_needed every minute, for
+  // good. Checked here, at the start, and on every tick.
+  if (clientEnded(bot)) finish('disconnected', { close: false })
 }
+/** Has this bot's connection ended? node-minecraft-protocol sets `ended`; a destroyed socket says the same. */
+export const clientEnded = bot => bot?._client?.ended === true || bot?._client?.socket?.destroyed === true
 
 /** A click on a chest slot whose content must still be what the plan saw (name and wear): the source is revalidated
  *  after every earlier click (Codex), and a mismatch stops the transfer. */
@@ -6135,18 +6143,27 @@ const liveSource = (win, src) => {
   return !!it && it.name === src.name && (src.used == null || (it.durabilityUsed ?? 0) === src.used) && (src.count == null || (it.count ?? 0) >= 1)
 }
 const stop = why => Object.assign(new Error(why), { transferStop: true })
+/** The window slot of hotbar index 0 (prismarine-windows sets hotbarStart; a test double may not). */
+const hotbarStartOf = win => win.hotbarStart ?? ((win.inventoryEnd ?? 0) - 9)
+/** The hotbar index a trade goes through: not the one held (that would change what the bot holds mid-visit). */
+const tradeHotbarIndex = bot => { const held = bot.quickBarSlot ?? 0; return held === 8 ? 7 : 8 }
 /** A window slot's item (prismarine-windows keeps them in `slots`; a test double may only offer `get`). */
 const slotAt = (win, s) => (typeof win.get === 'function' ? win.get(s) : win.slots?.[s]) ?? null
 
 /**
  * THE TRANSFER, inside ONE open window, all in craftsync's lockstep -> { took, gave, tool, cursor, err }.
  *   deposit  whole bag stacks shift-clicked into the chest (only when the chest has room for them -- planned)
- *   swap     { name, count }: with the chest FULL and the bag full, the bag stack and the tool trade places in three
- *            clicks: the stack onto the cursor, onto the tool's chest slot (the tool comes up), the tool into the slot
- *            the stack left (Claude: 228 of 375 town chests are full, so this is what makes a full bag work at all)
+ *   swap     { name, count }: with the chest FULL and the bag full, the bag stack and the tool trade places by NUMBER-KEY
+ *            SWAPS (mode 2), never through the cursor (round 7: Paper drops whatever the cursor holds on a disconnect,
+ *            room or not -- a kick after the old 3-click trade's first click dropped 64 stone, 2/2): a stack already on
+ *            the hotbar trades in ONE click (chest slot <-> hotbar slot); otherwise one bag<->hotbar swap brings it there
+ *            first. Every click is a pure exchange of two slots, so the totals are conserved click by click.
+ *            (Claude: 228 of 375 town chests are full, so this is what makes a full bag work at all.)
  *   tool     shift-click of its chest slot (no cursor stack)
- *   takes    [{ name, count }]: per source stack, the stack picked up (verified on the cursor), right-clicked ONE at a
- *            time into the slots allocate() names -- the same rule the plan used -- and the rest put back
+ *   takes    [{ name, count }]: per source stack -- a WHOLE source stack by shift-click (no cursor); a PART by the
+ *            cursor, which is unavoidable: picked up (right-click: only HALF the stack, when that is enough), verified,
+ *            placed into the slots allocate() names (one left-click when the cursor holds exactly what one slot takes,
+ *            else one at a time), and the rest put back. That cursor window is the remaining disconnect exposure.
  * EVERY EXIT settles the cursor first (both reviews): an abort is rescued and rethrown; any other error ends the
  * transfer and is returned with what moved. Sources are captured before their clicks (prismarine-windows rewrites
  * `.slot` on the moved object) and revalidated after the room-making clicks.
@@ -6170,26 +6187,26 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
         const src = { slot: tool.slot, name: tool.name, used: tool.durabilityUsed ?? 0, left: remaining(tool) }
         if (!liveSource(win, src)) throw stop(`the ${tool.name} at chest slot ${src.slot} changed`)
         if (swap) {
-          const it = (win.items?.() ?? []).find(x => x?.name === swap.name && (x.count ?? 0) === swap.count)
-          if (!it) throw stop(`the ${swap.name} stack to trade is gone`)
-          const bagSlot = it.slot
-          await click(bagSlot, 0, 0)
-          if (win.selectedItem?.name !== swap.name) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${swap.name}`)
-          // THE SOURCE AGAIN, IMMEDIATELY AFTER THE PICKUP (Codex round 2): a pickaxe replaced meanwhile would receive the
-          // stack. The stack goes back to its own (still empty) slot, and the transfer stops.
-          if (!liveSource(win, src)) {
-            if (!slotAt(win, bagSlot)) await click(bagSlot, 0, 0)
-            throw stop(`the ${tool.name} at chest slot ${src.slot} changed during the trade`)
+          const hb = hotbarStartOf(win)
+          const onHotbar = x => x.slot >= hb && x.slot < hb + 9
+          const stacks = (win.items?.() ?? []).filter(x => x?.name === swap.name && (x.count ?? 0) === swap.count)
+          if (!stacks.length) throw stop(`the ${swap.name} stack to trade is gone`)
+          const it = stacks.find(onHotbar) ?? stacks[0]
+          let h = it.slot - hb
+          if (!onHotbar(it)) {
+            // ONTO THE HOTBAR FIRST: a bag<->hotbar number-key swap -- two bag stacks change places, nothing is carried.
+            h = tradeHotbarIndex(bot)
+            await click(it.slot, h, 2)
+            const there = slotAt(win, hb + h)
+            if (there?.name !== swap.name || (there.count ?? 0) !== swap.count) throw stop(`the ${swap.name} stack did not reach hotbar ${h}`)
           }
-          await click(src.slot, 0, 0)
-          if (win.selectedItem?.name !== src.name || (win.selectedItem?.durabilityUsed ?? 0) !== src.used) throw stop(`the trade brought up ${win.selectedItem?.name ?? 'nothing'}`)
+          // THE SOURCE AGAIN, RIGHT BEFORE THE TRADE (Codex round 2): a pickaxe replaced meanwhile must not be traded for.
+          // Nothing is carried, so stopping here leaves nothing to put back.
+          if (!liveSource(win, src)) throw stop(`the ${tool.name} at chest slot ${src.slot} changed during the trade`)
+          await click(src.slot, h, 2)   // chest slot <-> hotbar h: the tool comes down, the stack goes up, in one swap
+          const got = slotAt(win, hb + h)
+          if (got?.name !== src.name || (got.durabilityUsed ?? 0) !== src.used) throw stop(`the trade brought down ${got?.name ?? 'nothing'}`)
           gave[swap.name] = (gave[swap.name] ?? 0) + swap.count
-          toolTaken = src
-          // THE DESTINATION AGAIN (Codex round 2): an auto-pickup can fill the emptied bag slot after click 2, and a blind
-          // click 3 would swap the pickaxe onto it. Occupied -> no click here: the settle puts the pickaxe in any empty
-          // slot, or holds the window open (unresolved) -- never a swap, never a loaded close.
-          if (slotAt(win, bagSlot)) throw stop(`bag slot ${bagSlot} was filled before the pickaxe could go in`)
-          await click(bagSlot, 0, 0)
         } else {
           if (win.firstEmptySlotRange?.(win.inventoryStart, win.inventoryEnd) == null) throw stop('no empty bag slot for the tool')
           await click(src.slot, 0, 1)
@@ -6210,11 +6227,36 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           const a = allocate(win.items?.() ?? [], take.name, want, { emptySlots: empties.length })
           const m = want - a.leftover
           if (m <= 0) break
-          await click(src.slot, 0, 0)
+          if (m === src.count) {
+            // A WHOLE SOURCE STACK: shift-click, so the cursor is never loaded. It counts only what actually left the slot.
+            await click(src.slot, 0, 1)
+            const rest = slotAt(win, src.slot)
+            const moved = src.count - (rest?.name === take.name ? (rest.count ?? 0) : 0)
+            took[take.name] = (took[take.name] ?? 0) + moved
+            left -= moved
+            if (moved < m) throw stop(`only ${moved} of the ${m} ${take.name} moved`)
+            continue
+          }
+          // A PART OF A STACK needs the cursor. As little as possible on it, for as few clicks as possible: a right-click
+          // picks up HALF (rounded up) when that covers m; the exact amount goes in with ONE left-click when one slot
+          // takes it all; otherwise one at a time.
+          const half = Math.ceil(src.count / 2)
+          await click(src.slot, m <= half ? 1 : 0, 0)
           if (win.selectedItem?.name !== take.name) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${take.name}`)
           let placed = 0
-          for (const p of a.partial) for (let i = 0; i < p.n; i++) { await click(p.slot, 1, 0); placed++ }
-          for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) { await click(empties[f], 1, 0); placed++ }
+          const one = (win.selectedItem.count ?? 0) === m
+            ? (a.fresh === 0 && a.partial.length === 1 && a.partial[0].n === m ? a.partial[0].slot : (a.partial.length === 0 && a.fresh >= 1 ? empties[0] : null))
+            : null
+          // EVERY DESTINATION AGAIN, before its click (round 7): an auto-pickup can fill a planned slot after the pickup, and
+          // a blind click there would swap stacks. Taken -> stop; the settle puts the cursor back or holds it.
+          const into = async (slot, button) => {
+            const x = slotAt(win, slot)
+            if (x && (x.name !== take.name || (x.count ?? 0) >= 64)) throw stop(`bag slot ${slot} was filled before the ${take.name} could go in`)
+            await click(slot, button, 0)
+          }
+          if (one != null) { await into(one, 0); placed = m }
+          for (const p of a.partial) for (let i = 0; i < p.n && placed < m; i++) { await into(p.slot, 1); placed++ }
+          for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) { await into(empties[f], 1); placed++ }
           if (win.selectedItem) await click(src.slot, 0, 0)   // the rest back where it came from
           took[take.name] = (took[take.name] ?? 0) + m
           left -= m

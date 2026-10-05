@@ -63,12 +63,20 @@ const withRealCraftSync = (w, opts = {}, { silentProbe = false } = {}) => {
   return w
 }
 const fullChestWithPick = () => [...Array.from({ length: 26 }, () => stack('cobblestone', 64)), tool('stone_pickaxe', 30)]
+/** A FULL chest whose first slot is 40 sticks (the rest: `rest`, default 26 x 64 cobblestone). */
+const stickChest = (rest = Array.from({ length: 26 }, () => stack('cobblestone', 64))) => [stack('stick', 40), ...rest]
 const afterClick = (w, hook) => { const click = w.bot.clickWindow.bind(w.bot); let n = 0; w.bot.clickWindow = async (slot, button, mode) => { n++; await click(slot, button, mode); hook(n, slot, button, mode) } }
-/** A hold with NOWHERE for the pickaxe: an auto-pickup fills the emptied bag slot before click 3; the chest is full. */
-const noCapacityHold = async ({ junkStack = null } = {}) => {
-  const w = withServer(town([...junk(junkStack ? 33 : 34), ...(junkStack ? [junkStack] : []), stack('cobblestone', 64), stack('stone', 20)], fullChestWithPick()))
-  afterClick(w, (n, slot) => { if (n === 1) w._bagSlot = slot; if (n === 2) w.bag[w._bagSlot - 27] = stack('dirt', 64) })
-  const r = await SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
+/** A hold with NOWHERE for the cursor (round 7: only a PART of a stack still rides the cursor -- the pickaxe trade no
+ *  longer does). withdraw stick 2: the right-click picks up 20 of the chest's 40; then the source slot is refilled with
+ *  something else and an auto-pickup fills the one empty bag slot. The placement is refused (destination re-check), the
+ *  bag's stick stack is full, the chest is full: 20 sticks with nowhere to go. */
+const noCapacityHold = async ({ junkStack = null, bag = null, chest = null, hook = null } = {}) => {
+  const w = withServer(town(bag ?? [...junk(junkStack ? 33 : 34), ...(junkStack ? [junkStack] : []), stack('stick', 64)], chest ?? stickChest()))
+  afterClick(w, (n, slot, button, mode) => {
+    if (n === 1) { w.containers.get('5,64,0').slots[0] = stack('cobblestone', 64); w.bag[35] = stack('dirt', 64) }
+    hook?.(n, slot, button, mode)
+  })
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
   return { w, r }
 }
 const stopHold = bot => { try { bot.inventoryUnsettled?.stop?.() } catch {} }
@@ -79,7 +87,7 @@ await t('A. A CLICK STALLED 10 s, REAL CRAFTSYNC: no second click and no close w
   const click = w.bot.clickWindow.bind(w.bot)
   let first = true, stalled = 0
   w.bot.clickWindow = async (slot, button, mode) => {
-    if (button === 1 && first) { first = false; throw new Error('injected: the right-click failed') }
+    if (button === 1 && slot >= 27 && first) { first = false; throw new Error('injected: the right-click failed') }
     if (slot < 27 && button === 0 && w.bot.currentWindow?.selectedItem && !first) { stalled++; await wait(10_000) }
     return click(slot, button, mode)
   }
@@ -125,7 +133,7 @@ await t('B/H/M. A SURVIVAL RELEASE closes AT ONCE; the row follows, with the ser
   await wait(300)
   assert.equal(w.bot.inventoryUnsettled ?? null, null)
   const row = settledRows().at(-1)
-  assert.match(row, /^how=released .*srv=bag=\d+ carried_local=stone_pickaxe:1 /)
+  assert.match(row, /^how=released .*srv=bag=\d+ carried_local=stick:20 /)
   assert.match(row, /released_by_reflex:lava/)
 })
 
@@ -135,7 +143,7 @@ await t('H/P1-b. A RELEASE WITH A CLICK STILL IN FLIGHT: closed now, UNLOCKED no
   let first = true, calls = 0
   w.bot.clickWindow = async (slot, button, mode) => {
     calls++
-    if (button === 1 && first) { first = false; throw new Error('injected: the right-click failed') }
+    if (button === 1 && slot >= 27 && first) { first = false; throw new Error('injected: the right-click failed') }
     if (slot < 27 && button === 0 && w.bot.currentWindow?.selectedItem && !first) { await wait(6_000) }   // run returns at ~3 s; release at ~4.2 s
     return click(slot, button, mode)
   }
@@ -164,7 +172,7 @@ await t('H. A CLICK THAT NEVER SETTLES: the unlock does not wait for it; the row
     const click = w.bot.clickWindow.bind(w.bot)
     let first = true
     w.bot.clickWindow = async (slot, button, mode) => {
-      if (button === 1 && first) { first = false; throw new Error('injected: the right-click failed') }
+      if (button === 1 && slot >= 27 && first) { first = false; throw new Error('injected: the right-click failed') }
       if (slot < 27 && button === 0 && w.bot.currentWindow?.selectedItem && !first) { await wait(8_000) }
       return click(slot, button, mode)
     }
@@ -253,15 +261,14 @@ await t('I. AN EQUIP RACING THE CURSOR PROBE on an ordinary successful transfer 
 })
 
 await t('J. A GHOST LOCAL CURSOR with no room anywhere: the server says empty, so nothing is held', async () => {
-  const w = withServer(town([...junk(34), stack('cobblestone', 64), stack('stone', 20)], fullChestWithPick()))
+  const w = withServer(town([...junk(34), stack('stick', 64)], stickChest()))
   let probes = 0
   w.cursorEvidence = () => { probes++; return null }   // the server's cursor is empty, whatever the client shows
-  afterClick(w, (n, slot) => { if (n === 1) w._bagSlot = slot; if (n === 2) w.bag[w._bagSlot - 27] = stack('dirt', 64) })
-  const r = await SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
-  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  afterClick(w, n => { if (n === 1) { w.containers.get('5,64,0').slots[0] = stack('cobblestone', 64); w.bag[35] = stack('dirt', 64) } })
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
+  assert.ok(w.bot.currentWindow === null, `closed (${r.failClass ?? r.status}: ${r.detail})`)
   assert.ok(probes >= 1, 'the server was asked before "no capacity" was concluded')
   assert.equal(w.bot.inventoryUnsettled ?? null, null, 'no hold for a ghost cursor')
-  assert.equal(w.bot.currentWindow, null)
 })
 
 await t('L. ANY HOLD OLDER THAN THE LIMIT raises intervention_needed -- here an unanswered probe, not a capacity problem', async () => {
@@ -293,7 +300,7 @@ await t('C. SERVER EVIDENCE: a local "rescued" contradicted by the server is not
   const w = withServer(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]))
   const click = w.bot.clickWindow.bind(w.bot)
   let first = true
-  w.bot.clickWindow = async (slot, button, mode) => { if (button === 1 && first) { first = false; throw new Error('injected') } return click(slot, button, mode) }
+  w.bot.clickWindow = async (slot, button, mode) => { if (button === 1 && slot >= 27 && first) { first = false; throw new Error('injected') } return click(slot, button, mode) }
   // the server corrects the cursor ONCE: it still holds 5 sticks after the rescue
   let corrected = false
   w.cursorEvidence = win => { if (!corrected) { corrected = true; win.selectedItem = stack('stick', 5); w.containers.get('5,64,0').slots[0].count -= 5; return win.selectedItem } return win.selectedItem }
@@ -318,6 +325,40 @@ await t('C. NO SERVER EVIDENCE: an empty-looking cursor is still held', async ()
 })
 
 // ---------------------------------------------------------------- D ---
+await t('D/B7. A HOLD THAT BEGINS AFTER THE CONNECTION ENDED (its end event already fired): it ends at once as disconnected', async () => {
+  const w = withServer(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]))
+  w.noEvidence = true                                  // would hold: no server word on the cursor
+  w.bot._client = Object.assign(new EventEmitter(), { ended: false })
+  let probes = 0
+  const confirm = w.bot.craftSync.confirmCursor
+  w.bot.craftSync.confirmCursor = async (...a) => { probes++; return confirm(...a) }
+  afterClick(w, n => { if (n === 1) { w.bot._client.ended = true } })   // kicked mid-transfer; 'end' is long gone
+  const rowsAt = settledRows().length
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
+  assert.equal(r.failClass, 'transfer_unsettled', r.detail)
+  assert.equal(w.bot.inventoryUnsettled ?? null, null, 'no hold on a dead client')
+  const before = probes
+  await wait(2_500)
+  assert.equal(probes, before, 'no probe of a dead client')
+  const mine = settledRows().slice(rowsAt)
+  assert.deepEqual(mine.map(d => d.split(' ')[0]), ['how=disconnected'], 'one row: disconnected, and no intervention_needed')
+  assert.match(mine[0], /srv=- /, 'no recount on a dead client')
+})
+
+await t('D/B7. THE CONNECTION ENDS DURING A HOLD without an end event reaching it: the next tick ends it as disconnected', async () => {
+  const w = withServer(town([...junk(35), stack('stick', 62)], [stack('stick', 40)]))
+  w.noEvidence = true
+  w.bot._client = Object.assign(new EventEmitter(), { ended: false, socket: { destroyed: false } })
+  await SKILLS.withdraw.run({ bot: w.bot }, { item: 'stick', count: 2 }, sig())
+  assert.ok(w.bot.inventoryUnsettled, 'positive control: held while the client lives')
+  await wait(1_200)
+  assert.ok(w.bot.inventoryUnsettled, 'and still held a tick later')
+  w.bot._client.socket.destroyed = true                // the socket went; no 'end' on the bot
+  await wait(1_500)
+  assert.equal(w.bot.inventoryUnsettled ?? null, null)
+  assert.match(settledRows().at(-1), /^how=disconnected /)
+})
+
 await t('D. A DISCONNECT cancels the hold: no click after it, the end listener removed', async () => {
   const { w } = await noCapacityHold()
   assert.ok(w.bot.inventoryUnsettled)
@@ -344,13 +385,13 @@ await t('E. THE SERVER CLOSES THE WINDOW: the hold ends (server_closed) and noth
 })
 
 // ---------------------------------------------------------------- F ---
-await t('F. ONE BANKABLE STACK INTO COMPATIBLE CAPACITY frees a slot for the held pickaxe -- verified, nothing dropped', async () => {
-  const w = withServer(town([...junk(33), stack('cobblestone', 64), stack('stone', 10), stack('stone', 20)], fullChestWithPick()))
-  afterClick(w, (n, slot) => { if (n === 1) w._bagSlot = slot; if (n === 2) w.bag[w._bagSlot - 27] = stack('dirt', 64) })
-  const r = await SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
+await t('F. ONE BANKABLE STACK INTO COMPATIBLE CAPACITY frees a slot for the held sticks -- verified, nothing dropped', async () => {
+  const chest = stickChest([...Array.from({ length: 25 }, () => stack('cobblestone', 64)), stack('stone', 20)])
+  // stone 10 + 20: depositPlan keeps a stone reserve, so only the 10 is bankable -- into the chest's 20
+  const { w, r } = await noCapacityHold({ bag: [...junk(32), stack('stone', 10), stack('stone', 20), stack('stick', 64)], chest })
   assert.equal(r.failClass, 'transfer_unsettled', r.detail)   // the plan was not followed; the cursor was rescued
   assert.equal(w.bot.inventoryUnsettled ?? null, null, 'no hold: the rearrangement made room')
-  assert.equal(count(w.bag, 'stone_pickaxe'), 1)
+  assert.equal(count(w.bag, 'stick'), 84, 'the 20 on the cursor are in the bag')
   assert.equal(w.containers.get('5,64,0').slots[26]?.name, 'stone'); assert.equal(w.containers.get('5,64,0').slots[26]?.count, 30)
   assert.equal(w.dropped.length, 0); assert.equal(w.bot.currentWindow, null)
 })
@@ -361,7 +402,7 @@ await t('G. NOWHERE FOR THE CURSOR: keep holding, never drop, intervention_neede
   await wait(1_500)
   assert.ok(w.bot.inventoryUnsettled?.interventionNeeded)
   assert.ok(w.bot.currentWindow); assert.equal(w.dropped.length, 0)
-  assert.ok(settledRows().some(d => /^how=intervention_needed .*carried_local=stone_pickaxe:1/.test(d)))
+  assert.ok(settledRows().some(d => /^how=intervention_needed .*carried_local=stick:20/.test(d)))
   stopHold(w.bot)
 })
 
@@ -399,13 +440,13 @@ await t('N. MODE hold (default): still held after the loaded time; nothing dropp
 await t('N. MODE close: closed after the loaded time; the server drops what the full bag cannot take', async () => {
   const w = await underMode('close')
   assert.equal(w.bot.inventoryUnsettled ?? null, null); assert.equal(w.bot.currentWindow, null)
-  assert.match(settledRows().at(-1), /^how=closed_loaded .*carried_local=stone_pickaxe:1/)
-  assert.ok(w.dropped.some(x => x.name === 'stone_pickaxe'), 'the fake drops the cursor on a loaded close (as Paper does with a full bag)')
+  assert.match(settledRows().at(-1), /^how=closed_loaded .*carried_local=stick:20/)
+  assert.ok(w.dropped.some(x => x.name === 'stick'), 'the fake drops the cursor on a loaded close (as Paper does with a full bag)')
 })
 await t('N. MODE junkswap: the cursor goes onto the junk slot, the server confirms junk on the cursor, only the junk drops', async () => {
   const w = await underMode('junkswap', { junkStack: stack('leaf_litter', 40) })
   assert.equal(w.bot.inventoryUnsettled ?? null, null); assert.equal(w.bot.currentWindow, null)
-  assert.equal(count(w.bag, 'stone_pickaxe'), 1, 'the pickaxe is in the bag')
+  assert.equal(count(w.bag, 'stick'), 84, 'the sticks are in the bag')
   assert.deepEqual(w.dropped.map(x => x.name), ['leaf_litter'], 'only the junk dropped')
   assert.match(settledRows().at(-1), /^how=junkswapped .*dropped=leaf_litter:40/)
 })

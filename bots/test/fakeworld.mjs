@@ -135,6 +135,13 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
       const tool = x => !!x?.maxDurability
       if (slot === -999) { if (w.selectedItem) { dropped.push(w.selectedItem); w.selectedItem = null } return }
       const it = w.get(slot)
+      if (mode === 2) {                                   // number key: this slot <-> hotbar[button], nothing carried
+        if (w.selectedItem || button < 0 || button > 8) return
+        const hs = w.inventoryEnd - 9 + button
+        const h = w.get(hs)
+        w.put(slot, h ?? null); w.put(hs, it ?? null)
+        return
+      }
       if (mode === 1) {                                   // shift-click: to the other side, partial stacks first
         if (!it) return
         const [a, b] = slot < w.inventoryStart ? [w.inventoryStart, w.inventoryEnd] : [0, w.inventoryStart]
@@ -154,6 +161,14 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
         if (!it) { w.put(slot, sel); w.selectedItem = null; return }
         if (it.name === sel.name && !tool(it)) { const mv = Math.min(64 - it.count, sel.count); it.count += mv; sel.count -= mv; if (!sel.count) w.selectedItem = null; return }
         w.put(slot, sel); w.selectedItem = it
+        return
+      }
+      if (button === 1 && !sel) {                         // right-click on a stack: pick up HALF, rounded up
+        if (!it) return
+        const half = Math.ceil(it.count / 2)
+        w.selectedItem = { ...it, count: half }
+        it.count -= half
+        if (!it.count) w.put(slot, null)
         return
       }
       if (button === 1 && sel) {

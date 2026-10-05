@@ -243,6 +243,12 @@ export function installCraftSync (bot, opts = {}) {
   // could interleave its close_window(0) with an equip that craftsync does not see (Codex round 6).
   const baseWrite = bot._client.write
   let dropped = 0
+  // ROWS THE LOGGER CAN READ (round 7): logEvent keeps only kind/status/detail, so the fields go into detail as k=v (the
+  // same fields stay on the row for a caller that reads them directly). `event:` rows landed as `_undefined`, empty.
+  const clickRow = (kind, status, fields) => ({
+    kind, status, ...fields,
+    detail: Object.entries(fields).map(([k, v]) => `${k}=${String(v ?? '-').replace(/\s+/g, '_').slice(0, 120)}`).join(' '),
+  })
   let repairPending = null
   const filterWrite = function (name, params) {
     if (name === 'window_click') {
@@ -250,7 +256,7 @@ export function installCraftSync (bot, opts = {}) {
       if (!v.ok) {
         dropped++
         repairPending = v.why
-        log({ event: 'click_dropped', slot: params?.slot, windowId: params?.windowId, why: v.why })
+        log(clickRow('click_dropped', 'no_effect', { slot: params?.slot, window: params?.windowId, why: v.why }))
         return undefined
       }
     }
@@ -347,7 +353,7 @@ export function installCraftSync (bot, opts = {}) {
       how = `recount_${r === 'answered' ? 'server' : r}`
     }
     if (how === 'window_probe' || how === 'recount_server') repairPending = null
-    log({ event: 'click_drop_repair', how, why })
+    log(clickRow('click_drop_repair', 'success', { how, why }))
   }
 
   /** mineflayer's click, never waited on longer than clickCapMs -- and a cap REJECTS. A rejection that arrives
@@ -366,7 +372,7 @@ export function installCraftSync (bot, opts = {}) {
       if (!v.ok) {
         ticket.dropped = v.why
         dropped++
-        log({ event: 'click_refused', slot, windowId: ticket.windowId, why: v.why })
+        log(clickRow('click_refused', 'no_effect', { slot, window: ticket.windowId, why: v.why }))
         throw Object.assign(new Error(`craftsync: click on slot ${slot} dropped: ${v.why}`), { clickDropped: true })
       }
       const q = inflight.dispatch(ticket, () => orig.call(bot, slot, button, mode))
@@ -699,7 +705,7 @@ export function installCraftSync (bot, opts = {}) {
       const r = await resync(st, 0, until)
       if (r === 'answered' && repairPending) {   // the slots were just answered; the cursor is the server's too
         applyCarried(bot.inventory, 0)
-        log({ event: 'click_drop_repair', how: 'recount_server', why: repairPending })
+        log(clickRow('click_drop_repair', 'success', { how: 'recount_server', why: repairPending }))
         repairPending = null
       }
       return { source: r === 'answered' ? 'server' : r, items: r === 'answered' ? (bot.inventory?.items?.() ?? []) : null }
