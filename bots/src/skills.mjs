@@ -6385,13 +6385,16 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
   try {
     // chestfull-02's walk: never watches digs, and a clock that ends it clears only its own goal.
     await chestWalk(bot, new goals.GoalNear(cp.x, cp.y, cp.z, 2), Math.max(1, msLeft(WITHDRAW_WALK_MS)))
+    // A RESOLVED WALK IS NOT AN ARRIVAL (chestfull-02's check): an empty path resolves where the bot stands.
+    const d = eyeToBlock(bot.entity.position, cp)
+    if (!(d <= OPEN_REACH)) throw Object.assign(new Error(`No path to the goal! (the walk ended ${Math.round(d * 10) / 10} blocks from the chest)`), { failClass: 'no_path' })
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
     // ...and its backoff: a real travel failure to a chest OUTSIDE town hides it from this bot for a while (a town chest
     // is never hidden -- withdraw strikes nothing in the town's memory).
     if (backsOffTarget({ kind: walkFailure(e), targetInTown: inTown(homeVec(), cp) })) {
-      bot.skipContainers ??= new Map()
-      bot.skipContainers.set(posKey(cp), Date.now() + TARGET_BACKOFF_MS)
+      bot.withdrawTravelBackoff ??= new Map()
+      bot.withdrawTravelBackoff.set(posKey(cp), Date.now() + TARGET_BACKOFF_MS)
     }
     // NOT no_path (bank-fix, Claude review): every visit reaches for the same town chests, and no_path votes against the
     // verb with no position in the key. It is a fact about this chest, with no vote.
@@ -6483,8 +6486,10 @@ function withdrawSweep (bot, { pick = false, town = false } = {}) {
   const skip = q => shut(q) || (pick && containerPickMiss(mem, posKey(q)))
   // WHERE (chestfull-02's boundary): the town order looks only at TOWN containers -- inTown, searched around HOME with
   // the deposit's TOWN_SCAN_RADIUS, the same set its misses are judged over; the model's verb at any container in reach
-  // that is not DEEP (depositTargetOk). Never a container this bot backed off (a failed walk outside town).
-  const backedOff = q => { const u = bot.skipContainers?.get?.(posKey(q)); return !!u && u > Date.now() }
+  // that is not DEEP (depositTargetOk). Never a container WITHDRAW backed off after a failed walk outside town -- its own
+  // map: the deposit's skipContainers also holds 30-min "this chest is FULL" entries, and a full chest is exactly where a
+  // withdraw is worth making (Codex on e897d44).
+  const backedOff = q => { const u = bot.withdrawTravelBackoff?.get?.(posKey(q)); return !!u && u > Date.now() }
   const where = q => (town ? inTown(home, q) : depositTargetOk(home, q)) && !backedOff(q)
   const search = (radius, ok) => bot.findBlock({ ...(town ? { point: home, maxDistance: TOWN_SCAN_RADIUS } : { maxDistance: radius }),
     matching: b => isContainer(b) && (!b.position || (!tried.has(posKey(b.position)) && where(b.position) && ok(b.position))) })
@@ -6630,12 +6635,22 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   return out(lastFailure ?? { status: 'failed', failClass: 'other', detail: 'withdraw tried no container' })
 }
 
+/** THE TOWN'S CONTAINERS, for coverage -> their keys, or null when the scan may be TRUNCATED. The boundary is inside the
+ *  matcher (a scan capped before an inTown filter let 63 deep barrels crowd out a town chest -- Codex on e897d44). */
+const TOWN_KEYS_CAP = 256
+function townContainerKeys (bot, home, isContainer) {
+  const found = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: TOWN_KEYS_CAP,
+    matching: b => isContainer(b) && (!b.position || inTown(home, b.position)) }) ?? []
+  return found.length >= TOWN_KEYS_CAP ? null : found.map(posKey)
+}
+
 /** Has every container of the town shown no usable pickaxe recently (per container, COMPLETE coverage)? For townOrder. */
 export function townPickMiss (bot) {
   try {
     const home = homeVec()
     const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
-    const keys = (bot.findBlocks?.({ point: home, matching: isContainer, maxDistance: TOWN_SCAN_RADIUS, count: 64 }) ?? []).filter(q => inTown(home, q)).map(posKey)
+    const keys = townContainerKeys(bot, home, isContainer)
+    if (keys == null) return false   // more town containers than one scan returns: coverage cannot be complete
     return townPickMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), keys)
   } catch { return false }
 }
@@ -6646,7 +6661,8 @@ export function townIngredientMiss (bot) {
   try {
     const home = homeVec()
     const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
-    const keys = (bot.findBlocks?.({ point: home, matching: isContainer, maxDistance: TOWN_SCAN_RADIUS, count: 64 }) ?? []).filter(q => inTown(home, q)).map(posKey)
+    const keys = townContainerKeys(bot, home, isContainer)
+    if (keys == null) return false   // more town containers than one scan returns: coverage cannot be complete
     const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
     const needs = stonePickDeficits(bot.inventory.items(), { tableNear }).map(d => d.need)
     return townIngredientMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), keys, needs)

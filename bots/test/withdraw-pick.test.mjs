@@ -462,9 +462,60 @@ await t('CHEST2 A FAILED WALK TO A CHEST OUTSIDE TOWN backs it off for this bot:
   await withdraw(w.bot, { item: 'stick', count: 2 })
   const tries = () => w.spy.gotos.filter(g => g.x === 22).length
   assert.equal(tries(), 1, 'positive control: it walked there once and failed')
-  assert.ok((w.bot.skipContainers?.get('22,64,0') ?? 0) > Date.now(), 'backed off for this bot')
+  assert.ok((w.bot.withdrawTravelBackoff?.get('22,64,0') ?? 0) > Date.now(), 'backed off for this bot (withdraw\'s own map)')
   await withdraw(w.bot, { item: 'stick', count: 2 })
   assert.equal(tries(), 1, 'not walked to again while backed off')
+})
+
+await t('CHEST2 (Codex on e897d44) THE DEPOSIT\'S "FULL" BACKOFF DOES NOT HIDE A CHEST FROM WITHDRAW: a full chest is exactly where to withdraw', async () => {
+  const w = withServer(town([], []))
+  w.set(22, 64, 0, 'chest'); w.stock(22, 64, 0, [stack('stick', 20)])
+  w.bot.entity.position = w.bot.entity.position.offset(10, 0, 0)
+  w.bot.skipContainers = new Map([['22,64,0', Date.now() + 30 * 60_000]])   // the deposit found it full (FAR_SKIP_MS)
+  const r = await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count(w.bag, 'stick'), 2)
+})
+
+await t('CHEST2 (Codex on e897d44) A RESOLVED WALK IS NOT AN ARRIVAL: a stationary "arrival" at a chest outside town is a no_path -- not opened, backed off', async () => {
+  const w = withServer(town([], []))
+  w.set(22, 64, 0, 'chest'); w.stock(22, 64, 0, [stack('stick', 20)])
+  w.bot.entity.position = w.bot.entity.position.offset(6, 0, 0)               // 12.5 out: 9.5 from the far chest
+  const goto = w.bot.pathfinder.goto
+  w.bot.pathfinder.goto = async goal => { if (goal.x === 22) { w.spy.gotos.push({ x: 22 }); return } return goto(goal) }   // resolves, never moves
+  await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(w.spy.gotos.filter(g => g.x === 22).length, 1, 'positive control: it walked (and "arrived") once')
+  assert.ok(!w.spy.opened.includes('22,64,0'), 'nothing opened out of reach')
+  assert.ok((w.bot.withdrawTravelBackoff?.get('22,64,0') ?? 0) > Date.now(), 'backed off')
+  await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(w.spy.gotos.filter(g => g.x === 22).length, 1, 'not walked to again')
+})
+
+await t('CHEST2 (Codex on e897d44) COVERAGE IS OVER EVERY TOWN CONTAINER: 63 deep chests nearer home cannot crowd out an unexamined town chest', async () => {
+  const w = withServer(town([stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)], [stack('dirt', 5)]))
+  let n = 0
+  for (let x = -5; x <= 5 && n < 63; x++) for (let z = -4; z <= 4 && n < 63; z++) { w.set(x, 50, z, 'chest'); n++ }   // dy 14: deep, ~14 from home
+  w.set(16, 64, 0, 'chest'); w.stock(16, 64, 0, [tool('stone_pickaxe', 10)])                                          // town, 16 from home
+  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 60_000 } })
+  assert.equal(n, 63)
+  assert.equal(townPickMiss(w.bot), false, 'the town chest at 16,64,0 was never examined: no complete miss')
+})
+
+await t('CHEST2 A TRUNCATED SCAN IS NEVER COMPLETE COVERAGE: 300 town chests, every one a recent miss -- still no town-wide miss; 200 -- a miss', async () => {
+  const fill = n => {
+    const w = withServer(town([], [stack('dirt', 1)]))
+    const miss = {}
+    let k = 0
+    for (let y = 64; y <= 72 && k < n; y++) for (let x = -10; x <= 10 && k < n; x += 2) for (let z = -10; z <= 10 && k < n; z += 2) {
+      if (x === 5 && y === 64 && z === 0) continue
+      w.set(x, y, z, 'chest'); miss[`${x},${y},${z}`] = Date.now() - 60_000; k++
+    }
+    miss['5,64,0'] = Date.now() - 60_000
+    updateMem(e => { e._pick_miss = miss })
+    return w
+  }
+  assert.equal(townPickMiss(fill(200).bot), true, 'positive control: every one of 201 examined and missed -> complete')
+  assert.equal(townPickMiss(fill(300).bot), false, 'more than one scan returns: coverage cannot be claimed')
 })
 
 await t('CHEST2 THE WALK (structural: dig-watching cannot be driven here): a withdraw visit walks with chestWalk, never a bare withTimeout(pathfinder.goto)', () => {
