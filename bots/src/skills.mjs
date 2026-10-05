@@ -5461,9 +5461,10 @@ export function townFarmPlan (bot) {
     const saplings = FARM_SPECIES.reduce((a, s) => a + (held[s] ?? 0), 0)
     return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'refound' }], counts: {}, materials: null } : null
   }
-  const states = plotsOf(rec).map(p => ({ plot: p, ...plotState(read, p) }))
+  // AN ACCEPTED RECORD MAY STRADDLE A (SHRUNK) BORDER: its cells past it are never worked (Codex r5)
+  const states = plotsOf(rec).filter(p => !pastBorder(p)).map(p => ({ plot: p, ...plotState(read, p) }))
   if (states.some(s => s.state === 'unknown')) return null
-  const torches = torchesOf(rec).map(c => ({ cell: c, state: torchState(read, c) }))
+  const torches = torchesOf(rec).filter(c => !pastBorder(c)).map(c => ({ cell: c, state: torchState(read, c) }))
   return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env) })
 }
 
@@ -5629,10 +5630,10 @@ async function tendFarm (ctx, _args, signal) {
   }
   try {
     const read = readCell(bot)
-    const states = plotsOf(rec).map(p => ({ plot: p, ...plotState(read, p) }))
+    const states = plotsOf(rec).filter(p => !pastBorder(p)).map(p => ({ plot: p, ...plotState(read, p) }))
     for (const s of states) census[s.state] = (census[s.state] ?? 0) + 1
     if (census.unknown) return skip(`${census.unknown} farm plot(s) are not loaded from here; the farm waits for a closer visit`)
-    const torches = torchesOf(rec).map(c => ({ cell: c, state: torchState(read, c) }))
+    const torches = torchesOf(rec).filter(c => !pastBorder(c)).map(c => ({ cell: c, state: torchState(read, c) }))
     const plan = tendPlan({ states, torches, held: before, bonemeal: bonemealEnabled(process.env) })
     if (!plan.actions.length) {
       const short = Object.keys(plan.materials?.short ?? {})
@@ -5648,6 +5649,7 @@ async function tendFarm (ctx, _args, signal) {
         if (Date.now() > deadline) { stop = 'budget'; break }
         // STRUCTURAL: a mutation outside the record never happens (and the read gates on this count staying 0).
         if (!onFarmPlan(idx, a)) { f.offplan++; continue }
+        if (pastBorder(a.cell)) continue   // belt and braces: the plan was built from in-border cells only
         const r = a.kind === 'dig' ? await digOne(a) : a.kind === 'bonemeal' ? await boneOne(a) : await placeOne(a)
         if (r === null) break
         if (!r) continue

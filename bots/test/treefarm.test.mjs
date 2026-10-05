@@ -685,6 +685,27 @@ await t('a bot refused the lease never replaces the farm record of the bot that 
   assert.equal(BP.readRecord(storeDir, 'treefarm-0_64_0').gen, before.gen, 'the contender wrote a new farm generation')
 })
 
+await t('a recorded farm straddling the world border plans and works only its in-border cells (Codex r5)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-border-'))
+  const town = fakeTown({ items: [S('oak_sapling', 9), S('torch', 4)], storeDir })
+  // a record laid out before the border moved: the suite's border is 1950, so the layout is shifted to straddle it
+  // (6 plots inside, 3 past it)
+  const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const shift = c => ({ ...c, x: c.x + 1955 })
+  const straddle = { ...rec, anchor: shift(rec.anchor), cells: rec.cells.map(shift) }
+  assert.equal(BP.createRecordGen(storeDir, 'treefarm-0_64_0', 1, { ...straddle, world: 'w1' }), true)
+  const inside = TF.plotsOf(straddle).filter(p => Math.hypot(p.x, p.z) <= 1950)
+  assert.equal(inside.length, 6, 'the fixture straddles')
+  assert.equal(TF.farmRecordRefusal(world().read, straddle, { reserved: c => Math.hypot(c.x, c.z) > 1950 }), null, 'and is still accepted')
+  const plan = SK.townFarmPlan(town.bot)
+  assert.equal(plan.actions.filter(a => a.role === 'plant').length, 6, 'the six inside are planned')
+  for (const a of plan.actions) assert.ok(Math.hypot(a.cell.x, a.cell.z) <= 1950, `planned past the border: ${JSON.stringify(a.cell)}`)
+  town.bot.entity.position = new Vec3(1945.5, 64, -6.5)
+  await tend(town.bot)
+  assert.ok(town.state.places.length >= 6, `placed ${town.state.places.length}`)
+  for (const p of town.state.places) { const [x, , z] = p.at.split(',').map(Number); assert.ok(Math.hypot(x, z) <= 1950, `placed past the border at ${p.at}`) }
+})
+
 await t('record generations are never pruned (a pruned number could be re-created by a slow writer: Codex r1)', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'bp-keep-'))
   const rec = n => ({ blueprint: 'x', version: 1, anchor: { x: n, y: 64, z: 0 }, cells: [{ x: n, y: 64, z: 0 }] })
