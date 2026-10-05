@@ -18,13 +18,14 @@ async function withMutant (old, neu, fn) {
   assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}. A mutant that was never written reads as killed.`)
   assert.equal(src.split(old).length, 2, 'the mutation target is not unique; the mutant is ambiguous')
   const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
-  writeFileSync(out, src.replace(old, neu))
+  // The copy lives in test/, so craftsync's own relative imports (./inflight.mjs) are pointed back at src/.
+  writeFileSync(out, src.replace(old, neu).replace(/from '\.\/([^']+)'/g, "from '../src/$1'"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 
 await t('MUTANT KILLED: no quiet wait after a click -> the A-only craft bursts and is lost again', async () => {
-  await withMutant('      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)\n      await waitQuiet(st, win, clickPhase)\n',
-    '      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode)\n', async mod => {
+  await withMutant('      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode, { windowId: win, epoch: issuedIn })\n      await waitQuiet(st, win, clickPhase)\n',
+    '      await cappedClick(st, orig.clickWindow, slot, mouseButton, mode, { windowId: win, epoch: issuedIn })\n', async mod => {
       const r = await trialWith(mod, { opts: { rewriteStateId: false } })
       assert.ok(r.minGap < CS.CRAFT_SYNC.quietMs, 'the mutant still waits between clicks')
       assert.equal(r.server.count('wooden_pickaxe'), 0, 'the mutant kept the craft, so the lockstep test proves nothing')

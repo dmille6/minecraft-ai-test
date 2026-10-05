@@ -317,6 +317,22 @@ export class AdmissionControl {
       }
     }
 
+    // A CURSOR THAT COULD NOT BE EMPTIED holds the chest window open (skills.mjs holdUnsettled, withdraw): nothing may
+    // run -- any inventory click would land past it, and a close would drop it -- until it settles.
+    if (bot?.inventoryUnsettled) {
+      return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
+    }
+
+    // A WITHDRAW NAMES WHAT IT NEEDS (withdrawpick.mjs, Codex): the old bare form took the most plentiful item -- the
+    // town's cobblestone -- into a bag that was already full.
+    if (skill === 'withdraw') {
+      const it = String(args?.item ?? '').trim().toLowerCase()
+      if (!it || ['none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(it)) {
+        return { ok: false, reason: 'withdraw_needs_item',
+                 detail: 'name what you need: withdraw <item> [count], e.g. withdraw stone_pickaxe or withdraw stick 2' }
+      }
+    }
+
     if (skill === 'deposit') {
       // THE BANK IS CLOSED for this bot after a full-chest refusal (chestfull.mjs): nothing it carries can go in until it
       // reopens, so the deposit is refused here, before any walk, with a remedy it can act on from anywhere.

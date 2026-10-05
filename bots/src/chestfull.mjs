@@ -309,6 +309,29 @@ export function updateTownMemory (dir, key, world, mutate) {
     return true
   } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } return false }
 }
+/**
+ * NO USABLE PICKAXE IN THIS CONTAINER, recently (withdrawpick.mjs; both reviews: per container, not town-wide): a
+ * withdraw that looked and found none writes the container's key and time, and no bot looks there again for
+ * PICK_MISS_TTL_MS -- unless the container has TAKEN items since (a deposit may have brought a pickaxe). Kept in the
+ * town's memory file under a key no container can have: { 'x,y,z': at }.
+ */
+export const PICK_MISS_KEY = '_pick_miss'
+export const PICK_MISS_TTL_MS = 15 * 60 * 1000
+export function containerPickMiss (entries = {}, k, now = Date.now()) {
+  const at = entries?.[PICK_MISS_KEY]?.[k]
+  if (!Number.isFinite(at) || now - at >= PICK_MISS_TTL_MS) return false
+  const e = entries?.[k]
+  return !(e?.o === 'took' && e.at > at)
+}
+export function notePickMisses (entries, keys = [], now = Date.now()) {
+  const m = { ...(entries[PICK_MISS_KEY] ?? {}) }
+  for (const k of keys) m[k] = now
+  for (const [k, at] of Object.entries(m)) if (!(now - at < PICK_MISS_TTL_MS)) delete m[k]
+  entries[PICK_MISS_KEY] = m
+}
+/** A town-wide miss only with COMPLETE coverage: every container listed has a valid miss of its own. */
+export const townPickMissComplete = (entries = {}, keys = [], now = Date.now()) => keys.length > 0 && keys.every(k => containerPickMiss(entries, k, now))
+
 /** The last time any container of the town TOOK items (or a new chest went down): the "a town chest gained room" signal. */
 export function townRoomAt (entries = {}) {
   let t = -Infinity
