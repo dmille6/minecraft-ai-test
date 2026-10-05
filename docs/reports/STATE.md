@@ -111,6 +111,16 @@ Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): 
   the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
   no-junk -> admin clear -> bamboo -> logpickup.
 
+## 10-05 ~02:30Z — BAMBOO-01 READY BUT HELD (bb-on-1918bb5 @ 33384ad; registration on main 33b5a27; staged on the host,
+NOT launched). Paper round 2: the stuck-watchdog and tally defects are fixed (32-fold 3/3, 64-fold 3/3 in its window,
+planks never burned 26/26, control 6/6 no change) BUT an interrupted fold (low-health reflex) strands up to 46 bamboo in
+the 2x2 grid 3/3 -- the craftsync grid defect the GRID FIX repairs; G3 would REVERT on it and the items drop at logout.
+DECISION: bamboo waits for the grid fix and is rebased onto it. Canary order, first ready first, dependencies kept:
+chest-full (6c9a8fb, sandbox+registration in progress) | grid fix (gf round 5: invalidate the held ticket on a
+click-cap timeout) -> bamboo (on the grid fix) -> junk well (building) -> withdraw (on chest-full; Codex APPROVED
+2691727; Claude review + first Paper run in progress) -> cobble rule. Grid fix and withdraw share byte-identical
+window-binding code (inflight.mjs + craftsync spans). Agents share /tmp/mcai-suite.lock and /tmp/mcai-sandbox.lock.
+
 ## 10-05 00:05Z — TOOLCLEAN-01 KEPT (+360); promotion of 1918bb5 fleet-wide follows (chain). Spent axe/shovel/hoe
 copies per bot canary 2.25 -> 0.05 vs control 2.27 -> 2.22 (DiD -2.15); G1/G2/G3 0 (G3 amended 19:35Z before the
 +180 read: the deposit window covers the whole deposit -- all 10 good-tool losses in the window, both arms, were spare
