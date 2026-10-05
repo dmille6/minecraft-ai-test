@@ -51,6 +51,19 @@ async function withMutant (path, old, neu, fn) {
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
 
+/** Several anchored replacements in one mutant module; every anchor present AND unique, applied in order. */
+async function withMutants (path, pairs, fn) {
+  let src = readFileSync(path, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}`)
+    assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+
 // --- terrain ---------------------------------------------------------------------------------------------------
 
 const DIG_MS = { stone: 7500, cobblestone: 10_000, deepslate: 15_000, dirt: 750, gravel: 3000, sand: 2500 }
@@ -98,7 +111,7 @@ const PICK = (left = 100) => ({ name: 'stone_pickaxe', count: 1, type: 101, maxD
 const BUCKET = { name: 'bucket', count: 1, type: 900 }
 
 /** A bot that digs, pillars (a placed block lifts it one), and walks a ramp step when the geometry allows. */
-function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = null } = {}) {
+function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = null, onHand = null } = {}) {
   const digs = [], placed = []
   let yaw = 0
   const rel = p => ({ x: Math.floor(p.x), y: Math.floor(p.y) - y, z: Math.floor(p.z) })
@@ -109,8 +122,8 @@ function makeBot (w, { y = Y0, inv = [], held = null, canPath = false, onDig = n
     heldItem: held,
     inventory: { items: () => inv.filter(i => i.count > 0), emptySlotCount: () => 36 - inv.length },
     blockAt (p) { const r = rel(p); return blk(w.get(r.x, r.y, r.z), V(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))) },
-    async unequip () { bot.heldItem = null },
-    async equip (item) { bot.heldItem = item },
+    async unequip () { bot.heldItem = null; onHand?.(w) },
+    async equip (item) { bot.heldItem = item; onHand?.(w) },
     async dig (b) {
       const r = rel(b.position)
       digs.push({ cell: `${r.x},${r.y},${r.z}`, name: b.name, held: bot.heldItem?.name ?? null })
@@ -729,13 +742,28 @@ await t('MUTANT KILLED: ramp step digs without the flood check', async () => {
   })
 })
 
-const M_PILLAR = '      if (upwardDigFloodRisk(bot, \'pillar_out\')) return FLOOD_RISK\n      const opened'
-await t('MUTANT KILLED: pillarOut\'s in-loop check removed -> the marooned climb digs into the pocket', async () => {
-  await withMutant(REFLEX_PATH, M_PILLAR, '      const opened', async mod => {
+const M_PILLAR = "      if (upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK\n      const opened"
+const M_PILLAR2 = "      // must still be true at the swing, read with the submerged state as it is now.\n      if (upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK"
+await t('MUTANT KILLED: pillarOut\'s two in-loop checks removed -> the marooned climb digs into the pocket', async () => {
+  await withMutants(REFLEX_PATH, [[M_PILLAR, '      const opened'], [M_PILLAR2, '      // (mutant)']], async mod => {
     const w = TOMB({ '0,2,0': 'air', '0,3,0': 'air', '0,5,0': 'water' })
     const bot = makeBot(w, { inv: [COBBLE(64), PICK()] })
     await mod.pillarOut(bot, 6)
     assert.ok(bot.digs.some(d => d.cell === '0,4,0'), `the mutant did not dig the wet ceiling: ${JSON.stringify(bot.digs)}`)
+  })
+})
+await t('THE SECOND CHECK IS LOAD BEARING: water arriving during the hand change stops pillarOut (and its mutant digs)', async () => {
+  const flood = ww => ww.set(0, 3, 0, 'water')
+  const bot = makeBot(TOMB(), { inv: [COBBLE(64), PICK()], held: PICK(), onHand: flood })
+  assert.strictEqual(await pillarOut(bot, 3), FLOOD_RISK)
+  assert.deepStrictEqual(bot.digs, [])
+  const dry = makeBot(TOMB(), { inv: [COBBLE(64), PICK()], held: PICK() })
+  await pillarOut(dry, 3)
+  assert.strictEqual(dry.digs[0]?.cell, '0,2,0', 'POSITIVE CONTROL: no water, the same hand change digs')
+  await withMutant(REFLEX_PATH, M_PILLAR2, '      // (mutant)', async mod => {
+    const m = makeBot(TOMB(), { inv: [COBBLE(64), PICK()], held: PICK(), onHand: flood })
+    await mod.pillarOut(m, 3)
+    assert.strictEqual(m.digs[0]?.cell, '0,2,0', 'the mutant still refused: the second check is not what stops it')
   })
 })
 
@@ -756,12 +784,24 @@ await t('MUTANT KILLED: digStraightUp\'s pre-check removed -> the wrong remedy (
 })
 
 const M_DSU_LOOP = "      if (upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK\n      const opened"
-await t('MUTANT KILLED: digStraightUp\'s in-loop check removed -> it digs into the pocket', async () => {
-  await withMutant(REFLEX_PATH, M_DSU_LOOP, '      const opened', async mod => {
+const M_DSU_LOOP2 = "      if (upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK   // again after the hand change (Codex r2)"
+await t('MUTANT KILLED: digStraightUp\'s two in-loop checks removed -> it digs into the pocket', async () => {
+  await withMutants(REFLEX_PATH, [[M_DSU_LOOP, '      const opened'], [M_DSU_LOOP2, '']], async mod => {
     const w = TOMB({ '0,2,0': 'air', '0,4,0': 'water' })
     const bot = makeBot(w, { inv: [PICK(), PICK(), COBBLE(10)] })
     await mod.digStraightUp(bot, Y0, 4)
     assert.ok(bot.digs.some(d => d.cell === '0,3,0'), JSON.stringify(bot.digs))
+  })
+})
+await t('THE SECOND CHECK IS LOAD BEARING in digStraightUp: water during the equip stops the dig (and its mutant digs)', async () => {
+  const flood = ww => ww.set(0, 3, 0, 'water')
+  const bot = makeBot(TOMB(), { inv: [PICK(), PICK()], onHand: flood })
+  assert.strictEqual(await digStraightUp(bot, Y0, 1), FLOOD_RISK)
+  assert.deepStrictEqual(bot.digs, [])
+  await withMutant(REFLEX_PATH, M_DSU_LOOP2, '', async mod => {
+    const m = makeBot(TOMB(), { inv: [PICK(), PICK()], onHand: flood })
+    await mod.digStraightUp(m, Y0, 1)
+    assert.strictEqual(m.digs[0]?.cell, '0,2,0')
   })
 })
 
@@ -789,12 +829,26 @@ await t('MUTANT KILLED: a flood step that asks for a pickaxe is caught', async (
 })
 
 const M_SHAFT = '    const flood = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, 2 + dy, dz)), submerged })'
-await t('MUTANT KILLED: shaftAscend asking about the wrong cell (no p+3) digs into the pocket', async () => {
-  await withMutant(SKILLS_PATH, M_SHAFT, '    const flood = overheadBreakRisk({ at: (dx, dy, dz) => (dy === 1 ? { name: \'stone\', boundingBox: \'block\' } : bot.blockAt(p.offset(dx, 2 + dy, dz))), submerged })', async mod => {
+const M_SHAFT2 = '        const again = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(q.offset(dx, 2 + dy, dz)), submerged: wetNow })'
+const BLIND = "(dy === 1 && !dx && !dz ? { name: 'stone', boundingBox: 'block' } : bot.blockAt(%.offset(dx, 2 + dy, dz)))"
+await t('MUTANT KILLED: shaftAscend asking about the wrong cell (no p+3), both checks -> digs into the pocket', async () => {
+  await withMutants(SKILLS_PATH, [
+    [M_SHAFT, `    const flood = overheadBreakRisk({ at: (dx, dy, dz) => ${BLIND.replace('%', 'p')}, submerged })`],
+    [M_SHAFT2, `        const again = overheadBreakRisk({ at: (dx, dy, dz) => ${BLIND.replace('%', 'q')}, submerged: wetNow })`],
+  ], async mod => {
     const bot = shaftBot(SHAFT({ '0,3,0': 'water' }))
     await mod.shaftAscend(bot, Y0 + 20, new AbortController().signal, { deadline: Date.now() + 4000 })
     assert.ok(bot.digs.some(d => d.cell === '0,2,0'), JSON.stringify(bot.digs))
   })
+})
+await t('THE SECOND CHECK IS LOAD BEARING in shaftAscend: water during the equip stops the dig', async () => {
+  const bot = shaftBot(SHAFT())
+  bot.inventory.items = () => [COBBLE(24), PICK()]
+  const realEquip = bot.equip
+  bot.equip = async (item) => { await realEquip(item); if (/pickaxe/.test(item?.name)) bot.world.set(0, 3, 0, 'water') }
+  const r = await shaftAscend(bot, Y0 + 20, new AbortController().signal, { deadline: Date.now() + 4000 })
+  assert.match(String(r.stopped), /liquid above/)
+  assert.deepStrictEqual(bot.digs, [])
 })
 
 const M_WLSOLID = "  const solid = target.name !== 'air' && target.boundingBox !== 'empty'\n  if (!solid) return null"
@@ -830,7 +884,7 @@ await t('MUTANT KILLED: digging the plan without re-checking each cell digs unde
   })
 })
 
-const M_PREEMPT = '  if (stair.yielded) return { progressed: false, preempted: true, refusals, backoffMs: 0, prereq: null, stair, dry: null }'
+const M_PREEMPT = '  if (stair.yielded) return { progressed: step.progressed, preempted: true, refusals, backoffMs: 0, prereq: null, stair, dry: !wet }'
 await t('MUTANT KILLED: a yielded ramp counted as a refusal', async () => {
   await withMutant(REFLEX_PATH, M_PREEMPT, '', async mod => {
     const f = await mod.floodBranch(makeBot(TOMB(WET_ALL)), { handler: 'entombed', refusals: 3, yieldTo: () => 'drowning' })

@@ -20,7 +20,7 @@ import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
          bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary, overheadBreakRisk,
-         chooseFloodSidestep, isWaterCell } from './scaffold.mjs'
+         chooseFloodSidestep, floodSidestep, isWaterCell } from './scaffold.mjs'
 import { FLOOD_RISK, climbOutcomeRoute, floodChainStep, submergedAt, logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan } from './digbudget.mjs'
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
@@ -4294,10 +4294,12 @@ export async function escapeStairUp (bot, {
    * step plans three digs and awaits each, and terrain can change between the
    * plan and the swing. Returns null after a dig that went ahead, the flood
    * refusal as `{ flood: reason }`, or the dig's own failure string. The
-   * outcome watch is scheduled only for a dig that actually happened.
+   * outcome watch is scheduled only for a dig that resolved without error.
+   * The submerged state is read NOW, not reused from the plan (Codex r2).
    */
-  const digChecked = async (b, caller, submerged) => {
+  const digChecked = async (b, caller) => {
     const cell = b.position
+    const submerged = submergedAt(bot)
     if (cell) {
       const risk = overheadBreakRisk({ at: (x, y, z) => bot.blockAt(cell.offset(x, y, z)), submerged })
       if (risk) { logFloodGuard(bot, { caller, reason: risk, cell, submerged }); return { flood: risk } }
@@ -4308,17 +4310,30 @@ export async function escapeStairUp (bot, {
     return failed
   }
 
-  /** One step sideways into a column the flood check allows (scaffold.mjs floodSidestep). true, or why not. */
-  const takeSidestep = async (side, submerged) => {
+  /**
+   * One step sideways into a column the flood check allows (scaffold.mjs floodSidestep). true, or why not.
+   * Every actuator boundary asks whether the body is still ours (the drowning rescue outranks every escape),
+   * and a yield leaves the controls to the new owner. After the digs the side cell is RE-PLANNED against the
+   * live world (it may have filled, lost its floor, or taken a falling block while the bot dug), and arrival is
+   * verified in all three axes and dry (Codex r2).
+   */
+  const takeSidestep = async (side) => {
+    if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
     await safeEmptyHand(bot, 'entombed_a')
     const p = bot.entity.position
+    const y0 = p.y
     for (const [dx, dy, dz] of side.dig) {
+      if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
       const b = bot.blockAt(p.offset(dx, dy, dz))
       if (!b) return 'terrain not loaded'
-      const r = await digChecked(b, 'ramp_sidestep', submerged)
+      const r = await digChecked(b, 'ramp_sidestep')
       if (r) return typeof r === 'string' ? r : `flood risk: ${r.flood}`
     }
+    if (side.dig.length) await sleep(FALLING_SETTLE_MS)
     if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
+    const again = floodSidestep({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz)), bear: side.bear,
+                                  canBreak, submerged: submergedAt(bot) })
+    if (!again.ok || again.dig.length) return `the side cell changed before the step: ${again.reason ?? 'a cell refilled'}`
     const fx = Math.floor(p.x) + side.bear.x, fz = Math.floor(p.z) + side.bear.z
     await bot.look(Math.atan2(-side.bear.x, -side.bear.z), 0, true).catch(() => {})
     bot.setControlState('forward', true)
@@ -4326,13 +4341,17 @@ export async function escapeStairUp (bot, {
       const until = Date.now() + 1500
       while (Date.now() < until) {
         await sleep(60)
+        if ((yielded = yieldTo())) return `yielded the body to ${yielded}`
         const q = bot.entity.position
         if (Math.floor(q.x) === fx && Math.floor(q.z) === fz) break
       }
-    } finally { bot.setControlState('forward', false) }
+    } finally { if (!yielded) bot.setControlState('forward', false) }
     await sleep(250)
     const q = bot.entity.position
-    return (Math.floor(q.x) === fx && Math.floor(q.z) === fz) ? true : 'could not step into the side cell'
+    if (Math.floor(q.x) !== fx || Math.floor(q.z) !== fz) return 'could not step into the side cell'
+    if (Math.abs(q.y - y0) >= 0.5) return `the step changed height (${y0.toFixed(1)} -> ${q.y.toFixed(1)})`
+    if (isWaterCell(bot.blockAt(q)) || isWaterCell(bot.blockAt(q.offset(0, 1, 0)))) return 'the side cell is wet'
+    return true
   }
 
   // TAKE THE CEILING FIRST, OR THE RAMP CANNOT HAVE A FIRST STEP.
@@ -4379,7 +4398,7 @@ export async function escapeStairUp (bot, {
         if (sidestepped === 0) {
           const side = chooseFloodSidestep({ at, bearings: escapeBearings(bot.entity.yaw), canBreak, submerged })
           if (side.ok) {
-            const moved = await takeSidestep(side, submerged)
+            const moved = await takeSidestep(side)
             if (yielded) { stopped = `yielded the body to ${yielded}`; return finish() }
             if (moved === true) { sidestepped++; continue }
             stopped = `${plan.reason}; the sidestep failed: ${moved}`
@@ -4401,7 +4420,7 @@ export async function escapeStairUp (bot, {
     const [dx, dy, dz] = plan.dig[0]
     const b = bot.blockAt(p.offset(dx, dy, dz))
     if (!b) { stopped = 'terrain not loaded'; return finish() }
-    const failed = await digChecked(b, 'ramp_breach', submerged)
+    const failed = await digChecked(b, 'ramp_breach')
     if (failed && failed.flood) { flood = 'ramp_breach'; stopped = `flood risk: ${failed.flood}`; return finish() }
     if (failed) { stopped = `ceiling ${failed}`; return finish() }
     if (dy === 2) breached++
@@ -4422,7 +4441,18 @@ export async function escapeStairUp (bot, {
   // Digging its own cells out is a remedy it can perform from where it is,
   // bare-handed, in under a second per block, and it is the only one.
   {
-    const unburied = await unburySelf(bot, { deadline, digWithin })
+    // THE COLUMN OVER THE HEAD IS AN UPWARD DIG; THE BOT'S OWN CELLS ARE NOT (Codex r2). A falling block that
+    // landed at feet+2 after the breach checks is broken only through the flood check. One in the bot's own
+    // feet or head cell is dug regardless: a buried bot suffocates at 1 HP per half second, and refusing that
+    // dig to avoid water is the worse trade -- the air reflex owns water, nothing owns suffocation.
+    const unburyDig = async (b) => {
+      const overhead = b.position && Math.floor(b.position.y) >= Math.floor(bot.entity.position.y) + 2
+      if (!overhead) return digWithin(b)
+      const r = await digChecked(b, 'ramp_unbury')
+      if (r && r.flood) { flood = 'ramp_breach'; return `flood risk: ${r.flood}` }
+      return r
+    }
+    const unburied = await unburySelf(bot, { deadline, digWithin: unburyDig })
     if (unburied.stopped) { stopped = unburied.stopped; return finish() }
   }
 
@@ -4483,7 +4513,7 @@ export async function escapeStairUp (bot, {
       if (Date.now() > deadline) { blocked = 'budget spent mid-step'; break }
       const b = bot.blockAt(p.offset(dx, dy, dz))
       if (!b) { blocked = 'terrain not loaded'; break }
-      const failed = await digChecked(b, 'ramp_step', submerged)
+      const failed = await digChecked(b, 'ramp_step')
       if (failed && failed.flood) { flood = 'ramp_step'; blocked = `flood risk: ${failed.flood}`; break }
       if (failed) { blocked = failed; break }
     }
@@ -4517,7 +4547,7 @@ export async function escapeStairUp (bot, {
       for (const [dx, dy, dz] of again.dig) {
         const b = bot.blockAt(p.offset(dx, dy, dz))
         if (!b) { refilledStop = 'terrain not loaded'; break }
-        const failed = await digChecked(b, 'ramp_step', submerged)
+        const failed = await digChecked(b, 'ramp_step')
         if (failed && failed.flood) { flood = 'ramp_step'; refilledStop = `re-clearing the step: flood risk: ${failed.flood}`; break }
         if (failed) { refilledStop = `re-clearing the step: ${failed}`; break }
       }
@@ -4797,15 +4827,17 @@ export async function floodBranch (bot, { handler = '?', refusals = 0, yieldTo =
   const stair = await ramp(bot, { yieldTo })
     .catch(e => ({ steps: 0, climbed: 0, breached: 0, sidestepped: 0, flood: null, stopped: `threw: ${e.message}` }))
   const step = floodChainStep({ refusals: refusals + 1, stair })
+  const q = bot.entity.position
+  const wet = isWaterCell(bot.blockAt(q)) || isWaterCell(bot.blockAt(q.offset(0, 1, 0)))
   logEvent({ kind: 'climb_flood_ramp', status: step.progressed ? 'success' : 'failed',
              detail: `handler=${handler} y=${y0} steps=${stair.steps ?? 0} sidestep=${stair.sidestepped ?? 0} ` +
                      `climbed=${(stair.climbed ?? 0).toFixed(1)} flood=${stair.flood ?? 'none'} ` +
-                     `yielded=${stair.yielded ? 1 : 0} — stopped because ${stair.stopped}`,
+                     `yielded=${stair.yielded ? 1 : 0} dry=${wet ? 0 : 1} — stopped because ${stair.stopped}`,
              snapshot: snapshot(bot) })
-  if (step.progressed) return { progressed: true, preempted: false, refusals: 0, backoffMs: 0, prereq: null, stair, dry: true }
-  if (stair.yielded) return { progressed: false, preempted: true, refusals, backoffMs: 0, prereq: null, stair, dry: null }
-  const q = bot.entity.position
-  const wet = isWaterCell(bot.blockAt(q)) || isWaterCell(bot.blockAt(q.offset(0, 1, 0)))
+  // PREEMPTION FIRST (Codex r2): whatever the ramp did before the drowning rescue took the body, the branch's
+  // outcome is not the ramp's -- no counter reset, no refusal, no back-off.
+  if (stair.yielded) return { progressed: step.progressed, preempted: true, refusals, backoffMs: 0, prereq: null, stair, dry: !wet }
+  if (step.progressed) return { progressed: true, preempted: false, refusals: 0, backoffMs: 0, prereq: null, stair, dry: !wet }
   logEvent({ kind: 'climb_flood_refused', status: 'failed',
              detail: `handler=${handler} at=${Math.floor(q.x)},${Math.round(q.y)},${Math.floor(q.z)} ` +
                      `refusals=${refusals + 1} backoff_s=${Math.round(step.backoffMs / 1000)} prereq=none dry=${wet ? 0 : 1} ` +
@@ -4882,6 +4914,9 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
       if (hand.hand === 'tool' && tool) await bot.equip(tool, 'hand').catch(() => {})
       else await safeEmptyHand(bot, 'pillar_out')
       let dug = false
+      // AND AGAIN AFTER THE HAND CHANGE (Codex r2): equip/unequip are server round trips, and the check above
+      // must still be true at the swing, read with the submerged state as it is now.
+      if (upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK
       try {
         if (!alive()) return 'preempted'
         if (!hand.refuse) { await digBounded(bot, head, Math.max(8000, hand.budgetMs)); dug = true }
@@ -5212,6 +5247,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20) {
       const wetBody = submergedAt(bot)
       const tool = bestTool(bot, above)
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      if (upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK   // again after the hand change (Codex r2)
       try { await digBounded(bot, above) } catch { break }
       watchClimbDig(bot, { caller: 'dig_straight_up', cell: opened, submerged: wetBody, before: above.name })
       await sleep(150)
