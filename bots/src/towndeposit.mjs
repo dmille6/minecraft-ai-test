@@ -79,7 +79,7 @@ const COBBLE_KEEP_ORDER = ['cobblestone', 'cobbled_deepslate', 'blackstone', 'an
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 
 /** At town? Pure: pos and home are {x, y, z}. */
-export function inTown (pos, home, { h = TOWN_H, v = TOWN_V } = {}) {
+export function inTownZone (pos, home, { h = TOWN_H, v = TOWN_V } = {}) {
   if (!pos || !home) return false
   return Math.hypot(pos.x - home.x, pos.z - home.z) <= h && Math.abs(pos.y - (home.y ?? pos.y)) <= v
 }
@@ -192,7 +192,7 @@ export function fitToContainer (steps = [], containerSlots = []) {
 const CW = { north: 'east', east: 'south', south: 'west', west: 'north' }
 const CCW = { north: 'west', west: 'south', south: 'east', east: 'north' }
 const STEP = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] }
-export function chestPartner (pos, props = {}) {
+export function doubleChestPartner (pos, props = {}) {
   const t = props?.type, f = props?.facing
   if (!pos || !STEP[f] || (t !== 'left' && t !== 'right')) return null
   const [dx, dz] = STEP[t === 'left' ? CW[f] : CCW[f]]
@@ -225,7 +225,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
 export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {} } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
-  if (!inTown(pos, home)) {
+  if (!inTownZone(pos, home)) {
     if (s.outsideSince == null) s.outsideSince = now
     if (now - s.outsideSince >= TD_REARM_OUTSIDE_MS) s.latched = false
     return none()

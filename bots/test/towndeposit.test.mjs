@@ -24,7 +24,7 @@ const mcData = require_('minecraft-data')('1.21.8')
 const { Vec3 } = require_('vec3')
 
 const TD = await import('../src/towndeposit.mjs')
-const { townDepositPlan, townKeeps, toolSlotsToBank, fitToContainer, townDepositOrder, townDepositOutcome, inTown, chestPartner, townWalkMovements,
+const { townDepositPlan, townKeeps, toolSlotsToBank, fitToContainer, townDepositOrder, townDepositOutcome, inTownZone, doubleChestPartner, townWalkMovements,
         TD_TRIGGER_SLOTS, TD_COOLDOWN_MS, TD_BACKOFF_MS, TD_SCAN_MS, TD_REARM_OUTSIDE_MS, TD_STAY_REARM_MS,
         STOCKPILE_KEEP, HELD_TARGETS, IRON_LADDER, LOGS, PLANKS, COBBLE } = TD
 const MS = await import('../src/milestones.mjs')
@@ -53,11 +53,11 @@ const filler = (n, start = 0) => Array.from({ length: n }, (_, i) => ['white_woo
 // ---- pure: the town, the keeps, the tools -----------------------------------------------------------------------
 test('town = 16 h / 12 v of home, both edges inclusive', () => {
   const home = { x: 0, y: 70, z: 0 }
-  assert.equal(inTown({ x: 16, y: 70, z: 0 }, home), true)
-  assert.equal(inTown({ x: 16.1, y: 70, z: 0 }, home), false)
-  assert.equal(inTown({ x: 0, y: 58, z: 0 }, home), true)
-  assert.equal(inTown({ x: 0, y: 57, z: 0 }, home), false, 'a chest 13 below home is a mine chest, not the bank')
-  assert.equal(inTown(null, home), false)
+  assert.equal(inTownZone({ x: 16, y: 70, z: 0 }, home), true)
+  assert.equal(inTownZone({ x: 16.1, y: 70, z: 0 }, home), false)
+  assert.equal(inTownZone({ x: 0, y: 58, z: 0 }, home), true)
+  assert.equal(inTownZone({ x: 0, y: 57, z: 0 }, home), false, 'a chest 13 below home is a mine chest, not the bank')
+  assert.equal(inTownZone(null, home), false)
 })
 
 test('the families are milestones.mjs\'s own, and the held targets match the gatherer chain\'s predicates', () => {
@@ -193,12 +193,12 @@ test('the visit\'s allowance: what an earlier container took is spent (creditCap
 
 test('double chests: two halves name each other (vanilla getConnectedDirection); a single beside a single is two chests', () => {
   const p = { x: 5, y: 70, z: 5 }
-  assert.deepEqual(chestPartner(p, { type: 'left', facing: 'north' }), { x: 6, y: 70, z: 5 })
-  assert.deepEqual(chestPartner(p, { type: 'right', facing: 'north' }), { x: 4, y: 70, z: 5 })
-  assert.deepEqual(chestPartner(p, { type: 'left', facing: 'east' }), { x: 5, y: 70, z: 6 })
-  assert.deepEqual(chestPartner(p, { type: 'right', facing: 'south' }), { x: 6, y: 70, z: 5 })
-  assert.equal(chestPartner(p, { type: 'single', facing: 'north' }), null)
-  assert.equal(chestPartner(p, {}), null)
+  assert.deepEqual(doubleChestPartner(p, { type: 'left', facing: 'north' }), { x: 6, y: 70, z: 5 })
+  assert.deepEqual(doubleChestPartner(p, { type: 'right', facing: 'north' }), { x: 4, y: 70, z: 5 })
+  assert.deepEqual(doubleChestPartner(p, { type: 'left', facing: 'east' }), { x: 5, y: 70, z: 6 })
+  assert.deepEqual(doubleChestPartner(p, { type: 'right', facing: 'south' }), { x: 6, y: 70, z: 5 })
+  assert.equal(doubleChestPartner(p, { type: 'single', facing: 'north' }), null)
+  assert.equal(doubleChestPartner(p, {}), null)
 })
 
 test('the walk never digs, towers or bridges; the shared profile is untouched', () => {
@@ -582,4 +582,19 @@ test('CHAIN CONTROL: the same bot out of town runs the craft order first (the de
   const bot = chainBot({ at: new Vec3(40, 70, 0) })
   const { ran } = await decisions(bot, 1)
   assert.equal(ran[0].skill, 'craft', `first: ${JSON.stringify(ran)}`)
+})
+
+// ---- composition with withdraw (runs once withdraw -- origin/wd-on-6c9a8fb -- is underneath this branch) ---------------
+const BANK = await import('../src/bankable.mjs')
+test('WITHDRAW HOLD: what withdraw just took is never banked back by the town deposit (skipped until withdraw is underneath)', { skip: typeof BANK.setWithdrawHold !== 'function' }, () => {
+  const items = bag([['raw_copper', 5], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['stick', 2], ['cobblestone', 3], ['oak_planks', 4], ...filler(30)])
+  assert.deepEqual(townDepositPlan(items).steps.map(s => s.name).sort(), ['raw_copper', 'stone_pickaxe'], 'positive control: without a hold both move')
+  try {
+    BANK.setWithdrawHold('raw_copper', 5, Date.now() + 60_000)
+    BANK.setWithdrawHold('stone_pickaxe', 1, Date.now() + 60_000)
+    assert.deepEqual(townDepositPlan(items).steps, [], 'held: nothing moves')
+    // withdraw's stone-pickaxe ingredients (3 cobblestone, 2 sticks, 4 planks) are inside the keeps even without a hold
+    BANK.clearWithdrawHolds()
+    assert.ok(!townDepositPlan(items).steps.some(s => ['cobblestone', 'stick', 'oak_planks'].includes(s.name)))
+  } finally { BANK.clearWithdrawHolds?.() }
 })

@@ -56,7 +56,7 @@ import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { townDepositPlan, fitToContainer, townDepositDetail, inTown, chestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS } from './towndeposit.mjs'
+import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS } from './towndeposit.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -5680,7 +5680,7 @@ export function townContainers (bot, max = TD_MAX_CONTAINERS) {
     if (!me) return []
     const home = homeVec()
     const found = (bot.findBlocks?.({ matching: b => isTownContainer(bot, b), maxDistance: STORAGE_REACH, count: 32 }) ?? [])
-      .filter(p => inTown(p, home) && me.distanceTo(p) <= STORAGE_REACH)
+      .filter(p => inTownZone(p, home) && me.distanceTo(p) <= STORAGE_REACH)
       .sort((a, b) => me.distanceTo(a) - me.distanceTo(b) || a.x - b.x || a.y - b.y || a.z - b.z)
     const out = []
     for (const p of found) {
@@ -5689,7 +5689,7 @@ export function townContainers (bot, max = TD_MAX_CONTAINERS) {
       if (!b || !isTownContainer(bot, b)) continue
       const chestLike = blockNameOf(bot, b) !== 'barrel'
       if (chestLike && chestLidBlocked(bot.blockAt(p.offset(0, 1, 0)))) continue
-      const partner = chestLike ? chestPartner(p, blockProps(b)) : null
+      const partner = chestLike ? doubleChestPartner(p, blockProps(b)) : null
       if (partner && out.some(o => o.position.x === partner.x && o.position.y === partner.y && o.position.z === partner.z)) continue
       out.push(b)
     }
@@ -5709,7 +5709,7 @@ function windowBag (bot, win) {
 }
 
 /** Put a loaded cursor back into the bag: its source slot when empty, else any empty bag slot. -> true when emptied. */
-async function settleCursor (bot, win, sourceSlot) {
+async function townSettleCursor (bot, win, sourceSlot) {
   if (!win.selectedItem) return true
   const empty = s => s != null && s >= win.inventoryStart && s < win.inventoryEnd && !win.slots[s]
   let target = empty(sourceSlot) ? sourceSlot : null
@@ -5765,14 +5765,14 @@ async function bankInto (bot, win, wanted, already, deadline, signal) {
     if (!now || now.name !== step.name || now.count !== step.count || win.selectedItem) continue   // the bag moved under the plan
     try { await bot.clickWindow(it.wslot, 0, 0) } catch { /* judged below */ }
     if (!win.selectedItem || win.selectedItem.name !== step.name || win.selectedItem.count !== step.count) {
-      if (win.selectedItem && !(await settleCursor(bot, win, it.wslot))) { unsettled++; break }
+      if (win.selectedItem && !(await townSettleCursor(bot, win, it.wslot))) { unsettled++; break }
       continue
     }
     const dest = !win.slots[step.dest] ? step.dest : emptyDest()
-    if (dest == null) { full = true; if (!(await settleCursor(bot, win, it.wslot))) unsettled++; break }
+    if (dest == null) { full = true; if (!(await townSettleCursor(bot, win, it.wslot))) unsettled++; break }
     try { await bot.clickWindow(dest, 0, 0) } catch { /* judged below */ }
     if (win.selectedItem) {
-      if (!(await settleCursor(bot, win, it.wslot))) unsettled++
+      if (!(await townSettleCursor(bot, win, it.wslot))) unsettled++
       break
     }
     done.push({ step, it, dest })
