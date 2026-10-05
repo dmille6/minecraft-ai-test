@@ -1318,8 +1318,8 @@ await t('#1 the filter is the LANDING cell, any state of the composter; the base
 
 await t('#1 SCOPED: the shared profiles carry no composter entry (index.mjs arrays as before, a fresh tunnel profile still crosses); only the visit borrows the filter', async () => {
   const src = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
-  assert.match(src, /\n\s*moves\.exclusionAreasStep = \[waterEntryPenalty, deathSitePenalty\]\n/)
-  assert.match(src, /\n\s*waterMoves\.exclusionAreasStep = \[deathSitePenalty\]/)
+  assert.match(src, /\n\s*moves\.exclusionAreasStep = \[waterEntryPenalty, deathSitePenalty, wellPenalty\]\n/)   // the junk well's column (well.mjs), no composter entry
+  assert.match(src, /\n\s*waterMoves\.exclusionAreasStep = \[deathSitePenalty, wellPenalty\]/)
   assert.equal((src.match(/setMovements\(composterWalkMoves\)/g) ?? []).length, 1, 'the filtered profile is installed somewhere else too')
   assert.match(src, /bot\.withComposterWalk = async \(fn\) => \{\s*\n\s*bot\.pathfinder\.setMovements\(composterWalkMoves\)/)
   const { tunnelMovements } = await import('../src/oretunnel.mjs')

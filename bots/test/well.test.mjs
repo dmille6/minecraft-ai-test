@@ -1,0 +1,976 @@
+// THE TOWN JUNK WELL (src/well.mjs has the geometry, the sandbox numbers and the design).
+//
+// Behaviour only. Pure decisions through their exported functions -- the list, the site, the aim, the admission, the
+// scheduler, the room decision, the exclusions -- checked against the real registry's trapdoor boxes and the real
+// pathfinder; then the real skills through a fake bot whose inventory follows mineflayer's rules and whose throws follow
+// vanilla's drop ballistics (noise-free). The refusal CHAIN is driven through wellOrder -> skill -> wellOrderOutcome ->
+// wellOrder. Structural assertions only where behaviour cannot reach (the dispatch table, index.mjs's arrays), with
+// comments stripped, unique anchors, and a mutant each.
+import assert from 'node:assert/strict'
+import { readFileSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { createRequire } from 'node:module'
+import { Vec3 } from 'vec3'
+import { inPickupBox } from '../src/pickupbox.mjs'
+
+const LOG_DIR = `/tmp/mcbot-test-logs-well-${process.pid}`
+process.env.LOG_DIR = LOG_DIR; process.env.BOT_NAME = 'TestBot'
+const W = await import('../src/well.mjs')
+const require = createRequire(import.meta.url)
+const REG = require('minecraft-data')('1.21.11')
+const Recipe = require('prismarine-recipe')(REG).Recipe
+const PBlock = require('prismarine-block')('1.21.11')
+
+let pass = 0, fail = 0
+const failed = []
+const t = async (name, fn) => {
+  try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) {
+    fail++; failed.push(name); console.log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split('\n').slice(0, 4).join('\n        ')}`)
+  }
+}
+const within = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} did not finish within ${ms}ms`)), ms))])
+
+// ===================================================================================================================
+// WHAT GOES IN
+// ===================================================================================================================
+await t('the list is the owner\'s eight plus the three decorations, and nothing the guards forbid', () => {
+  for (const n of ['egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute', 'dead_bush', 'pointed_dripstone', 'rail']) {
+    assert.ok(W.isWellJunk(n), `positive control: ${n} is on the list`)
+    assert.ok(REG.itemsByName[n], `${n} is a real 1.21.11 item`)
+  }
+  assert.equal(W.WELL_JUNK.size, 11)
+  for (const n of ['cobblestone', 'cobbled_deepslate', 'dirt', 'andesite', 'gravel', 'oak_log', 'oak_planks', 'stick', 'oak_sapling',
+    'stone_pickaxe', 'wooden_axe', 'apple', 'bread', 'beef', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'wheat_seeds', 'poppy', 'bamboo', 'bone_meal']) {
+    assert.equal(W.isWellJunk(n), false, `${n} must never go down the well`)
+  }
+})
+
+await t('disposePlan: whole listed stacks only, in slot order, capped; counts every listed stack for the trigger', () => {
+  const items = [{ name: 'cobblestone', count: 64, slot: 9 }, { name: 'egg', count: 16, slot: 12 }, { name: 'flint', count: 3, slot: 10 },
+    { name: 'oak_sapling', count: 40, slot: 11 }, { name: 'leaf_litter', count: 20, slot: 13 }, { name: 'rail', count: 1, slot: 40 }]
+  const p = W.disposePlan(items)
+  assert.equal(p.slots, 6); assert.equal(p.junkStacks, 3)
+  assert.deepEqual(p.stacks.map(s => `${s.slot}:${s.name}:${s.count}`), ['10:flint:3', '12:egg:16', '40:rail:1'])
+  const many = Array.from({ length: 12 }, (_, i) => ({ name: 'egg', count: 16, slot: 9 + i }))
+  assert.equal(W.disposePlan(many).stacks.length, W.MAX_STACKS_PER_VISIT); assert.equal(W.disposePlan(many).junkStacks, 12)
+})
+
+// ===================================================================================================================
+// THE GEOMETRY, against the registry's own trapdoor boxes
+// ===================================================================================================================
+/** Does every item centre in the opening keep its 0.125 half-width off the open flap's box? */
+const flapClear = (o, [x0, z0, x1, z1]) => {
+  const m = 0.125, thinX = x1 - x0 < 0.5
+  if (thinX) return x0 > 0.5 ? o.x1 + m <= x0 + 1e-9 : o.x0 - m >= x1 - 1e-9
+  return z0 > 0.5 ? o.z1 + m <= z0 + 1e-9 : o.z0 - m >= z1 - 1e-9
+}
+const trapShape = props => {
+  const b = REG.blocksByName.oak_trapdoor
+  for (let id = b.minStateId; id <= b.maxStateId; id++) {
+    const x = PBlock.fromStateId(id, 0); const p = x.getProperties()
+    if (Object.entries(props).every(([k, v]) => p[k] === v) && !p.waterlogged && !p.powered) return x.shapes
+  }
+  throw new Error('no state')
+}
+await t('CLEARANCE with the vanilla trapdoor boxes: 1.625 under the cap with the floor trapdoor < creeper 1.7; 1.8125 without it (the sandbox finding)', () => {
+  const capBottom = trapShape({ half: 'top', open: false, facing: 'north' })[0][1]
+  const floorTop = trapShape({ half: 'bottom', open: false, facing: 'north' })[0][4]
+  assert.equal(capBottom, 0.8125); assert.equal(floorTop, 0.1875)
+  const creeper = REG.entitiesByName.creeper.height
+  assert.equal(creeper, 1.7)
+  const g = 63
+  const withFloor = (g + capBottom) - (g - 1 + floorTop), without = (g + capBottom) - (g - 1)
+  assert.equal(without, 1.8125); assert.ok(without > creeper, 'positive control: without the floor trapdoor a creeper fits')
+  assert.equal(withFloor, 1.625); assert.ok(withFloor < creeper, 'with the floor trapdoor a creeper cannot fit')
+  for (const m of ['zombie', 'skeleton', 'spider', 'creeper', 'witch', 'enderman']) {
+    const e = REG.entitiesByName[m]
+    assert.ok(e.height > withFloor || e.width > 1, `${m} (${e.width}x${e.height}) fits in the shaft`)
+  }
+})
+
+await t('PICKUP: an item on the floor trapdoor is >= 0.75 below every standing player near it (rim and closed cap); a body INSIDE would reach it (control)', () => {
+  const g = 63, cap = { x: 0, y: g, z: 0 }
+  const item = { x: 0.5, y: g - 1 + 0.1875, z: 0.5 }
+  let n = 0
+  for (let x = -1.5; x <= 2.5; x += 0.25) for (let z = -1.5; z <= 2.5; z += 0.25) {
+    const feet = { x, y: g + 1, z }
+    assert.ok(feet.y - item.y >= 0.75 + 1); n++
+    assert.equal(inPickupBox(feet, item, 0, 0), false, `a body at ${x},${z} on the rim picks it up`)
+  }
+  assert.ok(n > 200)
+  assert.equal(inPickupBox({ x: 0.5, y: g - 1 + 0.1875, z: 0.5 }, item, 0, 0), true, 'positive control: a body standing in the shaft does')
+  // a body in a DUG wall cell (feet at g, beside the shaft): still out of the box, by the floor trapdoor's 1/16 margin
+  assert.equal(inPickupBox({ x: 1.3, y: g, z: 0.5 }, item, 0, 0), false)
+  assert.ok(W.bodyInWell([cap], { x: 0.5, y: g - 1 + 0.1875, z: 0.5 })); assert.equal(W.bodyInWell([cap], { x: 0.5, y: g + 1, z: 0.5 }), null, 'on the closed cap is not inside')
+  assert.ok(W.itemInWell([cap], item)); assert.equal(W.itemInWell([cap], { x: 0.5, y: g + 1, z: 0.5 }), null, 'on the cap is not in the well')
+})
+
+await t('THE FLAP: for every facing, the registry\'s OPEN shape lies on the side the opening excludes, never the stand side', () => {
+  const cap = { x: 0, y: 63, z: 0 }
+  for (const facing of ['north', 'south', 'west', 'east']) {
+    const [x0, , z0, x1, , z1] = trapShape({ half: 'top', open: true, facing })[0]
+    const o = W.wellOpening(cap, facing)
+    const f = W.FACING[facing], stand = { x: 0.5 + f.x, z: 0.5 + f.z }
+    const flapMid = { x: (x0 + x1) / 2, z: (z0 + z1) / 2 }
+    assert.ok(Math.hypot(flapMid.x - stand.x, flapMid.z - stand.z) > 1.2, `${facing}: the flap is on the stand's side`)
+    assert.ok(flapClear(o, [x0, z0, x1, z1]), `${facing}: an item centred in the opening can touch the flap`)
+    const open = W.wellOpening(cap, null)
+    assert.ok((o.x1 - o.x0) * (o.z1 - o.z0) < (open.x1 - open.x0) * (open.z1 - open.z0), 'the flap narrows the opening')
+  }
+})
+
+// ===================================================================================================================
+// THE AIM
+// ===================================================================================================================
+await t('AIM: pitches match the sandbox (54.45 at 1.0, 58.5 at 0.85, 48.45 at 1.15) within 1.5 degrees; rates >= 0.99', () => {
+  const cap = { x: 10, y: 63, z: 10 }
+  for (const [d, sb] of [[1.0, 54.45], [0.85, 58.5], [1.15, 48.45]]) {
+    const a = W.wellAim({ from: { x: 10.5, z: 10.5 - d }, cap, facing: 'north' })
+    assert.ok(a.ok, `${d}: ${a.why}`); assert.ok(Math.abs(a.pitch - sb) <= 1.5, `${d}: pitch ${a.pitch} vs sandbox ${sb}`); assert.ok(a.rate >= 0.99, `${d}: ${a.rate}`)
+  }
+  assert.ok(W.wellAim({ from: { x: 10.75, z: 9.5 }, cap, facing: 'north' }).ok, 'the sandbox\'s lateral 0.25 stand')
+  assert.equal(W.wellAim({ from: { x: 10.5, z: 10.5 - 1.2 }, cap, facing: 'north' }).ok, false, 'beyond 1.15: refused')
+  assert.equal(W.wellAim({ from: { x: 10.5, z: 10.5 - 0.7 }, cap, facing: 'north' }).ok, false, 'nearer than 0.8: refused')
+})
+
+await t('AIM cross-check: a seeded Monte Carlo of vanilla\'s RANDOM drop at the chosen pitch lands >= 98% in the opening (the quadrature is not flattering itself)', () => {
+  let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+  const cap = { x: 10, y: 63, z: 10 }
+  for (const d of [0.9, 1.0, 1.1]) {
+    const from = { x: 10.5, z: 10.5 - d }
+    const a = W.wellAim({ from, cap, facing: 'north' })
+    const o = W.wellOpening(cap, 'north')
+    let hit = 0; const N = 4000
+    for (let i = 0; i < N; i++) {
+      const ang = rnd() * 2 * Math.PI, m = 0.02 * rnd()
+      const c = W.tossCrossing({ ux: 0, uz: 1, pitchDeg: a.pitch, dvy: (rnd() - rnd()) * 0.1, dvx: Math.cos(ang) * m, dvz: Math.sin(ang) * m })
+      const X = from.x + c.x, Z = from.z + c.z
+      if (X >= o.x0 && X <= o.x1 && Z >= o.z0 && Z <= o.z1) hit++
+    }
+    assert.ok(hit / N >= 0.98, `${d}: MC ${hit / N} at ${a.pitch}`)
+    // positive control: a bad pitch misses
+    let bad = 0
+    for (let i = 0; i < 500; i++) { const c = W.tossCrossing({ ux: 0, uz: 1, pitchDeg: 25, dvy: (rnd() - rnd()) * 0.1 }); const Z = from.z + c.z; if (Z >= o.z0 && Z <= o.z1) bad++ }
+    assert.ok(bad / 500 < 0.5, 'positive control: a shallow throw clears the opening')
+  }
+})
+
+await t('aimPoint looks along the cap\'s centre bearing at the pitch asked', () => {
+  const eye = { x: 10.5, y: 65.62, z: 9.5 }, cap = { x: 10, y: 63, z: 10 }
+  const p = W.aimPoint({ eye, cap, pitchDeg: 54 })
+  const h = Math.hypot(p.x - eye.x, p.z - eye.z)
+  assert.ok(Math.abs(Math.atan2(eye.y - p.y, h) * 180 / Math.PI - 54) < 1e-9)
+  assert.ok(Math.abs(p.x - 10.5) < 1e-9 && p.z > eye.z, 'toward +z, the cap')
+})
+
+await t('tossOutcome: in the shaft vs on the rim or the cap', () => {
+  const cap = { x: 10, y: 63, z: 10 }
+  const r = W.tossOutcome({ cap, items: [{ id: 1, x: 10.5, y: 62.19, z: 10.4 }, { id: 2, x: 10.5, y: 64, z: 11.2 }, { id: 3, x: 10.5, y: 64, z: 10.5 }] })
+  assert.deepEqual(r.inWell, [1]); assert.deepEqual(r.missed.map(m => m.id), [2, 3])
+})
+
+// ===================================================================================================================
+// ADMISSION
+// ===================================================================================================================
+await t('ADMISSION: nobody else within 5 of the rim; self and far players ignored; the nearest is named', () => {
+  const cap = { x: 0, y: 63, z: 0 }
+  assert.equal(W.wellAdmission({ cap, players: [] }), null)
+  assert.equal(W.wellAdmission({ cap, me: 'a', players: [{ username: 'a', x: 0.5, y: 64, z: 0.5 }] }), null, 'self')
+  assert.equal(W.wellAdmission({ cap, players: [{ username: 'far', x: 6, y: 64, z: 0.5 }] }), null)
+  const r = W.wellAdmission({ cap, players: [{ username: 'far', x: 4.4, y: 64, z: 0.5 }, { username: 'near', x: 2.5, y: 64, z: 0.5 }] })
+  assert.equal(r.reason, 'player_near'); assert.equal(r.who, 'near')
+})
+
+// ===================================================================================================================
+// THE SITE
+// ===================================================================================================================
+const AIR = { name: 'air', boundingBox: 'empty', hardness: 0 }
+const B = name => ({ name, boundingBox: REG.blocksByName[name].boundingBox, hardness: REG.blocksByName[name].hardness })
+const TD = (half, open = false, facing = 'north') => ({ name: 'oak_trapdoor', boundingBox: 'block', hardness: 3, props: { half, open, facing } })
+const flatRead = (extra = {}, g = 63) => (x, y, z) => extra[`${x},${y},${z}`] ?? (y > g ? AIR : y === g ? B('grass_block') : B('dirt'))
+const HOME0 = { x: 0, y: 64, z: 0 }
+
+await t('SITE: flat dirt passes; a cave cell 2 off at g-3 (Codex\'s underground neighbour), liquid within 3, a chest within 3, sand walls and the home point are refused', () => {
+  const cap = { x: 5, y: 63, z: 0 }
+  assert.equal(W.wellSiteRefusal(flatRead(), cap, HOME0), null, 'positive control: flat ground')
+  assert.match(W.wellSiteRefusal(flatRead({ '7,60,0': AIR }), cap, HOME0), /underground air/)
+  assert.match(W.wellSiteRefusal(flatRead({ '6,62,1': AIR }), cap, HOME0), /wall is air|underground/)
+  assert.match(W.wellSiteRefusal(flatRead({ '8,63,0': B('water') }), cap, HOME0), /water within 3/)
+  assert.match(W.wellSiteRefusal(flatRead({ '6,64,1': B('chest') }), cap, HOME0), /chest within 3/)
+  assert.match(W.wellSiteRefusal(flatRead({ '6,64,1': B('composter') }), cap, HOME0), /composter within 3/)
+  assert.match(W.wellSiteRefusal(flatRead({ '4,63,0': B('sand') }), cap, HOME0), /wall is sand/)
+  assert.equal(W.wellSiteRefusal(flatRead(), { x: 1, y: 63, z: 0 }, HOME0), 'home point')
+  assert.equal(W.wellSiteRefusal(flatRead(), cap, HOME0, { avoid: [{ x: 6, z: 1 }] }), 'the composter site is within 3')
+  assert.equal(W.wellSiteRefusal(flatRead({ '7,59,0': AIR }), cap, HOME0), null, 'g-4 is below the ring: a cave there cannot reach')
+  const unknown = (x, y, z) => (x === 7 && y === 61 ? null : flatRead()(x, y, z))
+  assert.equal(W.wellSiteRefusal(unknown, cap, HOME0), 'unknown', 'never on a guess')
+})
+
+await t('SITE STAGES: a part-built site is accepted (resume); a built one is "already a well"; identity reads the cap', () => {
+  const cap = { x: 5, y: 63, z: 0 }
+  assert.equal(W.wellStage(flatRead(), cap), 'fresh')
+  const dug = { '5,63,0': AIR, '5,62,0': AIR }
+  assert.equal(W.wellStage(flatRead({ '5,63,0': AIR }), cap), 'half_dug')
+  assert.equal(W.wellStage(flatRead(dug), cap), 'dug'); assert.equal(W.wellSiteRefusal(flatRead(dug), cap, HOME0), null)
+  const floored = { '5,63,0': AIR, '5,62,0': TD('bottom') }
+  assert.equal(W.wellStage(flatRead(floored), cap), 'floored'); assert.equal(W.wellSiteRefusal(flatRead(floored), cap, HOME0), null)
+  const built = { '5,63,0': TD('top', false, 'north'), '5,62,0': TD('bottom') }
+  assert.equal(W.wellStage(flatRead(built), cap), 'built'); assert.equal(W.wellSiteRefusal(flatRead(built), cap, HOME0), 'already a well')
+  assert.deepEqual(W.wellIdentity(flatRead(built), cap), { ok: true, open: false, facing: 'north', floor: true })
+  assert.equal(W.wellIdentity(flatRead({ '5,63,0': TD('bottom') }), cap).ok, false, 'a bottom-half trapdoor is no cap')
+  assert.equal(W.wellIdentity(flatRead({ '5,63,0': TD('top') }), cap).ok, false, 'a cap over solid ground is no well')
+  assert.equal(W.wellIdentity(flatRead({ '5,63,0': TD('top', true, 'east'), '5,62,0': AIR }), cap).open, true)
+})
+
+await t('STAND: the facing side, feet and head open over a full block, hinge opposite; a slab stand is skipped', () => {
+  const cap = { x: 5, y: 63, z: 0 }
+  const s = W.wellStand(flatRead(), cap)
+  assert.equal(s.facing, 'north'); assert.deepEqual(s.stand, { x: 5, y: 64, z: -1 }); assert.deepEqual(s.hinge, { x: 5, y: 63, z: 1 }); assert.deepEqual(s.face, { x: 0, y: 0, z: -1 })
+  assert.deepEqual(W.standForFacing(cap, 'north'), s.stand)
+  const s2 = W.wellStand(flatRead({ '5,63,-1': B('oak_slab') }), cap)
+  assert.equal(s2.facing, 'south', 'a slab under the north stand is not a full block')
+})
+
+await t('CANONICAL: a pure function of home and the world; it skips a column with a cave beside it', () => {
+  const a = W.canonicalWellSite({ home: HOME0, read: flatRead() }).site
+  assert.ok(a); assert.deepEqual(W.canonicalWellSite({ home: HOME0, read: flatRead() }).site, a)
+  const cave = {}; for (let dx = -1; dx <= 1; dx++) cave[`${a.x + dx},60,${a.z}`] = AIR
+  const b = W.canonicalWellSite({ home: HOME0, read: flatRead(cave) }).site
+  assert.ok(b && (b.x !== a.x || b.z !== a.z), 'the cave column was taken')
+  assert.equal(W.wellSiteRefusal(flatRead(cave), a, HOME0) !== null, true)
+})
+
+// ===================================================================================================================
+// THE SCHEDULER AND THE ROOM DECISION
+// ===================================================================================================================
+const NOW = 10_000_000
+const well0 = { open: false, attended: false }
+await t('ORDER: dispose at >= 34 slots with listed junk, at town; never below 34, never without junk, never away', () => {
+  const o = x => W.wellOrder({ now: NOW, distHome: 5, well: well0, slots: 34, freeSlots: 2, junkStacks: 2, ...x }).order?.skill ?? null
+  assert.equal(o({}), 'dispose_well')
+  assert.equal(o({ slots: 33, freeSlots: 3 }), null)
+  assert.equal(o({ junkStacks: 0 }), null)
+  assert.equal(o({ distHome: 60 }), null)
+  assert.equal(o({ well: () => ({ open: true, attended: false }) }), 'close_well', 'an open, unattended well is closed first')
+  assert.equal(o({ well: () => ({ open: true, attended: true }) }), 'dispose_well', 'an attended open well is someone else\'s')
+  let calls = 0
+  const r = W.wellOrder({ now: NOW, distHome: 5, slots: 10, freeSlots: 26, junkStacks: 0, well: () => { calls++; return null }, buildPlan: () => null, state: {} })
+  assert.equal(r.order, null); assert.equal(calls, 1)
+  W.wellOrder({ now: NOW + 1000, distHome: 5, slots: 10, well: () => { calls++; return null }, buildPlan: () => null, state: r.state })
+  assert.equal(calls, 1, 'the world scan is rate limited')
+})
+
+await t('ORDER: build when the town has none, room or pit-first; one builder (lowest name defers, bounded)', () => {
+  const plan = { wood: 'oak', slotsNeeded: 2 }
+  const o = x => W.wellOrder({ now: NOW, distHome: 5, well: null, buildPlan: plan, slots: 20, freeSlots: 16, junkStacks: 0, ...x })
+  assert.equal(o({}).order?.skill, 'build_well')
+  assert.equal(o({ slots: 36, freeSlots: 0, junkStacks: 0 }).order, null, 'no room and no junk to make it')
+  assert.match(o({ slots: 36, freeSlots: 0, junkStacks: 2 }).order?.why ?? '', /2 junk stack\(s\) go down the pit first/)
+  assert.equal(o({ buildPlan: null }).order, null)
+  const d = o({ myName: 'b', peers: ['a'] }); assert.equal(d.order, null); assert.equal(d.state.deferrals, 1)
+  assert.equal(o({ myName: 'b', peers: ['a'], state: { deferrals: 3 } }).order?.skill, 'build_well', 'no starvation')
+})
+
+await t('ROOM: craft first with room; pit-first when junk stacks cover the deficit; else short', () => {
+  assert.deepEqual(W.wellBuildRoom({ free: 3, slotsNeeded: 2, junkStacks: 0 }), { ok: true, pitFirst: false, toss: 0, short: 0 })
+  assert.deepEqual(W.wellBuildRoom({ free: 0, slotsNeeded: 2, junkStacks: 3 }), { ok: true, pitFirst: true, toss: 2, short: 0 })
+  assert.deepEqual(W.wellBuildRoom({ free: 1, slotsNeeded: 3, junkStacks: 1 }), { ok: false, pitFirst: false, toss: 0, short: 1 })
+})
+
+await t('BUILD PLAN: two carried trapdoors; or 6 planks (+4 for a table) from one wood\'s logs; simulated slots', () => {
+  assert.deepEqual(W.wellBuildPlan({ oak_trapdoor: 1, spruce_trapdoor: 1 }), { carried: true, trapdoor: 'oak_trapdoor', slotsNeeded: 0 })
+  assert.equal(W.wellBuildPlan({ oak_log: 2 }), null, '2 logs = 8 planks < 10 without a table')
+  const p = W.wellBuildPlan({ oak_log: 3 })
+  assert.equal(p.wood, 'oak'); assert.equal(p.logCrafts, 3); assert.equal(p.needTable, true); assert.equal(p.trapdoor, 'oak_trapdoor')
+  assert.equal(W.wellBuildPlan({ oak_log: 2 }, { tableAvailable: true }).logCrafts, 2)
+  assert.equal(W.wellBuildPlan({ birch_planks: 6 }, { tableAvailable: true }).logCrafts, 0)
+  const sim = W.wellBuildPlan({ oak_planks: 6 }, { tableAvailable: true, items: [{ name: 'oak_planks', count: 6 }] })
+  assert.equal(sim.slotsNeeded, 0, 'the planks stack the craft empties takes the trapdoors')
+  assert.equal(W.wellBuildPlan({ iron_trapdoor: 4 }), null, 'iron trapdoors are not wooden')
+})
+
+await t('OUTCOME: a skip, an abort or a runner refusal is free; a failed dispose backs off; a no-room build only a cooldown', () => {
+  const f = W.wellOrderOutcome
+  assert.equal(f('dispose_well', 'no_effect', NOW, {}).disposeBackoffUntil ?? 0, 0)
+  assert.equal(f('dispose_well', 'aborted', NOW, {}).disposeBackoffUntil ?? 0, 0)
+  assert.equal(f('dispose_well', 'failed', NOW, {}, 'runner_busy').disposeBackoffUntil ?? 0, 0)
+  assert.equal(f('dispose_well', 'failed', NOW, {}).disposeBackoffUntil, NOW + W.DISPOSE_BACKOFF_MS)
+  assert.equal(f('build_well', 'failed', NOW, {}, 'well_no_room').buildBackoffUntil, NOW + W.WELL_BUILD_COOLDOWN_MS)
+  assert.equal(f('build_well', 'failed', NOW, {}, 'well_place').buildBackoffUntil, NOW + W.WELL_BUILD_BACKOFF_MS)
+  assert.equal(f('dispose_well', 'success', NOW, { disposeBackoffUntil: NOW + 5 }).disposeBackoffUntil, 0)
+})
+
+// ===================================================================================================================
+// EVERY PATH KEEPS OUT: the real pathfinder (mineflayer-pathfinder 2.4.5 Movements + AStar)
+// ===================================================================================================================
+const routeWorld = ({ well = { x: 2, y: 63, z: 0 }, open = false, pillar = false } = {}) => {
+  const reg = require('prismarine-registry')('1.21.8'); const Block = require('prismarine-block')(reg)
+  const { Movements: Mv, goals: G } = require('mineflayer-pathfinder')
+  const AStar = require('mineflayer-pathfinder/lib/astar.js'); const Move = require('mineflayer-pathfinder/lib/move.js')
+  const w = new Map(), k = (x, y, z) => `${x},${y},${z}`
+  for (let x = -3; x <= 7; x++) for (let z = -3; z <= 3; z++) { w.set(k(x, 63, z), 'stone'); if (Math.abs(z) >= 1) for (let y = 64; y <= 72; y++) w.set(k(x, y, z), 'bedrock') }
+  w.set(k(well.x, well.y, well.z), 'oak_trapdoor'); w.set(k(well.x, well.y - 1, well.z), 'oak_trapdoor')
+  let start = new Move(0, 64, 0, 0, 0)
+  if (pillar) {   // the only way off a 3-high pillar drops past the well column onto the cap (drop-down landing)
+    for (let y = 64; y <= 66; y++) w.set(k(1, y, 0), 'stone')
+    for (let y = 64; y <= 72; y++) w.set(k(0, y, 0), 'bedrock')
+    start = new Move(1, 67, 0, 0, 0)
+  }
+  const nameAt = (x, y, z) => w.get(k(x, y, z)) ?? (y < 63 ? 'bedrock' : 'air')
+  const stateOf = (name, x, y, z) => {
+    const b = reg.blocksByName[name]
+    if (name !== 'oak_trapdoor') return b.defaultState
+    for (let id = b.minStateId; id <= b.maxStateId; id++) {
+      const p = Block.fromStateId(id, 0).getProperties()
+      if (p.facing === 'north' && !p.powered && !p.waterlogged && p.half === (y === well.y ? 'top' : 'bottom') && p.open === (y === well.y ? open : false)) return id
+    }
+  }
+  const blockAt = p => {
+    const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
+    const name = nameAt(x, y, z); const b = Block.fromStateId(stateOf(name, x, y, z), 0); b.position = new Vec3(x, y, z); return b
+  }
+  const bot = { registry: reg, version: '1.21.8', game: { minY: -64, height: 384 }, blockAt, entity: { position: new Vec3(start.x + 0.5, start.y, start.z + 0.5), effects: {} },
+                entities: {}, inventory: { items: () => [], slots: [] }, pathfinder: { bestHarvestTool: () => null } }
+  const profile = (cols) => { const m = new Mv(bot); m.canDig = false; m.allowParkour = false; m.maxDropDown = 6; if (cols) m.exclusionAreasStep = [b => W.wellStepCost(cols, b)]; return m }
+  const route = (m, goal = new G.GoalBlock(5, 64, 0)) => new AStar(start, m, goal, 3000, 1000).compute()
+  const inColumn = r => r.path.filter(n => n.x === well.x && n.z === well.z && n.y >= well.y - 1 && n.y <= well.y + 10).map(n => `${n.x},${n.y},${n.z}`)
+  return { reg, bot, G, Mv, route, profile, inColumn, well }
+}
+
+await t('PATH: the plain profile walks over the closed cap (positive control); with the well cost no node is ever in the column, and a detour does not exist in a 1-wide corridor', () => {
+  const { route, profile, inColumn } = routeWorld()
+  const plain = route(profile(null))
+  assert.equal(plain.status, 'success'); assert.deepEqual(inColumn(plain), ['2,64,0'], 'positive control: the corridor route crosses the cap')
+  const r = route(profile([{ x: 2, y: 63, z: 0 }]))
+  assert.deepEqual(inColumn(r), [], `a node in the well column: ${r.status}`)
+})
+
+await t('PATH: an OPEN cap is still floor to the planner (the sandbox hazard: positive control) -- and a GOAL on the well cell is never reached through it', () => {
+  const { route, profile, inColumn, G } = routeWorld({ open: true })
+  const plain = route(profile(null), new G.GoalBlock(2, 64, 0))
+  assert.equal(plain.status, 'success', 'positive control: the planner happily ends ON an open trapdoor'); assert.deepEqual(inColumn(plain).slice(-1), ['2,64,0'])
+  const r = route(profile([{ x: 2, y: 63, z: 0 }]), new G.GoalBlock(2, 64, 0))
+  assert.notEqual(r.status, 'success'); assert.deepEqual(inColumn(r), [])
+})
+
+await t('PATH: the drop-down landing (getLandingBlock bypasses step exclusions on the landing) cannot land on the cap: the column is closed up to +10', () => {
+  const { route, profile, inColumn, G } = routeWorld({ pillar: true })
+  const plain = route(profile(null), new G.GoalBlock(5, 64, 0))
+  assert.equal(plain.status, 'success'); assert.ok(inColumn(plain).includes('2,64,0'), `positive control: the drop lands on the cap: ${plain.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')}`)
+  const r = route(profile([{ x: 2, y: 63, z: 0 }]), new G.GoalBlock(5, 64, 0))
+  assert.deepEqual(inColumn(r), [], `${r.status} ${r.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')}`)
+})
+
+await t('BREAK: a dig profile never digs a trapdoor or the well\'s walls, floor or ring; it still digs stone further off (positive control)', async () => {
+  const { reg, bot, Mv } = routeWorld()
+  const cols = [{ x: 2, y: 63, z: 0 }]
+  const m = W.protectWellBlocks(new Mv(bot), reg)
+  m.canDig = true; m.dontCreateFlow = false; m.dontMineUnderFallingBlock = false
+  m.exclusionAreasBreak = [b => W.wellBreakCost(cols, b)]
+  const at = (x, y, z) => bot.blockAt(new Vec3(x, y, z))
+  assert.equal(m.safeToBreak(at(6, 63, 0)), true, 'positive control')
+  assert.equal(m.safeToBreak(at(3, 63, 0)), false, 'a wall')
+  assert.equal(m.safeToBreak(at(4, 61, 1)), false, 'the underground ring')
+  assert.equal(m.safeToBreak(at(2, 61, 0)), false, 'the floor')
+  const bare = W.protectWellBlocks(new Mv(bot), reg); bare.canDig = true; bare.dontCreateFlow = false; bare.dontMineUnderFallingBlock = false
+  assert.equal(bare.safeToBreak(at(2, 63, 0)), false, 'the trapdoor type is never dug, with or without a known well')
+  const { tunnelMovements } = await import('../src/oretunnel.mjs')
+  for (const tm of [tunnelMovements(bot, null), tunnelMovements(bot, m)]) assert.ok(tm.blocksCantBreak.has(reg.blocksByName.oak_trapdoor.id), 'the tunnel profile digs trapdoors')
+  assert.equal(W.wellStepCost(cols, { position: { x: 2, y: 74, z: 0 } }), 0, 'above +10 is free')
+  assert.equal(W.wellStepCost(cols, { position: { x: 3, y: 64, z: 0 } }), 0, 'beside the column is free')
+})
+
+// ===================================================================================================================
+// THE SKILLS, through the real registry and a fake bot
+// ===================================================================================================================
+const { SKILLS, SKILL_CONTRACTS, classifyOutcome, throwResults, installWellWatch } = await import('../src/skills.mjs')
+const { config } = await import('../src/config.mjs')
+const { isHousekeeping } = await import('../src/hygiene.mjs')
+const HOME = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+const G0 = HOME.y - 1   // the fake town is flat: grass at G0, dirt below, feet at G0+1
+
+/**
+ * The fake town. Inventory slots 9..44 like mineflayer's (hotbar 36..44); equip SWAPS; crafted/collected output goes to a
+ * partial stack or the first empty slot and is DROPPED when there is none. Throws (clickWindow mode 4 button 1) empty
+ * the slot and spawn an item at the feet + 1.32, landing where vanilla's NOISE-FREE drop crosses the rim plane
+ * (well.mjs tossCrossing from the last lookAt): into the shaft through an open cap or a pit, else on the rim/cap.
+ * mineflayer hears an item's resting position 20 ticks after it spawns; the server hands an item to a body whose box
+ * holds it once the pickup delay (40 ticks for a throw, 10 for a dig) has passed and the bag has room.
+ */
+function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, wellAt = null, wellOpen = false, wellFacing = 'north', players = {}, botAt = null } = {}) {
+  process.env.POOL_STATE_DIR = storeDir ?? mkdtempSync(path.join(tmpdir(), 'well-store-'))
+  const world = new Map(Object.entries(blocks).map(([k, v]) => [k, typeof v === 'string' ? { name: v } : v]))
+  const key = p => `${p.x},${p.y},${p.z}`
+  const state = { tick: 0, clicks: [], goals: [], activations: [], events: [], dropped: [], pending: [], lookPitch: null, lookDir: null, digs: [], places: [], nextId: 1000,
+                  missNext: 0, refuseClose: false, onClick: null, writes: [] }
+  const cell = v => world.get(key(v)) ?? { name: v.y > G0 ? 'air' : v.y === G0 ? 'grass_block' : 'dirt' }
+  const blockAt = p => {
+    const v = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
+    const c = cell(v), def = REG.blocksByName[c.name]
+    const b = { name: c.name, type: def.id, position: v, boundingBox: def.boundingBox, hardness: def.hardness, diggable: def.diggable, shapes: [] }
+    if (c.props) b.getProperties = () => ({ ...c.props })
+    return b
+  }
+  const slots = new Array(46).fill(null)
+  const mk = (name, count, extra = {}) => ({ name, type: REG.itemsByName[name].id, count, stackSize: REG.itemsByName[name].stackSize, ...extra })
+  let next = 9
+  if (hand) slots[36] = { ...mk(hand.name, hand.count), slot: 36 }
+  for (const x of items) { while (slots[next] || next === 36) next++; slots[next] = { ...mk(x.name, x.count), slot: next } }
+  const add = (name, n) => {
+    const max = REG.itemsByName[name].stackSize
+    while (n > 0) {
+      const partial = slots.find((s, i) => i >= 9 && s && s.name === name && s.count < max)
+      if (partial) { const k = Math.min(max - partial.count, n); partial.count += k; n -= k; continue }
+      const order = [36, 37, 38, 39, 40, 41, 42, 43, 44, ...Array.from({ length: 27 }, (_, i) => 9 + i)]
+      const empty = order.find(i => !slots[i])
+      if (empty == null) { state.dropped.push(`${n}x ${name}`); return false }
+      const k = Math.min(max, n); slots[empty] = mk(name, k, { slot: empty }); n -= k
+    }
+    return true
+  }
+  const room = name => slots.slice(9, 45).some(s => !s) || slots.slice(9, 45).some(s => s && s.name === name && s.count < s.stackSize)
+  const take = (name, n) => {
+    for (const s of slots.slice(9)) { if (!s || s.name !== name || n <= 0) continue; const k = Math.min(s.count, n); s.count -= k; n -= k; if (!s.count) slots[s.slot] = null }
+    if (n > 0) throw new Error(`missing ${n}x ${name}`)
+  }
+  const count = name => slots.slice(9).reduce((a, s) => a + (s && s.name === name ? s.count : 0), 0)
+  // WHERE AN ITEM CROSSING THE RIM PLANE AT X,Z COMES TO REST: through an air cell or an open top trapdoor's opening
+  // (well.mjs wellOpening, the vanilla flap) down the column onto the first solid or bottom-trapdoor floor; else on top.
+  const landAt = (X, Z) => {
+    const col = { x: Math.floor(X), y: G0, z: Math.floor(Z) }
+    const top = cell(col)
+    const through = top.name === 'air' || (/_trapdoor$/.test(top.name) && top.props?.half === 'top' && top.props.open && (() => {
+      const o = W.wellOpening(col, top.props.facing); return X >= o.x0 && X <= o.x1 && Z >= o.z0 && Z <= o.z1
+    })())
+    if (!through) return new Vec3(X, G0 + 1, Z)
+    let y = G0 - 1
+    for (;;) {
+      const here = cell({ x: col.x, y, z: col.z })
+      if (/_trapdoor$/.test(here.name) && here.props?.half === 'bottom') return new Vec3(X, y + 0.1875, Z)
+      if (here.name !== 'air') return new Vec3(X, y + 1, Z)
+      y--
+    }
+  }
+  const listeners = {}
+  let lru = 0
+  const capCell = () => wellAt
+  const bot = {
+    username: 'b-Alpha', quickBarSlot: 0, health: 20, food: 20, controlState: { sneak: false }, entities: {},
+    players: {},
+    entity: { position: botAt ?? new Vec3(HOME.x + 0.5, HOME.y, HOME.z + 0.5), height: 1.8 },
+    get heldItem () { return slots[36 + bot.quickBarSlot] ?? null },
+    registry: REG,
+    inventory: { slots, items: () => slots.slice(9, 45).filter(s => s && s.count > 0), count: id => slots.slice(9).reduce((a, s) => a + (s && s.type === id ? s.count : 0), 0),
+                 emptySlotCount: () => slots.slice(9, 45).filter(s => !s).length },
+    on (ev, fn) { (listeners[ev] ??= []).push(fn) }, removeListener (ev, fn) { listeners[ev] = (listeners[ev] ?? []).filter(f => f !== fn) },
+    emit (ev, ...a) { for (const f of [...(listeners[ev] ?? [])]) f(...a) },
+    setQuickBarSlot (n) { bot.quickBarSlot = n },
+    setControlState () {}, clearControlStates () {},
+    lookAt: async (p) => {
+      const f = bot.entity.position, eye = { x: f.x, y: f.y + 1.62, z: f.z }
+      const h = Math.hypot(p.x - eye.x, p.z - eye.z)
+      state.lookPitch = Math.atan2(eye.y - p.y, h) * 180 / Math.PI; state.lookDir = { x: (p.x - eye.x) / h, z: (p.z - eye.z) / h }
+    },
+    equip: async (item, dest) => {
+      assert.equal(dest, 'hand')
+      if (!item || slots[item.slot] !== item) throw new Error('not in inventory')
+      if (item.slot >= 36) { bot.quickBarSlot = item.slot - 36; return }
+      let d = [36, 37, 38, 39, 40, 41, 42, 43, 44].find(i => !slots[i]); if (d == null) { d = 36 + lru; lru = (lru + 1) % 9 }
+      bot.quickBarSlot = d - 36
+      const other = slots[d], from = item.slot
+      slots[d] = item; item.slot = d; slots[from] = other; if (other) other.slot = from
+    },
+    unequip: async () => { state.events.push('unequip') }, toss: async () => { throw new Error('toss used') }, tossStack: async () => { throw new Error('tossStack used') },
+    blockAt,
+    findBlock: (o) => { const r = bot.findBlocks({ ...o, count: 1 })[0]; return r ? blockAt(r) : null },
+    findBlocks: ({ matching, maxDistance, point, count: n = 1 }) => {
+      const from = point ?? bot.entity.position
+      return [...world.keys()].map(k => new Vec3(...k.split(',').map(Number)))
+        .filter(v => v.distanceTo(from) <= maxDistance && matching(blockAt(v)))
+        .sort((a, b) => a.distanceTo(from) - b.distanceTo(from)).slice(0, n)
+    },
+    nearestEntity: f => Object.values(bot.entities).find(f) ?? null,
+    pathfinder: {
+      setGoal () {}, stop () {},
+      goto: async goal => {
+        state.goals.push(goal)
+        const here = bot.entity.position.floored()
+        if (goal?.item && typeof goal.isEnd === 'function') {
+          const gi = goal.item, nodes = []
+          for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) for (let dy = -1; dy <= 1; dy++) {
+            const n = new Vec3(Math.floor(gi.x) + dx, Math.floor(gi.y) + dy, Math.floor(gi.z) + dz)
+            if (cell(n).name !== 'air' || cell(n.offset(0, 1, 0)).name !== 'air' || cell(n.offset(0, -1, 0)).name === 'air') continue
+            if (goal.isEnd(n)) nodes.push(n)
+          }
+          nodes.sort((a, b) => a.distanceTo(here) - b.distanceTo(here))
+          if (nodes[0]) bot.entity.position = new Vec3(nodes[0].x + 0.5, nodes[0].y, nodes[0].z + 0.5)
+        } else if (!goal.isEnd?.(here)) {
+          const off = (goal.rangeSq ?? 0) >= 4 ? 2 : 0
+          bot.entity.position = new Vec3(Math.floor(goal.x) + off + 0.5, goal.y ?? bot.entity.position.y, Math.floor(goal.z) + 0.5)
+        }
+        state.events.push(`goto:${Math.floor(bot.entity.position.x)},${Math.floor(bot.entity.position.y)},${Math.floor(bot.entity.position.z)}`)
+      },
+    },
+    waitForTicks: async n => {
+      for (let i = 0; i < (n ?? 1); i++) {
+        state.tick++
+        for (const d of [...state.pending]) {
+          if (state.tick >= d.spawnTick + 20) d.entity.position = d.rest.clone()
+          if (state.tick < d.at || !bot.entities[d.entity.id]) continue
+          const feet = bot.entity.position
+          if (inPickupBox(feet, d.rest, 0, 0) && room(d.name)) {
+            add(d.name, d.count); delete bot.entities[d.entity.id]; state.pending.splice(state.pending.indexOf(d), 1)
+            state.events.push(`collect:${d.name}`); bot.emit('playerCollect', bot.entity, d.entity)
+          }
+        }
+      }
+      await new Promise(r => setImmediate(r))
+    },
+    activateBlock: async b => {
+      state.activations.push({ at: key(b.position), t: state.tick })
+      assert.ok(bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5)) <= 4.5, 'used from out of reach')
+      const c = world.get(key(b.position)); assert.ok(c?.props && /_trapdoor$/.test(c.name), `activated ${c?.name}`)
+      if (c.props.open && state.refuseClose) return
+      c.props.open = !c.props.open; state.events.push(c.props.open ? 'open' : 'close')
+    },
+    clickWindow: async (slot, button, mode) => {
+      state.clicks.push({ slot, button, mode, name: slots[slot]?.name, count: slots[slot]?.count, open: wellAt ? !!world.get(key(wellAt))?.props?.open : null })
+      assert.equal(mode, 4, 'a throw is a THROW click'); assert.equal(button, 1, 'the whole stack')
+      const it = slots[slot]; if (!it) return
+      slots[slot] = null
+      const f = bot.entity.position
+      const spawn = new Vec3(f.x, f.y + 1.32, f.z)
+      let rest
+      const c = W.tossCrossing({ ux: state.lookDir.x, uz: state.lookDir.z, pitchDeg: state.lookPitch })
+      const X = f.x + c.x, Z = f.z + c.z
+      if (state.missNext > 0) { state.missNext--; const cap = capCell() ?? f.floored(); rest = new Vec3(cap.x + 0.5, G0 + 1, cap.z + 1.3) } else rest = landAt(X, Z)
+      const id = state.nextId++
+      const entity = { id, name: 'item', position: spawn, getDroppedItem: () => ({ name: it.name }) }
+      bot.entities[id] = entity
+      state.pending.push({ entity, rest, at: state.tick + 40, spawnTick: state.tick, name: it.name, count: it.count })
+      bot.emit('entitySpawn', entity)
+      await state.onClick?.(slot)
+    },
+    dig: async (b) => {
+      state.digs.push(key(b.position)); world.set(key(b.position), { name: 'air' })
+      for (const d of state.pending) {   // what rested on the dug block falls with it
+        if (Math.floor(d.rest.x) === b.position.x && Math.floor(d.rest.z) === b.position.z && Math.abs(d.rest.y - (b.position.y + 1)) < 0.01) {
+          d.rest = new Vec3(d.rest.x, b.position.y, d.rest.z); d.entity.position = d.rest.clone()
+        }
+      }
+      const drop = b.name === 'grass_block' ? 'dirt' : b.name
+      let y = b.position.y; while (cell(new Vec3(b.position.x, y - 1, b.position.z)).name === 'air') y--
+      const id = state.nextId++, rest = new Vec3(b.position.x + 0.5, y, b.position.z + 0.5)
+      const entity = { id, name: 'item', position: rest.clone(), getDroppedItem: () => ({ name: drop }) }
+      bot.entities[id] = entity; state.pending.push({ entity, rest, at: state.tick + 10, spawnTick: state.tick, name: drop, count: 1 })
+    },
+    _placeBlockWithOptions: async (ref, face, opts = {}) => {
+      const at = ref.position.plus(face); const h = bot.heldItem
+      assert.ok(h && /_trapdoor$/.test(h.name), `placing ${h?.name} with _placeBlockWithOptions`)
+      assert.equal(cell(at).name, 'air', 'placing into a full cell')
+      const half = opts.half === 'top' ? 'top' : face.y === 1 ? 'bottom' : face.y === -1 ? 'top' : 'bottom'
+      const facing = face.x === 1 ? 'east' : face.x === -1 ? 'west' : face.z === 1 ? 'south' : face.z === -1 ? 'north' : 'north'
+      h.count--; if (!h.count) slots[h.slot] = null
+      world.set(key(at), { name: h.name, props: { half, open: false, facing, powered: false, waterlogged: false } })
+      state.places.push(`${key(at)}:${half}:${facing}`)
+    },
+    placeBlock: async (ref, face) => {
+      const at = ref.position.plus(face); const h = bot.heldItem
+      assert.ok(h, 'placing with an empty hand')
+      h.count--; if (!h.count) slots[h.slot] = null
+      world.set(key(at), { name: h.name }); state.events.push(`place:${h.name}`)
+    },
+    recipesFor: (id, meta, min = 1, table) => Recipe.find(id, meta).filter(r => (!r.requiresTable || table) &&
+      r.delta.every(d => bot.inventory.count(d.id) + d.count * Math.ceil(min / r.result.count) >= 0)),
+    recipesAll: (id, meta, table) => Recipe.find(id, meta).filter(r => !r.requiresTable || table),
+    craft: async (recipe, n = 1, table) => {
+      if (recipe.requiresTable) { assert.ok(table, 'a table recipe crafted without a table'); assert.equal(cell(table.position).name, 'crafting_table') }
+      for (let i = 0; i < n; i++) {
+        for (const d of recipe.delta) if (d.count < 0) take(REG.items[d.id].name, -d.count)
+        add(REG.items[recipe.result.id].name, recipe.result.count)
+        state.events.push(`craft:${REG.items[recipe.result.id].name}`)
+      }
+    },
+  }
+  for (const [name, pos] of Object.entries(players)) bot.players[name] = { username: name, entity: { position: new Vec3(pos.x, pos.y, pos.z) } }
+  bot.players[bot.username] = { username: bot.username, entity: bot.entity }
+  if (wellAt) {
+    world.set(key(wellAt), { name: 'oak_trapdoor', props: { half: 'top', open: wellOpen, facing: wellFacing, powered: false, waterlogged: false } })
+    world.set(key({ x: wellAt.x, y: wellAt.y - 1, z: wellAt.z }), { name: 'oak_trapdoor', props: { half: 'bottom', open: false, facing: 'north', powered: false, waterlogged: false } })
+  }
+  return { bot, state, world, count, slots, key, cell, setWell: c => { wellAt = c } }
+}
+const S = (name, count) => ({ name, count })
+const filler = n => Array.from({ length: n }, () => S('cobblestone', 64))
+const rows = async kind => {
+  await new Promise(r => setTimeout(r, 150))
+  try { return readFileSync(`${LOG_DIR}/skill-TestBot.jsonl`, 'utf8').trim().split('\n').map(l => JSON.parse(l)).filter(r => r.skill?.name === kind) } catch { return [] }
+}
+const field = (detail, k) => { const m = new RegExp(`(?:^| )${k}=(\\S+)`).exec(detail ?? ''); return m ? m[1] : null }
+const run = (name, bot, signal = { aborted: false }) => within(SKILLS[name].run({ bot }, {}, signal), 15000, name)
+const homeRead = town => (x, y, z) => { const b = town.bot.blockAt(new Vec3(x, y, z)); let props = null; try { props = b.getProperties?.() ?? null } catch {} return { name: b.name, boundingBox: b.boundingBox, hardness: b.hardness, props } }
+const CAP = W.canonicalWellSite({ home: HOME, read: flatRead({}, G0) }).site
+const goalInColumn = (state, cap) => state.goals.filter(g => Number.isFinite(g?.x) && !g.item && Math.floor(g.x) === cap.x && Math.floor(g.z) === cap.z)
+
+await t('the three orders are registered, chatOnly, housekeeping, with contracts; well_effect counts listed losses only', () => {
+  for (const n of ['dispose_well', 'build_well', 'close_well']) {
+    assert.ok(SKILLS[n]?.run, n); assert.equal(SKILLS[n].chatOnly, true, n); assert.ok(SKILL_CONTRACTS[n], n); assert.equal(isHousekeeping(n), true, n)
+  }
+  assert.deepEqual(SKILL_CONTRACTS.dispose_well.expects, ['well_effect', 'world_change'])
+  assert.equal(classifyOutcome('dispose_well', 'success', { inventory: { egg: -16, flint: -3 } }).value, 'valuable')
+  assert.equal(classifyOutcome('dispose_well', 'success', { inventory: { cobblestone: -64 } }).value, 'neutral', 'a non-listed loss is not the well\'s evidence')
+})
+
+await t('DISPOSE end to end: only listed stacks thrown (THROW clicks, whole stacks), all land in the shaft, cap open only while throwing and closed after; the row reads the counts', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('cobblestone', 64), S('oak_sapling', 30), S('ink_sac', 10), S('clay_ball', 20), ...filler(28)], botAt: new Vec3(HOME.x + 0.5, HOME.y, HOME.z + 0.5) })
+  const before = town.bot.inventory.items().length
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(town.state.clicks.map(c => c.name).sort(), ['clay_ball', 'egg', 'flint', 'ink_sac'])
+  assert.ok(town.state.clicks.every(c => c.open === true), 'a throw with the cap closed')
+  assert.equal(town.count('egg') + town.count('flint') + town.count('ink_sac') + town.count('clay_ball'), 0)
+  assert.equal(town.count('cobblestone'), 64 * 29); assert.equal(town.count('oak_sapling'), 30)
+  assert.equal(town.world.get(town.key(CAP)).props.open, false, 'left open')
+  assert.deepEqual(town.state.events.filter(e => e === 'open' || e === 'close'), ['open', 'close'])
+  assert.equal(town.bot.inventory.items().length, before - 4)
+  assert.deepEqual(goalInColumn(town.state, CAP), [], 'a goal named the well cell')
+  const inShaft = town.state.pending.filter(d => W.itemInWell([CAP], d.rest)).length
+  assert.equal(inShaft, 4, 'all four throws rest in the shaft')
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(row.skill.status, 'success')
+  assert.equal(field(row.skill.detail, 'tossed'), '4'); assert.equal(field(row.skill.detail, 'n'), String(16 + 64 + 10 + 20))
+  assert.equal(field(row.skill.detail, 'misses'), '0'); assert.equal(field(row.skill.detail, 'nonlisted'), '0'); assert.equal(field(row.skill.detail, 'freed'), '4')
+  assert.equal((await rows('_well_left_open')).length, 0)
+})
+
+await t('SERVER COUNTS: craftsync\'s resync (close_window 0 then the -999/stateId -1 click, written back to back) before and after; the row says server=resync; a craft in flight refuses', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)] })
+  const writes = [], ls = {}
+  town.bot._client = {
+    on: (k, f) => { (ls[k] ??= []).push(f) }, removeListener: (k, f) => { ls[k] = (ls[k] ?? []).filter(g => g !== f) },
+    write: (name, p) => {
+      writes.push({ name, p, sync: writes.length && writes[writes.length - 1].tick === town.state.tick, tick: town.state.tick })
+      if (name === 'window_click' && p.slot === -999 && p.stateId === -1) queueMicrotask(() => { for (const f of ls.window_items ?? []) f({ windowId: 0 }) })
+    },
+  }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const pairs = writes.filter(w => w.name === 'window_click')
+  assert.equal(pairs.length, 2, 'one resync before, one after')
+  for (const w of pairs) {
+    const prev = writes[writes.indexOf(w) - 1]
+    assert.equal(prev.name, 'close_window'); assert.equal(prev.p.windowId, 0); assert.equal(w.tick, prev.tick, 'the close and the resync were not written in the same tick')
+    assert.equal(w.p.windowId, 0); assert.equal(w.p.cursorItem.itemCount, 0)
+  }
+  assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'server'), 'resync')
+  const busy = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)] })
+  busy.bot.craftSync = { busy: () => true }
+  assert.equal((await run('dispose_well', busy.bot)).status, 'no_effect'); assert.equal(busy.state.clicks.length, 0)
+})
+
+await t('DISPOSE: a miss is tracked by entity and retaken with the cap already closed (row misses=1 retaken=1); the stand is never the column', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)] })
+  town.state.missNext = 1
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(field(row.skill.detail, 'misses'), '1'); assert.equal(field(row.skill.detail, 'retaken'), '1'); assert.equal(field(row.skill.detail, 'recollected'), '0')
+  const ev = town.state.events, close = ev.indexOf('close'), back = ev.findIndex(e => e.startsWith('collect:'))
+  assert.ok(close >= 0 && back > close, `retaken before the cap closed: ${ev.join(' ')}`)
+  assert.deepEqual(goalInColumn(town.state, CAP), [])
+  assert.ok(town.state.goals.filter(g => g?.item).every(g => !g.isEnd({ x: CAP.x, y: CAP.y + 1, z: CAP.z })), 'the retake goal accepts the well cell')
+})
+
+await t('DISPOSE: the bag is re-read per stack -- a slot that changed under the plan is skipped, never thrown', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('rail', 3), ...filler(32)] })
+  const railSlot = town.slots.findIndex(s => s?.name === 'rail')
+  town.state.onClick = async () => { if (town.slots[railSlot]?.name === 'rail') { town.slots[railSlot] = { name: 'iron_ingot', type: REG.itemsByName.iron_ingot.id, count: 5, slot: railSlot } } }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(!town.state.clicks.some(c => c.name === 'iron_ingot'), 'a non-listed stack was thrown')
+  assert.equal(town.count('iron_ingot'), 5)
+})
+
+await t('ADMISSION in the skill: another player within 5 -> no click, no activation, a _well_refused row with a wait remedy', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)], players: { 'b-Bravo': { x: CAP.x + 2.5, y: CAP.y + 1, z: CAP.z + 0.5 } } })
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'no_effect'); assert.match(r.detail, /^wait for b-Bravo/)
+  assert.equal(town.state.clicks.length, 0); assert.equal(town.state.activations.length, 0)
+  const row = (await rows('_well_refused')).pop(); assert.match(row.skill.detail, /order=dispose reason=player_near/)
+})
+
+await t('THE REFUSAL CHAIN (dispose): player near -> free skip -> the next order after the cooldown, player gone -> disposed', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)], players: { 'b-Bravo': { x: CAP.x + 1.5, y: CAP.y + 1, z: CAP.z + 0.5 } } })
+  const inputs = now => {
+    const p = W.disposePlan(town.bot.inventory.items())
+    return { now, slots: p.slots, freeSlots: 36 - p.slots, junkStacks: p.junkStacks, distHome: 3,
+             well: () => ({ open: false, attended: false }), buildPlan: () => null }
+  }
+  let st = {}
+  let o = W.wellOrder({ ...inputs(NOW), state: st }); st = o.state
+  assert.equal(o.order?.skill, 'dispose_well')
+  const r1 = await run('dispose_well', town.bot)
+  assert.equal(r1.status, 'no_effect')
+  st = W.wellOrderOutcome('dispose_well', r1.status, NOW, st)
+  assert.equal(W.wellOrder({ ...inputs(NOW + 60_000), state: st }).order, null, 'the cooldown holds the next order')
+  delete town.bot.players['b-Bravo']
+  o = W.wellOrder({ ...inputs(NOW + W.DISPOSE_COOLDOWN_MS + 1), state: st })
+  assert.equal(o.order?.skill, 'dispose_well', 'the remedy (wait) leads back to the order: nothing backed off')
+  const r2 = await run('dispose_well', town.bot)
+  assert.equal(r2.status, 'success', r2.detail)
+  assert.equal(town.count('egg') + town.count('flint'), 0)
+})
+
+await t('ABORT mid-throw: the cap is closed in the finally (not abortable), the row says aborted, the abort propagates', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('rail', 5), ...filler(32)] })
+  const signal = { aborted: false }
+  town.state.onClick = async () => { signal.aborted = true }
+  await assert.rejects(run('dispose_well', town.bot, signal), e => e?.aborted === true)
+  assert.equal(town.world.get(town.key(CAP)).props.open, false, 'left open after an abort')
+  assert.equal(town.state.clicks.length, 1, 'kept throwing after the abort')
+  const row = (await rows('_well_dispose')).pop(); assert.equal(row.skill.status, 'aborted')
+  assert.equal((await rows('_well_left_open')).length, 0)
+})
+
+await t('AN ERROR mid-visit (a throw click that rejects) still closes the cap, writes a failed row, and returns failed -- never throws past the visit', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)] })
+  town.state.onClick = async () => { throw new Error('click exploded') }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'well_toss_failed'); assert.match(r.detail, /click exploded/)
+  assert.equal(town.world.get(town.key(CAP)).props.open, false)
+  const row = (await rows('_well_dispose')).pop(); assert.equal(row.skill.status, 'failed'); assert.match(row.skill.detail, /stop=error:/)
+})
+
+await t('LEFT OPEN is a row (positive control for the read\'s gate): a cap that will not close is reported', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)] })
+  town.state.refuseClose = true
+  await run('dispose_well', town.bot)
+  const lo = await rows('_well_left_open')
+  assert.ok(lo.length >= 1, 'no _well_left_open row'); assert.match(lo.pop().skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z}`))
+})
+
+await t('THE VISITOR closes an open well first (closed_open=1), and close_well closes one nobody is at', async () => {
+  const town = fakeTown({ wellAt: CAP, wellOpen: true, items: [S('egg', 16), ...filler(34)] })
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success'); assert.equal(town.state.events.filter(e => e === 'open' || e === 'close')[0], 'close', `first act at the well: ${town.state.events.join(' ')}`)
+  assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'closed_open'), '1')
+  const t2 = fakeTown({ wellAt: CAP, wellOpen: true, items: [S('dirt', 3)] })
+  const r2 = await run('close_well', t2.bot)
+  assert.equal(r2.status, 'success'); assert.equal(r2.placed, 1); assert.equal(t2.world.get(t2.key(CAP)).props.open, false)
+  const t3 = fakeTown({ wellAt: CAP, wellOpen: true, items: [S('dirt', 3)], players: { 'b-C': { x: CAP.x + 0.5, y: CAP.y + 1, z: CAP.z - 1.5 } } })
+  assert.equal((await run('close_well', t3.bot)).status, 'no_effect', 'someone is using it')
+  assert.equal(t3.world.get(t3.key(CAP)).props.open, true)
+})
+
+await t('throwResults: a throw this body collected from the rim is a retaken miss; one collected from IN the shaft is a recollection', () => {
+  const cap = { x: 10, y: 63, z: 10 }
+  const e = (id, x, y, z) => ({ id, position: { x, y, z } })
+  const r = throwResults({ cap, spawned: [e(1, 10.5, 62.2, 10.5), e(2, 10.5, 64, 11.3), e(3, 10.5, 62.2, 10.4), e(4, 10.5, 64, 9.2)], got: new Set([2, 3]), present: id => id === 4 })
+  assert.equal(r.misses, 2, 'ids 2 (retaken from the rim) and 4 (still out)')
+  assert.equal(r.recollected, 1); assert.deepEqual(r.missed.map(m => m.id), [4])
+})
+
+await t('INSTRUMENTS: this bot collecting an item out of a well column is a _well_recollected row; its feet inside a well, _well_inside (once a minute)', async () => {
+  const ev = {}
+  const bot = { entity: { position: new Vec3(CAP.x + 0.5, CAP.y + 1, CAP.z - 0.5) }, on: (k, f) => { ev[k] = f }, removeListener () {} }
+  const w = installWellWatch(bot, () => [CAP])
+  ev.playerCollect({}, { position: new Vec3(CAP.x + 0.5, CAP.y - 0.8, CAP.z + 0.5) })
+  ev.playerCollect(bot.entity, { position: new Vec3(CAP.x + 0.5, CAP.y + 1, CAP.z + 1.4), getDroppedItem: () => ({ name: 'egg' }) })
+  assert.equal((await rows('_well_recollected')).length, 0, 'another player\'s collection, or one from the rim, is not ours to report')
+  ev.playerCollect(bot.entity, { position: new Vec3(CAP.x + 0.5, CAP.y - 0.8, CAP.z + 0.5), getDroppedItem: () => ({ name: 'egg' }) })
+  assert.equal((await rows('_well_recollected')).length, 1)
+  assert.equal(w.checkInside(1000), false, 'on the rim')
+  bot.entity.position = new Vec3(CAP.x + 0.5, CAP.y - 0.8, CAP.z + 0.5)
+  assert.equal(w.checkInside(70_000), true); assert.equal(w.checkInside(80_000), false, 'rate limited')
+  assert.equal((await rows('_well_inside')).length, 1)
+})
+
+// ---- building it ------------------------------------------------------------------------------------------------------
+const wellOk = (town, cap) => W.wellIdentity(homeRead(town), cap)
+await t('BUILD from two carried trapdoors: dug from the stand, a bottom trapdoor on the floor, a closed top cap facing the stand; never a goal on the cell', async () => {
+  const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 10)] })
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail); assert.equal(r.placed, 2)
+  const id = wellOk(town, CAP)
+  assert.deepEqual(id, { ok: true, open: false, facing: W.wellStand(flatRead({}, G0), CAP).facing, floor: true })
+  assert.equal(town.state.places.length, 2)
+  assert.ok(town.state.places[0].startsWith(`${CAP.x},${CAP.y - 1},${CAP.z}:bottom:`), 'the floor trapdoor first, bottom half')
+  assert.equal(town.state.places[1], `${CAP.x},${CAP.y},${CAP.z}:top:${id.facing}`)
+  assert.deepEqual(town.state.digs, [`${CAP.x},${CAP.y},${CAP.z}`, `${CAP.x},${CAP.y - 1},${CAP.z}`])
+  assert.deepEqual(goalInColumn(town.state, CAP), [])
+  const stand = W.standForFacing(CAP, id.facing), f = town.bot.entity.position.floored()
+  assert.deepEqual({ x: f.x, y: f.y, z: f.z }, stand, 'built from somewhere other than the stand')
+  assert.equal(town.count('dirt'), 10, 'the dug blocks were picked up (they must fall into the shaft, out of the box)')
+  assert.equal((await rows('_well_built')).length >= 1, true)
+  assert.equal((await run('build_well', town.bot)).status, 'no_effect', 'a second build')
+})
+
+await t('BUILD from logs: planks, a crafting table put down off the well, two trapdoors crafted at it, then the well', async () => {
+  const town = fakeTown({ items: [S('oak_log', 3), S('dirt', 5)] })
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(wellOk(town, CAP).ok)
+  assert.ok(town.state.events.includes('craft:oak_trapdoor'))
+  const table = [...town.world].find(([, v]) => v.name === 'crafting_table')
+  assert.ok(table, 'no table placed'); const [tx, , tz] = table[0].split(',').map(Number)
+  assert.ok(Math.max(Math.abs(tx - CAP.x), Math.abs(tz - CAP.z)) >= 2, 'the table went beside the well')
+  assert.equal(town.state.dropped.length, 0, `dropped: ${town.state.dropped}`)
+})
+
+await t('THE REFUSAL CHAIN (build): a FULL bag of listed junk and logs digs the pit first, empties junk down it, crafts, and caps -- no dead end', async () => {
+  const town = fakeTown({ hand: S('cobblestone', 64), items: [S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(31)] })
+  assert.equal(town.bot.inventory.items().length, 36)
+  const plan = W.wellBuildPlan({ oak_log: 3 }, { items: town.bot.inventory.items() })
+  const o = W.wellOrder({ now: NOW, distHome: 3, slots: 36, freeSlots: 0, junkStacks: 3, well: null, buildPlan: plan })
+  assert.equal(o.order?.skill, 'build_well', 'the order is issued to the full bot')
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(wellOk(town, CAP).ok && wellOk(town, CAP).floor)
+  assert.equal(town.state.dropped.length, 0, `a craft output was dropped: ${town.state.dropped}`)
+  const thrown = town.state.clicks.map(c => c.name)
+  assert.ok(thrown.length >= plan.slotsNeeded && thrown.every(n => W.isWellJunk(n)), `thrown: ${thrown}`)
+  assert.ok(town.state.pending.filter(d => ['egg', 'flint'].includes(d.name)).every(d => W.itemInWell([CAP], d.rest)), 'a pit throw missed')
+  const built = (await rows('_well_built')).pop(); assert.equal(field(built.skill.detail, 'pit_first'), '1')
+  assert.ok((await rows('_well_dispose')).some(x => field(x.skill.detail, 'stop') === 'pit_first'))
+})
+
+await t('BUILD REFUSAL with no junk to make room names an executable remedy first, and the order is never issued', async () => {
+  const town = fakeTown({ items: [S('oak_log', 3), ...filler(33)] })
+  const plan = W.wellBuildPlan({ oak_log: 3 }, { items: town.bot.inventory.items() })
+  assert.equal(W.wellOrder({ now: NOW, distHome: 3, slots: 34, freeSlots: 2, junkStacks: 0, well: null, buildPlan: plan }).order?.skill ?? null,
+    plan.slotsNeeded <= 2 ? 'build_well' : null)
+  const full = fakeTown({ hand: S('cobblestone', 64), items: [S('oak_log', 3), S('dirt', 1), ...filler(33)] })
+  assert.equal(full.bot.inventory.items().length, 36)
+  const p2 = W.wellBuildPlan({ oak_log: 3 }, { items: full.bot.inventory.items() })
+  assert.ok(p2.slotsNeeded > 0)
+  assert.equal(W.wellOrder({ now: NOW, distHome: 3, slots: 36, freeSlots: 0, junkStacks: 0, well: null, buildPlan: p2 }).order, null)
+  const r = await run('build_well', full.bot)
+  assert.equal(r.status, 'no_effect'); assert.match(r.detail, /^[^.]+\. Not started: the junk well's craft chain needs/)
+  assert.doesNotMatch(r.detail.split('. Not started')[0], /junk well|build/, 'the remedy is circular')
+  assert.equal(full.state.digs.length, 0)
+})
+
+await t('BUILD RESUMES a pit left open by an interrupted visit (stage dug): floor trapdoor, cap, done', async () => {
+  const blocks = { [`${CAP.x},${CAP.y},${CAP.z}`]: 'air', [`${CAP.x},${CAP.y - 1},${CAP.z}`]: 'air' }
+  const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+  const C = await import('../src/composter.mjs')
+  assert.ok(C.createSiteGen(dir, `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`, 1, CAP, null), 'the interrupted build recorded its site')
+  const town = fakeTown({ items: [S('oak_trapdoor', 2)], blocks, storeDir: dir })
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail); assert.equal(town.state.digs.length, 0); assert.ok(wellOk(town, CAP).floor)
+})
+
+await t('BUILD never digs with someone at the site', async () => {
+  const town = fakeTown({ items: [S('oak_trapdoor', 2)], players: { 'b-Bravo': { x: CAP.x + 0.5, y: CAP.y + 1, z: CAP.z + 2.5 } } })
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'no_effect'); assert.equal(town.state.digs.length, 0)
+})
+
+// ===================================================================================================================
+// WIRING (structural: comments stripped, unique anchors, a mutant each)
+// ===================================================================================================================
+const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|\s)\/\/.*$/, '')).join('\n')
+const once = (s, needle, where) => { const n = s.split(needle).length - 1; assert.equal(n, 1, `${where}: expected exactly one "${needle}", found ${n}`) }
+const IDX = strip(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8'))
+const COG = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
+const idxWired = s => {
+  once(s, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]', 'index')
+  once(s, 'waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]', 'index')
+  once(s, 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block)]', 'index')
+  once(s, 'const wellPenalty = (block) => wellStepCost(wellCols, block)', 'index')
+  once(s, 'protectWellBlocks(moves, bot.registry)', 'index')
+  once(s, 'const wellsTimer = setInterval(refreshWells, 20_000)', 'index')
+  const clone = s.indexOf('Object.assign(gatherMoves, moves)')
+  for (const a of ['moves.exclusionAreasStep = [waterEntryPenalty', 'moves.exclusionAreasBreak = [', 'protectWellBlocks(moves']) assert.ok(s.indexOf(a) > 0 && s.indexOf(a) < clone, `${a} after the clones copy the profile`)
+}
+await t('index.mjs: the well cost on the shared step array and the water array, the break array and the trapdoor never-dig set before any clone, the 20 s cache', () => idxWired(IDX))
+await t('MUTANT (index): the well dropped from the water profile, or the break array set after the clones, is detected', () => {
+  const m1 = IDX.replace('waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]', 'waterMoves.exclusionAreasStep = [deathSitePenalty]')
+  assert.notEqual(m1, IDX, 'MUTATION DID NOT APPLY'); assert.throws(() => idxWired(m1), /found 0/)
+  const line = 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block)]'
+  const m2 = IDX.replace(line, '').replace('Object.assign(gatherMoves, moves)', 'Object.assign(gatherMoves, moves)\n' + line)
+  assert.notEqual(m2, IDX, 'MUTATION DID NOT APPLY'); assert.throws(() => idxWired(m2), /after the clones/)
+})
+const cogWired = s => {
+  once(s, 'const r = wellOrder({', 'cognitive')
+  once(s, 'if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)', 'cognitive')
+  assert.ok(s.indexOf('const r = townOrder({') < s.indexOf('const r = wellOrder({'), 'the composter takes what composts first')
+}
+await t('cognitive.mjs issues the well orders after the composter\'s and feeds the outcome back', () => cogWired(COG))
+await t('MUTANT (cognitive): the outcome line removed is detected', () => {
+  const m = COG.replace('if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(', 'if (false) this.wellState = wellOrderOutcome(')
+  assert.notEqual(m, COG, 'MUTATION DID NOT APPLY'); assert.throws(() => cogWired(m), /found 0/)
+})
+
+// ---- mutants on the decisions (withMutant as in climb-escape.test.mjs: anchor present AND unique) ----------------------
+async function withMutant (file, old, neu, fn) {
+  const src = readFileSync(file, 'utf8')
+  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))} is not in ${file.pathname}`)
+  assert.equal(src.split(old).length, 2, 'the mutation target is not unique; the mutant is ambiguous')
+  const body = src.replace(old, neu).replace(/from '\.\//g, "from '../src/")
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, body)
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+const WP = new URL('../src/well.mjs', import.meta.url)
+await t('MUTANT: no underground-ring check accepts a cave beside the shaft', async () => {
+  await withMutant(WP, "if (!solid(b) || LIQUID.test(b.name ?? '')) return `underground ${b.name} beside the shaft`", ';', async m => {
+    assert.equal(m.wellSiteRefusal(flatRead({ '7,60,0': AIR }), { x: 5, y: 63, z: 0 }, HOME0), null, 'mutant inert')
+  })
+})
+await t('MUTANT: an admission radius of 0 opens with a player beside it', async () => {
+  await withMutant(WP, 'if (d <= radius && (!near || d < near.dist))', 'if (d <= 0 && (!near || d < near.dist))', async m => {
+    assert.equal(m.wellAdmission({ cap: { x: 0, y: 63, z: 0 }, players: [{ username: 'x', x: 2, y: 64, z: 0.5 }] }), null, 'mutant inert')
+  })
+})
+await t('MUTANT: a free step cost lets the planner stand on the cap', async () => {
+  await withMutant(WP, 'p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST', 'p.y <= c.y + WELL_COLUMN_UP) return 0', async m => {
+    const { route, profile, inColumn } = routeWorld()
+    const mm = profile(null); mm.exclusionAreasStep = [b => m.wellStepCost([{ x: 2, y: 63, z: 0 }], b)]
+    assert.deepEqual(inColumn(route(mm)), ['2,64,0'], 'mutant inert')
+  })
+})
+await t('MUTANT: the trigger below 34 disposes from a roomy bag', async () => {
+  await withMutant(WP, '          slots >= TRIGGER_SLOTS && junkStacks > 0', '          slots >= 0 && junkStacks > 0', async m => {
+    assert.equal(m.wellOrder({ now: NOW, distHome: 5, well: well0, slots: 10, freeSlots: 26, junkStacks: 1 }).order?.skill, 'dispose_well', 'mutant inert')
+  })
+})
+await t('MUTANT: no pit-first means a full bag of junk is a dead end', async () => {
+  await withMutant(WP, 'if (junkStacks >= deficit) return { ok: true, pitFirst: true', 'if (false) return { ok: true, pitFirst: true', async m => {
+    assert.equal(m.wellBuildRoom({ free: 0, slotsNeeded: 2, junkStacks: 3 }).ok, false, 'mutant inert')
+  })
+})
+await t('MUTANT: without the list filter the plan throws cobblestone', async () => {
+  await withMutant(WP, 'const junk = list.filter(it => isWellJunk(it.name) && Number.isInteger(it.slot))', 'const junk = list.filter(it => Number.isInteger(it.slot))', async m => {
+    assert.ok(m.disposePlan([{ name: 'cobblestone', count: 64, slot: 9 }]).stacks.length, 'mutant inert')
+  })
+})
+await t('MUTANT: no flap in the opening is caught by the registry shapes', async () => {
+  await withMutant(WP, '    if (f.z === -1) o.z1 -= TOSS.flap\n', '', async m => {
+    const [x0, , z0, x1, , z1] = trapShape({ half: 'top', open: true, facing: 'north' })[0]
+    assert.equal(flapClear(m.wellOpening({ x: 0, y: 63, z: 0 }, 'north'), [x0, z0, x1, z1]), false, 'mutant inert: the opening still clears the flap')
+  })
+})
+const SP = new URL('../src/skills.mjs', import.meta.url)
+await t('MUTANT (skills): without the finally close an aborted visit leaves the well open', async () => {
+  await withMutant(SP, '    if (open) {\n      try { open = !(await setWellOpen(bot, cap, false, g.restoreBound, tickNA)) }', '    if (false) {\n      try { open = !(await setWellOpen(bot, cap, false, g.restoreBound, tickNA)) }', async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), ...filler(33)] })
+    const signal = { aborted: false }
+    town.state.onClick = async () => { signal.aborted = true }
+    await assert.rejects(within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, signal), 15000, 'mutant'))
+    assert.equal(town.world.get(town.key(CAP)).props.open, true, 'mutant inert')
+  })
+})
+await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown', async () => {
+  await withMutant(SP, "      if (!it || it.name !== st.name || !isWellJunk(it.name)) continue\n", '', async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('rail', 3), ...filler(32)] })
+    const railSlot = town.slots.findIndex(s => s?.name === 'rail')
+    town.state.onClick = async () => { if (town.slots[railSlot]?.name === 'rail') town.slots[railSlot] = { name: 'iron_ingot', type: REG.itemsByName.iron_ingot.id, count: 5, slot: railSlot } }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(town.state.clicks.some(c => c.name === 'iron_ingot'), 'mutant inert')
+  })
+})
+
+console.log(`\n${pass} passed, ${fail} failed${failed.length ? `\n  ${failed.join('\n  ')}` : ''}`)
+process.exit(fail ? 1 : 0)

@@ -9,6 +9,8 @@ import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSaf
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
+import { wellStepCost, wellBreakCost, protectWellBlocks } from './well.mjs'
+import { knownWellCells, installWellWatch } from './skills.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
@@ -325,6 +327,7 @@ function connect() {
 
     // THE TOWN COMPOSTER IS NEVER A PATH'S DIG (composter.mjs): added BEFORE any clone below, which share this Set.
     const moves = protectTownBlocks(new Movements(bot), bot.registry)
+    protectWellBlocks(moves, bot.registry)   // every wooden trapdoor too: the junk well's cap and floor (well.mjs), same shared Set
     // canDig=false is deliberate and load-bearing. With digging enabled the
     // pathfinder treats excavation as a normal way to reach a goal, and the bot
     // steadily tunnels downward -- observed descending 68->65 while "walking"
@@ -491,7 +494,22 @@ function connect() {
     const deathSitePenalty = (block) => deathSiteStepCost(deathSites, block)
     bot.deathSitesNow = () => deathSites
     bot.refreshDeathSites = refreshDeathSites
-    moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty]
+    // THE TOWN JUNK WELL IS NO PLACE TO STAND (well.mjs): its column, cap to ten above, costs 1000 on EVERY profile, so no
+    // node stands on, in or over it (open or closed, whatever the goal; sandbox: a goal on the cell fell in 2/2), and its
+    // walls, floor and underground ring are never a path's or gather's dig. Cells come from a 20 s cache (the town's
+    // validated well + the recorded site, which is an open pit while it is being built), never a read in the A* step.
+    let wellCols = []
+    const wellWatch = installWellWatch(bot, () => wellCols)
+    const refreshWells = () => { try { wellCols = knownWellCells(bot) } catch { wellCols = [] } wellWatch.checkInside() }
+    const wellsTimer = setInterval(refreshWells, 20_000); wellsTimer.unref?.()
+    bot.once('end', () => { clearInterval(wellsTimer); wellWatch.stop() })
+    bot.wellCellsNow = () => wellCols
+    bot.refreshWells = refreshWells
+    const wellPenalty = (block) => wellStepCost(wellCols, block)
+    moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]
+    // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
+    // into the tunnel profile's own array.
+    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block)]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
@@ -681,7 +699,7 @@ function connect() {
     // The entry penalty is the whole reason water is unreachable, and unlike the
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.
-    waterMoves.exclusionAreasStep = [deathSitePenalty]   // the water entry price goes; the death price stays (a drowning site is a death site)
+    waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]   // the water entry price goes; the death price stays (a drowning site is a death site), and so does the well's
     // Surface swimming is real travel -- about 5.6 m/s sprint-swimming against
     // 4.3 walking -- so a wet step is priced slightly ABOVE a land step rather
     // than as a catastrophe. Not 1: crossing still carries drowning risk that
