@@ -1,13 +1,17 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
 
-> **DAILY OPERATOR 10-03 12:15Z (this branch).** This copy = `main`'s STATE.md at 172cbc0 (stamp 10-03 11:55Z) plus this
-> block. The owner-granted autonomous session (worktree heuristic-nightingale-49eee9) is still live after its 12:00Z
-> grant with the owner in the loop (owner instructions ~11:20Z); it OWNS `main`, the queue and the canonical STATE on main.
-> Verified 12:13Z: manifest canary oretunnel-03 = 3edf1d6 on board-b,hive-a (declared 10-02 20:22:25Z); 80 bots in 5 min,
-> exactly two versions (70 on 8453c09+5ad1cf, 10 on 3edf1d6+d92cde); verdict poll POLL_OK (deaths 2 in 147.6 bh vs 37 in
-> 1034.5 bh, gate held); check-open-loop names oretunnel-03 open (correct: not yet at its final read). Remaining reads:
-> +1080 **14:22Z**, +1560 **22:22Z** (10-03); then craftsync-01 auto-launches (chain-after pid 2191467). Host waits:
-> canary-loop pid 2054879. `main` still does NOT contain fleet sha 8453c09 (left to the owning session).
+> **DAILY OPERATOR 10-05 11:20Z (this branch).** This copy = `main`'s STATE.md at 4ec8cfc (top block 10-05 10:07Z) plus this
+> block. The owner-granted autonomous session (worktree heuristic-nightingale-49eee9, remote control active, last push 10:13Z)
+> OWNS `main`, the queue and the canonical STATE on main; this session verified and watched, launched nothing, touched no
+> code. The 10-04 daily operator session wrote nothing (no STATE, no status). Verified 11:09Z: manifest canary junkwell-01 =
+> 911d792 on placebo-a,board-b (declared 10:05:20Z), fleet 1918bb5 (toolclean-01 promoted 00:14Z); exactly two versions
+> (70 x 1918bb5, 10 x 911d792); canary-loop pid 2608819 live; verdict poll POLL_OK (0 canary deaths / 10.6 bot-h); analyst
+> 11:00Z NOT_YET; check-open-loop names junkwell-01 open (correct: first read not yet due). Exposure real within the first
+> hour: 2 wells built (both canary towns), 3 disposals / 83 listed items, 0 misses, 0 off-list, licence row present; no
+> 1918bb5 bot emits a well row (positive control). chestfull-01's REVERT (03:17Z, death gate) is recorded in the ledger and
+> torn down (80/80 on 1918bb5 before the well deploy). Reads +180 **13:05Z**, +360 **16:05Z** (KEEP from +360).
+> Shadow mayor decision date 10-06 03:18Z. Status: docs/reports/status-2026-10-05-daily-operator.md (this branch).
+> READ RESULTS: (filled in below the line when they land)
 _updated 2026-10-02 20:20Z (see the EVENING section first); earlier stamp 06:10Z by the autonomous operator session (owner grant 10-02 04:45Z: 15-20 h on v1, iron first,
 both engines, reports every 4-6 h) — **CANARY LIVE: `fixes-03` on `8453c09`, pools hive-c, board-a, placebo-d,
 placebo-b (20 bots), declared 05:03:00Z.** Fleet baseline `bf296c9+9287fd` on the other 60. Exactly two versions live
@@ -20,7 +24,278 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
-## 10-03 MIDDAY (11:55Z) — CURRENT (supersedes the queue lines below)
+## 10-03 22:56Z — FLEET 3edf1d6 (ore tunnel promoted 22:48Z); CANARY LIVE: craftsync-01 @ ba84fa6 on board-c,
+placebo-a (10 bots), declared 22:53:29Z; exactly two versions live (70 x 3edf1d6, 10 x ba84fa6) at 22:56Z.
+Reads +180 (~01:53Z) and +360 (~04:53Z); KEEP possible from +360. NOTHING chained behind it (logpickup chain stopped;
+craftroom needs its no-logpickup rebuild + registration + the read's positive control proven on craftsync's rows).
+Fleet raw iron gained 33 -> 17 -> 6 per 10 h over 10-03 (no fleet-wide change): watch it now the tunnel is fleet-wide.
+- **OWNER 10-03 ~23:10Z: "fix the chest full problem, use claude and codex to find the best approach, implement it and
+  deploy it" + "yes" to bamboo -> sticks.** Queue: craftsync (live) -> craftroom -> composter -> tool cleanup -> CHEST
+  FULL -> BAMBOO STICKS -> logpickup -> explore -> orepack -> cellmem. The ported bank fix is dropped from the slot (frees
+  ~0 today; its loop-stopping parts can return later). MEASURED 24 h, 1,970 deposits: success 343 (+99 used another
+  chest, +13 built one), failed 938, no_effect 659. Full-chest blocks only 90 -- and **75 of the 90 bots CARRIED a chest**
+  while the skill tried to CRAFT one (bug). Bigger deposit losses: 538 path failures (no path 252, goal changed 153,
+  path timeout 133) and 494 "not a banking target" (apple 311, dirt 92, scaffold cobblestone 91).
+  **DESIGNS (both engines, ~23:30Z) agree:** root cause skills.mjs:2834 crafts a chest unconditionally (place only after a
+  successful craft). Claude also found the deposit path DROPS a stack on "destination full" (catch at :2752, then
+  chest.close()) -- a never-drop violation; bank-fix's returnCursor cures it. CHEST FIX (building, chest-on-948bc26):
+  carried chest first, cursor rescue, new chest only if no container within 16 of home has room, chestSiteRefusal (no
+  lids, >= 3 from composter, no adjacent chests, no body-overlap cells, read back after a timeout), shared cap 1 per
+  town per 10 min and <= 12 containers. SEPARATE later canaries: deposit admission (no_effect 659: refuse when
+  depositPlan is empty) and deposit path failures (538). BAMBOO (2nd): pinned bamboo recipe (never craft('stick'),
+  which may burn planks), only when a slot is actually freed (64 bamboo + 0 sticks frees 0), via craftExecutions.
+  OWNER QUESTION OPEN: any bankable item may open a new chest (current) vs valuable-only (09-28 rule) -- kept current + cap.
+
+- **craftroom-01 CHAINED (~00:00Z 10-04)** behind craftsync-01: variant ba84fa6 -> ffa0f57 (cr-on-ba84fa6, craftroom
+  WITHOUT logpickup; Codex AGREE on the rebuild, Claude confirmation pending -- stop the chain if it says CHANGE; Paper
+  regression 15/15). STOPs by itself if craftsync is not promoted. Read /tmp/craftroomread.py = repo c6bd787 (md5
+  0dc5218a); POSITIVE CONTROL PROVEN on live craftsync-01 rows: 2 of 5 canary pickaxe crafts lost on the server
+  (dry run with the craftsync pools on the control side). Preflights dry-run OK.
+- Composter rebuilt without logpickup: co-on-ffa0f57 @ 56db2cd (Codex AGREE). Tool cleanup de7d0aa: both reviews
+  CHANGE (non-transitive comparator; name-only equip guard; hard stop 0 only on harvest digs; telemetry) -- fixing.
+  Chest fix: building.
+
+- **AUTOMATED LINE (host chains, 23:45Z):** craftsync-01 (live, ba84fa6) -> craftroom-01 (fleet ba84fa6 -> ffa0f57;
+  chain pid 2294257) -> composter-01 (fleet ffa0f57 -> 56db2cd; chain pid 2295673; read scripts/host/composterread.py,
+  positive control 57 full junk-holding control bots; read under Claude review). Each chain STOPs if the previous run
+  was not promoted to the expected sha. Building: tool cleanup fixes (tc-on-948bc26), chest fix (chest-on-948bc26),
+  bamboo sticks (bb-on-56db2cd) -- each to be rebased onto the line's tip before its own registration.
+
+- **10-04 ~00:30Z build status (bag fixes):** TOOL CLEANUP 476edb9 -- Claude AGREE, Codex closed all round-1 items;
+  being rebased onto 56db2cd (no logpickup). **LOGPICKUP REBASE REQUIREMENT (Codex):** the support-dig veto must clear a
+  spent tool to hand/filler before evaluating (2-use axe -> canopy drop -> pickup_failed), with a regression test.
+  CHEST FIX 421dc53 -- both CHANGE (cap blocks most towns -> budget on NEW chests: >= 10 min apart, <= 4/day, <= 12
+  recovery-created standing, pre-existing not counted; unavailable vs unknown containers with per-town memory;
+  MAX_SITE_TRIES=1; verified cursor rescue; 180 s real deadline; truthful closed-bank advice; table access) -- fixing.
+  BAMBOO d5736f0 -- Codex CHANGE (re-check the stick cap at execution admission: 63 sticks + 1 picked up during the
+  baseline -> 65, slot not freed); Claude CHANGE (pickup refusal must not back off 30 min; split stacks consolidate on
+  the real server so the freed decision is too pessimistic; wiring-test mutants survive; row in a finally) -- fixing.
+  **BAMBOO YIELD IS SMALL (census 00:40Z):** 68/80 bots at >= 34 slots, 29 hold bamboo, only 9 can fold now (1 slot each,
+  ~9 slots fleet-wide); 18 "no batch frees a slot". Tell the owner plainly.
+
+- **10-04 01:35Z: toolclean-01 CHAINED** behind composter-01 (fleet 56db2cd -> tc-on-56db2cd @ 1918bb5; both engines
+  AGREE; Paper sandbox 6 scenes x 3 x 2 passed; read /tmp/toolcleanread.py md5 a378d4ad = repo; positive control 87).
+  KNOWN pre-existing (both arms): a pathfinder travel dig can swing a held 1-use shovel when travelTool hands back
+  nothing (1 of 13 sandbox trials) -- candidate for a later fix (empty the hand before a travel dig).
+  **READS NOW ROTATION-AWARE** (logs rotate ~23:59Z; live-only reads dropped the window before it) and the craftsync
+  tripwire counts unanswered resyncs (amendment recorded before the +180 read). craftsync-01 so far: 0 of 96 false
+  successes (control 117/633), Paper answered 46/46 resyncs, many planks crafts lost to full bags (craftroom's job).
+
+- **10-04 ~02:00Z:** BAMBOO d26eedc both engines AGREE (planner stress-tested on ~25k random bags; live census 19 of
+  29 full bamboo holders eligible); Paper sandbox running; read scripts/host/bambooread.py (positive control 27).
+  CHEST fix rebased onto the line (chest-on-1918bb5 @ 3be9307, patch-identical, 225/225, 20 mutants): Claude AGREE on
+  round 2; Codex CHANGE with 5 reproduced items (standing-cap bypass via dismissed claims, first chest ignores memory,
+  unreachable first chest, first attempt not clamped, transfer_unsettled lost on retry) -- builder fixing.
+  **OWNER-LEVEL WARNING (Claude):** at <= 4 new chests/day and <= 12 standing, a town whose bank only receives (125k in,
+  48 out/day on 09-28) fills its expansion budget in ~3 days; then refusals are honest but permanent. The lasting fix
+  is withdrawals or ballast disposal; the chest read should report the refuse_cap share so that point is visible.
+
+- **OWNER 10-04 ~02:50Z: bots WITHDRAW from chests; NEVER deposit junk; existing junk comes OUT. "use both engines to
+  formulate, implement ... deploy ... monitor and test ... if not effective revaluate make changes and deploy changes."**
+  Running: read-only RCON chest census (slot by slot, tool durability, proposed junk list); both engines designing
+  withdraw + no-junk deposit + clear + queue order. The one-time admin clear (09-28 permission) runs only after the
+  no-junk fix is live, with the exact list shown to the owner first. 09-27 chests: 124,894 items, 42% cobblestone,
+  but 16k logs, 6.8k sticks, 865 stone pickaxes while 45/80 bots lack a usable pickaxe.
+
+- **CHEST CENSUS 10-04 02:52Z (read-only, every slot answered; docs/reports/census/):** bank = 375 containers near
+  the 16 homes, 197,863 items, 228/375 full, 73% of slots used. Valuable: 897 usable stone pickaxes (640 > half), 438
+  wooden, 8 iron; iron ingots 430; logs 44,701; sticks 14,215; chests 168 -- while 45/80 bots lack a usable pickaxe.
+  Junk (proposed): 100,593 items / 3,125 slots (42%): cobblestone above 256/town 81,535; spent tools 1,156; ballast
+  9,721; seeds/litter 8,180. Manifest for the owner: docs/reports/chest-clear-manifest-2026-10-04.md (NOT RUN; after
+  the no-junk fix; owner decides eggs/scutes/flint/clay/ink 2,297 and decorations 125).
+  **SECURITY:** /tmp/scan2.py on 10.0.0.31 holds hive-b's RCON password in plain text and it was printed into this
+  session's output while searching for the old census. Owner asked to rotate it and delete the file (and /tmp/scan.py).
+  I do not touch credentials.
+
+- **BAMBOO SANDBOX (Paper, ~03:40Z):** short folds work (B: [64,10]+32 sticks -> 5 crafts, 36->35; E cap kept; C/G no
+  order; planks never burned) BUT (1) folds > the stuck limit are killed by the 20 s watchdog (32-craft fold stops at
+  15, frees nothing; 64 cannot finish; one rep ended fuller) -- no stationary window declared; (2) an ABORTED fold left
+  8 bamboo in the 2x2 crafting grid/cursor, invisible to the bag, dropped at logout -- **checking whether this is a
+  craftsync defect (live canary, KEEP possible ~04:53Z) or bamboo-only**; (3) row crafts off by one on abort; (4) the
+  runner filed the aborted run as success. Harness on main (8ab8a5c). Chest fix 96cfbe0: Claude AGREE; Codex two more
+  edge cases (clamped timeout converted in recovery/sweep; walkFrom aliases a mutable Vec3) -- fixing, then withdraw.
+
+- **CRAFTSYNC GRID DEFECT CONFIRMED (10-04 03:25Z, builder repro with real craftsync + mineflayer + fake Paper):** an
+  ABORTED 2x2 inventory craft (stuck watchdog, interrupt, preempt) after the first click leaves the grid + cursor
+  loaded (craftsync never sends close_window 0 on the cancel path); items return on the next craftsync craft's baseline
+  close, that next craft fails once, and a logout/restart before it drops them. Table crafts are clean. The control
+  cannot be aborted, so this exposure is NEW. Live canary: 2 of 82 crafts in 4.5 h (oak_planks 2x2). **DECISION:**
+  craftsync-01 proceeds to its +360 read (the 19% false-success fix outweighs this narrow, mostly self-healing defect);
+  the GRID FIX ships as its own canary right after toolclean: order toolclean -> gridfix -> chest -> withdraw ->
+  no-junk -> admin clear -> bamboo -> logpickup.
+
+## 10-05 ~02:45Z — CHESTFULL-01 READY, NOT LAUNCHED (chest-on-1918bb5 @ 6c9a8fb; registration on main
+docs/reports/chestfull-01.1918bb5.json; staged on 10.0.0.31: ~/mcai-analysis/chestfull-01.1918bb5.json, /tmp/chestread.py =
+repo md5 0b936388, old read backed up /tmp/chestread.py.bak-20261005T024025Z). Suite 225/225, eslint only withinBody.
+Launch: `~/chain-after.sh toolclean-01 chestfull-01 1918bb5=/home/mike/mcai-analysis/chestfull-01.1918bb5.json`.
+**EXPOSURE AFTER THE CLEAR IS ~0 FOR PLACEMENTS:** 1 storage_full deposit fleet-wide in 8.1 h after 18:07Z (52 in the 12 h
+before). The read therefore gates DEFECTS deterministically (C1 off-site, C2 from the bots' own claim ledger in
+/var/lib/mcai/_pool-*, C3 unsettled EVENTS, C4 craft-while-carrying from the END snapshot net of a crafted-unplaced chest)
+with exposure = the ordinary deposit path (>= 20 canary-build deposits + a control positive control); success DiD is
+REPORTED only (identical-code null -0.73/bot-h). The placement path is proven on PAPER (sandbox/craft/chest-ab.cjs, both
+arms): carried 2/2 placed + banked (control 2/2 "could not make another chest" while carrying one), craft 4/5 (1 safe
+refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission refuses, no walk, prompt stops advertising
+deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
+chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
+
+## 10-05 10:07Z — CANARY LIVE: junkwell-01 @ 911d792 on placebo-a,board-b (10 bots), declared 10:05:20Z; exactly two
+versions (70 on 1918bb5, 10 on 911d792). Reads +180 ~13:05Z, +360 ~16:05Z (extensions to 1560, deadline 1680). Both
+engines APPROVE (Codex AGREE after 8 rounds; independent Claude review CHANGE -> APPROVE at 8f73e80; later fixes:
+unloaded neighbour = "decide later", snow-raised aim, C4 = stuck inside >= 2 min). Paper: 432/432 items into the shaft,
+0 off-list, 0 pickups by a walker, admission refusal, escape from inside in 7 s, creeper clearance 0 spawns.
+Expected exposure ~7-12 dispose orders per 6 h once each town builds its well. CONDITION for the chest-full rebase:
+chestSiteRefusal must refuse wellReservedCells.
+OTHER WORK: withdraw ed0d856 (code done, waits for chest2); chest-full round 6 (chest2-on-1918bb5, evidence + walk fix);
+grid fix 8c9239d (Codex APPROVE; Claude review + Paper + registration in progress); bamboo waits for the grid fix.
+
+## 10-05 03:17Z — CHESTFULL-01 REVERTED by the death gate at +30 min (3 canary deaths / 15 bots vs 0 / 65 in 25 min;
+randomization p = 0.0018); torn down 03:22Z; fleet 80/80 on 1918bb5 (verified 05:58Z). Deaths: board-a-Bravo drowned
+sealed in a flooded pocket at y=45 after entombment; placebo-d-Bravo drowned gathering birch; board-a-Alpha fell 73
+blocks during goto. None had a deposit/chest row in the 150 s before death. RESTART EFFECT RULED OUT: over 15 canaries
+since 09-27 (8.9M rows, 408 deaths) canary deaths in the first 45 min after deploy 0.023/bot-h vs 0.019 later (excl.
+this run); control 0.026 vs 0.028 -- so 3 early deaths (~0.25 expected) is a real outlier. Behaviour shift in the 30 min
+(15 bots, small n): canary mine/bot 1.73 -> 4.33 (control 2.85 -> 2.75), _entombed 2.87 -> 4.67 (2.11 -> 2.86), deposits
+0.67 -> 0.47 (0.71 -> 0.77); 3 deposits tried a chest at 365,15,184 (y=15, a deep container) "No path". Evidence:
+docs/reports/chestfull-01-revert-evidence.txt. Codex causal review running; NO re-run until a mechanism is found or
+ruled out. Grid fix (Codex APPROVED 8c9239d) is being prepared for the slot (Claude review + Paper + registration).
+
+## 10-05 02:47Z — CANARY LIVE: chestfull-01 @ 6c9a8fb on board-c,board-a,placebo-d (15 bots), declared 02:46:55Z;
+exactly two versions (65 on 1918bb5, 15 on 6c9a8fb). Reads +180 ~05:47Z, +360 ~08:47Z, extensions 540/720, deadline
+780 min. After the 10-04 clear a placement is ~0 per 6 h on the canary (1 full-chest failure fleet-wide in 8.1 h vs 52
+in the 12 h before), so a KEEP means "C1-C4 defect gates 0 and ordinary deposits unharmed"; placement itself is proven
+on Paper (sandbox/craft/chest-ab.cjs: carried chest placed 2/2 where the control failed 2/2; nothing dropped in any
+trial). The licence kind row does not gate the verdict (verdict.py has no min_rows); exposure = >= 20 canary deposit
+rows + the control positive control. Withdraw (registered on 6c9a8fb) chains after this.
+
+## 10-05 ~02:30Z — BAMBOO-01 READY BUT HELD (bb-on-1918bb5 @ 33384ad; registration on main 33b5a27; staged on the host,
+NOT launched). Paper round 2: the stuck-watchdog and tally defects are fixed (32-fold 3/3, 64-fold 3/3 in its window,
+planks never burned 26/26, control 6/6 no change) BUT an interrupted fold (low-health reflex) strands up to 46 bamboo in
+the 2x2 grid 3/3 -- the craftsync grid defect the GRID FIX repairs; G3 would REVERT on it and the items drop at logout.
+DECISION: bamboo waits for the grid fix and is rebased onto it. Canary order, first ready first, dependencies kept:
+chest-full (6c9a8fb, sandbox+registration in progress) | grid fix (gf round 5: invalidate the held ticket on a
+click-cap timeout) -> bamboo (on the grid fix) -> junk well (building) -> withdraw (on chest-full; Codex APPROVED
+2691727; Claude review + first Paper run in progress) -> cobble rule. Grid fix and withdraw share byte-identical
+window-binding code (inflight.mjs + craftsync spans). Agents share /tmp/mcai-suite.lock and /tmp/mcai-sandbox.lock.
+
+## 10-05 00:05Z — TOOLCLEAN-01 KEPT (+360); promotion of 1918bb5 fleet-wide follows (chain). Spent axe/shovel/hoe
+copies per bot canary 2.25 -> 0.05 vs control 2.27 -> 2.22 (DiD -2.15); G1/G2/G3 0 (G3 amended 19:35Z before the
++180 read: the deposit window covers the whole deposit -- all 10 good-tool losses in the window, both arms, were spare
+pickaxes banked during long deposits); instrument 220; 1-use pickaxes/bot DiD +0.13 (reported). Death gate HELD:
+6 canary deaths / 120 bot-h vs 7 / 240 (1.71x, lower bound 0.58x); all 6 are idle drownings, none within 90 s of a
+spent-tool event; the drawn pools drowned more before the canary too (4 vs 9 in the 6 h pre-window).
+NEXT (owner: bags and chests first): bamboo-01 (rebasing onto 1918bb5 + sandbox + registration with change_rows) ->
+junk well (building) -> withdraw (round 6) -> cobble rule -> chest-full -> grid fix (round 4, adopting withdraw's
+window binding). Session paused twice on Claude limits (10-04 ~20:00-23:55Z).
+
+## 10-04 19:45Z — JUNK WELL SANDBOX (Paper 1.21.8, sandbox3; docs/reports/junk-well-sandbox-2026-10-04.md): control 20/20
+picked up on open ground; accuracy 59/60 (117/118 over two runs; the miss re-collected by the thrower); isolation 0
+pickups (30 s on the trapdoor, 8 rim blocks, 200 passes, open-trapdoor rim); despawn at age ~6000. FOUND: (1) the age
+PAUSES in an unloaded chunk (items wait, still unreachable); (2) pathfinder routes over an OPEN trapdoor (0/12 fell
+in crossing) but a bot whose GOAL is the well cell falls in (2/2) -- admission rule + never target the cell; (3)
+clearance under the cap is 1.8125 not 1.5: a creeper (1.7) fits and the shaft is dark -- fleet is peaceful, but for
+"any world" put the second trapdoor (recipe makes 2) bottom-half on the floor (untested). Run beats reading: the
+well's isolation holds, so Codex's 20-iron feeder is not needed; its admission/underground-neighbour concerns are
+real and go into the build.
+WITHDRAW d490102 (round 4 H-N): 229/229, 79/79 mutants; Codex confirmation running.
+
+## 10-04 18:40Z — DISPOSAL: owner accepts vanilla 5-min despawn as the INTERIM disposal ("fine for now, long term i want
+a better solution"). Designs: Claude "junk well" (1x1, floor 2 down, wooden trapdoor cap, 6 planks/town;
+docs/reports/disposal-design-2026-10-04.md) vs Codex sealed chest->hoppers->dropper chamber (20 iron + redstone/town;
+disposal-design-codex-2026-10-04.md; its merge concern is moot at the measured merge radius 0.5, its admission/
+underground-neighbour concerns stand). Paper sandbox subset running to decide. Long-term open item: a better disposal.
+
+## 10-04 18:08Z — ONE-TIME CHEST CLEAR DONE (owner approved). 105,053 junk items / 3,473 slots removed from the 16 town
+banks; kept items 92,846 -> 92,846 exactly; full bank containers 233 -> 0; free slots 2,669 -> 6,142. Details in
+chest-clear-manifest-2026-10-04.md. **Fleet-wide world event at 18:07Z, inside toolclean-01 (declared 17:55:31Z):** both
+arms see it, so DiD absorbs the level shift; note it in the toolclean read. Owner also decided (10-04 ~18:10Z): RCON
+rotation later (not major); eggs/flint/clay/ink/scutes have no use -> cleared; cobble: keep 256/town reserve, bank only
+when it frees a slot (both-engine no-ledger design); withdraw no-room: junk swap ONLY once a disposal exists, hold
+until then. Disposal design (both engines + external search) running. toolclean-01 live: 60 bots 56db2cd, 20 on 1918bb5.
+
+## 10-04 17:51Z — COMPOSTER-01 KEPT (+360) and PROMOTED 56db2cd fleet-wide 17:50:43Z; toolclean-01 chained next.
++360: 12 real compost visits, C1-C5 all 0; junk slots/bot canary 5.60 -> 3.50 vs control 4.90 -> 4.96 (DiD -2.16);
+share of bots at >= 34 slots DiD -0.214; 2.00 slots freed per visit. Only board-b built a composter (hive-a visits
+used it? -- check hive-a has one after promotion). Deaths 1 vs control 6 (rate 0.017 vs 0.020/bh).
+craftroom refusals explained (6 h fleet, 3,187 _craft_room rows, 71 bots): 2,534 refused, all at 36/36 slots with
+"no spent tool that can be spared (the last digging pickaxe is kept)"; bags hold leaf_litter, bamboo, saplings, eggs,
+cobble. Remedies queued: composter (now fleet), toolclean (next), bamboo fold, no-junk; eggs have NO exit (owner).
+
+## 10-04 17:35Z — CRAFTROOM-01 KEPT (+360, 11:22Z) and PROMOTED ffa0f57 fleet-wide 11:32Z. COMPOSTER-01 LIVE @ 56db2cd on
+hive-a,board-b since 11:37:15Z (+180 NOT_YET: 3 real visits, 1 composter, C1-C5 clean, junk slots/bot DiD -0.74);
+toolclean-01 chained behind it. (Session paused ~08:20-17:25Z on API limits; the loop ran unattended.)
+craftroom +360: canary pickaxe crafts the server saw lost 0 of 19 vs control 123 of 288 (43%; 91 of them at >= 35 slots);
+unanswered 0/49; one entombed death on board-a-Bravo (1 vs control 6, under the two-death floor). **Watch:** 225 of 274
+canary _craft_room rows are REFUSALS (remedy_failed 112, no_room 111) -- craftroom turned lost pickaxes into refusals;
+the full bag is still the blocker, which is what composter/toolclean/withdraw/no-junk target. A refusal must name an
+executable remedy (CLAUDE.md): remedy_failed is that remedy failing -- analyse after the composter read.
+GRID FIX 55c2bf8: Codex CHANGE (P1: a fence timeout releases ownership while mineflayer still holds a click; the late
+click moves items and the row still says grid_clear=yes; P2 passthrough lets reflex clicks overlap cleanup; P2 null
+grid_clear on many exits). Round 3 sent: adopt withdraw's `inflight` set (one craftsync implementation). Read drafted:
+scripts/host/gridfixread.py (dry run: control positive control 145 unclean 2x2 exits, next craft failed 111/135 = 82%).
+
+## 10-04 07:50Z — WITHDRAW 98b95c8 (round 3 fixed, pushed): Codex CHANGE (2 P1: survival release closes with a click in
+flight; confirmCursor does not own the inventory while its answer is pending), Claude APPROVE (5 P2). **Paper sandbox
+CONFIRMED confirmCursor** (Paper 1.21.8-60: CLONE + stateId -1 is a no-op, full window_items with the true carried
+item, every case). Round 4 = items H-N sent to the builder. **Owner decision sharpened:** "keep holding" cannot keep
+its promise -- with a full bag the server drops the stack at the next close/disconnect/death/restart, so holding only
+freezes the bot until then. Options built as a switch: hold (default) | close after 30 s | junkswap (swap the cursor
+onto a never-bank junk slot, confirm, close: only junk drops). Survival release (air/lava/fire/fall/damage) closes at
+once and can drop the held stack on a full bag -- dying would drop everything.
+
+## 10-04 07:30Z — NO-JUNK: ledger DROPPED by both engines; cobble banks only when the transfer empties a bag slot (design file SYNTHESIS)
+
+## 10-04 06:40Z — NO-JUNK DESIGN (both engines; docs/reports/nojunk-design-2026-10-04.md; NOT BUILT, Claude review running)
+**Deposit already refuses almost all of the manifest's junk** (bankable.mjs:143-204: goal-wanted, fixed list, ores,
+spare usable tools only). 24 h, 1.18M rows, 7,051 items in reconciled deposit runs: cobblestone 62%, wood 34%, ores
+2.5%, spent tools 0.7%; ballast/seeds/litter/eggs 0 (positive control: same query finds wood/ores; refusal rows name
+apple 302, dirt 90, leaf_litter 37). The census junk dates from the old every-stack deposit loop (replaced ~09-13).
+So the live inflow is cobble (~7,200/day) and spent tools (~100/day, withdraw branch already stops them).
+**A flat cobble cap is dangerous:** >= 64.6% of banked cobble comes from bots at 34+ slots, for whom it is the bag
+relief. Log/plank/stick caps DROPPED (both engines): 4,096 cap vs 44,701 usable; bags net -2,300 wood/day.
+Proposed canary stonecap-01 (after withdraw promoted, composter+toolclean closed): cobble 256/town refused only on
+evidence (lower bound from chests opened < 6 h, unknown != zero), relief valve at 34+ slots, cap refusal never routes to
+chest-full. Plus a hard never-bank list (zero new bag load). Eggs/flint/ink/scutes/clay have NO exit from a bag
+(150+64+72 slots across 64 full bags) -- owner decision. Admin clear only after stonecap is KEPT and promoted.
+
+## 10-04 05:15Z — FLEET ba84fa6 (craftsync promoted 05:08Z); CANARY LIVE: craftroom-01 @ ffa0f57 on board-a,hive-b,
+declared 05:12:59Z; exactly two versions (70 ba84fa6, 10 ffa0f57). Reads +180 ~08:13Z, +360 ~11:13Z. Chained: composter-01
+(fleet ffa0f57 -> 56db2cd), toolclean-01 (fleet 56db2cd -> 1918bb5). scoreboard.py now rotation-aware.
+
+- **WITHDRAW round 3 (515d99c): both CHANGE on the recovery lifecycle** (pending click across timeout; reflex
+  equip clicking the inventory during a hold; quiet window != server-confirmed empty cursor; disconnect not
+  cancelling a retry; server-closed window; unbounded hold = dead end). Builder applying A-G. **OWNER DECISION PENDING:**
+  last resort when a stuck cursor stack has nowhere to go after a verified rearrangement -- (a) keep holding (never
+  drop; intervention_needed rows) [DEFAULT, Codex], or (b) close after 30 s (server returns it to the bag; only a
+  remainder lands at the bot's feet and is picked back up) [Claude recommends]. Survival reflexes may always release.
+
+## 10-04 04:58Z — craftsync-01 KEPT (+360); promotion to the fleet (ba84fa6) done 05:08Z
+- 0 of 215 canary crafts "nothing changed" vs control 236 of 1,337 (18%); Paper answered 82/82 resyncs; 0 confirmed
+  without a resync; craft p50 1.6 s / max 4.3 s; _reflex_stuck DiD -0.138/bh; deaths 1 (0.017/bh) vs 7 (0.023/bh).
+  58 crafts unconfirmed = full-bag losses, now honest (craftroom's job). Known: aborted 2x2 crafts strand the grid
+  (2 of 94) -> grid fix queued after toolclean.
+- In review: grid fix (Claude AGREE, Codex CHANGE: in-flight click after cleanup, disconnect tracking, error-path
+  verdict) -- fixing; withdraw 18b36d4 round 2 (Claude CHANGE small: abort rows, plan= field, swap failure tests;
+  Codex pending); chest fix 6c9a8fb approved (Codex AGREE r5, Claude AGREE r3); bamboo fixes in mutant runs.
+
+## 10-03 22:38Z — oretunnel-03 KEPT (+1560), then promoted
+- Iron collected per bot-hour: canary 0.004 -> 0.038, control 0.014 -> 0.016, **DiD +0.033**; 10 iron on 10 canary bots
+  vs 29 on 70 control bots; 75 tunnels, 7 reached the ore; tunnel-linked deaths 0; deaths 5 canary (0.019/bh) vs 45
+  control (0.035/bh), none mechanism-linked; every v6/v15c guard within. Chain launches craftsync-01 (variant by fleet sha).
+- CORRECTION to the tool numbers below: the 2-10-use spent copies were 118 in a 24 h last-snapshot window and 170 in a
+  90 min window; both are "latest snapshot per bot" over different windows (Codex and Claude both caught the mismatch).
+
+## 10-03 EVENING (22:40Z) — NEW ORDER (OWNER ~22:30Z: "lets do 1 and 2 now and do the bank fix now too")
+- **QUEUE NOW: craftsync (launching after the ore verdict) -> craftroom -> composter -> SPENT-TOOL CLEANUP (new) ->
+  BANK FIX (port of bank-fix 4d76b43) -> logpickup -> explore-toward -> orepack -> cellmem.** Still one canary at a
+  time. WHY: the full bag is the root blocker (census: bag-full is the top reason wood and iron needs go unmet); full
+  bags (59/80 at >= 34) are 40% misc items (bank), 22% tools of which half spent (199 spent: tool cleanup), 14%
+  compostable junk (composter), 10% stone (bank), 7% saplings, 5% wood. Logpickup moved last-but-three because it
+  FILLS bags (more logs kept).
+- logpickup chain (pid 2197785) STOPPED 22:29Z. Craftroom and composter are being REBUILT on ba84fa6 WITHOUT logpickup's
+  gather behaviour (helpers only; gather must be byte-identical to ba84fa6). Tool cleanup: design by both engines
+  (running). Bank fix: port analysis running.
+
+## 10-03 MIDDAY (11:55Z) — superseded queue, kept for history
 - **OWNER 10-03 ~11:20Z: "test each crafting element seperately"; queue per Codex ("i agree with codex"):**
   oretunnel-03 (live, decides ~22:22Z) -> **craftsync-01** -> logpickup -> craftroom -> composter -> explore-toward
   -> orepack -> cellmem (deferred). One change per canary. Explore-toward is no longer next.
@@ -29,6 +304,88 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
   behaviour-neutral pickup telemetry 3edf1d6..e2b4ebd). Registrations docs/reports/craftsync-01.<fleet>.json; read
   scripts/host/craftsyncread.py (dry run 10-03: control 100/892 crafts "nothing changed" = the positive control; the
   UNCHANGED canary pool read 17/101, so the correctness line would have fired on today's code).
+- **logpickup-01 CHAINED (12:36Z)** behind craftsync-01 (chain-after.sh pid 2197785, log ~/chain-logpickup-01.out),
+  FOUR variants so it launches whatever craftsync's verdict: fleet ba84fa6 -> a40c588, 9794a58 -> 54ed323 (craftsync
+  promoted), 3edf1d6 -> 8c66dda, 8453c09 -> 10251f3 (not promoted; these carry the pickup telemetry). All npm test green.
+  Registrations docs/reports/logpickup-01.<fleet>.json; read /tmp/logpickupread.py (md5 = repo).
+- **REBASE DEFECT CAUGHT (12:20Z):** logpickup on an 8453c09 base read `gatherT0`, declared only by the ore-tunnel
+  change -- every log gather would have thrown ReferenceError. logpickup.test.mjs caught it; fixed in both 8453c09
+  variants. Then found the no-undef lint gate (eslint.config.mjs: "Deploys run it") was NEVER run by any v1 fleet
+  deploy script (only instance #1's deploy-harness.sh) and the fleet sha fails it. Now `bots/test/lint-gate.test.mjs`
+  runs it in the suite (positive control + mutant killed); the one typeof-guarded `withinBody` is declared global.
+  Every cross-base variant: run the no-undef lint, not only the suite.
+- **craftroom on craftsync (cr-on-a40c588 @ f975a52, builder):** craftsync is the ONE verifier (marker removed),
+  count = items, one execution per bot.craft. BOTH reviews CHANGE (14:00Z): [P1, both] room is checked BEFORE craftsync's
+  baseline resync -- Codex reproduced a pickaxe tossed when the last slot fills during the resync; fix = an admission
+  hook inside craftsync after the resync, before the first click (+1 slot margin with an item entity in range);
+  verdict labels from error.reason (unanswered / click_timeout, source=none); executable-remedy refusal. Builder applying.
+  **craftroomread.py REWRITTEN** (Claude review: the old gates were 0 by construction under craftsync): correctness =
+  canary pickaxe crafts the SERVER saw lost with a full bag <= 1; instrument = verdict=unanswered share <= 5%,
+  verified_local = 0. Dry run clean but its positive control (`_craft_sync` lost-pickaxe rows) CANNOT be shown until
+  craftsync-01's canary emits them -- prove it on those rows before chaining craftroom.
+- **craftroom-on-craftsync APPROVED by both engines at e9da587** (branch cr-on-a40c588, pushed; base a40c588 = the
+  logpickup variant for fleet ba84fa6). 5 review rounds, 7 real defects fixed, 30 mutants killed, 222/222: admission
+  inside craftsync after an ANSWERED baseline resync (else refuse before any click); pickup hold-back never wears a
+  tool, collects only within the table's reach band (anchored to the plan's station), re-measures reach after any
+  walk (reason=table_out_of_reach, never no_path); remedies only if executable (placeStackOf, depositFreesSlot);
+  verdict labels unanswered/click_timeout, source=none. Known limit: a pickup after clicks start can still toss.
+  NEXT: sandbox A/B on Paper (agent running; also lands the craft harness from the scratchpad into sandbox/craft/),
+  then registrations once the fleet sha after logpickup is known. Read: scripts/host/craftroomread.py (main c6bd787).
+- **craftroom SANDBOX A/B (Paper 1.21.8, 16:40Z, 3 reps/arm/scene, server-slot oracle): control a40c588 TOSSED the
+  pickaxe 21 of 21 times the bag had no room; candidate e9da587 never tossed except `race-late` (drop lands mid-clicks;
+  both arms 3/3 -- the documented limit).** Candidate: full36 refused with 0 clicks + "place your one dirt" (executed:
+  worked, then crafted); race-early/stream refused (admission saw the drop); logs exact (-3 log, +1 pickaxe, table
+  retaken; +5.5 s); wear-out spent axe never the good pickaxe; nothing-to-free says so. Deposit advice NOT executed
+  (no town chest in the sandbox). Harness landed on main: sandbox/craft/ (67a5efd). Results sandbox/log/craftroom-ab/.
+- **BEFORE craftroom's canary, backport from the composter review:** depositTarget (deposit advice names one item the
+  craft does not consume -- e9da587's plain "deposit" would bank the craft's own sticks/cobblestone), remedy-first
+  text (Codex: 220-char truncation drops the remedy, twice: skill detail and cognitive.mjs:1037), whole-chain
+  ingredient protection for planned crafts.
+- **craftroom FINAL = b00b22c (cr-on-a40c588, pushed), both engines AGREE (~17:40Z):** e9da587 (sandbox-passed) +
+  the backport: deposit advice names one non-ingredient item whose deposit empties a stack (depositTarget), whole-plan
+  ingredient protection, remedy-first refusal text checked through formatOutcome (output-identical, 1,152 cases).
+  The backport changes advice text only, not the crafting mechanics the sandbox measured.
+- **composter on craftroom FINAL = co-on-b00b22c @ 661c249 (pushed), both engines AGREE (~18:30Z).** Stand cell
+  enforced before the table (composter_unreachable otherwise). C4: chain room simulated (from logs 2 slots, not 4).
+  **SANDBOX (Paper, ~18:45Z): build from logs 6/6 exact (34/36 and 30/36), never starts at 35-36/36 -- BUT 3 defects:**
+  bone meal left on the ground 5/6 compost visits; the 20 s stuck watchdog interrupts compost visits (only dig is
+  exempt -- guard composition); the stand-cell check passes off-centre and the bot's own body blocks its table cell
+  (placement timed out 2/3). Builder fixing; NOT queueable until re-sandboxed. Harness on main (7742265).
+  **Fixes d2f3629 RE-SANDBOXED (~19:50Z): bone meal in the bag 6/6 (0 on the ground) with the fleet's 20 s stuck limit,
+  no interruption; build 6/6 exact; mid-click toss now composter_no_room; table only placed with the bot centred.**
+  Edge: a boat the bot pushes can drift into the chosen table cell (1/3 placement timeout; bounded). Reviews: both
+  CHANGE on one item (the avoid-set entry is a no-op; the real hazard is a path node ON TOP of the composter -> an
+  exclusionAreasStep) -- builder fixing. Harness re-run on main (650052f).
+  **COMPOSTER FINAL = co-on-b00b22c @ 948bc26 (pushed), both engines AGREE (~21:00Z), Paper re-run 9/9** (compost 6/6
+  bone meal in the bag at the fleet's 20 s stuck limit; build 3/3 exact). The fleet-wide composter exclusion (d9b8b07)
+  was REVERTED to a scoped one: Codex reproduced a drop-down landing on the top that the exclusion did not price
+  (getLandingBlock cells never pass exclusionStep) and measured ~8% slower getNeighbors fleet-wide; now only the compost
+  visit's two walks borrow a profile whose neighbours are filtered by their real landing cell. Shared movement profiles
+  are byte-identical to d2f3629. Queue slot: 4th (after craftsync, logpickup, craftroom).
+- **LATENT IRON BLOCKER (sandbox 19:50Z, verified against the fleet):** the 20 s stuck watchdog killed `smelt 8
+  raw_iron` at 20.7 s (8 iron ~ 80 s of furnace time; the bot stands still). Fleet 24 h: 0 of 141 failed/aborted/
+  unknown smelts coincide with a _reflex_stuck (positive control: 48 other skill rows do -- goto 26, gather 10,
+  craft 3), because 72 of 232 smelts had no raw iron and batches are small. It WILL bite once iron flows. Candidate
+  fix (both engines first): exempt live furnace waits the way dig is exempt (or a self-expiring stationary window
+  bounded by the smelt's own budget, as compost now does); same idea as Claude's suggestion to exempt live crafting
+  (craftsync batches can pass 20 s; craftsyncread now REPORTS durations and _reflex_stuck DiD).
+- **MAYOR GET_WOOD was blind (found 17:00Z):** world-pooled wood; in 1,376 of 2,661 quiet snapshots a pickaxe-less bot
+  held < 2 log-eq while the richest bot held a median 49% of its world's wood. Fix (shadow-mayor 77c025c + 9cad2ad,
+  pushed, NOT deployed): per-bot shortage sharing RESTORE_PICK's arithmetic; replay on 2,768 live snapshots: 62 -> 1,812
+  firings, = RESTORE_PICK no_ingredients exactly. Also: the mayor test suite had been RED since ~08:35Z (wall-clock
+  eviction vs fixture rows) so mutant kills were unscored. Both reviews CHANGE (tests + scorer biases + revision stamp);
+  **DEPLOYED 2026-10-03 18:02:46Z: shadow-mayor 784b71c, MAYOR_REV 2e82cfe81496** (matches the reviewer's independent
+  hash). Both engines: live assignment behaviour unchanged but for the stamp (Codex replayed 13 ticks old vs new);
+  Claude AGREE to deploy; Codex CHANGE items are all in the OFFLINE scorer (retroactive) -- builder fixing before the
+  10-06 read. First snapshot per world = <world>@2026-10-03T18:02:46Z (all 16). GET_WOOD leases at deploy: 0.
+  Pre-deploy records are `unstamped` (111dadc since 03:17:40Z). Backup ~/mcai-mayor.bak-111dadc. Unit limits intact
+  (Nice 10, MemoryMax 512M, CPUQuota 25%). GET_WOOD's 48 h window: 18:02Z 10-03 -> 18:02Z 10-05; never pool pre/post.
+  No cfg flag changes during the trial (composter flag off). Scorer runtime on 15 h live data: 4:54, 57 MB.
+  **FREEZE UNTIL THE 10-06 READ:** no change to mayor_core.py, mayor_shadow.py or stack_sizes.json and no cfg flag
+  change -- any of them starts a new partition and the 48 h GET_WOOD window no longer fits. Scorer-only commits are
+  safe. READ RULE (Claude r3): partition 2e82cfe81496/<cfg>, 18:02:46Z 10-03 -> 03:18Z 10-06 (~56 h after warm-up and
+  censoring); for GET_WOOD/GET_IRON judge xbase AGAINST THE LEASED-RANDOM baseline's xbase (lease timing cancels), raw
+  xbase reported alongside; xrand is a contested-only diagnostic. Deviation from plan: the gate is now target-blind.
 - After each KEEP: rebase the next item onto the new fleet sha and chain it. craftroom must take craftsync's count fix
   (count = items) and a test that its final-click marker survives craftsync's click path; composter re-runs its
   build-from-logs sandbox once craftsync is in.
