@@ -341,7 +341,7 @@ def main():
     ap.add_argument('--json')
     ap.add_argument('--control', action='store_true', help='print the positive control on the logged 7B actions')
     a = ap.parse_args()
-    items = load_jsonl(os.path.join(HERE, 'data', 'mbench-sample.jsonl')) + load_jsonl(os.path.join(HERE, 'data', 'mbench-overseer.jsonl'))
+    items = [x for f in sorted(glob.glob(os.path.join(HERE, 'data', 'mbench-sample*.jsonl'))) for x in load_jsonl(f)] + load_jsonl(os.path.join(HERE, 'data', 'mbench-overseer.jsonl'))
     sysp = json.load(open(os.path.join(HERE, 'data', 'system_prompts.json')))
 
     ctrl = score_brain(items, {}, sysp, logged=True)

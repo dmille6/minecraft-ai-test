@@ -66,7 +66,7 @@ def load_jsonl(p):
 
 
 def items_all():
-    return load_jsonl(os.path.join(HERE, 'data', 'mbench-sample.jsonl')) + load_jsonl(os.path.join(HERE, 'data', 'mbench-overseer.jsonl'))
+    return [x for f in sorted(glob.glob(os.path.join(HERE, 'data', 'mbench-sample*.jsonl'))) for x in load_jsonl(f)] + load_jsonl(os.path.join(HERE, 'data', 'mbench-overseer.jsonl'))
 
 
 def pick_items(items, seed=7):
@@ -158,7 +158,21 @@ def cmd_pack(a):
             letters[L] = groups[k]['labels']
             cands[L] = groups[k]['shown']
         key[it['id']] = letters
-        packets[it['set']].append({'id': it['id'], 'context': context_text(it), 'candidates': cands})
+        ctx = context_text(it)
+        packets[it['set']].append({'id': it['id'], 'context': ctx, 'candidates': cands})
+        # RELIABILITY COPIES (Codex plan): ~20% order-swapped (letters reversed), ~10% exact repeats, under ids the
+        # judge cannot link back. Merged scores use only the original; the copies measure position bias and
+        # self-consistency.
+        r = rng.random()
+        if r < 0.30 and len(cands) > 1:
+            kind = 'swap' if r < 0.20 else 'rep'
+            Ls = list(cands)
+            order = list(reversed(Ls)) if kind == 'swap' else Ls
+            cid = '%s~%s%d' % (it['set'][0], kind, len(key))
+            key[cid] = {'of': it['id'], 'kind': kind, 'map': {chr(65 + j): L for j, L in enumerate(order)}}
+            packets[it['set']].append({'id': cid, 'context': ctx, 'candidates': {chr(65 + j): cands[L] for j, L in enumerate(order)}})
+    for s in packets:
+        rng.shuffle(packets[s])
     for s, pk in packets.items():
         with open(os.path.join(a.dir, 'packet-%s.md' % s), 'w') as fh:
             fh.write('# Judge packet: %s (%d items)\n\n%s\n\nReturn ONE JSON line per item, nothing else:\n'
@@ -195,7 +209,9 @@ def spearman(x, y):
 
 
 def cmd_merge(a):
-    key = json.load(open(os.path.join(a.dir, 'key.json')))
+    key_all = json.load(open(os.path.join(a.dir, 'key.json')))
+    copies = {k: v for k, v in key_all.items() if isinstance(v, dict) and 'of' in v}
+    key = {k: v for k, v in key_all.items() if k not in copies}
     sets = {i['id']: i['set'] for i in items_all()}
     judges = {}
     for pat in a.scores:
@@ -209,7 +225,7 @@ def cmd_merge(a):
                     r = json.loads(line)
                 except ValueError:
                     continue
-                if r.get('id') in key:
+                if r.get('id') in key_all:
                     judges.setdefault(name, {})[r['id']] = r.get('scores') or {}
     out = {'judges': {}, 'agreement': {}}
     for jn, sc in judges.items():
@@ -244,6 +260,23 @@ def cmd_merge(a):
                         'pairs': len(xs), 'spearman': round(spearman(xs, ys), 3) if len(xs) > 2 else None,
                         'exact': round(100.0 * sum(x == y for x, y in zip(xs, ys)) / len(xs), 1),
                         'within1': round(100.0 * sum(abs(x - y) <= 1 for x, y in zip(xs, ys)) / len(xs), 1)}
+    # reliability: the same judge on an order-swapped or repeated copy
+    rel = {}
+    for jn, sc in judges.items():
+        for kind in ('swap', 'rep'):
+            same = tot = within = 0
+            for cid, c in copies.items():
+                if c['kind'] != kind or cid not in sc or c['of'] not in sc:
+                    continue
+                for L_copy, L_orig in c['map'].items():
+                    x, y = (sc[cid] or {}).get(L_copy), (sc[c['of']] or {}).get(L_orig)
+                    if isinstance(x, dict) and isinstance(y, dict) and isinstance(x.get('score'), (int, float)) and isinstance(y.get('score'), (int, float)):
+                        tot += 1; same += x['score'] == y['score']; within += abs(x['score'] - y['score']) <= 1
+            if tot:
+                rel['%s:%s' % (jn, kind)] = {'pairs': tot, 'exact': round(100.0 * same / tot, 1), 'within1': round(100.0 * within / tot, 1)}
+    out['reliability'] = rel
+    for k, v in rel.items():
+        print('reliability', k, v)
     json.dump(out, open(os.path.join(a.dir, 'merged.json'), 'w'), indent=1)
     for jn, d in out['judges'].items():
         for st, labs in d.items():

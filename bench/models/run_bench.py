@@ -175,6 +175,8 @@ def main():
     ap.add_argument('--timeout', type=float, default=900)
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--ids', default='', help='comma list of item ids to run (subset)')
+    ap.add_argument('--ids-file', default='', help='file with one item id per line (e.g. data/screen_ids.txt)')
+    ap.add_argument('--extra', default='', help='extra sample file(s) under data/, comma list (e.g. mbench-sample-x.jsonl)')
     ap.add_argument('--out', default=None)
     a = ap.parse_args()
     a.url = a.url or ('http://127.0.0.1:11434' if a.engine == 'ollama' else 'http://127.0.0.1:1234')
@@ -189,9 +191,16 @@ def main():
                 done.add(r['id'])
     sysp = json.load(open(os.path.join(HERE, 'data', 'system_prompts.json')))
     items = load_jsonl(os.path.join(HERE, 'data', 'mbench-sample.jsonl')) + load_jsonl(os.path.join(HERE, 'data', 'mbench-overseer.jsonl'))
+    for x in filter(None, a.extra.split(',')):
+        items += load_jsonl(os.path.join(HERE, 'data', x))
     sets = a.sets.split(',')
     want = set(a.ids.split(',')) if a.ids else None
+    if a.ids_file:
+        want = (want or set()) | {l.strip() for l in open(os.path.join(HERE, a.ids_file)) if l.strip()}
     order = {s: i for i, s in enumerate(sets)}
+    for x in sets:
+        if x.startswith('b') and x != 'brain' and os.path.exists(os.path.join(HERE, 'data', 'stage-%s.jsonl' % x)):
+            items += load_jsonl(os.path.join(HERE, 'data', 'stage-%s.jsonl' % x))
     items = sorted([i for i in items if i['set'] in sets and (want is None or i['id'] in want)], key=lambda i: (order[i['set']], i['id']))
     if a.limit:
         per = {}
@@ -209,15 +218,23 @@ def main():
 
     def run(item):
         s = item['set']
-        if s == 'brain':
+        if 'messages' in item:
+            # Stage B suites ship their request prebuilt: messages, schema, and which role's settings apply.
+            msgs, schema, ctx = item['messages'], item['schema'], item.get('num_ctx', 16384)
+            if item.get('role') == 'brain':
+                npred, think = 512, think_value(a.think)
+            else:
+                npred, think = 8192, think_value(a.stuck_think)
+        elif s == 'brain':
             msgs, schema = brain_messages(item, sysp); ctx, npred, think = 8192, 512, think_value(a.think)
         elif s == 'stuck':
             msgs, schema = stuck_messages(item, sysp); ctx, npred, think = 16384, 8192, think_value(a.stuck_think)
         else:
             msgs, schema = overseer_messages(item); ctx, npred, think = 16384, 8192, think_value(a.overseer_think)
-        if think not in (None, False) and s == 'brain':
+        role_brain = item.get('role') == 'brain' if 'messages' in item else s == 'brain'
+        if think not in (None, False) and role_brain:
             npred = 4096
-        if think in (None, False) and s != 'brain':
+        if think in (None, False) and not role_brain:
             # Without thinking the answer is a few hundred tokens. A larger cap only lets a model that
             # pads JSON with endless whitespace (legal in the grammar) run for 15 minutes: measured on
             # qwen2.5:7b stuck items, 900 s timeouts. 1024 is ~3x the longest valid overseer answer.
@@ -225,10 +242,20 @@ def main():
         rec = {'id': item['id'], 'set': s, 'label': a.label, 'model': a.model, 'engine': a.engine,
                'think': think, 'concurrency': a.concurrency, 't_start': time.time()}
         try:
-            rec.update(fn(a, msgs, schema, ctx, npred, think))
+            try:
+                rec.update(fn(a, msgs, schema, ctx, npred, think))
+            except urllib.error.HTTPError as e:
+                body = e.read(300).decode('utf-8', 'replace')
+                # A model with no thinking mode rejects ANY think value on some Ollama builds: retry once
+                # without it, and record that the setting was not applicable.
+                if think is not None and 'think' in body.lower():
+                    rec['think'] = 'n/a'
+                    rec.update(fn(a, msgs, schema, ctx, npred, None))
+                else:
+                    raise urllib.error.HTTPError(e.url, e.code, body, e.hdrs, None)
             rec['error'] = None
         except urllib.error.HTTPError as e:
-            rec['error'] = 'http_%d: %s' % (e.code, e.read(300).decode('utf-8', 'replace'))
+            rec['error'] = 'http_%d: %s' % (e.code, str(e.msg)[:300])
         except Exception as e:
             rec['error'] = '%s: %s' % (type(e).__name__, str(e)[:300])
         rec['t_end'] = time.time()
