@@ -64,7 +64,6 @@ export const CRAFT_SYNC = Object.freeze({
   rewriteStateId: true,  // arm B; false runs arm A alone (the sandbox's A-only arm, and the tests' A-only proof)
   verifyReserveMs: 600,  // clicks stop this long before the deadline so verification fits inside it
   preemptWaitMs: 2000,   // an inventory action waits at most this long for a craft to unwind
-  repairWaitMs: 3000,    // after a dropped click: how long the local-state repair waits for clicks/craft to clear
 })
 
 export const GUARDED_INVENTORY_ACTIONS = ['equip', 'unequip', 'moveSlotItem', 'toss', 'tossStack']
@@ -238,16 +237,20 @@ export function installCraftSync (bot, opts = {}) {
   // THE WINDOW-BOUND SEND (withdraw round 5, Codex P1): every click craftsync dispatches carries a ticket naming the
   // window it was issued for (inflight.mjs). A window_click whose window is not that one, or whose ticket was
   // invalidated (a release, a cancel, a visit's end), is DROPPED here -- below every lockstep wrapper, so it is the last
-  // word before the wire -- and the local state mineflayer already changed for it is repaired from the server.
+  // word before the wire. Since round 6 this is the BACKSTOP: cappedClick validates the same ticket before mineflayer
+  // runs (and mutates its local window), so a drop here should not happen. If one does, the local state is marked for
+  // repair, and the repair runs only inside craftsync's own next recount or lockstep -- never in the background, where it
+  // could interleave its close_window(0) with an equip that craftsync does not see (Codex round 6).
   const baseWrite = bot._client.write
   let dropped = 0
+  let repairPending = null
   const filterWrite = function (name, params) {
     if (name === 'window_click') {
       const v = inflight.admit(params)
       if (!v.ok) {
         dropped++
+        repairPending = v.why
         log({ event: 'click_dropped', slot: params?.slot, windowId: params?.windowId, why: v.why })
-        scheduleRepair(v.why)
         return undefined
       }
     }
@@ -317,39 +320,34 @@ export function installCraftSync (bot, opts = {}) {
     while ((since = new Date() - bot.lastDigTime) < 500) await sleep(500 - since)
   }
 
-  /** After a dropped click: mineflayer already applied it locally, so take the window back from the server --
-   *  a clone probe on the open window (full window_items and the cursor), or, with none open, the window-0 recount
-   *  and the server's cursor for it. Coalesced; bounded; logged. */
-  let repairing = null
-  function scheduleRepair (why) {
-    if (repairing) { repairing.again = true; return }
-    const job = repairing = { again: false }
-    ;(async () => {
-      do {
-        job.again = false
-        await inflight.waitSettled(cfg.repairWaitMs)
-        const until = now() + cfg.repairWaitMs
-        while ((active || zombie) && now() < until) await sleep(cfg.pollMs)
-        const win = bot.currentWindow
-        let how = 'busy'
-        if (!active && !zombie && !inflight.size) {
-          if (win) {
-            const r = await confirmCursor(win, { deadline: now() + 1500 })
-            how = r.answered ? 'window_probe' : `window_probe_${r.why}`
-          } else {
-            const r = await recount({ deadline: now() + 3000 })
-            if (r.source === 'server') {
-              const c = lastCarried.get(0)
-              let item = null
-              if (c && (c.itemCount ?? 0) > 0) { try { item = ItemFor(bot).fromNotch(c) } catch { item = null } }
-              if (bot.inventory) bot.inventory.selectedItem = item?.name && item.name !== 'unknown' ? item : null
-            }
-            how = `recount_${r.source}`
-          }
-        }
-        log({ event: 'click_drop_repair', how, why })
-      } while (job.again)
-    })().catch(() => {}).finally(() => { if (repairing === job) repairing = null })
+  /** The server's word on a window's cursor (its last window_items' carriedItem), applied to the client's window. */
+  function applyCarried (win, id) {
+    const c = lastCarried.get(id)
+    let item = null
+    if (c && (c.itemCount ?? 0) > 0) { try { item = ItemFor(bot).fromNotch(c) } catch { item = null } }
+    if (win) win.selectedItem = item?.name && item.name !== 'unknown' ? item : null
+  }
+
+  /** A backstop drop's repair, INSIDE craftsync's own ownership (`st` is active): the open window from a clone probe,
+   *  or window 0 from a close and an answered resync, with the server's cursor for it. */
+  async function repairInside (st) {
+    if (!repairPending) return
+    const why = repairPending
+    st.origWrite ??= bot._client.write
+    let how
+    const win = bot.currentWindow
+    if (win) {
+      const r = await probeCursor(st, win)
+      how = r.answered ? 'window_probe' : `window_probe_${r.why}`
+    } else {
+      st.origWrite.call(bot._client, 'close_window', { windowId: 0 })
+      st.proof = { win: 'any', clicks: st.clicksSent }
+      const r = await resync(st, 0, () => now() >= st.deadline)
+      if (r === 'answered') applyCarried(bot.inventory, 0)
+      how = `recount_${r === 'answered' ? 'server' : r}`
+    }
+    if (how === 'window_probe' || how === 'recount_server') repairPending = null
+    log({ event: 'click_drop_repair', how, why })
   }
 
   /** mineflayer's click, never waited on longer than clickCapMs -- and a cap REJECTS. A rejection that arrives
@@ -362,6 +360,15 @@ export function installCraftSync (bot, opts = {}) {
       // the same expression, so that inside mineflayer the read and the write are synchronous -- inside dispatch(),
       // where the write hook can tell this click's packet from anyone else's.
       await digCooldown(slot)
+      // PRE-INVOKE (round 6, Codex P1): mineflayer applies the click to its LOCAL window before it writes, so a stale
+      // click must be refused here, before it is invoked -- the wire filter below is only the backstop.
+      const v = inflight.validate(ticket, (bot.currentWindow || bot.inventory)?.id ?? 0)
+      if (!v.ok) {
+        ticket.dropped = v.why
+        dropped++
+        log({ event: 'click_refused', slot, windowId: ticket.windowId, why: v.why })
+        throw Object.assign(new Error(`craftsync: click on slot ${slot} dropped: ${v.why}`), { clickDropped: true })
+      }
       const q = inflight.dispatch(ticket, () => orig.call(bot, slot, button, mode))
       if (ticket.dropped) {
         Promise.resolve(q).catch(() => {})
@@ -690,6 +697,11 @@ export function installCraftSync (bot, opts = {}) {
       st.origWrite.call(bot._client, 'close_window', { windowId: 0 })
       st.proof = { win: 'any', clicks: st.clicksSent }
       const r = await resync(st, 0, until)
+      if (r === 'answered' && repairPending) {   // the slots were just answered; the cursor is the server's too
+        applyCarried(bot.inventory, 0)
+        log({ event: 'click_drop_repair', how: 'recount_server', why: repairPending })
+        repairPending = null
+      }
       return { source: r === 'answered' ? 'server' : r, items: r === 'answered' ? (bot.inventory?.items?.() ?? []) : null }
     } finally { active = null }
   }
@@ -704,6 +716,7 @@ export function installCraftSync (bot, opts = {}) {
     const st = active = freshState(deadline, signal)
     let restore = null
     try {
+      await repairInside(st)   // a backstop drop's repair, before this lockstep's first click (never in the background)
       restore = install(st)
       return await fn()
     } finally {
@@ -729,7 +742,15 @@ export function installCraftSync (bot, opts = {}) {
     // or lockstep can click in between and make the evidence stale. (Inventory actions outside craftsync -- equip and
     // the rest -- are refused by the caller's ownership: skills.mjs ownInventory.)
     const st = active = freshState(deadline, null)
-    try {
+    try { return await probeCursor(st, win, cancelled) } finally { active = null }
+  }
+
+  /** The clone probe and its consumption, with `st` already holding craftsync's ownership (confirmCursor, repairInside). */
+  async function probeCursor (st, win, cancelled = () => false) {
+    const no = why => ({ answered: false, cursorEmpty: false, carried: null, decodeFailed: false, why })
+    const id = win?.id
+    if (id == null || bot.currentWindow !== win) return no('not the open window')
+    {
       const before = itemsSeen.get(id) ?? 0
       bot._client.write('window_click', { windowId: id, stateId: -1, slot: 0, mouseButton: 2, mode: 3, changedSlots: [],
                                           cursorItem: { itemCount: 0, components: [], removeComponents: [] } })
@@ -752,13 +773,14 @@ export function installCraftSync (bot, opts = {}) {
       if (!known(item)) return { answered: true, cursorEmpty: false, carried: c, decodeFailed: true, why: 'the carried item could not be decoded' }
       win.selectedItem = item
       return { answered: true, cursorEmpty: false, carried: c, decodeFailed: false, why: null }
-    } finally { active = null }
+    }
   }
 
   bot.craft = craft
   const controller = { cfg, active: () => active, busy: () => !!(active || zombie), original: origCraft, recount, lockstep, confirmCursor,
                        inflight: () => inflight.size, inflightSettled: () => inflight.settled(),
-                       invalidate: reason => inflight.invalidate(reason), dropped: () => dropped, tracker: inflight }
+                       invalidate: reason => inflight.invalidate(reason), dropped: () => dropped, tracker: inflight,
+                       repairPending: () => repairPending }
   bot.craftSync = controller
   return controller
 }

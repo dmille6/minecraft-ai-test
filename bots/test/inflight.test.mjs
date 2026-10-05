@@ -87,5 +87,16 @@ await t('a ticket leaves the live set when its tracked click settles; dispatch p
   assert.equal(tr.current, null, 'restored after a throw')
 })
 
+await t('validate (round 6): the pre-invoke decision -- pure, the same as the wire\'s, and it marks nothing', () => {
+  const tr = inflightTracker()
+  const tk = tr.bind({ windowId: 1 })
+  assert.deepEqual(tr.validate(tk, 1), { ok: true })
+  assert.match(tr.validate(tk, 0).why, /bound to window 1, written to window 0/)
+  assert.equal(tk.dropped, null, 'validate records nothing: the caller decides')
+  tr.invalidate('release')
+  assert.match(tr.validate(tk, 1).why, /invalidated \(release\)/)
+  assert.deepEqual(tr.validate(null, 5), { ok: true }, 'no ticket: not ours')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

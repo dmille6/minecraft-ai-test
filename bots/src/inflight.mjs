@@ -15,13 +15,18 @@
 // (a release, a cancel, the end of a visit) makes every ticket issued before it droppable, so an owner may unlock at
 // once: nothing stale can land.
 //
+// VALIDATE BEFORE THE CLICK RUNS (round 6, Codex P1): mineflayer applies a click to its LOCAL window before it writes
+// the packet, so a stale click dropped only at the wire has already corrupted the client's slots -- and an equip right
+// after a release then chose its slots from that corruption. The caller checks `validate(ticket, windowNow)` before it
+// invokes mineflayer; `admit` (the wire) stays as the backstop and uses the same decision.
+//
 // Self-contained on purpose (no imports), so craftsync.mjs, skills.mjs (withdraw) and the grid fix use one
 // implementation. The round-4 API (track/size/settled/waitSettled) is unchanged; everything below it is additive.
 
 /**
  * -> { track(p, ticket?), size, settled(), waitSettled(ms, cancelled),
- *      epoch, bind({ windowId, slot, button, mode, epoch? }), invalidate(reason), dispatch(ticket, fn), admit(packet),
- *      current, live }.
+ *      epoch, bind({ windowId, slot, button, mode, epoch? }), invalidate(reason), validate(ticket, windowId),
+ *      dispatch(ticket, fn), admit(packet), current, live }.
  */
 export function inflightTracker () {
   const set = new Set()
@@ -69,6 +74,14 @@ export function inflightTracker () {
       epoch++
       return tickets.size
     },
+    /** May this ticket's click run now, the open window being `windowId`? -> { ok: true } | { ok: false, why }. Pure:
+     *  no side effect, so a caller can ask before invoking a click that mutates local state. */
+    validate (ticket, windowId) {
+      if (!ticket) return { ok: true }
+      if (ticket.epoch < epoch) return { ok: false, why: `invalidated (${reasons.get(ticket.epoch) ?? 'invalidated'})` }
+      if (windowId !== ticket.windowId) return { ok: false, why: `bound to window ${ticket.windowId}, written to window ${windowId}` }
+      return { ok: true }
+    },
     /** Run fn() -- the click -- with `ticket` current for its SYNCHRONOUS part, which is where mineflayer writes the
      *  packet once no sleep precedes it. Returns fn()'s result. */
     dispatch (ticket, fn) {
@@ -81,12 +94,9 @@ export function inflightTracker () {
     admit (packet) {
       const t = current
       if (!t) return { ok: true }
-      let why = null
-      if (t.epoch < epoch) why = `invalidated (${reasons.get(t.epoch) ?? 'invalidated'})`
-      else if (packet?.windowId !== t.windowId) why = `bound to window ${t.windowId}, written to window ${packet?.windowId}`
-      if (!why) return { ok: true }
-      t.dropped = why
-      return { ok: false, why }
+      const v = this.validate(t, packet?.windowId)
+      if (!v.ok) t.dropped = v.why
+      return v
     },
   }
 }
