@@ -805,9 +805,7 @@ export const SUSTAINING = [
     done: b => {
       if (bankableInventory(b.inventory?.items?.() ?? []).count < 4) return true
       if (bankClosed(b)) return true   // the bank is closed for this bot (chestfull.mjs): nothing to do here, as with no chest
-      // A DEEP container (chestfull-02, depositTargetOk) is not "storage in reach": the deposit will not use it, so a
-      // bot beside one is vacuously done here and goes on to `return`, as with no chest.
-      const chest = b.findBlock?.({
+      const chest = b.findBlock?.({   // a DEEP container is not storage in reach (chestfull-02): done, as with no chest
         matching: blk => ['chest', 'barrel', 'trapped_chest']
           .includes(b.registry?.blocks?.[blk.type]?.name) &&
           depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, blk.position),
