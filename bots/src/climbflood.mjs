@@ -94,10 +94,13 @@ export function logFloodGuard (bot, { caller, reason, cell = null, submerged = f
  *
  * The correctness line of the read is "0 upward digs into water or lava by the canary". A guard cannot report
  * the digs it failed to refuse, so this OBSERVES the outcome of every dig it allowed: water reaches an opened
- * cell in 5 ticks, lava in 30 (1.5 s), so 1.6 s sees either. Scheduled by callers ONLY after a dig that completed
- * (the server confirmed the break), and it records nothing if the bot is no longer the same live body -- a death,
- * respawn or reconnect in between replaces `bot.entity` and the cell is no longer this dig's evidence (Codex r1).
- * A water breach by a submerged bot is the exemption working as designed: labelled `exempt=1`, never counted.
+ * cell in 5 ticks, lava in 30 (1.5 s), so 1.6 s sees either. Scheduled by callers ONLY after a dig whose promise
+ * resolved without error -- mineflayer resolves it on its local completion (digging.js), so this is NOT server
+ * confirmation -- and it records nothing if the bot is no longer the same live body: a death, respawn or reconnect
+ * in between replaces `bot.entity` and the cell is no longer this dig's evidence (Codex r1). A water breach by a
+ * submerged bot is the exemption working as designed: labelled `exempt=1`, never counted. The row says liquid was
+ * there LATER, not which action let it in, so the read uses it to BLOCK KEEP and trigger a look, never to revert
+ * on its own (Codex r2).
  */
 export function watchClimbDig (bot, { caller, cell, submerged = false, before = '?', delayMs = 1600 }) {
   if (!cell) return
