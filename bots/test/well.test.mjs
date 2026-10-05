@@ -1214,7 +1214,7 @@ await t('P2-1 ESCAPE (real pathfinder): from inside the shaft, closed/open cap o
   assert.equal(W.wellStepCost([{ x: 2, y: 63, z: 0 }], { position: { x: 2, y: 64, z: 0 } }, null), W.WELL_STEP_COST, 'another bot still never steps there')
 })
 await t('MUTANT: without the own-column exemption the body in the shaft has no path out', async () => {
-  await withMutant(WP, "    if (c === skip) continue   // THE BOT'S OWN WELL", "    if (false) continue   // THE BOT'S OWN WELL", async m => {
+  await withMutant(WP, "    if (c === skip) continue   // THE BOT'S OWN WELL", "    if (false) continue   // THE BOT'S OWN WELL", async m => {   // the BREAK exemption: the one the escape needs
     const { cols, profile, route } = escapeWorld({ cap: 'closed' })
     const p = profile(cols[0]); p.exclusionAreasStep = [b => m.wellStepCost(cols, b, cols[0])]; p.exclusionAreasBreak = [b => m.wellBreakCost(cols, b, cols[0])]
     assert.notEqual(route(p).status, 'success', 'mutant inert')
@@ -1373,8 +1373,8 @@ await t('CODEX R5 THE EXEMPTION STOPS AT THE CAP: from inside, a goal ON the ope
   const out = route(profile(cols[0]))
   assert.equal(out.status, 'success'); assert.ok(out.path.every(n => !(n.x === 2 && n.z === 0 && n.y >= 64)), 'the way out crossed the cap')
 })
-await t('MUTANT: exempting the whole own column lets a path from inside stand on the open cap', async () => {
-  await withMutant(WP, '      if (c === skip && p.y <= c.y) continue', '      if (c === skip) continue', async m => {
+await t('MUTANT: a step exemption for the own column lets a path from inside stand on the open cap', async () => {
+  await withMutant(WP, '    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST', '    if (c === arguments[2]) continue\n    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST', async m => {
     const { cols, profile, route, G } = escapeWorld({ cap: 'open' })
     const p = profile(cols[0]); p.exclusionAreasStep = [b => m.wellStepCost(cols, b, cols[0])]
     assert.equal(route(p, new G.GoalBlock(2, 64, 0)).status, 'success', 'mutant inert')
@@ -1424,7 +1424,7 @@ const idxWired = s => {
   once(s, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]', 'index')
   once(s, 'waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]', 'index')
   once(s, 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]', 'index')
-  once(s, 'const wellPenalty = (block) => wellStepCost(wellCols, block, selfWell)', 'index')
+  once(s, 'const wellPenalty = (block) => wellStepCost(wellCols, block)', 'index')
   once(s, "bot.on('move', trackSelf)", 'index')
   once(s, 'protectWellBlocks(moves, bot.registry)', 'index')
   once(s, 'const wellsTimer = setInterval(refreshWells, 20_000)', 'index')

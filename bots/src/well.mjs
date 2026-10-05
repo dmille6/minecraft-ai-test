@@ -692,18 +692,15 @@ export const WELL_COLUMN_UP = 10
  * WELL_STEP_COST, so no node of any profile ever stands on, in or above a well -- whether the trapdoor is open or not,
  * and whatever the goal. Hot path: `cols` is a small cached array (one entry per town), no allocation.
  */
-export function wellStepCost (cols, block, skip = null) {
+export function wellStepCost (cols, block) {
   const p = block?.position
   if (!p || !cols || !cols.length) return 0
   for (let i = 0; i < cols.length; i++) {
     const c = cols[i]
-    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) {
-      // THE BOT'S OWN WELL (Claude review P2-1): from inside, every way out passes through the shaft's cells -- so those
-      // (cap level and below) are exempt. NEVER the cells above the cap (Codex round 5: a path planned from inside went
-      // shaft -> beside -> onto the open cap); the escape tunnels out through a wall instead.
-      if (c === skip && p.y <= c.y) continue
-      return WELL_STEP_COST
-    }
+    // NO EXEMPTION FOR STEPS, not even from inside: measured with the real pathfinder (closed, open, pit), a body in the
+    // shaft gets out by the BREAK exemption alone (a tunnel through a wall), and a step exemption only let a path from
+    // inside reach the open cap (Codex round 5).
+    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST
   }
   return 0
 }
@@ -714,7 +711,7 @@ export function wellBreakCost (cols, block, skip = null) {
   if (!p || !cols || !cols.length) return 0
   for (let i = 0; i < cols.length; i++) {
     const c = cols[i]
-    if (c === skip) continue   // a body inside may dig out through the walls: it breaches the well, and the town rebuilds
+    if (c === skip) continue   // THE BOT'S OWN WELL (Claude review P2-1): a body inside digs out through a wall (the well is breached and rebuilt)
     if (Math.abs(p.x - c.x) <= UNDERGROUND_RING && Math.abs(p.z - c.z) <= UNDERGROUND_RING && p.y >= c.y - 3 && p.y <= c.y) return 100
   }
   return 0
