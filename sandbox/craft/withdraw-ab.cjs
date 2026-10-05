@@ -60,7 +60,14 @@ const SPEC = {
   //     what was withdrawn must stay. The control queues `withdraw 2 stick` and then the same deposit.
   'holdwin': { bag: [...stacks('andesite', 20), ['coal', 64]], chest: INGREDIENTS, cmd: 'withdraw 2 stick', then: 'deposit' },
   // (f1) a disconnect mid-transfer: the swap scene, the bot KICKED right after its first click into the chest window
+  //      (round 7: with the stone on the hotbar that first click IS the whole trade -- one number-key swap)
   'kick': { bag: FULL_BAG, chest: FULL_CHEST, cmd: 'withdraw stone_pickaxe', kickAfterClick: true },
+  // (f1c) round 7: the stone only in the MAIN bag (hotbar all andesite), so the trade is TWO number-key swaps
+  //      (bag<->hotbar, then chest<->hotbar) -- the kick lands between them. Nothing is ever carried: nothing may drop.
+  'kick2': { bag: [...stacks('andesite', 9), ...stacks('stone', 20), ...stacks('andesite', 7)], chest: FULL_CHEST, cmd: 'withdraw stone_pickaxe', kickAfterClick: true },
+  // (f1d) round 7: the REMAINING exposure -- a PART of a stack (ingredients) still rides the cursor. Kicked right after the
+  //      first click (the half pickup of the cobblestone): what is on the cursor then drops (Paper, on disconnect).
+  'kickingred': { bag: stacks('andesite', 20), chest: INGREDIENTS, cmd: 'withdraw stone_pickaxe', kickAfterClick: true },
   // (f1b) the same, then 75 s after the reconnect: does a hold begun on the dead connection ever end?
   'kicklong': { bag: FULL_BAG, chest: FULL_CHEST, cmd: 'withdraw stone_pickaxe', kickAfterClick: true, postKickWaitMs: 75000 },
   // (f2) a held cursor, then room: the swap scene with feathers at the bot's feet (a full bag cannot pick them up; the
