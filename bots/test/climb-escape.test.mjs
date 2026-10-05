@@ -472,6 +472,18 @@ async function withMutant (path, old, neu, fn) {
   writeFileSync(out, body)
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
+/** Several anchored replacements in one mutant (each present AND unique), for a guard that is asked twice. */
+async function withMutantsAll (path, pairs, fn) {
+  let src = readFileSync(path, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}`)
+    assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
 
 await ta('MUTANT KILLED: without the finally, an abort latches `forward` on', async () => {
   // The mutant is the same walk with the try/finally unwrapped -- the shape the
@@ -504,7 +516,9 @@ await ta('MUTANT KILLED: reverting the sidestep to a bare `return` re-freezes th
 })
 
 await ta('MUTANT KILLED: dropping the guard floods the shaft', async () => {
-  await withMutant(SKILLS_PATH, '    if (flood) {', '    if (false) {',
+  // climbflood-01 asks the guard TWICE -- before the hand change and again after the equip (a server round trip),
+  // so the mutant must drop both for the shaft to flood.
+  await withMutantsAll(SKILLS_PATH, [['    if (flood) {', '    if (false) {'], ['        if (again) {', '        if (false) {']],
     async mod => {
       const { bot, digs } = trappedBot(SOAKED)
       await mod.shaftAscend(bot, 60, new AbortController().signal, { deadline: Date.now() + 8_000 })
