@@ -15,7 +15,9 @@
 #   _well_refused      "order=dispose|build reason=..."
 #   _well_left_open    a visit that could not close the cap                                    (must never happen)
 #   _well_recollected  a bot collected an item lying in a well's shaft (self-reported)          (must never happen)
-#   _well_inside       a bot's feet inside a well column below the rim (self-reported, 1/min)   (must never happen)
+#   _well_inside       a bot's feet inside a well column below the rim (self-reported, at most 1/min; the bot digs out
+#                       through a wall -- Paper: out in 6-7 s -- so ONE row is a fall it survived; rows spanning >= 2 min
+#                       are a bot that could not get out)
 #   _well_open_unresolved  an OPEN asked for and not seen within 2 s at cleanup (TRIPWIRE: reported, not gated; close_well
 #                       closes any well found open with nobody at it)
 #
@@ -31,6 +33,8 @@
 #                P1-1: the old nonlisted= was 0 by construction), items= naming anything off the list, or nonlisted= > 0; C4 bots inside a well: _well_inside rows; C5 misses left out:
 #                sum(misses) - sum(retaken) on completed visits (a miss another bot took counts as left out); C6 more than
 #                one ACTIVE well per pool (built minus breached/_well_retired: a designed rebuild is not a breach).
+#                C4 is STUCK INSIDE: one bot's _well_inside rows at one cell spanning >= STUCK_SPAN (2 min); every inside row
+#                is a named tripwire.
 #   TRIPWIRES    (reported, named) closed_open=1 visits (a cap found open: a crash or a lost close), other_loss= (bag
 #                losses during a held phase), unnamed= (thrown entities with no metadata), _well_pit_open, misses on
 #                aborted visits, deaths within 3 of a well, refusals per dispose order by reason, no_site per pool.
@@ -73,6 +77,7 @@ def stack_of(n):
     return 16 if ST16.search(n) else 64
 WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside', '_well_open_unresolved', '_well_pit_open', '_well_retired')
 OPEN_GRACE = dt.timedelta(minutes=2)   # C2: a cap left open that no visit closed within this long
+STUCK_SPAN = dt.timedelta(minutes=2)   # C4: inside rows (<= 1/min) for one bot at one cell spanning this long = no escape
 
 
 def load_window(since, until):
@@ -156,6 +161,21 @@ def open_breaches(opens, closes, end):
     return br, pend
 
 
+def stuck_inside(rows_):
+    """C4: [(t, bot, at)] -> [(bot, at, span)] for each bot whose inside rows at one cell span >= STUCK_SPAN with no gap
+    over 90 s (rows come at most once a minute while the bot stays inside)."""
+    out, runs = [], {}
+    for t, b, at in sorted(rows_):
+        k = (b, at)
+        first, last = runs.get(k, (t, t))
+        if t - last > dt.timedelta(seconds=90):
+            first = t
+        runs[k] = (first, t)
+        if t - first >= STUCK_SPAN and not any(o[0] == b and o[1] == at for o in out):
+            out.append((b, at, str(t - first)))
+    return out
+
+
 def is_close(f):
     """A row that PROVES the cap closed: its own read-back (cap_end=closed). Never the visit's status (Codex round 5)."""
     return f.get('cap_end') == 'closed'
@@ -170,6 +190,9 @@ _k = ('hive-a', '1,2,3')
 assert open_breaches([(_t0, _k, 'a')], [], _t0 + dt.timedelta(minutes=10))[0]
 assert not open_breaches([(_t0, _k, 'a')], [(_t0 + dt.timedelta(seconds=30), _k)], _t0 + dt.timedelta(minutes=10))[0]
 assert open_breaches([(_t0, _k, 'a')], [], _t0 + dt.timedelta(seconds=30))[1]   # too recent to judge: pending
+assert stuck_inside([(_t0 + dt.timedelta(minutes=m), 'a', '1,2,3') for m in (0, 1, 2)]), 'C4 must fire on 3 inside rows over 2 min'
+assert not stuck_inside([(_t0, 'a', '1,2,3')]), 'one inside row (a fall the bot dug out of) is a tripwire, not C4'
+assert not stuck_inside([(_t0, 'a', '1,2,3'), (_t0 + dt.timedelta(minutes=10), 'a', '1,2,3')]), 'two separate falls are not one stay'
 assert open_breaches([(_t0, _k, 'a')], [(_t0 + dt.timedelta(seconds=30), ('board-b', '1,2,3'))], _t0 + dt.timedelta(minutes=10))[0], 'another pool\'s cell is not this close'
 # the visit that LEFT it open still ends "success" (junk went down): its cap_end=open row is no close
 assert not is_close(kv('slots=36->33 offlist=0 freed=3 tossed=3 n=144 server=resync closed_open=0 cap_end=open at=1,2,3 stop=done items=egg:16'))
@@ -181,7 +204,7 @@ rows = Counter(); kinds = Counter(); offbuild = 0
 c1 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter); breached = defaultdict(set)
 visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
 opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0
-orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set()
+orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set(); inside_rows = []
 botsets = defaultdict(lambda: defaultdict(set)); last = defaultdict(dict); totals = Counter()
 for r in ev_rows:
     t = r.get('t'); b = (r.get('bot') or {}).get('name')
@@ -219,7 +242,7 @@ for r in ev_rows:
     elif k == '_well_recollected':
         c1.append((b, d[:100]))
     elif k == '_well_inside':
-        c4.append((b, d[:100]))
+        inside_rows.append((t, b, f.get('at', '?')))
     elif k == '_well_pit_open':
         pit_open.append((b, f.get('at'), f.get('stage')))
     elif k == '_well_refused':
@@ -278,6 +301,7 @@ active = {p: active_wells(cells, breached[p]) for p, cells in built.items()}
 c6 = {p: len(cells) for p, cells in active.items() if len(cells) > 1}
 c5 = max(0, misses - retaken)
 c2, c2_pending = open_breaches(opens, closes, END)
+c4 = stuck_inside(inside_rows)
 
 
 def near_well(pos):
@@ -299,12 +323,12 @@ print('DENOMINATORS rows post canary %d / control %d | bots post canary %d / con
          len(last['pre']), len(last['post'])))
 print('LIVENESS     canary well rows %d (>= 1) | control %d (must be 0) | other build %d | by kind %s'
       % (rows['canary'], rows['control'], offbuild, dict((k2, n) for (a, k2), n in kinds.items() if a == 'canary')))
-print('CORRECTNESS  C1 recollected %d | C2 left open > 2 min %d (pending %d) | C3 non-listed thrown %d | C4 bots inside a well %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 ACTIVE well %s'
+print('CORRECTNESS  C1 recollected %d | C2 left open > 2 min %d (pending %d) | C3 non-listed thrown %d | C4 bots stuck inside a well >= 2 min %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 ACTIVE well %s'
       % (len(c1), len(c2), len(c2_pending), len(c3), len(c4), c5, misses, retaken, c6 or 0))
 print('             wells built %s | breached %s | pit-first builds %d | disposal visits %d (server-resynced %d) | refusals %s'
       % ({p: dict(c) for p, c in built.items()}, {p: sorted(c) for p, c in breached.items() if c}, pit, visits, resynced, dict(refused)))
-print('TRIPWIRES    caps found open (closed_open=1) %d %s | open rows %d (unresolved %d) | other_loss %d | unnamed thrown %d | pits left open %d %s | aborted-visit misses %d'
-      % (len(closed_open), closed_open[:3], len(opens), unresolved, other_loss, unnamed, len(pit_open), pit_open[:3], aborted_misses))
+print('TRIPWIRES    inside rows %d %s | caps found open (closed_open=1) %d %s | open rows %d (unresolved %d) | other_loss %d | unnamed thrown %d | pits left open %d %s | aborted-visit misses %d'
+      % (len(inside_rows), [(b, at) for _, b, at in inside_rows[:3]], len(closed_open), closed_open[:3], len(opens), unresolved, other_loss, unnamed, len(pit_open), pit_open[:3], aborted_misses))
 print('             refusals per dispose order (canary) %s | no_site per pool %s | deaths within 3 of a well %s'
       % (refusal_rate or '-', {p: c['no_site'] for p, c in refused_pool.items() if c.get('no_site')} or '-', deaths_near or '-'))
 print('             deaths canary %d control %d (two-death floor: canary-report.py decides; one death is named, not a verdict)' % (deaths['canary'], deaths['control']))
@@ -323,7 +347,7 @@ try:
         'rows_canary': rows['canary'], 'rows_control': rows['control'], 'offbuild_canary': offbuild,
         'breach_recollected': len(c1), 'breach_left_open': len(c2), 'breach_nonlisted': len(c3), 'breach_inside': len(c4),
         'breach_misses_left': c5, 'breach_multi_well': len(c6), 'open_unresolved': unresolved, 'open_pending': len(c2_pending),
-        'caps_found_open': len(closed_open), 'other_loss': other_loss, 'pits_left_open': len(pit_open), 'deaths_near_well': len(deaths_near),
+        'caps_found_open': len(closed_open), 'inside_rows': len(inside_rows), 'other_loss': other_loss, 'pits_left_open': len(pit_open), 'deaths_near_well': len(deaths_near),
         'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
         'full_share_did': None if did('full') != did('full') else round(did('full'), 4),
