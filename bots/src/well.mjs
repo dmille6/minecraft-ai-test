@@ -692,15 +692,18 @@ export const WELL_COLUMN_UP = 10
  * WELL_STEP_COST, so no node of any profile ever stands on, in or above a well -- whether the trapdoor is open or not,
  * and whatever the goal. Hot path: `cols` is a small cached array (one entry per town), no allocation.
  */
-export function wellStepCost (cols, block) {
+export function wellStepCost (cols, block, skip = null) {
   const p = block?.position
   if (!p || !cols || !cols.length) return 0
   for (let i = 0; i < cols.length; i++) {
     const c = cols[i]
-    // NO EXEMPTION FOR STEPS, not even from inside: measured with the real pathfinder (closed, open, pit), a body in the
-    // shaft gets out by the BREAK exemption alone (a tunnel through a wall), and a step exemption only let a path from
-    // inside reach the open cap (Codex round 5).
-    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST
+    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) {
+      // THE BOT'S OWN WELL (Claude review P2-1), cap level and BELOW only: a jump out of a deeper (breached-floor) shaft
+      // checks its headroom in the column at cap level (Codex round 7). NEVER above the cap: a path planned from inside
+      // went shaft -> beside -> onto the open cap (Codex round 5).
+      if (c === skip && p.y <= c.y) continue
+      return WELL_STEP_COST
+    }
   }
   return 0
 }

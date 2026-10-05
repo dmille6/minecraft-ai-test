@@ -1178,19 +1178,31 @@ await t('MUTANT: counting no off-list entity leaves C3 blind again', async () =>
 })
 
 // the real pathfinder, a body standing on the floor trapdoor inside the shaft
-const escapeWorld = ({ cap = 'closed' } = {}) => {
+const escapeWorld = ({ cap = 'closed', deep = false } = {}) => {
   const reg = require('prismarine-registry')('1.21.8'); const Block = require('prismarine-block')(reg)
   const { Movements: Mv, goals: G } = require('mineflayer-pathfinder')
   const AStar = require('mineflayer-pathfinder/lib/astar.js'); const Move = require('mineflayer-pathfinder/lib/move.js')
   const well = { x: 2, y: 63, z: 0 }
   const td = (half, open) => { const b = reg.blocksByName.oak_trapdoor; for (let id = b.minStateId; id <= b.maxStateId; id++) { const p = Block.fromStateId(id, 0).getProperties(); if (p.facing === 'north' && !p.powered && !p.waterlogged && p.half === half && p.open === open) return id } }
+  // A BOUNDED WORLD (Codex round 7: an unbounded search ends 'partial', which proves nothing): bedrock walls at |x|,|z| > 9
+  // and a bedrock ceiling at y >= 72, so every search ends success or noPath.
+  //   pit   an interrupted build at stage 'dug': no cap, no floor trapdoor -- the body stands on the stone floor
+  //   deep  the floor breached too: the body stands one lower (y 61); bedrock beside it and under it, so the only way out
+  //         is a jump whose headroom is the column at cap level (Codex round 7's case)
+  const B_ = n => reg.blocksByName[n].defaultState
   const stateAt = (x, y, z) => {
-    if (x === well.x && z === well.z && y === well.y) return cap === 'pit' ? reg.blocksByName.air.defaultState : td('top', cap === 'open')
-    if (x === well.x && z === well.z && y === well.y - 1) return td('bottom', false)
-    return reg.blocksByName[y <= 63 ? 'stone' : 'air'].defaultState
+    if (Math.abs(x - 2) > 9 || Math.abs(z) > 9 || y >= 72) return B_('bedrock')
+    if (x === well.x && z === well.z) {
+      if (y === well.y) return cap === 'pit' || deep ? B_('air') : td('top', cap === 'open')
+      if (y === well.y - 1) return cap === 'pit' || deep ? B_('air') : td('bottom', false)
+      if (y === well.y - 2 && deep) return B_('air')
+    }
+    if (deep && y === well.y - 2 && Math.abs(x - well.x) <= 1 && Math.abs(z - well.z) <= 1) return B_('bedrock')   // no way sideways
+    if (deep && y === well.y - 3 && Math.abs(x - well.x) <= 2 && Math.abs(z - well.z) <= 2) return B_('bedrock')   // nor down
+    return B_(y <= 63 ? 'stone' : 'air')
   }
   const blockAt = p => { const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z); const b = Block.fromStateId(stateAt(x, y, z), 0); b.position = new Vec3(x, y, z); return b }
-  const bot = { registry: reg, version: '1.21.8', game: { minY: -64, height: 384 }, blockAt, entity: { position: new Vec3(2.5, 62.1875, 0.5), effects: {} },
+  const bot = { registry: reg, version: '1.21.8', game: { minY: -64, height: 384 }, blockAt, entity: { position: new Vec3(2.5, deep ? 61 : 62.1875, 0.5), effects: {} },
                 entities: {}, inventory: { items: () => [], slots: [] }, pathfinder: { bestHarvestTool: () => null } }
   const cols = [{ ...well }]
   const profile = skip => {
@@ -1199,17 +1211,19 @@ const escapeWorld = ({ cap = 'closed' } = {}) => {
     m.exclusionAreasStep = [b => W.wellStepCost(cols, b, skip)]; m.exclusionAreasBreak = [b => W.wellBreakCost(cols, b, skip)]
     return m
   }
-  const route = (m, goal = new G.GoalBlock(6, 64, 0)) => new AStar(new Move(2, 62, 0, 0, 0), m, goal, 4000, 2000).compute()
+  const start = deep ? new Move(2, 61, 0, 0, 0) : new Move(2, 62, 0, 0, 0)
+  const route = (m, goal = new G.GoalBlock(6, 64, 0)) => new AStar(start, m, goal, 20000, 20000).compute()
   return { cols, profile, route, bot, G }
 }
 await t('P2-1 ESCAPE (real pathfinder): from inside the shaft, closed/open cap or uncapped pit, every way out is in the well -- with the own-column exemption a dig profile gets out; without it, noPath (the dead end)', async () => {
-  for (const cap of ['closed', 'open', 'pit']) {
-    const { cols, profile, route } = escapeWorld({ cap })
+  for (const [cap, deep] of [['closed', false], ['open', false], ['pit', false], ['pit', true]]) {
+    const { cols, profile, route } = escapeWorld({ cap, deep })
     const without = route(profile(null))
-    assert.notEqual(without.status, 'success', `${cap}: positive control -- the composed guards trap the body`)
+    assert.equal(without.status, 'noPath', `${cap}${deep ? ' deep' : ''}: positive control -- the composed guards trap the body (a definitive noPath)`)
     const r = route(profile(cols[0]))
-    assert.equal(r.status, 'success', `${cap}: no way out with the exemption`)
+    assert.equal(r.status, 'success', `${cap}${deep ? ' deep' : ''}: no way out with the exemption`)
     const last = r.path[r.path.length - 1]; assert.ok(last.y >= 64 && !(last.x === 2 && last.z === 0), `${cap}: ended at ${last.x},${last.y},${last.z}`)
+    assert.ok(r.path.every(n => !(n.x === 2 && n.z === 0 && n.y >= 64)), `${cap}: the way out crossed the cap`)
   }
   assert.equal(W.wellStepCost([{ x: 2, y: 63, z: 0 }], { position: { x: 2, y: 64, z: 0 } }, null), W.WELL_STEP_COST, 'another bot still never steps there')
 })
@@ -1369,12 +1383,12 @@ await t('P3 a breached well stays in the exclusions next to the new one; buildin
 await t('CODEX R5 THE EXEMPTION STOPS AT THE CAP: from inside, a goal ON the open cap is unreachable (no shaft -> beside -> cap path); the escape still gets out', async () => {
   const { cols, profile, route, G } = escapeWorld({ cap: 'open' })
   const onCap = route(profile(cols[0]), new G.GoalBlock(2, 64, 0))
-  assert.notEqual(onCap.status, 'success', `re-entry: ${onCap.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')}`)
+  assert.equal(onCap.status, 'noPath', `re-entry (${onCap.status}): ${onCap.path.map(n => `${n.x},${n.y},${n.z}`).join(' ')}`)
   const out = route(profile(cols[0]))
   assert.equal(out.status, 'success'); assert.ok(out.path.every(n => !(n.x === 2 && n.z === 0 && n.y >= 64)), 'the way out crossed the cap')
 })
-await t('MUTANT: a step exemption for the own column lets a path from inside stand on the open cap', async () => {
-  await withMutant(WP, '    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST', '    if (c === arguments[2]) continue\n    if (p.x === c.x && p.z === c.z && p.y >= c.y - 1 && p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST', async m => {
+await t('MUTANT: exempting the WHOLE own column (not just cap level and below) lets a path from inside stand on the open cap', async () => {
+  await withMutant(WP, '      if (c === skip && p.y <= c.y) continue', '      if (c === skip) continue', async m => {
     const { cols, profile, route, G } = escapeWorld({ cap: 'open' })
     const p = profile(cols[0]); p.exclusionAreasStep = [b => m.wellStepCost(cols, b, cols[0])]
     assert.equal(route(p, new G.GoalBlock(2, 64, 0)).status, 'success', 'mutant inert')
@@ -1413,6 +1427,14 @@ await t('MUTANT (skills): without the early close the cap stays open the whole s
   })
 })
 
+await t('MUTANT: without the step exemption a body in a breached-floor shaft cannot jump out (Codex round 7)', async () => {
+  await withMutant(WP, '      if (c === skip && p.y <= c.y) continue\n', '', async m => {
+    const { cols, profile, route } = escapeWorld({ cap: 'pit', deep: true })
+    const p = profile(cols[0]); p.exclusionAreasStep = [b => m.wellStepCost(cols, b, cols[0])]
+    assert.equal(route(p).status, 'noPath', 'mutant inert')
+  })
+})
+
 // ===================================================================================================================
 // WIRING (structural: comments stripped, unique anchors, a mutant each)
 // ===================================================================================================================
@@ -1424,7 +1446,7 @@ const idxWired = s => {
   once(s, 'moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]', 'index')
   once(s, 'waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]', 'index')
   once(s, 'moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]', 'index')
-  once(s, 'const wellPenalty = (block) => wellStepCost(wellCols, block)', 'index')
+  once(s, 'const wellPenalty = (block) => wellStepCost(wellCols, block, selfWell)', 'index')
   once(s, "bot.on('move', trackSelf)", 'index')
   once(s, 'protectWellBlocks(moves, bot.registry)', 'index')
   once(s, 'const wellsTimer = setInterval(refreshWells, 20_000)', 'index')
@@ -1471,7 +1493,7 @@ await t('MUTANT: an admission radius of 0 opens with a player beside it', async 
   })
 })
 await t('MUTANT: a free step cost lets the planner stand on the cap', async () => {
-  await withMutant(WP, 'p.y <= c.y + WELL_COLUMN_UP) return WELL_STEP_COST', 'p.y <= c.y + WELL_COLUMN_UP) return 0', async m => {
+  await withMutant(WP, '      if (c === skip && p.y <= c.y) continue\n      return WELL_STEP_COST', '      if (c === skip && p.y <= c.y) continue\n      return 0', async m => {
     const { route, profile, inColumn } = routeWorld()
     const mm = profile(null); mm.exclusionAreasStep = [b => m.wellStepCost([{ x: 2, y: 63, z: 0 }], b)]
     assert.deepEqual(inColumn(route(mm)), ['2,64,0'], 'mutant inert')

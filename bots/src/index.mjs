@@ -499,8 +499,9 @@ function connect() {
     // walls, floor and underground ring are never a path's or gather's dig. Cells come from a 20 s cache (the town's
     // validated well + the recorded site, which is an open pit while it is being built), never a read in the A* step.
     let wellCols = []
-    // THE WELL THIS BODY IS INSIDE, if any, is exempt from its OWN BREAK exclusion (Claude review P2-1: from inside, the only
-    // way out is digging through a wall of the ring, so the two guards composed into a dead end). Steps stay excluded.
+    // THE WELL THIS BODY IS INSIDE, if any, is exempt from its OWN exclusions (Claude review P2-1: from inside, every way
+    // out -- a tunnel through a wall, a jump whose headroom is the column -- needs them): the whole break ring, and steps at
+    // cap level and below (never above the cap: Codex round 5).
     // Kept current on every move: one comparison per well, never a read inside the A* step.
     let selfWell = null
     const trackSelf = () => { try { selfWell = bodyInWell(wellCols, bot.entity?.position) } catch { selfWell = null } }
@@ -514,7 +515,7 @@ function connect() {
     bot.once('end', () => { clearInterval(wellsTimer); clearTimeout(wellsFirst); wellWatch.stop(); bot.removeListener('move', trackSelf) })
     bot.wellCellsNow = () => wellCols
     bot.refreshWells = refreshWells
-    const wellPenalty = (block) => wellStepCost(wellCols, block)
+    const wellPenalty = (block) => wellStepCost(wellCols, block, selfWell)
     moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]
     // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
