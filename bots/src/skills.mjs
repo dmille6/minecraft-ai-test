@@ -5495,7 +5495,7 @@ export function installWellWatch (bot, cols) {
  * registered first). Without an answer, or with a window open or a craft in flight, the local bag is returned and
  * labelled 'local' -- and a throw phase refuses on it.
  */
-async function serverBag (bot, waitTick) {
+export async function serverBag (bot, waitTick) {
   const local = source => {
     const it = bot.inventory?.items?.() ?? []
     const slots = {}
