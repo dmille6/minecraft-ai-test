@@ -206,9 +206,11 @@ export const torchesOf = record => (record?.cells ?? []).filter(c => c.role === 
  *   soil_foreign  something else replaced the soil (quarantined: never dug by the farm)
  *   cell_foreign  a block (not ours) sits in the plot cell
  *   logs_above  the cell is open but logs float in the column (a partial harvest): `logs` are the cells to clear
- *   leaves_above  leaves still in the column: they decay once no log is near; wait
+ *   (leaves in the column do NOT block: Paper 10-05, a sapling under six leaf blocks grew 16/16 at the open
+ *    control's speed. They matter because a harvested tree's leaves stay alive while a NEIGHBOUR's trunk is within 6
+ *    -- 4 apart, it always is -- so "wait for them to decay" never replanted a plot in a standing farm: Paper run 3)
  *   column_foreign  some other solid in the column
- *   ready       plantable now: CLEAR_ABOVE air cells, so every farm species fits (`species`)
+ *   ready       plantable now: no log or foreign block in CLEAR_ABOVE, so every farm species fits (`species`)
  *   unknown     not loaded
  */
 export function plotState (read, plot) {
@@ -224,14 +226,13 @@ export function plotState (read, plot) {
     const b = read(plot.x, plot.y + k, plot.z)
     if (!b) return { state: 'unknown' }
     if (isLog(b.name)) { logs.push({ x: plot.x, y: plot.y + k, z: plot.z }); continue }
-    if (isLeaves(b.name)) { leaves = true; continue }
+    if (isLeaves(b.name)) { leaves = true; continue }   // a leaf is not an obstruction (measured): noted, not refused
     if (b.name === 'air' || b.name === 'cave_air') continue
     if (!foreign) foreign = b.name
   }
   if (logs.length) return { state: 'logs_above', logs }
   if (foreign) return { state: 'column_foreign', what: foreign }
-  if (leaves) return { state: 'leaves_above' }
-  return { state: 'ready', species: [...FARM_SPECIES] }
+  return { state: 'ready', species: [...FARM_SPECIES], leaves }
 }
 
 /**

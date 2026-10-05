@@ -272,7 +272,8 @@ await t('plotState: every state; ready means CLEAR_ABOVE air, so every farm spec
   assert.equal(st({ [K(20, 64, 20)]: 'crafting_table' }).state, 'cell_foreign')
   const la = st({ [K(20, 66, 20)]: 'birch_log', [K(20, 67, 20)]: 'birch_log' })
   assert.equal(la.state, 'logs_above'); assert.deepEqual(la.logs.map(c => c.y), [66, 67])
-  assert.equal(st({ [K(20, 69, 20)]: 'birch_leaves' }).state, 'leaves_above')
+  assert.equal(st({ [K(20, 69, 20)]: 'birch_leaves' }).state, 'ready', 'leaves do not block growth (Paper 16/16)')
+  assert.equal(st({ [K(20, 69, 20)]: 'birch_leaves' }).leaves, true)
   assert.equal(st({ [K(20, 69, 20)]: 'stone' }).state, 'column_foreign')
   assert.deepEqual(st({}).species, ['birch_sapling', 'oak_sapling'])
   assert.equal(st({ [K(20, 71, 20)]: 'stone' }).state, 'column_foreign', 'the seventh cell counts too (birch 6 + margin)')
@@ -829,14 +830,15 @@ await t('MUTANT KILLED: a lease decision that ignores expiry lets two builders i
       assert.equal(BP.leaseDecision({ lease: { holder: 'A', until: 5000 }, me: 'B', now: 1000 }).ok, false)
     })
 })
-await t('MUTANT KILLED: a plot state that ignores leaves plants under a canopy', async () => {
+await t('MUTANT KILLED: a plot state that treats leaves as an obstruction never replants a harvested plot in a standing farm', async () => {
   await withMutant(new URL('../src/treefarm.mjs', import.meta.url),
-    "  if (leaves) return { state: 'leaves_above' }\n", '',
+    "    if (isLeaves(b.name)) { leaves = true; continue }",
+    "    if (isLeaves(b.name)) { if (!foreign) foreign = b.name; continue }",
     async u => {
       const M = await import(u.href)
       const w = world({ [K(20, 69, 20)]: 'birch_leaves' })
-      assert.equal(M.plotState(w.read, { x: 20, y: 64, z: 20 }).state, 'ready')
-      assert.equal(TF.plotState(w.read, { x: 20, y: 64, z: 20 }).state, 'leaves_above')
+      assert.equal(M.plotState(w.read, { x: 20, y: 64, z: 20 }).state, 'column_foreign')
+      assert.equal(TF.plotState(w.read, { x: 20, y: 64, z: 20 }).state, 'ready')
     })
 })
 await t('MUTANT KILLED: a plan that ignores what the bag holds would plant a species the bot does not have', async () => {
