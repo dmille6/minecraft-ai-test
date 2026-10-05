@@ -125,6 +125,13 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-05 ~14:30Z — CHAIN: junkwell-01 (live; +180 NOT_YET 13:10Z: 2 wells built, 6 disposals / 154 items, C1-C6 0,
+listed-junk slots/bot DiD -1.30, deaths 1 vs 6 same rate) -> chestfull-02 CHAINED on the host (variants 911d792 ->
+chest2-on-911d792 @ 7ee230f, which also changes the well's site picker to respect claimed chests; 1918bb5 ->
+chest2-on-1918bb5 @ 47110e8). Then withdraw (wd-on-6c9a8fb @ 098cb6b: town-miss gate fixed; rebase onto whichever
+chestfull-02 lands) -> grid fix (gf-on-1918bb5 8c9239d / gf-on-911d792 ced0b52 ready; will need a rebase onto the
+chest-full fleet sha) -> bamboo. Rebases happen per stage as each lands.
+
 ## 10-05 ~13:00Z — OWNER DIRECTION: 4-8 really smart bots are fine (80 not needed); a larger model as OVERSEER and for STUCK
 escalation; find the best model(s) with both engines, an "extensive and exhaustive" test, all public sources. The M4 Studio
 (ai.ticrcorp.com) is DEDICATED to this; model downloads there are authorized; never 10.0.0.72. Running: Codex research
