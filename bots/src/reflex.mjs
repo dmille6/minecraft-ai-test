@@ -19,7 +19,8 @@ import { isNight, snapshot, inventorySummary } from './state.mjs'
 import { breathable, makeAirClock, airEmergency } from './air.mjs'
 import { dropsOf } from './drops.mjs'
 import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
-         bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary } from './scaffold.mjs'
+         bodyPassable, isFallingBlock, supportProbablyReal, restingOnBoundary, overheadBreakRisk } from './scaffold.mjs'
+import { FLOOD_RISK, climbOutcomeRoute, floodChainStep, submergedAt, logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan } from './digbudget.mjs'
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
 import { climbLadder, bestLadderWall, ladderPlan } from './ladder.mjs'
@@ -1390,6 +1391,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // watchdog has no entombed handler at all.
   let escapeGiveUps = 0
   let climbRefusals = 0        // pillar declined to START -- see the refusal branch
+  let floodRefusals = 0        // climbflood-01: flood refusals the ramp could not get past (drives the back-off)
   let refusalPlaceStreak = 0   // ...how many of those in a row were from HERE
   let lastRefusalPos = null    // ...and WHERE, so the streak means one hole
   let reflexErrors = 0
@@ -2694,6 +2696,32 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                                `${Math.round(bot.entity?.position?.y ?? 0)} — recorded rather ` +
                                `than discarded; no cheaper remedy applies at this block count`,
                        snapshot: snapshot(bot) })
+          } else if (climbOutcomeRoute(pillarOutcome) === 'flood') {
+            // CLIMB FLOOD (climbflood-01): THE SAME BRANCH AS THE ENTOMBED HANDLER.
+            // This handler used to record a refusal and release the body, which
+            // for a flood refusal is the silent drop Codex named. The ramp is
+            // the remedy that needs no material, and every one of its digs asks
+            // the same flood check, so it cannot re-open the refused cell.
+            const yNow = Math.round(bot.entity?.position?.y ?? 0)
+            const floodStair = await escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => maroonGrant) })
+              .catch(e => ({ steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}`, flood: null }))
+            const fstep = floodChainStep({ refusals: floodRefusals + 1, stair: floodStair })
+            const fstatus = rampStatus(floodStair)
+            logEvent({ kind: 'climb_flood_ramp', status: fstatus,
+                       detail: `handler=marooned y=${yNow} steps=${floodStair.steps} climbed=${floodStair.climbed.toFixed(1)} ` +
+                               `flood=${floodStair.flood ?? 'none'} — stopped because ${floodStair.stopped}`,
+                       snapshot: snapshot(bot) })
+            if (fstep.progressed) {
+              floodRefusals = 0
+            } else {
+              floodRefusals++
+              logEvent({ kind: 'climb_flood_refused', status: 'failed',
+                         detail: `handler=marooned at=${Math.floor(bot.entity.position.x)},${yNow},${Math.floor(bot.entity.position.z)} ` +
+                                 `refusals=${floodRefusals} backoff_s=${Math.round(fstep.backoffMs / 1000)} prereq=none ` +
+                                 `— stayed dry; remedy: ${fstep.remedy}; ramp stopped: ${floodStair.stopped}`,
+                         snapshot: snapshot(bot) })
+              lastMaroonCheck = Date.now() + fstep.backoffMs
+            }
           }
           noteReflexInventory(bot, invBefore, 'maroon_escape')
           marooned = false; giveBody(runner, maroonGrant, 'maroon arm ended'); maroonGrant = null
@@ -2944,12 +2972,47 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               }
             }
           }
+          else if (climbOutcomeRoute(climbed) === 'flood') {
+            // CLIMB FLOOD (climbflood-01). The pillar refused because breaking
+            // the ceiling would let water or lava in. This used to land in the
+            // failure counter below, and four of those ask the goal layer for a
+            // PICKAXE (the `escapeFailures >= ESCAPE_GIVE_UP_AFTER` arm) -- a bot
+            // that already holds one, for a problem no tool fixes. So: its own
+            // branch, straight to the ramp (no material, every dig under the same
+            // flood check, so the refused cell is never re-breached), and if the
+            // ramp gains nothing, stay DRY -- one row per back-off, the escalating
+            // back-off, no prerequisite, and the legal move named.
+            const floodStair = await escapeStairUp(bot, { yieldTo: () => drowningOwnsBody() || arbiterYield(() => entombedGrant) })
+              .catch(e => {
+                log('warn', 'reflex: entombed flood ramp failed', { err: e.message })
+                return { steps: 0, climbed: 0, breached: 0, stopped: `threw: ${e.message}`, flood: null }
+              })
+            const fstep = floodChainStep({ refusals: floodRefusals + 1, stair: floodStair })
+            const fstatus = rampStatus(floodStair)
+            logEvent({ kind: 'climb_flood_ramp', status: fstatus,
+                       detail: `handler=entombed y=${Math.round(yBefore)} steps=${floodStair.steps} climbed=${floodStair.climbed.toFixed(1)} ` +
+                               `flood=${floodStair.flood ?? 'none'} — stopped because ${floodStair.stopped}`,
+                       snapshot: snapshot(bot) })
+            if (fstep.progressed) {
+              floodRefusals = 0; climbRefusals = 0; refusalPlaceStreak = 0; escapeFailures = 0
+            } else {
+              floodRefusals++
+              const q = bot.entity.position
+              logEvent({ kind: 'climb_flood_refused', status: 'failed',
+                         detail: `handler=entombed at=${Math.floor(q.x)},${Math.round(q.y)},${Math.floor(q.z)} ` +
+                                 `refusals=${floodRefusals} backoff_s=${Math.round(fstep.backoffMs / 1000)} prereq=none ` +
+                                 `— stayed dry; remedy: ${fstep.remedy}; ramp stopped: ${floodStair.stopped}`,
+                         snapshot: snapshot(bot) })
+              log('warn', 'reflex: entombed under a flood risk; staying dry', { y: Math.round(q.y), refusals: floodRefusals })
+              lastEscapeAt = Date.now() + fstep.backoffMs
+            }
+          }
           // THE SHARED POSTCONDITION (recovery.mjs): a climb that did not leave
           // this place -- four blocks up and dry, or eight sideways -- while the
           // bot is still walled in is a failed escape, whatever pillarOut returned.
           else if (climbed === 'preempted') { /* another owner took the body: not a failed escape, not a success */ }
           else if (bot.entity && (!escapedFrom(climbFrom, { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z, wet: !!bot.entity.isInWater }) || isEntombed(bot))) escapeFailures++   // success needs BOTH: somewhere else, and not walled in (Codex pass 3)
-          else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0 }
+          else { escapeFailures = 0; climbRefusals = 0; refusalPlaceStreak = 0; floodRefusals = 0 }
         } finally { escaping = false }
         return
       }
@@ -4179,6 +4242,11 @@ export async function escapeStairUp (bot, {
   let runway = 0
   let breached = 0
   let yielded = null
+  // WHICH RAMP DIG THE FLOOD CHECK REFUSED, if that is why the ramp stopped
+  // (climbflood-01): 'ramp_breach' (the ceiling, or gravel on it) or
+  // 'ramp_step' (every bearing's first step). Read by the flood branch and the
+  // guard row; null for every other stop, so no other caller changes.
+  let flood = null
 
   // WHOEVER OWNS THE BODY, IT IS NOT THIS. `yieldTo` returns a reason when a
   // reflex with a stronger claim has taken the controls -- in practice the
@@ -4206,6 +4274,7 @@ export async function escapeStairUp (bot, {
       runway,
       breached,
       yielded,
+      flood,
     }
   }
 
@@ -4256,8 +4325,16 @@ export async function escapeStairUp (bot, {
     }
     const p = bot.entity.position
     const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
-    const plan = headroomBreach({ at, canBreak })
-    if (!plan.ok) { stopped = plan.reason; return finish() }
+    const submerged = submergedAt(bot)
+    const plan = headroomBreach({ at, canBreak, submerged })
+    if (!plan.ok) {
+      stopped = plan.reason
+      if (plan.flood) {
+        flood = 'ramp_breach'
+        logFloodGuard(bot, { caller: 'ramp_breach', reason: plan.reason, cell: p.offset(0, 2, 0), submerged })
+      }
+      return finish()
+    }
     if (!plan.dig.length) break                       // ceiling open and stable
 
     // BARE HANDS, HERE TOO. The ramp's whole exemption from `mayDigForEscape`
@@ -4269,6 +4346,7 @@ export async function escapeStairUp (bot, {
     const b = bot.blockAt(p.offset(dx, dy, dz))
     if (!b) { stopped = 'terrain not loaded'; return finish() }
     const failed = await digWithin(b)
+    watchClimbDig(bot, { caller: 'ramp_breach', cell: b.position ?? p.offset(dx, dy, dz), submerged })
     if (failed) { stopped = `ceiling ${failed}`; return finish() }
     if (dy === 2) breached++
     // HALF A SECOND, NOT A FIFTH OF ONE. Falling-block gravity is 0.04
@@ -4297,9 +4375,10 @@ export async function escapeStairUp (bot, {
     if (Date.now() > deadline) { stopped = 'budget spent'; break }
     const p = bot.entity.position
     const at = (dx, dy, dz) => bot.blockAt(p.offset(dx, dy, dz))
+    const submerged = submergedAt(bot)
 
     const choice = chooseStairUpBearing({
-      at, bearings: escapeBearings(bot.entity.yaw), depth, canBreak,
+      at, bearings: escapeBearings(bot.entity.yaw), depth, canBreak, submerged,
     })
     if (!choice || choice.runway === 0) {
       // Every cardinal refused its FIRST step. Ask the chosen one for its
@@ -4307,14 +4386,30 @@ export async function escapeStairUp (bot, {
       // "lava against the step" are different worlds, and a rescue that cannot
       // tell them apart is the instrument this project keeps being burned by.
       const bear = choice?.bear ?? escapeBearings(bot.entity.yaw)[0]
-      stopped = stairUpStep({ at, bear, canBreak }).reason ?? 'no bearing runs'
+      stopped = stairUpStep({ at, bear, canBreak, submerged }).reason ?? 'no bearing runs'
+      // A BEARING THE FLOOD CHECK CLOSED IS NAMED AS ONE (climbflood-01): the
+      // chosen bearing's reason alone could read "no tread" while another was
+      // refused for water, and "every bearing is wet" is the case the flood
+      // branch must report.
+      const wetBear = escapeBearings(bot.entity.yaw)
+        .map(b => stairUpStep({ at, bear: b, canBreak, submerged }))
+        .find(r => r.flood)
+      if (wetBear) {
+        flood = 'ramp_step'
+        if (!/flood risk/.test(stopped)) stopped = `${stopped}; ${wetBear.reason}`
+        logFloodGuard(bot, { caller: 'ramp_step', reason: wetBear.reason, cell: p, submerged })
+      }
       break
     }
     bearing = choice.bear
     runway = choice.runway
 
-    const plan = stairUpStep({ at, bear: bearing, canBreak })
-    if (!plan.ok) { stopped = plan.reason; break }
+    const plan = stairUpStep({ at, bear: bearing, canBreak, submerged })
+    if (!plan.ok) {
+      stopped = plan.reason
+      if (plan.flood) { flood = 'ramp_step'; logFloodGuard(bot, { caller: 'ramp_step', reason: plan.reason, cell: p, submerged }) }
+      break
+    }
 
     // EMPTY THE HAND BEFORE THE FIRST SWING, not per block: `unequip` is a
     // server round trip and the durability that matters is spent on the dig.
@@ -4333,6 +4428,7 @@ export async function escapeStairUp (bot, {
       const b = bot.blockAt(p.offset(dx, dy, dz))
       if (!b) { blocked = 'terrain not loaded'; break }
       const failed = await digWithin(b)
+      watchClimbDig(bot, { caller: 'ramp_step', cell: b.position ?? p.offset(dx, dy, dz), submerged })
       if (failed) { blocked = failed; break }
     }
     if (blocked) { stopped = blocked; break }
@@ -4351,8 +4447,12 @@ export async function escapeStairUp (bot, {
     let refilledStop = null
     for (let recut = 0; recut < REFILL_MAX_RECUTS; recut++) {
       await sleep(FALLING_SETTLE_MS)
-      const again = stairUpStep({ at, bear: bearing, canBreak })
-      if (!again.ok) { refilledStop = `the step closed behind the dig: ${again.reason}`; break }
+      const again = stairUpStep({ at, bear: bearing, canBreak, submerged })
+      if (!again.ok) {
+        refilledStop = `the step closed behind the dig: ${again.reason}`
+        if (again.flood) { flood = 'ramp_step'; logFloodGuard(bot, { caller: 'ramp_step', reason: again.reason, cell: p, submerged }) }
+        break
+      }
       if (!again.dig.length) break
       if (recut === REFILL_MAX_RECUTS - 1) {
         refilledStop = 'a falling column kept refilling the step'
@@ -4362,6 +4462,7 @@ export async function escapeStairUp (bot, {
         const b = bot.blockAt(p.offset(dx, dy, dz))
         if (!b) { refilledStop = 'terrain not loaded'; break }
         const failed = await digWithin(b)
+        watchClimbDig(bot, { caller: 'ramp_step', cell: b.position ?? p.offset(dx, dy, dz), submerged })
         if (failed) { refilledStop = `re-clearing the step: ${failed}`; break }
       }
       if (refilledStop) break
@@ -4599,12 +4700,38 @@ export function climbPrereqFor (reason, maxBlocks = PILLAR_MAX_BLOCKS) {
 /** blockAt as a plain (x, y, z) function, for the pure probes. */
 const bmap = bot => (x, y, z) => bot.blockAt(new Vec3(x, y, z))
 
-async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
+/**
+ * MAY THIS ESCAPE BREAK THE BLOCK OVER ITS HEAD? (climbflood-01)
+ *
+ * `pillarOut` and `digStraightUp` broke the head cell whenever it was not air or water, with no liquid check at
+ * all -- the largest single way into the sealed pockets that took every drowning in 72 h (30 deaths, 28%). This
+ * asks the one shared check (`overheadBreakRisk`, scaffold.mjs) about the cell at feet+2, with the submerged
+ * exemption read from the bot's own two cells, and writes one `climb_flood_guard` row when it refuses.
+ * @returns the refusal reason, or null when the dig may go ahead
+ */
+export function upwardDigFloodRisk (bot, caller) {
+  const base = bot.entity.position.offset(0, 2, 0)
+  const submerged = submergedAt(bot)
+  const reason = overheadBreakRisk({ at: (x, y, z) => bot.blockAt(base.offset(x, y, z)), submerged })
+  if (reason) logFloodGuard(bot, { caller, reason, cell: base, submerged })
+  return reason
+}
+
+export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => true } = {}) {
   // THE GATE (arbiter, Codex final pass): every actuator step asks whether this
   // climb still owns the body. A refused or revoked grant ends the climb at the
   // next step with 'preempted' -- a continuation resuming after an await can
   // never dig or place under another owner.
   if (!alive()) return 'preempted'
+  // A WET CEILING IS NOT A SHORTAGE (climbflood-01). Asked BEFORE the block
+  // count: a bot entombed under a pocket of water told to "gather 26 blocks"
+  // is sent for a remedy that cannot help -- the climb's first dig would still
+  // be refused, and it usually holds the blocks already (98 of 109 drowned bots).
+  {
+    const head0 = bot.blockAt(bot.entity.position.offset(0, 2, 0))
+    if (head0 && head0.name !== 'air' && head0.name !== 'water' &&
+        upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK
+  }
   // ALL OR NOTHING. See canFinishClimb: a climb that runs out partway is how
   // this fleet manufactures permanent traps.
   {
@@ -4638,6 +4765,12 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
     // purposes breaking is all that matters.
     const head = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (head && head.name !== 'air' && head.name !== 'water') {
+      // THE ONE FLOOD CHECK, immediately before the break (climbflood-01). A
+      // refusal RETURNS: it must never fall through to `digStraightUp`, which
+      // would break the same cell by another route.
+      if (upwardDigFloodRisk(bot, 'pillar_out')) return FLOOD_RISK
+      const opened = head.position ?? bot.entity.position.offset(0, 2, 0)
+      const wetBody = submergedAt(bot)
       // Bounded: an escape routine that hangs on a dig strands the bot for
       // good, because nothing else is coming.
       // BARE HANDS, for the same reason as `harvestUnderfoot`: the climb needs
@@ -4654,6 +4787,7 @@ async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = () => tru
         if (!alive()) return 'preempted'
         if (!hand.refuse) await digBounded(bot, head, Math.max(8000, hand.budgetMs))
       } catch { /* may be unreachable; try anyway */ }
+      watchClimbDig(bot, { caller: 'pillar_out', cell: opened, submerged: wetBody })
       await sleep(150)
     }
 
@@ -4937,12 +5071,15 @@ async function digBounded(bot, block, ms = 8000) {
   } finally { clearTimeout(t) }
 }
 
-async function digStraightUp(bot, startY, maxSteps = 20) {
+export async function digStraightUp(bot, startY, maxSteps = 20) {
   // THE ESCAPE MAY NOT SPEND THE EXIT. 574 escape events destroyed a pickaxe,
   // and 24 of 26 permanently-stuck bots now hold none -- at which point
   // harvestAdjacent fails 99.4% of the time with "0/8 dug", because the walls
   // are stone and nothing is left to break them with.
   const blocking = bot.blockAt?.(bot.entity.position.offset(0, 2, 0))
+  // A WET CEILING BEFORE A MISSING PICKAXE (climbflood-01): a second pickaxe
+  // cannot make this dig safe, so asking for one is the wrong remedy.
+  if (blocking && blocking.name !== 'air' && upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK
   if (!mayDigForEscape(bot.inventory?.items?.() ?? [], blocking)) {
     logEvent({ kind: 'maroon_dig_refused', status: 'failed',
                detail: `will not dig out on the last pickaxe: ${blocking?.name ?? 'the ceiling'} ` +
@@ -4970,9 +5107,14 @@ async function digStraightUp(bot, startY, maxSteps = 20) {
         return
       }
     } else {
+      // THE ONE FLOOD CHECK on every upward dig of this fallback too (climbflood-01).
+      if (upwardDigFloodRisk(bot, 'dig_straight_up')) return FLOOD_RISK
+      const opened = above.position ?? bot.entity.position.offset(0, 2, 0)
+      const wetBody = submergedAt(bot)
       const tool = bestTool(bot, above)
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
       try { await digBounded(bot, above) } catch { break }
+      watchClimbDig(bot, { caller: 'dig_straight_up', cell: opened, submerged: wetBody })
       await sleep(150)
     }
     // THE SAME MISTAKE pillarOut ALREADY FIXED, LEFT IN ITS SIBLING.

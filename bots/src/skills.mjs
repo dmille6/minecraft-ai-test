@@ -53,6 +53,7 @@ import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { planCraft } from './craftplan.mjs'
 import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
+import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
 import { log, logEvent } from './logger.mjs'
@@ -8349,13 +8350,13 @@ export async function shaftAscend(bot, targetY, signal,
     // under. Read from the bot's own occupied cells, never from oxygenLevel,
     // which air.mjs documents as corrupted by any nearby fish.
     const submerged = isLiquid(bot.blockAt(p.offset(0, 1, 0))) && isLiquid(bot.blockAt(p))
-    const flood = overheadBreakRisk({
-      head,
-      sides: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => bot.blockAt(p.offset(dx, 2, dz))),
-      isLiquid,
-      submerged,
-    })
+    // THE SAME CHECK EVERY UPWARD DIG ASKS (climbflood-01): it now also reads
+    // the cell ABOVE the block being broken -- the face that opens when a climb
+    // breaks into the bottom of a pocket -- waterlogged blocks, flowing lava,
+    // falling columns, and refuses on an unloaded cell.
+    const flood = overheadBreakRisk({ at: (dx, dy, dz) => bot.blockAt(p.offset(dx, 2 + dy, dz)), submerged })
     if (flood) {
+      logFloodGuard(bot, { caller: 'shaft_ascend', reason: flood, cell: p.offset(0, 2, 0), submerged })
       // WALK OUT FROM UNDER IT RATHER THAN GIVING UP.
       //
       // The guard is unchanged and still absolute: this branch never digs. It
@@ -8438,6 +8439,7 @@ export async function shaftAscend(bot, targetY, signal,
           // affordable bare-handed; the harvest watchdog must not overrule it.
           needsDrop: false,
         })
+        watchClimbDig(bot, { caller: 'shaft_ascend', cell: head.position ?? p.offset(0, 2, 0), submerged })
       } catch (e) {
         // NAME THE FAILURE. This swallowed the error and reported a bare "dig
         // failed on <block>", which `climbAdvice` then turned into "this stone

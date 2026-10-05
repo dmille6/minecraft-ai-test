@@ -28,19 +28,31 @@ const lava = b('lava', 'empty')
 const stone = b('stone')
 const air = b('air', 'empty')
 const DRY = [stone, stone, stone, stone]
+// climbflood-01: the guard now reads a neighbourhood through `at`, relative to
+// the block to be broken (and the cell ABOVE it). This keeps the cases here in
+// their original head/sides shape; anything not named is stone.
+const R = ({ head, sides = [], above = stone, isLiquid: _unused, ...rest }) => overheadBreakRisk({
+  at: (x, y, z) => {
+    if (x === 0 && y === 0 && z === 0) return head
+    if (x === 0 && y === 1 && z === 0) return above
+    const i = [[1, 0], [-1, 0], [0, 1], [0, -1]].findIndex(([a, c]) => a === x && c === z)
+    return y === 0 && i >= 0 && i < sides.length ? sides[i] : stone
+  },
+  ...rest,
+})
 
 test('a DRY bot is refused exactly as before — this is the unchanged case', () => {
-  assert.match(overheadBreakRisk({ head: water, sides: DRY, isLiquid }), /liquid overhead/)
-  assert.match(overheadBreakRisk({ head: stone, sides: [water, stone, stone, stone], isLiquid }),
+  assert.match(R({ head: water, sides: DRY, isLiquid }), /liquid overhead/)
+  assert.match(R({ head: stone, sides: [water, stone, stone, stone], isLiquid }),
     /liquid beside/)
-  assert.equal(overheadBreakRisk({ head: stone, sides: DRY, isLiquid }), null)
-  assert.equal(overheadBreakRisk({ head: air, sides: [water, stone, stone, stone], isLiquid }), null,
+  assert.equal(R({ head: stone, sides: DRY, isLiquid }), null)
+  assert.equal(R({ head: air, sides: [water, stone, stone, stone], isLiquid }), null,
     'nothing will be broken, so nothing can flood')
 })
 
 test('a SUBMERGED bot may break upward through water', () => {
-  assert.equal(overheadBreakRisk({ head: water, sides: DRY, isLiquid, submerged: true }), null)
-  assert.equal(overheadBreakRisk({ head: stone, sides: [water, water, water, water],
+  assert.equal(R({ head: water, sides: DRY, isLiquid, submerged: true }), null)
+  assert.equal(R({ head: stone, sides: [water, water, water, water],
                                    isLiquid, submerged: true }), null,
     'water on every side of the ceiling cannot flood a bot already under water')
 })
@@ -48,18 +60,18 @@ test('a SUBMERGED bot may break upward through water', () => {
 test('LAVA still refuses, submerged or not — it is a NEW harm', () => {
   // Water meeting water changes nothing. Water meeting lava changes a great
   // deal, and the bot is standing where they meet.
-  assert.match(overheadBreakRisk({ head: lava, sides: DRY, isLiquid, submerged: true }),
+  assert.match(R({ head: lava, sides: DRY, isLiquid, submerged: true }),
     /liquid overhead \(lava\)/)
-  assert.match(overheadBreakRisk({ head: stone, sides: [lava, stone, stone, stone],
+  assert.match(R({ head: stone, sides: [lava, stone, stone, stone],
                                    isLiquid, submerged: true }), /liquid beside/)
-  assert.match(overheadBreakRisk({ head: lava, sides: DRY, isLiquid, submerged: false }),
+  assert.match(R({ head: lava, sides: DRY, isLiquid, submerged: false }),
     /liquid overhead \(lava\)/)
 })
 
 test('the exemption is opt-in: absent or falsey means the old behaviour', () => {
   // A caller that cannot answer "is it submerged" must get the guard unchanged.
   for (const arg of [{}, { submerged: false }, { submerged: undefined }, { submerged: null }]) {
-    assert.match(overheadBreakRisk({ head: water, sides: DRY, isLiquid, ...arg }),
+    assert.match(R({ head: water, sides: DRY, isLiquid, ...arg }),
       /liquid overhead/, JSON.stringify(arg))
   }
 })
@@ -72,20 +84,22 @@ test('POSITIVE CONTROL: submerged changes the answer on water and ONLY on water'
     ['lava overhead', { head: lava, sides: DRY }],
     ['water beside', { head: stone, sides: [water, stone, stone, stone] }],
     ['lava beside', { head: stone, sides: [lava, stone, stone, stone] }],
+    ['water above', { head: stone, sides: DRY, above: water }],
+    ['lava above', { head: stone, sides: DRY, above: lava }],
     ['all dry', { head: stone, sides: DRY }],
     ['nothing to break', { head: air, sides: DRY }],
   ]
   const changed = cases.filter(([, c]) =>
-    (overheadBreakRisk({ ...c, isLiquid }) === null) !==
-    (overheadBreakRisk({ ...c, isLiquid, submerged: true }) === null)).map(([n]) => n)
-  assert.deepEqual(changed, ['water overhead', 'water beside'],
-    'exactly the two water cases flip, and nothing else: got ' + JSON.stringify(changed))
+    (R({ ...c, isLiquid }) === null) !==
+    (R({ ...c, isLiquid, submerged: true }) === null)).map(([n]) => n)
+  assert.deepEqual(changed, ['water overhead', 'water beside', 'water above'],
+    'exactly the three water cases flip, and nothing else: got ' + JSON.stringify(changed))
 })
 
 test('a bot with its head in AIR is never exempted, however wet its feet', () => {
   // The call site reads BOTH of the bot's own cells. This asserts the contract
   // that makes that necessary: feet-only would exempt a bot wading a shoreline,
   // which is exactly the bot the guard is right about.
-  assert.match(overheadBreakRisk({ head: water, sides: DRY, isLiquid, submerged: false }),
+  assert.match(R({ head: water, sides: DRY, isLiquid, submerged: false }),
     /liquid overhead/, 'wading is not submerged')
 })

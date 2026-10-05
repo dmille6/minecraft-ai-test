@@ -295,7 +295,7 @@ await t('ONE block of gravel, the single-block case, also leaves the bot standin
 await t('THE MUTANT, KILLED: without the guard the same bot ends buried in sand', async () => {
   // The pre-fix shape, restored exactly: one swing at the ceiling, planned by
   // hand, with nothing asked about the cell above it. Same world, same bot.
-  const GUARDED = '    const plan = headroomBreach({ at, canBreak })'
+  const GUARDED = '    const plan = headroomBreach({ at, canBreak, submerged })'
   const NAIVE = '    const plan = { ok: true, dig: [[0, 2, 0]] }'
   await withMutant(REFLEX_PATH, GUARDED, NAIVE, async mod => {
     const w = TOMB(['sand', 'sand', 'sand'])
