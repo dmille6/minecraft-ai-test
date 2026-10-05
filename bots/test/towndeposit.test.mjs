@@ -276,7 +276,7 @@ test('registered: a chatOnly housekeeping skill with an inventory_loss contract'
  *   openNever        openContainer stays pending until st.late() resolves it with the window
  *   fillDest(slot)   another bot fills that container slot while the bot is picking up (the pickup click's wait)
  */
-function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null }) {
+function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false }) {
   const bagSlots = Array(46).fill(null)                      // the CLIENT's bag (bot.inventory)
   for (const it of items) bagSlots[it.slot] = { ...it }
   const server = { bag: bagSlots.map(x => (x ? { ...x } : null)) }
@@ -309,7 +309,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
     openContainer: (b) => {
       const c = contAt(b.position)
       st.opened.push(`${c.pos.x},${c.pos.y},${c.pos.z}`)
-      if (c.unopenable) return Promise.reject(new Error('windowOpen did not fire'))
+      if (c.unopenable || (reopenFails && st.opened.filter(x => x === `${c.pos.x},${c.pos.y},${c.pos.z}`).length > 1)) return Promise.reject(new Error('windowOpen did not fire'))
       const n = c.size ?? 27
       const mk = () => {
         const w = { slots: Array(n + 36).fill(null), selectedItem: null }
@@ -335,6 +335,7 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
         }
         win.selectedItem = null; win.server.selectedItem = null
         if (bot.currentWindow === win) bot.currentWindow = null
+        if (stealOnClose) for (let i = 0; i < n; i++) if (c.items[i] && c.items[i].name !== 'dirt') c.items[i] = null   // another bot empties what was put in
       }
       if (openNever) return new Promise(res => { st.late = () => { bot.currentWindow = win; res(win) } })
       bot.currentWindow = win
@@ -461,6 +462,26 @@ test('SKILL: a move the SERVER refuses is not credited: the re-open decides, nev
   const all = world({ items: bag([['raw_copper', 7], ...filler(35)]), containers: [chestAt(2)], refuse: () => true })
   const r2 = await run(all.bot)
   assert.equal(r2.status, 'failed', 'every move refused: no success')
+})
+
+test('SKILL + REAL RUNNER: a refused move whose re-open fails is FAILED, never promoted to success by the bag the close copied', async () => {
+  const { Runner } = await import('../src/runner.mjs')
+  const w = world({ items: bag([['raw_copper', 7], ...filler(35)]), containers: [chestAt(2)], refuse: () => true, reopenFails: true })
+  Object.assign(w.bot, { health: 20, food: 20, clearControlStates: () => {}, findBlock: () => null, time: { age: 1, day: 1 }, game: { dimension: 'overworld' } })
+  const r = await new Runner(w.bot).run('town_deposit', {})
+  assert.equal(r.status, 'failed', JSON.stringify(r)); assert.equal(r.failClass, 'town_deposit_unverified')
+  assert.equal(sumOf(w.bot.inventory.items(), 'raw_copper'), 0, 'the client bag believes the copper left (the prediction copied at close)...')
+  assert.equal(sumOf(serverBag(w), 'raw_copper'), 7, '...the server never took it')
+})
+
+test('SKILL: the visit cap counts what was MOVED, not what the re-open found (another bot emptied the first chest)', async () => {
+  const items = bag([['raw_copper', 32], ['raw_copper', 32], ['raw_copper', 32], ['raw_copper', 32], ...filler(32)])
+  const a = filledChest(2, 2), b = chestAt(-4)
+  const w = world({ items, containers: [a, b], stealOnClose: true })
+  const r = await run(w.bot)
+  assert.equal(r.status, 'failed', 'nothing confirmed in a chest')
+  assert.equal(sumOf(serverBag(w), 'raw_copper'), 64, 'two stacks moved, then the cap stopped the visit (not 128)')
+  assert.deepEqual(w.st.opened, ['2,70,0', '2,70,0'], 'chest B was never opened: the 64 were spent')
 })
 
 test('SKILL: never a mine chest, a lidded chest, or the other half of a double chest; a single beside a single is tried', async () => {
