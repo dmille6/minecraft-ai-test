@@ -343,6 +343,10 @@ export class LlmClient {
             // and every call pays a 55-80s reload -- observed live, and the
             // reason load_duration_ns is in the telemetry schema at all.
             keep_alive: '30m',
+            // BENCH-ONLY (branch bench-closedloop, never deployed to the fleet): the model-selection
+            // closed loop needs thinking OFF for Qwen3.x-class models, and a reasoning level for gpt-oss.
+            // OLLAMA_THINK unset = the request is byte-identical to the fleet's.
+            ...(process.env.OLLAMA_THINK ? { think: ({ true: true, false: false })[process.env.OLLAMA_THINK] ?? process.env.OLLAMA_THINK } : {}),
             messages,
             format: schema,
             options: {
