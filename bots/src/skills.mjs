@@ -52,7 +52,7 @@ const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { planCraft } from './craftplan.mjs'
-import { overheadBreakRisk, dryColumnStep } from './scaffold.mjs'
+import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
@@ -8349,7 +8349,9 @@ export async function shaftAscend(bot, targetY, signal,
     // exemption is for a bot with nothing left to protect: head under AND feet
     // under. Read from the bot's own occupied cells, never from oxygenLevel,
     // which air.mjs documents as corrupted by any nearby fish.
-    const submerged = isLiquid(bot.blockAt(p.offset(0, 1, 0))) && isLiquid(bot.blockAt(p))
+    // WATER ONLY (climbflood-01, Codex r1): the exemption is for a bot already under WATER; `isLiquid` counts
+    // lava and misses kelp, bubble columns and waterlogged blocks. Same classifier as the reflex's submergedAt.
+    const submerged = isWaterCell(bot.blockAt(p.offset(0, 1, 0))) && isWaterCell(bot.blockAt(p))
     // THE SAME CHECK EVERY UPWARD DIG ASKS (climbflood-01): it now also reads
     // the cell ABOVE the block being broken -- the face that opens when a climb
     // breaks into the bottom of a pocket -- waterlogged blocks, flowing lava,
