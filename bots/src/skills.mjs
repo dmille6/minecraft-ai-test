@@ -2878,6 +2878,10 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
   // unavailable; an unsettled transfer stops everything; a throw or any other class is a strike (unknown).
   const attempt = async (at, until) => {
     const m = {}
+    // WHERE THIS WALK BEGINS, read before it (the live Vec3 moves): a travel failure from OUTSIDE town strikes no town
+    // chest -- the same rule as the first walk (Codex round 2: the far sweep struck a town alternate from 20 out, and the
+    // next deposit refused in place on the town's memory instead of walking).
+    const began = inTown(home, here())
     let again
     try {
       again = await deposit(ctx, { item }, signal, { noRecovery: true, preferAt: at, exclude: triedList(), meta: m, until })
@@ -2887,7 +2891,8 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
         mark(at, 'interrupted')
         return { status: 'failed', failClass: 'path_interrupted', detail: `the walk to the chest at ${posKey(at)} was interrupted: ${String(e?.message ?? e).slice(0, 60)}` }
       }
-      mark(at, 'unknown:travel'); strike(at)
+      mark(at, 'unknown:travel')
+      if (began) strike(at); else unknown++
       return null
     }
     const opened = m.at ?? at
@@ -4278,6 +4283,14 @@ export function slotRemedy(bot, items, keep = []) {
   // truth either. A placement or a meal still comes first; otherwise the bot is told to keep working and craft later.
   const closed = bankClosed(bot)
   if (closed && advice.kind === 'none') advice = { kind: 'closed', text: closedRoomText(closed) }
+  // A DEPOSIT WOULD FREE A SLOT BUT IS REFUSED FROM HERE (too far out, no usable chest in reach -- a deep one does not
+  // count): the remedy is the walk home, which works from anywhere, and the deposit is admitted there (Codex,
+  // chestfull-02 round 2: without this the refusal said nothing could be freed).
+  if (!closed && advice.kind === 'none') {
+    let far = null
+    try { far = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { far = null }
+    if (far) advice = { kind: 'home', text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
+  }
   return { fill, remedy: advice.text, kind: advice.kind }
 }
 
