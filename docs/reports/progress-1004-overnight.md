@@ -9,6 +9,11 @@
   - Its first check is at about 3:13 am; it can be kept at about 6:13 am.
   - The composter and the spent-tool cleanup follow automatically, one at a time.
 
+> **CORRECTION 10-05 00:30Z:** the "now" column below was wrong. The scoreboard picked each bot's "last" snapshot in
+> file order, and across the midnight log rotation that was not time order. Re-run with the rows sorted, the
+> 19:18–05:18Z window reads: trip pickaxes **20** (not 32), no usable pickaxe **44** (not 34), full bags **57** (not 62);
+> raw iron 17 and wood 38.7% were right. So pickaxes did NOT improve overnight; the claim below is withdrawn.
+
 ## Scoreboard (80 bots, 10-hour windows, same script)
 | | 12:57–22:57Z | 19:18–05:18Z (now) |
 |---|---|---|

@@ -54,7 +54,10 @@ def load_window(since, until):
 
 
 class _EV: pass
-ev = _EV(); ev.rows = load_window(START, END)   # rotation-aware (logs rotate ~23:59Z)
+ev = _EV(); ev.rows = sorted(load_window(START, END), key=lambda r: r['t'])   # rotation-aware (logs rotate ~23:59Z)
+# SORTED (fixed 10-05 00:30Z): load_window returns the live file's rows, THEN the rotated .gz rows, so before this sort
+# "the last snapshot per bot" was whichever file came last -- the same window gave trip pickaxes 32 at 10-04 17:54Z and
+# 19 at 10-05 00:25Z (identical 487,170 rows). Stock lines before this fix are unreliable; flow lines were unaffected.
 last = {}; logs = Counter(); iron = 0; picks = 0
 for r in ev.rows:
     raw = r.get('raw') or {}; sk = raw.get('skill') or {}; bot = raw.get('bot') or {}
