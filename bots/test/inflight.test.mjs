@@ -50,5 +50,53 @@ await t('settled() waits for every click registered so far, rejections included'
   assert.equal(done, true)
 })
 
+// ---- window binding and invalidation (round 5): the write hook's decision, tested on its own
+await t('admit: a packet written outside a dispatch is not judged; inside one, its window must be the bound one', () => {
+  const tr = inflightTracker()
+  assert.deepEqual(tr.admit({ windowId: 7 }), { ok: true }, 'no current ticket: not ours to judge')
+  const tk = tr.bind({ windowId: 1, slot: 37, button: 0, mode: 0 })
+  assert.equal(tr.dispatch(tk, () => tr.admit({ windowId: 1 }).ok), true, 'same window: sent')
+  const v = tr.dispatch(tk, () => tr.admit({ windowId: 0 }))
+  assert.equal(v.ok, false); assert.match(v.why, /bound to window 1, written to window 0/)
+  assert.equal(tk.dropped, v.why, 'the refusal is recorded on the ticket')
+  assert.equal(tr.current, null, 'dispatch restores the current ticket')
+})
+
+await t('invalidate: tickets issued before it are dropped at their send; tickets issued after it are not', () => {
+  const tr = inflightTracker()
+  const old = tr.bind({ windowId: 1 })
+  const e0 = tr.epoch
+  tr.track(new Promise(() => {}), old)
+  assert.equal(tr.invalidate('release'), 1, 'one live ticket touched')
+  assert.match(tr.dispatch(old, () => tr.admit({ windowId: 1 })).why, /invalidated \(release\)/)
+  const late = tr.bind({ windowId: 1, epoch: e0 })   // decided before the invalidation, bound after it
+  assert.equal(tr.dispatch(late, () => tr.admit({ windowId: 1 })).ok, false, 'the epoch at the decision counts')
+  const fresh = tr.bind({ windowId: 1 })
+  assert.equal(tr.dispatch(fresh, () => tr.admit({ windowId: 1 })).ok, true, 'a click issued after it goes out')
+})
+
+await t('a ticket leaves the live set when its tracked click settles; dispatch passes fn\'s result and throw through', async () => {
+  const tr = inflightTracker(), d = deferred()
+  const tk = tr.bind({ windowId: 0 })
+  tr.track(d.p, tk)
+  assert.equal(tr.live, 1)
+  d.resolve(); await tick()
+  assert.equal(tr.live, 0)
+  assert.equal(tr.dispatch(tk, () => 42), 42)
+  assert.throws(() => tr.dispatch(tk, () => { throw new Error('x') }), /x/)
+  assert.equal(tr.current, null, 'restored after a throw')
+})
+
+await t('validate (round 6): the pre-invoke decision -- pure, the same as the wire\'s, and it marks nothing', () => {
+  const tr = inflightTracker()
+  const tk = tr.bind({ windowId: 1 })
+  assert.deepEqual(tr.validate(tk, 1), { ok: true })
+  assert.match(tr.validate(tk, 0).why, /bound to window 1, written to window 0/)
+  assert.equal(tk.dropped, null, 'validate records nothing: the caller decides')
+  tr.invalidate('release')
+  assert.match(tr.validate(tk, 1).why, /invalidated \(release\)/)
+  assert.deepEqual(tr.validate(null, 5), { ok: true }, 'no ticket: not ours')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
