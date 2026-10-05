@@ -261,3 +261,31 @@ C1 → C2 design review → C2 → C3.
   - the elevation checks fire on 43% of logged bad-argument refusals.
 - **qwen3.8:27b with thinking on.** Default effort ran past 15 min on one stuck item. Effort "low" took 168 s and
   "medium" 287 s per brain decision, under contention. **Thinking Qwen3.8 is far too slow for the per-bot role.**
+
+- **Stuck labels (B1 ground truth), written before any model ran.** Claude and Codex each labelled the 40 real
+  stuck episodes. They agree on "can one action help at all" for 31 of 40. Their action lists overlap only
+  partly: a "good" action from one engine is also "good" for the other 24% of the time and "bad" for the other 5%
+  (the rest is unlabelled there). So answers are scored against both lists: GOOD under either and BAD under either.
+- **Stage C plumbing works end to end** (8-minute smoke run, 13:27Z, one bot, the 7B):
+  - sandbox4 reset to a pristine fleet-seed world;
+  - the bot ran on 10.0.0.31 with the Studio as its brain and made 8 real decisions;
+  - metrics were extracted;
+  - sandbox4 was restored to its own world afterwards.
+- **Runtime finding: gpt-oss-120b on Ollama 0.33.3 with a JSON-schema grammar and reasoning "low".** Several
+  answers came back EMPTY. The model "thought" and then emitted nothing. This matches an Ollama bug fixed in
+  0.34.4 ("structured outputs on thinking models"). It counts against the configuration as measured, and an
+  Ollama upgrade (owner's call) could change it.
+
+### A1 screen, first results (120 real decisions, the same items for every model; 13:12-14:00Z)
+
+| model | detected hard-infeasible | repeats the action that really failed (n=77) | repeats the 4x loop (n=17) | adversarial bait taken (of 36) | overseer answers fully valid (n=24) |
+|---|---|---|---|---|---|
+| qwen2.5:7b (fleet today) | 14% | 71% | 88% | (pending) | 17% |
+| qwen3.6:35b-a3b | 2% | 27% | 35% | (pending) | 67% |
+| nemotron-3.5-lightning:30b-a3b | 2% | 29% | 53% | 1 | 21% |
+| gemma4:26b (A4B) | 1% | 14% | 18% | 0 | 88% |
+
+All differences from the 7B on the first three columns have paired cluster-bootstrap 95% intervals that exclude 0.
+That holds for the "repeats the failed action" and "infeasible" columns for every model shown. Early read: every
+2026 MoE removes most of the 7B's mechanical waste, and **gemma4:26b leads so far on loop-breaking and on the
+overseer validator**. More models are queued: about 30 more screens, then the full A2 set on the survivors.

@@ -134,6 +134,7 @@ def call_ollama(a, msgs, schema, num_ctx, num_predict, think):
     m = d.get('message') or {}
     ns = lambda k: (d.get(k) or 0) / 1e9
     return {'content': m.get('content') or '', 'thinking_chars': len(m.get('thinking') or ''),
+            'thinking_tail': (m.get('thinking') or '')[-600:],
             'served_model': d.get('model'), 'done_reason': d.get('done_reason'),
             'prompt_tokens': d.get('prompt_eval_count'), 'gen_tokens': d.get('eval_count'),
             'prompt_eval_s': ns('prompt_eval_duration'), 'eval_s': ns('eval_duration'), 'load_s': ns('load_duration'),

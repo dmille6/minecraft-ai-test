@@ -16,6 +16,7 @@ import glob, json, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+ONLY_IDS = None     # aggregate.py sets this to the screen ids so every model is scored on the same items
 
 
 def parse_label(s):
@@ -105,7 +106,7 @@ def cmd_score(paths):
         recs = {}
         for l in open(p):
             r = json.loads(l)
-            if r.get('set') == 'stuck':
+            if r.get('set') == 'stuck' and (ONLY_IDS is None or r['id'] in ONLY_IDS):
                 recs[r['id']] = r
         if not recs:
             continue
