@@ -372,6 +372,67 @@ await t('W6 a well site RECORDED WHILE THE BOT WALKS to the new chest\'s cell mo
   assert.ok(clearOfWell(w.spy.placed[0]), `placed at ${w.spy.placed[0]}: the arrival check did not see the new record`)
 })
 
+await t('W6b a well site recorded INSIDE THE PLACEMENT (equip/look) loses to the chest: the well\'s next site decision moves it (the build digs only after a 25 s settle re-check)', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const equip = w.bot.equip
+  let recorded = false
+  w.bot.equip = async it => { if (!recorded && it?.name === 'chest') { recorded = true; await wellRecord(process.env.POOL_STATE_DIR) } return equip(it) }
+  const r = await run(w.bot)
+  assert.ok(recorded, 'the record was written while the chest was being placed')
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(w.spy.placed, ['4,64,-1'], 'the race is lost by the chest: it was checked before the record existed')
+  const { townWellSite } = await import('../src/skills.mjs')
+  const next = townWellSite(w.bot)
+  assert.ok(next.site && next.gen === 2, `the well's next decision replaces the record: ${JSON.stringify(next)}`)
+  assert.ok(Math.hypot(next.site.x - 4, next.site.z + 1) >= WELL_HOME_CLEARANCE, JSON.stringify(next.site))
+})
+
+await t('W7 a BREACHED (retired) well keeps nothing out: the chest goes where it would without one', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  builtWell(w)
+  for (const c of wellReservedCells(WELL_CAP, 'north').slice(1)) w.set(c.x, c.y, c.z, 'stone')   // every throwing stand blocked
+  const { findTownWells } = await import('../src/skills.mjs')
+  const found = findTownWells(w.bot)
+  assert.equal(found.length, 1, 'positive control: the well is seen')
+  assert.match(String(found[0].breach), /every throwing stand is blocked/)
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(w.spy.placed, ['4,64,-1'])
+})
+
+await t('W8 NO DEAD END: when the live well\'s keep-out covers every ring around the full chest, the rings around home are searched before any refusal', async () => {
+  const cap = { x: 5, y: 63, z: -1 }
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  builtWell(w, cap)
+  const { findTownWells } = await import('../src/skills.mjs')
+  assert.equal(findTownWells(w.bot)[0]?.breach, null, 'positive control: a live well')
+  const read = (x, y, z) => { const b = w.bot.blockAt({ x, y, z }); return { name: b.name, boundingBox: b.boundingBox } }
+  const alone = pickChestSite({ read, anchor: { x: 5, y: 64, z: 0 }, home: HOME, wells: [{ cap, facing: 'north' }] })
+  assert.equal(alone.site, null, 'control: every ring around the full chest is inside the keep-out')
+  assert.ok(Object.keys(alone.refused).some(k => /junk well/.test(k)), JSON.stringify(alone.refused))
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1)
+  assert.ok(clearOfWell(w.spy.placed[0], cap), `placed at ${w.spy.placed[0]}`)
+  assert.equal(w.bot.bankClosed ?? null, null, 'the bank stays open')
+})
+
+await t('W9 THE WELL KEEPS ITS DISTANCE FROM A NEW CHEST BEING PLACED (a live claim in the ledger); a claim read back as gone does not count', async () => {
+  const { townWellSite } = await import('../src/skills.mjs')
+  const at = { x: -5, y: 64, z: 1 }
+  const c0 = town([])
+  const base = townWellSite(c0.bot)
+  assert.ok(base.site && Math.hypot(base.site.x - at.x, base.site.z - at.z) < WELL_HOME_CLEARANCE, `control: without a claim the well goes ${JSON.stringify(base.site)}`)
+  const w = town([])
+  pastClaim(process.env.POOL_STATE_DIR, 1, Date.now(), at)
+  const r = townWellSite(w.bot)
+  assert.ok(r.site, r.why)
+  assert.ok(Math.hypot(r.site.x - at.x, r.site.z - at.z) >= WELL_HOME_CLEARANCE, `the well site ${JSON.stringify(r.site)} is inside the claimed cell's clearance`)
+  const g = town([])
+  pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - 60_000, at, 'gone')
+  assert.deepEqual(townWellSite(g.bot).site, base.site, 'a claim whose chest is gone keeps nothing out')
+})
+
 await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not count; the second, inside 10 min, is refused plainly', async () => {
   const w = town([stack('cobblestone', 64), stack('oak_log', 64), stack('chest', 2)])
   for (let i = 0; i < 15; i++) { const x = -9 + (i % 5) * 3, z = i < 5 ? 8 : i < 10 ? -8 : -12; w.set(x, 64, z, 'chest'); w.fill(x, 64, z) }
