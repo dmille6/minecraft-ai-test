@@ -125,6 +125,14 @@ def think_value(s):
 def call_ollama(a, msgs, schema, num_ctx, num_predict, think):
     body = {'model': a.model, 'stream': False, 'keep_alive': '30m', 'messages': msgs, 'format': schema,
             'options': {'temperature': a.temperature, 'num_ctx': num_ctx, 'num_predict': num_predict}}
+    tools_mode = getattr(a, 'format_mode', 'schema') == 'tools'
+    if tools_mode:
+        # A4 FORMAT FACTOR: the same answer as ONE native tool call instead of a grammar. The tool's parameters
+        # are the schema itself; the system prompt gains one line telling the model to answer by calling it.
+        body.pop('format')
+        body['tools'] = [{'type': 'function', 'function': {'name': 'answer', 'description': 'Submit your answer.',
+                                                           'parameters': schema}}]
+        body['messages'] = [dict(msgs[0], content=msgs[0]['content'] + '\nAnswer by calling the tool `answer` exactly once.')] + msgs[1:]
     if think is not None:
         body['think'] = think
     req = urllib.request.Request(a.url.rstrip('/') + '/api/chat', data=json.dumps(body).encode(),
@@ -133,7 +141,11 @@ def call_ollama(a, msgs, schema, num_ctx, num_predict, think):
         d = json.loads(r.read())
     m = d.get('message') or {}
     ns = lambda k: (d.get(k) or 0) / 1e9
+    if tools_mode:
+        tc = (m.get('tool_calls') or [{}])[0].get('function', {}).get('arguments')
+        m = dict(m, content=json.dumps(tc) if isinstance(tc, dict) else (tc or ''), tool_called=bool(tc))
     return {'content': m.get('content') or '', 'thinking_chars': len(m.get('thinking') or ''),
+            'format_mode': 'tools' if tools_mode else 'schema',
             'thinking_tail': (m.get('thinking') or '')[-600:],
             'served_model': d.get('model'), 'done_reason': d.get('done_reason'),
             'prompt_tokens': d.get('prompt_eval_count'), 'gen_tokens': d.get('eval_count'),
@@ -173,6 +185,7 @@ def main():
     ap.add_argument('--stuck-think', default=None, help='default: same as --overseer-think')
     ap.add_argument('--overseer-think', default='none')
     ap.add_argument('--temperature', type=float, default=0.7)
+    ap.add_argument('--format-mode', dest='format_mode', choices=('schema', 'tools'), default='schema')
     ap.add_argument('--timeout', type=float, default=900)
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--ids', default='', help='comma list of item ids to run (subset)')

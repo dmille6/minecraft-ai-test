@@ -21,8 +21,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, 'mayor'))
 
-BRAIN_PICK = {'success': 14, 'repeat_loop': 10, 'cooldown': 8, 'craft_missing': 7, 'unreachable': 8,
-              'bad_args': 4, 'failed_other': 5, 'trigger_other': 4}
+BRAIN_PICK = {'success': 12, 'repeat_loop': 10, 'cooldown': 7, 'craft_missing': 6, 'unreachable': 7,
+              'bad_args': 4, 'failed_other': 6, 'trigger_other': 4, 'unknown_noeff': 2}
 OVERSEER_PICK = 12
 
 RUBRIC = {
@@ -71,6 +71,10 @@ def items_all():
 
 def pick_items(items, seed=7):
     rng = random.Random(seed)
+    sf = os.path.join(HERE, 'data', 'screen_ids.txt')
+    if os.path.exists(sf):            # judge only items every screened model answered
+        keep = {l.strip() for l in open(sf) if l.strip()}
+        items = [i for i in items if i['id'] in keep]
     out = []
     by = collections.defaultdict(list)
     for it in items:
@@ -179,6 +183,9 @@ def cmd_pack(a):
                      '{"id": "<item id>", "scores": {"A": {"score": 1-5, "executable": true|false, "why": "<= 20 words"}, ...}}\n'
                      'Score every letter. Judge each candidate on its own merits; several may deserve the same score.\n\n'
                      % (s, len(pk), RUBRIC[s]))
+            if s in ('brain', 'stuck'):
+                sp = json.load(open(os.path.join(HERE, 'data', 'system_prompts.json')))['4245ef45b42e430b']['template']
+                fh.write('## SKILLS: the bot\'s own system prompt (what each skill does)\n\n' + sp + '\n')
             for p in pk:
                 fh.write('\n\n======== ITEM %s ========\n%s\n\n-------- CANDIDATES --------\n' % (p['id'], p['context']))
                 for L, c in p['candidates'].items():

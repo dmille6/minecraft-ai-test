@@ -289,3 +289,57 @@ All differences from the 7B on the first three columns have paired cluster-boots
 That holds for the "repeats the failed action" and "infeasible" columns for every model shown. Early read: every
 2026 MoE removes most of the 7B's mechanical waste, and **gemma4:26b leads so far on loop-breaking and on the
 overseer validator**. More models are queued: about 30 more screens, then the full A2 set on the survivors.
+
+### A1 screen + Stage B, the main candidates (as of 17:30Z)
+
+**Bot brain.** Each model answered the same 120 real decisions, with thinking OFF (gpt-oss: reasoning "low",
+the lowest it has).
+
+- "Took the bait" counts the 36 adversarial prompts, each containing one injected falsehood.
+- "p50 @4" is the median time per decision with 4 requests in flight on Ollama.
+- The judge columns are Claude's and Codex's blind mean scores (1-5) over 60 of these decisions.
+
+| model | invalid | hard-infeasible | repeats the action that really failed (77) | repeats the 4x loop (17) | took the bait (36) | judge Claude | judge Codex | p50 @4 |
+|---|---|---|---|---|---|---|---|---|
+| qwen2.5:7b (fleet today) | 0% | 14% | 71% | 88% | - | 2.22 | 2.52 | 12 s |
+| gemma4:26b (A4B MoE) | 0% | 1% | 14% | 18% | 0 | **3.40** | **3.83** | 10 s |
+| qwen3.5:122b-a10b | 0% | 1% | 16% | 29% | 0 | 3.24 | 3.81 | 31 s |
+| qwen3.8:27b (dense) | 0% | 5% | 17% | 18% | 0 | 3.28 | 3.66 | 54 s |
+| qwen3.6:35b-a3b | 0% | 2% | 27% | 35% | - | 3.28 | 3.43 | 10 s |
+| nemotron-3.5-lightning:30b-a3b | 0% | 2% | 29% | 53% | 1 | 2.67 | 2.71 | 10 s |
+| gpt-oss:120b (low) | **32%** | 0% | 6% | 29% | 0 | 2.60 | 2.98 | 14 s |
+
+**What the brain table shows**
+- **Judge agreement:** Spearman 0.78; within one point 88%; the same top model and the same bottom model.
+- **gpt-oss's 32% invalid** is a runtime defect, not the model's reasoning. With reasoning plus a JSON grammar,
+  Ollama 0.33.3 often returned an empty answer.
+- **gemma4:26b through LM Studio MLX 4-bit**:
+  - **faster under load**: about 38 decisions/min at 8 concurrent (8.8 s each), against about 25/min for the
+    7B on Ollama;
+  - **it decides differently from the same model on Ollama**: it agrees with logged successful actions 19% of
+    the time against 69%, and its "reason" text is cut at the 60-character cap mid-word.
+  - The runtime is therefore a real factor, not a detail.
+
+**Overseer and planning.** Stage B suites, thinking OFF except gpt-oss (low).
+
+| model | overseer answers fully valid (24) | allocation: exact optimum (60) | rule violations (60) | utility / optimum | planning: goal reached (30) | stuck: a GOOD action (either labeller) | stuck: a BAD action |
+|---|---|---|---|---|---|---|---|
+| **gpt-oss:120b (low)** | **100%** | **55** | **1** | **0.97** | **14** | **58%** | 33% |
+| qwen3.5:122b-a10b | 83% | 9 | 37 | 0.45 | 7 | 58% | 46% |
+| qwen3.8:27b | 75% | 15 | 13 | 0.42 | 9 | 42% | 46% |
+| gemma4:26b | 88% | 20 | 18 | 0.61 | 5 | 38% | 46% |
+| nemotron-3.5-lightning | 21% | 1 | 56 | 0.20 | 9 | 29% | 33% |
+| qwen2.5:7b | 17% | - | - | - | - | 17% | 50% |
+
+For comparison, a nearest-eligible greedy rule (no model) reaches the exact optimum on 47 of the 60 allocation
+problems. **Only a model that reasons beats it.** That points toward the overseer: a reasoning model, with
+allocation arithmetic left to code where possible.
+
+**Thinking factor.** The thinking variants of the overseer candidates are queued:
+- gpt-oss medium;
+- qwen3.6, qwen3.5-122b and nemotron with thinking on;
+- qwen3.8 at "low".
+
+**Judge reliability caveat.** The swap and repeat copies sat inside the same packet, so both judges matched them
+100%. They saw the identical observation twice, which means this does not measure self-consistency. The
+slow-role packets will put the copies in a separate session.
