@@ -29,13 +29,13 @@ const nameOf = it => (it ? registry.items[it.type].name : null)
 const desc = it => (it ? `${it.name ?? nameOf(it)}:${it.count}` : '-')
 
 // Window 0 slot 37 is player slot 37 (gold); a table's slot 37 is player slot 36 (diamonds).
-const setup = async ({ inventory = { 36: ['diamond', 5], 37: ['gold_ingot', 10], 9: ['dirt', 64] } } = {}) => {
+const setup = async ({ inventory = { 36: ['diamond', 5], 37: ['gold_ingot', 10], 9: ['dirt', 64] }, cfg = {} } = {}) => {
   const server = new FakePaper({ lagClicks: 1, inventory })
   const bot = craftBot(server)
   injectSimpleInventory(bot)
   await server.sync()
   const events = []
-  CS.installCraftSync(bot, { log: e => events.push(e) })
+  CS.installCraftSync(bot, { log: e => events.push(e), ...cfg })
   server.openTable(); await server.settle()
   assert.ok(bot.currentWindow, 'positive control: the table opened')
   return { server, bot, events, table: bot.currentWindow }
@@ -128,8 +128,53 @@ await t('ROWS (round 7): a refusal reaches the fleet logger as _click_refused wi
   logEvent(row)                                   // what index.mjs does with every craftsync row
   const r = recs.find(x => x.skill?.name === '_click_refused')
   assert.ok(r, `landed as ${recs.map(x => x.skill?.name).join(',')}`)
-  assert.match(r.skill.detail, /^slot=37 window=1 why=bound_to_window_1,_written_to_window_0$/)
+  assert.equal(r.skill.detail, 'slot 37 window 1: bound to window 1, written to window 0')
+  assert.equal(r.skill.status, 'failed')
   assert.equal(recs.filter(x => x.skill?.name === '_undefined').length, 0)
+  await server.settle(); server.stop()
+})
+
+/** Keep mineflayer's dig cooldown armed for `ms` (lastDigTime refreshed as a Date), so a hotbar click waits in it. */
+const armCooldown = (bot, ms) => { const until = Date.now() + ms; bot.lastDigTime = new Date(); const iv = setInterval(() => { if (Date.now() < until) bot.lastDigTime = new Date(); else clearInterval(iv) }, 200); return iv }
+
+await t('CAP (Codex on the grid fix): a click the cap gives up on is invalidated -- held in the cooldown past the cap, it is never sent', async () => {
+  const { server, bot, events } = await setup({ cfg: { clickCapMs: 600 } })
+  const t0 = Date.now()
+  armCooldown(bot, 1_500)                                     // the click waits ~1.5 s; the cap is 0.6 s
+  await assert.rejects(CS.lockstepClicks(bot, click => click(37, 0, 0)), /not answered in 600 ms/)
+  const tReturn = Date.now()
+  for (let i = 0; i < 150 && bot.craftSync.inflight() > 0; i++) await wait(20)   // the held click wakes and is judged
+  assert.equal(bot.craftSync.inflight(), 0, 'the held click has settled')
+  assert.ok(Date.now() - tReturn > 500, 'positive control: it was still held well after the lockstep returned')
+  assert.equal(clicksSent(server, t0).length, 0, 'no late click on the wire')
+  assert.ok(events.some(e => e.kind === 'click_refused' && /craft stopped: click_timeout/.test(e.detail)), JSON.stringify(events.filter(e => e.kind)))
+  assert.equal(nameOf(server.p[36]), 'diamond'); assert.equal(server.cursor, null)
+  assert.equal(desc(bot.currentWindow.slots[37]), 'diamond:5', 'and the local window was never touched')
+  await server.settle(); server.stop()
+})
+
+await t('STOP: a click a stopped lockstep gives up on (its signal aborted) is invalidated too -- never sent', async () => {
+  const { server, bot, events } = await setup()
+  const t0 = Date.now()
+  armCooldown(bot, 1_000)
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 150)
+  await CS.lockstepClicks(bot, click => click(37, 0, 0), { signal: ac.signal }).catch(() => {})
+  for (let i = 0; i < 100 && bot.craftSync.inflight() > 0; i++) await wait(20)
+  assert.equal(bot.craftSync.inflight(), 0)
+  assert.equal(clicksSent(server, t0).length, 0, 'no late click on the wire')
+  assert.ok(events.some(e => e.kind === 'click_refused' && /craft stopped: aborted/.test(e.detail)), JSON.stringify(events.filter(e => e.kind)))
+  await server.settle(); server.stop()
+})
+
+await t('NO STOP, NO INVALIDATION: the same held click with no cap and no stop is sent when it wakes (control for the two above)', async () => {
+  const { server, bot, events } = await setup()
+  const t0 = Date.now()
+  armCooldown(bot, 800)
+  await CS.lockstepClicks(bot, click => click(37, 0, 0))
+  assert.equal(clicksSent(server, t0).length, 1)
+  assert.equal(events.filter(e => e.kind === 'click_refused').length, 0)
+  assert.equal(nameOf(server.cursor), 'diamond')
   await server.settle(); server.stop()
 })
 
@@ -187,6 +232,7 @@ const backstopDrop = async ({ table = true } = {}) => {
 await t('BACKSTOP, no window: the wire drops it; NOTHING runs in the background; the next recount repairs slots and cursor', async () => {
   const { server, bot, events, tk } = await backstopDrop({ table: false })
   assert.match(tk.dropped ?? '', /bound to window 99, written to window 0/)
+  assert.ok(events.some(e => e.kind === 'click_dropped' && e.detail === 'slot 37 window 0: bound to window 99, written to window 0'), 'the wire drop is a readable row')
   assert.equal(nameOf(bot.inventory.selectedItem), 'gold_ingot', 'positive control: mineflayer DID change its local window')
   const n = server.writes.length
   await wait(400)

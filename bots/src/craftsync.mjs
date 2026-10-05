@@ -243,12 +243,6 @@ export function installCraftSync (bot, opts = {}) {
   // could interleave its close_window(0) with an equip that craftsync does not see (Codex round 6).
   const baseWrite = bot._client.write
   let dropped = 0
-  // ROWS THE LOGGER CAN READ (round 7): logEvent keeps only kind/status/detail, so the fields go into detail as k=v (the
-  // same fields stay on the row for a caller that reads them directly). `event:` rows landed as `_undefined`, empty.
-  const clickRow = (kind, status, fields) => ({
-    kind, status, ...fields,
-    detail: Object.entries(fields).map(([k, v]) => `${k}=${String(v ?? '-').replace(/\s+/g, '_').slice(0, 120)}`).join(' '),
-  })
   let repairPending = null
   const filterWrite = function (name, params) {
     if (name === 'window_click') {
@@ -256,7 +250,9 @@ export function installCraftSync (bot, opts = {}) {
       if (!v.ok) {
         dropped++
         repairPending = v.why
-        log(clickRow('click_dropped', 'no_effect', { slot: params?.slot, window: params?.windowId, why: v.why }))
+        log({ kind: 'click_dropped', status: 'failed', detail: `slot ${params?.slot} window ${params?.windowId}: ${v.why}`,
+              args: { slot: params?.slot, windowId: params?.windowId, why: v.why },
+              event: 'click_dropped', slot: params?.slot, windowId: params?.windowId, why: v.why })
         return undefined
       }
     }
@@ -326,6 +322,17 @@ export function installCraftSync (bot, opts = {}) {
     while ((since = new Date() - bot.lastDigTime) < 500) await sleep(500 - since)
   }
 
+  /** A STOP IS AN INVALIDATION (Codex on the grid fix, da2a923 -> 5d62362): the click a cap or a stop gives up on may
+   *  still be held in the dig cooldown with a valid ticket, and would go out after the craft or lockstep returned. Once
+   *  per state, every live ticket becomes stale, so the held click's own validate() refuses it when it wakes. (The grid
+   *  fix guards this with st.isCraft; here it covers withdraw's lockstep states too -- a reflex equip preempts a withdraw
+   *  lockstep before the visit's ownership refuses it, and that stop left the held click valid.) */
+  function stopIssued (st, why) {
+    if (st.invalidated) return
+    st.invalidated = true
+    inflight.invalidate(`craft stopped: ${why}`)
+  }
+
   /** The server's word on a window's cursor (its last window_items' carriedItem), applied to the client's window. */
   function applyCarried (win, id) {
     const c = lastCarried.get(id)
@@ -353,7 +360,8 @@ export function installCraftSync (bot, opts = {}) {
       how = `recount_${r === 'answered' ? 'server' : r}`
     }
     if (how === 'window_probe' || how === 'recount_server') repairPending = null
-    log(clickRow('click_drop_repair', 'success', { how, why }))
+    log({ kind: 'click_drop_repair', status: repairPending ? 'failed' : 'success', detail: `${how}: ${why}`, args: { how, why },
+          event: 'click_drop_repair', how, why })
   }
 
   /** mineflayer's click, never waited on longer than clickCapMs -- and a cap REJECTS. A rejection that arrives
@@ -372,7 +380,8 @@ export function installCraftSync (bot, opts = {}) {
       if (!v.ok) {
         ticket.dropped = v.why
         dropped++
-        log(clickRow('click_refused', 'no_effect', { slot, window: ticket.windowId, why: v.why }))
+        log({ kind: 'click_refused', status: 'failed', detail: `slot ${slot} window ${ticket.windowId}: ${v.why}`,
+              args: { slot, windowId: ticket.windowId, why: v.why }, event: 'click_refused', slot, windowId: ticket.windowId, why: v.why })
         throw Object.assign(new Error(`craftsync: click on slot ${slot} dropped: ${v.why}`), { clickDropped: true })
       }
       const q = inflight.dispatch(ticket, () => orig.call(bot, slot, button, mode))
@@ -388,10 +397,13 @@ export function installCraftSync (bot, opts = {}) {
     while (!settled) {
       if (now() - start >= cfg.clickCapMs) {
         st.clickCaps++
+        // THE CAP IS A STOP TOO (Codex on da2a923): the click it gives up on may still be held in the cooldown, with a
+        // valid ticket -- invalidate BEFORE the throw, so its own validate() refuses it when it wakes
+        stopIssued(st, 'click_timeout')
         st.clickTimedOut = slot
         throw new Error(`craftsync: click on slot ${slot} not answered in ${cfg.clickCapMs} ms`)
       }
-      if (stopReason(st)) break
+      if (stopReason(st)) { stopIssued(st, stopReason(st)); break }
       await sleep(cfg.pollMs)
     }
     st.waitMs += now() - start
@@ -705,7 +717,8 @@ export function installCraftSync (bot, opts = {}) {
       const r = await resync(st, 0, until)
       if (r === 'answered' && repairPending) {   // the slots were just answered; the cursor is the server's too
         applyCarried(bot.inventory, 0)
-        log(clickRow('click_drop_repair', 'success', { how: 'recount_server', why: repairPending }))
+        log({ kind: 'click_drop_repair', status: 'success', detail: `recount_server: ${repairPending}`,
+              args: { how: 'recount_server', why: repairPending }, event: 'click_drop_repair', how: 'recount_server', why: repairPending })
         repairPending = null
       }
       return { source: r === 'answered' ? 'server' : r, items: r === 'answered' ? (bot.inventory?.items?.() ?? []) : null }
