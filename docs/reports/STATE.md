@@ -138,6 +138,11 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 ~04:30Z — READY (not launched): towndeposit td-on-1918bb5 @ 09415cc and foodskip+apples fs-on-1918bb5 @ 41fa406 (Codex
+APPROVE; Paper: apples 6 composted / 4 kept x4 in peaceful, 0 with the switch off / on easy / on control); registrations
++ reads on main 419dca1 and on the host; both trial-merge cleanly onto 47110e8 -- rebase onto the fleet sha when their
+turn comes (after withdraw).
+
 ## 10-06 ~03:30Z — OWNER: compost APPLES in peaceful worlds (same switch as foodskip, keep 4, apples only) -- folded into
 foodskip-01 as one "peaceful food policy" variable; builder updating fs-on-1918bb5 + read/registration. Bone meal on the
 tree farm offered as the sink; not yet explicitly approved. Model selection A2 (1,008 real decisions): bot brain
