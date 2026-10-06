@@ -1,26 +1,75 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
 
-> **DAILY OPERATOR 10-05 11:20Z (this branch).** This copy = `main`'s STATE.md at 4ec8cfc (top block 10-05 10:07Z) plus this
-> block. The owner-granted autonomous session (worktree heuristic-nightingale-49eee9, remote control active, last push 10:13Z)
-> OWNS `main`, the queue and the canonical STATE on main; this session verified and watched, launched nothing, touched no
-> code. The 10-04 daily operator session wrote nothing (no STATE, no status). Verified 11:09Z: manifest canary junkwell-01 =
-> 911d792 on placebo-a,board-b (declared 10:05:20Z), fleet 1918bb5 (toolclean-01 promoted 00:14Z); exactly two versions
-> (70 x 1918bb5, 10 x 911d792); canary-loop pid 2608819 live; verdict poll POLL_OK (0 canary deaths / 10.6 bot-h); analyst
-> 11:00Z NOT_YET; check-open-loop names junkwell-01 open (correct: first read not yet due). Exposure real within the first
-> hour: 2 wells built (both canary towns), 3 disposals / 83 listed items, 0 misses, 0 off-list, licence row present; no
-> 1918bb5 bot emits a well row (positive control). chestfull-01's REVERT (03:17Z, death gate) is recorded in the ledger and
-> torn down (80/80 on 1918bb5 before the well deploy). Reads +180 **13:05Z**, +360 **16:05Z** (KEEP from +360).
-> Shadow mayor decision date 10-06 03:18Z. Status: docs/reports/status-2026-10-05-daily-operator.md (this branch).
-> READ RESULTS: (filled in below the line when they land)
-_updated 2026-10-02 20:20Z (see the EVENING section first); earlier stamp 06:10Z by the autonomous operator session (owner grant 10-02 04:45Z: 15-20 h on v1, iron first,
-both engines, reports every 4-6 h) — **CANARY LIVE: `fixes-03` on `8453c09`, pools hive-c, board-a, placebo-d,
-placebo-b (20 bots), declared 05:03:00Z.** Fleet baseline `bf296c9+9287fd` on the other 60. Exactly two versions live
-at 05:10Z. `canary-loop.sh fixes-03` (pid 1921117) does reads/verdict/record/promote/teardown. NOTHING is chained
-behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
+_updated 2026-10-06 11:45Z by the daily operator session (10-06). This top block is the CURRENT state; everything below
+"HISTORY" is dated history, newest first. Base = main's STATE at 29aa97f (10-06 09:16Z, written by the owner-granted
+autonomous session, worktree heuristic-nightingale-49eee9, last active 09:16Z)._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
 > (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
+
+## NOW (verified 11:40Z on 10.0.0.31)
+| | |
+|---|---|
+| fleet | **47110e8** (chestfull-02 KEPT + promoted 10-05 21:43Z) on 70 bots |
+| canary | **withdraw-01 @ b54e22c** on board-b,placebo-a (10 bots), declared 05:22:41Z; exactly two versions live (47110e8+1aad2e, b54e22c+4e95fd) |
+| reads done | +180 NOT_YET (08:27Z); **+360 NOT_YET (11:26Z): exposure not met** -- 2 canary withdraw_pick orders (need >= 5), both took_pick; G1-G4 0; intervention 0; deaths 1 (0.017/bh) vs control 11 (0.037/bh); instrument 37 control bots at town without a pickaxe. Primary (reported, not gated): bot-time without a usable pickaxe DiD -0.125, at town DiD -0.054 (null scale +-0.15). Why exposure is slow: 9 of 10 canary bots already hold a usable pickaxe. |
+| next reads (loop, until exposure) | **+540 14:22Z**, +720 17:22Z, +1080 23:22Z, +1560 07:22Z 10-07; deadline 1680 min = 09:22Z 10-07; zero exposure at the end = INCONCLUSIVE. At ~2 orders/6 h expect exposure near +1080. |
+| loop | `canary-loop.sh withdraw-01` pid 2789995 (reads/verdict/record/promote/teardown). Chained: `chain-after.sh withdraw-01 climbflood-02` pid 2829347 (variants 47110e8 -> 6ca31e9, b54e22c -> c902d6f). |
+| check-open-loop | OpenLoop withdraw-01 (correct: not decided). |
+| analyst 11:00Z | fleet healthy, versions ok, NOT_YET |
+| iron funnel 24 h | raw iron 252 (0.18/bot-h, up from 38 and 93 on the two prior lines), ingots 231, iron pickaxes crafted 26, gone 27 |
+
+## SHADOW MAYOR — DECISION RECORDED 10-06 11:40Z: **STOP building the deterministic assigner** (snapshot recording continues)
+Registered read (README "Decision date"; STATE read rule r3): revision 2e82cfe81496 alone, 2026-10-03 18:02:46Z ->
+10-06 03:17:46Z, 11,008 snapshots, 80/80 bots covered (median 1.00), 1.81M state rows; positive controls: the detector
+sees FREE_BAG 2,053, RESTORE_PICK 799, GET_WOOD 43,615, GET_IRON 530 outcome events. Output ~/mayor-decision-20261006.out,
+/var/lib/mcai-mayor/score-decision-20261006.json on 10.0.0.31.
+Deterministic mayor xbase vs the LEASED-RANDOM baseline's xbase (the registered comparison):
+FREE_BAG 1.10 vs 1.05 (n 5,036) | RESTORE_PICK 1.11 vs 1.11 (1,909) | GET_WOOD 0.72 vs 0.71 (345) | GET_IRON 0.69 vs 0.70 (2,016).
+The rule picks bots no better than random on any duty; no duty meets the act gate (downstream >= 1.5x base: best 1.11x;
+executability >= 80%: best 78.4%). The NEED is real (unforced gap ~180 bot-h/day FREE_BAG, ~100 RESTORE_PICK, both >> 20),
+so the gap is not refuted -- the deterministic assignment just adds nothing. Consequence: no duty acts; the 10-03 FREEZE on
+mayor_core.py / mayor_shadow.py / stack_sizes.json / cfg flags is LIFTED; the unit `mcai-mayor-shadow` keeps recording
+(cheap, Nice 10, 512M) as the stock/snapshot feed for the owner's overseer/strategist line, until the owner says otherwise.
+Frontier replay never ran (needs owner-placed API keys).
+
+## QUEUE (owner order, autonomous session's line; one canary at a time)
+withdraw-01 (live) -> climbflood-02 (CHAINED) -> towndeposit (td-on-1918bb5 @ 09415cc) -> foodskip+apples (fs-on-1918bb5 @
+41fa406) -> grid fix (gf 8c9239d) -> bamboo (on the grid fix) -> junk well re-run (after underground safety) -> cobble rule ->
+treefarm-01 (bp-on-1918bb5 @ 453cd07, LAST). Each needs a rebase onto the fleet sha at its turn. Parallel, no canary slot:
+model selection (C1 closed-loop running from 06:23Z; owner decisions pending: Studio memory budget, C2 bench-only hook),
+strategist layer (low priority, needs owner API keys).
+
+## OWNER DECISIONS PENDING
+1. Studio GPU memory: gemma 8-bit + gpt-oss ~93 GB + co-tenants ~32 GB exceeds budget (see 10-06 06:30Z below).
+2. C2 bench-only bot-code hook (never deployed), both engines reviewed.
+3. Bone meal on the tree farm (switch default OFF).
+4. RCON password left in /tmp/scan2.py on 10.0.0.31 (rotate + delete) -- still the owner's.
+
+## WAKE-UPS / MONITORS
+None standing from this session (session-local; this session ends after this write). The host loop does every read.
+
+## RE-ARM ON A FRESH SESSION
+1. `date -u`; read this block; on 10.0.0.31: `cat /srv/mcbots/trial-manifest.json`, `tail ~/canary-journal.jsonl`,
+   `tail ~/digest/page.jsonl`, newest `~/digest/*.verdict.json`, `tail -3 ~/digest/ironfunnel.log`.
+2. `pgrep -af 'canary-loop|chain-'` -- expect canary-loop.sh withdraw-01 and chain-after.sh withdraw-01 climbflood-02
+   (or, after withdraw decides, canary-loop.sh climbflood-02).
+3. `python3 ~/verdict.py <live run_id> 0 --poll`; `sudo python3 /opt/minecraft-ai/scripts/check-open-loop.py`.
+4. If withdraw-01 decided: KEEP -> confirm 80/80 on b54e22c and that climbflood-02 launched variant c902d6f; REVERT/
+   INCONCLUSIVE -> confirm teardown (ONE version), that climbflood-02 launched 6ca31e9 (or STOPPED), check failing rows'
+   build before believing a revert. PushNotification the owner on any promote/revert.
+5. Live versions: `cd /opt/minecraft-ai/scripts && python3 -c "from lib.telemetry import Events; e=Events.load(since_minutes=8); print(e.versions())"`.
+6. If the loop died with no decision: `setsid nohup bash ~/canary-loop.sh <run> >> ~/canary-loop-<run>.out 2>&1 < /dev/null &` (resumes from journal).
+7. Monitors: one journal-phase Monitor (emit on new journal lines only); the host loop waits, not the session.
+
+## WORKTREES
+Autonomous session scratchpad worktrees under /private/tmp/claude-501/...heuristic-nightingale-49eee9/scratchpad/ (bp, cf*,
+chest2*, fs, td, tdfs/*, cl-tree); repo .claude/worktrees/bb-* (bamboo). mcai-rl02 still carries someone else's uncommitted
+check-movement-writers.mjs + movement-ratchet.test.mjs -- left alone.
+
+---
+# HISTORY (newest first)
 
 ---
 
@@ -137,6 +186,140 @@ arms): carried 2/2 placed + banked (control 2/2 "could not make another chest" w
 refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission refuses, no walk, prompt stops advertising
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
+
+## 10-06 ~00:15Z — TREEFARM-01 (blueprint builder + town tree farm) BUILT, REVIEWED, REGISTERED, NOT LAUNCHED. Queue: LAST
+(owner 10-05 ~19:00Z). Branch bp-on-1918bb5 @ 453cd07 (base 1918bb5; REBASE onto the fleet sha when its turn comes --
+chestSiteRefusal and the junk well's site search must then refuse farmIndex cells). Registration main
+docs/reports/treefarm-01.1918bb5.json; read scripts/host/treefarmread.py (staged /tmp/treefarmread.py on 10.0.0.31; dry run
+37 s, positive control 352 control log gathers; changerowcheck/licencecheck/v30 preflights dry-run OK). Codex APPROVE r6.
+MEASURED (Paper sandbox4): saplings grow a median ~16 min at rtick 3 in light, 0 at night without light, at daylight
+speed at night with the farm's torch layout; leaves in a column do NOT block growth (16/16) -- and a harvested tree's
+leaves never decay while a neighbour stands, so this mattered. E2E on the final sha: build 9/9 + 4/4 confirmed, SIGKILL
+resume, foreign lease, other skills around it, grow -> ordinary gather -> clear -> replant loop closed; harvest A/B on
+the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF by default (owner decision pending).
+Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
+not built): docs/reports/blueprint-builder-design-2026-10-05.md.
+
+## 10-06 09:16Z — climbflood-02 READY and CHAINED after withdraw-01 (variants 47110e8 -> cf2 6ca31e9, b54e22c -> c902d6f;
+main 3dd0b75). Root causes of climbflood-01's 3 rows, each reproduced on Paper with the old build: ice melts to water
+when broken (scene H: old 3/3 flooded, new 0/3); a second dig trusted mineflayer's stale "air" before the server's water
+arrived (300 ms settle added); a 3-deep sand column with water on top (whole column now read; flood exit sidesteps
+before unburying). Codex APPROVE. withdraw-01 +180 NOT_YET (deaths 1 vs 5, same rate).
+
+## 10-06 06:30Z — CLIMBFLOOD-01 INCONCLUSIVE (+360, 05:11Z), torn down 05:15Z (fleet stays 47110e8). Exposure met (202 opps);
+20 s endpoint canary 1.36% -> 0.00% vs control 1.19% -> 1.54% (E0 3.6, 0 observed); harm not detected; BUT correctness
+caught 2 real breaches (hive-d-Alpha 04:59Z, caller=ramp_step: dug ICE -- ice melts to water when broken -- then sand
+over water 4 s later) + 1 refusal written wet. Fix round (ice/frosted ice as water; ramp_step re-check; Paper ice scenes)
+-> climbflood-02. CANARY LIVE: withdraw-01 on board-b,placebo-a (10 bots) since 05:22:41Z (variant 47110e8 = b54e22c);
+reads ~08:22Z / ~11:22Z.
+MODEL SELECTION checkpoint (Stage A+B, report on main): brain gemma4:26b (LM Studio MLX 8-bit, thinking off, grammar);
+overseer + stuck gpt-oss:120b (reasoning medium, Ollama). C1 closed-loop (7B vs gemma Ollama vs gemma LM Studio; 8 bots,
+90 min, 3 blocks) running from 06:23Z (orchestrator on the mini, bots on 10.0.0.31). Ollama upgraded 0.33.3 -> 0.35.1.
+OWNER DECISIONS PENDING: (1) Studio memory: gemma 8-bit + gpt-oss ~93 GB + co-tenants ~32 GB (LCIA keepwarm coder:7b;
+THIS project's own tier-1 shadow analyst cron on 10.0.0.31, ~/analyst.py at :03/:33 calling qwen3.8:27b) exceeds the GPU
+budget; (2) C2 needs a bench-only bot-code hook (never deployed), both engines reviewed.
+
+## 10-06 ~04:30Z — READY (not launched): towndeposit td-on-1918bb5 @ 09415cc and foodskip+apples fs-on-1918bb5 @ 41fa406 (Codex
+APPROVE; Paper: apples 6 composted / 4 kept x4 in peaceful, 0 with the switch off / on easy / on control); registrations
++ reads on main 419dca1 and on the host; both trial-merge cleanly onto 47110e8 -- rebase onto the fleet sha when their
+turn comes (after withdraw).
+
+## 10-06 ~03:30Z — OWNER: compost APPLES in peaceful worlds (same switch as foodskip, keep 4, apples only) -- folded into
+foodskip-01 as one "peaceful food policy" variable; builder updating fs-on-1918bb5 + read/registration. Bone meal on the
+tree farm offered as the sink; not yet explicitly approved. Model selection A2 (1,008 real decisions): bot brain
+gemma4:26b (infeasible 1.3% vs 13.3%, repeats-failed 21% vs 73.5%, 4x loop 28% vs 90%; top blind-judge scores);
+overseer gpt-oss:120b (100% valid, 55/60 optimal allocations, 1 rule violation); LM Studio MLX beats Ollama under load
+(gemma 8 concurrent: 8.8 s vs 17.1 s; 43 vs 25 decisions/min). Stage C closed-loop runner prepared.
+
+## 10-05 ~23:30Z — TOWNDEPOSIT + FOODSKIP built, reviewed (Codex APPROVE), registered (main d7aafcf), NOT launched; both on
+1918bb5 and need rebasing (trial picks onto 47110e8 and withdraw pass). towndeposit Paper: full bag 3/3 banked exactly
+the surplus (60-use spare pickaxe, cobble 20, logs 10, raw copper 7), kept spent+best pickaxe, iron, coal, stockpile
+targets; the model's own deposit with the same bag banked the spent AND best pickaxe, iron and coal. foodskip: Paper
+caught a real bug both reviews missed (mineflayer 4.37.1 stores difficulty undefined on 1.21.8, so auto never fired);
+fixed by reading the packet, tested through the real decoder. HONEST: foodskip barely moves bags (sought apples ~0.07
+/bot-h; the ~2 food slots already held have no exit -- apples ARE compostable in vanilla: a composter-list change is
+the exit, owner decision).
+
+## 10-05 23:03Z — CANARY LIVE: climbflood-01 @ f590430 (cf-on-47110e8) on hive-d,hive-b (10 bots; the draw gave 2 pools,
+not the design's 20 bots -- exposure needs >= 100 canary escape opportunities, dry runs gave 107-163 at +180 on 10 bots),
+declared 23:01:19Z; exactly two versions (70 on 47110e8, 10 on f590430). Reads +180 ~02:01Z, +360 ~05:01Z 10-06,
+extensions to 1560. Withdraw (rebasing onto 47110e8) goes next and will need a quick re-rebase if climbflood is kept.
+
+## 10-05 21:43Z — CHESTFULL-02 KEPT (+360) and PROMOTED: FLEET 47110e8. C1-C4 0, rescues 16 ok, instrument 43; deaths 4/120
+bot-h vs 9/240 (0.89x). WATCH: canary successful deposits 37 -> 18 vs control 96 -> 94 (DiD -0.153/bot-h, harm watch,
+small n) -- the coming towndeposit makes deposits deterministic. NEXT: withdraw (rebasing onto 47110e8) and climbflood
+(rebasing onto 47110e8 as cf-on-47110e8; registered as a FIX per the owner's 09-29 rule: deterministic gates decide,
+effect reported; read defects fixed after Codex CHANGE x3 -> APPROVE; Paper: control flooded 17/17 eligible, candidate
+0/20) -- whichever is launch-ready first. towndeposit/foodskip and the blueprint builder also need rebases onto 47110e8.
+
+## 10-05 ~19:30Z — OWNER: add a frontier STRATEGIST ("god" layer, Claude/GPT via API, hourly-daily: world goals, role
+targets, cross-world lessons, proposed blueprints/rules/skills through the same sandbox + canary gate) to the queue
+"further down, its not a rush". Architecture agreed: strategist (frontier) -> overseer (large local) -> bot brain
+(fast local) -> reflexes (code), with a deterministic validation layer on every order. Order: model selection ->
+overseer first real job (stock record + assembler orders) -> strategist in SHADOW (one plan/day scored against
+outcomes) -> authority over overseer targets once it proves out. Needs owner-placed API keys on the host (I never
+handle credentials). Not started.
+
+## 10-05 ~19:00Z — OWNER: build a BLUEPRINT BUILDER skill (both engines + GitHub prior art), proven first on a TREE FARM
+by town; then a town WORKSHOP and a SAFE MINESHAFT (cobble-lined, ladder exit). Queued BELOW the current queue (after the
+cobble rule). Designing/building now on bp-on-1918bb5 (not launched). Bone meal on saplings: a separate switch, default
+OFF, until the owner decides. Also discussed (no build yet): overseer roles -- town stock record -> Assembler orders
+(806 iron ingots ~= 260 iron pickaxes) -> stock-driven priorities -> Rescuer (big model) -> Builder.
+
+## 10-05 ~18:35Z — OWNER: food no-pickup in peaceful worlds (switch auto|on|off from server difficulty) and an AUTOMATIC
+TOWN DEPOSIT for full bags -- both being designed (both engines) and built as separate canaries (towndeposit-01,
+foodskip-01). Evidence: docs/reports/bag-creep-analysis-2026-10-05.md (fleet average flat ~33.2 slots; ~11-12
+slots/bot have no exit; 715 full-bag town stays carried bankable items, 231 tried a deposit; 35% of model deposit
+proposals asked to bank apples; scoreboard undercounts ~0.8 slot -- eggs stack 16). Underground safety:
+docs/reports/underground-safety-design-2026-10-05.md (every drowning a sealed pocket; the escape climb digs into
+water unchecked = 28% of drownings) -> climbflood-01 being built. Studio co-tenants identified (com.lcia.* launch
+agents: keepwarm watchdog restarts Ollama + pins qwen2.5-coder:7b; NUM_PARALLEL=4; caching proxy :11435) -- owner
+investigating; Ollama upgrade approved. Model screen A1: gemma4:26b leads (infeasible 1%, repeats failed 14%, overseer
+valid 88% vs the fleet 7B 14% / 71% / 17%). QUEUE: chestfull-02 (live) -> withdraw -> climbflood -> towndeposit ->
+foodskip -> grid fix -> bamboo -> junk well re-run -> cobble rule.
+
+## 10-05 17:15Z — JUNKWELL-01 REVERTED by the death gate (15:13Z): 6 canary deaths / 51.1 bot-h vs 11 / 358.2 (3.83x,
+lower bound 1.40x, randomization p = 0.033). All 6 were 80-173 blocks from the well, deep underground: 4 drownings in
+sealed water pockets (y 36-60), 2 lava (y -1, -55); none within 2 min of well activity. MECHANISM (measured): canary
+mine actions/bot 15.9 -> 48.9 vs control 34.8 -> 33.5 (DiD +34.3) -- unique among 7 canaries (others -8.2..+5.0), so
+NOT a restart effect: freeing bag space sent bots back to iron mining (GET_IRON was blocked on no_room), into the
+fleet's existing sealed-pocket and lava weaknesses. The well worked (+180: 154 items disposed, C1-C6 0, junk slots
+DiD -1.30). OWNER 17:10Z: work on UNDERGROUND SAFETY next (design with both engines running), and analyse why bags
+creep back up (45 at >= 34 slots in 07:01-17:01Z vs 38 overnight; analysis running). The junk well returns after
+underground safety. CANARY LIVE: chestfull-02 @ 47110e8 on board-a,board-c,board-d,placebo-d (20 bots) since 15:24Z;
+reads ~18:24Z / ~21:24Z. Scoreboard 07:01-17:01Z: no pickaxe 2/80, no usable 12, trip 35, raw iron 167, wood 55.1%.
+
+## 10-05 ~14:30Z — CHAIN: junkwell-01 (live; +180 NOT_YET 13:10Z: 2 wells built, 6 disposals / 154 items, C1-C6 0,
+listed-junk slots/bot DiD -1.30, deaths 1 vs 6 same rate) -> chestfull-02 CHAINED on the host (variants 911d792 ->
+chest2-on-911d792 @ 7ee230f, which also changes the well's site picker to respect claimed chests; 1918bb5 ->
+chest2-on-1918bb5 @ 47110e8). Then withdraw (wd-on-6c9a8fb @ 098cb6b: town-miss gate fixed; rebase onto whichever
+chestfull-02 lands) -> grid fix (gf-on-1918bb5 8c9239d / gf-on-911d792 ced0b52 ready; will need a rebase onto the
+chest-full fleet sha) -> bamboo. Rebases happen per stage as each lands.
+
+## 10-05 ~13:00Z — OWNER DIRECTION: 4-8 really smart bots are fine (80 not needed); a larger model as OVERSEER and for STUCK
+escalation; find the best model(s) with both engines, an "extensive and exhaustive" test, all public sources. The M4 Studio
+(ai.ticrcorp.com) is DEDICATED to this; model downloads there are authorized; never 10.0.0.72. Running: Codex research
+(docs/reports/model-research-codex-2026-10-05.md: worker qwen3.6:35b-a3b / Nemotron-3.5-Lightning-30B-A3B / qwen3.8:27b /
+Gemma 4 26B-A4B; overseer qwen3.5:122b-a10b / gpt-oss:120b / Nemotron-3-Super-120B-A12B; control Hermes-4.3-36B);
+Codex test-plan design; Claude research + staged benchmark (A replay of real decisions, B ground-truth scenario suites,
+C closed-loop sandbox bots driven by finalists, D blind two-vendor judging) -> docs/reports/model-selection-2026-10-05.md.
+Also delivered: trapped-bots-analysis (11-15% real stranding; 4 bots stuck all day; 74% of bot-time outside any skill)
+and withdraw-habit-design (bots never learn chest contents; withdraw proposed 10 of 158,821 decisions/24 h).
+
+## 10-05 ~10:30Z — CHESTFULL-01 REVERT INVESTIGATED: no mechanism found. 0 of 7 canary deposits had a watchDigging stop
+(fleet nav profile canDig=false); the y=15 chest was targeted 14x in the 3 h BEFORE the deploy on the fleet base (so not
+this diff); bank closure never triggered (0 _deposit_new_chest, 0 bank_closed of 201 rejections). The mining rise is
+milestone timing: 57 of 71 canary mine decisions were in gather_iron_ore_3 (entered before the deploy); mines per
+iron-milestone decision 0.57 vs 0.56 pre (control 0.47 vs 0.51). The deaths were in iron mining, wood gathering and
+a goto home after iron. The revert stands as recorded (the gate did its job); the re-run is chestfull-02 with real
+fixes Paper found: a bot sealed in a 1-block pocket got "arrived" 17-18 blocks short, struck the good town chest and
+CLOSED THE BANK (6c9a8fb 2/2; new 0/2); a deep chest 20 below home was banked into (old 1/1, new 0/3); the chest walk no
+longer watches digs; one town boundary (16 h / 12 v); only a truly closed bank closes. chest2-on-1918bb5 @ 47110e8,
+Codex APPROVE (round 3), registration chestfull-02.1918bb5.json on main 25c543a. GRID FIX: independent Claude review
+APPROVE (Paper: control stranded the grid 12/12, candidate 0/11; bamboo interrupted fold clean 2/2 on the fix);
+registration gridfix-01.1918bb5.json (main 483f2b0); a variant on the junk-well base (911d792) is being built so the
+chain launches whichever way junkwell-01 ends. QUEUE: junkwell (live) -> gridfix -> chestfull-02 (must add
+wellReservedCells to chestSiteRefusal if the well is kept) -> withdraw (rebase onto chest2) -> bamboo (on the grid fix).
 
 ## 10-05 10:07Z — CANARY LIVE: junkwell-01 @ 911d792 on placebo-a,board-b (10 bots), declared 10:05:20Z; exactly two
 versions (70 on 1918bb5, 10 on 911d792). Reads +180 ~13:05Z, +360 ~16:05Z (extensions to 1560, deadline 1680). Both
