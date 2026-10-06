@@ -10,6 +10,7 @@ process.env.MEMORY_SCOPE = process.env.MEMORY_SCOPE || 'isolated'
 process.env.LOG_LEVEL = 'error'
 process.env.BOT_ROLE = 'gatherer'
 process.env.LLM_DECISION_COOLDOWN_MS = '50'
+process.env.POOL_STATE_DIR = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'td-pool-'))
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 
 import assert from 'node:assert/strict'
@@ -296,6 +297,15 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
     registry: mcData,
     controlState: {},
     currentWindow: null,
+    // A CRAFTSYNC STAND-IN (as withdraw-pick.test.mjs): lockstep runs the clicks; the cursor confirmation answers with
+    // the SERVER's cursor -- the fake server's own window copy -- never the client's.
+    craftSync: {
+      lockstep: fn => fn(), inflight: () => 0, invalidate: () => 0,
+      recount: async () => ({ source: 'server', items: server.bag.slice(9, 45).filter(Boolean) }),
+      confirmCursor: async win => { const c = win?.server?.selectedItem; return { answered: true, cursorEmpty: !c, carried: c ? { itemCount: c.count } : null } },
+    },
+    equip: async () => {}, unequip: async () => {}, moveSlotItem: async () => {}, toss: async () => {}, tossStack: async () => {}, closeWindow: () => {},
+    removeListener: () => {}, once: () => {}, _client: {},
     inventory: { inventoryStart: 9, items: () => bagSlots.slice(9, 45).filter(Boolean) },
     findBlocks: ({ maxDistance }) => containers.map(c => c.pos).filter(p => bot.entity.position.distanceTo(p) <= maxDistance),
     blockAt: p => {
@@ -318,6 +328,11 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
         return w
       }
       const win = { id: st.opened.length, inventoryStart: n, inventoryEnd: n + 36, ...mk() }
+      // prismarine-windows' own lookups, which withdraw's settleCursor uses to put a cursor back
+      win.items = () => win.slots.slice(n, n + 36).filter(Boolean)
+      win.containerItems = () => win.slots.slice(0, n).filter(Boolean)
+      win.firstEmptySlotRange = (a, b) => { for (let i = a; i < b; i++) if (!win.slots[i]) return i; return null }
+      win.findItemRange = (a, b, type, _m, notFull) => { for (let i = a; i < b; i++) { const x = win.slots[i]; if (x && x.type === type && (!notFull || x.count < (x.stackSize ?? 64))) return { ...x, slot: i } } return null }
       win.server = mk()
       win.close = () => {
         st.closes++
@@ -441,12 +456,15 @@ test('SKILL: a click that fails with the stack on the cursor puts it back and st
   assert.equal(sumOf(serverBag(w), 'oak_log'), 138, 'the log stack is back in the bag')
 })
 
-test('SKILL: a cursor that cannot be put back stops the run, says so, and the bag is whole (vanilla close returns it)', async () => {
+test('SKILL: a cursor that cannot be put back is NEVER closed on: the window is HELD (withdraw\'s hold), the run says so', async () => {
   const w = world({ items: fullBag(), containers: [chestAt(2)], failDest: cur => cur.name === 'cobblestone', cursorStuck: true })
-  const { rows } = await rowsOf(() => run(w.bot))
-  assert.match(rows[0].skill.detail, /stop cursor cursor_unsettled 1/)
-  assert.equal(w.st.dropped, 0)
-  assert.equal(sumOf(serverBag(w), 'cobblestone'), 148)
+  const { out: r, rows } = await rowsOf(() => run(w.bot))
+  try {
+    assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'transfer_unsettled')
+    assert.match(rows[0].skill.detail, /stop cursor cursor_unsettled 1/)
+    assert.ok(w.bot.inventoryUnsettled, 'withdraw\'s hold owns the window: admission refuses everything until it settles')
+    assert.equal(w.st.closes, 0, 'no loaded close'); assert.equal(w.st.dropped, 0)
+  } finally { w.bot.inventoryUnsettled?.stop?.() }
 })
 
 test('SKILL: a move the SERVER refuses is not credited: the re-open decides, never the clicks or the copied bag', async () => {
@@ -618,4 +636,40 @@ test('WITHDRAW HOLD: what withdraw just took is never banked back by the town de
     BANK.clearWithdrawHolds()
     assert.ok(!townDepositPlan(items).steps.some(s => ['cobblestone', 'stick', 'oak_planks'].includes(s.name)))
   } finally { BANK.clearWithdrawHolds?.() }
+})
+
+// ---- the rebase review (Codex, on b54e22c): withdraw's hold by identity, the town's memory ----------------------------
+const CF = await import('../src/chestfull.mjs')
+test('WITHDRAW HOLD BY NAME: with 130/40 held and a 120 just withdrawn, NO stone_pickaxe moves while the hold lasts (the count rule alone banked the 120)', () => {
+  const items = bag([['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 40], ['stone_pickaxe', 1, 120], ...filler(31)])
+  try {
+    BANK.setWithdrawHold('stone_pickaxe', 1, Date.now() + 60_000)
+    assert.deepEqual(townDepositPlan(items).steps.filter(s => s.name === 'stone_pickaxe'), [])
+    BANK.clearWithdrawHolds()
+    assert.equal(townDepositPlan(items).steps.filter(s => s.name === 'stone_pickaxe').length, 2, 'positive control: the hold over, the spares (120, 40) are banked and the 130 kept')
+  } finally { BANK.clearWithdrawHolds() }
+})
+
+test('TOWN MEMORY: a verified deposit records `took` for the container (clearing withdraw\'s misses there); a chest the town knows is full is skipped', async () => {
+  const dir = process.env.POOL_STATE_DIR, key = CF.townKey(new Vec3(0, 70, 0))
+  CF.updateTownMemory(dir, key, null, e => { e['-4,70,0'] = CF.recordOutcome(undefined, 'full'); CF.notePickMisses(e, ['2,70,0']) })
+  assert.equal(CF.containerPickMiss(CF.readTownMemory(dir, key), '2,70,0'), true, 'precondition: a fresh pickaxe miss at chest A')
+  const a = chestAt(2), b = chestAt(-4)
+  const { bot, st } = world({ items: fullBag(), containers: [a, b] })
+  const r = await run(bot)
+  assert.equal(r.status, 'success', r.detail)
+  const mem = CF.readTownMemory(dir, key)
+  assert.equal(mem['2,70,0']?.o, 'took')
+  assert.equal(CF.containerPickMiss(mem, '2,70,0'), false, 'the pickaxe banked there is visible to withdraw at once')
+  assert.ok(!st.opened.includes('-4,70,0'), 'the chest the town knows is full was never opened')
+  const full = world({ items: fullBag(), containers: [b] })
+  const r2 = await run(full.bot)
+  assert.equal(r2.status, 'no_effect'); assert.equal(full.st.opened.length, 0)
+})
+
+test('CHAIN, BANK CLOSED: a bot whose bank chestfull closed gets no town deposit -- the craft order runs first', async () => {
+  const bot = chainBot()
+  bot.bankClosed = { until: Date.now() + 600_000, at: Date.now(), why: 'the town chests are full', kind: 'full' }
+  const { ran } = await decisions(bot, 1)
+  assert.equal(ran[0].skill, 'craft', JSON.stringify(ran))
 })

@@ -28,7 +28,7 @@
 // bags before and after the plan, at several laps: no rung changes state. That is the "do not fight the ladder" rule
 // as a check rather than a promise.
 
-import { depositPlan, scaffoldKeep } from './bankable.mjs'
+import { depositPlan, scaffoldKeep, withdrawHolds } from './bankable.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
 
@@ -151,9 +151,14 @@ export function townDepositPlan (items = [], { wanted = [], already = {} } = {})
   const allowance = Object.fromEntries(depositPlan(list, null, { wants: [] })
     .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
+  const holds = withdrawHolds()
   for (const name of Object.keys(allowance).sort()) {
     const copies = list.filter(it => it.name === name)
     if (TOOL_RE.test(name)) {
+      // A TOOL JUST WITHDRAWN (withdraw's 10-min hold): NO copy of that name moves while the hold lasts. The hold is a
+      // count, not a copy, and the copies are chosen here by uses -- with 130/40 held and a 120 just withdrawn, the
+      // count rule alone would bank the withdrawn 120 (rebase review, Codex P2).
+      if ((holds[name] ?? 0) > 0) { why[name] = 'withdraw_hold'; continue }
       for (const slot of toolSlotsToBank(copies, allowance[name])) {
         const it = copies.find(c => c.slot === slot)
         steps.push({ slot, name, count: it.count ?? 1 }); banked[name] = (banked[name] ?? 0) + (it.count ?? 1)
