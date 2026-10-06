@@ -138,6 +138,12 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 16:50Z — WITHDRAW-01 KEPT at +540 (14:29Z; exposure reached 6 orders) and PROMOTED: FLEET b54e22c (14:39Z). G1-G4 0;
+bot-time without a usable pickaxe canary 12.6% -> 3.7% vs control 18.4% -> 20.5% (DiD -11 points); deaths 3/90 bot-h vs
+16/450 (0.94x). CANARY LIVE: climbflood-02 @ c902d6f on board-a,board-c,hive-a (15 bots) since 14:44:21Z; two versions
+confirmed (65 b54e22c, 15 c902d6f); reads ~17:44Z / ~20:44Z. NEXT: towndeposit (variants b54e22c / c902d6f being built),
+then foodskip+apples. Still to build: the "go home to restock" ladder step (pickaxe-less bots away from town).
+
 ## 10-06 09:16Z — climbflood-02 READY and CHAINED after withdraw-01 (variants 47110e8 -> cf2 6ca31e9, b54e22c -> c902d6f;
 main 3dd0b75). Root causes of climbflood-01's 3 rows, each reproduced on Paper with the old build: ice melts to water
 when broken (scene H: old 3/3 flooded, new 0/3); a second dig trusted mineflayer's stale "air" before the server's water
