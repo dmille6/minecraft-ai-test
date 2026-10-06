@@ -61,6 +61,11 @@ const SPEC = {
   'fullchest': { bag: FULL_BAG, chests: { A: FULL_CHEST } },
   // (d) 33 slots: below the trigger, no order
   'below': { bag: FULL_BAG.slice(0, 33), chests: { A: [] } },
+  // (f) WITHDRAW x TOWN DEPOSIT (needs withdraw underneath, b54e22c+): 33 slots holding a 120-use pickaxe; the model's
+  //     `withdraw stone_pickaxe` takes the chest's 60-use copy (withdraw's 10-min anti-redeposit hold) -> 34 slots -> the
+  //     town deposit banks cobblestone 20, oak_log 10, raw_copper 7 and must KEEP the just-withdrawn pickaxe (without the
+  //     hold it is exactly the spare `full` banks).
+  'withdrawn': { bag: FULL_BAG.filter((_, i) => i !== 2).slice(0, 33), chests: { A: [['stone_pickaxe', 1, 71]] }, queue: 'withdraw stone_pickaxe' },
   // (e) chest A has two empty slots, chest B is empty: the visit spans both and creditCap holds across them
   'twochests': { bag: [['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['raw_copper', 5], ['raw_gold', 3], ['stone_pickaxe', 1, 11], ['stone_pickaxe', 1, 50], ...wool(28)],
                  chests: { A: [...stacks('diorite', 25)], B: [] } },
@@ -188,6 +193,7 @@ async function runTrial (scene, k) {
   const before = snapshot()
   const t0 = Date.now()
   const marks = {}
+  if (spec.queue) { brainQueue.push(spec.queue); marks.queued = spec.queue }
   let started = null
   if (ARM === 'cand') {
     started = await waitFor(() => skillRows(skillLog).some(r => r.name === '_town_deposit') || lines(botOut).some(l => /town_deposit/.test(l)), WINDOW_MS)
