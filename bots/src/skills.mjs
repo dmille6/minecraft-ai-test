@@ -51,7 +51,7 @@ import { STORAGE_NEAR } from './composter.mjs'
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete,
   rankCopies, pickTier, heldPickTier, tierName, TIER_IRON, notePickBest, townBetterPickRuledOut, noteIngotsSeen, townIngotsRuledOut,
-  ironDeficits, ironPlan, IRON_ATTEMPT_COOLDOWN_MS, ironStagger, IRON_MIN_MS, containerIngotsNone } from './withdrawpick.mjs'
+  ironDeficits, ironPlan, IRON_ATTEMPT_COOLDOWN_MS, ironStagger, IRON_MIN_MS, containerIngotsNone, containerIngredientMiss } from './withdrawpick.mjs'
 import { setWithdrawHold, releaseWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
@@ -6989,7 +6989,8 @@ async function withdrawPick (ctx, _args, signal) {
   const bagBefore = bagTotal(bot.inventory.items())
   const tried = []
   const st = { need: 'pickaxe', uses: null, diag: {}, moved: null, written: false, base: null,
-    ledger: { took: {}, gave: {}, held: '-', took_tier: '-', best_seen: '-', best_valid: '-', craft: 'none', produced: 0, transform: [], iron: '-' } }
+    ledger: { took: {}, gave: {}, held: '-', took_tier: '-', took_uses: '-', best_seen: '-', best_valid: '-', gone: [], craft: 'none', produced: 0, transform: [], iron: '-' },
+    takeVisits: 0, cands: [], gone: [] }
   // THE ROW WITH ITS LEDGER (withdraw2, Codex design check): the detail stays readable (and may be cut at 300); the
   // gates read `args` -- what the WHOLE order moved, the server's cumulative change from one baseline to one final
   // recount, and complete=true only when both were the server's.
@@ -7006,6 +7007,9 @@ async function withdrawPick (ctx, _args, signal) {
       }
     }
     const L = st.ledger
+    const standing = (st.cands ?? []).filter(c => !(st.gone ?? []).includes(c))
+    L.best_valid = tierName(standing.length ? tier(standing[0].name) : -1)
+    L.gone = (st.gone ?? []).map(c => tierName(tier(c.name)))
     const args = { ...L, srv, plan: Object.keys(L.gave), complete: !!srv, outcome }
     return withdrawRowOut(bot, r, { outcome, need: st.need, uses: st.uses, ...st.diag, bagBefore, bagAfter: bagTotal(bot.inventory.items()),
       deposited: Object.entries(L.gave).map(([name, count]) => ({ name, count })), took: L.took, verb: 'withdraw_pick', tried,
@@ -7018,6 +7022,8 @@ async function withdrawPick (ctx, _args, signal) {
     throw e
   }
 }
+/** At most this many TAKE visits per order, whatever path takes them (Codex: the fallback reset the budget). */
+const TAKE_VISITS = 2
 /** THE IRON PATH'S CLOCK (withdraw2): one bot per process, so module state is this bot's. `at` is charged before the
  *  path's first mutation. Exported for tests. */
 export const withdrawIronState = { at: -Infinity }
@@ -7044,9 +7050,8 @@ export function townIronRuledOut (bot) {
     if (keys == null) return false
     const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
     const d = ironDeficits(items, { tableNear })
-    if (townIngotsRuledOut(mem, keys, d.ingots)) return true
-    if (d.sticks > 0 && townIngredientMissComplete(mem, keys, ['stick', 'planks'])) return true
-    return false
+    // Only the ingots rule the path out: held wood and chest logs make the sticks' evidence unsound to judge here (Codex).
+    return townIngotsRuledOut(mem, keys, d.ingots)
   } catch { return false }
 }
 
@@ -7093,7 +7098,8 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   // A container known to hold no usable pickaxe is still looked in while the iron path is possible -- unless it is also
   // freshly known to hold no ingots (a town with no pickaxes is exactly where the ingots matter).
   const ironOk = held < TIER_IRON && ironAllowed(bot)
-  const sweep = withdrawSweep(bot, { town: true, skipIf: (mem, k) => containerPickMiss(mem, k) && (!ironOk || containerIngotsNone(mem, k)) })
+  const noWood = (mem, k) => ['stick', 'planks', 'log'].every(n => containerIngredientMiss(mem, k, n))
+  const sweep = withdrawSweep(bot, { town: true, skipIf: (mem, k) => containerPickMiss(mem, k) && (!ironOk || (containerIngotsNone(mem, k) && noWood(mem, k))) })
   const survey = []
   let cb = sweep.next(STORAGE_NEAR)
   for (let n = 0; cb && n < WITHDRAW_CONTAINERS; n++) {
@@ -7107,23 +7113,22 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
       const best = v.saw.reduce((b, it) => Math.max(b, pickTier(it)), -1)
       const ingots = v.saw.reduce((k, it) => k + (it.name === 'iron_ingot' ? it.count : 0), 0)
       mem(e => { if (best < 0) notePickMisses(e, keys); notePickBest(e, keys, best); noteIngotsSeen(e, keys, ingots); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
-      survey.push({ key: posKey(cb.position), block: cb, double: v.double, saw: v.saw })
+      survey.push({ key: posKey(cb.position), block: cb, double: v.double, saw: v.saw, chestRoom: v.diag?.chestRoom ?? 0 })
     }
     cb = sweep.next(STORAGE_NEAR)
   }
   const cands = rankCopies(survey.flatMap(c => c.saw.filter(it => pickTier(it) >= 0).map(it => ({ ...it, at: c.key }))))
   st.ledger.best_seen = tierName(cands.length ? tier(cands[0].name) : -1)
   const gone = []
-  let takeVisits = 0
+  st.cands = cands; st.gone = gone   // the ledger's best_valid: the best observed copy NOT proven gone, at the row
   // THE BEST COPY STILL STANDING -> took | stopped | null (none better than held). Re-ranked after every proven-gone copy;
   // a copy that cannot be reached is NOT proven gone, so the order stops rather than take below it (Codex re-check 3).
   const takeBest = async (minTier) => {
     const left = cands.filter(c => !gone.includes(c))
     for (const c of left) {
       if (tier(c.name) <= minTier) break
-      st.ledger.best_valid = tierName(tier(c.name))
-      if (takeVisits >= 2) return { stopped: 'visit budget' }
-      takeVisits++
+      if (st.takeVisits >= TAKE_VISITS) return { stopped: 'visit budget' }
+      st.takeVisits++
       const where = survey.find(s => s.key === c.at)
       const v = await withdrawVisit(ctx, where.block, (inChest, bag, { chestEmpty }) => {
         const p = decideIdentified(c, inChest, bag, chestEmpty, keep)
@@ -7131,7 +7136,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
         return p
       }, signal, msLeft, deadline - 2_000)
       record(v, where.block)
-      if (v.result?.status === 'success') { st.ledger.took_tier = tierName(tier(c.name)); return { took: v.result } }
+      if (v.result?.status === 'success') { st.ledger.took_tier = tierName(tier(c.name)); st.ledger.took_uses = Number.isFinite(remaining(c)) ? remaining(c) : 'full'; return { took: v.result } }
       if (v.result) return { stopped: v.result }
       if (!v.saw) return { stopped: 'unreachable' }
       gone.push(c)   // the planned copy is not there any more: proven gone
@@ -7171,58 +7176,90 @@ async function ironPath (ctx, signal, { survey, keep, msLeft, deadline, record, 
   const tableNear = () => !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: CRAFT_TABLE_SEARCH })
   const plan = ironPlan(bot.inventory.items(), survey, { tableNear: tableNear() })
   if (!plan.ok) { st.ledger.iron = `declined:${plan.why}`; return null }
+  if (plan.steps.length > TAKE_VISITS - st.takeVisits) { st.ledger.iron = 'declined:visit budget'; return null }
+  // ROOM FOR EVERYTHING, MADE AT THE FIRST VISIT, simulated against that chest's live capacity (Codex: an aggregate
+  // check let the second chest refuse the rest of the room).
   const takes = plan.steps.flatMap(s => s.takes)
-  if (takes.length && !roomPlan(bot.inventory.items(), takes, { keep }).ok) { st.ledger.iron = 'declined:no room'; return null }
+  if (takes.length) {
+    const room = roomPlan(bot.inventory.items(), takes, { keep })
+    if (!room.ok) { st.ledger.iron = 'declined:no room'; return null }
+    const first = survey.find(s => s.key === plan.steps[0].key)
+    let empty = first.chestRoom
+    const sim = first.saw.map(it => ({ name: it.name, count: it.count ?? 0, slot: it.slot }))
+    for (const d of room.deposit) {
+      const a = allocate(sim, d.name, d.count, { emptySlots: empty })
+      if (a.leftover) { st.ledger.iron = 'declined:no room in the chest for the room-making deposit'; return null }
+      empty -= a.fresh
+    }
+  }
   if (msLeft(IRON_MIN_MS + 1) < IRON_MIN_MS) { st.ledger.iron = 'declined:clock'; return null }
   withdrawIronState.at = Date.now()   // CHARGED before anything moves; kept through failure, abort and unverified outcomes
   st.ledger.iron = 'attempted'
   st.need = `iron_pickaxe(${takes.map(t => `${t.name}:${t.count}`).join(',') || 'held'})`
   const heldBack = []   // scoped holds: released in finally
+  // ONE STEP'S DECISION, ALL OR NOTHING (Codex P1: a missing prerequisite was dropped silently and the ingots taken):
+  // every planned take must be in the live window; the first step also makes the room for every later step.
+  const stepDecision = (stepTakes, roomTakes) => (inChest, bag, { chestEmpty }) => {
+    if (!stepTakes.every(t => haveIn(inChest, t.name) >= t.count)) return null
+    const room = roomPlan(bag, roomTakes, { keep })
+    if (!room.ok) return { noRoom: noRoomResult(roomTakes.map(t => t.name).join(' and ')) }
+    let empty = chestEmpty
+    const sim = inChest.map(it => ({ name: it.name, count: it.count ?? 0, slot: it.slot }))
+    for (const d of room.deposit) { const a = allocate(sim, d.name, d.count, { emptySlots: empty }); if (a.leftover) return { skip: 'chest_no_room' }; empty -= a.fresh }
+    return { deposit: room.deposit, takes: stepTakes }
+  }
+  let made = null, cr = null, thrown = null
   try {
     for (let i = 0; i < plan.steps.length; i++) {
       check(signal)
       const step = plan.steps[i]
-      const isIngots = step.takes.some(t => t.name === 'iron_ingot')
       let stepTakes = step.takes
-      if (isIngots) {
-        // RE-PLAN against the live bag right before the ingots: still one visit, still the same deficit, still room.
+      if (step.takes.some(t => t.name === 'iron_ingot')) {
+        // RE-PLAN against the live bag right before the ingots: the prerequisites are in the bag (or in this chest), the
+        // deficit is the live one, and it is still one visit with room.
         const again = ironPlan(bot.inventory.items(), survey.filter(s => s.key === step.key), { tableNear: tableNear() })
         const last = again.ok ? again.steps[again.steps.length - 1] : null
+        if (again.ok && !last) continue   // nothing left to take (the bag gained what it needed): straight to the craft
         if (!last || last.key !== step.key || !roomPlan(bot.inventory.items(), last.takes, { keep }).ok) {
           return { result: { status: 'failed', failClass: 'container_short', detail: 'the iron plan no longer holds after the prerequisites: no ingots taken' }, outcome: 'iron_replan_failed' }
         }
         stepTakes = last.takes
       }
+      const roomTakes = i === 0 ? plan.steps.flatMap(s => s.takes) : stepTakes
       const where = survey.find(s => s.key === step.key)
-      const v = await withdrawVisit(ctx, where.block, (inChest, bag, { chestEmpty }) => decideTakes(stepTakes.filter(t => haveIn(inChest, t.name) >= t.count), inChest, bag, chestEmpty, keep),
-        signal, msLeft, deadline - 2_000)
+      st.takeVisits++
+      const v = await withdrawVisit(ctx, where.block, stepDecision(stepTakes, roomTakes), signal, msLeft, deadline - 2_000)
       record(v, where.block)
       for (const [name, n] of Object.entries(v.moved?.took ?? {})) heldBack.push([name, n])
       if (v.moved?.took?.iron_ingot) updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => {
         const left = (where.saw ?? []).reduce((k, it) => k + (it.name === 'iron_ingot' ? it.count : 0), 0) - v.moved.took.iron_ingot
         noteIngotsSeen(e, [step.key], Math.max(0, left))
       })
-      if (v.result?.status !== 'success') return { result: v.result ?? { status: 'failed', failClass: 'container_short', detail: 'the planned items were not there' }, outcome: 'iron_take_failed' }
+      if (v.result?.status !== 'success') return { result: v.result ?? { status: 'failed', failClass: 'container_short', detail: 'the planned items were not all there: nothing taken at that chest' }, outcome: 'iron_take_failed' }
     }
-    // THE CRAFT, through the existing path (craftsync lockstep, craftroom's table handling and room making).
-    let cr = null
-    // the registry's craft (tests may substitute it)
-    try { cr = await SKILLS.craft.run(ctx, { item: 'iron_pickaxe', count: 1 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; cr = { status: 'failed', detail: String(e?.message ?? e) } }
+    // THE CRAFT, through the registry's craft skill (craftsync lockstep, craftroom's table handling and room making).
+    // What it consumed is MEASURED (a recount on each side), never a list of categories (Codex: G1 must see real names).
+    const pre = await recountBag(bot, msLeft)
+    try { cr = await SKILLS.craft.run(ctx, { item: 'iron_pickaxe', count: 1 }, signal) } catch (e) { thrown = e; cr = { status: 'failed', detail: String(e?.message ?? e) } }
     const after = await recountBag(bot, msLeft)
-    const made = after.source === 'server' && st.base
-      ? after.bag.reduce((k, it) => k + (it.name === 'iron_pickaxe' ? it.count ?? 1 : 0), 0) - st.base.reduce((k, it) => k + (it.name === 'iron_pickaxe' ? it.count ?? 1 : 0), 0)
-      : null
-    if (made > 0) setWithdrawHold('iron_pickaxe', made, Date.now() + HOLD_MS)   // the produced pickaxe, even if the craft threw later
+    const n = (bag, name) => (bag ?? []).reduce((k, it) => k + (it.name === name ? it.count ?? 1 : 0), 0)
+    made = after.source === 'server' && st.base ? n(after.bag, 'iron_pickaxe') - n(st.base, 'iron_pickaxe') : null
+    // THE NEW PICKAXE IS HELD as soon as the server shows it -- also when the craft threw afterwards (Codex P2).
+    if (made > 0) setWithdrawHold('iron_pickaxe', made, Date.now() + HOLD_MS)
+    if (pre.source === 'server' && after.source === 'server') {
+      const names = new Set([...pre.bag, ...after.bag].map(it => it.name))
+      st.ledger.transform = [...names].filter(k => k !== 'iron_pickaxe' && n(after.bag, k) < n(pre.bag, k))
+    }
+    if (thrown && (thrown.aborted || signal?.aborted)) throw thrown
     st.ledger.produced = made ?? '?'
     st.ledger.craft = cr?.status === 'success' && cr.verification === 'server' ? 'server' : cr?.status === 'success' ? 'unverified' : 'failed'
-    st.ledger.transform = ['iron_ingot', 'stick', 'planks', 'log', 'crafting_table']
     if (st.ledger.craft === 'server' && Number(cr.produced) >= 1 && made >= 1) {
       st.ledger.took_tier = 'iron'
       return { result: { status: 'success', detail: `crafted an iron pickaxe from ${takes.length ? takes.map(t => `${t.count}x ${t.name}`).join(', ') + ' withdrawn' : 'what the bag held'}, verified by the server` }, outcome: 'crafted_iron' }
     }
     return { result: { status: 'failed', failClass: cr?.failClass ?? 'craft_failed', detail: `the iron pickaxe was not made (${String(cr?.detail ?? 'no result').slice(0, 80)}); the ingots stay in the bag (kept from deposit while the bag's best pickaxe is below iron)` }, outcome: 'craft_failed' }
   } finally {
-    for (const [name, n] of heldBack) releaseWithdrawHold(name, n)
+    for (const [name, k] of heldBack) releaseWithdrawHold(name, k)
   }
 }
 
@@ -7250,10 +7287,11 @@ async function stoneIngredients (ctx, signal, { survey, keep, msLeft, deadline, 
   const ingSweep = withdrawSweep(bot, { town: true })
   for (const b of survey) if (!order.includes(b.block)) ingSweep.mark(b.block.position, false)
   let fullChests = 0
-  for (let n = 0; n < WITHDRAW_CONTAINERS; n++) {
+  for (let n = 0; n < WITHDRAW_CONTAINERS && st.takeVisits < TAKE_VISITS; n++) {
     check(signal)
     const cb = order.shift() ?? ingSweep.any(STORAGE_NEAR)
     if (!cb) break
+    st.takeVisits++
     ingSweep.mark(cb.position, false)
     const v = await withdrawVisit(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000)
     if (v.double) ingSweep.mark(cb.position, true)

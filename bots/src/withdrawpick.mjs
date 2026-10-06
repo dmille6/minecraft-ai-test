@@ -190,6 +190,9 @@ export const NEEDS = Object.freeze({
   cobblestone: { label: 'cobblestone', match: n => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(n), prefer: ['cobblestone', 'cobbled_deepslate', 'blackstone'] },
   stick: { label: 'stick', match: n => n === 'stick', prefer: ['stick'] },
   planks: { label: 'planks', match: n => /_planks$/.test(n), prefer: [] },
+  // withdraw2: logs as their own need (the iron path makes sticks and a table from them), so a container's evidence can
+  // say "no wood at all" -- never one of stonePickDeficits' needs.
+  log: { label: 'log', match: n => /_(log|stem)$/.test(n), prefer: [] },
 })
 const held = (items, match) => (Array.isArray(items) ? items : []).reduce((n, it) => n + (it?.name && match(it.name) ? (it.count ?? 0) : 0), 0)
 
