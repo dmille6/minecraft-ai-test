@@ -48,12 +48,14 @@ import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutActi
 import { STORAGE_NEAR } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
-  ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete } from './withdrawpick.mjs'
-import { setWithdrawHold } from './bankable.mjs'
+  ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete,
+  rankCopies, pickTier, heldPickTier, tierName, TIER_IRON, notePickBest, townBetterPickRuledOut, noteIngotsSeen, townIngotsRuledOut,
+  ironDeficits, ironPlan, IRON_ATTEMPT_COOLDOWN_MS, ironStagger, IRON_MIN_MS, containerIngotsNone } from './withdrawpick.mjs'
+import { setWithdrawHold, releaseWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
 import { inflightTracker } from './inflight.mjs'
-import { FLOOR } from './toolfor.mjs'
+import { FLOOR, tier } from './toolfor.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import path from 'node:path'
@@ -3287,6 +3289,8 @@ async function eat(ctx, _args, signal) {
 // craft (planks <- log <- the world). Three levels covers log -> planks -> stick
 // -> pickaxe, which is the deepest chain before stone.
 const MAX_CRAFT_DEPTH = 3
+/** How far the craft looks for a crafting table it will walk to (withdraw2's iron plan uses the same reach). */
+const CRAFT_TABLE_SEARCH = 32
 /** Per-candidate ceiling on bot.placeBlock's wait for the server's blockUpdate. */
 const PLACE_ACK_MS = 3_000
 
@@ -3362,7 +3366,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   if (!recipe) {
     const tableBlock = bot.findBlock({
       matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table',
-      maxDistance: 32,
+      maxDistance: CRAFT_TABLE_SEARCH,
     })
     if (tableBlock) {
       check(signal)
@@ -6280,23 +6284,32 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
         if (swap) {
           const hb = hotbarStartOf(win)
           const onHotbar = x => x.slot >= hb && x.slot < hb + 9
-          const stacks = (win.items?.() ?? []).filter(x => x?.name === swap.name && (x.count ?? 0) === swap.count)
-          if (!stacks.length) throw stop(`the ${swap.name} stack to trade is gone`)
+          // A TOOL GOES OUT BY IDENTITY (withdraw2, Codex design check: the worse pickaxe traded for the better one) --
+          // name and wear, never "a stack of this name and count"; a material stack by name and count as before.
+          const isTool = !!swap.tool
+          const isOut = x => !!x && x.name === swap.name && (isTool ? (x.durabilityUsed ?? 0) === (swap.used ?? 0) : (x.count ?? 0) === swap.count)
+          const stacks = (win.items?.() ?? []).filter(isOut)
+          if (!stacks.length) throw stop(`the ${swap.name} ${isTool ? 'to trade' : 'stack to trade'} is gone`)
           const it = stacks.find(onHotbar) ?? stacks[0]
           let h = it.slot - hb
           if (!onHotbar(it)) {
             // ONTO THE HOTBAR FIRST: a bag<->hotbar number-key swap -- two bag stacks change places, nothing is carried.
             h = tradeHotbarIndex(bot)
             await click(it.slot, h, 2)
-            const there = slotAt(win, hb + h)
-            if (there?.name !== swap.name || (there.count ?? 0) !== swap.count) throw stop(`the ${swap.name} stack did not reach hotbar ${h}`)
+            if (!isOut(slotAt(win, hb + h))) throw stop(`the ${swap.name} did not reach hotbar ${h}`)
           }
-          // THE SOURCE AGAIN, RIGHT BEFORE THE TRADE (Codex round 2): a pickaxe replaced meanwhile must not be traded for.
-          // Nothing is carried, so stopping here leaves nothing to put back.
+          // BOTH SIDES AGAIN, RIGHT BEFORE THE TRADE (Codex round 2; withdraw2): the incoming copy is the one planned, the
+          // outgoing one is still ours on that hotbar slot, and a tool goes out only for a STRICTLY better tier.
           if (!liveSource(win, src)) throw stop(`the ${tool.name} at chest slot ${src.slot} changed during the trade`)
+          if (isTool && !isOut(slotAt(win, hb + h))) throw stop(`the ${swap.name} on hotbar ${h} changed before the trade`)
+          if (isTool && !(tier(src.name) > tier(swap.name))) throw stop(`${src.name} is not better than ${swap.name}: no trade`)
           await click(src.slot, h, 2)   // chest slot <-> hotbar h: the tool comes down, the stack goes up, in one swap
           const got = slotAt(win, hb + h)
-          if (got?.name !== src.name || (got.durabilityUsed ?? 0) !== src.used) throw stop(`the trade brought down ${got?.name ?? 'nothing'}`)
+          if (got?.name !== src.name || (got.durabilityUsed ?? 0) !== src.used) {
+            // NOT WHAT WAS PLANNED (a race on the chest slot): with our own tool now in that slot, the same swap gives it back.
+            if (isTool && isOut(slotAt(win, src.slot))) await click(src.slot, h, 2)
+            throw stop(`the trade brought down ${got?.name ?? 'nothing'}${isTool ? '; swapped back' : ''}`)
+          }
           gave[swap.name] = (gave[swap.name] ?? 0) + swap.count
         } else {
           if (win.firstEmptySlotRange?.(win.inventoryStart, win.inventoryEnd) == null) throw stop('no empty bag slot for the tool')
@@ -6379,7 +6392,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
  *                                                       { deposit, swap, tool, takes }
  * `result` is null when the container had nothing to act on (`saw` is what it held). `diag` carries the row's fields.
  */
-async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline) {
+async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline, { inspect = false } = {}) {
   const { bot } = ctx
   const cp = chestBlock.position
   const diag = { verification: '-', cursor: '-', err: null, chestRoom: null, srv: '-' }
@@ -6402,7 +6415,8 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
     return { result: { status: 'failed', failClass: 'chest_unreachable', detail: `could not reach the chest at ${cp.x},${cp.y},${cp.z}` }, diag }
   }
   check(signal)
-  const before = await recountBag(bot, msLeft)
+  // INSPECT (withdraw2): open, read, close -- no server baseline needed, no click is ever planned.
+  const before = inspect ? { source: 'inspect', bag: null } : await recountBag(bot, msLeft)
   diag.verification = before.source
   const opened = await openForWithdraw(bot, chestBlock, signal, msLeft)
   if (opened.fail) return { result: opened.fail, diag }
@@ -6477,14 +6491,14 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
 /** The containers to look in: nearest first, a double chest's other half never counted twice, none the town's memory
  *  knows is unusable or has a blocked lid (chestfull.mjs containerStatus), and -- for a pickaxe -- none that showed no
  *  usable copy in the last 15 min and has taken nothing since (per container: both reviews). */
-function withdrawSweep (bot, { pick = false, town = false } = {}) {
+function withdrawSweep (bot, { pick = false, town = false, skipIf = null } = {}) {
   const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
   const tried = new Set()
   let mem = {}
   try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) } catch { mem = {} }
   const home = homeVec()
   const shut = q => { const st = containerStatus(mem[posKey(q)]); return st === 'unusable' || st === 'unavailable' }
-  const skip = q => shut(q) || (pick && containerPickMiss(mem, posKey(q)))
+  const skip = q => shut(q) || (pick && containerPickMiss(mem, posKey(q))) || (!!skipIf && skipIf(mem, posKey(q)))
   // WHERE (chestfull-02's boundary): the town order looks only at TOWN containers -- inTown, searched around HOME with
   // the deposit's TOWN_SCAN_RADIUS, the same set its misses are judged over; the model's verb at any container in reach
   // that is not DEEP (depositTargetOk). Never a container WITHDRAW backed off after a failed walk outside town -- its own
@@ -6548,8 +6562,8 @@ const noRoomResult = name => ({ status: 'failed', failClass: 'inventory_full',
 const haveIn = (inChest, name) => inChest.reduce((n, it) => n + (it?.name === name ? (it.count ?? 0) : 0), 0)
 
 /** One `_withdraw_pick` row, from the order or the model's verb. */
-function withdrawRowOut (bot, r, fields) {
-  logEvent({ kind: 'withdraw_pick', status: r?.status ?? 'failed', snapshot: snapshot(bot), detail: withdrawRow(fields) })
+function withdrawRowOut (bot, r, fields, args = null) {
+  logEvent({ kind: 'withdraw_pick', status: r?.status ?? 'failed', snapshot: snapshot(bot), detail: withdrawRow(fields), ...(args ? { args } : {}) })
   return r
 }
 /** THE ROW OF A THROWN VISIT (both reviews, round 2): an abort or error still reports what THIS transfer did -- the
@@ -6683,12 +6697,28 @@ async function withdrawPick (ctx, _args, signal) {
   const { bot } = ctx
   const bagBefore = bagTotal(bot.inventory.items())
   const tried = []
-  const st = { need: 'pickaxe', uses: null, diag: {}, moved: null, written: false }
-  const finish = (r, outcome) => {
+  const st = { need: 'pickaxe', uses: null, diag: {}, moved: null, written: false, base: null,
+    ledger: { took: {}, gave: {}, held: '-', took_tier: '-', best_seen: '-', best_valid: '-', craft: 'none', produced: 0, transform: [], iron: '-' } }
+  // THE ROW WITH ITS LEDGER (withdraw2, Codex design check): the detail stays readable (and may be cut at 300); the
+  // gates read `args` -- what the WHOLE order moved, the server's cumulative change from one baseline to one final
+  // recount, and complete=true only when both were the server's.
+  const finish = async (r, outcome) => {
     st.written = true
+    let srv = null
+    if (st.base) {
+      const fin = await recountBag(bot, withdrawClock(ctx).msLeft)
+      if (fin.source === 'server') {
+        const sum = list => { const o = {}; for (const it of list) o[it.name] = (o[it.name] ?? 0) + (it.count ?? 0); return o }
+        const a = sum(st.base), b = sum(fin.bag)
+        srv = {}
+        for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if ((b[k] ?? 0) !== (a[k] ?? 0)) srv[k] = (b[k] ?? 0) - (a[k] ?? 0)
+      }
+    }
+    const L = st.ledger
+    const args = { ...L, srv, plan: Object.keys(L.gave), complete: !!srv, outcome }
     return withdrawRowOut(bot, r, { outcome, need: st.need, uses: st.uses, ...st.diag, bagBefore, bagAfter: bagTotal(bot.inventory.items()),
-      deposited: Object.entries(st.moved?.gave ?? {}).map(([name, count]) => ({ name, count })),
-      took: { ...(st.moved?.took ?? {}), ...(st.moved?.tool ? { [st.moved.tool.name]: 1 } : {}) }, verb: 'withdraw_pick', tried })
+      deposited: Object.entries(L.gave).map(([name, count]) => ({ name, count })), took: L.took, verb: 'withdraw_pick', tried,
+      held: L.held, tookTier: L.took_tier, bestValid: L.best_valid, craft: L.craft }, args)
   }
   try {
     return await withdrawPickRun(ctx, signal, tried, st, finish)
@@ -6697,47 +6727,221 @@ async function withdrawPick (ctx, _args, signal) {
     throw e
   }
 }
+/** THE IRON PATH'S CLOCK (withdraw2): one bot per process, so module state is this bot's. `at` is charged before the
+ *  path's first mutation. Exported for tests. */
+export const withdrawIronState = { at: -Infinity }
+const ironAllowed = (bot, now = Date.now()) => now - withdrawIronState.at >= IRON_ATTEMPT_COOLDOWN_MS + ironStagger(bot?.username)
+
+/** The town's containers (chest2's boundary) and its memory, for the evidence below; null keys = not judgeable. */
+function townEvidence (bot) {
+  const home = homeVec()
+  const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
+  return { keys: townContainerKeys(bot, home, isContainer), mem: readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) }
+}
+/** Is a pickaxe better than `held` ruled out town-wide (complete coverage, fresh _pick_best)? For townOrder. */
+export function townBetterPickMiss (bot, held = heldPickTier(bot.inventory.items())) {
+  try { const { keys, mem } = townEvidence(bot); return keys != null && townBetterPickRuledOut(mem, keys, held) } catch { return false }
+}
+/** Is the iron path ruled out? Held iron or better, its cooldown, complete ingot evidence short of the deficit, or (sticks
+ *  short) complete evidence of no sticks and no planks anywhere. For townOrder (and the skill checks it again). */
+export function townIronRuledOut (bot) {
+  try {
+    const items = bot.inventory.items()
+    if (heldPickTier(items) >= TIER_IRON) return true
+    if (!ironAllowed(bot)) return true
+    const { keys, mem } = townEvidence(bot)
+    if (keys == null) return false
+    const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
+    const d = ironDeficits(items, { tableNear })
+    if (townIngotsRuledOut(mem, keys, d.ingots)) return true
+    if (d.sticks > 0 && townIngredientMissComplete(mem, keys, ['stick', 'planks'])) return true
+    return false
+  } catch { return false }
+}
+
+/** THE PICKAXE DECISION FOR ONE IDENTIFIED COPY (withdraw2) -> null | { noRoom } | { tool } | { deposit, tool } | { swap, tool }.
+ *  Only the planned copy (name, wear), still in the chest; with a full bag and a WORSE usable pickaxe in it, that pickaxe
+ *  is traded for the better one (atomic mode-2 swap); otherwise room by the same rules as before. */
+function decideIdentified (want, inChest, bag, chestEmpty, keep) {
+  const copy = inChest.find(it => it?.slot === want.slot && it.name === want.name && (it.durabilityUsed ?? 0) === (want.durabilityUsed ?? 0))
+  if (!copy) return null
+  const room = roomPlan(bag, [{ tool: true, name: copy.name }], { keep })
+  if (room.ok && !room.deposit.length) return { tool: copy }
+  const worse = bag.filter(it => pickTier(it) >= 0 && pickTier(it) < tier(copy.name))
+    .sort((a, b) => pickTier(a) - pickTier(b) || remaining(a) - remaining(b))[0]
+  if (worse) return { swap: { name: worse.name, count: 1, used: worse.durabilityUsed ?? 0, tool: true }, tool: copy }
+  if (!room.ok) return { noRoom: noRoomResult(copy.name) }
+  const d = room.deposit[0]
+  const fits = allocate(inChest, d.name, d.count, { emptySlots: chestEmpty }).leftover === 0
+  return fits ? { deposit: [d], tool: copy } : { swap: d, tool: copy }
+}
+
 async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const { bot } = ctx
   const { deadline, msLeft } = withdrawClock(ctx)
-  const keep = roomKeep(bot.currentWants ?? [])
-  if (hasUsablePick(bot.inventory.items())) return finish({ status: 'no_effect', detail: 'already carrying a usable pickaxe' }, 'has_pick')
-  const sweep = withdrawSweep(bot, { pick: true, town: true })
+  const keep = roomKeep([...(bot.currentWants ?? []), 'iron_ingot'])
+  const held = heldPickTier(bot.inventory.items())
+  st.ledger.held = tierName(held)
+  if (held >= TIER_IRON) return finish({ status: 'no_effect', detail: `already carrying a usable ${tierName(held)} pickaxe` }, 'has_pick')
+  // THE ORDER'S SERVER BASELINE (Codex: one cumulative ledger, not the last transfer's).
+  const base = await recountBag(bot, msLeft)
+  st.base = base.source === 'server' ? base.bag : null
   const record = (v, cb) => {
     tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? (v.moved ? 'acted' : 'none')}`)
     if (v.diag) st.diag = v.diag
-    if (v.moved) st.moved = v.moved
-  }
-  const pickDecision = (inChest, bag, { chestEmpty }) => {
-    const p = decideTool(inChest.filter(it => PICK_RE.test(it?.name ?? '')), inChest, bag, chestEmpty, keep)
-    if (p?.tool) st.uses = Number.isFinite(remaining(p.tool)) ? remaining(p.tool) : 'full'
-    return p
-  }
-  const seen = []
-  let chestBlock = sweep.next(STORAGE_NEAR)
-  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
-    check(signal)
-    const v = await withdrawVisit(ctx, chestBlock, pickDecision, signal, msLeft, deadline - 2_000)
-    sweep.mark(chestBlock.position, v.double)
-    record(v, chestBlock)
-    if (v.result) {
-      if (v.result.status === 'success') return finish(v.result, 'took_pick')
-      if (['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered'].includes(v.result.failClass)) return finish(v.result, v.result.failClass)
-    } else if (!v.skip) {
-      // NO USABLE PICKAXE HERE: remembered for this container (both halves of a double chest), not for the town -- and
-      // so is every ingredient it held none of (the ingredient branch's own evidence).
-      const keys = sweep.halves(chestBlock.position, v.double)
-      updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { notePickMisses(e, keys); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
-      seen.push({ block: chestBlock, saw: v.saw })
+    if (v.moved) {
+      st.moved = v.moved
+      for (const [k, n] of Object.entries(v.moved.took ?? {})) st.ledger.took[k] = (st.ledger.took[k] ?? 0) + n
+      for (const [k, n] of Object.entries(v.moved.gave ?? {})) st.ledger.gave[k] = (st.ledger.gave[k] ?? 0) + n
+      if (v.moved.tool) st.ledger.took[v.moved.tool.name] = (st.ledger.took[v.moved.tool.name] ?? 0) + 1
     }
-    chestBlock = sweep.next(STORAGE_NEAR)
   }
+  const mem = e => updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e)
+
+  // 1. INSPECT (best-first, Codex design check): up to three containers, read, nothing taken; their evidence written.
+  // A container known to hold no usable pickaxe is still looked in while the iron path is possible -- unless it is also
+  // freshly known to hold no ingots (a town with no pickaxes is exactly where the ingots matter).
+  const ironOk = held < TIER_IRON && ironAllowed(bot)
+  const sweep = withdrawSweep(bot, { town: true, skipIf: (mem, k) => containerPickMiss(mem, k) && (!ironOk || containerIngotsNone(mem, k)) })
+  const survey = []
+  let cb = sweep.next(STORAGE_NEAR)
+  for (let n = 0; cb && n < WITHDRAW_CONTAINERS; n++) {
+    check(signal)
+    const v = await withdrawVisit(ctx, cb, () => null, signal, msLeft, deadline - 2_000, { inspect: true })
+    sweep.mark(cb.position, v.double)
+    record(v, cb)
+    if (v.result?.failClass === 'container_open') return finish(v.result, 'container_open')
+    if (!v.result && v.saw) {
+      const keys = sweep.halves(cb.position, v.double)
+      const best = v.saw.reduce((b, it) => Math.max(b, pickTier(it)), -1)
+      const ingots = v.saw.reduce((k, it) => k + (it.name === 'iron_ingot' ? it.count : 0), 0)
+      mem(e => { if (best < 0) notePickMisses(e, keys); notePickBest(e, keys, best); noteIngotsSeen(e, keys, ingots); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
+      survey.push({ key: posKey(cb.position), block: cb, double: v.double, saw: v.saw })
+    }
+    cb = sweep.next(STORAGE_NEAR)
+  }
+  const cands = rankCopies(survey.flatMap(c => c.saw.filter(it => pickTier(it) >= 0).map(it => ({ ...it, at: c.key }))))
+  st.ledger.best_seen = tierName(cands.length ? tier(cands[0].name) : -1)
+  const gone = []
+  let takeVisits = 0
+  // THE BEST COPY STILL STANDING -> took | stopped | null (none better than held). Re-ranked after every proven-gone copy;
+  // a copy that cannot be reached is NOT proven gone, so the order stops rather than take below it (Codex re-check 3).
+  const takeBest = async (minTier) => {
+    const left = cands.filter(c => !gone.includes(c))
+    for (const c of left) {
+      if (tier(c.name) <= minTier) break
+      st.ledger.best_valid = tierName(tier(c.name))
+      if (takeVisits >= 2) return { stopped: 'visit budget' }
+      takeVisits++
+      const where = survey.find(s => s.key === c.at)
+      const v = await withdrawVisit(ctx, where.block, (inChest, bag, { chestEmpty }) => {
+        const p = decideIdentified(c, inChest, bag, chestEmpty, keep)
+        if (p?.tool) st.uses = Number.isFinite(remaining(p.tool)) ? remaining(p.tool) : 'full'
+        return p
+      }, signal, msLeft, deadline - 2_000)
+      record(v, where.block)
+      if (v.result?.status === 'success') { st.ledger.took_tier = tierName(tier(c.name)); return { took: v.result } }
+      if (v.result) return { stopped: v.result }
+      if (!v.saw) return { stopped: 'unreachable' }
+      gone.push(c)   // the planned copy is not there any more: proven gone
+    }
+    return null
+  }
+
+  // 2. THE OUTCOMES, best first: a copy of iron or better; the iron path; a strictly better copy; the stone ingredients.
+  const ironCand = cands.find(c => tier(c.name) >= TIER_IRON)
+  if (ironCand) {
+    const r = await takeBest(Math.max(held, TIER_IRON - 1))
+    if (r?.took) return finish(r.took, 'took_pick')
+    if (r?.stopped) return finish(typeof r.stopped === 'string' ? { status: 'failed', failClass: 'container_short', detail: `stopped before taking a worse pickaxe (${r.stopped})` } : r.stopped, 'stopped')
+  }
+  const iron = await ironPath(ctx, signal, { survey, keep, msLeft, deadline, record, st })
+  if (iron) return finish(iron.result, iron.outcome)
+  if (cands.some(c => !gone.includes(c) && tier(c.name) > held)) {
+    const r = await takeBest(held)
+    if (r?.took) return finish(r.took, 'took_pick')
+    if (r?.stopped) return finish(typeof r.stopped === 'string' ? { status: 'failed', failClass: 'container_short', detail: `stopped before taking a worse pickaxe (${r.stopped})` } : r.stopped, 'stopped')
+  }
+  if (held >= 0) return finish({ status: 'no_effect', detail: `no pickaxe better than the ${tierName(held)} one carried in the ${survey.length} container(s) looked at, and no iron pickaxe can be made here now` }, 'no_better')
+  return stoneIngredients(ctx, signal, { survey, keep, msLeft, deadline, record, st, tried, finish })
+}
+
+/**
+ * THE IRON PATH (withdraw2) -> null (declined: nothing taken) | { result, outcome }. The bag's best usable pickaxe is below
+ * iron and no copy of iron or better was taken. A COMPLETE plan of at most two take visits first (ironPlan, from what the
+ * inspections saw), room for every take, enough clock, and the per-bot cooldown -- charged BEFORE the first mutation.
+ * Prerequisites first, ingots LAST and only if the re-plan against the live bag still holds; then the existing craft
+ * skill; success only with craft verification 'server' AND the order's own recount showing iron_pickaxe +1.
+ */
+async function ironPath (ctx, signal, { survey, keep, msLeft, deadline, record, st }) {
+  const { bot } = ctx
+  if (!ironAllowed(bot)) { st.ledger.iron = 'cooldown'; return null }
+  // A TABLE THE CRAFT WILL USE: within the craft skill's own search (it walks there), not merely STATION_REACH.
+  const tableNear = () => !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: CRAFT_TABLE_SEARCH })
+  const plan = ironPlan(bot.inventory.items(), survey, { tableNear: tableNear() })
+  if (!plan.ok) { st.ledger.iron = `declined:${plan.why}`; return null }
+  const takes = plan.steps.flatMap(s => s.takes)
+  if (takes.length && !roomPlan(bot.inventory.items(), takes, { keep }).ok) { st.ledger.iron = 'declined:no room'; return null }
+  if (msLeft(IRON_MIN_MS + 1) < IRON_MIN_MS) { st.ledger.iron = 'declined:clock'; return null }
+  withdrawIronState.at = Date.now()   // CHARGED before anything moves; kept through failure, abort and unverified outcomes
+  st.ledger.iron = 'attempted'
+  st.need = `iron_pickaxe(${takes.map(t => `${t.name}:${t.count}`).join(',') || 'held'})`
+  const heldBack = []   // scoped holds: released in finally
+  try {
+    for (let i = 0; i < plan.steps.length; i++) {
+      check(signal)
+      const step = plan.steps[i]
+      const isIngots = step.takes.some(t => t.name === 'iron_ingot')
+      let stepTakes = step.takes
+      if (isIngots) {
+        // RE-PLAN against the live bag right before the ingots: still one visit, still the same deficit, still room.
+        const again = ironPlan(bot.inventory.items(), survey.filter(s => s.key === step.key), { tableNear: tableNear() })
+        const last = again.ok ? again.steps[again.steps.length - 1] : null
+        if (!last || last.key !== step.key || !roomPlan(bot.inventory.items(), last.takes, { keep }).ok) {
+          return { result: { status: 'failed', failClass: 'container_short', detail: 'the iron plan no longer holds after the prerequisites: no ingots taken' }, outcome: 'iron_replan_failed' }
+        }
+        stepTakes = last.takes
+      }
+      const where = survey.find(s => s.key === step.key)
+      const v = await withdrawVisit(ctx, where.block, (inChest, bag, { chestEmpty }) => decideTakes(stepTakes.filter(t => haveIn(inChest, t.name) >= t.count), inChest, bag, chestEmpty, keep),
+        signal, msLeft, deadline - 2_000)
+      record(v, where.block)
+      for (const [name, n] of Object.entries(v.moved?.took ?? {})) heldBack.push([name, n])
+      if (v.moved?.took?.iron_ingot) updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => {
+        const left = (where.saw ?? []).reduce((k, it) => k + (it.name === 'iron_ingot' ? it.count : 0), 0) - v.moved.took.iron_ingot
+        noteIngotsSeen(e, [step.key], Math.max(0, left))
+      })
+      if (v.result?.status !== 'success') return { result: v.result ?? { status: 'failed', failClass: 'container_short', detail: 'the planned items were not there' }, outcome: 'iron_take_failed' }
+    }
+    // THE CRAFT, through the existing path (craftsync lockstep, craftroom's table handling and room making).
+    let cr = null
+    // the registry's craft (tests may substitute it)
+    try { cr = await SKILLS.craft.run(ctx, { item: 'iron_pickaxe', count: 1 }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e; cr = { status: 'failed', detail: String(e?.message ?? e) } }
+    const after = await recountBag(bot, msLeft)
+    const made = after.source === 'server' && st.base
+      ? after.bag.reduce((k, it) => k + (it.name === 'iron_pickaxe' ? it.count ?? 1 : 0), 0) - st.base.reduce((k, it) => k + (it.name === 'iron_pickaxe' ? it.count ?? 1 : 0), 0)
+      : null
+    if (made > 0) setWithdrawHold('iron_pickaxe', made, Date.now() + HOLD_MS)   // the produced pickaxe, even if the craft threw later
+    st.ledger.produced = made ?? '?'
+    st.ledger.craft = cr?.status === 'success' && cr.verification === 'server' ? 'server' : cr?.status === 'success' ? 'unverified' : 'failed'
+    st.ledger.transform = ['iron_ingot', 'stick', 'planks', 'log', 'crafting_table']
+    if (st.ledger.craft === 'server' && Number(cr.produced) >= 1 && made >= 1) {
+      st.ledger.took_tier = 'iron'
+      return { result: { status: 'success', detail: `crafted an iron pickaxe from ${takes.length ? takes.map(t => `${t.count}x ${t.name}`).join(', ') + ' withdrawn' : 'what the bag held'}, verified by the server` }, outcome: 'crafted_iron' }
+    }
+    return { result: { status: 'failed', failClass: cr?.failClass ?? 'craft_failed', detail: `the iron pickaxe was not made (${String(cr?.detail ?? 'no result').slice(0, 80)}); the ingots stay in the bag (kept from deposit while the bag's best pickaxe is below iron)` }, outcome: 'craft_failed' }
+  } finally {
+    for (const [name, n] of heldBack) releaseWithdrawHold(name, n)
+  }
+}
+
+/** THE STONE INGREDIENTS (withdraw-01's path, unchanged): a bag with NO usable pickaxe and nothing better made or found. */
+async function stoneIngredients (ctx, signal, { survey, keep, msLeft, deadline, record, st, tried, finish }) {
+  const { bot } = ctx
   const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
   const deficits = stonePickDeficits(bot.inventory.items(), { tableNear })
   st.need = deficits.length ? deficits.map(d => `${d.need}:${d.count}`).join(',') : 'none'
   if (!deficits.length) return finish({ status: 'no_effect', detail: 'no usable pickaxe in the town chests looked at, and the bag already holds what one stone pickaxe takes' }, 'has_ingredients')
-  // THE INGREDIENTS: the container that covers most of them first (from what the sweep saw), then any other in reach --
-  // also when every container was a recent miss and none was opened for the pickaxe.
   const pickName = (d, inChest) => {
     const names = NEEDS[d.need].prefer.length ? NEEDS[d.need].prefer : [...new Set(inChest.filter(it => NEEDS[d.need].match(it.name)).map(it => it.name))]
     return names.filter(nm => haveIn(inChest, nm)).sort((a, b) => haveIn(inChest, b) - haveIn(inChest, a))[0] ?? null
@@ -6751,9 +6955,9 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     }
     return decideTakes(takes, inChest, bag, chestEmpty, keep)
   }
-  const order = seen.filter(s => coverage(s.saw) > 0).sort((a, b) => coverage(b.saw) - coverage(a.saw)).map(s => s.block)
+  const order = survey.filter(s => coverage(s.saw) > 0).sort((a, b) => coverage(b.saw) - coverage(a.saw)).map(s => s.block)
   const ingSweep = withdrawSweep(bot, { town: true })
-  for (const b of seen) if (!order.includes(b.block)) ingSweep.mark(b.block.position, false)
+  for (const b of survey) if (!order.includes(b.block)) ingSweep.mark(b.block.position, false)
   let fullChests = 0
   for (let n = 0; n < WITHDRAW_CONTAINERS; n++) {
     check(signal)

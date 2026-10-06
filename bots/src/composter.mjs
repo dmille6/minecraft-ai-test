@@ -23,7 +23,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
 import { chainPeak } from './craftroom.mjs'
-import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from './withdrawpick.mjs'
+import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF, UPGRADE_COOLDOWN_MS } from './withdrawpick.mjs'
 
 /**
  * VERIFIED COMPOSTING CHANCES, Java 1.21.x -- the probability that ONE inserted item raises the level by one.
@@ -549,11 +549,15 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * WITHDRAW_PICK (withdrawpick.mjs, 10-04): at town, the bag holds NO usable pickaxe (`pickNeeded`), the town has not
  * found none in the last 15 min (`pickMiss`, the shared memory), and room for one can be made here without banking
  * anything deposit would not (`pickRoom`, roomPlan). After compost -- which frees slots -- and before a build.
+ * UPGRADE (withdraw2, owner 10-06): the bag's best usable pickaxe is below iron (`upgradeNeeded`): the order runs at most
+ * once per UPGRADE_COOLDOWN_MS, and only while a better copy (`betterMiss`) OR an iron pickaxe made from town ingots
+ * (`ironMiss`) is still possible -- suppressed only when BOTH are ruled out (Codex design re-check). Room is never the
+ * gate here: a bag holding a worse pickaxe can always trade it (the verified mode-2 swap).
  */
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
                              composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {},
                              room = false, composterRipe = false, pickNeeded = false, pickMiss = false, pickRoom = false,
-                             ingredientMiss = false } = {}) {
+                             ingredientMiss = false, upgradeNeeded = false, betterMiss = true, ironMiss = true } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -563,7 +567,9 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   const harvestReady = cooled && !!room
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
   const withdrawReady = !!pickNeeded && now - (s.lastWithdrawAt ?? -Infinity) >= WITHDRAW_COOLDOWN_MS && now >= (s.withdrawBackoffUntil ?? 0)
-  if (!compostReady && !harvestReady && !buildReady && !withdrawReady) return none()
+  const upgradeReady = !pickNeeded && !!upgradeNeeded && now - (s.lastUpgradeAt ?? -Infinity) >= UPGRADE_COOLDOWN_MS &&
+    now - (s.lastWithdrawAt ?? -Infinity) >= WITHDRAW_COOLDOWN_MS && now >= (s.withdrawBackoffUntil ?? 0)
+  if (!compostReady && !harvestReady && !buildReady && !withdrawReady && !upgradeReady) return none()
   if (now - (s.lastScanAt ?? -Infinity) < TOWN_SCAN_MS) return none()
   s.lastScanAt = now
   if (!lazy(storageNear)) return none()
@@ -582,12 +588,17 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   // runs for the ingredients, unless they too are ruled out everywhere (ingredientMiss: their own evidence).
   if (withdrawReady && lazy(pickRoom)) {
     const pickRuledOut = !!lazy(pickMiss)
-    if (!pickRuledOut || !lazy(ingredientMiss)) {
+    if (!pickRuledOut || !lazy(ingredientMiss) || !lazy(ironMiss)) {
       s.lastWithdrawAt = now
       return { order: { skill: 'withdraw_pick', args: {}, why: pickRuledOut
         ? 'at town with no usable pickaxe; the town chests showed none recently, but may hold what one stone pickaxe is made from'
         : 'at town with no usable pickaxe; the town chests may hold one' }, state: s }
     }
+  }
+  if (upgradeReady && (!lazy(betterMiss) || !lazy(ironMiss))) {
+    s.lastUpgradeAt = now
+    s.lastWithdrawAt = now
+    return { order: { skill: 'withdraw_pick', args: {}, why: 'at town with a pickaxe below iron; the town chests may hold a better one, or the ingots for an iron one' }, state: s }
   }
   if (composterHere || !buildReady) return none()
   const plan = lazy(buildPlan)

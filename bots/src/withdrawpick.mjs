@@ -10,7 +10,7 @@
 // town, never a trip; exact quantities; room made only by banking whole stacks deposit would bank anyway; every transfer
 // verified against the SERVER's bag. Pure here; skills.mjs walks, opens and clicks.
 
-import { FLOOR, remaining, tier } from './toolfor.mjs'
+import { FLOOR, remaining, tier, TOOL_TIER } from './toolfor.mjs'
 import { depositPlan, DEPOSIT_VALUE } from './bankable.mjs'
 import { depositFreesSlot } from './craftroom.mjs'
 
@@ -27,15 +27,162 @@ export const usableTool = it => !!it?.name && remaining(it) > FLOOR
 export const hasUsablePick = (items = []) => (Array.isArray(items) ? items : []).some(it => PICK_RE.test(it?.name ?? '') && usableTool(it))
 
 /**
- * THE COPY TO TAKE -> the item | null. Pure. Never a spent copy (remaining <= FLOOR). Preferred: a copy with at least
- * PREFER_USES uses (a trip's worth); then the best tier (iron > stone > wooden; toolfor.mjs tier); then the most uses
- * left; then the lowest slot. Unknown durability counts as full (toolfor.mjs remaining), the direction toolfor chose.
+ * THE COPY TO TAKE -> the item | null. Pure. BEST-FIRST (withdraw2, owner 10-06): never a spent copy (remaining <=
+ * FLOOR); then the best TIER (toolfor TOOL_TIER: netherite > diamond > iron > stone > golden > wooden); then the most
+ * uses left; then the lowest slot. Unknown durability counts as full (toolfor.mjs remaining), the direction toolfor
+ * chose. (withdraw-01 ranked ">= PREFER_USES uses" above tier, so a fresh wooden beat a worn iron: 7 of 13 taken live
+ * were WOODEN.)
  */
+const copyKey = c => [tier(c.name), Math.min(remaining(c), 1e9), -(c.slot ?? 0)]
+const byKey = (a, b) => { const ka = copyKey(a), kb = copyKey(b); for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return kb[i] - ka[i]; return 0 }
 export function bestToolCopy (copies = []) {
   const ok = (Array.isArray(copies) ? copies : []).filter(c => c?.name && usableTool(c))
-  const key = c => [remaining(c) >= PREFER_USES ? 1 : 0, tier(c.name), Math.min(remaining(c), 1e9), -(c.slot ?? 0)]
-  ok.sort((a, b) => { const ka = key(a), kb = key(b); for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return kb[i] - ka[i]; return 0 })
+  ok.sort(byKey)
   return ok[0] ?? null
+}
+/** Every usable copy, best first (the same key), across containers: [{ ...copy, at: containerKey }]. Ties: container
+ *  key, for a deterministic order. Pure. */
+export function rankCopies (copies = []) {
+  const ok = (Array.isArray(copies) ? copies : []).filter(c => c?.name && usableTool(c))
+  return ok.sort((a, b) => byKey(a, b) || String(a.at ?? '').localeCompare(String(b.at ?? '')))
+}
+
+// ---- tiers (withdraw2) ------------------------------------------------------------------------------------------
+export const TIER_IRON = TOOL_TIER.indexOf('iron')
+export const tierName = t => (t >= 0 && t < TOOL_TIER.length ? TOOL_TIER[t] : 'none')
+/** A copy's tier when it is a USABLE pickaxe, else -1. */
+export const pickTier = it => (it?.name && PICK_RE.test(it.name) && usableTool(it) ? tier(it.name) : -1)
+/** The bag's best usable pickaxe tier (-1: none). */
+export const heldPickTier = (items = []) => (Array.isArray(items) ? items : []).reduce((b, it) => Math.max(b, pickTier(it)), -1)
+
+// ---- negative evidence for the upgrade trigger (withdraw2) --------------------------------------------------------
+/**
+ * "At `at`, nothing in this container was a better usable pickaxe than `tier`" (-1: no usable pickaxe at all), per
+ * container, in chest2's town memory: { 'x,y,z': { at, tier } }. NEGATIVE only: anyone's withdrawal can only lower the
+ * true best, so it stays valid; an insertion is covered by deposit's 'took' entry (a later one invalidates). No
+ * positive census is kept (stale under other bots' withdrawals and trades -- Codex design check).
+ */
+export const PICK_BEST_KEY = '_pick_best'
+export const PICK_BEST_TTL_MS = 15 * 60 * 1000
+export function notePickBest (entries, keys = [], t = -1, now = Date.now()) {
+  const m = { ...(entries[PICK_BEST_KEY] ?? {}) }
+  for (const k of keys) m[k] = { at: now, tier: t }
+  for (const [k, v] of Object.entries(m)) if (!(now - v?.at < PICK_BEST_TTL_MS)) delete m[k]
+  entries[PICK_BEST_KEY] = m
+}
+const freshAfterTook = (entries, k, at) => { const e = entries?.[k]; return !(e?.o === 'took' && e.at > at) }
+export function containerPickBestAtMost (entries = {}, k, t, now = Date.now()) {
+  const v = entries?.[PICK_BEST_KEY]?.[k]
+  if (!v || !Number.isFinite(v.at) || now - v.at >= PICK_BEST_TTL_MS || !(v.tier <= t)) return false
+  return freshAfterTook(entries, k, v.at)
+}
+/** A better copy than `held` is ruled out only with COMPLETE coverage of the town's containers. */
+export const townBetterPickRuledOut = (entries = {}, keys = [], held = -1, now = Date.now()) =>
+  keys.length > 0 && keys.every(k => containerPickBestAtMost(entries, k, held, now))
+
+/**
+ * HOW MANY IRON INGOTS a container held when last looked in, with QUANTITY (Codex: 2 + 1 across two chests is not
+ * "none"): { 'x,y,z': { at, count } }. A double chest's count goes on its first key, 0 on the other half, so a sum over
+ * keys counts it once. Ruled out only with complete coverage, every entry fresh, and the sum below the deficit.
+ */
+export const INGOT_SEEN_KEY = '_ingot_seen'
+export const INGOT_SEEN_TTL_MS = 15 * 60 * 1000
+export function noteIngotsSeen (entries, keys = [], count = 0, now = Date.now()) {
+  const m = { ...(entries[INGOT_SEEN_KEY] ?? {}) }
+  keys.forEach((k, i) => { m[k] = { at: now, count: i === 0 ? Math.max(0, count) : 0 } })
+  for (const [k, v] of Object.entries(m)) if (!(now - v?.at < INGOT_SEEN_TTL_MS)) delete m[k]
+  entries[INGOT_SEEN_KEY] = m
+}
+/** Freshly known to hold no iron ingots at all (and nothing deposited since)? */
+export function containerIngotsNone (entries = {}, k, now = Date.now()) {
+  const v = entries?.[INGOT_SEEN_KEY]?.[k]
+  return !!v && Number.isFinite(v.at) && now - v.at < INGOT_SEEN_TTL_MS && (v.count ?? 0) === 0 && freshAfterTook(entries, k, v.at)
+}
+export function townIngotsRuledOut (entries = {}, keys = [], need = 1, now = Date.now()) {
+  if (!(need > 0)) return false
+  if (!keys.length) return false
+  let sum = 0
+  for (const k of keys) {
+    const v = entries?.[INGOT_SEEN_KEY]?.[k]
+    if (!v || !Number.isFinite(v.at) || now - v.at >= INGOT_SEEN_TTL_MS || !freshAfterTook(entries, k, v.at)) return false
+    sum += v.count ?? 0
+  }
+  return sum < need
+}
+
+// ---- the iron pickaxe plan (withdraw2) ----------------------------------------------------------------------------
+/** The iron path at most once per bot per this long (charged BEFORE its first mutation, kept through failure, abort and
+ *  an unverified outcome), plus a per-bot stagger so a town's bots do not retry together (Codex design check). */
+export const IRON_ATTEMPT_COOLDOWN_MS = 30 * 60 * 1000
+export const ironStagger = (name = '') => { let h = 0; for (const c of String(name)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % (5 * 60 * 1000) }
+/** The iron path starts only with at least this much of the order's clock left (two take visits and a craft). */
+export const IRON_MIN_MS = 60_000
+/** One iron pickaxe: 3 iron_ingot + 2 sticks, at a crafting table. */
+export const IRON_PICK = Object.freeze({ ingots: 3, sticks: 2, tablePlanks: 4, sticksPlanks: 2 })
+const isLog = n => /_(log|stem)$/.test(n)
+/** What one iron pickaxe still needs beyond the bag (exact). Pure. Planks for sticks only when sticks are short; planks
+ *  for a table only when none is carried or within reach. Held planks, and logs at 4 planks each, count. */
+export function ironDeficits (items = [], { tableNear = false } = {}) {
+  const ingots = Math.max(0, IRON_PICK.ingots - held(items, n => n === 'iron_ingot'))
+  const sticks = Math.max(0, IRON_PICK.sticks - held(items, NEEDS.stick.match))
+  const tableCarried = held(items, n => n === 'crafting_table') > 0
+  const tablePlanks = !tableCarried && !tableNear ? IRON_PICK.tablePlanks : 0
+  const woodHeld = held(items, NEEDS.planks.match) + 4 * held(items, isLog)
+  return { ingots, sticks, tablePlanks, woodHeld }
+}
+const most = (saw, match) => {
+  const by = {}
+  for (const it of saw) if (it?.name && match(it.name)) by[it.name] = (by[it.name] ?? 0) + (it.count ?? 0)
+  return Object.entries(by).sort((a, b) => b[1] - a[1])[0] ?? null
+}
+/** The prerequisites (sticks or their wood, table planks) from ONE container's contents -> takes | null. */
+function prereqTakes (d, saw) {
+  const takes = []
+  let planks = d.tablePlanks
+  if (d.sticks > 0) {
+    const st = saw.reduce((n, it) => n + (it?.name === 'stick' ? (it.count ?? 0) : 0), 0)
+    if (st >= d.sticks) takes.push({ name: 'stick', count: d.sticks })
+    else planks += IRON_PICK.sticksPlanks
+  }
+  planks = Math.max(0, planks - d.woodHeld)
+  if (planks > 0) {
+    const pl = most(saw, NEEDS.planks.match)
+    if (pl && pl[1] >= planks) takes.push({ name: pl[0], count: planks })
+    else {
+      const lg = most(saw, isLog)
+      const logs = Math.ceil(planks / 4)
+      if (lg && lg[1] >= logs) takes.push({ name: lg[0], count: logs })
+      else return null
+    }
+  }
+  return takes
+}
+/**
+ * THE IRON PLAN -> { ok, why, steps: [{ key, takes }] }. Pure. From the inspected containers' contents (`survey`:
+ * [{ key, saw }], in visit order) and the bag: an executable sequence of AT MOST TWO take visits -- the ingot deficit
+ * from ONE container, every prerequisite from that same container or from ONE other, which comes FIRST (ingots are
+ * taken last: never ingots the bot cannot use at once). No plan -> ok false, nothing is taken.
+ */
+export function ironPlan (items = [], survey = [], { tableNear = false } = {}) {
+  const d = ironDeficits(items, { tableNear })
+  const ingotsIn = c => (c.saw ?? []).reduce((n, it) => n + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
+  const none = prereqTakes(d, [])
+  if (d.ingots === 0) {
+    if (none && !none.length) return { ok: true, why: null, steps: [] }
+    for (const c of survey) { const pre = prereqTakes(d, c.saw ?? []); if (pre) return { ok: true, why: null, steps: [{ key: c.key, takes: pre }] } }
+    return { ok: false, why: 'no container holds the sticks or wood', steps: [] }
+  }
+  for (const I of survey.filter(c => ingotsIn(c) >= d.ingots)) {
+    const ing = { name: 'iron_ingot', count: d.ingots }
+    const here = prereqTakes(d, I.saw ?? [])
+    if (here) return { ok: true, why: null, steps: [{ key: I.key, takes: [...here, ing] }] }
+    for (const P of survey) {
+      if (P.key === I.key) continue
+      const pre = prereqTakes(d, P.saw ?? [])
+      if (pre) return { ok: true, why: null, steps: [{ key: P.key, takes: pre }, { key: I.key, takes: [ing] }] }
+    }
+  }
+  return { ok: false, why: survey.some(c => ingotsIn(c) >= d.ingots) ? 'no container holds the sticks or wood' : `no container holds ${d.ingots} iron ingots`, steps: [] }
 }
 
 /** The stone-pickaxe ingredients, by what the recipe accepts (1.21 stone_tool_materials; any planks). */
@@ -247,6 +394,8 @@ export function survivalRelease ({ head = null, feet = null, below = null, onFir
 /** Per-bot cooldown and backoff of the order (townOrder state), and the town-wide miss memory's lifetime. */
 export const WITHDRAW_COOLDOWN_MS = 5 * 60 * 1000
 export const WITHDRAW_BACKOFF_MS = 15 * 60 * 1000
+/** An UPGRADE order (a usable pickaxe below iron is held) at most once per bot per this long (withdraw2). */
+export const UPGRADE_COOLDOWN_MS = 30 * 60 * 1000
 /** Failures that moved nothing and say nothing about the town: no backoff beyond the cooldown. */
 export const WITHDRAW_NO_BACKOFF = new Set(['recount_unanswered', 'chest_no_room'])
 /** How long what was withdrawn is held back from deposit (bankable.mjs setWithdrawHold). */
@@ -256,11 +405,13 @@ export const HOLD_MS = 10 * 60 * 1000
  *  last (logEvent cuts at 300 characters). srv= is the server-recounted change of the bag; plan= the names planned to
  *  LEAVE it (room-making deposits and trades) -- a read can flag a server-counted fall of any name not in plan=. */
 export function withdrawRow ({ outcome, need, uses = null, verification = 'none', cursor = '-', err = null, chestRoom = null, srv = '-', plan = '-',
-                               bagBefore = 0, bagAfter = 0, deposited = [], took = {}, verb = 'withdraw_pick', tried = [] } = {}) {
+                               bagBefore = 0, bagAfter = 0, deposited = [], took = {}, verb = 'withdraw_pick', tried = [],
+                               held = null, tookTier = null, bestValid = null, craft = null } = {}) {
   const dep = deposited.map(d => `${d.name}:${d.count}`).join(',') || '-'
   const tk = Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   const clean = v => String(v ?? '-').replace(/\s+/g, '_').slice(0, 40)
   return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} cursor=${clean(cursor)} err=${clean(err)} ` +
-          `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} verb=${verb} ` +
+          `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} ` +
+          (held != null ? `held=${held} took_tier=${tookTier ?? '-'} best_valid=${bestValid ?? '-'} craft=${craft ?? '-'} ` : '') + `verb=${verb} ` +
           `tried=[${tried.join(';')}]`).slice(0, 300)
 }
