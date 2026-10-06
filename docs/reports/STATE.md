@@ -138,6 +138,12 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 ~17:05Z — OWNER: the M4 Studio is cleared of other projects; unload unused models freely. Verified: LCIA keepwarm +
+llmcache gone (com.lcia.ollama-env remains: NUM_PARALLEL=4, KEEP_ALIVE=30m). PAUSED this project's tier-1 shadow
+analyst cron on 10.0.0.31 (~/analyst.py at :03/:33 calling qwen3.8:27b on the Studio) for the model benchmark --
+crontab line prefixed `#PAUSED-20261006-model-bench#`, backup ~/crontab.bak-20261006-analyst. RESTORE when the
+benchmark ends (or point it at a non-Studio endpoint).
+
 ## 10-06 16:50Z — WITHDRAW-01 KEPT at +540 (14:29Z; exposure reached 6 orders) and PROMOTED: FLEET b54e22c (14:39Z). G1-G4 0;
 bot-time without a usable pickaxe canary 12.6% -> 3.7% vs control 18.4% -> 20.5% (DiD -11 points); deaths 3/90 bot-h vs
 16/450 (0.94x). CANARY LIVE: climbflood-02 @ c902d6f on board-a,board-c,hive-a (15 bots) since 14:44:21Z; two versions
