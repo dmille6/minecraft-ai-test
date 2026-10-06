@@ -23,7 +23,9 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcai-fso-'))
 let seq = 0
 function townBot (difficulty) {
   const items = [{ name: 'apple', count: 10, slot: 9, type: mcData.itemsByName.apple.id },
-    ...Array.from({ length: 34 }, (_, i) => ({ name: 'white_wool', count: 1, slot: 10 + i, type: mcData.itemsByName.white_wool.id }))]
+    // a usable pickaxe, so withdraw's withdraw_pick town order (when withdraw is underneath) has nothing to fetch
+    { name: 'stone_pickaxe', count: 1, slot: 10, type: mcData.itemsByName.stone_pickaxe.id, maxDurability: 131, durabilityUsed: 11 },
+    ...Array.from({ length: 33 }, (_, i) => ({ name: 'white_wool', count: 1, slot: 11 + i, type: mcData.itemsByName.white_wool.id }))]
   const composter = { name: 'composter', type: mcData.blocksByName.composter.id, position: new Vec3(3, 70, 3), getProperties: () => ({ level: 0 }) }
   const chest = { name: 'chest', type: mcData.blocksByName.chest.id, position: new Vec3(-3, 70, 0) }
   return {
